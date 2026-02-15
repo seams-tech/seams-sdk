@@ -26,7 +26,7 @@ import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from './schemes/schemeIds';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { bytesToNumberBE, numberToBytesBE } from '@noble/curves/utils.js';
+import { bytesToNumberBE, numberToBytesBE } from '@shared/utils/bigint';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { SECP256K1_ORDER } from '@shared/threshold/secp256k1';
 import { mapAdditiveShareToThresholdSignaturesShare2p } from '@shared/threshold/secp256k1Ecdsa2pShareMapping';

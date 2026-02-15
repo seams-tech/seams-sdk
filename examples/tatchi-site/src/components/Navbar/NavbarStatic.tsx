@@ -22,8 +22,8 @@ type DropdownSection = {
 type DropdownConfig = {
   id: DropdownId
   label: string
-  rootTo: string
-  allLabel: string
+  rootTo?: string
+  allLabel?: string
   sections: DropdownSection[]
 }
 
@@ -144,15 +144,11 @@ const primaryDropdownConfigs: DropdownConfig[] = [
   {
     id: 'products',
     label: 'Products',
-    rootTo: '/products/',
-    allLabel: 'View all products',
     sections: productSections,
   },
   {
     id: 'solutions',
     label: 'Solutions',
-    rootTo: '/solutions/',
-    allLabel: 'View all solutions',
     sections: solutionSections,
   },
 ]
@@ -531,8 +527,6 @@ export function NavbarStatic(): React.JSX.Element {
 
   const docsProps = getNavLinkProps('/docs/getting-started/overview')
   const homeProps = getNavLinkProps('/')
-  const productsRootProps = getNavLinkProps('/products/')
-  const solutionsRootProps = getNavLinkProps('/solutions/')
   const aboutRootProps = getNavLinkProps('/company/')
   const pricingProps = getNavLinkProps('/pricing/')
   const contactSalesProps = getNavLinkProps('/contact/')
@@ -677,7 +671,7 @@ export function NavbarStatic(): React.JSX.Element {
           >
             <div className="navbar-static__dropdown-stack">
               {dropdownConfigs.map((config) => {
-                const rootProps = getNavLinkProps(config.rootTo)
+                const rootProps = config.rootTo ? getNavLinkProps(config.rootTo) : null
                 const isActive = activeDropdownId === config.id && leavingDropdown !== config.id
                 const isLeaving = leavingDropdown === config.id
                 const viewClassName = [
@@ -718,14 +712,16 @@ export function NavbarStatic(): React.JSX.Element {
                         </div>
                       </section>
                     ))}
-                    <a
-                      className="navbar-static__dropdown-all"
-                      role="menuitem"
-                      href={rootProps.href}
-                      onClick={rootProps.onClick}
-                    >
-                      {config.allLabel}
-                    </a>
+                    {config.allLabel && rootProps ? (
+                      <a
+                        className="navbar-static__dropdown-all"
+                        role="menuitem"
+                        href={rootProps.href}
+                        onClick={rootProps.onClick}
+                      >
+                        {config.allLabel}
+                      </a>
+                    ) : null}
                   </div>
                 )
               })}
@@ -768,10 +764,6 @@ export function NavbarStatic(): React.JSX.Element {
               })}
             </section>
           ))}
-          <a className="navbar-static__mobile-subitem" href={productsRootProps.href} onClick={productsRootProps.onClick}>
-            <span>View all products</span>
-            <small>Explore every wallet, signing, and security capability</small>
-          </a>
         </div>
         <button
           type="button"
@@ -806,10 +798,6 @@ export function NavbarStatic(): React.JSX.Element {
               })}
             </section>
           ))}
-          <a className="navbar-static__mobile-subitem" href={solutionsRootProps.href} onClick={solutionsRootProps.onClick}>
-            <span>View all solutions</span>
-            <small>Explore every use case and team-oriented path</small>
-          </a>
         </div>
         <button
           type="button"

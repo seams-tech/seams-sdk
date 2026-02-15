@@ -235,7 +235,7 @@ html[data-w3a-theme="dark"] .app-footer__newsletter small {
   margin-top: 0.2rem;
   color: color-mix(in srgb, var(--fe-text-secondary) 86%, var(--fe-text) 14%);
   text-decoration: none;
-  font-size: 0.95rem;
+  font-size: 2.24rem;
 }
 
 html[data-w3a-theme="dark"] .app-footer__near {
@@ -243,7 +243,7 @@ html[data-w3a-theme="dark"] .app-footer__near {
 }
 
 .app-footer__near-logo {
-  width: 56px;
+  width: 128px;
   height: auto;
 }
 

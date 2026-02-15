@@ -360,7 +360,7 @@
   background: var(--navbar-dropdown-card-surface);
   text-decoration: none;
   padding: 0.78rem 0.9rem;
-  transition: transform 240ms ease, background 240ms ease, border-color 240ms ease;
+  transition: transform 240ms ease, background 240ms ease, border-color 240ms ease, box-shadow 240ms ease;
 }
 
 .navbar-static__dropdown-card-title {
@@ -404,64 +404,70 @@
 html[data-w3a-theme="light"] .navbar-static {
   --navbar-dropdown-notch-bg: linear-gradient(
     145deg,
-    color-mix(in srgb, var(--navbar-surface) 90%, #fff 10%) 0%,
-    color-mix(in srgb, var(--navbar-surface2) 88%, #fff 12%) 100%
+    color-mix(in srgb, #f8fafc 88%, var(--navbar-surface) 12%) 0%,
+    color-mix(in srgb, #eef3f8 84%, var(--navbar-surface2) 16%) 100%
   );
   --navbar-dropdown-surface:
     radial-gradient(
       130% 165% at 10% -24%,
-      color-mix(in srgb, #ffffff 90%, var(--navbar-primary) 10%) 0%,
-      transparent 44%
+      color-mix(in srgb, #e9eff7 88%, var(--navbar-primary) 12%) 0%,
+      transparent 46%
     ),
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--navbar-surface) 86%, #fff 14%) 0%,
-      color-mix(in srgb, var(--navbar-surface2) 82%, #fff 18%) 100%
+      color-mix(in srgb, #f1f5fa 84%, var(--navbar-surface) 16%) 0%,
+      color-mix(in srgb, #e4ebf4 70%, var(--navbar-surface2) 30%) 100%
     );
   --navbar-dropdown-grid:
-    linear-gradient(90deg, color-mix(in srgb, var(--navbar-border) 12%, transparent) 1px, transparent 1px),
-    linear-gradient(0deg, color-mix(in srgb, var(--navbar-border) 10%, transparent) 1px, transparent 1px);
-  --navbar-dropdown-title: color-mix(in srgb, var(--w3a-colors-textSecondary) 88%, var(--navbar-text) 12%);
+    linear-gradient(90deg, color-mix(in srgb, var(--navbar-border) 18%, transparent) 1px, transparent 1px),
+    linear-gradient(0deg, color-mix(in srgb, var(--navbar-border) 16%, transparent) 1px, transparent 1px);
+  --navbar-dropdown-title: color-mix(in srgb, var(--navbar-text) 72%, var(--w3a-colors-textSecondary) 28%);
   --navbar-dropdown-card-surface:
     radial-gradient(
       130% 150% at 10% 0%,
-      color-mix(in srgb, #ffffff 92%, var(--navbar-primary) 8%) 0%,
+      color-mix(in srgb, #f9fbfe 95%, var(--navbar-primary) 5%) 0%,
       transparent 48%
     ),
     linear-gradient(
       165deg,
-      color-mix(in srgb, var(--navbar-surface) 88%, #fff 12%) 0%,
-      color-mix(in srgb, var(--navbar-surface2) 84%, #fff 16%) 100%
+      color-mix(in srgb, #ffffff 94%, var(--navbar-surface) 6%) 0%,
+      color-mix(in srgb, #f2f6fb 86%, var(--navbar-surface2) 14%) 100%
     );
   --navbar-dropdown-card-surface-hover:
     radial-gradient(
       130% 150% at 10% 0%,
-      color-mix(in srgb, #ffffff 90%, var(--navbar-primary) 10%) 0%,
+      color-mix(in srgb, #f4f8fd 92%, var(--navbar-primary) 8%) 0%,
       transparent 48%
     ),
     linear-gradient(
       165deg,
-      color-mix(in srgb, var(--navbar-surface) 86%, #fff 14%) 0%,
-      color-mix(in srgb, var(--navbar-surface2) 80%, #fff 20%) 100%
+      color-mix(in srgb, #f9fcff 90%, var(--navbar-surface) 10%) 0%,
+      color-mix(in srgb, #ecf2fa 80%, var(--navbar-surface2) 20%) 100%
     );
   --navbar-dropdown-card-title: var(--navbar-text);
-  --navbar-dropdown-card-description: color-mix(in srgb, var(--w3a-colors-textSecondary) 84%, var(--navbar-text) 16%);
-  --navbar-dropdown-all-surface: color-mix(in srgb, #ffffff 84%, var(--navbar-surface2) 16%);
-  --navbar-dropdown-all-surface-hover: color-mix(in srgb, #ffffff 78%, var(--navbar-surface2) 22%);
+  --navbar-dropdown-card-description: color-mix(in srgb, var(--navbar-text) 42%, var(--w3a-colors-textSecondary) 58%);
+  --navbar-dropdown-all-surface: color-mix(in srgb, #f7fbff 88%, var(--navbar-surface2) 12%);
+  --navbar-dropdown-all-surface-hover: color-mix(in srgb, #eef5ff 82%, var(--navbar-surface2) 18%);
   --navbar-dropdown-all-text: var(--navbar-text);
 }
 
 html[data-w3a-theme="light"] .navbar-static__dropdown-inner {
-  border-color: color-mix(in srgb, var(--navbar-border) 30%, transparent);
-  box-shadow: 0 18px 36px -30px color-mix(in srgb, var(--navbar-shadow) 26%, transparent);
+  border-color: color-mix(in srgb, var(--navbar-border) 46%, transparent);
+  box-shadow: 0 22px 42px -30px color-mix(in srgb, var(--navbar-shadow) 34%, transparent);
 }
 
 html[data-w3a-theme="light"] .navbar-static__dropdown-card {
-  border-color: color-mix(in srgb, var(--navbar-border) 28%, transparent);
+  border-color: color-mix(in srgb, var(--navbar-border) 42%, transparent);
+  box-shadow:
+    0 12px 24px -22px color-mix(in srgb, var(--navbar-shadow) 42%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 82%, transparent);
 }
 
 html[data-w3a-theme="light"] .navbar-static__dropdown-card:hover {
-  border-color: color-mix(in srgb, var(--navbar-border-hover) 44%, transparent);
+  border-color: color-mix(in srgb, var(--navbar-border-hover) 60%, transparent);
+  box-shadow:
+    0 14px 28px -20px color-mix(in srgb, var(--navbar-shadow) 48%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 86%, transparent);
 }
 
 html[data-w3a-theme="light"] .navbar-static__link:hover {
@@ -732,30 +738,30 @@ html[data-w3a-theme="light"] .navbar-static__link--button.is-active {
     --navbar-mobile-menu-surface:
       radial-gradient(
         130% 170% at 10% -26%,
-        color-mix(in srgb, var(--navbar-surface2) 92%, var(--navbar-primary) 8%) 0%,
-        transparent 44%
+        color-mix(in srgb, #e8eef8 86%, var(--navbar-primary) 14%) 0%,
+        transparent 46%
       ),
       linear-gradient(
         180deg,
-        color-mix(in srgb, var(--navbar-surface) 96%, #fff 4%) 0%,
-        color-mix(in srgb, var(--navbar-surface2) 92%, #fff 8%) 100%
+        color-mix(in srgb, #f1f5fb 84%, var(--navbar-surface) 16%) 0%,
+        color-mix(in srgb, #e3eaf4 68%, var(--navbar-surface2) 32%) 100%
       );
-    --navbar-mobile-link-hover-surface: color-mix(in srgb, var(--navbar-surface2) 80%, transparent);
+    --navbar-mobile-link-hover-surface: color-mix(in srgb, #eaf2fb 72%, var(--navbar-surface2) 28%);
     --navbar-mobile-section-surface:
       radial-gradient(
         130% 155% at 8% 0%,
-        color-mix(in srgb, var(--navbar-surface2) 90%, var(--navbar-primary) 10%) 0%,
+        color-mix(in srgb, #f9fbfe 94%, var(--navbar-primary) 6%) 0%,
         transparent 48%
       ),
       linear-gradient(
         165deg,
-        color-mix(in srgb, var(--navbar-surface) 96%, #fff 4%) 0%,
-        color-mix(in srgb, var(--navbar-surface2) 92%, #fff 8%) 100%
+        color-mix(in srgb, #ffffff 96%, var(--navbar-surface) 4%) 0%,
+        color-mix(in srgb, #f1f6fc 88%, var(--navbar-surface2) 12%) 100%
       );
     --navbar-mobile-section-title: color-mix(in srgb, var(--w3a-colors-textSecondary) 88%, var(--navbar-text) 12%);
     --navbar-mobile-subitem-text: var(--navbar-text);
-    --navbar-mobile-subitem-surface: color-mix(in srgb, var(--navbar-surface2) 78%, transparent);
-    --navbar-mobile-subitem-surface-hover: color-mix(in srgb, var(--navbar-surface2) 86%, transparent);
+    --navbar-mobile-subitem-surface: color-mix(in srgb, #f8fbff 88%, var(--navbar-surface2) 12%);
+    --navbar-mobile-subitem-surface-hover: color-mix(in srgb, #edf4fd 80%, var(--navbar-surface2) 20%);
     --navbar-mobile-subitem-copy: color-mix(in srgb, var(--w3a-colors-textSecondary) 92%, var(--navbar-text) 8%);
   }
 

@@ -47,7 +47,7 @@ import type {
   WebAuthnAuthenticationCredential,
 } from '../types';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
-import { bytesToNumberBE, numberToBytesBE } from '@noble/curves/utils.js';
+import { bytesToNumberBE, numberToBytesBE } from '@shared/utils/bigint';
 import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { keccak_256 } from '@noble/hashes/sha3.js';
