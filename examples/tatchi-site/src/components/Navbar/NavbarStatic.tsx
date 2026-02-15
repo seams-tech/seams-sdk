@@ -1,11 +1,11 @@
 import React from 'react'
-import { ChevronDown, Menu, X } from 'lucide-react'
+import { ArrowRight, ChevronDown, Menu, X } from 'lucide-react'
 import { MoonIcon, SunIcon, useTheme } from '@tatchi-xyz/sdk/react'
 import TatchiLogo from '../icons/TatchiLogo'
 import { useSiteRouter } from '../../hooks/useSiteRouter'
 import './Navbar.css'
 
-type DropdownId = 'products' | 'solutions'
+type DropdownId = 'products' | 'solutions' | 'about'
 
 type DropdownItem = {
   title: string
@@ -27,6 +27,8 @@ type DropdownConfig = {
 }
 
 type DropdownFocusTarget = 'first' | 'last'
+const DEFAULT_DROPDOWN_MAX_WIDTH_PX = 820
+const ABOUT_DROPDOWN_MAX_WIDTH_PX = DEFAULT_DROPDOWN_MAX_WIDTH_PX / 2
 
 const productSections: DropdownSection[] = [
   {
@@ -114,7 +116,30 @@ const solutionSections: DropdownSection[] = [
   },
 ]
 
-const dropdownConfigs: DropdownConfig[] = [
+const aboutSections: DropdownSection[] = [
+  {
+    heading: 'About Us',
+    items: [
+      {
+        title: 'Careers',
+        description: "We're hiring-join our team",
+        to: '/company/#careers',
+      },
+      {
+        title: 'Blog',
+        description: 'Read the latest from our team',
+        to: '/company/#blog',
+      },
+      {
+        title: 'Support',
+        description: 'Join our developer Slack community',
+        to: '/contact/',
+      },
+    ],
+  },
+]
+
+const primaryDropdownConfigs: DropdownConfig[] = [
   {
     id: 'products',
     label: 'Products',
@@ -129,6 +154,19 @@ const dropdownConfigs: DropdownConfig[] = [
     allLabel: 'View all solutions',
     sections: solutionSections,
   },
+]
+
+const aboutDropdownConfig: DropdownConfig = {
+  id: 'about',
+  label: 'About Us',
+  rootTo: '/company/',
+  allLabel: 'View company overview',
+  sections: aboutSections,
+}
+
+const dropdownConfigs: DropdownConfig[] = [
+  ...primaryDropdownConfigs,
+  aboutDropdownConfig,
 ]
 
 function isClickInsideRoot(target: EventTarget | null, root: HTMLElement | null): boolean {
@@ -158,6 +196,10 @@ function applyDocumentTheme(next: 'light' | 'dark'): void {
   window.dispatchEvent(new CustomEvent<'light' | 'dark'>('w3a:appearance', { detail: next }))
 }
 
+function getDropdownMaxWidthPx(id: DropdownId | null): number {
+  return id === 'about' ? ABOUT_DROPDOWN_MAX_WIDTH_PX : DEFAULT_DROPDOWN_MAX_WIDTH_PX
+}
+
 export function NavbarStatic(): React.JSX.Element {
   const OPEN_DELAY_MS = 0
   const CLOSE_DELAY_MS = 280
@@ -171,6 +213,7 @@ export function NavbarStatic(): React.JSX.Element {
   const dropdownButtonRefs = React.useRef<Record<DropdownId, HTMLButtonElement | null>>({
     products: null,
     solutions: null,
+    about: null,
   })
   const dropdownPanelRef = React.useRef<HTMLDivElement | null>(null)
   const openTimerRef = React.useRef<number | null>(null)
@@ -179,12 +222,14 @@ export function NavbarStatic(): React.JSX.Element {
   const [openDropdown, setOpenDropdown] = React.useState<DropdownId | null>(null)
   const [visibleDropdown, setVisibleDropdown] = React.useState<DropdownId | null>(null)
   const [leavingDropdown, setLeavingDropdown] = React.useState<DropdownId | null>(null)
+  const [dropdownSurfaceLeft, setDropdownSurfaceLeft] = React.useState<number>(0)
   const [dropdownNotchLeft, setDropdownNotchLeft] = React.useState<number>(120)
   const [hasScrolled, setHasScrolled] = React.useState<boolean>(false)
   const [localTheme, setLocalTheme] = React.useState<'light' | 'dark'>(() => readDocumentTheme())
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState<boolean>(false)
   const [isMobileProductsOpen, setIsMobileProductsOpen] = React.useState<boolean>(false)
   const [isMobileSolutionsOpen, setIsMobileSolutionsOpen] = React.useState<boolean>(false)
+  const [isMobileAboutOpen, setIsMobileAboutOpen] = React.useState<boolean>(false)
 
   const resolvedTheme: 'light' | 'dark' = (typeof setTheme === 'function' ? theme : localTheme) === 'dark' ? 'dark' : 'light'
 
@@ -221,11 +266,21 @@ export function NavbarStatic(): React.JSX.Element {
     const button = dropdownButtonRefs.current[id]
     if (!shell || !button) return
 
+    const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max)
     const shellRect = shell.getBoundingClientRect()
     const buttonRect = button.getBoundingClientRect()
-    const center = buttonRect.left + (buttonRect.width / 2) - shellRect.left
-    const clampedCenter = Math.min(Math.max(center, 42), shellRect.width - 42)
-    setDropdownNotchLeft(clampedCenter)
+
+    const rootFontSize = typeof window === 'undefined'
+      ? 16
+      : Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16
+    const horizontalInsetPx = rootFontSize * 2 // matches CSS width: calc(100% - 2rem)
+
+    const surfaceWidth = Math.min(getDropdownMaxWidthPx(id), Math.max(shellRect.width - horizontalInsetPx, 0))
+    const triggerCenter = buttonRect.left + (buttonRect.width / 2) - shellRect.left
+    const surfaceLeft = clamp(triggerCenter - (surfaceWidth / 2), 0, Math.max(shellRect.width - surfaceWidth, 0))
+
+    setDropdownSurfaceLeft(surfaceLeft)
+    setDropdownNotchLeft(clamp(triggerCenter - surfaceLeft, 42, Math.max(surfaceWidth - 42, 42)))
   }, [])
 
   const scheduleOpenDropdown = React.useCallback((id: DropdownId, delayMs: number = OPEN_DELAY_MS) => {
@@ -274,6 +329,7 @@ export function NavbarStatic(): React.JSX.Element {
     setIsMobileMenuOpen(false)
     setIsMobileProductsOpen(false)
     setIsMobileSolutionsOpen(false)
+    setIsMobileAboutOpen(false)
   }, [clearDropdownTimers, clearContentSwitchTimer])
 
   React.useEffect(() => {
@@ -476,16 +532,21 @@ export function NavbarStatic(): React.JSX.Element {
   const homeProps = getNavLinkProps('/')
   const productsRootProps = getNavLinkProps('/products/')
   const solutionsRootProps = getNavLinkProps('/solutions/')
+  const aboutRootProps = getNavLinkProps('/company/')
   const pricingProps = getNavLinkProps('/pricing/')
-  const companyProps = getNavLinkProps('/company/')
   const contactSalesProps = getNavLinkProps('/contact/')
   const getStartedProps = getNavLinkProps('/docs/getting-started/installation')
 
   const dropdownAriaConfig = dropdownConfigs.find((config) => config.id === (visibleDropdown ?? openDropdown)) ?? null
   const activeDropdownId = visibleDropdown ?? openDropdown
+  const dropdownMaxWidthPx = React.useMemo(() => getDropdownMaxWidthPx(activeDropdownId), [activeDropdownId])
   const dropdownSurfaceStyle = React.useMemo(() => {
-    return { '--navbar-dropdown-notch-left': `${dropdownNotchLeft}px` } as React.CSSProperties
-  }, [dropdownNotchLeft])
+    return {
+      left: `${dropdownSurfaceLeft}px`,
+      '--navbar-dropdown-max-width': `${dropdownMaxWidthPx}px`,
+      '--navbar-dropdown-notch-left': `${dropdownNotchLeft}px`,
+    } as React.CSSProperties
+  }, [dropdownMaxWidthPx, dropdownNotchLeft, dropdownSurfaceLeft])
 
   function renderDropdownTrigger(config: DropdownConfig): React.JSX.Element {
     const isOpen = openDropdown === config.id
@@ -540,7 +601,7 @@ export function NavbarStatic(): React.JSX.Element {
 
         <div className="navbar-static__center">
           <div className="navbar-static__links">
-            {dropdownConfigs.map(renderDropdownTrigger)}
+            {primaryDropdownConfigs.map(renderDropdownTrigger)}
             <a
               className="navbar-static__link"
               href={docsProps.href}
@@ -551,33 +612,29 @@ export function NavbarStatic(): React.JSX.Element {
               Documentation
             </a>
             <a className="navbar-static__link" href={pricingProps.href} onClick={pricingProps.onClick}>Pricing</a>
-            <a className="navbar-static__link" href={companyProps.href} onClick={companyProps.onClick}>Company</a>
+            {renderDropdownTrigger(aboutDropdownConfig)}
           </div>
         </div>
 
         <div className="navbar-static__right">
           <div className="navbar-static__actions">
             <a
-              className="navbar-static__pill navbar-static__pill--ghost"
-              href="https://github.com/web3-authn/tatchi"
+              className="navbar-static__pill navbar-static__pill--solid"
+              href={getStartedProps.href}
+              onClick={getStartedProps.onClick}
               target="_blank"
               rel="noopener noreferrer"
             >
-              GitHub
+              <span>Get Started</span>
+              <ArrowRight size={14} aria-hidden />
             </a>
             <a
               className="navbar-static__pill navbar-static__pill--ghost"
               href={contactSalesProps.href}
               onClick={contactSalesProps.onClick}
             >
-              Contact Sales
-            </a>
-            <a
-              className="navbar-static__pill navbar-static__pill--solid"
-              href={getStartedProps.href}
-              onClick={getStartedProps.onClick}
-            >
-              Get Started
+              <span>Contact Sales</span>
+              <ArrowRight size={14} aria-hidden />
             </a>
             <button
               type="button"
@@ -686,6 +743,7 @@ export function NavbarStatic(): React.JSX.Element {
           onClick={() => {
             setIsMobileProductsOpen((open) => !open)
             setIsMobileSolutionsOpen(false)
+            setIsMobileAboutOpen(false)
           }}
         >
           <span>Products</span>
@@ -723,6 +781,7 @@ export function NavbarStatic(): React.JSX.Element {
           onClick={() => {
             setIsMobileSolutionsOpen((open) => !open)
             setIsMobileProductsOpen(false)
+            setIsMobileAboutOpen(false)
           }}
         >
           <span>Solutions</span>
@@ -753,6 +812,44 @@ export function NavbarStatic(): React.JSX.Element {
             <small>Explore every use case and team-oriented path</small>
           </a>
         </div>
+        <button
+          type="button"
+          className="navbar-static__mobile-link navbar-static__mobile-link--button"
+          aria-expanded={isMobileAboutOpen}
+          onClick={() => {
+            setIsMobileAboutOpen((open) => !open)
+            setIsMobileProductsOpen(false)
+            setIsMobileSolutionsOpen(false)
+          }}
+        >
+          <span>About Us</span>
+          <ChevronDown size={16} className={`navbar-static__chevron${isMobileAboutOpen ? ' is-open' : ''}`} aria-hidden />
+        </button>
+        <div className={`navbar-static__mobile-submenu${isMobileAboutOpen ? ' is-open' : ''}`}>
+          {aboutSections.map((section) => (
+            <section key={section.heading} className="navbar-static__mobile-section">
+              <h3 className="navbar-static__mobile-section-title">{section.heading}</h3>
+              {section.items.map((item) => {
+                const itemProps = getNavLinkProps(item.to)
+                return (
+                  <a
+                    key={item.title}
+                    className="navbar-static__mobile-subitem"
+                    href={itemProps.href}
+                    onClick={itemProps.onClick}
+                  >
+                    <span>{item.title}</span>
+                    <small>{item.description}</small>
+                  </a>
+                )
+              })}
+            </section>
+          ))}
+          <a className="navbar-static__mobile-subitem" href={aboutRootProps.href} onClick={aboutRootProps.onClick}>
+            <span>View company overview</span>
+            <small>Learn more about the Tatchi team and mission</small>
+          </a>
+        </div>
         <a
           className="navbar-static__mobile-link"
           href={docsProps.href}
@@ -763,30 +860,24 @@ export function NavbarStatic(): React.JSX.Element {
           Documentation
         </a>
         <a className="navbar-static__mobile-link" href={pricingProps.href} onClick={pricingProps.onClick}>Pricing</a>
-        <a className="navbar-static__mobile-link" href={companyProps.href} onClick={companyProps.onClick}>Company</a>
         <div className="navbar-static__mobile-cta-row">
           <a
-            className="navbar-static__pill navbar-static__pill--ghost"
-            href="https://github.com/web3-authn/tatchi"
+            className="navbar-static__pill navbar-static__pill--solid"
+            href={getStartedProps.href}
+            onClick={getStartedProps.onClick}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={closeMenus}
           >
-            GitHub
+            <span>Get Started</span>
+            <ArrowRight size={14} aria-hidden />
           </a>
           <a
             className="navbar-static__pill navbar-static__pill--ghost"
             href={contactSalesProps.href}
             onClick={contactSalesProps.onClick}
           >
-            Contact Sales
-          </a>
-          <a
-            className="navbar-static__pill navbar-static__pill--solid"
-            href={getStartedProps.href}
-            onClick={getStartedProps.onClick}
-          >
-            Get Started
+            <span>Contact Sales</span>
+            <ArrowRight size={14} aria-hidden />
           </a>
         </div>
       </div>
