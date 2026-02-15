@@ -6,5 +6,6 @@ packages:
   - examples/next-js
   - examples/svelte
   - examples/vue
+  - examples/tatchi-site
   - examples/tatchi-docs
   - examples/relay-cloudflare-worker

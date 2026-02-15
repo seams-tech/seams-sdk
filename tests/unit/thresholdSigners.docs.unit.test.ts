@@ -6,7 +6,7 @@ import {
   resolveThresholdKeyRef,
   writeCachedThresholdKeyRef,
   type ThresholdEcdsaKeyRef,
-} from '../../examples/tatchi-docs/src/utils/thresholdSigners';
+} from '../../examples/tatchi-site/src/utils/thresholdSigners';
 
 type MockBootstrapArgs = {
   nearAccountId: string;

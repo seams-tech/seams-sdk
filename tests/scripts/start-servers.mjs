@@ -23,7 +23,7 @@ const REPORT_DIR = path.join(ROOT, 'tests', 'playwright-report');
 const CACHE_PATH = process.env.RELAY_PROVISION_CACHE_PATH || path.join(REPORT_DIR, 'relay-provision-cache.json');
 
 function resolveFrontendDirRel() {
-  const candidates = ['examples/vite', 'examples/tatchi-docs'];
+  const candidates = ['examples/vite', 'examples/tatchi-site'];
   const existing = candidates.find((rel) => existsSync(path.join(ROOT, rel, 'package.json')));
   if (!existing) {
     throw new Error(`[start-servers] missing frontend example; tried: ${candidates.join(', ')}`);

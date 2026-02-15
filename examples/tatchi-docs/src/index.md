@@ -1,8 +1,7 @@
 ---
-layout: home
-title: Home
+title: Tatchi Docs
 ---
 
-<ClientOnly>
-  <wallet-app />
-</ClientOnly>
+# Tatchi Docs
+
+Start with [Getting Started Overview](/getting-started/overview).

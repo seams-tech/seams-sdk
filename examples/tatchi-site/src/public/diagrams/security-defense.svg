@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 260" role="img" aria-label="Defense in depth wireframe terrain diagram">
+  <defs>
+    <linearGradient id="defenseBg" x1="0" y1="0" x2="0" y2="260" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3a4158" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#2a3146" stop-opacity="0.18"/>
+    </linearGradient>
+  </defs>
+  <rect width="760" height="260" fill="url(#defenseBg)"/>
+  <g stroke="#dbe2f4" stroke-opacity="0.2" stroke-width="1">
+    <path d="M0 70H760"/>
+    <path d="M0 110H760"/>
+    <path d="M0 150H760"/>
+    <path d="M0 190H760"/>
+    <path d="M0 230H760"/>
+    <path d="M70 0V260"/>
+    <path d="M140 0V260"/>
+    <path d="M210 0V260"/>
+    <path d="M280 0V260"/>
+    <path d="M350 0V260"/>
+    <path d="M420 0V260"/>
+    <path d="M490 0V260"/>
+    <path d="M560 0V260"/>
+    <path d="M630 0V260"/>
+    <path d="M700 0V260"/>
+  </g>
+  <g stroke="#ecf1ff" stroke-opacity="0.54" fill="none">
+    <path d="M150 148L200 136L240 78L275 138L305 120L333 144L365 106L403 148L440 66L474 136L514 108L548 154L580 144L614 152"/>
+    <path d="M160 156L206 144L242 86L277 146L307 128L334 152L367 114L404 156L442 74L476 144L516 116L549 162L581 152L614 160"/>
+    <path d="M168 164L210 152L246 94L280 154L310 136L336 160L369 122L406 164L445 82L478 152L518 124L551 170L582 160L614 168"/>
+    <path d="M176 172L214 160L250 102L284 162L313 144L338 168L372 130L408 172L447 90L480 160L520 132L553 178L583 168L614 176"/>
+    <path d="M184 180L218 168L254 110L287 170L316 152L340 176L374 138L410 180L449 98L482 168L522 140L555 186L584 176L614 184"/>
+    <path d="M192 188L222 176L258 118L291 178L318 160L342 184L376 146L412 188L451 106L484 176L523 148L557 194L585 184L614 192"/>
+    <path d="M200 196L226 184L262 126L294 186L321 168L344 192L378 154L414 196L453 114L486 184L525 156L559 202L586 192L614 200"/>
+  </g>
+  <g stroke="#f4f7ff" stroke-opacity="0.35" stroke-width="1">
+    <path d="M96 220L380 148L664 220"/>
+    <path d="M120 236L380 164L640 236"/>
+  </g>
+</svg>

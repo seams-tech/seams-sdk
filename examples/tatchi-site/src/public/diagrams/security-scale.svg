@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 260" role="img" aria-label="Battle tested at scale workflow diagram">
+  <defs>
+    <linearGradient id="scaleBg" x1="0" y1="0" x2="0" y2="260" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3a4158" stop-opacity="0.36"/>
+      <stop offset="1" stop-color="#283045" stop-opacity="0.18"/>
+    </linearGradient>
+  </defs>
+  <rect width="760" height="260" fill="url(#scaleBg)"/>
+  <g stroke="#dbe2f5" stroke-opacity="0.16" stroke-width="1">
+    <path d="M0 84H760"/>
+    <path d="M0 130H760"/>
+    <path d="M0 176H760"/>
+    <path d="M80 0V260"/>
+    <path d="M180 0V260"/>
+    <path d="M280 0V260"/>
+    <path d="M380 0V260"/>
+    <path d="M480 0V260"/>
+    <path d="M580 0V260"/>
+    <path d="M680 0V260"/>
+  </g>
+  <g stroke="#edf3ff" stroke-opacity="0.36" stroke-width="1.6" fill="none">
+    <path d="M30 146H110V134H205V146H290V196H338V188H420V126H515V32H690V16"/>
+    <path d="M420 188H505V206H604V186H690"/>
+    <path d="M190 92H245V110H290V126"/>
+  </g>
+  <g fill="#f5f8ff" fill-opacity="0.18" stroke="#eef3ff" stroke-opacity="0.4">
+    <rect x="70" y="133" width="86" height="24" rx="4"/>
+    <rect x="180" y="86" width="88" height="24" rx="4"/>
+    <rect x="180" y="132" width="88" height="24" rx="4"/>
+    <rect x="180" y="178" width="88" height="24" rx="4"/>
+    <rect x="338" y="178" width="90" height="34" rx="4"/>
+    <rect x="500" y="20" width="90" height="24" rx="4"/>
+    <rect x="604" y="10" width="92" height="24" rx="4"/>
+    <rect x="464" y="196" width="82" height="24" rx="4"/>
+    <rect x="548" y="196" width="82" height="24" rx="4"/>
+    <rect x="548" y="230" width="82" height="20" rx="4"/>
+  </g>
+</svg>

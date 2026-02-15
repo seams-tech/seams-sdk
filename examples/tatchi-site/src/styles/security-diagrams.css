@@ -1,0 +1,202 @@
+.security-diagrams {
+  position: relative;
+  overflow: hidden;
+  padding: clamp(1.1rem, 2vw, 1.7rem);
+  border-radius: 1.2rem;
+  border: 1px solid rgba(173, 190, 236, 0.24);
+  background:
+    radial-gradient(130% 170% at 10% -18%, rgba(105, 142, 240, 0.2) 0%, rgba(105, 142, 240, 0) 48%),
+    linear-gradient(180deg, rgba(16, 22, 40, 0.96) 0%, rgba(10, 14, 28, 0.98) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(223, 233, 255, 0.08),
+    0 22px 34px -28px rgba(0, 0, 0, 0.88);
+}
+
+.security-diagrams::before,
+.security-diagrams::after {
+  content: "";
+  position: absolute;
+  width: 88px;
+  height: 88px;
+  pointer-events: none;
+  opacity: 0.45;
+  background:
+    linear-gradient(45deg, transparent 47%, rgba(199, 212, 245, 0.3) 48%, rgba(199, 212, 245, 0.3) 52%, transparent 53%),
+    linear-gradient(-45deg, transparent 47%, rgba(199, 212, 245, 0.3) 48%, rgba(199, 212, 245, 0.3) 52%, transparent 53%);
+  background-size: 14px 14px;
+}
+
+.security-diagrams::before {
+  top: -10px;
+  left: -10px;
+}
+
+.security-diagrams::after {
+  right: -10px;
+  top: -10px;
+}
+
+.security-diagrams__header {
+  max-width: 780px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.security-diagrams__title {
+  margin: 0;
+  color: #f6f9ff;
+  font-size: clamp(1.9rem, 3.4vw, 3.15rem);
+  line-height: 1.06;
+  letter-spacing: -0.02em;
+}
+
+.security-diagrams__subtitle {
+  margin: 0.85rem auto 0;
+  max-width: 700px;
+  color: rgba(207, 220, 249, 0.88);
+  font-size: clamp(1rem, 1.38vw, 1.23rem);
+  line-height: 1.5;
+}
+
+.security-diagrams__learn-more {
+  margin-top: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  text-decoration: none;
+  border: 1px solid rgba(193, 208, 246, 0.36);
+  background: rgba(18, 25, 43, 0.56);
+  color: #edf4ff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 0.62rem 1rem;
+  transition:
+    border-color var(--fe-fast) var(--fe-ease),
+    background-color var(--fe-fast) var(--fe-ease),
+    box-shadow var(--fe-fast) var(--fe-ease);
+}
+
+.security-diagrams__learn-more:hover {
+  text-decoration: none;
+  background: rgba(22, 31, 53, 0.74);
+  border-color: rgba(210, 221, 248, 0.5);
+  color: #f6f9ff;
+}
+
+.security-diagrams__learn-more:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(129, 164, 246, 0.38);
+}
+
+.security-diagrams__grid {
+  margin-top: 1.35rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.95rem;
+}
+
+.security-diagrams__card {
+  overflow: hidden;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(156, 175, 226, 0.24);
+  background: linear-gradient(180deg, rgba(33, 39, 58, 0.88) 0%, rgba(29, 34, 51, 0.92) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(210, 223, 251, 0.08),
+    0 20px 30px -26px rgba(0, 0, 0, 0.94);
+}
+
+.security-diagrams__art-wrap {
+  height: 178px;
+  border-bottom: 1px solid rgba(164, 182, 230, 0.22);
+  background:
+    radial-gradient(circle at 50% -12%, rgba(143, 163, 224, 0.26) 0%, rgba(143, 163, 224, 0) 52%),
+    linear-gradient(180deg, rgba(42, 47, 69, 0.85) 0%, rgba(34, 40, 59, 0.88) 100%);
+}
+
+.security-diagrams__art {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.security-diagrams__body {
+  padding: 1rem 1.05rem 1.1rem;
+}
+
+.security-diagrams__body h3 {
+  margin: 0;
+  color: #f3f7ff;
+  font-size: clamp(1.18rem, 1.45vw, 1.72rem);
+  line-height: 1.2;
+}
+
+.security-diagrams__body p {
+  margin: 0.58rem 0 0;
+  color: rgba(200, 212, 241, 0.88);
+  font-size: 0.98rem;
+  line-height: 1.52;
+}
+
+[data-w3a-theme="light"] .security-diagrams {
+  border-color: rgba(143, 164, 213, 0.38);
+  background:
+    radial-gradient(130% 165% at 10% -20%, rgba(113, 148, 240, 0.17) 0%, rgba(113, 148, 240, 0) 48%),
+    linear-gradient(180deg, rgba(245, 250, 255, 0.95) 0%, rgba(236, 243, 255, 0.95) 100%);
+}
+
+[data-w3a-theme="light"] .security-diagrams::before,
+[data-w3a-theme="light"] .security-diagrams::after {
+  opacity: 0.28;
+}
+
+[data-w3a-theme="light"] .security-diagrams__title {
+  color: #152640;
+}
+
+[data-w3a-theme="light"] .security-diagrams__subtitle {
+  color: rgba(73, 95, 132, 0.94);
+}
+
+[data-w3a-theme="light"] .security-diagrams__learn-more {
+  border-color: rgba(117, 147, 220, 0.44);
+  background: rgba(240, 246, 255, 0.84);
+  color: #173052;
+}
+
+[data-w3a-theme="light"] .security-diagrams__learn-more:hover {
+  background: rgba(232, 240, 255, 0.92);
+  border-color: rgba(98, 130, 211, 0.5);
+  color: #102543;
+}
+
+[data-w3a-theme="light"] .security-diagrams__card {
+  border-color: rgba(143, 163, 212, 0.36);
+  background: linear-gradient(180deg, rgba(252, 255, 255, 0.96) 0%, rgba(243, 249, 255, 0.96) 100%);
+}
+
+[data-w3a-theme="light"] .security-diagrams__art-wrap {
+  border-bottom-color: rgba(151, 171, 218, 0.34);
+  background:
+    radial-gradient(circle at 50% -8%, rgba(130, 155, 219, 0.21) 0%, rgba(130, 155, 219, 0) 55%),
+    linear-gradient(180deg, rgba(232, 239, 255, 0.92) 0%, rgba(223, 232, 250, 0.94) 100%);
+}
+
+[data-w3a-theme="light"] .security-diagrams__body h3 {
+  color: #1a2e4b;
+}
+
+[data-w3a-theme="light"] .security-diagrams__body p {
+  color: rgba(74, 95, 131, 0.93);
+}
+
+@media (max-width: 768px) {
+  .security-diagrams__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .security-diagrams__art-wrap {
+    height: 168px;
+  }
+}

@@ -42,6 +42,21 @@ importers:
         specifier: ^1.5.0
         version: 1.6.4(@algolia/client-search@5.40.0)(@types/node@24.2.0)(axios@1.11.0)(jwt-decode@4.0.0)(lightningcss@1.30.2)(postcss@8.5.6)(qrcode@1.5.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(search-insights@2.17.3)(typescript@5.8.3)
 
+  examples/tatchi-docs:
+    devDependencies:
+      mermaid:
+        specifier: ^11.12.1
+        version: 11.12.1
+      typescript:
+        specifier: ~5.8.3
+        version: 5.8.3
+      vitepress:
+        specifier: ^1.5.0
+        version: 1.6.4(@algolia/client-search@5.40.0)(@types/node@24.2.0)(axios@1.11.0)(jwt-decode@4.0.0)(lightningcss@1.30.2)(postcss@8.5.6)(qrcode@1.5.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(search-insights@2.17.3)(typescript@5.8.3)
+      vue:
+        specifier: ^3.5.22
+        version: 3.5.22(typescript@5.8.3)
+
   examples/relay-cloudflare-worker:
     dependencies:
       '@tatchi-xyz/sdk':
@@ -92,8 +107,11 @@ importers:
         specifier: ^5.6.2
         version: 5.8.3
 
-  examples/tatchi-docs:
+  examples/tatchi-site:
     dependencies:
+      '@fontsource/hanken-grotesk':
+        specifier: ^5.2.8
+        version: 5.2.8
       '@radix-ui/react-select':
         specifier: ^2.0.0
         version: 2.2.6(@types/react-dom@19.1.9(@types/react@19.1.12))(@types/react@19.1.12)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -1125,6 +1143,9 @@ packages:
 
   '@floating-ui/utils@0.2.10':
     resolution: {integrity: sha512-aGTxbpbg8/b5JfU1HXSrbH3wXZuLPJcNEcZQFMxLs3oSzgtVu6nFPkbbGGUvBcUjKV2YyB9Wxxabo+HEH9tcRQ==}
+
+  '@fontsource/hanken-grotesk@5.2.8':
+    resolution: {integrity: sha512-J/e6hdfNCbyc4WK5hmZtk0zjaIsFx3pvCdPVxY25iYw2C9v1ZggGz4nfHnRjMhcz4WfaadUuwLNtvj8sQ70tkg==}
 
   '@gql.tada/cli-utils@1.7.1':
     resolution: {integrity: sha512-wg5ysZNQxtNQm67T3laVWmZzLpGb7QfyYWZdaUD2r1OjDj5Bgftq7eQlplmH+hsdffjuUyhJw/b5XAjeE2mJtg==}
@@ -6024,6 +6045,8 @@ snapshots:
 
   '@floating-ui/utils@0.2.10': {}
 
+  '@fontsource/hanken-grotesk@5.2.8': {}
+
   '@gql.tada/cli-utils@1.7.1(@0no-co/graphqlsp@1.15.0(graphql@16.12.0)(typescript@5.8.3))(graphql@16.12.0)(typescript@5.8.3)':
     dependencies:
       '@0no-co/graphqlsp': 1.15.0(graphql@16.12.0)(typescript@5.8.3)
@@ -6065,7 +6088,7 @@ snapshots:
       '@antfu/install-pkg': 1.1.0
       '@antfu/utils': 9.3.0
       '@iconify/types': 2.0.0
-      debug: 4.4.1
+      debug: 4.4.3
       globals: 15.15.0
       kolorist: 1.8.0
       local-pkg: 1.1.2

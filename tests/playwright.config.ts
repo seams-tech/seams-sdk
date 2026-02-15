@@ -146,8 +146,8 @@ try {
 } catch {}
 function resolveExamplesFrontendDir(): string {
   // Prefer the historical examples/vite path when present, but fall back to the
-  // current workspace frontend (examples/tatchi-docs) when it's the only one.
-  const candidates = ['../examples/vite', '../examples/tatchi-docs'].map((p) => path.resolve(path.join(__dirname, p)));
+  // current workspace frontend (examples/tatchi-site) when it's the only one.
+  const candidates = ['../examples/vite', '../examples/tatchi-site'].map((p) => path.resolve(path.join(__dirname, p)));
   const existing = candidates.find((dir) => fs.existsSync(dir) && fs.existsSync(path.join(dir, 'package.json')));
   if (!existing) {
     throw new Error(`[playwright] missing frontend example; tried: ${candidates.join(', ')}`);

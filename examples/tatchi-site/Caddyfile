@@ -1,0 +1,106 @@
+# App (Vite dev server) - headers set by Vite plugin
+example.localhost {
+	tls internal
+	encode gzip
+	handle {
+		reverse_proxy localhost:5174
+	}
+}
+
+# Docs host (separate VitePress server)
+docs.example.localhost {
+	tls internal
+	encode gzip
+	reverse_proxy localhost:5222
+}
+
+# Wallet host (self-contained mode - shares same Vite server) - headers set by Vite plugin
+wallet.example.localhost {
+	tls internal
+	encode gzip
+	reverse_proxy localhost:5174
+}
+
+# Relay server on separate origin
+relay-server.localhost {
+	tls internal
+	encode gzip
+	log {
+		output stdout
+		format console
+	}
+	reverse_proxy 127.0.0.1:3000
+}
+
+# Relay server (cosigner instance #1)
+relay-server2.localhost {
+	tls internal
+	encode gzip
+	log {
+		output stdout
+		format console
+	}
+	reverse_proxy 127.0.0.1:3001
+}
+
+# Relay server (cosigner instance #2)
+relay-server3.localhost {
+	tls internal
+	encode gzip
+	log {
+		output stdout
+		format console
+	}
+	reverse_proxy 127.0.0.1:3002
+}
+
+# --- mDNS (.local) access from iPhone/macOS ---
+# Use your Mac's Bonjour name so other devices on the LAN can reach it.
+# We keep distinct origins by port to preserve cross-origin isolation in dev.
+
+# Frontend (default HTTPS port)
+pta-m4.local {
+	tls internal
+	encode gzip
+	reverse_proxy localhost:5174
+}
+
+# Wallet service on a distinct origin (same host, different port)
+pta-m4.local:8443 {
+	tls internal
+	encode gzip
+	reverse_proxy localhost:5174
+}
+
+# Relay server on another origin (same host, another port)
+pta-m4.local:8444 {
+	tls internal
+	encode gzip
+	log {
+		output stdout
+		format console
+	}
+	reverse_proxy 127.0.0.1:3000
+}
+
+# Relay server cosigner #1
+pta-m4.local:8445 {
+	tls internal
+	encode gzip
+	log {
+		output stdout
+		format console
+	}
+	reverse_proxy 127.0.0.1:3001
+}
+
+# Relay server cosigner #2
+pta-m4.local:8446 {
+	tls internal
+	encode gzip
+	log {
+		output stdout
+		format console
+	}
+	reverse_proxy 127.0.0.1:3002
+}

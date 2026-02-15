@@ -5,16 +5,8 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "strict": true,
-    "jsx": "react-jsx",
-    "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["vite/client"],
-    "baseUrl": ".",
-    "paths": {
-      "@tatchi-xyz/sdk/react": ["../../sdk/dist/types/src/react/index.d.ts"],
-      "@tatchi-xyz/sdk/react/*": ["../../sdk/dist/types/src/react/*"],
-      "@/*": ["./src/*"]
-    }
+    "types": ["vite/client"]
   },
-  "include": ["**/*.ts", "**/*.tsx", "**/*.d.ts", "vite-env.d.ts"]
+  "include": ["src/.vitepress/**/*.ts", "vite-env.d.ts"]
 }

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 260" role="img" aria-label="Hardware isolated self custody diagram">
+  <defs>
+    <linearGradient id="custodyBg" x1="0" y1="0" x2="0" y2="260" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3c435b" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#2a3147" stop-opacity="0.22"/>
+    </linearGradient>
+  </defs>
+  <rect width="760" height="260" fill="url(#custodyBg)"/>
+  <g stroke="#dbe2f5" stroke-opacity="0.18" stroke-width="1">
+    <path d="M0 250L380 30L760 250"/>
+    <path d="M0 34L380 250L760 34"/>
+    <path d="M55 260L380 70L705 260"/>
+    <path d="M116 260L380 108L644 260"/>
+  </g>
+  <g stroke="#e7ecfa" stroke-opacity="0.36" stroke-width="1.2">
+    <path d="M270 86L340 46L410 86L340 126Z"/>
+    <path d="M270 86V162L340 202V126"/>
+    <path d="M410 86V162L340 202"/>
+    <path d="M340 46V126L410 162"/>
+    <path d="M340 126L270 162"/>
+    <path d="M340 46L270 86V162L340 202L410 162V86Z"/>
+  </g>
+  <g stroke="#f0f4ff" stroke-opacity="0.22" stroke-width="1">
+    <path d="M228 70L340 8L452 70V178L340 242L228 178Z"/>
+    <path d="M228 70L340 134L452 70"/>
+    <path d="M340 8V134V242"/>
+  </g>
+  <g stroke="#f5f8ff" stroke-opacity="0.5" stroke-width="1.4">
+    <path d="M332 109L340 103L348 109"/>
+    <path d="M332 116L340 122L348 116"/>
+    <path d="M340 103V122"/>
+  </g>
+</svg>

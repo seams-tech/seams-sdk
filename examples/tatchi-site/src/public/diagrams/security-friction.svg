@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 260" role="img" aria-label="Friction where it matters device security diagram">
+  <defs>
+    <linearGradient id="frictionBg" x1="0" y1="0" x2="0" y2="260" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#394057" stop-opacity="0.36"/>
+      <stop offset="1" stop-color="#2a3145" stop-opacity="0.16"/>
+    </linearGradient>
+  </defs>
+  <rect width="760" height="260" fill="url(#frictionBg)"/>
+  <g stroke="#dbe3f6" stroke-opacity="0.15" stroke-width="1">
+    <path d="M24 68H220V40H340"/>
+    <path d="M420 40H736V74"/>
+    <path d="M40 184H220V230"/>
+    <path d="M520 230V156H698"/>
+    <path d="M120 120H300"/>
+    <path d="M460 120H660"/>
+  </g>
+  <g fill="#f3f7ff" fill-opacity="0.09" stroke="#edf2ff" stroke-opacity="0.34" stroke-width="2">
+    <path d="M300 56L356 24L356 192L300 224Z"/>
+    <path d="M392 56L448 24L448 192L392 224Z"/>
+    <path d="M484 56L540 24L540 192L484 224Z"/>
+  </g>
+  <g stroke="#eef3ff" stroke-opacity="0.34" stroke-width="1.2">
+    <path d="M312 92L340 76V112L312 128Z"/>
+    <path d="M404 94L432 78"/>
+    <path d="M404 104L432 88"/>
+    <path d="M404 114L432 98"/>
+    <path d="M496 94L524 78"/>
+    <path d="M496 104L524 88"/>
+    <path d="M496 114L524 98"/>
+    <path d="M312 150L348 130"/>
+    <path d="M404 152L440 132"/>
+    <path d="M496 152L532 132"/>
+    <path d="M312 198L336 184"/>
+    <path d="M404 198L428 184"/>
+    <path d="M496 198L520 184"/>
+  </g>
+  <g fill="#edf2ff" fill-opacity="0.18" stroke="#edf2ff" stroke-opacity="0.34">
+    <rect x="304" y="138" width="44" height="6" rx="3"/>
+    <rect x="396" y="140" width="44" height="6" rx="3"/>
+    <rect x="488" y="140" width="44" height="6" rx="3"/>
+    <rect x="304" y="202" width="36" height="6" rx="3"/>
+    <rect x="396" y="202" width="36" height="6" rx="3"/>
+    <rect x="488" y="202" width="36" height="6" rx="3"/>
+  </g>
+</svg>
