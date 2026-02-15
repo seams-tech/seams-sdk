@@ -1175,6 +1175,16 @@ html[data-w3a-theme="dark"] .credibility-bands {
   text-wrap: balance;
 }
 
+.credibility-bands__subtitle {
+  margin: 0.1rem 0 0;
+  text-align: center;
+  font-size: clamp(0.94rem, 1.04vw, 1.16rem);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--fe-text-secondary) 88%, var(--fe-text) 12%);
+  text-wrap: balance;
+}
+
 .credibility-bands__logos {
   margin: 0;
   padding: 0;
@@ -1538,6 +1548,11 @@ html[data-w3a-theme="dark"] .credibility-bands {
 
   .credibility-bands__title {
     font-size: 1.05rem;
+  }
+
+  .credibility-bands__subtitle {
+    margin-top: 0.06rem;
+    font-size: 0.9rem;
   }
 
   .credibility-bands__logos {

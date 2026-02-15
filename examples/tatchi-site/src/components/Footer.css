@@ -235,7 +235,8 @@ html[data-w3a-theme="dark"] .app-footer__newsletter small {
   margin-top: 0.2rem;
   color: color-mix(in srgb, var(--fe-text-secondary) 86%, var(--fe-text) 14%);
   text-decoration: none;
-  font-size: 2.24rem;
+  font-size: 1.5rem;
+  transition: color var(--fe-fast) var(--fe-ease);
 }
 
 html[data-w3a-theme="dark"] .app-footer__near {
@@ -245,10 +246,16 @@ html[data-w3a-theme="dark"] .app-footer__near {
 .app-footer__near-logo {
   width: 128px;
   height: auto;
+  color: color-mix(in srgb, var(--fe-text-secondary) 78%, var(--fe-text) 22%);
+  transition: color var(--fe-fast) var(--fe-ease);
 }
 
 .app-footer__near:hover {
-  color: var(--footer-accent);
+  color: color-mix(in srgb, var(--fe-text-secondary) 72%, var(--fe-text) 28%);
+}
+
+.app-footer__near:hover .app-footer__near-logo {
+  color: #22c58b;
 }
 
 .app-footer__nav {

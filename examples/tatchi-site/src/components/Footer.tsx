@@ -3,7 +3,6 @@ import React from 'react'
 import { useSiteRouter } from '../hooks/useSiteRouter'
 import './Footer.css'
 import Github from './icons/Github'
-import NearLogo from './icons/NearLogoWithText'
 import TatchiLogo from './icons/TatchiLogo'
 import Twitter from './icons/Twitter'
 
@@ -98,15 +97,6 @@ export function Footer(): React.JSX.Element {
             </small>
           </div>
 
-          <a
-            href="https://near.org"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="app-footer__near"
-            aria-label="Built on NEAR"
-          >
-            Built on <NearLogo className="app-footer__near-logo" />
-          </a>
         </section>
 
         <nav className="app-footer__nav" aria-label="Footer navigation">
