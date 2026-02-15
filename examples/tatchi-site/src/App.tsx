@@ -60,9 +60,10 @@ export const App: React.FC = () => {
         return <CompanyPage />
       case '/contact':
         return <ContactPage />
-      case '/dashboard':
-        return <DashboardPage />
       default:
+        if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) {
+          return <DashboardPage pathname={pathname} />
+        }
         return <NotFoundPage />
     }
   }, [pathname])
