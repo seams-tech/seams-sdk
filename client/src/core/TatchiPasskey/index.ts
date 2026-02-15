@@ -563,9 +563,11 @@ export class TatchiPasskey {
   }
 
   /**
-   * Login and ensure a warm signing session exists.
+   * Login and optionally mint a warm signing session.
    * - Sets the active account/deviceNumber (IndexedDB last-user pointer)
    * - Optional: mints a relay session (JWT/cookie) via standard WebAuthn login challenge/verify
+   * - By default, when `options.session` is provided, warm threshold-session mint is skipped
+   *   to avoid a second consecutive WebAuthn prompt during login
    * - Signing flows still prompt via SecureConfirm/WebAuthn as needed
    */
   async loginAndCreateSession(

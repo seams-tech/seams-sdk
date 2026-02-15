@@ -33,6 +33,19 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 async function main() {
   const env = process.env;
+  const redisUrl = typeof env.REDIS_URL === 'string' ? env.REDIS_URL.trim() : '';
+  const postgresUrl = typeof env.POSTGRES_URL === 'string' ? env.POSTGRES_URL.trim() : '';
+  const ed25519MasterSecretB64u = typeof env.THRESHOLD_ED25519_MASTER_SECRET_B64U === 'string'
+    ? env.THRESHOLD_ED25519_MASTER_SECRET_B64U.trim()
+    : '';
+  const secp256k1MasterSecretB64u = requireEnvVar(env, 'THRESHOLD_SECP256K1_MASTER_SECRET_B64U');
+  const usePostgresForThreshold = Boolean(postgresUrl);
+  const thresholdRedisUrl = usePostgresForThreshold ? '' : redisUrl;
+
+  if (usePostgresForThreshold && redisUrl) {
+    console.warn('[threshold] POSTGRES_URL and REDIS_URL are both set; using Postgres for threshold stores and ignoring REDIS_URL.');
+  }
+
   const host = typeof env.HOST === 'string' && env.HOST.trim().length > 0
     ? env.HOST.trim()
     : undefined;
@@ -46,15 +59,16 @@ async function main() {
   const thresholdEd25519KeyStore = {
     // Share mode + deterministic relayer share derivation (optional)
     THRESHOLD_ED25519_SHARE_MODE: env.THRESHOLD_ED25519_SHARE_MODE,
-    THRESHOLD_ED25519_MASTER_SECRET_B64U: env.THRESHOLD_ED25519_MASTER_SECRET_B64U,
+    THRESHOLD_ED25519_MASTER_SECRET_B64U: ed25519MasterSecretB64u || undefined,
+    THRESHOLD_SECP256K1_MASTER_SECRET_B64U: secp256k1MasterSecretB64u,
     // Node role + coordinator/cosigner wiring (optional)
     THRESHOLD_NODE_ROLE: env.THRESHOLD_NODE_ROLE,
     THRESHOLD_COORDINATOR_SHARED_SECRET_B64U: env.THRESHOLD_COORDINATOR_SHARED_SECRET_B64U,
     // Optional persistence for sessions/shares
-    POSTGRES_URL: env.POSTGRES_URL,
+    POSTGRES_URL: postgresUrl || undefined,
     UPSTASH_REDIS_REST_URL: env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: env.UPSTASH_REDIS_REST_TOKEN,
-    REDIS_URL: env.REDIS_URL,
+    REDIS_URL: thresholdRedisUrl || undefined,
     // Optional key prefixes (useful when sharing a single database)
     THRESHOLD_ED25519_KEYSTORE_PREFIX: env.THRESHOLD_ED25519_KEYSTORE_PREFIX,
     THRESHOLD_ED25519_SESSION_PREFIX: env.THRESHOLD_ED25519_SESSION_PREFIX,

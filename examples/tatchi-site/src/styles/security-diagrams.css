@@ -1,15 +1,66 @@
 .security-diagrams {
+  --security-border: color-mix(in srgb, var(--fe-border) 62%, transparent);
+  --security-surface:
+    radial-gradient(
+      130% 170% at 10% -18%,
+      color-mix(in srgb, var(--w3a-colors-surface3) 92%, var(--w3a-colors-primary) 8%) 0%,
+      transparent 48%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--w3a-colors-surface3) 86%, #000 14%) 0%,
+      color-mix(in srgb, var(--w3a-colors-colorBackground) 90%, #000 10%) 100%
+    );
+  --security-corner-pattern:
+    linear-gradient(
+      45deg,
+      transparent 47%,
+      color-mix(in srgb, var(--w3a-colors-borderPrimary) 36%, transparent) 48%,
+      color-mix(in srgb, var(--w3a-colors-borderPrimary) 36%, transparent) 52%,
+      transparent 53%
+    ),
+    linear-gradient(
+      -45deg,
+      transparent 47%,
+      color-mix(in srgb, var(--w3a-colors-borderPrimary) 36%, transparent) 48%,
+      color-mix(in srgb, var(--w3a-colors-borderPrimary) 36%, transparent) 52%,
+      transparent 53%
+    );
+  --security-title: var(--fe-text-primary);
+  --security-subtitle: color-mix(in srgb, var(--fe-text-secondary) 90%, var(--fe-text) 10%);
+  --security-link-border: color-mix(in srgb, var(--fe-border) 66%, transparent);
+  --security-link-surface: color-mix(in srgb, var(--w3a-colors-surface3) 68%, transparent);
+  --security-link-text: var(--fe-text-primary);
+  --security-link-border-hover: color-mix(in srgb, var(--fe-border-strong) 66%, transparent);
+  --security-link-surface-hover: color-mix(in srgb, var(--w3a-colors-surface3) 80%, transparent);
+  --security-focus-ring: color-mix(in srgb, var(--w3a-colors-primary) 28%, transparent);
+  --security-card-border: color-mix(in srgb, var(--fe-border) 62%, transparent);
+  --security-card-surface:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--w3a-colors-surface3) 86%, #000 14%) 0%,
+      color-mix(in srgb, var(--w3a-colors-surface2) 90%, #000 10%) 100%
+    );
+  --security-art-border: color-mix(in srgb, var(--fe-border) 58%, transparent);
+  --security-art-surface:
+    radial-gradient(
+      circle at 50% -12%,
+      color-mix(in srgb, var(--w3a-colors-surface3) 90%, var(--w3a-colors-primary) 10%) 0%,
+      transparent 52%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--w3a-colors-surface3) 82%, #000 18%) 0%,
+      color-mix(in srgb, var(--w3a-colors-surface2) 88%, #000 12%) 100%
+    );
+  --security-card-title: var(--fe-text-primary);
+  --security-card-copy: color-mix(in srgb, var(--fe-text-secondary) 90%, var(--fe-text) 10%);
   position: relative;
   overflow: hidden;
   padding: clamp(1.1rem, 2vw, 1.7rem);
   border-radius: 1.2rem;
-  border: 1px solid rgba(173, 190, 236, 0.24);
-  background:
-    radial-gradient(130% 170% at 10% -18%, rgba(105, 142, 240, 0.2) 0%, rgba(105, 142, 240, 0) 48%),
-    linear-gradient(180deg, rgba(16, 22, 40, 0.96) 0%, rgba(10, 14, 28, 0.98) 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(223, 233, 255, 0.08),
-    0 22px 34px -28px rgba(0, 0, 0, 0.88);
+  border: 1px solid var(--security-border);
+  background: var(--security-surface);
 }
 
 .security-diagrams::before,
@@ -19,10 +70,8 @@
   width: 88px;
   height: 88px;
   pointer-events: none;
-  opacity: 0.45;
-  background:
-    linear-gradient(45deg, transparent 47%, rgba(199, 212, 245, 0.3) 48%, rgba(199, 212, 245, 0.3) 52%, transparent 53%),
-    linear-gradient(-45deg, transparent 47%, rgba(199, 212, 245, 0.3) 48%, rgba(199, 212, 245, 0.3) 52%, transparent 53%);
+  opacity: 0.34;
+  background: var(--security-corner-pattern);
   background-size: 14px 14px;
 }
 
@@ -44,7 +93,7 @@
 
 .security-diagrams__title {
   margin: 0;
-  color: #f6f9ff;
+  color: var(--security-title);
   font-size: clamp(1.9rem, 3.4vw, 3.15rem);
   line-height: 1.06;
   letter-spacing: -0.02em;
@@ -53,7 +102,7 @@
 .security-diagrams__subtitle {
   margin: 0.85rem auto 0;
   max-width: 700px;
-  color: rgba(207, 220, 249, 0.88);
+  color: var(--security-subtitle);
   font-size: clamp(1rem, 1.38vw, 1.23rem);
   line-height: 1.5;
 }
@@ -65,9 +114,9 @@
   justify-content: center;
   border-radius: 999px;
   text-decoration: none;
-  border: 1px solid rgba(193, 208, 246, 0.36);
-  background: rgba(18, 25, 43, 0.56);
-  color: #edf4ff;
+  border: 1px solid var(--security-link-border);
+  background: var(--security-link-surface);
+  color: var(--security-link-text);
   font-size: 0.95rem;
   font-weight: 600;
   padding: 0.62rem 1rem;
@@ -79,14 +128,14 @@
 
 .security-diagrams__learn-more:hover {
   text-decoration: none;
-  background: rgba(22, 31, 53, 0.74);
-  border-color: rgba(210, 221, 248, 0.5);
-  color: #f6f9ff;
+  background: var(--security-link-surface-hover);
+  border-color: var(--security-link-border-hover);
+  color: var(--security-link-text);
 }
 
 .security-diagrams__learn-more:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(129, 164, 246, 0.38);
+  box-shadow: 0 0 0 3px var(--security-focus-ring);
 }
 
 .security-diagrams__grid {
@@ -99,26 +148,28 @@
 .security-diagrams__card {
   overflow: hidden;
   border-radius: 0.9rem;
-  border: 1px solid rgba(156, 175, 226, 0.24);
-  background: linear-gradient(180deg, rgba(33, 39, 58, 0.88) 0%, rgba(29, 34, 51, 0.92) 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(210, 223, 251, 0.08),
-    0 20px 30px -26px rgba(0, 0, 0, 0.94);
+  border: 1px solid var(--security-card-border);
+  background: var(--security-card-surface);
 }
 
 .security-diagrams__art-wrap {
+  position: relative;
   height: 178px;
-  border-bottom: 1px solid rgba(164, 182, 230, 0.22);
-  background:
-    radial-gradient(circle at 50% -12%, rgba(143, 163, 224, 0.26) 0%, rgba(143, 163, 224, 0) 52%),
-    linear-gradient(180deg, rgba(42, 47, 69, 0.85) 0%, rgba(34, 40, 59, 0.88) 100%);
+  border-bottom: 1px solid var(--security-art-border);
+  background: var(--security-art-surface);
 }
 
 .security-diagrams__art {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   display: block;
   object-fit: cover;
+}
+
+.security-diagrams__art--light {
+  opacity: 0;
 }
 
 .security-diagrams__body {
@@ -127,68 +178,88 @@
 
 .security-diagrams__body h3 {
   margin: 0;
-  color: #f3f7ff;
+  color: var(--security-card-title);
   font-size: clamp(1.18rem, 1.45vw, 1.72rem);
   line-height: 1.2;
 }
 
 .security-diagrams__body p {
   margin: 0.58rem 0 0;
-  color: rgba(200, 212, 241, 0.88);
+  color: var(--security-card-copy);
   font-size: 0.98rem;
   line-height: 1.52;
 }
 
-[data-w3a-theme="light"] .security-diagrams {
-  border-color: rgba(143, 164, 213, 0.38);
-  background:
-    radial-gradient(130% 165% at 10% -20%, rgba(113, 148, 240, 0.17) 0%, rgba(113, 148, 240, 0) 48%),
-    linear-gradient(180deg, rgba(245, 250, 255, 0.95) 0%, rgba(236, 243, 255, 0.95) 100%);
+html[data-w3a-theme="light"] .security-diagrams {
+  --security-border: color-mix(in srgb, var(--fe-border) 72%, transparent);
+  --security-surface:
+    radial-gradient(
+      130% 165% at 10% -20%,
+      color-mix(in srgb, var(--w3a-colors-surface2) 82%, var(--w3a-colors-primary) 18%) 0%,
+      transparent 48%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--w3a-colors-surface) 96%, #fff 4%) 0%,
+      color-mix(in srgb, var(--w3a-colors-colorBackground) 90%, var(--w3a-colors-surface2) 10%) 100%
+    );
+  --security-corner-pattern:
+    linear-gradient(
+      45deg,
+      transparent 47%,
+      color-mix(in srgb, var(--w3a-colors-borderPrimary) 34%, transparent) 48%,
+      color-mix(in srgb, var(--w3a-colors-borderPrimary) 34%, transparent) 52%,
+      transparent 53%
+    ),
+    linear-gradient(
+      -45deg,
+      transparent 47%,
+      color-mix(in srgb, var(--w3a-colors-borderPrimary) 34%, transparent) 48%,
+      color-mix(in srgb, var(--w3a-colors-borderPrimary) 34%, transparent) 52%,
+      transparent 53%
+    );
+  --security-title: var(--fe-text-primary);
+  --security-subtitle: color-mix(in srgb, var(--fe-text-secondary) 92%, var(--fe-text) 8%);
+  --security-link-border: color-mix(in srgb, var(--fe-border) 76%, transparent);
+  --security-link-surface: color-mix(in srgb, var(--w3a-colors-surface) 88%, transparent);
+  --security-link-text: var(--fe-text-primary);
+  --security-link-border-hover: color-mix(in srgb, var(--fe-border-strong) 74%, transparent);
+  --security-link-surface-hover: color-mix(in srgb, var(--w3a-colors-surface2) 86%, transparent);
+  --security-focus-ring: color-mix(in srgb, var(--w3a-colors-primary) 28%, transparent);
+  --security-card-border: color-mix(in srgb, var(--fe-border) 72%, transparent);
+  --security-card-surface:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--w3a-colors-surface) 96%, #fff 4%) 0%,
+      color-mix(in srgb, var(--w3a-colors-surface2) 92%, #fff 8%) 100%
+    );
+  --security-art-border: color-mix(in srgb, var(--fe-border) 68%, transparent);
+  --security-art-surface:
+    radial-gradient(
+      circle at 50% -8%,
+      color-mix(in srgb, var(--w3a-colors-surface2) 76%, var(--w3a-colors-primary) 24%) 0%,
+      transparent 55%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--w3a-colors-surface2) 92%, #fff 8%) 0%,
+      color-mix(in srgb, var(--w3a-colors-surface3) 86%, #fff 14%) 100%
+    );
+  --security-card-title: var(--fe-text-primary);
+  --security-card-copy: color-mix(in srgb, var(--fe-text-secondary) 92%, var(--fe-text) 8%);
 }
 
-[data-w3a-theme="light"] .security-diagrams::before,
-[data-w3a-theme="light"] .security-diagrams::after {
-  opacity: 0.28;
+html[data-w3a-theme="light"] .security-diagrams::before,
+html[data-w3a-theme="light"] .security-diagrams::after {
+  opacity: 0.24;
 }
 
-[data-w3a-theme="light"] .security-diagrams__title {
-  color: #152640;
+html[data-w3a-theme="light"] .security-diagrams__art--dark {
+  opacity: 0;
 }
 
-[data-w3a-theme="light"] .security-diagrams__subtitle {
-  color: rgba(73, 95, 132, 0.94);
-}
-
-[data-w3a-theme="light"] .security-diagrams__learn-more {
-  border-color: rgba(117, 147, 220, 0.44);
-  background: rgba(240, 246, 255, 0.84);
-  color: #173052;
-}
-
-[data-w3a-theme="light"] .security-diagrams__learn-more:hover {
-  background: rgba(232, 240, 255, 0.92);
-  border-color: rgba(98, 130, 211, 0.5);
-  color: #102543;
-}
-
-[data-w3a-theme="light"] .security-diagrams__card {
-  border-color: rgba(143, 163, 212, 0.36);
-  background: linear-gradient(180deg, rgba(252, 255, 255, 0.96) 0%, rgba(243, 249, 255, 0.96) 100%);
-}
-
-[data-w3a-theme="light"] .security-diagrams__art-wrap {
-  border-bottom-color: rgba(151, 171, 218, 0.34);
-  background:
-    radial-gradient(circle at 50% -8%, rgba(130, 155, 219, 0.21) 0%, rgba(130, 155, 219, 0) 55%),
-    linear-gradient(180deg, rgba(232, 239, 255, 0.92) 0%, rgba(223, 232, 250, 0.94) 100%);
-}
-
-[data-w3a-theme="light"] .security-diagrams__body h3 {
-  color: #1a2e4b;
-}
-
-[data-w3a-theme="light"] .security-diagrams__body p {
-  color: rgba(74, 95, 131, 0.93);
+html[data-w3a-theme="light"] .security-diagrams__art--light {
+  opacity: 1;
 }
 
 @media (max-width: 768px) {

@@ -1,5 +1,6 @@
 .navbar-static {
   --navbar-bg: var(--w3a-colors-colorBackground, var(--vp-c-bg));
+  --navbar-surface: var(--w3a-colors-surface, var(--vp-c-bg));
   --navbar-surface2: var(--w3a-colors-surface2, var(--vp-c-bg-alt));
   --navbar-surface3: var(--w3a-colors-surface3, var(--vp-c-bg-alt));
   --navbar-text: var(--w3a-colors-textPrimary, var(--vp-c-text-1));
@@ -10,6 +11,81 @@
   --navbar-primary-hover: var(--w3a-colors-primaryHover, #4b7cd0);
   --navbar-text-button: var(--w3a-colors-textButton, #ffffff);
   --navbar-focus: var(--w3a-colors-focus, #66a3ff);
+  --navbar-dropdown-notch-bg: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--navbar-surface3) 86%, #000 14%) 0%,
+    color-mix(in srgb, var(--navbar-surface2) 90%, #000 10%) 100%
+  );
+  --navbar-dropdown-surface:
+    radial-gradient(
+      125% 160% at 10% -24%,
+      color-mix(in srgb, var(--navbar-surface3) 92%, var(--navbar-primary) 8%) 0%,
+      transparent 44%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--navbar-surface3) 86%, #000 14%) 0%,
+      color-mix(in srgb, var(--navbar-bg) 92%, #000 8%) 100%
+    );
+  --navbar-dropdown-grid:
+    linear-gradient(90deg, color-mix(in srgb, var(--navbar-border) 24%, transparent) 1px, transparent 1px),
+    linear-gradient(0deg, color-mix(in srgb, var(--navbar-border) 20%, transparent) 1px, transparent 1px);
+  --navbar-dropdown-title: color-mix(in srgb, var(--navbar-text) 64%, var(--w3a-colors-textSecondary) 36%);
+  --navbar-dropdown-card-surface:
+    radial-gradient(
+      130% 150% at 10% 0%,
+      color-mix(in srgb, var(--navbar-surface3) 90%, var(--navbar-primary) 10%) 0%,
+      transparent 48%
+    ),
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--navbar-surface3) 84%, #000 16%) 0%,
+      color-mix(in srgb, var(--navbar-surface2) 90%, #000 10%) 100%
+    );
+  --navbar-dropdown-card-surface-hover:
+    radial-gradient(
+      130% 150% at 10% 0%,
+      color-mix(in srgb, var(--navbar-surface3) 86%, var(--navbar-primary) 14%) 0%,
+      transparent 48%
+    ),
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--navbar-surface3) 78%, #000 22%) 0%,
+      color-mix(in srgb, var(--navbar-surface2) 86%, #000 14%) 100%
+    );
+  --navbar-dropdown-card-title: var(--navbar-text);
+  --navbar-dropdown-card-description: color-mix(in srgb, var(--w3a-colors-textSecondary) 90%, var(--navbar-text) 10%);
+  --navbar-dropdown-all-surface: color-mix(in srgb, var(--navbar-surface3) 76%, transparent);
+  --navbar-dropdown-all-surface-hover: color-mix(in srgb, var(--navbar-surface3) 90%, transparent);
+  --navbar-dropdown-all-text: var(--navbar-text);
+  --navbar-mobile-menu-surface:
+    radial-gradient(
+      130% 170% at 10% -26%,
+      color-mix(in srgb, var(--navbar-surface3) 90%, var(--navbar-primary) 10%) 0%,
+      transparent 44%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--navbar-surface3) 84%, #000 16%) 0%,
+      color-mix(in srgb, var(--navbar-bg) 92%, #000 8%) 100%
+    );
+  --navbar-mobile-link-hover-surface: color-mix(in srgb, var(--navbar-surface3) 72%, transparent);
+  --navbar-mobile-section-surface:
+    radial-gradient(
+      130% 155% at 8% 0%,
+      color-mix(in srgb, var(--navbar-surface3) 88%, var(--navbar-primary) 12%) 0%,
+      transparent 48%
+    ),
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--navbar-surface3) 84%, #000 16%) 0%,
+      color-mix(in srgb, var(--navbar-surface2) 90%, #000 10%) 100%
+    );
+  --navbar-mobile-section-title: color-mix(in srgb, var(--w3a-colors-textSecondary) 88%, var(--navbar-text) 12%);
+  --navbar-mobile-subitem-surface: color-mix(in srgb, var(--navbar-surface3) 72%, transparent);
+  --navbar-mobile-subitem-surface-hover: color-mix(in srgb, var(--navbar-surface3) 86%, transparent);
+  --navbar-mobile-subitem-text: var(--navbar-text);
+  --navbar-mobile-subitem-copy: color-mix(in srgb, var(--w3a-colors-textSecondary) 90%, var(--navbar-text) 10%);
   position: fixed;
   top: 0.75rem;
   left: 0;
@@ -89,8 +165,8 @@
 }
 
 .navbar-static__brand:hover {
-  border-color: color-mix(in srgb, var(--navbar-border) 75%, transparent);
-  background: color-mix(in srgb, var(--navbar-surface2) 60%, transparent);
+  border-color: transparent;
+  background: transparent;
 }
 
 .navbar-static__brand .tatchi-logo-icon {
@@ -190,7 +266,7 @@
   height: 24px;
   border-top-left-radius: 7px;
   border: 1px solid color-mix(in srgb, var(--navbar-border) 62%, transparent);
-  background: linear-gradient(145deg, rgba(34, 46, 73, 0.95) 0%, rgba(20, 30, 50, 0.96) 100%);
+  background: var(--navbar-dropdown-notch-bg);
   transform: rotate(45deg);
 }
 
@@ -199,10 +275,7 @@
   overflow: hidden;
   border-radius: 1.48rem;
   border: 1px solid color-mix(in srgb, var(--navbar-border) 58%, transparent);
-  background:
-    radial-gradient(125% 160% at 10% -24%, rgba(93, 133, 245, 0.28) 0%, rgba(93, 133, 245, 0) 44%),
-    radial-gradient(120% 140% at 90% -28%, rgba(98, 185, 172, 0.18) 0%, rgba(98, 185, 172, 0) 43%),
-    linear-gradient(180deg, #10182d 0%, #0a1020 100%);
+  background: var(--navbar-dropdown-surface);
   padding: 0.86rem;
 }
 
@@ -212,9 +285,7 @@
   inset: 0;
   pointer-events: none;
   opacity: 0.42;
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px),
-    linear-gradient(0deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background: var(--navbar-dropdown-grid);
   background-size: 34px 34px;
   mask-image: radial-gradient(circle at 50% 0%, rgba(0, 0, 0, 0.78), transparent 80%);
 }
@@ -266,7 +337,7 @@
   font-weight: 700;
   letter-spacing: 0.01em;
   text-transform: uppercase;
-  color: rgba(196, 210, 240, 0.88);
+  color: var(--navbar-dropdown-title);
 }
 
 .navbar-static__dropdown-grid {
@@ -286,9 +357,7 @@
   gap: 0.32rem;
   border-radius: 0.82rem;
   border: 1px solid color-mix(in srgb, var(--navbar-border) 58%, transparent);
-  background:
-    radial-gradient(130% 150% at 10% 0%, rgba(136, 161, 234, 0.22) 0%, rgba(136, 161, 234, 0) 48%),
-    linear-gradient(165deg, rgba(33, 45, 73, 0.88) 0%, rgba(22, 32, 54, 0.94) 100%);
+  background: var(--navbar-dropdown-card-surface);
   text-decoration: none;
   padding: 0.78rem 0.9rem;
   transition: transform 240ms ease, background 240ms ease, border-color 240ms ease;
@@ -296,22 +365,20 @@
 
 .navbar-static__dropdown-card-title {
   margin: 0;
-  color: #f3f8ff;
+  color: var(--navbar-dropdown-card-title);
   font-weight: 700;
   font-size: 1rem;
 }
 
 .navbar-static__dropdown-card-description {
   margin: 0;
-  color: rgba(191, 206, 237, 0.86);
+  color: var(--navbar-dropdown-card-description);
   font-size: 0.92rem;
   line-height: 1.35;
 }
 
 .navbar-static__dropdown-card:hover {
-  background:
-    radial-gradient(130% 150% at 10% 0%, rgba(150, 173, 241, 0.28) 0%, rgba(150, 173, 241, 0) 48%),
-    linear-gradient(165deg, rgba(41, 55, 87, 0.92) 0%, rgba(27, 38, 62, 0.97) 100%);
+  background: var(--navbar-dropdown-card-surface-hover);
   border-color: color-mix(in srgb, var(--navbar-border-hover) 78%, transparent);
 }
 
@@ -320,74 +387,91 @@
   width: fit-content;
   align-self: flex-start;
   margin-top: 0.74rem;
-  color: #ecf3ff;
+  color: var(--navbar-dropdown-all-text);
   text-decoration: none;
   border-radius: 999px;
   font-weight: 600;
   padding: 0.42rem 0.7rem;
-  background: rgba(30, 45, 74, 0.68);
+  background: var(--navbar-dropdown-all-surface);
   transition: background 200ms ease, color 200ms ease, transform 200ms ease;
 }
 
 .navbar-static__dropdown-all:hover {
-  background: rgba(42, 60, 95, 0.78);
-  color: #f5f9ff;
+  background: var(--navbar-dropdown-all-surface-hover);
+  color: var(--navbar-dropdown-all-text);
 }
 
-[data-w3a-theme="light"] .navbar-static__dropdown-surface::before {
-  background: linear-gradient(145deg, rgba(250, 253, 255, 0.96) 0%, rgba(238, 245, 255, 0.98) 100%);
+html[data-w3a-theme="light"] .navbar-static {
+  --navbar-dropdown-notch-bg: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--navbar-surface) 90%, #fff 10%) 0%,
+    color-mix(in srgb, var(--navbar-surface2) 88%, #fff 12%) 100%
+  );
+  --navbar-dropdown-surface:
+    radial-gradient(
+      130% 165% at 10% -24%,
+      color-mix(in srgb, #ffffff 90%, var(--navbar-primary) 10%) 0%,
+      transparent 44%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--navbar-surface) 86%, #fff 14%) 0%,
+      color-mix(in srgb, var(--navbar-surface2) 82%, #fff 18%) 100%
+    );
+  --navbar-dropdown-grid:
+    linear-gradient(90deg, color-mix(in srgb, var(--navbar-border) 12%, transparent) 1px, transparent 1px),
+    linear-gradient(0deg, color-mix(in srgb, var(--navbar-border) 10%, transparent) 1px, transparent 1px);
+  --navbar-dropdown-title: color-mix(in srgb, var(--w3a-colors-textSecondary) 88%, var(--navbar-text) 12%);
+  --navbar-dropdown-card-surface:
+    radial-gradient(
+      130% 150% at 10% 0%,
+      color-mix(in srgb, #ffffff 92%, var(--navbar-primary) 8%) 0%,
+      transparent 48%
+    ),
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--navbar-surface) 88%, #fff 12%) 0%,
+      color-mix(in srgb, var(--navbar-surface2) 84%, #fff 16%) 100%
+    );
+  --navbar-dropdown-card-surface-hover:
+    radial-gradient(
+      130% 150% at 10% 0%,
+      color-mix(in srgb, #ffffff 90%, var(--navbar-primary) 10%) 0%,
+      transparent 48%
+    ),
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--navbar-surface) 86%, #fff 14%) 0%,
+      color-mix(in srgb, var(--navbar-surface2) 80%, #fff 20%) 100%
+    );
+  --navbar-dropdown-card-title: var(--navbar-text);
+  --navbar-dropdown-card-description: color-mix(in srgb, var(--w3a-colors-textSecondary) 84%, var(--navbar-text) 16%);
+  --navbar-dropdown-all-surface: color-mix(in srgb, #ffffff 84%, var(--navbar-surface2) 16%);
+  --navbar-dropdown-all-surface-hover: color-mix(in srgb, #ffffff 78%, var(--navbar-surface2) 22%);
+  --navbar-dropdown-all-text: var(--navbar-text);
 }
 
-[data-w3a-theme="light"] .navbar-static__dropdown-inner {
-  background:
-    radial-gradient(130% 165% at 10% -24%, rgba(119, 153, 245, 0.24) 0%, rgba(119, 153, 245, 0) 44%),
-    radial-gradient(120% 140% at 90% -30%, rgba(104, 193, 180, 0.17) 0%, rgba(104, 193, 180, 0) 43%),
-    linear-gradient(180deg, #fbfdff 0%, #eef4ff 100%);
+html[data-w3a-theme="light"] .navbar-static__dropdown-inner {
+  border-color: color-mix(in srgb, var(--navbar-border) 30%, transparent);
+  box-shadow: 0 18px 36px -30px color-mix(in srgb, var(--navbar-shadow) 26%, transparent);
 }
 
-[data-w3a-theme="light"] .navbar-static__dropdown-inner::before {
-  opacity: 0.55;
-  background:
-    linear-gradient(90deg, rgba(69, 97, 160, 0.09) 1px, transparent 1px),
-    linear-gradient(0deg, rgba(69, 97, 160, 0.07) 1px, transparent 1px);
+html[data-w3a-theme="light"] .navbar-static__dropdown-card {
+  border-color: color-mix(in srgb, var(--navbar-border) 28%, transparent);
 }
 
-[data-w3a-theme="light"] .navbar-static__dropdown-section + .navbar-static__dropdown-section {
-  border-top-color: color-mix(in srgb, var(--navbar-border) 62%, transparent);
+html[data-w3a-theme="light"] .navbar-static__dropdown-card:hover {
+  border-color: color-mix(in srgb, var(--navbar-border-hover) 44%, transparent);
 }
 
-[data-w3a-theme="light"] .navbar-static__dropdown-title {
-  color: rgba(67, 91, 138, 0.9);
+html[data-w3a-theme="light"] .navbar-static__link:hover {
+  border-color: color-mix(in srgb, var(--navbar-border) 56%, transparent);
+  background: color-mix(in srgb, var(--navbar-surface2) 46%, transparent);
 }
 
-[data-w3a-theme="light"] .navbar-static__dropdown-card {
-  background:
-    radial-gradient(130% 150% at 10% 0%, rgba(153, 181, 247, 0.26) 0%, rgba(153, 181, 247, 0) 48%),
-    linear-gradient(165deg, rgba(255, 255, 255, 0.97) 0%, rgba(243, 248, 255, 0.98) 100%);
-}
-
-[data-w3a-theme="light"] .navbar-static__dropdown-card-title {
-  color: #203049;
-}
-
-[data-w3a-theme="light"] .navbar-static__dropdown-card-description {
-  color: rgba(84, 102, 135, 0.94);
-}
-
-[data-w3a-theme="light"] .navbar-static__dropdown-card:hover {
-  background:
-    radial-gradient(130% 150% at 10% 0%, rgba(153, 181, 247, 0.32) 0%, rgba(153, 181, 247, 0) 48%),
-    linear-gradient(165deg, rgba(255, 255, 255, 0.98) 0%, rgba(236, 244, 255, 0.99) 100%);
-}
-
-[data-w3a-theme="light"] .navbar-static__dropdown-all {
-  color: #24406a;
-  background: rgba(234, 242, 255, 0.86);
-}
-
-[data-w3a-theme="light"] .navbar-static__dropdown-all:hover {
-  background: rgba(222, 235, 255, 0.96);
-  color: #1b355f;
+html[data-w3a-theme="light"] .navbar-static__link--button.is-active {
+  border-color: color-mix(in srgb, var(--navbar-border) 62%, transparent);
+  background: color-mix(in srgb, var(--navbar-surface2) 58%, transparent);
 }
 
 .navbar-static__actions {
@@ -541,12 +625,10 @@
     width: min(1420px, calc(100vw - 2rem));
     margin-top: 0.65rem;
     border-radius: 1rem;
-    background:
-      radial-gradient(130% 170% at 10% -26%, rgba(89, 131, 244, 0.24) 0%, rgba(89, 131, 244, 0) 44%),
-      linear-gradient(180deg, rgba(16, 24, 45, 0.96) 0%, rgba(11, 17, 31, 0.98) 100%);
+    background: var(--navbar-mobile-menu-surface);
     box-shadow:
-      0 28px 58px -36px rgba(2, 8, 24, 0.95),
-      inset 0 1px 0 rgba(194, 210, 255, 0.12);
+      0 28px 58px -36px color-mix(in srgb, var(--navbar-shadow) 78%, transparent),
+      inset 0 1px 0 color-mix(in srgb, var(--navbar-border) 36%, transparent);
     padding: 0.75rem;
     display: grid;
     gap: 0.25rem;
@@ -584,7 +666,7 @@
   }
 
   .navbar-static__mobile-link:hover {
-    background: rgba(39, 55, 88, 0.72);
+    background: var(--navbar-mobile-link-hover-surface);
   }
 
   .navbar-static__mobile-submenu {
@@ -601,10 +683,8 @@
     display: grid;
     gap: 0.35rem;
     border-radius: 0.8rem;
-    background:
-      radial-gradient(130% 155% at 8% 0%, rgba(131, 157, 233, 0.2) 0%, rgba(131, 157, 233, 0) 48%),
-      linear-gradient(165deg, rgba(32, 45, 74, 0.88) 0%, rgba(21, 32, 54, 0.94) 100%);
-    box-shadow: inset 0 1px 0 rgba(205, 220, 255, 0.12);
+    background: var(--navbar-mobile-section-surface);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--navbar-border) 30%, transparent);
     padding: 0.55rem;
   }
 
@@ -614,7 +694,7 @@
     font-weight: 700;
     letter-spacing: 0.01em;
     text-transform: uppercase;
-    color: rgba(189, 205, 237, 0.9);
+    color: var(--navbar-mobile-section-title);
     padding: 0.2rem 0.4rem;
   }
 
@@ -624,18 +704,18 @@
     border-radius: 0.65rem;
     padding: 0.45rem 0.55rem;
     text-decoration: none;
-    color: #f2f7ff;
-    background: rgba(24, 36, 60, 0.52);
+    color: var(--navbar-mobile-subitem-text);
+    background: var(--navbar-mobile-subitem-surface);
   }
 
   .navbar-static__mobile-subitem:hover {
-    background: rgba(37, 53, 84, 0.7);
+    background: var(--navbar-mobile-subitem-surface-hover);
   }
 
   .navbar-static__mobile-subitem > small {
     font-size: 0.82rem;
     line-height: 1.25;
-    color: rgba(190, 205, 236, 0.86);
+    color: var(--navbar-mobile-subitem-copy);
   }
 
   .navbar-static__mobile-cta-row {
@@ -648,41 +728,45 @@
     flex: 1;
   }
 
-  [data-w3a-theme="light"] .navbar-static__mobile-menu {
-    background:
-      radial-gradient(130% 170% at 10% -26%, rgba(122, 155, 245, 0.24) 0%, rgba(122, 155, 245, 0) 44%),
-      linear-gradient(180deg, rgba(250, 253, 255, 0.98) 0%, rgba(238, 245, 255, 0.99) 100%);
+  html[data-w3a-theme="light"] .navbar-static {
+    --navbar-mobile-menu-surface:
+      radial-gradient(
+        130% 170% at 10% -26%,
+        color-mix(in srgb, var(--navbar-surface2) 92%, var(--navbar-primary) 8%) 0%,
+        transparent 44%
+      ),
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--navbar-surface) 96%, #fff 4%) 0%,
+        color-mix(in srgb, var(--navbar-surface2) 92%, #fff 8%) 100%
+      );
+    --navbar-mobile-link-hover-surface: color-mix(in srgb, var(--navbar-surface2) 80%, transparent);
+    --navbar-mobile-section-surface:
+      radial-gradient(
+        130% 155% at 8% 0%,
+        color-mix(in srgb, var(--navbar-surface2) 90%, var(--navbar-primary) 10%) 0%,
+        transparent 48%
+      ),
+      linear-gradient(
+        165deg,
+        color-mix(in srgb, var(--navbar-surface) 96%, #fff 4%) 0%,
+        color-mix(in srgb, var(--navbar-surface2) 92%, #fff 8%) 100%
+      );
+    --navbar-mobile-section-title: color-mix(in srgb, var(--w3a-colors-textSecondary) 88%, var(--navbar-text) 12%);
+    --navbar-mobile-subitem-text: var(--navbar-text);
+    --navbar-mobile-subitem-surface: color-mix(in srgb, var(--navbar-surface2) 78%, transparent);
+    --navbar-mobile-subitem-surface-hover: color-mix(in srgb, var(--navbar-surface2) 86%, transparent);
+    --navbar-mobile-subitem-copy: color-mix(in srgb, var(--w3a-colors-textSecondary) 92%, var(--navbar-text) 8%);
+  }
+
+  html[data-w3a-theme="light"] .navbar-static__mobile-menu {
     box-shadow:
-      0 28px 58px -42px rgba(25, 45, 88, 0.42),
-      inset 0 1px 0 rgba(255, 255, 255, 0.92);
+      0 22px 42px -34px color-mix(in srgb, var(--navbar-shadow) 34%, transparent),
+      inset 0 1px 0 color-mix(in srgb, #ffffff 72%, transparent);
   }
 
-  [data-w3a-theme="light"] .navbar-static__mobile-link:hover {
-    background: rgba(228, 238, 255, 0.86);
-  }
-
-  [data-w3a-theme="light"] .navbar-static__mobile-section {
-    background:
-      radial-gradient(130% 155% at 8% 0%, rgba(157, 183, 247, 0.24) 0%, rgba(157, 183, 247, 0) 48%),
-      linear-gradient(165deg, rgba(255, 255, 255, 0.97) 0%, rgba(243, 248, 255, 0.98) 100%);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  }
-
-  [data-w3a-theme="light"] .navbar-static__mobile-section-title {
-    color: rgba(73, 96, 143, 0.92);
-  }
-
-  [data-w3a-theme="light"] .navbar-static__mobile-subitem {
-    color: #20324e;
-    background: rgba(239, 246, 255, 0.86);
-  }
-
-  [data-w3a-theme="light"] .navbar-static__mobile-subitem:hover {
-    background: rgba(228, 239, 255, 0.96);
-  }
-
-  [data-w3a-theme="light"] .navbar-static__mobile-subitem > small {
-    color: rgba(84, 102, 135, 0.92);
+  html[data-w3a-theme="light"] .navbar-static__mobile-section {
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 62%, transparent);
   }
 }
 

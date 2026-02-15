@@ -1,8 +1,7 @@
 import { useState } from 'react'
-import { LibraryBig, MessageSquareMore } from 'lucide-react'
 import { TouchIcon, useTheme } from '@tatchi-xyz/sdk/react'
-import { ArrowRightAnim } from './ArrowRightAnim'
 import CopyButton from './CopyButton'
+import { ArrowRightAnim } from './ArrowRightAnim'
 import { useSiteRouter } from '../hooks/useSiteRouter'
 import { mobilePressHandlers } from '../utils/press'
 
@@ -69,9 +68,8 @@ export function HomeHero(): React.JSX.Element {
             onClick={getStartedProps.onClick}
             aria-label="Get started with Tatchi documentation"
           >
-            <LibraryBig size={24} className="cta-icon" aria-hidden="true" />
             <span>Get Started</span>
-            <ArrowRightAnim className="cta-icon" size={16} />
+            <ArrowRightAnim size={16} />
           </a>
           <a
             className="cta-button cta-secondary cta-3"
@@ -79,9 +77,8 @@ export function HomeHero(): React.JSX.Element {
             onClick={contactSalesProps.onClick}
             aria-label="Contact sales"
           >
-            <MessageSquareMore size={22} className="cta-icon" aria-hidden="true" />
             <span>Contact Sales</span>
-            <ArrowRightAnim className="cta-icon" size={16} />
+            <ArrowRightAnim size={16} />
           </a>
         </div>
       </section>

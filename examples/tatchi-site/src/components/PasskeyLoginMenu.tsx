@@ -177,9 +177,6 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
         toast.success(`Session JWT minted: ${short}…`, { id: 'jwt' });
         console.log('[tatchi-site] JWT returned:', result.jwt);
       }
-      if (result.nearAccountId) {
-        await ensureThresholdSignersForAccount(result.nearAccountId);
-      }
       props.onLoggedIn?.(result?.nearAccountId);
     }
     return result;

@@ -1,33 +1,72 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 260" role="img" aria-label="Hardware isolated self custody diagram">
   <defs>
-    <linearGradient id="custodyBg" x1="0" y1="0" x2="0" y2="260" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#3c435b" stop-opacity="0.42"/>
-      <stop offset="1" stop-color="#2a3147" stop-opacity="0.22"/>
+    <linearGradient id="custody-top" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f2f6ff" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#f2f6ff" stop-opacity="0.02"/>
+    </linearGradient>
+    <linearGradient id="custody-side" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f2f6ff" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#f2f6ff" stop-opacity="0.01"/>
     </linearGradient>
   </defs>
-  <rect width="760" height="260" fill="url(#custodyBg)"/>
-  <g stroke="#dbe2f5" stroke-opacity="0.18" stroke-width="1">
-    <path d="M0 250L380 30L760 250"/>
-    <path d="M0 34L380 250L760 34"/>
-    <path d="M55 260L380 70L705 260"/>
-    <path d="M116 260L380 108L644 260"/>
-  </g>
-  <g stroke="#e7ecfa" stroke-opacity="0.36" stroke-width="1.2">
-    <path d="M270 86L340 46L410 86L340 126Z"/>
-    <path d="M270 86V162L340 202V126"/>
-    <path d="M410 86V162L340 202"/>
-    <path d="M340 46V126L410 162"/>
-    <path d="M340 126L270 162"/>
-    <path d="M340 46L270 86V162L340 202L410 162V86Z"/>
-  </g>
-  <g stroke="#f0f4ff" stroke-opacity="0.22" stroke-width="1">
-    <path d="M228 70L340 8L452 70V178L340 242L228 178Z"/>
-    <path d="M228 70L340 134L452 70"/>
-    <path d="M340 8V134V242"/>
-  </g>
-  <g stroke="#f5f8ff" stroke-opacity="0.5" stroke-width="1.4">
-    <path d="M332 109L340 103L348 109"/>
-    <path d="M332 116L340 122L348 116"/>
-    <path d="M340 103V122"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <g stroke="#dfe7ff" stroke-opacity="0.13" stroke-width="1">
+      <path d="M12 22L328 208"/>
+      <path d="M152 0L388 140"/>
+      <path d="M326 0L520 112"/>
+      <path d="M580 0L286 178"/>
+      <path d="M748 14L398 228"/>
+      <path d="M110 260L348 122"/>
+      <path d="M250 260L430 154"/>
+      <path d="M448 260L316 182"/>
+      <path d="M652 260L390 108"/>
+      <path d="M142 244H538"/>
+    </g>
+
+    <g stroke="#ebf2ff" stroke-opacity="0.35" stroke-width="1.2">
+      <path d="M340 32L454 96V190L340 244L226 190V96Z"/>
+      <path d="M340 32V136"/>
+      <path d="M454 96L340 164L226 96"/>
+      <path d="M340 164V244"/>
+      <path d="M340 136L454 190"/>
+      <path d="M340 136L226 190"/>
+    </g>
+
+    <g fill="url(#custody-top)" stroke="none" opacity="0.9">
+      <path d="M340 68L412 110L340 152L268 110Z"/>
+    </g>
+    <g fill="url(#custody-side)" stroke="none" opacity="0.86">
+      <path d="M268 110L340 152V208L268 170Z"/>
+      <path d="M412 110L340 152V208L412 170Z"/>
+    </g>
+
+    <g stroke="#f4f8ff" stroke-opacity="0.58" stroke-width="1.3">
+      <path d="M340 68L412 110V170L340 208L268 170V110Z"/>
+      <path d="M340 68V130"/>
+      <path d="M412 110L340 152L268 110"/>
+      <path d="M340 152V208"/>
+      <path d="M340 130L412 170"/>
+      <path d="M340 130L268 170"/>
+    </g>
+
+    <g stroke="#eef4ff" stroke-opacity="0.42" stroke-width="1.05">
+      <path d="M340 32L340 68"/>
+      <path d="M454 96L412 110"/>
+      <path d="M454 190L412 170"/>
+      <path d="M340 244L340 208"/>
+      <path d="M226 190L268 170"/>
+      <path d="M226 96L268 110"/>
+      <path d="M170 164L340 98L510 164"/>
+      <path d="M196 196L340 120L484 196"/>
+    </g>
+
+    <g fill="#f4f8ff" stroke="none" opacity="0.78">
+      <circle cx="340" cy="32" r="2"/>
+      <circle cx="454" cy="96" r="2"/>
+      <circle cx="454" cy="190" r="2"/>
+      <circle cx="340" cy="244" r="2"/>
+      <circle cx="226" cy="190" r="2"/>
+      <circle cx="226" cy="96" r="2"/>
+    </g>
   </g>
 </svg>

@@ -1,110 +1,107 @@
-# Dashboard Requirements Plan
+# Dashboard Requirements Plan (Wallet-as-a-Service)
 
-## Server-side requirements
+## Objective
+Build a control-plane dashboard at `/dashboard` for teams running embedded threshold wallets, with operational controls for wallet lifecycle, authorization policy, app security, and integrations.
 
-### 1) Wallets data and query APIs
-- Provide paginated wallet listing APIs with: wallet ID, address, chain, owner/user ID, policy ID, balance, status, and timestamps.
-- Support high-cardinality filtering and sorting: chain, status, policy, key quorum, wallet type (EOA/smart), and last activity.
-- Provide text search across wallet address, wallet ID, user ID, and external reference ID.
-- Search and list performance target: p95 < 500ms for standard org-level filters.
+## Personas
+- Product admin: configures wallet behavior and app-level settings.
+- Security admin: owns policy, key export controls, and approvals.
+- Developer/platform engineer: manages API keys, webhooks, and environments.
+- Support/ops: inspects wallet state, transactions, and delivery failures.
 
-### 2) Policy engine and authorization
-- Store versioned policy definitions for threshold wallets.
-- Enforce policy constraints at transaction-evaluation time:
-  - allowed actions (transfer/swap/approve/contract call/key export)
-  - allowed chains and environments
-  - transaction and daily value limits
-  - contract + method allowlists
-  - approval requirements (MFA/admin/quorum)
-- Support policy simulation endpoint that evaluates a proposed transaction without execution.
-- Audit all policy CRUD and policy assignment changes.
+## Information architecture
+- Wallet infrastructure
+- User management
+- Security and policy
+- Integrations and automation
+- Environment settings (Dev, Staging, Prod)
 
-### 3) Gas sponsorship and smart wallet controls
-- Expose config APIs for sponsorship toggles (global, environment, policy-level).
-- Track sponsorship budgets and usage per chain/app/environment.
-- Support smart wallet feature flags and deployment configuration.
-- Return spend telemetry and failure diagnostics for sponsored transactions.
+## Functional requirements
 
-### 4) App settings and security configuration
-- Persist per-environment app settings:
-  - allowed origins/domains
-  - httpOnly cookie mode
-  - JWT issuer/audience/signing key metadata
-  - session TTL and refresh policies
-- Provide secure validation for origins/domains and wildcard patterns.
-- Support optional IP allowlists and admin SSO metadata (OIDC/SAML).
+### 1) User wallets list
+- Paginated wallets table with columns: wallet ID, address, chain type, owner/user, policy, balance, status, created/updated timestamps.
+- Summary KPI cards: total assets, total wallets, funded wallets, activity in last 24h/7d.
+- Row actions: view details, view activity, assign policy, freeze/unfreeze (if supported).
+- Empty/loading/error states with retry.
 
-### 5) Key export controls
-- Enforce export policy mode: disabled, approval required, allowed with restrictions.
-- Restrict exports by role, chain, wallet type, and environment.
-- Require step-up checks (MFA + approval reason) when configured.
-- Record immutable export audit events with actor, target wallet, and approval path.
+### 2) Search for user wallets
+- Search by wallet address, wallet ID, user ID, and external reference ID.
+- Filter by chain, policy, key quorum, wallet type (EOA/smart), status, and date range.
+- Sort by balance, last activity, and creation time.
+- URL-synced filter state for shareable views.
 
-### 6) API key management
-- Create/revoke/rotate API keys with scopes and environment restrictions.
-- Store key metadata: creator, last used, allowed IP ranges, status.
-- Return secret only once at creation time; never re-expose plaintext secret.
-- Provide stale key detection and usage anomaly signals.
+### 3) Policy engine (threshold wallet actions + chains)
+- Policy model supports:
+  - Allowed actions: transfer, swap, approve, contract call, key export.
+  - Allowed chains/networks by environment.
+  - Limits: per tx, per day, per policy segment.
+  - Contract/method allowlists and deny-lists.
+  - Approval rules: MFA, admin approval, or signer quorum requirements.
+- Policy simulation mode to evaluate a proposed action without execution.
+- Policy versioning, staged rollout, and rollback.
+- Full audit trail for policy create/update/publish/assign events.
 
-### 7) Webhooks platform
-- Support event subscriptions for wallet, policy, auth, and transaction lifecycle events.
-- Sign webhook payloads with per-endpoint secrets.
-- Implement retry with exponential backoff, dead-letter handling, and replay.
-- Provide delivery log APIs with status, attempts, and response payload excerpts.
+### 4) Gas sponsorship and smart wallets
+- Toggle gas sponsorship at org, environment, policy, and wallet segment levels.
+- Budget and quota controls by chain and period.
+- Smart wallet/AA controls (when enabled): account type, paymaster mode, fallback behavior.
+- Telemetry: sponsored tx count, spend, failures, and budget threshold alerts.
 
-### 8) RBAC, auditability, and observability
-- RBAC roles: Owner, Admin, Security Reviewer, Analyst, Read-only.
-- Enforce least-privilege authorization on all write operations.
-- Maintain immutable audit logs for all sensitive changes.
-- Provide operational telemetry: API latency, signing latency, webhook failure rate, policy enforcement errors.
+### 5) App settings (origins/domains, cookies, JWT)
+- Environment-scoped app settings panel:
+  - Allowed origins/domains with strict validation.
+  - Cookie mode (including `HttpOnly`, `Secure`, `SameSite`).
+  - JWT settings: issuer, audience, key IDs, token TTL/refresh TTL.
+- Change guardrails for risky settings (warnings, confirmation, optional approval).
+- Optional IP allowlist and SSO metadata fields.
 
-## Frontend requirements
+### 6) Export keys settings
+- Export policy modes:
+  - Disabled
+  - Approval required
+  - Allowed with scoped constraints
+- Constraints by role, chain, wallet type, and environment.
+- Step-up requirements (MFA + reason) for export actions.
+- Immutable export log: who, what, when, why, approval chain.
 
-### 1) Wallets list UX
-- Render a wallet table with key columns: wallet, chain, owner, policy, balance, and status.
-- Include KPI cards: total assets, wallet count, funded wallets, and volume summary.
-- Provide empty, loading, and error states for all table views.
-- Support row actions: view details, freeze/unfreeze, reassign policy, export activity.
+### 7) API key management
+- Create/revoke/rotate API keys with scoped permissions.
+- Keys scoped by environment and optional IP restrictions.
+- Secret visible once at creation only; never retrievable in plaintext.
+- Usage analytics: last used, endpoint distribution, anomaly flags.
 
-### 2) Search and filtering UX
-- Single search field for wallet address/ID/user ID.
-- Filter controls for chain, policy, key quorum, wallet type, status, and date range.
-- Support saved views and URL-synced filter state.
-- Preserve state across refresh/navigation where possible.
+### 8) Webhooks
+- Webhook endpoints with event subscriptions (wallet, policy, auth, tx lifecycle).
+- Signed payloads with rotating secrets.
+- Retry strategy with backoff and dead-letter queue handling.
+- Delivery logs with request/response metadata and replay action.
 
-### 3) Policy management UI
-- Policy list page with status, scope, and last modified metadata.
-- Policy editor with explicit sections for actions, chain rules, limits, and approvals.
-- Simulation panel to test sample transactions before publish.
-- Change history and rollback affordance on each policy version.
+## Non-functional requirements
+- Security: least-privilege RBAC, immutable audit logs, encryption at rest/in transit.
+- Reliability: p95 list/search latency < 500ms at target org scale.
+- Compliance readiness: evidence-friendly logs and deterministic change history.
+- Accessibility: keyboard navigation and semantic labels for key controls.
+- Responsive behavior: desktop-first with functional mobile fallback.
 
-### 4) Gas sponsorship and smart wallet UI
-- Dedicated settings panel for sponsorship toggles and budget controls.
-- Smart wallet section for deployment mode and account abstraction config.
-- Show usage charts and warnings for budget exhaustion/failures.
+## Suggested API surfaces
+- `GET /wallets`, `GET /wallets/:id`
+- `GET /wallets/search`
+- `GET/POST/PATCH /policies`, `POST /policies/:id/simulate`, `POST /policies/:id/publish`
+- `GET/PATCH /settings/app`, `GET/PATCH /settings/security`
+- `GET/POST/PATCH /gas-sponsorship`, `GET/POST/PATCH /smart-wallets`
+- `GET/POST /key-exports`, `POST /key-exports/:id/approve`
+- `GET/POST/DELETE /api-keys`, `POST /api-keys/:id/rotate`
+- `GET/POST/PATCH/DELETE /webhooks`, `GET /webhooks/:id/deliveries`, `POST /webhooks/:id/replay`
 
-### 5) App settings UI
-- Environment switcher (Dev/Staging/Prod) with clearly separated configuration context.
-- App settings forms for origins/domains, cookies, JWT fields, and session policy.
-- Validation/error messaging for risky settings (e.g., overly broad origin rules).
+## Delivery plan
+- Phase 1 (MVP): wallets list/search, baseline policy controls, app settings core, API keys, webhooks basics.
+- Phase 2: policy simulation/versioning, gas sponsorship budgets, smart wallet controls, key export approvals.
+- Phase 3: advanced governance (RBAC refinements, staged rollouts, SSO, anomaly detection, deeper observability).
 
-### 6) Export key settings UI
-- Clear export mode selector with risk labels.
-- Approval workflow views for pending export requests.
-- Detailed export activity log with filters and event drill-down.
-
-### 7) API key management UI
-- Key inventory page showing scope, owner, created date, last used, and status.
-- Key creation modal with scope selection and one-time secret reveal UX.
-- Rotation/revocation actions with confirmation and impact messaging.
-
-### 8) Webhooks UI
-- Endpoint list with active/inactive status and event subscriptions.
-- Endpoint editor for URL, signing secret, and retry preferences.
-- Delivery logs table with inspect/replay actions.
-
-### 9) Cross-cutting frontend expectations
-- Responsive dashboard layout for desktop and laptop widths first, then mobile fallback.
-- Role-aware UI states (hide or disable restricted actions based on RBAC grants).
-- Consistent patterns for loading, validation, toasts, and destructive confirmations.
-- Accessible keyboard navigation and semantic labels for all critical controls.
+## Acceptance criteria
+- Pricing CTAs route users into `/dashboard`.
+- Admin can list/search wallets and filter by chain/policy/status.
+- Policy engine can enforce action+chain constraints for threshold wallets.
+- Gas sponsorship and smart wallet toggles affect runtime behavior and telemetry.
+- Security settings (origins/cookies/JWT) are environment-specific and validated.
+- Key export, API key, and webhook features include audit-friendly logs.

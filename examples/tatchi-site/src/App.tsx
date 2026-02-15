@@ -2,8 +2,6 @@ import React from 'react';
 import { TatchiPasskeyProvider } from '@tatchi-xyz/sdk/react/provider';
 
 import { HomePage } from './pages/HomePage';
-import { ProductsPage } from './pages/ProductsPage';
-import { SolutionsPage } from './pages/SolutionsPage';
 import { PricingPage } from './pages/PricingPage';
 import { CompanyPage } from './pages/CompanyPage';
 import { ContactPage } from './pages/ContactPage';
@@ -50,10 +48,6 @@ export const App: React.FC = () => {
     switch (pathname) {
       case '/':
         return <HomePage />
-      case '/products':
-        return <ProductsPage />
-      case '/solutions':
-        return <SolutionsPage />
       case '/pricing':
         return <PricingPage />
       case '/company':

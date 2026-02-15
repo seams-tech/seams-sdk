@@ -1,5 +1,6 @@
-import { ArrowRight, LifeBuoy, Rocket } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import Github from './icons/Github'
+import { ArrowRightAnim } from './ArrowRightAnim'
 import { useSiteRouter } from '../hooks/useSiteRouter'
 
 export function FinalCTA(): React.JSX.Element {
@@ -18,14 +19,12 @@ export function FinalCTA(): React.JSX.Element {
       </div>
       <div className="final-cta__actions">
         <a className="final-cta__button final-cta__button--solid" href={getStartedProps.href} onClick={getStartedProps.onClick}>
-          <Rocket size={16} aria-hidden />
           <span>Get Started</span>
-          <ArrowRight size={16} aria-hidden />
+          <ArrowRightAnim size={16} />
         </a>
         <a className="final-cta__button final-cta__button--outline" href={contactProps.href} onClick={contactProps.onClick}>
-          <LifeBuoy size={16} aria-hidden />
           <span>Contact Sales</span>
-          <ArrowRight size={16} aria-hidden />
+          <ArrowRightAnim size={16} />
         </a>
         <a
           className="final-cta__button final-cta__button--ghost"

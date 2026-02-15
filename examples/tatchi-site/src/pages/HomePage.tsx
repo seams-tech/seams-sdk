@@ -3,7 +3,6 @@ import { CredibilityBands } from '../components/CredibilityBands'
 import { FinalCTA } from '../components/FinalCTA'
 import { Footer } from '../components/Footer'
 import { HomeHero } from '../components/HomeHero'
-import NearLogoBg from '../components/NearLogoBg'
 import NavbarStatic from '../components/Navbar/NavbarStatic'
 import { ProductCards } from '../components/ProductCards'
 import { SecurityProofStrip } from '../components/SecurityProofStrip'
@@ -22,7 +21,6 @@ const LazyPasskeySection: React.FC = () => {
   const show = useRevealOnIdle()
   return (
     <div className="layout-column-right">
-      <NearLogoBg />
       <div className="constrained-column">
         {show ? (
           <React.Suspense fallback={<SectionPlaceholder />}>

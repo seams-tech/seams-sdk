@@ -25,11 +25,15 @@
 }
 
 .stripe-arrow:hover > .HoverArrow .HoverArrow__linePath,
-.cta-3:hover .stripe-arrow > .HoverArrow .HoverArrow__linePath {
+.cta-3:hover .stripe-arrow > .HoverArrow .HoverArrow__linePath,
+.final-cta__button:hover .stripe-arrow > .HoverArrow .HoverArrow__linePath,
+.navbar-static__pill:hover .stripe-arrow > .HoverArrow .HoverArrow__linePath {
   opacity: 1;
 }
 
 .stripe-arrow:hover > .HoverArrow .HoverArrow__tipPath,
-.cta-3:hover .stripe-arrow > .HoverArrow .HoverArrow__tipPath {
+.cta-3:hover .stripe-arrow > .HoverArrow .HoverArrow__tipPath,
+.final-cta__button:hover .stripe-arrow > .HoverArrow .HoverArrow__tipPath,
+.navbar-static__pill:hover .stripe-arrow > .HoverArrow .HoverArrow__tipPath {
   transform: translateX(3px);
 }

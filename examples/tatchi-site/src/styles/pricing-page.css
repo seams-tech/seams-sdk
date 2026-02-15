@@ -11,6 +11,7 @@
   font-family: var(--fe-font-sans, "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
   background: transparent;
   padding: 72px clamp(20px, 4vw, 56px) 96px;
+  margin-top: 4rem;
 }
 
 .pricing-page *,

@@ -8,9 +8,18 @@ function isModifiedClick(e: React.MouseEvent<any>): boolean {
 }
 
 function navigateInternal(href: string): void {
-  if (window.location.pathname + window.location.search + window.location.hash === href) return
+  const currentHref = window.location.pathname + window.location.search + window.location.hash
+  const target = new URL(href, window.location.origin)
+
+  if (currentHref === href) {
+    // Allow same-route nav clicks (for routes like /pricing) to reset scroll.
+    if (!target.hash) window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    return
+  }
+
   window.history.pushState({}, '', href)
   window.dispatchEvent(new Event('site:navigate'))
+  if (!target.hash) window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
 }
 
 export function useSiteRouter(): {
@@ -48,4 +57,3 @@ export function useSiteRouter(): {
 }
 
 export default useSiteRouter
-

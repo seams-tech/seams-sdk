@@ -1,38 +1,48 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 260" role="img" aria-label="Battle tested at scale workflow diagram">
   <defs>
-    <linearGradient id="scaleBg" x1="0" y1="0" x2="0" y2="260" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#3a4158" stop-opacity="0.36"/>
-      <stop offset="1" stop-color="#283045" stop-opacity="0.18"/>
+    <linearGradient id="scale-node" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f1f5ff" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#f1f5ff" stop-opacity="0.03"/>
     </linearGradient>
   </defs>
-  <rect width="760" height="260" fill="url(#scaleBg)"/>
-  <g stroke="#dbe2f5" stroke-opacity="0.16" stroke-width="1">
-    <path d="M0 84H760"/>
-    <path d="M0 130H760"/>
-    <path d="M0 176H760"/>
-    <path d="M80 0V260"/>
-    <path d="M180 0V260"/>
-    <path d="M280 0V260"/>
-    <path d="M380 0V260"/>
-    <path d="M480 0V260"/>
-    <path d="M580 0V260"/>
-    <path d="M680 0V260"/>
-  </g>
-  <g stroke="#edf3ff" stroke-opacity="0.36" stroke-width="1.6" fill="none">
-    <path d="M30 146H110V134H205V146H290V196H338V188H420V126H515V32H690V16"/>
-    <path d="M420 188H505V206H604V186H690"/>
-    <path d="M190 92H245V110H290V126"/>
-  </g>
-  <g fill="#f5f8ff" fill-opacity="0.18" stroke="#eef3ff" stroke-opacity="0.4">
-    <rect x="70" y="133" width="86" height="24" rx="4"/>
-    <rect x="180" y="86" width="88" height="24" rx="4"/>
-    <rect x="180" y="132" width="88" height="24" rx="4"/>
-    <rect x="180" y="178" width="88" height="24" rx="4"/>
-    <rect x="338" y="178" width="90" height="34" rx="4"/>
-    <rect x="500" y="20" width="90" height="24" rx="4"/>
-    <rect x="604" y="10" width="92" height="24" rx="4"/>
-    <rect x="464" y="196" width="82" height="24" rx="4"/>
-    <rect x="548" y="196" width="82" height="24" rx="4"/>
-    <rect x="548" y="230" width="82" height="20" rx="4"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <g stroke="#dfe8fe" stroke-opacity="0.12" stroke-width="1">
+      <path d="M18 12V138C18 142 22 146 26 146H80"/>
+      <path d="M740 0V34C740 38 736 42 732 42H644"/>
+      <path d="M740 260V208C740 204 736 200 732 200H646"/>
+      <path d="M74 260V220"/>
+      <path d="M212 260V206"/>
+      <path d="M350 260V190"/>
+      <path d="M488 260V166"/>
+      <path d="M626 260V60"/>
+    </g>
+
+    <g stroke="#edf3ff" stroke-opacity="0.4" stroke-width="1.45">
+      <path d="M80 146H166V124H236"/>
+      <path d="M166 146H236"/>
+      <path d="M166 168H236"/>
+      <path d="M236 124V94H286"/>
+      <path d="M236 146H332C338 146 342 150 342 156V186C342 192 346 196 352 196H396"/>
+      <path d="M396 196H486C492 196 496 192 496 186V66C496 60 500 56 506 56H560"/>
+      <path d="M396 196H526C532 196 536 200 536 206V214H608"/>
+      <path d="M536 206V174C536 168 540 164 546 164H608"/>
+      <path d="M536 206V236H608"/>
+      <path d="M560 56H678V18H740"/>
+      <path d="M608 164H700"/>
+      <path d="M608 214H700"/>
+      <path d="M608 236H700"/>
+    </g>
+
+    <g fill="url(#scale-node)" stroke="#f0f5ff" stroke-opacity="0.38" stroke-width="1.15">
+      <rect x="80" y="134" width="86" height="24" rx="5"/>
+      <rect x="166" y="82" width="88" height="22" rx="5"/>
+      <rect x="166" y="122" width="88" height="22" rx="5"/>
+      <rect x="166" y="162" width="88" height="22" rx="5"/>
+      <rect x="332" y="180" width="92" height="30" rx="5"/>
+      <rect x="548" y="44" width="88" height="22" rx="5"/>
+      <rect x="608" y="152" width="92" height="22" rx="5"/>
+      <rect x="608" y="202" width="92" height="22" rx="5"/>
+      <rect x="608" y="230" width="92" height="14" rx="5"/>
+    </g>
   </g>
 </svg>

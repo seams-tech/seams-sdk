@@ -1,5 +1,4 @@
 @import './layout.css';
-@import './components/DemoChainsigs/DemoChainsigs.css';
 @import './components/DemoPage.css';
 @import './components/PasskeyLoginMenu.css';
 @import './components/GlassBorder.css';
@@ -12,6 +11,7 @@
 @import './components/Navbar/Navbar.css';
 @import './components/Carousel2/CarouselStyles.css';
 @import './styles/site-pages.css';
+@import './styles/contact-page.css';
 @import './styles/pricing-page.css';
 @import './styles/dashboard-page.css';
 @import './styles/security-diagrams.css';
@@ -94,10 +94,24 @@ textarea {
 
 /* App background: use themed gradient slot (backgroundGradient4) */
 html[data-w3a-theme="light"] {
-  background-color: #ffffff; /* fallback for non-OKLCH */
+  background-color: #f3f5f8; /* fallback for non-OKLCH */
+  background-image:
+    radial-gradient(
+      120% 120% at 50% -22%,
+      color-mix(in srgb, var(--w3a-colors-surface2) 94%, var(--w3a-colors-primary) 6%) 0%,
+      transparent 56%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--w3a-colors-surface) 96%, #fff 4%) 0%,
+      color-mix(in srgb, var(--w3a-colors-colorBackground) 92%, var(--w3a-colors-surface2) 8%) 100%
+    );
 }
 html[data-w3a-theme="dark"] {
-  background-color: #0b1220; /* fallback for non-OKLCH */
+  background-color: #171b22; /* fallback for non-OKLCH */
+  background-image:
+    radial-gradient(120% 120% at 50% -18%, #2a2f38 0%, transparent 54%),
+    linear-gradient(180deg, #171b22 0%, #12161d 100%);
 }
 /* Let the HTML gradient show; avoid body paint */
 html[data-w3a-theme] body {

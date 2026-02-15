@@ -15,13 +15,11 @@
     "@tatchi-xyz/sdk": "workspace:*",
     "borsh": "^2.0.0",
     "bs58": "^6.0.0",
-    "chainsig.js": "^1.1.14",
     "clsx": "^2.1.1",
     "lucide-react": "^0.542.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "sonner": "^1.5.0",
-    "viem": "^2.38.6"
+    "sonner": "^1.5.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.21",

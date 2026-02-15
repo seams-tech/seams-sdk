@@ -14,6 +14,7 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const appSrc = fileURLToPath(new URL('./src', import.meta.url))
+  const appPublic = fileURLToPath(new URL('./src/public', import.meta.url))
   const workspaceRoot = fileURLToPath(new URL('../..', import.meta.url))
   // Bitwarden and other password managers inject extension iframes/scripts that are blocked
   // by COEP=require-corp on the host page. Default to COEP off for the docs site; switch
@@ -26,6 +27,7 @@ export default defineConfig(({ mode }) => {
   return {
     clearScreen: false,
     logLevel: 'info',
+    publicDir: appPublic,
     server: {
       port: 5174,
       host: 'localhost',

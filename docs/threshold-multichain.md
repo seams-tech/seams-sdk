@@ -108,14 +108,14 @@ Last updated: 2026-02-14
 - [x] Local secp256k1 key derivation is retained for explicit private-key export UX only and is blocked from runtime signing flow selection.
 - [x] Default deployment mode flipped to `enforce` (explicit `observe` override remains available per deployment).
 
-## Examples/Docs Frontend Checklist (`examples/tatchi-docs`)
+## Examples/Docs Frontend Checklist (`examples/tatchi-site`)
 
 ### Account bootstrap + signer provisioning
 
 - [x] Registration flow creates NEAR threshold signer (`signerMode: threshold-signer`).
 - [x] Registration auto-provisions Tempo + EVM threshold signers via `bootstrapThresholdEcdsaSession`.
 - [x] Login path backfills Tempo + EVM threshold signer provisioning when missing.
-- [x] Threshold keyRef cache layer added (`examples/tatchi-docs/src/utils/thresholdSigners.ts`).
+- [x] Threshold keyRef cache layer added (`examples/tatchi-site/src/utils/thresholdSigners.ts`).
 
 ### Demo signing flows
 
@@ -131,7 +131,7 @@ Last updated: 2026-02-14
 
 ### Verification
 
-- [x] `pnpm -C examples/tatchi-docs build` passes after wiring updates.
+- [x] `pnpm -C examples/tatchi-site build` passes after wiring updates.
 - [x] Add focused unit coverage for threshold signer helper cache/provision behavior in docs frontend utilities (`tests/unit/thresholdSigners.docs.unit.test.ts`).
 - [x] Add docs integration e2e for register -> auto-provision -> login -> sign NEAR/Tempo/EVM (`tests/e2e/docs.thresholdRegisterAndSigning.integration.test.ts`).
 - [x] Add docs coverage for threshold-session expiry retry and provisioning UI busy/ready contract (`tests/e2e/docs.thresholdRegisterAndSigning.integration.test.ts`).

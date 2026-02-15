@@ -67,6 +67,11 @@ EXPECTED_ORIGIN=http://localhost:3000
 # Optional: zk-email prover base URL (used when explicitMode='zk-email' or email body marker is 'zk-email')
 # ZK_EMAIL_PROVER_BASE_URL=http://127.0.0.1:5588
 # ZK_EMAIL_PROVER_TIMEOUT_MS=60000
+
+# Threshold secrets (base64url-encoded 32-byte values)
+# THRESHOLD_ED25519_MASTER_SECRET_B64U=<32-byte-base64url>
+# Required: relay startup fails if missing.
+# THRESHOLD_SECP256K1_MASTER_SECRET_B64U=<32-byte-base64url>
 ```
 
 ## Development
@@ -103,6 +108,8 @@ Then in your relay `.env`:
 # Node-only TCP Redis
 REDIS_URL=redis://127.0.0.1:6379
 ```
+
+If both `POSTGRES_URL` and `REDIS_URL` are set, this example server prefers Postgres for threshold stores.
 
 For production/serverless, prefer Upstash REST:
 - `UPSTASH_REDIS_REST_URL`

@@ -12,10 +12,7 @@ import { CarouselPrevButton } from './Carousel2/CarouselPrevButton'
 const PasskeyLoginMenu = React.lazy(() => import('./PasskeyLoginMenu').then(m => ({ default: m.PasskeyLoginMenu })))
 const DemoPage = React.lazy(() => import('./DemoPage').then(m => ({ default: m.DemoPage })))
 const SyncAccount = React.lazy(() => import('./SyncAccount').then(m => ({ default: m.SyncAccount })))
-// DemoChainsigs is heavy (viem/chainsigs). Lazy-load so it doesn't affect first load.
-const DemoChainsigs = React.lazy(() => import('./DemoChainsigs').then(m => ({ default: m.DemoChainsigs })))
 const preloadDemoPage = () => import('./DemoPage').then(() => undefined)
-const preloadDemoChainsigs = () => import('./DemoChainsigs').then(() => undefined)
 const preloadSyncAccount = () => import('./SyncAccount').then(() => undefined)
 import { AuthMenuControlProvider } from '../contexts/AuthMenuControl';
 import { ProfileMenuControlProvider } from '../contexts/ProfileMenuControl';
@@ -84,50 +81,19 @@ export function DemoPasskeyColumn() {
 	      key: 'sync-account',
 	      title: 'Account Recovery',
 	      disabled: false,
-	      element: ({ nextSlide, prevSlide, canNext, canPrev, index }: { nextSlide: () => void; prevSlide: () => void; canNext: boolean; canPrev: boolean; index: number }) => (
+	      element: ({ prevSlide, canPrev, index }: { prevSlide: () => void; canPrev: boolean; index: number }) => (
 	        <>
 	          <React.Suspense fallback={<SuspenseFallback />}>
 	            <SyncAccount />
 	          </React.Suspense>
 	          {index > 0 && (
-	            <div className="carousel-cta">
+	            <div className="carousel-cta carousel-cta--left">
 	              <CarouselPrevButton
 	                onClick={prevSlide}
 	                disabled={!canPrev}
 	                onPointerOver={() => void preloadDemoPage().catch(() => {})}
 	                onFocus={() => void preloadDemoPage().catch(() => {})}
 	                onTouchStart={() => void preloadDemoPage().catch(() => {})}
-	              />
-	              <CarouselNextButton
-	                onClick={nextSlide}
-	                disabled={!canNext}
-	                onPointerOver={() => void preloadDemoChainsigs().catch(() => {})}
-	                onFocus={() => void preloadDemoChainsigs().catch(() => {})}
-	                onTouchStart={() => void preloadDemoChainsigs().catch(() => {})}
-	              />
-	            </div>
-	          )}
-	        </>
-	      ),
-	    },
-	    {
-	      key: 'intents',
-	      title: 'NEAR Intents',
-	      disabled: !loginState?.isLoggedIn,
-	      element: ({ prevSlide, canPrev, index }: { prevSlide: () => void; canPrev: boolean; index: number }) => (
-	        <>
-	          <GlassBorder style={{ maxWidth: 480, marginTop: '1rem' }}>
-	            <React.Suspense fallback={<SuspenseFallback />}>
-	              <DemoChainsigs />
-	            </React.Suspense>
-	          </GlassBorder>
-	          {index > 0 && canPrev && (
-	            <div className="carousel-cta carousel-cta--left">
-	              <CarouselPrevButton
-	                onClick={prevSlide}
-	                onPointerOver={() => void preloadSyncAccount().catch(() => {})}
-	                onFocus={() => void preloadSyncAccount().catch(() => {})}
-	                onTouchStart={() => void preloadSyncAccount().catch(() => {})}
 	              />
 	            </div>
 	          )}
@@ -148,7 +114,6 @@ export function DemoPasskeyColumn() {
             currentPage={currentPage}
             onCurrentPageChange={setCurrentPage}
             rootStyle={{
-              padding: '0rem 0rem 6rem 0rem',
               // padding-bottom for tooltip so it's not clipped
               display: 'grid',
               placeContent: 'center',

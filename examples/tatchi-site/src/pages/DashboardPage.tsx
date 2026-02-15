@@ -1,5 +1,6 @@
 import React from 'react'
 import { useSiteRouter } from '../hooks/useSiteRouter'
+import TatchiLogo from '../components/icons/TatchiLogo'
 import { ApiKeyManagementPage } from './dashboard/ApiKeyManagementPage'
 import { AppSettingsPage } from './dashboard/AppSettingsPage'
 import { ExportKeysSettingsPage } from './dashboard/ExportKeysSettingsPage'
@@ -25,6 +26,7 @@ type DashboardRoute =
   | '/dashboard/api-keys'
   | '/dashboard/webhooks'
 
+type TopbarMenuKey = 'organization' | 'project' | 'environment' | 'accountSettings'
 type DashboardViewComponent = () => React.JSX.Element
 
 type SidebarItem = {
@@ -151,6 +153,8 @@ type DashboardPageProps = {
 export function DashboardPage({ pathname = '/dashboard' }: DashboardPageProps): React.JSX.Element {
   const docsOrigin = import.meta.env.VITE_DOCS_ORIGIN || 'https://docs.example.localhost'
   const { go, linkProps } = useSiteRouter()
+  const homeProps = linkProps('/')
+  const topbarRef = React.useRef<HTMLElement | null>(null)
 
   const [isSidebarExpanded, setIsSidebarExpanded] = React.useState<boolean>(true)
   const [expandedGroups, setExpandedGroups] = React.useState<Record<SidebarGroupKey, boolean>>({
@@ -158,6 +162,13 @@ export function DashboardPage({ pathname = '/dashboard' }: DashboardPageProps): 
     securityPolicy: true,
     integrationsAutomation: true,
     environmentSettings: true,
+  })
+  const [activeTopbarMenu, setActiveTopbarMenu] = React.useState<TopbarMenuKey | null>(null)
+  const [selectedContext, setSelectedContext] = React.useState<Record<TopbarMenuKey, string>>({
+    organization: 'Game1',
+    project: 'Game1',
+    environment: 'Sandbox',
+    accountSettings: 'Account & Settings',
   })
 
   React.useEffect(() => {
@@ -171,6 +182,27 @@ export function DashboardPage({ pathname = '/dashboard' }: DashboardPageProps): 
       go(DEFAULT_DASHBOARD_ROUTE)
     }
   }, [go, pathname])
+
+  React.useEffect(() => {
+    if (!activeTopbarMenu) return
+
+    const onPointerDown = (event: PointerEvent) => {
+      const next = event.target
+      if (next instanceof Node && topbarRef.current?.contains(next)) return
+      setActiveTopbarMenu(null)
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setActiveTopbarMenu(null)
+    }
+
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [activeTopbarMenu])
 
   const activeRoute = React.useMemo<DashboardRoute>(() => {
     const resolved = getRouteFromPathname(pathname)
@@ -191,12 +223,73 @@ export function DashboardPage({ pathname = '/dashboard' }: DashboardPageProps): 
     }))
   }, [])
 
+  const topbarDropdownOptions: Record<TopbarMenuKey, string[]> = React.useMemo(() => ({
+    organization: ['Game1', 'Arc Labs', 'Nova Studio'],
+    project: ['Game1', 'Wallet Ops', 'Payments Infra'],
+    environment: ['Sandbox', 'Staging', 'Production'],
+    accountSettings: ['Account & Settings', 'Team members', 'Roles and permissions', 'Audit logs'],
+  }), [])
+
+  const onSelectTopbarOption = React.useCallback((menu: TopbarMenuKey, value: string) => {
+    setSelectedContext((current) => ({
+      ...current,
+      [menu]: value,
+    }))
+    setActiveTopbarMenu(null)
+  }, [])
+
+  const renderTopbarDropdown = React.useCallback((
+    menu: TopbarMenuKey,
+    label: string,
+    options: string[],
+    optionsAreHighlighted: boolean = false,
+    compact: boolean = false,
+  ): React.JSX.Element => {
+    const isOpen = activeTopbarMenu === menu
+    const currentValue = selectedContext[menu]
+    return (
+      <div className="dashboard-context-dropdown">
+        <button
+          type="button"
+          className={`dashboard-context-card${optionsAreHighlighted ? ' dashboard-context-card--highlight' : ''}${compact ? ' dashboard-context-card--compact' : ''}`}
+          aria-haspopup="menu"
+          aria-expanded={isOpen}
+          onClick={() => setActiveTopbarMenu((current) => (current === menu ? null : menu))}
+        >
+          {!compact ? <span className="dashboard-context-card__label">{label}</span> : null}
+          <span className="dashboard-context-card__value">{currentValue}</span>
+          <span className={`dashboard-chevron${isOpen ? ' dashboard-chevron--open' : ''}`} aria-hidden="true" />
+        </button>
+
+        {isOpen ? (
+          <div className={`dashboard-context-menu${optionsAreHighlighted ? ' dashboard-context-menu--highlight' : ''}`} role="menu" aria-label={`${label} options`}>
+            {options.map((option) => {
+              const isSelected = option === currentValue
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  className={`dashboard-context-menu__item${isSelected ? ' is-active' : ''}`}
+                  role="menuitemradio"
+                  aria-checked={isSelected}
+                  onClick={() => onSelectTopbarOption(menu, option)}
+                >
+                  {option}
+                </button>
+              )
+            })}
+          </div>
+        ) : null}
+      </div>
+    )
+  }, [activeTopbarMenu, onSelectTopbarOption, selectedContext])
+
   return (
     <main
       className={`dashboard-shell${isSidebarExpanded ? '' : ' dashboard-shell--sidebar-collapsed'}`}
       aria-label="Dashboard workspace"
     >
-      <header className="dashboard-topbar" aria-label="Workspace context">
+      <header ref={topbarRef} className="dashboard-topbar" aria-label="Workspace context">
         <div className="dashboard-topbar__brand">
           <button
             type="button"
@@ -209,26 +302,15 @@ export function DashboardPage({ pathname = '/dashboard' }: DashboardPageProps): 
             <span />
             <span />
           </button>
-          <span className="dashboard-brand-mark" aria-hidden="true" />
+          <a className="navbar-static__brand dashboard-home-link" href={homeProps.href} onClick={homeProps.onClick} aria-label="Tatchi home">
+            <TatchiLogo size={22} strokeWidth={1.2} />
+            <span>Tatchi</span>
+          </a>
         </div>
 
-        <button type="button" className="dashboard-context-card">
-          <span className="dashboard-context-card__label">Organization</span>
-          <span className="dashboard-context-card__value">Game1</span>
-          <span className="dashboard-chevron" aria-hidden="true" />
-        </button>
-
-        <button type="button" className="dashboard-context-card">
-          <span className="dashboard-context-card__label">Project</span>
-          <span className="dashboard-context-card__value">Game1</span>
-          <span className="dashboard-chevron" aria-hidden="true" />
-        </button>
-
-        <button type="button" className="dashboard-context-card dashboard-context-card--highlight">
-          <span className="dashboard-context-card__label">Environment</span>
-          <span className="dashboard-context-card__value">Sandbox</span>
-          <span className="dashboard-chevron" aria-hidden="true" />
-        </button>
+        {renderTopbarDropdown('organization', 'Organization', topbarDropdownOptions.organization)}
+        {renderTopbarDropdown('project', 'Project', topbarDropdownOptions.project)}
+        {renderTopbarDropdown('environment', 'Environment', topbarDropdownOptions.environment, true)}
 
         <div className="dashboard-context-card dashboard-context-card--id" role="group" aria-label="Environment id">
           <span className="dashboard-context-card__label">Environment ID</span>
@@ -238,10 +320,7 @@ export function DashboardPage({ pathname = '/dashboard' }: DashboardPageProps): 
           </button>
         </div>
 
-        <button type="button" className="dashboard-context-card">
-          <span className="dashboard-context-card__value">Account &amp; Settings</span>
-          <span className="dashboard-chevron" aria-hidden="true" />
-        </button>
+        {renderTopbarDropdown('accountSettings', 'Account and Settings', topbarDropdownOptions.accountSettings, false, true)}
       </header>
 
       <aside className="dashboard-sidebar" aria-label="Primary dashboard navigation">

@@ -3,7 +3,8 @@ import { useSiteRouter } from '../hooks/useSiteRouter'
 type SecurityCard = {
   label: string
   detail: string
-  diagramSrc: string
+  diagramDarkSrc: string
+  diagramLightSrc: string
   diagramAlt: string
 }
 
@@ -11,25 +12,29 @@ const securityCards: SecurityCard[] = [
   {
     label: 'Hardware-isolated self custody',
     detail: 'Keys are sharded, end-to-end encrypted, and distributed across isolated services. Wallets are only reconstructed in secure hardware environments.',
-    diagramSrc: '/diagrams/security-custody.svg',
+    diagramDarkSrc: '/diagrams/security-custody-dark.png',
+    diagramLightSrc: '/diagrams/security-custody-light.png',
     diagramAlt: 'Wireframe cube over a perspective security grid',
   },
   {
     label: 'Defense in depth',
     detail: 'Secure enclaves protect keys, encrypted networks safeguard data, and RBAC with micro-segmentation enforces least privilege.',
-    diagramSrc: '/diagrams/security-defense.svg',
+    diagramDarkSrc: '/diagrams/security-defense-dark.png',
+    diagramLightSrc: '/diagrams/security-defense-light.png',
     diagramAlt: 'Wireframe terrain peaks over a mesh grid',
   },
   {
     label: 'Battle-tested at scale',
     detail: 'Core cryptography libraries are widely used and audited, with resilient orchestration paths built for high-throughput transaction pipelines.',
-    diagramSrc: '/diagrams/security-scale.svg',
+    diagramDarkSrc: '/diagrams/security-scale-dark.png',
+    diagramLightSrc: '/diagrams/security-scale-light.png',
     diagramAlt: 'System workflow boxes connected across a horizontal graph',
   },
   {
     label: 'Friction where it matters',
     detail: 'Add defenses like passkey signing, wallet policies, and transaction MFA without breaking checkout and core product flows.',
-    diagramSrc: '/diagrams/security-friction.svg',
+    diagramDarkSrc: '/diagrams/security-friction-dark.png',
+    diagramLightSrc: '/diagrams/security-friction-light.png',
     diagramAlt: 'Stacked secure device panels connected by policy rails',
   },
 ]
@@ -55,7 +60,19 @@ export function SecurityProofStrip(): React.JSX.Element {
         {securityCards.map((item) => (
           <article key={item.label} className="security-diagrams__card" aria-label={item.label}>
             <div className="security-diagrams__art-wrap">
-              <img className="security-diagrams__art" src={item.diagramSrc} alt={item.diagramAlt} loading="lazy" />
+              <img
+                className="security-diagrams__art security-diagrams__art--dark"
+                src={item.diagramDarkSrc}
+                alt={item.diagramAlt}
+                loading="lazy"
+              />
+              <img
+                className="security-diagrams__art security-diagrams__art--light"
+                src={item.diagramLightSrc}
+                alt=""
+                aria-hidden="true"
+                loading="lazy"
+              />
             </div>
             <div className="security-diagrams__body">
               <h3>{item.label}</h3>

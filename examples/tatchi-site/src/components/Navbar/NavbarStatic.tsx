@@ -1,6 +1,7 @@
 import React from 'react'
-import { ArrowRight, ChevronDown, Menu, X } from 'lucide-react'
+import { ChevronDown, Menu, X } from 'lucide-react'
 import { MoonIcon, SunIcon, useTheme } from '@tatchi-xyz/sdk/react'
+import { ArrowRightAnim } from '../ArrowRightAnim'
 import TatchiLogo from '../icons/TatchiLogo'
 import { useSiteRouter } from '../../hooks/useSiteRouter'
 import './Navbar.css'
@@ -535,7 +536,7 @@ export function NavbarStatic(): React.JSX.Element {
   const aboutRootProps = getNavLinkProps('/company/')
   const pricingProps = getNavLinkProps('/pricing/')
   const contactSalesProps = getNavLinkProps('/contact/')
-  const getStartedProps = getNavLinkProps('/docs/getting-started/installation')
+  const getStartedProps = getNavLinkProps('/dashboard/')
 
   const dropdownAriaConfig = dropdownConfigs.find((config) => config.id === (visibleDropdown ?? openDropdown)) ?? null
   const activeDropdownId = visibleDropdown ?? openDropdown
@@ -622,11 +623,9 @@ export function NavbarStatic(): React.JSX.Element {
               className="navbar-static__pill navbar-static__pill--solid"
               href={getStartedProps.href}
               onClick={getStartedProps.onClick}
-              target="_blank"
-              rel="noopener noreferrer"
             >
-              <span>Get Started</span>
-              <ArrowRight size={14} aria-hidden />
+              <span>Dashboard</span>
+              <ArrowRightAnim size={14} />
             </a>
             <a
               className="navbar-static__pill navbar-static__pill--ghost"
@@ -634,7 +633,7 @@ export function NavbarStatic(): React.JSX.Element {
               onClick={contactSalesProps.onClick}
             >
               <span>Contact Sales</span>
-              <ArrowRight size={14} aria-hidden />
+              <ArrowRightAnim size={14} />
             </a>
             <button
               type="button"
@@ -865,11 +864,9 @@ export function NavbarStatic(): React.JSX.Element {
             className="navbar-static__pill navbar-static__pill--solid"
             href={getStartedProps.href}
             onClick={getStartedProps.onClick}
-            target="_blank"
-            rel="noopener noreferrer"
           >
-            <span>Get Started</span>
-            <ArrowRight size={14} aria-hidden />
+            <span>Dashboard</span>
+            <ArrowRightAnim size={14} />
           </a>
           <a
             className="navbar-static__pill navbar-static__pill--ghost"
@@ -877,7 +874,7 @@ export function NavbarStatic(): React.JSX.Element {
             onClick={contactSalesProps.onClick}
           >
             <span>Contact Sales</span>
-            <ArrowRight size={14} aria-hidden />
+            <ArrowRightAnim size={14} />
           </a>
         </div>
       </div>

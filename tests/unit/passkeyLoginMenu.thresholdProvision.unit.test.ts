@@ -181,9 +181,9 @@ test.describe('PasskeyLoginMenu threshold signer auto-provision', () => {
     expect(result.loggedInCalls).toEqual(['alice.testnet']);
   });
 
-  test('login flow provisions Tempo/EVM signers when cache is missing', async ({ page }) => {
+  test('login flow does not auto-provision Tempo/EVM signers when cache is missing', async ({ page }) => {
     const result = await runFlow(page, { flow: 'login', cacheHit: false });
-    expect(result.provisionCalls).toEqual(['alice.testnet']);
+    expect(result.provisionCalls).toEqual([]);
     expect(result.loggedInCalls).toEqual(['alice.testnet']);
   });
 });

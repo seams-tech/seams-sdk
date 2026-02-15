@@ -162,6 +162,12 @@ export async function loginAndCreateSession(
 
     const session = options?.session;
     const wantsServerSession = session !== undefined;
+    // Avoid two consecutive WebAuthn prompts during login:
+    // - server session mint already performs a passkey assertion
+    // - threshold warm session mint performs another assertion
+    // Default behavior for server-session login is to skip warmup unless the
+    // caller explicitly requested warm policy overrides.
+    const shouldWarmThresholdSigningSession = !wantsServerSession || options?.signingSession !== undefined;
 
     if (wantsServerSession) {
       const relayUrl = (session?.relayUrl || context.configs.relayer.url).trim();
@@ -238,7 +244,9 @@ export async function loginAndCreateSession(
         ...(v.jwt ? { jwt: v.jwt } : {}),
       };
 
-      await maybeWarmThresholdSigningSession(selectedDeviceNumber);
+      if (shouldWarmThresholdSigningSession) {
+        await maybeWarmThresholdSigningSession(selectedDeviceNumber);
+      }
 
       return await finalizeLoginSuccess({
         nearAccountId,
@@ -254,7 +262,9 @@ export async function loginAndCreateSession(
     await webAuthnManager.setLastUser(nearAccountId, baseDeviceNumber).catch(() => undefined);
     await webAuthnManager.updateLastLogin(nearAccountId).catch(() => undefined);
 
-    await maybeWarmThresholdSigningSession(baseDeviceNumber);
+    if (shouldWarmThresholdSigningSession) {
+      await maybeWarmThresholdSigningSession(baseDeviceNumber);
+    }
 
     const loginResult: LoginAndCreateSessionResult = {
       success: true,
