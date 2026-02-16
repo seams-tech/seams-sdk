@@ -158,9 +158,9 @@ export const PasskeyAuthMenuSkeletonInner = React.forwardRef<
 PasskeyAuthMenuSkeletonInner.displayName = 'PasskeyAuthMenuSkeletonInner';
 
 export const PasskeyAuthMenuSkeleton: React.FC<PasskeyAuthMenuSkeletonProps> = (props) => {
-  const { theme } = useTheme();
+  const { theme, tokens } = useTheme();
   return (
-    <PasskeyAuthMenuThemeScope theme={theme}>
+    <PasskeyAuthMenuThemeScope theme={theme} tokens={tokens}>
       <PasskeyAuthMenuSkeletonInner {...props} />
     </PasskeyAuthMenuThemeScope>
   );

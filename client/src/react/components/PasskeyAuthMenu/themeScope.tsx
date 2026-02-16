@@ -11,6 +11,7 @@ export interface PasskeyAuthMenuThemeScopeProps {
   style?: React.CSSProperties;
   dataAttr?: string;
   theme?: PasskeyAuthMenuThemeMode;
+  tokens?: DesignTokens;
   children?: React.ReactNode;
 }
 
@@ -40,15 +41,19 @@ export const PasskeyAuthMenuThemeScope: React.FC<PasskeyAuthMenuThemeScopeProps>
   style,
   dataAttr = 'data-w3a-theme',
   theme,
+  tokens,
   children,
 }) => {
   const themeName = resolveThemeName(theme);
-  const tokens = React.useMemo(() => tokensForThemeName(themeName), [themeName]);
-  const vars = React.useMemo(() => createCSSVariables(tokens, '--w3a'), [tokens]);
+  const resolvedTokens = React.useMemo(
+    () => tokens ?? tokensForThemeName(themeName),
+    [themeName, tokens],
+  );
+  const vars = React.useMemo(() => createCSSVariables(resolvedTokens, '--w3a'), [resolvedTokens]);
   const passkeyAuthMenuVars = React.useMemo(() => ({
     ['--w3a-passkey-auth-menu2-seg-active-bg' as any]:
-      themeName === 'dark' ? tokens.colors.slate600 : tokens.colors.slate50,
-  }), [themeName, tokens.colors.slate50, tokens.colors.slate600]);
+      themeName === 'dark' ? resolvedTokens.colors.slate600 : resolvedTokens.colors.slate50,
+  }), [themeName, resolvedTokens.colors.slate50, resolvedTokens.colors.slate600]);
   const Comp: any = tag;
   const attrs: any = { [dataAttr]: themeName };
   return (

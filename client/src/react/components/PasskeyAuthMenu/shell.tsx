@@ -95,7 +95,7 @@ export const PasskeyAuthMenu: React.FC<PasskeyAuthMenuProps> = (props) => {
 
   // Align with the SDK Theme boundary when present (TatchiPasskeyProvider wraps one by default).
   // Falls back to system preference when used standalone.
-  const { theme } = useTheme();
+  const { theme, tokens } = useTheme();
 
   useIsomorphicLayoutEffect(() => {
     didClientMountOnce = true;
@@ -114,7 +114,7 @@ export const PasskeyAuthMenu: React.FC<PasskeyAuthMenuProps> = (props) => {
   );
 
   return (
-    <PasskeyAuthMenuThemeScope theme={theme}>
+    <PasskeyAuthMenuThemeScope theme={theme} tokens={tokens}>
       {isClient ? (
         <PasskeyAuthMenuHydrationContext.Provider value={forceInitialRegisterRef.current}>
           <LazyErrorBoundary
