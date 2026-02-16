@@ -154,6 +154,7 @@ export function makeSessionAdapter(overrides: Partial<SessionAdapter> = {}): Ses
 }
 
 export function makeFakeAuthService(overrides: Partial<{
+  getRelayerAccount: AuthService['getRelayerAccount'];
   createWebAuthnLoginOptions: AuthService['createWebAuthnLoginOptions'];
   verifyWebAuthnLogin: AuthService['verifyWebAuthnLogin'];
   createAccountAndRegisterUser: AuthService['createAccountAndRegisterUser'];
@@ -162,6 +163,8 @@ export function makeFakeAuthService(overrides: Partial<{
   emailRecovery: unknown;
 }> = {}): AuthService {
   const service = {
+    getRelayerAccount: overrides.getRelayerAccount
+      || (async () => ({ accountId: 'w3a-relayer.testnet', publicKey: 'ed25519:test' })),
     createWebAuthnLoginOptions: overrides.createWebAuthnLoginOptions
       || (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
     verifyWebAuthnLogin: overrides.verifyWebAuthnLogin

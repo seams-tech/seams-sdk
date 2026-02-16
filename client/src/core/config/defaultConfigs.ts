@@ -1,5 +1,4 @@
 import type {
-  EmailRecoveryContracts,
   ThemePaletteName,
   TatchiConfigs,
   TatchiConfigsInput,
@@ -59,9 +58,7 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigs = {
       mailtoAddress: 'recover@web3authn.org',
     },
   },
-  emailRecoveryContracts: {
-    emailDkimVerifierContract: 'email-dkim-verifier-v1.testnet',
-  },
+  emailDkimVerifierContract: 'email-dkim-verifier-v1.testnet',
   // Configure iframeWallet in application code to point at your dedicated wallet origin when available.
   iframeWallet: {
     walletOrigin: 'https://wallet.example.localhost',
@@ -80,12 +77,6 @@ export const THRESHOLD_ED25519_2P_PARTICIPANT_IDS = [
   THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID,
   THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID,
 ] as const;
-
-// Threshold node roles.
-// Coordinator is the default because it exposes the public `/threshold-ed25519/sign/*` endpoints.
-export const DEFAULT_EMAIL_RECOVERY_CONTRACTS: EmailRecoveryContracts = {
-  emailDkimVerifierContract: PASSKEY_MANAGER_DEFAULT_CONFIGS.emailRecoveryContracts.emailDkimVerifierContract,
-};
 
 function coercePositiveIntInRange(value: unknown, fallback: number, min: number, max: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
@@ -199,10 +190,8 @@ export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiC
       },
     },
     authenticatorOptions: overrides.authenticatorOptions ?? defaults.authenticatorOptions,
-    emailRecoveryContracts: {
-      emailDkimVerifierContract: overrides.emailRecoveryContracts?.emailDkimVerifierContract
-        ?? defaults.emailRecoveryContracts?.emailDkimVerifierContract,
-    },
+    emailDkimVerifierContract: overrides.emailDkimVerifierContract
+      ?? defaults.emailDkimVerifierContract,
     iframeWallet: {
       // Preserve explicit empty-string walletOrigin ("") because it is used as a sentinel
       // to disable iframe-wallet mode in tests and some apps.

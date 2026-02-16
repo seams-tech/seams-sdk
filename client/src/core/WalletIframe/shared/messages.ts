@@ -2,7 +2,6 @@
 // Typed RPC messages for the wallet service iframe channel (TatchiPasskey-first)
 import type { AuthenticatorOptions } from '@server';
 import type { WalletUIRegistry } from '../host/lit-ui/iframe-lit-element-registry';
-import type { EmailRecoveryContracts } from '../../types/tatchi';
 import { SignedTransaction } from '../../near/NearClient';
 import {
   ActionArgs,
@@ -112,7 +111,7 @@ export interface PMSetConfigPayload {
   };
   rpIdOverride?: string;
   authenticatorOptions?: AuthenticatorOptions;
-  emailRecoveryContracts?: Partial<EmailRecoveryContracts>;
+  emailDkimVerifierContract?: string;
   // Absolute base URL for SDK Lit component assets (e.g., https://app.example.com/sdk/)
   assetsBaseUrl?: string;
   // Optional: register wallet-host UI components (Lit tags + bindings)

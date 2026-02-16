@@ -18,7 +18,7 @@ test.describe('relayer health/ready + well-known', () => {
     }
   });
 
-  test('express: GET /readyz returns 200 without external dependency checks', async () => {
+  test('express: GET /readyz returns 200 when relayer account is available', async () => {
     const service = makeFakeAuthService();
     const router = createRelayRouter(service, { readyz: true });
     const srv = await startExpressRouter(router);
@@ -26,6 +26,24 @@ test.describe('relayer health/ready + well-known', () => {
       const res = await fetchJson(`${srv.baseUrl}/readyz`, { method: 'GET' });
       expect(res.status).toBe(200);
       expect(res.json?.ok).toBe(true);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('express: GET /readyz returns 503 when relayer account check fails', async () => {
+    const service = makeFakeAuthService({
+      getRelayerAccount: async () => {
+        throw new Error('relayer not reachable');
+      },
+    });
+    const router = createRelayRouter(service, { readyz: true });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/readyz`, { method: 'GET' });
+      expect(res.status).toBe(503);
+      expect(res.json?.ok).toBe(false);
+      expect(res.json?.code).toBe('relayer_unavailable');
     } finally {
       await srv.close();
     }
@@ -63,7 +81,7 @@ test.describe('relayer health/ready + well-known', () => {
     expect(res.headers.get('access-control-allow-credentials')).toBe('true');
   });
 
-  test('cloudflare: GET /readyz returns 200 without external dependency checks', async () => {
+  test('cloudflare: GET /readyz returns 200 when relayer account is available', async () => {
     const service = makeFakeAuthService();
     const handler = createCloudflareRouter(service, { readyz: true, corsOrigins: ['https://example.localhost'] });
 
@@ -75,6 +93,25 @@ test.describe('relayer health/ready + well-known', () => {
 
     expect(res.status).toBe(200);
     expect(res.json?.ok).toBe(true);
+  });
+
+  test('cloudflare: GET /readyz returns 503 when relayer account check fails', async () => {
+    const service = makeFakeAuthService({
+      getRelayerAccount: async () => {
+        throw new Error('relayer not reachable');
+      },
+    });
+    const handler = createCloudflareRouter(service, { readyz: true, corsOrigins: ['https://example.localhost'] });
+
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/readyz',
+      origin: 'https://example.localhost',
+    });
+
+    expect(res.status).toBe(503);
+    expect(res.json?.ok).toBe(false);
+    expect(res.json?.code).toBe('relayer_unavailable');
   });
 
   test('cloudflare: GET /.well-known/webauthn supports env overrides and sets Cache-Control', async () => {

@@ -134,7 +134,10 @@ export class TatchiPasskey {
     this.nearClient = nearClient || new MinimalNearClient(this.configs.nearRpcUrl);
     this.webAuthnManager = new WebAuthnManager(this.configs, this.nearClient);
 
-    this.theme = 'dark';
+    this.theme = coerceThemeName(this.configs.appearance?.theme) ?? 'dark';
+    try {
+      this.webAuthnManager.setTheme(this.theme);
+    } catch {}
 
     // Wallet-iframe mode: delegate signerMode persistence to the wallet host.
     // Non-iframe mode: ensure any previous writer is cleared (UserPreferences is a singleton).
@@ -216,10 +219,10 @@ export class TatchiPasskey {
             relayerAccount: this.configs.relayerAccount,
 	            nearExplorerUrl: this.configs.nearExplorerUrl,
 	            // Ensure relay server config reaches the wallet host for atomic registration
-	            relayer: this.configs.relayer,
+              relayer: this.configs.relayer,
 	            rpIdOverride: walletIframeConfig?.rpIdOverride,
               authenticatorOptions: this.configs.authenticatorOptions,
-              emailRecoveryContracts: this.configs.emailRecoveryContracts,
+              emailDkimVerifierContract: this.configs.emailDkimVerifierContract,
 	            // Allow apps/CI to control where embedded bundles are served from
 	            sdkBasePath: walletIframeConfig?.sdkBasePath,
 	          });

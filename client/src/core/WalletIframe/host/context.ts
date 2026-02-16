@@ -79,7 +79,7 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
     signerMode: payload?.signerMode || prev.signerMode,
     relayer: payload?.relayer || prev.relayer,
     authenticatorOptions: payload?.authenticatorOptions || prev.authenticatorOptions,
-    emailRecoveryContracts: payload?.emailRecoveryContracts || prev.emailRecoveryContracts,
+    emailDkimVerifierContract: payload?.emailDkimVerifierContract || prev.emailDkimVerifierContract,
     iframeWallet: {
       ...(prev.iframeWallet || {}),
       rpIdOverride: payload?.rpIdOverride || prev.iframeWallet?.rpIdOverride,

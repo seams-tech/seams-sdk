@@ -128,10 +128,6 @@ export interface SignAndSendDelegateActionResult {
   relayResult: DelegateRelayResult;
 }
 
-export type EmailRecoveryContracts = {
-  emailDkimVerifierContract: string;
-};
-
 //////////////////////////////////
 /// TatchiPasskey Configuration
 //////////////////////////////////
@@ -222,8 +218,8 @@ export interface TatchiConfigsInput {
   }
   // authenticator options for registrations
   authenticatorOptions?: AuthenticatorOptions;
-  // Email recovery contract identifiers
-  emailRecoveryContracts?: Partial<EmailRecoveryContracts>;
+  // Email recovery contract identifier
+  emailDkimVerifierContract?: string;
 }
 
 /**
@@ -263,7 +259,7 @@ export interface TatchiConfigs {
     };
   };
   authenticatorOptions?: AuthenticatorOptions;
-  emailRecoveryContracts: EmailRecoveryContracts;
+  emailDkimVerifierContract: string;
 }
 
 // === TRANSACTION TYPES ===

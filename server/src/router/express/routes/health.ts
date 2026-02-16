@@ -18,13 +18,20 @@ export function registerHealthRoutes(router: ExpressRouter, ctx: ExpressRelayCon
   if (ctx.opts.readyz) {
     router.get('/readyz', async (_req: Request, res: Response) => {
       const thresholdConfigured = Boolean(ctx.opts.threshold);
-
-      const ok = true;
-
-      res.status(ok ? 200 : 503).json({
-        ok,
-        thresholdEd25519: { configured: thresholdConfigured },
-      });
+      try {
+        await ctx.service.getRelayerAccount();
+        res.status(200).json({
+          ok: true,
+          thresholdEd25519: { configured: thresholdConfigured },
+        });
+      } catch (error: unknown) {
+        res.status(503).json({
+          ok: false,
+          code: 'relayer_unavailable',
+          message: error instanceof Error ? error.message : String(error),
+          thresholdEd25519: { configured: thresholdConfigured },
+        });
+      }
     });
   }
 }

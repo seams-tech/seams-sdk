@@ -85,7 +85,6 @@ import type {
   LoginSession,
   RegistrationResult,
   SignTransactionResult,
-  EmailRecoveryContracts,
 } from '../../types/tatchi';
 import type {
   TempoSecp256k1SigningRequest,
@@ -147,7 +146,7 @@ export interface WalletIframeRouterOptions {
   };
   rpIdOverride?: string;
   authenticatorOptions?: AuthenticatorOptions;
-  emailRecoveryContracts?: Partial<EmailRecoveryContracts>;
+  emailDkimVerifierContract?: string;
   // SDK asset base path for embedded bundles when mounting same‑origin via srcdoc
   // Must serve dist/esm under this base path. Defaults to '/sdk'.
   sdkBasePath?: string;
@@ -400,7 +399,7 @@ export class WalletIframeRouter {
           relayer: this.opts.relayer,
           rpIdOverride: this.opts.rpIdOverride,
           authenticatorOptions: this.opts.authenticatorOptions,
-          emailRecoveryContracts: this.opts.emailRecoveryContracts,
+          emailDkimVerifierContract: this.opts.emailDkimVerifierContract,
           uiRegistry: this.opts.uiRegistry,
           // for embedded Lit components
           assetsBaseUrl: (() => {

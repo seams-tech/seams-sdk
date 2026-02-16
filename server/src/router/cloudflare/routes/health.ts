@@ -27,11 +27,20 @@ export async function handleReady(ctx: CloudflareRelayContext): Promise<Response
 
   const thresholdConfigured = Boolean(ctx.opts.threshold);
 
-  const ok = true;
-
-  return json({
-    ok,
-    thresholdEd25519: { configured: thresholdConfigured },
-    cors: { allowedOrigins: corsAllowed },
-  }, { status: ok ? 200 : 503 });
+  try {
+    await ctx.service.getRelayerAccount();
+    return json({
+      ok: true,
+      thresholdEd25519: { configured: thresholdConfigured },
+      cors: { allowedOrigins: corsAllowed },
+    }, { status: 200 });
+  } catch (error: unknown) {
+    return json({
+      ok: false,
+      code: 'relayer_unavailable',
+      message: error instanceof Error ? error.message : String(error),
+      thresholdEd25519: { configured: thresholdConfigured },
+      cors: { allowedOrigins: corsAllowed },
+    }, { status: 503 });
+  }
 }
