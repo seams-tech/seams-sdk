@@ -78,7 +78,8 @@ test.describe('relayer health/ready + well-known', () => {
     expect(res.status).toBe(200);
     expect(res.json?.ok).toBe(true);
     expect(getPath(res.json, 'cors', 'allowedOrigins')).toEqual(['https://example.localhost']);
-    expect(res.headers.get('access-control-allow-credentials')).toBe('true');
+    expect(res.headers.get('access-control-allow-origin')).toBe('*');
+    expect(res.headers.get('access-control-allow-credentials')).toBe(null);
   });
 
   test('cloudflare: GET /readyz returns 200 when relayer account is available', async () => {
