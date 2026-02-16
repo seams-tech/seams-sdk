@@ -10,7 +10,8 @@ This document explains how theme colors and CSS variables are defined, generated
 
 - `client/src/base-styles.ts` (import as `@/base-styles`)
   - Builds tokens from `palette.json` via `createThemeTokens` in `client/src/theme/base-styles.js` and exports:
-    - `DARK_THEME`, `LIGHT_THEME`, and `CREAM_THEME`.
+    - `DARK_THEME` and `LIGHT_THEME`.
+    - `data-w3a-theme="cream"` is treated as an alias of `LIGHT_THEME`.
   - These define the semantic aliases components use (textPrimary, surface, borderPrimary, …).
 
 ## Generated CSS: `w3a-components.css`

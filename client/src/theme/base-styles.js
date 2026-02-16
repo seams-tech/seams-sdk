@@ -17,9 +17,6 @@ export function createThemeTokens(palette) {
     ...fromScale('grey', palette.grey),
     ...fromScale('slate', palette.slate),
   };
-  const CREAM_COLORS = {
-    ...fromScale('cream', palette.cream),
-  };
   const GRADIENTS = {
     blue: palette.gradients?.blue,
     red: palette.gradients?.red,
@@ -47,8 +44,8 @@ export function createThemeTokens(palette) {
     surface4: GREY_COLORS.slate825,
 
     // Canonical palette aliases
-    primary: CHROMA_COLORS.blue600,
-    primaryHover: CHROMA_COLORS.blue500,
+    primary: CHROMA_COLORS.blue650,
+    primaryHover: CHROMA_COLORS.blue600,
     secondary: CHROMA_COLORS.violet600,
     secondaryHover: CHROMA_COLORS.violet500,
     accent: CHROMA_COLORS.green400,
@@ -141,72 +138,12 @@ export function createThemeTokens(palette) {
     highlightAmount: CHROMA_COLORS.blue500,
   };
 
-  // Warm light (cream) theme
-  const CREAM_THEME = {
-    ...GREY_COLORS,
-    ...CREAM_COLORS,
-    ...CHROMA_COLORS,
-
-    // Text
-    textPrimary: GREY_COLORS.grey650,
-    textSecondary: GREY_COLORS.grey600,
-    textMuted: GREY_COLORS.grey450,
-    textButton: GREY_COLORS.grey75,
-
-    // Surfaces (warm neutrals)
-    colorBackground: CREAM_COLORS.cream50,
-    surface: CREAM_COLORS.cream100,
-    surface2: CREAM_COLORS.cream150,
-    surface3: CREAM_COLORS.cream200,
-    surface4: CREAM_COLORS.cream250,
-
-    // Brand/accents (neutral primary, warm accent)
-    primary: GREY_COLORS.grey700,
-    primaryHover: GREY_COLORS.grey650,
-    secondary: CHROMA_COLORS.violet600,
-    secondaryHover: CHROMA_COLORS.violet500,
-    accent: CHROMA_COLORS.green400,
-
-    // Buttons
-    buttonBackground: CHROMA_COLORS.blue500,
-    buttonHoverBackground: CHROMA_COLORS.blue450,
-
-    // Interactive
-    hover: CREAM_COLORS.cream75,
-    active: CREAM_COLORS.cream200,
-    focus: CHROMA_COLORS.yellow500,
-
-    // Status
-    success: CHROMA_COLORS.yellow300,
-    warning: CHROMA_COLORS.yellow600,
-    error: CHROMA_COLORS.red500,
-    info: CHROMA_COLORS.blue500,
-
-    // Borders
-    borderPrimary: CREAM_COLORS.cream300,
-    borderSecondary: CREAM_COLORS.cream200,
-    borderHover: CREAM_COLORS.cream350,
-
-    // Background Gradients
-    backgroundGradientPrimary: GRADIENTS.black,
-    backgroundGradientSecondary: GRADIENTS.blackWhite,
-    backgroundGradient3: GRADIENTS.blackWhite,
-    backgroundGradient4: GRADIENTS.black,
-
-    // Highlights
-    highlightReceiverId: CHROMA_COLORS.yellow400,
-    highlightMethodName: CHROMA_COLORS.yellow400,
-    highlightAmount: CHROMA_COLORS.yellow400,
-  };
-
   return {
     CHROMA_COLORS,
     GREY_COLORS,
-    CREAM_COLORS,
     GRADIENTS,
     DARK_THEME,
     LIGHT_THEME,
-    CREAM_THEME,
   };
 }
 

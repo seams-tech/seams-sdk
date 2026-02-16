@@ -378,8 +378,7 @@ export const DARK_TOKENS: DesignTokens = {
   },
 };
 
-// Optional alias exposing the warm light palette explicitly as a "cream" token set.
-// It matches LIGHT_TOKENS values but provides a clearer name for consumers.
+// Backwards-compatible alias: "cream" now resolves to the standard light palette.
 export const CREAM_TOKENS: DesignTokens = LIGHT_TOKENS;
 
 // ============================================================================

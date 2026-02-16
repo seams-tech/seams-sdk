@@ -7,7 +7,6 @@ const built = createThemeTokens(palette);
 
 export const CHROMA_COLORS: Record<string, string> = built.CHROMA_COLORS;
 export const GREY_COLORS: Record<string, string> = built.GREY_COLORS;
-export const CREAM_COLORS: Record<string, string> = built.CREAM_COLORS;
 export const GRADIENTS: Record<string, string> = built.GRADIENTS;
 
 type ThemeAliases = {
@@ -48,6 +47,5 @@ type ThemeAliases = {
 
 export const DARK_THEME: ThemeAliases = built.DARK_THEME;
 export const LIGHT_THEME: ThemeAliases = built.LIGHT_THEME;
-export const CREAM_THEME: ThemeAliases = built.CREAM_THEME;
 
 export default built;

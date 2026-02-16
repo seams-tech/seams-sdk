@@ -92,7 +92,6 @@ const external = [
   // Core dependencies that should be provided by consuming application
   'borsh',
   'bs58',
-  '@noble/ed25519',
   'qrcode',
   'jsqr',
   'js-sha256',
@@ -213,8 +212,8 @@ const buildW3AComponentsCss = async (sdkRoot: string): Promise<string> => {
   const {
     DARK_THEME: darkVars,
     LIGHT_THEME: lightVars,
-    CREAM_THEME: creamVars,
   } = createThemeTokens(palette);
+  const creamVars = lightVars;
 
   const hostSelector = W3A_COMPONENT_HOSTS.join(',\n');
   const lines: string[] = [];

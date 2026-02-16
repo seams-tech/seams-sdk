@@ -104,7 +104,7 @@ const emitGradients = () => {
 const baseStylesPath = path.join(repoRoot, 'client', 'src', 'theme', 'base-styles.js');
 const base = await import(pathToFileURL(baseStylesPath).href);
 const { createThemeTokens } = base;
-const { DARK_THEME: DARK_VARS, LIGHT_THEME: LIGHT_VARS, CREAM_THEME: CREAM_VARS } = createThemeTokens(palette);
+const { DARK_THEME: DARK_VARS, LIGHT_THEME: LIGHT_VARS } = createThemeTokens(palette);
 
 const header = `/*
   AUTO-GENERATED FILE – DO NOT EDIT.
@@ -187,7 +187,7 @@ function emitAliasBlock(vars) {
 }
 
 // Also emit theme-specific alias blocks scoped to component hosts, so tokens pierce Shadow DOM via host inheritance
-const hostThemeTokens = `:root[data-w3a-theme=\"light\"] ${hostSelectors} {\n${emitAliasBlock(LIGHT_VARS)}\n}\n\n:root[data-w3a-theme=\"cream\"] ${hostSelectors} {\n${emitAliasBlock(CREAM_VARS)}\n}`;
+const hostThemeTokens = `:root[data-w3a-theme=\"light\"] ${hostSelectors} {\n${emitAliasBlock(LIGHT_VARS)}\n}\n\n:root[data-w3a-theme=\"cream\"] ${hostSelectors} {\n${emitAliasBlock(LIGHT_VARS)}\n}`;
 
 const cssOut = `${header}\n\n${darkBlock}\n\n${hostThemeTokens}\n`;
 
