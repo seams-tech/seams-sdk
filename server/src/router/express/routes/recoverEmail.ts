@@ -14,12 +14,12 @@ export function registerRecoverEmailRoute(router: ExpressRouter, ctx: ExpressRel
         String((req?.query as any)?.async || '').trim() === '1' ||
         String((req?.query as any)?.respond_async || '').trim() === '1';
 
-      const parsed = parseRecoverEmailRequest(req.body as unknown, { headers: req.headers as any });
+      const parsed = parseRecoverEmailRequest(req.body as unknown);
       if (!parsed.ok) {
         res.status(parsed.status).json({ code: parsed.code, message: parsed.message });
         return;
       }
-      const { accountId, emailBlob, explicitMode } = parsed;
+      const { accountId, emailBlob } = parsed;
 
       if (!ctx.service.emailRecovery) {
         res.status(503).json({ code: 'email_recovery_unavailable', message: 'EmailRecoveryService is not configured on this server' });
@@ -28,7 +28,7 @@ export function registerRecoverEmailRoute(router: ExpressRouter, ctx: ExpressRel
 
       if (respondAsync) {
         void ctx.service.emailRecovery
-          .requestEmailRecovery({ accountId, emailBlob, explicitMode })
+          .requestEmailRecovery({ accountId, emailBlob })
           .then((result) => {
             ctx.logger.info('[recover-email] async complete', {
               success: result?.success === true,
@@ -47,7 +47,7 @@ export function registerRecoverEmailRoute(router: ExpressRouter, ctx: ExpressRel
         return;
       }
 
-      const result = await ctx.service.emailRecovery.requestEmailRecovery({ accountId, emailBlob, explicitMode });
+      const result = await ctx.service.emailRecovery.requestEmailRecovery({ accountId, emailBlob });
       res.status(result.success ? 202 : 400).json(result);
     } catch (e: any) {
       res.status(500).json({ code: 'internal', message: e?.message || 'Internal error' });

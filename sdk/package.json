@@ -146,7 +146,6 @@
     "test:wallet-iframe": "pnpm -C ../tests test:wallet-iframe",
     "test:lit-components": "pnpm -C ../tests test:lit-components",
     "test:relayer": "pnpm -C ../tests test:relayer",
-    "test:relay-email-recovery-zk": "pnpm -C ../tests test:relay-email-recovery-zk",
     "build:check:fresh": "./scripts/check-build-freshness.sh",
     "size:lite": "node ./scripts/report-lite-bundle-sizes.mjs",
     "size:lite:check": "node ./scripts/report-lite-bundle-sizes.mjs --check",

@@ -88,10 +88,6 @@ async function main() {
     createAccountAndRegisterGas: env.CREATE_ACCOUNT_AND_REGISTER_GAS,
     logger: console,
     thresholdEd25519KeyStore,
-    zkEmailProver: {
-      ZK_EMAIL_PROVER_BASE_URL: env.ZK_EMAIL_PROVER_BASE_URL,
-      ZK_EMAIL_PROVER_TIMEOUT_MS: env.ZK_EMAIL_PROVER_TIMEOUT_MS,
-    },
     googleOidc: {
       GOOGLE_OIDC_CLIENT_ID: env.GOOGLE_OIDC_CLIENT_ID,
       GOOGLE_OIDC_CLIENT_IDS: env.GOOGLE_OIDC_CLIENT_IDS,

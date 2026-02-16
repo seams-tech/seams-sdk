@@ -25,8 +25,6 @@ type Env = {
   WEBAUTHN_CONTRACT_ID: string;
   ACCOUNT_INITIAL_BALANCE?: string;
   CREATE_ACCOUNT_AND_REGISTER_GAS?: string;
-  ZK_EMAIL_PROVER_BASE_URL?: string;
-  ZK_EMAIL_PROVER_TIMEOUT_MS?: string;
   SHAMIR_P_B64U: string;
   SHAMIR_E_S_B64U: string;
   SHAMIR_D_S_B64U: string;
@@ -59,10 +57,6 @@ function createAuthService(env: Env): AuthService {
     networkId: env.NETWORK_ID,
     accountInitialBalance: env.ACCOUNT_INITIAL_BALANCE,
     createAccountAndRegisterGas: env.CREATE_ACCOUNT_AND_REGISTER_GAS,
-    zkEmailProver: {
-      ZK_EMAIL_PROVER_BASE_URL: env.ZK_EMAIL_PROVER_BASE_URL,
-      ZK_EMAIL_PROVER_TIMEOUT_MS: env.ZK_EMAIL_PROVER_TIMEOUT_MS,
-    },
     googleOidc: {
       GOOGLE_OIDC_CLIENT_ID: env.GOOGLE_OIDC_CLIENT_ID,
       GOOGLE_OIDC_CLIENT_IDS: env.GOOGLE_OIDC_CLIENT_IDS,

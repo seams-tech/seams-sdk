@@ -491,9 +491,7 @@ export type ContractStoredAuthenticator = Record<string, unknown>;
 export type RecoveryAttemptStatus =
   | "Started"
   | "VerifyingDkim"
-  | "VerifyingZkEmail"
   | "DkimFailed"
-  | "ZkEmailFailed"
   | "PolicyFailed"
   | "Recovering"
   | "AwaitingMoreEmails"

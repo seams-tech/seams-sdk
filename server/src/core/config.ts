@@ -2,7 +2,6 @@ import type {
   AuthServiceConfig,
   AuthServiceConfigInput,
   GoogleOidcConfigEnvInput,
-  ZkEmailProverConfigEnvInput,
 } from './types';
 import {
   THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT,
@@ -27,40 +26,6 @@ function defaultNearRpcUrl(networkId: string): string {
   const net = String(networkId || '').trim().toLowerCase();
   if (net === 'mainnet') return AUTH_SERVICE_CONFIG_DEFAULTS.nearRpcUrlMainnet;
   return AUTH_SERVICE_CONFIG_DEFAULTS.nearRpcUrlTestnet;
-}
-
-function normalizeZkEmailProverConfig(
-  input: AuthServiceConfigInput['zkEmailProver'],
-): AuthServiceConfig['zkEmailProver'] | undefined {
-  if (!input) return undefined;
-
-  // Full options object
-  if (typeof (input as any).baseUrl === 'string') {
-    const baseUrl = toOptionalTrimmedString((input as any).baseUrl);
-    if (!baseUrl) return undefined;
-    return input as AuthServiceConfig['zkEmailProver'];
-  }
-
-  // Env-shaped input
-  const envInput = input as ZkEmailProverConfigEnvInput;
-  const baseUrl = toOptionalTrimmedString(envInput.ZK_EMAIL_PROVER_BASE_URL);
-  const timeoutMsRaw = toOptionalTrimmedString(envInput.ZK_EMAIL_PROVER_TIMEOUT_MS);
-
-  const anyProvided = Boolean(baseUrl || timeoutMsRaw);
-  if (!anyProvided) return undefined;
-  if (!baseUrl) {
-    throw new Error('zkEmailProver enabled but ZK_EMAIL_PROVER_BASE_URL is not set');
-  }
-
-  const timeoutMs = timeoutMsRaw ? Number(timeoutMsRaw) : undefined;
-  if (timeoutMsRaw && (!Number.isFinite(timeoutMs) || timeoutMs! <= 0)) {
-    throw new Error('ZK_EMAIL_PROVER_TIMEOUT_MS must be a positive integer (ms)');
-  }
-
-  return {
-    baseUrl,
-    timeoutMs,
-  };
 }
 
 function parseCsv(input?: string | null): string[] {
@@ -193,7 +158,6 @@ export function createAuthServiceConfig(input: AuthServiceConfigInput): AuthServ
     signerWasm: input.signerWasm,
     thresholdEd25519KeyStore: normalizeThresholdEd25519KeyStoreConfig(input.thresholdEd25519KeyStore),
     logger: input.logger,
-    zkEmailProver: normalizeZkEmailProverConfig(input.zkEmailProver),
     googleOidc: normalizeGoogleOidcConfig(input.googleOidc),
   };
 

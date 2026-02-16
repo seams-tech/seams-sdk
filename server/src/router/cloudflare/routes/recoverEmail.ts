@@ -12,11 +12,11 @@ export async function handleRecoverEmail(ctx: CloudflareRelayContext): Promise<R
     String(ctx.url.searchParams.get('respond_async') || '').trim() === '1';
 
   const rawBody = await readJson(ctx.request);
-  const parsed = parseRecoverEmailRequest(rawBody, { headers: ctx.request.headers });
+  const parsed = parseRecoverEmailRequest(rawBody);
   if (!parsed.ok) {
     return json({ code: parsed.code, message: parsed.message }, { status: parsed.status });
   }
-  const { accountId, emailBlob, explicitMode } = parsed;
+  const { accountId, emailBlob } = parsed;
 
   if (!ctx.service.emailRecovery) {
     return json(
@@ -28,7 +28,7 @@ export async function handleRecoverEmail(ctx: CloudflareRelayContext): Promise<R
   if (respondAsync && ctx.cfCtx && typeof ctx.cfCtx.waitUntil === 'function') {
     ctx.cfCtx.waitUntil(
       ctx.service.emailRecovery
-        .requestEmailRecovery({ accountId, emailBlob, explicitMode })
+        .requestEmailRecovery({ accountId, emailBlob })
         .then((result) => {
           ctx.logger.info('[recover-email] async complete', {
             success: result?.success === true,
@@ -46,6 +46,6 @@ export async function handleRecoverEmail(ctx: CloudflareRelayContext): Promise<R
     return json({ success: true, queued: true, accountId }, { status: 202 });
   }
 
-  const result = await ctx.service.emailRecovery.requestEmailRecovery({ accountId, emailBlob, explicitMode });
+  const result = await ctx.service.emailRecovery.requestEmailRecovery({ accountId, emailBlob });
   return json(result, { status: result.success ? 202 : 400 });
 }

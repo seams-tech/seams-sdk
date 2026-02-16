@@ -91,9 +91,9 @@ export default {
   - `{ sessionKind: 'jwt' | 'cookie', challengeId, webauthn_authentication }`
   - The relay verifies signatures using its private authenticator store and persists counters.
   - `sessionKind='jwt'` → JSON returns `{ jwt }`; `sessionKind='cookie'` → sets `Set-Cookie` (HttpOnly) and omits `jwt` in body.
-- POST `/recover-email` — email-based account recovery (TEE/DKIM by default; zk-email when `explicitMode: 'zk-email'` or the email body includes a `zk-email` marker)
+- POST `/recover-email` — email-based account recovery (TEE/DKIM flow)
 - GET `/healthz` — basic server health + feature configuration hints (optional, enabled via router config)
-- GET `/readyz` — readiness check for configured dependencies (optional, enabled via router config)
+- GET `/readyz` — readiness check (optional, enabled via router config)
 - GET `/session/auth` — returns `{ authenticated, claims? }` based on Authorization: Bearer or cookie
 - POST `/session/logout` — clears the session cookie
 - GET `/.well-known/webauthn` — Related Origin Requests manifest (wallet-scoped credentials)

@@ -1,79 +1,92 @@
-import type { EmailRecoveryMode } from './types';
-import { normalizeForwardableEmailPayload, parseAccountIdFromSubject } from './zkEmail';
-import { ensureEd25519Prefix } from '@/core/near/nearCrypto';
+import { ensureEd25519Prefix } from '@shared/utils/validation';
 
-export enum EmailRecoveryModeHint {
-  ZkEmail = 'zk-email',
-  TeeEncrypted = 'tee-encrypted',
-  OnchainPublic = 'onchain-public',
+export interface ForwardableEmailPayload {
+  from: string;
+  to: string;
+  headers: Record<string, string>;
+  raw?: string;
+  rawSize?: number;
 }
 
-export function parseRecoveryMode(raw: string | undefined | null): EmailRecoveryMode | null {
-  if (!raw) return null;
-  const value = raw.trim().toLowerCase();
-  if (value === EmailRecoveryModeHint.ZkEmail) return 'zk-email';
-  if (value === EmailRecoveryModeHint.TeeEncrypted) return 'tee-encrypted';
-  if (value === EmailRecoveryModeHint.OnchainPublic) return 'onchain-public';
-  return null;
-}
+export type NormalizedEmailResult =
+  | { ok: true; payload: ForwardableEmailPayload }
+  | { ok: false; code: string; message: string };
 
-export function extractRecoveryModeFromBody(emailBlob?: string): EmailRecoveryMode | null {
-  if (!emailBlob) return null;
-
-  const lines = emailBlob.split(/\r?\n/);
-  const bodyStartIndex = lines.findIndex(line => line.trim() === '');
-  if (bodyStartIndex === -1) return null;
-
-  const bodyLines = lines.slice(bodyStartIndex + 1);
-  const firstNonEmptyBodyLine = bodyLines.find(line => line.trim() !== '');
-  if (!firstNonEmptyBodyLine) return null;
-
-  const candidate = firstNonEmptyBodyLine.trim();
-  const normalized = parseRecoveryMode(candidate);
-  if (normalized) return normalized;
-
-  const lower = candidate.toLowerCase();
-  if (lower.includes(EmailRecoveryModeHint.ZkEmail)) return 'zk-email';
-  if (lower.includes(EmailRecoveryModeHint.TeeEncrypted)) return 'tee-encrypted';
-  if (lower.includes(EmailRecoveryModeHint.OnchainPublic)) return 'onchain-public';
-
-  return null;
-}
-
-type HeaderValue = string | string[] | undefined;
-type HeadersLike = Headers | Record<string, HeaderValue> | undefined;
-
-export type RecoverEmailParseResult =
-  | { ok: true; accountId: string; emailBlob: string; explicitMode?: string }
-  | { ok: false; status: number; code: string; message: string };
-
-function getHeader(headers: HeadersLike, name: string): string | undefined {
-  if (!headers) return undefined;
-
-  const maybeHeaders = headers as any;
-  if (typeof maybeHeaders.get === 'function') {
-    const v = maybeHeaders.get(name);
-    return (typeof v === 'string') ? v : undefined;
+export function normalizeForwardableEmailPayload(input: unknown): NormalizedEmailResult {
+  if (!input || typeof input !== 'object') {
+    return { ok: false, code: 'invalid_email', message: 'JSON body required' };
   }
 
-  const record = headers as Record<string, HeaderValue>;
-  const v = record[name.toLowerCase()] ?? record[name];
-  if (Array.isArray(v)) return (typeof v[0] === 'string') ? v[0] : undefined;
-  return (typeof v === 'string') ? v : undefined;
+  const body = input as Partial<ForwardableEmailPayload>;
+  const { from, to, headers, raw, rawSize } = body;
+
+  if (!from || typeof from !== 'string' || !to || typeof to !== 'string') {
+    return { ok: false, code: 'invalid_email', message: 'from and to are required' };
+  }
+
+  if (!headers || typeof headers !== 'object') {
+    return { ok: false, code: 'invalid_email', message: 'headers object is required' };
+  }
+
+  const normalizedHeaders: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers as Record<string, unknown>)) {
+    normalizedHeaders[String(k).toLowerCase()] = String(v);
+  }
+
+  return {
+    ok: true,
+    payload: {
+      from,
+      to,
+      headers: normalizedHeaders,
+      raw: typeof raw === 'string' ? raw : undefined,
+      rawSize: typeof rawSize === 'number' ? rawSize : undefined,
+    },
+  };
 }
 
-function parseExplicitMode(body: unknown, headers?: HeadersLike): string | undefined {
-  const modeFromBody =
-    (typeof (body as any)?.explicitMode === 'string' ? String((body as any).explicitMode) : '') ||
-    (typeof (body as any)?.explicit_mode === 'string' ? String((body as any).explicit_mode) : '');
-  const modeFromHeader = getHeader(headers, 'x-email-recovery-mode') || getHeader(headers, 'x-recovery-mode') || '';
-  const raw = (modeFromBody || modeFromHeader).trim();
-  return raw ? raw : undefined;
+/**
+ * Parse NEAR accountId from the Subject line inside a raw RFC822 email.
+ *
+ * Expected format (case-insensitive on "Subject" and "recover"):
+ *   Subject: recover-123ABC bob.testnet ed25519:<pk>
+ *
+ * Returns the parsed accountId (e.g. "bob.testnet") or null if not found.
+ */
+export function parseAccountIdFromSubject(raw: string | undefined | null): string | null {
+  if (!raw || typeof raw !== 'string') return null;
+
+  let subjectText = '';
+  const lines = raw.split(/\r?\n/);
+  const subjectLine = lines.find((line) => /^subject:/i.test(line));
+  if (subjectLine) {
+    const idx = subjectLine.indexOf(':');
+    const restRaw = idx >= 0 ? subjectLine.slice(idx + 1) : '';
+    subjectText = restRaw.trim();
+  } else {
+    subjectText = raw.trim();
+  }
+
+  if (!subjectText) return null;
+
+  subjectText = subjectText.replace(/^(re|fwd):\s*/i, '').trim();
+  if (!subjectText) return null;
+
+  const match = subjectText.match(
+    /^recover-([A-Za-z0-9]{6})\s+([^\s]+)(?:\s+ed25519:[^\s]+)?\s*$/i
+  );
+  if (match?.[2]) {
+    return match[2];
+  }
+
+  return null;
 }
 
-export function parseRecoverEmailRequest(body: unknown, opts: { headers?: HeadersLike } = {}): RecoverEmailParseResult {
-  const explicitMode = parseExplicitMode(body, opts.headers);
+export type RecoverEmailParseResult =
+  | { ok: true; accountId: string; emailBlob: string }
+  | { ok: false; status: number; code: string; message: string };
 
+export function parseRecoverEmailRequest(body: unknown): RecoverEmailParseResult {
   const normalized = normalizeForwardableEmailPayload(body);
   if (!normalized.ok) {
     return { ok: false, status: 400, code: normalized.code, message: normalized.message };
@@ -95,7 +108,7 @@ export function parseRecoverEmailRequest(body: unknown, opts: { headers?: Header
     return { ok: false, status: 400, code: 'missing_email', message: 'raw email blob is required' };
   }
 
-  return { ok: true, accountId, emailBlob, explicitMode };
+  return { ok: true, accountId, emailBlob };
 }
 
 const EMAIL_ADDRESS_REGEX =

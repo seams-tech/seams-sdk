@@ -113,7 +113,7 @@ export async function buildEncryptedEmailRecoveryActions(
   if (!fromHeader) {
     throw new Error('Encrypted email recovery requires a From: header');
   }
-  const expectedHashedEmail = hashRecoveryEmailForAccount({ recoveryEmail: fromHeader, accountId });
+  const expectedHashedEmail = await hashRecoveryEmailForAccount({ recoveryEmail: fromHeader, accountId });
 
   const contractArgs = {
     encrypted_email_blob: envelope,
@@ -128,74 +128,6 @@ export async function buildEncryptedEmailRecoveryActions(
       action_type: ActionType.FunctionCall,
       method_name: 'verify_encrypted_email_and_recover',
       args: JSON.stringify(contractArgs),
-      gas: '300000000000000',
-      deposit: '10000000000000000000000',
-    },
-  ];
-  actions.forEach(validateActionArgsWasm);
-
-  return {
-    actions,
-    receiverId: accountId,
-  };
-}
-
-export async function buildZkEmailRecoveryActions(
-  deps: EmailRecoveryServiceDeps,
-  input: {
-    accountId: string;
-    contractArgs: {
-      proof: unknown;
-      public_inputs: string[];
-      account_id: string;
-      new_public_key: string;
-      request_id: string;
-      from_address_hash: number[];
-      timestamp: string;
-    };
-  },
-): Promise<{ actions: ActionArgsWasm[]; receiverId: string }> {
-  const { accountId, contractArgs } = input;
-
-  const actions: ActionArgsWasm[] = [
-    {
-      action_type: ActionType.FunctionCall,
-      method_name: 'verify_zkemail_and_recover',
-      args: JSON.stringify(contractArgs),
-      gas: '300000000000000',
-      deposit: '10000000000000000000000',
-    },
-  ];
-  actions.forEach(validateActionArgsWasm);
-
-  return {
-    actions,
-    receiverId: accountId,
-  };
-}
-
-export async function buildOnchainEmailRecoveryActions(
-  _deps: EmailRecoveryServiceDeps,
-  input: { accountId: string; emailBlob: string },
-): Promise<{ actions: ActionArgsWasm[]; receiverId: string }> {
-  const { accountId, emailBlob } = input;
-
-  const bindings = parseRecoverSubjectBindings(emailBlob);
-  if (!bindings) {
-    throw new Error('On-chain email recovery requires Subject: recover-<request_id> <accountId> ed25519:<new_public_key>');
-  }
-  if (bindings.accountId !== accountId) {
-    throw new Error(`On-chain email recovery subject accountId mismatch (expected "${accountId}", got "${bindings.accountId}")`);
-  }
-
-  const actions: ActionArgsWasm[] = [
-    {
-      action_type: ActionType.FunctionCall,
-      method_name: 'verify_email_onchain_and_recover',
-      args: JSON.stringify({
-        email_blob: emailBlob,
-        request_id: bindings.requestId,
-      }),
       gas: '300000000000000',
       deposit: '10000000000000000000000',
     },

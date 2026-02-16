@@ -23,8 +23,6 @@ export interface RelayCloudflareWorkerEnv {
   WEBAUTHN_CONTRACT_ID: string;
   ACCOUNT_INITIAL_BALANCE?: string;
   CREATE_ACCOUNT_AND_REGISTER_GAS?: string;
-  ZK_EMAIL_PROVER_BASE_URL?: string;
-  ZK_EMAIL_PROVER_TIMEOUT_MS?: string;
   EXPECTED_ORIGIN?: string;
   EXPECTED_WALLET_ORIGIN?: string;
   RECOVER_EMAIL_RECIPIENT?: string;

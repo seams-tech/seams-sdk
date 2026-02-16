@@ -14,7 +14,7 @@ NEAR relay server that creates accounts on behalf of users, where the relayer pa
 ### Health endpoints
 
 - `GET /healthz` — basic server health + feature configuration hints (fast; no external dependency checks)
-- `GET /readyz` — readiness check for configured dependencies (zk-email prover when configured)
+- `GET /readyz` — readiness check
 
 ### `POST /create_account_and_register_user`
 Atomically create a NEAR account and register a WebAuthn authenticator in relay storage (contract-free).
@@ -63,10 +63,6 @@ PORT=3001
 EXPECTED_ORIGIN=http://localhost:3000
 # If you serve from multiple origins, set EXPECTED_WALLET_ORIGIN as well
 # EXPECTED_WALLET_ORIGIN=http://localhost:4173
-
-# Optional: zk-email prover base URL (used when explicitMode='zk-email' or email body marker is 'zk-email')
-# ZK_EMAIL_PROVER_BASE_URL=http://127.0.0.1:5588
-# ZK_EMAIL_PROVER_TIMEOUT_MS=60000
 
 # Threshold secrets (base64url-encoded 32-byte values)
 # THRESHOLD_ED25519_MASTER_SECRET_B64U=<32-byte-base64url>

@@ -114,7 +114,7 @@ export function createCloudflareEmailHandler(service: AuthService, opts: Cloudfl
         logger.info('[email] from/to', { from: payload.from, to: payload.to, subject: payload.headers['subject'] });
       }
 
-      const parsed = parseRecoverEmailRequest(payload as any, { headers: payload.headers });
+      const parsed = parseRecoverEmailRequest(payload as any);
       if (!parsed.ok) {
         logger.warn('[email] rejecting', { code: parsed.code, message: parsed.message });
         message.setReject(`Email recovery relayer rejected email: ${parsed.message}`);
@@ -130,7 +130,6 @@ export function createCloudflareEmailHandler(service: AuthService, opts: Cloudfl
       const result = await service.emailRecovery.requestEmailRecovery({
         accountId: parsed.accountId,
         emailBlob: parsed.emailBlob,
-        explicitMode: parsed.explicitMode,
       });
 
       if (!result?.success) {

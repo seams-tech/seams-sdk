@@ -247,7 +247,6 @@ export class AuthService {
       fetchTxContext: (accountId: string, publicKey: string) => this.fetchTxContext(accountId, publicKey),
       signWithPrivateKey: (input) => this.signWithPrivateKey(input),
       getRelayerPublicKey: () => this.relayerPublicKey,
-      zkEmailProver: this.config.zkEmailProver,
     });
 
     // Log effective configuration at construction time so operators can
@@ -261,10 +260,6 @@ export class AuthService {
     • accountInitialBalance: ${this.config.accountInitialBalance} (${formatYoctoToNear(this.config.accountInitialBalance)} NEAR)
     • createAccountAndRegisterGas: ${this.config.createAccountAndRegisterGas} (${formatGasToTGas(this.config.createAccountAndRegisterGas)})
     • ${summarizeThresholdEd25519Config(this.config.thresholdEd25519KeyStore)}
-    ${this.config.zkEmailProver?.baseUrl
-        ? `• zkEmailProver: ${this.config.zkEmailProver.baseUrl}`
-        : `• zkEmailProver: not configured`
-      }
     ${this.config.googleOidc?.clientIds?.length
         ? `• googleOidc: ${this.config.googleOidc.clientIds.length} clientId(s)`
         : `• googleOidc: not configured`
@@ -833,9 +828,17 @@ export class AuthService {
         //   but we keep compatibility with older clients that omit it (Option A).
         let newPublicKey = String(request?.new_public_key || '').trim();
         const thresholdClientVerifyingShareB64u = String((request as any)?.threshold_ed25519?.client_verifying_share_b64u || '').trim();
+        const thresholdEcdsaClientVerifyingShareB64u = String((request as any)?.threshold_ecdsa?.client_verifying_share_b64u || '').trim();
         let thresholdKeygen:
           | Extract<ThresholdEd25519RegistrationKeygenResult, { ok: true }>
           | null = null;
+        let thresholdEcdsaKeygen: {
+          relayerKeyId: string;
+          groupPublicKeyB64u: string;
+          ethereumAddress: string;
+          relayerVerifyingShareB64u: string;
+          participantIds?: number[];
+        } | null = null;
 
         const rpId = String(
           (request as unknown as { rp_id?: unknown; rpId?: unknown })?.rp_id
@@ -862,6 +865,36 @@ export class AuthService {
             throw new Error(out.message || 'threshold-ed25519 registration keygen failed');
           }
           thresholdKeygen = out;
+        }
+
+        if (thresholdEcdsaClientVerifyingShareB64u) {
+          const threshold = this.getThresholdSigningService();
+          if (!threshold) {
+            throw new Error('threshold signing is not configured on this server');
+          }
+          const out = await threshold.ecdsaRegistrationKeygenFromClientVerifyingShare({
+            userId: accountId,
+            rpId,
+            clientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u,
+          });
+          if (!out.ok) {
+            throw new Error(out.message || 'threshold-ecdsa registration keygen failed');
+          }
+
+          const relayerKeyId = String(out.relayerKeyId || '').trim();
+          const groupPublicKeyB64u = String(out.groupPublicKeyB64u || '').trim();
+          const ethereumAddress = String(out.ethereumAddress || '').trim();
+          const relayerVerifyingShareB64u = String(out.relayerVerifyingShareB64u || '').trim();
+          if (!relayerKeyId || !groupPublicKeyB64u || !ethereumAddress || !relayerVerifyingShareB64u) {
+            throw new Error('threshold-ecdsa registration keygen returned incomplete key material');
+          }
+          thresholdEcdsaKeygen = {
+            relayerKeyId,
+            groupPublicKeyB64u,
+            ethereumAddress,
+            relayerVerifyingShareB64u,
+            ...(Array.isArray(out.participantIds) ? { participantIds: out.participantIds } : {}),
+          };
         }
 
         // Backward compatibility: older threshold-signer clients omitted new_public_key, and the relay created the
@@ -1057,6 +1090,11 @@ export class AuthService {
                   relayerParticipantId: thresholdKeygen.relayerParticipantId,
                   participantIds: thresholdKeygen.participantIds,
                 },
+              }
+            : {}),
+          ...(thresholdEcdsaKeygen
+            ? {
+                thresholdEcdsa: thresholdEcdsaKeygen,
               }
             : {}),
           message: `Account ${accountId} created and registered successfully`,
@@ -2279,7 +2317,7 @@ export class AuthService {
       if (!cred || typeof cred !== 'object') return { ok: false, code: 'invalid_body', message: 'Missing webauthn_registration' };
 
       // Reuse the canonical deterministic registration challenge schema.
-      // Email recovery authorization happens out-of-band (DKIM/zk-email), so we don't
+      // Email recovery authorization happens out-of-band (DKIM/TEE), so we don't
       // need to bind the WebAuthn registration challenge to the email `requestId`.
       const expectedIntent = `register:${accountId}:${deviceNumber}`;
       const expectedChallenge = base64UrlEncode(await sha256BytesUtf8(expectedIntent));
@@ -2586,29 +2624,6 @@ export class AuthService {
       signature: signature,
       borsh_bytes: borshBytes,
     });
-  }
-
-  /**
-   * ZK-email recovery helper (stub).
-   * Intended to call the global ZkEmailVerifier and per-user recovery contract
-   * once zk-email proofs and public inputs are wired through.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async recoverAccountFromZkEmailVerifier(_request: {
-    accountId: string;
-    proof: unknown;
-    publicInputs: unknown;
-  }): Promise<{
-    success: boolean;
-    transactionHash?: string;
-    message?: string;
-    error?: string;
-  }> {
-    return {
-      success: false,
-      error: 'recoverAccountFromZkEmailVerifier is not yet implemented',
-      message: 'recoverAccountFromZkEmailVerifier is not yet implemented',
-    };
   }
 
   /**

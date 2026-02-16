@@ -12,7 +12,6 @@
     "test:wallet-iframe": "USE_RELAY_SERVER=0 playwright test ./wallet-iframe --reporter=line",
     "test:lit-components": "USE_RELAY_SERVER=0 playwright test ./lit-components --reporter=line",
     "test:relayer": "playwright test -c playwright.relayer.config.ts --reporter=line",
-    "test:relay-email-recovery-zk": "node ./scripts/test-relay-email-recovery-zk.mjs",
     "show-report": "playwright show-report"
   },
   "devDependencies": {

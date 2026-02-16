@@ -1,6 +1,12 @@
-import type { EmailRecoveryContracts, TatchiConfigs, TatchiConfigsInput } from '../types/tatchi';
+import type {
+  EmailRecoveryContracts,
+  ThemePaletteName,
+  TatchiConfigs,
+  TatchiConfigsInput,
+} from '../types/tatchi';
 import { coerceSignerMode } from '../types/signer-worker';
 import { toTrimmedString } from '../../../../shared/src/utils/validation';
+import { coerceThemeName } from '../../../../shared/src/utils/theme';
 
 // Default SDK configs suitable for local dev.
 // Cross-origin wallet isolation is recommended; set iframeWallet in your app config when you have a dedicated origin.
@@ -12,6 +18,14 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigs = {
   nearRpcUrl: 'https://test.rpc.fastnear.com, https://rpc.testnet.near.org',
   nearNetwork: 'testnet',
   contractId: 'w3a-v1.testnet',
+  appearance: {
+    theme: 'dark',
+    palette: 'default',
+    tokens: {
+      light: { colors: {} },
+      dark: { colors: {} },
+    },
+  },
   // Default account domain for newly created accounts (subaccounts under the relayer).
   // In most deployments this is the same as `contractId`, but it can differ.
   relayerAccount: 'w3a-v1.testnet',
@@ -46,8 +60,6 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigs = {
     },
   },
   emailRecoveryContracts: {
-    emailRecovererGlobalContract: 'w3a-email-recoverer-v1.testnet',
-    zkEmailVerifierContract: 'zk-email-verifier-v1.testnet',
     emailDkimVerifierContract: 'email-dkim-verifier-v1.testnet',
   },
   // Configure iframeWallet in application code to point at your dedicated wallet origin when available.
@@ -72,8 +84,6 @@ export const THRESHOLD_ED25519_2P_PARTICIPANT_IDS = [
 // Threshold node roles.
 // Coordinator is the default because it exposes the public `/threshold-ed25519/sign/*` endpoints.
 export const DEFAULT_EMAIL_RECOVERY_CONTRACTS: EmailRecoveryContracts = {
-  emailRecovererGlobalContract: PASSKEY_MANAGER_DEFAULT_CONFIGS.emailRecoveryContracts.emailRecovererGlobalContract,
-  zkEmailVerifierContract: PASSKEY_MANAGER_DEFAULT_CONFIGS.emailRecoveryContracts.zkEmailVerifierContract,
   emailDkimVerifierContract: PASSKEY_MANAGER_DEFAULT_CONFIGS.emailRecoveryContracts.emailDkimVerifierContract,
 };
 
@@ -83,6 +93,19 @@ function coercePositiveIntInRange(value: unknown, fallback: number, min: number,
   if (rounded < min) return min;
   if (rounded > max) return max;
   return rounded;
+}
+
+function coerceThemePaletteName(value: unknown): ThemePaletteName | undefined {
+  return value === 'default' || value === 'cream' ? value : undefined;
+}
+
+function toStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object') return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v === 'string') out[k] = v;
+  }
+  return out;
 }
 
 // Merge defaults with overrides
@@ -113,10 +136,38 @@ export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiC
     1,
     5,
   );
+  const appearanceTheme =
+    coerceThemeName(overrides.appearance?.theme)
+    ?? defaults.appearance.theme;
+  const appearancePalette =
+    coerceThemePaletteName(overrides.appearance?.palette)
+    ?? defaults.appearance.palette;
+  const defaultLightColors = toStringRecord(defaults.appearance.tokens.light.colors);
+  const defaultDarkColors = toStringRecord(defaults.appearance.tokens.dark.colors);
+  const overrideLightColors = toStringRecord(overrides.appearance?.tokens?.light?.colors);
+  const overrideDarkColors = toStringRecord(overrides.appearance?.tokens?.dark?.colors);
   const merged: TatchiConfigs = {
     nearRpcUrl: overrides.nearRpcUrl ?? defaults.nearRpcUrl,
     nearNetwork: overrides.nearNetwork ?? defaults.nearNetwork,
     contractId: overrides.contractId ?? defaults.contractId,
+    appearance: {
+      theme: appearanceTheme,
+      palette: appearancePalette,
+      tokens: {
+        light: {
+          colors: {
+            ...defaultLightColors,
+            ...overrideLightColors,
+          },
+        },
+        dark: {
+          colors: {
+            ...defaultDarkColors,
+            ...overrideDarkColors,
+          },
+        },
+      },
+    },
     relayerAccount,
     nearExplorerUrl: overrides.nearExplorerUrl ?? defaults.nearExplorerUrl,
     signerMode,
@@ -149,10 +200,6 @@ export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiC
     },
     authenticatorOptions: overrides.authenticatorOptions ?? defaults.authenticatorOptions,
     emailRecoveryContracts: {
-      emailRecovererGlobalContract: overrides.emailRecoveryContracts?.emailRecovererGlobalContract
-        ?? defaults.emailRecoveryContracts?.emailRecovererGlobalContract,
-      zkEmailVerifierContract: overrides.emailRecoveryContracts?.zkEmailVerifierContract
-        ?? defaults.emailRecoveryContracts?.zkEmailVerifierContract,
       emailDkimVerifierContract: overrides.emailRecoveryContracts?.emailDkimVerifierContract
         ?? defaults.emailRecoveryContracts?.emailDkimVerifierContract,
     },

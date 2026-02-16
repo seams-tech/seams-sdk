@@ -4,45 +4,28 @@ import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
 import { callCf, fetchJson, getPath, makeFakeAuthService, startExpressRouter } from './helpers';
 
 test.describe('relayer health/ready + well-known', () => {
-  test('express: GET /healthz includes threshold + zkEmail hints when enabled', async () => {
-	    const emailRecovery = {
-	      getZkEmailProverBaseUrl: () => 'https://prover.example',
-	      checkZkEmailProverHealth: async () => ({ configured: true, baseUrl: 'https://prover.example', healthy: true }),
-	    };
-	    const service = makeFakeAuthService({ emailRecovery, getThresholdSigningService: () => ({} as any) });
-	    const router = createRelayRouter(service, { healthz: true, readyz: true });
-	    const srv = await startExpressRouter(router);
-	    try {
-	      const res = await fetchJson(`${srv.baseUrl}/healthz`, { method: 'GET' });
+  test('express: GET /healthz includes threshold hints when enabled', async () => {
+    const service = makeFakeAuthService({ getThresholdSigningService: () => ({} as any) });
+    const router = createRelayRouter(service, { healthz: true, readyz: true });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/healthz`, { method: 'GET' });
       expect(res.status).toBe(200);
       expect(res.json?.ok).toBe(true);
       expect(getPath(res.json, 'thresholdEd25519', 'configured')).toBe(true);
-      expect(getPath(res.json, 'zkEmail', 'configured')).toBe(true);
-      expect(getPath(res.json, 'zkEmail', 'proverBaseUrl')).toBe('https://prover.example');
     } finally {
       await srv.close();
     }
   });
 
-  test('express: GET /readyz returns 503 when zk-email prover is unhealthy', async () => {
-    const emailRecovery = {
-      getZkEmailProverBaseUrl: () => 'https://prover.example',
-      checkZkEmailProverHealth: async () => ({
-        configured: true,
-        baseUrl: 'https://prover.example',
-        healthy: false,
-        errorCode: 'unreachable',
-        message: 'down',
-      }),
-    };
-    const service = makeFakeAuthService({ emailRecovery });
+  test('express: GET /readyz returns 200 without external dependency checks', async () => {
+    const service = makeFakeAuthService();
     const router = createRelayRouter(service, { readyz: true });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/readyz`, { method: 'GET' });
-      expect(res.status).toBe(503);
-      expect(res.json?.ok).toBe(false);
-      expect(getPath(res.json, 'zkEmail', 'healthy')).toBe(false);
+      expect(res.status).toBe(200);
+      expect(res.json?.ok).toBe(true);
     } finally {
       await srv.close();
     }
@@ -80,18 +63,8 @@ test.describe('relayer health/ready + well-known', () => {
     expect(res.headers.get('access-control-allow-credentials')).toBe('true');
   });
 
-  test('cloudflare: GET /readyz returns 503 when zk-email prover is unhealthy', async () => {
-    const emailRecovery = {
-      getZkEmailProverBaseUrl: () => 'https://prover.example',
-      checkZkEmailProverHealth: async () => ({
-        configured: true,
-        baseUrl: 'https://prover.example',
-        healthy: false,
-        errorCode: 'unreachable',
-        message: 'down',
-      }),
-    };
-    const service = makeFakeAuthService({ emailRecovery });
+  test('cloudflare: GET /readyz returns 200 without external dependency checks', async () => {
+    const service = makeFakeAuthService();
     const handler = createCloudflareRouter(service, { readyz: true, corsOrigins: ['https://example.localhost'] });
 
     const res = await callCf(handler, {
@@ -100,9 +73,8 @@ test.describe('relayer health/ready + well-known', () => {
       origin: 'https://example.localhost',
     });
 
-    expect(res.status).toBe(503);
-    expect(res.json?.ok).toBe(false);
-    expect(getPath(res.json, 'zkEmail', 'healthy')).toBe(false);
+    expect(res.status).toBe(200);
+    expect(res.json?.ok).toBe(true);
   });
 
   test('cloudflare: GET /.well-known/webauthn supports env overrides and sets Cache-Control', async () => {

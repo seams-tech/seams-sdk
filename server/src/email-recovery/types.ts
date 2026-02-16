@@ -1,6 +1,5 @@
 import type { MinimalNearClient, SignedTransaction } from '@/core/near/NearClient';
 import type { ActionArgsWasm } from '@/core/types/actions';
-import type { ZkEmailProverClientOptions } from './zkEmail';
 import type { Logger } from '../core/logger';
 
 export interface EmailRecoveryServiceDeps {
@@ -26,18 +25,11 @@ export interface EmailRecoveryServiceDeps {
     actions: ActionArgsWasm[];
   }): Promise<SignedTransaction>;
   getRelayerPublicKey(): string;
-  zkEmailProver?: ZkEmailProverClientOptions;
 }
 
 export interface EmailRecoveryRequest {
   accountId: string;
   emailBlob: string;
-}
-
-export type EmailRecoveryMode = 'zk-email' | 'tee-encrypted' | 'onchain-public';
-
-export interface EmailRecoveryDispatchRequest extends EmailRecoveryRequest {
-  explicitMode?: string;
 }
 
 export interface EmailRecoveryResult {

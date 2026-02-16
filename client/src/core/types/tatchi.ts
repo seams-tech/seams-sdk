@@ -4,6 +4,7 @@ import type { SignedTransaction } from '../near/NearClient';
 import type { AuthenticatorOptions } from './authenticatorOptions';
 import type { ClientUserData } from '../IndexedDBManager/passkeyClientDB';
 import type { SignerMode, WasmSignedDelegate } from './signer-worker';
+import type { ThresholdEcdsaSecp256k1KeyRef } from '../signing/orchestration/types';
 
 //////////////////////////////////
 /// Result Types
@@ -17,6 +18,35 @@ export interface LoginState {
 }
 
 export type ThemeName = 'light' | 'dark';
+export type ThemePaletteName = 'default' | 'cream';
+
+export interface ThemeTokenOverridesModeInput {
+  colors?: Record<string, string>;
+}
+
+export interface ThemeTokenOverridesInput {
+  light?: ThemeTokenOverridesModeInput;
+  dark?: ThemeTokenOverridesModeInput;
+}
+
+export interface AppearanceConfigInput {
+  theme?: ThemeName;
+  palette?: ThemePaletteName;
+  tokens?: ThemeTokenOverridesInput;
+}
+
+export interface AppearanceConfig {
+  theme: ThemeName;
+  palette: ThemePaletteName;
+  tokens: {
+    light: {
+      colors: Record<string, string>;
+    };
+    dark: {
+      colors: Record<string, string>;
+    };
+  };
+}
 
 export interface RegistrationResult {
   success: boolean;
@@ -24,6 +54,8 @@ export interface RegistrationResult {
   clientNearPublicKey?: string | null;
   nearAccountId?: AccountId;
   transactionId?: string | null;
+  thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
+  thresholdEcdsaEthereumAddress?: string;
 }
 
 export interface LoginResult {
@@ -97,8 +129,6 @@ export interface SignAndSendDelegateActionResult {
 }
 
 export type EmailRecoveryContracts = {
-  emailRecovererGlobalContract: string;
-  zkEmailVerifierContract: string;
   emailDkimVerifierContract: string;
 };
 
@@ -110,6 +140,7 @@ export interface TatchiConfigsInput {
   nearRpcUrl?: string;
   nearNetwork?: 'testnet' | 'mainnet';
   contractId?: 'w3a-v1.testnet' | string;
+  appearance?: AppearanceConfigInput;
   /**
    * NEAR account ID under which the relay server creates new subaccounts.
    *
@@ -203,6 +234,7 @@ export interface TatchiConfigs {
   nearRpcUrl: string;
   nearNetwork: 'testnet' | 'mainnet';
   contractId: 'w3a-v1.testnet' | string;
+  appearance: AppearanceConfig;
   relayerAccount: string;
   nearExplorerUrl?: string;
   signerMode: SignerMode;

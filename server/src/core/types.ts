@@ -5,7 +5,6 @@ import {
   OriginPolicyInput
 } from '@/core/types/authenticatorOptions';
 import type { InitInput } from '../../../wasm/near_signer/pkg/wasm_signer_worker.js';
-import type { ZkEmailProverClientOptions } from '../email-recovery/zkEmail';
 import type { Logger } from './logger';
 
 /**
@@ -215,26 +214,10 @@ export interface AuthServiceConfig {
    */
   logger?: Logger | null;
   /**
-   * Optional zk-email prover configuration used by `EmailRecoveryService` when
-   * handling zk-email mode (`explicitMode: 'zk-email'` or email body hint).
-   */
-  zkEmailProver?: ZkEmailProverClientOptions;
-  /**
    * Optional Google OIDC configuration for verifying Google `id_token` login sessions.
    */
   googleOidc?: GoogleOidcConfig;
 }
-
-/**
- * Env-var-shaped zk-email prover input, for ergonomic wiring in examples.
- * This is normalized to `ZkEmailProverClientOptions` by `createAuthServiceConfig(...)`.
- */
-export interface ZkEmailProverConfigEnvInput {
-  ZK_EMAIL_PROVER_BASE_URL?: string;
-  ZK_EMAIL_PROVER_TIMEOUT_MS?: string;
-}
-
-export type ZkEmailProverConfigInput = ZkEmailProverClientOptions | ZkEmailProverConfigEnvInput;
 
 export type GoogleOidcConfig = {
   /** Allowed OAuth client ids (audiences) for Google ID tokens. */
@@ -267,7 +250,6 @@ export type AuthServiceConfigInput = Omit<
   | 'accountInitialBalance'
   | 'createAccountAndRegisterGas'
   | 'thresholdEd25519KeyStore'
-  | 'zkEmailProver'
   | 'googleOidc'
 > & {
   webAuthnContractId?: string;
@@ -276,7 +258,6 @@ export type AuthServiceConfigInput = Omit<
   accountInitialBalance?: string;
   createAccountAndRegisterGas?: string;
   thresholdEd25519KeyStore?: ThresholdEd25519KeyStoreConfigInput;
-  zkEmailProver?: ZkEmailProverConfigInput;
   googleOidc?: GoogleOidcConfigInput;
 };
 
@@ -330,6 +311,9 @@ export interface CreateAccountAndRegisterRequest {
   threshold_ed25519?: {
     client_verifying_share_b64u: string;
   };
+  threshold_ecdsa?: {
+    client_verifying_share_b64u: string;
+  };
   /**
    * WebAuthn RP ID used for the registration ceremony (e.g. `wallet.example.com`).
    *
@@ -356,6 +340,13 @@ export interface CreateAccountAndRegisterResult {
     relayerVerifyingShareB64u?: string;
     clientParticipantId?: number;
     relayerParticipantId?: number;
+    participantIds?: number[];
+  };
+  thresholdEcdsa?: {
+    relayerKeyId: string;
+    groupPublicKeyB64u: string;
+    ethereumAddress: string;
+    relayerVerifyingShareB64u: string;
     participantIds?: number[];
   };
   error?: string;
