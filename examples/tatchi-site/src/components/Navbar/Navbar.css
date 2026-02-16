@@ -1,16 +1,16 @@
 .navbar-static {
-  --navbar-bg: var(--w3a-colors-colorBackground, var(--vp-c-bg));
-  --navbar-surface: var(--w3a-colors-surface, var(--vp-c-bg));
-  --navbar-surface2: var(--w3a-colors-surface2, var(--vp-c-bg-alt));
-  --navbar-surface3: var(--w3a-colors-surface3, var(--vp-c-bg-alt));
-  --navbar-text: var(--w3a-colors-textPrimary, var(--vp-c-text-1));
-  --navbar-border: var(--w3a-colors-borderPrimary, var(--vp-c-border));
-  --navbar-border-hover: var(--w3a-colors-borderHover, var(--vp-c-border));
+  --navbar-bg: var(--site-canvas, var(--vp-c-bg));
+  --navbar-surface: var(--site-surface, var(--vp-c-bg));
+  --navbar-surface2: var(--site-surface-muted, var(--vp-c-bg-alt));
+  --navbar-surface3: var(--site-surface-strong, var(--vp-c-bg-alt));
+  --navbar-text: var(--site-text-primary, var(--vp-c-text-1));
+  --navbar-border: var(--site-border, var(--vp-c-border));
+  --navbar-border-hover: var(--site-border-strong, var(--vp-c-border));
   --navbar-shadow: var(--w3a-shadows-sm, rgba(15, 23, 42, 0.2));
-  --navbar-primary: var(--w3a-colors-primary, #5b8ee5);
-  --navbar-primary-hover: var(--w3a-colors-primaryHover, #4b7cd0);
-  --navbar-text-button: var(--w3a-colors-textButton, #ffffff);
-  --navbar-focus: var(--w3a-colors-focus, #66a3ff);
+  --navbar-primary: var(--site-brand, oklch(0.52 0.138 255));
+  --navbar-primary-hover: var(--site-brand-hover, oklch(0.56 0.158 255));
+  --navbar-text-button: var(--site-text-button, #ffffff);
+  --navbar-focus: var(--site-focus, #66a3ff);
   --navbar-dropdown-notch-bg: linear-gradient(
     145deg,
     color-mix(in srgb, var(--navbar-surface3) 86%, #000 14%) 0%,
@@ -30,7 +30,7 @@
   --navbar-dropdown-grid:
     linear-gradient(90deg, color-mix(in srgb, var(--navbar-border) 24%, transparent) 1px, transparent 1px),
     linear-gradient(0deg, color-mix(in srgb, var(--navbar-border) 20%, transparent) 1px, transparent 1px);
-  --navbar-dropdown-title: color-mix(in srgb, var(--navbar-text) 64%, var(--w3a-colors-textSecondary) 36%);
+  --navbar-dropdown-title: color-mix(in srgb, var(--navbar-text) 64%, var(--site-text-secondary) 36%);
   --navbar-dropdown-card-surface:
     radial-gradient(
       130% 150% at 10% 0%,
@@ -54,7 +54,7 @@
       color-mix(in srgb, var(--navbar-surface2) 86%, #000 14%) 100%
     );
   --navbar-dropdown-card-title: var(--navbar-text);
-  --navbar-dropdown-card-description: color-mix(in srgb, var(--w3a-colors-textSecondary) 90%, var(--navbar-text) 10%);
+  --navbar-dropdown-card-description: color-mix(in srgb, var(--site-text-secondary) 90%, var(--navbar-text) 10%);
   --navbar-dropdown-all-surface: color-mix(in srgb, var(--navbar-surface3) 76%, transparent);
   --navbar-dropdown-all-surface-hover: color-mix(in srgb, var(--navbar-surface3) 90%, transparent);
   --navbar-dropdown-all-text: var(--navbar-text);
@@ -81,11 +81,11 @@
       color-mix(in srgb, var(--navbar-surface3) 84%, #000 16%) 0%,
       color-mix(in srgb, var(--navbar-surface2) 90%, #000 10%) 100%
     );
-  --navbar-mobile-section-title: color-mix(in srgb, var(--w3a-colors-textSecondary) 88%, var(--navbar-text) 12%);
+  --navbar-mobile-section-title: color-mix(in srgb, var(--site-text-secondary) 88%, var(--navbar-text) 12%);
   --navbar-mobile-subitem-surface: color-mix(in srgb, var(--navbar-surface3) 72%, transparent);
   --navbar-mobile-subitem-surface-hover: color-mix(in srgb, var(--navbar-surface3) 86%, transparent);
   --navbar-mobile-subitem-text: var(--navbar-text);
-  --navbar-mobile-subitem-copy: color-mix(in srgb, var(--w3a-colors-textSecondary) 90%, var(--navbar-text) 10%);
+  --navbar-mobile-subitem-copy: color-mix(in srgb, var(--site-text-secondary) 90%, var(--navbar-text) 10%);
   position: fixed;
   top: 0.75rem;
   left: 0;
@@ -119,6 +119,19 @@
   background: color-mix(in srgb, var(--navbar-bg) 88%, transparent);
   backdrop-filter: blur(12px);
   box-shadow: 0 12px 32px color-mix(in srgb, var(--navbar-shadow) 65%, transparent);
+}
+
+html[data-w3a-theme="light"] .navbar-static__shell.is-scrolled {
+  border-color: color-mix(in srgb, #c7cfd9 48%, var(--navbar-border) 52%);
+  background:
+    linear-gradient(
+      154deg,
+      color-mix(in srgb, #f7f8fa 90%, #eef1f5 10%) 0%,
+      color-mix(in srgb, #eceff4 88%, #e4e9ef 12%) 56%,
+      color-mix(in srgb, #e1e6ed 86%, #d6dde6 14%) 100%
+    );
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 26px color-mix(in srgb, #aeb7c3 18%, var(--navbar-shadow) 82%);
 }
 
 .navbar-static__left {
@@ -421,7 +434,7 @@ html[data-w3a-theme="light"] .navbar-static {
   --navbar-dropdown-grid:
     linear-gradient(90deg, color-mix(in srgb, var(--navbar-border) 18%, transparent) 1px, transparent 1px),
     linear-gradient(0deg, color-mix(in srgb, var(--navbar-border) 16%, transparent) 1px, transparent 1px);
-  --navbar-dropdown-title: color-mix(in srgb, var(--navbar-text) 72%, var(--w3a-colors-textSecondary) 28%);
+  --navbar-dropdown-title: color-mix(in srgb, var(--navbar-text) 72%, var(--site-text-secondary) 28%);
   --navbar-dropdown-card-surface:
     radial-gradient(
       130% 150% at 10% 0%,
@@ -445,7 +458,7 @@ html[data-w3a-theme="light"] .navbar-static {
       color-mix(in srgb, #ecf2fa 80%, var(--navbar-surface2) 20%) 100%
     );
   --navbar-dropdown-card-title: var(--navbar-text);
-  --navbar-dropdown-card-description: color-mix(in srgb, var(--navbar-text) 42%, var(--w3a-colors-textSecondary) 58%);
+  --navbar-dropdown-card-description: color-mix(in srgb, var(--navbar-text) 42%, var(--site-text-secondary) 58%);
   --navbar-dropdown-all-surface: color-mix(in srgb, #f7fbff 88%, var(--navbar-surface2) 12%);
   --navbar-dropdown-all-surface-hover: color-mix(in srgb, #eef5ff 82%, var(--navbar-surface2) 18%);
   --navbar-dropdown-all-text: var(--navbar-text);
@@ -515,11 +528,12 @@ html[data-w3a-theme="light"] .navbar-static__link--button.is-active {
 
 .navbar-static__pill--solid {
   color: var(--navbar-text-button);
-  background: color-mix(in srgb, var(--navbar-primary) 72%, white 28%);
+  background: color-mix(in srgb, var(--navbar-primary) 88%, var(--navbar-bg) 12%);
 }
 
 .navbar-static__pill--solid:hover {
-  background: color-mix(in srgb, var(--navbar-primary-hover) 72%, white 28%);
+  color: color-mix(in srgb, var(--navbar-text-button) 92%, #ffffff 8%);
+  background: color-mix(in srgb, var(--navbar-primary-hover) 88%, var(--navbar-bg) 12%);
 }
 
 .navbar-static__theme-toggle {
@@ -629,7 +643,10 @@ html[data-w3a-theme="light"] .navbar-static__link--button.is-active {
 
   .navbar-static__mobile-menu {
     width: min(1420px, calc(100vw - 2rem));
-    margin-top: 0.65rem;
+    position: absolute;
+    top: calc(100% + 0.65rem);
+    left: 50%;
+    z-index: 1001;
     border-radius: 1rem;
     background: var(--navbar-mobile-menu-surface);
     box-shadow:
@@ -639,15 +656,18 @@ html[data-w3a-theme="light"] .navbar-static__link--button.is-active {
     display: grid;
     gap: 0.25rem;
     opacity: 0;
-    transform: translateY(-6px);
+    visibility: hidden;
+    transform: translate(-50%, -6px);
     pointer-events: none;
-    transition: opacity 180ms ease, transform 180ms ease;
+    transition: opacity 180ms ease, transform 180ms ease, visibility 0ms linear 180ms;
   }
 
   .navbar-static__mobile-menu.is-open {
     opacity: 1;
-    transform: translateY(0);
+    visibility: visible;
+    transform: translate(-50%, 0);
     pointer-events: auto;
+    transition: opacity 180ms ease, transform 180ms ease, visibility 0ms linear 0ms;
   }
 
   .navbar-static__mobile-link {
@@ -658,7 +678,7 @@ html[data-w3a-theme="light"] .navbar-static__link--button.is-active {
     min-height: 44px;
     border-radius: 0.7rem;
     border: 1px solid transparent;
-    color: var(--w3a-colors-textPrimary);
+    color: var(--site-text-primary);
     text-decoration: none;
     padding: 0.4rem 0.7rem;
     font-weight: 600;
@@ -758,11 +778,11 @@ html[data-w3a-theme="light"] .navbar-static__link--button.is-active {
         color-mix(in srgb, #ffffff 96%, var(--navbar-surface) 4%) 0%,
         color-mix(in srgb, #f1f6fc 88%, var(--navbar-surface2) 12%) 100%
       );
-    --navbar-mobile-section-title: color-mix(in srgb, var(--w3a-colors-textSecondary) 88%, var(--navbar-text) 12%);
+    --navbar-mobile-section-title: color-mix(in srgb, var(--site-text-secondary) 88%, var(--navbar-text) 12%);
     --navbar-mobile-subitem-text: var(--navbar-text);
     --navbar-mobile-subitem-surface: color-mix(in srgb, #f8fbff 88%, var(--navbar-surface2) 12%);
     --navbar-mobile-subitem-surface-hover: color-mix(in srgb, #edf4fd 80%, var(--navbar-surface2) 20%);
-    --navbar-mobile-subitem-copy: color-mix(in srgb, var(--w3a-colors-textSecondary) 92%, var(--navbar-text) 8%);
+    --navbar-mobile-subitem-copy: color-mix(in srgb, var(--site-text-secondary) 92%, var(--navbar-text) 8%);
   }
 
   html[data-w3a-theme="light"] .navbar-static__mobile-menu {
