@@ -28,6 +28,201 @@ function Root() {
 }
 ```
 
+## Color Theming API
+
+The SDK’s color theming is driven by `TatchiPasskeyProvider` and the `appearance.tokens` shape.
+
+Theme precedence (highest to lowest):
+1. `theme.tokens` passed to `TatchiPasskeyProvider`
+2. `config.appearance.tokens`
+3. built-in SDK defaults
+
+### 1) Set default light/dark colors in config
+
+Use `config.appearance` for app-wide defaults.
+
+```tsx
+import { TatchiPasskeyProvider } from '@tatchi-xyz/sdk/react/provider'
+
+const config = {
+  appearance: {
+    theme: 'dark',      // default mode at startup
+    palette: 'default', // current public palette name
+    tokens: {
+      light: {
+        colors: {
+          colorBackground: '#fdf6e3',
+          surface: '#eee8d5',
+          textPrimary: '#586e75',
+          primary: '#268bd2',
+          borderPrimary: '#93a1a1',
+          gradientTertiary: 'linear-gradient(120deg, #eee8d5 0%, #fdf6e3 100%)',
+        },
+      },
+      dark: {
+        colors: {
+          colorBackground: '#002b36',
+          surface: '#073642',
+          textPrimary: '#93a1a1',
+          primary: '#268bd2',
+          borderPrimary: '#586e75',
+          gradientTertiary: 'linear-gradient(120deg, #002b36 0%, #073642 100%)',
+        },
+      },
+    },
+  },
+  iframeWallet: { walletOrigin: 'https://wallet.web3authn.org' },
+  relayer: { url: 'https://relay.tatchi.xyz' },
+}
+
+function Root() {
+  return (
+    <TatchiPasskeyProvider config={config}>
+      <App />
+    </TatchiPasskeyProvider>
+  )
+}
+```
+
+### 2) Control theme mode from React and override colors at runtime
+
+Use the `theme` prop when your app owns light/dark state.
+
+```tsx
+import * as React from 'react'
+import { TatchiPasskeyProvider } from '@tatchi-xyz/sdk/react/provider'
+
+export function Root() {
+  const [theme, setTheme] = React.useState<'light' | 'dark'>('dark')
+
+  return (
+    <TatchiPasskeyProvider
+      config={config}
+      theme={{
+        theme,
+        setTheme,
+        tokens: {
+          light: { colors: { primary: '#2563eb' } },
+          dark: { colors: { primary: '#60a5fa' } },
+        },
+      }}
+    >
+      <App />
+    </TatchiPasskeyProvider>
+  )
+}
+```
+
+### 3) Read and switch theme from components
+
+`useTheme()` exposes the active mode and optional setter.
+
+```tsx
+import { useTheme } from '@tatchi-xyz/sdk/react'
+
+export function ThemeToggle() {
+  const { theme, setTheme, isDark } = useTheme()
+
+  return (
+    <button
+      onClick={() => setTheme?.(isDark ? 'light' : 'dark')}
+      aria-label="Toggle theme"
+    >
+      Current: {theme}
+    </button>
+  )
+}
+```
+
+### 4) Token-to-CSS mapping
+
+Color token names are exposed as CSS custom properties:
+- `colors.primary` -> `--w3a-colors-primary`
+- `colors.colorBackground` -> `--w3a-colors-colorBackground`
+- `colors.textPrimary` -> `--w3a-colors-textPrimary`
+- `colors.gradientPrimary` -> `--w3a-colors-gradientPrimary`
+
+You can provide any subset of these keys in `appearance.tokens.light.colors` and `appearance.tokens.dark.colors`.
+Unspecified keys fall back to SDK defaults.
+
+Full `colors` token keys:
+
+```ts
+const ALL_COLOR_TOKEN_KEYS = [
+  'primary',
+  'primaryHover',
+  'secondary',
+  'secondaryHover',
+  'accent',
+  'textPrimary',
+  'textSecondary',
+  'textMuted',
+  'textButton',
+  'buttonBackground',
+  'buttonHoverBackground',
+  'colorBackground',
+  'surface',
+  'surface2',
+  'surface3',
+  'surface4',
+  'hover',
+  'active',
+  'focus',
+  'success',
+  'warning',
+  'error',
+  'info',
+  'borderPrimary',
+  'borderSecondary',
+  'borderHover',
+  'gradientPrimary',
+  'gradientSecondary',
+  'gradientTertiary',
+  'grey25',
+  'grey50',
+  'grey75',
+  'grey100',
+  'grey200',
+  'grey300',
+  'grey400',
+  'grey500',
+  'grey600',
+  'grey650',
+  'grey700',
+  'grey750',
+  'grey800',
+  'grey850',
+  'grey900',
+  'grey950',
+  'slate25',
+  'slate50',
+  'slate75',
+  'slate100',
+  'slate150',
+  'slate200',
+  'slate300',
+  'slate400',
+  'slate500',
+  'slate600',
+  'slate700',
+  'slate800',
+  'slate900',
+  'highlightReceiverId',
+  'highlightMethodName',
+  'highlightAmount',
+] as const
+```
+
+This lets app CSS and SDK components share one color system:
+
+```css
+.cta {
+  background: var(--w3a-colors-primary);
+  color: var(--w3a-colors-textButton);
+  border: 1px solid var(--w3a-colors-borderPrimary);
+}
+```
+
 ## PasskeyAuthMenu – register / login / sync
 
 `PasskeyAuthMenu` is a ready‑made registration/login/account-sync menu that wires into the passkey flows exposed by `useTatchi`.
