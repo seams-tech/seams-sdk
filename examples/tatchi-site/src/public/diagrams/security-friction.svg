@@ -1,60 +1,45 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 260" role="img" aria-label="Friction where it matters device security diagram">
-  <defs>
-    <linearGradient id="friction-panel" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#f3f7ff" stop-opacity="0.11"/>
-      <stop offset="1" stop-color="#f3f7ff" stop-opacity="0.02"/>
-    </linearGradient>
-  </defs>
-  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <g stroke="#dfe7ff" stroke-opacity="0.12" stroke-width="1">
-      <path d="M18 18V104C18 108 22 112 26 112H236"/>
-      <path d="M236 112V40C236 36 240 32 244 32H352"/>
-      <path d="M430 32H700C704 32 708 28 708 24V2"/>
-      <path d="M742 260V176C742 172 738 168 734 168H614"/>
-      <path d="M614 168V116C614 112 610 108 606 108H532"/>
-      <path d="M18 146H286"/>
-      <path d="M424 146H742"/>
-      <path d="M74 220H266"/>
-      <path d="M492 220H684"/>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="393" viewBox="0 0 1024 393">
+  <rect x="0" y="0" width="1024" height="393" fill="var(--security-diagram-canvas, #2a3144)"/>
+  <g stroke="var(--security-diagram-line-muted, #5c6781)" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M111 0V159Q111 167 119 167H406V239Q406 247 414 247H573V207Q573 199 581 199H940Q948 199 948 191V8Q948 0 956 0H1024"/>
+    <path d="M0 199H295V206Q295 214 303 214H422V246Q422 254 430 254H581"/>
+    <path d="M24 393V346Q24 338 32 338H295"/>
+    <path d="M581 283H910Q918 283 918 291V393"/>
+    <path d="M573 207V259"/>
+  </g>
+  <g>
+    <g transform="translate(300 150) matrix(0.86 -0.5 0 1 0 0)">
+      <rect x="4" y="4" width="128" height="212" rx="8" fill="var(--security-diagram-package, #2a2433)" stroke="none"/>
+      <rect x="0" y="0" width="136" height="220" rx="10" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1.5"/>
+      <rect x="4" y="4" width="128" height="212" rx="8" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
+      <rect x="36" y="26" width="52" height="16" rx="3" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
+      <rect x="20" y="76" width="100" height="16" rx="3" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
+      <rect x="20" y="102" width="100" height="16" rx="3" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
+      <rect x="20" y="128" width="100" height="16" rx="3" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
+      <rect x="20" y="154" width="100" height="16" rx="3" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
+      <rect x="40" y="190" width="60" height="16" rx="3" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
     </g>
-
-    <g stroke="#edf4ff" stroke-opacity="0.42" stroke-width="1.2">
-      <path d="M320 66L390 26C396 22 402 26 402 32V192C402 198 399 202 394 205L324 245C318 249 312 245 312 239V79C312 73 315 69 320 66Z" fill="url(#friction-panel)"/>
-      <path d="M430 66L500 26C506 22 512 26 512 32V192C512 198 509 202 504 205L434 245C428 249 422 245 422 239V79C422 73 425 69 430 66Z" fill="url(#friction-panel)"/>
-      <path d="M540 66L610 26C616 22 622 26 622 32V192C622 198 619 202 614 205L544 245C538 249 532 245 532 239V79C532 73 535 69 540 66Z" fill="url(#friction-panel)"/>
+    <g transform="translate(490 150) matrix(0.86 -0.5 0 1 0 0)">
+      <rect x="4" y="4" width="128" height="212" rx="8" fill="var(--security-diagram-package, #2a2433)" stroke="none"/>
+      <rect x="0" y="0" width="136" height="220" rx="10" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1.5"/>
+      <rect x="4" y="4" width="128" height="212" rx="8" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
+      <rect x="20" y="42" width="100" height="16" rx="3" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
+      <rect x="16" y="24" width="22" height="16" rx="3" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
+      <rect x="20" y="76" width="100" height="16" rx="3" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
+      <rect x="20" y="102" width="100" height="16" rx="3" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
+      <rect x="20" y="154" width="76" height="16" rx="3" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
+      <rect x="40" y="190" width="58" height="16" rx="3" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
     </g>
-
-    <g stroke="#f2f6ff" stroke-opacity="0.28" stroke-width="1">
-      <path d="M330 78L390 44V188L330 222Z"/>
-      <path d="M440 78L500 44V188L440 222Z"/>
-      <path d="M550 78L610 44V188L550 222Z"/>
-    </g>
-
-    <g stroke="#f3f7ff" stroke-opacity="0.34" stroke-width="1.12">
-      <path d="M342 96L372 80"/>
-      <path d="M342 110L372 94"/>
-      <path d="M342 124L372 108"/>
-      <path d="M342 138L372 122"/>
-      <path d="M452 96L482 80"/>
-      <path d="M452 110L482 94"/>
-      <path d="M452 124L482 108"/>
-      <path d="M452 138L482 122"/>
-      <path d="M562 96L592 80"/>
-      <path d="M562 110L592 94"/>
-      <path d="M562 124L592 108"/>
-      <path d="M562 138L592 122"/>
-      <path d="M344 204L370 190"/>
-      <path d="M454 204L480 190"/>
-      <path d="M564 204L590 190"/>
-    </g>
-
-    <g fill="#f3f7ff" fill-opacity="0.18" stroke="#f3f7ff" stroke-opacity="0.34" stroke-width="1">
-      <rect x="338" y="168" width="34" height="5" rx="2.5"/>
-      <rect x="448" y="168" width="34" height="5" rx="2.5"/>
-      <rect x="558" y="168" width="34" height="5" rx="2.5"/>
-      <path d="M348 86L378 70V98L348 114Z"/>
-      <path d="M458 86L488 70V98L458 114Z"/>
-      <path d="M568 86L598 70V98L568 114Z"/>
+    <g transform="translate(640 150) matrix(0.86 -0.5 0 1 0 0)">
+      <rect x="4" y="4" width="128" height="212" rx="8" fill="var(--security-diagram-package, #2a2433)" stroke="none"/>
+      <rect x="0" y="0" width="136" height="220" rx="10" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1.5"/>
+      <rect x="4" y="4" width="128" height="212" rx="8" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
+      <rect x="52" y="42" width="28" height="16" rx="3" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
+      <rect x="20" y="76" width="100" height="16" rx="3" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
+      <rect x="20" y="102" width="100" height="16" rx="3" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
+      <rect x="20" y="128" width="76" height="16" rx="3" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
+      <rect x="40" y="190" width="60" height="16" rx="3" fill="none" stroke="var(--security-diagram-package-strong, #c4b6dd)" stroke-width="1"/>
     </g>
   </g>
 </svg>
