@@ -70,6 +70,7 @@ import type {
   SignAndSendTransactionHooksOptions,
   SyncAccountSSEEvent,
 } from '../../types/sdkSentEvents';
+import type { RegistrationSignerOptions } from '../../types/registrationSignerOptions';
 import {
   RegistrationPhase,
   LoginPhase,
@@ -80,6 +81,7 @@ import {
 } from '../../types/sdkSentEvents';
 import type {
   ActionResult,
+  AppearanceConfigInput,
   GetRecentLoginsResult,
   LoginAndCreateSessionResult,
   LoginSession,
@@ -150,6 +152,8 @@ export interface WalletIframeRouterOptions {
   // SDK asset base path for embedded bundles when mounting same‑origin via srcdoc
   // Must serve dist/esm under this base path. Defaults to '/sdk'.
   sdkBasePath?: string;
+  // Optional appearance defaults forwarded to wallet host (theme + color token overrides).
+  appearance?: Pick<AppearanceConfigInput, 'theme' | 'tokens'>;
   // Optional: pre-register UI components in wallet host
   uiRegistry?: Record<string, unknown>;
   // Optional: explorer base URL for TxTree links
@@ -400,6 +404,7 @@ export class WalletIframeRouter {
           rpIdOverride: this.opts.rpIdOverride,
           authenticatorOptions: this.opts.authenticatorOptions,
           emailDkimVerifierContract: this.opts.emailDkimVerifierContract,
+          appearance: this.opts.appearance,
           uiRegistry: this.opts.uiRegistry,
           // for embedded Lit components
           assetsBaseUrl: (() => {
@@ -574,6 +579,8 @@ export class WalletIframeRouter {
     options?: {
       onEvent?: (ev: RegistrationSSEEvent) => void;
       signerMode?: SignerMode;
+      backupLocalKey?: boolean;
+      signerOptions?: RegistrationSignerOptions;
       confirmerText?: { title?: string; body?: string };
     }
   }): Promise<RegistrationResult> {
@@ -832,6 +839,13 @@ export class WalletIframeRouter {
     options?: {
       confirmationConfig?: Partial<ConfirmationConfig>;
       thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
+      onEvent?: (ev: {
+        step: number;
+        phase: string;
+        status: 'progress' | 'success' | 'error';
+        message?: string;
+        data?: unknown;
+      }) => void;
     };
   }): Promise<TempoSignedResult> {
     const res = await this.post<TempoSignedResult>({
@@ -846,6 +860,7 @@ export class WalletIframeRouter {
             }
           : undefined,
       },
+      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isActionSSEEvent) },
     });
     return res.result;
   }
@@ -1325,6 +1340,13 @@ export class WalletIframeRouter {
       return;
     }
 
+    // Sticky subscriptions can outlive their initial PM_RESULT/ERROR (e.g., device-linking),
+    // but the preflight fullscreen demand for that request must be cleared at terminal message
+    // boundaries so it does not pin overlay visibility for unrelated future requests.
+    if (this.progressBus.isSticky(requestId)) {
+      this.progressBus.clearDemand(requestId);
+    }
+
     const pending = this.state.pending.get(requestId);
     // Hide overlay on completion only if no other requests still need it,
     // and this request wasn't marked sticky (UI-managed lifecycle).
@@ -1492,7 +1514,6 @@ export class WalletIframeRouter {
       case 'PM_SEND_TRANSACTION':
       case 'PM_SIGN_TXS_WITH_ACTIONS':
       case 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION':
-      case 'PM_SIGN_TEMPO':
       case 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA':
       case 'PM_START_DEVICE2_LINKING_FLOW':
         return { mode: 'fullscreen' };

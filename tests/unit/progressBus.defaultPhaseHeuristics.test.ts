@@ -19,20 +19,24 @@ test.describe('defaultPhaseHeuristics', () => {
 
       const show1 = heuristic({ phase: phases.ActionPhase.STEP_2_USER_CONFIRMATION });
       const show2 = heuristic({ phase: phases.ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION });
+      const show3 = heuristic({ phase: 'intent-confirmation-required' });
       const hide1 = heuristic({ phase: phases.ActionPhase.STEP_8_ACTION_COMPLETE });
       const hide2 = heuristic({ phase: phases.LoginPhase.STEP_4_LOGIN_COMPLETE });
       const hide3 = heuristic({ phase: 'cancelled' });
+      const hide4 = heuristic({ phase: 'user-confirmation-complete' });
       const none1 = heuristic({ phase: 'some-unknown-phase' });
       const none2 = heuristic({});
 
-      return { show1, show2, hide1, hide2, hide3, none1, none2 };
+      return { show1, show2, show3, hide1, hide2, hide3, hide4, none1, none2 };
     }, { paths: IMPORT_PATHS });
 
-    expect(result.show1).toBe('show');
+    expect(result.show1).toBe('none');
     expect(result.show2).toBe('show');
+    expect(result.show3).toBe('show');
     expect(result.hide1).toBe('hide');
     expect(result.hide2).toBe('hide');
     expect(result.hide3).toBe('hide');
+    expect(result.hide4).toBe('hide');
     expect(result.none1).toBe('none');
     expect(result.none2).toBe('none');
   });

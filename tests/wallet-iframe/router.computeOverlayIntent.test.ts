@@ -38,6 +38,7 @@ test.describe('WalletIframeRouter.computeOverlayIntent', () => {
         'PM_SET_CONFIRM_BEHAVIOR',
         'PM_SET_CONFIRMATION_CONFIG',
         'PM_PREFETCH_BLOCKHEIGHT',
+        'PM_SIGN_TEMPO',
         'PM_LOGOUT',
       ];
 
@@ -64,6 +65,7 @@ test.describe('WalletIframeRouter.computeOverlayIntent', () => {
     expect(byType['PM_SET_CONFIRM_BEHAVIOR']).toBe('hidden');
     expect(byType['PM_SET_CONFIRMATION_CONFIG']).toBe('hidden');
     expect(byType['PM_PREFETCH_BLOCKHEIGHT']).toBe('hidden');
+    expect(byType['PM_SIGN_TEMPO']).toBe('hidden');
     expect(byType['PM_LOGOUT']).toBe('hidden');
   });
 });

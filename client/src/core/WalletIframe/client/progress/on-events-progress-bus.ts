@@ -29,15 +29,12 @@ import {
 } from '../../../types/sdkSentEvents';
 
 // Phases that should temporarily SHOW the overlay (to capture activation)
-// IMPORTANT: STEP_2_USER_CONFIRMATION must remain in this list. Without it,
-// modal confirmation with behavior: 'requireClick' will never be visible in
-// iframe mode, because the wallet iframe is still 0×0 when the modal mounts.
+// Keep this list focused on actual WebAuthn/TouchID activation windows.
 const SHOW_PHASES = new Set<string>([
   // Gate overlay to moments of imminent activation only.
-  // Show early during user confirmation so the modal inside the wallet iframe is visible
-  // and can capture the required click when behavior === 'requireClick'.
-  ActionPhase.STEP_2_USER_CONFIRMATION,
-  DelegateActionPhase.STEP_2_USER_CONFIRMATION,
+  // Intent-digest SecureConfirm can require an explicit confirm click before
+  // WebAuthn starts; show overlay only for that explicit gate.
+  'intent-confirmation-required',
   ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION,
   DelegateActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION,
   // Registration requires a WebAuthn create() ceremony at step 1
@@ -162,6 +159,17 @@ export class OnEventsProgressBus {
     this.subs.clear();
     this.overlayDemands.clear();
     this.log('clearAll');
+  }
+
+  /**
+   * Clear only the overlay demand for a request while keeping its subscriber.
+   * Useful for sticky subscriptions that must continue receiving progress events
+   * after an initial PM_RESULT, without pinning the overlay in "show".
+   */
+  clearDemand(requestId: string): void {
+    if (!requestId) return;
+    this.overlayDemands.delete(requestId);
+    this.log('clearDemand', { requestId });
   }
 
   isSticky(requestId: string): boolean {
@@ -296,7 +304,7 @@ export const defaultPhaseHeuristics: PhaseHeuristics = (payload: ProgressPayload
     if (raw === 'user-confirmation-complete') return 'hide';
 
     // Step 4: Extra hardening - hide overlay on explicit cancellation
-    if (raw === 'cancelled') return 'hide';
+    if (raw === 'cancelled' || raw === 'error') return 'hide';
 
     // Step 5: Default to no change for unknown phases
     return 'none';

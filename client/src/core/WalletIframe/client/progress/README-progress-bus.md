@@ -23,10 +23,9 @@ The wallet iframe mounts as a hidden 0×0 element in the parent document. When a
 The `OnEventsProgressBus` class receives typed progress payloads and applies a phase heuristic to decide when to show/hide the overlay. It also aggregates overlay visibility across concurrent requests so one flow cannot prematurely hide the overlay needed by another.
 
 - Show phases (need transient activation):
-  - `ActionPhase.STEP_2_USER_CONFIRMATION` (non‑negotiable for requireClick)
   - `ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION`
-  - Device linking and login/recovery phases that gather WebAuthn credentials
-    (see the source for the up‑to‑date list)
+  - Registration/login/linking/recovery phases that actually invoke WebAuthn `create()`/`get()`
+  - See source for the exact, current phase list
   - Source: `client/src/core/WalletIframe/client/progress/on-events-progress-bus.ts`
 
 - Hide phases (post‑activation, non‑interactive work):
@@ -49,9 +48,8 @@ Router integration: when a request completes or times out, the router will only 
 
 Key points:
 
-- Step 2 (“Requesting user confirmation…”) is emitted as early as possible to get the overlay up before any slow RPC/IO, so activation is not lost to latency.
-  - IMPORTANT: Step 2 must expand the overlay. If removed, the modal rendered inside the wallet iframe won’t be visible when `behavior: 'requireClick'`, and user confirmation will never happen.
-  - Source: `client/src/core/TatchiPasskey/actions.ts` (emits `STEP_2_USER_CONFIRMATION` before signing)
+- For action signing flows, overlay expansion is tied to `STEP_3_WEBAUTHN_AUTHENTICATION` (actual TouchID/WebAuthn window), then collapsed on `STEP_4_AUTHENTICATION_COMPLETE`.
+- This keeps the blocking fullscreen iframe visible only for the minimum activation interval.
 
 
 ## What `showFrameForActivation()` actually does
@@ -127,7 +125,7 @@ Notes:
 Even when you call `tatchi.executeAction(...)` directly from your app (not from a Lit component), the flow still meets activation without an extra modal click by combining:
 
 1) Overlay activation at the right phases
-   - On `STEP_2_USER_CONFIRMATION` and `STEP_3_WEBAUTHN_AUTHENTICATION`, the `ProgressBus` instructs the router to expand the wallet iframe overlay, so the credential call happens in the wallet document.
+   - On `STEP_3_WEBAUTHN_AUTHENTICATION`, the `ProgressBus` instructs the router to expand the wallet iframe overlay, so the credential call happens in the wallet document.
 
 2) Default confirmation config: “modal + requireClick”
    - `DEFAULT_CONFIRMATION_CONFIG` is `uiMode: 'modal', behavior: 'requireClick', autoProceedDelay: 0`.
@@ -151,7 +149,7 @@ No additional modal click is required for signing.
 
 Before merging changes to the progress bus or overlay logic, verify:
 
-- Show list includes `user-confirmation` and `webauthn-authentication`.
+- Show list includes only phases that actually start WebAuthn ceremony (`create`/`get`), including `webauthn-authentication`.
 - Hide list includes `authentication-complete`, `transaction-signing-progress`, `transaction-signing-complete`, `broadcasting`, `action-complete`, and error/complete phases for login/registration/linking/recovery.
 - In iframe mode, a manual test with `setConfirmBehavior('requireClick')` shows the modal and allows clicking Confirm.
 - In skipClick mode, modal appears briefly with loading then proceeds without extra clicks.
@@ -179,8 +177,8 @@ Before merging changes to the progress bus or overlay logic, verify:
 ## Rough timeline: direct `executeAction`
 
 1) App calls `executeAction` (typically from a click handler).
-2) SDK emits `STEP_2_USER_CONFIRMATION` → overlay expands.
-3) Wallet host mounts modal (auto‑proceed) and prepares the WebAuthn challenge digest + tx context.
+2) Wallet host mounts modal and prepares the WebAuthn challenge digest + tx context.
+3) SDK emits `STEP_3_WEBAUTHN_AUTHENTICATION` → overlay expands.
 4) WebAuthn prompt (`navigator.credentials.get`) runs in the wallet document.
 5) `STEP_4_AUTHENTICATION_COMPLETE` → overlay hides; signing continues.
 6) Transaction is signed and broadcast; final progress events emitted; modal closed.

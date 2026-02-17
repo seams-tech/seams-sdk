@@ -1,5 +1,6 @@
 import type { SecureConfirmWorkerManagerContext } from '../../';
 import type { ConfirmationConfig } from '../../../../types/signer-worker';
+import { ActionPhase } from '../../../../types/sdkSentEvents';
 import {
   SecureConfirmationType,
   TransactionSummary,
@@ -12,6 +13,7 @@ import {
   getIntentDigest,
   isUserCancelledSecureConfirm,
   ERROR_MESSAGES,
+  sendConfirmProgress,
 } from './index';
 import { toError } from '../../../../../../../shared/src/utils/errors';
 import { createConfirmSession } from '../adapters/session';
@@ -44,11 +46,33 @@ export async function handleIntentDigestSigningFlow(
 
   try {
     const signingAuthMode = getSigningAuthMode(request);
+    const requiresExplicitConfirmClick =
+      confirmationConfig.uiMode !== 'none'
+      && confirmationConfig.behavior === 'requireClick';
     const rpId = adapters.security.getRpId();
     const securityContext: Partial<SecureConfirmSecurityContext> | undefined = rpId ? { rpId } : undefined;
 
+    if (requiresExplicitConfirmClick) {
+      sendConfirmProgress(worker, {
+        requestId: request.requestId,
+        step: 2,
+        phase: 'intent-confirmation-required',
+        status: 'progress',
+        message: 'Awaiting confirmation click',
+      });
+    }
+
     const { confirmed, error: uiError } = await session.promptUser({ securityContext });
     if (!confirmed) {
+      if (requiresExplicitConfirmClick) {
+        sendConfirmProgress(worker, {
+          requestId: request.requestId,
+          step: 2,
+          phase: 'user-confirmation-complete',
+          status: 'error',
+          message: uiError || ERROR_MESSAGES.cancelled,
+        });
+      }
       return session.confirmAndCloseModal({
         requestId: request.requestId,
         intentDigest: getIntentDigest(request),
@@ -58,6 +82,15 @@ export async function handleIntentDigestSigningFlow(
     }
 
     if (signingAuthMode === 'warmSession') {
+      if (requiresExplicitConfirmClick) {
+        sendConfirmProgress(worker, {
+          requestId: request.requestId,
+          step: 2,
+          phase: 'user-confirmation-complete',
+          status: 'success',
+          message: 'Confirmation complete',
+        });
+      }
       return session.confirmAndCloseModal({
         requestId: request.requestId,
         intentDigest: getIntentDigest(request),
@@ -70,11 +103,27 @@ export async function handleIntentDigestSigningFlow(
       throw new Error('Missing WebAuthn challenge digest for intent signing flow');
     }
 
+    sendConfirmProgress(worker, {
+      requestId: request.requestId,
+      step: 3,
+      phase: ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION,
+      status: 'progress',
+      message: 'Authenticating with passkey...',
+    });
+
     const serializedCredential = await collectAuthenticationCredentialForChallengeB64u({
       indexedDB: ctx.indexedDB,
       touchIdPrompt: ctx.touchIdPrompt,
       nearAccountId,
       challengeB64u,
+    });
+
+    sendConfirmProgress(worker, {
+      requestId: request.requestId,
+      step: 4,
+      phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE,
+      status: 'success',
+      message: 'Authentication complete',
     });
 
     return session.confirmAndCloseModal({
@@ -84,6 +133,13 @@ export async function handleIntentDigestSigningFlow(
       credential: serializedCredential,
     });
   } catch (err: unknown) {
+    sendConfirmProgress(worker, {
+      requestId: request.requestId,
+      step: 4,
+      phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE,
+      status: 'error',
+      message: String((toError(err))?.message || err || ERROR_MESSAGES.collectCredentialsFailed),
+    });
     const cancelled = isUserCancelledSecureConfirm(err);
     const msg = String((toError(err))?.message || err || '');
     if (cancelled) {
