@@ -1,5 +1,4 @@
 import {
-  IndexedDBManager,
   type ClientUserData,
   type ClientAuthenticatorData,
   type ProfileRecord,
@@ -58,7 +57,6 @@ import type {
   ThresholdEcdsaSessionBootstrapResult,
 } from '../orchestration/activation';
 import {
-  persistThresholdEcdsaBootstrapChainAccount as persistThresholdEcdsaBootstrapChainAccountValue,
   type ThresholdEcdsaSmartAccountBootstrapInput,
 } from './thresholdEcdsaBootstrapPersistence';
 import {
@@ -84,10 +82,6 @@ import {
   requestRegistrationCredentialConfirmation as requestRegistrationCredentialConfirmationValue,
 } from './registrationSession';
 import {
-  bootstrapThresholdEcdsaSessionLiteValue,
-  connectThresholdEd25519SessionLiteValue,
-} from './thresholdSessionActivation';
-import {
   extractCosePublicKey as extractCosePublicKeyValue,
   signTransactionWithKeyPair as signTransactionWithKeyPairValue,
   signNearWithIntent as signNearWithIntentValue,
@@ -104,7 +98,6 @@ import {
   type FacadeSettingsDeps,
 } from './facade/facadeSettings';
 import {
-  getWarmSigningSessionStatusSurface as getWarmSigningSessionStatusSurfaceValue,
   prewarmSignerWorkersSurface as prewarmSignerWorkersSurfaceValue,
   warmCriticalResourcesSurface as warmCriticalResourcesSurfaceValue,
 } from './facade/facadeConvenience';
@@ -124,6 +117,10 @@ import {
   createSigningActionsSurface,
   type SigningActionsSurface,
 } from './modules/signingActionsSurface';
+import {
+  createThresholdSessionSurface,
+  type ThresholdSessionSurface,
+} from './modules/thresholdSessionSurface';
 export type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/activation';
 
 /**
@@ -155,6 +152,7 @@ export class WebAuthnManager {
   private readonly orchestrationDeps: OrchestrationDependencyBundle;
   private readonly indexedDbRegistrationSurface: IndexedDbRegistrationSurface;
   private readonly signingActionsSurface: SigningActionsSurface;
+  private readonly thresholdSessionSurface: ThresholdSessionSurface;
 
   readonly tatchiPasskeyConfigs: TatchiConfigs;
 
@@ -210,6 +208,16 @@ export class WebAuthnManager {
       tempoSigningDeps: this.orchestrationDeps.tempoSigningDeps,
       getFacadeConvenienceDeps: this.orchestrationDeps.getFacadeConvenienceDeps,
       thresholdEcdsaSignInFlightByAccount: this.thresholdEcdsaSignInFlightByAccount,
+    });
+    this.thresholdSessionSurface = createThresholdSessionSurface({
+      thresholdSessionActivationDeps: this.orchestrationDeps.thresholdSessionActivationDeps,
+      getFacadeConvenienceDeps: this.orchestrationDeps.getFacadeConvenienceDeps,
+      secureConfirmWorkerManager: this.secureConfirmWorkerManager,
+      activeSigningSessionIds: this.activeSigningSessionIds,
+      withThresholdEcdsaBootstrapQueue: <T>(
+        nearAccountId: AccountId,
+        task: () => Promise<T>,
+      ): Promise<T> => this.withThresholdEcdsaBootstrapQueue(nearAccountId, task),
     });
 
     initializeRuntimeBootstrap({
@@ -824,8 +832,8 @@ export class WebAuthnManager {
     relayerUrl?: string;
     ttlMs?: number;
     remainingUses?: number;
-  }): Promise<Awaited<ReturnType<typeof connectThresholdEd25519SessionLiteValue>>> {
-    return await connectThresholdEd25519SessionLiteValue(this.orchestrationDeps.thresholdSessionActivationDeps, args);
+  }): ReturnType<ThresholdSessionSurface['connectThresholdEd25519SessionLite']> {
+    return await this.thresholdSessionSurface.connectThresholdEd25519SessionLite(args);
   }
 
   /**
@@ -847,16 +855,7 @@ export class WebAuthnManager {
     remainingUses?: number;
     smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
   }): Promise<ThresholdEcdsaSessionBootstrapResult> {
-    const nearAccountId = toAccountId(args.nearAccountId);
-    return await this.withThresholdEcdsaBootstrapQueue(nearAccountId, async () => {
-      return await bootstrapThresholdEcdsaSessionLiteValue(
-        this.orchestrationDeps.thresholdSessionActivationDeps,
-        {
-          ...args,
-          nearAccountId,
-        },
-      );
-    });
+    return await this.thresholdSessionSurface.bootstrapThresholdEcdsaSessionLite(args);
   }
 
   async persistThresholdEcdsaBootstrapChainAccount(args: {
@@ -865,13 +864,7 @@ export class WebAuthnManager {
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
   }): Promise<void> {
-    await persistThresholdEcdsaBootstrapChainAccountValue({
-      indexedDB: IndexedDBManager,
-      nearAccountId: toAccountId(args.nearAccountId),
-      chain: args.chain,
-      bootstrap: args.bootstrap,
-      smartAccount: args.smartAccount,
-    });
+    await this.thresholdSessionSurface.persistThresholdEcdsaBootstrapChainAccount(args);
   }
 
   /**
@@ -884,7 +877,7 @@ export class WebAuthnManager {
   async getWarmSigningSessionStatus(
     nearAccountId: AccountId | string,
   ): Promise<SigningSessionStatus | null> {
-    return await getWarmSigningSessionStatusSurfaceValue(this.orchestrationDeps.getFacadeConvenienceDeps(), nearAccountId);
+    return await this.thresholdSessionSurface.getWarmSigningSessionStatus(nearAccountId);
   }
 
   /**
@@ -895,13 +888,7 @@ export class WebAuthnManager {
     nearAccountId: AccountId | string,
     sessionId: string,
   ): void {
-    const accountKey = String(toAccountId(nearAccountId));
-    const normalizedSessionId = String(sessionId || '').trim();
-    if (!normalizedSessionId) {
-      this.activeSigningSessionIds.delete(accountKey);
-      return;
-    }
-    this.activeSigningSessionIds.set(accountKey, normalizedSessionId);
+    this.thresholdSessionSurface.setActiveSigningSessionId(nearAccountId, sessionId);
   }
 
   /**
@@ -913,7 +900,7 @@ export class WebAuthnManager {
     expiresAtMs: number;
     remainingUses: number;
   }): Promise<void> {
-    await this.secureConfirmWorkerManager.putPrfFirstForThresholdSession(args);
+    await this.thresholdSessionSurface.putPrfFirstForThresholdSession(args);
   }
 
   /**
@@ -923,26 +910,7 @@ export class WebAuthnManager {
    * - When omitted, clears all tracked accounts.
    */
   async clearWarmSigningSessions(nearAccountId?: AccountId | string): Promise<void> {
-    const sessionIds: string[] = [];
-    if (nearAccountId != null) {
-      const accountKey = String(toAccountId(nearAccountId));
-      const sessionId = String(this.activeSigningSessionIds.get(accountKey) || '').trim();
-      if (sessionId) sessionIds.push(sessionId);
-      this.activeSigningSessionIds.delete(accountKey);
-    } else {
-      for (const sessionIdRaw of this.activeSigningSessionIds.values()) {
-        const sessionId = String(sessionIdRaw || '').trim();
-        if (sessionId) sessionIds.push(sessionId);
-      }
-      this.activeSigningSessionIds.clear();
-    }
-
-    await Promise.all(
-      sessionIds.map((sessionId) =>
-        this.secureConfirmWorkerManager
-          .clearPrfFirstForThresholdSession({ sessionId })
-          .catch(() => undefined)),
-    );
+    await this.thresholdSessionSurface.clearWarmSigningSessions(nearAccountId);
   }
 
   /**
