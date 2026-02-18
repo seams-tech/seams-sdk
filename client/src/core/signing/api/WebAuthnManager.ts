@@ -68,17 +68,6 @@ import {
   rotateThresholdEd25519KeyPostRegistration as rotateThresholdEd25519KeyPostRegistrationValue,
 } from './thresholdEd25519Lifecycle';
 import {
-  signDelegateAction as signDelegateActionValue,
-  signNEP413Message as signNEP413MessageValue,
-  signTransactionsWithActions as signTransactionsWithActionsValue,
-} from './nearSigning';
-import {
-  signTempo as signTempoValue,
-} from './tempoSigning';
-import {
-  withThresholdEcdsaSignInFlightGate,
-} from './thresholdEcdsaSignInFlightGate';
-import {
   exportNearKeypairWithUI as exportNearKeypairWithUIValue,
   exportNearKeypairWithUIWorkerDriven as exportNearKeypairWithUIWorkerDrivenValue,
   exportPrivateKeysWithUI as exportPrivateKeysWithUIValue,
@@ -117,7 +106,6 @@ import {
 import {
   getWarmSigningSessionStatusSurface as getWarmSigningSessionStatusSurfaceValue,
   prewarmSignerWorkersSurface as prewarmSignerWorkersSurfaceValue,
-  signTempoWithThresholdEcdsa as signTempoWithThresholdEcdsaValue,
   warmCriticalResourcesSurface as warmCriticalResourcesSurfaceValue,
 } from './facade/facadeConvenience';
 import { createFacadeSettingsDeps } from './facade/facadeDependencyFactory';
@@ -132,6 +120,10 @@ import {
   type IndexedDbRegistrationSurface,
   type StoreAuthenticatorInput,
 } from './modules/indexedDbRegistrationSurface';
+import {
+  createSigningActionsSurface,
+  type SigningActionsSurface,
+} from './modules/signingActionsSurface';
 export type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/activation';
 
 /**
@@ -162,6 +154,7 @@ export class WebAuthnManager {
   private readonly facadeSettingsDeps: FacadeSettingsDeps;
   private readonly orchestrationDeps: OrchestrationDependencyBundle;
   private readonly indexedDbRegistrationSurface: IndexedDbRegistrationSurface;
+  private readonly signingActionsSurface: SigningActionsSurface;
 
   readonly tatchiPasskeyConfigs: TatchiConfigs;
 
@@ -211,6 +204,12 @@ export class WebAuthnManager {
     this.indexedDbRegistrationSurface = createIndexedDbRegistrationSurface({
       indexedDbFacadeDeps: this.orchestrationDeps.indexedDbFacadeDeps,
       registrationAccountLifecycleDeps: this.orchestrationDeps.registrationAccountLifecycleDeps,
+    });
+    this.signingActionsSurface = createSigningActionsSurface({
+      nearSigningDeps: this.orchestrationDeps.nearSigningDeps,
+      tempoSigningDeps: this.orchestrationDeps.tempoSigningDeps,
+      getFacadeConvenienceDeps: this.orchestrationDeps.getFacadeConvenienceDeps,
+      thresholdEcdsaSignInFlightByAccount: this.thresholdEcdsaSignInFlightByAccount,
     });
 
     initializeRuntimeBootstrap({
@@ -550,7 +549,7 @@ export class WebAuthnManager {
     onEvent?: (update: onProgressEvents) => void;
     sessionId?: string;
   }): Promise<SignTransactionResult[]> {
-    return await signTransactionsWithActionsValue(this.orchestrationDeps.nearSigningDeps, {
+    return await this.signingActionsSurface.signTransactionsWithActions({
       transactions,
       rpcCall,
       deviceNumber,
@@ -588,7 +587,7 @@ export class WebAuthnManager {
     nearAccountId: AccountId;
     logs?: string[];
   }> {
-    return await signDelegateActionValue(this.orchestrationDeps.nearSigningDeps, {
+    return await this.signingActionsSurface.signDelegateAction({
       delegate,
       rpcCall,
       deviceNumber,
@@ -619,7 +618,7 @@ export class WebAuthnManager {
     state?: string;
     error?: string;
   }> {
-    return await signNEP413MessageValue(this.orchestrationDeps.nearSigningDeps, payload);
+    return await this.signingActionsSurface.signNEP413Message(payload);
   }
 
   async signTempo(args: {
@@ -636,13 +635,7 @@ export class WebAuthnManager {
       data?: unknown;
     }) => void;
   }): Promise<TempoSignedResult> {
-    return await withThresholdEcdsaSignInFlightGate({
-      inFlightByAccount: this.thresholdEcdsaSignInFlightByAccount,
-      nearAccountId: args.nearAccountId,
-      enabled: args.request.senderSignatureAlgorithm === 'secp256k1',
-      task: async () =>
-        await signTempoValue(this.orchestrationDeps.tempoSigningDeps, args),
-    });
+    return await this.signingActionsSurface.signTempo(args);
   }
 
   async signTempoWithThresholdEcdsa(args: {
@@ -651,7 +644,7 @@ export class WebAuthnManager {
     thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
   }): Promise<TempoSignedResult> {
-    return await signTempoWithThresholdEcdsaValue(this.orchestrationDeps.getFacadeConvenienceDeps(), args);
+    return await this.signingActionsSurface.signTempoWithThresholdEcdsa(args);
   }
 
   // === COSE OPERATIONS ===
