@@ -711,7 +711,7 @@ export async function executeDeviceLinkingContractCalls({
   addKeyTxResult: FinalExecutionOutcome;
 }> {
 
-  const signTransactions = () => context.webAuthnManager.signTransactionsWithActions({
+  const signTransactions = () => context.webAuthnManager.signingActions.signTransactionsWithActions({
     sessionId: (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
       ? `link-device-${crypto.randomUUID()}`
       : `link-device-${Date.now()}-${Math.random().toString(16).slice(2)}`,

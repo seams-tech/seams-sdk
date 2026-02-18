@@ -121,7 +121,7 @@ export async function registerPasskeyInternal(
       ...(confirmationConfigOverride ?? options?.confirmationConfig ?? {}),
     };
 
-    const registrationSession = await context.webAuthnManager.requestRegistrationCredentialConfirmation({
+    const registrationSession = await context.webAuthnManager.credentialRecovery.requestRegistrationCredentialConfirmation({
       nearAccountId: String(nearAccountId),
       deviceNumber: 1,
       confirmerText: options?.confirmerText,
@@ -195,7 +195,7 @@ export async function registerPasskeyInternal(
     // - threshold-signer + backupLocalKey: also derive encrypted local backup key material for export
     // - local-signer (legacy compatibility): derive encrypted local key material for account key usage
     if (requestedSignerModeStr === 'threshold-signer') {
-      const derived = await webAuthnManager.deriveThresholdEd25519ClientVerifyingShareFromCredential({
+      const derived = await webAuthnManager.thresholdKeyLifecycle.deriveThresholdEd25519ClientVerifyingShareFromCredential({
         credential,
         nearAccountId,
       });
@@ -203,7 +203,7 @@ export async function registerPasskeyInternal(
         throw new Error(derived.error || 'Failed to derive threshold client verifying share');
       }
       thresholdClientVerifyingShareB64u = derived.clientVerifyingShareB64u;
-      const derivedEcdsa = await webAuthnManager.deriveThresholdEcdsaClientVerifyingShareFromCredential({
+      const derivedEcdsa = await webAuthnManager.thresholdKeyLifecycle.deriveThresholdEcdsaClientVerifyingShareFromCredential({
         credential,
         nearAccountId,
       });
@@ -217,7 +217,7 @@ export async function registerPasskeyInternal(
       }
 
       if (deriveLocalBackupKey) {
-        const localKeyResult = await webAuthnManager.deriveNearKeypairAndEncryptFromSerialized({
+        const localKeyResult = await webAuthnManager.credentialRecovery.deriveNearKeypairAndEncryptFromSerialized({
           credential,
           nearAccountId,
           options: { deviceNumber, persistToDb: false },
@@ -245,7 +245,7 @@ export async function registerPasskeyInternal(
         };
       }
     } else {
-      const nearKeyResult = await webAuthnManager.deriveNearKeypairAndEncryptFromSerialized({
+      const nearKeyResult = await webAuthnManager.credentialRecovery.deriveNearKeypairAndEncryptFromSerialized({
         credential,
         nearAccountId,
         options: { deviceNumber, persistToDb: false },
@@ -545,7 +545,7 @@ export async function registerPasskeyInternal(
       ? String(thresholdPublicKey || '').trim()
       : accountCreationPublicKey;
 
-    await webAuthnManager.atomicStoreRegistrationData({
+    await webAuthnManager.indexedDbRegistration.atomicStoreRegistrationData({
       nearAccountId,
       credential,
       publicKey: clientNearPublicKey,
@@ -611,8 +611,8 @@ export async function registerPasskeyInternal(
           ? thresholdEd25519Session.participantIds
           : [...THRESHOLD_ED25519_2P_PARTICIPANT_IDS];
 
-        webAuthnManager.setActiveSigningSessionId(nearAccountId, edSessionId);
-        await webAuthnManager.putPrfFirstForThresholdSession({
+        webAuthnManager.thresholdSession.setActiveSigningSessionId(nearAccountId, edSessionId);
+        await webAuthnManager.thresholdSession.putPrfFirstForThresholdSession({
           sessionId: edSessionId,
           prfFirstB64u: thresholdPrfFirstB64u,
           expiresAtMs: edExpiresAtMs,
@@ -674,7 +674,7 @@ export async function registerPasskeyInternal(
             ? thresholdEcdsaKeyRef.participantIds
             : thresholdEcdsaSessionPolicyForRegistration.participantIds;
 
-        await webAuthnManager.putPrfFirstForThresholdSession({
+        await webAuthnManager.thresholdSession.putPrfFirstForThresholdSession({
           sessionId: ecdsaSessionId,
           prfFirstB64u: thresholdPrfFirstB64u,
           expiresAtMs: ecdsaExpiresAtMs,
@@ -745,7 +745,7 @@ export async function registerPasskeyInternal(
         };
 
         for (const target of thresholdEcdsaProvisionTargets) {
-          await webAuthnManager.persistThresholdEcdsaBootstrapChainAccount({
+          await webAuthnManager.thresholdSession.persistThresholdEcdsaBootstrapChainAccount({
             nearAccountId,
             chain: target.chain,
             bootstrap: bootstrapProjection,
@@ -757,7 +757,7 @@ export async function registerPasskeyInternal(
 
     // Initialize current user for immediate use (best-effort).
     try {
-      await webAuthnManager.initializeCurrentUser(nearAccountId, context.nearClient);
+      await webAuthnManager.indexedDbRegistration.initializeCurrentUser(nearAccountId, context.nearClient);
     } catch (initErr) {
       console.warn('Failed to initialize current user after registration:', initErr);
     }
@@ -931,7 +931,7 @@ async function performRegistrationRollback(
         error: 'Registration failed - rolling back database storage'
       } as RegistrationSSEEvent);
 
-      await webAuthnManager.rollbackUserRegistration(nearAccountId);
+      await webAuthnManager.indexedDbRegistration.rollbackUserRegistration(nearAccountId);
       console.debug('Database rollback completed');
     }
 

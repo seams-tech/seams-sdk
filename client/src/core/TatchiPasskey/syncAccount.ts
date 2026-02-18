@@ -181,7 +181,7 @@ export async function syncAccount(
 
     // NOTE: We intentionally avoid requiring a known accountId for discovery. When `allowCredentials`
     // is empty, the browser prompts the user to select any passkey for `rpId`.
-    const credential = reuseCredential || await context.webAuthnManager.getAuthenticationCredentialsSerialized({
+    const credential = reuseCredential || await context.webAuthnManager.credentialRecovery.getAuthenticationCredentialsSerialized({
       nearAccountId: (accountId || ('dummy.testnet' as any)) as any,
       challengeB64u,
       allowCredentials,
@@ -227,7 +227,7 @@ export async function syncAccount(
 
     // 2) Persist user + authenticator data locally.
     const normalizedAccountId = toAccountId(syncedAccountId);
-    await context.webAuthnManager.storeUserData({
+    await context.webAuthnManager.indexedDbRegistration.storeUserData({
       nearAccountId: normalizedAccountId,
       deviceNumber,
       clientNearPublicKey: publicKey,
@@ -238,7 +238,7 @@ export async function syncAccount(
       },
       version: 2,
     });
-    await context.webAuthnManager.storeAuthenticator({
+    await context.webAuthnManager.indexedDbRegistration.storeAuthenticator({
       nearAccountId: normalizedAccountId,
       credentialId: String((credential as any).rawId || ''),
       credentialPublicKey,
@@ -261,7 +261,7 @@ export async function syncAccount(
     const relayerKeyId = String((thresholdEd25519?.relayerKeyId ?? verifyJson.relayerKeyId ?? '') || '').trim();
     if (relayerKeyId) {
       const relayerVerifyingShareB64u = String(thresholdEd25519?.relayerVerifyingShareB64u || '').trim();
-      const derived = await context.webAuthnManager.deriveThresholdEd25519ClientVerifyingShareFromCredential({
+      const derived = await context.webAuthnManager.thresholdKeyLifecycle.deriveThresholdEd25519ClientVerifyingShareFromCredential({
         credential: credential as any,
         nearAccountId: normalizedAccountId,
       });

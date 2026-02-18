@@ -82,26 +82,24 @@ import {
   type OrchestrationDependencyBundle,
 } from './bootstrap/orchestrationDependencyFactory';
 import {
-  createIndexedDbRegistrationSurface,
   type IndexedDbRegistrationSurface,
   type StoreAuthenticatorInput,
 } from './modules/indexedDbRegistrationSurface';
 import {
-  createSigningActionsSurface,
   type SigningActionsSurface,
 } from './modules/signingActionsSurface';
 import {
-  createThresholdSessionSurface,
   type ThresholdSessionSurface,
 } from './modules/thresholdSessionSurface';
 import {
-  createCredentialRecoverySurface,
   type CredentialRecoverySurface,
 } from './modules/credentialRecoverySurface';
 import {
-  createThresholdKeyLifecycleSurface,
   type ThresholdKeyLifecycleSurface,
 } from './modules/thresholdKeyLifecycleSurface';
+import {
+  createWebAuthnManagerDomains,
+} from './modules/managerDomains';
 export type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/activation';
 
 /**
@@ -131,11 +129,11 @@ export class WebAuthnManager {
   private readonly thresholdEcdsaSignInFlightByAccount: Set<string> = new Set();
   private readonly facadeSettingsDeps: FacadeSettingsDeps;
   private readonly orchestrationDeps: OrchestrationDependencyBundle;
-  private readonly indexedDbRegistrationSurface: IndexedDbRegistrationSurface;
-  private readonly signingActionsSurface: SigningActionsSurface;
-  private readonly credentialRecoverySurface: CredentialRecoverySurface;
-  private readonly thresholdKeyLifecycleSurface: ThresholdKeyLifecycleSurface;
-  private readonly thresholdSessionSurface: ThresholdSessionSurface;
+  readonly indexedDbRegistration: IndexedDbRegistrationSurface;
+  readonly signingActions: SigningActionsSurface;
+  readonly credentialRecovery: CredentialRecoverySurface;
+  readonly thresholdKeyLifecycle: ThresholdKeyLifecycleSurface;
+  readonly thresholdSession: ThresholdSessionSurface;
 
   readonly tatchiPasskeyConfigs: TatchiConfigs;
 
@@ -182,36 +180,21 @@ export class WebAuthnManager {
       persistThresholdEcdsaBootstrapChainAccount: (args) =>
         this.persistThresholdEcdsaBootstrapChainAccount(args),
     });
-    this.indexedDbRegistrationSurface = createIndexedDbRegistrationSurface({
-      indexedDbFacadeDeps: this.orchestrationDeps.indexedDbFacadeDeps,
-      registrationAccountLifecycleDeps: this.orchestrationDeps.registrationAccountLifecycleDeps,
-    });
-    this.signingActionsSurface = createSigningActionsSurface({
-      nearSigningDeps: this.orchestrationDeps.nearSigningDeps,
-      tempoSigningDeps: this.orchestrationDeps.tempoSigningDeps,
-      getFacadeConvenienceDeps: this.orchestrationDeps.getFacadeConvenienceDeps,
-      thresholdEcdsaSignInFlightByAccount: this.thresholdEcdsaSignInFlightByAccount,
-    });
-    this.credentialRecoverySurface = createCredentialRecoverySurface({
-      registrationSessionDeps: this.orchestrationDeps.registrationSessionDeps,
-      nearKeyDerivationDeps: this.orchestrationDeps.nearKeyDerivationDeps,
-      privateKeyExportRecoveryDeps: this.orchestrationDeps.privateKeyExportRecoveryDeps,
-      signerWorkerBridgeDeps: this.orchestrationDeps.signerWorkerBridgeDeps,
-    });
-    this.thresholdKeyLifecycleSurface = createThresholdKeyLifecycleSurface({
-      thresholdEd25519LifecycleDeps: this.orchestrationDeps.thresholdEd25519LifecycleDeps,
-      thresholdSessionActivationDeps: this.orchestrationDeps.thresholdSessionActivationDeps,
-    });
-    this.thresholdSessionSurface = createThresholdSessionSurface({
-      thresholdSessionActivationDeps: this.orchestrationDeps.thresholdSessionActivationDeps,
-      getFacadeConvenienceDeps: this.orchestrationDeps.getFacadeConvenienceDeps,
+    const domains = createWebAuthnManagerDomains({
+      orchestrationDeps: this.orchestrationDeps,
       secureConfirmWorkerManager: this.secureConfirmWorkerManager,
       activeSigningSessionIds: this.activeSigningSessionIds,
+      thresholdEcdsaSignInFlightByAccount: this.thresholdEcdsaSignInFlightByAccount,
       withThresholdEcdsaBootstrapQueue: <T>(
         nearAccountId: AccountId,
         task: () => Promise<T>,
       ): Promise<T> => this.withThresholdEcdsaBootstrapQueue(nearAccountId, task),
     });
+    this.indexedDbRegistration = domains.indexedDbRegistration;
+    this.signingActions = domains.signingActions;
+    this.credentialRecovery = domains.credentialRecovery;
+    this.thresholdKeyLifecycle = domains.thresholdKeyLifecycle;
+    this.thresholdSession = domains.thresholdSession;
 
     initializeRuntimeBootstrap({
       tatchiPasskeyConfigs: this.tatchiPasskeyConfigs,
@@ -299,7 +282,7 @@ export class WebAuthnManager {
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
   }): Promise<RegistrationCredentialConfirmationPayload> {
-    return await this.credentialRecoverySurface.requestRegistrationCredentialConfirmation(params);
+    return await this.credentialRecovery.requestRegistrationCredentialConfirmation(params);
   }
 
   setTheme(next: ThemeName): void {
@@ -321,7 +304,7 @@ export class WebAuthnManager {
     allowCredentials: WebAuthnAllowCredential[];
     includeSecondPrfOutput?: boolean;
   }): Promise<WebAuthnAuthenticationCredential> {
-    return this.credentialRecoverySurface.getAuthenticationCredentialsSerialized({
+    return this.credentialRecovery.getAuthenticationCredentialsSerialized({
       nearAccountId,
       challengeB64u,
       allowCredentials,
@@ -353,7 +336,7 @@ export class WebAuthnManager {
     encryptedSk?: string;
     error?: string;
   }> {
-    return await this.credentialRecoverySurface.deriveNearKeypairAndEncryptFromSerialized({
+    return await this.credentialRecovery.deriveNearKeypairAndEncryptFromSerialized({
       credential,
       nearAccountId,
       options,
@@ -364,7 +347,7 @@ export class WebAuthnManager {
     credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
     nearAccountId: AccountId;
   }): Promise<{ publicKey: string; privateKey: string }> {
-    return await this.credentialRecoverySurface.deriveNearKeypairFromCredentialViaWorker(args);
+    return await this.credentialRecovery.deriveNearKeypairFromCredentialViaWorker(args);
   }
 
   ///////////////////////////////////////
@@ -372,29 +355,29 @@ export class WebAuthnManager {
   ///////////////////////////////////////
 
   async storeUserData(userData: StoreUserDataInput): Promise<void> {
-    await this.indexedDbRegistrationSurface.storeUserData(userData);
+    await this.indexedDbRegistration.storeUserData(userData);
   }
 
   // === V2 MULTICHAIN INDEXEDDB OPERATIONS ===
 
   async getProfile(profileId: string): Promise<ProfileRecord | null> {
-    return await this.indexedDbRegistrationSurface.getProfile(profileId);
+    return await this.indexedDbRegistration.getProfile(profileId);
   }
 
   async upsertProfile(input: UpsertProfileInput): Promise<ProfileRecord> {
-    return await this.indexedDbRegistrationSurface.upsertProfile(input);
+    return await this.indexedDbRegistration.upsertProfile(input);
   }
 
   async upsertChainAccount(input: UpsertChainAccountInput): Promise<ChainAccountRecord> {
-    return await this.indexedDbRegistrationSurface.upsertChainAccount(input);
+    return await this.indexedDbRegistration.upsertChainAccount(input);
   }
 
   async getProfileByAccount(chainId: string, accountAddress: string): Promise<ProfileRecord | null> {
-    return await this.indexedDbRegistrationSurface.getProfileByAccount(chainId, accountAddress);
+    return await this.indexedDbRegistration.getProfileByAccount(chainId, accountAddress);
   }
 
   async upsertAccountSigner(input: UpsertAccountSignerInput): Promise<AccountSignerRecord> {
-    return await this.indexedDbRegistrationSurface.upsertAccountSigner(input);
+    return await this.indexedDbRegistration.upsertAccountSigner(input);
   }
 
   async listAccountSigners(args: {
@@ -402,7 +385,7 @@ export class WebAuthnManager {
     accountAddress: string;
     status?: AccountSignerStatus;
   }): Promise<AccountSignerRecord[]> {
-    return await this.indexedDbRegistrationSurface.listAccountSigners(args);
+    return await this.indexedDbRegistration.listAccountSigners(args);
   }
 
   async setAccountSignerStatus(args: {
@@ -412,34 +395,34 @@ export class WebAuthnManager {
     status: AccountSignerStatus;
     removedAt?: number;
   }): Promise<AccountSignerRecord | null> {
-    return await this.indexedDbRegistrationSurface.setAccountSignerStatus(args);
+    return await this.indexedDbRegistration.setAccountSignerStatus(args);
   }
 
   async enqueueSignerOperation(input: EnqueueSignerOperationInput): Promise<SignerOpOutboxRecord> {
-    return await this.indexedDbRegistrationSurface.enqueueSignerOperation(input);
+    return await this.indexedDbRegistration.enqueueSignerOperation(input);
   }
 
   async getAllUsers(): Promise<ClientUserData[]> {
-    return await this.indexedDbRegistrationSurface.getAllUsers();
+    return await this.indexedDbRegistration.getAllUsers();
   }
 
   async getUserByDevice(
     nearAccountId: AccountId,
     deviceNumber: number,
   ): Promise<ClientUserData | null> {
-    return await this.indexedDbRegistrationSurface.getUserByDevice(nearAccountId, deviceNumber);
+    return await this.indexedDbRegistration.getUserByDevice(nearAccountId, deviceNumber);
   }
 
   async getLastUser(): Promise<ClientUserData | null> {
-    return await this.indexedDbRegistrationSurface.getLastUser();
+    return await this.indexedDbRegistration.getLastUser();
   }
 
   async getAuthenticatorsByUser(nearAccountId: AccountId): Promise<ClientAuthenticatorData[]> {
-    return await this.indexedDbRegistrationSurface.getAuthenticatorsByUser(nearAccountId);
+    return await this.indexedDbRegistration.getAuthenticatorsByUser(nearAccountId);
   }
 
   async updateLastLogin(nearAccountId: AccountId): Promise<void> {
-    await this.indexedDbRegistrationSurface.updateLastLogin(nearAccountId);
+    await this.indexedDbRegistration.updateLastLogin(nearAccountId);
   }
 
   /**
@@ -448,7 +431,7 @@ export class WebAuthnManager {
    * @param deviceNumber - The device number (defaults to 1)
    */
   async setLastUser(nearAccountId: AccountId, deviceNumber: number = 1): Promise<void> {
-    await this.indexedDbRegistrationSurface.setLastUser(nearAccountId, deviceNumber);
+    await this.indexedDbRegistration.setLastUser(nearAccountId, deviceNumber);
   }
 
   /**
@@ -460,31 +443,31 @@ export class WebAuthnManager {
    * @param nearClient - The NEAR client for nonce prefetching
    */
   async initializeCurrentUser(nearAccountId: AccountId, nearClient?: NearClient): Promise<void> {
-    await this.indexedDbRegistrationSurface.initializeCurrentUser(nearAccountId, nearClient);
+    await this.indexedDbRegistration.initializeCurrentUser(nearAccountId, nearClient);
   }
 
   async registerUser(storeUserData: StoreUserDataInput): Promise<ClientUserData> {
-    return await this.indexedDbRegistrationSurface.registerUser(storeUserData);
+    return await this.indexedDbRegistration.registerUser(storeUserData);
   }
 
   async storeAuthenticator(authenticatorData: StoreAuthenticatorInput): Promise<void> {
-    await this.indexedDbRegistrationSurface.storeAuthenticator(authenticatorData);
+    await this.indexedDbRegistration.storeAuthenticator(authenticatorData);
   }
 
   extractUsername(nearAccountId: AccountId): string {
-    return this.indexedDbRegistrationSurface.extractUsername(nearAccountId);
+    return this.indexedDbRegistration.extractUsername(nearAccountId);
   }
 
   async atomicOperation<T>(callback: (db: any) => Promise<T>): Promise<T> {
-    return await this.indexedDbRegistrationSurface.atomicOperation(callback);
+    return await this.indexedDbRegistration.atomicOperation(callback);
   }
 
   async rollbackUserRegistration(nearAccountId: AccountId): Promise<void> {
-    await this.indexedDbRegistrationSurface.rollbackUserRegistration(nearAccountId);
+    await this.indexedDbRegistration.rollbackUserRegistration(nearAccountId);
   }
 
   async hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean> {
-    return await this.indexedDbRegistrationSurface.hasPasskeyCredential(nearAccountId);
+    return await this.indexedDbRegistration.hasPasskeyCredential(nearAccountId);
   }
 
   /**
@@ -499,7 +482,7 @@ export class WebAuthnManager {
     credential: WebAuthnRegistrationCredential;
     publicKey: string;
   }): Promise<void> {
-    await this.indexedDbRegistrationSurface.atomicStoreRegistrationData({
+    await this.indexedDbRegistration.atomicStoreRegistrationData({
       nearAccountId,
       credential,
       publicKey,
@@ -550,7 +533,7 @@ export class WebAuthnManager {
     onEvent?: (update: onProgressEvents) => void;
     sessionId?: string;
   }): Promise<SignTransactionResult[]> {
-    return await this.signingActionsSurface.signTransactionsWithActions({
+    return await this.signingActions.signTransactionsWithActions({
       transactions,
       rpcCall,
       deviceNumber,
@@ -588,7 +571,7 @@ export class WebAuthnManager {
     nearAccountId: AccountId;
     logs?: string[];
   }> {
-    return await this.signingActionsSurface.signDelegateAction({
+    return await this.signingActions.signDelegateAction({
       delegate,
       rpcCall,
       deviceNumber,
@@ -619,7 +602,7 @@ export class WebAuthnManager {
     state?: string;
     error?: string;
   }> {
-    return await this.signingActionsSurface.signNEP413Message(payload);
+    return await this.signingActions.signNEP413Message(payload);
   }
 
   async signTempo(args: {
@@ -636,7 +619,7 @@ export class WebAuthnManager {
       data?: unknown;
     }) => void;
   }): Promise<TempoSignedResult> {
-    return await this.signingActionsSurface.signTempo(args);
+    return await this.signingActions.signTempo(args);
   }
 
   async signTempoWithThresholdEcdsa(args: {
@@ -645,7 +628,7 @@ export class WebAuthnManager {
     thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
   }): Promise<TempoSignedResult> {
-    return await this.signingActionsSurface.signTempoWithThresholdEcdsa(args);
+    return await this.signingActions.signTempoWithThresholdEcdsa(args);
   }
 
   // === COSE OPERATIONS ===
@@ -654,7 +637,7 @@ export class WebAuthnManager {
    * Extract COSE public key from WebAuthn attestation object using WASM worker
    */
   async extractCosePublicKey(attestationObjectBase64url: string): Promise<Uint8Array> {
-    return await this.credentialRecoverySurface.extractCosePublicKey(attestationObjectBase64url);
+    return await this.credentialRecovery.extractCosePublicKey(attestationObjectBase64url);
   }
 
   ///////////////////////////////////////
@@ -666,7 +649,7 @@ export class WebAuthnManager {
     nearAccountId: AccountId,
     options?: { variant?: 'drawer' | 'modal'; theme?: 'dark' | 'light' },
   ): Promise<void> {
-    await this.credentialRecoverySurface.exportNearKeypairWithUIWorkerDriven(nearAccountId, options);
+    await this.credentialRecovery.exportNearKeypairWithUIWorkerDriven(nearAccountId, options);
   }
 
   async exportNearKeypairWithUI(
@@ -676,7 +659,7 @@ export class WebAuthnManager {
       theme?: 'dark' | 'light';
     },
   ): Promise<{ accountId: string; publicKey: string; privateKey: string }> {
-    return await this.credentialRecoverySurface.exportNearKeypairWithUI(nearAccountId, options);
+    return await this.credentialRecovery.exportNearKeypairWithUI(nearAccountId, options);
   }
 
   /**
@@ -693,7 +676,7 @@ export class WebAuthnManager {
       theme?: 'dark' | 'light';
     },
   ): Promise<void> {
-    await this.credentialRecoverySurface.exportPrivateKeysWithUIWorkerDriven(nearAccountId, options);
+    await this.credentialRecovery.exportPrivateKeysWithUIWorkerDriven(nearAccountId, options);
   }
 
   async exportPrivateKeysWithUI(
@@ -704,7 +687,7 @@ export class WebAuthnManager {
       theme?: 'dark' | 'light';
     },
   ): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
-    return await this.credentialRecoverySurface.exportPrivateKeysWithUI(nearAccountId, options);
+    return await this.credentialRecovery.exportPrivateKeysWithUI(nearAccountId, options);
   }
 
   ///////////////////////////////////////
@@ -737,7 +720,7 @@ export class WebAuthnManager {
     wrapKeySalt: string;
     stored?: boolean;
   }> {
-    return await this.credentialRecoverySurface.recoverKeypairFromPasskey(
+    return await this.credentialRecovery.recoverKeypairFromPasskey(
       authenticationCredential,
       accountIdHint,
     );
@@ -752,7 +735,7 @@ export class WebAuthnManager {
     challengeB64u: string;
     credentialIds: string[];
   }): Promise<WebAuthnAuthenticationCredential> {
-    return await this.credentialRecoverySurface.getAuthenticationCredentialsSerializedDualPrf({
+    return await this.credentialRecovery.getAuthenticationCredentialsSerializedDualPrf({
       nearAccountId,
       challengeB64u,
       credentialIds,
@@ -782,7 +765,7 @@ export class WebAuthnManager {
     signedTransaction: SignedTransaction;
     logs?: string[];
   }> {
-    return await this.credentialRecoverySurface.signTransactionWithKeyPair({
+    return await this.credentialRecovery.signTransactionWithKeyPair({
       nearPrivateKey,
       signerAccountId,
       receiverId,
@@ -805,7 +788,7 @@ export class WebAuthnManager {
    *
    * Wallet-origin only: callers should run this in the wallet iframe / extension origin.
    */
-  async connectThresholdEd25519SessionLite(args: {
+  connectThresholdEd25519SessionLite(args: {
     nearAccountId: AccountId | string;
     relayerKeyId: string;
     participantIds?: number[];
@@ -814,7 +797,7 @@ export class WebAuthnManager {
     ttlMs?: number;
     remainingUses?: number;
   }): ReturnType<ThresholdSessionSurface['connectThresholdEd25519SessionLite']> {
-    return await this.thresholdSessionSurface.connectThresholdEd25519SessionLite(args);
+    return this.thresholdSession.connectThresholdEd25519SessionLite(args);
   }
 
   /**
@@ -836,7 +819,7 @@ export class WebAuthnManager {
     remainingUses?: number;
     smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
   }): Promise<ThresholdEcdsaSessionBootstrapResult> {
-    return await this.thresholdSessionSurface.bootstrapThresholdEcdsaSessionLite(args);
+    return await this.thresholdSession.bootstrapThresholdEcdsaSessionLite(args);
   }
 
   async persistThresholdEcdsaBootstrapChainAccount(args: {
@@ -845,7 +828,7 @@ export class WebAuthnManager {
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
   }): Promise<void> {
-    await this.thresholdSessionSurface.persistThresholdEcdsaBootstrapChainAccount(args);
+    await this.thresholdSession.persistThresholdEcdsaBootstrapChainAccount(args);
   }
 
   /**
@@ -858,7 +841,7 @@ export class WebAuthnManager {
   async getWarmSigningSessionStatus(
     nearAccountId: AccountId | string,
   ): Promise<SigningSessionStatus | null> {
-    return await this.thresholdSessionSurface.getWarmSigningSessionStatus(nearAccountId);
+    return await this.thresholdSession.getWarmSigningSessionStatus(nearAccountId);
   }
 
   /**
@@ -869,7 +852,7 @@ export class WebAuthnManager {
     nearAccountId: AccountId | string,
     sessionId: string,
   ): void {
-    this.thresholdSessionSurface.setActiveSigningSessionId(nearAccountId, sessionId);
+    this.thresholdSession.setActiveSigningSessionId(nearAccountId, sessionId);
   }
 
   /**
@@ -881,7 +864,7 @@ export class WebAuthnManager {
     expiresAtMs: number;
     remainingUses: number;
   }): Promise<void> {
-    await this.thresholdSessionSurface.putPrfFirstForThresholdSession(args);
+    await this.thresholdSession.putPrfFirstForThresholdSession(args);
   }
 
   /**
@@ -891,7 +874,7 @@ export class WebAuthnManager {
    * - When omitted, clears all tracked accounts.
    */
   async clearWarmSigningSessions(nearAccountId?: AccountId | string): Promise<void> {
-    await this.thresholdSessionSurface.clearWarmSigningSessions(nearAccountId);
+    await this.thresholdSession.clearWarmSigningSessions(nearAccountId);
   }
 
   /**
@@ -908,7 +891,7 @@ export class WebAuthnManager {
     clientVerifyingShareB64u: string;
     error?: string;
   }> {
-    return await this.thresholdKeyLifecycleSurface.deriveThresholdEd25519ClientVerifyingShareFromCredential(args);
+    return await this.thresholdKeyLifecycle.deriveThresholdEd25519ClientVerifyingShareFromCredential(args);
   }
 
   async deriveThresholdEcdsaClientVerifyingShareFromCredential(args: {
@@ -920,7 +903,7 @@ export class WebAuthnManager {
     clientVerifyingShareB64u: string;
     error?: string;
   }> {
-    return await this.thresholdKeyLifecycleSurface.deriveThresholdEcdsaClientVerifyingShareFromCredential(args);
+    return await this.thresholdKeyLifecycle.deriveThresholdEcdsaClientVerifyingShareFromCredential(args);
   }
 
   /**
@@ -939,7 +922,7 @@ export class WebAuthnManager {
     relayerKeyId: string;
     error?: string;
   }> {
-    return await this.thresholdKeyLifecycleSurface.enrollThresholdEd25519KeyPostRegistration(args);
+    return await this.thresholdKeyLifecycle.enrollThresholdEd25519KeyPostRegistration(args);
   }
 
   /**
@@ -965,7 +948,7 @@ export class WebAuthnManager {
     warning?: string;
     error?: string;
   }> {
-    return await this.thresholdKeyLifecycleSurface.rotateThresholdEd25519KeyPostRegistration(args);
+    return await this.thresholdKeyLifecycle.rotateThresholdEd25519KeyPostRegistration(args);
   }
 
   /**
@@ -990,7 +973,7 @@ export class WebAuthnManager {
     relayerKeyId: string;
     error?: string;
   }> {
-    return await this.thresholdKeyLifecycleSurface.enrollThresholdEd25519Key(args);
+    return await this.thresholdKeyLifecycle.enrollThresholdEd25519Key(args);
   }
 
   // ==============================

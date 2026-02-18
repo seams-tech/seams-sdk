@@ -48,7 +48,7 @@ export async function signDelegateAction(args: {
   });
 
   try {
-    const coreResult = await context.webAuthnManager.signDelegateAction({
+    const coreResult = await context.webAuthnManager.signingActions.signDelegateAction({
       delegate: resolvedDelegate,
       rpcCall: {
         contractId: context.configs.contractId,

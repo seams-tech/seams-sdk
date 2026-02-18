@@ -537,7 +537,7 @@ export class TatchiPasskey {
       });
     }
 
-    return await this.webAuthnManager.enrollThresholdEd25519KeyPostRegistration({
+    return await this.webAuthnManager.thresholdKeyLifecycle.enrollThresholdEd25519KeyPostRegistration({
       nearAccountId: toAccountId(nearAccountId),
       deviceNumber: options?.deviceNumber,
     });
@@ -572,7 +572,7 @@ export class TatchiPasskey {
       });
     }
 
-    return await this.webAuthnManager.rotateThresholdEd25519KeyPostRegistration({
+    return await this.webAuthnManager.thresholdKeyLifecycle.rotateThresholdEd25519KeyPostRegistration({
       nearAccountId: toAccountId(nearAccountId),
       deviceNumber: options?.deviceNumber,
     });
@@ -619,7 +619,7 @@ export class TatchiPasskey {
     const res = await loginAndCreateSession(this.getContext(), toAccountId(nearAccountId), options);
     if (res?.success) {
       // Promote authenticated account to current-user state only after login succeeds.
-      await this.webAuthnManager.initializeCurrentUser(toAccountId(nearAccountId), this.nearClient);
+      await this.webAuthnManager.indexedDbRegistration.initializeCurrentUser(toAccountId(nearAccountId), this.nearClient);
     }
     // Best-effort warm-up after successful login (non-blocking)
     try { void this.warmCriticalResources(nearAccountId); } catch { }
@@ -659,7 +659,7 @@ export class TatchiPasskey {
       return await router.hasPasskeyCredential(nearAccountId);
     }
     const baseAccountId = toAccountId(nearAccountId);
-    return await this.webAuthnManager.hasPasskeyCredential(baseAccountId);
+    return await this.webAuthnManager.indexedDbRegistration.hasPasskeyCredential(baseAccountId);
   }
 
   ///////////////////////////////////////
@@ -1372,7 +1372,7 @@ export class TatchiPasskey {
       });
     }
 
-    return await this.webAuthnManager.signTempo({
+    return await this.webAuthnManager.signingActions.signTempo({
       nearAccountId: args.nearAccountId,
       request: args.request,
       confirmationConfigOverride: args.options?.confirmationConfig,
@@ -1406,7 +1406,7 @@ export class TatchiPasskey {
       });
     }
 
-    return await this.webAuthnManager.signTempoWithThresholdEcdsa({
+    return await this.webAuthnManager.signingActions.signTempoWithThresholdEcdsa({
       nearAccountId: args.nearAccountId,
       request: args.request,
       thresholdEcdsaKeyRef: args.thresholdEcdsaKeyRef,
@@ -1440,7 +1440,7 @@ export class TatchiPasskey {
       });
     }
 
-    return await this.webAuthnManager.bootstrapThresholdEcdsaSessionLite({
+    return await this.webAuthnManager.thresholdSession.bootstrapThresholdEcdsaSessionLite({
       nearAccountId: toAccountId(args.nearAccountId),
       chain: args.options?.chain,
       relayerUrl: args.options?.relayerUrl,
@@ -1484,7 +1484,7 @@ export class TatchiPasskey {
       // Fall back to local worker-driven UI (app origin) if wallet host is unavailable.
     }
 
-    await this.webAuthnManager.exportPrivateKeysWithUI(toAccountId(nearAccountId), resolvedOptions);
+    await this.webAuthnManager.credentialRecovery.exportPrivateKeysWithUI(toAccountId(nearAccountId), resolvedOptions);
   }
 
   /**

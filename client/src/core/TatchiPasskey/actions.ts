@@ -453,7 +453,7 @@ export async function signTransactionsWithActionsInternal({
     // WebAuthn challenge digest and NEAR data are computed in the confirmation flow
     // - Nonce will be fetched within the confirmation flow
     // This eliminates the ~500ms blocking operations before modal display
-    return context.webAuthnManager.signTransactionsWithActions({
+    return context.webAuthnManager.signingActions.signTransactionsWithActions({
       transactions: transactionInputsWasm,
       rpcCall: {
         contractId: context.configs.contractId,

@@ -93,7 +93,7 @@ export class EmailRecoveryFlow {
         message: 'Creating passkey for recovery...',
       });
 
-      const registrationSession = await this.context.webAuthnManager.requestRegistrationCredentialConfirmation({
+      const registrationSession = await this.context.webAuthnManager.credentialRecovery.requestRegistrationCredentialConfirmation({
         nearAccountId: String(nearAccountId),
         deviceNumber: initialDeviceNumber,
         confirmerText: this.options?.confirmerText,
@@ -109,7 +109,7 @@ export class EmailRecoveryFlow {
         return Number.isFinite(n) && n >= 1 ? Math.floor(n) : initialDeviceNumber;
       })();
 
-      const derived = await this.context.webAuthnManager.deriveThresholdEd25519ClientVerifyingShareFromCredential({
+      const derived = await this.context.webAuthnManager.thresholdKeyLifecycle.deriveThresholdEd25519ClientVerifyingShareFromCredential({
         credential,
         nearAccountId,
       });
@@ -148,8 +148,8 @@ export class EmailRecoveryFlow {
       if (!credentialId || !attestationObject) {
         throw new Error('Missing WebAuthn registration attestation in credential');
       }
-      const credentialPublicKey = await this.context.webAuthnManager.extractCosePublicKey(attestationObject);
-      await this.context.webAuthnManager.storeUserData({
+      const credentialPublicKey = await this.context.webAuthnManager.credentialRecovery.extractCosePublicKey(attestationObject);
+      await this.context.webAuthnManager.indexedDbRegistration.storeUserData({
         nearAccountId,
         deviceNumber,
         clientNearPublicKey: thresholdPublicKey,
@@ -160,7 +160,7 @@ export class EmailRecoveryFlow {
         },
         version: 2,
       });
-      await this.context.webAuthnManager.storeAuthenticator({
+      await this.context.webAuthnManager.indexedDbRegistration.storeAuthenticator({
         nearAccountId,
         credentialId,
         credentialPublicKey,
