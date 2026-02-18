@@ -1,7 +1,7 @@
 import type { SigningEngine } from '../orchestration/types';
-import { signDelegateAction } from '../chainAdaptors/near/handlers/signDelegateAction';
-import { signNep413Message } from '../chainAdaptors/near/handlers/signNep413Message';
-import { signTransactionsWithActions } from '../chainAdaptors/near/handlers/signTransactionsWithActions';
+import { signDelegateAction } from '../chainAdaptors/near/delegateFlow';
+import { signNep413Message } from '../chainAdaptors/near/nep413Flow';
+import { signTransactionsWithActions } from '../chainAdaptors/near/transactionsFlow';
 import type {
   NearEd25519SignOutput,
   NearEd25519SignRequest,

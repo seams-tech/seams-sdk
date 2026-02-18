@@ -47,7 +47,7 @@ import { executeSignerWorkerOperation } from '../../../workers/operations/execut
 import {
   assertRuntimeSigningLocalKeyMaterial,
   isRuntimeSigningLocalKeyMaterial,
-} from './localKeyUsage';
+} from '../shared/localKeyUsage';
 
 const DUMMY_WRAP_KEY_SALT_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 

@@ -5,9 +5,9 @@ import {
 } from '../../../types/actions';
 import type { TransactionPayload } from '../../../types/signer-worker';
 import type { ChainAdapter, SigningIntent } from '../../orchestration/types';
-import type { signDelegateAction } from './handlers/signDelegateAction';
-import type { signNep413Message } from './handlers/signNep413Message';
-import type { signTransactionsWithActions } from './handlers/signTransactionsWithActions';
+import type { signDelegateAction } from './delegateFlow';
+import type { signNep413Message } from './nep413Flow';
+import type { signTransactionsWithActions } from './transactionsFlow';
 
 export type NearSigningRequest =
   | {

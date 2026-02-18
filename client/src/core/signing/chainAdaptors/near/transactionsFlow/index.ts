@@ -56,7 +56,7 @@ import { NearAdapter } from '../nearAdapter';
 import {
   assertRuntimeSigningLocalKeyMaterial,
   isRuntimeSigningLocalKeyMaterial,
-} from './localKeyUsage';
+} from '../shared/localKeyUsage';
 
 /**
  * Sign multiple transactions with a shared WebAuthn credential.

@@ -57,7 +57,7 @@ Goal: make signing flows readable while keeping modules cohesive.
   - prefer cohesive files over wrappers,
   - avoid files that only rename/re-export,
   - split only when a file has multiple distinct responsibilities.
-- [ ] Refactor NEAR signing handlers to follow the new flow-pack layout.
+- [x] Refactor NEAR signing handlers to follow the new flow-pack layout.
 
 Definition of done:
 

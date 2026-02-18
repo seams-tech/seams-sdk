@@ -314,9 +314,9 @@ fi
 echo "[check-signing-architecture] checking export-only local-key runtime guardrails..."
 if ! rg -n \
   -e "export-only local key material" \
-  client/src/core/signing/chainAdaptors/near/handlers/signTransactionsWithActions.ts \
-  client/src/core/signing/chainAdaptors/near/handlers/signDelegateAction.ts \
-  client/src/core/signing/chainAdaptors/near/handlers/signNep413Message.ts >/dev/null; then
+  client/src/core/signing/chainAdaptors/near/transactionsFlow/index.ts \
+  client/src/core/signing/chainAdaptors/near/delegateFlow/index.ts \
+  client/src/core/signing/chainAdaptors/near/nep413Flow/index.ts >/dev/null; then
   echo "[check-signing-architecture] failed: NEAR runtime signing handlers must guard against export-only local keys"
   exit 1
 fi
@@ -324,9 +324,9 @@ fi
 echo "[check-signing-architecture] checking NEAR threshold signer local-fallback removal..."
 if rg -n \
   -e "falling back to local-signer" \
-  client/src/core/signing/chainAdaptors/near/handlers/signTransactionsWithActions.ts \
-  client/src/core/signing/chainAdaptors/near/handlers/signDelegateAction.ts \
-  client/src/core/signing/chainAdaptors/near/handlers/signNep413Message.ts >/dev/null; then
+  client/src/core/signing/chainAdaptors/near/transactionsFlow/index.ts \
+  client/src/core/signing/chainAdaptors/near/delegateFlow/index.ts \
+  client/src/core/signing/chainAdaptors/near/nep413Flow/index.ts >/dev/null; then
   echo "[check-signing-architecture] failed: NEAR threshold signing handlers must not fallback to local-signer during runtime threshold execution"
   exit 1
 fi
