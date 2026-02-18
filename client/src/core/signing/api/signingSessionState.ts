@@ -1,6 +1,6 @@
 import { toAccountId, type AccountId } from '../../types/accountIds';
 import type { SigningSessionStatus } from '../../types/tatchi';
-import type { SecureConfirmWorkerManager } from '../secureConfirm/manager';
+import type { SecureConfirmWorkerManager } from '../secureConfirm';
 
 export type SigningSessionPolicyArgs = { ttlMs?: number; remainingUses?: number };
 export type SigningSessionPolicy = { ttlMs: number; remainingUses: number };

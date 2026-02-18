@@ -3,7 +3,7 @@ import type { NearClient } from '../../../near/NearClient';
 import { NonceManager } from '../../../near/nonceManager';
 import NonceManagerInstance from '../../../near/nonceManager';
 import type { ThemeName, ThemeTokenOverridesInput, TatchiConfigs } from '../../../types/tatchi';
-import { SecureConfirmWorkerManager } from '../../secureConfirm/manager';
+import { SecureConfirmWorkerManager } from '../../secureConfirm';
 import { TouchIdPrompt } from '../../webauthn/prompt/touchIdPrompt';
 import { SignerWorkerManager } from '../../workers/signerWorkerManager';
 import { UserPreferencesManager } from '../userPreferences';

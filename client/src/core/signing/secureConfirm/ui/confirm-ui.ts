@@ -1,5 +1,5 @@
 import { isActionArgsWasm, toActionArgsWasm, type ActionArgs, type ActionArgsWasm } from '../../../types/actions';
-import type { SecureConfirmWorkerManagerContext } from '../manager';
+import type { SecureConfirmWorkerManagerContext } from '..';
 import type { TransactionSummary } from '../confirmTxFlow/types';
 import { WalletIframeDomEvents } from '../../../WalletIframe/events';
 import type { TransactionInputWasm, SecureConfirmSecurityContext } from '../../../types';

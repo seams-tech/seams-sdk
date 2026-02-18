@@ -110,13 +110,11 @@ export async function runThresholdEcdsaTempoFlow(
 ): Promise<ThresholdEcdsaTempoFlowResult> {
   return await page.evaluate(async (input) => {
     const sdkMod = await import('/sdk/esm/index.js');
+    const thresholdExperimentalMod = await import('/sdk/esm/experimental/threshold.js');
     const indexedDbMod = await import('/sdk/esm/core/IndexedDBManager/index.js');
 
-    const {
-      TatchiPasskey,
-      keygenThresholdEcdsaLite,
-      connectThresholdEcdsaSessionLite,
-    } = sdkMod as any;
+    const { TatchiPasskey } = sdkMod as any;
+    const { keygenThresholdEcdsaLite, connectThresholdEcdsaSessionLite } = thresholdExperimentalMod as any;
     const { IndexedDBManager } = indexedDbMod as any;
 
     const accountId =

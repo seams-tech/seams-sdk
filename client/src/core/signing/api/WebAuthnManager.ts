@@ -15,7 +15,7 @@ import {
 import { StoreUserDataInput } from '../../IndexedDBManager/passkeyClientDB';
 import { type NearClient, SignedTransaction } from '../../near/NearClient';
 import type { SignerWorkerManager } from '../workers/signerWorkerManager';
-import type { SecureConfirmWorkerManager } from '../secureConfirm/manager';
+import type { SecureConfirmWorkerManager } from '../secureConfirm';
 import type { TouchIdPrompt } from '../webauthn/prompt/touchIdPrompt';
 import type { WebAuthnAllowCredential } from '../webauthn/credentials';
 import { toAccountId } from '../../types/accountIds';

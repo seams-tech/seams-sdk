@@ -74,8 +74,8 @@ Examples omitted for brevity; see HaloBorder, PasskeyHaloLoading, and Modal view
 
 ## Confirm UI API
 
-- File: `client/src/core/signing/secureConfirm/ui/lit-components/confirm-ui.ts`
-- Element contract: `client/src/core/signing/secureConfirm/ui/lit-components/confirm-ui-types.ts`
+- File: `client/src/core/signing/secureConfirm/ui/confirm-ui.ts`
+- Element contract: `client/src/core/signing/secureConfirm/ui/confirm-ui-types.ts`
 
 Confirm UI is container‑agnostic and driven by `uiMode: 'none' | 'modal' | 'drawer'`.
 - Element contract: `ConfirmUIElement` supports `deferClose` and `close(confirmed)`.
@@ -176,14 +176,14 @@ Implementation reference:
 Create a tiny helper to guarantee the module runs before creating the element:
 
 ```ts
-// client/src/core/signing/secureConfirm/ui/lit-components/ensure-defined.ts
+// client/src/core/signing/secureConfirm/ui/ensure-defined.ts
 export async function ensureDefined(tag: string, loader: () => Promise<unknown>) {
   if (!customElements.get(tag)) await loader();
 }
 
 // Usage (export viewer)
-import { W3A_EXPORT_VIEWER_IFRAME_ID } from '../tags';
-import { ensureDefined } from '../ensure-defined';
+import { W3A_EXPORT_VIEWER_IFRAME_ID } from '../../tags';
+import { ensureDefined } from '../../ensure-defined';
 await ensureDefined(W3A_EXPORT_VIEWER_IFRAME_ID, () => import('../ExportPrivateKey/iframe-host'));
 const host = document.createElement(W3A_EXPORT_VIEWER_IFRAME_ID);
 document.body.appendChild(host);

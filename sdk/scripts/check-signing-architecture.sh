@@ -114,6 +114,29 @@ if ! node "$ROOT_DIR/sdk/scripts/check-signing-api-cycles.mjs"; then
   exit 1
 fi
 
+echo "[check-signing-architecture] checking stable-vs-experimental root export boundaries..."
+if rg -n \
+  -e "^[[:space:]]*export[[:space:]].*from ['\"]\\./core/signing/" \
+  -e "^[[:space:]]*export[[:space:]].*from ['\"]\\./utils/intentDigest" \
+  client/src/index.ts; then
+  echo "[check-signing-architecture] failed: root client/src/index.ts must not export experimental signing internals"
+  exit 1
+fi
+
+if ! rg -n \
+  -e "^export \\* from '\\./signing';$" \
+  client/src/experimental/index.ts >/dev/null; then
+  echo "[check-signing-architecture] failed: client/src/experimental/index.ts must re-export ./signing"
+  exit 1
+fi
+
+if ! rg -n \
+  -e "^export \\* from '\\./threshold';$" \
+  client/src/experimental/index.ts >/dev/null; then
+  echo "[check-signing-architecture] failed: client/src/experimental/index.ts must re-export ./threshold"
+  exit 1
+fi
+
 echo "[check-signing-architecture] checking execute helper context enforcement..."
 if rg -n \
   -e "requestMultichainWorkerOperation" \

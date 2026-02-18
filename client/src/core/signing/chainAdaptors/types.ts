@@ -1,7 +1,7 @@
 import type { UnifiedIndexedDBManager } from '../../IndexedDBManager';
 import type { NearClient } from '../../near/NearClient';
 import type { NonceManager } from '../../near/nonceManager';
-import type { SecureConfirmWorkerManager } from '../secureConfirm/manager';
+import type { SecureConfirmWorkerManager } from '../secureConfirm';
 import type { TouchIdPrompt } from '../webauthn/prompt/touchIdPrompt';
 import type { UserPreferencesManager } from '../api/userPreferences';
 import type { ThemeName } from '../../types/tatchi';

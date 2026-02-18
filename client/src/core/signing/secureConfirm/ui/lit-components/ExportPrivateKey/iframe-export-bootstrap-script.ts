@@ -1,6 +1,6 @@
 import { isObject, isString, isBoolean } from '../../../../../../../../shared/src/utils/validation';
-import { LitComponentEvents, type LitComponentEventDetailMap } from '../lit-events';
-import { W3A_DRAWER_ID, W3A_EXPORT_KEY_VIEWER_ID } from '../tags';
+import { LitComponentEvents, type LitComponentEventDetailMap } from '../../lit-events';
+import { W3A_DRAWER_ID, W3A_EXPORT_KEY_VIEWER_ID } from '../../tags';
 import type { ExportPrivateKeyDisplayEntry } from '../../../confirmTxFlow/types';
 import type { ThemeTokenOverridesInput } from '../../../../../types/tatchi';
 import { createCspStylesheetManager, getDefaultCspNonce } from '../../../../../WalletIframe/shared/csp-stylesheet';

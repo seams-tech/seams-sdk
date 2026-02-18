@@ -1,14 +1,14 @@
 import { html, type PropertyValues } from 'lit';
 import { LitElementWithProps } from '../LitElementWithProps';
 import DrawerElement from '../Drawer';
-import { W3A_DRAWER_ID } from '../tags';
+import { W3A_DRAWER_ID } from '../../tags';
 import TxConfirmContentElement from './tx-confirm-content';
 import PadlockIconElement from '../common/PadlockIcon';
 import { ensureExternalStyles } from '../css/css-loader';
 import { WalletIframeDomEvents } from '../../../../../WalletIframe/events';
 import type { TransactionInputWasm, SecureConfirmSecurityContext } from '../../../../../types';
-import type { ThemeName } from '../confirm-ui-types';
-import type { ConfirmUIElement } from '../confirm-ui-types';
+import type { ThemeName } from '../../confirm-ui-types';
+import type { ConfirmUIElement } from '../../confirm-ui-types';
 
 /**
  * DrawerTxConfirmer: Drawer variant of the transaction confirmer
@@ -304,7 +304,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   }
 }
 
-import { W3A_DRAWER_TX_CONFIRMER_ID } from '../tags';
+import { W3A_DRAWER_TX_CONFIRMER_ID } from '../../tags';
 
 // Define canonical tag
 if (!customElements.get(W3A_DRAWER_TX_CONFIRMER_ID)) {

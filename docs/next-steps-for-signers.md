@@ -74,7 +74,8 @@ Completion record (2026-02-18):
   - `tests/wallet-iframe/router.behavior.concurrent.test.ts`
   - `tests/e2e/signTransactions.concurrentSessions.walletIframe.test.ts`
 - Canonical gate command:
-  - `pnpm -C tests run test:phase1`
+  - `pnpm -C ../sdk run build:check:fresh || pnpm -C ../sdk run build`
+  - `USE_RELAY_SERVER=0 pnpm -C tests exec playwright test ./unit/thresholdEcdsa.signInFlightGate.unit.test.ts ./unit/walletIframeHost.signTempoCancel.unit.test.ts ./unit/tempo.signingAuthMode.unit.test.ts ./wallet-iframe/passkeyAuthMenu.qrButton.overlay.test.ts ./wallet-iframe/router.computeOverlayIntent.test.ts ./wallet-iframe/router.behavior.sticky.test.ts ./wallet-iframe/router.behavior.concurrent.test.ts ./e2e/signTransactions.concurrentSessions.walletIframe.test.ts --reporter=line`
 
 ## Phase 2: Deduplicate Smart-Account Deployment Work (Correct Key Scope)
 

@@ -12,10 +12,10 @@ without over-fragmenting files.
 
 Goal: remove broken/legacy paths so docs, workspace config, and build config describe the same repo layout.
 
-- [ ] Remove missing example package entries from `pnpm-workspace.yaml`.
-- [ ] Update root `README.md` architecture links to existing docs paths.
-- [ ] Update `sdk/build-paths.ts` frontend example paths to current example apps.
-- [ ] Add a CI check that fails on missing local doc paths referenced by README/workspace scripts.
+- [x] Remove missing example package entries from `pnpm-workspace.yaml`.
+- [x] Update root `README.md` architecture links to existing docs paths.
+- [x] Update `sdk/build-paths.ts` frontend example paths to current example apps.
+- [x] Add a CI check that fails on missing local doc paths referenced by README/workspace scripts.
 
 Definition of done:
 
@@ -25,10 +25,10 @@ Definition of done:
 
 Goal: make the root SDK entrypoint easy to understand and safe by default.
 
-- [ ] Keep `client/src/index.ts` focused on stable public APIs.
-- [ ] Move experimental/internal signing exports to explicit subpaths (for example `@tatchi-xyz/sdk/experimental/*`).
-- [ ] Update `sdk/package.json` exports map to reflect the split.
-- [ ] Add a guardrail check to prevent deep internal module exports from the root entrypoint.
+- [x] Keep `client/src/index.ts` focused on stable public APIs.
+- [x] Move experimental/internal signing exports to explicit subpaths (for example `@tatchi-xyz/sdk/experimental/*`).
+- [x] Update `sdk/package.json` exports map to reflect the split.
+- [x] Add a guardrail check to prevent deep internal module exports from the root entrypoint.
 
 Definition of done:
 
@@ -38,10 +38,10 @@ Definition of done:
 
 Goal: one canonical file path per implementation (no re-export hop chains).
 
-- [ ] Remove one-line compatibility wrappers in `client/src/core/signing/api/*` that only re-export nested modules.
-- [ ] Remove one-line wrappers in `client/src/core/signing/secureConfirm/manager.ts` and `.../manager/index.ts`.
-- [ ] Remove `lit-components/*` wrapper re-exports where canonical modules already exist under `secureConfirm/ui/*`.
-- [ ] Delete empty directories under `client/src/core/signing/api/` (`registration`, `signing`, `storage`) unless used immediately.
+- [x] Remove one-line compatibility wrappers in `client/src/core/signing/api/*` that only re-export nested modules.
+- [x] Remove one-line wrappers in `client/src/core/signing/secureConfirm/manager.ts` and `.../manager/index.ts`.
+- [x] Remove `lit-components/*` wrapper re-exports where canonical modules already exist under `secureConfirm/ui/*`.
+- [x] Delete empty directories under `client/src/core/signing/api/` (`registration`, `signing`, `storage`) unless used immediately.
 
 Definition of done:
 

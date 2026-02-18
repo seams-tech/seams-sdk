@@ -367,6 +367,10 @@ const configs = [
   {
     input: [
       '../client/src/index.ts',
+      // Explicit experimental surface (opt-in APIs via @tatchi-xyz/sdk/experimental/*).
+      '../client/src/experimental/index.ts',
+      '../client/src/experimental/signing.ts',
+      '../client/src/experimental/threshold.ts',
       // Treat this as an entry so Rolldown doesn't tree-shake its re-exported WASM enums.
       // Tests (and some internal tools) import `core/types/signer-worker` directly.
       '../client/src/core/types/signer-worker.ts',

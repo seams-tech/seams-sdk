@@ -2,7 +2,7 @@ import type { AccountId } from '../../types/accountIds';
 import type { ConfirmationConfig } from '../../types/signer-worker';
 import type { WebAuthnAuthenticationCredential } from '../../types';
 import type { RegistrationCredentialConfirmationPayload } from '../workers/signerWorkerManager/internal/validation';
-import type { SecureConfirmWorkerManager } from '../secureConfirm/manager';
+import type { SecureConfirmWorkerManager } from '../secureConfirm';
 import type { TouchIdPrompt } from '../webauthn/prompt/touchIdPrompt';
 import type { WebAuthnAllowCredential } from '../webauthn/credentials';
 

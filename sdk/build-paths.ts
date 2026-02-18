@@ -31,9 +31,9 @@ export const BUILD_PATHS = {
 
   // Frontend deployment paths
   FRONTEND: {
-    ROOT: '../examples/vite/public',
-    SDK: '../examples/vite/public/sdk',
-    WORKERS: '../examples/vite/public/sdk/workers',
+    ROOT: '../examples/tatchi-site/src/public',
+    SDK: '../examples/tatchi-site/src/public/sdk',
+    WORKERS: '../examples/tatchi-site/src/public/sdk/workers',
   },
 
   // Runtime paths (used by workers and tests)

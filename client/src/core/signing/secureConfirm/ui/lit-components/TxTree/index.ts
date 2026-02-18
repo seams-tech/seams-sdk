@@ -1,7 +1,7 @@
 import { html, type TemplateResult } from 'lit';
 import { repeat } from 'lit/directives/repeat.js';
 import { LitElementWithProps } from '../LitElementWithProps';
-import { dispatchLitTreeToggled } from '../lit-events';
+import { dispatchLitTreeToggled } from '../../lit-events';
 import type { TreeNode } from './tx-tree-utils';
 import type { TxTreeStyles } from './tx-tree-themes';
 import { TX_TREE_THEMES } from './tx-tree-themes';
@@ -615,7 +615,7 @@ export class TxTree extends LitElementWithProps {
   }
 }
 
-import { W3A_TX_TREE_ID } from '../tags';
+import { W3A_TX_TREE_ID } from '../../tags';
 
 if (!customElements.get(W3A_TX_TREE_ID)) {
   customElements.define(W3A_TX_TREE_ID, TxTree);

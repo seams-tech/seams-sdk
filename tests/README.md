@@ -98,7 +98,7 @@ test('register → login', async ({ passkey }) => {
   - `pnpm test` → `pnpm -C tests test` (full suite)
   - `pnpm test:lite` → `pnpm -C tests test:lite` (lite suite; excludes local-signer)
   - `pnpm test:inline` → line reporter
-  - `pnpm test:unit`, `pnpm test:phase1`, `pnpm test:wallet-iframe`, `pnpm test:lit-components`
+  - `pnpm test:unit`, `pnpm test:wallet-iframe`, `pnpm test:lit-components`
   - `pnpm show-report` to open Playwright HTML report
 
 - Direct Playwright subset examples:
@@ -109,9 +109,19 @@ pnpm -C tests exec playwright test **/unit/**/*.test.ts
 
 Chromium only; `workers=1` to avoid relay/faucet rate limits.
 
-Phase 1 signer gate:
+Phase 1 signer gate (direct command):
 ```bash
-pnpm -C tests run test:phase1
+pnpm -C ../sdk run build:check:fresh || pnpm -C ../sdk run build
+USE_RELAY_SERVER=0 pnpm -C tests exec playwright test \
+  ./unit/thresholdEcdsa.signInFlightGate.unit.test.ts \
+  ./unit/walletIframeHost.signTempoCancel.unit.test.ts \
+  ./unit/tempo.signingAuthMode.unit.test.ts \
+  ./wallet-iframe/passkeyAuthMenu.qrButton.overlay.test.ts \
+  ./wallet-iframe/router.computeOverlayIntent.test.ts \
+  ./wallet-iframe/router.behavior.sticky.test.ts \
+  ./wallet-iframe/router.behavior.concurrent.test.ts \
+  ./e2e/signTransactions.concurrentSessions.walletIframe.test.ts \
+  --reporter=line
 ```
 
 ## Environment

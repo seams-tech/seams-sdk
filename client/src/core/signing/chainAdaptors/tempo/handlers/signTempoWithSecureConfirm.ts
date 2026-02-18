@@ -2,7 +2,7 @@ import type { ConfirmationConfig } from '../../../../types/signer-worker';
 import type {
   SecureConfirmWorkerManager,
   SecureConfirmWorkerManagerContext,
-} from '../../../secureConfirm/manager';
+} from '../../../secureConfirm';
 import type { KeyRef, SignRequest, SigningEngine } from '../../../orchestration/types';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../../orchestration/types';
 import { base64UrlEncode } from '../../../../../../../shared/src/utils/base64';

@@ -3,7 +3,7 @@ import { LitElementWithProps } from '../LitElementWithProps';
 import DrawerElement from '../Drawer';
 // Tokens for this component now come from w3a-components.css host scoping.
 // We no longer map full color sets from DARK_THEME/LIGHT_THEME here.
-import { dispatchLitCancel, dispatchLitCopy } from '../lit-events';
+import { dispatchLitCancel, dispatchLitCopy } from '../../lit-events';
 import { ensureExternalStyles } from '../css/css-loader';
 import type { ExportPrivateKeyDisplayEntry } from '../../../confirmTxFlow/types';
 

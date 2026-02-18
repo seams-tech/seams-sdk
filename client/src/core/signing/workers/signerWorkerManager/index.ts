@@ -1,7 +1,7 @@
 import { UnifiedIndexedDBManager } from '../../../IndexedDBManager';
 import { IndexedDBManager } from '../../../IndexedDBManager';
 import { type NearClient } from '../../../near/NearClient';
-import { SecureConfirmWorkerManager } from '../../secureConfirm/manager';
+import { SecureConfirmWorkerManager } from '../../secureConfirm';
 import { TouchIdPrompt } from '../../webauthn/prompt/touchIdPrompt';
 import type { SigningRuntimeDeps } from '../../chainAdaptors/types';
 import type {

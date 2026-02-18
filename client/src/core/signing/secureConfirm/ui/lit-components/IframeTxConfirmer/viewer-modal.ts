@@ -6,11 +6,11 @@ import type { TransactionInputWasm, SecureConfirmSecurityContext } from '../../.
 import TxTree from '../TxTree';
 import { ensureExternalStyles } from '../css/css-loader';
 import TxConfirmContentElement from './tx-confirm-content';
-import type { ThemeName } from '../confirm-ui-types';
+import type { ThemeName } from '../../confirm-ui-types';
 // Ensure required custom elements are defined in this bundle (avoid tree-shake drops)
 import HaloBorderElement from '../HaloBorder';
 import PasskeyHaloLoadingElement from '../PasskeyHaloLoading';
-import type { ConfirmUIElement } from '../confirm-ui-types';
+import type { ConfirmUIElement } from '../../confirm-ui-types';
 import { WalletIframeDomEvents } from '../../../../../WalletIframe/events';
 
 export interface SecureTxSummary {
@@ -368,7 +368,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
 }
 
 // Register the custom element
-import { W3A_MODAL_TX_CONFIRMER_ID } from '../tags';
+import { W3A_MODAL_TX_CONFIRMER_ID } from '../../tags';
 
 // Define canonical tag
 if (!customElements.get(W3A_MODAL_TX_CONFIRMER_ID)) {

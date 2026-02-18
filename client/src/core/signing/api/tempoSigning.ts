@@ -9,7 +9,7 @@ import {
   deriveSmartAccountDeploymentTargetFromTempoRequest,
   ensureSmartAccountDeployed,
 } from '../orchestration/deployment/ensureSmartAccountDeployed';
-import { SecureConfirmWorkerManager } from '../secureConfirm/manager';
+import { SecureConfirmWorkerManager } from '../secureConfirm';
 import type { SignerWorkerManagerContext } from '../workers/signerWorkerManager';
 import {
   deploySmartAccountForChain,

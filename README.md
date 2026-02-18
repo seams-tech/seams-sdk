@@ -32,10 +32,10 @@ pnpm examples:vite
 
 ## Architecture
 
-- Wallet iframe / origin isolation: `sdk/docs/implementation/wallet-iframe-architecture.md`
+- Wallet iframe / origin isolation: `examples/tatchi-site/src/docs/concepts/architecture.md`
 - Security model: `examples/tatchi-site/src/docs/concepts/security-model.md`
 - SecureConfirm + WebAuthn: `examples/tatchi-site/src/docs/concepts/secureconfirm-webauthn.md`
-- Relay deployment: `examples/tatchi-site/src/docs/guides/relay-server-deployment.md`
+- Relay deployment: `examples/relay-server/README.md`
 
 ## Release
 

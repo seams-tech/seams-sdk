@@ -1,6 +1,6 @@
 import { html, type PropertyValues } from 'lit';
 import { LitElementWithProps } from '../LitElementWithProps';
-import { dispatchLitCancel, dispatchLitConfirm } from '../lit-events';
+import { dispatchLitCancel, dispatchLitConfirm } from '../../lit-events';
 
 import type { TransactionInputWasm } from '../../../../../types';
 import type { SecureConfirmSecurityContext } from '../../../../../types';
@@ -8,8 +8,8 @@ import { fromTransactionInputsWasm } from '../../../../../types/actions';
 import TxTree from '../TxTree';
 import { buildDisplayTreeFromTxPayloads } from '../TxTree/tx-tree-utils';
 import { ensureExternalStyles } from '../css/css-loader';
-import { W3A_TX_TREE_ID } from '../tags';
-import type { ThemeName } from '../confirm-ui-types';
+import { W3A_TX_TREE_ID } from '../../tags';
+import type { ThemeName } from '../../confirm-ui-types';
 
 /**
  * Shared confirmation content surface used by both Modal and Drawer containers.
@@ -260,7 +260,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
   }
 }
 
-import { W3A_TX_CONFIRM_CONTENT_ID } from '../tags';
+import { W3A_TX_CONFIRM_CONTENT_ID } from '../../tags';
 
 if (!customElements.get(W3A_TX_CONFIRM_CONTENT_ID)) {
   customElements.define(W3A_TX_CONFIRM_CONTENT_ID, TxConfirmContentElement);

@@ -28,10 +28,10 @@ CRITICAL_DIRS=(
     "../wasm/tempo_signer"
 )
 
-# Example Vite app deployment paths (used only for local dev/test copying)
-FRONTEND_ROOT="../examples/vite/public"
-FRONTEND_SDK="../examples/vite/public/sdk"
-FRONTEND_WORKERS="../examples/vite/public/sdk/workers"
+# Frontend deployment paths (used only for local dev/test copying)
+FRONTEND_ROOT="../examples/tatchi-site/src/public"
+FRONTEND_SDK="../examples/tatchi-site/src/public/sdk"
+FRONTEND_WORKERS="../examples/tatchi-site/src/public/sdk/workers"
 
 # Runtime paths (used by workers and tests)
 RUNTIME_SDK_BASE="/sdk"

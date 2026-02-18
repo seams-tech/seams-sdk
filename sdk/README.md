@@ -102,7 +102,18 @@ export default defineConfig({
 })
 ```
 
-See `examples/next-js` for other examples.
+See `examples/tatchi-site` and `examples/tatchi-docs` for full app examples.
+
+## Stable vs Experimental APIs
+
+Use `@tatchi-xyz/sdk` for the stable surface (for example `TatchiPasskey` and core types).
+
+Opt into advanced signing internals through explicit experimental subpaths:
+
+```ts
+import { keygenThresholdEcdsaLite } from '@tatchi-xyz/sdk/experimental/threshold'
+import { TempoAdapter } from '@tatchi-xyz/sdk/experimental/signing'
+```
 
 ## Configuration Options
 

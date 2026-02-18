@@ -1,6 +1,6 @@
 import { html, css } from 'lit';
 import { LitElementWithProps } from '../LitElementWithProps';
-import { dispatchLitCancel } from '../lit-events';
+import { dispatchLitCancel } from '../../lit-events';
 import { ensureExternalStyles } from '../css/css-loader';
 
 export type DrawerTheme = 'dark' | 'light';
@@ -851,7 +851,7 @@ export class DrawerElement extends LitElementWithProps {
   }
 }
 
-import { W3A_DRAWER_ID } from '../tags';
+import { W3A_DRAWER_ID } from '../../tags';
 export default (function ensureDefined() {
   const TAG = W3A_DRAWER_ID;
   if (!customElements.get(TAG)) {

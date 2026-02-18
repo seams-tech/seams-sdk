@@ -1,6 +1,6 @@
 import type { UnifiedIndexedDBManager } from '../../IndexedDBManager';
 import { toAccountId, type AccountId } from '../../types/accountIds';
-import type { SecureConfirmWorkerManager } from '../secureConfirm/manager';
+import type { SecureConfirmWorkerManager } from '../secureConfirm';
 import type { TouchIdPrompt } from '../webauthn/prompt/touchIdPrompt';
 import type { SignerWorkerManagerContext } from '../workers/signerWorkerManager';
 import type { NearSigningKeyOpsService } from '../workers/signerWorkerManager/nearKeyOpsService';

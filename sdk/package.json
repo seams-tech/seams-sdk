@@ -13,6 +13,21 @@
       "default": "./dist/esm/index.js",
       "types": "./dist/types/client/src/index.d.ts"
     },
+    "./experimental": {
+      "import": "./dist/esm/experimental/index.js",
+      "default": "./dist/esm/experimental/index.js",
+      "types": "./dist/types/client/src/experimental/index.d.ts"
+    },
+    "./experimental/signing": {
+      "import": "./dist/esm/experimental/signing.js",
+      "default": "./dist/esm/experimental/signing.js",
+      "types": "./dist/types/client/src/experimental/signing.d.ts"
+    },
+    "./experimental/threshold": {
+      "import": "./dist/esm/experimental/threshold.js",
+      "default": "./dist/esm/experimental/threshold.js",
+      "types": "./dist/types/client/src/experimental/threshold.d.ts"
+    },
     "./plugins/headers": {
       "import": "./dist/esm/plugins/headers.js",
       "default": "./dist/esm/plugins/headers.js",
@@ -117,6 +132,12 @@
   },
   "typesVersions": {
     "*": {
+      "experimental": [
+        "dist/types/client/src/experimental/index.d.ts"
+      ],
+      "experimental/*": [
+        "dist/types/client/src/experimental/*"
+      ],
       "react": [
         "dist/types/client/src/react/index.d.ts"
       ],

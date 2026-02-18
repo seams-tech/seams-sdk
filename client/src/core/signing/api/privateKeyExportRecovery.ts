@@ -11,7 +11,7 @@ import {
   type SecureConfirmRequest,
 } from '../secureConfirm/confirmTxFlow/types';
 import { runSecureConfirm } from '../secureConfirm/secureConfirmBridge';
-import type { SecureConfirmWorkerManager } from '../secureConfirm/manager';
+import type { SecureConfirmWorkerManager } from '../secureConfirm';
 import { getLastLoggedInDeviceNumber } from '../webauthn/device/getDeviceNumber';
 import { getPrfResultsFromCredential } from '../webauthn/credentials/credentialExtensions';
 import type { SignerWorkerManagerContext } from '../workers/signerWorkerManager';
