@@ -300,7 +300,7 @@ test.describe('unified signing pipeline', () => {
     const tempoHandlerSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/signing/chainAdaptors/tempo/handlers/signTempoWithSecureConfirm.ts',
+        '../client/src/core/signing/chainAdaptors/tempo/tempoSigningFlow/index.ts',
       ),
       'utf8',
     );

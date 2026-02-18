@@ -299,7 +299,7 @@ if rg -n \
   -e "local-secp256k1" \
   client/src/core/signing/engines/secp256k1.ts \
   client/src/core/signing/api/WebAuthnManager.ts \
-  client/src/core/signing/chainAdaptors/tempo/handlers/signTempoWithSecureConfirm.ts; then
+  client/src/core/signing/chainAdaptors/tempo/tempoSigningFlow/index.ts; then
   echo "[check-signing-architecture] failed: runtime secp256k1 signing path must not accept local-secp256k1 key refs"
   exit 1
 fi

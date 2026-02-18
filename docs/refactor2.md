@@ -51,7 +51,7 @@ Definition of done:
 
 Goal: make signing flows readable while keeping modules cohesive.
 
-- [ ] Group signing logic by flow package (for example `near/transactionsFlow`, `near/delegateFlow`, `near/nep413Flow`, `tempo/tempoSigningFlow`).
+- [x] Group signing logic by flow package (for example `near/transactionsFlow`, `near/delegateFlow`, `near/nep413Flow`, `tempo/tempoSigningFlow`).
 - [ ] Keep shared primitives in `shared.ts`/`types.ts` per flow package instead of creating micro-files.
 - [ ] Define module granularity rule in this plan:
   - prefer cohesive files over wrappers,

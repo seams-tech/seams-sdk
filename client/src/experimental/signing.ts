@@ -10,4 +10,4 @@ export * from '../core/signing/webauthn/cose/coseP256';
 export * from '../core/signing/chainAdaptors/near/nearAdapter';
 export * from '../core/signing/chainAdaptors/tempo/types';
 export * from '../core/signing/chainAdaptors/tempo/tempoAdapter';
-export { signTempoWithSecureConfirm } from '../core/signing/chainAdaptors/tempo/handlers/signTempoWithSecureConfirm';
+export { signTempoWithSecureConfirm } from '../core/signing/chainAdaptors/tempo/tempoSigningFlow';

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 const IMPORT_PATHS = {
   signTempoWithSecureConfirm:
-    '/sdk/esm/core/signing/chainAdaptors/tempo/handlers/signTempoWithSecureConfirm.js',
+    '/sdk/esm/core/signing/chainAdaptors/tempo/tempoSigningFlow/index.js',
 } as const;
 
 test.describe('tempo signing auth-mode resolution', () => {

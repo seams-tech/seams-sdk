@@ -30,7 +30,7 @@ test.describe('modularity lazy signer loading', () => {
     expect(signerWorkerBridgeSource).toContain("import('../orchestration/signWithIntent')");
     expect(signerWorkerBridgeSource).toContain("import('../engines/ed25519')");
     expect(tempoSigningSource).toContain(
-      "import('../chainAdaptors/tempo/handlers/signTempoWithSecureConfirm')",
+      "import('../chainAdaptors/tempo/tempoSigningFlow')",
     );
     expect(tempoSigningSource).toContain("import('../engines/secp256k1')");
     expect(tempoSigningSource).toContain("import('../engines/webauthnP256')");
@@ -38,7 +38,7 @@ test.describe('modularity lazy signer loading', () => {
     expect(signerWorkerBridgeSource).not.toContain(
       "await import('../chainAdaptors/near/walletOrigin')",
     );
-    expect(tempoSigningSource).not.toContain("from '../chainAdaptors/tempo/handlers/signTempoWithSecureConfirm'");
+    expect(tempoSigningSource).not.toContain("from '../chainAdaptors/tempo/tempoSigningFlow'");
     expect(signerWorkerBridgeSource).not.toContain("from '../engines/ed25519'");
     expect(tempoSigningSource).not.toContain("from '../engines/secp256k1'");
     expect(tempoSigningSource).not.toContain("from '../engines/webauthnP256'");
