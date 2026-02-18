@@ -90,38 +90,10 @@ import {
   deriveNearKeypairFromCredentialViaWorker as deriveNearKeypairFromCredentialViaWorkerValue,
 } from './nearKeyDerivation';
 import {
-  atomicOperation as atomicOperationValue,
-  atomicStoreRegistrationData as atomicStoreRegistrationDataValue,
-  extractUsername as extractUsernameValue,
-  hasPasskeyCredential as hasPasskeyCredentialValue,
-  initializeCurrentUser as initializeCurrentUserValue,
-  registerUser as registerUserValue,
-  rollbackUserRegistration as rollbackUserRegistrationValue,
-  storeAuthenticator as storeAuthenticatorValue,
-  storeUserData as storeUserDataValue,
-  type StoreAuthenticatorInput,
-} from './registrationAccountLifecycle';
-import {
   getAuthenticationCredentialsSerialized as getAuthenticationCredentialsSerializedValue,
   getAuthenticationCredentialsSerializedDualPrf as getAuthenticationCredentialsSerializedDualPrfValue,
   requestRegistrationCredentialConfirmation as requestRegistrationCredentialConfirmationValue,
 } from './registrationSession';
-import {
-  enqueueSignerOperation as enqueueSignerOperationValue,
-  getAllUsers as getAllUsersValue,
-  getAuthenticatorsByUser as getAuthenticatorsByUserValue,
-  getLastUser as getLastUserValue,
-  getProfile as getProfileValue,
-  getProfileByAccount as getProfileByAccountValue,
-  getUserByDevice as getUserByDeviceValue,
-  listAccountSigners as listAccountSignersValue,
-  setAccountSignerStatus as setAccountSignerStatusValue,
-  setLastUser as setLastUserValue,
-  updateLastLogin as updateLastLoginValue,
-  upsertAccountSigner as upsertAccountSignerValue,
-  upsertChainAccount as upsertChainAccountValue,
-  upsertProfile as upsertProfileValue,
-} from './indexedDbFacade';
 import {
   bootstrapThresholdEcdsaSessionLiteValue,
   connectThresholdEd25519SessionLiteValue,
@@ -155,6 +127,11 @@ import {
   createOrchestrationDependencyBundle,
   type OrchestrationDependencyBundle,
 } from './bootstrap/orchestrationDependencyFactory';
+import {
+  createIndexedDbRegistrationSurface,
+  type IndexedDbRegistrationSurface,
+  type StoreAuthenticatorInput,
+} from './modules/indexedDbRegistrationSurface';
 export type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/activation';
 
 /**
@@ -184,6 +161,7 @@ export class WebAuthnManager {
   private readonly thresholdEcdsaSignInFlightByAccount: Set<string> = new Set();
   private readonly facadeSettingsDeps: FacadeSettingsDeps;
   private readonly orchestrationDeps: OrchestrationDependencyBundle;
+  private readonly indexedDbRegistrationSurface: IndexedDbRegistrationSurface;
 
   readonly tatchiPasskeyConfigs: TatchiConfigs;
 
@@ -229,6 +207,10 @@ export class WebAuthnManager {
         this.initializeCurrentUser(nearAccountId, nearClientArg),
       persistThresholdEcdsaBootstrapChainAccount: (args) =>
         this.persistThresholdEcdsaBootstrapChainAccount(args),
+    });
+    this.indexedDbRegistrationSurface = createIndexedDbRegistrationSurface({
+      indexedDbFacadeDeps: this.orchestrationDeps.indexedDbFacadeDeps,
+      registrationAccountLifecycleDeps: this.orchestrationDeps.registrationAccountLifecycleDeps,
     });
 
     initializeRuntimeBootstrap({
@@ -390,29 +372,29 @@ export class WebAuthnManager {
   ///////////////////////////////////////
 
   async storeUserData(userData: StoreUserDataInput): Promise<void> {
-    await storeUserDataValue(this.orchestrationDeps.registrationAccountLifecycleDeps, userData);
+    await this.indexedDbRegistrationSurface.storeUserData(userData);
   }
 
   // === V2 MULTICHAIN INDEXEDDB OPERATIONS ===
 
   async getProfile(profileId: string): Promise<ProfileRecord | null> {
-    return await getProfileValue(this.orchestrationDeps.indexedDbFacadeDeps, profileId);
+    return await this.indexedDbRegistrationSurface.getProfile(profileId);
   }
 
   async upsertProfile(input: UpsertProfileInput): Promise<ProfileRecord> {
-    return await upsertProfileValue(this.orchestrationDeps.indexedDbFacadeDeps, input);
+    return await this.indexedDbRegistrationSurface.upsertProfile(input);
   }
 
   async upsertChainAccount(input: UpsertChainAccountInput): Promise<ChainAccountRecord> {
-    return await upsertChainAccountValue(this.orchestrationDeps.indexedDbFacadeDeps, input);
+    return await this.indexedDbRegistrationSurface.upsertChainAccount(input);
   }
 
   async getProfileByAccount(chainId: string, accountAddress: string): Promise<ProfileRecord | null> {
-    return await getProfileByAccountValue(this.orchestrationDeps.indexedDbFacadeDeps, chainId, accountAddress);
+    return await this.indexedDbRegistrationSurface.getProfileByAccount(chainId, accountAddress);
   }
 
   async upsertAccountSigner(input: UpsertAccountSignerInput): Promise<AccountSignerRecord> {
-    return await upsertAccountSignerValue(this.orchestrationDeps.indexedDbFacadeDeps, input);
+    return await this.indexedDbRegistrationSurface.upsertAccountSigner(input);
   }
 
   async listAccountSigners(args: {
@@ -420,7 +402,7 @@ export class WebAuthnManager {
     accountAddress: string;
     status?: AccountSignerStatus;
   }): Promise<AccountSignerRecord[]> {
-    return await listAccountSignersValue(this.orchestrationDeps.indexedDbFacadeDeps, args);
+    return await this.indexedDbRegistrationSurface.listAccountSigners(args);
   }
 
   async setAccountSignerStatus(args: {
@@ -430,34 +412,34 @@ export class WebAuthnManager {
     status: AccountSignerStatus;
     removedAt?: number;
   }): Promise<AccountSignerRecord | null> {
-    return await setAccountSignerStatusValue(this.orchestrationDeps.indexedDbFacadeDeps, args);
+    return await this.indexedDbRegistrationSurface.setAccountSignerStatus(args);
   }
 
   async enqueueSignerOperation(input: EnqueueSignerOperationInput): Promise<SignerOpOutboxRecord> {
-    return await enqueueSignerOperationValue(this.orchestrationDeps.indexedDbFacadeDeps, input);
+    return await this.indexedDbRegistrationSurface.enqueueSignerOperation(input);
   }
 
   async getAllUsers(): Promise<ClientUserData[]> {
-    return await getAllUsersValue(this.orchestrationDeps.indexedDbFacadeDeps);
+    return await this.indexedDbRegistrationSurface.getAllUsers();
   }
 
   async getUserByDevice(
     nearAccountId: AccountId,
     deviceNumber: number,
   ): Promise<ClientUserData | null> {
-    return await getUserByDeviceValue(this.orchestrationDeps.indexedDbFacadeDeps, nearAccountId, deviceNumber);
+    return await this.indexedDbRegistrationSurface.getUserByDevice(nearAccountId, deviceNumber);
   }
 
   async getLastUser(): Promise<ClientUserData | null> {
-    return await getLastUserValue(this.orchestrationDeps.indexedDbFacadeDeps);
+    return await this.indexedDbRegistrationSurface.getLastUser();
   }
 
   async getAuthenticatorsByUser(nearAccountId: AccountId): Promise<ClientAuthenticatorData[]> {
-    return await getAuthenticatorsByUserValue(this.orchestrationDeps.indexedDbFacadeDeps, nearAccountId);
+    return await this.indexedDbRegistrationSurface.getAuthenticatorsByUser(nearAccountId);
   }
 
   async updateLastLogin(nearAccountId: AccountId): Promise<void> {
-    await updateLastLoginValue(this.orchestrationDeps.indexedDbFacadeDeps, nearAccountId);
+    await this.indexedDbRegistrationSurface.updateLastLogin(nearAccountId);
   }
 
   /**
@@ -466,7 +448,7 @@ export class WebAuthnManager {
    * @param deviceNumber - The device number (defaults to 1)
    */
   async setLastUser(nearAccountId: AccountId, deviceNumber: number = 1): Promise<void> {
-    await setLastUserValue(this.orchestrationDeps.indexedDbFacadeDeps, nearAccountId, deviceNumber);
+    await this.indexedDbRegistrationSurface.setLastUser(nearAccountId, deviceNumber);
   }
 
   /**
@@ -478,34 +460,31 @@ export class WebAuthnManager {
    * @param nearClient - The NEAR client for nonce prefetching
    */
   async initializeCurrentUser(nearAccountId: AccountId, nearClient?: NearClient): Promise<void> {
-    await initializeCurrentUserValue(this.orchestrationDeps.registrationAccountLifecycleDeps, {
-      nearAccountId,
-      nearClient,
-    });
+    await this.indexedDbRegistrationSurface.initializeCurrentUser(nearAccountId, nearClient);
   }
 
   async registerUser(storeUserData: StoreUserDataInput): Promise<ClientUserData> {
-    return await registerUserValue(this.orchestrationDeps.registrationAccountLifecycleDeps, storeUserData);
+    return await this.indexedDbRegistrationSurface.registerUser(storeUserData);
   }
 
   async storeAuthenticator(authenticatorData: StoreAuthenticatorInput): Promise<void> {
-    await storeAuthenticatorValue(this.orchestrationDeps.registrationAccountLifecycleDeps, authenticatorData);
+    await this.indexedDbRegistrationSurface.storeAuthenticator(authenticatorData);
   }
 
   extractUsername(nearAccountId: AccountId): string {
-    return extractUsernameValue(nearAccountId);
+    return this.indexedDbRegistrationSurface.extractUsername(nearAccountId);
   }
 
   async atomicOperation<T>(callback: (db: any) => Promise<T>): Promise<T> {
-    return await atomicOperationValue(this.orchestrationDeps.registrationAccountLifecycleDeps, callback);
+    return await this.indexedDbRegistrationSurface.atomicOperation(callback);
   }
 
   async rollbackUserRegistration(nearAccountId: AccountId): Promise<void> {
-    await rollbackUserRegistrationValue(this.orchestrationDeps.registrationAccountLifecycleDeps, nearAccountId);
+    await this.indexedDbRegistrationSurface.rollbackUserRegistration(nearAccountId);
   }
 
   async hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean> {
-    return await hasPasskeyCredentialValue(this.orchestrationDeps.registrationAccountLifecycleDeps, nearAccountId);
+    return await this.indexedDbRegistrationSurface.hasPasskeyCredential(nearAccountId);
   }
 
   /**
@@ -520,7 +499,7 @@ export class WebAuthnManager {
     credential: WebAuthnRegistrationCredential;
     publicKey: string;
   }): Promise<void> {
-    await atomicStoreRegistrationDataValue(this.orchestrationDeps.registrationAccountLifecycleDeps, {
+    await this.indexedDbRegistrationSurface.atomicStoreRegistrationData({
       nearAccountId,
       credential,
       publicKey,
