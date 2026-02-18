@@ -526,8 +526,8 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const ctx = pm.getContext();
       const web = ctx?.webAuthnManager;
       if (web) {
-        await web.getLastUser().catch(() => undefined);
-        await web.getAuthenticatorsByUser(toAccountId(nearAccountId)).catch(() => undefined);
+        await web.indexedDbRegistration.getLastUser().catch(() => undefined);
+        await web.indexedDbRegistration.getAuthenticatorsByUser(toAccountId(nearAccountId)).catch(() => undefined);
       }
       const result = await pm.hasPasskeyCredential(toAccountId(nearAccountId));
       respondOkResult(req.requestId, result);
