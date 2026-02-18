@@ -50,6 +50,26 @@ export function determineConfirmationConfig(
       // container selection handled by uiMode only
     } as ConfirmationConfig;
   }
+
+  // For intent-digest signing that will collect a WebAuthn assertion, force an
+  // explicit confirm click first so UX ordering is deterministic:
+  // 1) confirmation modal
+  // 2) WebAuthn/TouchID prompt
+  if (request?.type === SecureConfirmationType.SIGN_INTENT_DIGEST) {
+    const signingAuthMode = String(
+      ((request as unknown as { payload?: { signingAuthMode?: unknown } })?.payload?.signingAuthMode || 'webauthn'),
+    ).trim().toLowerCase();
+    if (signingAuthMode !== 'warmsession') {
+      cfg = {
+        ...cfg,
+        // Force a visible, explicit click gate for intent-digest WebAuthn
+        // regardless of persisted prefs/overrides.
+        uiMode: 'modal',
+        behavior: 'requireClick',
+      } as ConfirmationConfig;
+    }
+  }
+
   // Detect if running inside an iframe (wallet host context)
   const inIframe = (() => window.self !== window.top)();
 

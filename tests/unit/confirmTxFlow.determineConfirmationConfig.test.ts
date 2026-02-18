@@ -99,6 +99,47 @@ test.describe('determineConfirmationConfig', () => {
     expect(res.cfg.uiMode === 'modal' || res.cfg.uiMode === 'drawer').toBe(true);
   });
 
+  test('SIGN_INTENT_DIGEST (webauthn) forces modal+requireClick even when prefs/override request skip flow', async ({ page }) => {
+    const res = await page.evaluate(async ({ paths }) => {
+      const mod = await import(paths.determine);
+      const types = await import(paths.types);
+      const determine = mod.determineConfirmationConfig as Function;
+
+      const ctx: any = {
+        userPreferencesManager: {
+          getConfirmationConfig: () => ({
+            uiMode: 'none',
+            behavior: 'skipClick',
+            autoProceedDelay: 0,
+          })
+        }
+      };
+
+      const request = {
+        type: types.SecureConfirmationType.SIGN_INTENT_DIGEST,
+        confirmationConfig: {
+          uiMode: 'none',
+          behavior: 'skipClick',
+          autoProceedDelay: 0,
+        },
+        payload: {
+          nearAccountId: 'alice.testnet',
+          challengeB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+          signingAuthMode: 'webauthn',
+        },
+      } as any;
+
+      const cfg = determine(ctx, request);
+      return { cfg };
+    }, { paths: IMPORT_PATHS });
+
+    expect(res.cfg).toEqual({
+      uiMode: 'modal',
+      behavior: 'requireClick',
+      autoProceedDelay: 0,
+    });
+  });
+
   test('in iframe + registration/link clamps to modal+requireClick when no override provided', async ({ page }) => {
     // Create a same-origin iframe and run the function inside that context
     const result = await (async () => {

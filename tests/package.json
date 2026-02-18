@@ -8,6 +8,7 @@
     "test:inline": "pnpm -C ../sdk run build:check:fresh || pnpm -C ../sdk run build && USE_RELAY_SERVER=1 playwright test --reporter=line",
     "test:e2e": "playwright test ./e2e --reporter=line",
     "test:unit": "pnpm -C ../sdk run build:check:fresh || pnpm -C ../sdk run build && playwright test ./unit --reporter=line",
+    "test:phase1": "pnpm -C ../sdk run build:check:fresh || pnpm -C ../sdk run build && USE_RELAY_SERVER=0 playwright test ./unit/thresholdEcdsa.signInFlightGate.unit.test.ts ./unit/walletIframeHost.signTempoCancel.unit.test.ts ./unit/tempo.signingAuthMode.unit.test.ts ./wallet-iframe/passkeyAuthMenu.qrButton.overlay.test.ts ./wallet-iframe/router.computeOverlayIntent.test.ts ./wallet-iframe/router.behavior.sticky.test.ts ./wallet-iframe/router.behavior.concurrent.test.ts ./e2e/signTransactions.concurrentSessions.walletIframe.test.ts --reporter=line",
     "test:threshold-core": "playwright test -c playwright.relayer.config.ts ./relayer/threshold-ecdsa.signature-harness.test.ts ./relayer/threshold-ecdsa.durable-stores.test.ts --reporter=line && playwright test ./unit/thresholdEcdsa.tempoHighLevel.unit.test.ts --reporter=line",
     "test:wallet-iframe": "USE_RELAY_SERVER=0 playwright test ./wallet-iframe --reporter=line",
     "test:lit-components": "USE_RELAY_SERVER=0 playwright test ./lit-components --reporter=line",
@@ -15,6 +16,9 @@
     "show-report": "playwright show-report"
   },
   "devDependencies": {
+    "@noble/curves": "^2.0.1",
+    "@noble/ed25519": "^2.1.0",
+    "@noble/hashes": "^2.0.1",
     "@playwright/test": "^1.40.0",
     "viem": "^2.38.6"
   }

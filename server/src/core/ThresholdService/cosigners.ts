@@ -1,48 +1,31 @@
-import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { base64UrlDecode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import { sha512 } from '@noble/hashes/sha2.js';
+import {
+  threshold_ed25519_add_scalars_b64u,
+  threshold_ed25519_derive_relayer_cosigner_shares,
+  threshold_ed25519_lagrange_coefficient_at_zero,
+  threshold_ed25519_multiply_scalar_b64u_by_scalar_le32,
+} from '../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 
-const ED25519_ORDER_L = (1n << 252n) + 27742317777372353535851937790883648493n;
-
-function modL(x: bigint): bigint {
-  const r = x % ED25519_ORDER_L;
-  return r >= 0n ? r : r + ED25519_ORDER_L;
+function errorMessage(e: unknown): string {
+  return String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'unknown error');
 }
 
-function bytesToBigintLE(bytes: Uint8Array): bigint {
-  let out = 0n;
-  for (let i = 0; i < bytes.length; i += 1) {
-    out |= BigInt(bytes[i]!) << (8n * BigInt(i));
+function mapWasmError(message: string): { code: string; message: string } {
+  const lower = message.toLowerCase();
+  if (lower.includes('zero')) {
+    return { code: 'internal', message };
   }
-  return out;
-}
-
-function bigintToBytesLE32(x: bigint): Uint8Array {
-  const out = new Uint8Array(32);
-  let v = modL(x);
-  for (let i = 0; i < 32; i += 1) {
-    out[i] = Number(v & 0xffn);
-    v >>= 8n;
+  if (
+    lower.includes('invalid')
+    || lower.includes('must ')
+    || lower.includes('required')
+    || lower.includes('include')
+    || lower.includes('empty')
+  ) {
+    return { code: 'invalid_body', message };
   }
-  return out;
-}
-
-function invModL(x: bigint): bigint {
-  let a = modL(x);
-  if (a === 0n) throw new Error('ed25519 scalar inverse: division by zero');
-
-  // Extended Euclidean algorithm to find inverse mod L.
-  let t = 0n;
-  let newT = 1n;
-  let r = ED25519_ORDER_L;
-  let newR = a;
-  while (newR !== 0n) {
-    const q = r / newR;
-    [t, newT] = [newT, t - q * newT];
-    [r, newR] = [newR, r - q * newR];
-  }
-  if (r !== 1n) throw new Error('ed25519 scalar inverse: non-invertible');
-  return modL(t);
+  return { code: 'internal', message };
 }
 
 function u16ToScalarBytesLE(id: number): Uint8Array {
@@ -54,53 +37,6 @@ function u16ToScalarBytesLE(id: number): Uint8Array {
   bytes[0] = n & 0xff;
   bytes[1] = (n >>> 8) & 0xff;
   return bytes;
-}
-
-function hashToScalarWideLE(inputs: Uint8Array[]): bigint {
-  const totalLen = inputs.reduce((acc, b) => acc + b.length, 0);
-  const preimage = new Uint8Array(totalLen);
-  let offset = 0;
-  for (const chunk of inputs) {
-    preimage.set(chunk, offset);
-    offset += chunk.length;
-  }
-  const digest = sha512(preimage);
-  return modL(bytesToBigintLE(digest));
-}
-
-function deriveCosignerPolyCoefficients(input: {
-  relayerSigningShareBytes: Uint8Array;
-  cosignerThreshold: number;
-}): bigint[] {
-  const t = Math.floor(Number(input.cosignerThreshold) || 0);
-  if (!Number.isFinite(t) || t < 1) {
-    throw new Error('cosignerThreshold must be an integer >= 1');
-  }
-
-  const relayerSigningShareBytes = input.relayerSigningShareBytes;
-  if (relayerSigningShareBytes.length !== 32) {
-    throw new Error(`relayerSigningShare must be 32 bytes, got ${relayerSigningShareBytes.length}`);
-  }
-
-  const a0 = modL(bytesToBigintLE(relayerSigningShareBytes));
-  if (a0 === 0n) {
-    throw new Error('relayer signing share must be non-zero');
-  }
-
-  const coeffs: bigint[] = [a0];
-  if (t === 1) return coeffs;
-
-  const prefix = new TextEncoder().encode('w3a/threshold-ed25519/cosigner-poly_v1');
-  const tBytes = new Uint8Array(4);
-  new DataView(tBytes.buffer).setUint32(0, t, true);
-
-  for (let i = 1; i < t; i += 1) {
-    const idx = new Uint8Array(4);
-    new DataView(idx.buffer).setUint32(0, i, true);
-    const ai = hashToScalarWideLE([prefix, tBytes, relayerSigningShareBytes, idx]);
-    coeffs.push(ai);
-  }
-  return coeffs;
 }
 
 export function normalizeCosignerIds(input: unknown): number[] | null {
@@ -161,24 +97,30 @@ export function deriveRelayerCosignerSharesFromRelayerSigningShare(input: {
     return { ok: false, code: 'invalid_body', message: `cosignerThreshold must be <= cosignerIds.length (got t=${t}, n=${cosignerIds.length})` };
   }
 
-  const coeffs = deriveCosignerPolyCoefficients({ relayerSigningShareBytes, cosignerThreshold: t });
-
-  const sharesByCosignerId: Record<string, string> = {};
-  for (const id of cosignerIds) {
-    const x = BigInt(id);
-    let xPow = x;
-    let y = coeffs[0]!;
-    for (let j = 1; j < coeffs.length; j += 1) {
-      y = modL(y + coeffs[j]! * xPow);
-      xPow = modL(xPow * x);
+  try {
+    const out = threshold_ed25519_derive_relayer_cosigner_shares({
+      relayerSigningShareB64u,
+      cosignerIds,
+      cosignerThreshold: t,
+    }) as { sharesByCosignerId?: unknown };
+    const sharesRaw = out?.sharesByCosignerId;
+    if (!sharesRaw || typeof sharesRaw !== 'object') {
+      return { ok: false, code: 'internal', message: 'Missing sharesByCosignerId in WASM output' };
     }
-    if (y === 0n) {
-      return { ok: false, code: 'internal', message: `Derived cosigner share is zero for cosignerId=${id}` };
+    if (sharesRaw instanceof Map) {
+      const sharesByCosignerId: Record<string, string> = {};
+      for (const [key, value] of sharesRaw.entries()) {
+        if (typeof key === 'string' && typeof value === 'string') {
+          sharesByCosignerId[key] = value;
+        }
+      }
+      return { ok: true, sharesByCosignerId };
     }
-    sharesByCosignerId[String(id)] = base64UrlEncode(bigintToBytesLE32(y));
+    return { ok: true, sharesByCosignerId: sharesRaw as Record<string, string> };
+  } catch (e: unknown) {
+    const mapped = mapWasmError(errorMessage(e));
+    return { ok: false, code: mapped.code, message: mapped.message };
   }
-
-  return { ok: true, sharesByCosignerId };
 }
 
 export function lagrangeCoefficientAtZeroForCosigner(input: {
@@ -198,21 +140,19 @@ export function lagrangeCoefficientAtZeroForCosigner(input: {
     return { ok: false, code: 'invalid_body', message: 'cosignerIds must include cosignerId' };
   }
 
-  const xI = BigInt(cosignerId);
-  let num = 1n;
-  let den = 1n;
-  for (const id of cosignerIds) {
-    if (id === cosignerId) continue;
-    const xJ = BigInt(id);
-    num = modL(num * xJ);
-    den = modL(den * (xJ - xI));
+  try {
+    const lambda = threshold_ed25519_lagrange_coefficient_at_zero({
+      cosignerId,
+      cosignerIds,
+    }) as Uint8Array;
+    if (!(lambda instanceof Uint8Array) || lambda.length !== 32) {
+      return { ok: false, code: 'internal', message: 'WASM lagrange coefficient must be 32 bytes' };
+    }
+    return { ok: true, lambda };
+  } catch (e: unknown) {
+    const mapped = mapWasmError(errorMessage(e));
+    return { ok: false, code: mapped.code, message: mapped.message };
   }
-  if (den === 0n) {
-    return { ok: false, code: 'invalid_body', message: 'duplicated cosignerId in cosignerIds' };
-  }
-
-  const lambda = modL(num * invModL(den));
-  return { ok: true, lambda: bigintToBytesLE32(lambda) };
 }
 
 export function encodeFrostIdentifierBytesFromU16(id: number): Uint8Array {
@@ -243,13 +183,20 @@ export function multiplyEd25519ScalarB64uByScalarBytesLE32(input: {
     return { ok: false, code: 'invalid_body', message: 'factorBytesLE32 must be a 32-byte Uint8Array' };
   }
 
-  const scalar = modL(bytesToBigintLE(scalarBytes));
-  const factor = modL(bytesToBigintLE(factorBytes));
-  const out = modL(scalar * factor);
-  if (out === 0n) {
-    return { ok: false, code: 'internal', message: 'Derived scalar is zero' };
+  try {
+    const out = threshold_ed25519_multiply_scalar_b64u_by_scalar_le32({
+      scalarB64u,
+      factorBytesLE32: factorBytes,
+    });
+    const scalarOut = toOptionalTrimmedString(out);
+    if (!scalarOut) {
+      return { ok: false, code: 'internal', message: 'Missing scalar output from WASM' };
+    }
+    return { ok: true, scalarB64u: scalarOut };
+  } catch (e: unknown) {
+    const mapped = mapWasmError(errorMessage(e));
+    return { ok: false, code: mapped.code, message: mapped.message };
   }
-  return { ok: true, scalarB64u: base64UrlEncode(bigintToBytesLE32(out)) };
 }
 
 export function addEd25519ScalarsB64u(input: {
@@ -259,7 +206,6 @@ export function addEd25519ScalarsB64u(input: {
     return { ok: false, code: 'invalid_body', message: 'scalarsB64u must be a non-empty array' };
   }
 
-  let acc = 0n;
   for (const item of input.scalarsB64u) {
     const raw = toOptionalTrimmedString(item);
     if (!raw) return { ok: false, code: 'invalid_body', message: 'scalarsB64u contains an empty item' };
@@ -272,11 +218,18 @@ export function addEd25519ScalarsB64u(input: {
     if (bytes.length !== 32) {
       return { ok: false, code: 'invalid_body', message: `scalar must be 32 bytes, got ${bytes.length}` };
     }
-    acc = modL(acc + bytesToBigintLE(bytes));
   }
-
-  if (acc === 0n) {
-    return { ok: false, code: 'internal', message: 'Sum of scalars is zero' };
+  try {
+    const out = threshold_ed25519_add_scalars_b64u({
+      scalarsB64u: input.scalarsB64u,
+    });
+    const scalarOut = toOptionalTrimmedString(out);
+    if (!scalarOut) {
+      return { ok: false, code: 'internal', message: 'Missing scalar output from WASM' };
+    }
+    return { ok: true, scalarB64u: scalarOut };
+  } catch (e: unknown) {
+    const mapped = mapWasmError(errorMessage(e));
+    return { ok: false, code: mapped.code, message: mapped.message };
   }
-  return { ok: true, scalarB64u: base64UrlEncode(bigintToBytesLE32(acc)) };
 }

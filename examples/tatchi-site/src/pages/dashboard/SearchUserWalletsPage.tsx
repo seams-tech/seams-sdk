@@ -1,4 +1,9 @@
 import React from 'react'
+import {
+  SEARCH_USER_WALLETS_FILTER_CONTROLS,
+  SEARCH_USER_WALLETS_MODEL,
+  SEARCH_USER_WALLETS_PLACEHOLDER,
+} from '../../components/dashboard/dashboardContent'
 
 export function SearchUserWalletsPage(): React.JSX.Element {
   return (
@@ -6,37 +11,30 @@ export function SearchUserWalletsPage(): React.JSX.Element {
       <section className="dashboard-filters" aria-label="Wallet search controls">
         <label className="dashboard-search-control">
           <span className="dashboard-search-icon" aria-hidden="true" />
-          <input type="search" placeholder="Search by wallet address, wallet ID, user ID, or external reference ID" aria-label="Search wallets" />
+          <input type="search" placeholder={SEARCH_USER_WALLETS_PLACEHOLDER} aria-label="Search wallets" />
         </label>
 
-        <button type="button" className="dashboard-select-control">
-          <span className="dashboard-select-control__value">All chains</span>
-          <span className="dashboard-chevron" aria-hidden="true" />
-        </button>
-
-        <button type="button" className="dashboard-select-control">
-          <span className="dashboard-select-control__value">Any policy</span>
-          <span className="dashboard-chevron" aria-hidden="true" />
-        </button>
-
-        <button type="button" className="dashboard-select-control">
-          <span className="dashboard-select-control__value">EOA + Smart</span>
-          <span className="dashboard-chevron" aria-hidden="true" />
-        </button>
-
-        <button type="button" className="dashboard-columns-control">
-          <span className="dashboard-columns-icon" aria-hidden="true" />
-          <span>Sort</span>
-        </button>
+        {SEARCH_USER_WALLETS_FILTER_CONTROLS.map((control) => (
+          control.kind === 'select' ? (
+            <button type="button" className="dashboard-select-control" key={control.value}>
+              <span className="dashboard-select-control__value">{control.value}</span>
+              <span className="dashboard-chevron" aria-hidden="true" />
+            </button>
+          ) : (
+            <button type="button" className="dashboard-columns-control" key={control.value}>
+              <span className="dashboard-columns-icon" aria-hidden="true" />
+              <span>{control.value}</span>
+            </button>
+          )
+        ))}
       </section>
 
       <section className="dashboard-view__section">
-        <h2>Search and filter model</h2>
+        <h2>{SEARCH_USER_WALLETS_MODEL.title}</h2>
         <ul className="dashboard-view-list">
-          <li>Filter by chain, policy, key quorum, wallet type, status, and date range.</li>
-          <li>Sort by balance, last activity, and creation time.</li>
-          <li>Persist filter state in URL query params for shareable views.</li>
-          <li>Return empty/loading/error states with retry actions.</li>
+          {SEARCH_USER_WALLETS_MODEL.items.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
         </ul>
       </section>
     </div>

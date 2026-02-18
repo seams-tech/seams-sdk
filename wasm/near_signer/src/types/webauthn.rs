@@ -163,7 +163,7 @@ pub struct WebAuthnAuthenticationResponse {
 // CONTRACT INTERFACE: WebAuthn Registration Credential
 // ============================================================================
 // Reference: client/src/core/TatchiPasskey/faucets/createAccountRelayServer.ts
-// Used in: create_account_and_register_user, link_device_register_user
+// Used in: /registration/bootstrap, link_device_register_user
 //
 // CRITICAL: All fields in these structs are sent to the NEAR smart contract.
 // The contract expects AuthenticatorAttestationResponse format with base64url strings.

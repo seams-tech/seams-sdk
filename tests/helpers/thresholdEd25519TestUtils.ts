@@ -5,6 +5,17 @@ import { createThresholdEcdsaAuthSessionStore } from '@server/core/ThresholdServ
 import { createThresholdEcdsaKeyStore } from '@server/core/ThresholdService/stores/KeyStore';
 import { createThresholdEcdsaSigningStores } from '@server/core/ThresholdService/stores/EcdsaSigningStore';
 import type { ThresholdEd25519KeyStoreConfigInput } from '@server/core/types';
+import { readFileSync } from 'node:fs';
+import { initSync as initWasmSignerSync } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
+
+let signerWasmInitializedForTests = false;
+
+function ensureSignerWasmForUnitTests(): void {
+  if (signerWasmInitializedForTests) return;
+  const wasmBytes = readFileSync(new URL('../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm', import.meta.url));
+  initWasmSignerSync({ module: wasmBytes });
+  signerWasmInitializedForTests = true;
+}
 
 export function silentLogger() {
   return { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
@@ -66,7 +77,9 @@ export function createThresholdSigningServiceForUnitTests(input: {
     ecdsaPresignaturePool,
     config: input.config,
     ensureReady: async () => {},
-    ensureSignerWasm: async () => {},
+    ensureSignerWasm: async () => {
+      ensureSignerWasmForUnitTests();
+    },
     verifyWebAuthnAuthenticationLite: async () => ({ success: true, verified: true }),
     viewAccessKeyList: async () => ({
       keys: (accessKeysOnChain || []).map((publicKey) => ({

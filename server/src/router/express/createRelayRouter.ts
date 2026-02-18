@@ -21,6 +21,7 @@ import { registerWebAuthnAuthenticatorRoutes } from './routes/webauthnAuthentica
 import { registerAuthRoutes } from './routes/auth';
 import { registerNearPublicKeysRoutes } from './routes/nearPublicKeys';
 import { registerWellKnownRoutes } from './routes/wellKnown';
+import { registerSmartAccountDeployRoute } from './routes/smartAccountDeploy';
 import { resolveThresholdOption } from '../routerOptions';
 
 export interface ExpressRelayContext {
@@ -63,6 +64,7 @@ export function createRelayRouter(service: AuthService, opts: RelayRouterOptions
   registerCreateAccountAndRegisterUser(router, ctx);
   registerSignedDelegateRoutes(router, ctx);
   registerAuthRoutes(router, ctx);
+  registerSmartAccountDeployRoute(router, ctx);
   registerSyncAccountRoutes(router, ctx);
   registerLinkDeviceRoutes(router, ctx);
   registerEmailRecoveryRoutes(router, ctx);

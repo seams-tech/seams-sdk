@@ -1,8 +1,10 @@
-import { x25519 } from '@noble/curves/ed25519.js';
-import { hkdf } from '@noble/hashes/hkdf.js';
-import { sha256 } from '@noble/hashes/sha2.js';
-import { chacha20poly1305 } from '@noble/ciphers/chacha.js';
 import type { EncryptedEmailEnvelope, EmailEncryptionContext } from './emailEncryptor';
+import {
+  chacha20poly1305Decrypt,
+  hkdfSha25632,
+  x25519PublicKeyFromSecret,
+  x25519SharedSecret,
+} from './nearSignerWasm';
 
 export interface DecryptEmailForOutlayerTestOnlyInput {
   envelope: EncryptedEmailEnvelope;
@@ -61,26 +63,35 @@ export async function decryptEmailForOutlayerTestOnly(
   }
 
   // Derive shared secret and symmetric key exactly as in encryptEmailForOutlayer
-  const sharedSecret = x25519.getSharedSecret(recipientSk, ephemeralPub);
-  const info = encoder.encode('email-dkim-encryption-key');
-  const symmetricKey = hkdf(sha256, sharedSecret, undefined, info, 32);
+  const sharedSecret = await x25519SharedSecret({
+    secretKey32: recipientSk,
+    peerPublicKey32: ephemeralPub,
+  });
+  const symmetricKey = await hkdfSha25632({
+    ikm: sharedSecret,
+    info: encoder.encode('email-dkim-encryption-key'),
+  });
 
   const aad = encoder.encode(serializeContextForAad(context));
-  const cipher = chacha20poly1305(symmetricKey, nonce, aad);
-  const plaintext = cipher.decrypt(ciphertext);
+  const plaintext = await chacha20poly1305Decrypt({
+    key32: symmetricKey,
+    nonce12: nonce,
+    aad,
+    ciphertext,
+  });
 
   return decoder.decode(plaintext);
 }
 
 /**
  * Test-only helper to derive a deterministic X25519 keypair from a seed string.
- * This is used only in unit tests so they don't need to import @noble/curves directly.
+ * This is used only in unit tests.
  */
-export function deriveTestX25519KeypairFromSeed(seed: string): { secretKey: Uint8Array; publicKey: Uint8Array } {
+export async function deriveTestX25519KeypairFromSeed(seed: string): Promise<{ secretKey: Uint8Array; publicKey: Uint8Array }> {
   const encoder = new TextEncoder();
   const bytes = encoder.encode(seed || '');
   const sk = new Uint8Array(32);
   sk.set(bytes.slice(0, 32));
-  const pk = x25519.getPublicKey(sk);
+  const pk = await x25519PublicKeyFromSecret(sk);
   return { secretKey: sk, publicKey: pk };
 }

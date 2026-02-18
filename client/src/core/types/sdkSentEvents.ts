@@ -1,5 +1,6 @@
 import type { TxExecutionStatus } from '@near-js/types';
 import type { ConfirmationConfig, SignerMode, ThresholdBehavior } from './signer-worker';
+import type { RegistrationSignerOptions } from './registrationSignerOptions';
 import type {
   ActionResult,
   DelegateRelayResult,
@@ -633,6 +634,9 @@ export interface RegistrationHooksOptions {
    * Defaults to `true`.
    */
   backupLocalKey?: boolean;
+  // Signer provisioning options used during registration.
+  // When omitted, defaults are taken from `TatchiConfigs.registrationSignerDefaults`.
+  signerOptions?: RegistrationSignerOptions;
   /**
    * Preferred grouping for per-call confirmer copy.
    */

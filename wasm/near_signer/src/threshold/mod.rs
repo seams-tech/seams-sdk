@@ -1,5 +1,6 @@
 #[cfg(target_arch = "wasm32")]
 pub mod coordinator;
+pub mod email_recovery_crypto;
 pub mod participant_ids;
 #[cfg(target_arch = "wasm32")]
 pub mod protocol;

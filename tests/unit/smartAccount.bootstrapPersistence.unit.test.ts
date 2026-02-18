@@ -67,6 +67,11 @@ test.describe('smart-account bootstrap persistence', () => {
         'eip155:11155111',
       );
       const persisted = rows.find((row: any) => row.accountAddress === accountAddress) || null;
+      const mirrorRows = await IndexedDBManager.clientDB.listChainAccountsByProfileAndChain(
+        'profile-smartacct-bootstrap',
+        'tempo:unknown',
+      );
+      const mirror = mirrorRows.find((row: any) => row.accountAddress === accountAddress) || null;
 
       return {
         found: !!persisted,
@@ -79,6 +84,10 @@ test.describe('smart-account bootstrap persistence', () => {
           typeof persisted?.lastDeploymentCheckAt === 'number'
             ? persisted.lastDeploymentCheckAt
             : null,
+        mirrorFound: !!mirror,
+        mirrorChainId: mirror?.chainId || null,
+        mirrorAccountModel: mirror?.accountModel || null,
+        mirrorCounterfactualAddress: mirror?.counterfactualAddress || null,
       };
     }, { paths: IMPORT_PATHS });
 
@@ -89,5 +98,9 @@ test.describe('smart-account bootstrap persistence', () => {
     expect(result.deployed).toBe(false);
     expect(result.deploymentTxHash).toBeNull();
     expect(result.lastDeploymentCheckAt).toBeNull();
+    expect(result.mirrorFound).toBe(true);
+    expect(result.mirrorChainId).toBe('tempo:unknown');
+    expect(result.mirrorAccountModel).toBe('tempo-native');
+    expect(result.mirrorCounterfactualAddress).toBe(`0x${'ab'.repeat(20)}`);
   });
 });

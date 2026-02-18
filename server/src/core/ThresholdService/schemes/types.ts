@@ -5,6 +5,8 @@ import type {
   ThresholdEd25519CosignFinalizeResponse,
   ThresholdEd25519CosignInitRequest,
   ThresholdEd25519CosignInitResponse,
+  ThresholdEcdsaBootstrapRequest,
+  ThresholdEcdsaBootstrapResponse,
   ThresholdEcdsaKeygenRequest,
   ThresholdEcdsaKeygenResponse,
   ThresholdEcdsaAuthorizeResponse,
@@ -147,6 +149,7 @@ export type ThresholdSecp256k1Ecdsa2pSchemeModule = ThresholdSchemeModule<
   ThresholdEcdsaCosignFinalizeRequest,
   ThresholdEcdsaCosignFinalizeResponse
 > & {
+  bootstrap?: (request: ThresholdEcdsaBootstrapRequest) => Promise<ThresholdEcdsaBootstrapResponse>;
   presign: {
     init(input: { claims: ThresholdEcdsaSessionClaims; request: ThresholdEcdsaPresignInitRequest }): Promise<ThresholdEcdsaPresignInitResponse>;
     step(input: { claims: ThresholdEcdsaSessionClaims; request: ThresholdEcdsaPresignStepRequest }): Promise<ThresholdEcdsaPresignStepResponse>;

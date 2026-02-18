@@ -15,24 +15,16 @@ After [installation](./installation.md), the fastest path is:
 In this setup:
 
 - NEAR threshold signer is created during registration (`signerMode: threshold-signer`).
-- Tempo + EVM threshold signers are created immediately after registration via `bootstrapThresholdEcdsaSession()`.
+- Tempo + EVM threshold signers are provisioned during registration by default (`signerOptions`).
 
 ```tsx
 import { useState } from 'react'
 import { useTatchi } from '@tatchi-xyz/sdk/react'
 
-type KeyRef = {
-  tempo: unknown | null
-  evm: unknown | null
-}
-
-const THRESHOLD_TTL_MS = 30 * 60 * 1000
-const THRESHOLD_REMAINING_USES = 12
-
 export function RegisterAndProvision() {
   const { registerPasskey, tatchi } = useTatchi()
   const [accountId, setAccountId] = useState<string | null>(null)
-  const [keyRefs, setKeyRefs] = useState<KeyRef>({ tempo: null, evm: null })
+  const [keyRefReady, setKeyRefReady] = useState(false)
 
   async function onRegister(): Promise<void> {
     const id = Date.now()
@@ -44,41 +36,41 @@ export function RegisterAndProvision() {
     if (!result.success || !result.nearAccountId) return
 
     setAccountId(result.nearAccountId)
-
-    const [tempo, evm] = await Promise.all([
-      tatchi.bootstrapThresholdEcdsaSession({
-        nearAccountId: result.nearAccountId,
-        options: {
-          chain: 'tempo',
-          ttlMs: THRESHOLD_TTL_MS,
-          remainingUses: THRESHOLD_REMAINING_USES,
-        },
-      }),
-      tatchi.bootstrapThresholdEcdsaSession({
-        nearAccountId: result.nearAccountId,
-        options: {
-          chain: 'evm',
-          ttlMs: THRESHOLD_TTL_MS,
-          remainingUses: THRESHOLD_REMAINING_USES,
-        },
-      }),
-    ])
-
-    setKeyRefs({
-      tempo: tempo.thresholdEcdsaKeyRef,
-      evm: evm.thresholdEcdsaKeyRef,
-    })
+    setKeyRefReady(!!result.thresholdEcdsaKeyRef)
   }
 
   return (
     <div>
       <button onClick={onRegister}>Register Account</button>
       {accountId ? <p>account: {accountId}</p> : null}
-      <p>tempo signer: {keyRefs.tempo ? 'ready' : 'pending'}</p>
-      <p>evm signer: {keyRefs.evm ? 'ready' : 'pending'}</p>
+      <p>tempo+evm signer session: {keyRefReady ? 'ready' : 'pending'}</p>
     </div>
   )
 }
+```
+
+Optional override:
+
+```tsx
+await registerPasskey(nextAccountId, {
+  signerOptions: {
+    tempo: {
+      enabled: true,
+      participantIds: [1, 2],
+      sessionKind: 'jwt',
+      ttlMs: 30 * 60 * 1000,
+      remainingUses: 12,
+    },
+    evm: {
+      enabled: true,
+      participantIds: [1, 2],
+      sessionKind: 'jwt',
+      ttlMs: 30 * 60 * 1000,
+      remainingUses: 12,
+    },
+  },
+})
+// disable per signer by setting `enabled: false` on tempo/evm
 ```
 
 ## 2. Login and Create a Warm Signing Session
@@ -213,7 +205,7 @@ export function SignEvm(props: { nearAccountId: string; thresholdEcdsaKeyRef: an
 ## Recap
 
 - Registration creates your NEAR threshold signer.
-- Registration flow can immediately bootstrap Tempo + EVM threshold signers.
+- Registration auto-provisions Tempo + EVM threshold signers by default.
 - With those key refs, you can sign:
   - NEAR transactions (`signTransactionsWithActions`)
   - Tempo transactions (`signTempoWithThresholdEcdsa`, `kind: 'tempoTransaction'`)

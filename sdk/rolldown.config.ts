@@ -193,9 +193,9 @@ const emitW3AThemeAliases = (vars: any, indent = '  '): string[] => [
   `${indent}--w3a-colors-borderPrimary: ${vars.borderPrimary};`,
   `${indent}--w3a-colors-borderSecondary: ${vars.borderSecondary};`,
   `${indent}--w3a-colors-borderHover: ${vars.borderHover};`,
-  `${indent}--w3a-colors-backgroundGradientPrimary: ${vars.backgroundGradientPrimary};`,
-  `${indent}--w3a-colors-backgroundGradientSecondary: ${vars.backgroundGradientSecondary};`,
-  `${indent}--w3a-colors-backgroundGradient4: ${vars.backgroundGradient4};`,
+  `${indent}--w3a-colors-gradientPrimary: ${vars.gradientPrimary};`,
+  `${indent}--w3a-colors-gradientSecondary: ${vars.gradientSecondary};`,
+  `${indent}--w3a-colors-gradientTertiary: ${vars.gradientTertiary};`,
   `${indent}--w3a-colors-highlightReceiverId: ${vars.highlightReceiverId};`,
   `${indent}--w3a-colors-highlightMethodName: ${vars.highlightMethodName};`,
   `${indent}--w3a-colors-highlightAmount: ${vars.highlightAmount};`,
@@ -213,7 +213,6 @@ const buildW3AComponentsCss = async (sdkRoot: string): Promise<string> => {
     DARK_THEME: darkVars,
     LIGHT_THEME: lightVars,
   } = createThemeTokens(palette);
-  const creamVars = lightVars;
 
   const hostSelector = W3A_COMPONENT_HOSTS.join(',\n');
   const lines: string[] = [];
@@ -234,9 +233,8 @@ const buildW3AComponentsCss = async (sdkRoot: string): Promise<string> => {
 
   pushScale('grey', palette.grey || {});
   pushScale('slate', palette.slate || {});
-  pushScale('cream', palette.cream || {});
 
-  const exclude = new Set(['grey', 'slate', 'cream', 'gradients', 'tokens', 'themes']);
+  const exclude = new Set(['grey', 'slate', 'gradients', 'tokens', 'themes']);
   Object.keys(palette)
     .filter((k) => !exclude.has(k))
     .forEach((fam) => {
@@ -260,25 +258,14 @@ const buildW3AComponentsCss = async (sdkRoot: string): Promise<string> => {
   lines.push(':root[data-w3a-theme="light"] {');
   lines.push(...emitW3AThemeAliases(lightVars, '  '));
   lines.push('}');
-  lines.push('');
-  lines.push(':root[data-w3a-theme="cream"] {');
-  lines.push(...emitW3AThemeAliases(creamVars, '  '));
-  lines.push('}');
 
   const themedSelLight = W3A_COMPONENT_HOSTS.map((s) => `:root[data-w3a-theme="light"] ${s}`).join(
-    ',\n',
-  );
-  const themedSelCream = W3A_COMPONENT_HOSTS.map((s) => `:root[data-w3a-theme="cream"] ${s}`).join(
     ',\n',
   );
 
   lines.push('');
   lines.push(`${themedSelLight} {`);
   lines.push(...emitW3AThemeAliases(lightVars, '  '));
-  lines.push('}');
-  lines.push('');
-  lines.push(`${themedSelCream} {`);
-  lines.push(...emitW3AThemeAliases(creamVars, '  '));
   lines.push('}');
 
   return `${lines.join('\n')}\n`;

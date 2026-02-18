@@ -10,6 +10,16 @@ import { isObject, isString } from '../../../../../../shared/src/utils/validatio
 export enum SecureConfirmMessageType {
   PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD = 'PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD',
   USER_PASSKEY_CONFIRM_RESPONSE = 'USER_PASSKEY_CONFIRM_RESPONSE',
+  USER_PASSKEY_CONFIRM_PROGRESS = 'USER_PASSKEY_CONFIRM_PROGRESS',
+}
+
+export interface SecureConfirmProgressEvent {
+  requestId: string;
+  step: number;
+  phase: string;
+  status: 'progress' | 'success' | 'error';
+  message?: string;
+  data?: unknown;
 }
 
 /**

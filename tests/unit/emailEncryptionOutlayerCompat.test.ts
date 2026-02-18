@@ -50,7 +50,7 @@ test.describe('Email encryption compatibility with Outlayer worker seed', () => 
         } = await import(paths.server);
 
         const SEED_HEX = 'e4c9a1f3b87d54c2a0fe93d1c6428b7fd2a6c1e89bf7405de318ab94f6c2d07e';
-        const { secretKey: workerSk, publicKey: workerPk } = deriveOutlayerStaticKeyFromSeedHex(SEED_HEX);
+        const { secretKey: workerSk, publicKey: workerPk } = await deriveOutlayerStaticKeyFromSeedHex(SEED_HEX);
 
         const pkB64 = btoa(String.fromCharCode(...workerPk));
 
@@ -100,7 +100,7 @@ test.describe('Email encryption compatibility with Outlayer worker seed', () => 
         } = await import(paths.server);
 
         const SEED_HEX = 'e4c9a1f3b87d54c2a0fe93d1c6428b7fd2a6c1e89bf7405de318ab94f6c2d07e';
-        const { secretKey: workerSk } = deriveOutlayerStaticKeyFromSeedHex(SEED_HEX);
+        const { secretKey: workerSk } = await deriveOutlayerStaticKeyFromSeedHex(SEED_HEX);
 
         const decrypted = await decryptEmailForOutlayerTestOnly({
           envelope,
@@ -137,7 +137,7 @@ test.describe('Email encryption compatibility with Outlayer worker seed', () => 
         } = await import(paths.server);
 
         const SEED_HEX = 'e4c9a1f3b87d54c2a0fe93d1c6428b7fd2a6c1e89bf7405de318ab94f6c2d07e';
-        const { secretKey: workerSk, publicKey: workerPk } = deriveOutlayerStaticKeyFromSeedHex(SEED_HEX);
+        const { secretKey: workerSk, publicKey: workerPk } = await deriveOutlayerStaticKeyFromSeedHex(SEED_HEX);
 
         const context = {
           account_id: 'berp61.w3a-v1.testnet',

@@ -100,6 +100,22 @@ export async function registerPasskey(
           .registerPasskeyInternal(
             toAccountId(args.accountId),
             {
+              signerOptions: {
+                tempo: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  sessionKind: 'jwt',
+                  ttlMs: 1,
+                  remainingUses: 1,
+                },
+                evm: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  sessionKind: 'jwt',
+                  ttlMs: 1,
+                  remainingUses: 1,
+                },
+              },
               onEvent: (event: any) => {
                 events.push(event);
                 console.log(`[flow:register]   -> ${event.phase} | ${event.message}`);

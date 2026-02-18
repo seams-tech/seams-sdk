@@ -10,10 +10,13 @@ test.describe('tempo signing auth-mode resolution', () => {
     await page.goto('/');
   });
 
-  test('throws early when threshold warm session cache is unavailable', async ({ page }) => {
+  test('falls back to warmSession when threshold warm session cache is unavailable', async ({
+    page,
+  }) => {
     const result = await page.evaluate(async ({ paths }) => {
       const { signTempoWithSecureConfirm } = await import(paths.signTempoWithSecureConfirm);
       let confirmCalls = 0;
+      let capturedAuthMode: string | null = null;
 
       const workerCtx = {
         requestWorkerOperation: async ({ request }: { request: any }) => {
@@ -35,8 +38,9 @@ test.describe('tempo signing auth-mode resolution', () => {
               code: 'expired',
               message: 'expired',
             }),
-            confirmAndPrepareSigningSession: async () => {
+            confirmAndPrepareSigningSession: async (params: any) => {
               confirmCalls += 1;
+              capturedAuthMode = String(params?.signingAuthMode || '');
               return {
                 sessionId: 'intent',
                 intentDigest: '0x' + '11'.repeat(32),
@@ -81,19 +85,20 @@ test.describe('tempo signing auth-mode resolution', () => {
             },
           } as any,
         });
-        return { ok: true, confirmCalls };
+        return { ok: true, confirmCalls, capturedAuthMode };
       } catch (error: any) {
         return {
           ok: false,
           confirmCalls,
+          capturedAuthMode,
           message: String(error?.message || error),
         };
       }
     }, { paths: IMPORT_PATHS });
 
-    expect(result.ok).toBe(false);
-    expect(result.confirmCalls).toBe(0);
-    expect(String(result.message || '')).toContain('threshold session expired');
+    expect(result.ok).toBe(true);
+    expect(result.confirmCalls).toBe(1);
+    expect(result.capturedAuthMode).toBe('warmSession');
   });
 
   test('uses warmSession mode when threshold warm cache is available', async ({ page }) => {

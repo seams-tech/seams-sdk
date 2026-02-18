@@ -9,6 +9,7 @@ import { isObject, isString, isBoolean } from '../../../../../../../shared/src/u
 import { dispatchLitCancel, dispatchLitConfirm, dispatchLitCopy } from '../lit-events';
 import { ensureExternalStyles } from '../lit-components/css/css-loader';
 import type { ExportPrivateKeyDisplayEntry } from '../../confirmTxFlow/types';
+import type { ThemeTokenOverridesInput } from '../../../../types/tatchi';
 
 type MessageType =
   | 'READY'
@@ -34,6 +35,7 @@ type MessagePayloads = {
     accountId: string;
     publicKey?: string;
     keys?: ExportPrivateKeyDisplayEntry[];
+    tokens?: ThemeTokenOverridesInput;
   };
   SET_LOADING: boolean;
   SET_ERROR: string;
@@ -53,6 +55,7 @@ export class IframeExportHost extends LitElementWithProps {
     publicKey: { type: String, attribute: 'public-key' },
     privateKey: { type: String, attribute: 'private-key' },
     keys: { attribute: false },
+    tokens: { attribute: false },
     loading: { type: Boolean },
     errorMessage: { type: String },
   } as const;
@@ -63,6 +66,7 @@ export class IframeExportHost extends LitElementWithProps {
   declare publicKey: string;
   declare privateKey?: string;
   declare keys?: ExportPrivateKeyDisplayEntry[];
+  declare tokens?: ThemeTokenOverridesInput;
   declare loading: boolean;
   declare errorMessage?: string;
 
@@ -83,6 +87,7 @@ export class IframeExportHost extends LitElementWithProps {
     this.publicKey = '';
     this.privateKey = undefined;
     this.keys = undefined;
+    this.tokens = undefined;
     this.loading = false;
   }
 
@@ -122,6 +127,7 @@ export class IframeExportHost extends LitElementWithProps {
       accountId: this.accountId,
       publicKey: this.publicKey,
       keys: this.keys,
+      tokens: this.tokens,
     });
     if (changed.has('loading')) {
       this.postToIframe('SET_LOADING', !!this.loading);
@@ -209,6 +215,7 @@ export class IframeExportHost extends LitElementWithProps {
             accountId: this.accountId,
             publicKey: this.publicKey,
             keys: this.keys,
+            tokens: this.tokens,
           });
           this.postToIframe('SET_LOADING', !!this.loading);
           if (this.errorMessage) this.postToIframe('SET_ERROR', this.errorMessage);
@@ -293,6 +300,7 @@ export type ExportViewerIframeElement = HTMLElement & {
   publicKey?: string;
   privateKey?: string;
   keys?: ExportPrivateKeyDisplayEntry[];
+  tokens?: ThemeTokenOverridesInput;
   loading?: boolean;
   errorMessage?: string;
 };

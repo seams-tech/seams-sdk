@@ -55,6 +55,29 @@ run() {
 # Set up error handling
 trap 'handle_error $LINENO' ERR
 
+WASM_PACK_BUILD_PROFILE="${WASM_PACK_BUILD_PROFILE:-dev}"
+WASM_PACK_PROFILE_ARGS=()
+WASM_PACK_PROFILE_LABEL=""
+case "$WASM_PACK_BUILD_PROFILE" in
+    dev)
+        WASM_PACK_PROFILE_ARGS=(--dev --no-opt)
+        WASM_PACK_PROFILE_LABEL="dev (--dev --no-opt)"
+        ;;
+    release)
+        WASM_PACK_PROFILE_ARGS=(--release)
+        WASM_PACK_PROFILE_LABEL="release (--release)"
+        ;;
+    profiling)
+        WASM_PACK_PROFILE_ARGS=(--profiling)
+        WASM_PACK_PROFILE_LABEL="profiling (--profiling)"
+        ;;
+    *)
+        echo "❌ Unknown WASM_PACK_BUILD_PROFILE: $WASM_PACK_BUILD_PROFILE"
+        echo "Use one of: dev, release, profiling"
+        exit 1
+        ;;
+esac
+
 # Ensure we can compile C dependencies for wasm32 (e.g. blst).
 log ""
 log "+ ensure_wasm32_cc"
@@ -63,6 +86,7 @@ log "CC_wasm32_unknown_unknown=$CC_wasm32_unknown_unknown"
 log "+ ensure_wasm_pack_cache"
 ensure_wasm_pack_cache
 log "WASM_PACK_CACHE=$WASM_PACK_CACHE"
+log "WASM_PACK_BUILD_PROFILE=$WASM_PACK_PROFILE_LABEL"
 
 log ""
 log "+ wasm-bindgen CLI resolved per crate lockfile (using with_wasm_bindgen_cli_for_lockfile)"
@@ -75,7 +99,7 @@ echo "Running cargo check first..."
 run cargo check
 
 echo "Running wasm-pack build..."
-run with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name wasm_signer_worker
+run with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name wasm_signer_worker "${WASM_PACK_PROFILE_ARGS[@]}"
 popd >/dev/null
 
 echo "Building eth signer WASM..."
@@ -83,7 +107,7 @@ pushd "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER" >/dev/null
 echo "Running cargo check first..."
 run cargo check
 echo "Running wasm-pack build..."
-run with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name eth_signer
+run with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name eth_signer "${WASM_PACK_PROFILE_ARGS[@]}"
 popd >/dev/null
 
 echo "Building tempo signer WASM..."
@@ -91,7 +115,7 @@ pushd "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER" >/dev/null
 echo "Running cargo check first..."
 run cargo check
 echo "Running wasm-pack build..."
-run with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name tempo_signer
+run with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name tempo_signer "${WASM_PACK_PROFILE_ARGS[@]}"
 popd >/dev/null
 
 # 2. Check if wasm-bindgen generated types exist

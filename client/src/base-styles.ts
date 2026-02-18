@@ -36,10 +36,9 @@ type ThemeAliases = {
   borderPrimary: string;
   borderSecondary: string;
   borderHover: string;
-  backgroundGradientPrimary: string;
-  backgroundGradientSecondary: string;
-  backgroundGradient3: string;
-  backgroundGradient4: string;
+  gradientPrimary: string;
+  gradientSecondary: string;
+  gradientTertiary: string;
   highlightReceiverId: string;
   highlightMethodName: string;
   highlightAmount: string;

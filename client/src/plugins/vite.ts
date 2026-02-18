@@ -157,6 +157,7 @@ export function tatchiServeSdk(opts: ServeSdkOptions = {}): VitePlugin {
         if (url === configuredBase + '/wallet-shims.js') {
           res.statusCode = 200
           res.setHeader('Content-Type', 'application/javascript; charset=utf-8')
+          res.setHeader('Cache-Control', 'no-store, max-age=0')
           // Align with SDK asset headers so COEP/CORP environments can import
           applyCoepCorpIfNeeded(res, coepMode)
           // Dev-only CORS echo (no preflight handling on this route)
@@ -167,6 +168,7 @@ export function tatchiServeSdk(opts: ServeSdkOptions = {}): VitePlugin {
         if (url === configuredBase + '/wallet-service.css') {
           res.statusCode = 200
           res.setHeader('Content-Type', 'text/css; charset=utf-8')
+          res.setHeader('Cache-Control', 'no-store, max-age=0')
           // Important: provide CORP for cross‑origin CSS so COEP documents can load it
           applyCoepCorpIfNeeded(res, coepMode)
           // Dev-only CORS echo (no preflight handling on this route)
@@ -181,6 +183,7 @@ export function tatchiServeSdk(opts: ServeSdkOptions = {}): VitePlugin {
       if (enableDebugRoutes) {
         server.middlewares.use('/__sdk-root', (req: any, res: any) => {
           res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+          res.setHeader('Cache-Control', 'no-store, max-age=0')
           res.end(sdkDistRoot)
         })
       }
@@ -204,11 +207,13 @@ export function tatchiServeSdk(opts: ServeSdkOptions = {}): VitePlugin {
         if (!candidate) {
           res.statusCode = 404
           res.setHeader('Content-Type', 'application/json; charset=utf-8')
+          res.setHeader('Cache-Control', 'no-store, max-age=0')
           res.end(JSON.stringify({ error: 'SDK asset not found', path: rel }))
           return
         }
 
         setContentType(res, candidate)
+        res.setHeader('Cache-Control', 'no-store, max-age=0')
         // SDK assets need COEP headers to work in wallet iframe with COEP enabled
         applyCoepCorpIfNeeded(res, coepMode)
         // Dev-only CORS echo (no preflight handling here)
@@ -230,8 +235,6 @@ export function tatchiWalletService(opts: WalletServiceOptions = {}): VitePlugin
   const sdkBasePath = toBasePath(opts.sdkBasePath, '/sdk')
   const coepMode = resolveCoepMode(opts.coepMode)
 
-  const html = buildWalletServiceHtml(sdkBasePath)
-
   return {
     name: 'tatchi:wallet-service',
     apply: 'serve',
@@ -242,8 +245,11 @@ export function tatchiWalletService(opts: WalletServiceOptions = {}): VitePlugin
         const url = req.url.split('?')[0]
         const isWalletRoute = url === walletServicePath || url === `${walletServicePath}/` || url === `${walletServicePath}//`
         if (isWalletRoute) {
+          const html = buildWalletServiceHtml(sdkBasePath, String(Date.now()))
           res.statusCode = 200
           res.setHeader('Content-Type', 'text/html; charset=utf-8')
+          res.setHeader('Cache-Control', 'no-store, max-age=0')
+          res.setHeader('Pragma', 'no-cache')
           // Important: allow embedding this wallet HTML into COEP=require-corp apps even
           // when the wallet itself is not running with COEP enabled.
           // Without CORP, the iframe can be blocked and remain on an opaque 'null' origin,

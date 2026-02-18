@@ -44,7 +44,6 @@ Emitted CSS Assets
 - wallet-service.css, w3a-components.css, tx-tree.css, drawer.css, tx-confirmer.css,
     halo-border.css, passkey-halo-loading.css, padlock-icon.css,
     export-iframe.css, export-viewer.css, overlay.css.
-- A build-time assertion (`scripts/assert-sdk-css-assets.mjs`) fails if any are missing.
 
 Shadow DOM (opt‑in)
 - Default is light DOM for TxTree to simplify CSP. If a consumer needs encapsulation, we can add an opt-in attribute to render TxTree in Shadow DOM; it won’t make rendering faster, but it can:

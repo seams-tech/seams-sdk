@@ -76,6 +76,9 @@ import {
   signTempo as signTempoValue,
 } from './tempoSigning';
 import {
+  withThresholdEcdsaSignInFlightGate,
+} from './thresholdEcdsaSignInFlightGate';
+import {
   exportNearKeypairWithUI as exportNearKeypairWithUIValue,
   exportNearKeypairWithUIWorkerDriven as exportNearKeypairWithUIWorkerDrivenValue,
   exportPrivateKeysWithUI as exportPrivateKeysWithUIValue,
@@ -128,6 +131,8 @@ import {
   signTransactionWithKeyPair as signTransactionWithKeyPairValue,
   signNearWithIntent as signNearWithIntentValue,
 } from './signerWorkerBridge';
+import { getPrfResultsFromCredential } from '../webauthn/credentials/credentialExtensions';
+import { deriveThresholdSecp256k1ClientShareWasm } from '../chainAdaptors/evm/ethSignerWasm';
 import {
   destroyFacade as destroyFacadeValue,
   getNonceManager as getNonceManagerValue,
@@ -136,20 +141,20 @@ import {
   getUserPreferences as getUserPreferencesValue,
   setTheme as setThemeValue,
   type FacadeSettingsDeps,
-} from './facadeSettings';
+} from './facade/facadeSettings';
 import {
   getWarmSigningSessionStatusSurface as getWarmSigningSessionStatusSurfaceValue,
   prewarmSignerWorkersSurface as prewarmSignerWorkersSurfaceValue,
   signTempoWithThresholdEcdsa as signTempoWithThresholdEcdsaValue,
   warmCriticalResourcesSurface as warmCriticalResourcesSurfaceValue,
-} from './facadeConvenience';
-import { createFacadeSettingsDeps } from './facadeDependencyFactory';
-import { initializeRuntimeBootstrap } from './runtimeBootstrap';
-import { createManagerAssembly } from './managerAssembly';
+} from './facade/facadeConvenience';
+import { createFacadeSettingsDeps } from './facade/facadeDependencyFactory';
+import { initializeRuntimeBootstrap } from './bootstrap/runtimeBootstrap';
+import { createManagerAssembly } from './bootstrap/managerAssembly';
 import {
   createOrchestrationDependencyBundle,
   type OrchestrationDependencyBundle,
-} from './orchestrationDependencyFactory';
+} from './bootstrap/orchestrationDependencyFactory';
 export type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/activation';
 
 /**
@@ -172,6 +177,11 @@ export class WebAuthnManager {
   private theme: ThemeName = 'dark';
   // Wallet-origin signing session id per account (warm session reuse).
   private activeSigningSessionIds: Map<string, string> = new Map();
+  // Serialize threshold-ECDSA bootstrap operations per account to avoid overlapping
+  // WebAuthn/PRF requests when multiple callers provision concurrently.
+  private readonly thresholdEcdsaBootstrapQueueByAccount: Map<string, Promise<void>> = new Map();
+  // Fail-fast lock: one threshold-ECDSA sign flow at a time per account.
+  private readonly thresholdEcdsaSignInFlightByAccount: Set<string> = new Set();
   private readonly facadeSettingsDeps: FacadeSettingsDeps;
   private readonly orchestrationDeps: OrchestrationDependencyBundle;
 
@@ -184,6 +194,7 @@ export class WebAuthnManager {
       tatchiPasskeyConfigs: this.tatchiPasskeyConfigs,
       nearClient: this.nearClient,
       getTheme: () => this.theme,
+      getAppearanceTokens: () => this.tatchiPasskeyConfigs.appearance?.tokens,
     });
     this.touchIdPrompt = assembly.touchIdPrompt;
     this.userPreferencesManager = assembly.userPreferencesManager;
@@ -230,6 +241,32 @@ export class WebAuthnManager {
         this.secureConfirmWorkerManager.setWorkerBaseOrigin?.(origin as any);
       },
     });
+  }
+
+  private async withThresholdEcdsaBootstrapQueue<T>(
+    nearAccountId: AccountId,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    const accountKey = String(nearAccountId).trim();
+    const previous = this.thresholdEcdsaBootstrapQueueByAccount.get(accountKey) || Promise.resolve();
+    const waitForPrevious = previous.catch(() => undefined);
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const next = waitForPrevious.then(() => gate);
+    this.thresholdEcdsaBootstrapQueueByAccount.set(accountKey, next);
+
+    await waitForPrevious;
+    try {
+      return await task();
+    } finally {
+      release();
+      if (this.thresholdEcdsaBootstrapQueueByAccount.get(accountKey) === next) {
+        this.thresholdEcdsaBootstrapQueueByAccount.delete(accountKey);
+      }
+    }
   }
 
   /**
@@ -611,8 +648,22 @@ export class WebAuthnManager {
     request: TempoSigningRequest;
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
+    shouldAbort?: () => boolean;
+    onEvent?: (event: {
+      step: number;
+      phase: string;
+      status: 'progress' | 'success' | 'error';
+      message?: string;
+      data?: unknown;
+    }) => void;
   }): Promise<TempoSignedResult> {
-    return await signTempoValue(this.orchestrationDeps.tempoSigningDeps, args);
+    return await withThresholdEcdsaSignInFlightGate({
+      inFlightByAccount: this.thresholdEcdsaSignInFlightByAccount,
+      nearAccountId: args.nearAccountId,
+      enabled: args.request.senderSignatureAlgorithm === 'secp256k1',
+      task: async () =>
+        await signTempoValue(this.orchestrationDeps.tempoSigningDeps, args),
+    });
   }
 
   async signTempoWithThresholdEcdsa(args: {
@@ -807,8 +858,7 @@ export class WebAuthnManager {
 
   /**
    * Threshold ECDSA (secp256k1) bootstrap helper:
-   * - runs `/threshold-ecdsa/keygen`
-   * - mints a threshold signing session via `/threshold-ecdsa/session`
+   * - runs `/threshold-ecdsa/bootstrap` (atomic keygen + session mint on the relay)
    * - returns a ready `threshold-ecdsa-secp256k1` keyRef for high-level Tempo/EVM signing APIs
    *
    * Defaults to `chain: 'tempo'` when omitted for backward compatibility.
@@ -825,7 +875,16 @@ export class WebAuthnManager {
     remainingUses?: number;
     smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
   }): Promise<ThresholdEcdsaSessionBootstrapResult> {
-    return await bootstrapThresholdEcdsaSessionLiteValue(this.orchestrationDeps.thresholdSessionActivationDeps, args);
+    const nearAccountId = toAccountId(args.nearAccountId);
+    return await this.withThresholdEcdsaBootstrapQueue(nearAccountId, async () => {
+      return await bootstrapThresholdEcdsaSessionLiteValue(
+        this.orchestrationDeps.thresholdSessionActivationDeps,
+        {
+          ...args,
+          nearAccountId,
+        },
+      );
+    });
   }
 
   async persistThresholdEcdsaBootstrapChainAccount(args: {
@@ -857,6 +916,64 @@ export class WebAuthnManager {
   }
 
   /**
+   * Force the active warm signing session id for an account.
+   * Used by registration/bootstrap flows that mint sessions server-side.
+   */
+  setActiveSigningSessionId(
+    nearAccountId: AccountId | string,
+    sessionId: string,
+  ): void {
+    const accountKey = String(toAccountId(nearAccountId));
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) {
+      this.activeSigningSessionIds.delete(accountKey);
+      return;
+    }
+    this.activeSigningSessionIds.set(accountKey, normalizedSessionId);
+  }
+
+  /**
+   * Cache PRF.first for a threshold session id in the SecureConfirm worker.
+   */
+  async putPrfFirstForThresholdSession(args: {
+    sessionId: string;
+    prfFirstB64u: string;
+    expiresAtMs: number;
+    remainingUses: number;
+  }): Promise<void> {
+    await this.secureConfirmWorkerManager.putPrfFirstForThresholdSession(args);
+  }
+
+  /**
+   * Clear wallet-origin warm signing sessions and PRF.first cache entries.
+   *
+   * - When `nearAccountId` is provided, clears only that account.
+   * - When omitted, clears all tracked accounts.
+   */
+  async clearWarmSigningSessions(nearAccountId?: AccountId | string): Promise<void> {
+    const sessionIds: string[] = [];
+    if (nearAccountId != null) {
+      const accountKey = String(toAccountId(nearAccountId));
+      const sessionId = String(this.activeSigningSessionIds.get(accountKey) || '').trim();
+      if (sessionId) sessionIds.push(sessionId);
+      this.activeSigningSessionIds.delete(accountKey);
+    } else {
+      for (const sessionIdRaw of this.activeSigningSessionIds.values()) {
+        const sessionId = String(sessionIdRaw || '').trim();
+        if (sessionId) sessionIds.push(sessionId);
+      }
+      this.activeSigningSessionIds.clear();
+    }
+
+    await Promise.all(
+      sessionIds.map((sessionId) =>
+        this.secureConfirmWorkerManager
+          .clearPrfFirstForThresholdSession({ sessionId })
+          .catch(() => undefined)),
+    );
+  }
+
+  /**
    * Derive the deterministic threshold client verifying share (2-of-2 ed25519) from WrapKeySeed.
    * This is safe to call during registration because it only requires the PRF-bearing credential
    * (no on-chain verification needed) and returns public material only.
@@ -874,6 +991,43 @@ export class WebAuthnManager {
       this.orchestrationDeps.thresholdEd25519LifecycleDeps,
       args,
     );
+  }
+
+  async deriveThresholdEcdsaClientVerifyingShareFromCredential(args: {
+    credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
+    nearAccountId: AccountId | string;
+  }): Promise<{
+    success: boolean;
+    nearAccountId: string;
+    clientVerifyingShareB64u: string;
+    error?: string;
+  }> {
+    const nearAccountId = toAccountId(args.nearAccountId);
+    try {
+      const prfFirstB64u = String(getPrfResultsFromCredential(args.credential).first || '').trim();
+      if (!prfFirstB64u) {
+        throw new Error('Missing PRF.first output from credential (requires a PRF-enabled passkey)');
+      }
+      const workerCtx = this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext();
+      const derived = await deriveThresholdSecp256k1ClientShareWasm({
+        prfFirstB64u,
+        userId: nearAccountId,
+        workerCtx,
+      });
+      return {
+        success: true,
+        nearAccountId,
+        clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
+      };
+    } catch (error: unknown) {
+      const message = String((error as { message?: unknown })?.message ?? error);
+      return {
+        success: false,
+        nearAccountId,
+        clientVerifyingShareB64u: '',
+        error: message,
+      };
+    }
   }
 
   /**

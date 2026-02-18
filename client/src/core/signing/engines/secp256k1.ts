@@ -51,22 +51,52 @@ export class Secp256k1Engine implements SigningEngine {
     }
 
     const rpId = this.getRpId?.() || null;
-    const cacheKey = rpId
-      ? makeThresholdEcdsaAuthSessionCacheKey({
+    const cacheKeyCandidates: string[] = [];
+    if (rpId) {
+      cacheKeyCandidates.push(
+        makeThresholdEcdsaAuthSessionCacheKey({
           userId: keyRef.userId,
           rpId,
           relayerUrl: keyRef.relayerUrl,
           relayerKeyId: keyRef.relayerKeyId,
           participantIds: keyRef.participantIds,
-        })
-      : null;
-    const cachedThresholdSession = cacheKey ? getCachedThresholdEcdsaAuthSession(cacheKey) : null;
+        }),
+      );
+
+      // Fallback for callers still holding pre-session keyRefs without participant ids.
+      if (!Array.isArray(keyRef.participantIds) || keyRef.participantIds.length === 0) {
+        cacheKeyCandidates.push(
+          makeThresholdEcdsaAuthSessionCacheKey({
+            userId: keyRef.userId,
+            rpId,
+            relayerUrl: keyRef.relayerUrl,
+            relayerKeyId: keyRef.relayerKeyId,
+            participantIds: [1, 2],
+          }),
+        );
+      }
+    }
+
+    let resolvedCacheKey: string | null = null;
+    let cachedThresholdSession: ReturnType<typeof getCachedThresholdEcdsaAuthSession> = null;
+    for (const candidate of cacheKeyCandidates) {
+      const cached = getCachedThresholdEcdsaAuthSession(candidate);
+      if (cached) {
+        resolvedCacheKey = candidate;
+        cachedThresholdSession = cached;
+        break;
+      }
+      if (!resolvedCacheKey) {
+        // Keep the first candidate so JWT lookup can still succeed when only token survives.
+        resolvedCacheKey = candidate;
+      }
+    }
 
     const sessionKind: ThresholdEcdsaSessionKind = keyRef.thresholdSessionKind || 'jwt';
     const thresholdSessionJwt = sessionKind === 'jwt'
       ? (
-          keyRef.thresholdSessionJwt
-          || (cacheKey ? getCachedThresholdEcdsaAuthSessionJwt(cacheKey) : undefined)
+          (resolvedCacheKey ? getCachedThresholdEcdsaAuthSessionJwt(resolvedCacheKey) : undefined)
+          || keyRef.thresholdSessionJwt
         )
       : undefined;
 
@@ -90,8 +120,8 @@ export class Secp256k1Engine implements SigningEngine {
     keyRef.mpcSessionId = authorized.mpcSessionId;
 
     const thresholdSessionId = String(
-      keyRef.thresholdSessionId
-      || cachedThresholdSession?.policy?.sessionId
+      cachedThresholdSession?.policy?.sessionId
+      || keyRef.thresholdSessionId
       || ''
     ).trim();
     if (!thresholdSessionId) {

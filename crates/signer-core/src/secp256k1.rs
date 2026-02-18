@@ -11,6 +11,8 @@ use crate::error::{CoreResult, SignerCoreError};
 
 const THRESHOLD_SECP256K1_CLIENT_SHARE_SALT_V1: &[u8] =
     b"tatchi/lite/threshold-secp256k1-ecdsa/client-share:v1";
+const THRESHOLD_SECP256K1_RELAYER_SHARE_SALT_V1: &[u8] =
+    b"tatchi/lite/threshold-secp256k1-ecdsa/relayer-share:v1";
 const EVM_SECP256K1_PRF_SECOND_HKDF_INFO_V1: &[u8] = b"secp256k1-signing-key-dual-prf-v1";
 const EVM_SECP256K1_PRF_SECOND_SALT_PREFIX_V1: &str = "evm-key-derivation:";
 pub const THRESHOLD_SECP256K1_2P_CLIENT_PARTICIPANT_ID: u32 = 1;
@@ -87,6 +89,50 @@ pub fn derive_threshold_secp256k1_client_share(
     let mut out = Vec::with_capacity(65);
     out.extend_from_slice(&client_signing_share32);
     out.extend_from_slice(client_verifying_share33);
+    Ok(out)
+}
+
+pub fn derive_threshold_secp256k1_relayer_share(
+    master_secret: &[u8],
+    relayer_key_id: &str,
+) -> CoreResult<Vec<u8>> {
+    if master_secret.is_empty() {
+        return Err(SignerCoreError::invalid_input(
+            "master_secret must be non-empty",
+        ));
+    }
+
+    let relayer_key_id = relayer_key_id.trim();
+    if relayer_key_id.is_empty() {
+        return Err(SignerCoreError::invalid_input(
+            "relayer_key_id must be non-empty",
+        ));
+    }
+
+    let hk = Hkdf::<Sha256>::new(Some(THRESHOLD_SECP256K1_RELAYER_SHARE_SALT_V1), master_secret);
+    let mut okm64 = [0u8; 64];
+    hk.expand(relayer_key_id.as_bytes(), &mut okm64).map_err(|_| {
+        SignerCoreError::hkdf_error("HKDF expand failed for threshold secp256k1 relayer share")
+    })?;
+
+    let relayer_signing_share32 = reduce_hkdf_output_to_nonzero_secp256k1_scalar(&okm64)?;
+    let secret_key = SecretKey::from_slice(&relayer_signing_share32).map_err(|_| {
+        SignerCoreError::crypto_error(
+            "derived relayer signing share is not a valid secp256k1 secret key",
+        )
+    })?;
+    let relayer_verifying_share33 = secret_key.public_key().to_encoded_point(true);
+    let relayer_verifying_share33 = relayer_verifying_share33.as_bytes();
+    if relayer_verifying_share33.len() != 33 {
+        return Err(SignerCoreError::invalid_length(format!(
+            "derived relayer verifying share must be 33 bytes (got {})",
+            relayer_verifying_share33.len()
+        )));
+    }
+
+    let mut out = Vec::with_capacity(65);
+    out.extend_from_slice(&relayer_signing_share32);
+    out.extend_from_slice(relayer_verifying_share33);
     Ok(out)
 }
 
@@ -248,6 +294,30 @@ pub fn add_secp256k1_public_keys_33(left33: &[u8], right33: &[u8]) -> CoreResult
     Ok(bytes.to_vec())
 }
 
+pub fn secp256k1_public_key_33_to_ethereum_address_20(public_key33: &[u8]) -> CoreResult<Vec<u8>> {
+    if public_key33.len() != 33 {
+        return Err(SignerCoreError::invalid_length(format!(
+            "public_key33 must be 33 bytes (got {})",
+            public_key33.len()
+        )));
+    }
+    let key = PublicKey::from_sec1_bytes(public_key33)
+        .map_err(|_| SignerCoreError::decode_error("invalid compressed secp256k1 public key"))?;
+    let uncompressed = key.to_encoded_point(false);
+    let uncompressed = uncompressed.as_bytes();
+    if uncompressed.len() != 65 || uncompressed[0] != 0x04 {
+        return Err(SignerCoreError::invalid_length(format!(
+            "uncompressed secp256k1 public key must be 65 bytes with 0x04 prefix (got {})",
+            uncompressed.len()
+        )));
+    }
+
+    let mut hasher = Keccak256::new();
+    hasher.update(&uncompressed[1..]);
+    let digest = hasher.finalize();
+    Ok(digest[digest.len() - 20..].to_vec())
+}
+
 pub fn sign_secp256k1_recoverable(digest32: &[u8], private_key32: &[u8]) -> CoreResult<Vec<u8>> {
     if digest32.len() != 32 {
         return Err(SignerCoreError::invalid_length("digest32 must be 32 bytes"));
@@ -382,5 +452,41 @@ mod tests {
             expected,
             "recovered key must match signer key",
         );
+    }
+
+    #[test]
+    fn derive_threshold_secp256k1_relayer_share_returns_signing_and_verifying_shares() {
+        let master_secret = vec![0x11; 32];
+        let relayer_key_id = "secp-test-relayer-key-id";
+
+        let out =
+            derive_threshold_secp256k1_relayer_share(master_secret.as_slice(), relayer_key_id)
+                .expect("derive relayer share");
+        assert_eq!(out.len(), 65);
+
+        let signing = &out[..32];
+        let verifying = &out[32..];
+        assert_eq!(verifying.len(), 33);
+
+        let secret = SecretKey::from_slice(signing).expect("secret");
+        let expected = secret.public_key().to_encoded_point(true);
+        assert_eq!(expected.as_bytes(), verifying);
+    }
+
+    #[test]
+    fn public_key_33_to_ethereum_address_matches_prf_second_derivation() {
+        let prf_second = vec![0x22; 32];
+        let near_account_id = "alice.testnet";
+
+        let out = derive_secp256k1_keypair_from_prf_second(prf_second.as_slice(), near_account_id)
+            .expect("derive keypair");
+        assert_eq!(out.len(), 85);
+        let public_key33 = &out[32..65];
+        let expected_address = &out[65..85];
+
+        let address =
+            secp256k1_public_key_33_to_ethereum_address_20(public_key33).expect("address derivation");
+        assert_eq!(address.len(), 20);
+        assert_eq!(address.as_slice(), expected_address);
     }
 }

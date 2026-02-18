@@ -80,11 +80,10 @@ export interface DesignTokens {
     borderSecondary: string;
     borderHover: string;
 
-    // Background Gradients
-    backgroundGradientPrimary: string;
-    backgroundGradientSecondary: string;
-    backgroundGradient3: string;
-    backgroundGradient4: string;
+    // Gradients
+    gradientPrimary: string;
+    gradientSecondary: string;
+    gradientTertiary: string;
 
     // Grey variations
     grey25: string;
@@ -207,11 +206,10 @@ export const LIGHT_TOKENS: DesignTokens = {
     borderSecondary: LIGHT_THEME.borderSecondary,
     borderHover: LIGHT_THEME.borderHover,
 
-    // Background Gradients
-    backgroundGradientPrimary: LIGHT_THEME.backgroundGradientPrimary,
-    backgroundGradientSecondary: LIGHT_THEME.backgroundGradientSecondary,
-    backgroundGradient3: LIGHT_THEME.backgroundGradient3,
-    backgroundGradient4: LIGHT_THEME.backgroundGradient4,
+    // Gradients
+    gradientPrimary: LIGHT_THEME.gradientPrimary,
+    gradientSecondary: LIGHT_THEME.gradientSecondary,
+    gradientTertiary: LIGHT_THEME.gradientTertiary,
 
     // Grey variations
     grey25: LIGHT_THEME.grey25,
@@ -322,11 +320,10 @@ export const DARK_TOKENS: DesignTokens = {
     borderSecondary: DARK_THEME.borderSecondary,
     borderHover: DARK_THEME.borderHover,
 
-    // Background Gradients
-    backgroundGradientPrimary: DARK_THEME.backgroundGradientPrimary,
-    backgroundGradientSecondary: DARK_THEME.backgroundGradientSecondary,
-    backgroundGradient3: DARK_THEME.backgroundGradient3,
-    backgroundGradient4: DARK_THEME.backgroundGradient4,
+    // Gradients
+    gradientPrimary: DARK_THEME.gradientPrimary,
+    gradientSecondary: DARK_THEME.gradientSecondary,
+    gradientTertiary: DARK_THEME.gradientTertiary,
 
     // Grey variations
     grey25: DARK_THEME.grey25,
@@ -377,9 +374,6 @@ export const DARK_TOKENS: DesignTokens = {
     xl: '0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.3)',
   },
 };
-
-// Backwards-compatible alias: "cream" now resolves to the standard light palette.
-export const CREAM_TOKENS: DesignTokens = LIGHT_TOKENS;
 
 // ============================================================================
 // CSS CUSTOM PROPERTY GENERATOR

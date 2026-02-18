@@ -38,14 +38,14 @@ function sumScalarsB64u(aB64u: string, bB64u: string): string {
 }
 
 function pointB64u(s: bigint): string {
-  const p = ed25519.Point.BASE.multiply(s);
-  return Buffer.from(p.toBytes()).toString('base64url');
+  const p = ed25519.ExtendedPoint.BASE.multiply(s);
+  return Buffer.from(p.toRawBytes()).toString('base64url');
 }
 
 function sumPointsB64u(aB64u: string, bB64u: string): string {
-  const a = ed25519.Point.fromBytes(Buffer.from(aB64u, 'base64url'));
-  const b = ed25519.Point.fromBytes(Buffer.from(bB64u, 'base64url'));
-  return Buffer.from(a.add(b).toBytes()).toString('base64url');
+  const a = ed25519.ExtendedPoint.fromHex(Buffer.from(aB64u, 'base64url'));
+  const b = ed25519.ExtendedPoint.fromHex(Buffer.from(bB64u, 'base64url'));
+  return Buffer.from(a.add(b).toRawBytes()).toString('base64url');
 }
 
 test('threshold-ed25519 relayer-fleet cosigning (2-of-3 stub) aggregates cosigner outputs', async () => {
@@ -185,7 +185,7 @@ test('threshold-ed25519 relayer-fleet cosigning (2-of-3 stub) aggregates cosigne
       signingDigestB64u,
       clientCommitments: { hiding: 'h', binding: 'b' },
     });
-    expect(init.ok).toBe(true);
+    expect(init.ok, JSON.stringify(init)).toBe(true);
     expect(init.participantIds).toEqual([1, 2]);
     expect(init.commitmentsById?.['1']).toEqual({ hiding: 'h', binding: 'b' });
     expect(init.commitmentsById?.['2']).toEqual(combined);

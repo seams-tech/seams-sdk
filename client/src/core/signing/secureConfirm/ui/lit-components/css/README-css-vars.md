@@ -5,13 +5,12 @@ This document explains how theme colors and CSS variables are defined, generated
 ## Sources of truth
 
 - `client/src/theme/palette.json`
-  - Canonical color scales (grey, slate, cream), chroma families (blue, red, …), and gradients.
+  - Canonical color scales (grey, slate), chroma families (blue, red, …), and gradients.
   - Optional `tokens` object for single‑point overrides (e.g., `{"buttonBackground": "..."}`).
 
 - `client/src/base-styles.ts` (import as `@/base-styles`)
   - Builds tokens from `palette.json` via `createThemeTokens` in `client/src/theme/base-styles.js` and exports:
     - `DARK_THEME` and `LIGHT_THEME`.
-    - `data-w3a-theme="cream"` is treated as an alias of `LIGHT_THEME`.
   - These define the semantic aliases components use (textPrimary, surface, borderPrimary, …).
 
 ## Generated CSS: `w3a-components.css`
@@ -27,14 +26,13 @@ This document explains how theme colors and CSS variables are defined, generated
     - `w3a-tx-tree, w3a-drawer, w3a-modal-tx-confirmer, w3a-drawer-tx-confirmer, w3a-tx-confirm-content, w3a-halo-border, w3a-passkey-halo-loading, w3a-export-key-viewer { --w3a-colors-* }`
   - Theme overrides scoped by a document attribute and again limited to hosts:
     - `:root[data-w3a-theme="light"] <hosts> { --w3a-colors-* }`
-    - `:root[data-w3a-theme="cream"] <hosts> { --w3a-colors-* }`
 
 Why host‑scoped? Custom properties set on the component host are inherited by descendants inside Shadow DOM. This removes the need for global `:root` variables and makes tokens travel with the component boundary.
 
 ## Selecting a theme
 
 - Set a document attribute on the root element:
-  - `document.documentElement.setAttribute('data-w3a-theme', 'dark' | 'light' | 'cream')`
+  - `document.documentElement.setAttribute('data-w3a-theme', 'dark' | 'light')`
   - Defaults to “dark” if not set.
 - Containers that own the UI (e.g., `w3a-modal-tx-confirmer`, `w3a-drawer-tx-confirmer`) will keep this in sync when their `theme` attribute changes.
 

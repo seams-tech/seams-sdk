@@ -53,7 +53,7 @@ test.describe('Threshold Ed25519 rotation helper', () => {
     //
     // 1) Registration (signerMode=threshold-signer) is threshold-only:
     //    - the client does not provide `new_public_key`
-    //    - `/create_account_and_register_user` returns `{ relayerKeyId, publicKey, relayerVerifyingShareB64u }`
+    //    - `/registration/bootstrap` returns `{ relayerKeyId, publicKey, relayerVerifyingShareB64u }`
     //    - the relay-created account already has the threshold key on-chain
     //    - the SDK stores `threshold_ed25519_2p_v1` key material locally
     //
@@ -268,7 +268,7 @@ test.describe('Threshold Ed25519 rotation helper', () => {
       });
     });
 
-    await page.route('**/create_account_and_register_user', async (route) => {
+    await page.route('**/registration/bootstrap', async (route) => {
       // Mock the relayer "registration" endpoint:
       // it returns the server share metadata and the computed group public key.
       const req = route.request();
@@ -386,7 +386,25 @@ test.describe('Threshold Ed25519 rotation helper', () => {
 
         const reg = await pm.registerPasskeyInternal(
           accountId,
-          { signerMode: { mode: 'threshold-signer' } },
+          {
+            signerMode: { mode: 'threshold-signer' },
+            signerOptions: {
+              tempo: {
+                enabled: false,
+                participantIds: [1, 2],
+                sessionKind: 'jwt',
+                ttlMs: 1,
+                remainingUses: 1,
+              },
+              evm: {
+                enabled: false,
+                participantIds: [1, 2],
+                sessionKind: 'jwt',
+                ttlMs: 1,
+                remainingUses: 1,
+              },
+            },
+          },
           confirmConfig as any,
         );
         if (!reg?.success) {

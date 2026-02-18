@@ -78,7 +78,7 @@ export function Footer(): React.JSX.Element {
             <span>Tatchi</span>
           </a>
 
-          <div className="app-footer__newsletter">
+          <div className="app-footer__newsletter gradient-lilac-warm-soft">
             <h2 id="footer-newsletter-title">Don&apos;t miss an update</h2>
             <p>Product releases, security notes, and implementation guidance for wallet teams.</p>
             <form className="app-footer__subscribe" onSubmit={onSubscribeSubmit}>

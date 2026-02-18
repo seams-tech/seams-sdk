@@ -106,43 +106,31 @@ export async function provisionTempoAndEvmThresholdSigners(args: {
   evm: ThresholdEcdsaBootstrapResult;
   tempo: ThresholdEcdsaBootstrapResult;
 }> {
-  const [evmResult, tempoResult] = await Promise.allSettled([
-    provisionThresholdSignerForChain({
-      tatchi: args.tatchi,
-      nearAccountId: args.nearAccountId,
-      chain: 'evm',
-      ttlMs: args.ttlMs,
-      remainingUses: args.remainingUses,
-    }),
-    provisionThresholdSignerForChain({
-      tatchi: args.tatchi,
-      nearAccountId: args.nearAccountId,
-      chain: 'tempo',
-      ttlMs: args.ttlMs,
-      remainingUses: args.remainingUses,
-    }),
-  ]);
+  // A single threshold-ecdsa bootstrap does keygen+session and prompts twice (keygen + session).
+  // Reusing that keyRef for both chains keeps reprovision at 2 prompts instead of 4.
+  const sharedBootstrap = await provisionThresholdSignerForChain({
+    tatchi: args.tatchi,
+    nearAccountId: args.nearAccountId,
+    chain: 'tempo',
+    ttlMs: args.ttlMs,
+    remainingUses: args.remainingUses,
+  });
 
-  if (evmResult.status === 'fulfilled' && tempoResult.status === 'fulfilled') {
-    return {
-      evm: evmResult.value,
-      tempo: tempoResult.value,
-    };
-  }
+  writeCachedThresholdKeyRef(
+    args.nearAccountId,
+    'evm',
+    sharedBootstrap.thresholdEcdsaKeyRef,
+  );
+  writeCachedThresholdKeyRef(
+    args.nearAccountId,
+    'tempo',
+    sharedBootstrap.thresholdEcdsaKeyRef,
+  );
 
-  const messages: string[] = [];
-  if (evmResult.status === 'rejected') {
-    const message =
-      evmResult.reason instanceof Error ? evmResult.reason.message : String(evmResult.reason);
-    messages.push(`evm: ${message}`);
-  }
-  if (tempoResult.status === 'rejected') {
-    const message =
-      tempoResult.reason instanceof Error ? tempoResult.reason.message : String(tempoResult.reason);
-    messages.push(`tempo: ${message}`);
-  }
-
-  throw new Error(`Threshold signer provisioning failed (${messages.join('; ')})`);
+  return {
+    evm: sharedBootstrap,
+    tempo: sharedBootstrap,
+  };
 }
 
 export async function resolveThresholdKeyRef(

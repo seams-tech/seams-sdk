@@ -127,10 +127,10 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       const clientParticipantId = 1;
       const relayerParticipantId = 2;
       const digest32 = Uint8Array.from(Array.from({ length: 32 }, (_, i) => i + 1));
-      const clientSigningShare32 = secp256k1.utils.randomSecretKey();
+      const clientSigningShare32 = secp256k1.utils.randomPrivateKey();
       const clientVerifyingShareB64u = base64UrlEncode(secp256k1.getPublicKey(clientSigningShare32, true));
-
-      const keygen = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/keygen`, {
+      const sessionId = `sess-${Date.now()}`;
+      const bootstrap = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/bootstrap`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -139,41 +139,27 @@ test.describe('threshold-ecdsa harness signature verification', () => {
           keygenSessionId: `keygen-${Date.now()}`,
           clientVerifyingShareB64u,
           webauthn_authentication: fakeWebAuthnAuthentication(),
-        }),
-      });
-      expect(keygen.status, keygen.text).toBe(200);
-      expect(keygen.json?.ok, keygen.text).toBe(true);
-
-      const relayerKeyId = String(keygen.json?.relayerKeyId || '');
-      const groupPublicKeyB64u = String(keygen.json?.groupPublicKeyB64u || '');
-      expect(relayerKeyId).toBeTruthy();
-      expect(groupPublicKeyB64u).toBeTruthy();
-
-      const sessionId = `sess-${Date.now()}`;
-      const minted = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          relayerKeyId,
-          clientVerifyingShareB64u,
           sessionKind: 'jwt',
           sessionPolicy: {
             version: 'threshold_session_v1',
             userId,
             rpId,
-            relayerKeyId,
             sessionId,
             ttlMs: 60_000,
             remainingUses: 3,
             participantIds,
           },
-          webauthn_authentication: fakeWebAuthnAuthentication(),
         }),
       });
-      expect(minted.status, minted.text).toBe(200);
-      expect(minted.json?.ok, minted.text).toBe(true);
+      expect(bootstrap.status, bootstrap.text).toBe(200);
+      expect(bootstrap.json?.ok, bootstrap.text).toBe(true);
 
-      const jwt = String(minted.json?.jwt || '');
+      const relayerKeyId = String(bootstrap.json?.relayerKeyId || '');
+      const groupPublicKeyB64u = String(bootstrap.json?.groupPublicKeyB64u || '');
+      expect(relayerKeyId).toBeTruthy();
+      expect(groupPublicKeyB64u).toBeTruthy();
+
+      const jwt = String(bootstrap.json?.jwt || '');
       expect(jwt).toBeTruthy();
 
       const authorized = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/authorize`, {
@@ -369,11 +355,80 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(verified).toBe(true);
 
       const recovered = secp256k1.Signature
-        .fromBytes(signature64, 'compact')
+        .fromCompact(signature64)
         .addRecoveryBit(recId & 1)
         .recoverPublicKey(digest32)
-        .toBytes(true);
+        .toRawBytes(true);
       expect(base64UrlEncode(recovered)).toBe(groupPublicKeyB64u);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('bootstrap endpoint keygens and mints session in a single relay call', async () => {
+    const { service, threshold } = makeAuthServiceForThreshold();
+    const session = makeJwtSessionAdapter();
+    const router = createRelayRouter(service, { threshold, session });
+    const srv = await startExpressRouter(router);
+
+    try {
+      const userId = 'bootstrap-bob.testnet';
+      const rpId = 'example.localhost';
+      const participantIds = [1, 2];
+      const digest32 = Uint8Array.from(Array.from({ length: 32 }, (_, i) => i + 11));
+      const clientSigningShare32 = secp256k1.utils.randomPrivateKey();
+      const clientVerifyingShareB64u = base64UrlEncode(secp256k1.getPublicKey(clientSigningShare32, true));
+      const sessionId = `sess-${Date.now()}`;
+
+      const bootstrap = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/bootstrap`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          rpId,
+          keygenSessionId: `keygen-${Date.now()}`,
+          clientVerifyingShareB64u,
+          webauthn_authentication: fakeWebAuthnAuthentication(),
+          sessionKind: 'jwt',
+          sessionPolicy: {
+            version: 'threshold_session_v1',
+            userId,
+            rpId,
+            sessionId,
+            ttlMs: 60_000,
+            remainingUses: 3,
+            participantIds,
+          },
+        }),
+      });
+      expect(bootstrap.status, bootstrap.text).toBe(200);
+      expect(bootstrap.json?.ok, bootstrap.text).toBe(true);
+
+      const relayerKeyId = String(bootstrap.json?.relayerKeyId || '');
+      const groupPublicKeyB64u = String(bootstrap.json?.groupPublicKeyB64u || '');
+      const jwt = String(bootstrap.json?.jwt || '');
+      const returnedSessionId = String(bootstrap.json?.sessionId || '');
+      expect(relayerKeyId).toBeTruthy();
+      expect(groupPublicKeyB64u).toBeTruthy();
+      expect(jwt).toBeTruthy();
+      expect(returnedSessionId).toBe(sessionId);
+
+      const authorized = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/authorize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({
+          relayerKeyId,
+          clientVerifyingShareB64u,
+          purpose: 'test:bootstrap_authorize',
+          signing_digest_32: Array.from(digest32),
+        }),
+      });
+      expect(authorized.status, authorized.text).toBe(200);
+      expect(authorized.json?.ok, authorized.text).toBe(true);
+      expect(String(authorized.json?.mpcSessionId || '')).toBeTruthy();
     } finally {
       await srv.close();
     }

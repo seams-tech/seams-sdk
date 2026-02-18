@@ -1,5 +1,29 @@
 /* Shadow DOM-scoped toast styles used with Sonner's classNames API */
 
+/* Bridge Sonner internals to SDK theme tokens. */
+[data-sonner-toaster][data-theme] {
+  --normal-bg: var(--w3a-colors-surface) !important;
+  --normal-border: var(--w3a-colors-borderPrimary) !important;
+  --normal-text: var(--w3a-colors-textPrimary) !important;
+  --success-text: var(--w3a-colors-textPrimary) !important;
+  --info-text: var(--w3a-colors-textPrimary) !important;
+  --warning-text: var(--w3a-colors-textPrimary) !important;
+  --error-text: var(--w3a-colors-textPrimary) !important;
+  --gray1: color-mix(in srgb, var(--w3a-colors-surface2) 88%, var(--w3a-colors-surface) 12%);
+}
+
+[data-sonner-toaster][data-theme] [data-sonner-toast][data-styled='true'] {
+  color: var(--w3a-colors-textPrimary) !important;
+}
+
+[data-sonner-toaster][data-theme] [data-sonner-toast] [data-title] {
+  color: var(--w3a-colors-textPrimary) !important;
+}
+
+[data-sonner-toaster][data-theme] [data-sonner-toast] [data-description] {
+  color: var(--w3a-colors-textSecondary) !important;
+}
+
 .w3a-toast {
   background: var(--w3a-colors-surface);
   color: var(--w3a-colors-textPrimary);
@@ -87,6 +111,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  background: var(--gray1) !important;
+  color: var(--w3a-colors-textSecondary) !important;
+  border: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary) 78%, transparent) !important;
+  border-radius: 999px;
+}
+
+[data-sonner-toaster][data-theme] [data-sonner-toast] [data-close-button]:hover {
+  background: color-mix(in srgb, var(--w3a-colors-surface3) 76%, var(--w3a-colors-primary) 24%) !important;
+  color: var(--w3a-colors-textPrimary) !important;
 }
 
 /* Normalize buttons inside Sonner toast list */

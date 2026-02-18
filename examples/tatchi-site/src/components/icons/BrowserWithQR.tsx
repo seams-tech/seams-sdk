@@ -13,7 +13,7 @@ export function BrowserWithQR(props: {
   const vbH = 380
   const border = '#00000020'
   const windowFill = 'var(--w3a-colors-surface2)'
-  const barFill = 'var(--w3a-colors-surface1, rgba(0,0,0,0.04))'
+  const barFill = 'var(--w3a-colors-surface, rgba(0,0,0,0.04))'
   const controlRed = '#FF5F56'
   const controlYellow = '#FFBD2E'
   const controlGreen = '#27C93F'

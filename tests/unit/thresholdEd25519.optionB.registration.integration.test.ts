@@ -260,7 +260,7 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
       });
     });
 
-    await page.route('**/create_account_and_register_user', async (route) => {
+    await page.route('**/registration/bootstrap', async (route) => {
       const req = route.request();
       const method = req.method().toUpperCase();
 
@@ -347,6 +347,22 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
         const res = await pm.registerPasskeyInternal(
           accountId,
           {
+            signerOptions: {
+              tempo: {
+                enabled: false,
+                participantIds: [1, 2],
+                sessionKind: 'jwt',
+                ttlMs: 1,
+                remainingUses: 1,
+              },
+              evm: {
+                enabled: false,
+                participantIds: [1, 2],
+                sessionKind: 'jwt',
+                ttlMs: 1,
+                remainingUses: 1,
+              },
+            },
             onEvent: (event: any) => {
               try {
                 (window as any).__registrationEvents.push(event);
@@ -622,7 +638,7 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
       });
     });
 
-    await page.route('**/create_account_and_register_user', async (route) => {
+    await page.route('**/registration/bootstrap', async (route) => {
       const req = route.request();
       const method = req.method().toUpperCase();
       const corsHeaders = {
@@ -681,6 +697,22 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
         const res = await pm.registerPasskeyInternal(
           accountId,
           {
+            signerOptions: {
+              tempo: {
+                enabled: false,
+                participantIds: [1, 2],
+                sessionKind: 'jwt',
+                ttlMs: 1,
+                remainingUses: 1,
+              },
+              evm: {
+                enabled: false,
+                participantIds: [1, 2],
+                sessionKind: 'jwt',
+                ttlMs: 1,
+                remainingUses: 1,
+              },
+            },
             onEvent: (event: any) => {
               try {
                 (window as any).__registrationEvents.push(event);

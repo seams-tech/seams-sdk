@@ -310,9 +310,17 @@ export interface CreateAccountAndRegisterRequest {
   device_number?: number;
   threshold_ed25519?: {
     client_verifying_share_b64u: string;
+    session_policy: Omit<ThresholdEd25519SessionPolicy, 'relayerKeyId'> & {
+      relayerKeyId?: string;
+    };
+    session_kind: 'jwt' | 'cookie';
   };
   threshold_ecdsa?: {
     client_verifying_share_b64u: string;
+    session_policy: Omit<ThresholdEcdsaSessionPolicy, 'relayerKeyId'> & {
+      relayerKeyId?: string;
+    };
+    session_kind: 'jwt' | 'cookie';
   };
   /**
    * WebAuthn RP ID used for the registration ceremony (e.g. `wallet.example.com`).
@@ -341,6 +349,15 @@ export interface CreateAccountAndRegisterResult {
     clientParticipantId?: number;
     relayerParticipantId?: number;
     participantIds?: number[];
+    session?: {
+      sessionKind: 'jwt' | 'cookie';
+      sessionId: string;
+      expiresAtMs: number;
+      expiresAt?: string;
+      participantIds?: number[];
+      remainingUses?: number;
+      jwt?: string;
+    };
   };
   thresholdEcdsa?: {
     relayerKeyId: string;
@@ -348,6 +365,15 @@ export interface CreateAccountAndRegisterResult {
     ethereumAddress: string;
     relayerVerifyingShareB64u: string;
     participantIds?: number[];
+    session?: {
+      sessionKind: 'jwt' | 'cookie';
+      sessionId: string;
+      expiresAtMs: number;
+      expiresAt?: string;
+      participantIds?: number[];
+      remainingUses?: number;
+      jwt?: string;
+    };
   };
   error?: string;
   message?: string;
@@ -694,6 +720,56 @@ export interface ThresholdEcdsaSessionResponse {
   expiresAtMs?: number;
   expiresAt?: string;
   participantIds?: number[];
+  remainingUses?: number;
+  jwt?: string;
+}
+
+export type ThresholdEcdsaBootstrapSessionPolicy = {
+  version: 'threshold_session_v1';
+  userId: string;
+  rpId: string;
+  sessionId: string;
+  /** Optional participant ids that scope the session to a signer set. */
+  participantIds?: number[];
+  ttlMs: number;
+  remainingUses: number;
+};
+
+export interface ThresholdEcdsaBootstrapRequest {
+  userId: string;
+  rpId: string;
+  keygenSessionId: string;
+  /**
+   * Base64url-encoded compressed secp256k1 public key (33 bytes) for the client share.
+   * This is derived deterministically on the client from passkey PRF.first.
+   */
+  clientVerifyingShareB64u: string;
+  webauthn_authentication: WebAuthnAuthenticationCredential;
+  sessionPolicy: ThresholdEcdsaBootstrapSessionPolicy;
+  sessionKind?: 'jwt' | 'cookie';
+}
+
+export interface ThresholdEcdsaBootstrapResponse {
+  ok: boolean;
+  code?: string;
+  message?: string;
+  /** Opaque identifier for the relay-held key record / derived share scope. */
+  relayerKeyId?: string;
+  /** Base64url-encoded compressed secp256k1 group public key (33 bytes). */
+  groupPublicKeyB64u?: string;
+  /** Hex-encoded EVM address derived from the group public key (0x + 20 bytes). */
+  ethereumAddress?: string;
+  /** Base64url-encoded compressed secp256k1 relayer verifying share (33 bytes). */
+  relayerVerifyingShareB64u?: string;
+  participantIds?: number[];
+  chainId?: string;
+  factory?: string;
+  entryPoint?: string;
+  salt?: string;
+  counterfactualAddress?: string;
+  sessionId?: string;
+  expiresAtMs?: number;
+  expiresAt?: string;
   remainingUses?: number;
   jwt?: string;
 }

@@ -155,7 +155,7 @@ test.describe('threshold-ed25519 digest binding', () => {
         await route.fallback();
       });
 
-      await page.route(`${srv.baseUrl}/create_account_and_register_user`, async (route) => {
+      await page.route(`${srv.baseUrl}/registration/bootstrap`, async (route) => {
         const req = route.request();
         const method = req.method().toUpperCase();
         if (method === 'OPTIONS') return route.fallback();
@@ -462,7 +462,7 @@ test.describe('threshold-ed25519 digest binding', () => {
         await route.fallback();
       });
 
-      await page.route(`${srv.baseUrl}/create_account_and_register_user`, async (route) => {
+      await page.route(`${srv.baseUrl}/registration/bootstrap`, async (route) => {
         const req = route.request();
         const method = req.method().toUpperCase();
         if (method === 'OPTIONS') return route.fallback();

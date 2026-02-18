@@ -22,7 +22,7 @@ import {
   type SecureConfirmRequest,
 } from './confirmTxFlow/types';
 import type { ConfirmationConfig } from '../../types/signer-worker';
-import type { ThemeName } from '../../types/tatchi';
+import type { ThemeName, ThemeTokenOverridesInput } from '../../types/tatchi';
 import type { RegistrationCredentialConfirmationPayload } from '../workers/signerWorkerManager/internal/validation';
 import { handlePromptUserConfirmInJsMainThread } from './confirmTxFlow';
 import type { SecureConfirmWorkerManagerHandlerContext } from './handlers/types';
@@ -42,6 +42,7 @@ export interface SecureConfirmWorkerManagerContext {
   userPreferencesManager: UserPreferencesManager;
   nonceManager: NonceManager;
   getTheme?: () => ThemeName;
+  getAppearanceTokens?: () => ThemeTokenOverridesInput | undefined;
   rpIdOverride?: string;
   nearExplorerUrl?: string;
 }

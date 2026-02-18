@@ -18,7 +18,6 @@ import type {
   SignTransactionHooksOptions,
   SyncAccountHooksOptions,
 } from '../../types/sdkSentEvents';
-import { ActionPhase } from '../../types/sdkSentEvents';
 import type {
   LoginSession,
   RegistrationResult,
@@ -37,6 +36,7 @@ export interface HandlerDeps {
   post(msg: ChildToParentEnvelope): void;
   postProgress(requestId: string | undefined, payload: ProgressPayload): void;
   postToParent?(msg: unknown): void;
+  isCancelled(requestId: string | undefined): boolean;
   respondIfCancelled(requestId: string | undefined): boolean;
 }
 
@@ -46,6 +46,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     post,
     postProgress,
     postToParent,
+    isCancelled,
     respondIfCancelled,
   } = deps;
 
@@ -252,24 +253,16 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_SIGN_TEMPO: async (req: Req<'PM_SIGN_TEMPO'>) => {
       const pm = getTatchiPasskey();
       const { nearAccountId, request, options } = req.payload!;
-      postProgress(req.requestId, {
-        step: 2,
-        phase: ActionPhase.STEP_2_USER_CONFIRMATION,
-        status: 'progress',
-        message: 'Confirm signing',
-      });
+      if (respondIfCancelled(req.requestId)) return;
       const result = await pm.signTempo({
         nearAccountId,
         request,
         options: {
           confirmationConfig: options?.confirmationConfig,
           thresholdEcdsaKeyRef: options?.thresholdEcdsaKeyRef,
+          shouldAbort: () => isCancelled(req.requestId),
+          onEvent: (ev) => postProgress(req.requestId, ev as unknown as ProgressPayload),
         },
-      });
-      postProgress(req.requestId, {
-        step: 4,
-        phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE,
-        status: 'success',
       });
       if (respondIfCancelled(req.requestId)) return;
       respondOkResult(req.requestId, result);

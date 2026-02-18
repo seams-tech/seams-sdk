@@ -222,7 +222,7 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
 
       // Mock the relayer "registration" endpoint only (we do not need real on-chain account creation here).
       // We do need to mark the local key as an on-chain access key for subsequent AddKey and signing flows.
-      await page.route(`${srv.baseUrl}/create_account_and_register_user`, async (route) => {
+      await page.route(`${srv.baseUrl}/registration/bootstrap`, async (route) => {
         const req = route.request();
         const method = req.method().toUpperCase();
         if (method === 'OPTIONS') {

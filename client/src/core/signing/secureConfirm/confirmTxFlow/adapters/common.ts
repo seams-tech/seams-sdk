@@ -1,4 +1,8 @@
-import type { TransactionSummary, SecureConfirmDecision } from '../types';
+import type {
+  TransactionSummary,
+  SecureConfirmDecision,
+  SecureConfirmProgressEvent,
+} from '../types';
 import { SecureConfirmMessageType } from '../types';
 import { isObject, isFunction, isString } from '../../../../../../../shared/src/utils/validation';
 import { toError, isTouchIdCancellationError } from '../../../../../../../shared/src/utils/errors';
@@ -51,6 +55,11 @@ export const ERROR_MESSAGES = {
 export function sendConfirmResponse(worker: Worker, response: SecureConfirmDecision) {
   const sanitized = sanitizeForPostMessage(response);
   worker.postMessage({ type: SecureConfirmMessageType.USER_PASSKEY_CONFIRM_RESPONSE, data: sanitized });
+}
+
+export function sendConfirmProgress(worker: Worker, progress: SecureConfirmProgressEvent): void {
+  const sanitized = sanitizeForPostMessage(progress);
+  worker.postMessage({ type: SecureConfirmMessageType.USER_PASSKEY_CONFIRM_PROGRESS, data: sanitized });
 }
 
 export function isUserCancelledSecureConfirm(error: unknown): boolean {

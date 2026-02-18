@@ -1,66 +1,98 @@
 .security-diagrams {
-  --security-border: color-mix(in srgb, var(--fe-border) 62%, transparent);
+  --security-border: color-mix(in srgb, var(--site-border) 62%, transparent);
+  --security-accent: var(--site-brand);
+  --security-accent-hover: var(--site-brand-hover);
   --security-surface:
     radial-gradient(
       130% 170% at 10% -18%,
-      color-mix(in srgb, var(--w3a-colors-surface3) 92%, var(--w3a-colors-primary) 8%) 0%,
+      color-mix(in srgb, var(--site-surface-strong) 88%, var(--security-accent) 12%) 0%,
       transparent 48%
     ),
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--w3a-colors-surface3) 86%, #000 14%) 0%,
-      color-mix(in srgb, var(--w3a-colors-colorBackground) 90%, #000 10%) 100%
+      color-mix(in srgb, var(--site-surface-strong) 86%, #000 14%) 0%,
+      color-mix(in srgb, var(--site-canvas) 90%, #000 10%) 100%
     );
-  --security-corner-pattern:
-    linear-gradient(
-      45deg,
-      transparent 47%,
-      color-mix(in srgb, var(--w3a-colors-borderPrimary) 36%, transparent) 48%,
-      color-mix(in srgb, var(--w3a-colors-borderPrimary) 36%, transparent) 52%,
-      transparent 53%
-    ),
-    linear-gradient(
-      -45deg,
-      transparent 47%,
-      color-mix(in srgb, var(--w3a-colors-borderPrimary) 36%, transparent) 48%,
-      color-mix(in srgb, var(--w3a-colors-borderPrimary) 36%, transparent) 52%,
-      transparent 53%
-    );
-  --security-title: var(--fe-text-primary);
-  --security-subtitle: color-mix(in srgb, var(--fe-text-secondary) 90%, var(--fe-text) 10%);
-  --security-link-border: color-mix(in srgb, var(--fe-border) 66%, transparent);
-  --security-link-surface: color-mix(in srgb, var(--w3a-colors-surface3) 68%, transparent);
-  --security-link-text: var(--fe-text-primary);
-  --security-link-border-hover: color-mix(in srgb, var(--fe-border-strong) 66%, transparent);
-  --security-link-surface-hover: color-mix(in srgb, var(--w3a-colors-surface3) 80%, transparent);
-  --security-focus-ring: color-mix(in srgb, var(--w3a-colors-primary) 28%, transparent);
-  --security-card-border: color-mix(in srgb, var(--fe-border) 62%, transparent);
+  --security-title: var(--site-text-primary);
+  --security-subtitle: color-mix(in srgb, var(--site-text-secondary) 90%, var(--site-text-primary) 10%);
+  --security-link-border: color-mix(in srgb, var(--site-border) 66%, transparent);
+  --security-link-surface: color-mix(in srgb, var(--site-surface-strong) 68%, transparent);
+  --security-link-text: var(--site-text-primary);
+  --security-link-border-hover: color-mix(in srgb, var(--site-border-strong) 66%, transparent);
+  --security-link-surface-hover: color-mix(in srgb, var(--site-surface-strong) 80%, transparent);
+  --security-card-border: color-mix(in srgb, var(--site-border) 62%, transparent);
   --security-card-surface:
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--w3a-colors-surface3) 86%, #000 14%) 0%,
-      color-mix(in srgb, var(--w3a-colors-surface2) 90%, #000 10%) 100%
+      color-mix(in srgb, var(--site-surface-strong) 86%, #000 14%) 0%,
+      color-mix(in srgb, var(--site-surface-muted) 90%, #000 10%) 100%
     );
-  --security-art-border: color-mix(in srgb, var(--fe-border) 58%, transparent);
-  --security-art-surface:
-    radial-gradient(
-      circle at 50% -12%,
-      color-mix(in srgb, var(--w3a-colors-surface3) 90%, var(--w3a-colors-primary) 10%) 0%,
-      transparent 52%
-    ),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--w3a-colors-surface3) 82%, #000 18%) 0%,
-      color-mix(in srgb, var(--w3a-colors-surface2) 88%, #000 12%) 100%
-    );
-  --security-card-title: var(--fe-text-primary);
-  --security-card-copy: color-mix(in srgb, var(--fe-text-secondary) 90%, var(--fe-text) 10%);
+  --security-card-title: var(--site-text-primary);
+  --security-card-copy: color-mix(in srgb, var(--site-text-secondary) 90%, var(--site-text-primary) 10%);
+  --security-diagram-canvas: color-mix(in srgb, #1b2333 72%, var(--site-surface-strong) 28%);
+  --security-diagram-line-muted: color-mix(in srgb, var(--site-text-secondary) 44%, var(--site-surface-muted) 56%);
+  --security-diagram-line: color-mix(in srgb, var(--site-text-primary) 72%, var(--site-brand) 28%);
+  --security-diagram-line-strong: color-mix(in srgb, var(--site-text-primary) 84%, var(--site-brand) 16%);
+  --security-diagram-package: color-mix(in srgb, var(--site-surface-strong) 72%, var(--site-accent) 28%);
+  --security-diagram-package-strong: color-mix(in srgb, var(--site-text-primary) 58%, var(--site-brand) 42%);
   position: relative;
   overflow: hidden;
   padding: clamp(1.1rem, 2vw, 1.7rem);
   border-radius: 1.2rem;
   border: 1px solid var(--security-border);
   background: var(--security-surface);
+}
+
+html[data-w3a-theme="light"] .security-diagrams {
+  --security-tint-slate-1: #e8eef7;
+  --security-tint-slate-2: #dbe4f1;
+  --security-tint-slate-3: #c9d5e6;
+  --security-tint-blue: #9bb4d2;
+  --security-border: color-mix(in srgb, #9fb2c9 36%, var(--site-border) 64%);
+  --security-surface:
+    linear-gradient(
+      154deg,
+      color-mix(in srgb, var(--security-tint-slate-1) 84%, #f5f8fc 16%) 0%,
+      color-mix(in srgb, var(--security-tint-slate-2) 88%, var(--security-tint-blue) 12%) 56%,
+      color-mix(in srgb, var(--security-tint-slate-3) 86%, #b8c8dc 14%) 100%
+    );
+  --security-title: color-mix(in srgb, #1f2d3c 92%, #2b3d52 8%);
+  --security-subtitle: color-mix(in srgb, #4f647d 90%, #2b3d52 10%);
+  --security-link-border: color-mix(in srgb, #9cb0c8 56%, var(--site-border) 44%);
+  --security-link-surface:
+    linear-gradient(
+      146deg,
+      color-mix(in srgb, #ecf2fa 88%, #ffffff 12%) 0%,
+      color-mix(in srgb, #dde7f4 90%, #f1f6fc 10%) 100%
+    );
+  --security-link-text: color-mix(in srgb, #253648 92%, #1f2d3a 8%);
+  --security-link-border-hover: color-mix(in srgb, #8ea6c1 62%, var(--site-border) 38%);
+  --security-link-surface-hover:
+    linear-gradient(
+      146deg,
+      color-mix(in srgb, #dfe9f6 90%, #f4f8fd 10%) 0%,
+      color-mix(in srgb, #cfddee 90%, #e7eef8 10%) 100%
+    );
+  --security-card-border: color-mix(in srgb, var(--site-border) 82%, var(--site-brand) 18%);
+  --security-card-surface:
+    radial-gradient(
+      132% 148% at 10% -24%,
+      color-mix(in srgb, var(--site-brand) 6%, transparent) 0%,
+      transparent 54%
+    ),
+    linear-gradient(
+      162deg,
+      color-mix(in srgb, var(--site-surface) 97%, var(--site-brand) 3%) 0%,
+      color-mix(in srgb, var(--site-surface-muted) 94%, var(--site-surface) 6%) 100%
+    );
+  --security-card-title: color-mix(in srgb, var(--site-text-primary) 96%, var(--site-text-secondary) 4%);
+  --security-card-copy: color-mix(in srgb, var(--site-text-secondary) 90%, var(--site-text-primary) 10%);
+  --security-diagram-canvas: color-mix(in srgb, #d5e0ee 72%, #ebf1f8 28%);
+  --security-diagram-line-muted: color-mix(in srgb, #5f7390 62%, #8da2be 38%);
+  --security-diagram-line: color-mix(in srgb, #2c4057 66%, #607b9d 34%);
+  --security-diagram-line-strong: color-mix(in srgb, #24364b 78%, #5e7ea3 22%);
+  --security-diagram-package: color-mix(in srgb, #e8dbf0 68%, #f2e8f5 32%);
+  --security-diagram-package-strong: color-mix(in srgb, #6e80a4 58%, #93aacb 42%);
 }
 
 .security-diagrams::before,
@@ -71,7 +103,21 @@
   height: 88px;
   pointer-events: none;
   opacity: 0.34;
-  background: var(--security-corner-pattern);
+  background:
+    linear-gradient(
+      45deg,
+      transparent 47%,
+      color-mix(in srgb, var(--site-border) 36%, transparent) 48%,
+      color-mix(in srgb, var(--site-border) 36%, transparent) 52%,
+      transparent 53%
+    ),
+    linear-gradient(
+      -45deg,
+      transparent 47%,
+      color-mix(in srgb, var(--site-border) 36%, transparent) 48%,
+      color-mix(in srgb, var(--site-border) 36%, transparent) 52%,
+      transparent 53%
+    );
   background-size: 14px 14px;
 }
 
@@ -135,7 +181,7 @@
 
 .security-diagrams__learn-more:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px var(--security-focus-ring);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--site-focus) 28%, transparent);
 }
 
 .security-diagrams__grid {
@@ -146,6 +192,22 @@
 }
 
 .security-diagrams__card {
+  --security-art-bg:
+    radial-gradient(
+      124% 140% at 52% -22%,
+      color-mix(in srgb, var(--site-surface-strong) 82%, var(--security-accent) 18%) 0%,
+      transparent 56%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--site-surface-strong) 84%, #000 16%) 0%,
+      color-mix(in srgb, var(--site-surface-muted) 90%, #000 10%) 100%
+    );
+  --security-art-scale: 1;
+  --security-art-scale-x: var(--security-art-scale);
+  --security-art-scale-y: var(--security-art-scale);
+  --security-art-shift-x: 0%;
+  --security-art-shift-y: 0%;
   overflow: hidden;
   border-radius: 0.9rem;
   border: 1px solid var(--security-card-border);
@@ -155,8 +217,88 @@
 .security-diagrams__art-wrap {
   position: relative;
   height: 178px;
-  border-bottom: 1px solid var(--security-art-border);
-  background: var(--security-art-surface);
+  border-bottom: 1px solid color-mix(in srgb, var(--site-border) 58%, transparent);
+  background: var(--security-art-bg);
+}
+
+.security-diagrams__art-wrap--custody {
+  --security-diagram-canvas: color-mix(in srgb, #202a3f 58%, transparent);
+  --security-art-bg:
+    radial-gradient(
+      140% 164% at 8% -28%,
+      color-mix(in srgb, var(--site-brand) 22%, transparent) 0%,
+      transparent 58%
+    ),
+    radial-gradient(
+      116% 132% at 94% 112%,
+      color-mix(in srgb, var(--site-accent) 18%, transparent) 0%,
+      transparent 62%
+    ),
+    linear-gradient(
+      164deg,
+      color-mix(in srgb, #222c41 82%, var(--site-surface-strong) 18%) 0%,
+      color-mix(in srgb, #1a2234 86%, var(--site-surface-muted) 14%) 100%
+    );
+}
+
+.security-diagrams__art-wrap--defense {
+  --security-diagram-canvas: color-mix(in srgb, #2a2f45 56%, transparent);
+  --security-art-bg:
+    radial-gradient(
+      132% 144% at 14% -24%,
+      color-mix(in srgb, #5d6b9c 26%, transparent) 0%,
+      transparent 56%
+    ),
+    radial-gradient(
+      130% 140% at 94% 106%,
+      color-mix(in srgb, #8f7eaa 20%, transparent) 0%,
+      transparent 62%
+    ),
+    linear-gradient(
+      164deg,
+      color-mix(in srgb, #1d273a 80%, var(--site-surface-strong) 20%) 0%,
+      color-mix(in srgb, #202a3f 86%, var(--site-surface-muted) 14%) 100%
+    );
+}
+
+.security-diagrams__art-wrap--scale {
+  --security-diagram-canvas: color-mix(in srgb, #2e2d43 56%, transparent);
+  --security-art-bg:
+    radial-gradient(
+      124% 140% at 50% -30%,
+      color-mix(in srgb, #8c74a7 28%, transparent) 0%,
+      transparent 56%
+    ),
+    radial-gradient(
+      120% 136% at 88% 102%,
+      color-mix(in srgb, #ad8d95 20%, transparent) 0%,
+      transparent 62%
+    ),
+    linear-gradient(
+      166deg,
+      color-mix(in srgb, #22243b 84%, var(--site-surface-strong) 16%) 0%,
+      color-mix(in srgb, #222336 88%, var(--site-surface-muted) 12%) 100%
+    );
+}
+
+.security-diagrams__art-wrap--friction {
+  --security-diagram-canvas: color-mix(in srgb, #2f3044 56%, transparent);
+  --security-art-bg:
+    radial-gradient(
+      132% 150% at 14% -26%,
+      color-mix(in srgb, #846f9e 24%, transparent) 0%,
+      transparent 56%
+    ),
+    radial-gradient(
+      126% 138% at 96% 108%,
+      color-mix(in srgb, #b68f90 22%, transparent) 0%,
+      transparent 60%
+    ),
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, #1d2638 84%, var(--site-surface-strong) 16%) 0%,
+      color-mix(in srgb, #25263a 88%, var(--site-surface-muted) 12%) 100%
+    );
 }
 
 .security-diagrams__art {
@@ -165,11 +307,42 @@
   width: 100%;
   height: 100%;
   display: block;
-  object-fit: cover;
+  overflow: hidden;
 }
 
-.security-diagrams__art--light {
-  opacity: 0;
+.security-diagrams__art > svg,
+img.security-diagrams__art {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  transform:
+    translate(var(--security-art-shift-x), var(--security-art-shift-y))
+    scale(var(--security-art-scale-x), var(--security-art-scale-y));
+  transform-origin: 50% 50%;
+}
+
+.security-diagrams__card--custody {
+  --security-art-scale: 1.08;
+  --security-art-scale-x: 1.14;
+  --security-art-scale-y: 1.08;
+  --security-art-shift-x: 0%;
+  --security-art-shift-y: -1%;
+}
+
+.security-diagrams__card--defense {
+  --security-art-scale-x: 1.34;
+  --security-art-scale-y: 1.07;
+}
+
+.security-diagrams__card--scale {
+  --security-art-scale-x: 1.2;
+  --security-art-scale-y: 1.06;
+}
+
+.security-diagrams__card--friction {
+  --security-art-scale-x: 1.22;
+  --security-art-scale-y: 1.06;
 }
 
 .security-diagrams__body {
@@ -190,76 +363,110 @@
   line-height: 1.52;
 }
 
-html[data-w3a-theme="light"] .security-diagrams {
-  --security-border: color-mix(in srgb, var(--fe-border) 72%, transparent);
-  --security-surface:
-    radial-gradient(
-      130% 165% at 10% -20%,
-      color-mix(in srgb, var(--w3a-colors-surface2) 82%, var(--w3a-colors-primary) 18%) 0%,
-      transparent 48%
-    ),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--w3a-colors-surface) 96%, #fff 4%) 0%,
-      color-mix(in srgb, var(--w3a-colors-colorBackground) 90%, var(--w3a-colors-surface2) 10%) 100%
-    );
-  --security-corner-pattern:
-    linear-gradient(
-      45deg,
-      transparent 47%,
-      color-mix(in srgb, var(--w3a-colors-borderPrimary) 34%, transparent) 48%,
-      color-mix(in srgb, var(--w3a-colors-borderPrimary) 34%, transparent) 52%,
-      transparent 53%
-    ),
-    linear-gradient(
-      -45deg,
-      transparent 47%,
-      color-mix(in srgb, var(--w3a-colors-borderPrimary) 34%, transparent) 48%,
-      color-mix(in srgb, var(--w3a-colors-borderPrimary) 34%, transparent) 52%,
-      transparent 53%
-    );
-  --security-title: var(--fe-text-primary);
-  --security-subtitle: color-mix(in srgb, var(--fe-text-secondary) 92%, var(--fe-text) 8%);
-  --security-link-border: color-mix(in srgb, var(--fe-border) 76%, transparent);
-  --security-link-surface: color-mix(in srgb, var(--w3a-colors-surface) 88%, transparent);
-  --security-link-text: var(--fe-text-primary);
-  --security-link-border-hover: color-mix(in srgb, var(--fe-border-strong) 74%, transparent);
-  --security-link-surface-hover: color-mix(in srgb, var(--w3a-colors-surface2) 86%, transparent);
-  --security-focus-ring: color-mix(in srgb, var(--w3a-colors-primary) 28%, transparent);
-  --security-card-border: color-mix(in srgb, var(--fe-border) 72%, transparent);
-  --security-card-surface:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--w3a-colors-surface) 96%, #fff 4%) 0%,
-      color-mix(in srgb, var(--w3a-colors-surface2) 92%, #fff 8%) 100%
-    );
-  --security-art-border: color-mix(in srgb, var(--fe-border) 68%, transparent);
-  --security-art-surface:
-    radial-gradient(
-      circle at 50% -8%,
-      color-mix(in srgb, var(--w3a-colors-surface2) 76%, var(--w3a-colors-primary) 24%) 0%,
-      transparent 55%
-    ),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--w3a-colors-surface2) 92%, #fff 8%) 0%,
-      color-mix(in srgb, var(--w3a-colors-surface3) 86%, #fff 14%) 100%
-    );
-  --security-card-title: var(--fe-text-primary);
-  --security-card-copy: color-mix(in srgb, var(--fe-text-secondary) 92%, var(--fe-text) 8%);
-}
-
 html[data-w3a-theme="light"] .security-diagrams::before,
 html[data-w3a-theme="light"] .security-diagrams::after {
   opacity: 0.24;
+  background:
+    linear-gradient(
+      45deg,
+      transparent 48%,
+      color-mix(in srgb, #9bb2cd 52%, transparent) 50%,
+      transparent 52%
+    ),
+    linear-gradient(
+      -45deg,
+      transparent 48%,
+      color-mix(in srgb, #b0bfd3 46%, transparent) 50%,
+      transparent 52%
+    );
 }
 
-html[data-w3a-theme="light"] .security-diagrams__art--dark {
-  opacity: 0;
+html[data-w3a-theme="light"] .security-diagrams__art-wrap {
+  border-bottom: 1px solid color-mix(in srgb, #bdafc0 56%, transparent);
 }
 
-html[data-w3a-theme="light"] .security-diagrams__art--light {
-  opacity: 1;
+html[data-w3a-theme="light"] .security-diagrams__art-wrap--custody {
+  --security-diagram-canvas: color-mix(in srgb, #c7d6ea 36%, transparent);
+  --security-art-bg:
+    radial-gradient(
+      132% 142% at 12% -24%,
+      color-mix(in srgb, #cfbedf 40%, transparent) 0%,
+      transparent 56%
+    ),
+    radial-gradient(
+      128% 136% at 94% 106%,
+      color-mix(in srgb, #d8dbe8 30%, transparent) 0%,
+      transparent 60%
+    ),
+    linear-gradient(
+      168deg,
+      #e7e0ef 0%,
+      #e2e8f2 58%,
+      #e8e9f2 100%
+    );
+}
+
+html[data-w3a-theme="light"] .security-diagrams__art-wrap--defense {
+  --security-diagram-canvas: color-mix(in srgb, #d9cde4 34%, transparent);
+  --security-art-bg:
+    radial-gradient(
+      120% 132% at 8% -24%,
+      color-mix(in srgb, #d8cae4 34%, transparent) 0%,
+      transparent 56%
+    ),
+    radial-gradient(
+      126% 140% at 92% 108%,
+      color-mix(in srgb, #efdbcf 26%, transparent) 0%,
+      transparent 62%
+    ),
+    linear-gradient(
+      170deg,
+      #e8e2ee 0%,
+      #e6e3eb 52%,
+      #efe4dd 100%
+    );
+}
+
+html[data-w3a-theme="light"] .security-diagrams__art-wrap--scale {
+  --security-diagram-canvas: color-mix(in srgb, #d8cde4 34%, transparent);
+  --security-art-bg:
+    radial-gradient(
+      122% 130% at 12% -24%,
+      color-mix(in srgb, #d9c9e7 32%, transparent) 0%,
+      transparent 56%
+    ),
+    radial-gradient(
+      118% 132% at 92% 108%,
+      color-mix(in srgb, #e6d7df 26%, transparent) 0%,
+      transparent 62%
+    ),
+    linear-gradient(
+      168deg,
+      #e8e1ef 0%,
+      #ebe3ec 52%,
+      #efe6e2 100%
+    );
+}
+
+html[data-w3a-theme="light"] .security-diagrams__art-wrap--friction {
+  --security-diagram-canvas: color-mix(in srgb, #e3cee0 34%, transparent);
+  --security-art-bg:
+    radial-gradient(
+      118% 132% at 52% -24%,
+      color-mix(in srgb, #dcc8e8 30%, transparent) 0%,
+      transparent 58%
+    ),
+    radial-gradient(
+      120% 136% at 94% 104%,
+      color-mix(in srgb, #efd8cc 24%, transparent) 0%,
+      transparent 62%
+    ),
+    linear-gradient(
+      172deg,
+      #eee4f3 0%,
+      #f1e9ef 54%,
+      #f4ede6 100%
+    );
 }
 
 @media (max-width: 768px) {

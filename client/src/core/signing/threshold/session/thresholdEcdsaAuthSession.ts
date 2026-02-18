@@ -2,7 +2,6 @@ import { stripTrailingSlashes, toTrimmedString } from '../../../../../../shared/
 import type { ThresholdEcdsaSessionPolicy } from './thresholdSessionPolicy';
 import type { WebAuthnAuthenticationCredential } from '../../../types/webauthn';
 import { normalizeThresholdEd25519ParticipantIds } from '../../../../../../shared/src/threshold/participants';
-import { redactCredentialExtensionOutputs } from '../webauthn';
 
 export type ThresholdEcdsaSessionKind = 'jwt' | 'cookie';
 
@@ -72,19 +71,6 @@ export function getCachedThresholdEcdsaAuthSessionJwt(cacheKey: string): string 
   return undefined;
 }
 
-function parseExpiresAtMs(data: { expiresAtMs?: unknown; expiresAt?: unknown }): number | undefined {
-  const expiresAtMs = (() => {
-    const raw = data.expiresAtMs;
-    if (raw == null) return undefined;
-    const n = typeof raw === 'number' ? raw : Number(raw);
-    return Number.isFinite(n) ? Math.floor(n) : undefined;
-  })();
-  if (expiresAtMs) return expiresAtMs;
-
-  const raw = typeof data.expiresAt === 'string' ? Date.parse(data.expiresAt) : NaN;
-  return Number.isFinite(raw) ? raw : undefined;
-}
-
 /**
  * Lite (WebAuthn-only) threshold session mint.
  *
@@ -111,64 +97,12 @@ export async function mintThresholdEcdsaAuthSessionLite(args: {
   code?: string;
   message?: string;
 }> {
-  const relayerUrl = stripTrailingSlashes(toTrimmedString(args.relayerUrl));
-  if (!relayerUrl) {
-    return { ok: false, code: 'invalid_args', message: 'Missing relayerUrl for threshold session mint' };
-  }
-
-  if (typeof fetch !== 'function') {
-    return { ok: false, code: 'unsupported', message: 'fetch is not available for threshold session mint' };
-  }
-
-  // Never send PRF outputs to the relay.
-  const webauthn_authentication = redactCredentialExtensionOutputs(args.webauthnAuthentication);
-
-  type ThresholdEcdsaSessionMintResponseBody = Partial<{
-    ok: boolean;
-    sessionId: string;
-    expiresAtMs: number;
-    expiresAt: string;
-    remainingUses: number;
-    jwt: string;
-    code: string;
-    message: string;
-  }>;
-
-  try {
-    const url = `${relayerUrl}/threshold-ecdsa/session`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: args.sessionKind === 'cookie' ? 'include' : 'omit',
-      body: JSON.stringify({
-        sessionKind: args.sessionKind,
-        relayerKeyId: args.relayerKeyId,
-        clientVerifyingShareB64u: args.clientVerifyingShareB64u,
-        sessionPolicy: args.sessionPolicy,
-        webauthn_authentication,
-      }),
-    });
-
-    const data = (await response.json().catch(() => ({}))) as ThresholdEcdsaSessionMintResponseBody;
-    if (!response.ok) {
-      return {
-        ok: false,
-        code: data.code || 'http_error',
-        message: data.message || `HTTP ${response.status}`,
-      };
-    }
-
-    return {
-      ok: data.ok === true,
-      sessionId: data.sessionId,
-      expiresAtMs: parseExpiresAtMs(data),
-      remainingUses: data.remainingUses,
-      jwt: data.jwt,
-      ...(data.code ? { code: data.code } : {}),
-      ...(data.message ? { message: data.message } : {}),
-    };
-  } catch (e: unknown) {
-    const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'Failed to mint threshold session');
-    return { ok: false, code: 'network_error', message: msg };
-  }
+  // Bootstrap-only ECDSA flow: `/threshold-ecdsa/session` is no longer exposed.
+  // Keep this API surface as an explicit compatibility error.
+  void args;
+  return {
+    ok: false,
+    code: 'not_supported',
+    message: 'Legacy threshold-ecdsa/session flow removed; use bootstrapThresholdEcdsaLite',
+  };
 }

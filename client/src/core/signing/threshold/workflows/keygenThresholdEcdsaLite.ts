@@ -1,30 +1,15 @@
-import { computeThresholdEcdsaKeygenIntentDigest } from '../../../../utils/intentDigest';
-import { thresholdEcdsaKeygen } from '../../../near/rpcCalls';
-import { deriveThresholdSecp256k1ClientShareWasm } from '../../chainAdaptors/evm/ethSignerWasm';
+import { bootstrapThresholdEcdsaLite } from './bootstrapThresholdEcdsaLite';
 import type { WorkerOperationContext } from '../../workers/operations/executeSignerWorkerOperation';
-import {
-  collectAuthenticationCredentialForChallengeB64u,
-  getPrfFirstB64uFromCredential,
-  type ThresholdIndexedDbPort,
-  type ThresholdWebAuthnPromptPort,
-} from '../webauthn';
-
-function generateKeygenSessionId(): string {
-  const id = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `tecdsa-keygen-${id}`;
-}
+import type { ThresholdIndexedDbPort, ThresholdWebAuthnPromptPort } from '../webauthn';
 
 /**
  * Threshold-ecdsa (secp256k1) keygen helper (standard WebAuthn).
  *
- * - Collects a WebAuthn assertion (challenge = keygen policy digest)
- * - Uses PRF.first to derive `clientVerifyingShareB64u` deterministically (HKDF in eth-signer WASM worker)
- * - Calls `POST /threshold-ecdsa/keygen` to obtain relayer key material + group public key
+ * - Uses the atomic relay bootstrap path (`POST /threshold-ecdsa/bootstrap`)
+ * - Returns the keygen projection of the bootstrap response for backward compatibility
  *
  * Notes:
- * - PRF outputs are never sent to the relay.
+ * - This helper now performs bootstrap-side session mint as part of the atomic flow.
  */
 export async function keygenThresholdEcdsaLite(args: {
   indexedDB: ThresholdIndexedDbPort;
@@ -50,86 +35,40 @@ export async function keygenThresholdEcdsaLite(args: {
   code?: string;
   message?: string;
 }> {
-  const rpId = args.touchIdPrompt.getRpId();
-  if (!rpId) return { ok: false, code: 'invalid_args', message: 'Missing rpId for WebAuthn' };
-
-  const userId = String(args.userId || '').trim();
-  if (!userId) return { ok: false, code: 'invalid_args', message: 'Missing userId' };
-
-  const keygenSessionId = generateKeygenSessionId();
-  const challengeB64u = await computeThresholdEcdsaKeygenIntentDigest({
-    userId,
-    rpId,
-    keygenSessionId,
-  });
-
-  // 1) Collect WebAuthn assertion with PRF outputs enabled.
-  const credential = await collectAuthenticationCredentialForChallengeB64u({
+  const bootstrap = await bootstrapThresholdEcdsaLite({
     indexedDB: args.indexedDB,
     touchIdPrompt: args.touchIdPrompt,
-    nearAccountId: userId,
-    challengeB64u,
+    relayerUrl: args.relayerUrl,
+    userId: String(args.userId || '').trim(),
+    workerCtx: args.workerCtx,
   });
-
-  const prfFirstB64u = getPrfFirstB64uFromCredential(credential);
-  if (!prfFirstB64u) {
-    return { ok: false, code: 'unsupported', message: 'Missing PRF.first output from credential (requires a PRF-enabled passkey)' };
-  }
-
-  try {
-    // 2) Derive the client verifying share deterministically (never send PRF output).
-    const derived = await deriveThresholdSecp256k1ClientShareWasm({
-      prfFirstB64u,
-      userId,
-      workerCtx: args.workerCtx,
-    });
-
-    // 3) Keygen with the relay.
-    const keygen = await thresholdEcdsaKeygen(args.relayerUrl, {
-      userId,
-      rpId,
-      keygenSessionId,
-      clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
-      webauthnAuthentication: credential,
-    });
-    if (!keygen.ok) {
-      return {
-        ok: false,
-        code: keygen.code || 'keygen_failed',
-        message: keygen.error || keygen.message || 'Threshold keygen failed',
-      };
-    }
-
-    return {
-      ok: true,
-      keygenSessionId,
-      rpId,
-      clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
-      groupPublicKeyB64u: keygen.groupPublicKeyB64u,
-      ethereumAddress: keygen.ethereumAddress,
-      relayerKeyId: keygen.relayerKeyId,
-      relayerVerifyingShareB64u: keygen.relayerVerifyingShareB64u,
-      participantIds: keygen.participantIds,
-      ...(typeof keygen.chainId === 'string' && keygen.chainId.trim()
-        ? { chainId: keygen.chainId.trim() }
-        : {}),
-      ...(typeof keygen.factory === 'string' && keygen.factory.trim()
-        ? { factory: keygen.factory.trim() }
-        : {}),
-      ...(typeof keygen.entryPoint === 'string' && keygen.entryPoint.trim()
-        ? { entryPoint: keygen.entryPoint.trim() }
-        : {}),
-      ...(typeof keygen.salt === 'string' && keygen.salt.trim()
-        ? { salt: keygen.salt.trim() }
-        : {}),
-      ...(typeof keygen.counterfactualAddress === 'string' && keygen.counterfactualAddress.trim()
-        ? { counterfactualAddress: keygen.counterfactualAddress.trim() }
-        : {}),
-      ...(keygen.code ? { code: keygen.code } : {}),
-      ...(keygen.message ? { message: keygen.message } : {}),
-    };
-  } catch (e: unknown) {
-    const msg = (e && typeof e === 'object' && 'message' in e) ? String((e as any).message || 'keygen failed') : String(e || 'keygen failed');
-    return { ok: false, code: 'internal', message: msg };
-  }
+  if (!bootstrap.ok) return bootstrap;
+  return {
+    ok: true,
+    keygenSessionId: bootstrap.keygenSessionId,
+    rpId: bootstrap.rpId,
+    clientVerifyingShareB64u: bootstrap.clientVerifyingShareB64u,
+    groupPublicKeyB64u: bootstrap.groupPublicKeyB64u,
+    ethereumAddress: bootstrap.ethereumAddress,
+    relayerKeyId: bootstrap.relayerKeyId,
+    relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,
+    participantIds: bootstrap.participantIds,
+    ...(typeof bootstrap.chainId === 'string' && bootstrap.chainId.trim()
+      ? { chainId: bootstrap.chainId.trim() }
+      : {}),
+    ...(typeof bootstrap.factory === 'string' && bootstrap.factory.trim()
+      ? { factory: bootstrap.factory.trim() }
+      : {}),
+    ...(typeof bootstrap.entryPoint === 'string' && bootstrap.entryPoint.trim()
+      ? { entryPoint: bootstrap.entryPoint.trim() }
+      : {}),
+    ...(typeof bootstrap.salt === 'string' && bootstrap.salt.trim()
+      ? { salt: bootstrap.salt.trim() }
+      : {}),
+    ...(typeof bootstrap.counterfactualAddress === 'string' && bootstrap.counterfactualAddress.trim()
+      ? { counterfactualAddress: bootstrap.counterfactualAddress.trim() }
+      : {}),
+    ...(bootstrap.code ? { code: bootstrap.code } : {}),
+    ...(bootstrap.message ? { message: bootstrap.message } : {}),
+  };
 }

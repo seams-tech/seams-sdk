@@ -107,7 +107,7 @@ export async function installCreateAccountAndRegisterUserMock(page: Page, input:
   accountsOnChain?: Set<string>;
   onNewAccountId?: (accountId: string) => void;
 }): Promise<void> {
-  await page.route(`${input.relayerBaseUrl}/create_account_and_register_user`, async (route) => {
+  await page.route(`${input.relayerBaseUrl}/registration/bootstrap`, async (route) => {
     const req = route.request();
     const method = req.method().toUpperCase();
     if (method === 'OPTIONS') {

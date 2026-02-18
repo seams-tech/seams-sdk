@@ -177,6 +177,10 @@ export class TatchiPasskeyIframe {
         options: {
           onEvent: options?.onEvent,
           ...(options?.signerMode ? { signerMode: options.signerMode } : {}),
+          ...(typeof options?.backupLocalKey === 'boolean' ? { backupLocalKey: options.backupLocalKey } : {}),
+          ...(options?.signerOptions
+            ? { signerOptions: options.signerOptions }
+            : {}),
           ...(options?.confirmerText ? { confirmerText: options.confirmerText } : {})
         } // Bridge progress events from iframe to parent
       });
@@ -418,6 +422,11 @@ export class TatchiPasskeyIframe {
         confirmationConfig,
         options: {
           onEvent: options?.onEvent,
+          ...(options?.signerMode ? { signerMode: options.signerMode } : {}),
+          ...(typeof options?.backupLocalKey === 'boolean' ? { backupLocalKey: options.backupLocalKey } : {}),
+          ...(options?.signerOptions
+            ? { signerOptions: options.signerOptions }
+            : {}),
           ...(options?.confirmerText ? { confirmerText: options.confirmerText } : {})
         }
       });

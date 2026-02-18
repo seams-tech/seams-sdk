@@ -1,4 +1,5 @@
 use wasm_bindgen::prelude::*;
+use sha2::{Digest, Sha256};
 
 use crate::errors::js_core_err;
 
@@ -48,4 +49,28 @@ pub fn add_secp256k1_public_keys_33(left33: Vec<u8>, right33: Vec<u8>) -> Result
         right33.as_slice(),
     )
     .map_err(js_core_err)
+}
+
+pub fn derive_threshold_secp256k1_relayer_share(
+    master_secret: Vec<u8>,
+    relayer_key_id: String,
+) -> Result<Vec<u8>, JsValue> {
+    signer_platform_web::secp256k1::derive_threshold_secp256k1_relayer_share(
+        master_secret.as_slice(),
+        relayer_key_id.as_str(),
+    )
+    .map_err(js_core_err)
+}
+
+pub fn secp256k1_public_key_33_to_ethereum_address_20(
+    public_key33: Vec<u8>,
+) -> Result<Vec<u8>, JsValue> {
+    signer_platform_web::secp256k1::secp256k1_public_key_33_to_ethereum_address_20(
+        public_key33.as_slice(),
+    )
+    .map_err(js_core_err)
+}
+
+pub fn sha256_bytes(input: Vec<u8>) -> Result<Vec<u8>, JsValue> {
+    Ok(Sha256::digest(input.as_slice()).to_vec())
 }

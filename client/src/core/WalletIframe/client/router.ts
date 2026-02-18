@@ -1515,7 +1515,6 @@ export class WalletIframeRouter {
       case 'PM_SIGN_TXS_WITH_ACTIONS':
       case 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION':
       case 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA':
-      case 'PM_START_DEVICE2_LINKING_FLOW':
         return { mode: 'fullscreen' };
 
       // All other operations (background/read-only) don't need overlay

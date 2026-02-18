@@ -16,7 +16,7 @@ NEAR relay server that creates accounts on behalf of users, where the relayer pa
 - `GET /healthz` — basic server health + feature configuration hints (fast; no external dependency checks)
 - `GET /readyz` — readiness check
 
-### `POST /create_account_and_register_user`
+### `POST /registration/bootstrap`
 Atomically create a NEAR account and register a WebAuthn authenticator in relay storage (contract-free).
 
 - Request body (abridged): `{ new_account_id, new_public_key, device_number?, rp_id, webauthn_registration, authenticator_options? }`

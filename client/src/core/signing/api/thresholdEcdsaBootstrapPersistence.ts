@@ -52,6 +52,22 @@ function resolveBootstrapTargetChainId(args: {
   return args.chain === 'evm' ? 'eip155:unknown' : 'tempo:unknown';
 }
 
+function deriveMirrorChainDefaults(chain: ThresholdEcdsaActivationChain): {
+  chainId: string;
+  accountModel: 'erc4337' | 'tempo-native';
+} {
+  if (chain === 'evm') {
+    return {
+      chainId: 'tempo:unknown',
+      accountModel: 'tempo-native',
+    };
+  }
+  return {
+    chainId: 'eip155:unknown',
+    accountModel: 'erc4337',
+  };
+}
+
 export async function persistThresholdEcdsaBootstrapChainAccount(args: {
   indexedDB: ThresholdEcdsaBootstrapIndexedDbPort;
   nearAccountId: AccountId;
@@ -104,4 +120,25 @@ export async function persistThresholdEcdsaBootstrapChainAccount(args: {
     counterfactualAddress: accountAddress,
     deployed: false,
   });
+
+  // Provisioning once (tempo or evm) should still leave an "unknown" row for the
+  // counterpart chain so first-send deployment gates can resolve the account without
+  // forcing an extra WebAuthn bootstrap prompt.
+  const mirror = deriveMirrorChainDefaults(args.chain);
+  if (mirror.chainId !== chainId) {
+    await args.indexedDB.upsertChainAccount({
+      profileId: nearContext.profileId,
+      chainId: mirror.chainId,
+      accountAddress,
+      accountModel: mirror.accountModel,
+      isPrimary: true,
+      ...(factory ? { factory } : {}),
+      ...(entryPoint ? { entryPoint } : {}),
+      ...(salt ? { salt } : {}),
+      counterfactualAddress: accountAddress,
+      deployed: false,
+      deploymentTxHash: null,
+      lastDeploymentCheckAt: null,
+    });
+  }
 }

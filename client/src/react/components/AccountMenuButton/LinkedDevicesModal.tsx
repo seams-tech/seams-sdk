@@ -28,7 +28,11 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
   onClose
 }) => {
   const { tatchi, loginState, viewAccessKeyList } = useTatchi();
-  const { theme } = useTheme();
+  const { theme, tokens } = useTheme();
+  const scopedTokens = React.useMemo(
+    () => (theme === 'dark' ? { dark: tokens } : { light: tokens }),
+    [theme, tokens],
+  );
   const pageSize = 3;
   // Authenticators list: credentialId + registered timestamp + device number
   const [authRows, setAuthRows] = useState<Array<{
@@ -292,7 +296,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
   };
 
   return (
-    <Theme theme={theme}>
+    <Theme theme={theme} tokens={scopedTokens}>
       <div className={`w3a-access-keys-modal-backdrop theme-${theme}`}
         onClick={handleBackdropClick}
         onMouseDown={(e) => e.stopPropagation()}

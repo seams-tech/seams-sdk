@@ -38,6 +38,16 @@ function shortenHex(value: string, size = 24): string {
   return value.length <= size ? value : `${value.slice(0, size)}…`;
 }
 
+function hasWarmThresholdSession(keyRef: ThresholdEcdsaKeyRef | null | undefined): boolean {
+  if (!keyRef) return false;
+  const sessionId = String(keyRef.thresholdSessionId || '').trim();
+  if (!sessionId) return false;
+  const sessionKind = String(keyRef.thresholdSessionKind || 'jwt').trim().toLowerCase();
+  if (sessionKind !== 'jwt') return true;
+  const jwt = String(keyRef.thresholdSessionJwt || '').trim();
+  return jwt.length > 0;
+}
+
 function buildDemoTempoTransactionRequest() {
   const to = `0x${'11'.repeat(20)}` as `0x${string}`;
   const input = '0x' as `0x${string}`;
@@ -93,11 +103,6 @@ type LastEvmSigned = {
   rawTxHex: string;
 };
 
-type LastNearThresholdSigned = {
-  receiverId: string;
-  signedTxBytes: number;
-};
-
 type DemoPageTestOverrides = {
   useTatchiHook?: typeof useTatchi;
   useSetGreetingHook?: typeof useSetGreeting;
@@ -113,9 +118,6 @@ type DemoPageProps = {
 export const DemoPage: React.FC<DemoPageProps> = (props) => {
   const useTatchiHook = props.__testOverrides?.useTatchiHook || useTatchi;
   const useSetGreetingHook = props.__testOverrides?.useSetGreetingHook || useSetGreeting;
-  const provisionThresholdSigners =
-    props.__testOverrides?.provisionTempoAndEvmThresholdSigners ||
-    provisionTempoAndEvmThresholdSigners;
   const readCachedKeyRef =
     props.__testOverrides?.readCachedThresholdKeyRef || readCachedThresholdKeyRef;
   const resolveThresholdKeyRefForChain =
@@ -140,7 +142,6 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
   const [txLoading, setTxLoading] = useState(false);
   const [delegateLoading, setDelegateLoading] = useState(false);
   const [unlockLoading, setUnlockLoading] = useState(false);
-  const [sessionStatusLoading, setSessionStatusLoading] = useState(false);
   const [sessionRemainingUsesInput, setSessionRemainingUsesInput] = useState(3);
   const [sessionTtlSecondsInput, setSessionTtlSecondsInput] = useState(300);
   const [sessionStatus, setSessionStatus] = useState<{
@@ -151,8 +152,6 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     createdAtMs?: number;
   } | null>(null);
 
-  const [thresholdProvisionLoading, setThresholdProvisionLoading] = useState(false);
-  const [nearThresholdSignLoading, setNearThresholdSignLoading] = useState(false);
   const [tempoThresholdSignLoading, setTempoThresholdSignLoading] = useState(false);
   const [evmThresholdSignLoading, setEvmThresholdSignLoading] = useState(false);
   const [thresholdKeyRefs, setThresholdKeyRefs] = useState<{
@@ -164,13 +163,10 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
   });
   const [lastTempoSigned, setLastTempoSigned] = useState<LastTempoSigned | null>(null);
   const [lastEvmSigned, setLastEvmSigned] = useState<LastEvmSigned | null>(null);
-  const [lastNearThresholdSigned, setLastNearThresholdSigned] =
-    useState<LastNearThresholdSigned | null>(null);
 
   useEffect(() => {
     if (!nearAccountId) {
       setThresholdKeyRefs({ evm: null, tempo: null });
-      setLastNearThresholdSigned(null);
       setLastTempoSigned(null);
       setLastEvmSigned(null);
       return;
@@ -180,7 +176,6 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       evm: readCachedKeyRef(nearAccountId, 'evm'),
       tempo: readCachedKeyRef(nearAccountId, 'tempo'),
     });
-    setLastNearThresholdSigned(null);
     setLastTempoSigned(null);
     setLastEvmSigned(null);
   }, [nearAccountId, readCachedKeyRef]);
@@ -194,15 +189,12 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
 
   const refreshSessionStatus = useCallback(async () => {
     if (!nearAccountId) return;
-    setSessionStatusLoading(true);
     try {
       const sess = await tatchi.getLoginSession(nearAccountId);
       setSessionStatus(sess?.signingSession || null);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       toast.error(`Failed to fetch session status: ${message}`, { id: 'session-status' });
-    } finally {
-      setSessionStatusLoading(false);
     }
   }, [nearAccountId, tatchi]);
 
@@ -452,89 +444,21 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     tatchi,
   ]);
 
-  const handleSignNearThresholdTx = useCallback(async () => {
-    if (!canExecuteGreeting(greetingInput, isLoggedIn, nearAccountId)) return;
-
-    const toastId = 'near-threshold-sign';
-    setNearThresholdSignLoading(true);
-    toast.loading('Signing NEAR transaction with threshold signer…', { id: toastId });
-    try {
-      const signed = await tatchi.signTransactionsWithActions({
-        nearAccountId: nearAccountId!,
-        transactions: [
-          {
-            receiverId: WEBAUTHN_CONTRACT_ID,
-            actions: [createGreetingAction(greetingInput, { postfix: 'Threshold signed-only' })],
-          },
-        ],
-        options: {
-          onEvent: (event) => {
-            switch (event.phase) {
-              case ActionPhase.ACTION_ERROR:
-              case ActionPhase.WASM_ERROR:
-                toast.error(event.error || 'NEAR threshold signing failed', { id: toastId });
-                break;
-              default:
-                toast.loading(event.message || 'Signing NEAR transaction…', { id: toastId });
-            }
-          },
-        },
-      });
-
-      const first = signed[0];
-      if (!first?.signedTransaction) {
-        throw new Error('Signer returned no signed transaction');
-      }
-
-      const signedTxBytes = Array.isArray(first.signedTransaction.borsh_bytes)
-        ? first.signedTransaction.borsh_bytes.length
-        : 0;
-
-      setLastNearThresholdSigned({
-        receiverId: WEBAUTHN_CONTRACT_ID,
-        signedTxBytes,
-      });
-
-      toast.success('NEAR threshold transaction signed (not broadcast)', { id: toastId });
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      toast.error(`NEAR threshold signing failed: ${message}`, { id: toastId });
-    } finally {
-      setNearThresholdSignLoading(false);
-    }
-  }, [canExecuteGreeting, createGreetingAction, greetingInput, isLoggedIn, nearAccountId, tatchi]);
-
-  const handleProvisionThresholdSigners = useCallback(async () => {
-    if (!nearAccountId) return;
-    const toastId = 'threshold-signers-provision';
-    setThresholdProvisionLoading(true);
-    toast.loading('Provisioning Tempo + EVM threshold signers…', { id: toastId });
-    try {
-      const provisioned = await provisionThresholdSigners({
-        tatchi,
-        nearAccountId,
-        ttlMs: THRESHOLD_SIGNER_TTL_MS,
-        remainingUses: THRESHOLD_SIGNER_REMAINING_USES,
-      });
-      setThresholdKeyRefs({
-        evm: provisioned.evm.thresholdEcdsaKeyRef,
-        tempo: provisioned.tempo.thresholdEcdsaKeyRef,
-      });
-      toast.success('Tempo and EVM threshold signers are ready', { id: toastId });
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      toast.error(`Threshold signer provisioning failed: ${message}`, { id: toastId });
-    } finally {
-      setThresholdProvisionLoading(false);
-    }
-  }, [nearAccountId, provisionThresholdSigners, tatchi]);
-
   const getKeyRefForChain = useCallback(
     async (chain: ThresholdEcdsaChain, forceReprovision = false): Promise<ThresholdEcdsaKeyRef> => {
       if (!nearAccountId) throw new Error('Missing nearAccountId');
       if (!forceReprovision) {
         const inMemory = thresholdKeyRefs[chain];
+        const cached = readCachedKeyRef(nearAccountId, chain);
+        if (cached && hasWarmThresholdSession(cached) && !hasWarmThresholdSession(inMemory)) {
+          setThresholdKeyRefForChain(chain, cached);
+          return cached;
+        }
         if (inMemory) return inMemory;
+        if (cached) {
+          setThresholdKeyRefForChain(chain, cached);
+          return cached;
+        }
       }
       const keyRef = await resolveThresholdKeyRefForChain({
         tatchi,
@@ -649,7 +573,6 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     sessionStatus?.expiresAtMs != null
       ? Math.max(0, Math.ceil((sessionStatus.expiresAtMs - clockMs) / 1000))
       : null;
-  const thresholdProvisionBusy = thresholdProvisionLoading || sessionStatusLoading;
 
   return (
     <div>
@@ -715,45 +638,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
             Send Delegate Action
           </LoadingButton>
 
-          <LoadingButton
-            onClick={handleSignNearThresholdTx}
-            loading={nearThresholdSignLoading}
-            loadingText="Signing..."
-            variant="secondary"
-            size="medium"
-            className="greeting-btn"
-            disabled={
-              !canExecuteGreeting(greetingInput, isLoggedIn, nearAccountId) ||
-              nearThresholdSignLoading
-            }
-            style={{ width: 280, marginTop: '0.5rem' }}
-          >
-            Sign NEAR Threshold Transaction
-          </LoadingButton>
-
           {error && <div className="error-message">Error: {error}</div>}
-
-          {lastNearThresholdSigned ? (
-            <div
-              style={{
-                marginTop: 12,
-                background: 'var(--fe-bg-secondary)',
-                border: '1px solid var(--fe-border)',
-                borderRadius: 'var(--fe-radius-lg)',
-                padding: 'var(--fe-gap-3)',
-                fontSize: '0.85rem',
-                color: 'var(--fe-text)',
-              }}
-            >
-              <div>
-                <strong>NEAR receiver:</strong> <code>{lastNearThresholdSigned.receiverId}</code>
-              </div>
-              <div style={{ marginTop: 6 }}>
-                <strong>NEAR signed tx size:</strong>{' '}
-                <code>{lastNearThresholdSigned.signedTxBytes} bytes</code>
-              </div>
-            </div>
-          ) : null}
         </div>
       </div>
 
@@ -762,8 +647,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
         <h2 className="demo-subtitle">Tempo + EVM Threshold Signers</h2>
         <div className="action-text">
           Registration provisions your NEAR threshold signer, and login/registration attempts to
-          auto-provision Tempo + EVM signers. Use this control to re-provision if needed, then sign
-          one sample transaction on each chain.
+          auto-provision Tempo + EVM signers. Sign one sample transaction on each chain.
         </div>
 
         <div
@@ -792,17 +676,6 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
             </div>
           </div>
         </div>
-
-        <LoadingButton
-          onClick={handleProvisionThresholdSigners}
-          loading={thresholdProvisionBusy}
-          loadingText="Provisioning..."
-          variant="secondary"
-          size="medium"
-          style={{ width: 280, marginTop: 12 }}
-        >
-          Re-provision Tempo + EVM Signers
-        </LoadingButton>
 
         <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
           <LoadingButton

@@ -3,10 +3,10 @@ import NavbarProfileOverlay from './Navbar/NavbarProfileOverlay'
 import { preloadPasskeyAuthMenu, useTatchi } from '@tatchi-xyz/sdk/react'
 
 import { GlassBorder } from './GlassBorder';
-import { CarouselProvider } from './Carousel2/CarouselProvider'
-import { Carousel } from './Carousel2/Carousel'
-import { CarouselNextButton } from './Carousel2/CarouselNextButton'
-import { CarouselPrevButton } from './Carousel2/CarouselPrevButton'
+import { CarouselProvider } from './Carousel/CarouselProvider'
+import { Carousel } from './Carousel/Carousel'
+import { CarouselNextButton } from './Carousel/CarouselNextButton'
+import { CarouselPrevButton } from './Carousel/CarouselPrevButton'
 
 // Lazily load the most common flows to shrink the initial bundle.
 const PasskeyLoginMenu = React.lazy(() => import('./PasskeyLoginMenu').then(m => ({ default: m.PasskeyLoginMenu })))
@@ -33,7 +33,7 @@ export function DemoPasskeyColumn() {
   const pages = React.useMemo(() => ([
     {
       key: 'demo-auth',
-      title: 'Demo',
+      title: 'Login',
       element: ({ nextSlide, canNext, index }: { nextSlide: () => void; canNext: boolean; index: number }) => (
         <>
           <PrefetchOnIntent onIntent={prefetchPasskeyMenu}>
@@ -80,7 +80,7 @@ export function DemoPasskeyColumn() {
 	    {
 	      key: 'sync-account',
 	      title: 'Account Recovery',
-	      disabled: false,
+	      disabled: !loginState?.isLoggedIn,
 	      element: ({ prevSlide, canPrev, index }: { prevSlide: () => void; canPrev: boolean; index: number }) => (
 	        <>
 	          <React.Suspense fallback={<SuspenseFallback />}>
@@ -104,8 +104,8 @@ export function DemoPasskeyColumn() {
 
   return (
     <ProfileMenuControlProvider>
-      <NavbarProfileOverlay />
       <div className="passkey-demo">
+        {loginState?.isLoggedIn ? <NavbarProfileOverlay /> : null}
         <AuthMenuControlProvider>
           <CarouselProvider
             pages={pages}

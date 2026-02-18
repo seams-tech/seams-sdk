@@ -82,9 +82,14 @@ export default {
 
 ## Routes exposed by the routers
 
-- POST `/create_account_and_register_user` — atomic account creation + passkey registration (contract-free). Body:
-  - `{ new_account_id, new_public_key, device_number?, rp_id, webauthn_registration, expected_origin?, authenticator_options? }`
+- POST `/registration/bootstrap` — atomic account creation + passkey registration (contract-free). Body:
+  - `{ new_account_id, new_public_key, device_number?, rp_id, webauthn_registration, expected_origin?, authenticator_options?, threshold_ed25519?, threshold_ecdsa? }`
   - Note: `new_account_id` must be a subaccount of `relayerAccountId` (`RELAYER_ACCOUNT_ID`) because the relayer signs the `CreateAccount` transaction.
+- POST `/smart-account/deploy` — smart-account deploy hook used by SDK deploy-on-first-use gate. Body:
+  - `{ nearAccountId, chain: 'evm' | 'tempo', chainId, accountAddress, accountModel, counterfactualAddress?, factory?, entryPoint?, salt? }`
+  - Route behavior:
+    - default (no router hook configured): returns `{ ok: true, code: 'assumed_deployed' }`
+    - with `createRelayRouter(..., { smartAccountDeploy })` / `createCloudflareRouter(..., { smartAccountDeploy })`: forwards request to your deployer callback
 - POST `/auth/passkey/options` — mint a server-side WebAuthn login challenge (replay-protected). Body:
   - `{ user_id, rp_id, ttl_ms? }` → returns `{ challengeId, challengeB64u, expiresAtMs }`
 - POST `/auth/passkey/verify` — WebAuthn verification + optional session issuance (contract-free). Body:

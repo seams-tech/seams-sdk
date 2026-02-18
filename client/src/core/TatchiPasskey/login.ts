@@ -20,6 +20,7 @@ import type { ClientAuthenticatorData, ClientUserData } from '../IndexedDBManage
 import { createWebAuthnLoginOptions, verifyWebAuthnLogin } from '../near/rpcCalls';
 import { parseDeviceNumber } from '../signing/webauthn/device/getDeviceNumber';
 import { clearAllCachedThresholdEd25519AuthSessions } from '../signing/threshold/session/thresholdEd25519AuthSession';
+import { clearAllCachedThresholdEcdsaAuthSessions } from '../signing/threshold/session/thresholdEcdsaAuthSession';
 import { normalizeThresholdEd25519ParticipantIds } from '../../../../shared/src/threshold/participants';
 
 /**
@@ -113,61 +114,126 @@ export async function loginAndCreateSession(
     })();
 
     let signingSession: LoginAndCreateSessionResult['signingSession'] | undefined;
+    let thresholdEcdsaKeyRef: LoginAndCreateSessionResult['thresholdEcdsaKeyRef'] | undefined;
+    const isThresholdSignerMode = context.configs?.signerMode?.mode === 'threshold-signer';
+    // Warm sessions are enabled when policy budgets are non-zero.
+    const shouldWarmThresholdSigningSession =
+      signingSessionPolicy.ttlMs > 0 && signingSessionPolicy.remainingUses > 0;
+    // In threshold-signer mode, warm session bootstrap must succeed during login.
+    const requireThresholdWarmup = isThresholdSignerMode && shouldWarmThresholdSigningSession;
+    const shouldWarmThresholdEcdsaDuringLogin = requireThresholdWarmup && (
+      context.configs?.registrationSignerDefaults?.tempo?.enabled === true
+      || context.configs?.registrationSignerDefaults?.evm?.enabled === true
+    );
+
+    const requireActiveWarmSession = (source: string): void => {
+      if (signingSession?.status === 'active') return;
+      const status = String(signingSession?.status || 'not_found');
+      throw new Error(`[login] ${source} did not produce an active warm signing session (status=${status})`);
+    };
 
     const maybeWarmThresholdSigningSession = async (deviceNumber: number): Promise<void> => {
-      try {
-        if (context.configs?.signerMode?.mode !== 'threshold-signer') return;
-        if (!signingSessionPolicy.ttlMs || !signingSessionPolicy.remainingUses) return;
+      if (!requireThresholdWarmup) return;
 
-        const thresholdKeyMaterial = await IndexedDBManager
-          .getNearThresholdKeyMaterialV2First(nearAccountId, deviceNumber)
-          .catch(() => null);
-        if (!thresholdKeyMaterial) return;
-
-        const relayerUrl = String(context.configs?.relayer?.url || '').trim();
-        if (!relayerUrl) return;
-
-        const participantIds = normalizeThresholdEd25519ParticipantIds(thresholdKeyMaterial.participants?.map((p) => p.id));
-
-        onEvent?.({
-          step: 2,
-          phase: LoginPhase.STEP_2_WEBAUTHN_ASSERTION,
-          status: LoginStatus.PROGRESS,
-          message: 'Preparing a warm signing session...',
-        });
-
-        await webAuthnManager.connectThresholdEd25519SessionLite({
-          nearAccountId,
-          relayerKeyId: thresholdKeyMaterial.relayerKeyId,
-          ...(participantIds ? { participantIds } : {}),
-          relayerUrl,
-          sessionKind: 'jwt',
-          ttlMs: signingSessionPolicy.ttlMs,
-          remainingUses: signingSessionPolicy.remainingUses,
-        });
-
-        signingSession = await webAuthnManager.getWarmSigningSessionStatus(nearAccountId).catch(() => null) || undefined;
-        if (signingSession?.status === 'active') {
-          onEvent?.({
-            step: 3,
-            phase: LoginPhase.STEP_3_SESSION_READY,
-            status: LoginStatus.PROGRESS,
-            message: 'Warm signing session ready',
-          });
-        }
-      } catch {
-        // Best-effort: signing flows can still prompt later.
+      const thresholdKeyMaterial = await IndexedDBManager
+        .getNearThresholdKeyMaterialV2First(nearAccountId, deviceNumber)
+        .catch(() => null);
+      if (!thresholdKeyMaterial?.relayerKeyId) {
+        throw new Error(
+          `[login] threshold-signer mode requires enrolled threshold ed25519 key material for ${nearAccountId}`,
+        );
       }
+
+      const relayerUrl = String(context.configs?.relayer?.url || '').trim();
+      if (!relayerUrl) {
+        throw new Error('[login] threshold warm session requires relayer.url to be configured');
+      }
+
+      const participantIds = normalizeThresholdEd25519ParticipantIds(
+        thresholdKeyMaterial.participants?.map((p) => p.id),
+      );
+
+      onEvent?.({
+        step: 2,
+        phase: LoginPhase.STEP_2_WEBAUTHN_ASSERTION,
+        status: LoginStatus.PROGRESS,
+        message: 'Preparing a warm NEAR signing session...',
+      });
+
+      const connect = await webAuthnManager.connectThresholdEd25519SessionLite({
+        nearAccountId,
+        relayerKeyId: thresholdKeyMaterial.relayerKeyId,
+        ...(participantIds ? { participantIds } : {}),
+        relayerUrl,
+        sessionKind: 'jwt',
+        ttlMs: signingSessionPolicy.ttlMs,
+        remainingUses: signingSessionPolicy.remainingUses,
+      });
+      if (!connect.ok) {
+        throw new Error(connect.message || connect.code || 'Failed to connect threshold ed25519 signing session');
+      }
+
+      signingSession = await webAuthnManager.getWarmSigningSessionStatus(nearAccountId).catch(() => null) || undefined;
+      requireActiveWarmSession('threshold ed25519 warm-up');
+
+      onEvent?.({
+        step: 3,
+        phase: LoginPhase.STEP_3_SESSION_READY,
+        status: LoginStatus.PROGRESS,
+        message: 'Warm signing session ready',
+      });
+    };
+
+    const maybeWarmThresholdEcdsaSigningSession = async (): Promise<void> => {
+      if (!requireThresholdWarmup) return;
+
+      const relayerUrl = String(context.configs?.relayer?.url || '').trim();
+      if (!relayerUrl) {
+        throw new Error('[login] threshold ECDSA warm session requires relayer.url to be configured');
+      }
+
+      onEvent?.({
+        step: 2,
+        phase: LoginPhase.STEP_2_WEBAUTHN_ASSERTION,
+        status: LoginStatus.PROGRESS,
+        message: 'Preparing a warm Tempo/EVM signing session...',
+      });
+
+      const bootstrap = await webAuthnManager.bootstrapThresholdEcdsaSessionLite({
+        nearAccountId,
+        chain: 'tempo',
+        relayerUrl,
+        sessionKind: 'jwt',
+        ttlMs: signingSessionPolicy.ttlMs,
+        remainingUses: signingSessionPolicy.remainingUses,
+      });
+      const keyRef = bootstrap.thresholdEcdsaKeyRef;
+      const thresholdSessionId = String(keyRef?.thresholdSessionId || '').trim();
+      const thresholdSessionJwt = String(keyRef?.thresholdSessionJwt || '').trim();
+      if (!keyRef || !thresholdSessionId || !thresholdSessionJwt) {
+        throw new Error('[login] threshold ECDSA warm-up completed without a valid threshold session keyRef');
+      }
+      thresholdEcdsaKeyRef = keyRef;
+
+      const warmStatus = await webAuthnManager.getWarmSigningSessionStatus(nearAccountId).catch(() => null);
+      signingSession = warmStatus || signingSession;
+      requireActiveWarmSession('threshold ECDSA warm-up');
+
+      onEvent?.({
+        step: 3,
+        phase: LoginPhase.STEP_3_SESSION_READY,
+        status: LoginStatus.PROGRESS,
+        message: 'Warm Tempo/EVM signing session ready',
+      });
+    };
+
+    const persistSuccessfulLoginState = async (deviceNumber: number): Promise<void> => {
+      await webAuthnManager.setLastUser(nearAccountId, deviceNumber).catch(() => undefined);
+      await webAuthnManager.updateLastLogin(nearAccountId).catch(() => undefined);
     };
 
     const session = options?.session;
     const wantsServerSession = session !== undefined;
-    // Avoid two consecutive WebAuthn prompts during login:
-    // - server session mint already performs a passkey assertion
-    // - threshold warm session mint performs another assertion
-    // Default behavior for server-session login is to skip warmup unless the
-    // caller explicitly requested warm policy overrides.
-    const shouldWarmThresholdSigningSession = !wantsServerSession || options?.signingSession !== undefined;
 
     if (wantsServerSession) {
       const relayUrl = (session?.relayUrl || context.configs.relayer.url).trim();
@@ -214,9 +280,6 @@ export async function loginAndCreateSession(
         baseDeviceNumber,
       );
 
-      await webAuthnManager.setLastUser(nearAccountId, selectedDeviceNumber).catch(() => undefined);
-      await webAuthnManager.updateLastLogin(nearAccountId).catch(() => undefined);
-
       const selectedUserData = await webAuthnManager
         .getUserByDevice(nearAccountId, selectedDeviceNumber)
         .catch(() => userData);
@@ -244,27 +307,37 @@ export async function loginAndCreateSession(
         ...(v.jwt ? { jwt: v.jwt } : {}),
       };
 
-      if (shouldWarmThresholdSigningSession) {
-        await maybeWarmThresholdSigningSession(selectedDeviceNumber);
+      if (requireThresholdWarmup) {
+        if (shouldWarmThresholdEcdsaDuringLogin) {
+          await maybeWarmThresholdEcdsaSigningSession();
+        } else {
+          await maybeWarmThresholdSigningSession(selectedDeviceNumber);
+        }
       }
+
+      await persistSuccessfulLoginState(selectedDeviceNumber);
 
       return await finalizeLoginSuccess({
         nearAccountId,
         loginResult: {
           ...(loginResult as any),
           ...(signingSession ? { signingSession } : {}),
+          ...(thresholdEcdsaKeyRef ? { thresholdEcdsaKeyRef } : {}),
         },
         onEvent,
         afterCall,
       });
     }
 
-    await webAuthnManager.setLastUser(nearAccountId, baseDeviceNumber).catch(() => undefined);
-    await webAuthnManager.updateLastLogin(nearAccountId).catch(() => undefined);
-
-    if (shouldWarmThresholdSigningSession) {
-      await maybeWarmThresholdSigningSession(baseDeviceNumber);
+    if (requireThresholdWarmup) {
+      if (shouldWarmThresholdEcdsaDuringLogin) {
+        await maybeWarmThresholdEcdsaSigningSession();
+      } else {
+        await maybeWarmThresholdSigningSession(baseDeviceNumber);
+      }
     }
+
+    await persistSuccessfulLoginState(baseDeviceNumber);
 
     const loginResult: LoginAndCreateSessionResult = {
       success: true,
@@ -272,6 +345,7 @@ export async function loginAndCreateSession(
       clientNearPublicKey: userData.clientNearPublicKey,
       nearAccountId,
       ...(signingSession ? { signingSession } : {}),
+      ...(thresholdEcdsaKeyRef ? { thresholdEcdsaKeyRef } : {}),
     };
 
     return await finalizeLoginSuccess({
@@ -375,7 +449,10 @@ function prioritizeAuthenticatorsByDeviceNumber(
 /**
  * High-level login snapshot used by React contexts/UI.
  *
- * Login state is derived from the IndexedDB last-user pointer (no worker dependency).
+ * Login state is derived from:
+ * - IndexedDB last-user pointer, and
+ * - when threshold-signer warm sessions are enabled, an active PRF-first cache entry
+ *   in the SecureConfirm worker for the account's active signing session id.
  */
 export async function getLoginSession(
   context: PasskeyManagerContext,
@@ -409,10 +486,25 @@ async function getLoginStateInternal(
     const userData = lastUser;
     const publicKey = userData?.clientNearPublicKey || null;
     const isLoggedIn = !!(userData && userData.clientNearPublicKey);
+    const resolvedNearAccountId = targetAccountId ?? null;
+
+    if (isLoggedIn && shouldRequireActiveWarmSessionForLoginState(context)) {
+      const warmStatus = resolvedNearAccountId
+        ? await webAuthnManager.getWarmSigningSessionStatus(resolvedNearAccountId).catch(() => null)
+        : null;
+      if (!warmStatus || warmStatus.status !== 'active') {
+        return {
+          isLoggedIn: false,
+          nearAccountId: resolvedNearAccountId,
+          publicKey: null,
+          userData: null,
+        };
+      }
+    }
 
     return {
       isLoggedIn,
-      nearAccountId: targetAccountId,
+      nearAccountId: resolvedNearAccountId,
       publicKey,
       userData,
     };
@@ -425,6 +517,19 @@ async function getLoginStateInternal(
       userData: null,
     };
   }
+}
+
+function shouldRequireActiveWarmSessionForLoginState(
+  context: PasskeyManagerContext,
+): boolean {
+  if (context.configs?.signerMode?.mode !== 'threshold-signer') return false;
+  const ttlMsRaw = context.configs?.signingSessionDefaults?.ttlMs;
+  const remainingUsesRaw = context.configs?.signingSessionDefaults?.remainingUses;
+  const ttlMs = typeof ttlMsRaw === 'number' ? Math.floor(ttlMsRaw) : Math.floor(Number(ttlMsRaw) || 0);
+  const remainingUses = typeof remainingUsesRaw === 'number'
+    ? Math.floor(remainingUsesRaw)
+    : Math.floor(Number(remainingUsesRaw) || 0);
+  return ttlMs > 0 && remainingUses > 0;
 }
 
 /**
@@ -452,5 +557,7 @@ export async function logoutAndClearSession(context: PasskeyManagerContext): Pro
   const { webAuthnManager } = context;
   await IndexedDBManager.clientDB.clearLastProfileSelection().catch(() => undefined);
   try { webAuthnManager.getNonceManager().clear(); } catch {}
+  try { await webAuthnManager.clearWarmSigningSessions(); } catch {}
   try { clearAllCachedThresholdEd25519AuthSessions(); } catch {}
+  try { clearAllCachedThresholdEcdsaAuthSessions(); } catch {}
 }

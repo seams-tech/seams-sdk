@@ -3,6 +3,7 @@ import type {
   TatchiConfigs,
   TatchiConfigsInput,
 } from '../types/tatchi';
+import type { RegistrationSignerOptions } from '../types/registrationSignerOptions';
 import { coerceSignerMode } from '../types/signer-worker';
 import { toTrimmedString } from '../../../../shared/src/utils/validation';
 import { coerceThemeName } from '../../../../shared/src/utils/theme';
@@ -10,6 +11,23 @@ import { coerceThemeName } from '../../../../shared/src/utils/theme';
 // Default SDK configs suitable for local dev.
 // Cross-origin wallet isolation is recommended; set iframeWallet in your app config when you have a dedicated origin.
 // Consumers can shallow-merge overrides by field.
+
+export const DEFAULT_REGISTRATION_SIGNER_OPTIONS: RegistrationSignerOptions = {
+  tempo: {
+    enabled: true,
+    participantIds: [1, 2],
+    sessionKind: 'jwt',
+    ttlMs: 24 * 60 * 60 * 1000,
+    remainingUses: 10_000,
+  },
+  evm: {
+    enabled: true,
+    participantIds: [1, 2],
+    sessionKind: 'jwt',
+    ttlMs: 24 * 60 * 60 * 1000,
+    remainingUses: 10_000,
+  },
+};
 
 export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigs = {
   // You can provide a single URL or a comma-separated list for failover.
@@ -33,9 +51,10 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigs = {
   // Warm signing session defaults used by login/unlock flows.
   // Enforcement (TTL/uses) is owned by the SecureConfirm worker (wallet origin); signer workers remain one-shot.
   signingSessionDefaults: {
-    ttlMs: 0, // 0 minutes
-    remainingUses: 0, // default to requiring a touchID prompt for each transaction
+    ttlMs: 24 * 60 * 60 * 1000, // 1 day
+    remainingUses: 10_000,
   },
+  registrationSignerDefaults: DEFAULT_REGISTRATION_SIGNER_OPTIONS,
   relayer: {
     // accountId: 'w3a-v1.testnet',
     // No default relayer URL. Force apps to configure via env/overrides.
@@ -87,7 +106,7 @@ function coercePositiveIntInRange(value: unknown, fallback: number, min: number,
 }
 
 function coerceThemePaletteName(value: unknown): ThemePaletteName | undefined {
-  return value === 'default' || value === 'cream' ? value : undefined;
+  return value === 'default' ? value : undefined;
 }
 
 function toStringRecord(value: unknown): Record<string, string> {
@@ -97,6 +116,27 @@ function toStringRecord(value: unknown): Record<string, string> {
     if (typeof v === 'string') out[k] = v;
   }
   return out;
+}
+
+function cloneRegistrationSignerOptions(
+  value: RegistrationSignerOptions,
+): RegistrationSignerOptions {
+  return {
+    tempo: {
+      ...value.tempo,
+      participantIds: Array.isArray(value.tempo.participantIds)
+        ? [...value.tempo.participantIds]
+        : [],
+      ...(value.tempo.smartAccount ? { smartAccount: { ...value.tempo.smartAccount } } : {}),
+    },
+    evm: {
+      ...value.evm,
+      participantIds: Array.isArray(value.evm.participantIds)
+        ? [...value.evm.participantIds]
+        : [],
+      ...(value.evm.smartAccount ? { smartAccount: { ...value.evm.smartAccount } } : {}),
+    },
+  };
 }
 
 // Merge defaults with overrides
@@ -137,6 +177,9 @@ export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiC
   const defaultDarkColors = toStringRecord(defaults.appearance.tokens.dark.colors);
   const overrideLightColors = toStringRecord(overrides.appearance?.tokens?.light?.colors);
   const overrideDarkColors = toStringRecord(overrides.appearance?.tokens?.dark?.colors);
+  const registrationSignerDefaults = cloneRegistrationSignerOptions(
+    overrides.registrationSignerDefaults ?? defaults.registrationSignerDefaults,
+  );
   const merged: TatchiConfigs = {
     nearRpcUrl: overrides.nearRpcUrl ?? defaults.nearRpcUrl,
     nearNetwork: overrides.nearNetwork ?? defaults.nearNetwork,
@@ -168,6 +211,7 @@ export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiC
       remainingUses: overrides.signingSessionDefaults?.remainingUses
         ?? defaults.signingSessionDefaults?.remainingUses,
     },
+    registrationSignerDefaults,
     relayer: {
       url: relayerUrl,
       delegateActionRoute: overrides.relayer?.delegateActionRoute

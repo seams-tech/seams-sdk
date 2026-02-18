@@ -3,7 +3,7 @@ import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import { isObject, json, readJson } from '../http';
 
 export async function handleCreateAccountAndRegisterUser(ctx: CloudflareRelayContext): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/create_account_and_register_user') return null;
+  if (ctx.method !== 'POST' || ctx.pathname !== '/registration/bootstrap') return null;
 
   const body = await readJson(ctx.request);
   if (!isObject(body)) {
@@ -17,6 +17,9 @@ export async function handleCreateAccountAndRegisterUser(ctx: CloudflareRelayCon
     : Number((body as Record<string, unknown>).device_number);
   const threshold_ed25519 = isObject((body as Record<string, unknown>).threshold_ed25519)
     ? (body as Record<string, unknown>).threshold_ed25519
+    : undefined;
+  const threshold_ecdsa = isObject((body as Record<string, unknown>).threshold_ecdsa)
+    ? (body as Record<string, unknown>).threshold_ecdsa
     : undefined;
   const rp_id = typeof (body as Record<string, unknown>).rp_id === 'string'
     ? String((body as Record<string, unknown>).rp_id || '').trim()
@@ -41,6 +44,7 @@ export async function handleCreateAccountAndRegisterUser(ctx: CloudflareRelayCon
     ...(new_public_key ? { new_public_key } : {}),
     device_number,
     ...(threshold_ed25519 ? { threshold_ed25519 } : {}),
+    ...(threshold_ecdsa ? { threshold_ecdsa } : {}),
     rp_id,
     webauthn_registration,
     expected_origin: ctx.request.headers.get('origin') || ctx.request.headers.get('Origin') || undefined,
@@ -49,5 +53,91 @@ export async function handleCreateAccountAndRegisterUser(ctx: CloudflareRelayCon
 
   const result = await ctx.service.createAccountAndRegisterUser(input);
   const response: CreateAccountAndRegisterResult = result;
-  return json(response, { status: response.success ? 200 : 400 });
+  if (!response.success) return json(response, { status: 400 });
+
+  const session = ctx.opts.session;
+  if (!session) return json(response, { status: 200 });
+
+  const signThresholdSessionJwt = async (args: {
+    kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v1';
+    userId: string;
+    sessionId: string;
+    relayerKeyId: string;
+    rpId: string;
+    participantIds: number[];
+    thresholdExpiresAtMs: number;
+  }): Promise<string> => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const expSec = Math.floor(args.thresholdExpiresAtMs / 1000);
+    return await session.signJwt(args.userId, {
+      kind: args.kind,
+      sessionId: args.sessionId,
+      relayerKeyId: args.relayerKeyId,
+      rpId: args.rpId,
+      participantIds: args.participantIds,
+      thresholdExpiresAtMs: args.thresholdExpiresAtMs,
+      iat: nowSec,
+      exp: expSec,
+    });
+  };
+
+  if (response.thresholdEd25519?.session) {
+    const sessionInfo = response.thresholdEd25519.session;
+    const sessionKind = String(sessionInfo.sessionKind || '').trim().toLowerCase();
+    if (sessionKind !== 'jwt') {
+      return json({ success: false, error: 'threshold_ed25519.session_kind must be jwt' }, { status: 400 });
+    }
+    const sessionId = String(sessionInfo.sessionId || '').trim();
+    const relayerKeyId = String(response.thresholdEd25519.relayerKeyId || '').trim();
+    const thresholdExpiresAtMs = Number(sessionInfo.expiresAtMs);
+    const participantIds = Array.isArray(sessionInfo.participantIds)
+      ? sessionInfo.participantIds
+      : Array.isArray(response.thresholdEd25519.participantIds)
+        ? response.thresholdEd25519.participantIds
+        : [];
+    if (!sessionId || !relayerKeyId || !Number.isFinite(thresholdExpiresAtMs) || thresholdExpiresAtMs <= 0 || participantIds.length < 2) {
+      return json({ success: false, error: 'invalid thresholdEd25519 session payload for jwt signing' }, { status: 500 });
+    }
+    const jwt = await signThresholdSessionJwt({
+      kind: 'threshold_ed25519_session_v1',
+      userId: new_account_id,
+      sessionId,
+      relayerKeyId,
+      rpId: rp_id,
+      participantIds,
+      thresholdExpiresAtMs,
+    });
+    response.thresholdEd25519.session.jwt = jwt;
+  }
+
+  if (response.thresholdEcdsa?.session) {
+    const sessionInfo = response.thresholdEcdsa.session;
+    const sessionKind = String(sessionInfo.sessionKind || '').trim().toLowerCase();
+    if (sessionKind !== 'jwt') {
+      return json({ success: false, error: 'threshold_ecdsa.session_kind must be jwt' }, { status: 400 });
+    }
+    const sessionId = String(sessionInfo.sessionId || '').trim();
+    const relayerKeyId = String(response.thresholdEcdsa.relayerKeyId || '').trim();
+    const thresholdExpiresAtMs = Number(sessionInfo.expiresAtMs);
+    const participantIds = Array.isArray(sessionInfo.participantIds)
+      ? sessionInfo.participantIds
+      : Array.isArray(response.thresholdEcdsa.participantIds)
+        ? response.thresholdEcdsa.participantIds
+        : [];
+    if (!sessionId || !relayerKeyId || !Number.isFinite(thresholdExpiresAtMs) || thresholdExpiresAtMs <= 0 || participantIds.length < 2) {
+      return json({ success: false, error: 'invalid thresholdEcdsa session payload for jwt signing' }, { status: 500 });
+    }
+    const jwt = await signThresholdSessionJwt({
+      kind: 'threshold_ecdsa_session_v1',
+      userId: new_account_id,
+      sessionId,
+      relayerKeyId,
+      rpId: rp_id,
+      participantIds,
+      thresholdExpiresAtMs,
+    });
+    response.thresholdEcdsa.session.jwt = jwt;
+  }
+
+  return json(response, { status: 200 });
 }

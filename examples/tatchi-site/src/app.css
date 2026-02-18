@@ -9,12 +9,13 @@
 @import './components/ArrowRightAnim.css';
 @import './components/Footer.css';
 @import './components/Navbar/Navbar.css';
-@import './components/Carousel2/CarouselStyles.css';
+@import './components/Carousel/CarouselStyles.css';
 @import './styles/site-pages.css';
 @import './styles/contact-page.css';
 @import './styles/pricing-page.css';
 @import './styles/dashboard-page.css';
 @import './styles/security-diagrams.css';
+@import './styles/gradient-utilities.css';
 
 
 :root, :host {
@@ -52,26 +53,52 @@
 
 /* Ensure app variables derive from SDK tokens at the theme boundary inside ShadowRoot */
 .w3a-theme-provider, [data-w3a-theme] {
-  --fe-primary: var(--w3a-colors-primary);
-  --fe-primary-hover: var(--w3a-colors-primaryHover);
-  --fe-bg: var(--w3a-colors-colorBackground);
-  --fe-surface: var(--w3a-colors-surface);
-  --fe-surface-solid: var(--w3a-colors-surface2);
-  --fe-text: var(--w3a-colors-textPrimary);
-  --fe-text-primary: var(--w3a-colors-textPrimary);
-  --fe-text-secondary: var(--w3a-colors-textSecondary);
-  --fe-text-dim: var(--w3a-colors-textSecondary);
-  --fe-border: var(--w3a-colors-borderPrimary);
-  --fe-border-strong: var(--w3a-colors-borderHover);
+  /* Site semantic aliases (core roles) */
+  --site-canvas: var(--w3a-colors-colorBackground);
+  --site-surface: var(--w3a-colors-surface);
+  --site-surface-muted: var(--w3a-colors-surface2);
+  --site-surface-strong: var(--w3a-colors-surface3);
+  --site-text-primary: var(--w3a-colors-textPrimary);
+  --site-text-secondary: var(--w3a-colors-textSecondary);
+  --site-text-button: var(--w3a-colors-textButton);
+  --site-border: var(--w3a-colors-borderPrimary);
+  --site-border-strong: var(--w3a-colors-borderHover);
+  --site-focus: var(--w3a-colors-focus);
+  --site-brand: var(--w3a-colors-primary);
+  --site-brand-hover: var(--w3a-colors-primaryHover);
+  --site-accent: var(--w3a-colors-secondary);
+  --site-accent-hover: var(--w3a-colors-secondaryHover);
+  --site-danger: var(--w3a-colors-error);
+  --site-success: var(--w3a-colors-success);
+
+  /* Site semantic aliases (component domains) */
+  --site-navbar-surface: var(--site-surface-strong);
+  --site-footer-surface: var(--site-surface-muted);
+  --site-marketing-surface: var(--site-surface);
+  --site-form-surface: var(--site-surface-muted);
+  --site-carousel-surface: var(--site-surface);
+
+  /* Legacy aliases kept for compatibility with existing CSS. */
+  --fe-primary: var(--site-brand);
+  --fe-primary-hover: var(--site-brand-hover);
+  --fe-bg: var(--site-canvas);
+  --fe-surface: var(--site-surface);
+  --fe-surface-solid: var(--site-surface-muted);
+  --fe-text: var(--site-text-primary);
+  --fe-text-primary: var(--site-text-primary);
+  --fe-text-secondary: var(--site-text-secondary);
+  --fe-text-dim: var(--site-text-secondary);
+  --fe-border: var(--site-border);
+  --fe-border-strong: var(--site-border-strong);
   --fe-shadow: var(--w3a-shadows-sm);
   --fe-shadow-strong: var(--w3a-shadows-md);
-  --fe-bg-secondary: var(--w3a-colors-surface2);
-  --fe-bg-tertiary: var(--w3a-colors-surface3);
-  --fe-input-bg: var(--w3a-colors-surface);
-  --fe-input-text: var(--w3a-colors-textPrimary);
-  --fe-input-placeholder: var(--w3a-colors-textSecondary);
-  --fe-error: var(--w3a-colors-error);
-  --fe-success: var(--w3a-colors-success);
+  --fe-bg-secondary: var(--site-surface-muted);
+  --fe-bg-tertiary: var(--site-surface-strong);
+  --fe-input-bg: var(--site-form-surface);
+  --fe-input-text: var(--site-text-primary);
+  --fe-input-placeholder: var(--site-text-secondary);
+  --fe-error: var(--site-danger);
+  --fe-success: var(--site-success);
 }
 
 html {
@@ -92,31 +119,28 @@ textarea {
   font-family: inherit;
 }
 
-/* App background: use themed gradient slot (backgroundGradient4) */
-html[data-w3a-theme="light"] {
-  background-color: #f3f5f8; /* fallback for non-OKLCH */
+/* App background: fully token-driven so custom theme palettes apply on the frontpage. */
+html[data-w3a-theme] {
+  background-color: var(--site-canvas, var(--w3a-colors-colorBackground));
   background-image:
     radial-gradient(
-      120% 120% at 50% -22%,
-      color-mix(in srgb, var(--w3a-colors-surface2) 94%, var(--w3a-colors-primary) 6%) 0%,
+      120% 120% at 50% -20%,
+      color-mix(in srgb, var(--site-surface-muted, var(--w3a-colors-surface2)) 92%, var(--site-brand, var(--w3a-colors-primary)) 8%) 0%,
       transparent 56%
+    ),
+    var(
+      --w3a-colors-gradientTertiary,
+      linear-gradient(
+        180deg,
+        var(--site-surface-strong, var(--w3a-colors-surface3)) 0%,
+        var(--site-canvas, var(--w3a-colors-colorBackground)) 100%
+      )
     ),
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--w3a-colors-surface) 96%, #fff 4%) 0%,
-      color-mix(in srgb, var(--w3a-colors-colorBackground) 92%, var(--w3a-colors-surface2) 8%) 100%
+      color-mix(in srgb, var(--site-surface, var(--w3a-colors-surface)) 92%, var(--site-surface-strong, var(--w3a-colors-surface3)) 8%) 0%,
+      color-mix(in srgb, var(--site-canvas, var(--w3a-colors-colorBackground)) 92%, var(--site-surface-muted, var(--w3a-colors-surface2)) 8%) 100%
     );
-}
-html[data-w3a-theme="dark"] {
-  background-color: #171b22; /* fallback for non-OKLCH */
-  background-image:
-    radial-gradient(120% 120% at 50% -18%, #2a2f38 0%, transparent 54%),
-    linear-gradient(180deg, #171b22 0%, #12161d 100%);
-}
-/* Let the HTML gradient show; avoid body paint */
-html[data-w3a-theme] body {
-  background: transparent !important;
-  background-color: transparent !important;
 }
 
 a {

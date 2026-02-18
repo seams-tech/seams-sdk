@@ -19,6 +19,18 @@ function validLoginVerifyBody(overrides?: Partial<any>): any {
   };
 }
 
+function validSmartAccountDeployBody(overrides?: Partial<any>): any {
+  return {
+    nearAccountId: 'bob.testnet',
+    chain: 'tempo',
+    chainId: 'tempo:42431',
+    accountAddress: '0xabc123',
+    accountModel: 'tempo-native',
+    counterfactualAddress: '0xabc123',
+    ...overrides,
+  };
+}
+
 test.describe('relayer router (cloudflare) – P0', () => {
   test('CORS preflight: allowlist echoes Origin + allows credentials', async () => {
     const service = makeFakeAuthService();
@@ -183,6 +195,82 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(res.status).toBe(200);
     expect(res.json?.verified).toBe(true);
     expect(res.json?.jwt).toBeUndefined();
+  });
+
+  test('POST /smart-account/deploy: default route returns assumed_deployed', async () => {
+    const service = makeFakeAuthService();
+    const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'] });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/smart-account/deploy',
+      origin: 'https://example.localhost',
+      body: validSmartAccountDeployBody(),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.json?.ok).toBe(true);
+    expect(res.json?.code).toBe('assumed_deployed');
+  });
+
+  test('POST /smart-account/deploy: custom hook response is returned', async () => {
+    const service = makeFakeAuthService();
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      smartAccountDeploy: async (req) => {
+        expect(req.nearAccountId).toBe('bob.testnet');
+        expect(req.chain).toBe('tempo');
+        return { ok: true, deploymentTxHash: '0xdeploytx' };
+      },
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/smart-account/deploy',
+      origin: 'https://example.localhost',
+      body: validSmartAccountDeployBody(),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.json?.ok).toBe(true);
+    expect(res.json?.deploymentTxHash).toBe('0xdeploytx');
+  });
+
+  test('POST /smart-account/deploy: invalid body maps to 400', async () => {
+    const service = makeFakeAuthService();
+    const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'] });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/smart-account/deploy',
+      origin: 'https://example.localhost',
+      body: { nearAccountId: 'bob.testnet' },
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.json?.ok).toBe(false);
+    expect(res.json?.code).toBe('invalid_body');
+  });
+
+  test('POST /threshold-ecdsa/keygen and /threshold-ecdsa/session: removed (404)', async () => {
+    const service = makeFakeAuthService();
+    const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'] });
+
+    const keygen = await callCf(handler, {
+      method: 'POST',
+      path: '/threshold-ecdsa/keygen',
+      origin: 'https://example.localhost',
+      body: {},
+    });
+    expect(keygen.status).toBe(404);
+
+    const session = await callCf(handler, {
+      method: 'POST',
+      path: '/threshold-ecdsa/session',
+      origin: 'https://example.localhost',
+      body: {},
+    });
+    expect(session.status).toBe(404);
   });
 
   test('GET /session/auth: sessions disabled -> 501', async () => {

@@ -137,7 +137,7 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       const groupPublicKeyCompressed = Buffer.from(String(result.keygen?.groupPublicKeyB64u || ''), 'base64url');
       expect(groupPublicKeyCompressed.length).toBe(33);
 
-      const groupPoint = secp256k1.Point.fromBytes(groupPublicKeyCompressed);
+      const groupPoint = secp256k1.ProjectivePoint.fromHex(groupPublicKeyCompressed);
       const groupPublicKeyUncompressedHex = `0x${groupPoint.toHex(false)}` as `0x${string}`;
       const expectedSignerAddress = publicKeyToAddress(groupPublicKeyUncompressedHex);
       expect(recoveredAddress.toLowerCase()).toBe(expectedSignerAddress.toLowerCase());
@@ -157,7 +157,7 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
 
       expect(result.ok).toBe(false);
       const msg = String(result.error || '');
-      expect(msg).toMatch(/No cached threshold-ecdsa session token|threshold session expired/i);
+      expect(msg).toMatch(/No cached threshold-ecdsa session token|threshold session expired|PRF\.first not cached for threshold session/i);
     } finally {
       await harness.close();
     }

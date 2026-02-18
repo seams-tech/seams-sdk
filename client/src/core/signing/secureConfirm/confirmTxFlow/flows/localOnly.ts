@@ -23,14 +23,35 @@ import { errorMessage } from '../../../../../../../shared/src/utils/errors';
 import { base64UrlEncode } from '../../../../../../../shared/src/utils/encoders';
 import { createConfirmSession } from '../adapters/session';
 import { createConfirmTxFlowAdapters } from '../adapters/createAdapters';
-import type { ThemeName } from '../../../../types/tatchi';
+import type { ThemeName, ThemeTokenOverridesInput } from '../../../../types/tatchi';
 
 function createRandomChallengeB64u(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return base64UrlEncode(bytes.buffer);
 }
 
+function toStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object') return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v === 'string') out[k] = v;
+  }
+  return out;
+}
+
+function sanitizeThemeTokens(tokens: ThemeTokenOverridesInput | undefined): ThemeTokenOverridesInput | undefined {
+  if (!tokens) return undefined;
+  const lightColors = toStringRecord(tokens.light?.colors);
+  const darkColors = toStringRecord(tokens.dark?.colors);
+  if (Object.keys(lightColors).length === 0 && Object.keys(darkColors).length === 0) return undefined;
+  return {
+    light: Object.keys(lightColors).length > 0 ? { colors: lightColors } : undefined,
+    dark: Object.keys(darkColors).length > 0 ? { colors: darkColors } : undefined,
+  };
+}
+
 async function mountExportViewer(
+  ctx: SecureConfirmWorkerManagerContext,
   payload: ShowSecurePrivateKeyUiPayload,
   confirmationConfig: ConfirmationConfig,
   theme: ThemeName,
@@ -43,6 +64,7 @@ async function mountExportViewer(
   host.publicKey = payload.publicKey;
   host.privateKey = payload.privateKey;
   host.keys = Array.isArray(payload.keys) ? payload.keys as ExportPrivateKeyDisplayEntry[] : undefined;
+  host.tokens = sanitizeThemeTokens(ctx.getAppearanceTokens?.());
   host.loading = false;
 
   window.parent?.postMessage({ type: 'WALLET_UI_OPENED' }, '*');
@@ -78,7 +100,7 @@ export async function handleLocalOnlyFlow(
   // SHOW_SECURE_PRIVATE_KEY_UI: purely visual; keep UI open and return confirmed immediately
   if (request.type === SecureConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI) {
     try {
-      await mountExportViewer(request.payload as ShowSecurePrivateKeyUiPayload, confirmationConfig, theme);
+      await mountExportViewer(ctx, request.payload as ShowSecurePrivateKeyUiPayload, confirmationConfig, theme);
       // Keep viewer open; do not close here.
       session.confirmAndCloseModal({
         requestId: request.requestId,

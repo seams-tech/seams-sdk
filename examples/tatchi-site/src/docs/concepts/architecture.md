@@ -65,7 +65,7 @@ sequenceDiagram
     SecureConfirm-->>Signer: MessageChannel: WrapKeySeed + wrapKeySalt
     Signer->>Signer: Derive KEK, wrap deterministic NEAR key, sign registration tx
     Signer-->>UI: near_pk + encrypted NEAR key + signed tx
-    UI->>Relay: Submit create_account_and_register_user (or direct)
+    UI->>Relay: Submit /registration/bootstrap (or direct)
     Relay->>Contract: Forward registration tx
     Contract-->>UI: Registration receipt / txId
     UI->>UI: Store encrypted SecureConfirm/NEAR keys + authenticator in IndexedDB

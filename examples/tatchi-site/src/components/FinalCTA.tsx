@@ -9,7 +9,7 @@ export function FinalCTA(): React.JSX.Element {
   const contactProps = linkProps('/contact/')
 
   return (
-    <section className="final-cta" aria-labelledby="final-cta-title">
+    <section className="final-cta gradient-lilac-warm-drift gradient-lilac-warm-drift-overlay" aria-labelledby="final-cta-title">
       <div className="final-cta__content">
         <p className="final-cta__eyebrow">Start your evaluation</p>
         <h2 id="final-cta-title" className="final-cta__title">Ship embedded wallet UX with clear security boundaries</h2>

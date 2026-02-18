@@ -16,9 +16,5 @@
 .glass-border-inner {
   /* border: 1px solid var(--w3a-colors-surface3); */
   border-radius: 2rem;
-  background: var(--w3a-colors-colorBackground);
-}
-
-[data-w3a-theme="light"] .glass-border-inner {
-  background: var(--w3a-colors-grey50);
+  background: var(--site-surface, var(--w3a-colors-surface));
 }

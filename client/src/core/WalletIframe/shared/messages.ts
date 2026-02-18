@@ -114,6 +114,15 @@ export interface PMSetConfigPayload {
   emailDkimVerifierContract?: string;
   // Absolute base URL for SDK Lit component assets (e.g., https://app.example.com/sdk/)
   assetsBaseUrl?: string;
+  // Optional appearance defaults forwarded to the wallet host so Lit confirmer UI
+  // can consume the same theme mode + color token overrides as the app shell.
+  appearance?: {
+    theme?: 'dark' | 'light';
+    tokens?: {
+      light?: { colors?: Record<string, string> };
+      dark?: { colors?: Record<string, string> };
+    };
+  };
   // Optional: register wallet-host UI components (Lit tags + bindings)
   uiRegistry?: WalletUIRegistry;
 }

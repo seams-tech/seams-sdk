@@ -70,7 +70,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const relayerParticipantId = 2;
     const thresholdExpiresAtMs = Date.now() + 120_000;
 
-    const clientSigningShare32 = secp256k1.utils.randomSecretKey();
+    const clientSigningShare32 = secp256k1.utils.randomPrivateKey();
     const clientVerifyingShare33 = secp256k1.getPublicKey(clientSigningShare32, true);
     const clientVerifyingShareB64u = base64UrlEncode(clientVerifyingShare33);
 
@@ -88,9 +88,9 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       relayerKeyId,
     });
     const relayerVerifyingShare33 = secp256k1.getPublicKey(relayerSigningShare32, true);
-    const groupPublicKey33 = secp256k1.Point.fromBytes(clientVerifyingShare33)
-      .add(secp256k1.Point.fromBytes(relayerVerifyingShare33))
-      .toBytes(true);
+    const groupPublicKey33 = secp256k1.ProjectivePoint.fromHex(clientVerifyingShare33)
+      .add(secp256k1.ProjectivePoint.fromHex(relayerVerifyingShare33))
+      .toRawBytes(true);
 
     const sharedPresignSessionStore = new InMemoryThresholdEcdsaPresignSessionStore();
     const sharedPresignaturePool = new InMemoryThresholdEcdsaPresignaturePool();

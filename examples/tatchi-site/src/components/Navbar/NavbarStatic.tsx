@@ -589,7 +589,7 @@ export function NavbarStatic(): React.JSX.Element {
       <div ref={shellRef} className={`navbar-static__shell${hasScrolled ? ' is-scrolled' : ''}`}>
         <div className="navbar-static__left">
           <a className="navbar-static__brand" href={homeProps.href} onClick={homeProps.onClick} aria-label="Tatchi home">
-            <TatchiLogo size={26} strokeWidth={1.2} />
+            <TatchiLogo size={24} strokeWidth={1.2} />
             <span>Tatchi</span>
           </a>
         </div>

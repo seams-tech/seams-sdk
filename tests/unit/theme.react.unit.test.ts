@@ -19,6 +19,16 @@ async function getColorBackgroundVar(page: Page, scopeSelector: string): Promise
   }, scopeSelector);
 }
 
+async function getThemeVar(page: Page, scopeSelector: string, variableName: string): Promise<string> {
+  return await page.evaluate(({ sel, name }: { sel: string; name: string }) => {
+    const el = document.querySelector(sel) as HTMLElement | null;
+    if (!el) return '';
+    const inline = el.style.getPropertyValue(name).trim();
+    if (inline) return inline;
+    return window.getComputedStyle(el).getPropertyValue(name).trim();
+  }, { sel: scopeSelector, name: variableName });
+}
+
 test.describe('React Theme integration', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
@@ -74,6 +84,221 @@ test.describe('React Theme integration', () => {
     const nextBg = await getColorBackgroundVar(page, scopeSelector);
     expect(nextBg).not.toBe('');
     expect(nextBg).not.toBe(initialBg);
+  });
+
+  test('TatchiPasskeyProvider applies config appearance token overrides', async ({ page }) => {
+    const mountId = 'w3a-theme-harness-config-appearance';
+    const scopeSelector = `#${mountId} .w3a-theme-provider`;
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        await page.waitForLoadState('domcontentloaded');
+        await page.evaluate(async ({ paths, mountId }) => {
+          const existingMount = document.getElementById(mountId);
+          if (existingMount) existingMount.remove();
+          const mount = document.createElement('div');
+          mount.id = mountId;
+          document.body.appendChild(mount);
+
+          const React = await import('react');
+          const ReactDOMClient = await import('react-dom/client');
+          const ReactDOM = await import('react-dom');
+
+          const providerMod: any = await import(paths.provider);
+          const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+
+          const config = {
+            nearNetwork: 'testnet',
+            nearRpcUrl: 'https://test.rpc.fastnear.com',
+            contractId: 'w3a-v1.testnet',
+            relayer: { url: 'https://relay-server.localhost' },
+            iframeWallet: { walletOrigin: '' },
+            appearance: {
+              theme: 'dark',
+              tokens: {
+                dark: {
+                  colors: {
+                    primary: '#112233',
+                  },
+                },
+              },
+            },
+          };
+
+          const root = ReactDOMClient.createRoot(mount);
+          ReactDOM.flushSync(() => {
+            root.render(
+              React.createElement(
+                Provider,
+                { config },
+                React.createElement('div', { id: `${mountId}-content` }, 'content'),
+              )
+            );
+          });
+        }, { paths: IMPORT_PATHS, mountId });
+        break;
+      } catch (error: unknown) {
+        const message = String((error as { message?: unknown })?.message || error || '');
+        if (!message.includes('Execution context was destroyed') || attempt === 2) {
+          throw error;
+        }
+      }
+    }
+
+    const primary = await getThemeVar(page, scopeSelector, '--w3a-colors-primary');
+    expect(primary).toBe('#112233');
+  });
+
+  test('provider theme.tokens override config appearance tokens', async ({ page }) => {
+    const mountId = 'w3a-theme-harness-token-precedence';
+    const scopeSelector = `#${mountId} .w3a-theme-provider`;
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        await page.waitForLoadState('domcontentloaded');
+        await page.evaluate(async ({ paths, mountId }) => {
+          const existingMount = document.getElementById(mountId);
+          if (existingMount) existingMount.remove();
+          const mount = document.createElement('div');
+          mount.id = mountId;
+          document.body.appendChild(mount);
+
+          const React = await import('react');
+          const ReactDOMClient = await import('react-dom/client');
+          const ReactDOM = await import('react-dom');
+
+          const providerMod: any = await import(paths.provider);
+          const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+
+          const config = {
+            nearNetwork: 'testnet',
+            nearRpcUrl: 'https://test.rpc.fastnear.com',
+            contractId: 'w3a-v1.testnet',
+            relayer: { url: 'https://relay-server.localhost' },
+            iframeWallet: { walletOrigin: '' },
+            appearance: {
+              theme: 'dark',
+              tokens: {
+                dark: {
+                  colors: {
+                    primary: '#112233',
+                  },
+                },
+              },
+            },
+          };
+
+          const root = ReactDOMClient.createRoot(mount);
+          ReactDOM.flushSync(() => {
+            root.render(
+              React.createElement(
+                Provider,
+                {
+                  config,
+                  theme: {
+                    theme: 'dark',
+                    tokens: {
+                      dark: {
+                        colors: {
+                          primary: '#abcdef',
+                        },
+                      },
+                    },
+                  },
+                },
+                React.createElement('div', { id: `${mountId}-content` }, 'content'),
+              )
+            );
+          });
+        }, { paths: IMPORT_PATHS, mountId });
+        break;
+      } catch (error: unknown) {
+        const message = String((error as { message?: unknown })?.message || error || '');
+        if (!message.includes('Execution context was destroyed') || attempt === 2) {
+          throw error;
+        }
+      }
+    }
+
+    const primary = await getThemeVar(page, scopeSelector, '--w3a-colors-primary');
+    expect(primary).toBe('#abcdef');
+  });
+
+  test('provider also bridges merged token overrides to Lit host selectors', async ({ page }) => {
+    const mountId = 'w3a-theme-harness-lit-bridge';
+
+    await page.evaluate(async ({ paths, mountId }) => {
+      const existingMount = document.getElementById(mountId);
+      if (existingMount) existingMount.remove();
+      const mount = document.createElement('div');
+      mount.id = mountId;
+      document.body.appendChild(mount);
+
+      const React = await import('react');
+      const ReactDOMClient = await import('react-dom/client');
+      const ReactDOM = await import('react-dom');
+
+      const providerMod: any = await import(paths.provider);
+      const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+
+      const config = {
+        nearNetwork: 'testnet',
+        nearRpcUrl: 'https://test.rpc.fastnear.com',
+        contractId: 'w3a-v1.testnet',
+        relayer: { url: 'https://relay-server.localhost' },
+        iframeWallet: { walletOrigin: '' },
+        appearance: {
+          theme: 'light',
+          tokens: {
+            light: {
+              colors: {
+                primary: '#111111',
+              },
+            },
+            dark: {
+              colors: {
+                primary: '#222222',
+              },
+            },
+          },
+        },
+      };
+
+      const root = ReactDOMClient.createRoot(mount);
+      ReactDOM.flushSync(() => {
+        root.render(
+          React.createElement(
+            Provider,
+            {
+              config,
+              theme: {
+                theme: 'light',
+                tokens: {
+                  light: { colors: { primary: '#abcdef' } },
+                  dark: { colors: { primary: '#112233' } },
+                },
+              },
+            },
+            React.createElement('div', { id: `${mountId}-content` }, 'content'),
+          ),
+        );
+      });
+
+      const litHost = document.createElement('w3a-drawer');
+      litHost.id = `${mountId}-lit-host`;
+      document.body.appendChild(litHost);
+    }, { paths: IMPORT_PATHS, mountId });
+
+    await expect.poll(async () => {
+      return await getThemeVar(page, `#${mountId}-lit-host`, '--w3a-colors-primary');
+    }).toBe('#abcdef');
+
+    await page.evaluate(() => {
+      document.documentElement.setAttribute('data-w3a-theme', 'dark');
+    });
+    await expect.poll(async () => {
+      return await getThemeVar(page, `#${mountId}-lit-host`, '--w3a-colors-primary');
+    }).toBe('#112233');
   });
 
   test('TatchiPasskeyProvider syncs theme and proxies tatchi.setTheme to host', async ({ page }) => {

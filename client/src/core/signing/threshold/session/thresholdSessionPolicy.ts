@@ -38,8 +38,10 @@ export type ThresholdEcdsaSessionPolicy = {
   remainingUses: number;
 };
 
-export const THRESHOLD_SESSION_POLICY_MAX_TTL_MS = 10 * 60_000;
-export const THRESHOLD_SESSION_POLICY_MAX_USES = 20;
+// Upper bounds to avoid unbounded TTL/use values while still supporting practical
+// "login once, sign many times" sessions.
+export const THRESHOLD_SESSION_POLICY_MAX_TTL_MS = 30 * 24 * 60 * 60_000; // 30 days
+export const THRESHOLD_SESSION_POLICY_MAX_USES = 1_000_000;
 
 // Default policy used when callers do not specify a policy explicitly.
 // These defaults are kept conservative to limit the blast radius of a stolen token.

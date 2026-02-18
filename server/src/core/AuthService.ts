@@ -829,6 +829,10 @@ export class AuthService {
         let newPublicKey = String(request?.new_public_key || '').trim();
         const thresholdClientVerifyingShareB64u = String((request as any)?.threshold_ed25519?.client_verifying_share_b64u || '').trim();
         const thresholdEcdsaClientVerifyingShareB64u = String((request as any)?.threshold_ecdsa?.client_verifying_share_b64u || '').trim();
+        const thresholdEd25519SessionPolicy = (request as any)?.threshold_ed25519?.session_policy;
+        const thresholdEcdsaSessionPolicy = (request as any)?.threshold_ecdsa?.session_policy;
+        const thresholdEd25519SessionKind = String((request as any)?.threshold_ed25519?.session_kind || '').trim().toLowerCase();
+        const thresholdEcdsaSessionKind = String((request as any)?.threshold_ecdsa?.session_kind || '').trim().toLowerCase();
         let thresholdKeygen:
           | Extract<ThresholdEd25519RegistrationKeygenResult, { ok: true }>
           | null = null;
@@ -838,6 +842,22 @@ export class AuthService {
           ethereumAddress: string;
           relayerVerifyingShareB64u: string;
           participantIds?: number[];
+          } | null = null;
+        let thresholdEd25519Session: {
+          sessionKind: 'jwt' | 'cookie';
+          sessionId: string;
+          expiresAtMs: number;
+          expiresAt?: string;
+          participantIds?: number[];
+          remainingUses?: number;
+        } | null = null;
+        let thresholdEcdsaSession: {
+          sessionKind: 'jwt' | 'cookie';
+          sessionId: string;
+          expiresAtMs: number;
+          expiresAt?: string;
+          participantIds?: number[];
+          remainingUses?: number;
         } | null = null;
 
         const rpId = String(
@@ -848,11 +868,29 @@ export class AuthService {
         if (!rpId) throw new Error('Missing rp_id');
 
         if (thresholdClientVerifyingShareB64u) {
-          const threshold = this.getThresholdSigningService();
-          if (!threshold) {
-            throw new Error('threshold signing is not configured on this server');
+          if (!thresholdEd25519SessionPolicy || typeof thresholdEd25519SessionPolicy !== 'object') {
+            throw new Error('threshold_ed25519.session_policy is required');
           }
-          const schemeAny = threshold.getSchemeModule(THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID);
+          if (thresholdEd25519SessionKind !== 'jwt') {
+            throw new Error('threshold_ed25519.session_kind must be jwt');
+          }
+        }
+        if (thresholdEcdsaClientVerifyingShareB64u) {
+          if (!thresholdEcdsaSessionPolicy || typeof thresholdEcdsaSessionPolicy !== 'object') {
+            throw new Error('threshold_ecdsa.session_policy is required');
+          }
+          if (thresholdEcdsaSessionKind !== 'jwt') {
+            throw new Error('threshold_ecdsa.session_kind must be jwt');
+          }
+        }
+
+        const thresholdService = this.getThresholdSigningService();
+        if ((thresholdClientVerifyingShareB64u || thresholdEcdsaClientVerifyingShareB64u) && !thresholdService) {
+          throw new Error('threshold signing is not configured on this server');
+        }
+
+        if (thresholdClientVerifyingShareB64u) {
+          const schemeAny = thresholdService!.getSchemeModule(THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID);
           if (!schemeAny || schemeAny.schemeId !== THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID) {
             throw new Error(`threshold scheme ${THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID} is not enabled on this server`);
           }
@@ -868,11 +906,7 @@ export class AuthService {
         }
 
         if (thresholdEcdsaClientVerifyingShareB64u) {
-          const threshold = this.getThresholdSigningService();
-          if (!threshold) {
-            throw new Error('threshold signing is not configured on this server');
-          }
-          const out = await threshold.ecdsaRegistrationKeygenFromClientVerifyingShare({
+          const out = await thresholdService!.ecdsaRegistrationKeygenFromClientVerifyingShare({
             userId: accountId,
             rpId,
             clientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u,
@@ -1037,6 +1071,78 @@ export class AuthService {
         };
         await bindingStore.put(binding);
 
+        if (thresholdKeygen && thresholdEd25519SessionPolicy) {
+          const requestedThresholdEd25519PolicyRelayerKeyId = String(
+            (thresholdEd25519SessionPolicy as Record<string, unknown>)?.relayerKeyId || '',
+          ).trim();
+          if (
+            requestedThresholdEd25519PolicyRelayerKeyId
+            && requestedThresholdEd25519PolicyRelayerKeyId !== thresholdKeygen.relayerKeyId
+          ) {
+            throw new Error('threshold_ed25519.session_policy.relayerKeyId mismatch');
+          }
+          const thresholdEd25519PolicyWithRelayerKeyId = {
+            ...(thresholdEd25519SessionPolicy as Record<string, unknown>),
+            relayerKeyId: thresholdKeygen.relayerKeyId,
+          } as any;
+          const session = await thresholdService!.mintEd25519SessionFromRegistration({
+            nearAccountId: accountId,
+            rpId,
+            relayerKeyId: thresholdKeygen.relayerKeyId,
+            clientVerifyingShareB64u: thresholdClientVerifyingShareB64u,
+            sessionPolicy: thresholdEd25519PolicyWithRelayerKeyId,
+          });
+          if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
+            throw new Error(session.message || session.code || 'threshold-ed25519 registration session bootstrap failed');
+          }
+          thresholdEd25519Session = {
+            sessionKind: 'jwt',
+            sessionId: session.sessionId,
+            expiresAtMs: Number(session.expiresAtMs),
+            ...(session.expiresAt ? { expiresAt: session.expiresAt } : {}),
+            ...(Array.isArray(session.participantIds) ? { participantIds: session.participantIds } : {}),
+            ...(Number.isFinite(Number(session.remainingUses))
+              ? { remainingUses: Number(session.remainingUses) }
+              : {}),
+          };
+        }
+
+        if (thresholdEcdsaKeygen && thresholdEcdsaSessionPolicy) {
+          const requestedThresholdEcdsaPolicyRelayerKeyId = String(
+            (thresholdEcdsaSessionPolicy as Record<string, unknown>)?.relayerKeyId || '',
+          ).trim();
+          if (
+            requestedThresholdEcdsaPolicyRelayerKeyId
+            && requestedThresholdEcdsaPolicyRelayerKeyId !== thresholdEcdsaKeygen.relayerKeyId
+          ) {
+            throw new Error('threshold_ecdsa.session_policy.relayerKeyId mismatch');
+          }
+          const thresholdEcdsaPolicyWithRelayerKeyId = {
+            ...(thresholdEcdsaSessionPolicy as Record<string, unknown>),
+            relayerKeyId: thresholdEcdsaKeygen.relayerKeyId,
+          } as any;
+          const session = await thresholdService!.mintEcdsaSessionFromRegistration({
+            userId: accountId,
+            rpId,
+            relayerKeyId: thresholdEcdsaKeygen.relayerKeyId,
+            clientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u,
+            sessionPolicy: thresholdEcdsaPolicyWithRelayerKeyId,
+          });
+          if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
+            throw new Error(session.message || session.code || 'threshold-ecdsa registration session bootstrap failed');
+          }
+          thresholdEcdsaSession = {
+            sessionKind: 'jwt',
+            sessionId: session.sessionId,
+            expiresAtMs: Number(session.expiresAtMs),
+            ...(session.expiresAt ? { expiresAt: session.expiresAt } : {}),
+            ...(Array.isArray(session.participantIds) ? { participantIds: session.participantIds } : {}),
+            ...(Number.isFinite(Number(session.remainingUses))
+              ? { remainingUses: Number(session.remainingUses) }
+              : {}),
+          };
+        }
+
         // Best-effort: persist NEAR public key metadata for UI surfaces.
         // This provides (key kind + timestamp) for access key listings.
         try {
@@ -1089,12 +1195,16 @@ export class AuthService {
                   clientParticipantId: thresholdKeygen.clientParticipantId,
                   relayerParticipantId: thresholdKeygen.relayerParticipantId,
                   participantIds: thresholdKeygen.participantIds,
+                  ...(thresholdEd25519Session ? { session: thresholdEd25519Session } : {}),
                 },
               }
             : {}),
           ...(thresholdEcdsaKeygen
             ? {
-                thresholdEcdsa: thresholdEcdsaKeygen,
+                thresholdEcdsa: {
+                  ...thresholdEcdsaKeygen,
+                  ...(thresholdEcdsaSession ? { session: thresholdEcdsaSession } : {}),
+                },
               }
             : {}),
           message: `Account ${accountId} created and registered successfully`,

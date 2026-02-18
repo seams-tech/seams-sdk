@@ -22,9 +22,26 @@ export function addPreconnectLink(res: any, origin?: string) {
   } catch {}
 }
 
+function withAssetVersion(url: string, assetVersion?: string): string {
+  const version = String(assetVersion || '').trim()
+  if (!version) return url
+  const sep = url.includes('?') ? '&' : '?'
+  return `${url}${sep}v=${encodeURIComponent(version)}`
+}
+
 // Builds wallet service HTML that links only external CSS/JS (no inline),
 // so strict CSP (style-src 'self'; style-src-attr 'none') works in dev/prod.
-export function buildWalletServiceHtml(sdkBasePath: string): string {
+export function buildWalletServiceHtml(sdkBasePath: string, assetVersion?: string): string {
+  const walletServiceCss = withAssetVersion(`${sdkBasePath}/wallet-service.css`, assetVersion)
+  const drawerCss = withAssetVersion(`${sdkBasePath}/drawer.css`, assetVersion)
+  const txTreeCss = withAssetVersion(`${sdkBasePath}/tx-tree.css`, assetVersion)
+  const haloBorderCss = withAssetVersion(`${sdkBasePath}/halo-border.css`, assetVersion)
+  const passkeyHaloLoadingCss = withAssetVersion(`${sdkBasePath}/passkey-halo-loading.css`, assetVersion)
+  const componentsCss = withAssetVersion(`${sdkBasePath}/w3a-components.css`, assetVersion)
+  const txConfirmerCss = withAssetVersion(`${sdkBasePath}/tx-confirmer.css`, assetVersion)
+  const walletShimsJs = withAssetVersion(`${sdkBasePath}/wallet-shims.js`, assetVersion)
+  const walletHostRuntime = withAssetVersion(`${sdkBasePath}/wallet-iframe-host-runtime.js`, assetVersion)
+
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -32,25 +49,25 @@ export function buildWalletServiceHtml(sdkBasePath: string): string {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Web3Authn Wallet Service</title>
     <!-- Surface styles are external so strict CSP can keep style-src 'self' -->
-    <link rel="stylesheet" href="${sdkBasePath}/wallet-service.css" />
+    <link rel="stylesheet" href="${walletServiceCss}" />
     <!-- Prefetch component styles so they are warmed without triggering preload warnings -->
-    <link rel="prefetch" as="style" href="${sdkBasePath}/drawer.css" />
-    <link rel="prefetch" as="style" href="${sdkBasePath}/tx-tree.css" />
-    <link rel="prefetch" as="style" href="${sdkBasePath}/halo-border.css" />
-    <link rel="prefetch" as="style" href="${sdkBasePath}/passkey-halo-loading.css" />
+    <link rel="prefetch" as="style" href="${drawerCss}" />
+    <link rel="prefetch" as="style" href="${txTreeCss}" />
+    <link rel="prefetch" as="style" href="${haloBorderCss}" />
+    <link rel="prefetch" as="style" href="${passkeyHaloLoadingCss}" />
     <!-- Component theme CSS: shared tokens + component-scoped tokens -->
-    <link rel="stylesheet" href="${sdkBasePath}/w3a-components.css" />
-    <link rel="stylesheet" href="${sdkBasePath}/drawer.css" />
-    <link rel="stylesheet" href="${sdkBasePath}/tx-tree.css" />
-    <link rel="stylesheet" href="${sdkBasePath}/tx-confirmer.css" />
+    <link rel="stylesheet" href="${componentsCss}" />
+    <link rel="stylesheet" href="${drawerCss}" />
+    <link rel="stylesheet" href="${txTreeCss}" />
+    <link rel="stylesheet" href="${txConfirmerCss}" />
     <!-- Minimal shims some ESM bundles expect (externalized to enable strict CSP) -->
-    <script src="${sdkBasePath}/wallet-shims.js"></script>
+    <script src="${walletShimsJs}"></script>
     <!-- Hint the browser to fetch the host script earlier -->
-    <link rel="modulepreload" href="${sdkBasePath}/wallet-iframe-host-runtime.js" crossorigin>
+    <link rel="modulepreload" href="${walletHostRuntime}" crossorigin>
   </head>
   <body>
     <!-- sdkBasePath points to the SDK root (e.g. '/sdk'). Load the host directly. -->
-    <script type="module" src="${sdkBasePath}/wallet-iframe-host-runtime.js"></script>
+    <script type="module" src="${walletHostRuntime}"></script>
   </body>
 </html>`
 }

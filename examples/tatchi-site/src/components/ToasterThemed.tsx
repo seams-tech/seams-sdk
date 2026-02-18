@@ -14,6 +14,8 @@ export const ToasterThemed: React.FC = () => {
         style: {
           // Keep toast surface in sync with site palette
           background: 'var(--w3a-colors-colorBackground)',
+          color: 'var(--w3a-colors-textPrimary)',
+          border: '1px solid var(--w3a-colors-borderPrimary)',
           borderRadius: '1rem',
         },
         // Keep error toasts (e.g., registration failures) visible

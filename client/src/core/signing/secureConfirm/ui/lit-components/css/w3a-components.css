@@ -54,22 +54,22 @@ w3a-export-key-viewer {
   --w3a-colors-borderPrimary: oklch(0.35 0.018 240);
   --w3a-colors-borderSecondary: oklch(0.35 0.0225 240);
   --w3a-colors-borderHover: oklch(0.4 0.02 240);
-  --w3a-colors-backgroundGradientPrimary: linear-gradient(45deg, oklch(0.82 0.130 255) 0%, oklch(0.66 0.180 255) 50%);
-  --w3a-colors-backgroundGradientSecondary: linear-gradient(90deg, hsla(213, 62%, 45%, 1) 0%, hsla(203, 89%, 71%, 1) 50%, hsla(0, 0%, 96%, 1) 100%);
-  --w3a-colors-backgroundGradient4: linear-gradient(45deg, oklch(0.53 0.03 240) 0%, oklch(0.2 0.015 240) 50%);
+  --w3a-colors-gradientPrimary: linear-gradient(45deg, oklch(0.82 0.130 255) 0%, oklch(0.66 0.180 255) 50%);
+  --w3a-colors-gradientSecondary: linear-gradient(90deg, hsla(213, 62%, 45%, 1) 0%, hsla(203, 89%, 71%, 1) 50%, hsla(0, 0%, 96%, 1) 100%);
+  --w3a-colors-gradientTertiary: linear-gradient(45deg, oklch(0.53 0.03 240) 0%, oklch(0.2 0.015 240) 50%);
   --w3a-colors-highlightReceiverId: oklch(0.74 0.166 255);
   --w3a-colors-highlightMethodName: oklch(0.74 0.166 255);
   --w3a-colors-highlightAmount: oklch(0.74 0.166 255);
 }
 
 :root[data-w3a-theme="light"] w3a-tx-tree,
-w3a-drawer,
-w3a-modal-tx-confirmer,
-w3a-drawer-tx-confirmer,
-w3a-tx-confirm-content,
-w3a-halo-border,
-w3a-passkey-halo-loading,
-w3a-export-key-viewer {
+:root[data-w3a-theme="light"] w3a-drawer,
+:root[data-w3a-theme="light"] w3a-modal-tx-confirmer,
+:root[data-w3a-theme="light"] w3a-drawer-tx-confirmer,
+:root[data-w3a-theme="light"] w3a-tx-confirm-content,
+:root[data-w3a-theme="light"] w3a-halo-border,
+:root[data-w3a-theme="light"] w3a-passkey-halo-loading,
+:root[data-w3a-theme="light"] w3a-export-key-viewer {
   --w3a-colors-textPrimary: oklch(0.35 0.018 240);
   --w3a-colors-textSecondary: oklch(0.53 0.02 240);
   --w3a-colors-textMuted: oklch(0.75 0.016 240);
@@ -96,51 +96,9 @@ w3a-export-key-viewer {
   --w3a-colors-borderPrimary: oklch(0.8 0.02 240);
   --w3a-colors-borderSecondary: oklch(0.82 0.014 240);
   --w3a-colors-borderHover: oklch(0.725 0.0225 240);
-  --w3a-colors-backgroundGradientPrimary: linear-gradient(45deg, oklch(0.82 0.130 255) 0%, oklch(0.66 0.180 255) 50%);
-  --w3a-colors-backgroundGradientSecondary: linear-gradient(90deg, hsla(213, 62%, 45%, 1) 0%, hsla(203, 89%, 71%, 1) 50%, hsla(0, 0%, 96%, 1) 100%);
-  --w3a-colors-backgroundGradient4: linear-gradient(45deg, oklch(0.53 0.03 240) 0%, oklch(0.2 0.015 240) 50%);
-  --w3a-colors-highlightReceiverId: oklch(0.66 0.180 255);
-  --w3a-colors-highlightMethodName: oklch(0.66 0.180 255);
-  --w3a-colors-highlightAmount: oklch(0.66 0.180 255);
-}
-
-:root[data-w3a-theme="cream"] w3a-tx-tree,
-w3a-drawer,
-w3a-modal-tx-confirmer,
-w3a-drawer-tx-confirmer,
-w3a-tx-confirm-content,
-w3a-halo-border,
-w3a-passkey-halo-loading,
-w3a-export-key-viewer {
-  --w3a-colors-textPrimary: oklch(0.35 0.018 240);
-  --w3a-colors-textSecondary: oklch(0.53 0.02 240);
-  --w3a-colors-textMuted: oklch(0.75 0.016 240);
-  --w3a-colors-textButton: oklch(0.97 0.002 240);
-  --w3a-colors-colorBackground: oklch(0.98 0.001 240);
-  --w3a-colors-surface: oklch(0.95 0.01 240);
-  --w3a-colors-surface2: oklch(0.915 0.0125 240);
-  --w3a-colors-surface3: oklch(0.88 0.015 240);
-  --w3a-colors-surface4: oklch(0.84 0.0175 240);
-  --w3a-colors-primary: oklch(0.56 0.158 255);
-  --w3a-colors-primaryHover: oklch(0.66 0.180 255);
-  --w3a-colors-secondary: oklch(0.6 0.14 295);
-  --w3a-colors-secondaryHover: oklch(0.65 0.15 298);
-  --w3a-colors-accent: oklch(0.74 0.166 170);
-  --w3a-colors-buttonBackground: oklch(0.66 0.180 255);
-  --w3a-colors-buttonHoverBackground: oklch(0.70 0.174 255);
-  --w3a-colors-hover: oklch(0.95 0.005 240);
-  --w3a-colors-active: oklch(0.88 0.01 240);
-  --w3a-colors-focus: oklch(0.74 0.166 255);
-  --w3a-colors-success: oklch(0.66 0.180 255);
-  --w3a-colors-warning: oklch(0.66 0.188 95);
-  --w3a-colors-error: oklch(0.66 0.180 19);
-  --w3a-colors-info: oklch(0.66 0.180 255);
-  --w3a-colors-borderPrimary: oklch(0.8 0.02 240);
-  --w3a-colors-borderSecondary: oklch(0.82 0.014 240);
-  --w3a-colors-borderHover: oklch(0.725 0.0225 240);
-  --w3a-colors-backgroundGradientPrimary: linear-gradient(45deg, oklch(0.82 0.130 255) 0%, oklch(0.66 0.180 255) 50%);
-  --w3a-colors-backgroundGradientSecondary: linear-gradient(90deg, hsla(213, 62%, 45%, 1) 0%, hsla(203, 89%, 71%, 1) 50%, hsla(0, 0%, 96%, 1) 100%);
-  --w3a-colors-backgroundGradient4: linear-gradient(45deg, oklch(0.53 0.03 240) 0%, oklch(0.2 0.015 240) 50%);
+  --w3a-colors-gradientPrimary: linear-gradient(45deg, oklch(0.82 0.130 255) 0%, oklch(0.66 0.180 255) 50%);
+  --w3a-colors-gradientSecondary: linear-gradient(90deg, hsla(213, 62%, 45%, 1) 0%, hsla(203, 89%, 71%, 1) 50%, hsla(0, 0%, 96%, 1) 100%);
+  --w3a-colors-gradientTertiary: linear-gradient(45deg, oklch(0.53 0.03 240) 0%, oklch(0.2 0.015 240) 50%);
   --w3a-colors-highlightReceiverId: oklch(0.66 0.180 255);
   --w3a-colors-highlightMethodName: oklch(0.66 0.180 255);
   --w3a-colors-highlightAmount: oklch(0.66 0.180 255);

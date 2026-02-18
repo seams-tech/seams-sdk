@@ -24,6 +24,20 @@ export type TempoSigningDeps = {
   secureConfirmWorkerManager: SecureConfirmWorkerManager;
 };
 
+type TempoSigningCancelledError = Error & { code: 'CANCELLED' };
+
+function createTempoSigningCancelledError(): TempoSigningCancelledError {
+  const err = new Error('Request cancelled') as TempoSigningCancelledError;
+  err.code = 'CANCELLED';
+  return err;
+}
+
+function throwIfTempoSigningCancelled(shouldAbort?: () => boolean): void {
+  if (typeof shouldAbort === 'function' && shouldAbort()) {
+    throw createTempoSigningCancelledError();
+  }
+}
+
 export async function signTempo(
   deps: TempoSigningDeps,
   args: {
@@ -31,8 +45,18 @@ export async function signTempo(
     request: TempoSigningRequest;
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
+    shouldAbort?: () => boolean;
+    onEvent?: (event: {
+      step: number;
+      phase: string;
+      status: 'progress' | 'success' | 'error';
+      message?: string;
+      data?: unknown;
+    }) => void;
   },
 ): Promise<TempoSignedResult> {
+  throwIfTempoSigningCancelled(args.shouldAbort);
+
   if (args.request.chain !== 'tempo') {
     throw new Error('[WebAuthnManager] invalid Tempo request: chain must be tempo');
   }
@@ -68,6 +92,8 @@ export async function signTempo(
     }
   }
 
+  throwIfTempoSigningCancelled(args.shouldAbort);
+
   const [{ signTempoWithSecureConfirm }, { Secp256k1Engine }, { WebAuthnP256Engine }] =
     await Promise.all([
       import('../chainAdaptors/tempo/handlers/signTempoWithSecureConfirm'),
@@ -83,6 +109,7 @@ export async function signTempo(
     workerCtx: signerWorkerCtx,
     nearAccountId: args.nearAccountId,
     request: args.request,
+    onEvent: args.onEvent,
     engines: {
       secp256k1: new Secp256k1Engine({
         getRpId: () => ctx.touchIdPrompt.getRpId(),

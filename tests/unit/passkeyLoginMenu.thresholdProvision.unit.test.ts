@@ -10,10 +10,10 @@ type FlowMode = 'register' | 'login';
 
 async function runFlow(
   page: Page,
-  args: { flow: FlowMode; cacheHit: boolean },
-): Promise<{ provisionCalls: string[]; loggedInCalls: string[] }> {
+  args: { flow: FlowMode },
+): Promise<{ loggedInCalls: string[]; cacheWrites: string[] }> {
   return page.evaluate(
-    async ({ paths, flow, cacheHit }) => {
+    async ({ paths, flow }) => {
       const React =
         ((await import('/node_modules/.vite/deps/react.js').catch(() => null)) as any) ||
         (await import('react'));
@@ -33,16 +33,8 @@ async function runFlow(
       }
 
       const counters = {
-        provisionCalls: [] as string[],
         loggedInCalls: [] as string[],
-      };
-
-      const fakeKeyRef = {
-        type: 'threshold-ecdsa-secp256k1',
-        userId: 'alice.testnet',
-        relayerUrl: 'https://relay.example',
-        relayerKeyId: 'mock-relayer-key',
-        clientVerifyingShareB64u: 'mock-client-share',
+        cacheWrites: [] as string[],
       };
 
       const menuPropsRef: { current: Record<string, unknown> | null } = { current: null };
@@ -91,6 +83,13 @@ async function runFlow(
             success: true,
             nearAccountId: 'alice.testnet',
             transactionId: 'mock-registration-tx',
+            thresholdEcdsaKeyRef: {
+              type: 'threshold-ecdsa-secp256k1',
+              userId: 'alice.testnet',
+              relayerUrl: 'https://relay.example',
+              relayerKeyId: 'secp-mock-key',
+              clientVerifyingShareB64u: 'mock-client-share',
+            },
           }),
           tatchi: {},
         };
@@ -120,15 +119,8 @@ async function runFlow(
                   setAndRemount: () => undefined,
                 }),
                 PasskeyAuthMenuComponent: FakePasskeyAuthMenu,
-                readCachedThresholdKeyRef: () => (cacheHit ? (fakeKeyRef as any) : null),
-                provisionTempoAndEvmThresholdSigners: async (provisionArgs: {
-                  nearAccountId: string;
-                }) => {
-                  counters.provisionCalls.push(String(provisionArgs.nearAccountId));
-                  return {
-                    evm: { thresholdEcdsaKeyRef: fakeKeyRef as any },
-                    tempo: { thresholdEcdsaKeyRef: fakeKeyRef as any },
-                  };
+                writeCachedThresholdKeyRef: (nearAccountId: string, chain: string) => {
+                  counters.cacheWrites.push(`${nearAccountId}:${chain}`);
                 },
               },
             }),
@@ -158,7 +150,7 @@ async function runFlow(
       root.unmount();
       return counters;
     },
-    { paths: IMPORT_PATHS, flow: args.flow, cacheHit: args.cacheHit },
+    { paths: IMPORT_PATHS, flow: args.flow },
   );
 }
 
@@ -167,23 +159,23 @@ test.describe('PasskeyLoginMenu threshold signer auto-provision', () => {
     await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
   });
 
-  test('register flow provisions Tempo/EVM signers when cache is missing', async ({ page }) => {
-    const result = await runFlow(page, { flow: 'register', cacheHit: false });
-    expect(result.provisionCalls).toEqual(['alice.testnet']);
+  test('register flow does not auto-provision Tempo/EVM signers', async ({ page }) => {
+    const result = await runFlow(page, { flow: 'register' });
     expect(result.loggedInCalls).toEqual([]);
+    expect(result.cacheWrites).toEqual(['alice.testnet:evm', 'alice.testnet:tempo']);
   });
 
   test('login flow skips provisioning when both chain keyRefs are already cached', async ({
     page,
   }) => {
-    const result = await runFlow(page, { flow: 'login', cacheHit: true });
-    expect(result.provisionCalls).toEqual([]);
+    const result = await runFlow(page, { flow: 'login' });
     expect(result.loggedInCalls).toEqual(['alice.testnet']);
+    expect(result.cacheWrites).toEqual([]);
   });
 
   test('login flow does not auto-provision Tempo/EVM signers when cache is missing', async ({ page }) => {
-    const result = await runFlow(page, { flow: 'login', cacheHit: false });
-    expect(result.provisionCalls).toEqual([]);
+    const result = await runFlow(page, { flow: 'login' });
     expect(result.loggedInCalls).toEqual(['alice.testnet']);
+    expect(result.cacheWrites).toEqual([]);
   });
 });

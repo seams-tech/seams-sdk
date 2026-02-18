@@ -45,11 +45,9 @@ async function resolveSigningAuthMode(args: {
   const peek = await args.secureConfirmWorkerManager.peekPrfFirstForThresholdSession({
     sessionId: thresholdSessionId,
   });
-  if (!peek.ok || peek.remainingUses < 1) {
-    throw new Error(
-      '[chains] threshold session expired; reconnect via connectThresholdEcdsaSessionLite',
-    );
-  }
+  // Do not fail pre-confirm on stale/missing local session cache.
+  // The engine can still resolve a newer cached session token/keyRef scope after confirm.
+  if (!peek.ok || peek.remainingUses < 1) return 'warmSession';
   return 'warmSession';
 }
 
@@ -62,6 +60,13 @@ export async function signTempoWithSecureConfirm(args: {
   nearAccountId: string;
   request: TempoSigningRequest;
   engines: Record<string, SigningEngine>;
+  onEvent?: (event: {
+    step: number;
+    phase: string;
+    status: 'progress' | 'success' | 'error';
+    message?: string;
+    data?: unknown;
+  }) => void;
   keyRefsByAlgorithm?: Partial<Record<SignRequest['algorithm'], KeyRef>>;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   workerCtx: WorkerOperationContext;
@@ -108,6 +113,7 @@ export async function signTempoWithSecureConfirm(args: {
         ? 'Review and approve signing the Tempo sender hash.'
         : 'Review and approve signing the transaction hash.',
     signingAuthMode,
+    onProgress: args.onEvent,
     confirmationConfigOverride: args.confirmationConfigOverride,
   });
 

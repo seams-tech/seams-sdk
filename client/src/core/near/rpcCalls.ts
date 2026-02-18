@@ -408,6 +408,107 @@ export async function thresholdEcdsaKeygen(
   error?: string;
 }> {
   try {
+    const userId = String(args.userId || '').trim();
+    if (!userId) throw new Error('Missing userId');
+
+    const rpId = String(args.rpId || '').trim();
+    if (!rpId) throw new Error('Missing rpId');
+
+    const keygenSessionId = String(args.keygenSessionId || '').trim();
+    if (!keygenSessionId) throw new Error('Missing keygenSessionId');
+
+    const clientVerifyingShareB64u = String(args.clientVerifyingShareB64u || '').trim();
+    if (!clientVerifyingShareB64u) throw new Error('Missing clientVerifyingShareB64u');
+
+    const sessionId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+      ? `legacy-keygen-${crypto.randomUUID()}`
+      : `legacy-keygen-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    const bootstrap = await thresholdEcdsaBootstrap(relayServerUrl, {
+      userId,
+      rpId,
+      keygenSessionId,
+      clientVerifyingShareB64u,
+      webauthnAuthentication: args.webauthnAuthentication,
+      sessionPolicy: {
+        version: 'threshold_session_v1',
+        userId,
+        rpId,
+        sessionId,
+        ttlMs: 60_000,
+        remainingUses: 1,
+      },
+      sessionKind: 'jwt',
+    });
+    if (!bootstrap.ok) {
+      return {
+        ok: false,
+        error: bootstrap.error || bootstrap.message || 'Threshold bootstrap failed',
+        ...(bootstrap.code ? { code: bootstrap.code } : {}),
+        ...(bootstrap.message ? { message: bootstrap.message } : {}),
+      };
+    }
+
+    return {
+      ok: true,
+      participantIds: bootstrap.participantIds,
+      relayerKeyId: bootstrap.relayerKeyId,
+      groupPublicKeyB64u: bootstrap.groupPublicKeyB64u,
+      ethereumAddress: bootstrap.ethereumAddress,
+      relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,
+      chainId: bootstrap.chainId,
+      factory: bootstrap.factory,
+      entryPoint: bootstrap.entryPoint,
+      salt: bootstrap.salt,
+      counterfactualAddress: bootstrap.counterfactualAddress,
+      code: bootstrap.code,
+      message: bootstrap.message,
+    };
+  } catch (error: any) {
+    return { ok: false, error: error?.message || 'Failed to keygen threshold-ecdsa' };
+  }
+}
+
+export async function thresholdEcdsaBootstrap(
+  relayServerUrl: string,
+  args: {
+    userId: string;
+    rpId: string;
+    keygenSessionId: string;
+    clientVerifyingShareB64u: string;
+    webauthnAuthentication: WebAuthnAuthenticationCredential;
+    sessionPolicy: {
+      version: 'threshold_session_v1';
+      userId: string;
+      rpId: string;
+      sessionId: string;
+      participantIds?: number[];
+      ttlMs: number;
+      remainingUses: number;
+    };
+    sessionKind?: 'jwt' | 'cookie';
+  },
+): Promise<{
+  ok: boolean;
+  participantIds?: number[];
+  relayerKeyId?: string;
+  groupPublicKeyB64u?: string;
+  ethereumAddress?: string;
+  relayerVerifyingShareB64u?: string;
+  chainId?: string;
+  factory?: string;
+  entryPoint?: string;
+  salt?: string;
+  counterfactualAddress?: string;
+  sessionId?: string;
+  expiresAtMs?: number;
+  remainingUses?: number;
+  jwt?: string;
+  code?: string;
+  message?: string;
+  error?: string;
+}> {
+  try {
     const base = String(relayServerUrl || '').trim().replace(/\/$/, '');
     if (!base) throw new Error('Missing relayServerUrl');
 
@@ -423,20 +524,28 @@ export async function thresholdEcdsaKeygen(
     const clientVerifyingShareB64u = String(args.clientVerifyingShareB64u || '').trim();
     if (!clientVerifyingShareB64u) throw new Error('Missing clientVerifyingShareB64u');
 
+    if (!args.sessionPolicy || typeof args.sessionPolicy !== 'object') {
+      throw new Error('Missing sessionPolicy');
+    }
+
+    const sessionKind = args.sessionKind === 'cookie' ? 'cookie' : 'jwt';
+
     // Never send PRF outputs to the relay.
     const webauthn_authentication = redactCredentialExtensionOutputs(args.webauthnAuthentication);
 
-    const url = `${base}/threshold-ecdsa/keygen`;
+    const url = `${base}/threshold-ecdsa/bootstrap`;
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
+      credentials: sessionKind === 'cookie' ? 'include' : 'omit',
       body: JSON.stringify({
         userId,
         rpId,
         keygenSessionId,
         clientVerifyingShareB64u,
         webauthn_authentication,
+        sessionPolicy: args.sessionPolicy,
+        sessionKind,
       }),
     });
 
@@ -458,11 +567,15 @@ export async function thresholdEcdsaKeygen(
       entryPoint: json?.entryPoint,
       salt: json?.salt,
       counterfactualAddress: json?.counterfactualAddress,
+      sessionId: json?.sessionId,
+      expiresAtMs: json?.expiresAtMs,
+      remainingUses: json?.remainingUses,
+      jwt: json?.jwt,
       code: json?.code,
       message: json?.message,
     };
   } catch (error: any) {
-    return { ok: false, error: error?.message || 'Failed to keygen threshold-ecdsa' };
+    return { ok: false, error: error?.message || 'Failed to bootstrap threshold-ecdsa session' };
   }
 }
 

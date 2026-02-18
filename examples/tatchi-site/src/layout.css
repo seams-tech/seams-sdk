@@ -4,7 +4,6 @@ body {
   padding: 0;
   font-family: var(--fe-font-sans, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
   color: var(--fe-text);
-  background: var(--site-canvas);
 }
 
 .layout-root {
@@ -19,6 +18,7 @@ body {
   gap: 0;
   margin: 0;
   padding: 0;
+  background: var(--fe-bg);
   min-height: 100dvh;
   grid-template-areas:
     "one   two"
@@ -562,9 +562,17 @@ body {
 }
 
 .passkey-demo {
+  position: relative;
   display: grid;
   place-items: center;
   padding-top: 2rem;
+}
+
+.passkey-demo__profile-button-slot {
+  position: absolute;
+  top: 0;
+  right: 1rem;
+  z-index: 2;
 }
 
 /* Install panel (hero code block) */
@@ -780,12 +788,12 @@ body {
 [data-w3a-theme="dark"] .shiki .code-kw-tatchi-provider {
   color: #FFA657; /* GitHub dark orange */
 }
-/* Home hero install command: make package purple without affecting Shiki imports */
-.install-body .code-block--dark .code-kw-pkg {
-  color: #8250DF;
+/* Home hero install command: token-driven snippet colors */
+.install-body .code-block--dark .code-kw-pm {
+  color: var(--w3a-colors-primary, #1f6feb);
 }
-[data-w3a-theme="dark"] .install-body .code-block--dark .code-kw-pkg {
-  color: #D2A8FF;
+.install-body .code-block--dark .code-kw-pkg {
+  color: var(--w3a-colors-secondary, #8250DF);
 }
 /* Explicit purple for install snippet package names */
 .code-block .code-kw-pkg-install,
@@ -801,6 +809,20 @@ body {
 [data-w3a-theme="light"] .code-block,
 [data-w3a-theme="light"] .shiki {
   background: var(--w3a-colors-surface);
+}
+
+/* Theme-aware install command block surface (light + dark) */
+.code-block.code-block--dark {
+  background: color-mix(in srgb, var(--w3a-colors-surface3) 88%, var(--w3a-colors-colorBackground) 12%);
+  border-top: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary) 60%, transparent);
+}
+[data-w3a-theme="light"] .code-block.code-block--dark {
+  background: color-mix(in srgb, var(--w3a-colors-surface2) 90%, var(--w3a-colors-surface3) 10%);
+  border-top-color: color-mix(in srgb, var(--w3a-colors-borderPrimary) 68%, transparent);
+}
+[data-w3a-theme="dark"] .code-block.code-block--dark {
+  background: color-mix(in srgb, var(--w3a-colors-surface3) 88%, var(--w3a-colors-colorBackground) 12%);
+  border-top-color: color-mix(in srgb, var(--w3a-colors-borderPrimary) 56%, transparent);
 }
 
 /* Homepage marketing system */
@@ -891,6 +913,8 @@ body {
       color-mix(in srgb, var(--site-surface-strong) 86%, #000 14%) 0%,
       color-mix(in srgb, var(--site-surface-muted) 90%, #000 10%) 100%
     );
+  --marketing-solution-item-surface: var(--marketing-item-surface);
+  --marketing-solution-item-border: color-mix(in srgb, var(--fe-border) 58%, transparent);
   --marketing-item-text: var(--fe-text-primary);
   --marketing-item-title: var(--fe-text-primary);
   --marketing-item-copy: color-mix(in srgb, var(--fe-text-secondary) 90%, var(--fe-text) 10%);
@@ -1122,6 +1146,13 @@ html[data-w3a-theme="light"] .marketing-stack {
       #fafdff 0%,
       #e9f0f8 100%
     );
+  --marketing-solution-item-surface:
+    linear-gradient(
+      124deg,
+      color-mix(in srgb, var(--site-surface) 90%, var(--site-brand) 10%) 0%,
+      color-mix(in srgb, var(--site-surface-muted) 90%, var(--site-brand) 10%) 100%
+    );
+  --marketing-solution-item-border: color-mix(in srgb, var(--site-border) 70%, var(--site-brand) 30%);
   --marketing-item-text: #1f2d3a;
   --marketing-item-title: #1f2d3a;
   --marketing-item-copy: color-mix(in srgb, #5c6d81 90%, #1f2d3a 10%);
@@ -1148,20 +1179,20 @@ html[data-w3a-theme="light"] .marketing-stack {
   --marketing-solution-item-art:
     linear-gradient(
       224deg,
-      color-mix(in srgb, #8baac7 18%, transparent),
-      color-mix(in srgb, #c0cad6 22%, transparent)
+      color-mix(in srgb, var(--site-brand) 22%, transparent),
+      color-mix(in srgb, var(--site-border) 28%, transparent)
     ),
     repeating-linear-gradient(
       28deg,
-      color-mix(in srgb, #bac4d0 20%, transparent) 0px,
-      color-mix(in srgb, #bac4d0 20%, transparent) 1px,
+      color-mix(in srgb, var(--site-border) 24%, transparent) 0px,
+      color-mix(in srgb, var(--site-border) 24%, transparent) 1px,
       transparent 1px,
       transparent 22px
     ),
     repeating-linear-gradient(
       116deg,
-      color-mix(in srgb, #bac4d0 16%, transparent) 0px,
-      color-mix(in srgb, #bac4d0 16%, transparent) 1px,
+      color-mix(in srgb, var(--site-border) 18%, transparent) 0px,
+      color-mix(in srgb, var(--site-border) 18%, transparent) 1px,
       transparent 1px,
       transparent 22px
     );
@@ -1433,6 +1464,12 @@ html[data-w3a-theme="dark"] .credibility-bands {
 
 .product-cards__item {
   background: var(--marketing-trust-card-surface);
+  background: var(--marketing-solution-item-surface, var(--marketing-item-surface));
+}
+
+.solution-cards__item {
+  border-color: var(--marketing-solution-item-border, color-mix(in srgb, var(--fe-border) 58%, transparent));
+  background: var(--marketing-solution-item-surface, var(--marketing-item-surface));
 }
 
 .solution-cards__item::before {

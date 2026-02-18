@@ -1,6 +1,8 @@
 import type {
   ThresholdEcdsaAuthorizeResponse,
   ThresholdEcdsaAuthorizeWithSessionRequest,
+  ThresholdEcdsaBootstrapRequest,
+  ThresholdEcdsaBootstrapResponse,
   ThresholdEcdsaKeygenRequest,
   ThresholdEcdsaKeygenResponse,
   ThresholdEcdsaPresignInitRequest,
@@ -18,6 +20,7 @@ export type ThresholdSecp256k1Ecdsa2pSchemeModuleDeps = {
   healthz?: () => Promise<{ ok: boolean; code?: string; message?: string }>;
   keygen(request: ThresholdEcdsaKeygenRequest): Promise<ThresholdEcdsaKeygenResponse>;
   session(request: ThresholdEcdsaSessionRequest): Promise<ThresholdEcdsaSessionResponse>;
+  bootstrap?: (request: ThresholdEcdsaBootstrapRequest) => Promise<ThresholdEcdsaBootstrapResponse>;
   authorize(input: { claims: ThresholdEcdsaSessionClaims; request: ThresholdEcdsaAuthorizeWithSessionRequest }): Promise<ThresholdEcdsaAuthorizeResponse>;
   presign: {
     init(input: { claims: ThresholdEcdsaSessionClaims; request: ThresholdEcdsaPresignInitRequest }): Promise<ThresholdEcdsaPresignInitResponse>;
@@ -36,6 +39,7 @@ export function createThresholdSecp256k1Ecdsa2pSchemeModule(
     },
     keygen: deps.keygen,
     session: deps.session,
+    ...(deps.bootstrap ? { bootstrap: deps.bootstrap } : {}),
     authorize: deps.authorize,
     presign: deps.presign,
     protocol: deps.protocol,

@@ -508,6 +508,15 @@
   color: var(--w3a-colors-textPrimary);
 }
 
+.w3a-seg-btn.is-active.register {
+  color: var(--w3a-passkey-auth-menu2-seg-register-active-text, var(--w3a-colors-textPrimary));
+}
+
+.w3a-seg-btn.is-active.register:hover,
+.w3a-seg-btn.is-active.register:focus-visible {
+  color: var(--w3a-passkey-auth-menu2-seg-register-active-text-hover, var(--w3a-colors-primaryHover));
+}
+
 .w3a-seg-btn:focus-visible {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--w3a-colors-focus), transparent 60%);
 }

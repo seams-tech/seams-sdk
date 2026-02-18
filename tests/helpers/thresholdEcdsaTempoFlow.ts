@@ -148,7 +148,28 @@ export async function runThresholdEcdsaTempoFlow(
     });
 
     try {
-      const registration = await pm.registerPasskeyInternal(accountId, {}, confirmationConfig);
+      const registration = await pm.registerPasskeyInternal(
+        accountId,
+        {
+          signerOptions: {
+            tempo: {
+              enabled: false,
+              participantIds: [1, 2],
+              sessionKind: 'jwt',
+              ttlMs: 1,
+              remainingUses: 1,
+            },
+            evm: {
+              enabled: false,
+              participantIds: [1, 2],
+              sessionKind: 'jwt',
+              ttlMs: 1,
+              remainingUses: 1,
+            },
+          },
+        },
+        confirmationConfig,
+      );
       if (!registration?.success) {
         return {
           ok: false,

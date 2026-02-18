@@ -159,6 +159,14 @@ export function makeFakeAuthService(overrides: Partial<{
   verifyWebAuthnLogin: AuthService['verifyWebAuthnLogin'];
   createAccountAndRegisterUser: AuthService['createAccountAndRegisterUser'];
   getRorOrigins: AuthService['getRorOrigins'];
+  getOrCreateAppSessionVersion: AuthService['getOrCreateAppSessionVersion'];
+  validateAppSessionVersion: AuthService['validateAppSessionVersion'];
+  rotateAppSessionVersion: AuthService['rotateAppSessionVersion'];
+  isGoogleOidcConfigured: AuthService['isGoogleOidcConfigured'];
+  verifyGoogleLogin: AuthService['verifyGoogleLogin'];
+  listIdentities: AuthService['listIdentities'];
+  linkIdentity: AuthService['linkIdentity'];
+  unlinkIdentity: AuthService['unlinkIdentity'];
   getThresholdSigningService: AuthService['getThresholdSigningService'];
   emailRecovery: unknown;
 }> = {}): AuthService {
@@ -172,6 +180,21 @@ export function makeFakeAuthService(overrides: Partial<{
     createAccountAndRegisterUser: overrides.createAccountAndRegisterUser
       || (async () => ({ success: false, error: 'not implemented' })),
     getRorOrigins: overrides.getRorOrigins || (async () => []),
+    getOrCreateAppSessionVersion: overrides.getOrCreateAppSessionVersion
+      || (async () => ({ ok: true, appSessionVersion: 'v1' })),
+    validateAppSessionVersion: overrides.validateAppSessionVersion
+      || (async () => ({ ok: true })),
+    rotateAppSessionVersion: overrides.rotateAppSessionVersion
+      || (async () => ({ ok: true, appSessionVersion: 'v2' })),
+    isGoogleOidcConfigured: overrides.isGoogleOidcConfigured || (() => false),
+    verifyGoogleLogin: overrides.verifyGoogleLogin
+      || (async () => ({ ok: false, verified: false, code: 'not_implemented', message: 'not implemented' })),
+    listIdentities: overrides.listIdentities
+      || (async () => ({ ok: true, subjects: [] })),
+    linkIdentity: overrides.linkIdentity
+      || (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    unlinkIdentity: overrides.unlinkIdentity
+      || (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
     getThresholdSigningService: overrides.getThresholdSigningService || (() => null),
     emailRecovery: overrides.emailRecovery ?? null,
   };

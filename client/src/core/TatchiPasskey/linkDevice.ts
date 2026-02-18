@@ -8,7 +8,8 @@ import { DeviceLinkingPhase, DeviceLinkingStatus } from '../types/sdkSentEvents'
 import { toAccountId } from '../types/accountIds';
 import { errorMessage } from '../../../../shared/src/utils/errors';
 import { IndexedDBManager } from '../IndexedDBManager';
-import { createNearKeypair, ensureEd25519Prefix } from '../near/nearCrypto';
+import { ensureEd25519Prefix } from '../../../../shared/src/utils/validation';
+import { createNearKeypair } from '../near/createNearKeypair';
 import { getLoginSession } from './login';
 import { DEVICE_LINKING_CONFIG } from '../../config';
 import { normalizeRegistrationCredential } from '../signing/webauthn/credentials/helpers';

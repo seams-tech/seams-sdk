@@ -590,7 +590,7 @@ test.describe('Worker Communication Protocol', () => {
 
   // ensures relay failure still surfaces worker progress/error envelopes
   test('Worker Error Handling - Progress on Failure', async ({ page }) => {
-    const relayRoute = '**/create_account_and_register_user';
+    const relayRoute = '**/registration/bootstrap';
     await page.route(relayRoute, async (route) => {
       const req = route.request();
       const method = req.method().toUpperCase();

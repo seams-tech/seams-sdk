@@ -2,6 +2,7 @@ import {
   SecureConfirmMessageType,
   SecureConfirmRequest,
   SecureConfirmDecision,
+  type SecureConfirmProgressEvent,
 } from './confirmTxFlow/types';
 import { handlePromptUserConfirmInJsMainThread } from './confirmTxFlow';
 import type { SecureConfirmWorkerManagerContext } from '.';
@@ -14,7 +15,10 @@ import type { SecureConfirmWorkerManagerContext } from '.';
  */
 export async function runSecureConfirm(
   ctx: SecureConfirmWorkerManagerContext,
-  request: SecureConfirmRequest
+  request: SecureConfirmRequest,
+  options?: {
+    onProgress?: (progress: SecureConfirmProgressEvent) => void;
+  },
 ): Promise<SecureConfirmDecision> {
   return new Promise<SecureConfirmDecision>((resolve, reject) => {
     // Minimal Worker-like object to capture the response
@@ -22,6 +26,12 @@ export async function runSecureConfirm(
       postMessage: (msg: any) => {
         if (msg?.type === SecureConfirmMessageType.USER_PASSKEY_CONFIRM_RESPONSE) {
           resolve(msg.data as SecureConfirmDecision);
+          return;
+        }
+        if (msg?.type === SecureConfirmMessageType.USER_PASSKEY_CONFIRM_PROGRESS) {
+          try {
+            options?.onProgress?.(msg.data as SecureConfirmProgressEvent);
+          } catch {}
         }
       }
     } as unknown as Worker;

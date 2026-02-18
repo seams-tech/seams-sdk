@@ -107,7 +107,7 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
         },
         relayServer: () => {
           window.fetch = async (url: any, options: any) => {
-            if (typeof url === 'string' && url.includes('/create_account_and_register_user')) {
+            if (typeof url === 'string' && url.includes('/registration/bootstrap')) {
               return new Response(JSON.stringify({
                 success: false,
                 error: 'Relay server failure injected for testing'
@@ -169,7 +169,7 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
       registrationFlowUtils: {
         setupRelayServerMock: (successResponse = true) => {
           window.fetch = async (url: any, options: any) => {
-            if (typeof url === 'string' && url.includes('/create_account_and_register_user')) {
+            if (typeof url === 'string' && url.includes('/registration/bootstrap')) {
               if (successResponse) {
                 return new Response(JSON.stringify({
                   success: true,

@@ -6,8 +6,6 @@ import { HomeHero } from '../components/HomeHero'
 import NavbarStatic from '../components/Navbar/NavbarStatic'
 import { ProductCards } from '../components/ProductCards'
 import { SecurityProofStrip } from '../components/SecurityProofStrip'
-import { SolutionCards } from '../components/SolutionCards'
-import { TrustBar } from '../components/TrustBar'
 import { useRevealOnIdle } from '../hooks/useRevealOnIdle'
 
 // Defer loading the DemoPasskeyColumn until after first paint/idle
@@ -53,9 +51,7 @@ export function HomePage(): React.JSX.Element {
           <div className="single-column-content marketing-stack">
             <CredibilityBands />
             <section className="marketing-rail" aria-label="Platform capabilities">
-              <TrustBar />
               <ProductCards />
-              <SolutionCards />
               <SecurityProofStrip />
               <FinalCTA />
             </section>

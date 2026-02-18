@@ -194,6 +194,85 @@ test.describe('smart-account deployment gate helper', () => {
     expect(result.deployCalls).toBe(0);
   });
 
+  test('enforce mode auto-heals missing evm row from tempo bootstrap metadata', async ({ page }) => {
+    const result = await page.evaluate(async ({ paths }) => {
+      const { PasskeyClientDBManager } = await import(paths.clientDB);
+      const { ensureSmartAccountDeployed } = await import(paths.deployment);
+      const now = Date.now();
+      const dbm = new PasskeyClientDBManager();
+      dbm.setDbName(`PasskeyClientDB-smartacct-autofill-${now}-${Math.random().toString(16).slice(2)}`);
+
+      await dbm.upsertProfile({
+        profileId: 'profile-smartacct-autofill',
+        defaultDeviceNumber: 1,
+        passkeyCredential: { id: 'cred-autofill', rawId: 'raw-autofill' },
+      });
+      await dbm.upsertChainAccount({
+        profileId: 'profile-smartacct-autofill',
+        chainId: 'near:testnet',
+        accountAddress: 'alice.testnet',
+        accountModel: 'near-native',
+        isPrimary: true,
+        legacyNearAccountId: 'alice.testnet',
+      });
+      await dbm.upsertChainAccount({
+        profileId: 'profile-smartacct-autofill',
+        chainId: 'tempo:42431',
+        accountAddress: '0xabc666',
+        accountModel: 'tempo-native',
+        isPrimary: true,
+        counterfactualAddress: '0xabc666',
+        factory: '0xfac7ory',
+        entryPoint: '0xentry',
+        salt: '0xsalt',
+        deployed: false,
+      });
+
+      let deployInput: any = null;
+      const gate = await ensureSmartAccountDeployed({
+        clientDB: dbm,
+        nearAccountId: 'alice.testnet',
+        chain: 'evm',
+        chainIdCandidates: ['eip155:11155111', 'eip155:unknown'],
+        accountModelCandidates: ['erc4337'],
+        enforce: true,
+        deploy: async (input) => {
+          deployInput = {
+            chain: input.chain,
+            chainId: input.chainId,
+            accountModel: input.account.accountModel,
+            accountAddress: input.account.accountAddress,
+          };
+          return { ok: true, deploymentTxHash: '0xautofilltx' };
+        },
+      });
+
+      const rows = await dbm.listChainAccountsByProfileAndChain(
+        'profile-smartacct-autofill',
+        'eip155:unknown',
+      );
+      const account = rows.find((row: any) => row.accountAddress === '0xabc666') || null;
+
+      return {
+        status: gate.status,
+        deploymentTxHash: gate.deploymentTxHash || null,
+        deployInput,
+        accountExists: !!account,
+        accountModel: account?.accountModel || null,
+        accountDeployed: typeof account?.deployed === 'boolean' ? account.deployed : null,
+      };
+    }, { paths: IMPORT_PATHS });
+
+    expect(result.status).toBe('deployed');
+    expect(result.deploymentTxHash).toBe('0xautofilltx');
+    expect(result.deployInput?.chain).toBe('evm');
+    expect(result.deployInput?.chainId).toBe('eip155:unknown');
+    expect(result.deployInput?.accountModel).toBe('erc4337');
+    expect(result.accountExists).toBe(true);
+    expect(result.accountModel).toBe('erc4337');
+    expect(result.accountDeployed).toBe(true);
+  });
+
   test('transient deploy failure retries and succeeds in enforce mode', async ({ page }) => {
     const result = await page.evaluate(async ({ paths }) => {
       const { PasskeyClientDBManager } = await import(paths.clientDB);

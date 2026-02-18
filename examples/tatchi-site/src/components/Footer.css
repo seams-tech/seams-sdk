@@ -1,11 +1,6 @@
 .app-footer {
-  position: relative;
-  overflow: hidden;
-  margin-top: 2.6rem;
-  padding: 3.15rem 0 2.1rem;
-  color: color-mix(in srgb, var(--fe-text) 90%, var(--fe-text-secondary) 10%);
-  border-top: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary) 72%, transparent);
-  background:
+  --frontpage-footer-border-color: color-mix(in srgb, var(--w3a-colors-borderPrimary) 72%, transparent);
+  --frontpage-footer-surface-gradient:
     radial-gradient(
       125% 140% at 10% -30%,
       color-mix(in srgb, var(--w3a-colors-primary) 10%, transparent) 0%,
@@ -17,22 +12,58 @@
       color-mix(in srgb, var(--w3a-colors-surface2) 90%, var(--w3a-colors-surface3) 10%) 58%,
       color-mix(in srgb, var(--w3a-colors-surface3) 84%, var(--w3a-colors-surface2) 16%) 100%
     );
+  --frontpage-footer-newsletter-border-color: color-mix(in srgb, var(--w3a-colors-borderPrimary) 76%, transparent);
+  --frontpage-footer-newsletter-surface-gradient:
+    radial-gradient(
+      118% 142% at -4% 0%,
+      color-mix(in srgb, var(--w3a-colors-primary) 8%, transparent) 0%,
+      transparent 54%
+    ),
+    linear-gradient(
+      160deg,
+      color-mix(in srgb, var(--w3a-colors-surface2) 84%, var(--w3a-colors-surface) 16%) 0%,
+      color-mix(in srgb, var(--w3a-colors-surface3) 82%, var(--w3a-colors-surface2) 18%) 100%
+    );
+  --frontpage-footer-copy-color: color-mix(in srgb, var(--fe-text) 90%, var(--fe-text-secondary) 10%);
+  --frontpage-footer-heading-color: color-mix(in srgb, var(--fe-text-secondary) 90%, var(--fe-text) 10%);
+  --frontpage-footer-subtle-color: color-mix(in srgb, var(--fe-text-secondary) 88%, var(--fe-text) 12%);
+  --frontpage-footer-near-color: color-mix(in srgb, var(--fe-text-secondary) 86%, var(--fe-text) 14%);
+  --frontpage-footer-bottom-border-color: color-mix(in srgb, var(--site-border) 70%, transparent);
+  position: relative;
+  overflow: hidden;
+  margin-top: 2.6rem;
+  padding: 3.15rem 0 2.1rem;
+  color: var(--frontpage-footer-copy-color);
+  border-top: 1px solid var(--frontpage-footer-border-color);
+  background: var(--frontpage-footer-surface-gradient);
 }
 
-/* Match the "security diagrams" light slate-blue surface (screenshot reference). */
 html[data-w3a-theme="light"] .app-footer {
-  border-top-color: color-mix(in srgb, #9fb2c9 36%, var(--w3a-colors-borderPrimary) 64%);
-  background:
+  --frontpage-footer-border-color: color-mix(in srgb, var(--site-border) 84%, var(--site-brand) 16%);
+  --frontpage-footer-surface-gradient:
+    radial-gradient(
+      130% 146% at 12% -26%,
+      color-mix(in srgb, var(--site-brand) 8%, transparent) 0%,
+      transparent 52%
+    ),
     linear-gradient(
       154deg,
-      color-mix(in srgb, #e8eef7 84%, #f5f8fc 16%) 0%,
-      color-mix(in srgb, #dbe4f1 88%, #9bb4d2 12%) 56%,
-      color-mix(in srgb, #c9d5e6 86%, #b8c8dc 14%) 100%
+      color-mix(in srgb, var(--site-surface) 96%, var(--site-brand) 4%) 0%,
+      color-mix(in srgb, var(--site-surface-muted) 94%, var(--site-brand) 6%) 56%,
+      color-mix(in srgb, var(--site-surface-strong) 90%, var(--site-surface) 10%) 100%
     );
-}
-
-html[data-w3a-theme="light"] .app-footer__bg-glow {
-  display: none;
+  --frontpage-footer-newsletter-border-color: color-mix(in srgb, var(--site-border) 82%, var(--site-brand) 18%);
+  --frontpage-footer-newsletter-surface-gradient:
+    radial-gradient(
+      120% 140% at -4% 0%,
+      color-mix(in srgb, var(--site-brand) 6%, transparent) 0%,
+      transparent 54%
+    ),
+    linear-gradient(
+      162deg,
+      color-mix(in srgb, var(--site-surface) 97%, var(--site-brand) 3%) 0%,
+      color-mix(in srgb, var(--site-surface-muted) 94%, var(--site-surface) 6%) 100%
+    );
 }
 
 html[data-w3a-theme="light"] .app-footer::before,
@@ -47,13 +78,13 @@ html[data-w3a-theme="light"] .app-footer::after {
     linear-gradient(
       45deg,
       transparent 48%,
-      color-mix(in srgb, #9bb2cd 52%, transparent) 50%,
+      color-mix(in srgb, var(--site-brand) 26%, transparent) 50%,
       transparent 52%
     ),
     linear-gradient(
       -45deg,
       transparent 48%,
-      color-mix(in srgb, #b0bfd3 46%, transparent) 50%,
+      color-mix(in srgb, var(--site-border) 34%, transparent) 50%,
       transparent 52%
     );
   background-size: 14px 14px;
@@ -70,19 +101,41 @@ html[data-w3a-theme="light"] .app-footer::after {
 }
 
 html[data-w3a-theme="dark"] .app-footer {
-  color: color-mix(in srgb, var(--fe-text) 94%, var(--fe-text-secondary) 6%);
-  border-top-color: color-mix(in srgb, var(--w3a-colors-borderPrimary) 62%, transparent);
-  background:
+  --frontpage-footer-border-color: color-mix(in srgb, #586e75 56%, var(--w3a-colors-borderPrimary) 44%);
+  --frontpage-footer-surface-gradient:
     radial-gradient(
-      135% 150% at 92% -24%,
-      color-mix(in srgb, var(--w3a-colors-surface3) 92%, var(--w3a-colors-primary) 8%) 0%,
-      transparent 50%
+      132% 148% at 12% -26%,
+      color-mix(in srgb, #2aa198 16%, transparent) 0%,
+      transparent 52%
     ),
     linear-gradient(
-      198deg,
-      color-mix(in srgb, var(--site-surface-strong) 85%, var(--site-canvas) 15%) 0%,
-      color-mix(in srgb, var(--site-canvas) 92%, var(--site-surface-strong) 8%) 100%
+      154deg,
+      #073642 0%,
+      #0b3b48 56%,
+      #002b36 100%
     );
+  --frontpage-footer-newsletter-border-color: color-mix(in srgb, #586e75 62%, var(--site-border) 38%);
+  --frontpage-footer-newsletter-surface-gradient:
+    radial-gradient(
+      120% 140% at -4% 0%,
+      color-mix(in srgb, #6c71c4 14%, transparent) 0%,
+      transparent 54%
+    ),
+    linear-gradient(
+      162deg,
+      #0f4452 0%,
+      #0b3b48 100%
+    );
+  --frontpage-footer-copy-color: color-mix(in srgb, var(--fe-text) 94%, var(--fe-text-secondary) 6%);
+  --frontpage-footer-heading-color: color-mix(in srgb, var(--fe-text-secondary) 88%, var(--fe-text) 12%);
+  --frontpage-footer-subtle-color: color-mix(in srgb, var(--fe-text-secondary) 86%, var(--fe-text) 14%);
+  --frontpage-footer-near-color: color-mix(in srgb, var(--fe-text-secondary) 88%, var(--fe-text) 12%);
+  --frontpage-footer-bottom-border-color: color-mix(in srgb, var(--site-border) 58%, transparent);
+}
+
+html[data-w3a-theme="light"] .app-footer__bg-glow,
+html[data-w3a-theme="dark"] .app-footer__bg-glow {
+  display: none;
 }
 
 .app-footer__bg-glow {
@@ -135,53 +188,17 @@ html[data-w3a-theme="dark"] .app-footer {
   letter-spacing: -0.02em;
 }
 
-html[data-w3a-theme="dark"] .app-footer__brand {
-  color: var(--fe-text-primary);
-}
-
 .app-footer__newsletter {
   padding: 1.15rem 1rem 1.15rem;
   border-radius: 1.1rem;
-  border: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary) 76%, transparent);
-  background:
-    radial-gradient(
-      118% 142% at -4% 0%,
-      color-mix(in srgb, var(--w3a-colors-primary) 8%, transparent) 0%,
-      transparent 54%
-    ),
-    linear-gradient(
-      160deg,
-      color-mix(in srgb, var(--w3a-colors-surface2) 84%, var(--w3a-colors-surface) 16%) 0%,
-      color-mix(in srgb, var(--w3a-colors-surface3) 82%, var(--w3a-colors-surface2) 18%) 100%
-    );
+  border: 1px solid var(--frontpage-footer-newsletter-border-color);
+  background: var(--frontpage-footer-newsletter-surface-gradient);
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--site-text-button) 70%, transparent),
     0 26px 40px -38px color-mix(in srgb, var(--site-border-strong) 45%, transparent);
 }
 
-html[data-w3a-theme="light"] .app-footer__newsletter {
-  border-color: color-mix(in srgb, #9db2ca 52%, var(--w3a-colors-borderPrimary) 48%);
-  background:
-    linear-gradient(
-      162deg,
-      color-mix(in srgb, #eef3fb 88%, #ffffff 12%) 0%,
-      color-mix(in srgb, #dce6f3 90%, #f2f6fc 10%) 100%
-    );
-}
-
 html[data-w3a-theme="dark"] .app-footer__newsletter {
-  border-color: color-mix(in srgb, var(--site-border) 58%, transparent);
-  background:
-    radial-gradient(
-      122% 128% at 96% -8%,
-      color-mix(in srgb, var(--w3a-colors-primary) 8%, transparent) 0%,
-      transparent 48%
-    ),
-    linear-gradient(
-      206deg,
-      color-mix(in srgb, var(--site-surface-strong) 86%, var(--site-canvas) 14%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 92%, var(--site-canvas) 8%) 100%
-    );
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--site-border) 30%, transparent),
     0 28px 40px -35px color-mix(in srgb, var(--site-canvas) 85%, transparent);
@@ -194,19 +211,11 @@ html[data-w3a-theme="dark"] .app-footer__newsletter {
   color: var(--fe-text-primary);
 }
 
-html[data-w3a-theme="dark"] .app-footer__newsletter h2 {
-  color: var(--fe-text-primary);
-}
-
 .app-footer__newsletter p {
   margin: 0.52rem 0 0;
   color: color-mix(in srgb, var(--fe-text-secondary) 92%, var(--fe-text) 8%);
   font-size: 1rem;
   line-height: 1.45;
-}
-
-html[data-w3a-theme="dark"] .app-footer__newsletter p {
-  color: color-mix(in srgb, var(--fe-text-secondary) 92%, var(--fe-text) 8%);
 }
 
 .app-footer__subscribe {
@@ -269,12 +278,8 @@ html[data-w3a-theme="dark"] .app-footer__newsletter p {
 .app-footer__newsletter small {
   display: block;
   margin-top: 0.68rem;
-  color: color-mix(in srgb, var(--fe-text-secondary) 88%, var(--fe-text) 12%);
+  color: var(--frontpage-footer-subtle-color);
   font-size: 0.88rem;
-}
-
-html[data-w3a-theme="dark"] .app-footer__newsletter small {
-  color: color-mix(in srgb, var(--fe-text-secondary) 86%, var(--fe-text) 14%);
 }
 
 .app-footer__newsletter small a {
@@ -305,14 +310,10 @@ html[data-w3a-theme="dark"] .app-footer__newsletter small {
   gap: 0.35rem;
   width: fit-content;
   margin-top: 0.2rem;
-  color: color-mix(in srgb, var(--fe-text-secondary) 86%, var(--fe-text) 14%);
+  color: var(--frontpage-footer-near-color);
   text-decoration: none;
   font-size: 1.5rem;
   transition: color var(--fe-fast) var(--fe-ease);
-}
-
-html[data-w3a-theme="dark"] .app-footer__near {
-  color: color-mix(in srgb, var(--fe-text-secondary) 88%, var(--fe-text) 12%);
 }
 
 .app-footer__near-logo {
@@ -346,11 +347,7 @@ html[data-w3a-theme="dark"] .app-footer__near {
   margin: 0 0 0.35rem;
   font-size: 0.95rem;
   font-weight: 700;
-  color: color-mix(in srgb, var(--fe-text-secondary) 90%, var(--fe-text) 10%);
-}
-
-html[data-w3a-theme="dark"] .app-footer__heading {
-  color: color-mix(in srgb, var(--fe-text-secondary) 88%, var(--fe-text) 12%);
+  color: var(--frontpage-footer-heading-color);
 }
 
 .app-footer__col a {
@@ -360,7 +357,8 @@ html[data-w3a-theme="dark"] .app-footer__heading {
   font-size: 1.02rem;
 }
 
-.app-footer__col a:hover {
+.app-footer__col a:hover,
+.app-footer__legal-links a:hover {
   color: var(--w3a-colors-primary);
 }
 
@@ -371,11 +369,7 @@ html[data-w3a-theme="dark"] .app-footer__heading {
   gap: 1rem;
   align-items: end;
   padding-top: 1.7rem;
-  border-top: 1px solid color-mix(in srgb, var(--site-border) 70%, transparent);
-}
-
-html[data-w3a-theme="dark"] .app-footer__bottom {
-  border-top-color: color-mix(in srgb, var(--site-border) 58%, transparent);
+  border-top: 1px solid var(--frontpage-footer-bottom-border-color);
 }
 
 .app-footer__socials {
@@ -429,10 +423,6 @@ html[data-w3a-theme="dark"] .app-footer__bottom {
   text-decoration: none;
 }
 
-.app-footer__legal-links a:hover {
-  color: var(--w3a-colors-primary);
-}
-
 .app-footer__badges {
   display: inline-flex;
   gap: 0.45rem;
@@ -447,12 +437,11 @@ html[data-w3a-theme="dark"] .app-footer__bottom {
   font-size: 0.78rem;
   letter-spacing: 0.04em;
   font-weight: 700;
-  color: color-mix(in srgb, var(--fe-text-secondary) 90%, var(--fe-text) 10%);
+  color: var(--frontpage-footer-heading-color);
   background: color-mix(in srgb, var(--w3a-colors-surface2) 60%, var(--w3a-colors-surface) 40%);
 }
 
 html[data-w3a-theme="dark"] .app-footer__badges span {
-  color: color-mix(in srgb, var(--fe-text-secondary) 88%, var(--fe-text) 12%);
   border-color: color-mix(in srgb, var(--site-border) 52%, transparent);
   background: color-mix(in srgb, var(--site-surface-strong) 74%, transparent);
 }

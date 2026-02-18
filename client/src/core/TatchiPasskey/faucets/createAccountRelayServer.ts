@@ -5,6 +5,10 @@ import { redactCredentialExtensionOutputs } from '../../signing/webauthn/credent
 import type { WebAuthnRegistrationCredential } from '../../types/webauthn';
 import type { AuthenticatorOptions } from '../../types/authenticatorOptions';
 import type { CreateAccountAndRegisterResult } from '@server/core/types';
+import type {
+  ThresholdEcdsaSessionPolicy,
+  ThresholdEd25519SessionPolicy,
+} from '../../signing/threshold/session/thresholdSessionPolicy';
 import { isObject } from '../../../../../shared/src/utils/validation';
 import { errorMessage } from '../../../../../shared/src/utils/errors';
 
@@ -72,8 +76,13 @@ function improveAtomicRegistrationError(args: {
 }
 
 /**
- * HTTP Request body for the relay server's /create_account_and_register_user endpoint
+ * HTTP Request body for the relay server's /registration/bootstrap endpoint
  */
+type ThresholdEd25519RegistrationSessionPolicy =
+  Omit<ThresholdEd25519SessionPolicy, 'relayerKeyId'> & { relayerKeyId?: string };
+type ThresholdEcdsaRegistrationSessionPolicy =
+  Omit<ThresholdEcdsaSessionPolicy, 'relayerKeyId'> & { relayerKeyId?: string };
+
 export interface CreateAccountAndRegisterUserRequest {
   new_account_id: string;
   /**
@@ -85,6 +94,13 @@ export interface CreateAccountAndRegisterUserRequest {
   device_number: number;
   threshold_ed25519?: {
     client_verifying_share_b64u: string;
+    session_policy: ThresholdEd25519RegistrationSessionPolicy;
+    session_kind: 'jwt' | 'cookie';
+  };
+  threshold_ecdsa?: {
+    client_verifying_share_b64u: string;
+    session_policy: ThresholdEcdsaRegistrationSessionPolicy;
+    session_kind: 'jwt' | 'cookie';
   };
   rp_id: string;
   webauthn_registration: WebAuthnRegistrationCredential;
@@ -93,7 +109,7 @@ export interface CreateAccountAndRegisterUserRequest {
 
 /**
  * Create account and register user using relay-server atomic endpoint
- * Makes a single call to the relay-server's /create_account_and_register_user endpoint
+ * Makes a single call to the relay-server's /registration/bootstrap endpoint
  */
 export async function createAccountAndRegisterWithRelayServer(
   context: PasskeyManagerContext,
@@ -106,6 +122,13 @@ export async function createAccountAndRegisterWithRelayServer(
   opts?: {
     thresholdEd25519?: {
       clientVerifyingShareB64u: string;
+      sessionPolicy: ThresholdEd25519RegistrationSessionPolicy;
+      sessionKind: 'jwt' | 'cookie';
+    };
+    thresholdEcdsa?: {
+      clientVerifyingShareB64u: string;
+      sessionPolicy: ThresholdEcdsaRegistrationSessionPolicy;
+      sessionKind: 'jwt' | 'cookie';
     };
   },
 ): Promise<{
@@ -118,6 +141,31 @@ export async function createAccountAndRegisterWithRelayServer(
     clientParticipantId?: number;
     relayerParticipantId?: number;
     participantIds?: number[];
+    session?: {
+      sessionKind: 'jwt' | 'cookie';
+      sessionId: string;
+      expiresAtMs: number;
+      expiresAt?: string;
+      participantIds?: number[];
+      remainingUses?: number;
+      jwt?: string;
+    };
+  };
+  thresholdEcdsa?: {
+    relayerKeyId: string;
+    groupPublicKeyB64u: string;
+    ethereumAddress: string;
+    relayerVerifyingShareB64u: string;
+    participantIds?: number[];
+    session?: {
+      sessionKind: 'jwt' | 'cookie';
+      sessionId: string;
+      expiresAtMs: number;
+      expiresAt?: string;
+      participantIds?: number[];
+      remainingUses?: number;
+      jwt?: string;
+    };
   };
   error?: string;
 }> {
@@ -158,6 +206,17 @@ export async function createAccountAndRegisterWithRelayServer(
         ? {
           threshold_ed25519: {
             client_verifying_share_b64u: opts.thresholdEd25519.clientVerifyingShareB64u,
+            session_policy: opts.thresholdEd25519.sessionPolicy,
+            session_kind: opts.thresholdEd25519.sessionKind,
+          },
+        }
+        : {}),
+      ...(opts?.thresholdEcdsa?.clientVerifyingShareB64u
+        ? {
+          threshold_ecdsa: {
+            client_verifying_share_b64u: opts.thresholdEcdsa.clientVerifyingShareB64u,
+            session_policy: opts.thresholdEcdsa.sessionPolicy,
+            session_kind: opts.thresholdEcdsa.sessionKind,
           },
         }
         : {}),
@@ -178,7 +237,7 @@ export async function createAccountAndRegisterWithRelayServer(
     });
 
     // Call the atomic endpoint
-    const response = await fetch(`${configs.relayer.url}/create_account_and_register_user`, {
+    const response = await fetch(`${configs.relayer.url}/registration/bootstrap`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestData)
@@ -219,6 +278,37 @@ export async function createAccountAndRegisterWithRelayServer(
           clientParticipantId: result.thresholdEd25519.clientParticipantId,
           relayerParticipantId: result.thresholdEd25519.relayerParticipantId,
           participantIds: result.thresholdEd25519.participantIds,
+          session: result.thresholdEd25519.session
+            ? {
+              sessionKind: result.thresholdEd25519.session.sessionKind,
+              sessionId: result.thresholdEd25519.session.sessionId,
+              expiresAtMs: result.thresholdEd25519.session.expiresAtMs,
+              expiresAt: result.thresholdEd25519.session.expiresAt,
+              participantIds: result.thresholdEd25519.session.participantIds,
+              remainingUses: result.thresholdEd25519.session.remainingUses,
+              jwt: result.thresholdEd25519.session.jwt,
+            }
+            : undefined,
+        }
+        : undefined,
+      thresholdEcdsa: result.thresholdEcdsa
+        ? {
+          relayerKeyId: result.thresholdEcdsa.relayerKeyId,
+          groupPublicKeyB64u: result.thresholdEcdsa.groupPublicKeyB64u,
+          ethereumAddress: result.thresholdEcdsa.ethereumAddress,
+          relayerVerifyingShareB64u: result.thresholdEcdsa.relayerVerifyingShareB64u,
+          participantIds: result.thresholdEcdsa.participantIds,
+          session: result.thresholdEcdsa.session
+            ? {
+              sessionKind: result.thresholdEcdsa.session.sessionKind,
+              sessionId: result.thresholdEcdsa.session.sessionId,
+              expiresAtMs: result.thresholdEcdsa.session.expiresAtMs,
+              expiresAt: result.thresholdEcdsa.session.expiresAt,
+              participantIds: result.thresholdEcdsa.session.participantIds,
+              remainingUses: result.thresholdEcdsa.session.remainingUses,
+              jwt: result.thresholdEcdsa.session.jwt,
+            }
+            : undefined,
         }
         : undefined,
     };

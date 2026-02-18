@@ -27,4 +27,24 @@ test.describe('TatchiPasskey.setTheme', () => {
 
     expect(result).toEqual({ before: 'dark', after: 'light' });
   });
+
+  test('initializes theme from config appearance.theme', async ({ page }) => {
+    const result = await page.evaluate(async () => {
+      const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+      const { TatchiPasskey } = mod as any;
+
+      const tatchi = new TatchiPasskey({
+        appearance: { theme: 'light' },
+        nearNetwork: 'testnet',
+        nearRpcUrl: 'https://test.rpc.fastnear.com',
+        contractId: 'w3a-v1.testnet',
+        relayer: { url: 'https://relay-server.localhost' },
+        iframeWallet: { walletOrigin: '' },
+      });
+
+      return { theme: tatchi.theme };
+    });
+
+    expect(result).toEqual({ theme: 'light' });
+  });
 });

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Development build script for @tatchi-xyz/sdk
-# - Faster build (no wasm-pack --release, no bun --minify)
+# - Faster build (wasm-pack --dev --no-opt, no bun --minify)
 # - Rolldown runs without forcing NODE_ENV=production
 
 set -e
@@ -38,11 +38,11 @@ rm -rf "$BUILD_ROOT/"
 print_success "Build directory cleaned"
 
 print_step "Generating TypeScript types from Rust..."
-if ./scripts/generate-types.sh; then print_success "TypeScript types generated successfully"; else print_error "Type generation failed"; exit 1; fi
+if WASM_PACK_BUILD_PROFILE=dev ./scripts/generate-types.sh; then print_success "TypeScript types generated successfully"; else print_error "Type generation failed"; exit 1; fi
 
 print_step "Building WASM signer worker (dev)..."
 pushd "$SDK_ROOT/$SOURCE_WASM_SIGNER" >/dev/null
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg; then
+if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --dev --no-opt; then
   print_success "WASM signer worker built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
 else
   print_error "WASM signer build failed"
@@ -52,7 +52,7 @@ popd >/dev/null
 
 print_step "Building WASM eth signer (dev)..."
 pushd "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER" >/dev/null
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg; then
+if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --dev --no-opt; then
   print_success "WASM eth signer built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
 else
   print_error "WASM eth signer build failed"
@@ -62,7 +62,7 @@ popd >/dev/null
 
 print_step "Building WASM tempo signer (dev)..."
 pushd "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER" >/dev/null
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg; then
+if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --dev --no-opt; then
   print_success "WASM tempo signer built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
 else
   print_error "WASM tempo signer build failed"

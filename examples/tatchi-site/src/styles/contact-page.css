@@ -37,7 +37,7 @@
   padding: clamp(0.95rem, 1.8vw, 1.25rem);
   border: 1px solid var(--fe-border);
   border-radius: 16px;
-  background: color-mix(in srgb, var(--w3a-colors-surface) 94%, transparent);
+  background: color-mix(in srgb, var(--site-form-surface) 94%, transparent);
   box-shadow: var(--fe-shadow);
 }
 
@@ -63,7 +63,7 @@
 }
 
 .contact-form__required {
-  color: var(--w3a-colors-error, #cf3a3a);
+  color: var(--site-danger, #cf3a3a);
   margin-left: 0.1rem;
 }
 
@@ -74,7 +74,7 @@
   width: 100%;
   border: 1px solid color-mix(in srgb, var(--fe-border-strong) 56%, transparent 44%);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--w3a-colors-surface2) 82%, transparent);
+  background: color-mix(in srgb, var(--site-surface-muted) 82%, transparent);
   color: var(--fe-text-primary);
   font-size: 0.95rem;
   line-height: 1.3;
@@ -134,7 +134,7 @@
   width: min(248px, 100%);
   border: 1px solid var(--fe-border);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--w3a-colors-surface2) 86%, transparent);
+  background: color-mix(in srgb, var(--site-surface-muted) 86%, transparent);
   padding: 0.55rem 0.72rem;
   color: var(--fe-text-secondary);
   display: grid;
@@ -168,10 +168,10 @@
 .contact-form__submit {
   justify-self: start;
   min-width: 104px;
-  border: 1px solid color-mix(in srgb, var(--w3a-colors-primary) 65%, var(--fe-border) 35%);
+  border: 1px solid color-mix(in srgb, var(--site-brand) 65%, var(--fe-border) 35%);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--w3a-colors-primary) 86%, #ffffff 14%);
-  color: var(--w3a-colors-textButton);
+  background: color-mix(in srgb, var(--site-brand) 86%, #ffffff 14%);
+  color: var(--site-text-button);
   font: inherit;
   font-weight: 700;
   font-size: 0.98rem;
@@ -181,7 +181,7 @@
 }
 
 .contact-form__submit:hover {
-  background: color-mix(in srgb, var(--w3a-colors-primaryHover) 82%, #ffffff 18%);
+  background: color-mix(in srgb, var(--site-brand-hover) 82%, #ffffff 18%);
 }
 
 .contact-form__submit:focus-visible {

@@ -69,7 +69,6 @@ const addVars = (prefix, obj) => {
 
 addVars('grey', palette.grey);
 addVars('slate', palette.slate);
-addVars('cream', palette.cream);
 
 const chroma = palette.chroma || {};
 for (const fam of Object.keys(chroma)) {

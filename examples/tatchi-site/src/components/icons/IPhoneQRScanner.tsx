@@ -11,7 +11,7 @@ export function IPhoneQRScanner(props: {
   const vbH = 400
   const bodyFill = 'var(--w3a-colors-surface2)'
   const border = 'none'
-  const screenFill = 'var(--w3a-colors-surface1, rgba(0,0,0,0.04))'
+  const screenFill = 'var(--w3a-colors-surface, rgba(0,0,0,0.04))'
   const details = 'var(--fe-text-secondary)'
 
   return (

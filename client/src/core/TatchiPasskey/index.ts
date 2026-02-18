@@ -42,6 +42,7 @@ import type {
   TatchiConfigsInput,
 } from '../types/tatchi';
 import type {
+  ActionSSEEvent,
   ActionHooksOptions,
   DelegateActionHooksOptions,
   DelegateRelayHooksOptions,
@@ -223,6 +224,10 @@ export class TatchiPasskey {
 	            rpIdOverride: walletIframeConfig?.rpIdOverride,
               authenticatorOptions: this.configs.authenticatorOptions,
               emailDkimVerifierContract: this.configs.emailDkimVerifierContract,
+              appearance: {
+                theme: this.theme,
+                tokens: this.configs.appearance?.tokens,
+              },
 	            // Allow apps/CI to control where embedded bundles are served from
 	            sdkBasePath: walletIframeConfig?.sdkBasePath,
 	          });
@@ -433,6 +438,10 @@ export class TatchiPasskey {
           options: {
             onEvent: options?.onEvent,
             ...(options?.signerMode ? { signerMode: options.signerMode } : {}),
+            ...(typeof options?.backupLocalKey === 'boolean' ? { backupLocalKey: options.backupLocalKey } : {}),
+            ...(options?.signerOptions
+              ? { signerOptions: options.signerOptions }
+              : {}),
             ...(options?.confirmerText ? { confirmerText: options.confirmerText } : {})
           }
         });
@@ -475,6 +484,10 @@ export class TatchiPasskey {
           options: {
             onEvent: options?.onEvent,
             ...(options?.signerMode ? { signerMode: options.signerMode } : {}),
+            ...(typeof options?.backupLocalKey === 'boolean' ? { backupLocalKey: options.backupLocalKey } : {}),
+            ...(options?.signerOptions
+              ? { signerOptions: options.signerOptions }
+              : {}),
             ...(options?.confirmerText ? { confirmerText: options.confirmerText } : {})
           }
         });
@@ -569,8 +582,8 @@ export class TatchiPasskey {
    * Login and optionally mint a warm signing session.
    * - Sets the active account/deviceNumber (IndexedDB last-user pointer)
    * - Optional: mints a relay session (JWT/cookie) via standard WebAuthn login challenge/verify
-   * - By default, when `options.session` is provided, warm threshold-session mint is skipped
-   *   to avoid a second consecutive WebAuthn prompt during login
+   * - In `threshold-signer` mode with warm-session policy enabled, threshold warm-up
+   *   (ed25519 + ECDSA) is part of login and must succeed.
    * - Signing flows still prompt via SecureConfirm/WebAuthn as needed
    */
   async loginAndCreateSession(
@@ -603,9 +616,11 @@ export class TatchiPasskey {
         throw e;
       }
     }
-    // Initialize current user before login
-    await this.webAuthnManager.initializeCurrentUser(toAccountId(nearAccountId), this.nearClient);
     const res = await loginAndCreateSession(this.getContext(), toAccountId(nearAccountId), options);
+    if (res?.success) {
+      // Promote authenticated account to current-user state only after login succeeds.
+      await this.webAuthnManager.initializeCurrentUser(toAccountId(nearAccountId), this.nearClient);
+    }
     // Best-effort warm-up after successful login (non-blocking)
     try { void this.warmCriticalResources(nearAccountId); } catch { }
     return res;
@@ -1333,6 +1348,15 @@ export class TatchiPasskey {
     options?: {
       confirmationConfig?: Partial<ConfirmationConfig>;
       thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
+      /** Internal host-only cancellation probe; ignored in wallet-router calls. */
+      shouldAbort?: () => boolean;
+      onEvent?: (event: {
+        step: number;
+        phase: string;
+        status: 'progress' | 'success' | 'error';
+        message?: string;
+        data?: unknown;
+      }) => void;
     };
   }): Promise<TempoSignedResult> {
     if (this.shouldUseWalletIframe()) {
@@ -1343,6 +1367,7 @@ export class TatchiPasskey {
         options: {
           confirmationConfig: args.options?.confirmationConfig,
           thresholdEcdsaKeyRef: args.options?.thresholdEcdsaKeyRef,
+          onEvent: args.options?.onEvent,
         },
       });
     }
@@ -1352,6 +1377,8 @@ export class TatchiPasskey {
       request: args.request,
       confirmationConfigOverride: args.options?.confirmationConfig,
       thresholdEcdsaKeyRef: args.options?.thresholdEcdsaKeyRef,
+      shouldAbort: args.options?.shouldAbort,
+      onEvent: args.options?.onEvent,
     });
   }
 

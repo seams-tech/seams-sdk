@@ -135,12 +135,18 @@ export async function deriveThresholdSecp256k1ClientShareWasm(args: {
       `deriveThresholdSecp256k1ClientShare expected 32-byte signing share (got ${clientSigningShare32.length})`,
     );
   }
-  const clientVerifyingShareBytes = new Uint8Array(raw.clientVerifyingShare33);
-  if (clientVerifyingShareBytes.length !== 33) {
+  const workerVerifyingShareBytes = new Uint8Array(raw.clientVerifyingShare33);
+  if (workerVerifyingShareBytes.length !== 33) {
     throw new Error(
-      `deriveThresholdSecp256k1ClientShare expected 33-byte verifying share (got ${clientVerifyingShareBytes.length})`,
+      `deriveThresholdSecp256k1ClientShare expected 33-byte verifying share (got ${workerVerifyingShareBytes.length})`,
     );
   }
+
+  // Canonicalize/validate with Rust-backed WASM to keep secp256k1 handling in one place.
+  const clientVerifyingShareBytes = await validateSecp256k1PublicKey33Wasm({
+    publicKey33: workerVerifyingShareBytes,
+    workerCtx: args.workerCtx,
+  });
 
   return {
     clientSigningShare32,

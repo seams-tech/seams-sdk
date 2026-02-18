@@ -47,11 +47,11 @@ function readJson(p) {
 
 const palette = readJson(palettePath);
 
-const { grey = {}, slate = {}, cream = {}, gradients = {}, tokens = {}, themes = {} } = palette;
+const { grey = {}, slate = {}, gradients = {}, tokens = {}, themes = {} } = palette;
 let chroma = palette.chroma || {};
 if (!chroma || Object.keys(chroma).length === 0) {
   chroma = {};
-  const exclude = new Set(['grey','slate','cream','gradients','tokens','themes']);
+  const exclude = new Set(['grey','slate','gradients','tokens','themes']);
   Object.keys(palette).filter((k) => !exclude.has(k)).forEach((fam) => {
     if (palette[fam] && typeof palette[fam] === 'object') chroma[fam] = palette[fam];
   });
@@ -71,7 +71,7 @@ function get(obj, path) {
 function resolveRef(v) {
   if (typeof v !== 'string') return v;
   // Allow references like "grey.75" or "chroma.blue.500" or "tokens.buttonBackground" or "gradients.blue"
-  const maybe = get({ grey, slate, cream, chroma, gradients, tokens }, v);
+  const maybe = get({ grey, slate, chroma, gradients, tokens }, v);
   return maybe !== undefined ? maybe : v;
 }
 
@@ -177,9 +177,9 @@ function emitAliasBlock(vars) {
     `  --w3a-colors-borderPrimary: ${vars.borderPrimary};`,
     `  --w3a-colors-borderSecondary: ${vars.borderSecondary};`,
     `  --w3a-colors-borderHover: ${vars.borderHover};`,
-    `  --w3a-colors-backgroundGradientPrimary: ${vars.backgroundGradientPrimary};`,
-    `  --w3a-colors-backgroundGradientSecondary: ${vars.backgroundGradientSecondary};`,
-    `  --w3a-colors-backgroundGradient4: ${vars.backgroundGradient4};`,
+    `  --w3a-colors-gradientPrimary: ${vars.gradientPrimary};`,
+    `  --w3a-colors-gradientSecondary: ${vars.gradientSecondary};`,
+    `  --w3a-colors-gradientTertiary: ${vars.gradientTertiary};`,
     `  --w3a-colors-highlightReceiverId: ${vars.highlightReceiverId};`,
     `  --w3a-colors-highlightMethodName: ${vars.highlightMethodName};`,
     `  --w3a-colors-highlightAmount: ${vars.highlightAmount};`,
@@ -187,7 +187,10 @@ function emitAliasBlock(vars) {
 }
 
 // Also emit theme-specific alias blocks scoped to component hosts, so tokens pierce Shadow DOM via host inheritance
-const hostThemeTokens = `:root[data-w3a-theme=\"light\"] ${hostSelectors} {\n${emitAliasBlock(LIGHT_VARS)}\n}\n\n:root[data-w3a-theme=\"cream\"] ${hostSelectors} {\n${emitAliasBlock(LIGHT_VARS)}\n}`;
+const themedLightHostSelectors = hostSelectorsArr
+  .map((s) => `:root[data-w3a-theme=\"light\"] ${s}`)
+  .join(',\n');
+const hostThemeTokens = `${themedLightHostSelectors} {\n${emitAliasBlock(LIGHT_VARS)}\n}`;
 
 const cssOut = `${header}\n\n${darkBlock}\n\n${hostThemeTokens}\n`;
 

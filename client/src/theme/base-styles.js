@@ -23,7 +23,6 @@ export function createThemeTokens(palette) {
     green: palette.gradients?.green,
     black: palette.gradients?.black,
     blueWhite: palette.gradients?.blueWhite,
-    blackWhite: palette.gradients?.blackWhite,
   };
 
   const DARK_THEME = {
@@ -70,11 +69,10 @@ export function createThemeTokens(palette) {
     borderSecondary: GREY_COLORS.slate650,
     borderHover: GREY_COLORS.grey600,
 
-    // Background Gradients
-    backgroundGradientPrimary: GRADIENTS.blue,
-    backgroundGradientSecondary: GRADIENTS.blueWhite,
-    backgroundGradient3: GRADIENTS.blackWhite,
-    backgroundGradient4: GRADIENTS.black,
+    // Gradients
+    gradientPrimary: GRADIENTS.blue,
+    gradientSecondary: GRADIENTS.blueWhite,
+    gradientTertiary: GRADIENTS.black,
 
     // Highlights
     highlightReceiverId: CHROMA_COLORS.blue400,
@@ -126,11 +124,10 @@ export function createThemeTokens(palette) {
     borderSecondary: GREY_COLORS.grey300,
     borderHover: GREY_COLORS.slate350,
 
-    // Background Gradients
-    backgroundGradientPrimary: GRADIENTS.blue,
-    backgroundGradientSecondary: GRADIENTS.blueWhite,
-    backgroundGradient3: GRADIENTS.blackWhite,
-    backgroundGradient4: GRADIENTS.black,
+    // Gradients
+    gradientPrimary: GRADIENTS.blue,
+    gradientSecondary: GRADIENTS.blueWhite,
+    gradientTertiary: GRADIENTS.black,
 
     // Highlights
     highlightReceiverId: CHROMA_COLORS.blue500,

@@ -32,6 +32,9 @@ export type SmartAccountStatePort = {
   resolveNearAccountContext: (
     nearAccountId: AccountId,
   ) => Promise<{ profileId: string; sourceChainId: string; sourceAccountAddress: string } | null>;
+  listChainAccountsByProfile?: (
+    profileId: string,
+  ) => Promise<ChainAccountRecord[]>;
   listChainAccountsByProfileAndChain: (
     profileId: string,
     chainId: string,
@@ -121,6 +124,25 @@ function dedupeChainIds(chainIds: string[]): string[] {
   return out;
 }
 
+function deriveMirrorAccountDefaults(chain: SmartAccountDeploymentChain): {
+  mirrorChainId: string;
+  mirrorAccountModel: string;
+  seedAccountModelCandidates: string[];
+} {
+  if (chain === 'evm') {
+    return {
+      mirrorChainId: 'eip155:unknown',
+      mirrorAccountModel: 'erc4337',
+      seedAccountModelCandidates: ['tempo-native'],
+    };
+  }
+  return {
+    mirrorChainId: 'tempo:unknown',
+    mirrorAccountModel: 'tempo-native',
+    seedAccountModelCandidates: ['erc4337'],
+  };
+}
+
 function selectPreferredChainAccount(args: {
   rows: ChainAccountRecord[];
   accountModelCandidates: string[];
@@ -134,6 +156,43 @@ function selectPreferredChainAccount(args: {
   if (!modelFiltered.length) return null;
   const primary = modelFiltered.find((row) => !!row.isPrimary);
   return primary || modelFiltered[0] || null;
+}
+
+async function mirrorMissingSmartAccountRowFromCounterpart(args: {
+  clientDB: SmartAccountStatePort;
+  profileId: string;
+  nearAccountId: AccountId;
+  chain: SmartAccountDeploymentChain;
+}): Promise<ChainAccountRecord | null> {
+  if (typeof args.clientDB.listChainAccountsByProfile !== 'function') return null;
+
+  const allRows = await args.clientDB.listChainAccountsByProfile(args.profileId).catch(() => []);
+  if (!Array.isArray(allRows) || !allRows.length) return null;
+
+  const mirror = deriveMirrorAccountDefaults(args.chain);
+  const seed = selectPreferredChainAccount({
+    rows: allRows,
+    accountModelCandidates: mirror.seedAccountModelCandidates,
+  });
+  if (!seed) return null;
+
+  const seeded = await args.clientDB.upsertChainAccount({
+    profileId: args.profileId,
+    chainId: mirror.mirrorChainId,
+    accountAddress: seed.accountAddress,
+    accountModel: mirror.mirrorAccountModel,
+    isPrimary: true,
+    legacyNearAccountId: seed.legacyNearAccountId || args.nearAccountId,
+    factory: seed.factory,
+    entryPoint: seed.entryPoint,
+    salt: seed.salt,
+    counterfactualAddress: seed.counterfactualAddress || seed.accountAddress,
+    deployed: false,
+    deploymentTxHash: null,
+    lastDeploymentCheckAt: null,
+  }).catch(() => null);
+
+  return seeded;
 }
 
 function toChainIdFromBigint(prefix: 'eip155' | 'tempo', chainId: bigint): string {
@@ -222,10 +281,25 @@ export async function ensureSmartAccountDeployed(args: {
     if (rows.length) chainRows.push(...rows);
   }
 
-  const account = selectPreferredChainAccount({
+  let account = selectPreferredChainAccount({
     rows: chainRows,
     accountModelCandidates: args.accountModelCandidates,
   });
+  if (!account) {
+    const mirrored = await mirrorMissingSmartAccountRowFromCounterpart({
+      clientDB: args.clientDB,
+      profileId: context.profileId,
+      nearAccountId,
+      chain: args.chain,
+    });
+    if (mirrored) {
+      chainRows.push(mirrored);
+      account = selectPreferredChainAccount({
+        rows: chainRows,
+        accountModelCandidates: args.accountModelCandidates,
+      });
+    }
+  }
   if (!account) {
     if (enforce) {
       throw new Error(

@@ -224,6 +224,7 @@ export interface TatchiContextType {
 export interface TatchiContextProviderProps {
   children: ReactNode;
   // Config overrides; provider resolves defaults and validates required fields.
+  // Includes optional `appearance` defaults (`theme`, `palette`, `tokens`).
   config: TatchiConfigsInput;
   // Controlled theme from host app (optional).
   theme?: {

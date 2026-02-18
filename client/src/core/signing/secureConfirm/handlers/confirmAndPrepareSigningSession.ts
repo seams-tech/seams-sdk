@@ -9,6 +9,7 @@ import {
   type SigningAuthMode,
   type TransactionSummary,
   type SerializableCredential,
+  type SecureConfirmProgressEvent,
 } from '../confirmTxFlow/types';
 import type { SecureConfirmWorkerManagerContext } from '..';
 import { runSecureConfirm } from '../secureConfirmBridge';
@@ -17,6 +18,7 @@ export interface ConfirmAndPrepareSigningSessionBaseParams {
   ctx: SecureConfirmWorkerManagerContext;
   sessionId: string;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
+  onProgress?: (progress: SecureConfirmProgressEvent) => void;
   /**
    * Optional override for signing auth mode.
    * When omitted, the SecureConfirm worker may auto-select `warmSession` when a warm session is available.
@@ -265,7 +267,9 @@ export async function confirmAndPrepareSigningSession(
     }
   }
 
-  const decision = await runSecureConfirm(params.ctx, request);
+  const decision = await runSecureConfirm(params.ctx, request, {
+    onProgress: params.onProgress,
+  });
 
   if (!decision?.confirmed) {
     throw new Error(decision?.error || 'User rejected signing request');

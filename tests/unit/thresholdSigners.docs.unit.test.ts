@@ -135,13 +135,33 @@ test.describe('docs threshold signer helpers', () => {
     expect(readCachedThresholdKeyRef('alice.testnet', 'evm')).toEqual(keyRef);
   });
 
-  test('provisionTempoAndEvmThresholdSigners includes chain-specific failures', async () => {
+  test('provisionTempoAndEvmThresholdSigners reuses one bootstrap for both chains', async () => {
+    const calls: MockBootstrapArgs[] = [];
+    const sharedKeyRef = makeThresholdKeyRef('tempo');
     const mock: MockTatchi = {
       bootstrapThresholdEcdsaSession: async (args) => {
-        if (args.options?.chain === 'evm') {
-          throw new Error('evm bootstrap failed');
-        }
-        return { thresholdEcdsaKeyRef: makeThresholdKeyRef('tempo') };
+        calls.push(args);
+        return { thresholdEcdsaKeyRef: sharedKeyRef };
+      },
+    };
+
+    const provisioned = await provisionTempoAndEvmThresholdSigners({
+      tatchi: mock as unknown as TatchiPasskey,
+      nearAccountId: 'alice.testnet',
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.options?.chain).toBe('tempo');
+    expect(provisioned.evm.thresholdEcdsaKeyRef).toEqual(sharedKeyRef);
+    expect(provisioned.tempo.thresholdEcdsaKeyRef).toEqual(sharedKeyRef);
+    expect(readCachedThresholdKeyRef('alice.testnet', 'evm')).toEqual(sharedKeyRef);
+    expect(readCachedThresholdKeyRef('alice.testnet', 'tempo')).not.toBeNull();
+  });
+
+  test('provisionTempoAndEvmThresholdSigners surfaces bootstrap failures', async () => {
+    const mock: MockTatchi = {
+      bootstrapThresholdEcdsaSession: async () => {
+        throw new Error('bootstrap failed');
       },
     };
 
@@ -150,9 +170,6 @@ test.describe('docs threshold signer helpers', () => {
         tatchi: mock as unknown as TatchiPasskey,
         nearAccountId: 'alice.testnet',
       }),
-    ).rejects.toThrow(/evm: evm bootstrap failed/i);
-
-    // Successful chain bootstrap is still cached even when the combined call fails.
-    expect(readCachedThresholdKeyRef('alice.testnet', 'tempo')).not.toBeNull();
+    ).rejects.toThrow(/bootstrap failed/i);
   });
 });

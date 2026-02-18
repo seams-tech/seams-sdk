@@ -5,6 +5,7 @@ import type { AuthenticatorOptions } from './authenticatorOptions';
 import type { ClientUserData } from '../IndexedDBManager/passkeyClientDB';
 import type { SignerMode, WasmSignedDelegate } from './signer-worker';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../signing/orchestration/types';
+import type { RegistrationSignerOptions } from './registrationSignerOptions';
 
 //////////////////////////////////
 /// Result Types
@@ -18,7 +19,7 @@ export interface LoginState {
 }
 
 export type ThemeName = 'light' | 'dark';
-export type ThemePaletteName = 'default' | 'cream';
+export type ThemePaletteName = 'default';
 
 export interface ThemeTokenOverridesModeInput {
   colors?: Record<string, string>;
@@ -66,6 +67,8 @@ export interface LoginResult {
   nearAccountId?: AccountId;
   // Present when session.kind === 'jwt' and verification succeeded
   jwt?: string;
+  // Present when login minted a warm threshold-ECDSA session bootstrap.
+  thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
 }
 
 export interface SigningSessionStatus {
@@ -141,7 +144,7 @@ export interface TatchiConfigsInput {
    * NEAR account ID under which the relay server creates new subaccounts.
    *
    * This must match the relay server config `RELAYER_ACCOUNT_ID` (aka `relayerAccountId`) when
-   * using atomic registration via `POST /create_account_and_register_user`.
+   * using atomic registration via `POST /registration/bootstrap`.
    *
    * Defaults to `contractId` for backwards compatibility.
    */
@@ -168,6 +171,11 @@ export interface TatchiConfigsInput {
     ttlMs?: number;
     remainingUses?: number;
   };
+  /**
+   * Default registration signer provisioning policy.
+   * Per-call overrides are available via `RegistrationHooksOptions.signerOptions`.
+   */
+  registrationSignerDefaults?: RegistrationSignerOptions;
   // Iframe Wallet configuration (when using a separate wallet origin)
   iframeWallet?: {
     walletOrigin?: string; // e.g., https://wallet.example.com
@@ -238,6 +246,7 @@ export interface TatchiConfigs {
     ttlMs: number;
     remainingUses: number;
   };
+  registrationSignerDefaults: RegistrationSignerOptions;
   iframeWallet?: {
     walletOrigin?: string;
     walletServicePath: string;

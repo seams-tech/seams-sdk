@@ -17,17 +17,13 @@ import { toast } from 'sonner';
 
 import './PasskeyLoginMenu.css';
 import { useAuthMenuControl } from '../contexts/AuthMenuControl';
-import {
-  provisionTempoAndEvmThresholdSigners,
-  readCachedThresholdKeyRef,
-} from '../utils/thresholdSigners';
+import { writeCachedThresholdKeyRef } from '../utils/thresholdSigners';
 
 type PasskeyLoginMenuTestOverrides = {
   useTatchiHook?: typeof useTatchi;
   useAuthMenuControlHook?: typeof useAuthMenuControl;
   PasskeyAuthMenuComponent?: typeof PasskeyAuthMenu;
-  provisionTempoAndEvmThresholdSigners?: typeof provisionTempoAndEvmThresholdSigners;
-  readCachedThresholdKeyRef?: typeof readCachedThresholdKeyRef;
+  writeCachedThresholdKeyRef?: typeof writeCachedThresholdKeyRef;
 };
 
 type PasskeyLoginMenuProps = {
@@ -41,11 +37,8 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     props.__testOverrides?.useAuthMenuControlHook || useAuthMenuControl;
   const PasskeyAuthMenuComponent =
     props.__testOverrides?.PasskeyAuthMenuComponent || PasskeyAuthMenu;
-  const provisionThresholdSigners =
-    props.__testOverrides?.provisionTempoAndEvmThresholdSigners ||
-    provisionTempoAndEvmThresholdSigners;
-  const readCachedKeyRef =
-    props.__testOverrides?.readCachedThresholdKeyRef || readCachedThresholdKeyRef;
+  const writeCachedKeyRef =
+    props.__testOverrides?.writeCachedThresholdKeyRef || writeCachedThresholdKeyRef;
 
   const {
     accountInputState: { targetAccountId, accountExists },
@@ -57,36 +50,22 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
   // let tutorial control the menu (programmatically open/close menus)
   const authMenuControl = useAuthMenuControlHook();
 
-  const provisionThresholdSignersForAccount = React.useCallback(
-    async (nearAccountId: string) => {
-      const toastId = 'registration-threshold-provision';
-      toast.loading('Provisioning Tempo + EVM threshold signers…', { id: toastId });
-      try {
-        await provisionThresholdSigners({
-          tatchi,
-          nearAccountId,
-          ttlMs: 30 * 60 * 1000,
-          remainingUses: 12,
-        });
-        toast.success('Provisioned NEAR + Tempo + EVM threshold signers', { id: toastId });
-      } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : String(e);
-        toast.error(`Account was created, but Tempo/EVM signer provisioning failed: ${message}`, {
-          id: toastId,
-        });
+  const cacheThresholdEcdsaKeyRef = React.useCallback(
+    (nearAccountId: string, keyRef: unknown) => {
+      if (!keyRef || typeof keyRef !== 'object') return;
+      const obj = keyRef as Record<string, unknown>;
+      if (
+        String(obj.type || '').trim() !== 'threshold-ecdsa-secp256k1'
+        || !String(obj.relayerKeyId || '').trim()
+        || !String(obj.clientVerifyingShareB64u || '').trim()
+      ) {
+        return;
       }
+      const typedKeyRef = keyRef as Parameters<typeof writeCachedThresholdKeyRef>[2];
+      writeCachedKeyRef(nearAccountId, 'evm', typedKeyRef);
+      writeCachedKeyRef(nearAccountId, 'tempo', typedKeyRef);
     },
-    [tatchi],
-  );
-
-  const ensureThresholdSignersForAccount = React.useCallback(
-    async (nearAccountId: string) => {
-      const evmKeyRef = readCachedKeyRef(nearAccountId, 'evm');
-      const tempoKeyRef = readCachedKeyRef(nearAccountId, 'tempo');
-      if (evmKeyRef && tempoKeyRef) return;
-      await provisionThresholdSignersForAccount(nearAccountId);
-    },
-    [provisionThresholdSignersForAccount],
+    [writeCachedKeyRef],
   );
 
   const onRegister = async () => {
@@ -131,9 +110,10 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     });
 
     if (result.success && result.nearAccountId) {
+      const thresholdEcdsaKeyRef = (result as unknown as { thresholdEcdsaKeyRef?: unknown }).thresholdEcdsaKeyRef;
+      cacheThresholdEcdsaKeyRef(String(result.nearAccountId), thresholdEcdsaKeyRef);
       const tx = result.transactionId ? ` tx: ${result.transactionId}` : '';
       toast.success(`Registration completed: ${tx}`, { id: 'registration' });
-      await ensureThresholdSignersForAccount(String(result.nearAccountId));
       return result;
     } else {
       throw new Error(result.error || 'Registration failed');
@@ -146,10 +126,6 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
       // session: {
       //   kind: 'jwt',
       // },
-      signingSession: {
-        ttlMs: 24 * 60 * 60, // 1 day
-        remainingUses: 3,
-      },
       onEvent: (event) => {
         switch (event.phase) {
           case LoginPhase.STEP_1_PREPARATION:
@@ -171,6 +147,10 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
       },
     });
     if (result?.success) {
+      if (result?.nearAccountId) {
+        const thresholdEcdsaKeyRef = (result as unknown as { thresholdEcdsaKeyRef?: unknown }).thresholdEcdsaKeyRef;
+        cacheThresholdEcdsaKeyRef(String(result.nearAccountId), thresholdEcdsaKeyRef);
+      }
       // Surface the minted JWT via toast (truncate to 8 chars)
       if (result.jwt) {
         const short = String(result.jwt).slice(0, 16);

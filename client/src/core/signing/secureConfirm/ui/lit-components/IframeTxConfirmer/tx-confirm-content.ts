@@ -69,6 +69,11 @@ export class TxConfirmContentElement extends LitElementWithProps {
   private _stylesReady = false;
   private _stylePromises: Promise<void>[] = [];
   private _stylesAwaiting: Promise<void> | null = null;
+  // Guard against "ghost" confirm clicks caused by the same user gesture that
+  // mounted the confirmer. We arm confirm after initial paint frames.
+  private _confirmArmed = false;
+  private _confirmArmRaf1: number | null = null;
+  private _confirmArmRaf2: number | null = null;
 
   constructor() {
     super();
@@ -109,6 +114,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
     this._applyTooltipWidthVar();
     // Build initial tree from any pre-set props (upgrade-safe)
     this._rebuildTree();
+    this._scheduleConfirmArm();
     // Prevent drawer drag initiation from content area
     this.addEventListener('pointerdown', this._stopDragStart as EventListener);
     this.addEventListener('mousedown', this._stopDragStart as EventListener);
@@ -116,6 +122,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
   }
 
   disconnectedCallback(): void {
+    this._cancelConfirmArm();
     this.removeEventListener('pointerdown', this._stopDragStart as EventListener);
     this.removeEventListener('mousedown', this._stopDragStart as EventListener);
     this.removeEventListener('touchstart', this._stopDragStart as EventListener);
@@ -176,7 +183,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
   };
 
   private onConfirm = () => {
-    if (this.loading) return;
+    if (this.loading || !this._confirmArmed) return;
     // Emit semantic event for containers to bridge to canonical events
     dispatchLitConfirm(this);
   };
@@ -217,7 +224,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
           <button
             class="confirm ${this.loading ? 'loading' : ''}"
             @click=${this.onConfirm}
-            ?disabled=${this.loading}
+            ?disabled=${this.loading || !this._confirmArmed}
           >
             ${this.loading
               ? html`<span class="loading-indicator" role="progressbar" aria-label="Loading"></span><span class="sr-only">Loading</span>`
@@ -226,6 +233,30 @@ export class TxConfirmContentElement extends LitElementWithProps {
         </div>
       </div>
     `;
+  }
+
+  private _scheduleConfirmArm(): void {
+    this._cancelConfirmArm();
+    this._confirmArmed = false;
+    this._confirmArmRaf1 = requestAnimationFrame(() => {
+      this._confirmArmRaf1 = null;
+      this._confirmArmRaf2 = requestAnimationFrame(() => {
+        this._confirmArmRaf2 = null;
+        this._confirmArmed = true;
+        this.requestUpdate();
+      });
+    });
+  }
+
+  private _cancelConfirmArm(): void {
+    if (this._confirmArmRaf1 != null) {
+      cancelAnimationFrame(this._confirmArmRaf1);
+      this._confirmArmRaf1 = null;
+    }
+    if (this._confirmArmRaf2 != null) {
+      cancelAnimationFrame(this._confirmArmRaf2);
+      this._confirmArmRaf2 = null;
+    }
   }
 }
 

@@ -86,7 +86,7 @@ function createAuthService(env: Env): AuthService {
 export default {
 	  /**
 	   * HTTP entrypoint
-	   * - Handles REST API routes (create_account_and_register_user, /recover-email, sessions, etc.)
+	   * - Handles REST API routes (/registration/bootstrap, /recover-email, sessions, etc.)
 	   * - Creates an AuthService per request/event (avoid cross-request I/O errors).
 	   */
 	  async fetch(request: Request, env: Env, ctx: Ctx): Promise<Response> {

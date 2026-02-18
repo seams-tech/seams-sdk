@@ -2,12 +2,11 @@ import type { Request, Response, Router as ExpressRouter } from 'express';
 import type { ExpressRelayContext } from '../createRelayRouter';
 import type {
   ThresholdEcdsaAuthorizeWithSessionRequest,
+  ThresholdEcdsaBootstrapRequest,
   ThresholdEcdsaCosignFinalizeRequest,
   ThresholdEcdsaCosignInitRequest,
-  ThresholdEcdsaKeygenRequest,
   ThresholdEcdsaPresignInitRequest,
   ThresholdEcdsaPresignStepRequest,
-  ThresholdEcdsaSessionRequest,
   ThresholdEcdsaSignFinalizeRequest,
   ThresholdEcdsaSignInitRequest,
 } from '../../../core/types';
@@ -59,54 +58,44 @@ export function registerThresholdEcdsaRoutes(router: ExpressRouter, ctx: Express
     });
   });
 
-  router.post('/threshold-ecdsa/keygen', async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEcdsaKeygenRequest;
-    await handle(ctx, req, res, '/threshold-ecdsa/keygen', {
+  router.post('/threshold-ecdsa/bootstrap', async (req: Request, res: Response) => {
+    const body = (req.body || {}) as ThresholdEcdsaBootstrapRequest;
+    await handle(ctx, req, res, '/threshold-ecdsa/bootstrap', {
       userId: typeof body.userId === 'string' ? body.userId : undefined,
       rpId: typeof body.rpId === 'string' ? body.rpId : undefined,
       keygenSessionId: typeof body.keygenSessionId === 'string' ? body.keygenSessionId : undefined,
-    }, async () => {
-      const resolved = resolveThresholdScheme(ctx.opts.threshold, THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID, {
-        notFoundMessage: 'threshold-ecdsa scheme is not enabled on this server',
-      });
-      if (!resolved.ok) return resolved;
-      return await resolved.scheme.keygen(body);
-    });
-  });
-
-  router.post('/threshold-ecdsa/session', async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEcdsaSessionRequest;
-    await handle(ctx, req, res, '/threshold-ecdsa/session', {
-      relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
       clientVerifyingShareB64u_len: typeof body.clientVerifyingShareB64u === 'string' ? body.clientVerifyingShareB64u.length : undefined,
-      sessionPolicy: body.sessionPolicy ? { version: body.sessionPolicy.version } : undefined,
+      sessionPolicyVersion: body.sessionPolicy ? body.sessionPolicy.version : undefined,
     }, async () => {
       const resolved = resolveThresholdScheme(ctx.opts.threshold, THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID, {
         notFoundMessage: 'threshold-ecdsa scheme is not enabled on this server',
       });
       if (!resolved.ok) return resolved;
       const scheme = resolved.scheme;
+      if (!scheme.bootstrap) {
+        return { ok: false, code: 'not_implemented', message: 'threshold-ecdsa bootstrap is not implemented on this server' };
+      }
 
       const session = ctx.opts.session;
       if (!session) {
         return { ok: false, code: 'sessions_disabled', message: 'Sessions are not configured on this server' };
       }
 
-      const result = await scheme.session(body);
+      const result = await scheme.bootstrap(body);
       if (!result.ok) return result;
 
       const sessionId = String(result.sessionId || '').trim();
-      if (!sessionId) return { ok: false, code: 'internal', message: 'threshold session missing sessionId' };
+      if (!sessionId) return { ok: false, code: 'internal', message: 'threshold bootstrap missing sessionId' };
 
-      const userId = String(body.sessionPolicy?.userId || '').trim();
-      const rpId = String(body.sessionPolicy?.rpId || '').trim();
-      const relayerKeyId = String(body.relayerKeyId || '').trim();
+      const userId = String(body.userId || body.sessionPolicy?.userId || '').trim();
+      const rpId = String(body.rpId || body.sessionPolicy?.rpId || '').trim();
+      const relayerKeyId = String(result.relayerKeyId || '').trim();
       const thresholdExpiresAtMs = Number(result.expiresAtMs);
-      if (!userId) return { ok: false, code: 'internal', message: 'threshold session missing sessionPolicy.userId' };
-      if (!rpId) return { ok: false, code: 'internal', message: 'threshold session missing sessionPolicy.rpId' };
-      if (!relayerKeyId) return { ok: false, code: 'internal', message: 'threshold session missing relayerKeyId' };
+      if (!userId) return { ok: false, code: 'internal', message: 'threshold bootstrap missing userId' };
+      if (!rpId) return { ok: false, code: 'internal', message: 'threshold bootstrap missing rpId' };
+      if (!relayerKeyId) return { ok: false, code: 'internal', message: 'threshold bootstrap missing relayerKeyId' };
       if (!Number.isFinite(thresholdExpiresAtMs) || thresholdExpiresAtMs <= 0) {
-        return { ok: false, code: 'internal', message: 'threshold session missing expiresAtMs' };
+        return { ok: false, code: 'internal', message: 'threshold bootstrap missing expiresAtMs' };
       }
 
       const participantIds = Array.isArray(result.participantIds) ? result.participantIds : undefined;

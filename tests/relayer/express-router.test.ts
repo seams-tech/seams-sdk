@@ -19,6 +19,18 @@ function validLoginVerifyBody(overrides?: Partial<any>): any {
   };
 }
 
+function validSmartAccountDeployBody(overrides?: Partial<any>): any {
+  return {
+    nearAccountId: 'bob.testnet',
+    chain: 'tempo',
+    chainId: 'tempo:42431',
+    accountAddress: '0xabc123',
+    accountModel: 'tempo-native',
+    counterfactualAddress: '0xabc123',
+    ...overrides,
+  };
+}
+
 test.describe('relayer router (express) – P0', () => {
   test('POST /auth/passkey/options: invalid body', async () => {
     const service = makeFakeAuthService({
@@ -166,6 +178,71 @@ test.describe('relayer router (express) – P0', () => {
     }
   });
 
+  test('POST /smart-account/deploy: default route returns assumed_deployed', async () => {
+    const service = makeFakeAuthService();
+    const router = createRelayRouter(service, {});
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/smart-account/deploy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(validSmartAccountDeployBody()),
+      });
+      expect(res.status).toBe(200);
+      expect(res.json?.ok).toBe(true);
+      expect(res.json?.code).toBe('assumed_deployed');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /smart-account/deploy: custom hook response is returned', async () => {
+    const service = makeFakeAuthService();
+    const router = createRelayRouter(service, {
+      smartAccountDeploy: async (req) => {
+        expect(req.nearAccountId).toBe('bob.testnet');
+        expect(req.chain).toBe('tempo');
+        return { ok: true, deploymentTxHash: '0xdeploytx' };
+      },
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/smart-account/deploy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(validSmartAccountDeployBody()),
+      });
+      expect(res.status).toBe(200);
+      expect(res.json?.ok).toBe(true);
+      expect(res.json?.deploymentTxHash).toBe('0xdeploytx');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /threshold-ecdsa/keygen and /threshold-ecdsa/session: removed (404)', async () => {
+    const service = makeFakeAuthService();
+    const router = createRelayRouter(service, {});
+    const srv = await startExpressRouter(router);
+    try {
+      const keygen = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/keygen`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(keygen.status).toBe(404);
+
+      const session = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(session.status).toBe(404);
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('GET /session/auth: sessions disabled -> 501', async () => {
     const service = makeFakeAuthService();
     const router = createRelayRouter(service, {});
@@ -182,7 +259,7 @@ test.describe('relayer router (express) – P0', () => {
 
   test('GET /session/auth: valid session -> 200 with claims', async () => {
     const session = makeSessionAdapter({
-      parse: async () => ({ ok: true, claims: { sub: 'bob.testnet' } }),
+      parse: async () => ({ ok: true, claims: { sub: 'bob.testnet', kind: 'app_session_v1', appSessionVersion: 'v1' } }),
     });
     const service = makeFakeAuthService();
     const router = createRelayRouter(service, { session });
@@ -199,7 +276,7 @@ test.describe('relayer router (express) – P0', () => {
 
   test('POST /session/refresh: cookie session sets Set-Cookie and returns { ok: true }', async () => {
     const session = makeSessionAdapter({
-      parse: async () => ({ ok: true, claims: { sub: 'bob.testnet', kind: 'app_session_v1' } }),
+      parse: async () => ({ ok: true, claims: { sub: 'bob.testnet', kind: 'app_session_v1', appSessionVersion: 'v1' } }),
       refresh: async () => ({ ok: true, jwt: 'refreshed-999' }),
       buildSetCookie: (t) => `w3a_session=${t}; Path=/; HttpOnly`,
     });
@@ -260,7 +337,7 @@ test.describe('relayer router (express) – P0', () => {
 
   test('custom sessionRoutes: auth/logout paths are honored', async () => {
     const session = makeSessionAdapter({
-      parse: async () => ({ ok: true, claims: { sub: 'bob.testnet' } }),
+      parse: async () => ({ ok: true, claims: { sub: 'bob.testnet', kind: 'app_session_v1', appSessionVersion: 'v1' } }),
       buildClearCookie: () => 'w3a_session=; Path=/; Max-Age=0',
     });
     const service = makeFakeAuthService();

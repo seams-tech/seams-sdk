@@ -1,11 +1,13 @@
 import { normalizeRegistrationCredential } from '../../../webauthn/credentials/serialization';
 import type { WebAuthnRegistrationCredential } from '../../../../types/webauthn';
 import type { TransactionContext } from '../../../../types/rpc';
-import { isObject, assertString } from '../../../../../../../shared/src/utils/validation';
+import {
+  isObject,
+  assertString,
+  ensureEd25519Prefix,
+} from '../../../../../../../shared/src/utils/validation';
 import { DelegateActionInput } from '../../../../types/delegate';
 import { base58Encode } from '../../../../../../../shared/src/utils/base58';
-
-import { ensureEd25519Prefix } from '../../../../near/nearCrypto';
 export { ensureEd25519Prefix };
 
 export const toPublicKeyString = (pk: DelegateActionInput['publicKey']): string => {

@@ -117,6 +117,7 @@ export function initWalletIFrame(): void {
     post,
     postProgress,
     postToParent,
+    isCancelled,
     respondIfCancelled,
   });
 
@@ -197,7 +198,25 @@ export function initWalletIFrame(): void {
         await handler(req);
       }
     } catch (err: unknown) {
-      post({ type: 'ERROR', requestId, payload: { code: 'HOST_ERROR', message: errorMessage(err) } });
+      const codeRaw = (err && typeof err === 'object' && 'code' in err)
+        ? (err as { code?: unknown }).code
+        : undefined;
+      const details = (err && typeof err === 'object' && 'details' in err)
+        ? (err as { details?: unknown }).details
+        : undefined;
+      const code = typeof codeRaw === 'string' && codeRaw.trim() ? codeRaw.trim() : 'HOST_ERROR';
+      if (code === 'CANCELLED') {
+        clearCancelled(requestId);
+      }
+      post({
+        type: 'ERROR',
+        requestId,
+        payload: {
+          code,
+          message: errorMessage(err),
+          ...(details !== undefined ? { details } : {}),
+        },
+      });
     }
   };
 

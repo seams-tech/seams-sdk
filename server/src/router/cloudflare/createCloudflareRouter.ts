@@ -20,6 +20,7 @@ import { handleWebAuthnAuthenticators } from './routes/webauthnAuthenticators';
 import { handleAuth } from './routes/auth';
 import { handleNearPublicKeys } from './routes/nearPublicKeys';
 import { handleWellKnown } from './routes/wellKnown';
+import { handleSmartAccountDeploy } from './routes/smartAccountDeploy';
 import { resolveThresholdOption } from '../routerOptions';
 
 export interface CloudflareRelayContext {
@@ -60,6 +61,7 @@ export function createCloudflareRouter(service: AuthService, opts: RelayRouterOp
     handleCreateAccountAndRegisterUser,
     handleSignedDelegate,
     handleAuth,
+    handleSmartAccountDeploy,
     handleSyncAccount,
     handleLinkDevice,
     handleEmailRecoveryPrepare,

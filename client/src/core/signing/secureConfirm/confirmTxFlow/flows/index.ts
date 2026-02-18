@@ -4,6 +4,7 @@ export {
   sanitizeForPostMessage,
   ERROR_MESSAGES,
   sendConfirmResponse,
+  sendConfirmProgress,
   isUserCancelledSecureConfirm,
 } from '../adapters/common';
 export {

@@ -1,5 +1,5 @@
 import type { AccessKeyList } from '@/core/near/NearClient';
-import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { base64UrlDecode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { NormalizedLogger } from '../logger';
 import type {
@@ -13,11 +13,11 @@ import type {
   ThresholdEd25519SignInitResponse,
 } from '../types';
 import {
+  threshold_ed25519_add_points_b64u,
   threshold_ed25519_round1_commit,
   threshold_ed25519_round2_sign,
   threshold_ed25519_round2_sign_cosigner,
 } from '../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
-import { ed25519 } from '@noble/curves/ed25519.js';
 import { ensureRelayerKeyIsActiveAccessKey } from './validation';
 import type {
   ThresholdEd25519Commitments,
@@ -223,16 +223,18 @@ function expectThresholdEd25519Round2SignWasmOutput(out: unknown): ThresholdEd25
 
 function sumEd25519PointsB64u(pointsB64u: string[], label: string): string {
   if (!pointsB64u.length) throw new Error(`${label}: empty point list`);
-  let acc = ed25519.Point.ZERO;
+  const normalizedPoints: string[] = [];
   for (const p of pointsB64u) {
     const raw = toOptionalTrimmedString(p);
     if (!raw) throw new Error(`${label}: missing point`);
     const bytes = base64UrlDecode(raw);
     if (bytes.length !== 32) throw new Error(`${label}: expected 32-byte point, got ${bytes.length}`);
-    const pt = ed25519.Point.fromBytes(bytes);
-    acc = acc.add(pt);
+    normalizedPoints.push(raw);
   }
-  return base64UrlEncode(acc.toBytes());
+  const summed = threshold_ed25519_add_points_b64u({ pointsB64u: normalizedPoints });
+  const out = toOptionalTrimmedString(summed);
+  if (!out) throw new Error(`${label}: wasm returned an empty point`);
+  return out;
 }
 
 function combineCommitmentsByAddition(commitments: ThresholdEd25519Commitments[], label: string): ThresholdEd25519Commitments {
@@ -442,6 +444,7 @@ export class ThresholdEd25519SigningHandlers {
           return { ok: false, code: scope.code, message: scope.message };
         }
 
+        await this.ensureSignerWasm();
         const shares = deriveRelayerCosignerSharesFromRelayerSigningShare({
           relayerSigningShareB64u: key.relayerSigningShareB64u,
           cosignerIds: cosignerIdsAll,
@@ -778,6 +781,7 @@ export class ThresholdEd25519SigningHandlers {
         return { ok: false, code: 'internal', message: 'cosigner signing session missing share material' };
       }
 
+      await this.ensureSignerWasm();
       const lambdaRes = lagrangeCoefficientAtZeroForCosigner({ cosignerId, cosignerIds });
       if (!lambdaRes.ok) {
         return { ok: false, code: lambdaRes.code, message: lambdaRes.message };
@@ -790,8 +794,6 @@ export class ThresholdEd25519SigningHandlers {
       if (!effShare.ok) {
         return { ok: false, code: effShare.code, message: effShare.message };
       }
-
-      await this.ensureSignerWasm();
       const clientCommitments = sess.commitmentsById?.[String(this.clientParticipantId)];
       if (!clientCommitments) {
         return { ok: false, code: 'internal', message: 'signingSessionId missing client commitments' };
@@ -1092,6 +1094,7 @@ export class ThresholdEd25519SigningHandlers {
           sharesByCosignerId[String(cosignerId)] = cosignerShare;
         }
 
+        await this.ensureSignerWasm();
         const summed = addEd25519ScalarsB64u({ scalarsB64u: Object.values(sharesByCosignerId) });
         if (!summed.ok) {
           return { ok: false, code: summed.code, message: summed.message };

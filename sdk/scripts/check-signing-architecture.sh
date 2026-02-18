@@ -77,6 +77,15 @@ if rg -n \
   exit 1
 fi
 
+echo "[check-signing-architecture] checking bootstrap-only threshold-ecdsa route surface..."
+if rg -n \
+  -e "/threshold-ecdsa/keygen" \
+  -e "/threshold-ecdsa/session" \
+  server/src/router; then
+  echo "[check-signing-architecture] failed: legacy /threshold-ecdsa/keygen and /threshold-ecdsa/session routes must remain removed"
+  exit 1
+fi
+
 echo "[check-signing-architecture] checking forbidden WebAuthnManager imports from signing..."
 if rg -n \
   -P -e "^[[:space:]]*(import|export)[^'\"]*['\"][^'\"]*(core/)?WebAuthnManager/[^'\"]*['\"]" \
@@ -257,8 +266,8 @@ fi
 if rg -n \
   -e "near-key-derivation:" \
   -e "ed25519-signing-key-dual-prf-v1" \
-  client/src/core/near/nearCrypto.ts; then
-  echo "[check-signing-architecture] failed: deterministic NEAR PRF.second derivation logic must not live in nearCrypto.ts"
+  client/src/core/near; then
+  echo "[check-signing-architecture] failed: deterministic NEAR PRF.second derivation logic must not live in client/src/core/near JS helpers"
   exit 1
 fi
 

@@ -39,7 +39,7 @@ rm -rf "$BUILD_ROOT/"
 print_success "Build directory cleaned"
 
 print_step "Generating TypeScript types from Rust..."
-if ./scripts/generate-types.sh; then print_success "TypeScript types generated successfully"; else print_error "Type generation failed"; exit 1; fi
+if WASM_PACK_BUILD_PROFILE=release ./scripts/generate-types.sh; then print_success "TypeScript types generated successfully"; else print_error "Type generation failed"; exit 1; fi
 
 print_step "Building WASM signer worker (release)..."
 pushd "$SDK_ROOT/$SOURCE_WASM_SIGNER" >/dev/null

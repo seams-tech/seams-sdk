@@ -98,7 +98,7 @@ test('register → login', async ({ passkey }) => {
   - `pnpm test` → `pnpm -C tests test` (full suite)
   - `pnpm test:lite` → `pnpm -C tests test:lite` (lite suite; excludes local-signer)
   - `pnpm test:inline` → line reporter
-  - `pnpm test:unit`, `pnpm test:wallet-iframe`, `pnpm test:lit-components`
+  - `pnpm test:unit`, `pnpm test:phase1`, `pnpm test:wallet-iframe`, `pnpm test:lit-components`
   - `pnpm show-report` to open Playwright HTML report
 
 - Direct Playwright subset examples:
@@ -108,6 +108,11 @@ pnpm -C tests exec playwright test **/unit/**/*.test.ts
 ```
 
 Chromium only; `workers=1` to avoid relay/faucet rate limits.
+
+Phase 1 signer gate:
+```bash
+pnpm -C tests run test:phase1
+```
 
 ## Environment
 
@@ -129,6 +134,7 @@ pnpm -C sdk build
   - `e2e/worker_events.test.ts` signer/SecureConfirm worker wiring and events
   - `e2e/nonceManager.test.ts` reserved nonce lifecycle in real session
   - `e2e/cancel_overlay_contracts.test.ts` cancel + overlay contract (cancel hides UI)
+  - `e2e/signTransactions.concurrentSessions.walletIframe.test.ts` concurrent signing session isolation
 
 - Unit
   - `unit/confirmTxFlow.successPaths.test.ts` register/sign/local‑only success
@@ -144,7 +150,9 @@ pnpm -C sdk build
   - `wallet-iframe/handshake.test.ts` CONNECT→READY handshake
   - `wallet-iframe/router.behavior.test.ts` pre‑show, timeout hide, anchored overlay
   - `wallet-iframe/router.behavior.sticky.test.ts` sticky lifecycle + cancelAll
+  - `wallet-iframe/router.behavior.concurrent.test.ts` aggregate overlay visibility under concurrent requests
   - `wallet-iframe/router.computeOverlayIntent.test.ts` intent mapping
+  - `wallet-iframe/passkeyAuthMenu.qrButton.overlay.test.ts` QR start regression (no wallet iframe reveal on click)
 
 - Lit Components
   - `lit-components/confirm-ui.host-and-inline.test.ts` modal/drawer confirm/cancel

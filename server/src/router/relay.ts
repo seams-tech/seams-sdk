@@ -28,6 +28,27 @@ export interface ThresholdSigningAdapter {
   getSchemeModule(schemeId: ThresholdSchemeId): ThresholdAnySchemeModule | null;
 }
 
+export type SmartAccountDeploymentChain = 'evm' | 'tempo';
+
+export interface SmartAccountDeployRequest {
+  nearAccountId: string;
+  chain: SmartAccountDeploymentChain;
+  chainId: string;
+  accountAddress: string;
+  accountModel: string;
+  counterfactualAddress?: string;
+  factory?: string;
+  entryPoint?: string;
+  salt?: string;
+}
+
+export interface SmartAccountDeployResult {
+  ok: boolean;
+  deploymentTxHash?: string;
+  code?: string;
+  message?: string;
+}
+
 export type ThresholdSchemeModuleById<S extends ThresholdSchemeId> = Extract<ThresholdAnySchemeModule, { schemeId: S }>;
 
 export type ResolveThresholdSchemeResult<S extends ThresholdSchemeId> =
@@ -77,6 +98,14 @@ export interface RelayRouterOptions {
   session?: SessionAdapter | null;
   // Optional: pluggable threshold signing service
   threshold?: ThresholdSigningAdapter | null;
+  /**
+   * Optional smart-account deploy hook used by `POST /smart-account/deploy`.
+   *
+   * When omitted, the route returns `{ ok: true, code: 'assumed_deployed' }`
+   * so clients in deployment-enforce mode can proceed in relayers that do not
+   * yet run an explicit deploy pipeline.
+   */
+  smartAccountDeploy?: ((request: SmartAccountDeployRequest) => Promise<SmartAccountDeployResult> | SmartAccountDeployResult) | null;
   // Optional logger; defaults to silent.
   logger?: RouterLogger | null;
 }

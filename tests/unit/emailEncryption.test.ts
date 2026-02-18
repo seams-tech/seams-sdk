@@ -24,7 +24,7 @@ test.describe('Email encryption round-trip (Outlayer DKIM flow)', () => {
 
         // Fixed test keys and inputs for determinism
         const { secretKey: recipientSk, publicKey: recipientPk } =
-          deriveTestX25519KeypairFromSeed('recipient-secret-key-32bytes!!');
+          await deriveTestX25519KeypairFromSeed('recipient-secret-key-32bytes!!');
 
         const ephemeralSk = new Uint8Array(32);
         ephemeralSk.set(encoder.encode('ephemeral-secret-key-32bytes').slice(0, 32));

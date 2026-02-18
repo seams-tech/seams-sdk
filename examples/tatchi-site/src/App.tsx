@@ -1,5 +1,7 @@
 import React from 'react';
 import { TatchiPasskeyProvider } from '@tatchi-xyz/sdk/react/provider';
+import { useTheme } from '@tatchi-xyz/sdk/react';
+import type { DesignTokens } from '@tatchi-xyz/sdk/react';
 
 import { HomePage } from './pages/HomePage';
 import { PricingPage } from './pages/PricingPage';
@@ -12,6 +14,40 @@ import { useSiteTheme } from './hooks/useSiteTheme';
 import { useBodyLoginStateBridge } from './hooks/useBodyLoginStateBridge';
 import { useExportKeyCancelToast } from './hooks/useExportKeyCancelToast';
 import { normalizePathname } from './utils/siteRouting';
+import { SITE_APPEARANCE, SITE_THEME_TOKEN_OVERRIDES } from './theme/siteThemeOverrides';
+
+function tokensToCssVars(tokens: DesignTokens): Record<string, string> {
+  const vars: Record<string, string> = {};
+  Object.entries(tokens.colors).forEach(([key, value]) => {
+    vars[`--w3a-colors-${key}`] = String(value);
+  });
+  Object.entries(tokens.spacing).forEach(([key, value]) => {
+    vars[`--w3a-spacing-${key}`] = String(value);
+  });
+  Object.entries(tokens.borderRadius).forEach(([key, value]) => {
+    vars[`--w3a-border-radius-${key}`] = String(value);
+  });
+  Object.entries(tokens.shadows).forEach(([key, value]) => {
+    vars[`--w3a-shadows-${key}`] = String(value);
+  });
+  return vars;
+}
+
+const DocumentThemeTokenBridge: React.FC = () => {
+  const { theme, tokens } = useTheme();
+  const vars = React.useMemo(() => tokensToCssVars(tokens), [tokens]);
+
+  React.useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    root.setAttribute('data-w3a-theme', theme);
+    Object.entries(vars).forEach(([name, value]) => {
+      root.style.setProperty(name, value);
+    });
+  }, [theme, vars]);
+
+  return null;
+};
 
 function usePathname(): string {
   const read = React.useCallback(() => {
@@ -35,6 +71,12 @@ function usePathname(): string {
 
 export const App: React.FC = () => {
   const env = import.meta.env;
+  const signingSessionTtlMs = Number.isFinite(Number(env.VITE_SIGNING_SESSION_TTL_MS))
+    ? Math.max(0, Math.floor(Number(env.VITE_SIGNING_SESSION_TTL_MS)))
+    : 24 * 60 * 60 * 1000;
+  const signingSessionRemainingUses = Number.isFinite(Number(env.VITE_SIGNING_SESSION_REMAINING_USES))
+    ? Math.max(0, Math.floor(Number(env.VITE_SIGNING_SESSION_REMAINING_USES)))
+    : 10_000;
   const { theme, setTheme } = useSiteTheme();
   const pathname = usePathname();
 
@@ -64,8 +106,9 @@ export const App: React.FC = () => {
 
   return (
     <TatchiPasskeyProvider
-      theme={{ theme, setTheme }}
+      theme={{ theme, setTheme, tokens: SITE_THEME_TOKEN_OVERRIDES }}
       config={{
+        appearance: SITE_APPEARANCE,
         iframeWallet: {
           walletOrigin: env.VITE_WALLET_ORIGIN,
           walletServicePath: env.VITE_WALLET_SERVICE_PATH,
@@ -77,12 +120,17 @@ export const App: React.FC = () => {
           mode: 'threshold-signer',
           behavior: 'strict',
         },
+        signingSessionDefaults: {
+          ttlMs: signingSessionTtlMs,
+          remainingUses: signingSessionRemainingUses,
+        },
         nearRpcUrl: env.VITE_NEAR_RPC_URL || 'https://test.rpc.fastnear.com',
         relayer: {
           url: env.VITE_RELAYER_URL!,
         },
       }}
     >
+      <DocumentThemeTokenBridge />
       {page}
       <VitepressStateSync />
       <ToasterThemed />

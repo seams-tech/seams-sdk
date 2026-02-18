@@ -73,17 +73,9 @@ export async function renderConfirmUI({
       return await renderDrawerOrModal('modal');
     }
     default: {
-      const handle = await mountConfirmUI({
-        ctx,
-        summary: transactionSummary,
-        txSigningRequests,
-        securityContext,
-        loading: true,
-        theme,
-        uiMode: 'modal',
-        nearAccountIdOverride: nearAccountIdForUi,
-      });
-      return { confirmed: true, confirmHandle: handle };
+      // Defensive fallback for unexpected uiMode values:
+      // treat as modal flow instead of auto-confirming.
+      return await renderDrawerOrModal('modal');
     }
   }
 }

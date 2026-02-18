@@ -64,6 +64,7 @@ Warm signing sessions are **opt-in** and controlled by `signingSessionDefaults` 
 
 - When `ttlMs: 0` or `remainingUses: 0`, warm signing is effectively disabled (a TouchID/WebAuthn prompt is required for each signing operation).
 - Warm sessions are **in-memory only** (cleared on page refresh/close).
+- In `threshold-signer` mode, when warm policy is enabled (`ttlMs > 0` and `remainingUses > 0`), `loginAndCreateSession()` now treats threshold warm-up as required and fails if provisioning cannot complete.
 
 ### Configure defaults
 

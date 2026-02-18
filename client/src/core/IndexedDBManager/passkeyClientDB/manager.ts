@@ -848,6 +848,16 @@ export class PasskeyClientDBManager {
     return (profile as ProfileRecord) || null;
   }
 
+  async listChainAccountsByProfile(profileId: string): Promise<ChainAccountRecord[]> {
+    const normalizedProfileId = toTrimmedString(profileId || '');
+    if (!normalizedProfileId) return [];
+    const db = await this.getDB();
+    const tx = db.transaction(DB_CONFIG.chainAccountsStore, 'readonly');
+    const rows = await tx.store.index('profileId').getAll(normalizedProfileId);
+    await tx.done;
+    return (rows as ChainAccountRecord[]) || [];
+  }
+
   async listChainAccountsByProfileAndChain(
     profileId: string,
     chainId: string,

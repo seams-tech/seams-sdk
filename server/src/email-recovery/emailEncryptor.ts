@@ -1,8 +1,11 @@
-import { x25519 } from '@noble/curves/ed25519.js';
-import { hkdf } from '@noble/hashes/hkdf.js';
-import { sha256 } from '@noble/hashes/sha2.js';
-import { chacha20poly1305 } from '@noble/ciphers/chacha.js';
 import { canonicalizeEmail } from './emailParsers';
+import {
+  chacha20poly1305Encrypt,
+  hkdfSha25632,
+  sha256Bytes,
+  x25519PublicKeyFromSecret,
+  x25519SharedSecret,
+} from './nearSignerWasm';
 
 export interface EncryptedEmailEnvelope {
   version: number;
@@ -59,7 +62,7 @@ function serializeContextForAad(context: EmailEncryptionContext): string {
   return JSON.stringify(Object.fromEntries(entries));
 }
 
-export function deriveOutlayerStaticKeyFromSeedHex(seedHex: string): { secretKey: Uint8Array; publicKey: Uint8Array } {
+export async function deriveOutlayerStaticKeyFromSeedHex(seedHex: string): Promise<{ secretKey: Uint8Array; publicKey: Uint8Array }> {
   const cleaned = seedHex.trim();
   if (cleaned.length !== 64) {
     throw new Error('OUTLAYER_WORKER_SK_SEED_HEX32 must be a 64-char hex string');
@@ -73,10 +76,11 @@ export function deriveOutlayerStaticKeyFromSeedHex(seedHex: string): { secretKey
     }
     seed[i] = value;
   }
-  const encoder = new TextEncoder();
-  const okm = hkdf(sha256, seed, undefined, encoder.encode('outlayer-email-dkim-x25519'), 32);
-  const secretKey = okm instanceof Uint8Array ? okm : new Uint8Array(okm);
-  const publicKey = x25519.getPublicKey(secretKey);
+  const secretKey = await hkdfSha25632({
+    ikm: seed,
+    info: new TextEncoder().encode('outlayer-email-dkim-x25519'),
+  });
+  const publicKey = await x25519PublicKeyFromSecret(secretKey);
   return { secretKey, publicKey };
 }
 
@@ -99,19 +103,27 @@ export async function encryptEmailForOutlayer(
       throw new Error('testOverrides.ephemeralSecretKey must be a 32-byte Uint8Array');
     }
     ephemeralSk = testOverrides.ephemeralSecretKey;
-    ephemeralPk = x25519.getPublicKey(ephemeralSk);
+    ephemeralPk = await x25519PublicKeyFromSecret(ephemeralSk);
   } else {
-    const { secretKey, publicKey } = x25519.keygen();
-    ephemeralSk = secretKey;
-    ephemeralPk = publicKey;
+    const cryptoObj = globalThis.crypto;
+    if (!cryptoObj?.getRandomValues) {
+      throw new Error('crypto.getRandomValues is not available for ephemeral key generation');
+    }
+    ephemeralSk = cryptoObj.getRandomValues(new Uint8Array(32));
+    ephemeralPk = await x25519PublicKeyFromSecret(ephemeralSk);
   }
 
   // 2. Derive shared secret via X25519 ECDH
-  const sharedSecret = x25519.getSharedSecret(ephemeralSk, recipientPk); // 32 bytes
+  const sharedSecret = await x25519SharedSecret({
+    secretKey32: ephemeralSk,
+    peerPublicKey32: recipientPk,
+  });
 
   // 3. Derive symmetric key via HKDF-SHA256 (info="email-dkim-encryption-key")
-  const info = encoder.encode('email-dkim-encryption-key');
-  const symmetricKey = hkdf(sha256, sharedSecret, undefined, info, 32);
+  const symmetricKey = await hkdfSha25632({
+    ikm: sharedSecret,
+    info: encoder.encode('email-dkim-encryption-key'),
+  });
 
   // 4. Encrypt using ChaCha20-Poly1305 with JSON(context) as AAD
   let nonce: Uint8Array;
@@ -121,13 +133,21 @@ export async function encryptEmailForOutlayer(
     }
     nonce = testOverrides.nonce;
   } else {
-    nonce = crypto.getRandomValues(new Uint8Array(12));
+    const cryptoObj = globalThis.crypto;
+    if (!cryptoObj?.getRandomValues) {
+      throw new Error('crypto.getRandomValues is not available for nonce generation');
+    }
+    nonce = cryptoObj.getRandomValues(new Uint8Array(12));
   }
   const aad = encoder.encode(serializeContextForAad(aeadContext));
   const plaintext = encoder.encode(emailRaw);
 
-  const cipher = chacha20poly1305(symmetricKey, nonce, aad);
-  const ciphertext = cipher.encrypt(plaintext);
+  const ciphertext = await chacha20poly1305Encrypt({
+    key32: symmetricKey,
+    nonce12: nonce,
+    aad,
+    plaintext,
+  });
 
   // 5. Serialize fields as base64 strings
   const b64 = (bytes: Uint8Array): string => {
@@ -151,7 +171,7 @@ export async function encryptEmailForOutlayer(
   return { envelope, aeadContext };
 }
 
-export function hashRecoveryEmailForAccount(args: { recoveryEmail: string; accountId: string }): number[] {
+export async function hashRecoveryEmailForAccount(args: { recoveryEmail: string; accountId: string }): Promise<number[]> {
   const salt = (args.accountId || '').trim().toLowerCase();
   const canonical = canonicalizeEmail(String(args.recoveryEmail || ''));
   if (!canonical) {
@@ -159,6 +179,6 @@ export function hashRecoveryEmailForAccount(args: { recoveryEmail: string; accou
   }
   const input = `${canonical}|${salt}`;
   const bytes = new TextEncoder().encode(input);
-  const digest = sha256(bytes);
+  const digest = await sha256Bytes(bytes);
   return Array.from(digest);
 }

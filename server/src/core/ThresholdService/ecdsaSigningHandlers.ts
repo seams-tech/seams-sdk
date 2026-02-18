@@ -24,90 +24,36 @@ import type {
 import type { ThresholdEcdsaSessionClaims } from './validation';
 import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from './schemes/schemeIds';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
-import { hkdf } from '@noble/hashes/hkdf.js';
-import { sha256 } from '@noble/hashes/sha2.js';
-import { bytesToNumberBE, numberToBytesBE } from '@shared/utils/bigint';
-import { secp256k1 } from '@noble/curves/secp256k1.js';
-import { SECP256K1_ORDER } from '@shared/threshold/secp256k1';
-import { mapAdditiveShareToThresholdSignaturesShare2p } from '@shared/threshold/secp256k1Ecdsa2pShareMapping';
-import initEthSignerWasm, {
-  init_eth_signer,
+import {
+  addSecp256k1PublicKeys33,
+  deriveThresholdSecp256k1RelayerShare,
+  ensureEthSignerWasm,
+  mapAdditiveShareToThresholdSignaturesShare2p,
+  sha256BytesSync,
+  validateSecp256k1PublicKey33,
+} from './ethSignerWasm';
+import {
   ThresholdEcdsaPresignSession,
   threshold_ecdsa_finalize_signature,
 } from '../../../../wasm/eth_signer/pkg/eth_signer.js';
-import type { InitInput } from '../../../../wasm/eth_signer/pkg/eth_signer.js';
 
 type ParseOk<T> = { ok: true; value: T };
 type ParseErr = { ok: false; code: string; message: string };
 type ParseResult<T> = ParseOk<T> | ParseErr;
 
-const ETH_SIGNER_WASM_MAIN_PATH = '../../../../wasm/eth_signer/pkg/eth_signer_bg.wasm';
-const ETH_SIGNER_WASM_FALLBACK_PATH = '../../../workers/eth_signer.wasm';
-let ethSignerWasmInitPromise: Promise<void> | null = null;
-
-function isNodeEnvironment(): boolean {
-  // Detect true Node.js, not Cloudflare Workers with nodejs_compat polyfills.
-  const processObj = (globalThis as unknown as { process?: { versions?: { node?: string } } }).process;
-  const isNode = Boolean(processObj?.versions?.node);
-  const webSocketPair = (globalThis as unknown as { WebSocketPair?: unknown }).WebSocketPair;
-  const nav = (globalThis as unknown as { navigator?: { userAgent?: unknown } }).navigator;
-  const isCloudflareWorker = typeof webSocketPair !== 'undefined'
-    || (typeof nav?.userAgent === 'string' && nav.userAgent.includes('Cloudflare-Workers'));
-  return isNode && !isCloudflareWorker;
+function errorMessage(error: unknown): string {
+  return String(
+    (error && typeof error === 'object' && 'message' in error)
+      ? (error as { message?: unknown }).message
+      : (error || ''),
+  );
 }
 
-function getEthSignerWasmUrls(): URL[] {
-  const baseUrl = import.meta.url;
-  const paths = [ETH_SIGNER_WASM_MAIN_PATH, ETH_SIGNER_WASM_FALLBACK_PATH];
-  const resolved: URL[] = [];
-  for (const path of paths) {
-    try {
-      if (!baseUrl) throw new Error('import.meta.url is undefined');
-      resolved.push(new URL(path, baseUrl));
-    } catch {
-      // ignore
-    }
-  }
-  return resolved;
-}
-
-async function ensureEthSignerWasm(): Promise<void> {
-  if (ethSignerWasmInitPromise) return ethSignerWasmInitPromise;
-  ethSignerWasmInitPromise = (async () => {
-    // Prefer filesystem loading in Node (avoids `fetch(file://...)`).
-    const urls = getEthSignerWasmUrls();
-    if (isNodeEnvironment()) {
-      const { fileURLToPath } = await import('node:url');
-      const { readFile } = await import('node:fs/promises');
-      for (const url of urls) {
-        try {
-          const filePath = fileURLToPath(url);
-          const bytes = await readFile(filePath);
-          const ab = new ArrayBuffer(bytes.byteLength);
-          new Uint8Array(ab).set(bytes);
-          const module = await WebAssembly.compile(ab);
-          await initEthSignerWasm({ module_or_path: module as unknown as InitInput });
-          init_eth_signer();
-          return;
-        } catch { } // try next candidate
-      }
-      throw new Error('[threshold-ecdsa] Failed to initialize eth_signer WASM from filesystem candidates');
-    }
-
-    // Fallback for non-Node runtimes.
-    let lastErr: unknown = null;
-    for (const url of urls) {
-      try {
-        await initEthSignerWasm({ module_or_path: url as unknown as InitInput });
-        init_eth_signer();
-        return;
-      } catch (e) {
-        lastErr = e;
-      }
-    }
-    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr || 'Failed to initialize eth_signer WASM'));
-  })();
-  return ethSignerWasmInitPromise;
+function isEthSignerWasmRuntimeError(messageRaw: string): boolean {
+  const message = String(messageRaw || '').toLowerCase();
+  return message.includes('eth_signer wasm')
+    || message.includes('initialize eth_signer wasm')
+    || message.includes('not initialized');
 }
 
 function parseThresholdEcdsaSignInitRequest(request: ThresholdEcdsaSignInitRequest): ParseResult<{
@@ -181,17 +127,8 @@ function parseThresholdEcdsaPresignStepRequest(request: ThresholdEcdsaPresignSte
 }
 
 function computePresignatureIdFromBigRBytes(bigR33: Uint8Array): string {
-  const digest = sha256(bigR33);
+  const digest = sha256BytesSync(bigR33);
   return `presig-${base64UrlEncode(digest)}`;
-}
-
-function deriveRelayerSecp256k1SigningShare32(input: { masterSecretB64u: string; relayerKeyId: string }): Uint8Array {
-  const masterSecretBytes = base64UrlDecode(input.masterSecretB64u);
-  const relayerShareSaltV1 = new TextEncoder().encode('tatchi/lite/threshold-secp256k1-ecdsa/relayer-share:v1');
-  const relayerShareInfo = new TextEncoder().encode(input.relayerKeyId);
-  const okm64 = hkdf(sha256, masterSecretBytes, relayerShareSaltV1, relayerShareInfo, 64);
-  const reduced = (bytesToNumberBE(okm64) % (SECP256K1_ORDER - 1n)) + 1n;
-  return numberToBytesBE(reduced, 32);
 }
 
 function sameParticipantIds(a: number[], b: number[]): boolean {
@@ -291,7 +228,7 @@ function deterministicRandomBlock(seed32: Uint8Array, counter: bigint): Uint8Arr
   const dv = new DataView(blockInput.buffer);
   dv.setUint32(32, Number((counter >> 32n) & 0xffffffffn), false);
   dv.setUint32(36, Number(counter & 0xffffffffn), false);
-  return sha256(blockInput);
+  return sha256BytesSync(blockInput);
 }
 
 function withDeterministicCryptoRandom<T>(seed32: Uint8Array, fn: () => T): T {
@@ -553,24 +490,27 @@ export class ThresholdEcdsaSigningHandlers {
     if (clientVerifyingShareBytes.length !== 33) {
       return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u must decode to 33 bytes (compressed secp256k1 pubkey)' };
     }
-    let clientPoint: ReturnType<typeof secp256k1.Point.fromBytes>;
+    let validatedClientPublicKey33: Uint8Array;
     try {
-      clientPoint = secp256k1.Point.fromBytes(clientVerifyingShareBytes);
-      clientPoint.assertValidity();
-    } catch {
+      validatedClientPublicKey33 = await validateSecp256k1PublicKey33(clientVerifyingShareBytes);
+    } catch (e: unknown) {
+      const runtimeMessage = errorMessage(e);
+      if (isEthSignerWasmRuntimeError(runtimeMessage)) {
+        return { ok: false, code: 'internal', message: runtimeMessage || 'eth_signer WASM runtime error' };
+      }
       return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is not a valid secp256k1 public key' };
     }
 
-    const relayerSigningShare32 = deriveRelayerSecp256k1SigningShare32({
+    const { relayerSigningShare32, relayerVerifyingShare33 } = await deriveThresholdSecp256k1RelayerShare({
       masterSecretB64u: this.secp256k1MasterSecretB64u,
       relayerKeyId,
     });
-    const relayerVerifyingShareBytes = secp256k1.getPublicKey(relayerSigningShare32, true);
-    const relayerPoint = secp256k1.Point.fromBytes(relayerVerifyingShareBytes);
-    const groupPoint = clientPoint.add(relayerPoint);
-    const groupPublicKeyBytes = groupPoint.toBytes(true);
+    const groupPublicKeyBytes = await addSecp256k1PublicKeys33({
+      left33: validatedClientPublicKey33,
+      right33: relayerVerifyingShare33,
+    });
 
-    const relayerThresholdShare32 = mapAdditiveShareToThresholdSignaturesShare2p({
+    const relayerThresholdShare32 = await mapAdditiveShareToThresholdSignaturesShare2p({
       additiveShare32: relayerSigningShare32,
       participantId: this.relayerParticipantId,
     });
@@ -1083,15 +1023,15 @@ export class ThresholdEcdsaSigningHandlers {
 
     let groupPublicKey33: Uint8Array;
     try {
-      const clientPoint = secp256k1.Point.fromBytes(clientVerifyingShare33);
-      clientPoint.assertValidity();
-      const relayerSigningShare32 = deriveRelayerSecp256k1SigningShare32({
+      const validatedClientPublicKey33 = await validateSecp256k1PublicKey33(clientVerifyingShare33);
+      const { relayerVerifyingShare33 } = await deriveThresholdSecp256k1RelayerShare({
         masterSecretB64u: this.secp256k1MasterSecretB64u,
         relayerKeyId: sess.relayerKeyId,
       });
-      const relayerVerifyingShare33 = secp256k1.getPublicKey(relayerSigningShare32, true);
-      const relayerPoint = secp256k1.Point.fromBytes(relayerVerifyingShare33);
-      groupPublicKey33 = clientPoint.add(relayerPoint).toBytes(true);
+      groupPublicKey33 = await addSecp256k1PublicKeys33({
+        left33: validatedClientPublicKey33,
+        right33: relayerVerifyingShare33,
+      });
     } catch (e: unknown) {
       return { ok: false, code: 'internal', message: `Failed to derive group public key: ${String(e || 'error')}` };
     }

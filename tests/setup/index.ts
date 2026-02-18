@@ -181,7 +181,7 @@ export async function setupBasicPasskeyTest(
 
 /**
  * Setup test environment with relay-server (atomic) registration flow
- * This configures the test to use the atomic create_account_and_register_user endpoint
+ * This configures the test to use the atomic registration/bootstrap endpoint
  */
 export async function setupRelayServerTest(
   page: Page,

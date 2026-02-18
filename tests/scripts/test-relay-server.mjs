@@ -162,7 +162,7 @@ async function main() {
         const out = await scheme.keygen(body);
         return sendJson(res, thresholdStatus(out), out);
       }
-      if (req.method === 'POST' && url.pathname === '/create_account_and_register_user') {
+      if (req.method === 'POST' && url.pathname === '/registration/bootstrap') {
         const body = await readJson(req);
         const {
           new_account_id,

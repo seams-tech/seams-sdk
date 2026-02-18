@@ -2,12 +2,11 @@ import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import { json, readJson } from '../http';
 import type {
   ThresholdEcdsaAuthorizeWithSessionRequest,
+  ThresholdEcdsaBootstrapRequest,
   ThresholdEcdsaCosignFinalizeRequest,
   ThresholdEcdsaCosignInitRequest,
-  ThresholdEcdsaKeygenRequest,
   ThresholdEcdsaPresignInitRequest,
   ThresholdEcdsaPresignStepRequest,
-  ThresholdEcdsaSessionRequest,
   ThresholdEcdsaSignFinalizeRequest,
   ThresholdEcdsaSignInitRequest,
 } from '../../../core/types';
@@ -39,8 +38,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
 
   const pathname = ctx.pathname;
   if (
-    pathname !== '/threshold-ecdsa/keygen'
-    && pathname !== '/threshold-ecdsa/session'
+    pathname !== '/threshold-ecdsa/bootstrap'
     && pathname !== '/threshold-ecdsa/authorize'
     && pathname !== '/threshold-ecdsa/presign/init'
     && pathname !== '/threshold-ecdsa/presign/step'
@@ -61,37 +59,34 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
   }
   const scheme = resolved.scheme;
 
-  if (pathname === '/threshold-ecdsa/keygen') {
-    const reqBody = (body || {}) as ThresholdEcdsaKeygenRequest;
-    const result = await scheme.keygen(reqBody);
-    return json(result, { status: thresholdEcdsaStatusCode(result) });
-  }
-
-  if (pathname === '/threshold-ecdsa/session') {
+  if (pathname === '/threshold-ecdsa/bootstrap') {
     const session = ctx.opts.session;
     if (!session) {
       const resBody = { ok: false, code: 'sessions_disabled', message: 'Sessions are not configured on this server' };
       return json(resBody, { status: thresholdEcdsaStatusCode(resBody) });
     }
+    if (!scheme.bootstrap) {
+      const resBody = { ok: false, code: 'not_implemented', message: 'threshold-ecdsa bootstrap is not implemented on this server' };
+      return json(resBody, { status: thresholdEcdsaStatusCode(resBody) });
+    }
 
-    const reqBody = (body || {}) as ThresholdEcdsaSessionRequest;
-    const result = await scheme.session(reqBody);
+    const reqBody = (body || {}) as ThresholdEcdsaBootstrapRequest;
+    const result = await scheme.bootstrap(reqBody);
     if (!result.ok) return json(result, { status: thresholdEcdsaStatusCode(result) });
 
     const sessionId = String(result.sessionId || '').trim();
     if (!sessionId) {
-      return json({ ok: false, code: 'internal', message: 'threshold session missing sessionId' }, { status: 500 });
+      return json({ ok: false, code: 'internal', message: 'threshold bootstrap missing sessionId' }, { status: 500 });
     }
-
-    const userId = String(reqBody.sessionPolicy?.userId || '').trim();
-    const rpId = String(reqBody.sessionPolicy?.rpId || '').trim();
-    const relayerKeyId = String(reqBody.relayerKeyId || '').trim();
+    const userId = String(reqBody.userId || reqBody.sessionPolicy?.userId || '').trim();
+    const rpId = String(reqBody.rpId || reqBody.sessionPolicy?.rpId || '').trim();
+    const relayerKeyId = String(result.relayerKeyId || '').trim();
     const thresholdExpiresAtMs = Number(result.expiresAtMs);
-    if (!userId) return json({ ok: false, code: 'internal', message: 'threshold session missing sessionPolicy.userId' }, { status: 500 });
-    if (!rpId) return json({ ok: false, code: 'internal', message: 'threshold session missing sessionPolicy.rpId' }, { status: 500 });
-    if (!relayerKeyId) return json({ ok: false, code: 'internal', message: 'threshold session missing relayerKeyId' }, { status: 500 });
+    if (!userId) return json({ ok: false, code: 'internal', message: 'threshold bootstrap missing userId' }, { status: 500 });
+    if (!rpId) return json({ ok: false, code: 'internal', message: 'threshold bootstrap missing rpId' }, { status: 500 });
+    if (!relayerKeyId) return json({ ok: false, code: 'internal', message: 'threshold bootstrap missing relayerKeyId' }, { status: 500 });
     if (!Number.isFinite(thresholdExpiresAtMs) || thresholdExpiresAtMs <= 0) {
-      return json({ ok: false, code: 'internal', message: 'threshold session missing expiresAtMs' }, { status: 500 });
+      return json({ ok: false, code: 'internal', message: 'threshold bootstrap missing expiresAtMs' }, { status: 500 });
     }
 
     const participantIds = Array.isArray(result.participantIds) ? result.participantIds : undefined;

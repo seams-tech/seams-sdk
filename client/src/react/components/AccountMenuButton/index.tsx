@@ -368,9 +368,13 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
 };
 
 export const AccountMenuButton: React.FC<AccountMenuButtonProps> = (props) => {
-  const { theme } = useTheme();
+  const { theme, tokens } = useTheme();
+  const scopedTokens = useMemo(
+    () => (theme === 'dark' ? { dark: tokens } : { light: tokens }),
+    [theme, tokens],
+  );
   return (
-    <Theme theme={theme}>
+    <Theme theme={theme} tokens={scopedTokens}>
       <AccountMenuButtonInner {...props} />
     </Theme>
   );
