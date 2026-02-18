@@ -215,7 +215,7 @@ test.describe('threshold-ed25519 session exhaustion', () => {
           const wasmActions = actions.map(toActionArgsWasm);
 
           const signOnce = async () => {
-            const signed = await pm.signTransactionsWithActions({
+            const signed = await pm.near.signTransactionsWithActions({
               nearAccountId: accountId,
               transactions: [{ receiverId, actions }],
               options: { signerMode: { mode: 'threshold-signer', behavior: 'strict' }, confirmationConfig: confirmConfig as any },

@@ -5,7 +5,7 @@ import bs58 from 'bs58';
 import { ed25519 } from '@noble/curves/ed25519.js';
 
 const IMPORT_PATHS = {
-  nearKeysDb: sdkEsmPath('core/IndexedDBManager/passkeyNearKeysDB.js'),
+  nearKeysDb: sdkEsmPath('core/IndexedDBManager/passkeyNearKeysDB/manager.js'),
   tatchi: SDK_ESM_PATHS.tatchiPasskey,
 } as const;
 
@@ -19,10 +19,10 @@ function compute2of2GroupPk(input: {
 }): string {
   const clientBytes = new Uint8Array(Buffer.from(input.clientVerifyingShareB64u, 'base64url'));
   const relayerBytes = new Uint8Array(Buffer.from(input.relayerVerifyingShareB64u, 'base64url'));
-  const clientPoint = ed25519.Point.fromBytes(clientBytes);
-  const relayerPoint = ed25519.Point.fromBytes(relayerBytes);
+  const clientPoint = ed25519.ExtendedPoint.fromHex(clientBytes);
+  const relayerPoint = ed25519.ExtendedPoint.fromHex(relayerBytes);
   const groupPoint = clientPoint.multiply(2n).subtract(relayerPoint);
-  return `ed25519:${bs58.encode(groupPoint.toBytes())}`;
+  return `ed25519:${bs58.encode(groupPoint.toRawBytes())}`;
 }
 
 test.describe('Threshold Ed25519 rotation helper', () => {
@@ -82,7 +82,7 @@ test.describe('Threshold Ed25519 rotation helper', () => {
     const relayerKeyIdOld = 'relayer-keyid-mock-old';
     const relayerKeyIdNew = 'relayer-keyid-mock-new';
 
-    const relayerVerifyingShareB64uOld = toB64u(ed25519.Point.BASE.toBytes());
+    const relayerVerifyingShareB64uOld = toB64u(ed25519.ExtendedPoint.BASE.toRawBytes());
     const relayerVerifyingShareB64uNew = relayerVerifyingShareB64uOld;
 
     const thresholdKeysOnChain = new Set<string>();
@@ -291,6 +291,20 @@ test.describe('Threshold Ed25519 rotation helper', () => {
         accountsOnChain.add(accountId);
       }
       const clientVerifyingShareB64u = payload?.threshold_ed25519?.client_verifying_share_b64u || '';
+      const thresholdSessionPolicy = payload?.threshold_ed25519?.session_policy || null;
+      const thresholdSessionId = String(
+        thresholdSessionPolicy?.sessionId || thresholdSessionPolicy?.session_id || '',
+      ).trim();
+      const thresholdSessionTtlMs = (() => {
+        const n = Number(thresholdSessionPolicy?.ttlMs || thresholdSessionPolicy?.ttl_ms);
+        return Number.isFinite(n) && n > 0 ? Math.floor(n) : 60_000;
+      })();
+      const thresholdSessionRemainingUses = (() => {
+        const n = Number(
+          thresholdSessionPolicy?.remainingUses || thresholdSessionPolicy?.remaining_uses,
+        );
+        return Number.isFinite(n) && n > 0 ? Math.floor(n) : 10_000;
+      })();
 
       thresholdPublicKeyOld = compute2of2GroupPk({
         clientVerifyingShareB64u,
@@ -308,6 +322,18 @@ test.describe('Threshold Ed25519 rotation helper', () => {
             relayerKeyId: relayerKeyIdOld,
             publicKey: thresholdPublicKeyOld,
             relayerVerifyingShareB64u: relayerVerifyingShareB64uOld,
+            ...(thresholdSessionId
+              ? {
+                session: {
+                  sessionKind: 'jwt',
+                  sessionId: thresholdSessionId,
+                  expiresAtMs: Date.now() + thresholdSessionTtlMs,
+                  participantIds: [1, 2],
+                  remainingUses: thresholdSessionRemainingUses,
+                  jwt: 'mock-threshold-ed25519-registration-jwt',
+                },
+              }
+              : {}),
           },
         }),
       });

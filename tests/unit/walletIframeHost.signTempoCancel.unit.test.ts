@@ -27,9 +27,11 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
 
     const handlers = createWalletIframeHandlers({
       getTatchiPasskey: () => ({
-        signTempo: async () => {
-          signCalls += 1;
-          return { chain: 'tempo', kind: 'eip1559', txHashHex: '0x1', rawTxHex: '0x2' } as any;
+        tempo: {
+          signTempo: async () => {
+            signCalls += 1;
+            return { chain: 'tempo', kind: 'eip1559', txHashHex: '0x1', rawTxHex: '0x2' } as any;
+          },
         },
       } as any),
       post: (msg) => posts.push(msg),
@@ -55,15 +57,17 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
 
     const handlers = createWalletIframeHandlers({
       getTatchiPasskey: () => ({
-        signTempo: async (args: any) => {
-          signCalls += 1;
-          const shouldAbort = args?.options?.shouldAbort;
-          expect(typeof shouldAbort).toBe('function');
-          expect(shouldAbort()).toBe(false);
-          cancelled = true;
-          expect(shouldAbort()).toBe(true);
-          cancelled = false;
-          return { chain: 'tempo', kind: 'eip1559', txHashHex: '0x1', rawTxHex: '0x2' } as any;
+        tempo: {
+          signTempo: async (args: any) => {
+            signCalls += 1;
+            const shouldAbort = args?.options?.shouldAbort;
+            expect(typeof shouldAbort).toBe('function');
+            expect(shouldAbort()).toBe(false);
+            cancelled = true;
+            expect(shouldAbort()).toBe(true);
+            cancelled = false;
+            return { chain: 'tempo', kind: 'eip1559', txHashHex: '0x1', rawTxHex: '0x2' } as any;
+          },
         },
       } as any),
       post: (msg) => posts.push(msg),

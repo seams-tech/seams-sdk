@@ -183,7 +183,7 @@ export async function runThresholdEcdsaTempoFlow(
       const useBootstrapApi = input.useBootstrapApi !== false && input.connectSession !== false;
       if (useBootstrapApi) {
         try {
-          const boot = await pm.bootstrapThresholdEcdsaSession({
+          const boot = await pm.tempo.bootstrapThresholdEcdsaSession({
             nearAccountId: accountId,
             options: {
               relayerUrl: input.relayerUrl,
@@ -327,7 +327,7 @@ export async function runThresholdEcdsaTempoFlow(
           };
 
       try {
-        const signed = await pm.signTempoWithThresholdEcdsa({
+        const signed = await pm.tempo.signTempoWithThresholdEcdsa({
           nearAccountId: accountId,
           request,
           thresholdEcdsaKeyRef,

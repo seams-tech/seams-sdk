@@ -146,7 +146,7 @@ test.describe('threshold-ed25519 authorize unauthorized', () => {
 
           const { ActionType } = await import('/sdk/esm/core/types/actions.js');
 
-          const out = await pm.executeAction({
+          const out = await pm.near.executeAction({
             nearAccountId: accountId,
             receiverId: 'w3a-v1.testnet',
             actionArgs: { type: ActionType.Transfer, amount: '1' },

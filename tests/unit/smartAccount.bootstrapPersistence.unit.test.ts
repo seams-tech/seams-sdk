@@ -39,7 +39,6 @@ test.describe('smart-account bootstrap persistence', () => {
         accountAddress: 'alice.testnet',
         accountModel: 'near-native',
         isPrimary: true,
-        legacyNearAccountId: 'alice.testnet',
       });
 
       const configs = buildConfigsFromEnv({
@@ -47,7 +46,7 @@ test.describe('smart-account bootstrap persistence', () => {
       });
       const manager = new WebAuthnManager(configs, {} as any);
 
-      await (manager as any).persistThresholdEcdsaBootstrapChainAccount({
+      await (manager as any).thresholdSession.persistThresholdEcdsaBootstrapChainAccount({
         nearAccountId: 'alice.testnet',
         chain: 'evm',
         bootstrap: {

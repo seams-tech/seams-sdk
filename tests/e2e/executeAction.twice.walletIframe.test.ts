@@ -72,7 +72,7 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
         const events: Array<{ call: number; phase: string; message: string; step: number; status: string }> = [];
 
         const runOnce = async (call: number) => {
-          const result = await tatchi.executeAction({
+          const result = await tatchi.near.executeAction({
             nearAccountId: accountId,
             receiverId,
             actionArgs: {

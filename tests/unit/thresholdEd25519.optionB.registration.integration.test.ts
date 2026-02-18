@@ -6,7 +6,7 @@ import { ed25519 } from '@noble/curves/ed25519.js';
 import { createHash } from 'node:crypto';
 
 const IMPORT_PATHS = {
-  nearKeysDb: sdkEsmPath('core/IndexedDBManager/passkeyNearKeysDB.js'),
+  nearKeysDb: sdkEsmPath('core/IndexedDBManager/passkeyNearKeysDB/manager.js'),
   tatchi: SDK_ESM_PATHS.tatchiPasskey,
 } as const;
 
@@ -20,10 +20,10 @@ function compute2of2GroupPk(input: {
 }): string {
   const clientBytes = new Uint8Array(Buffer.from(input.clientVerifyingShareB64u, 'base64url'));
   const relayerBytes = new Uint8Array(Buffer.from(input.relayerVerifyingShareB64u, 'base64url'));
-  const clientPoint = ed25519.Point.fromBytes(clientBytes);
-  const relayerPoint = ed25519.Point.fromBytes(relayerBytes);
+  const clientPoint = ed25519.ExtendedPoint.fromHex(clientBytes);
+  const relayerPoint = ed25519.ExtendedPoint.fromHex(relayerBytes);
   const groupPoint = clientPoint.multiply(2n).subtract(relayerPoint);
-  return `ed25519:${bs58.encode(groupPoint.toBytes())}`;
+  return `ed25519:${bs58.encode(groupPoint.toRawBytes())}`;
 }
 
 test.describe('Threshold Ed25519 (registration) — threshold-first account creation', () => {
@@ -54,7 +54,7 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
     let newPublicKeyProvided = false;
     let relayIntentDigest32: number[] | null = null;
     const relayerKeyId = 'relayer-keyid-mock-1';
-    const relayerVerifyingShareB64u = toB64u(ed25519.Point.BASE.toBytes());
+    const relayerVerifyingShareB64u = toB64u(ed25519.ExtendedPoint.BASE.toRawBytes());
     let thresholdActivatedOnChain = false;
     const accountsOnChain = new Set<string>();
 
@@ -296,6 +296,20 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
         } catch {}
       }
       const clientVerifyingShareB64u = payload?.threshold_ed25519?.client_verifying_share_b64u || '';
+      const thresholdSessionPolicy = payload?.threshold_ed25519?.session_policy || null;
+      const thresholdSessionId = String(
+        thresholdSessionPolicy?.sessionId || thresholdSessionPolicy?.session_id || '',
+      ).trim();
+      const thresholdSessionTtlMs = (() => {
+        const n = Number(thresholdSessionPolicy?.ttlMs || thresholdSessionPolicy?.ttl_ms);
+        return Number.isFinite(n) && n > 0 ? Math.floor(n) : 60_000;
+      })();
+      const thresholdSessionRemainingUses = (() => {
+        const n = Number(
+          thresholdSessionPolicy?.remainingUses || thresholdSessionPolicy?.remaining_uses,
+        );
+        return Number.isFinite(n) && n > 0 ? Math.floor(n) : 10_000;
+      })();
 
       thresholdPublicKey = compute2of2GroupPk({
         clientVerifyingShareB64u,
@@ -314,6 +328,18 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
             relayerKeyId,
             publicKey: thresholdPublicKey,
             relayerVerifyingShareB64u,
+            ...(thresholdSessionId
+              ? {
+                session: {
+                  sessionKind: 'jwt',
+                  sessionId: thresholdSessionId,
+                  expiresAtMs: Date.now() + thresholdSessionTtlMs,
+                  participantIds: [1, 2],
+                  remainingUses: thresholdSessionRemainingUses,
+                  jwt: 'mock-threshold-ed25519-registration-jwt',
+                },
+              }
+              : {}),
           },
         }),
       });

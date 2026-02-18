@@ -509,7 +509,7 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
 	          const actions = [{ type: ActionType.Transfer, amount: '1' }];
 	          const wasmActions = actions.map(toActionArgsWasm);
           console.log('[e2e] signTransactionsWithActions (1) start');
-          const signed1 = await pm.signTransactionsWithActions({
+          const signed1 = await pm.near.signTransactionsWithActions({
             nearAccountId: accountId,
             transactions: [{ receiverId, actions }],
             options: { signerMode: { mode: 'threshold-signer' }, confirmationConfig: confirmConfig as any },
@@ -520,7 +520,7 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
           }
 
           console.log('[e2e] signTransactionsWithActions (2) start');
-          const signed2 = await pm.signTransactionsWithActions({
+          const signed2 = await pm.near.signTransactionsWithActions({
             nearAccountId: accountId,
             transactions: [{ receiverId, actions }],
             options: { signerMode: { mode: 'threshold-signer' }, confirmationConfig: confirmConfig as any },

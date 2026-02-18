@@ -17,7 +17,7 @@ test.describe('WebAuthnP256Engine wasm boundary', () => {
 
   test('eth worker exposes buildWebauthnP256Signature operation', () => {
     const workerSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/workers/eth-signer.worker.ts'),
+      path.resolve(process.cwd(), '../client/src/core/signing/runtime/workers/eth-signer.worker.ts'),
       'utf8',
     );
 

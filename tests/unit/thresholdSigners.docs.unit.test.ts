@@ -18,9 +18,11 @@ type MockBootstrapArgs = {
 };
 
 type MockTatchi = {
-  bootstrapThresholdEcdsaSession: (
-    args: MockBootstrapArgs,
-  ) => Promise<{ thresholdEcdsaKeyRef: ThresholdEcdsaKeyRef }>;
+  tempo: {
+    bootstrapThresholdEcdsaSession: (
+      args: MockBootstrapArgs,
+    ) => Promise<{ thresholdEcdsaKeyRef: ThresholdEcdsaKeyRef }>;
+  };
 };
 
 function createSessionStorageMock(): Storage {
@@ -98,9 +100,11 @@ test.describe('docs threshold signer helpers', () => {
 
     let calls = 0;
     const mock: MockTatchi = {
-      bootstrapThresholdEcdsaSession: async () => {
-        calls += 1;
-        return { thresholdEcdsaKeyRef: makeThresholdKeyRef('tempo') };
+      tempo: {
+        bootstrapThresholdEcdsaSession: async () => {
+          calls += 1;
+          return { thresholdEcdsaKeyRef: makeThresholdKeyRef('tempo') };
+        },
       },
     };
 
@@ -118,9 +122,11 @@ test.describe('docs threshold signer helpers', () => {
     let calls = 0;
     const keyRef = makeThresholdKeyRef('evm');
     const mock: MockTatchi = {
-      bootstrapThresholdEcdsaSession: async () => {
-        calls += 1;
-        return { thresholdEcdsaKeyRef: keyRef };
+      tempo: {
+        bootstrapThresholdEcdsaSession: async () => {
+          calls += 1;
+          return { thresholdEcdsaKeyRef: keyRef };
+        },
       },
     };
 
@@ -139,9 +145,11 @@ test.describe('docs threshold signer helpers', () => {
     const calls: MockBootstrapArgs[] = [];
     const sharedKeyRef = makeThresholdKeyRef('tempo');
     const mock: MockTatchi = {
-      bootstrapThresholdEcdsaSession: async (args) => {
-        calls.push(args);
-        return { thresholdEcdsaKeyRef: sharedKeyRef };
+      tempo: {
+        bootstrapThresholdEcdsaSession: async (args) => {
+          calls.push(args);
+          return { thresholdEcdsaKeyRef: sharedKeyRef };
+        },
       },
     };
 
@@ -160,8 +168,10 @@ test.describe('docs threshold signer helpers', () => {
 
   test('provisionTempoAndEvmThresholdSigners surfaces bootstrap failures', async () => {
     const mock: MockTatchi = {
-      bootstrapThresholdEcdsaSession: async () => {
-        throw new Error('bootstrap failed');
+      tempo: {
+        bootstrapThresholdEcdsaSession: async () => {
+          throw new Error('bootstrap failed');
+        },
       },
     };
 

@@ -66,4 +66,30 @@ test.describe('threshold ECDSA sign in-flight gate', () => {
       task: async () => 'after-failure',
     })).resolves.toBe('after-failure');
   });
+
+  test('allows concurrent requests for different accounts', async () => {
+    const inFlightByAccount = new Set<string>();
+    const blocker = deferred<void>();
+
+    const first = withThresholdEcdsaSignInFlightGate({
+      inFlightByAccount,
+      nearAccountId: 'alice.testnet',
+      enabled: true,
+      task: async () => {
+        await blocker.promise;
+        return 'alice-ok';
+      },
+    });
+
+    await Promise.resolve();
+    await expect(withThresholdEcdsaSignInFlightGate({
+      inFlightByAccount,
+      nearAccountId: 'bob.testnet',
+      enabled: true,
+      task: async () => 'bob-ok',
+    })).resolves.toBe('bob-ok');
+
+    blocker.resolve();
+    await expect(first).resolves.toBe('alice-ok');
+  });
 });

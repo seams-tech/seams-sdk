@@ -360,7 +360,7 @@ test.describe('threshold-ed25519 digest binding', () => {
           if (!enrollment?.success) return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
 
           // Attempt a threshold sign. The test tampered /authorize, so this must fail.
-          await pm.signTransactionsWithActions({
+          await pm.near.signTransactionsWithActions({
             nearAccountId: accountId,
             transactions: [{ receiverId: 'w3a-v1.testnet', actions: [{ type: ActionType.Transfer, amount: '1' }] }],
             options: { signerMode: { mode: 'threshold-signer' }, confirmationConfig: confirmConfig as any },
@@ -665,7 +665,7 @@ test.describe('threshold-ed25519 digest binding', () => {
           const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
           if (!enrollment?.success) return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
 
-          await pm.signTransactionsWithActions({
+          await pm.near.signTransactionsWithActions({
             nearAccountId: accountId,
             transactions: [{ receiverId: 'w3a-v1.testnet', actions: [{ type: ActionType.Transfer, amount: '1' }] }],
             options: { signerMode: { mode: 'threshold-signer' }, confirmationConfig: confirmConfig as any },

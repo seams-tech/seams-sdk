@@ -80,7 +80,7 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
 
         const rawReceiverId = `  ${receiverId}  `;
         const transferAction = { type: ActionType.Transfer, amount: '1' };
-        const signed = await tatchi.signTransactionsWithActions({
+        const signed = await tatchi.near.signTransactionsWithActions({
           nearAccountId: accountId,
           transactions: [{ receiverId: rawReceiverId, actions: [transferAction] }],
           options: {

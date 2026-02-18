@@ -215,7 +215,7 @@ test.describe('threshold-ed25519 strict vs fallback semantics', () => {
 
           let strictError = '';
           try {
-            await pm.signTransactionsWithActions({
+            await pm.near.signTransactionsWithActions({
               nearAccountId: accountId,
               transactions: [{ receiverId, actions }],
               options: { signerMode: { mode: 'threshold-signer', behavior: 'strict' }, confirmationConfig: confirmConfig as any },
@@ -225,7 +225,7 @@ test.describe('threshold-ed25519 strict vs fallback semantics', () => {
             strictError = e?.message || String(e);
           }
 
-          const signed = await pm.signTransactionsWithActions({
+          const signed = await pm.near.signTransactionsWithActions({
             nearAccountId: accountId,
             transactions: [{ receiverId, actions }],
             options: { signerMode: { mode: 'threshold-signer', behavior: 'fallback' }, confirmationConfig: confirmConfig as any },

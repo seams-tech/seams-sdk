@@ -159,7 +159,7 @@ test.describe('threshold-ed25519 batch signing', () => {
           const actions = [{ type: ActionType.Transfer, amount: '1' }];
           const wasmActions = actions.map(toActionArgsWasm);
 
-          const signed = await pm.signTransactionsWithActions({
+          const signed = await pm.near.signTransactionsWithActions({
             nearAccountId: accountId,
             transactions: [
               { receiverId, actions },

@@ -164,7 +164,7 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
           const actions = [{ type: ActionType.Transfer, amount: '1' }];
           const wasmActions = actions.map(toActionArgsWasm);
 
-          const signed = await pm.signTransactionsWithActions({
+          const signed = await pm.near.signTransactionsWithActions({
             nearAccountId: accountId,
             transactions: [{ receiverId, actions }],
             options: { signerMode: { mode: 'threshold-signer', behavior: 'strict' }, confirmationConfig: confirmConfig as any },
@@ -259,7 +259,7 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
           const actions = [{ type: ActionType.Transfer, amount: '1' }];
           const wasmActions = actions.map(toActionArgsWasm);
 
-          const signed = await pm.signTransactionsWithActions({
+          const signed = await pm.near.signTransactionsWithActions({
             nearAccountId: accountId,
             transactions: [{ receiverId, actions }],
             options: { signerMode: { mode: 'threshold-signer', behavior: 'strict' }, confirmationConfig: confirmConfig as any },

@@ -3,8 +3,8 @@ import { setupBasicPasskeyTest, handleInfrastructureErrors } from '../setup';
 
 const IMPORT_PATHS = {
   linkDevice: '/sdk/esm/core/TatchiPasskey/linkDevice.js',
-  clientDb: '/sdk/esm/core/IndexedDBManager/passkeyClientDB.js',
-  nearKeysDb: '/sdk/esm/core/IndexedDBManager/passkeyNearKeysDB.js',
+  clientDb: '/sdk/esm/core/IndexedDBManager/passkeyClientDB/manager.js',
+  nearKeysDb: '/sdk/esm/core/IndexedDBManager/passkeyNearKeysDB/manager.js',
   getDeviceNumber: '/sdk/esm/core/signing/webauthn/device/getDeviceNumber.js',
   signTxs: '/sdk/esm/core/signing/chainAdaptors/near/transactionsFlow/index.js',
   signerTypes: '/sdk/esm/core/types/signer-worker.js',
@@ -45,16 +45,20 @@ test.describe('Link device → immediate sign (regression)', () => {
         // Provide a minimal WebAuthnManager facade for the private storage helper.
         // This keeps the regression deterministic and avoids relying on app-origin persistence.
         const webAuthnManager: any = {
-          storeUserData: async (userData: any) => {
-            await clientDB.upsertNearAccountProjection(userData);
+          indexedDbRegistration: {
+            storeUserData: async (userData: any) => {
+              await clientDB.upsertNearAccountProjection(userData);
+            },
+            storeAuthenticator: async (authenticatorData: any) => {
+              await clientDB.upsertNearAuthenticator({
+                ...authenticatorData,
+                deviceNumber: authenticatorData.deviceNumber ?? 1,
+              });
+            },
           },
-          storeAuthenticator: async (authenticatorData: any) => {
-            await clientDB.upsertNearAuthenticator({
-              ...authenticatorData,
-              deviceNumber: authenticatorData.deviceNumber ?? 1,
-            });
+          credentialRecovery: {
+            extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
           },
-          extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
         };
 
         const ctx: any = {
@@ -260,16 +264,20 @@ test.describe('Link device → immediate sign (regression)', () => {
 
         // Provide a minimal WebAuthnManager facade for the private storage helper.
         const webAuthnManager: any = {
-          storeUserData: async (userData: any) => {
-            await clientDB.upsertNearAccountProjection(userData);
+          indexedDbRegistration: {
+            storeUserData: async (userData: any) => {
+              await clientDB.upsertNearAccountProjection(userData);
+            },
+            storeAuthenticator: async (authenticatorData: any) => {
+              await clientDB.upsertNearAuthenticator({
+                ...authenticatorData,
+                deviceNumber: authenticatorData.deviceNumber ?? 1,
+              });
+            },
           },
-          storeAuthenticator: async (authenticatorData: any) => {
-            await clientDB.upsertNearAuthenticator({
-              ...authenticatorData,
-              deviceNumber: authenticatorData.deviceNumber ?? 1,
-            });
+          credentialRecovery: {
+            extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
           },
-          extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
         };
 
         const ctx: any = {

@@ -121,12 +121,48 @@ export async function installCreateAccountAndRegisterUserMock(page: Page, input:
     const thresholdClientVerifyingShareB64u = String(
       payload?.threshold_ed25519?.client_verifying_share_b64u || '',
     ).trim();
+    const thresholdEcdsaClientVerifyingShareB64u = String(
+      payload?.threshold_ecdsa?.client_verifying_share_b64u || '',
+    ).trim();
     const thresholdMode = !!thresholdClientVerifyingShareB64u;
+    const thresholdEcdsaMode = !!thresholdEcdsaClientVerifyingShareB64u;
     const thresholdPublicKey = `ed25519:${bs58.encode(Buffer.alloc(32, 17))}`;
     const relayerKeyId = 'ed25519:mock-relayer-key-id';
     const relayerVerifyingShareB64u = base64UrlEncode(new Uint8Array(32).fill(23));
+    const thresholdEcdsaRelayerKeyId = 'secp256k1:mock-relayer-key-id';
+    const thresholdEcdsaGroupPublicKeyB64u = base64UrlEncode(new Uint8Array(33).fill(61));
+    const thresholdEcdsaRelayerVerifyingShareB64u = base64UrlEncode(new Uint8Array(33).fill(31));
+    const thresholdEcdsaEthereumAddress = `0x${'12'.repeat(20)}`;
     const registeredPublicKey = localNearPublicKey || (thresholdMode ? thresholdPublicKey : '');
     const accountId = String(payload?.new_account_id || '');
+    const nowMs = Date.now();
+    const edSessionPolicy = payload?.threshold_ed25519?.session_policy || null;
+    const ecdsaSessionPolicy = payload?.threshold_ecdsa?.session_policy || null;
+    const coercePositive = (value: unknown, fallback: number): number => {
+      const n = Number(value);
+      return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+    };
+    const edSession = thresholdMode && edSessionPolicy
+      ? {
+        sessionKind: String(payload?.threshold_ed25519?.session_kind || 'jwt').toLowerCase() === 'cookie' ? 'cookie' as const : 'jwt' as const,
+        sessionId: String(edSessionPolicy?.sessionId || edSessionPolicy?.session_id || `ed-session-${nowMs}`),
+        expiresAtMs: nowMs + coercePositive(edSessionPolicy?.ttlMs || edSessionPolicy?.ttl_ms, 60_000),
+        participantIds: [1, 2],
+        remainingUses: coercePositive(edSessionPolicy?.remainingUses || edSessionPolicy?.remaining_uses, 10_000),
+        jwt: 'mock-threshold-ed25519-jwt',
+      }
+      : undefined;
+    const ecdsaSession = thresholdEcdsaMode && ecdsaSessionPolicy
+      ? {
+        sessionKind: String(payload?.threshold_ecdsa?.session_kind || 'jwt').toLowerCase() === 'cookie' ? 'cookie' as const : 'jwt' as const,
+        sessionId: String(ecdsaSessionPolicy?.sessionId || ecdsaSessionPolicy?.session_id || `ecdsa-session-${nowMs}`),
+        expiresAtMs: nowMs + coercePositive(ecdsaSessionPolicy?.ttlMs || ecdsaSessionPolicy?.ttl_ms, 60_000),
+        participantIds: [1, 2],
+        remainingUses: coercePositive(ecdsaSessionPolicy?.remainingUses || ecdsaSessionPolicy?.remaining_uses, 10_000),
+        jwt: 'mock-threshold-ecdsa-jwt',
+      }
+      : undefined;
+
     if (registeredPublicKey) input.onNewPublicKey(registeredPublicKey);
     if (accountId) {
       input.onNewAccountId?.(accountId);
@@ -149,6 +185,19 @@ export async function installCreateAccountAndRegisterUserMock(page: Page, input:
               clientParticipantId: 1,
               relayerParticipantId: 2,
               participantIds: [1, 2],
+              ...(edSession ? { session: edSession } : {}),
+            },
+          }
+          : {}),
+        ...(thresholdEcdsaMode
+          ? {
+            thresholdEcdsa: {
+              relayerKeyId: thresholdEcdsaRelayerKeyId,
+              groupPublicKeyB64u: thresholdEcdsaGroupPublicKeyB64u,
+              ethereumAddress: thresholdEcdsaEthereumAddress,
+              relayerVerifyingShareB64u: thresholdEcdsaRelayerVerifyingShareB64u,
+              participantIds: [1, 2],
+              ...(ecdsaSession ? { session: ecdsaSession } : {}),
             },
           }
           : {}),

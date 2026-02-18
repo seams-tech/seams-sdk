@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  clientDB: '/sdk/esm/core/IndexedDBManager/passkeyClientDB.js',
+  clientDB: '/sdk/esm/core/IndexedDBManager/passkeyClientDB/manager.js',
   getDeviceNumber: '/sdk/esm/core/signing/webauthn/device/getDeviceNumber.js',
 } as const;
 

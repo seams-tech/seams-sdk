@@ -100,7 +100,7 @@ test.describe('Worker Communication Protocol', () => {
         await new Promise(resolve => setTimeout(resolve, 5000));
 
         // Now test executeAction with detailed progress tracking (new SDK signature)
-        const actionResult = await tatchi.executeAction({
+        const actionResult = await tatchi.near.executeAction({
           nearAccountId: testAccountId,
           receiverId: (window as any).testUtils.configs.testReceiverAccountId, // Use centralized configuration
           actionArgs: {

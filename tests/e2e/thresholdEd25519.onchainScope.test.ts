@@ -125,7 +125,7 @@ test.describe('threshold-ed25519 on-chain scope', () => {
           const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
           if (!enrollment?.success) throw new Error(enrollment?.error || 'threshold enrollment failed');
 
-          await pm.signTransactionsWithActions({
+          await pm.near.signTransactionsWithActions({
             nearAccountId: accountId,
             transactions: [{
               receiverId: 'w3a-v1.testnet',

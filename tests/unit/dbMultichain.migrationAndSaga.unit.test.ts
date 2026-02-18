@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  clientDB: '/sdk/esm/core/IndexedDBManager/passkeyClientDB.js',
-  nearKeysDB: '/sdk/esm/core/IndexedDBManager/passkeyNearKeysDB.js',
+  clientDB: '/sdk/esm/core/IndexedDBManager/passkeyClientDB/manager.js',
+  nearKeysDB: '/sdk/esm/core/IndexedDBManager/passkeyNearKeysDB/manager.js',
   indexedDB: '/sdk/esm/core/IndexedDBManager/index.js',
   getDeviceNumber: '/sdk/esm/core/signing/webauthn/device/getDeviceNumber.js',
 } as const;
@@ -120,7 +120,6 @@ test.describe('DB multichain migration + saga', () => {
         isPrimary: true,
         createdAt: now,
         updatedAt: now,
-        legacyNearAccountId: 'alice.testnet',
       });
       await rawClient.put('accountSigners', {
         profileId: 'legacy-near:alice.testnet',

@@ -102,7 +102,7 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
         const toNumberArray = (value: unknown): number[] => Array.from(value as ArrayLike<number>);
 
         const signOnce = async (accountId: string, receiverId: string) => {
-          const signed = await tatchi.signTransactionsWithActions({
+          const signed = await tatchi.near.signTransactionsWithActions({
             nearAccountId: accountId,
             transactions: [{ receiverId, actions: [action] }],
             options: {

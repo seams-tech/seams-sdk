@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  clientDB: '/sdk/esm/core/IndexedDBManager/passkeyClientDB.js',
+  clientDB: '/sdk/esm/core/IndexedDBManager/passkeyClientDB/manager.js',
   deployment: '/sdk/esm/core/signing/orchestration/deployment/ensureSmartAccountDeployed.js',
 } as const;
 
@@ -30,7 +30,6 @@ test.describe('smart-account deployment gate helper', () => {
         accountAddress: 'alice.testnet',
         accountModel: 'near-native',
         isPrimary: true,
-        legacyNearAccountId: 'alice.testnet',
       });
       await dbm.upsertChainAccount({
         profileId: 'profile-smartacct-observe',
@@ -89,7 +88,6 @@ test.describe('smart-account deployment gate helper', () => {
         accountAddress: 'alice.testnet',
         accountModel: 'near-native',
         isPrimary: true,
-        legacyNearAccountId: 'alice.testnet',
       });
       await dbm.upsertChainAccount({
         profileId: 'profile-smartacct-deploy',
@@ -154,7 +152,6 @@ test.describe('smart-account deployment gate helper', () => {
         accountAddress: 'alice.testnet',
         accountModel: 'near-native',
         isPrimary: true,
-        legacyNearAccountId: 'alice.testnet',
       });
       await dbm.upsertChainAccount({
         profileId: 'profile-smartacct-already',
@@ -213,7 +210,6 @@ test.describe('smart-account deployment gate helper', () => {
         accountAddress: 'alice.testnet',
         accountModel: 'near-native',
         isPrimary: true,
-        legacyNearAccountId: 'alice.testnet',
       });
       await dbm.upsertChainAccount({
         profileId: 'profile-smartacct-autofill',
@@ -292,7 +288,6 @@ test.describe('smart-account deployment gate helper', () => {
         accountAddress: 'alice.testnet',
         accountModel: 'near-native',
         isPrimary: true,
-        legacyNearAccountId: 'alice.testnet',
       });
       await dbm.upsertChainAccount({
         profileId: 'profile-smartacct-retry',
@@ -354,7 +349,6 @@ test.describe('smart-account deployment gate helper', () => {
         accountAddress: 'alice.testnet',
         accountModel: 'near-native',
         isPrimary: true,
-        legacyNearAccountId: 'alice.testnet',
       });
       await dbm.upsertChainAccount({
         profileId: 'profile-smartacct-fail',
