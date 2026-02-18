@@ -66,24 +66,6 @@ import {
   rotateThresholdEd25519KeyPostRegistration as rotateThresholdEd25519KeyPostRegistrationValue,
 } from './thresholdEd25519Lifecycle';
 import {
-  exportNearKeypairWithUI as exportNearKeypairWithUIValue,
-  exportNearKeypairWithUIWorkerDriven as exportNearKeypairWithUIWorkerDrivenValue,
-  exportPrivateKeysWithUI as exportPrivateKeysWithUIValue,
-  exportPrivateKeysWithUIWorkerDriven as exportPrivateKeysWithUIWorkerDrivenValue,
-  recoverKeypairFromPasskey as recoverKeypairFromPasskeyValue,
-} from './privateKeyExportRecovery';
-import {
-  deriveNearKeypairAndEncryptFromSerialized as deriveNearKeypairAndEncryptFromSerializedValue,
-  deriveNearKeypairFromCredentialViaWorker as deriveNearKeypairFromCredentialViaWorkerValue,
-} from './nearKeyDerivation';
-import {
-  getAuthenticationCredentialsSerialized as getAuthenticationCredentialsSerializedValue,
-  getAuthenticationCredentialsSerializedDualPrf as getAuthenticationCredentialsSerializedDualPrfValue,
-  requestRegistrationCredentialConfirmation as requestRegistrationCredentialConfirmationValue,
-} from './registrationSession';
-import {
-  extractCosePublicKey as extractCosePublicKeyValue,
-  signTransactionWithKeyPair as signTransactionWithKeyPairValue,
   signNearWithIntent as signNearWithIntentValue,
 } from './signerWorkerBridge';
 import { getPrfResultsFromCredential } from '../webauthn/credentials/credentialExtensions';
@@ -121,6 +103,10 @@ import {
   createThresholdSessionSurface,
   type ThresholdSessionSurface,
 } from './modules/thresholdSessionSurface';
+import {
+  createCredentialRecoverySurface,
+  type CredentialRecoverySurface,
+} from './modules/credentialRecoverySurface';
 export type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/activation';
 
 /**
@@ -152,6 +138,7 @@ export class WebAuthnManager {
   private readonly orchestrationDeps: OrchestrationDependencyBundle;
   private readonly indexedDbRegistrationSurface: IndexedDbRegistrationSurface;
   private readonly signingActionsSurface: SigningActionsSurface;
+  private readonly credentialRecoverySurface: CredentialRecoverySurface;
   private readonly thresholdSessionSurface: ThresholdSessionSurface;
 
   readonly tatchiPasskeyConfigs: TatchiConfigs;
@@ -208,6 +195,12 @@ export class WebAuthnManager {
       tempoSigningDeps: this.orchestrationDeps.tempoSigningDeps,
       getFacadeConvenienceDeps: this.orchestrationDeps.getFacadeConvenienceDeps,
       thresholdEcdsaSignInFlightByAccount: this.thresholdEcdsaSignInFlightByAccount,
+    });
+    this.credentialRecoverySurface = createCredentialRecoverySurface({
+      registrationSessionDeps: this.orchestrationDeps.registrationSessionDeps,
+      nearKeyDerivationDeps: this.orchestrationDeps.nearKeyDerivationDeps,
+      privateKeyExportRecoveryDeps: this.orchestrationDeps.privateKeyExportRecoveryDeps,
+      signerWorkerBridgeDeps: this.orchestrationDeps.signerWorkerBridgeDeps,
     });
     this.thresholdSessionSurface = createThresholdSessionSurface({
       thresholdSessionActivationDeps: this.orchestrationDeps.thresholdSessionActivationDeps,
@@ -306,7 +299,7 @@ export class WebAuthnManager {
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
   }): Promise<RegistrationCredentialConfirmationPayload> {
-    return await requestRegistrationCredentialConfirmationValue(this.orchestrationDeps.registrationSessionDeps, params);
+    return await this.credentialRecoverySurface.requestRegistrationCredentialConfirmation(params);
   }
 
   setTheme(next: ThemeName): void {
@@ -328,7 +321,7 @@ export class WebAuthnManager {
     allowCredentials: WebAuthnAllowCredential[];
     includeSecondPrfOutput?: boolean;
   }): Promise<WebAuthnAuthenticationCredential> {
-    return getAuthenticationCredentialsSerializedValue(this.orchestrationDeps.registrationSessionDeps, {
+    return this.credentialRecoverySurface.getAuthenticationCredentialsSerialized({
       nearAccountId,
       challengeB64u,
       allowCredentials,
@@ -360,7 +353,7 @@ export class WebAuthnManager {
     encryptedSk?: string;
     error?: string;
   }> {
-    return await deriveNearKeypairAndEncryptFromSerializedValue(this.orchestrationDeps.nearKeyDerivationDeps, {
+    return await this.credentialRecoverySurface.deriveNearKeypairAndEncryptFromSerialized({
       credential,
       nearAccountId,
       options,
@@ -371,7 +364,7 @@ export class WebAuthnManager {
     credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
     nearAccountId: AccountId;
   }): Promise<{ publicKey: string; privateKey: string }> {
-    return await deriveNearKeypairFromCredentialViaWorkerValue(this.orchestrationDeps.nearKeyDerivationDeps, args);
+    return await this.credentialRecoverySurface.deriveNearKeypairFromCredentialViaWorker(args);
   }
 
   ///////////////////////////////////////
@@ -661,7 +654,7 @@ export class WebAuthnManager {
    * Extract COSE public key from WebAuthn attestation object using WASM worker
    */
   async extractCosePublicKey(attestationObjectBase64url: string): Promise<Uint8Array> {
-    return await extractCosePublicKeyValue(this.orchestrationDeps.signerWorkerBridgeDeps, attestationObjectBase64url);
+    return await this.credentialRecoverySurface.extractCosePublicKey(attestationObjectBase64url);
   }
 
   ///////////////////////////////////////
@@ -673,10 +666,7 @@ export class WebAuthnManager {
     nearAccountId: AccountId,
     options?: { variant?: 'drawer' | 'modal'; theme?: 'dark' | 'light' },
   ): Promise<void> {
-    await exportNearKeypairWithUIWorkerDrivenValue(this.orchestrationDeps.privateKeyExportRecoveryDeps, {
-      nearAccountId,
-      options,
-    });
+    await this.credentialRecoverySurface.exportNearKeypairWithUIWorkerDriven(nearAccountId, options);
   }
 
   async exportNearKeypairWithUI(
@@ -686,10 +676,7 @@ export class WebAuthnManager {
       theme?: 'dark' | 'light';
     },
   ): Promise<{ accountId: string; publicKey: string; privateKey: string }> {
-    return await exportNearKeypairWithUIValue(this.orchestrationDeps.privateKeyExportRecoveryDeps, {
-      nearAccountId,
-      options,
-    });
+    return await this.credentialRecoverySurface.exportNearKeypairWithUI(nearAccountId, options);
   }
 
   /**
@@ -706,10 +693,7 @@ export class WebAuthnManager {
       theme?: 'dark' | 'light';
     },
   ): Promise<void> {
-    await exportPrivateKeysWithUIWorkerDrivenValue(this.orchestrationDeps.privateKeyExportRecoveryDeps, {
-      nearAccountId,
-      options,
-    });
+    await this.credentialRecoverySurface.exportPrivateKeysWithUIWorkerDriven(nearAccountId, options);
   }
 
   async exportPrivateKeysWithUI(
@@ -720,10 +704,7 @@ export class WebAuthnManager {
       theme?: 'dark' | 'light';
     },
   ): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
-    return await exportPrivateKeysWithUIValue(this.orchestrationDeps.privateKeyExportRecoveryDeps, {
-      nearAccountId,
-      options,
-    });
+    return await this.credentialRecoverySurface.exportPrivateKeysWithUI(nearAccountId, options);
   }
 
   ///////////////////////////////////////
@@ -756,10 +737,10 @@ export class WebAuthnManager {
     wrapKeySalt: string;
     stored?: boolean;
   }> {
-    return await recoverKeypairFromPasskeyValue(this.orchestrationDeps.privateKeyExportRecoveryDeps, {
+    return await this.credentialRecoverySurface.recoverKeypairFromPasskey(
       authenticationCredential,
       accountIdHint,
-    });
+    );
   }
 
   async getAuthenticationCredentialsSerializedDualPrf({
@@ -771,7 +752,7 @@ export class WebAuthnManager {
     challengeB64u: string;
     credentialIds: string[];
   }): Promise<WebAuthnAuthenticationCredential> {
-    return await getAuthenticationCredentialsSerializedDualPrfValue(this.orchestrationDeps.registrationSessionDeps, {
+    return await this.credentialRecoverySurface.getAuthenticationCredentialsSerializedDualPrf({
       nearAccountId,
       challengeB64u,
       credentialIds,
@@ -801,7 +782,7 @@ export class WebAuthnManager {
     signedTransaction: SignedTransaction;
     logs?: string[];
   }> {
-    return await signTransactionWithKeyPairValue(this.orchestrationDeps.signerWorkerBridgeDeps, {
+    return await this.credentialRecoverySurface.signTransactionWithKeyPair({
       nearPrivateKey,
       signerAccountId,
       receiverId,
