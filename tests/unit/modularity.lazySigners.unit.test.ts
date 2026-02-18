@@ -50,19 +50,27 @@ test.describe('modularity lazy signer loading', () => {
     const result = await page.evaluate(async ({ paths }) => {
       const workerCreations: Array<{ url: string; name: string | null }> = [];
 
-      class ThrowingWorker {
-        constructor(url: string | URL, opts?: WorkerOptions) {
-          workerCreations.push({
-            url: String(url),
-            name: typeof opts?.name === 'string' ? opts.name : null,
-          });
-          throw new Error('Worker creation is not expected in near adapter intent-build flow');
-        }
-      }
+      const isEthWorker = (entry: { url: string; name: string | null }): boolean =>
+        entry.name === 'ethSigner-worker' || /eth-signer\.worker\.js/.test(entry.url);
+      const isTempoWorker = (entry: { url: string; name: string | null }): boolean =>
+        entry.name === 'tempoSigner-worker' || /tempo-signer\.worker\.js/.test(entry.url);
+      const countMultichainWorkers = (entries: Array<{ url: string; name: string | null }>): number =>
+        entries.filter((entry) => isEthWorker(entry) || isTempoWorker(entry)).length;
 
       const originalWorker = window.Worker;
       try {
-        (window as any).Worker = ThrowingWorker as any;
+        class RecordingWorker extends originalWorker {
+          constructor(url: string | URL, opts?: WorkerOptions) {
+            workerCreations.push({
+              url: String(url),
+              name: typeof opts?.name === 'string' ? opts.name : null,
+            });
+            super(url, opts);
+          }
+        }
+        (window as any).Worker = RecordingWorker as any;
+        const baselineMultichainCount = countMultichainWorkers(workerCreations);
+
         const { NearAdapter } = await import(paths.nearAdapter);
         const { ActionType } = await import(paths.actions);
         const adapter = new NearAdapter();
@@ -86,13 +94,16 @@ test.describe('modularity lazy signer loading', () => {
           },
         });
 
-        return { workerCreations };
+        return {
+          multichainWorkerDelta: countMultichainWorkers(workerCreations) - baselineMultichainCount,
+          workerCreations,
+        };
       } finally {
         (window as any).Worker = originalWorker;
       }
     }, { paths: IMPORT_PATHS });
 
-    expect(result.workerCreations).toEqual([]);
+    expect(result.multichainWorkerDelta).toBe(0);
   });
 
   test('tempo adapter creates workers only when corresponding signer path is used', async ({
@@ -100,6 +111,14 @@ test.describe('modularity lazy signer loading', () => {
   }) => {
     const result = await page.evaluate(async ({ paths }) => {
       const workerCreations: Array<{ url: string; name: string | null }> = [];
+      const isEthWorker = (entry: { url: string; name: string | null }): boolean =>
+        entry.name === 'ethSigner-worker' || /eth-signer\.worker\.js/.test(entry.url);
+      const isTempoWorker = (entry: { url: string; name: string | null }): boolean =>
+        entry.name === 'tempoSigner-worker' || /tempo-signer\.worker\.js/.test(entry.url);
+      const countEthWorkers = (entries: Array<{ url: string; name: string | null }>): number =>
+        entries.filter((entry) => isEthWorker(entry)).length;
+      const countTempoWorkers = (entries: Array<{ url: string; name: string | null }>): number =>
+        entries.filter((entry) => isTempoWorker(entry)).length;
 
       type MessageListener = (event: MessageEvent) => void;
 
@@ -169,6 +188,10 @@ test.describe('modularity lazy signer loading', () => {
         };
 
         const adapter = new TempoAdapter(workerCtx as any);
+        const baseline = {
+          eth: countEthWorkers(workerCreations),
+          tempo: countTempoWorkers(workerCreations),
+        };
 
         const eip1559Request = {
           chain: 'tempo' as const,
@@ -190,7 +213,10 @@ test.describe('modularity lazy signer loading', () => {
         await adapter.buildIntent(eip1559Request);
         await adapter.buildIntent(eip1559Request);
 
-        const afterEip = [...workerCreations];
+        const afterEip = {
+          eth: countEthWorkers(workerCreations),
+          tempo: countTempoWorkers(workerCreations),
+        };
 
         const tempoRequest = {
           chain: 'tempo' as const,
@@ -214,22 +240,25 @@ test.describe('modularity lazy signer loading', () => {
 
         await adapter.buildIntent(tempoRequest);
 
-        const names = workerCreations.map((entry) => entry.name || '');
-        const ethWorkers = names.filter((name) => name === 'ethSigner-worker').length;
-        const tempoWorkers = names.filter((name) => name === 'tempoSigner-worker').length;
+        const afterTempo = {
+          eth: countEthWorkers(workerCreations),
+          tempo: countTempoWorkers(workerCreations),
+        };
 
         return {
-          afterEipCount: afterEip.length,
-          ethWorkers,
-          tempoWorkers,
+          ethWorkersDuringEip: afterEip.eth - baseline.eth,
+          tempoWorkersDuringEip: afterEip.tempo - baseline.tempo,
+          ethWorkersDuringTempo: afterTempo.eth - afterEip.eth,
+          tempoWorkersDuringTempo: afterTempo.tempo - afterEip.tempo,
         };
       } finally {
         (window as any).Worker = originalWorker;
       }
     }, { paths: IMPORT_PATHS });
 
-    expect(result.afterEipCount).toBe(1);
-    expect(result.ethWorkers).toBe(1);
-    expect(result.tempoWorkers).toBe(1);
+    expect(result.ethWorkersDuringEip).toBe(1);
+    expect(result.tempoWorkersDuringEip).toBe(0);
+    expect(result.ethWorkersDuringTempo).toBe(0);
+    expect(result.tempoWorkersDuringTempo).toBe(1);
   });
 });

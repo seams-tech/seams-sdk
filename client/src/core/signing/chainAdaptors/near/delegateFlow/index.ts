@@ -48,9 +48,6 @@ import {
   getLastLoggedInDeviceNumber,
   parseDeviceNumber,
 } from '../../../webauthn/device/getDeviceNumber';
-function generateSessionId(): string {
-  return `sess-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
 import {
   ensureEd25519Prefix,
   toPublicKeyString,
@@ -61,8 +58,7 @@ import {
   assertRuntimeSigningLocalKeyMaterial,
   isRuntimeSigningLocalKeyMaterial,
 } from '../shared/localKeyUsage';
-
-const DUMMY_WRAP_KEY_SALT_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+import { DUMMY_WRAP_KEY_SALT_B64U, generateSessionId } from '../shared/primitives';
 
 export async function signDelegateAction({
   ctx,

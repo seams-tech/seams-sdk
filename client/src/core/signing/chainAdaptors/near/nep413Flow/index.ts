@@ -37,9 +37,6 @@ import {
   getLastLoggedInDeviceNumber,
   parseDeviceNumber,
 } from '../../../webauthn/device/getDeviceNumber';
-function generateSessionId(): string {
-  return `sess-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
 import type { SigningRuntimeDeps } from '../../types';
 import { toAccountId } from '../../../../types/accountIds';
 import { deriveThresholdEd25519ClientVerifyingShare } from '../../../threshold/workflows/deriveThresholdEd25519ClientVerifyingShare';
@@ -48,8 +45,7 @@ import {
   assertRuntimeSigningLocalKeyMaterial,
   isRuntimeSigningLocalKeyMaterial,
 } from '../shared/localKeyUsage';
-
-const DUMMY_WRAP_KEY_SALT_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+import { DUMMY_WRAP_KEY_SALT_B64U, generateSessionId } from '../shared/primitives';
 
 /**
  * Sign a NEP-413 message using the user's passkey-derived private key

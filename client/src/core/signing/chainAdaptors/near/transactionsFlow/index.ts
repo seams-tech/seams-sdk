@@ -57,17 +57,12 @@ import {
   assertRuntimeSigningLocalKeyMaterial,
   isRuntimeSigningLocalKeyMaterial,
 } from '../shared/localKeyUsage';
+import { DUMMY_WRAP_KEY_SALT_B64U, generateSessionId } from '../shared/primitives';
 
 /**
  * Sign multiple transactions with a shared WebAuthn credential.
  * Efficiently processes multiple transactions with one PRF-backed signing session.
  */
-
-function generateSessionId(): string {
-  return `sess-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
-const DUMMY_WRAP_KEY_SALT_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 export async function signTransactionsWithActions({
   ctx,
