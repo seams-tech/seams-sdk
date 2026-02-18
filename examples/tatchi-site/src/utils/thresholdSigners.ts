@@ -1,7 +1,7 @@
 import type { TatchiPasskey } from '@tatchi-xyz/sdk/react';
 
 export type ThresholdEcdsaBootstrapResult = Awaited<
-  ReturnType<TatchiPasskey['bootstrapThresholdEcdsaSession']>
+  ReturnType<TatchiPasskey['tempo']['bootstrapThresholdEcdsaSession']>
 >;
 export type ThresholdEcdsaKeyRef = ThresholdEcdsaBootstrapResult['thresholdEcdsaKeyRef'];
 export type ThresholdEcdsaChain = 'evm' | 'tempo';
@@ -84,7 +84,7 @@ export function writeCachedThresholdKeyRef(
 export async function provisionThresholdSignerForChain(
   args: ProvisionThresholdSignerForChainArgs,
 ): Promise<ThresholdEcdsaBootstrapResult> {
-  const bootstrap = await args.tatchi.bootstrapThresholdEcdsaSession({
+  const bootstrap = await args.tatchi.tempo.bootstrapThresholdEcdsaSession({
     nearAccountId: args.nearAccountId,
     options: {
       chain: args.chain,

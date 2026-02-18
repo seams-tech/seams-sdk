@@ -251,7 +251,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     const toastId = 'device-linking';
     try {
       toast.loading('Generating QR code…', { id: toastId });
-      await tatchi.startDevice2LinkingFlow({
+      await tatchi.recovery.startDevice2LinkingFlow({
         accountId: targetAccountId,
         ui: 'inline',
         options: {
@@ -274,7 +274,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
   const stopDevice2Linking = async () => {
     const toastId = 'device-linking';
     try {
-      await tatchi.stopDevice2LinkingFlow();
+      await tatchi.recovery.stopDevice2LinkingFlow();
     } catch {}
     try {
       toast.dismiss(toastId);
@@ -285,7 +285,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     const toastId = 'email-recovery';
     try {
       toast.loading('Starting email recovery…', { id: toastId });
-      const { mailtoUrl, nearPublicKey } = await tatchi.startEmailRecovery({
+      const { mailtoUrl, nearPublicKey } = await tatchi.recovery.startEmailRecovery({
         accountId: targetAccountId,
         options: {
           onEvent: onEmailRecoveryEvents,
@@ -303,7 +303,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
 
       // Best-effort: start polling immediately (user can reload and resume later).
       try {
-        await tatchi.finalizeEmailRecovery({
+        await tatchi.recovery.finalizeEmailRecovery({
           accountId: targetAccountId,
           nearPublicKey,
           options: { onEvent: onEmailRecoveryEvents } as any,

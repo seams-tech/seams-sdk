@@ -81,7 +81,7 @@ Most developers never call the Nonce Manager directly. All high-level signing AP
 
 ```javascript
 // The SDK handles nonces for you
-const signed = await tatchi.signTransactionsWithActions({
+const signed = await tatchi.near.signTransactionsWithActions({
   nearAccountId: 'user.near',
   transactions: [tx1, tx2, tx3],
 })

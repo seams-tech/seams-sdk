@@ -238,10 +238,10 @@ import { PasskeyAuthMenu } from '@tatchi-xyz/sdk/react/passkey-auth-menu'
 
 export function PasskeySection() {
   const {
+    tatchi,
     accountInputState,
     registerPasskey,
     loginAndCreateSession,
-    syncAccount,
   } = useTatchi()
 
   const targetAccountId = accountInputState.targetAccountId
@@ -262,7 +262,7 @@ export function PasskeySection() {
     })
 
   const onSyncAccount = () =>
-    syncAccount({
+    tatchi.recovery.syncAccount({
       accountId: targetAccountId,
       options: {
         onEvent: (event) => console.log('sync event', event),
@@ -365,7 +365,7 @@ export function SendGreetingButton() {
   return (
     <button
       onClick={async () => {
-        await tatchi.executeAction({
+        await tatchi.near.executeAction({
           nearAccountId,
           receiverId: contractId,
           actionArgs: {

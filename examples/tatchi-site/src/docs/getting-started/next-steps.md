@@ -103,7 +103,7 @@ export function SignNear(props: { nearAccountId: string }) {
   const { tatchi } = useTatchi()
 
   async function onSignNear(): Promise<void> {
-    const signed = await tatchi.signTransactionsWithActions({
+    const signed = await tatchi.near.signTransactionsWithActions({
       nearAccountId: props.nearAccountId,
       transactions: [
         {
@@ -136,7 +136,7 @@ export function SignTempo(props: { nearAccountId: string; thresholdEcdsaKeyRef: 
   const { tatchi } = useTatchi()
 
   async function onSignTempo(): Promise<void> {
-    const signed = await tatchi.signTempoWithThresholdEcdsa({
+    const signed = await tatchi.tempo.signTempoWithThresholdEcdsa({
       nearAccountId: props.nearAccountId,
       thresholdEcdsaKeyRef: props.thresholdEcdsaKeyRef,
       request: {
@@ -175,7 +175,7 @@ export function SignEvm(props: { nearAccountId: string; thresholdEcdsaKeyRef: an
   const { tatchi } = useTatchi()
 
   async function onSignEvm(): Promise<void> {
-    const signed = await tatchi.signTempoWithThresholdEcdsa({
+    const signed = await tatchi.tempo.signTempoWithThresholdEcdsa({
       nearAccountId: props.nearAccountId,
       thresholdEcdsaKeyRef: props.thresholdEcdsaKeyRef,
       request: {

@@ -35,7 +35,7 @@ export function SyncAccount() {
       // Best-effort: ensure we are logged out before starting recovery flows.
       try { await logout(); } catch {}
 
-      const result = await tatchi.syncAccount({
+      const result = await tatchi.recovery.syncAccount({
         accountId: targetAccountId,
         options: {
           onEvent: async (event: SyncAccountSSEEvent) => {

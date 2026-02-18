@@ -63,7 +63,7 @@ const SOLARIZED_LIGHT_COLORS: Record<string, string> = {
   buttonHoverBackground: '#2aa198',
 
   colorBackground: '#fdf6e3',
-  surface: '#eee8d5',
+  surface: '#f4eddc',
   surface2: '#e7e1cf',
   surface3: '#ddd6c1',
   surface4: '#d3cbb4',

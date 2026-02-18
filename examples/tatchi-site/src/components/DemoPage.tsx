@@ -273,7 +273,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
 
     setTxLoading(true);
     try {
-      await tatchi.executeAction({
+      await tatchi.near.executeAction({
         nearAccountId: nearAccountId!,
         receiverId: WEBAUTHN_CONTRACT_ID,
         actionArgs: actionToExecute,
@@ -352,7 +352,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       }
 
       const delegateAction = createGreetingAction(greetingInput, { postfix: 'Delegate' });
-      const result = await tatchi.signDelegateAction({
+      const result = await tatchi.near.signDelegateAction({
         nearAccountId: nearAccountId!,
         delegate: {
           senderId: nearAccountId!,
@@ -392,7 +392,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       });
 
       toast.loading('Submitting delegate to relayer…', { id: 'delegate-relay' });
-      const relayResult = await tatchi.sendDelegateActionViaRelayer({
+      const relayResult = await tatchi.near.sendDelegateActionViaRelayer({
         relayerUrl,
         hash: result.hash,
         signedDelegate: result.signedDelegate as unknown as Record<string, unknown>,
@@ -490,7 +490,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       let thresholdEcdsaKeyRef = await getKeyRefForChain('tempo');
       let signed: Awaited<ReturnType<typeof tatchi.signTempo>>;
       try {
-        signed = await tatchi.signTempo({
+        signed = await tatchi.tempo.signTempo({
           nearAccountId,
           request,
           options: { thresholdEcdsaKeyRef },
@@ -498,7 +498,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       } catch (error: unknown) {
         if (!isThresholdSessionExpiredError(error)) throw error;
         thresholdEcdsaKeyRef = await getKeyRefForChain('tempo', true);
-        signed = await tatchi.signTempo({
+        signed = await tatchi.tempo.signTempo({
           nearAccountId,
           request,
           options: { thresholdEcdsaKeyRef },
@@ -532,7 +532,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       let thresholdEcdsaKeyRef = await getKeyRefForChain('evm');
       let signed: Awaited<ReturnType<typeof tatchi.signTempoWithThresholdEcdsa>>;
       try {
-        signed = await tatchi.signTempoWithThresholdEcdsa({
+        signed = await tatchi.tempo.signTempoWithThresholdEcdsa({
           nearAccountId,
           request,
           thresholdEcdsaKeyRef,
@@ -540,7 +540,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       } catch (error: unknown) {
         if (!isThresholdSessionExpiredError(error)) throw error;
         thresholdEcdsaKeyRef = await getKeyRefForChain('evm', true);
-        signed = await tatchi.signTempoWithThresholdEcdsa({
+        signed = await tatchi.tempo.signTempoWithThresholdEcdsa({
           nearAccountId,
           request,
           thresholdEcdsaKeyRef,

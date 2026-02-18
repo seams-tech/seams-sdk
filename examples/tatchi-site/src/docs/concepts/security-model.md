@@ -227,7 +227,7 @@ Your app receives progress events but cannot bypass or fake the confirmation:
 ```ts
 import { ActionPhase } from '@tatchi-xyz/sdk/react'
 
-await tatchi.executeAction({
+await tatchi.near.executeAction({
   nearAccountId: 'alice.testnet',
   receiverId: 'contract.testnet',
   actionArgs: [/* ... */],
