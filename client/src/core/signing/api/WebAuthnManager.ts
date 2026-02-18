@@ -17,7 +17,6 @@ import type { SignerWorkerManager } from '../workers/signerWorkerManager';
 import type { SecureConfirmWorkerManager } from '../secureConfirm';
 import type { TouchIdPrompt } from '../webauthn/prompt/touchIdPrompt';
 import type { WebAuthnAllowCredential } from '../webauthn/credentials';
-import { toAccountId } from '../../types/accountIds';
 import type { UserPreferencesManager } from './userPreferences';
 import type { NonceManager } from '../../near/nonceManager';
 import { type ActionArgsWasm, type TransactionInputWasm } from '../../types/actions';
@@ -60,16 +59,8 @@ import {
   type ThresholdEcdsaSmartAccountBootstrapInput,
 } from './thresholdEcdsaBootstrapPersistence';
 import {
-  deriveThresholdEd25519ClientVerifyingShareFromCredential as deriveThresholdEd25519ClientVerifyingShareFromCredentialValue,
-  enrollThresholdEd25519Key as enrollThresholdEd25519KeyValue,
-  enrollThresholdEd25519KeyPostRegistration as enrollThresholdEd25519KeyPostRegistrationValue,
-  rotateThresholdEd25519KeyPostRegistration as rotateThresholdEd25519KeyPostRegistrationValue,
-} from './thresholdEd25519Lifecycle';
-import {
   signNearWithIntent as signNearWithIntentValue,
 } from './signerWorkerBridge';
-import { getPrfResultsFromCredential } from '../webauthn/credentials/credentialExtensions';
-import { deriveThresholdSecp256k1ClientShareWasm } from '../chainAdaptors/evm/ethSignerWasm';
 import {
   destroyFacade as destroyFacadeValue,
   getNonceManager as getNonceManagerValue,
@@ -107,6 +98,10 @@ import {
   createCredentialRecoverySurface,
   type CredentialRecoverySurface,
 } from './modules/credentialRecoverySurface';
+import {
+  createThresholdKeyLifecycleSurface,
+  type ThresholdKeyLifecycleSurface,
+} from './modules/thresholdKeyLifecycleSurface';
 export type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/activation';
 
 /**
@@ -139,6 +134,7 @@ export class WebAuthnManager {
   private readonly indexedDbRegistrationSurface: IndexedDbRegistrationSurface;
   private readonly signingActionsSurface: SigningActionsSurface;
   private readonly credentialRecoverySurface: CredentialRecoverySurface;
+  private readonly thresholdKeyLifecycleSurface: ThresholdKeyLifecycleSurface;
   private readonly thresholdSessionSurface: ThresholdSessionSurface;
 
   readonly tatchiPasskeyConfigs: TatchiConfigs;
@@ -201,6 +197,10 @@ export class WebAuthnManager {
       nearKeyDerivationDeps: this.orchestrationDeps.nearKeyDerivationDeps,
       privateKeyExportRecoveryDeps: this.orchestrationDeps.privateKeyExportRecoveryDeps,
       signerWorkerBridgeDeps: this.orchestrationDeps.signerWorkerBridgeDeps,
+    });
+    this.thresholdKeyLifecycleSurface = createThresholdKeyLifecycleSurface({
+      thresholdEd25519LifecycleDeps: this.orchestrationDeps.thresholdEd25519LifecycleDeps,
+      thresholdSessionActivationDeps: this.orchestrationDeps.thresholdSessionActivationDeps,
     });
     this.thresholdSessionSurface = createThresholdSessionSurface({
       thresholdSessionActivationDeps: this.orchestrationDeps.thresholdSessionActivationDeps,
@@ -908,10 +908,7 @@ export class WebAuthnManager {
     clientVerifyingShareB64u: string;
     error?: string;
   }> {
-    return await deriveThresholdEd25519ClientVerifyingShareFromCredentialValue(
-      this.orchestrationDeps.thresholdEd25519LifecycleDeps,
-      args,
-    );
+    return await this.thresholdKeyLifecycleSurface.deriveThresholdEd25519ClientVerifyingShareFromCredential(args);
   }
 
   async deriveThresholdEcdsaClientVerifyingShareFromCredential(args: {
@@ -923,32 +920,7 @@ export class WebAuthnManager {
     clientVerifyingShareB64u: string;
     error?: string;
   }> {
-    const nearAccountId = toAccountId(args.nearAccountId);
-    try {
-      const prfFirstB64u = String(getPrfResultsFromCredential(args.credential).first || '').trim();
-      if (!prfFirstB64u) {
-        throw new Error('Missing PRF.first output from credential (requires a PRF-enabled passkey)');
-      }
-      const workerCtx = this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext();
-      const derived = await deriveThresholdSecp256k1ClientShareWasm({
-        prfFirstB64u,
-        userId: nearAccountId,
-        workerCtx,
-      });
-      return {
-        success: true,
-        nearAccountId,
-        clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
-      };
-    } catch (error: unknown) {
-      const message = String((error as { message?: unknown })?.message ?? error);
-      return {
-        success: false,
-        nearAccountId,
-        clientVerifyingShareB64u: '',
-        error: message,
-      };
-    }
+    return await this.thresholdKeyLifecycleSurface.deriveThresholdEcdsaClientVerifyingShareFromCredential(args);
   }
 
   /**
@@ -967,10 +939,7 @@ export class WebAuthnManager {
     relayerKeyId: string;
     error?: string;
   }> {
-    return await enrollThresholdEd25519KeyPostRegistrationValue(
-      this.orchestrationDeps.thresholdEd25519LifecycleDeps,
-      args,
-    );
+    return await this.thresholdKeyLifecycleSurface.enrollThresholdEd25519KeyPostRegistration(args);
   }
 
   /**
@@ -996,10 +965,7 @@ export class WebAuthnManager {
     warning?: string;
     error?: string;
   }> {
-    return await rotateThresholdEd25519KeyPostRegistrationValue(
-      this.orchestrationDeps.thresholdEd25519LifecycleDeps,
-      args,
-    );
+    return await this.thresholdKeyLifecycleSurface.rotateThresholdEd25519KeyPostRegistration(args);
   }
 
   /**
@@ -1024,7 +990,7 @@ export class WebAuthnManager {
     relayerKeyId: string;
     error?: string;
   }> {
-    return await enrollThresholdEd25519KeyValue(this.orchestrationDeps.thresholdEd25519LifecycleDeps, args);
+    return await this.thresholdKeyLifecycleSurface.enrollThresholdEd25519Key(args);
   }
 
   // ==============================
