@@ -1,14 +1,19 @@
 import type { TempoSignedResult } from '../../signing/chainAdaptors/tempo/tempoAdapter';
 import { toError } from '@shared/utils/errors';
+import { toAccountId } from '../../types/accountIds';
 import type {
   SignTempoArgs,
   SignTempoWithThresholdEcdsaArgs,
   TempoSignerCapability,
-} from '../capabilities';
-import {
-  bootstrapThresholdEcdsaSessionForChain,
-  type ChainSignerDeps,
-} from './shared';
+} from '..';
+
+type ChainSignerDeps = {
+  getContext: () => import('../index').PasskeyManagerContext;
+  walletIframe: Pick<
+    import('../walletIframeCoordinator').WalletIframeCoordinator,
+    'shouldUseWalletIframe' | 'requireRouter'
+  >;
+};
 
 /**
  * Tempo signing call graph:
@@ -91,13 +96,32 @@ export class TempoSigner implements TempoSignerCapability {
   async bootstrapThresholdEcdsaSession(
     args: Parameters<TempoSignerCapability['bootstrapThresholdEcdsaSession']>[0],
   ) {
-    return await bootstrapThresholdEcdsaSessionForChain(
-      {
-        getContext: this.getContext,
-        walletIframe: this.walletIframe,
-      },
-      args,
-      'tempo',
-    );
+    const options = {
+      ...(args.options || {}),
+      chain: 'tempo' as const,
+    };
+
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(args.nearAccountId);
+      return await router.bootstrapThresholdEcdsaSession({
+        nearAccountId: args.nearAccountId,
+        options,
+      });
+    }
+
+    return await this
+      .getContext()
+      .webAuthnManager
+      .thresholdSession
+      .bootstrapThresholdEcdsaSessionLite({
+        nearAccountId: toAccountId(args.nearAccountId),
+        chain: options.chain,
+        relayerUrl: options.relayerUrl,
+        participantIds: options.participantIds,
+        sessionKind: options.sessionKind,
+        ttlMs: options.ttlMs,
+        remainingUses: options.remainingUses,
+        smartAccount: options.smartAccount,
+      });
   }
 }

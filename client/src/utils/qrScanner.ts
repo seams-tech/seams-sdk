@@ -1,6 +1,6 @@
 import type { DeviceLinkingQRData } from '../core/types/linkDevice';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '../core/types/linkDevice';
-import { validateDeviceLinkingQRData } from '../core/TatchiPasskey/scanDevice';
+import { validateDeviceLinkingQRData } from '../core/TatchiPasskey/recovery/deviceLinking';
 import { DeviceLinkingSSEEvent } from '@/core/types/sdkSentEvents';
 
 // ===========================

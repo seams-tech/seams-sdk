@@ -97,7 +97,7 @@ import type { TempoSignedResult } from '../../signing/chainAdaptors/tempo/tempoA
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../signing/orchestration/types';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../signing/api/WebAuthnManager';
 import type { LinkDeviceResult, StartDevice2LinkingFlowArgs, StartDevice2LinkingFlowResults, DeviceLinkingQRData } from '../../types/linkDevice';
-import type { SyncAccountResult } from '../../TatchiPasskey/syncAccount';
+import type { SyncAccountResult } from '../../TatchiPasskey/recovery/accountSync';
 import {
   ActionArgs,
   TransactionInput,
@@ -112,7 +112,7 @@ import { toError } from '@shared/utils/errors';
 import type { AuthenticatorOptions } from '../../types/authenticatorOptions';
 import { mergeSignerMode, type ConfirmationConfig, type SignerMode } from '../../types/signer-worker';
 import type { AccessKeyList } from '../../near/NearClient';
-import type { SignNEP413MessageResult } from '../../TatchiPasskey/signNEP413';
+import type { SignNEP413MessageResult } from '../../TatchiPasskey/near';
 import type { DerivedAddressRecord } from '../../IndexedDBManager';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../../config/defaultConfigs';
 

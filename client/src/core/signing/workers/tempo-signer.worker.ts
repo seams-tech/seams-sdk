@@ -2,11 +2,11 @@ import init, {
   compute_tempo_sender_hash,
   encode_tempo_signed_tx,
   init_tempo_signer,
-} from '../../../../../../wasm/tempo_signer/pkg/tempo_signer.js';
+} from '../../../../../wasm/tempo_signer/pkg/tempo_signer.js';
 import { initializeWasm, resolveWasmUrl } from '@/core/runtimeAssetPaths/wasm-loader';
 import { errorMessage } from '@shared/utils/errors';
 import { WorkerControlMessage } from './workerControlMessages';
-import { resolveSignerWorkerContractVersion } from '../../workers/signerWorkerManager/backends/types';
+import { resolveSignerWorkerContractVersion } from './signerWorkerManager/backends/types';
 
 type TempoSignerWorkerRequest =
   | { id: string; version?: number; type: 'computeTempoSenderHash'; payload: { tx: any } }

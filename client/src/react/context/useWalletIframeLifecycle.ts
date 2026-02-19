@@ -40,7 +40,7 @@ export function useWalletIframeLifecycle(args: {
         offLogin = tatchi.onWalletIframeLoginStatusChanged(async (status: { isLoggedIn: boolean; nearAccountId: string | null }) => {
           if (cancelled) return;
           if (status?.isLoggedIn && status?.nearAccountId) {
-            const session = await tatchi.getLoginSession(status.nearAccountId);
+            const session = await tatchi.auth.getSession(status.nearAccountId);
             const { login: state } = session;
             if (isLoginSessionReadyForUi({ session, signerMode })) {
               tatchi.preferences.setCurrentUser(toAccountId(status.nearAccountId));
@@ -75,7 +75,7 @@ export function useWalletIframeLifecycle(args: {
           const acct = payload?.nearAccountId;
           if (acct) {
             try {
-              const session = await tatchi.getLoginSession(acct);
+              const session = await tatchi.auth.getSession(acct);
               const { login: state } = session;
               if (isLoginSessionReadyForUi({ session, signerMode }) && state?.nearAccountId) {
                 tatchi.preferences.setCurrentUser(toAccountId(state.nearAccountId));
@@ -97,7 +97,7 @@ export function useWalletIframeLifecycle(args: {
           }));
         });
 
-        const session = await tatchi.getLoginSession();
+        const session = await tatchi.auth.getSession();
         const { login: st } = session;
         if (isLoginSessionReadyForUi({ session, signerMode })) {
           setLoginState(prev => ({

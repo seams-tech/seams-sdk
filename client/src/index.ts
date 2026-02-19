@@ -62,7 +62,7 @@ export { toAccountId } from './core/types/accountIds';
 export type {
   SignNEP413MessageParams,
   SignNEP413MessageResult
-} from './core/TatchiPasskey/signNEP413';
+} from './core/TatchiPasskey/near';
 
 // === Action Types ===
 export { ActionType } from './core/types/actions';

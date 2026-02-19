@@ -52,7 +52,7 @@ import type {
 
 import type { ActionArgs, TransactionInput, TxExecutionStatus } from '../types';
 import { type ConfirmationConfig, type SignerMode, type WasmSignedDelegate, DEFAULT_CONFIRMATION_CONFIG } from '../types/signer-worker';
-import type { SignNEP413MessageParams, SignNEP413MessageResult } from '../TatchiPasskey/signNEP413';
+import type { SignNEP413MessageParams, SignNEP413MessageResult } from '../TatchiPasskey/near';
 import { toError } from '@shared/utils/errors';
 import { coerceThemeName } from '@shared/utils/theme';
 import type { WalletUIRegistry } from './host/lit-ui/iframe-lit-element-registry';
@@ -69,7 +69,7 @@ import type {
   SignTempoArgs,
   SignTempoWithThresholdEcdsaArgs,
   TempoSignerCapability,
-} from '../TatchiPasskey/capabilities';
+} from '../TatchiPasskey';
 
 
 export class TatchiPasskeyIframe {
@@ -529,7 +529,7 @@ export class TatchiPasskeyIframe {
       '/',
     );
     const endpoint = `${base}${route}`;
-    const { sendDelegateActionViaRelayer } = await import('../TatchiPasskey/relay');
+    const { sendDelegateActionViaRelayer } = await import('../TatchiPasskey/near');
     return sendDelegateActionViaRelayer({
       url: endpoint,
       payload: {

@@ -3,7 +3,7 @@ import {
   sendTransaction,
   signAndSendTransactions,
   signTransactionsWithActions,
-} from '../actions';
+} from './actions';
 import { toAccountId } from '../../types/accountIds';
 import type { SignedTransaction } from '../../near/NearClient';
 import type {
@@ -30,13 +30,22 @@ import type { WasmSignedDelegate } from '../../types/signer-worker';
 import type {
   SignNEP413MessageParams,
   SignNEP413MessageResult,
-} from '../signNEP413';
+} from './signNEP413';
 import { toError } from '@shared/utils/errors';
-import type { NearSignerCapability } from '../capabilities';
-import type { ChainSignerDeps } from './shared';
-import { signDelegateAction as signDelegateActionCore } from '../delegateAction';
-import { sendDelegateActionViaRelayer as sendDelegateActionViaRelayerCore } from '../relay';
-import { signNEP413Message as signNEP413MessageCore } from '../signNEP413';
+import type { NearSignerCapability } from '..';
+import {
+  signDelegateAction as signDelegateActionCore,
+  sendDelegateActionViaRelayer as sendDelegateActionViaRelayerCore,
+} from './delegateAction';
+import { signNEP413Message as signNEP413MessageCore } from './signNEP413';
+
+type ChainSignerDeps = {
+  getContext: () => import('../index').PasskeyManagerContext;
+  walletIframe: Pick<
+    import('../walletIframeCoordinator').WalletIframeCoordinator,
+    'shouldUseWalletIframe' | 'requireRouter'
+  >;
+};
 
 /**
  * NEAR signing call graph:
@@ -437,3 +446,7 @@ export class NearSigner implements NearSignerCapability {
     return res;
   }
 }
+
+export { signDelegateAction } from './delegateAction';
+export { sendDelegateActionViaRelayer } from './delegateAction';
+export type { SignNEP413MessageParams, SignNEP413MessageResult } from './signNEP413';

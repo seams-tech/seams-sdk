@@ -116,7 +116,7 @@ export function useAccountInput({
   const refreshAccountData = useCallback(async () => {
     try {
       await awaitWalletIframeIfNeeded();
-      const { accountIds, lastUsedAccount } = await tatchi.getRecentLogins();
+      const { accountIds, lastUsedAccount } = await tatchi.auth.getRecentLogins();
 
       let lastUsername = '';
       let lastDomain = '';
@@ -148,7 +148,7 @@ export function useAccountInput({
 
     try {
       await awaitWalletIframeIfNeeded();
-      const hasCredential = await tatchi.hasPasskeyCredential(toAccountId(accountId));
+      const hasCredential = await tatchi.auth.hasPasskeyCredential(toAccountId(accountId));
       setState(prevState => ({ ...prevState, accountExists: hasCredential }));
     } catch (error) {
       console.warn('Error checking credentials:', error);
@@ -232,7 +232,7 @@ export function useAccountInput({
       } else {
         // No logged-in user, try to get last used account
         await awaitWalletIframeIfNeeded();
-        const { lastUsedAccount } = await tatchi.getRecentLogins();
+        const { lastUsedAccount } = await tatchi.auth.getRecentLogins();
         if (lastUsedAccount) {
           const username = lastUsedAccount.nearAccountId.split('.')[0];
           setState(prevState => ({ ...prevState, inputUsername: username }));
@@ -250,7 +250,7 @@ export function useAccountInput({
       if (!isLoggedIn && !currentNearAccountId) {
         try {
           await awaitWalletIframeIfNeeded();
-          const { lastUsedAccount } = await tatchi.getRecentLogins();
+          const { lastUsedAccount } = await tatchi.auth.getRecentLogins();
           if (lastUsedAccount) {
             const username = lastUsedAccount.nearAccountId.split('.')[0];
             setState(prevState => ({ ...prevState, inputUsername: username }));

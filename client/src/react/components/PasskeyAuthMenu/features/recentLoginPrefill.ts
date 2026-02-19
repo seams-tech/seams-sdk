@@ -14,7 +14,7 @@ export async function getRecentLoginPrefill(
 ): Promise<RecentLoginPrefillResult | null> {
   try {
     await awaitWalletIframeReady(tatchiPasskey).catch(() => false);
-    const { lastUsedAccount } = await tatchiPasskey.getRecentLogins();
+    const { lastUsedAccount } = await tatchiPasskey.auth.getRecentLogins();
     const username = (lastUsedAccount?.nearAccountId ?? '').split('.')[0] || '';
     if (!username) return null;
     return { username };

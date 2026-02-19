@@ -1,6 +1,6 @@
 import { SIGNER_WORKER_MANAGER_CONFIG } from '@/config';
 import { resolveWorkerUrl } from '@/core/runtimeAssetPaths';
-import { WorkerControlMessage } from '@/core/signing/runtime/workers/workerControlMessages';
+import { WorkerControlMessage } from '@/core/signing/workers/workerControlMessages';
 import {
   type WorkerResponseForRequest,
   isWorkerError,

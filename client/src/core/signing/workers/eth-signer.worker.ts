@@ -10,12 +10,12 @@ import init, {
   ThresholdEcdsaPresignSession,
   threshold_ecdsa_compute_signature_share,
   validate_secp256k1_public_key_33,
-} from '../../../../../../wasm/eth_signer/pkg/eth_signer.js';
-import * as ethSignerWasmModule from '../../../../../../wasm/eth_signer/pkg/eth_signer.js';
+} from '../../../../../wasm/eth_signer/pkg/eth_signer.js';
+import * as ethSignerWasmModule from '../../../../../wasm/eth_signer/pkg/eth_signer.js';
 import { initializeWasm, resolveWasmUrl } from '@/core/runtimeAssetPaths/wasm-loader';
 import { errorMessage } from '@shared/utils/errors';
 import { WorkerControlMessage } from './workerControlMessages';
-import { resolveSignerWorkerContractVersion } from '../../workers/signerWorkerManager/backends/types';
+import { resolveSignerWorkerContractVersion } from './signerWorkerManager/backends/types';
 
 type EthSignerWorkerRequest =
   | { id: string; version?: number; type: 'computeEip1559TxHash'; payload: { tx: any } }

@@ -44,7 +44,7 @@ import {
 // Import WASM binary directly
 import init, {
   handle_signer_message,
-} from '../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
+} from '../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import { resolveWasmUrl } from '@/core/runtimeAssetPaths/wasm-loader';
 import { errorMessage } from '@shared/utils/errors';
 import { WorkerControlMessage } from './workerControlMessages';

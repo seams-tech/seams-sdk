@@ -93,7 +93,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
       // Resolve current device number for highlighting + local key lookups
       let currentDeviceNumberFromState: number | null = null;
       try {
-        const { login } = await tatchi.getLoginSession(nearAccountId);
+        const { login } = await tatchi.auth.getSession(nearAccountId);
         const dn = (login as any)?.userData?.deviceNumber;
         currentDeviceNumberFromState = (typeof dn === 'number' && Number.isFinite(dn)) ? Math.floor(dn) : null;
       } catch {

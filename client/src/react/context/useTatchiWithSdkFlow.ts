@@ -1,6 +1,10 @@
 import { useMemo } from 'react';
 import type { TatchiPasskey } from '@/core/TatchiPasskey';
-import type { RecoveryCapability } from '@/core/TatchiPasskey/capabilities';
+import type {
+  AuthCapability,
+  RecoveryCapability,
+  RegistrationCapability,
+} from '@/core/TatchiPasskey';
 import {
   LoginPhase,
   LoginStatus,
@@ -33,14 +37,14 @@ export function useTatchiWithSdkFlow(args: {
      * This lets *all* callers (not just PasskeyAuthMenu) use `ctx.tatchi.*` directly and
      * still have `sdkFlow` update as events stream in.
     */
-    type LoginAndCreateSessionFn = TatchiPasskey['loginAndCreateSession'];
-    type RegisterPasskeyFn = TatchiPasskey['registerPasskey'];
+    type LoginFn = AuthCapability['login'];
+    type RegisterPasskeyFn = RegistrationCapability['registerPasskey'];
     type SyncAccountFn = RecoveryCapability['syncAccount'];
     type SetThemeFn = TatchiPasskey['setTheme'];
 
-    const loginAndCreateSessionWithSdkFlow: LoginAndCreateSessionFn = async (
-      nearAccountId,
-      options,
+    const loginWithSdkFlow: LoginFn = async (
+      nearAccountId: string,
+      options?: LoginHooksOptions,
     ) => {
       const seq = beginSdkFlow('login', nearAccountId);
       const wrappedOptions: LoginHooksOptions = {
@@ -62,12 +66,12 @@ export function useTatchiWithSdkFlow(args: {
         },
       };
 
-      return await tatchi.loginAndCreateSession(nearAccountId, wrappedOptions);
+      return await tatchi.auth.login(nearAccountId, wrappedOptions);
     };
 
     const registerPasskeyWithSdkFlow: RegisterPasskeyFn = async (
-      nearAccountId,
-      options,
+      nearAccountId: string,
+      options?: RegistrationHooksOptions,
     ) => {
       const seq = beginSdkFlow('register', nearAccountId);
       const wrappedOptions: RegistrationHooksOptions = {
@@ -92,7 +96,7 @@ export function useTatchiWithSdkFlow(args: {
         },
       };
 
-      return await tatchi.registerPasskey(nearAccountId, wrappedOptions);
+      return await tatchi.registration.registerPasskey(nearAccountId, wrappedOptions);
     };
 
     const syncAccountWithSdkFlow: SyncAccountFn = async (args) => {
@@ -132,12 +136,25 @@ export function useTatchiWithSdkFlow(args: {
 
     return new Proxy(tatchi, {
       get(target, prop, receiver) {
-        if (prop === 'loginAndCreateSession') {
-          return loginAndCreateSessionWithSdkFlow;
+        if (prop === 'auth') {
+          const auth = Reflect.get(target as object, prop, receiver) as AuthCapability;
+          return {
+            login: loginWithSdkFlow,
+            logout: () => auth.logout(),
+            getSession: (...args: Parameters<AuthCapability['getSession']>) => auth.getSession(...args),
+            hasPasskeyCredential: (...args: Parameters<AuthCapability['hasPasskeyCredential']>) =>
+              auth.hasPasskeyCredential(...args),
+            getRecentLogins: (...args: Parameters<AuthCapability['getRecentLogins']>) => auth.getRecentLogins(...args),
+          } as AuthCapability;
         }
 
-        if (prop === 'registerPasskey') {
-          return registerPasskeyWithSdkFlow;
+        if (prop === 'registration') {
+          const registration = Reflect.get(target as object, prop, receiver) as RegistrationCapability;
+          return {
+            registerPasskey: registerPasskeyWithSdkFlow,
+            registerPasskeyInternal: (...args: Parameters<RegistrationCapability['registerPasskeyInternal']>) =>
+              registration.registerPasskeyInternal(...args),
+          } as RegistrationCapability;
         }
 
         if (prop === 'recovery') {

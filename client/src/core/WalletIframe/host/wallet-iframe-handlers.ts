@@ -91,7 +91,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = getTatchiPasskey();
       const { nearAccountId, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
-      const result = await pm.loginAndCreateSession(
+      const result = await pm.auth.login(
         nearAccountId,
         withProgress(req.requestId, options) as LoginHooksOptions,
       );
@@ -101,13 +101,13 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_LOGOUT: async (req: Req<'PM_LOGOUT'>) => {
       const pm = getTatchiPasskey();
-      await pm.logoutAndClearSession();
+      await pm.auth.logout();
       respondOk(req.requestId);
     },
 
     PM_GET_LOGIN_SESSION: async (req: Req<'PM_GET_LOGIN_SESSION'>) => {
       const pm = getTatchiPasskey();
-      const result: LoginSession = await pm.getLoginSession(req.payload?.nearAccountId);
+      const result: LoginSession = await pm.auth.getSession(req.payload?.nearAccountId);
       respondOkResult(req.requestId, result);
     },
 
@@ -119,8 +119,8 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const hooksOptions = withProgress(req.requestId, options) as RegistrationHooksOptions;
 
       const result: RegistrationResult = !confirmationConfig
-        ? await pm.registerPasskey(nearAccountId, hooksOptions)
-        : await pm.registerPasskeyInternal(nearAccountId, hooksOptions,
+        ? await pm.registration.registerPasskey(nearAccountId, hooksOptions)
+        : await pm.registration.registerPasskeyInternal(nearAccountId, hooksOptions,
             confirmationConfig as unknown as ConfirmationConfig);
 
       if (respondIfCancelled(req.requestId)) return;
@@ -308,7 +308,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_GET_RECENT_LOGINS: async (req: Req<'PM_GET_RECENT_LOGINS'>) => {
       const pm = getTatchiPasskey();
-      const result = await pm.getRecentLogins();
+      const result = await pm.auth.getRecentLogins();
       respondOkResult(req.requestId, result);
     },
 
@@ -476,7 +476,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const incoming = (req.payload?.config || {}) as Record<string, unknown>;
       let patch: Record<string, unknown> = { ...incoming };
       if (nearAccountId) {
-        await pm.getLoginSession(nearAccountId)
+        await pm.auth.getSession(nearAccountId)
           .then(({ login }) => {
             const existing = (login?.userData?.preferences?.confirmationConfig || {}) as Record<string, unknown>;
             patch = { ...existing, ...incoming };
@@ -531,7 +531,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
         await web.indexedDbRegistration.getLastUser().catch(() => undefined);
         await web.indexedDbRegistration.getAuthenticatorsByUser(toAccountId(nearAccountId)).catch(() => undefined);
       }
-      const result = await pm.hasPasskeyCredential(toAccountId(nearAccountId));
+      const result = await pm.auth.hasPasskeyCredential(toAccountId(nearAccountId));
       respondOkResult(req.requestId, result);
     },
 

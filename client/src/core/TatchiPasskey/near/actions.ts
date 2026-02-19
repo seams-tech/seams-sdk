@@ -1,19 +1,19 @@
-import { ActionType, toActionArgsWasm } from '../types/actions';
+import { ActionType, toActionArgsWasm } from '../../types/actions';
 import type {
   ActionHooksOptions,
   ExecutionWaitOption,
   SendTransactionHooksOptions,
   SignAndSendTransactionHooksOptions,
   SignTransactionHooksOptions,
-} from '../types/sdkSentEvents';
-import type { ActionResult, SignTransactionResult } from '../types/tatchi';
+} from '../../types/sdkSentEvents';
+import type { ActionResult, SignTransactionResult } from '../../types/tatchi';
 import type { TxExecutionStatus } from '@near-js/types';
-import type { ActionArgs, TransactionInput, TransactionInputWasm } from '../types/actions';
-import { type ConfirmationConfig, type SignerMode, mergeSignerMode } from '../types/signer-worker';
-import type { PasskeyManagerContext } from './index';
-import type { SignedTransaction } from '../near/NearClient';
-import type { AccountId } from '../types/accountIds';
-import { ActionPhase, ActionStatus, type ActionSSEEvent, type onProgressEvents } from '../types/sdkSentEvents';
+import type { ActionArgs, TransactionInput, TransactionInputWasm } from '../../types/actions';
+import { type ConfirmationConfig, type SignerMode, mergeSignerMode } from '../../types/signer-worker';
+import type { PasskeyManagerContext } from '../index';
+import type { SignedTransaction } from '../../near/NearClient';
+import type { AccountId } from '../../types/accountIds';
+import { ActionPhase, ActionStatus, type ActionSSEEvent, type onProgressEvents } from '../../types/sdkSentEvents';
 import { toError, getNearShortErrorMessage } from '@shared/utils/errors';
 
 /**

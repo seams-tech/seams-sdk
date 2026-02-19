@@ -17,7 +17,7 @@ export function useLoginStateRefresher(args: {
       const signerMode = tatchi.configs?.signerMode;
       if (walletIframeConnected) {
         try {
-          const session = await tatchi.getLoginSession();
+          const session = await tatchi.auth.getSession();
           const { login: st } = session;
           if (isLoginSessionReadyForUi({ session, signerMode })) {
             setLoginState(prevState => ({
@@ -31,7 +31,7 @@ export function useLoginStateRefresher(args: {
         } catch {}
       }
 
-      const session = await tatchi.getLoginSession(nearAccountId);
+      const session = await tatchi.auth.getSession(nearAccountId);
       const { login: ls } = session;
       if (isLoginSessionReadyForUi({ session, signerMode })) {
         if (ls.nearAccountId) {

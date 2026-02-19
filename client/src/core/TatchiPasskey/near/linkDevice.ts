@@ -1,23 +1,28 @@
-import type { PasskeyManagerContext } from './index';
+import type { PasskeyManagerContext } from '../index';
 import type {
   DeviceLinkingQRData,
+  LinkDeviceResult,
   DeviceLinkingSession,
+  ScanAndLinkDeviceOptionsDevice1,
   StartDevice2LinkingFlowArgs,
-} from '../types/linkDevice';
-import { DeviceLinkingPhase, DeviceLinkingStatus } from '../types/sdkSentEvents';
-import type { DeviceLinkingSSEEvent } from '../types/sdkSentEvents';
-import { toAccountId } from '../types/accountIds';
+  StartDevice2LinkingFlowResults,
+} from '../../types/linkDevice';
+import { DeviceLinkingPhase, DeviceLinkingStatus } from '../../types/sdkSentEvents';
+import type { DeviceLinkingSSEEvent } from '../../types/sdkSentEvents';
+import { toAccountId } from '../../types/accountIds';
 import { errorMessage } from '@shared/utils/errors';
-import { IndexedDBManager } from '../IndexedDBManager';
+import { IndexedDBManager } from '../../IndexedDBManager';
 import { ensureEd25519Prefix, isObject } from '@shared/utils/validation';
-import { getLoginSession } from './login';
-import { DEVICE_LINKING_CONFIG } from '../../config';
-import { normalizeRegistrationCredential } from '../signing/webauthn/credentials/helpers';
-import { redactCredentialExtensionOutputs } from '../signing/webauthn/credentials';
+import type { WalletIframeCoordinator } from '../walletIframeCoordinator';
+import { getLoginSession } from '../login';
+import { linkDeviceWithScannedQRData as linkDeviceWithScannedQRDataDevice1 } from '../scanDevice';
+import { DEVICE_LINKING_CONFIG } from '../../../config';
+import { normalizeRegistrationCredential } from '../../signing/webauthn/credentials/helpers';
+import { redactCredentialExtensionOutputs } from '../../signing/webauthn/credentials';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
-import { DEFAULT_WAIT_STATUS } from '../types/rpc';
-import { ActionType, type ActionArgsWasm } from '../types/actions';
-import type { WebAuthnRegistrationCredential } from '../types/webauthn';
+import { DEFAULT_WAIT_STATUS } from '../../types/rpc';
+import { ActionType, type ActionArgsWasm } from '../../types/actions';
+import type { WebAuthnRegistrationCredential } from '../../types/webauthn';
 
 type DeterministicKeysResultLike = {
   nearPublicKey?: string;
@@ -682,6 +687,72 @@ export class LinkDeviceFlow {
     this.cancelled = false;
     this.error = undefined;
     this.session = null;
+  }
+}
+
+export type DeviceLinkingDomainDeps = {
+  getContext: () => PasskeyManagerContext;
+  walletIframe: Pick<WalletIframeCoordinator, 'shouldUseWalletIframe' | 'requireRouter'>;
+};
+
+export class DeviceLinkingDomain {
+  private readonly getContext: () => PasskeyManagerContext;
+  private readonly walletIframe: Pick<
+    WalletIframeCoordinator,
+    'shouldUseWalletIframe' | 'requireRouter'
+  >;
+  private activeDeviceLinkFlow: LinkDeviceFlow | null = null;
+
+  constructor(deps: DeviceLinkingDomainDeps) {
+    this.getContext = deps.getContext;
+    this.walletIframe = deps.walletIframe;
+  }
+
+  async startDevice2LinkingFlow(
+    args: StartDevice2LinkingFlowArgs,
+  ): Promise<StartDevice2LinkingFlowResults> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter();
+      return await router.startDevice2LinkingFlow(args);
+    }
+
+    this.activeDeviceLinkFlow = new LinkDeviceFlow(this.getContext(), args);
+    return await this.activeDeviceLinkFlow.generateQR();
+  }
+
+  async stopDevice2LinkingFlow(): Promise<void> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter();
+      await router.stopDevice2LinkingFlow();
+      return;
+    }
+
+    this.activeDeviceLinkFlow?.cancel();
+    this.activeDeviceLinkFlow = null;
+  }
+
+  async linkDeviceWithScannedQRData(
+    qrData: DeviceLinkingQRData,
+    options: ScanAndLinkDeviceOptionsDevice1,
+  ): Promise<LinkDeviceResult> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter();
+      return await router.linkDeviceWithScannedQRData({
+        qrData,
+        fundingAmount: options.fundingAmount,
+        options: {
+          onEvent: options.onEvent,
+          ...(options.confirmerText
+            ? { confirmerText: options.confirmerText }
+            : {}),
+          ...(options.confirmationConfig
+            ? { confirmationConfig: options.confirmationConfig }
+            : {}),
+        },
+      });
+    }
+
+    return await linkDeviceWithScannedQRDataDevice1(this.getContext(), qrData, options);
   }
 }
 

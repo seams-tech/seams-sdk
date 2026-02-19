@@ -97,8 +97,8 @@ export async function signTempo(
   const [{ signTempoWithSecureConfirm }, { Secp256k1Engine }, { WebAuthnP256Engine }] =
     await Promise.all([
       import('../../chainAdaptors/tempo/tempoSigningFlow'),
-      import('../../engines/secp256k1'),
-      import('../../engines/webauthnP256'),
+      import('../../algorithms/secp256k1'),
+      import('../../algorithms/webauthnP256'),
     ]);
 
   const signerWorkerCtx = deps.getSignerWorkerContext();

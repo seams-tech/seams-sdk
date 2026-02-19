@@ -5,8 +5,11 @@ import type {
   NearIntentResult,
   NearSigningRequest,
 } from '../../chainAdaptors/near/nearAdapter';
-import type { NearEd25519KeyRef } from '../../engines/ed25519';
 import type { NearSigningKeyOpsService } from '../../workers/signerWorkerManager/nearKeyOpsService';
+
+type NearEd25519KeyRef = {
+  type: 'near-ed25519-runtime';
+};
 
 export type SignerWorkerBridgeDeps = {
   signingKeyOps: Pick<
@@ -22,7 +25,7 @@ export async function signNearWithIntent<TRequest extends NearSigningRequest>(
     await Promise.all([
       import('../../orchestration/signWithIntent'),
       import('../../chainAdaptors/near/nearAdapter'),
-      import('../../engines/ed25519'),
+      import('../../algorithms/ed25519'),
     ]);
 
   return await signWithIntent({

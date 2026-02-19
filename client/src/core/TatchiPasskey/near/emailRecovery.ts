@@ -1,56 +1,45 @@
-import { toAccountId } from '../types/accountIds';
-import { EmailRecoveryPhase, EmailRecoveryStatus } from '../types/sdkSentEvents';
-import type { SyncAccountHooksOptions } from '../types/sdkSentEvents';
-import type { EmailRecoverySSEEvent } from '../types/sdkSentEvents';
-import type { ActionHooksOptions } from '../types/sdkSentEvents';
-import type {
-  DeviceLinkingQRData,
-  LinkDeviceResult,
-  ScanAndLinkDeviceOptionsDevice1,
-  StartDevice2LinkingFlowArgs,
-  StartDevice2LinkingFlowResults,
-} from '../types/linkDevice';
-import type { ActionResult } from '../types/tatchi';
-import type { EmailRecoveryFlowOptions, PendingEmailRecovery } from '../types/emailRecovery';
-import { generateEmailRecoveryRequestId } from '../types/emailRecovery';
-import { LinkDeviceFlow } from './linkDevice';
-import { linkDeviceWithScannedQRData as linkDeviceWithScannedQRDataDevice1 } from './scanDevice';
-import { syncAccount as syncAccountCore, type SyncAccountResult } from './syncAccount';
-import type { PasskeyManagerContext } from './index';
-import type { WalletIframeCoordinator } from './walletIframeCoordinator';
-import { normalizeRegistrationCredential } from '../signing/webauthn/credentials/helpers';
-import { redactCredentialExtensionOutputs } from '../signing/webauthn/credentials';
+import { toAccountId } from '../../types/accountIds';
+import { EmailRecoveryPhase, EmailRecoveryStatus } from '../../types/sdkSentEvents';
+import type { SyncAccountHooksOptions } from '../../types/sdkSentEvents';
+import type { EmailRecoverySSEEvent } from '../../types/sdkSentEvents';
+import type { ActionHooksOptions } from '../../types/sdkSentEvents';
+import type { ActionResult } from '../../types/tatchi';
+import type { EmailRecoveryFlowOptions, PendingEmailRecovery } from '../../types/emailRecovery';
+import { generateEmailRecoveryRequestId } from '../../types/emailRecovery';
+import { syncAccount as syncAccountCore, type SyncAccountResult } from '../syncAccount';
+import type { PasskeyManagerContext } from '../index';
+import type { WalletIframeCoordinator } from '../walletIframeCoordinator';
+import { normalizeRegistrationCredential } from '../../signing/webauthn/credentials/helpers';
+import { redactCredentialExtensionOutputs } from '../../signing/webauthn/credentials';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
-import { IndexedDBManager } from '../IndexedDBManager';
-import { EmailRecoveryPendingStore } from '../../utils/emailRecovery';
+import { IndexedDBManager } from '../../IndexedDBManager';
+import { EmailRecoveryPendingStore } from '../../../utils/emailRecovery';
 import { errorMessage } from '@shared/utils/errors';
 import { isObject } from '@shared/utils/validation';
-import { prepareRecoveryEmails, getLocalRecoveryEmails } from '../../utils/emailRecovery';
+import { prepareRecoveryEmails, getLocalRecoveryEmails } from '../../../utils/emailRecovery';
 
 /**
- * TatchiPasskey device/recovery call graph:
+ * TatchiPasskey email recovery call graph:
  * - syncAccount -> wallet iframe router sync path OR local syncAccount flow
  * - email recovery start/finalize/cancel -> wallet iframe router OR local recovery domain flow
- * - device linking start/stop/link-scan -> wallet iframe router OR local LinkDeviceFlow state machine
  */
-export type DeviceRecoveryDomainDeps = {
+export type EmailRecoveryDomainDeps = {
   getContext: () => PasskeyManagerContext;
   walletIframe: Pick<WalletIframeCoordinator, 'shouldUseWalletIframe' | 'requireRouter'>;
 };
 
-export class DeviceRecoveryDomain {
+export class EmailRecoveryDomain {
   private readonly getContext: () => PasskeyManagerContext;
   private readonly walletIframe: Pick<
     WalletIframeCoordinator,
     'shouldUseWalletIframe' | 'requireRouter'
   >;
 
-  private activeDeviceLinkFlow: LinkDeviceFlow | null = null;
   private emailRecoveryOptions?: EmailRecoveryFlowOptions;
   private pendingEmailRecovery: PendingEmailRecovery | null = null;
   private emailRecoveryCancelled = false;
 
-  constructor(deps: DeviceRecoveryDomainDeps) {
+  constructor(deps: EmailRecoveryDomainDeps) {
     this.getContext = deps.getContext;
     this.walletIframe = deps.walletIframe;
   }
@@ -183,53 +172,6 @@ export class DeviceRecoveryDomain {
     }
 
     await this.cancelEmailRecoveryLocal(args);
-  }
-
-  async startDevice2LinkingFlow(
-    args: StartDevice2LinkingFlowArgs,
-  ): Promise<StartDevice2LinkingFlowResults> {
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter();
-      return await router.startDevice2LinkingFlow(args);
-    }
-
-    this.activeDeviceLinkFlow = new LinkDeviceFlow(this.getContext(), args);
-    return await this.activeDeviceLinkFlow.generateQR();
-  }
-
-  async stopDevice2LinkingFlow(): Promise<void> {
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter();
-      await router.stopDevice2LinkingFlow();
-      return;
-    }
-
-    this.activeDeviceLinkFlow?.cancel();
-    this.activeDeviceLinkFlow = null;
-  }
-
-  async linkDeviceWithScannedQRData(
-    qrData: DeviceLinkingQRData,
-    options: ScanAndLinkDeviceOptionsDevice1,
-  ): Promise<LinkDeviceResult> {
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter();
-      return await router.linkDeviceWithScannedQRData({
-        qrData,
-        fundingAmount: options.fundingAmount,
-        options: {
-          onEvent: options.onEvent,
-          ...(options.confirmerText
-            ? { confirmerText: options.confirmerText }
-            : {}),
-          ...(options.confirmationConfig
-            ? { confirmationConfig: options.confirmationConfig }
-            : {}),
-        },
-      });
-    }
-
-    return await linkDeviceWithScannedQRDataDevice1(this.getContext(), qrData, options);
   }
 
   private getPendingEmailRecoveryStore(): EmailRecoveryFlowOptions['pendingStore'] {

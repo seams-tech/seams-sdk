@@ -1,8 +1,8 @@
-import type { PasskeyManagerContext } from './index';
-import type { SignNEP413HooksOptions } from '../types/sdkSentEvents';
-import { ActionPhase, ActionStatus } from '../types/sdkSentEvents';
-import type { AccountId } from '../types/accountIds';
-import { mergeSignerMode } from '../types/signer-worker';
+import type { PasskeyManagerContext } from '../index';
+import type { SignNEP413HooksOptions } from '../../types/sdkSentEvents';
+import { ActionPhase, ActionStatus } from '../../types/sdkSentEvents';
+import type { AccountId } from '../../types/accountIds';
+import { mergeSignerMode } from '../../types/signer-worker';
 import { base64Encode } from '@shared/utils/encoders';
 
 /**

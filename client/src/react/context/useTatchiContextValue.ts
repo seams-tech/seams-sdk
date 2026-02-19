@@ -11,7 +11,7 @@ import type {
   TatchiContextType,
 } from '../types';
 import type { ThemeName } from '@/core/types/tatchi';
-import type { RecoveryCapability } from '@/core/TatchiPasskey/capabilities';
+import type { RecoveryCapability } from '@/core/TatchiPasskey';
 import { useSDKFlowRuntime } from './useSDKFlowRuntime';
 import { useTatchiWithSdkFlow } from './useTatchiWithSdkFlow';
 import { isLoginSessionReadyForUi } from './loginReadiness';
@@ -50,7 +50,7 @@ export function useTatchiContextValue(args: {
 
   const logout: TatchiContextType['logout'] = useCallback(() => {
     try {
-      void tatchi.logoutAndClearSession().catch((error) => {
+      void tatchi.auth.logout().catch((error) => {
         console.warn('Logout warning:', error);
       });
     } catch (error) {
@@ -78,11 +78,11 @@ export function useTatchiContextValue(args: {
   }, [tatchi]);
 
   const loginAndCreateSession: TatchiContextType['loginAndCreateSession'] = useCallback(async (nearAccountId, options) => {
-    return tatchiWithSdkFlow.loginAndCreateSession(nearAccountId, {
+    return tatchiWithSdkFlow.auth.login(nearAccountId, {
       ...options,
       onEvent: async (event) => {
         if (event.phase === LoginPhase.STEP_4_LOGIN_COMPLETE && event.status === LoginStatus.SUCCESS) {
-          const session = await tatchi.getLoginSession(nearAccountId);
+          const session = await tatchi.auth.getSession(nearAccountId);
           const { login } = session;
           const isLoggedIn = isLoginSessionReadyForUi({
             session,
@@ -105,7 +105,7 @@ export function useTatchiContextValue(args: {
   }, [logout, setLoginState, tatchi, tatchiWithSdkFlow]);
 
   const registerPasskey: TatchiContextType['registerPasskey'] = useCallback(async (nearAccountId, options) => {
-    const result: RegistrationResult = await tatchiWithSdkFlow.registerPasskey(nearAccountId, {
+    const result: RegistrationResult = await tatchiWithSdkFlow.registration.registerPasskey(nearAccountId, {
       ...options,
       onError: (error) => {
         logout();
@@ -132,7 +132,7 @@ export function useTatchiContextValue(args: {
   }, [tatchi]);
 
   const getLoginSession: TatchiContextType['getLoginSession'] = useCallback((nearAccountId?: string) => {
-    return tatchi.getLoginSession(nearAccountId);
+    return tatchi.auth.getSession(nearAccountId);
   }, [tatchi]);
 
   const setConfirmBehavior: TatchiContextType['setConfirmBehavior'] = useCallback((behavior) => {

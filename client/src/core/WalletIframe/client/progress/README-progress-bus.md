@@ -14,7 +14,7 @@ The wallet iframe mounts as a hidden 0×0 element in the parent document. When a
   - `client/src/core/WalletIframe/client/progress/on-events-progress-bus.ts`
   - `client/src/core/WalletIframe/client/router.ts`
 - Progress events are emitted by TatchiPasskey flows and the WASM worker handshake:
-  - `client/src/core/TatchiPasskey/actions.ts`
+  - `client/src/core/TatchiPasskey/near/actions.ts`
   - `client/src/core/WebAuthnManager/SecureConfirmWorkerManager/confirmTxFlow/*`
 
 

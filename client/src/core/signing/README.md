@@ -9,7 +9,7 @@ This folder is the signing runtime for NEAR + Tempo/EVM flows.
   - Coordinates session policy, worker context, SecureConfirm, and engine dispatch.
 - `orchestration/`
   - Shared signing contracts (`SigningIntent`, `SignRequest`, `SigningEngine`) and generic runner (`executeSigningIntent`).
-- `engines/`
+- `algorithms/`
   - Algorithm-specific signing implementations (`ed25519`, `secp256k1`, `webauthnP256`).
 - `chainAdaptors/`
   - Chain-specific intent builders and handlers (NEAR, Tempo, EVM helpers).
@@ -34,7 +34,7 @@ This folder is the signing runtime for NEAR + Tempo/EVM flows.
 flowchart LR
   TP["TatchiPasskey"] --> WM["api/WebAuthnManager"]
   WM --> ORCH["orchestration/executeSigningIntent"]
-  ORCH --> ENG["engines/*"]
+  ORCH --> ENG["algorithms/*"]
   ENG --> CHAINS["chainAdaptors/*"]
   WM --> SC["secureConfirm/*"]
   CHAINS --> WORKERS["workers/*"]
@@ -118,6 +118,6 @@ flowchart LR
 
 - `WebAuthnManager` owns product-level orchestration.
 - `orchestration/` owns the generic signing execution contract.
-- `engines/` own algorithm-level signing behavior.
+- `algorithms/` own algorithm-level signing behavior.
 - `chainAdaptors/` own chain-specific intent shape and final serialization.
 - `workers/` own runtime transport to WASM worker transports.

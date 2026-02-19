@@ -6,8 +6,8 @@
  */
 import {
   awaitSecureConfirmationV2,
-} from '../../secureConfirm/confirmTxFlow/awaitSecureConfirmation';
-import { SecureConfirmMessageType } from '../../secureConfirm/confirmTxFlow/types';
+} from '../secureConfirm/confirmTxFlow/awaitSecureConfirmation';
+import { SecureConfirmMessageType } from '../secureConfirm/confirmTxFlow/types';
 
 // Expose the confirmation bridge under the JS name expected by wasm-bindgen.
 // awaitSecureConfirmationV2 expects a SecureConfirmRequest object.
