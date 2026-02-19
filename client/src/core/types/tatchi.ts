@@ -1,10 +1,10 @@
 import type { FinalExecutionOutcome } from '@near-js/types';
 import type { AccountId } from './accountIds';
-import type { SignedTransaction } from '../near/NearClient';
+import type { SignedTransaction } from '../rpcClients/near/NearClient';
 import type { AuthenticatorOptions } from './authenticatorOptions';
-import type { ClientUserData } from '../IndexedDBManager/passkeyClientDB.types';
+import type { ClientUserData } from '../indexedDB/passkeyClientDB.types';
 import type { SignerMode, WasmSignedDelegate } from './signer-worker';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../signing/orchestration/types';
+import type { ThresholdEcdsaSecp256k1KeyRef } from '../signingEngine/interfaces/signing';
 import type { RegistrationSignerOptions } from './registrationSignerOptions';
 
 //////////////////////////////////

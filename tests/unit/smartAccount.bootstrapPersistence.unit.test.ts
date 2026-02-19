@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  indexedDB: '/sdk/esm/core/IndexedDBManager/index.js',
-  webAuthnManager: '/sdk/esm/core/signing/api/WebAuthnManager.js',
+  indexedDB: '/sdk/esm/core/indexedDB/index.js',
+  webAuthnManager: '/sdk/esm/core/signingEngine/SigningEngine.js',
   defaults: '/sdk/esm/core/config/defaultConfigs.js',
 } as const;
 
@@ -15,7 +15,7 @@ test.describe('smart-account bootstrap persistence', () => {
   test('threshold bootstrap persistence stores counterfactual account as undeployed', async ({ page }) => {
     const result = await page.evaluate(async ({ paths }) => {
       const { IndexedDBManager } = await import(paths.indexedDB);
-      const { WebAuthnManager } = await import(paths.webAuthnManager);
+      const { SigningEngine } = await import(paths.webAuthnManager);
       const { buildConfigsFromEnv } = await import(paths.defaults);
 
       const now = Date.now();
@@ -44,9 +44,9 @@ test.describe('smart-account bootstrap persistence', () => {
       const configs = buildConfigsFromEnv({
         relayer: { url: 'https://relayer.example' },
       });
-      const manager = new WebAuthnManager(configs, {} as any);
+      const manager = new SigningEngine(configs, {} as any);
 
-      await (manager as any).thresholdSession.persistThresholdEcdsaBootstrapChainAccount({
+      await manager.persistThresholdEcdsaBootstrapChainAccount({
         nearAccountId: 'alice.testnet',
         chain: 'evm',
         bootstrap: {

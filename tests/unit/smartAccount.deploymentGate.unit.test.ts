@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  clientDB: '/sdk/esm/core/IndexedDBManager/passkeyClientDB/manager.js',
-  deployment: '/sdk/esm/core/signing/orchestration/deployment/ensureSmartAccountDeployed.js',
+  clientDB: '/sdk/esm/core/indexedDB/passkeyClientDB/manager.js',
+  deployment: '/sdk/esm/core/signingEngine/orchestration/deployment/ensureSmartAccountDeployed.js',
 } as const;
 
 test.describe('smart-account deployment gate helper', () => {
@@ -232,7 +232,7 @@ test.describe('smart-account deployment gate helper', () => {
         chainIdCandidates: ['eip155:11155111', 'eip155:unknown'],
         accountModelCandidates: ['erc4337'],
         enforce: true,
-        deploy: async (input) => {
+        deploy: async (input: any) => {
           deployInput = {
             chain: input.chain,
             chainId: input.chainId,
@@ -452,7 +452,8 @@ test.describe('smart-account deployment gate helper', () => {
         enforce: true,
         deploy,
       });
-      releaseFirstDeploy?.();
+      const releaseFirstDeployFn = releaseFirstDeploy as unknown as (() => void) | null;
+      if (releaseFirstDeployFn) releaseFirstDeployFn();
 
       const [r1, r2] = await Promise.all([p1, p2]);
       const rows = await dbm.listChainAccountsByProfileAndChain(
@@ -592,7 +593,8 @@ test.describe('smart-account deployment gate helper', () => {
         new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1200)),
       ]);
 
-      releaseFirstDeploy?.();
+      const releaseFirstDeployFn = releaseFirstDeploy as unknown as (() => void) | null;
+      if (releaseFirstDeployFn) releaseFirstDeployFn();
       const [r1, r2] = await Promise.all([p1, p2]);
 
       return {

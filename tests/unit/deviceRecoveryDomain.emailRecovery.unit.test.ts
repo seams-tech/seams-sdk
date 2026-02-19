@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { EmailRecoveryDomain } from '@/core/TatchiPasskey/near/emailRecovery';
-import { IndexedDBManager } from '@/core/IndexedDBManager';
+import { IndexedDBManager } from '@/core/indexedDB';
 import { EmailRecoveryPhase } from '@/core/types/sdkSentEvents';
 
 type PendingStoreMock = {
@@ -65,40 +65,34 @@ function createLocalDomain(options?: {
         },
       },
     },
-    webAuthnManager: {
+    signingEngine: {
       getRpId: () => 'example.test',
-      credentialRecovery: {
-        requestRegistrationCredentialConfirmation: async () => ({
-          credential: {
-            id: 'cred-1',
-            type: 'public-key',
-            rawId: 'raw-cred-1',
-            response: {
-              clientDataJSON: 'client-data',
-              attestationObject: 'attestation-object',
-              transports: ['internal'],
-            },
-            clientExtensionResults: {
-              prf: { results: { first: 'first', second: 'second' } },
-            },
+      requestRegistrationCredentialConfirmation: async () => ({
+        credential: {
+          id: 'cred-1',
+          type: 'public-key',
+          rawId: 'raw-cred-1',
+          response: {
+            clientDataJSON: 'client-data',
+            attestationObject: 'attestation-object',
+            transports: ['internal'],
           },
-          intentDigest: 'threshold:email-recovery:7',
-        }),
-        extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
-      },
-      thresholdKeyLifecycle: {
-        deriveThresholdEd25519ClientVerifyingShareFromCredential: async () => ({
-          success: true,
-          clientVerifyingShareB64u: 'client-verifying-share',
-        }),
-      },
-      indexedDbRegistration: {
-        storeUserData: async (input: any) => {
-          storeUserDataCalls.push(input);
+          clientExtensionResults: {
+            prf: { results: { first: 'first', second: 'second' } },
+          },
         },
-        storeAuthenticator: async (input: any) => {
-          storeAuthenticatorCalls.push(input);
-        },
+        intentDigest: 'threshold:email-recovery:7',
+      }),
+      deriveThresholdEd25519ClientVerifyingShareFromCredential: async () => ({
+        success: true,
+        clientVerifyingShareB64u: 'client-verifying-share',
+      }),
+      extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
+      storeUserData: async (input: any) => {
+        storeUserDataCalls.push(input);
+      },
+      storeAuthenticator: async (input: any) => {
+        storeAuthenticatorCalls.push(input);
       },
     },
     nearClient: {

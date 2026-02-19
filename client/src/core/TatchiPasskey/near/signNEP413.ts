@@ -64,12 +64,12 @@ export async function signNEP413Message(args: {
   const { context, nearAccountId, params, options } = args;
   const confirmerText = options?.confirmerText;
   const confirmationConfigOverride = options?.confirmationConfig;
-  const { webAuthnManager } = context;
+  const { signingEngine } = context;
   const deviceNumber = options?.deviceNumber;
   const hasValidDeviceNumber = typeof deviceNumber === 'number'
     && Number.isSafeInteger(deviceNumber)
     && deviceNumber >= 1;
-  const baseSignerMode = webAuthnManager.getUserPreferences().getSignerMode();
+  const baseSignerMode = signingEngine.getUserPreferences().getSignerMode();
   const signerMode = mergeSignerMode(baseSignerMode, options.signerMode);
 
   try {
@@ -86,8 +86,8 @@ export async function signNEP413Message(args: {
       throw new Error(`Invalid deviceNumber for NEP-413 signing: ${deviceNumber}`);
     }
     const userData = hasValidDeviceNumber
-      ? await webAuthnManager.indexedDbRegistration.getUserByDevice(nearAccountId, deviceNumber)
-      : await webAuthnManager.indexedDbRegistration.getLastUser();
+      ? await signingEngine.getUserByDevice(nearAccountId, deviceNumber)
+      : await signingEngine.getLastUser();
     if (!userData || !userData.clientNearPublicKey) {
       throw new Error(`User data not found for ${nearAccountId}`);
     }
@@ -108,10 +108,10 @@ export async function signNEP413Message(args: {
       message: 'Signing NEP-413 message'
     });
 
-    // Send to WebAuthnManager for signing.
+    // Send to SigningEngine for signing.
     // Note: NEP-413 uses SecureConfirm-driven confirmTxFlow; this call triggers
     // its own confirmation + WebAuthn authentication as needed.
-    const result = await context.webAuthnManager.signingActions.signNEP413Message({
+    const result = await context.signingEngine.signNEP413Message({
       message: params.message,
       recipient: params.recipient,
       nonce,

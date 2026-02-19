@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { secp256k1 } from '@noble/curves/secp256k1';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { createRelayRouter } from '@server/router/express-adaptor';
 import { AuthService } from '@server/core/AuthService';
@@ -81,6 +81,34 @@ function fakeWebAuthnAuthentication(): Record<string, unknown> {
   };
 }
 
+function randomSecpSecretKey32(): Uint8Array {
+  const utils = (secp256k1 as any)?.utils;
+  if (typeof utils?.randomPrivateKey === 'function') return utils.randomPrivateKey();
+  if (typeof utils?.randomSecretKey === 'function') return utils.randomSecretKey();
+  throw new Error('secp256k1 random secret key generator is unavailable');
+}
+
+function recoverSecpPublicKeyCompressed(args: {
+  signature64: Uint8Array;
+  recoveryId: number;
+  digest32: Uint8Array;
+}): Uint8Array {
+  const signatureCtor = (secp256k1 as any)?.Signature;
+  if (!signatureCtor) throw new Error('secp256k1.Signature is unavailable');
+
+  const signature =
+    typeof signatureCtor.fromCompact === 'function'
+      ? signatureCtor.fromCompact(args.signature64)
+      : signatureCtor.fromBytes(args.signature64);
+
+  const recoveredPoint = signature
+    .addRecoveryBit(args.recoveryId & 1)
+    .recoverPublicKey(args.digest32);
+
+  if (typeof recoveredPoint.toRawBytes === 'function') return recoveredPoint.toRawBytes(true);
+  return recoveredPoint.toBytes(true);
+}
+
 function pollSession(session: ThresholdEcdsaPresignSession): {
   stage: 'triples' | 'triples_done' | 'presign' | 'done';
   event: 'none' | 'triples_done' | 'presign_done';
@@ -127,7 +155,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       const clientParticipantId = 1;
       const relayerParticipantId = 2;
       const digest32 = Uint8Array.from(Array.from({ length: 32 }, (_, i) => i + 1));
-      const clientSigningShare32 = secp256k1.utils.randomPrivateKey();
+      const clientSigningShare32 = randomSecpSecretKey32();
       const clientVerifyingShareB64u = base64UrlEncode(secp256k1.getPublicKey(clientSigningShare32, true));
       const sessionId = `sess-${Date.now()}`;
       const bootstrap = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/bootstrap`, {
@@ -354,11 +382,11 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       const verified = secp256k1.verify(signature64, digest32, groupPublicKey33, { lowS: true });
       expect(verified).toBe(true);
 
-      const recovered = secp256k1.Signature
-        .fromCompact(signature64)
-        .addRecoveryBit(recId & 1)
-        .recoverPublicKey(digest32)
-        .toRawBytes(true);
+      const recovered = recoverSecpPublicKeyCompressed({
+        signature64,
+        recoveryId: recId,
+        digest32,
+      });
       expect(base64UrlEncode(recovered)).toBe(groupPublicKeyB64u);
     } finally {
       await srv.close();
@@ -376,7 +404,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       const rpId = 'example.localhost';
       const participantIds = [1, 2];
       const digest32 = Uint8Array.from(Array.from({ length: 32 }, (_, i) => i + 11));
-      const clientSigningShare32 = secp256k1.utils.randomPrivateKey();
+      const clientSigningShare32 = randomSecpSecretKey32();
       const clientVerifyingShareB64u = base64UrlEncode(secp256k1.getPublicKey(clientSigningShare32, true));
       const sessionId = `sess-${Date.now()}`;
 

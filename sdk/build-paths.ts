@@ -14,7 +14,7 @@ export const BUILD_PATHS = {
   SOURCE: {
     ROOT: '../client/src',
     CORE: '../client/src/core',
-    SIGNING_WORKERS: '../client/src/core/signing/workers',
+    SIGNING_WORKERS: '../client/src/core/signingEngine/workers',
     WASM_SIGNER: '../wasm/near_signer',
     WASM_ETH_SIGNER: '../wasm/eth_signer',
     WASM_TEMPO_SIGNER: '../wasm/tempo_signer',

@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 
 const IMPORT_PATHS = {
-  tempoSignerWasm: '/sdk/esm/core/signing/chainAdaptors/tempo/tempoSignerWasm.js',
-  signerGateway: '/sdk/esm/core/signing/workers/signerWorkerManager/gateway.js',
+  tempoSignerWasm: '/sdk/esm/core/signingEngine/signers/wasm/tempoSignerWasm.js',
+  signerGateway: '/sdk/esm/core/signingEngine/workers/signerWorkerManager/gateway.js',
 } as const;
 
 test.describe('TempoTransaction sender hash', () => {

@@ -97,7 +97,7 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
   test('maps threshold in-flight message to signing_in_progress', async () => {
     const code = resolveWalletBoundaryErrorCode({
       requestType: 'PM_SIGN_TEMPO',
-      message: '[WebAuthnManager] threshold ECDSA signing already in progress for alice.testnet',
+      message: '[SigningEngine] threshold ECDSA signing already in progress for alice.testnet',
     });
     expect(code).toBe('signing_in_progress');
   });
@@ -105,7 +105,7 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
   test('maps deployment failure message to deployment_failed', async () => {
     const code = resolveWalletBoundaryErrorCode({
       requestType: 'PM_SIGN_TEMPO',
-      message: '[WebAuthnManager] smart-account deployment must succeed before first EVM send: gateway timeout',
+      message: '[SigningEngine] smart-account deployment must succeed before first EVM send: gateway timeout',
     });
     expect(code).toBe('deployment_failed');
   });

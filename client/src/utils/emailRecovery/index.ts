@@ -1,6 +1,6 @@
 import type { AccountId } from '../../core/types/accountIds';
 import { toAccountId } from '../../core/types/accountIds';
-import { IndexedDBManager, type RecoveryEmailRecord } from '../../core/IndexedDBManager';
+import { IndexedDBManager, type RecoveryEmailRecord } from '../../core/indexedDB';
 import type { FinalExecutionOutcome } from '@near-js/types';
 import { base64Decode } from '@shared/utils/base64';
 export { EmailRecoveryPendingStore, type PendingStore } from './emailRecoveryPendingStore';
@@ -132,7 +132,7 @@ export async function prepareRecoveryEmails(nearAccountId: AccountId, recoveryEm
     try {
       const context = await IndexedDBManager.clientDB.resolveNearAccountContext(accountId).catch(() => null);
       if (!context?.profileId) return;
-      await IndexedDBManager.clientDB.upsertRecoveryEmailsV2(context.profileId, pairs);
+      await IndexedDBManager.clientDB.upsertRecoveryEmails(context.profileId, pairs);
     } catch (error) {
       console.warn('[EmailRecovery] Failed to persist local recovery emails', error);
     }
@@ -145,7 +145,7 @@ export async function getLocalRecoveryEmails(nearAccountId: AccountId): Promise<
   const accountId = toAccountId(nearAccountId);
   const context = await IndexedDBManager.clientDB.resolveNearAccountContext(accountId).catch(() => null);
   if (!context?.profileId) return [];
-  const rows = await IndexedDBManager.clientDB.listRecoveryEmailsV2(context.profileId);
+  const rows = await IndexedDBManager.clientDB.listRecoveryEmails(context.profileId);
   return rows.map((row) => ({
     nearAccountId: accountId,
     hashHex: String(row.hashHex || ''),

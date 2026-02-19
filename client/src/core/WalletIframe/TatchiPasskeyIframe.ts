@@ -19,8 +19,8 @@
  */
 
 import { WalletIframeRouter } from './client/router';
-import type { ThresholdEcdsaSessionBootstrapResult } from '../signing/api/WebAuthnManager';
-import type { SignedTransaction, AccessKeyList } from '../near/NearClient';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../signingEngine/SigningEngine';
+import type { SignedTransaction, AccessKeyList } from '../rpcClients/near/NearClient';
 import type { PreferencesChangedPayload } from './shared/messages';
 import type {
   ActionResult,
@@ -58,8 +58,8 @@ import { coerceThemeName } from '@shared/utils/theme';
 import type { WalletUIRegistry } from './host/lit-ui/iframe-lit-element-registry';
 import type { DelegateActionInput, SignedDelegate } from '../types/delegate';
 import { buildConfigsFromEnv } from '../config/defaultConfigs';
-import { configureIndexedDB, type DerivedAddressRecord } from '../IndexedDBManager';
-import type { TempoSignedResult } from '../signing/chainAdaptors/tempo/tempoAdapter';
+import { configureIndexedDB } from '../indexedDB';
+import type { TempoSignedResult } from '../signingEngine/chainAdaptors/tempo/tempoAdapter';
 import type {
   BootstrapThresholdEcdsaSessionArgs,
   RecoveryCapability,
@@ -719,29 +719,6 @@ export class TatchiPasskeyIframe {
     return await this.requireRouterReady()
       .then(() => this.router.getRecentLogins())
       .catch(() => ({ accountIds: [], lastUsedAccount: null }));
-  }
-
-  // === Derived addresses ===
-
-  async setDerivedAddress(
-    nearAccountId: string,
-    args: { contractId: string; path: string; address: string }
-  ): Promise<void> {
-    await this.router.setDerivedAddress({ nearAccountId, args });
-  }
-
-  async getDerivedAddressRecord(
-    nearAccountId: string,
-    args: { contractId: string; path: string }
-  ): Promise<DerivedAddressRecord | null> {
-    return await this.router.getDerivedAddressRecord({ nearAccountId, args });
-  }
-
-  async getDerivedAddress(
-    nearAccountId: string,
-    args: { contractId: string; path: string }
-  ): Promise<string | null> {
-    return await this.router.getDerivedAddress({ nearAccountId, args });
   }
 
   async hasPasskeyCredential(nearAccountId: string): Promise<boolean> {

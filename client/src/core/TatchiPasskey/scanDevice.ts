@@ -9,7 +9,7 @@ import type {
 import { DeviceLinkingPhase, DeviceLinkingStatus } from '../types/sdkSentEvents';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '../types/linkDevice';
 import { DEVICE_LINKING_CONFIG } from '../../config.js';
-import { executeDeviceLinkingContractCalls } from '../near/rpcCalls';
+import { executeDeviceLinkingContractCalls } from '../rpcClients/near/rpcCalls';
 import { ensureEd25519Prefix } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
 

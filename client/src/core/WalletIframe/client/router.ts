@@ -55,7 +55,7 @@ import {
   type ProgressPayload,
   type PreferencesChangedPayload,
 } from '../shared/messages';
-import { SignedTransaction } from '../../near/NearClient';
+import { SignedTransaction } from '../../rpcClients/near/NearClient';
 import { OnEventsProgressBus, defaultPhaseHeuristics } from './progress/on-events-progress-bus';
 import type {
   ActionSSEEvent,
@@ -92,12 +92,12 @@ import type {
 import type {
   TempoSecp256k1SigningRequest,
   TempoSigningRequest,
-} from '../../signing/chainAdaptors/tempo/types';
-import type { TempoSignedResult } from '../../signing/chainAdaptors/tempo/tempoAdapter';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../signing/orchestration/types';
-import type { ThresholdEcdsaSessionBootstrapResult } from '../../signing/api/WebAuthnManager';
+} from '../../signingEngine/chainAdaptors/tempo/types';
+import type { TempoSignedResult } from '../../signingEngine/chainAdaptors/tempo/tempoAdapter';
+import type { ThresholdEcdsaSecp256k1KeyRef } from '../../signingEngine/interfaces/signing';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../../signingEngine/SigningEngine';
 import type { LinkDeviceResult, StartDevice2LinkingFlowArgs, StartDevice2LinkingFlowResults, DeviceLinkingQRData } from '../../types/linkDevice';
-import type { SyncAccountResult } from '../../TatchiPasskey/recovery/accountSync';
+import type { SyncAccountResult } from '../../TatchiPasskey/syncAccount';
 import {
   ActionArgs,
   TransactionInput,
@@ -111,9 +111,8 @@ import type { WalletUIRegistry } from '../host/lit-ui/iframe-lit-element-registr
 import { toError } from '@shared/utils/errors';
 import type { AuthenticatorOptions } from '../../types/authenticatorOptions';
 import { mergeSignerMode, type ConfirmationConfig, type SignerMode } from '../../types/signer-worker';
-import type { AccessKeyList } from '../../near/NearClient';
+import type { AccessKeyList } from '../../rpcClients/near/NearClient';
 import type { SignNEP413MessageResult } from '../../TatchiPasskey/near';
-import type { DerivedAddressRecord } from '../../IndexedDBManager';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../../config/defaultConfigs';
 
 // Simple, framework-agnostic service iframe client.
@@ -977,40 +976,6 @@ export class WalletIframeRouter {
   async getRecentLogins(): Promise<GetRecentLoginsResult> {
     const res = await this.post<GetRecentLoginsResult>({ type: 'PM_GET_RECENT_LOGINS' } );
     return res.result;
-  }
-
-  // === Local persistence helpers (wallet-origin IndexedDB) ===
-
-  async setDerivedAddress(payload: {
-    nearAccountId: string;
-    args: { contractId: string; path: string; address: string };
-  }): Promise<void> {
-    await this.post<void>({
-      type: 'PM_SET_DERIVED_ADDRESS',
-      payload,
-    });
-  }
-
-  async getDerivedAddressRecord(payload: {
-    nearAccountId: string;
-    args: { contractId: string; path: string };
-  }): Promise<DerivedAddressRecord | null> {
-    const res = await this.post<DerivedAddressRecord | null>({
-      type: 'PM_GET_DERIVED_ADDRESS_RECORD',
-      payload,
-    });
-    return (res.result as DerivedAddressRecord | null) || null;
-  }
-
-  async getDerivedAddress(payload: {
-    nearAccountId: string;
-    args: { contractId: string; path: string };
-  }): Promise<string | null> {
-    const res = await this.post<string | null>({
-      type: 'PM_GET_DERIVED_ADDRESS',
-      payload,
-    });
-    return (res.result as string | null) || null;
   }
 
   async getRecoveryEmails(nearAccountId: string): Promise<Array<{ hashHex: string; email: string }>> {

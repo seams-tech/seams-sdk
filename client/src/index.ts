@@ -4,8 +4,8 @@ export {
   type NearClient,
   MinimalNearClient,
   encodeSignedTransactionBase64
-} from './core/near/NearClient';
-export { createWebAuthnLoginOptions, verifyWebAuthnLogin } from './core/near/rpcCalls';
+} from './core/rpcClients/near/NearClient';
+export { createWebAuthnLoginOptions, verifyWebAuthnLogin } from './core/rpcClients/near/rpcCalls';
 
 export * from './config';
 export { base64UrlEncode, base64UrlDecode } from '@shared/utils/encoders';

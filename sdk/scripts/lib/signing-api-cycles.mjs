@@ -33,9 +33,9 @@ function resolveImportTarget(fromFile, specifier, fileSet, signingRoot, repoRoot
   let basePath;
   if (raw.startsWith('.')) {
     basePath = path.resolve(path.dirname(fromFile), raw);
-  } else if (raw.startsWith('@/core/signing/')) {
-    basePath = path.join(signingRoot, raw.slice('@/core/signing/'.length));
-  } else if (raw.startsWith('client/src/core/signing/')) {
+  } else if (raw.startsWith('@/core/signingEngine/')) {
+    basePath = path.join(signingRoot, raw.slice('@/core/signingEngine/'.length));
+  } else if (raw.startsWith('client/src/core/signingEngine/')) {
     basePath = path.join(repoRoot, raw);
   } else {
     return null;
@@ -155,7 +155,7 @@ function describeCycle(component, repoRoot) {
 }
 
 export function findSigningApiCrossLayerCycles(repoRoot) {
-  const signingRoot = path.join(repoRoot, 'client/src/core/signing');
+  const signingRoot = path.join(repoRoot, 'client/src/core/signingEngine');
   const apiRoot = path.join(signingRoot, 'api');
 
   if (!fs.existsSync(signingRoot)) {
@@ -192,3 +192,66 @@ export function findSigningApiCrossLayerCycles(repoRoot) {
   };
 }
 
+function findImportLine(filePath, specifier) {
+  const source = fs.readFileSync(filePath, 'utf8');
+  const lines = source.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index].includes(specifier)) return index + 1;
+  }
+  return null;
+}
+
+export function findForbiddenSignerToAdapterImports(repoRoot) {
+  const signingRoot = path.join(repoRoot, 'client/src/core/signingEngine');
+  const signerAlgorithmRoot = path.join(signingRoot, 'signers/algorithms');
+  const chainAdapterRoot = path.join(signingRoot, 'chainAdaptors');
+
+  if (!fs.existsSync(signingRoot)) {
+    return {
+      signingRoot,
+      violations: [],
+      error: `[check-signing-api-cycles] signing root is missing: ${signingRoot}`,
+    };
+  }
+
+  if (!fs.existsSync(signerAlgorithmRoot)) {
+    return {
+      signingRoot,
+      violations: [],
+      error: `[check-signing-api-cycles] signer algorithms root is missing: ${signerAlgorithmRoot}`,
+    };
+  }
+
+  const allSigningFiles = collectSourceFiles(signingRoot);
+  const allSigningFileSet = new Set(allSigningFiles);
+  const signerFiles = collectSourceFiles(signerAlgorithmRoot);
+  const violations = [];
+
+  for (const signerFile of signerFiles) {
+    const imports = readImports(signerFile);
+    for (const specifier of imports) {
+      const resolved = resolveImportTarget(
+        signerFile,
+        specifier,
+        allSigningFileSet,
+        signingRoot,
+        repoRoot,
+      );
+      if (!resolved) continue;
+      if (!resolved.startsWith(`${chainAdapterRoot}${path.sep}`)) continue;
+
+      violations.push({
+        file: toPosixPath(path.relative(repoRoot, signerFile)),
+        line: findImportLine(signerFile, specifier),
+        specifier,
+        target: toPosixPath(path.relative(repoRoot, resolved)),
+      });
+    }
+  }
+
+  return {
+    signingRoot,
+    violations,
+    error: null,
+  };
+}

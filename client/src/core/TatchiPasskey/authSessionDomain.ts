@@ -1,6 +1,6 @@
 import { toError } from '@shared/utils/errors';
-import type { NearClient } from '../near/NearClient';
-import type { WebAuthnManager } from '../signing/api/WebAuthnManager';
+import type { NearClient } from '../rpcClients/near/NearClient';
+import type { SigningEnginePublic } from '../signingEngine/SigningEngine';
 import type { AccountId } from '../types/accountIds';
 import { toAccountId } from '../types/accountIds';
 import type { LoginHooksOptions } from '../types/sdkSentEvents';
@@ -27,7 +27,7 @@ import type { WalletIframeCoordinator } from './walletIframeCoordinator';
 export type AuthSessionDomainDeps = {
   getContext: () => PasskeyManagerContext;
   walletIframe: Pick<WalletIframeCoordinator, 'shouldUseWalletIframe' | 'requireRouter'>;
-  webAuthnManager: WebAuthnManager;
+  signingEngine: SigningEnginePublic;
   nearClient: NearClient;
   initWalletIframe: (nearAccountId?: string) => Promise<void>;
 };
@@ -73,7 +73,7 @@ export async function loginAndCreateSessionDomain(
   );
   if (result?.success) {
     // Promote authenticated account to current-user state only after login succeeds.
-    await deps.webAuthnManager.indexedDbRegistration.initializeCurrentUser(
+    await deps.signingEngine.initializeCurrentUser(
       toAccountId(nearAccountId),
       deps.nearClient,
     );
@@ -126,7 +126,7 @@ export async function hasPasskeyCredentialDomain(
   }
 
   const baseAccountId = toAccountId(nearAccountId);
-  return await deps.webAuthnManager.indexedDbRegistration.hasPasskeyCredential(baseAccountId);
+  return await deps.signingEngine.hasPasskeyCredential(baseAccountId);
 }
 
 export async function getRecentLoginsDomain(

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ed25519 } from '@noble/curves/ed25519.js';
+import { ed25519 } from '@noble/curves/ed25519';
 import {
   createThresholdSigningServiceForUnitTests,
   verifyThresholdEd25519CoordinatorGrantHmac,
@@ -30,6 +30,17 @@ function bigintToBytesLE32(x: bigint): Uint8Array {
   return out;
 }
 
+function getEd25519PointCtor(): any {
+  const pointCtor = (ed25519 as any).ExtendedPoint || (ed25519 as any).Point;
+  if (!pointCtor) throw new Error('ed25519 point constructor is unavailable');
+  return pointCtor;
+}
+
+function ed25519PointToBytes(point: any): Uint8Array {
+  if (typeof point.toRawBytes === 'function') return point.toRawBytes();
+  return point.toBytes();
+}
+
 function sumScalarsB64u(aB64u: string, bB64u: string): string {
   const a = bytesToBigintLE(Buffer.from(aB64u, 'base64url'));
   const b = bytesToBigintLE(Buffer.from(bB64u, 'base64url'));
@@ -38,14 +49,15 @@ function sumScalarsB64u(aB64u: string, bB64u: string): string {
 }
 
 function pointB64u(s: bigint): string {
-  const p = ed25519.ExtendedPoint.BASE.multiply(s);
-  return Buffer.from(p.toRawBytes()).toString('base64url');
+  const p = getEd25519PointCtor().BASE.multiply(s);
+  return Buffer.from(ed25519PointToBytes(p)).toString('base64url');
 }
 
 function sumPointsB64u(aB64u: string, bB64u: string): string {
-  const a = ed25519.ExtendedPoint.fromHex(Buffer.from(aB64u, 'base64url'));
-  const b = ed25519.ExtendedPoint.fromHex(Buffer.from(bB64u, 'base64url'));
-  return Buffer.from(a.add(b).toRawBytes()).toString('base64url');
+  const pointCtor = getEd25519PointCtor();
+  const a = pointCtor.fromHex(Buffer.from(aB64u, 'base64url'));
+  const b = pointCtor.fromHex(Buffer.from(bB64u, 'base64url'));
+  return Buffer.from(ed25519PointToBytes(a.add(b))).toString('base64url');
 }
 
 test('threshold-ed25519 relayer-fleet cosigning (2-of-3 stub) aggregates cosigner outputs', async () => {

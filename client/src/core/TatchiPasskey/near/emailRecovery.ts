@@ -9,10 +9,10 @@ import { generateEmailRecoveryRequestId } from '../../types/emailRecovery';
 import { syncAccount as syncAccountCore, type SyncAccountResult } from '../syncAccount';
 import type { PasskeyManagerContext } from '../index';
 import type { WalletIframeCoordinator } from '../walletIframeCoordinator';
-import { normalizeRegistrationCredential } from '../../signing/webauthn/credentials/helpers';
-import { redactCredentialExtensionOutputs } from '../../signing/webauthn/credentials';
+import { normalizeRegistrationCredential } from '../../signingEngine/signers/webauthn/credentials/helpers';
+import { redactCredentialExtensionOutputs } from '../../signingEngine/signers/webauthn/credentials';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
-import { IndexedDBManager } from '../../IndexedDBManager';
+import { IndexedDBManager } from '../../indexedDB';
 import { EmailRecoveryPendingStore } from '../../../utils/emailRecovery';
 import { errorMessage } from '@shared/utils/errors';
 import { isObject } from '@shared/utils/validation';
@@ -213,7 +213,7 @@ export class EmailRecoveryDomain {
       const relayerUrl = String(context.configs?.relayer?.url || '').trim();
       if (!relayerUrl) throw new Error('Missing relayer url (configs.relayer.url)');
 
-      const rpId = context.webAuthnManager.getRpId();
+      const rpId = context.signingEngine.getRpId();
       if (!rpId) throw new Error('Missing rpId for email recovery flow');
 
       this.emailRecoveryCancelled = false;
@@ -235,7 +235,7 @@ export class EmailRecoveryDomain {
         message: 'Creating passkey for recovery...',
       });
 
-      const registrationSession = await context.webAuthnManager.credentialRecovery.requestRegistrationCredentialConfirmation({
+      const registrationSession = await context.signingEngine.requestRegistrationCredentialConfirmation({
         nearAccountId: String(nearAccountId),
         deviceNumber: initialDeviceNumber,
         confirmerText: this.emailRecoveryOptions?.confirmerText,
@@ -251,7 +251,7 @@ export class EmailRecoveryDomain {
         return Number.isFinite(n) && n >= 1 ? Math.floor(n) : initialDeviceNumber;
       })();
 
-      const derived = await context.webAuthnManager.thresholdKeyLifecycle.deriveThresholdEd25519ClientVerifyingShareFromCredential({
+      const derived = await context.signingEngine.deriveThresholdEd25519ClientVerifyingShareFromCredential({
         credential,
         nearAccountId,
       });
@@ -294,10 +294,10 @@ export class EmailRecoveryDomain {
       if (!credentialId || !attestationObject) {
         throw new Error('Missing WebAuthn registration attestation in credential');
       }
-      const credentialPublicKey = await context.webAuthnManager.credentialRecovery.extractCosePublicKey(attestationObject);
+      const credentialPublicKey = await context.signingEngine.extractCosePublicKey(attestationObject);
       const clientParticipantId = Number(thresholdSection.clientParticipantId);
       const relayerParticipantId = Number(thresholdSection.relayerParticipantId);
-      await context.webAuthnManager.indexedDbRegistration.storeUserData({
+      await context.signingEngine.storeUserData({
         nearAccountId,
         deviceNumber,
         clientNearPublicKey: thresholdPublicKey,
@@ -308,7 +308,7 @@ export class EmailRecoveryDomain {
         },
         version: 2,
       });
-      await context.webAuthnManager.indexedDbRegistration.storeAuthenticator({
+      await context.signingEngine.storeAuthenticator({
         nearAccountId,
         credentialId,
         credentialPublicKey,
@@ -319,7 +319,7 @@ export class EmailRecoveryDomain {
         deviceNumber,
       });
 
-      await IndexedDBManager.storeNearThresholdKeyMaterialV2({
+      await IndexedDBManager.storeNearThresholdKeyMaterial({
         nearAccountId,
         deviceNumber,
         publicKey: thresholdPublicKey,

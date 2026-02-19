@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useTatchi } from '../../context';
 import './LinkedDevicesModal.css';
 import { useTheme, Theme } from '../theme';
-import type { AccessKeyList } from '@/core/near/NearClient';
-import { IndexedDBManager } from '@/core/IndexedDBManager';
+import type { AccessKeyList } from '@/core/rpcClients/near/NearClient';
+import { IndexedDBManager } from '@/core/indexedDB';
 import { toAccountId } from '@/core/types/accountIds';
 
 interface LinkedDevicesModalProps {
@@ -152,10 +152,10 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
 
       const currentKey = loginState?.nearPublicKey || null;
       const localKeyMaterial = currentDeviceNumberFromState != null
-        ? await IndexedDBManager.getNearLocalKeyMaterialV2First(toAccountId(nearAccountId), currentDeviceNumberFromState).catch(() => null)
+        ? await IndexedDBManager.getNearLocalKeyMaterial(toAccountId(nearAccountId), currentDeviceNumberFromState).catch(() => null)
         : null;
       const thresholdKeyMaterial = currentDeviceNumberFromState != null
-        ? await IndexedDBManager.getNearThresholdKeyMaterialV2First(toAccountId(nearAccountId), currentDeviceNumberFromState).catch(() => null)
+        ? await IndexedDBManager.getNearThresholdKeyMaterial(toAccountId(nearAccountId), currentDeviceNumberFromState).catch(() => null)
         : null;
 
       const nextDeviceNumber = (() => {

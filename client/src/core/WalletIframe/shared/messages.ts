@@ -2,7 +2,7 @@
 // Typed RPC messages for the wallet service iframe channel (TatchiPasskey-first)
 import type { AuthenticatorOptions } from '@server';
 import type { WalletUIRegistry } from '../host/lit-ui/iframe-lit-element-registry';
-import { SignedTransaction } from '../../near/NearClient';
+import { SignedTransaction } from '../../rpcClients/near/NearClient';
 import {
   ActionArgs,
   TransactionInput
@@ -11,8 +11,8 @@ import { type DeviceLinkingQRData } from '../../types/linkDevice';
 import type { DelegateActionInput } from '../../types/delegate';
 import type { ConfirmationConfig } from '../../types/signer-worker';
 import type { SignerMode } from '../../types/signer-worker';
-import type { TempoSigningRequest } from '../../signing/chainAdaptors/tempo/types';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../signing/orchestration/types';
+import type { TempoSigningRequest } from '../../signingEngine/chainAdaptors/tempo/types';
+import type { ThresholdEcdsaSecp256k1KeyRef } from '../../signingEngine/interfaces/signing';
 
 export type WalletProtocolVersion = '1.0.0';
 
@@ -28,10 +28,6 @@ export type ParentToChildType =
   | 'PM_LOGIN'
   | 'PM_LOGOUT'
   | 'PM_GET_LOGIN_SESSION'
-  // Local persistence helpers (wallet-origin IndexedDB)
-  | 'PM_SET_DERIVED_ADDRESS'
-  | 'PM_GET_DERIVED_ADDRESS_RECORD'
-  | 'PM_GET_DERIVED_ADDRESS'
   | 'PM_GET_RECOVERY_EMAILS'
   | 'PM_SET_RECOVERY_EMAILS'
   | 'PM_SIGN_TXS_WITH_ACTIONS'
@@ -323,21 +319,6 @@ export interface PMSetRecoveryEmailsPayload {
   };
 }
 
-export interface PMSetDerivedAddressPayload {
-  nearAccountId: string;
-  args: { contractId: string; path: string; address: string };
-}
-
-export interface PMGetDerivedAddressRecordPayload {
-  nearAccountId: string;
-  args: { contractId: string; path: string };
-}
-
-export interface PMGetDerivedAddressPayload {
-  nearAccountId: string;
-  args: { contractId: string; path: string };
-}
-
 export interface ProgressPayload {
   step: number;
   phase: string;
@@ -369,9 +350,6 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_LOGIN', PMLoginPayload>
   | RpcEnvelope<'PM_LOGOUT'>
   | RpcEnvelope<'PM_GET_LOGIN_SESSION', PMGetLoginSessionPayload>
-  | RpcEnvelope<'PM_SET_DERIVED_ADDRESS', PMSetDerivedAddressPayload>
-  | RpcEnvelope<'PM_GET_DERIVED_ADDRESS_RECORD', PMGetDerivedAddressRecordPayload>
-  | RpcEnvelope<'PM_GET_DERIVED_ADDRESS', PMGetDerivedAddressPayload>
   | RpcEnvelope<'PM_GET_RECOVERY_EMAILS', PMGetRecoveryEmailsPayload>
   | RpcEnvelope<'PM_SET_RECOVERY_EMAILS', PMSetRecoveryEmailsPayload>
   | RpcEnvelope<'PM_SIGN_TXS_WITH_ACTIONS', PMSignTxsPayload>

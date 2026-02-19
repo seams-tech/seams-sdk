@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  credentialExtensions: '/sdk/esm/core/signing/webauthn/credentials/credentialExtensions.js',
+  credentialExtensions: '/sdk/esm/core/signingEngine/signers/webauthn/credentials/credentialExtensions.js',
 } as const;
 
 test.describe('credentialExtensions – redaction', () => {

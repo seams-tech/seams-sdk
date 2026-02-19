@@ -1,5 +1,5 @@
-import type { WebAuthnManager } from '../signing/api/WebAuthnManager';
-import type { UserPreferencesManager } from '../signing/api/userPreferences';
+import type { SigningEnginePublic } from '../signingEngine/SigningEngine';
+import type { UserPreferencesManager } from '../signingEngine/api/userPreferences';
 import type { AccountId } from '../types/accountIds';
 import { toAccountId } from '../types/accountIds';
 import type { ThemeName, TatchiConfigs } from '../types/tatchi';
@@ -9,7 +9,7 @@ import { __isWalletIframeHostMode } from '../WalletIframe/host-mode';
 
 export interface WalletIframeCoordinatorDeps {
   configs: TatchiConfigs;
-  webAuthnManager: WebAuthnManager;
+  signingEngine: SigningEnginePublic;
   userPreferences: UserPreferencesManager;
   getTheme: () => ThemeName;
   refreshLoginSession: (nearAccountId?: string) => Promise<void>;
@@ -23,7 +23,7 @@ let warnedAboutSameOriginWallet = false;
  */
 export class WalletIframeCoordinator {
   private readonly configs: TatchiConfigs;
-  private readonly webAuthnManager: WebAuthnManager;
+  private readonly signingEngine: SigningEnginePublic;
   private readonly userPreferences: UserPreferencesManager;
   private readonly getTheme: () => ThemeName;
   private readonly refreshLoginSession: (nearAccountId?: string) => Promise<void>;
@@ -34,7 +34,7 @@ export class WalletIframeCoordinator {
 
   constructor(deps: WalletIframeCoordinatorDeps) {
     this.configs = deps.configs;
-    this.webAuthnManager = deps.webAuthnManager;
+    this.signingEngine = deps.signingEngine;
     this.userPreferences = deps.userPreferences;
     this.getTheme = deps.getTheme;
     this.refreshLoginSession = deps.refreshLoginSession;
@@ -77,7 +77,7 @@ export class WalletIframeCoordinator {
     // Warm local critical resources (NonceManager, workers) regardless of iframe usage.
     // In iframe mode, avoid persisting user state (lastUserAccountId, preferences) on the app origin.
     const shouldAvoidLocalUserState = walletOriginConfigured && !__isWalletIframeHostMode();
-    await this.webAuthnManager.warmCriticalResources(shouldAvoidLocalUserState ? undefined : nearAccountId);
+    await this.signingEngine.warmCriticalResources(shouldAvoidLocalUserState ? undefined : nearAccountId);
 
     // Guardrail: when running inside the wallet service iframe host, never attempt to
     // initialize a nested wallet iframe client, even if configs accidentally include iframeWallet.

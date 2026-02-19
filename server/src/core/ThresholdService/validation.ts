@@ -1,4 +1,4 @@
-import type { AccessKeyList } from '@/core/near/NearClient';
+import type { AccessKeyList } from '@/core/rpcClients/near/NearClient';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { ensureEd25519Prefix, toOptionalString, toTrimmedString } from '@shared/utils/validation';
 import {

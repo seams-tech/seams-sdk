@@ -1,13 +1,11 @@
 import { expect, test } from '@playwright/test';
-import {
-  createEvmSignerCapability,
-  createNearSignerCapability,
-  createTempoSignerCapability,
-} from '@/core/signing/chainAdaptors/capabilityFactories';
+import { EvmSigner } from '@/core/TatchiPasskey/evm';
+import { NearSigner } from '@/core/TatchiPasskey/near';
+import { TempoSigner } from '@/core/TatchiPasskey/tempo';
 import { ActionPhase } from '@/core/types/sdkSentEvents';
 
 function createNearSignerWithRouter(router: Record<string, unknown>) {
-  return createNearSignerCapability({
+  return new NearSigner({
     getContext: () =>
       ({
         configs: {
@@ -133,15 +131,13 @@ test.describe('TatchiPasskey chain signer modules', () => {
     let capturedArgs: any = null;
     const expectedResult = { chain: 'tempo', kind: 'eip1559', txHashHex: '0x1', rawTxHex: '0x2' } as any;
     const shouldAbort = () => false;
-    const signer = createTempoSignerCapability({
+    const signer = new TempoSigner({
       getContext: () =>
         ({
-          webAuthnManager: {
-            signingActions: {
-              signTempo: async (args: any) => {
-                capturedArgs = args;
-                return expectedResult;
-              },
+          signingEngine: {
+            signTempo: async (args: any) => {
+              capturedArgs = args;
+              return expectedResult;
             },
           },
         }) as any,
@@ -182,7 +178,7 @@ test.describe('TatchiPasskey chain signer modules', () => {
     const tempoCalls: any[] = [];
     const evmCalls: any[] = [];
 
-    const tempoSigner = createTempoSignerCapability({
+    const tempoSigner = new TempoSigner({
       getContext: () => ({}) as any,
       walletIframe: {
         shouldUseWalletIframe: () => true,
@@ -195,7 +191,7 @@ test.describe('TatchiPasskey chain signer modules', () => {
           }) as any,
       },
     });
-    const evmSigner = createEvmSignerCapability({
+    const evmSigner = new EvmSigner({
       getContext: () => ({}) as any,
       walletIframe: {
         shouldUseWalletIframe: () => true,

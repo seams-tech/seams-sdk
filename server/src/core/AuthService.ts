@@ -1,5 +1,5 @@
 import { ActionType, type ActionArgsWasm, validateActionArgsWasm } from '@/core/types/actions';
-import { MinimalNearClient, SignedTransaction, type AccessKeyList } from '@/core/near/NearClient';
+import { MinimalNearClient, SignedTransaction, type AccessKeyList } from '@/core/rpcClients/near/NearClient';
 import type { FinalExecutionOutcome } from '@near-js/types';
 import { toPublicKeyStringFromSecretKey } from './nearKeys';
 import { createAuthServiceConfig } from './config';

@@ -1,68 +1,40 @@
-import {
-  WebAuthnManager,
-  type ThresholdEcdsaSessionBootstrapResult,
-} from '../signing/api/WebAuthnManager';
+import { SigningEngine } from '../signingEngine/SigningEngine';
 import { registerPasskey } from './registration';
 import { registerPasskeyInternal } from './registration';
 import {
   MinimalNearClient,
   type NearClient,
   type AccessKeyList,
-  type SignedTransaction,
-} from '../near/NearClient';
+} from '../rpcClients/near/NearClient';
 import type {
   ActionResult,
-  DelegateRelayResult,
   GetRecentLoginsResult,
   LoginAndCreateSessionResult,
-  LoginResult,
   LoginSession,
-  LoginState,
   RegistrationResult,
-  SignAndSendDelegateActionResult,
-  SignDelegateActionResult,
-  SignTransactionResult,
   ThemeName,
   TatchiConfigs,
   TatchiConfigsInput,
 } from '../types/tatchi';
 import type {
   ActionHooksOptions,
-  DelegateActionHooksOptions,
-  DelegateRelayHooksOptions,
   LoginHooksOptions,
   RegistrationHooksOptions,
-  SendTransactionHooksOptions,
-  SignAndSendDelegateActionHooksOptions,
-  SignAndSendTransactionHooksOptions,
-  SignNEP413HooksOptions,
-  SignTransactionHooksOptions,
-  SyncAccountHooksOptions,
 } from '../types/sdkSentEvents';
 import {
   ConfirmationConfig,
   type ConfirmationBehavior,
   type SignerMode,
-  type WasmSignedDelegate,
 } from '../types/signer-worker';
 import { DEFAULT_AUTHENTICATOR_OPTIONS } from '../types/authenticatorOptions';
 import { toAccountId, type AccountId } from '../types/accountIds';
-import type { DerivedAddressRecord } from '../IndexedDBManager';
-import { configureIndexedDB, IndexedDBManager } from '../IndexedDBManager';
-import { chainsigAddressManager } from '../../utils/chainsigAddressManager';
-import { ActionType, type ActionArgs, type TransactionInput } from '../types/actions';
+import { configureIndexedDB } from '../indexedDB';
+import { ActionType } from '../types/actions';
 import type { PreferencesChangedPayload } from '../WalletIframe/shared/messages';
 import { __isWalletIframeHostMode } from '../WalletIframe/host-mode';
 import { toError } from '@shared/utils/errors';
 import { coerceThemeName } from '@shared/utils/theme';
-import type { DelegateActionInput, SignedDelegate } from '../types/delegate';
 import { buildConfigsFromEnv } from '../config/defaultConfigs';
-import type {
-  TempoSecp256k1SigningRequest,
-  TempoSigningRequest,
-} from '../signing/chainAdaptors/tempo/types';
-import type { TempoSignedResult } from '../signing/chainAdaptors/tempo/tempoAdapter';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../signing/orchestration/types';
 import { WalletIframeCoordinator } from './walletIframeCoordinator';
 import {
   getLoginSessionDomain,
@@ -73,18 +45,16 @@ import {
   type AuthSessionDomainDeps,
 } from './authSessionDomain';
 import type {
-  SignNEP413MessageParams,
-  SignNEP413MessageResult,
-} from './near/signNEP413';
-import type { SyncAccountResult } from './syncAccount';
-import type { EmailRecoveryFlowOptions } from '../types/emailRecovery';
-import type {
-  DeviceLinkingQRData,
-  LinkDeviceResult,
-  ScanAndLinkDeviceOptionsDevice1,
-  StartDevice2LinkingFlowArgs,
-  StartDevice2LinkingFlowResults,
-} from '../types/linkDevice';
+  AuthCapability,
+  EvmSignerCapability,
+  KeyExportCapability,
+  NearSignerCapability,
+  PasskeyManagerContext,
+  PreferencesCapability,
+  RegistrationCapability,
+  RecoveryCapability,
+  TempoSignerCapability,
+} from './interfaces';
 import { EmailRecoveryDomain } from './near/emailRecovery';
 import { DeviceLinkingDomain } from './near/linkDevice';
 import { NearSigner } from './near';
@@ -95,216 +65,12 @@ import { EvmSigner } from './evm';
 // PASSKEY MANAGER
 ///////////////////////////////////////
 
-export type SignTempoArgs = {
-  nearAccountId: string;
-  request: TempoSigningRequest;
-  options?: {
-    confirmationConfig?: Partial<ConfirmationConfig>;
-    thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
-    /** Internal host-only cancellation probe; ignored in wallet-router calls. */
-    shouldAbort?: () => boolean;
-    onEvent?: (event: {
-      step: number;
-      phase: string;
-      status: 'progress' | 'success' | 'error';
-      message?: string;
-      data?: unknown;
-    }) => void;
-  };
-};
-
-export type SignTempoWithThresholdEcdsaArgs = {
-  nearAccountId: string;
-  request: TempoSecp256k1SigningRequest;
-  thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
-  options?: {
-    confirmationConfig?: Partial<ConfirmationConfig>;
-  };
-};
-
-export type BootstrapThresholdEcdsaSessionArgs = {
-  nearAccountId: string;
-  options?: {
-    chain?: 'evm' | 'tempo';
-    relayerUrl?: string;
-    participantIds?: number[];
-    sessionKind?: 'jwt' | 'cookie';
-    ttlMs?: number;
-    remainingUses?: number;
-    smartAccount?: {
-      chainId?: string;
-      factory?: string;
-      entryPoint?: string;
-      salt?: string;
-      counterfactualAddress?: string;
-    };
-  };
-};
-
-export interface ThresholdSessionBootstrapCapability {
-  bootstrapThresholdEcdsaSession(
-    args: BootstrapThresholdEcdsaSessionArgs,
-  ): Promise<ThresholdEcdsaSessionBootstrapResult>;
-}
-
-export interface NearSignerCapability {
-  executeAction(args: {
-    nearAccountId: string;
-    receiverId: string;
-    actionArgs: ActionArgs | ActionArgs[];
-    options: ActionHooksOptions;
-  }): Promise<ActionResult>;
-
-  signAndSendTransactions(args: {
-    nearAccountId: string;
-    transactions: TransactionInput[];
-    options: SignAndSendTransactionHooksOptions;
-  }): Promise<ActionResult[]>;
-
-  signAndSendTransaction(args: {
-    nearAccountId: string;
-    receiverId: string;
-    actions: ActionArgs[];
-    options: SignAndSendTransactionHooksOptions;
-  }): Promise<ActionResult>;
-
-  signTransactionsWithActions(args: {
-    nearAccountId: string;
-    transactions: TransactionInput[];
-    options: SignTransactionHooksOptions;
-  }): Promise<SignTransactionResult[]>;
-
-  sendTransaction(args: {
-    signedTransaction: SignedTransaction;
-    options?: SendTransactionHooksOptions;
-  }): Promise<ActionResult>;
-
-  signDelegateAction(args: {
-    nearAccountId: string;
-    delegate: DelegateActionInput;
-    options: DelegateActionHooksOptions;
-  }): Promise<SignDelegateActionResult>;
-
-  sendDelegateActionViaRelayer(args: {
-    relayerUrl: string;
-    signedDelegate: SignedDelegate | WasmSignedDelegate;
-    hash: string;
-    signal?: AbortSignal;
-    options?: DelegateRelayHooksOptions;
-  }): Promise<DelegateRelayResult>;
-
-  signAndSendDelegateAction(args: {
-    nearAccountId: string;
-    delegate: DelegateActionInput;
-    relayerUrl: string;
-    signal?: AbortSignal;
-    options: SignAndSendDelegateActionHooksOptions;
-  }): Promise<SignAndSendDelegateActionResult>;
-
-  signNEP413Message(args: {
-    nearAccountId: string;
-    params: SignNEP413MessageParams;
-    options: SignNEP413HooksOptions;
-  }): Promise<SignNEP413MessageResult>;
-}
-
-export interface TempoSignerCapability extends ThresholdSessionBootstrapCapability {
-  signTempo(args: SignTempoArgs): Promise<TempoSignedResult>;
-  signTempoWithThresholdEcdsa(
-    args: SignTempoWithThresholdEcdsaArgs,
-  ): Promise<TempoSignedResult>;
-}
-
-export interface EvmSignerCapability extends ThresholdSessionBootstrapCapability {}
-
-export interface EmailRecoveryCapability {
-  getRecoveryEmails(accountId: string): Promise<Array<{ hashHex: string; email: string }>>;
-
-  setRecoveryEmails(args: {
-    accountId: string;
-    recoveryEmails: string[];
-    options: ActionHooksOptions;
-  }): Promise<ActionResult>;
-
-  syncAccount(args: {
-    accountId?: string;
-    options?: SyncAccountHooksOptions;
-  }): Promise<SyncAccountResult>;
-
-  startEmailRecovery(args: {
-    accountId: string;
-    options?: EmailRecoveryFlowOptions;
-  }): Promise<{ mailtoUrl: string; nearPublicKey: string }>;
-
-  finalizeEmailRecovery(args: {
-    accountId: string;
-    nearPublicKey?: string;
-    options?: EmailRecoveryFlowOptions;
-  }): Promise<void>;
-
-  cancelEmailRecovery(args?: {
-    accountId?: string;
-    nearPublicKey?: string;
-  }): Promise<void>;
-}
-
-export interface DeviceLinkingCapability {
-  startDevice2LinkingFlow(
-    args: StartDevice2LinkingFlowArgs,
-  ): Promise<StartDevice2LinkingFlowResults>;
-
-  stopDevice2LinkingFlow(): Promise<void>;
-
-  linkDeviceWithScannedQRData(
-    qrData: DeviceLinkingQRData,
-    options: ScanAndLinkDeviceOptionsDevice1,
-  ): Promise<LinkDeviceResult>;
-}
-
-export type RecoveryCapability = EmailRecoveryCapability & DeviceLinkingCapability;
-
-export interface KeyExportCapability {
-  exportPrivateKeysWithUI(
-    nearAccountId: string,
-    options?: {
-      schemes?: Array<'ed25519' | 'secp256k1'>;
-      variant?: 'drawer' | 'modal';
-      theme?: 'dark' | 'light';
-    },
-  ): Promise<void>;
-
-  exportNearKeypairWithUI(
-    nearAccountId: string,
-    options?: { variant?: 'drawer' | 'modal'; theme?: 'dark' | 'light' },
-  ): Promise<void>;
-}
-
-export interface PreferencesCapability {
-  setCurrentUser(nearAccountId: AccountId): void;
-  getCurrentUserAccountId(): AccountId;
-  onConfirmationConfigChange(callback: (config: ConfirmationConfig) => void): () => void;
-  onSignerModeChange(callback: (mode: SignerMode) => void): () => void;
-  onCurrentUserChange(callback: (nearAccountId: AccountId | null) => void): () => void;
-  setConfirmBehavior(behavior: ConfirmationBehavior): void;
-  setConfirmationConfig(config: ConfirmationConfig): void;
-  getConfirmationConfig(): ConfirmationConfig;
-  setSignerMode(signerMode: SignerMode | SignerMode['mode']): void;
-  getSignerMode(): SignerMode;
-}
-
-export interface PasskeyManagerContext {
-  webAuthnManager: WebAuthnManager;
-  nearClient: NearClient;
-  configs: TatchiConfigs;
-  theme: ThemeName;
-}
-
 /**
  * Main TatchiPasskey class that provides framework-agnostic passkey operations
  * with flexible event-based callbacks for custom UX implementation
  */
 export class TatchiPasskey {
-  private readonly webAuthnManager: WebAuthnManager;
+  private readonly signingEngine: SigningEngine;
   private readonly nearClient: NearClient;
   readonly configs: TatchiConfigs;
   theme: ThemeName;
@@ -312,6 +78,8 @@ export class TatchiPasskey {
   readonly recovery: RecoveryCapability;
   readonly keys: KeyExportCapability;
   readonly preferences: PreferencesCapability;
+  readonly auth: AuthCapability;
+  readonly registration: RegistrationCapability;
   readonly near: NearSignerCapability;
   readonly tempo: TempoSignerCapability;
   readonly evm: EvmSignerCapability;
@@ -330,17 +98,17 @@ export class TatchiPasskey {
     configureIndexedDB({ mode });
     // Use provided client or create default one
     this.nearClient = nearClient || new MinimalNearClient(this.configs.nearRpcUrl);
-    this.webAuthnManager = new WebAuthnManager(this.configs, this.nearClient);
+    this.signingEngine = new SigningEngine(this.configs, this.nearClient);
 
     this.theme = coerceThemeName(this.configs.appearance?.theme) ?? 'dark';
     try {
-      this.webAuthnManager.setTheme(this.theme);
+      this.signingEngine.setTheme(this.theme);
     } catch {}
-    const userPreferences = this.webAuthnManager.getUserPreferences();
+    const userPreferences = this.signingEngine.getUserPreferences();
 
     this.walletIframe = new WalletIframeCoordinator({
       configs: this.configs,
-      webAuthnManager: this.webAuthnManager,
+      signingEngine: this.signingEngine,
       userPreferences: userPreferences,
       getTheme: () => this.theme,
       refreshLoginSession: async (nearAccountId?: string) => {
@@ -385,6 +153,24 @@ export class TatchiPasskey {
       },
       getConfirmationConfig: (): ConfirmationConfig => userPreferences.getConfirmationConfig(),
       getSignerMode: (): SignerMode => userPreferences.getSignerMode(),
+    };
+    this.auth = {
+      login: async (nearAccountId, options) =>
+        await this.loginAndCreateSession(nearAccountId, options),
+      logout: async () =>
+        await this.logoutAndClearSession(),
+      getSession: async (nearAccountId) =>
+        await this.getLoginSession(nearAccountId),
+      getRecentLogins: async () =>
+        await this.getRecentLogins(),
+      hasPasskeyCredential: async (nearAccountId) =>
+        await this.hasPasskeyCredential(nearAccountId),
+    };
+    this.registration = {
+      registerPasskey: async (nearAccountId, options) =>
+        await this.registerPasskey(nearAccountId, options),
+      registerPasskeyInternal: async (nearAccountId, options, confirmationConfigOverride) =>
+        await this.registerPasskeyInternal(nearAccountId, options, confirmationConfigOverride),
     };
     const recoveryDeps = {
       getContext: () => this.getContext(),
@@ -474,7 +260,7 @@ export class TatchiPasskey {
 
   getContext(): PasskeyManagerContext {
     return {
-      webAuthnManager: this.webAuthnManager,
+      signingEngine: this.signingEngine,
       nearClient: this.nearClient,
       configs: this.configs,
       theme: this.theme,
@@ -485,7 +271,7 @@ export class TatchiPasskey {
     return {
       getContext: () => this.getContext(),
       walletIframe: this.walletIframe,
-      webAuthnManager: this.webAuthnManager,
+      signingEngine: this.signingEngine,
       nearClient: this.nearClient,
       initWalletIframe: async (nearAccountId?: string) => {
         await this.initWalletIframe(nearAccountId);
@@ -508,7 +294,7 @@ export class TatchiPasskey {
     this.theme = nextTheme;
 
     try {
-      this.webAuthnManager.setTheme(nextTheme);
+      this.signingEngine.setTheme(nextTheme);
     } catch {}
 
     if (__isWalletIframeHostMode()) {
@@ -541,13 +327,13 @@ export class TatchiPasskey {
     const tasks: Promise<unknown>[] = [];
 
     if (iframe) {
-      // initWalletIframe also calls WebAuthnManager.warmCriticalResources internally
+      // initWalletIframe also calls SigningEngine.warmCriticalResources internally
       tasks.push(this.initWalletIframe(nearAccountId));
     } else if (workers) {
       // Warm local-only resources without touching the iframe.
       // In iframe mode, avoid persisting user state (lastUserAccountId, preferences) on the app origin.
       const shouldAvoidLocalUserState = this.walletIframe.shouldUseWalletIframe();
-      tasks.push(this.webAuthnManager.warmCriticalResources(shouldAvoidLocalUserState ? undefined : nearAccountId));
+      tasks.push(this.signingEngine.warmCriticalResources(shouldAvoidLocalUserState ? undefined : nearAccountId));
     }
 
     if (tasks.length === 0) return;
@@ -693,7 +479,7 @@ export class TatchiPasskey {
       });
     }
 
-    return await this.webAuthnManager.thresholdKeyLifecycle.enrollThresholdEd25519KeyPostRegistration({
+    return await this.signingEngine.enrollThresholdEd25519KeyPostRegistration({
       nearAccountId: toAccountId(nearAccountId),
       deviceNumber: options?.deviceNumber,
     });
@@ -728,7 +514,7 @@ export class TatchiPasskey {
       });
     }
 
-    return await this.webAuthnManager.thresholdKeyLifecycle.rotateThresholdEd25519KeyPostRegistration({
+    return await this.signingEngine.rotateThresholdEd25519KeyPostRegistration({
       nearAccountId: toAccountId(nearAccountId),
       deviceNumber: options?.deviceNumber,
     });
@@ -777,7 +563,7 @@ export class TatchiPasskey {
   /**
    * Set confirmation behavior setting for the current user
    */
-  setConfirmBehavior(behavior: 'requireClick' | 'skipClick'): void {
+  setConfirmBehavior(behavior: ConfirmationBehavior): void {
     this.preferences.setConfirmBehavior(behavior);
   }
 
@@ -816,7 +602,7 @@ export class TatchiPasskey {
       await router.prefetchBlockheight();
       return;
     }
-    try { await this.webAuthnManager.getNonceManager().prefetchBlockheight(this.nearClient); } catch { }
+    try { await this.signingEngine.getNonceManager().prefetchBlockheight(this.nearClient); } catch { }
   }
 
   async getRecentLogins(): Promise<GetRecentLoginsResult> {
@@ -850,7 +636,7 @@ export class TatchiPasskey {
       return;
     }
 
-    await this.webAuthnManager.credentialRecovery.exportPrivateKeysWithUI(toAccountId(nearAccountId), resolvedOptions);
+    await this.signingEngine.exportPrivateKeysWithUI(toAccountId(nearAccountId), resolvedOptions);
   }
 
   /**
@@ -865,58 +651,6 @@ export class TatchiPasskey {
       variant: options?.variant,
       theme: options?.theme,
     });
-  }
-
-  ///////////////////////////////////////
-  // === DERIVED ADDRESSES (public helpers) ===
-  ///////////////////////////////////////
-
-  /** Store a derived address for an account + contract + path (multi-chain capable via path encoding). */
-  async setDerivedAddress(
-    nearAccountId: string,
-    args: { contractId: string; path: string; address: string }
-  ): Promise<void> {
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      try {
-        const router = await this.walletIframe.requireRouter();
-        return await router.setDerivedAddress({ nearAccountId, args });
-      } catch {
-        throw new Error('[TatchiPasskey] Wallet iframe is configured but unavailable; refusing to write derived addresses to app origin.');
-      }
-    }
-    await chainsigAddressManager.setDerivedAddress(toAccountId(nearAccountId), args);
-  }
-
-  /** Retrieve the full derived address record (or null if not found). */
-  async getDerivedAddressRecord(
-    nearAccountId: string,
-    args: { contractId: string; path: string }
-  ): Promise<DerivedAddressRecord | null> {
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      try {
-        const router = await this.walletIframe.requireRouter();
-        return await router.getDerivedAddressRecord({ nearAccountId, args });
-      } catch {
-        throw new Error('[TatchiPasskey] Wallet iframe is configured but unavailable; refusing to read derived addresses from app origin.');
-      }
-    }
-    return await chainsigAddressManager.getDerivedAddressRecord(toAccountId(nearAccountId), args);
-  }
-
-  /** Retrieve only the derived address string for convenience. */
-  async getDerivedAddress(
-    nearAccountId: string,
-    args: { contractId: string; path: string }
-  ): Promise<string | null> {
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      try {
-        const router = await this.walletIframe.requireRouter();
-        return await router.getDerivedAddress({ nearAccountId, args });
-      } catch {
-        throw new Error('[TatchiPasskey] Wallet iframe is configured but unavailable; refusing to read derived addresses from app origin.');
-      }
-    }
-    return await chainsigAddressManager.getDerivedAddress(toAccountId(nearAccountId), args);
   }
 
   /**
@@ -955,6 +689,25 @@ export class TatchiPasskey {
 
 // Re-export types for convenience
 export type {
+  AuthCapability,
+  BootstrapThresholdEcdsaSessionArgs,
+  DeviceLinkingCapability,
+  EmailRecoveryCapability,
+  EvmSignerCapability,
+  KeyExportCapability,
+  NearSignerCapability,
+  PasskeyManagerContext,
+  PreferencesCapability,
+  RegistrationCapability,
+  RecoveryCapability,
+  SignTempoArgs,
+  SignTempoWithThresholdEcdsaArgs,
+  TatchiPasskeyContext,
+  TempoSignerCapability,
+  ThresholdSessionBootstrapCapability,
+} from './interfaces';
+
+export type {
   TatchiConfigs,
   TatchiConfigsInput,
   RegistrationResult,
@@ -975,8 +728,6 @@ export type {
   SignNEP413HooksOptions,
   SyncAccountHooksOptions,
 } from '../types/sdkSentEvents';
-// Context alias (optional convenience)
-export type TatchiPasskeyContext = PasskeyManagerContext;
 
 // Re-export NEP-413 types
 export type {

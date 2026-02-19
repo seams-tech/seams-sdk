@@ -3,10 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const IMPORT_PATHS = {
-  executeSigningIntent: '/sdk/esm/core/signing/orchestration/executeSigningIntent.js',
-  nearAdapter: '/sdk/esm/core/signing/chainAdaptors/near/nearAdapter.js',
-  tempoAdapter: '/sdk/esm/core/signing/chainAdaptors/tempo/tempoAdapter.js',
-  ethSignerWasm: '/sdk/esm/core/signing/chainAdaptors/evm/ethSignerWasm.js',
+  executeSigningIntent: '/sdk/esm/core/signingEngine/orchestration/executeSigningIntent.js',
+  nearAdapter: '/sdk/esm/core/signingEngine/chainAdaptors/near/nearAdapter.js',
+  tempoAdapter: '/sdk/esm/core/signingEngine/chainAdaptors/tempo/tempoAdapter.js',
+  ethSignerWasm: '/sdk/esm/core/signingEngine/signers/wasm/ethSignerWasm.js',
   actions: '/sdk/esm/core/types/actions.js',
 } as const;
 
@@ -294,18 +294,18 @@ test.describe('unified signing pipeline', () => {
 
   test('chain entrypoints stay wired to the unified intent runner', () => {
     const signerWorkerBridgeSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signing/api/signing/signerWorkerBridge.ts'),
+      path.resolve(process.cwd(), '../client/src/core/signingEngine/api/signing/signerWorkerBridge.ts'),
       'utf8',
     );
     const tempoHandlerSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/signing/chainAdaptors/tempo/tempoSigningFlow/index.ts',
+        '../client/src/core/signingEngine/chainAdaptors/tempo/tempoSigningFlow/index.ts',
       ),
       'utf8',
     );
 
-    expect(signerWorkerBridgeSource).toContain("import('../../orchestration/signWithIntent')");
+    expect(signerWorkerBridgeSource).toContain("import('../../orchestration/near/nearSigningFlow')");
     expect(tempoHandlerSource).toContain('executeSigningIntent({');
   });
 
@@ -315,11 +315,11 @@ test.describe('unified signing pipeline', () => {
       'utf8',
     );
     const thresholdSessionActivationSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signing/api/thresholdLifecycle/thresholdSessionActivation.ts'),
+      path.resolve(process.cwd(), '../client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionActivation.ts'),
       'utf8',
     );
     const thresholdEd25519LifecycleSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signing/api/thresholdLifecycle/thresholdEd25519Lifecycle.ts'),
+      path.resolve(process.cwd(), '../client/src/core/signingEngine/api/thresholdLifecycle/thresholdEd25519Lifecycle.ts'),
       'utf8',
     );
 
@@ -336,7 +336,7 @@ test.describe('unified signing pipeline', () => {
 
   test('runtime secp signing enforces threshold keyRef guardrail', () => {
     const secpEngineSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signing/algorithms/secp256k1.ts'),
+      path.resolve(process.cwd(), '../client/src/core/signingEngine/signers/algorithms/secp256k1.ts'),
       'utf8',
     );
 

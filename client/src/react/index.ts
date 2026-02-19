@@ -33,7 +33,7 @@ export {
 export { TatchiPasskey } from '../core/TatchiPasskey';
 export { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../core/config/defaultConfigs';
 export type { TatchiConfigs, TatchiConfigsInput } from '../core/types/tatchi';
-export type { StoreUserDataInput } from '../core/IndexedDBManager/passkeyClientDB.types';
+export type { StoreUserDataInput } from '../core/indexedDB/passkeyClientDB.types';
 
 // === RE-EXPORT ACTION TYPES ===
 // Value export for enum
@@ -83,7 +83,7 @@ export type {
 ////////////////////////////
 
 export { useNearClient } from './hooks/useNearClient';
-export type { NearClient, AccessKeyList } from '../core/near/NearClient';
+export type { NearClient, AccessKeyList } from '../core/rpcClients/near/NearClient';
 export { useAccountInput } from './hooks/useAccountInput';
 export { useDeviceLinking } from './hooks/useDeviceLinking';
 export type { UseDeviceLinkingOptions, UseDeviceLinkingReturn } from './hooks/useDeviceLinking';

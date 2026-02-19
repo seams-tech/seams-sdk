@@ -1,4 +1,4 @@
-import type { AccessKeyList } from '@/core/near/NearClient';
+import type { AccessKeyList } from '@/core/rpcClients/near/NearClient';
 import { base64UrlDecode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { NormalizedLogger } from '../logger';

@@ -44,7 +44,7 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
-      // Polyfill Node globals and built-ins needed by chainsig.js (Buffer, process, etc.)
+      // Polyfill Node globals and built-ins required by browser-side tooling deps.
       nodePolyfills({
         protocolImports: true,
         globals: {

@@ -1,14 +1,14 @@
 import { RegistrationSSEEvent, RegistrationPhase, RegistrationStatus } from '../../types/sdkSentEvents';
 import { PasskeyManagerContext } from '..';
-import { serializeRegistrationCredential, normalizeRegistrationCredential } from '../../signing/webauthn/credentials/helpers';
-import { redactCredentialExtensionOutputs } from '../../signing/webauthn/credentials';
+import { serializeRegistrationCredential, normalizeRegistrationCredential } from '../../signingEngine/signers/webauthn/credentials/helpers';
+import { redactCredentialExtensionOutputs } from '../../signingEngine/signers/webauthn/credentials';
 import type { WebAuthnRegistrationCredential } from '../../types/webauthn';
 import type { AuthenticatorOptions } from '../../types/authenticatorOptions';
 import type { CreateAccountAndRegisterResult } from '@server/core/types';
 import type {
   ThresholdEcdsaSessionPolicy,
   ThresholdEd25519SessionPolicy,
-} from '../../signing/threshold/session/thresholdSessionPolicy';
+} from '../../signingEngine/threshold/session/thresholdSessionPolicy';
 import { isObject } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
 

@@ -14,13 +14,13 @@ import type {
 import type { PasskeyManagerContext } from './index';
 import type { AccountId } from '../types/accountIds';
 import { getUserFriendlyErrorMessage, toError } from '@shared/utils/errors';
-import { authenticatorsToAllowCredentials } from '../signing/webauthn/credentials';
-import { IndexedDBManager } from '../IndexedDBManager';
-import type { ClientAuthenticatorData, ClientUserData } from '../IndexedDBManager';
-import { createWebAuthnLoginOptions, verifyWebAuthnLogin } from '../near/rpcCalls';
-import { parseDeviceNumber } from '../signing/webauthn/device/getDeviceNumber';
-import { clearAllCachedThresholdEd25519AuthSessions } from '../signing/threshold/session/thresholdEd25519AuthSession';
-import { clearAllCachedThresholdEcdsaAuthSessions } from '../signing/threshold/session/thresholdEcdsaAuthSession';
+import { authenticatorsToAllowCredentials } from '../signingEngine/signers/webauthn/credentials';
+import { IndexedDBManager } from '../indexedDB';
+import type { ClientAuthenticatorData, ClientUserData } from '../indexedDB';
+import { createWebAuthnLoginOptions, verifyWebAuthnLogin } from '../rpcClients/near/rpcCalls';
+import { parseDeviceNumber } from '../signingEngine/signers/webauthn/device/getDeviceNumber';
+import { clearAllCachedThresholdEd25519AuthSessions } from '../signingEngine/threshold/session/thresholdEd25519AuthSession';
+import { clearAllCachedThresholdEcdsaAuthSessions } from '../signingEngine/threshold/session/thresholdEcdsaAuthSession';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 
 /**
@@ -38,7 +38,7 @@ export async function loginAndCreateSession(
   options?: LoginHooksOptions
 ): Promise<LoginAndCreateSessionResult> {
   const { onEvent, onError, afterCall } = options || {};
-  const { webAuthnManager } = context;
+  const { signingEngine } = context;
 
   onEvent?.({
     step: 1,
@@ -64,14 +64,14 @@ export async function loginAndCreateSession(
 
     const hintUserPromise: Promise<ClientUserData | null> =
       deviceNumberHint !== null
-        ? webAuthnManager.indexedDbRegistration.getUserByDevice(nearAccountId, deviceNumberHint).catch(() => null)
+        ? signingEngine.getUserByDevice(nearAccountId, deviceNumberHint).catch(() => null)
         : Promise.resolve(null);
 
     const [hintUser, lastUser, latestByAccount, authenticators] = await Promise.all([
       hintUserPromise,
-      webAuthnManager.indexedDbRegistration.getLastUser().catch(() => null),
+      signingEngine.getLastUser().catch(() => null),
       IndexedDBManager.clientDB.getMostRecentNearAccountProjection(nearAccountId).catch(() => null),
-      webAuthnManager.indexedDbRegistration.getAuthenticatorsByUser(nearAccountId).catch(() => []),
+      signingEngine.getAuthenticatorsByUser(nearAccountId).catch(() => []),
     ]);
 
     if (authenticators.length === 0) {
@@ -86,7 +86,7 @@ export async function loginAndCreateSession(
     } else if (lastUser && lastUser.nearAccountId === nearAccountId) {
       userData = lastUser;
     } else {
-      userData = await webAuthnManager.indexedDbRegistration.getUserByDevice(nearAccountId, 1).catch(() => null);
+      userData = await signingEngine.getUserByDevice(nearAccountId, 1).catch(() => null);
     }
 
     if (!userData) {
@@ -136,7 +136,7 @@ export async function loginAndCreateSession(
       if (!requireThresholdWarmup) return;
 
       const thresholdKeyMaterial = await IndexedDBManager
-        .getNearThresholdKeyMaterialV2First(nearAccountId, deviceNumber)
+        .getNearThresholdKeyMaterial(nearAccountId, deviceNumber)
         .catch(() => null);
       if (!thresholdKeyMaterial?.relayerKeyId) {
         throw new Error(
@@ -160,7 +160,7 @@ export async function loginAndCreateSession(
         message: 'Preparing a warm NEAR signing session...',
       });
 
-      const connect = await webAuthnManager.thresholdSession.connectThresholdEd25519SessionLite({
+      const connect = await signingEngine.connectThresholdEd25519SessionLite({
         nearAccountId,
         relayerKeyId: thresholdKeyMaterial.relayerKeyId,
         ...(participantIds ? { participantIds } : {}),
@@ -173,7 +173,7 @@ export async function loginAndCreateSession(
         throw new Error(connect.message || connect.code || 'Failed to connect threshold ed25519 signing session');
       }
 
-      signingSession = await webAuthnManager.thresholdSession.getWarmSigningSessionStatus(nearAccountId).catch(() => null) || undefined;
+      signingSession = await signingEngine.getWarmSigningSessionStatus(nearAccountId).catch(() => null) || undefined;
       requireActiveWarmSession('threshold ed25519 warm-up');
 
       onEvent?.({
@@ -199,7 +199,7 @@ export async function loginAndCreateSession(
         message: 'Preparing a warm Tempo/EVM signing session...',
       });
 
-      const bootstrap = await webAuthnManager.thresholdSession.bootstrapThresholdEcdsaSessionLite({
+      const bootstrap = await signingEngine.bootstrapThresholdEcdsaSessionLite({
         nearAccountId,
         chain: 'tempo',
         relayerUrl,
@@ -215,7 +215,7 @@ export async function loginAndCreateSession(
       }
       thresholdEcdsaKeyRef = keyRef;
 
-      const warmStatus = await webAuthnManager.thresholdSession.getWarmSigningSessionStatus(nearAccountId).catch(() => null);
+      const warmStatus = await signingEngine.getWarmSigningSessionStatus(nearAccountId).catch(() => null);
       signingSession = warmStatus || signingSession;
       requireActiveWarmSession('threshold ECDSA warm-up');
 
@@ -228,8 +228,8 @@ export async function loginAndCreateSession(
     };
 
     const persistSuccessfulLoginState = async (deviceNumber: number): Promise<void> => {
-      await webAuthnManager.indexedDbRegistration.setLastUser(nearAccountId, deviceNumber).catch(() => undefined);
-      await webAuthnManager.indexedDbRegistration.updateLastLogin(nearAccountId).catch(() => undefined);
+      await signingEngine.setLastUser(nearAccountId, deviceNumber).catch(() => undefined);
+      await signingEngine.updateLastLogin(nearAccountId).catch(() => undefined);
     };
 
     const session = options?.session;
@@ -247,7 +247,7 @@ export async function loginAndCreateSession(
         ? `${verifyPath.slice(0, -'/verify'.length)}/options`
         : '/auth/passkey/options';
 
-      const rpId = webAuthnManager.getRpId();
+      const rpId = signingEngine.getRpId();
       if (!rpId) {
         throw new Error('Missing rpId for login session mint');
       }
@@ -268,7 +268,7 @@ export async function loginAndCreateSession(
       });
 
       const authenticatorsForPrompt = prioritizeAuthenticatorsByDeviceNumber(authenticators, baseDeviceNumber);
-      const credential = await webAuthnManager.credentialRecovery.getAuthenticationCredentialsSerialized({
+      const credential = await signingEngine.getAuthenticationCredentialsSerialized({
         nearAccountId,
         challengeB64u: loginOptions.challengeB64u,
         allowCredentials: authenticatorsToAllowCredentials(authenticatorsForPrompt),
@@ -280,8 +280,8 @@ export async function loginAndCreateSession(
         baseDeviceNumber,
       );
 
-      const selectedUserData = await webAuthnManager
-        .indexedDbRegistration.getUserByDevice(nearAccountId, selectedDeviceNumber)
+      const selectedUserData = await signingEngine
+        .getUserByDevice(nearAccountId, selectedDeviceNumber)
         .catch(() => userData);
 
       const v = await verifyWebAuthnLogin(relayUrl, verifyPath, session.kind, {
@@ -461,7 +461,7 @@ export async function getLoginSession(
 ): Promise<LoginSession> {
   const login = await getLoginStateInternal(context, nearAccountId);
   const signingSession = login?.nearAccountId
-    ? await context.webAuthnManager.thresholdSession.getWarmSigningSessionStatus(login.nearAccountId).catch(() => null)
+    ? await context.signingEngine.getWarmSigningSessionStatus(login.nearAccountId).catch(() => null)
     : null;
   return { login, signingSession };
 }
@@ -470,9 +470,9 @@ async function getLoginStateInternal(
   context: PasskeyManagerContext,
   nearAccountId?: AccountId
 ): Promise<LoginState> {
-  const { webAuthnManager } = context;
+  const { signingEngine } = context;
   try {
-    const lastUser = await webAuthnManager.indexedDbRegistration.getLastUser().catch(() => null);
+    const lastUser = await signingEngine.getLastUser().catch(() => null);
     const targetAccountId = nearAccountId ?? lastUser?.nearAccountId ?? null;
 
     if (!lastUser || (targetAccountId && lastUser.nearAccountId !== targetAccountId)) {
@@ -491,7 +491,7 @@ async function getLoginStateInternal(
 
     if (isLoggedIn && shouldRequireActiveWarmSessionForLoginState(context)) {
       const warmStatus = resolvedNearAccountId
-        ? await webAuthnManager.thresholdSession.getWarmSigningSessionStatus(resolvedNearAccountId).catch(() => null)
+        ? await signingEngine.getWarmSigningSessionStatus(resolvedNearAccountId).catch(() => null)
         : null;
       if (!warmStatus || warmStatus.status !== 'active') {
         return {
@@ -541,10 +541,10 @@ function shouldRequireActiveWarmSessionForLoginState(
 export async function getRecentLogins(
   context: PasskeyManagerContext
 ): Promise<GetRecentLoginsResult> {
-  const { webAuthnManager } = context;
-  const allUsersData = await webAuthnManager.indexedDbRegistration.getAllUsers();
+  const { signingEngine } = context;
+  const allUsersData = await signingEngine.getAllUsers();
   const accountIds = allUsersData.map(user => user.nearAccountId);
-  const lastUsedAccount = await webAuthnManager.indexedDbRegistration.getLastUser();
+  const lastUsedAccount = await signingEngine.getLastUser();
   return {
     accountIds,
     lastUsedAccount,
@@ -555,10 +555,10 @@ export async function getRecentLogins(
  * Logout: clears last-user pointer and client-side caches.
  */
 export async function logoutAndClearSession(context: PasskeyManagerContext): Promise<void> {
-  const { webAuthnManager } = context;
+  const { signingEngine } = context;
   await IndexedDBManager.clientDB.clearLastProfileSelection().catch(() => undefined);
-  try { webAuthnManager.getNonceManager().clear(); } catch {}
-  try { await webAuthnManager.thresholdSession.clearWarmSigningSessions(); } catch {}
+  try { signingEngine.getNonceManager().clear(); } catch {}
+  try { await signingEngine.clearWarmSigningSessions(); } catch {}
   try { clearAllCachedThresholdEd25519AuthSessions(); } catch {}
   try { clearAllCachedThresholdEcdsaAuthSessions(); } catch {}
 }

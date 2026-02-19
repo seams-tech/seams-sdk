@@ -11,14 +11,14 @@ import { DeviceLinkingPhase, DeviceLinkingStatus } from '../../types/sdkSentEven
 import type { DeviceLinkingSSEEvent } from '../../types/sdkSentEvents';
 import { toAccountId } from '../../types/accountIds';
 import { errorMessage } from '@shared/utils/errors';
-import { IndexedDBManager } from '../../IndexedDBManager';
+import { IndexedDBManager } from '../../indexedDB';
 import { ensureEd25519Prefix, isObject } from '@shared/utils/validation';
 import type { WalletIframeCoordinator } from '../walletIframeCoordinator';
 import { getLoginSession } from '../login';
 import { linkDeviceWithScannedQRData as linkDeviceWithScannedQRDataDevice1 } from '../scanDevice';
 import { DEVICE_LINKING_CONFIG } from '../../../config';
-import { normalizeRegistrationCredential } from '../../signing/webauthn/credentials/helpers';
-import { redactCredentialExtensionOutputs } from '../../signing/webauthn/credentials';
+import { normalizeRegistrationCredential } from '../../signingEngine/signers/webauthn/credentials/helpers';
+import { redactCredentialExtensionOutputs } from '../../signingEngine/signers/webauthn/credentials';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
 import { DEFAULT_WAIT_STATUS } from '../../types/rpc';
 import { ActionType, type ActionArgsWasm } from '../../types/actions';
@@ -259,7 +259,7 @@ export class LinkDeviceFlow {
       throw new Error('LinkDeviceFlow: missing temporary private key for completion');
     }
 
-    const rpId = this.context.webAuthnManager.getRpId();
+    const rpId = this.context.signingEngine.getRpId();
     if (!rpId) throw new Error('Missing rpId for link-device flow');
 
     const deviceNumberHint = coerceDeviceNumber(session.deviceNumber ?? this.options?.deviceNumber ?? 2);
@@ -272,7 +272,7 @@ export class LinkDeviceFlow {
       message: 'Creating passkey for linked device…',
     });
 
-    const confirm = await this.context.webAuthnManager.credentialRecovery.requestRegistrationCredentialConfirmation({
+    const confirm = await this.context.signingEngine.requestRegistrationCredentialConfirmation({
       nearAccountId,
       deviceNumber: deviceNumberHint,
       confirmerText: this.options?.options?.confirmerText,
@@ -284,7 +284,7 @@ export class LinkDeviceFlow {
     const credential = confirm.credential;
     const resolvedDeviceNumber = parseDeviceNumberFromIntentDigest(confirm.intentDigest, deviceNumberHint);
 
-    const derived = await this.context.webAuthnManager.thresholdKeyLifecycle.deriveThresholdEd25519ClientVerifyingShareFromCredential({
+    const derived = await this.context.signingEngine.deriveThresholdEd25519ClientVerifyingShareFromCredential({
       credential,
       nearAccountId,
     });
@@ -301,7 +301,7 @@ export class LinkDeviceFlow {
       wrapKeySalt: string;
     } | null = null;
     if (localSignerEnabled) {
-      const localKeyResult = await this.context.webAuthnManager.credentialRecovery.deriveNearKeypairAndEncryptFromSerialized({
+      const localKeyResult = await this.context.signingEngine.deriveNearKeypairAndEncryptFromSerialized({
         credential,
         nearAccountId: String(nearAccountId),
         options: { deviceNumber: resolvedDeviceNumber, persistToDb: false },
@@ -398,7 +398,7 @@ export class LinkDeviceFlow {
       delayMs: 500,
       finality: 'optimistic',
     });
-    const signed = await this.context.webAuthnManager.credentialRecovery.signTransactionWithKeyPair({
+    const signed = await this.context.signingEngine.signTransactionWithKeyPair({
       nearPrivateKey: session.tempPrivateKey,
       signerAccountId: String(nearAccountId),
       receiverId: String(nearAccountId),
@@ -420,7 +420,7 @@ export class LinkDeviceFlow {
     await this.storeDeviceAuthenticator({ nearPublicKey: thresholdPublicKey, credential });
 
     if (localKeyMaterialForPersist) {
-      await IndexedDBManager.storeNearLocalKeyMaterialV2({
+      await IndexedDBManager.storeNearLocalKeyMaterial({
         nearAccountId,
         deviceNumber: resolvedDeviceNumber,
         publicKey: localKeyMaterialForPersist.publicKey,
@@ -432,7 +432,7 @@ export class LinkDeviceFlow {
       });
     }
 
-    await IndexedDBManager.storeNearThresholdKeyMaterialV2({
+    await IndexedDBManager.storeNearThresholdKeyMaterial({
       nearAccountId,
       deviceNumber: resolvedDeviceNumber,
       publicKey: thresholdPublicKey,
@@ -491,9 +491,9 @@ export class LinkDeviceFlow {
         message: 'Logging in…',
       });
 
-      await this.context.webAuthnManager.indexedDbRegistration.setLastUser(nearAccountId, deviceNumber).catch(() => undefined);
-      await this.context.webAuthnManager.indexedDbRegistration.updateLastLogin(nearAccountId).catch(() => undefined);
-      await this.context.webAuthnManager.indexedDbRegistration.initializeCurrentUser(nearAccountId, this.context.nearClient);
+      await this.context.signingEngine.setLastUser(nearAccountId, deviceNumber).catch(() => undefined);
+      await this.context.signingEngine.updateLastLogin(nearAccountId).catch(() => undefined);
+      await this.context.signingEngine.initializeCurrentUser(nearAccountId, this.context.nearClient);
       const { login } = await getLoginSession(this.context, nearAccountId);
       if (!login?.isLoggedIn) {
         throw new Error(`Auto-login did not mark ${String(nearAccountId)} as logged in`);
@@ -571,7 +571,7 @@ export class LinkDeviceFlow {
           : `ldsess-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
       const deviceNumber = coerceDeviceNumber(this.options?.deviceNumber ?? 2);
-      const tempKeypair = await this.context.webAuthnManager.credentialRecovery.generateEphemeralNearKeypair();
+      const tempKeypair = await this.context.signingEngine.generateEphemeralNearKeypair();
 
       this.session = {
         sessionId,
@@ -640,10 +640,10 @@ export class LinkDeviceFlow {
     if (!credentialId) throw new Error('LinkDeviceFlow: missing credential.rawId');
     if (!attestationObject) throw new Error('LinkDeviceFlow: missing credential.response.attestationObject');
 
-    const credentialPublicKey = await this.context.webAuthnManager.credentialRecovery.extractCosePublicKey(attestationObject);
+    const credentialPublicKey = await this.context.signingEngine.extractCosePublicKey(attestationObject);
 
     // 1) Store user data first (also sets last-user/profile pointer).
-    await this.context.webAuthnManager.indexedDbRegistration.storeUserData({
+    await this.context.signingEngine.storeUserData({
       nearAccountId,
       deviceNumber,
       clientNearPublicKey: nearPublicKey,
@@ -656,7 +656,7 @@ export class LinkDeviceFlow {
     });
 
     // 2) Store authenticator once profile/account mapping exists.
-    await this.context.webAuthnManager.indexedDbRegistration.storeAuthenticator({
+    await this.context.signingEngine.storeAuthenticator({
       nearAccountId,
       credentialId,
       credentialPublicKey,

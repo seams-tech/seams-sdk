@@ -103,7 +103,7 @@ The wallet service iframe and the nested modal iframe must be allowed to use Web
 
 2) Modal host iframe (full‑screen UI for confirm in wallet origin)
 
-- File: `client/src/core/signing/secureConfirm/ui/lit-components/IframeTxConfirmer/tx-confirmer-wrapper.ts`
+- File: `client/src/core/signingEngine/secureConfirm/ui/lit-components/IframeTxConfirmer/tx-confirmer-wrapper.ts`
 - Uses: `allow="publickey-credentials-get; publickey-credentials-create"`
 - This iframe is same‑origin to the wallet host, so it inherits the wallet origin’s permission context.
 
@@ -169,7 +169,7 @@ Before merging changes to the progress bus or overlay logic, verify:
 
 - Pre‑warm to reduce perceived latency before the overlay appears:
   - `tatchi.prefetchBlockheight()` → caches/refreshes block height/hash/nonce ahead of time.
-  - Sources: `client/src/core/TatchiPasskey/index.ts` and `client/src/core/near/nonceManager.ts`.
+  - Sources: `client/src/core/TatchiPasskey/index.ts` and `client/src/core/rpcClients/near/nonceManager.ts`.
 
 - Overlay is intentionally invisible but intercepts clicks while active. Keep the overlay up for the minimum time by limiting “show” to the phases that truly need activation (as implemented in `progress/on-events-progress-bus.ts`).
 

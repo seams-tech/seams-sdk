@@ -50,7 +50,7 @@ Out of scope:
 ## Target Structure
 
 ```txt
-client/src/core/signing/secureConfirm/
+client/src/core/signingEngine/secureConfirm/
   index.ts
   manager.ts
 
@@ -115,12 +115,12 @@ Notes:
 
 ### Files expected to be removed (end state)
 
-- `client/src/core/signing/secureConfirm/handlers/index.ts`
-- `client/src/core/signing/secureConfirm/handlers/confirmAndPrepareSigningSession.ts`
-- `client/src/core/signing/secureConfirm/handlers/requestRegistrationCredentialConfirmation.ts`
-- `client/src/core/signing/secureConfirm/confirmTxFlow/flows/intentDigest.ts`
-- `client/src/core/signing/secureConfirm/confirmTxFlow/flows/transactions.ts`
-- `client/src/core/signing/secureConfirm/confirmTxFlow/flows/requestRegistrationCredentialConfirmation.ts`
+- `client/src/core/signingEngine/secureConfirm/handlers/index.ts`
+- `client/src/core/signingEngine/secureConfirm/handlers/confirmAndPrepareSigningSession.ts`
+- `client/src/core/signingEngine/secureConfirm/handlers/requestRegistrationCredentialConfirmation.ts`
+- `client/src/core/signingEngine/secureConfirm/confirmTxFlow/flows/intentDigest.ts`
+- `client/src/core/signingEngine/secureConfirm/confirmTxFlow/flows/transactions.ts`
+- `client/src/core/signingEngine/secureConfirm/confirmTxFlow/flows/requestRegistrationCredentialConfirmation.ts`
 
 ## Phased Execution
 

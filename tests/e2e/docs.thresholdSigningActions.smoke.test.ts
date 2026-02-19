@@ -14,16 +14,19 @@ test.describe('docs frontend signing actions smoke', () => {
     page,
   }) => {
     await page.evaluate(async ({ paths }) => {
+      const viteReactPath = '/node_modules/.vite/deps/react.js' as string;
+      const viteReactDomClientPath = '/node_modules/.vite/deps/react-dom_client.js' as string;
+      const viteReactDomPath = '/node_modules/.vite/deps/react-dom.js' as string;
       const React =
-        ((await import('/node_modules/.vite/deps/react.js').catch(() => null)) as any) ||
+        ((await import(viteReactPath).catch(() => null)) as any) ||
         (await import('react'));
       const ReactRuntime = (React as any).default || React;
       const ReactDOMClient =
-        ((await import('/node_modules/.vite/deps/react-dom_client.js').catch(() => null)) as any) ||
+        ((await import(viteReactDomClientPath).catch(() => null)) as any) ||
         (await import('react-dom/client'));
       const ReactDOMClientRuntime = (ReactDOMClient as any).default || ReactDOMClient;
       const ReactDOM =
-        ((await import('/node_modules/.vite/deps/react-dom.js').catch(() => null)) as any) ||
+        ((await import(viteReactDomPath).catch(() => null)) as any) ||
         (await import('react-dom'));
       const ReactDOMRuntime = (ReactDOM as any).default || ReactDOM;
       const demoMod = await import(paths.demoPage);

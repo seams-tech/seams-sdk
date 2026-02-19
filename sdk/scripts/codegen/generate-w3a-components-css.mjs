@@ -27,7 +27,7 @@ const cssOutPath = path.join(
   'client',
   'src',
   'core',
-  'signing',
+  'signingEngine',
   'secureConfirm',
   'ui',
   'lit-components',

@@ -12,7 +12,7 @@ import type {
 import type { ThemeName } from '../core/types/tatchi';
 import { TransactionInput } from '../core/types/actions';
 import type { ConfirmationConfig, ConfirmationBehavior } from '../core/types/signer-worker';
-import type { ClientUserData } from '../core/IndexedDBManager/passkeyClientDB.types';
+import type { ClientUserData } from '../core/indexedDB/passkeyClientDB.types';
 import type { ActionArgs } from '../core/types/actions';
 import type {
   ActionSSEEvent,
@@ -41,7 +41,7 @@ import type {
   SigningSessionStatus,
 } from '../core/types/tatchi';
 import type { DeviceLinkingQRData, StartDevice2LinkingFlowArgs } from '../core/types/linkDevice';
-import type { AccessKeyList } from '../core/near/NearClient';
+import type { AccessKeyList } from '../core/rpcClients/near/NearClient';
 
 // Re-export enums for convenience
 export {

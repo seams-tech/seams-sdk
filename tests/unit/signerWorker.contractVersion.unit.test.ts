@@ -7,7 +7,7 @@ test.describe('signer worker contract version guards', () => {
 
   test('resolves undefined request version to the current contract version', async ({ page }) => {
     const result = await page.evaluate(async () => {
-      const mod = await import('/sdk/esm/core/signing/workers/signerWorkerManager/backends/types.js');
+      const mod = await import('/sdk/esm/core/signingEngine/workers/signerWorkerManager/backends/types.js');
       return mod.resolveSignerWorkerContractVersion(undefined);
     });
 
@@ -17,7 +17,7 @@ test.describe('signer worker contract version guards', () => {
   test('rejects unsupported version before dispatching a multichain request', async ({ page }) => {
     const result = await page.evaluate(async () => {
       const { getMultichainSignerWorkerTransport } = await import(
-        '/sdk/esm/core/signing/workers/signerWorkerManager/backends/multichainWorkerBackend.js'
+        '/sdk/esm/core/signingEngine/workers/signerWorkerManager/backends/multichainWorkerBackend.js'
       );
       const unsupportedVersion = 999;
 
@@ -41,7 +41,7 @@ test.describe('signer worker contract version guards', () => {
   test('propagates typed signer error codes from multichain wasm worker failures', async ({ page }) => {
     const result = await page.evaluate(async () => {
       const { getMultichainSignerWorkerTransport } = await import(
-        '/sdk/esm/core/signing/workers/signerWorkerManager/backends/multichainWorkerBackend.js'
+        '/sdk/esm/core/signingEngine/workers/signerWorkerManager/backends/multichainWorkerBackend.js'
       );
 
       try {

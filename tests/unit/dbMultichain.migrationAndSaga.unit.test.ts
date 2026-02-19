@@ -2,10 +2,10 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  clientDB: '/sdk/esm/core/IndexedDBManager/passkeyClientDB/manager.js',
-  nearKeysDB: '/sdk/esm/core/IndexedDBManager/passkeyNearKeysDB/manager.js',
-  indexedDB: '/sdk/esm/core/IndexedDBManager/index.js',
-  getDeviceNumber: '/sdk/esm/core/signing/webauthn/device/getDeviceNumber.js',
+  clientDB: '/sdk/esm/core/indexedDB/passkeyClientDB/manager.js',
+  nearKeysDB: '/sdk/esm/core/indexedDB/passkeyNearKeysDB/manager.js',
+  indexedDB: '/sdk/esm/core/indexedDB/index.js',
+  getDeviceNumber: '/sdk/esm/core/signingEngine/signers/webauthn/device/getDeviceNumber.js',
 } as const;
 
 test.describe('DB multichain migration + saga', () => {
@@ -818,7 +818,7 @@ test.describe('DB multichain migration + saga', () => {
     expect(result.opStatusBySigner['evm-signer']).toBe('confirmed');
   });
 
-  test('phase5 index queries preserve due-op and derived-address semantics', async ({ page }) => {
+  test('phase5 index queries preserve due-op semantics', async ({ page }) => {
     const result = await page.evaluate(async ({ paths }) => {
       const { PasskeyClientDBManager } = await import(paths.clientDB);
       const now = Date.now();
@@ -899,75 +899,19 @@ test.describe('DB multichain migration + saga', () => {
         limit: 20,
       });
 
-      await dbm.setDerivedAddressV2({
-        profileId: 'profile-phase5',
-        sourceChainId: 'near:testnet',
-        sourceAccountAddress: 'alice.testnet',
-        targetChainId: 'eip155:1',
-        providerRef: 'v1.signer',
-        path: 'evm:1:0',
-        address: '0x111',
-        updatedAt: now + 1,
-      });
-      await dbm.setDerivedAddressV2({
-        profileId: 'profile-phase5',
-        sourceChainId: 'near:testnet',
-        sourceAccountAddress: 'alice.testnet',
-        targetChainId: 'eip155:8453',
-        providerRef: 'v1.signer',
-        path: 'evm:1:0',
-        address: '0x8453',
-        updatedAt: now + 2,
-      });
-      await dbm.setDerivedAddressV2({
-        profileId: 'profile-phase5',
-        sourceChainId: 'near:testnet',
-        sourceAccountAddress: 'alice.testnet',
-        targetChainId: 'eip155:1',
-        providerRef: 'different.signer',
-        path: 'evm:1:0',
-        address: '0x999',
-        updatedAt: now + 3,
-      });
-
-      const selectedDerived = await dbm.getDerivedAddressV2({
-        profileId: 'profile-phase5',
-        sourceChainId: 'near:testnet',
-        sourceAccountAddress: 'alice.testnet',
-        providerRef: 'v1.signer',
-        path: 'evm:1:0',
-      });
-      const missingDerived = await dbm.getDerivedAddressV2({
-        profileId: 'profile-phase5',
-        sourceChainId: 'near:testnet',
-        sourceAccountAddress: 'alice.testnet',
-        providerRef: 'missing.signer',
-        path: 'evm:1:0',
-      });
-
       const raw = await (dbm as any).getDB();
       const outboxIndexNames = Array.from(
         raw.transaction('signerOpsOutbox', 'readonly').store.indexNames as any,
       );
-      const derivedIndexNames = Array.from(
-        raw.transaction('derivedAddressesV2', 'readonly').store.indexNames as any,
-      );
 
       return {
         outboxIndexNames,
-        derivedIndexNames,
         defaultDueOrder: defaultDue.map((row: any) => row.opId),
         explicitDueOrder: explicitDue.map((row: any) => row.opId),
-        selectedDerivedAddress: selectedDerived?.address || null,
-        selectedDerivedTargetChainId: selectedDerived?.targetChainId || null,
-        missingDerived: missingDerived || null,
       };
     }, { paths: IMPORT_PATHS });
 
     expect(result.outboxIndexNames).toContain('status_nextAttemptAt');
-    expect(result.derivedIndexNames).toContain(
-      'profileId_sourceChainId_sourceAccountAddress_providerRef_path',
-    );
     expect(result.defaultDueOrder).toEqual(['op-failed', 'op-submitted', 'op-queued-due']);
     expect(result.explicitDueOrder).toEqual([
       'op-confirmed',
@@ -975,9 +919,6 @@ test.describe('DB multichain migration + saga', () => {
       'op-submitted',
       'op-queued-due',
     ]);
-    expect(result.selectedDerivedAddress).toBe('0x8453');
-    expect(result.selectedDerivedTargetChainId).toBe('eip155:8453');
-    expect(result.missingDerived).toBeNull();
   });
 
   test('phase8 migration backfills smart-account defaults for legacy rows', async ({ page }) => {
@@ -1007,11 +948,10 @@ test.describe('DB multichain migration + saga', () => {
       const completedV4Checkpoints = {
         legacyUsersToCoreV2: { status: 'completed', completedAt: now - 700 },
         legacyAuthenticatorsToProfileAuthenticators: { status: 'completed', completedAt: now - 690 },
-        legacyDerivedAddressesToV2: { status: 'completed', completedAt: now - 680 },
-        legacyRecoveryEmailsToV2: { status: 'completed', completedAt: now - 670 },
-        lastProfileStateSync: { status: 'completed', completedAt: now - 660 },
-        parityChecksLogged: { status: 'completed', completedAt: now - 650 },
-        invariantsValidatedAndQuarantined: { status: 'completed', completedAt: now - 640 },
+        legacyRecoveryEmailsToV2: { status: 'completed', completedAt: now - 680 },
+        lastProfileStateSync: { status: 'completed', completedAt: now - 670 },
+        parityChecksLogged: { status: 'completed', completedAt: now - 660 },
+        invariantsValidatedAndQuarantined: { status: 'completed', completedAt: now - 650 },
       };
       await dbm.setAppState('migration.dbMultichainSchema.v1', {
         status: 'completed',

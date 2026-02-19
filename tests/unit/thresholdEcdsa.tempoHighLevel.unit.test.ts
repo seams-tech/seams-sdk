@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { secp256k1 } from '@noble/curves/secp256k1';
 import { keccak256, parseTransaction, recoverTransactionAddress, serializeTransaction } from 'viem';
 import { publicKeyToAddress } from 'viem/accounts';
 import { corsHeadersForRoute } from '../e2e/thresholdEd25519.testUtils';
@@ -27,6 +27,16 @@ function asBigInt(value: bigint | number | undefined, field: string): bigint {
   if (typeof value === 'bigint') return value;
   if (typeof value === 'number') return BigInt(value);
   throw new Error(`Expected ${field} to be bigint/number`);
+}
+
+function secpPointFromCompressedHex(compressed33: Uint8Array): any {
+  const pointCtor = ((secp256k1 as any).ProjectivePoint || (secp256k1 as any).Point) as
+    | { fromHex: (hex: Uint8Array) => any }
+    | undefined;
+  if (!pointCtor || typeof pointCtor.fromHex !== 'function') {
+    throw new Error('secp256k1 point constructor is unavailable');
+  }
+  return pointCtor.fromHex(compressed33);
 }
 
 async function observePostCalls(
@@ -137,7 +147,7 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       const groupPublicKeyCompressed = Buffer.from(String(result.keygen?.groupPublicKeyB64u || ''), 'base64url');
       expect(groupPublicKeyCompressed.length).toBe(33);
 
-      const groupPoint = secp256k1.ProjectivePoint.fromHex(groupPublicKeyCompressed);
+      const groupPoint = secpPointFromCompressedHex(groupPublicKeyCompressed);
       const groupPublicKeyUncompressedHex = `0x${groupPoint.toHex(false)}` as `0x${string}`;
       const expectedSignerAddress = publicKeyToAddress(groupPublicKeyUncompressedHex);
       expect(recoveredAddress.toLowerCase()).toBe(expectedSignerAddress.toLowerCase());

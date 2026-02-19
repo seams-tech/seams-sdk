@@ -3,7 +3,7 @@
  *
  * In the threshold-only architecture:
  * - These values are threaded into the TatchiPasskey instance and ultimately
- *   into WebAuthnManager, NearClient, and the SecureConfirm worker configuration.
+ *   into SigningEngine, NearClient, and the SecureConfirm worker configuration.
  * - `nearRpcUrl` / `contractId` are used by confirmTxFlow and signing helpers
  *   to fetch NEAR context consistently.
  */

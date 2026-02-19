@@ -35,21 +35,21 @@ function firstExistingLineMatch(paths, substring, repoRoot) {
 }
 
 export function findWorkerRuntimeBoundaryViolations(repoRoot) {
-  const executeHelperFile = 'client/src/core/signing/workers/operations/executeSignerWorkerOperation.ts';
+  const executeHelperFile = 'client/src/core/signingEngine/workers/operations/executeSignerWorkerOperation.ts';
   const legacyWorkerRoot = 'client/src/core/workers';
   const workerBoundaryFiles = [
-    'client/src/core/signing/workers/signerWorkerManager/backends/multichainWorkerBackend.ts',
-    'client/src/core/signing/workers/signerWorkerManager/backends/nearWorkerBackend.ts',
-    'client/src/core/signing/workers/eth-signer.worker.ts',
-    'client/src/core/signing/workers/tempo-signer.worker.ts',
+    'client/src/core/signingEngine/workers/signerWorkerManager/backends/multichainWorkerBackend.ts',
+    'client/src/core/signingEngine/workers/signerWorkerManager/backends/nearWorkerBackend.ts',
+    'client/src/core/signingEngine/workers/eth-signer.worker.ts',
+    'client/src/core/signingEngine/workers/tempo-signer.worker.ts',
   ];
   const workerTransportFiles = [
-    'client/src/core/signing/workers/signerWorkerManager/backends/multichainWorkerBackend.ts',
-    'client/src/core/signing/workers/signerWorkerManager/backends/nearWorkerBackend.ts',
+    'client/src/core/signingEngine/workers/signerWorkerManager/backends/multichainWorkerBackend.ts',
+    'client/src/core/signingEngine/workers/signerWorkerManager/backends/nearWorkerBackend.ts',
   ];
   const workerRuntimeFiles = [
-    'client/src/core/signing/workers/eth-signer.worker.ts',
-    'client/src/core/signing/workers/tempo-signer.worker.ts',
+    'client/src/core/signingEngine/workers/eth-signer.worker.ts',
+    'client/src/core/signingEngine/workers/tempo-signer.worker.ts',
   ];
 
   const checks = [];

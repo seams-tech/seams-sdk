@@ -1,12 +1,13 @@
 import { toAccountId } from '../../types/accountIds';
 import type { EvmSignerCapability } from '..';
+import {
+  routeWalletIframeOrLocal,
+  type WalletIframeRouteDeps,
+} from '../walletIframeRoute';
 
 type ChainSignerDeps = {
   getContext: () => import('../index').PasskeyManagerContext;
-  walletIframe: Pick<
-    import('../walletIframeCoordinator').WalletIframeCoordinator,
-    'shouldUseWalletIframe' | 'requireRouter'
-  >;
+  walletIframe: WalletIframeRouteDeps;
 };
 
 /**
@@ -29,27 +30,27 @@ export class EvmSigner implements EvmSignerCapability {
       chain: 'evm' as const,
     };
 
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(args.nearAccountId);
-      return await router.bootstrapThresholdEcdsaSession({
-        nearAccountId: args.nearAccountId,
-        options,
-      });
-    }
-
-    return await this
-      .getContext()
-      .webAuthnManager
-      .thresholdSession
-      .bootstrapThresholdEcdsaSessionLite({
-        nearAccountId: toAccountId(args.nearAccountId),
-        chain: options.chain,
-        relayerUrl: options.relayerUrl,
-        participantIds: options.participantIds,
-        sessionKind: options.sessionKind,
-        ttlMs: options.ttlMs,
-        remainingUses: options.remainingUses,
-        smartAccount: options.smartAccount,
-      });
+    return await routeWalletIframeOrLocal({
+      walletIframe: this.walletIframe,
+      nearAccountId: args.nearAccountId,
+      remote: async (router) => {
+        return await router.bootstrapThresholdEcdsaSession({
+          nearAccountId: args.nearAccountId,
+          options,
+        });
+      },
+      local: async () => {
+        return await this.getContext().signingEngine.bootstrapThresholdEcdsaSessionLite({
+          nearAccountId: toAccountId(args.nearAccountId),
+          chain: options.chain,
+          relayerUrl: options.relayerUrl,
+          participantIds: options.participantIds,
+          sessionKind: options.sessionKind,
+          ttlMs: options.ttlMs,
+          remainingUses: options.remainingUses,
+          smartAccount: options.smartAccount,
+        });
+      },
+    });
   }
 }

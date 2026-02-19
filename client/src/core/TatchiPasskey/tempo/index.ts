@@ -1,6 +1,10 @@
-import type { TempoSignedResult } from '../../signing/chainAdaptors/tempo/tempoAdapter';
+import type { TempoSignedResult } from '../../signingEngine/chainAdaptors/tempo/tempoAdapter';
 import { toError } from '@shared/utils/errors';
 import { toAccountId } from '../../types/accountIds';
+import {
+  routeWalletIframeOrLocal,
+  type WalletIframeRouteDeps,
+} from '../walletIframeRoute';
 import type {
   SignTempoArgs,
   SignTempoWithThresholdEcdsaArgs,
@@ -9,15 +13,12 @@ import type {
 
 type ChainSignerDeps = {
   getContext: () => import('../index').PasskeyManagerContext;
-  walletIframe: Pick<
-    import('../walletIframeCoordinator').WalletIframeCoordinator,
-    'shouldUseWalletIframe' | 'requireRouter'
-  >;
+  walletIframe: WalletIframeRouteDeps;
 };
 
 /**
  * Tempo signing call graph:
- * - tempo signing/bootstrap -> wallet iframe router OR WebAuthnManager signing surfaces
+ * - tempo signing/bootstrap -> wallet iframe router OR SigningEngine signing surfaces
  */
 export class TempoSigner implements TempoSignerCapability {
   private readonly getContext: ChainSignerDeps['getContext'];
@@ -29,9 +30,10 @@ export class TempoSigner implements TempoSignerCapability {
   }
 
   async signTempo(args: SignTempoArgs): Promise<TempoSignedResult> {
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      try {
-        const router = await this.walletIframe.requireRouter(args.nearAccountId);
+    return await routeWalletIframeOrLocal({
+      walletIframe: this.walletIframe,
+      nearAccountId: args.nearAccountId,
+      remote: async (router) => {
         return await router.signTempo({
           nearAccountId: args.nearAccountId,
           request: args.request,
@@ -41,18 +43,20 @@ export class TempoSigner implements TempoSignerCapability {
             onEvent: args.options?.onEvent,
           },
         });
-      } catch (error: unknown) {
+      },
+      onRemoteError: async (error) => {
         throw toError(error);
-      }
-    }
-
-    return await this.getContext().webAuthnManager.signingActions.signTempo({
-      nearAccountId: args.nearAccountId,
-      request: args.request,
-      confirmationConfigOverride: args.options?.confirmationConfig,
-      thresholdEcdsaKeyRef: args.options?.thresholdEcdsaKeyRef,
-      shouldAbort: args.options?.shouldAbort,
-      onEvent: args.options?.onEvent,
+      },
+      local: async () => {
+        return await this.getContext().signingEngine.signTempo({
+          nearAccountId: args.nearAccountId,
+          request: args.request,
+          confirmationConfigOverride: args.options?.confirmationConfig,
+          thresholdEcdsaKeyRef: args.options?.thresholdEcdsaKeyRef,
+          shouldAbort: args.options?.shouldAbort,
+          onEvent: args.options?.onEvent,
+        });
+      },
     });
   }
 
@@ -65,9 +69,10 @@ export class TempoSigner implements TempoSignerCapability {
       );
     }
 
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      try {
-        const router = await this.walletIframe.requireRouter(args.nearAccountId);
+    return await routeWalletIframeOrLocal({
+      walletIframe: this.walletIframe,
+      nearAccountId: args.nearAccountId,
+      remote: async (router) => {
         return await router.signTempoWithThresholdEcdsa({
           nearAccountId: args.nearAccountId,
           request: args.request,
@@ -76,21 +81,22 @@ export class TempoSigner implements TempoSignerCapability {
             confirmationConfig: args.options?.confirmationConfig,
           },
         });
-      } catch (error: unknown) {
+      },
+      onRemoteError: async (error) => {
         throw toError(error);
-      }
-    }
-
-    return await this
-      .getContext()
-      .webAuthnManager
-      .signingActions
-      .signTempoWithThresholdEcdsa({
-        nearAccountId: args.nearAccountId,
-        request: args.request,
-        thresholdEcdsaKeyRef: args.thresholdEcdsaKeyRef,
-        confirmationConfigOverride: args.options?.confirmationConfig,
-      });
+      },
+      local: async () => {
+        return await this
+          .getContext()
+          .signingEngine
+          .signTempoWithThresholdEcdsa({
+            nearAccountId: args.nearAccountId,
+            request: args.request,
+            thresholdEcdsaKeyRef: args.thresholdEcdsaKeyRef,
+            confirmationConfigOverride: args.options?.confirmationConfig,
+          });
+      },
+    });
   }
 
   async bootstrapThresholdEcdsaSession(
@@ -101,27 +107,30 @@ export class TempoSigner implements TempoSignerCapability {
       chain: 'tempo' as const,
     };
 
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(args.nearAccountId);
-      return await router.bootstrapThresholdEcdsaSession({
-        nearAccountId: args.nearAccountId,
-        options,
-      });
-    }
-
-    return await this
-      .getContext()
-      .webAuthnManager
-      .thresholdSession
-      .bootstrapThresholdEcdsaSessionLite({
-        nearAccountId: toAccountId(args.nearAccountId),
-        chain: options.chain,
-        relayerUrl: options.relayerUrl,
-        participantIds: options.participantIds,
-        sessionKind: options.sessionKind,
-        ttlMs: options.ttlMs,
-        remainingUses: options.remainingUses,
-        smartAccount: options.smartAccount,
-      });
+    return await routeWalletIframeOrLocal({
+      walletIframe: this.walletIframe,
+      nearAccountId: args.nearAccountId,
+      remote: async (router) => {
+        return await router.bootstrapThresholdEcdsaSession({
+          nearAccountId: args.nearAccountId,
+          options,
+        });
+      },
+      local: async () => {
+        return await this
+          .getContext()
+          .signingEngine
+          .bootstrapThresholdEcdsaSessionLite({
+            nearAccountId: toAccountId(args.nearAccountId),
+            chain: options.chain,
+            relayerUrl: options.relayerUrl,
+            participantIds: options.participantIds,
+            sessionKind: options.sessionKind,
+            ttlMs: options.ttlMs,
+            remainingUses: options.remainingUses,
+            smartAccount: options.smartAccount,
+          });
+      },
+    });
   }
 }

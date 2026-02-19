@@ -1,4 +1,4 @@
-import type { NearClient } from '../near/NearClient';
+import type { NearClient } from '../rpcClients/near/NearClient';
 import { ensureEd25519Prefix, validateNearAccountId } from '@shared/utils/validation';
 import type {
   RegistrationHooksOptions,
@@ -11,33 +11,33 @@ import {
   createAccountAndRegisterWithRelayServer
 } from './faucets/createAccountRelayServer';
 import { PasskeyManagerContext } from './index';
-import { WebAuthnManager } from '../signing/api/WebAuthnManager';
-import { IndexedDBManager } from '../IndexedDBManager';
+import type { SigningEnginePublic } from '../signingEngine/SigningEngine';
+import { IndexedDBManager } from '../indexedDB';
 import { type ConfirmationConfig, mergeSignerMode } from '../types/signer-worker';
 import type { AccountId } from '../types/accountIds';
 import { errorMessage, getUserFriendlyErrorMessage } from '@shared/utils/errors';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
 import { THRESHOLD_ED25519_2P_PARTICIPANT_IDS } from '../config/defaultConfigs';
-import { checkNearAccountExistsBestEffort } from '../near/rpcCalls';
+import { checkNearAccountExistsBestEffort } from '../rpcClients/near/rpcCalls';
 import type {
   ThresholdEcdsaActivationChain,
   ThresholdEcdsaSessionBootstrapResult,
-} from '../signing/orchestration/activation';
-import { getPrfResultsFromCredential } from '../signing/webauthn/credentials/credentialExtensions';
+} from '../signingEngine/orchestration/activation';
+import { getPrfResultsFromCredential } from '../signingEngine/signers/webauthn/credentials/credentialExtensions';
 import {
   THRESHOLD_SESSION_POLICY_VERSION,
   buildThresholdEcdsaSessionPolicy,
   buildThresholdSessionPolicy,
   generateThresholdSessionId,
-} from '../signing/threshold/session/thresholdSessionPolicy';
+} from '../signingEngine/threshold/session/thresholdSessionPolicy';
 import {
   makeThresholdEd25519AuthSessionCacheKey,
   putCachedThresholdEd25519AuthSession,
-} from '../signing/threshold/session/thresholdEd25519AuthSession';
+} from '../signingEngine/threshold/session/thresholdEd25519AuthSession';
 import {
   makeThresholdEcdsaAuthSessionCacheKey,
   putCachedThresholdEcdsaAuthSession,
-} from '../signing/threshold/session/thresholdEcdsaAuthSession';
+} from '../signingEngine/threshold/session/thresholdEcdsaAuthSession';
 import type {
   RegistrationSignerOptions,
   RegistrationThresholdEcdsaSignerOptions,
@@ -86,7 +86,7 @@ export async function registerPasskeyInternal(
 ): Promise<RegistrationResult> {
 
   const { onEvent, onError, afterCall } = options;
-  const { webAuthnManager, configs } = context;
+  const { signingEngine, configs } = context;
 
   // Track registration progress for rollback
   const registrationState = {
@@ -121,7 +121,7 @@ export async function registerPasskeyInternal(
       ...(confirmationConfigOverride ?? options?.confirmationConfig ?? {}),
     };
 
-    const registrationSession = await context.webAuthnManager.credentialRecovery.requestRegistrationCredentialConfirmation({
+    const registrationSession = await context.signingEngine.requestRegistrationCredentialConfirmation({
       nearAccountId: String(nearAccountId),
       deviceNumber: 1,
       confirmerText: options?.confirmerText,
@@ -137,7 +137,7 @@ export async function registerPasskeyInternal(
       message: 'WebAuthn ceremony successful'
     });
 
-    const baseSignerMode = webAuthnManager.getUserPreferences().getSignerMode();
+    const baseSignerMode = signingEngine.getUserPreferences().getSignerMode();
     // Registration defaults to threshold mode even when global/user defaults are local-signer.
     // Explicit per-call overrides can still force local mode for account-key registration.
     const registrationDefaultSignerMode = baseSignerMode.mode === 'threshold-signer'
@@ -195,7 +195,7 @@ export async function registerPasskeyInternal(
     // - threshold-signer + backupLocalKey: also derive encrypted local backup key material for export
     // - local-signer: derive encrypted local key material for account key usage
     if (requestedSignerModeStr === 'threshold-signer') {
-      const derived = await webAuthnManager.thresholdKeyLifecycle.deriveThresholdEd25519ClientVerifyingShareFromCredential({
+      const derived = await signingEngine.deriveThresholdEd25519ClientVerifyingShareFromCredential({
         credential,
         nearAccountId,
       });
@@ -203,7 +203,7 @@ export async function registerPasskeyInternal(
         throw new Error(derived.error || 'Failed to derive threshold client verifying share');
       }
       thresholdClientVerifyingShareB64u = derived.clientVerifyingShareB64u;
-      const derivedEcdsa = await webAuthnManager.thresholdKeyLifecycle.deriveThresholdEcdsaClientVerifyingShareFromCredential({
+      const derivedEcdsa = await signingEngine.deriveThresholdEcdsaClientVerifyingShareFromCredential({
         credential,
         nearAccountId,
       });
@@ -217,7 +217,7 @@ export async function registerPasskeyInternal(
       }
 
       if (deriveLocalBackupKey) {
-        const localKeyResult = await webAuthnManager.credentialRecovery.deriveNearKeypairAndEncryptFromSerialized({
+        const localKeyResult = await signingEngine.deriveNearKeypairAndEncryptFromSerialized({
           credential,
           nearAccountId,
           options: { deviceNumber, persistToDb: false },
@@ -245,7 +245,7 @@ export async function registerPasskeyInternal(
         };
       }
     } else {
-      const nearKeyResult = await webAuthnManager.credentialRecovery.deriveNearKeypairAndEncryptFromSerialized({
+      const nearKeyResult = await signingEngine.deriveNearKeypairAndEncryptFromSerialized({
         credential,
         nearAccountId,
         options: { deviceNumber, persistToDb: false },
@@ -291,8 +291,7 @@ export async function registerPasskeyInternal(
       nearPublicKey: accountNearPublicKey || null,
     });
 
-    let accountAndRegistrationResult;
-    const rpId = webAuthnManager.getRpId();
+    const rpId = signingEngine.getRpId();
     if (!rpId) {
       throw new Error('Missing rpId for relay registration');
     }
@@ -336,7 +335,7 @@ export async function registerPasskeyInternal(
       };
     }
 
-    accountAndRegistrationResult = await createAccountAndRegisterWithRelayServer(
+    const accountAndRegistrationResult = await createAccountAndRegisterWithRelayServer(
       context,
       nearAccountId,
       requestedSignerModeStr === 'threshold-signer'
@@ -389,7 +388,7 @@ export async function registerPasskeyInternal(
     const thresholdEcdsaRelayerVerifyingShareB64u = String(accountAndRegistrationResult?.thresholdEcdsa?.relayerVerifyingShareB64u || '').trim();
     const thresholdEd25519Session = accountAndRegistrationResult?.thresholdEd25519?.session;
     const thresholdEcdsaSession = accountAndRegistrationResult?.thresholdEcdsa?.session;
-    let thresholdEcdsaEthereumAddress = String(accountAndRegistrationResult?.thresholdEcdsa?.ethereumAddress || '').trim();
+    const thresholdEcdsaEthereumAddress = String(accountAndRegistrationResult?.thresholdEcdsa?.ethereumAddress || '').trim();
 
     if (thresholdEd25519SessionPolicyForRegistration) {
       const sessionKind = String(thresholdEd25519Session?.sessionKind || '').trim().toLowerCase();
@@ -498,7 +497,7 @@ export async function registerPasskeyInternal(
       });
     }
 
-    let thresholdEcdsaKeyRef = (
+    const thresholdEcdsaKeyRef = (
       requestedSignerModeStr === 'threshold-signer'
       && thresholdEcdsaClientVerifyingShareB64u
       && thresholdEcdsaRelayerKeyId
@@ -545,7 +544,7 @@ export async function registerPasskeyInternal(
       ? String(thresholdPublicKey || '').trim()
       : accountCreationPublicKey;
 
-    await webAuthnManager.indexedDbRegistration.atomicStoreRegistrationData({
+    await signingEngine.atomicStoreRegistrationData({
       nearAccountId,
       credential,
       publicKey: clientNearPublicKey,
@@ -555,7 +554,7 @@ export async function registerPasskeyInternal(
     registrationState.databaseStored = true;
 
     if (localKeyMaterialForPersist) {
-      await IndexedDBManager.storeNearLocalKeyMaterialV2({
+      await IndexedDBManager.storeNearLocalKeyMaterial({
         nearAccountId,
         deviceNumber,
         publicKey: localKeyMaterialForPersist.publicKey,
@@ -568,7 +567,7 @@ export async function registerPasskeyInternal(
     }
 
     if (thresholdPublicKey && relayerKeyId && thresholdClientVerifyingShareB64u) {
-      await IndexedDBManager.storeNearThresholdKeyMaterialV2({
+      await IndexedDBManager.storeNearThresholdKeyMaterial({
         nearAccountId,
         deviceNumber,
         publicKey: thresholdPublicKey,
@@ -611,8 +610,8 @@ export async function registerPasskeyInternal(
           ? thresholdEd25519Session.participantIds
           : [...THRESHOLD_ED25519_2P_PARTICIPANT_IDS];
 
-        webAuthnManager.thresholdSession.setActiveSigningSessionId(nearAccountId, edSessionId);
-        await webAuthnManager.thresholdSession.putPrfFirstForThresholdSession({
+        signingEngine.setActiveSigningSessionId(nearAccountId, edSessionId);
+        await signingEngine.putPrfFirstForThresholdSession({
           sessionId: edSessionId,
           prfFirstB64u: thresholdPrfFirstB64u,
           expiresAtMs: edExpiresAtMs,
@@ -674,7 +673,7 @@ export async function registerPasskeyInternal(
             ? thresholdEcdsaKeyRef.participantIds
             : thresholdEcdsaSessionPolicyForRegistration.participantIds;
 
-        await webAuthnManager.thresholdSession.putPrfFirstForThresholdSession({
+        await signingEngine.putPrfFirstForThresholdSession({
           sessionId: ecdsaSessionId,
           prfFirstB64u: thresholdPrfFirstB64u,
           expiresAtMs: ecdsaExpiresAtMs,
@@ -745,7 +744,7 @@ export async function registerPasskeyInternal(
         };
 
         for (const target of thresholdEcdsaProvisionTargets) {
-          await webAuthnManager.thresholdSession.persistThresholdEcdsaBootstrapChainAccount({
+          await signingEngine.persistThresholdEcdsaBootstrapChainAccount({
             nearAccountId,
             chain: target.chain,
             bootstrap: bootstrapProjection,
@@ -757,7 +756,7 @@ export async function registerPasskeyInternal(
 
     // Initialize current user for immediate use (best-effort).
     try {
-      await webAuthnManager.indexedDbRegistration.initializeCurrentUser(nearAccountId, context.nearClient);
+      await signingEngine.initializeCurrentUser(nearAccountId, context.nearClient);
     } catch (initErr) {
       console.warn('Failed to initialize current user after registration:', initErr);
     }
@@ -794,7 +793,7 @@ export async function registerPasskeyInternal(
     await performRegistrationRollback(
       registrationState,
       nearAccountId,
-      webAuthnManager,
+      signingEngine,
       onEvent
     );
 
@@ -841,7 +840,7 @@ export async function registerPasskey(
 const validateRegistrationInputs = async (
   context: {
     configs: TatchiConfigs,
-    webAuthnManager: WebAuthnManager,
+    signingEngine: SigningEnginePublic,
     nearClient: NearClient,
   },
   nearAccountId: AccountId,
@@ -911,7 +910,7 @@ async function performRegistrationRollback(
     contractTransactionId: string | null;
   },
   nearAccountId: AccountId,
-  webAuthnManager: WebAuthnManager,
+  signingEngine: SigningEnginePublic,
   onEvent?: (event: RegistrationSSEEvent) => void
 ): Promise<void> {
   console.debug('Starting registration rollback...', registrationState);
@@ -929,7 +928,7 @@ async function performRegistrationRollback(
         error: 'Registration failed - rolling back database storage'
       } as RegistrationSSEEvent);
 
-      await webAuthnManager.indexedDbRegistration.rollbackUserRegistration(nearAccountId);
+      await signingEngine.rollbackUserRegistration(nearAccountId);
       console.debug('Database rollback completed');
     }
 

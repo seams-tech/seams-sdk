@@ -30,7 +30,7 @@ export async function signDelegateAction(args: {
   const nearAccountId = toAccountId(String(args.nearAccountId));
   const title = options?.confirmerText?.title;
   const body = options?.confirmerText?.body;
-  const base = context.webAuthnManager.getUserPreferences().getSignerMode();
+  const base = context.signingEngine.getUserPreferences().getSignerMode();
   const signerMode = mergeSignerMode(base, options.signerMode);
 
   const resolvedDelegate: DelegateActionInput = {
@@ -56,7 +56,7 @@ export async function signDelegateAction(args: {
   });
 
   try {
-    const coreResult = await context.webAuthnManager.signingActions.signDelegateAction({
+    const coreResult = await context.signingEngine.signDelegateAction({
       delegate: resolvedDelegate,
       rpcCall: {
         contractId: context.configs.contractId,

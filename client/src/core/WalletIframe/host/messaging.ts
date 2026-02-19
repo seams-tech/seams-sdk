@@ -4,7 +4,7 @@ import type {
   ReadyPayload,
 } from '../shared/messages';
 import type { HostContext } from './context';
-import { passkeyClientDB } from '../../IndexedDBManager';
+import { passkeyClientDB } from '../../indexedDB';
 
 export function post(ctx: HostContext, msg: ChildToParentEnvelope): void {
   try { ctx.port?.postMessage(msg); } catch {}

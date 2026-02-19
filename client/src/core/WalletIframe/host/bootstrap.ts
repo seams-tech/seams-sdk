@@ -1,5 +1,5 @@
-import { getEmbeddedBase, setEmbeddedBase } from '../../runtimeAssetPaths';
-import { ensureKnownW3aElement } from '../../signing/secureConfirm/ui/ensure-defined';
+import { getEmbeddedBase, setEmbeddedBase } from '../../walletRuntimePaths';
+import { ensureKnownW3aElement } from '../../signingEngine/secureConfirm/ui/ensure-defined';
 import { isDevHost } from '../shared/is-dev-host';
 
 interface GlobalThis {

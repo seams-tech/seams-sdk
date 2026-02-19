@@ -4,12 +4,12 @@ import type { SyncAccountSSEEvent } from '../types/sdkSentEvents';
 import type { PasskeyManagerContext } from './index';
 import type { AccountId, WebAuthnAuthenticationCredential } from '../types';
 import { toAccountId } from '../types/accountIds';
-import { redactCredentialExtensionOutputs } from '../signing/webauthn/credentials';
-import type { WebAuthnAllowCredential } from '../signing/webauthn/credentials';
+import { redactCredentialExtensionOutputs } from '../signingEngine/signers/webauthn/credentials';
+import type { WebAuthnAllowCredential } from '../signingEngine/signers/webauthn/credentials';
 import { base64UrlDecode } from '@shared/utils/base64';
 import { errorMessage } from '@shared/utils/errors';
 import { isObject } from '@shared/utils/validation';
-import { IndexedDBManager } from '../IndexedDBManager';
+import { IndexedDBManager } from '../indexedDB';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
 
 export interface SyncAccountResult {
@@ -49,7 +49,7 @@ export async function syncAccount(
     };
   }
 
-  const rpId = context.webAuthnManager.getRpId();
+  const rpId = context.signingEngine.getRpId();
   if (!rpId) {
     return {
       success: false,
@@ -103,7 +103,7 @@ export async function syncAccount(
 
     // NOTE: We intentionally avoid requiring a known accountId for discovery. When `allowCredentials`
     // is empty, the browser prompts the user to select any passkey for `rpId`.
-    const credential = reuseCredential || await context.webAuthnManager.credentialRecovery.getAuthenticationCredentialsSerialized({
+    const credential = reuseCredential || await context.signingEngine.getAuthenticationCredentialsSerialized({
       nearAccountId: accountId || toAccountId('dummy.testnet'),
       challengeB64u,
       allowCredentials,
@@ -154,7 +154,7 @@ export async function syncAccount(
 
     // 2) Persist user + authenticator data locally.
     const normalizedAccountId = toAccountId(syncedAccountId);
-    await context.webAuthnManager.indexedDbRegistration.storeUserData({
+    await context.signingEngine.storeUserData({
       nearAccountId: normalizedAccountId,
       deviceNumber,
       clientNearPublicKey: publicKey,
@@ -165,7 +165,7 @@ export async function syncAccount(
       },
       version: 2,
     });
-    await context.webAuthnManager.indexedDbRegistration.storeAuthenticator({
+    await context.signingEngine.storeAuthenticator({
       nearAccountId: normalizedAccountId,
       credentialId: String(credential.rawId || ''),
       credentialPublicKey,
@@ -188,13 +188,13 @@ export async function syncAccount(
     const relayerKeyId = String((thresholdEd25519.relayerKeyId ?? verifyJson.relayerKeyId ?? '') || '').trim();
     if (relayerKeyId) {
       const relayerVerifyingShareB64u = String(thresholdEd25519.relayerVerifyingShareB64u || '').trim();
-      const derived = await context.webAuthnManager.thresholdKeyLifecycle.deriveThresholdEd25519ClientVerifyingShareFromCredential({
+      const derived = await context.signingEngine.deriveThresholdEd25519ClientVerifyingShareFromCredential({
         credential,
         nearAccountId: normalizedAccountId,
       });
       const clientVerifyingShareB64u = derived.success ? String(derived.clientVerifyingShareB64u || '').trim() : '';
 
-      await IndexedDBManager.storeNearThresholdKeyMaterialV2({
+      await IndexedDBManager.storeNearThresholdKeyMaterial({
         nearAccountId: normalizedAccountId,
         deviceNumber,
         publicKey,

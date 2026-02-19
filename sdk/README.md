@@ -104,15 +104,14 @@ export default defineConfig({
 
 See `examples/tatchi-site` and `examples/tatchi-docs` for full app examples.
 
-## Stable vs Experimental APIs
+## Stable API Surfaces
 
-Use `@tatchi-xyz/sdk` for the stable surface (for example `TatchiPasskey` and core types).
+Use `@tatchi-xyz/sdk` for the main surface (for example `TatchiPasskey` and core types).
 
-Opt into advanced signing internals through explicit experimental subpaths:
+Threshold APIs are stable under an explicit subpath:
 
 ```ts
-import { keygenThresholdEcdsaLite } from '@tatchi-xyz/sdk/experimental/threshold'
-import { TempoAdapter } from '@tatchi-xyz/sdk/experimental/signing'
+import { keygenThresholdEcdsaLite } from '@tatchi-xyz/sdk/threshold'
 ```
 
 ## Configuration Options

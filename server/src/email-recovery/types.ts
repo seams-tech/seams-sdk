@@ -1,4 +1,4 @@
-import type { MinimalNearClient, SignedTransaction } from '@/core/near/NearClient';
+import type { MinimalNearClient, SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import type { ActionArgsWasm } from '@/core/types/actions';
 import type { Logger } from '../core/logger';
 

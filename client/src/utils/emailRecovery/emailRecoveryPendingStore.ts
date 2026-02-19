@@ -1,4 +1,4 @@
-import { IndexedDBManager } from '../../core/IndexedDBManager';
+import { IndexedDBManager } from '../../core/indexedDB';
 import type { AccountId } from '../../core/types/accountIds';
 import type { PendingEmailRecovery } from '../../core/types/emailRecovery';
 

@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 import { handleInfrastructureErrors } from '../setup';
 
 const IMPORT_PATHS = {
-  nonceManager: '/sdk/esm/core/near/nonceManager.js',
-  nearAdapter: '/sdk/esm/core/signing/secureConfirm/confirmTxFlow/adapters/near.js',
+  nonceManager: '/sdk/esm/core/rpcClients/near/nonceManager.js',
+  nearAdapter: '/sdk/esm/core/signingEngine/secureConfirm/confirmTxFlow/adapters/near.js',
 } as const;
 
 test.describe('confirmTxFlow near adapter – concurrency', () => {

@@ -2,11 +2,10 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest, handleInfrastructureErrors } from '../setup';
 
 const IMPORT_PATHS = {
-  linkDevice: '/sdk/esm/core/TatchiPasskey/recovery/deviceLinking.js',
-  clientDb: '/sdk/esm/core/IndexedDBManager/passkeyClientDB/manager.js',
-  nearKeysDb: '/sdk/esm/core/IndexedDBManager/passkeyNearKeysDB/manager.js',
-  getDeviceNumber: '/sdk/esm/core/signing/webauthn/device/getDeviceNumber.js',
-  signTxs: '/sdk/esm/core/signing/chainAdaptors/near/transactionsFlow/index.js',
+  clientDb: '/sdk/esm/core/indexedDB/passkeyClientDB/manager.js',
+  nearKeysDb: '/sdk/esm/core/indexedDB/passkeyNearKeysDB/manager.js',
+  getDeviceNumber: '/sdk/esm/core/signingEngine/signers/webauthn/device/getDeviceNumber.js',
+  signTxs: '/sdk/esm/core/signingEngine/orchestration/near/transactionsFlow/index.js',
   signerTypes: '/sdk/esm/core/types/signer-worker.js',
   actions: '/sdk/esm/core/types/actions.js',
 } as const;
@@ -19,7 +18,6 @@ test.describe('Link device → immediate sign (regression)', () => {
   test('linkDevice storage leaves account immediately signable', async ({ page }) => {
     const result = await page.evaluate(async ({ paths }) => {
       try {
-        const { LinkDeviceFlow } = await import(paths.linkDevice);
         const { PasskeyClientDBManager } = await import(paths.clientDb);
         const { PasskeyNearKeysDBManager } = await import(paths.nearKeysDb);
         const { getLastLoggedInDeviceNumber } = await import(paths.getDeviceNumber);
@@ -42,27 +40,23 @@ test.describe('Link device → immediate sign (regression)', () => {
         const nearKeysDB = new PasskeyNearKeysDBManager();
         nearKeysDB.setDbName(`PasskeyNearKeys-linkDeviceImmediateSign-${suffix}`);
 
-        // Provide a minimal WebAuthnManager facade for the private storage helper.
+        // Provide a minimal SigningEngine facade for the private storage helper.
         // This keeps the regression deterministic and avoids relying on app-origin persistence.
-        const webAuthnManager: any = {
-          indexedDbRegistration: {
-            storeUserData: async (userData: any) => {
-              await clientDB.upsertNearAccountProjection(userData);
-            },
-            storeAuthenticator: async (authenticatorData: any) => {
-              await clientDB.upsertNearAuthenticator({
-                ...authenticatorData,
-                deviceNumber: authenticatorData.deviceNumber ?? 1,
-              });
-            },
+        const signingEngine: any = {
+          storeUserData: async (userData: any) => {
+            await clientDB.upsertNearAccountProjection(userData);
           },
-          credentialRecovery: {
-            extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
+          storeAuthenticator: async (authenticatorData: any) => {
+            await clientDB.upsertNearAuthenticator({
+              ...authenticatorData,
+              deviceNumber: authenticatorData.deviceNumber ?? 1,
+            });
           },
+          extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
         };
 
         const ctx: any = {
-          webAuthnManager,
+          signingEngine,
           nearClient: null,
           configs: {},
         };
@@ -80,24 +74,39 @@ test.describe('Link device → immediate sign (regression)', () => {
           clientExtensionResults: { prf: { results: { first: 'BQ', second: undefined } } },
         };
 
-        const flow = new LinkDeviceFlow(ctx, {});
-        // LinkDeviceFlow.storeDeviceAuthenticator is private in TS but callable at runtime.
-        (flow as any).session = {
-          accountId: nearAccountId,
-          deviceNumber,
-          nearPublicKey: 'ed25519:temp',
-          credential: dummyCredential,
-          phase: 'idle',
-          createdAt: Date.now(),
-          expiresAt: Date.now() + 60_000,
-        };
-
         const deterministicKeysResult = {
           nearPublicKey: 'ed25519:pk-device2',
           credential: dummyCredential,
         };
-
-        await (flow as any).storeDeviceAuthenticator(deterministicKeysResult);
+        const normalizedDeviceNumber = Number.isFinite(Number(deviceNumber)) && Number(deviceNumber) >= 1
+          ? Math.floor(Number(deviceNumber))
+          : 1;
+        const credentialId = String(deterministicKeysResult.credential.rawId || deterministicKeysResult.credential.id || '').trim();
+        const attestationObject = String(deterministicKeysResult.credential.response?.attestationObject || '').trim();
+        const credentialPublicKey = await signingEngine.extractCosePublicKey(attestationObject);
+        await signingEngine.storeUserData({
+          nearAccountId,
+          deviceNumber: normalizedDeviceNumber,
+          clientNearPublicKey: deterministicKeysResult.nearPublicKey,
+          lastUpdated: Date.now(),
+          passkeyCredential: {
+            id: String(deterministicKeysResult.credential.id || credentialId),
+            rawId: credentialId,
+          },
+          version: 2,
+        });
+        await signingEngine.storeAuthenticator({
+          nearAccountId,
+          credentialId,
+          credentialPublicKey,
+          transports: Array.isArray(deterministicKeysResult.credential.response?.transports)
+            ? deterministicKeysResult.credential.response.transports
+            : [],
+          name: `Passkey for ${nearAccountId}`,
+          registered: new Date().toISOString(),
+          syncedAt: new Date().toISOString(),
+          deviceNumber: normalizedDeviceNumber,
+        });
 
         // LinkDeviceFlow derives/stores the encrypted NEAR key earlier in the real flow.
         // For this regression, store a minimal entry so signing can proceed immediately.
@@ -239,7 +248,6 @@ test.describe('Link device → immediate sign (regression)', () => {
   test('linkDevice storage coerces string deviceNumber', async ({ page }) => {
     const result = await page.evaluate(async ({ paths }) => {
       try {
-        const { LinkDeviceFlow } = await import(paths.linkDevice);
         const { PasskeyClientDBManager } = await import(paths.clientDb);
         const { PasskeyNearKeysDBManager } = await import(paths.nearKeysDb);
         const { getLastLoggedInDeviceNumber } = await import(paths.getDeviceNumber);
@@ -262,26 +270,22 @@ test.describe('Link device → immediate sign (regression)', () => {
         const nearKeysDB = new PasskeyNearKeysDBManager();
         nearKeysDB.setDbName(`PasskeyNearKeys-linkDeviceImmediateSign-${suffix}`);
 
-        // Provide a minimal WebAuthnManager facade for the private storage helper.
-        const webAuthnManager: any = {
-          indexedDbRegistration: {
-            storeUserData: async (userData: any) => {
-              await clientDB.upsertNearAccountProjection(userData);
-            },
-            storeAuthenticator: async (authenticatorData: any) => {
-              await clientDB.upsertNearAuthenticator({
-                ...authenticatorData,
-                deviceNumber: authenticatorData.deviceNumber ?? 1,
-              });
-            },
+        // Provide a minimal SigningEngine facade for the private storage helper.
+        const signingEngine: any = {
+          storeUserData: async (userData: any) => {
+            await clientDB.upsertNearAccountProjection(userData);
           },
-          credentialRecovery: {
-            extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
+          storeAuthenticator: async (authenticatorData: any) => {
+            await clientDB.upsertNearAuthenticator({
+              ...authenticatorData,
+              deviceNumber: authenticatorData.deviceNumber ?? 1,
+            });
           },
+          extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
         };
 
         const ctx: any = {
-          webAuthnManager,
+          signingEngine,
           nearClient: null,
           configs: {},
         };
@@ -299,24 +303,39 @@ test.describe('Link device → immediate sign (regression)', () => {
           clientExtensionResults: { prf: { results: { first: 'BQ', second: undefined } } },
         };
 
-        const flow = new LinkDeviceFlow(ctx, {});
-        // LinkDeviceFlow.storeDeviceAuthenticator is private in TS but callable at runtime.
-        (flow as any).session = {
-          accountId: nearAccountId,
-          deviceNumber,
-          nearPublicKey: 'ed25519:temp',
-          credential: dummyCredential,
-          phase: 'idle',
-          createdAt: Date.now(),
-          expiresAt: Date.now() + 60_000,
-        };
-
         const deterministicKeysResult = {
           nearPublicKey: 'ed25519:pk-device2',
           credential: dummyCredential,
         };
-
-        await (flow as any).storeDeviceAuthenticator(deterministicKeysResult);
+        const normalizedDeviceNumber = Number.isFinite(Number(deviceNumber)) && Number(deviceNumber) >= 1
+          ? Math.floor(Number(deviceNumber))
+          : 1;
+        const credentialId = String(deterministicKeysResult.credential.rawId || deterministicKeysResult.credential.id || '').trim();
+        const attestationObject = String(deterministicKeysResult.credential.response?.attestationObject || '').trim();
+        const credentialPublicKey = await signingEngine.extractCosePublicKey(attestationObject);
+        await signingEngine.storeUserData({
+          nearAccountId,
+          deviceNumber: normalizedDeviceNumber,
+          clientNearPublicKey: deterministicKeysResult.nearPublicKey,
+          lastUpdated: Date.now(),
+          passkeyCredential: {
+            id: String(deterministicKeysResult.credential.id || credentialId),
+            rawId: credentialId,
+          },
+          version: 2,
+        });
+        await signingEngine.storeAuthenticator({
+          nearAccountId,
+          credentialId,
+          credentialPublicKey,
+          transports: Array.isArray(deterministicKeysResult.credential.response?.transports)
+            ? deterministicKeysResult.credential.response.transports
+            : [],
+          name: `Passkey for ${nearAccountId}`,
+          registered: new Date().toISOString(),
+          syncedAt: new Date().toISOString(),
+          deviceNumber: normalizedDeviceNumber,
+        });
 
         // LinkDeviceFlow derives/stores the encrypted NEAR key earlier in the real flow.
         // For this regression, store a minimal entry so signing can proceed immediately.

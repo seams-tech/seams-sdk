@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { secp256k1 } from '@noble/curves/secp256k1';
 import { bytesToNumberBE, numberToBytesBE } from '../../shared/src/utils/bigint';
 import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -27,6 +27,25 @@ function deriveRelayerSecp256k1SigningShare32(input: { masterSecretB64u: string;
   const okm64 = hkdf(sha256, masterSecretBytes, relayerShareSaltV1, relayerShareInfo, 64);
   const reduced = (bytesToNumberBE(okm64) % (SECP256K1_ORDER - 1n)) + 1n;
   return numberToBytesBE(reduced, 32);
+}
+
+function randomSecpSecretKey32(): Uint8Array {
+  const utils = (secp256k1 as any)?.utils;
+  if (typeof utils?.randomPrivateKey === 'function') return utils.randomPrivateKey();
+  if (typeof utils?.randomSecretKey === 'function') return utils.randomSecretKey();
+  throw new Error('secp256k1 random secret key generator is unavailable');
+}
+
+function sumSecpPublicKeysCompressed(aCompressed33: Uint8Array, bCompressed33: Uint8Array): Uint8Array {
+  const pointCtor = ((secp256k1 as any).ProjectivePoint || (secp256k1 as any).Point) as
+    | { fromHex: (hex: Uint8Array) => any }
+    | undefined;
+  if (!pointCtor || typeof pointCtor.fromHex !== 'function') {
+    throw new Error('secp256k1 point constructor is unavailable');
+  }
+  const point = pointCtor.fromHex(aCompressed33).add(pointCtor.fromHex(bCompressed33));
+  if (typeof point.toRawBytes === 'function') return point.toRawBytes(true);
+  return point.toBytes(true);
 }
 
 function pollSession(session: ThresholdEcdsaPresignSession): {
@@ -70,7 +89,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const relayerParticipantId = 2;
     const thresholdExpiresAtMs = Date.now() + 120_000;
 
-    const clientSigningShare32 = secp256k1.utils.randomPrivateKey();
+    const clientSigningShare32 = randomSecpSecretKey32();
     const clientVerifyingShare33 = secp256k1.getPublicKey(clientSigningShare32, true);
     const clientVerifyingShareB64u = base64UrlEncode(clientVerifyingShare33);
 
@@ -88,9 +107,10 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       relayerKeyId,
     });
     const relayerVerifyingShare33 = secp256k1.getPublicKey(relayerSigningShare32, true);
-    const groupPublicKey33 = secp256k1.ProjectivePoint.fromHex(clientVerifyingShare33)
-      .add(secp256k1.ProjectivePoint.fromHex(relayerVerifyingShare33))
-      .toRawBytes(true);
+    const groupPublicKey33 = sumSecpPublicKeysCompressed(
+      clientVerifyingShare33,
+      relayerVerifyingShare33,
+    );
 
     const sharedPresignSessionStore = new InMemoryThresholdEcdsaPresignSessionStore();
     const sharedPresignaturePool = new InMemoryThresholdEcdsaPresignaturePool();

@@ -1,5 +1,4 @@
 import { expect, test } from '@playwright/test';
-import type { TatchiPasskey } from '@tatchi-xyz/sdk/react';
 import {
   provisionTempoAndEvmThresholdSigners,
   readCachedThresholdKeyRef,
@@ -109,7 +108,7 @@ test.describe('docs threshold signer helpers', () => {
     };
 
     const resolved = await resolveThresholdKeyRef({
-      tatchi: mock as unknown as TatchiPasskey,
+      tatchi: mock as any,
       nearAccountId: 'alice.testnet',
       chain: 'tempo',
     });
@@ -131,7 +130,7 @@ test.describe('docs threshold signer helpers', () => {
     };
 
     const resolved = await resolveThresholdKeyRef({
-      tatchi: mock as unknown as TatchiPasskey,
+      tatchi: mock as any,
       nearAccountId: 'alice.testnet',
       chain: 'evm',
     });
@@ -154,7 +153,7 @@ test.describe('docs threshold signer helpers', () => {
     };
 
     const provisioned = await provisionTempoAndEvmThresholdSigners({
-      tatchi: mock as unknown as TatchiPasskey,
+      tatchi: mock as any,
       nearAccountId: 'alice.testnet',
     });
 
@@ -177,7 +176,7 @@ test.describe('docs threshold signer helpers', () => {
 
     await expect(
       provisionTempoAndEvmThresholdSigners({
-        tatchi: mock as unknown as TatchiPasskey,
+        tatchi: mock as any,
         nearAccountId: 'alice.testnet',
       }),
     ).rejects.toThrow(/bootstrap failed/i);

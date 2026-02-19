@@ -2,11 +2,11 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest, SDK_ESM_PATHS, sdkEsmPath } from '../setup';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 import bs58 from 'bs58';
-import { ed25519 } from '@noble/curves/ed25519.js';
+import { ed25519 } from '@noble/curves/ed25519';
 import { createHash } from 'node:crypto';
 
 const IMPORT_PATHS = {
-  nearKeysDb: sdkEsmPath('core/IndexedDBManager/passkeyNearKeysDB/manager.js'),
+  nearKeysDb: sdkEsmPath('core/indexedDB/passkeyNearKeysDB/manager.js'),
   tatchi: SDK_ESM_PATHS.tatchiPasskey,
 } as const;
 
@@ -14,16 +14,28 @@ function toB64u(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('base64url');
 }
 
+function getEd25519PointCtor(): any {
+  const pointCtor = (ed25519 as any).ExtendedPoint || (ed25519 as any).Point;
+  if (!pointCtor) throw new Error('ed25519 point constructor is unavailable');
+  return pointCtor;
+}
+
+function ed25519PointToBytes(point: any): Uint8Array {
+  if (typeof point.toRawBytes === 'function') return point.toRawBytes();
+  return point.toBytes();
+}
+
 function compute2of2GroupPk(input: {
   clientVerifyingShareB64u: string;
   relayerVerifyingShareB64u: string;
 }): string {
+  const pointCtor = getEd25519PointCtor();
   const clientBytes = new Uint8Array(Buffer.from(input.clientVerifyingShareB64u, 'base64url'));
   const relayerBytes = new Uint8Array(Buffer.from(input.relayerVerifyingShareB64u, 'base64url'));
-  const clientPoint = ed25519.ExtendedPoint.fromHex(clientBytes);
-  const relayerPoint = ed25519.ExtendedPoint.fromHex(relayerBytes);
+  const clientPoint = pointCtor.fromHex(clientBytes);
+  const relayerPoint = pointCtor.fromHex(relayerBytes);
   const groupPoint = clientPoint.multiply(2n).subtract(relayerPoint);
-  return `ed25519:${bs58.encode(groupPoint.toRawBytes())}`;
+  return `ed25519:${bs58.encode(ed25519PointToBytes(groupPoint))}`;
 }
 
 test.describe('Threshold Ed25519 (registration) — threshold-first account creation', () => {
@@ -54,7 +66,7 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
     let newPublicKeyProvided = false;
     let relayIntentDigest32: number[] | null = null;
     const relayerKeyId = 'relayer-keyid-mock-1';
-    const relayerVerifyingShareB64u = toB64u(ed25519.ExtendedPoint.BASE.toRawBytes());
+    const relayerVerifyingShareB64u = toB64u(ed25519PointToBytes(getEd25519PointCtor().BASE));
     let thresholdActivatedOnChain = false;
     const accountsOnChain = new Set<string>();
 

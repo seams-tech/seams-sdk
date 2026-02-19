@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
-import { bytesToHex, hexToBytes } from '@/core/signing/chainAdaptors/evm/bytes';
+import { bytesToHex, hexToBytes } from '@/core/signingEngine/chainAdaptors/evm/bytes';
 
 const IMPORT_PATHS = {
   ethSignerWasm:
-    '/sdk/esm/core/signing/chainAdaptors/evm/ethSignerWasm.js',
+    '/sdk/esm/core/signingEngine/signers/wasm/ethSignerWasm.js',
   signerGateway:
-    '/sdk/esm/core/signing/workers/signerWorkerManager/gateway.js',
+    '/sdk/esm/core/signingEngine/workers/signerWorkerManager/gateway.js',
 } as const;
 
 test.describe('deriveSecp256k1KeypairFromPrfSecondWasm', () => {

@@ -110,11 +110,11 @@ export async function runThresholdEcdsaTempoFlow(
 ): Promise<ThresholdEcdsaTempoFlowResult> {
   return await page.evaluate(async (input) => {
     const sdkMod = await import('/sdk/esm/index.js');
-    const thresholdExperimentalMod = await import('/sdk/esm/experimental/threshold.js');
-    const indexedDbMod = await import('/sdk/esm/core/IndexedDBManager/index.js');
+    const thresholdMod = await import('/sdk/esm/threshold.js');
+    const indexedDbMod = await import('/sdk/esm/core/indexedDB/index.js');
 
     const { TatchiPasskey } = sdkMod as any;
-    const { keygenThresholdEcdsaLite, connectThresholdEcdsaSessionLite } = thresholdExperimentalMod as any;
+    const { keygenThresholdEcdsaLite, connectThresholdEcdsaSessionLite } = thresholdMod as any;
     const { IndexedDBManager } = indexedDbMod as any;
 
     const accountId =
@@ -207,12 +207,27 @@ export async function runThresholdEcdsaTempoFlow(
         }
       } else {
         const ctx = pm.getContext();
-        const webAuthnManager = ctx.webAuthnManager as any;
-        const signerWorkerCtx = webAuthnManager.signerWorkerManager.getContext();
+        const signingEngine = ctx.signingEngine as any;
+        const signerWorkerCtx = signingEngine?.signerWorkerManager?.getContext?.();
+        if (!signerWorkerCtx) {
+          return {
+            ok: false,
+            accountId,
+            error: 'signer worker context unavailable on SigningEngine',
+          };
+        }
+        const touchIdPrompt = signingEngine?.touchIdPrompt;
+        if (!touchIdPrompt) {
+          return {
+            ok: false,
+            accountId,
+            error: 'touchIdPrompt unavailable on SigningEngine',
+          };
+        }
 
         keygen = await keygenThresholdEcdsaLite({
           indexedDB: IndexedDBManager,
-          touchIdPrompt: webAuthnManager.touchIdPrompt,
+          touchIdPrompt,
           relayerUrl: input.relayerUrl,
           userId: accountId,
           workerCtx: signerWorkerCtx,
@@ -229,7 +244,7 @@ export async function runThresholdEcdsaTempoFlow(
         if (input.connectSession !== false) {
           session = await connectThresholdEcdsaSessionLite({
             indexedDB: IndexedDBManager,
-            touchIdPrompt: webAuthnManager.touchIdPrompt,
+            touchIdPrompt,
             relayerUrl: input.relayerUrl,
             relayerKeyId: String(keygen.relayerKeyId || ''),
             userId: accountId,
@@ -284,7 +299,7 @@ export async function runThresholdEcdsaTempoFlow(
 
       if (input.clearCachedThresholdSessionBeforeSign) {
         try {
-          const authSessionMod = await import('/sdk/esm/core/signing/threshold/session/thresholdEcdsaAuthSession.js');
+          const authSessionMod = await import('/sdk/esm/core/signingEngine/threshold/session/thresholdEcdsaAuthSession.js');
           authSessionMod.clearAllCachedThresholdEcdsaAuthSessions?.();
         } catch {}
       }

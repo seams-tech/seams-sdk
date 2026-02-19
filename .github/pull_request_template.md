@@ -10,7 +10,7 @@
 
 ## Signing Crypto Boundary Checklist (if touching signing code)
 
-- [ ] No new signing-critical crypto math added in `client/src/core/signing/**`
+- [ ] No new signing-critical crypto math added in `client/src/core/signingEngine/**`
 - [ ] Runtime signing paths do not import `@noble/*`
 - [ ] New signing-critical logic is implemented in Rust/wasm worker path
 - [ ] No reintroduction of removed TS helpers (`eip1559.ts`, `keccak.ts`, `rlp.ts`, `tempoTx.ts`, secp256k1 local derivation helpers)

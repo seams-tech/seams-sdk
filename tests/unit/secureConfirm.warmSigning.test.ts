@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  handle: '/sdk/esm/core/signing/secureConfirm/confirmTxFlow/handleSecureConfirmRequest.js',
-  types: '/sdk/esm/core/signing/secureConfirm/confirmTxFlow/types.js',
+  handle: '/sdk/esm/core/signingEngine/secureConfirm/confirmTxFlow/handleSecureConfirmRequest.js',
+  types: '/sdk/esm/core/signingEngine/secureConfirm/confirmTxFlow/types.js',
 } as const;
 
 test.describe('SecureConfirm – warm signing', () => {

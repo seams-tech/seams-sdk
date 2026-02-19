@@ -24,7 +24,7 @@ import type {
 } from '../../types/tatchi';
 import type { ConfirmationConfig } from '../../types/signer-worker';
 import { toAccountId } from '../../types/accountIds';
-import { SignedTransaction } from '../../near/NearClient';
+import { SignedTransaction } from '../../rpcClients/near/NearClient';
 import { isPlainSignedTransactionLike, extractBorshBytesFromPlainSignedTx, PlainSignedTransactionLike } from '@shared/utils/validation';
 import type { ActionArgs } from '../../types';
 
@@ -318,33 +318,6 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOk(req.requestId);
     },
 
-    PM_SET_DERIVED_ADDRESS: async (req: Req<'PM_SET_DERIVED_ADDRESS'>) => {
-      const pm = getTatchiPasskey();
-      const { nearAccountId, args } = req.payload!;
-      if (respondIfCancelled(req.requestId)) return;
-      await pm.setDerivedAddress(nearAccountId, args);
-      if (respondIfCancelled(req.requestId)) return;
-      respondOk(req.requestId);
-    },
-
-    PM_GET_DERIVED_ADDRESS_RECORD: async (req: Req<'PM_GET_DERIVED_ADDRESS_RECORD'>) => {
-      const pm = getTatchiPasskey();
-      const { nearAccountId, args } = req.payload!;
-      if (respondIfCancelled(req.requestId)) return;
-      const result = await pm.getDerivedAddressRecord(nearAccountId, args);
-      if (respondIfCancelled(req.requestId)) return;
-      respondOkResult(req.requestId, result);
-    },
-
-    PM_GET_DERIVED_ADDRESS: async (req: Req<'PM_GET_DERIVED_ADDRESS'>) => {
-      const pm = getTatchiPasskey();
-      const { nearAccountId, args } = req.payload!;
-      if (respondIfCancelled(req.requestId)) return;
-      const result = await pm.getDerivedAddress(nearAccountId, args);
-      if (respondIfCancelled(req.requestId)) return;
-      respondOkResult(req.requestId, result);
-    },
-
     PM_GET_RECOVERY_EMAILS: async (req: Req<'PM_GET_RECOVERY_EMAILS'>) => {
       const pm = getTatchiPasskey();
       const { nearAccountId } = req.payload!;
@@ -526,10 +499,10 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const { nearAccountId } = req.payload!;
       // Soft probe to warm caches in some environments (optional)
       const ctx = pm.getContext();
-      const web = ctx?.webAuthnManager;
+      const web = ctx?.signingEngine;
       if (web) {
-        await web.indexedDbRegistration.getLastUser().catch(() => undefined);
-        await web.indexedDbRegistration.getAuthenticatorsByUser(toAccountId(nearAccountId)).catch(() => undefined);
+        await web.getLastUser().catch(() => undefined);
+        await web.getAuthenticatorsByUser(toAccountId(nearAccountId)).catch(() => undefined);
       }
       const result = await pm.auth.hasPasskeyCredential(toAccountId(nearAccountId));
       respondOkResult(req.requestId, result);

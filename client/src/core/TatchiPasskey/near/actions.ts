@@ -11,7 +11,7 @@ import type { TxExecutionStatus } from '@near-js/types';
 import type { ActionArgs, TransactionInput, TransactionInputWasm } from '../../types/actions';
 import { type ConfirmationConfig, type SignerMode, mergeSignerMode } from '../../types/signer-worker';
 import type { PasskeyManagerContext } from '../index';
-import type { SignedTransaction } from '../../near/NearClient';
+import type { SignedTransaction } from '../../rpcClients/near/NearClient';
 import type { AccountId } from '../../types/accountIds';
 import { ActionPhase, ActionStatus, type ActionSSEEvent, type onProgressEvents } from '../../types/sdkSentEvents';
 import { toError, getNearShortErrorMessage } from '@shared/utils/errors';
@@ -198,7 +198,7 @@ export async function sendTransaction({
 
     // Update nonce from blockchain after successful transaction broadcast asynchronously
     const nonce = signedTransaction.transaction.nonce;
-    context.webAuthnManager.getNonceManager().updateNonceFromBlockchain(
+    context.signingEngine.getNonceManager().updateNonceFromBlockchain(
       context.nearClient,
       nonce.toString()
     ).catch((error) => {
@@ -229,7 +229,7 @@ export async function sendTransaction({
     // Centralized cleanup: release reserved nonce on failure (idempotent)
     try {
       const nonce = signedTransaction.transaction.nonce;
-      context.webAuthnManager.getNonceManager().releaseNonce(nonce.toString());
+      context.signingEngine.getNonceManager().releaseNonce(nonce.toString());
     } catch (nonceError) {
       console.warn('[sendTransaction]: Failed to release nonce after failure:', nonceError);
     }
@@ -284,7 +284,7 @@ export async function executeActionInternal({
     // Pre-warm NonceManager with fresh transaction context data without blocking UI feedback.
     // Only attempt when the NonceManager has been initialized with user data; signing handlers
     // will initialize it when the active access key is known.
-    const nonceManager = context.webAuthnManager.getNonceManager();
+    const nonceManager = context.signingEngine.getNonceManager();
     if (nonceManager.nearAccountId && nonceManager.nearPublicKeyStr) {
       void nonceManager.getNonceBlockHashAndHeight(context.nearClient).catch((error) => {
         console.warn('[executeAction]: Failed to pre-warm NonceManager:', error);
@@ -379,7 +379,7 @@ export async function signAndSendTransactionsInternal({
     return txResults;
   } catch (error: unknown) {
     // If signing fails, release all reserved nonces
-    context.webAuthnManager.getNonceManager().releaseAllNonces();
+    context.signingEngine.getNonceManager().releaseAllNonces();
     const e = toError(error);
     const short = (e as { short?: string }).short || getNearShortErrorMessage(e) || e.message;
     options?.onEvent?.({
@@ -455,7 +455,7 @@ export async function signTransactionsWithActionsInternal({
     // WebAuthn challenge digest and NEAR data are computed in the confirmation flow
     // - Nonce will be fetched within the confirmation flow
     // This eliminates the ~500ms blocking operations before modal display
-    return context.webAuthnManager.signingActions.signTransactionsWithActions({
+    return context.signingEngine.signTransactionsWithActions({
       transactions: transactionInputsWasm,
       rpcCall: {
         contractId: context.configs.contractId,
@@ -562,7 +562,7 @@ async function validateInputsOnly(
 
 function getBaseSignerMode(context: PasskeyManagerContext): SignerMode {
   try {
-    return context.webAuthnManager.getUserPreferences().getSignerMode();
+    return context.signingEngine.getUserPreferences().getSignerMode();
   } catch {
     return context.configs.signerMode;
   }

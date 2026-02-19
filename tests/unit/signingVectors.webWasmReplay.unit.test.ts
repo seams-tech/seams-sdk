@@ -3,9 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const IMPORT_PATHS = {
-  ethSignerWasm: '/sdk/esm/core/signing/chainAdaptors/evm/ethSignerWasm.js',
-  tempoSignerWasm: '/sdk/esm/core/signing/chainAdaptors/tempo/tempoSignerWasm.js',
-  signerGateway: '/sdk/esm/core/signing/workers/signerWorkerManager/gateway.js',
+  ethSignerWasm: '/sdk/esm/core/signingEngine/signers/wasm/ethSignerWasm.js',
+  tempoSignerWasm: '/sdk/esm/core/signingEngine/signers/wasm/tempoSignerWasm.js',
+  signerGateway: '/sdk/esm/core/signingEngine/workers/signerWorkerManager/gateway.js',
 } as const;
 
 const VECTORS_PATH = path.resolve(

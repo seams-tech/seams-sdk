@@ -1,7 +1,7 @@
 import type { NormalizedLogger } from '../logger';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type { AccessKeyList } from '@/core/near/NearClient';
+import type { AccessKeyList } from '@/core/rpcClients/near/NearClient';
 import type { ThresholdEd25519KeyStore } from './stores/KeyStore';
 import type {
   ThresholdEd25519SessionStore,
