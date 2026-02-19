@@ -125,7 +125,7 @@ function App() {
       <h1>Tatchi Example</h1>
       <button onClick={() => {
         const id = Date.now();
-        tatchi.registerPasskey(`tatchi-test-${id}.${configs.contractId}`, {
+        tatchi.registration.registerPasskey(`tatchi-test-${id}.${configs.contractId}`, {
           onEvent: (event) => console.log('registration event: ', event)
         });
       }}>

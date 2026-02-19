@@ -83,7 +83,7 @@ const config = {
 ### Override per login
 
 ```ts
-await tatchi.loginAndCreateSession('alice.testnet', {
+await tatchi.auth.login('alice.testnet', {
   signingSession: { ttlMs: 10 * 60 * 1000, remainingUses: 10 },
 });
 ```
@@ -93,7 +93,7 @@ await tatchi.loginAndCreateSession('alice.testnet', {
 `loginAndCreateSession()` returns a `signingSession` status object when available:
 
 ```ts
-const login = await tatchi.loginAndCreateSession('alice.testnet');
+const login = await tatchi.auth.login('alice.testnet');
 console.log(login.signingSession); // { status: 'active' | 'expired' | ... }
 ```
 

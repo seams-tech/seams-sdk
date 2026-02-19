@@ -190,7 +190,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
   const refreshSessionStatus = useCallback(async () => {
     if (!nearAccountId) return;
     try {
-      const sess = await tatchi.getLoginSession(nearAccountId);
+      const sess = await tatchi.auth.getSession(nearAccountId);
       setSessionStatus(sess?.signingSession || null);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -218,7 +218,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     setUnlockLoading(true);
     toast.loading('Logging in & creating session…', { id: 'unlock-session' });
     try {
-      await tatchi.loginAndCreateSession(nearAccountId, {
+      await tatchi.auth.login(nearAccountId, {
         signingSession: { ttlMs, remainingUses },
       });
       await refreshSessionStatus();
@@ -339,7 +339,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
   const handleSignDelegateGreeting = useCallback(async () => {
     if (!canExecuteGreeting(greetingInput, isLoggedIn, nearAccountId)) return;
 
-    const { login: loginState } = await tatchi.getLoginSession();
+    const { login: loginState } = await tatchi.auth.getSession();
 
     setDelegateLoading(true);
     try {

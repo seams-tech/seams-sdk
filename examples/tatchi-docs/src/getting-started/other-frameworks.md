@@ -218,7 +218,7 @@ const tatchi = new TatchiPasskey({
 await tatchi.initWalletIframe()
 
 // Register
-await tatchi.registerPasskey('user.testnet', {
+await tatchi.registration.registerPasskey('user.testnet', {
   onEvent: (event) => console.log(event)
 })
 ```
