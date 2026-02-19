@@ -40,16 +40,16 @@ export function findWorkerRuntimeBoundaryViolations(repoRoot) {
   const workerBoundaryFiles = [
     'client/src/core/signing/workers/signerWorkerManager/backends/multichainWorkerBackend.ts',
     'client/src/core/signing/workers/signerWorkerManager/backends/nearWorkerBackend.ts',
-    'client/src/core/signing/runtime/workers/eth-signer.worker.ts',
-    'client/src/core/signing/runtime/workers/tempo-signer.worker.ts',
+    'client/src/core/signing/workers/eth-signer.worker.ts',
+    'client/src/core/signing/workers/tempo-signer.worker.ts',
   ];
   const workerTransportFiles = [
     'client/src/core/signing/workers/signerWorkerManager/backends/multichainWorkerBackend.ts',
     'client/src/core/signing/workers/signerWorkerManager/backends/nearWorkerBackend.ts',
   ];
   const workerRuntimeFiles = [
-    'client/src/core/signing/runtime/workers/eth-signer.worker.ts',
-    'client/src/core/signing/runtime/workers/tempo-signer.worker.ts',
+    'client/src/core/signing/workers/eth-signer.worker.ts',
+    'client/src/core/signing/workers/tempo-signer.worker.ts',
   ];
 
   const checks = [];
