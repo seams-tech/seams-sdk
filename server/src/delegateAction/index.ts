@@ -174,7 +174,7 @@ export async function enforceDelegatePolicy(input: {
  */
 export async function executeSignedDelegateWithRelayer(params: {
   nearClient: NearClient;
-  relayerAccountId: string;
+  relayerAccount: string;
   relayerPublicKey: string;
   relayerPrivateKey: string;
   hash: string;
@@ -190,7 +190,7 @@ export async function executeSignedDelegateWithRelayer(params: {
 }): Promise<ExecuteSignedDelegateResult> {
   const {
     nearClient,
-    relayerAccountId,
+    relayerAccount,
     relayerPublicKey,
     relayerPrivateKey,
     hash,
@@ -262,7 +262,7 @@ export async function executeSignedDelegateWithRelayer(params: {
     // Use viewAccessKey to derive next nonce for relayer
     let nonce = 0n;
     try {
-      const ak = await nearClient.viewAccessKey(relayerAccountId, relayerPublicKey);
+      const ak = await nearClient.viewAccessKey(relayerAccount, relayerPublicKey);
       nonce = BigInt(ak?.nonce ?? 0);
     } catch {
       nonce = 0n;
@@ -285,7 +285,7 @@ export async function executeSignedDelegateWithRelayer(params: {
 
     const signedTx = await signWithPrivateKey({
       nearPrivateKey: relayerPrivateKey,
-      signerAccountId: relayerAccountId,
+      signerAccountId: relayerAccount,
       receiverId: delegateSenderId,
       nonce: nextNonce,
       blockHash,

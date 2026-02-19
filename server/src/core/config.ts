@@ -146,7 +146,7 @@ function normalizeThresholdEd25519KeyStoreConfig(
 export function createAuthServiceConfig(input: AuthServiceConfigInput): AuthServiceConfig {
   const networkId = toTrimmedString(input.networkId) || AUTH_SERVICE_CONFIG_DEFAULTS.networkId;
   const config: AuthServiceConfig = {
-    relayerAccountId: toTrimmedString(input.relayerAccountId),
+    relayerAccount: toTrimmedString(input.relayerAccount),
     relayerPrivateKey: toTrimmedString(input.relayerPrivateKey),
     webAuthnContractId: toTrimmedString(input.webAuthnContractId),
     nearRpcUrl: toTrimmedString(input.nearRpcUrl) || defaultNearRpcUrl(networkId),
@@ -167,7 +167,7 @@ export function createAuthServiceConfig(input: AuthServiceConfigInput): AuthServ
 
 export function validateConfigs(config: AuthServiceConfig): void {
 
-  const requiredTop = ['relayerAccountId','relayerPrivateKey'] as const;
+  const requiredTop = ['relayerAccount','relayerPrivateKey'] as const;
   for (const key of requiredTop) {
     if (!(config as any)[key]) throw new Error(`Missing required config variable: ${key}`);
   }

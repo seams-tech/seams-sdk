@@ -12,7 +12,7 @@ import { createRelayRouter } from '@tatchi-xyz/sdk/server/router/express';
 import jwt from 'jsonwebtoken';
 
 const service = new AuthService({
-  relayerAccountId: process.env.RELAYER_ACCOUNT_ID!,
+  relayerAccount: process.env.RELAYER_ACCOUNT_ID!,
   relayerPrivateKey: process.env.RELAYER_PRIVATE_KEY!,
   webAuthnContractId: process.env.WEBAUTHN_CONTRACT_ID || 'w3a-v1.testnet',
   nearRpcUrl: process.env.NEAR_RPC_URL || 'https://rpc.testnet.near.org',
@@ -56,7 +56,7 @@ import signerWasm from '@tatchi-xyz/sdk/server/wasm/signer';
 import jwt from 'jsonwebtoken';
 
 const service = new AuthService({
-  relayerAccountId: env.RELAYER_ACCOUNT_ID,
+  relayerAccount: env.RELAYER_ACCOUNT_ID,
   relayerPrivateKey: env.RELAYER_PRIVATE_KEY,
   webAuthnContractId: env.WEBAUTHN_CONTRACT_ID,
   nearRpcUrl: env.NEAR_RPC_URL,
@@ -84,7 +84,7 @@ export default {
 
 - POST `/registration/bootstrap` — atomic account creation + passkey registration (contract-free). Body:
   - `{ new_account_id, new_public_key, device_number?, rp_id, webauthn_registration, expected_origin?, authenticator_options?, threshold_ed25519?, threshold_ecdsa? }`
-  - Note: `new_account_id` must be a subaccount of `relayerAccountId` (`RELAYER_ACCOUNT_ID`) because the relayer signs the `CreateAccount` transaction.
+  - Note: `new_account_id` must be a subaccount of `relayerAccount` (`RELAYER_ACCOUNT_ID`) because the relayer signs the `CreateAccount` transaction.
 - POST `/smart-account/deploy` — smart-account deploy hook used by SDK deploy-on-first-use gate. Body:
   - `{ nearAccountId, chain: 'evm' | 'tempo', chainId, accountAddress, accountModel, counterfactualAddress?, factory?, entryPoint?, salt? }`
   - Route behavior:

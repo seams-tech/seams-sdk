@@ -195,7 +195,7 @@ export type ThresholdEd25519KeyStoreConfigInput =
   | (ThresholdEd25519KeyStoreConfig & Partial<ThresholdEd25519KeyStoreEnvInput>);
 
 export interface AuthServiceConfig {
-  relayerAccountId: string;
+  relayerAccount: string;
   relayerPrivateKey: string;
   webAuthnContractId: string;
   nearRpcUrl: string;

@@ -7,7 +7,7 @@ function withCors(res: Response, opts?: RelayRouterOptions, req?: Request): void
 
   // Public CORS: allow any origin to read `/healthz` and `/readyz`.
   // These endpoints only expose non-sensitive deployment metadata and are used by SDKs
-  // for auto-discovery (e.g., correct relayerAccountId postfix).
+  // for auto-discovery (e.g., correct relayerAccount postfix).
   if (pathname === '/healthz' || pathname === '/readyz') {
     res.set('Access-Control-Allow-Origin', '*');
     (res as any).removeHeader?.('Access-Control-Allow-Credentials');

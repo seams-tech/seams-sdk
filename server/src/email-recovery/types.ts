@@ -3,7 +3,7 @@ import type { ActionArgsWasm } from '@/core/types/actions';
 import type { Logger } from '../core/logger';
 
 export interface EmailRecoveryServiceDeps {
-  relayerAccountId: string;
+  relayerAccount: string;
   relayerPrivateKey: string;
   networkId: string;
   emailDkimVerifierContract: string;

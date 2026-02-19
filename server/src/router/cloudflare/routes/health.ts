@@ -12,7 +12,7 @@ export async function handleHealth(ctx: CloudflareRelayContext): Promise<Respons
 
   return json({
     ok: true,
-    relayerAccountId: ctx.service.getRelayerAccountId?.() ?? null,
+    relayerAccount: ctx.service.getConfiguredRelayerAccount?.() ?? null,
     webAuthnContractId: ctx.service.getWebAuthnContractId?.() ?? null,
     thresholdEd25519: { configured: thresholdConfigured },
     cors: { allowedOrigins: corsAllowed },

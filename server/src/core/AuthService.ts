@@ -236,7 +236,7 @@ export class AuthService {
     this.logger = coerceLogger(this.config.logger);
     this.nearClient = new MinimalNearClient(this.config.nearRpcUrl);
     this.emailRecovery = new EmailRecoveryService({
-      relayerAccountId: this.config.relayerAccountId,
+      relayerAccount: this.config.relayerAccount,
       relayerPrivateKey: this.config.relayerPrivateKey,
       networkId: this.config.networkId,
       emailDkimVerifierContract: EMAIL_DKIM_VERIFIER_CONTRACT_DEFAULT,
@@ -255,7 +255,7 @@ export class AuthService {
     AuthService initialized with:
     • networkId: ${this.config.networkId}
     • nearRpcUrl: ${this.config.nearRpcUrl}
-    • relayerAccountId: ${this.config.relayerAccountId}
+    • relayerAccount: ${this.config.relayerAccount}
     • webAuthnContractId: ${this.config.webAuthnContractId}
     • accountInitialBalance: ${this.config.accountInitialBalance} (${formatYoctoToNear(this.config.accountInitialBalance)} NEAR)
     • createAccountAndRegisterGas: ${this.config.createAccountAndRegisterGas} (${formatGasToTGas(this.config.createAccountAndRegisterGas)})
@@ -294,7 +294,7 @@ export class AuthService {
   async getRelayerAccount(): Promise<{ accountId: string; publicKey: string }> {
     await this._ensureSignerAndRelayerAccount();
     return {
-      accountId: this.config.relayerAccountId,
+      accountId: this.config.relayerAccount,
       publicKey: this.relayerPublicKey
     };
   }
@@ -303,8 +303,8 @@ export class AuthService {
    * Lightweight config accessor (no RPC) for diagnostics and well-known endpoints.
    * This is safe to call even when the relayer account has not been warmed/validated yet.
    */
-  getRelayerAccountId(): string {
-    return this.config.relayerAccountId;
+  getConfiguredRelayerAccount(): string {
+    return this.config.relayerAccount;
   }
 
   isGoogleOidcConfigured(): boolean {
@@ -765,12 +765,12 @@ export class AuthService {
         actions.forEach(validateActionArgsWasm);
 
         // Fetch nonce and block hash for relayer
-        const { nextNonce, blockHash } = await this.fetchTxContext(this.config.relayerAccountId, this.relayerPublicKey);
+        const { nextNonce, blockHash } = await this.fetchTxContext(this.config.relayerAccount, this.relayerPublicKey);
 
         // Sign with relayer private key using WASM
         const signed = await this.signWithPrivateKey({
           nearPrivateKey: this.config.relayerPrivateKey,
-          signerAccountId: this.config.relayerAccountId,
+          signerAccountId: this.config.relayerAccount,
           receiverId: request.accountId,
           nonce: nextNonce,
           blockHash: blockHash,
@@ -816,10 +816,10 @@ export class AuthService {
         const accountId = String(request?.new_account_id || '').trim();
         if (!isValidAccountId(accountId)) throw new Error(`Invalid account ID format: ${accountId}`);
 
-        const relayerAccountId = String(this.config.relayerAccountId || '').trim();
-        const expectedSuffix = relayerAccountId ? `.${relayerAccountId}` : '';
-        if (!relayerAccountId || !expectedSuffix || !accountId.endsWith(expectedSuffix)) {
-          throw new Error(`new_account_id must be a subaccount of relayerAccountId (${relayerAccountId})`);
+        const relayerAccount = String(this.config.relayerAccount || '').trim();
+        const expectedSuffix = relayerAccount ? `.${relayerAccount}` : '';
+        if (!relayerAccount || !expectedSuffix || !accountId.endsWith(expectedSuffix)) {
+          throw new Error(`new_account_id must be a subaccount of relayerAccount (${relayerAccount})`);
         }
 
         // Account creation key:
@@ -1018,10 +1018,10 @@ export class AuthService {
         ];
         actions.forEach(validateActionArgsWasm);
 
-        const { nextNonce, blockHash } = await this.fetchTxContext(relayerAccountId, this.relayerPublicKey);
+        const { nextNonce, blockHash } = await this.fetchTxContext(relayerAccount, this.relayerPublicKey);
         const signed = await this.signWithPrivateKey({
           nearPrivateKey: this.config.relayerPrivateKey,
-          signerAccountId: relayerAccountId,
+          signerAccountId: relayerAccount,
           receiverId: accountId,
           nonce: nextNonce,
           blockHash,
@@ -2651,7 +2651,7 @@ export class AuthService {
     return this.queueTransaction(
       () => executeSignedDelegateWithRelayer({
         nearClient: this.nearClient,
-        relayerAccountId: this.config.relayerAccountId,
+        relayerAccount: this.config.relayerAccount,
         relayerPublicKey: this.relayerPublicKey,
         relayerPrivateKey: this.config.relayerPrivateKey,
         hash: input.hash,

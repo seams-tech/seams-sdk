@@ -84,7 +84,7 @@ export async function buildEncryptedEmailRecoveryActions(
   },
 ): Promise<{ actions: ActionArgsWasm[]; receiverId: string }> {
   const {
-    relayerAccountId,
+    relayerAccount,
     networkId,
   } = deps;
   const { accountId, emailBlob, recipientPk, encrypt } = input;
@@ -92,7 +92,7 @@ export async function buildEncryptedEmailRecoveryActions(
   const aeadContext: EmailEncryptionContext = {
     account_id: accountId,
     network_id: networkId,
-    payer_account_id: relayerAccountId,
+    payer_account_id: relayerAccount,
   };
 
   const { envelope } = await encrypt({
@@ -149,7 +149,7 @@ export async function sendEmailRecoveryTransaction(
   },
 ): Promise<EmailRecoveryResult> {
   const {
-    relayerAccountId,
+    relayerAccount,
     relayerPrivateKey,
     nearClient,
     queueTransaction,
@@ -163,11 +163,11 @@ export async function sendEmailRecoveryTransaction(
   return queueTransaction(async () => {
     try {
       const relayerPublicKey = getRelayerPublicKey();
-      const { nextNonce, blockHash } = await fetchTxContext(relayerAccountId, relayerPublicKey);
+      const { nextNonce, blockHash } = await fetchTxContext(relayerAccount, relayerPublicKey);
 
       const signed = await signWithPrivateKey({
         nearPrivateKey: relayerPrivateKey,
-        signerAccountId: relayerAccountId,
+        signerAccountId: relayerAccount,
         receiverId,
         nonce: nextNonce,
         blockHash,
