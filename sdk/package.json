@@ -150,8 +150,8 @@
     "**/*.css"
   ],
   "scripts": {
-    "build": "./scripts/build-dev.sh",
-    "build:prod": "./scripts/build-prod.sh",
+    "build": "./scripts/build/build-dev.sh",
+    "build:prod": "./scripts/build/build-prod.sh",
     "build:rolldown": "rolldown -c rolldown.config.ts",
     "dev": "rolldown -c rolldown.config.ts -w",
     "test": "pnpm -C ../tests test",
@@ -160,15 +160,15 @@
     "test:e2e": "pnpm -C ../tests test:e2e",
     "test:unit": "pnpm -C ../tests test:unit",
     "test:threshold-core": "pnpm -C ../tests test:threshold-core",
-    "smoke:eth-signer:node-runtime": "node ./scripts/smoke-eth-signer-node-runtime.mjs",
-    "smoke:eth-signer:workers-runtime": "node ./scripts/smoke-eth-signer-workers-runtime.mjs",
+    "smoke:eth-signer:node-runtime": "node ./scripts/smoke/smoke-eth-signer-node-runtime.mjs",
+    "smoke:eth-signer:workers-runtime": "node ./scripts/smoke/smoke-eth-signer-workers-runtime.mjs",
     "smoke:eth-signer:runtimes": "pnpm smoke:eth-signer:node-runtime && pnpm smoke:eth-signer:workers-runtime",
     "test:wallet-iframe": "pnpm -C ../tests test:wallet-iframe",
     "test:lit-components": "pnpm -C ../tests test:lit-components",
     "test:relayer": "pnpm -C ../tests test:relayer",
-    "build:check:fresh": "./scripts/check-build-freshness.sh",
-    "size:lite": "node ./scripts/report-lite-bundle-sizes.mjs",
-    "size:lite:check": "node ./scripts/report-lite-bundle-sizes.mjs --check",
+    "build:check:fresh": "./scripts/build/check-build-freshness.sh",
+    "size:lite": "node ./scripts/reports/report-lite-bundle-sizes.mjs",
+    "size:lite:check": "node ./scripts/reports/report-lite-bundle-sizes.mjs --check",
     "type-check": "tsc --noEmit"
   },
   "keywords": [

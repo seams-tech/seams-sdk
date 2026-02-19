@@ -376,8 +376,8 @@ const configs = [
       '../client/src/core/types/signer-worker.ts',
       // Keep IndexedDB manager internals as stable deep-import entries for DB migration tests/tools.
       '../client/src/core/IndexedDBManager/index.ts',
-      '../client/src/core/IndexedDBManager/passkeyClientDB.ts',
-      '../client/src/core/IndexedDBManager/passkeyNearKeysDB.ts',
+      '../client/src/core/IndexedDBManager/passkeyClientDB/manager.ts',
+      '../client/src/core/IndexedDBManager/passkeyNearKeysDB/manager.ts',
     ],
     output: {
       dir: BUILD_PATHS.BUILD.ESM,

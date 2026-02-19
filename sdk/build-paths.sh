@@ -12,6 +12,7 @@ BUILD_TYPES="dist/types"
 # Source directories
 SOURCE_ROOT="../client/src"
 SOURCE_CORE="../client/src/core"
+SOURCE_SIGNING_RUNTIME_WORKERS="../client/src/core/signing/runtime/workers"
 SOURCE_WASM_SIGNER="../wasm/near_signer"
 SOURCE_WASM_ETH_SIGNER="../wasm/eth_signer"
 SOURCE_WASM_TEMPO_SIGNER="../wasm/tempo_signer"
