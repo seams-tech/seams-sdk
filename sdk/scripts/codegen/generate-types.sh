@@ -4,10 +4,13 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SDK_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 # Source build paths
-source ./build-paths.sh
-source ./scripts/wasm-toolchain.sh
-SDK_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$SDK_ROOT/build-paths.sh"
+source "$SDK_ROOT/scripts/build/wasm-toolchain.sh"
+cd "$SDK_ROOT"
 
 echo "Generating TypeScript types from Rust using wasm-bindgen..."
 

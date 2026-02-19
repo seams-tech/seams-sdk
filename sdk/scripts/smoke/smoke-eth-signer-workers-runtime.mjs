@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const sdkRoot = path.resolve(path.join(__dirname, '..'));
+const sdkRoot = path.resolve(path.join(__dirname, '../..'));
 
 const wasmPkgJsAbs = path.join(sdkRoot, 'dist', 'esm', 'server', 'wasm', 'eth_signer', 'pkg', 'eth_signer.js');
 const workerWasmAbs = path.join(sdkRoot, 'dist', 'workers', 'eth_signer.wasm');

@@ -1,7 +1,5 @@
-#!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 function toPosixPath(value) {
   return value.split(path.sep).join('/');
@@ -156,15 +154,16 @@ function describeCycle(component, repoRoot) {
     .sort();
 }
 
-function main() {
-  const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-  const repoRoot = path.resolve(scriptDir, '../..');
+export function findSigningApiCrossLayerCycles(repoRoot) {
   const signingRoot = path.join(repoRoot, 'client/src/core/signing');
   const apiRoot = path.join(signingRoot, 'api');
 
   if (!fs.existsSync(signingRoot)) {
-    console.error('[check-signing-api-cycles] signing root is missing:', signingRoot);
-    process.exit(1);
+    return {
+      signingRoot,
+      cycles: [],
+      error: `[check-signing-api-cycles] signing root is missing: ${signingRoot}`,
+    };
   }
 
   const files = collectSourceFiles(signingRoot);
@@ -186,20 +185,10 @@ function main() {
     apiCrossLayerCycles.push(describeCycle(component, repoRoot));
   }
 
-  if (!apiCrossLayerCycles.length) {
-    console.log('[check-signing-api-cycles] OK: no api/lower-layer cycles detected');
-    return;
-  }
-
-  console.error('[check-signing-api-cycles] failed: detected api/lower-layer cycles');
-  for (let i = 0; i < apiCrossLayerCycles.length; i += 1) {
-    const cycle = apiCrossLayerCycles[i];
-    console.error(`  cycle-${i + 1}:`);
-    for (const filePath of cycle) {
-      console.error(`    - ${filePath}`);
-    }
-  }
-  process.exit(1);
+  return {
+    signingRoot,
+    cycles: apiCrossLayerCycles,
+    error: null,
+  };
 }
 
-main();

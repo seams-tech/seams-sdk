@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const sdkRoot = path.resolve(path.join(__dirname, '..'));
+const sdkRoot = path.resolve(path.join(__dirname, '../..'));
 
 const argv = process.argv.slice(2);
 

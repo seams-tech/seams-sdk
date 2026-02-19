@@ -109,7 +109,7 @@ const { DARK_THEME: DARK_VARS, LIGHT_THEME: LIGHT_VARS } = createThemeTokens(pal
 const header = `/*
   AUTO-GENERATED FILE – DO NOT EDIT.
   Source: client/src/theme/palette.json + mappings from client/src/theme/base-styles.js (createThemeTokens)
-  Run: node sdk/scripts/generate-w3a-components-css.mjs
+  Run: node sdk/scripts/codegen/generate-w3a-components-css.mjs
 */`;
 
 const hostSelectorsArr = [

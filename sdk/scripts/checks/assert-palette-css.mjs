@@ -4,7 +4,7 @@
  * in the generated w3a-components.css.
  *
  * Usage:
- *   node sdk/scripts/assert-palette-css.mjs [path/to/w3a-components.css]
+ *   node sdk/scripts/checks/assert-palette-css.mjs [path/to/w3a-components.css]
  * Default cssPath: sdk/dist/esm/sdk/w3a-components.css
  */
 import fs from 'node:fs';

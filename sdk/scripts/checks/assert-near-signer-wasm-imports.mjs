@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const sdkRoot = path.resolve(path.join(__dirname, '..'));
+const sdkRoot = path.resolve(path.join(__dirname, '../..'));
 
 const distEsmRoot = path.join(sdkRoot, 'dist', 'esm');
 const targetAbs = path.join(distEsmRoot, 'wasm', 'near_signer', 'pkg', 'wasm_signer_worker.js');
@@ -96,4 +96,3 @@ if (offenders.length) {
 }
 
 console.log('[assert-near-signer-wasm-imports] OK: all NEAR wasm imports resolve within dist/esm');
-

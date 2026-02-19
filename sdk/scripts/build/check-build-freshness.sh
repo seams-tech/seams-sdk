@@ -5,8 +5,12 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SDK_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$SDK_ROOT"
+
 # Source centralized build configuration
-source "$(dirname "$0")/../build-paths.sh"
+source "$SDK_ROOT/build-paths.sh"
 
 # Colors for output
 RED='\033[0;31m'

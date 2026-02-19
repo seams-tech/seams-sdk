@@ -7,10 +7,12 @@
 
 set -e
 
-source ./build-paths.sh
-source ./scripts/wasm-toolchain.sh
-SDK_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SDK_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 REPO_ROOT="$(cd "$SDK_ROOT/.." && pwd)"
+source "$SDK_ROOT/build-paths.sh"
+source "$SCRIPT_DIR/wasm-toolchain.sh"
+cd "$SDK_ROOT"
 
 echo "Starting production build for @tatchi-xyz/sdk..."
 
@@ -39,7 +41,7 @@ rm -rf "$BUILD_ROOT/"
 print_success "Build directory cleaned"
 
 print_step "Generating TypeScript types from Rust..."
-if WASM_PACK_BUILD_PROFILE=release ./scripts/generate-types.sh; then print_success "TypeScript types generated successfully"; else print_error "Type generation failed"; exit 1; fi
+if WASM_PACK_BUILD_PROFILE=release "$SDK_ROOT/scripts/codegen/generate-types.sh"; then print_success "TypeScript types generated successfully"; else print_error "Type generation failed"; exit 1; fi
 
 print_step "Building WASM signer worker (release)..."
 pushd "$SDK_ROOT/$SOURCE_WASM_SIGNER" >/dev/null
@@ -75,13 +77,13 @@ print_step "Building TypeScript..."
 if npx tsc -p tsconfig.build.json; then print_success "TypeScript compilation completed"; else print_error "TypeScript compilation failed"; exit 1; fi
 
 print_step "Generating CSS variables from palette.json (w3a-components.css)..."
-if node ./scripts/generate-w3a-components-css.mjs; then print_success "w3a-components.css generated"; else print_error "Failed to generate w3a-components.css"; exit 1; fi
+if node "$SDK_ROOT/scripts/codegen/generate-w3a-components-css.mjs"; then print_success "w3a-components.css generated"; else print_error "Failed to generate w3a-components.css"; exit 1; fi
 
 print_step "Bundling with Rolldown (production)..."
 if NODE_ENV=production npx rolldown -c rolldown.config.ts; then print_success "Rolldown bundling completed"; else print_error "Rolldown bundling failed"; exit 1; fi
 
 print_step "Asserting NEAR signer WASM imports stay within dist/esm..."
-if node ./scripts/assert-near-signer-wasm-imports.mjs; then print_success "NEAR signer WASM imports OK"; else print_error "NEAR signer WASM imports invalid"; exit 1; fi
+if node "$SDK_ROOT/scripts/checks/assert-near-signer-wasm-imports.mjs"; then print_success "NEAR signer WASM imports OK"; else print_error "NEAR signer WASM imports invalid"; exit 1; fi
 
 print_step "Bundling browser-embedded SDK assets with Bun (minified)..."
 if [ -z "$BUN_BIN" ]; then print_error "Bun not found. Install Bun or ensure it is on PATH."; exit 1; fi
@@ -104,10 +106,10 @@ fi
 
 print_step "Bundling workers with Bun (minified)..."
 
-if "$BUN_BIN" build "$SOURCE_CORE/workers/near-signer.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
-  && "$BUN_BIN" build "$SOURCE_CORE/workers/passkey-confirm.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
-  && "$BUN_BIN" build "$SOURCE_CORE/workers/eth-signer.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
-  && "$BUN_BIN" build "$SOURCE_CORE/workers/tempo-signer.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]'; then
+if "$BUN_BIN" build "$SOURCE_SIGNING_RUNTIME_WORKERS/near-signer.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
+  && "$BUN_BIN" build "$SOURCE_SIGNING_RUNTIME_WORKERS/passkey-confirm.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
+  && "$BUN_BIN" build "$SOURCE_SIGNING_RUNTIME_WORKERS/eth-signer.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
+  && "$BUN_BIN" build "$SOURCE_SIGNING_RUNTIME_WORKERS/tempo-signer.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --minify --root "$REPO_ROOT" --entry-naming '[name].[ext]'; then
   print_success "Bun worker bundling completed"
 else
   print_error "Bun worker bundling failed"; exit 1
