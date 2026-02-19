@@ -39,11 +39,6 @@ import {
   type SignerWorkerResponseType,
   WorkerRequestType,
   WorkerResponseType,
-  INTERNAL_WORKER_REQUEST_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR,
-  INTERNAL_WORKER_RESPONSE_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR_FAILURE,
-  INTERNAL_WORKER_RESPONSE_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR_SUCCESS,
-  INTERNAL_WORKER_REQUEST_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT,
-  INTERNAL_WORKER_RESPONSE_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT_FAILURE,
   WasmRequestPayload,
 } from '@/core/types/signer-worker';
 // Import WASM binary directly
@@ -51,10 +46,7 @@ import init, {
   handle_signer_message,
 } from '../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import { resolveWasmUrl } from '@/core/runtimeAssetPaths/wasm-loader';
-import { base58Encode } from '@shared/utils/base58';
-import { base64UrlDecode } from '@shared/utils/base64';
 import { errorMessage } from '@shared/utils/errors';
-import { ensureEd25519Prefix } from '@shared/utils/validation';
 import { WorkerControlMessage } from './workerControlMessages';
 
 /**
@@ -73,55 +65,6 @@ const wasmUrl = resolveWasmUrl('wasm_signer_worker_bg.wasm', 'Signer Worker');
 
 let wasmInitPromise: Promise<void> | null = null;
 let messageQueue: Promise<void> = Promise.resolve();
-
-type WorkerGeneratedNearKeypair = {
-  publicKey: string;
-  privateKey: string;
-};
-
-function requireBase64Url32(value: unknown, label: string): Uint8Array {
-  const raw = typeof value === 'string' ? value.trim() : '';
-  if (!raw) throw new Error(`Missing ${label} in exported JWK`);
-  const bytes = base64UrlDecode(raw);
-  if (bytes.length !== 32) {
-    throw new Error(`${label} must decode to 32 bytes (got ${bytes.length})`);
-  }
-  return bytes;
-}
-
-async function generateEphemeralNearKeypairInWorker(): Promise<WorkerGeneratedNearKeypair> {
-  const subtle = globalThis.crypto?.subtle;
-  if (!subtle) {
-    throw new Error('WebCrypto is unavailable; cannot generate Ed25519 keypair');
-  }
-
-  let generated: CryptoKeyPair;
-  try {
-    generated = await subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
-  } catch {
-    throw new Error('WebCrypto Ed25519 key generation is unavailable in this runtime');
-  }
-
-  const [privateJwk, publicJwk] = await Promise.all([
-    subtle.exportKey('jwk', generated.privateKey),
-    subtle.exportKey('jwk', generated.publicKey),
-  ]);
-
-  const seed32 = requireBase64Url32((privateJwk as JsonWebKey).d, 'private JWK d');
-  const pub32 = requireBase64Url32(
-    (publicJwk as JsonWebKey).x || (privateJwk as JsonWebKey).x,
-    'public JWK x',
-  );
-
-  const secret64 = new Uint8Array(64);
-  secret64.set(seed32, 0);
-  secret64.set(pub32, 32);
-
-  return {
-    publicKey: ensureEd25519Prefix(base58Encode(pub32)),
-    privateKey: ensureEd25519Prefix(base58Encode(secret64)),
-  };
-}
 
 /**
  * Function called by WASM to send progress messages
@@ -237,10 +180,10 @@ function getFailureResponseType(requestType: SignerWorkerRequestType): SignerWor
       return WorkerResponseType.SignDelegateActionFailure;
     case WorkerRequestType.DeriveThresholdEd25519ClientVerifyingShare:
       return WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareFailure;
-    case INTERNAL_WORKER_REQUEST_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT:
-      return INTERNAL_WORKER_RESPONSE_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT_FAILURE;
-    case INTERNAL_WORKER_REQUEST_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR:
-      return INTERNAL_WORKER_RESPONSE_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR_FAILURE;
+    case WorkerRequestType.SignAddKeyThresholdPublicKeyNoPrompt:
+      return WorkerResponseType.SignAddKeyThresholdPublicKeyNoPromptFailure;
+    case WorkerRequestType.GenerateEphemeralNearKeypair:
+      return WorkerResponseType.GenerateEphemeralNearKeypairFailure;
     default:
       // Fallback for unknown request types
       return WorkerResponseType.DeriveNearKeypairAndEncryptFailure;
@@ -254,14 +197,6 @@ async function processWorkerMessage(event: MessageEvent): Promise<void> {
   try {
     // Guardrail: raw PRF fields must never traverse into signer payloads
     assertNoPrfSecretsInSignerPayload(event.data);
-    if (event.data?.type === INTERNAL_WORKER_REQUEST_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR) {
-      const keypair = await generateEphemeralNearKeypairInWorker();
-      self.postMessage({
-        type: INTERNAL_WORKER_RESPONSE_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR_SUCCESS,
-        payload: keypair,
-      });
-      return;
-    }
     // Initialize WASM
     await initializeWasm();
     // Pass message object directly to Rust WASM (Zero-Copy)

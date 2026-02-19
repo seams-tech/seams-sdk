@@ -27,6 +27,8 @@ pub enum WorkerRequestType {
     /// Single-purpose internal signing path for post-registration activation:
     /// Sign AddKey(thresholdPublicKey) for receiverId == nearAccountId without SecureConfirm/confirmTxFlow.
     SignAddKeyThresholdPublicKeyNoPrompt,
+    /// Internal helper to generate a fresh ephemeral Ed25519 keypair.
+    GenerateEphemeralNearKeypair,
 }
 
 impl From<u32> for WorkerRequestType {
@@ -43,6 +45,7 @@ impl From<u32> for WorkerRequestType {
             8 => WorkerRequestType::SignDelegateAction,
             9 => WorkerRequestType::DeriveThresholdEd25519ClientVerifyingShare,
             10 => WorkerRequestType::SignAddKeyThresholdPublicKeyNoPrompt,
+            11 => WorkerRequestType::GenerateEphemeralNearKeypair,
             _ => panic!("Invalid WorkerRequestType value: {}", value),
         }
     }
@@ -65,6 +68,7 @@ impl WorkerRequestType {
             WorkerRequestType::SignAddKeyThresholdPublicKeyNoPrompt => {
                 "SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT"
             }
+            WorkerRequestType::GenerateEphemeralNearKeypair => "GENERATE_EPHEMERAL_NEAR_KEYPAIR",
         }
     }
 }
@@ -88,6 +92,7 @@ pub fn worker_request_type_name(request_type: WorkerRequestType) -> &'static str
         WorkerRequestType::SignAddKeyThresholdPublicKeyNoPrompt => {
             "SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT"
         }
+        WorkerRequestType::GenerateEphemeralNearKeypair => "GENERATE_EPHEMERAL_NEAR_KEYPAIR",
     }
 }
 
@@ -142,6 +147,10 @@ pub enum WorkerResponseType {
     // Internal post-registration activation helper
     SignAddKeyThresholdPublicKeyNoPromptSuccess = 24,
     SignAddKeyThresholdPublicKeyNoPromptFailure = 25,
+
+    // Internal ephemeral key generation helper
+    GenerateEphemeralNearKeypairSuccess = 26,
+    GenerateEphemeralNearKeypairFailure = 27,
 }
 impl From<WorkerResponseType> for u32 {
     fn from(value: WorkerResponseType) -> Self {
@@ -182,6 +191,8 @@ impl From<u32> for WorkerResponseType {
             23 => WorkerResponseType::DeriveThresholdEd25519ClientVerifyingShareFailure,
             24 => WorkerResponseType::SignAddKeyThresholdPublicKeyNoPromptSuccess,
             25 => WorkerResponseType::SignAddKeyThresholdPublicKeyNoPromptFailure,
+            26 => WorkerResponseType::GenerateEphemeralNearKeypairSuccess,
+            27 => WorkerResponseType::GenerateEphemeralNearKeypairFailure,
             _ => panic!("Invalid WorkerResponseType value: {}", value),
         }
     }
@@ -253,6 +264,12 @@ pub fn worker_response_type_name(response_type: WorkerResponseType) -> &'static 
         }
         WorkerResponseType::SignAddKeyThresholdPublicKeyNoPromptFailure => {
             "SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT_FAILURE"
+        }
+        WorkerResponseType::GenerateEphemeralNearKeypairSuccess => {
+            "GENERATE_EPHEMERAL_NEAR_KEYPAIR_SUCCESS"
+        }
+        WorkerResponseType::GenerateEphemeralNearKeypairFailure => {
+            "GENERATE_EPHEMERAL_NEAR_KEYPAIR_FAILURE"
         }
     }
 }

@@ -1,6 +1,7 @@
 pub mod handle_decrypt_private_key_with_prf;
 pub mod handle_derive_near_keypair_and_encrypt;
 pub mod handle_extract_cose_public_key;
+pub mod handle_generate_ephemeral_near_keypair;
 pub mod handle_recover_keypair_from_passkey;
 pub mod handle_register_device2_with_derived_key;
 pub mod handle_sign_add_key_threshold_public_key_no_prompt;
@@ -14,6 +15,7 @@ pub mod handle_threshold_ed25519_derive_client_verifying_share;
 pub use handle_decrypt_private_key_with_prf::handle_decrypt_private_key_with_prf;
 pub use handle_derive_near_keypair_and_encrypt::handle_derive_near_keypair_and_encrypt;
 pub use handle_extract_cose_public_key::handle_extract_cose_public_key;
+pub use handle_generate_ephemeral_near_keypair::handle_generate_ephemeral_near_keypair;
 pub use handle_recover_keypair_from_passkey::handle_recover_keypair_from_passkey;
 pub use handle_register_device2_with_derived_key::handle_register_device2_with_derived_key;
 pub use handle_sign_add_key_threshold_public_key_no_prompt::handle_sign_add_key_threshold_public_key_no_prompt;
@@ -25,6 +27,7 @@ pub use handle_threshold_ed25519_derive_client_verifying_share::handle_threshold
 
 // Request/Result types
 pub use handle_extract_cose_public_key::{CoseExtractionResult, ExtractCoseRequest};
+pub use handle_generate_ephemeral_near_keypair::GenerateEphemeralNearKeypairRequest;
 pub use handle_recover_keypair_from_passkey::{RecoverKeypairRequest, RecoverKeypairResult};
 pub use handle_register_device2_with_derived_key::{
     RegisterDevice2WithDerivedKeyRequest, RegisterDevice2WithDerivedKeyResult,

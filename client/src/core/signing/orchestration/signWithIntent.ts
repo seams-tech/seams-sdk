@@ -13,7 +13,9 @@ export async function signWithIntent<
   engines: SigningEngineMap<Request, ResolvedSignInput['keyRef'], Signed>;
   resolveSignInput: (req: Request) => Promise<ResolvedSignInput>;
 }): Promise<Result> {
+
   const intent = await args.adapter.buildIntent(args.request);
+
   return await executeSigningIntent({
     intent,
     engines: args.engines,

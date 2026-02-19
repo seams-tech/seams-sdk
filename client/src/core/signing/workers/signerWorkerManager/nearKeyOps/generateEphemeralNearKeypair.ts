@@ -1,7 +1,7 @@
 import { ensureEd25519Prefix } from '@shared/utils/validation';
 import {
-  INTERNAL_WORKER_REQUEST_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR,
-  INTERNAL_WORKER_RESPONSE_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR_SUCCESS,
+  WorkerRequestType,
+  WorkerResponseType,
 } from '@/core/types/signer-worker';
 import type { SignerWorkerManagerContext } from '..';
 
@@ -14,12 +14,12 @@ export async function generateEphemeralNearKeypair(args: {
   const response = await args.ctx.requestWorkerOperation({
     kind: 'nearSigner',
     request: {
-      type: INTERNAL_WORKER_REQUEST_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR,
+      type: WorkerRequestType.GenerateEphemeralNearKeypair,
       payload: {},
     },
   });
 
-  if (response.type !== INTERNAL_WORKER_RESPONSE_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR_SUCCESS) {
+  if (response.type !== WorkerResponseType.GenerateEphemeralNearKeypairSuccess) {
     throw new Error('Worker failed to generate ephemeral NEAR keypair');
   }
 

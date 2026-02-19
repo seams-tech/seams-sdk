@@ -10,13 +10,20 @@ export async function executeSigningIntent<
   engines: SigningEngineMap<Request, ResolvedSignInput['keyRef'], Signed>;
   resolveSignInput: (req: Request) => Promise<ResolvedSignInput>;
 }): Promise<Result> {
+
   const signatures: Signed[] = [];
+
   for (const pendingReq of args.intent.signRequests) {
+
     const { signReq, keyRef } = await args.resolveSignInput(pendingReq);
     const algorithm = signReq.algorithm as Request['algorithm'] & string;
     const engine = args.engines[algorithm];
-    if (!engine) throw new Error(`[chains] missing engine for algorithm: ${signReq.algorithm}`);
+
+    if (!engine) {
+      throw new Error(`[chains] missing engine for algorithm: ${signReq.algorithm}`);
+    }
     signatures.push(await engine.sign(signReq, keyRef));
   }
+
   return await args.intent.finalize(signatures);
 }

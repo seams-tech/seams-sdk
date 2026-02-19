@@ -29,12 +29,23 @@ export const base64Encode = (value: ArrayBufferLike | ArrayBufferView): string =
  * @throws Error if decoding fails due to invalid base64 input
  */
 export function base64Decode(base64: string): Uint8Array {
-  const binaryString = atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
+  const normalized = String(base64 || '').trim();
+  if (!normalized) return new Uint8Array();
+
+  if (typeof atob === 'function') {
+    const binaryString = atob(normalized);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
   }
-  return bytes;
+
+  if (typeof Buffer !== 'undefined') {
+    return Uint8Array.from(Buffer.from(normalized, 'base64'));
+  }
+
+  throw new Error('base64Decode is unavailable in this runtime');
 }
 
 /**
@@ -66,14 +77,10 @@ export const base64UrlEncode = (value: ArrayBufferLike | ArrayBufferView): strin
  * @throws Error if decoding fails due to invalid base64url input
  */
 export function base64UrlDecode(base64Url: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64Url.length % 4)) % 4);
-  const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/') + padding;
-  const binaryString = atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
+  const normalized = String(base64Url || '').trim().replace(/-/g, '+').replace(/_/g, '/');
+  if (!normalized) return new Uint8Array();
+  const padding = '='.repeat((4 - (normalized.length % 4)) % 4);
+  return base64Decode(normalized + padding);
 }
 
 /**

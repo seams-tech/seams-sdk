@@ -39,6 +39,7 @@ pub use handlers::{
     DeriveThresholdEd25519ClientVerifyingShareRequest,
     // Extract Cose Public Key
     ExtractCoseRequest,
+    GenerateEphemeralNearKeypairRequest,
     KeyActionResult,
     // Recover Account
     RecoverKeypairRequest,
@@ -342,6 +343,13 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
             serde_wasm_bindgen::to_value(&result)
                 .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
         }
+        WorkerRequestType::GenerateEphemeralNearKeypair => {
+            let request: GenerateEphemeralNearKeypairRequest =
+                parse_typed_payload(&payload_js, request_type)?;
+            let result = handlers::handle_generate_ephemeral_near_keypair(request).await?;
+            serde_wasm_bindgen::to_value(&result)
+                .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
+        }
     };
 
     // At this point, response_payload is the successful JsValue result.
@@ -375,6 +383,9 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
         }
         WorkerRequestType::SignAddKeyThresholdPublicKeyNoPrompt => {
             WorkerResponseType::SignAddKeyThresholdPublicKeyNoPromptSuccess
+        }
+        WorkerRequestType::GenerateEphemeralNearKeypair => {
+            WorkerResponseType::GenerateEphemeralNearKeypairSuccess
         }
     };
 
