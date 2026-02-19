@@ -104,12 +104,6 @@ export type BootstrapThresholdEcdsaSessionArgs = {
   };
 };
 
-export interface ThresholdSessionBootstrapCapability {
-  bootstrapThresholdEcdsaSession(
-    args: BootstrapThresholdEcdsaSessionArgs,
-  ): Promise<ThresholdEcdsaSessionBootstrapResult>;
-}
-
 export interface AuthCapability {
   login(
     nearAccountId: string,
@@ -194,16 +188,23 @@ export interface NearSignerCapability {
   }): Promise<SignNEP413MessageResult>;
 }
 
-export interface TempoSignerCapability extends ThresholdSessionBootstrapCapability {
+export interface TempoSignerCapability {
   signTempo(args: SignTempoArgs): Promise<TempoSignedResult>;
   signTempoWithThresholdEcdsa(
     args: SignTempoWithThresholdEcdsaArgs,
   ): Promise<TempoSignedResult>;
+  bootstrapThresholdEcdsaSession(
+    args: BootstrapThresholdEcdsaSessionArgs,
+  ): Promise<ThresholdEcdsaSessionBootstrapResult>;
 }
 
-export type EvmSignerCapability = ThresholdSessionBootstrapCapability;
+export interface EvmSignerCapability {
+  bootstrapThresholdEcdsaSession(
+    args: BootstrapThresholdEcdsaSessionArgs,
+  ): Promise<ThresholdEcdsaSessionBootstrapResult>;
+}
 
-export interface EmailRecoveryCapability {
+export interface RecoveryCapability {
   getRecoveryEmails(accountId: string): Promise<Array<{ hashHex: string; email: string }>>;
 
   setRecoveryEmails(args: {
@@ -232,9 +233,6 @@ export interface EmailRecoveryCapability {
     accountId?: string;
     nearPublicKey?: string;
   }): Promise<void>;
-}
-
-export interface DeviceLinkingCapability {
   startDevice2LinkingFlow(
     args: StartDevice2LinkingFlowArgs,
   ): Promise<StartDevice2LinkingFlowResults>;
@@ -246,8 +244,6 @@ export interface DeviceLinkingCapability {
     options: ScanAndLinkDeviceOptionsDevice1,
   ): Promise<LinkDeviceResult>;
 }
-
-export type RecoveryCapability = EmailRecoveryCapability & DeviceLinkingCapability;
 
 export interface KeyExportCapability {
   exportPrivateKeysWithUI(
@@ -284,5 +280,3 @@ export interface PasskeyManagerContext {
   configs: TatchiConfigs;
   theme: ThemeName;
 }
-
-export type TatchiPasskeyContext = PasskeyManagerContext;

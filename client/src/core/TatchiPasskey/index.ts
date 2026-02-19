@@ -43,7 +43,7 @@ import {
   loginAndCreateSessionDomain,
   logoutAndClearSessionDomain,
   type AuthSessionDomainDeps,
-} from './authSessionDomain';
+} from './authSessions';
 import type {
   AuthCapability,
   EvmSignerCapability,
@@ -691,8 +691,6 @@ export class TatchiPasskey {
 export type {
   AuthCapability,
   BootstrapThresholdEcdsaSessionArgs,
-  DeviceLinkingCapability,
-  EmailRecoveryCapability,
   EvmSignerCapability,
   KeyExportCapability,
   NearSignerCapability,
@@ -702,9 +700,7 @@ export type {
   RecoveryCapability,
   SignTempoArgs,
   SignTempoWithThresholdEcdsaArgs,
-  TatchiPasskeyContext,
   TempoSignerCapability,
-  ThresholdSessionBootstrapCapability,
 } from './interfaces';
 
 export type {
