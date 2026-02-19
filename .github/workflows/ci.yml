@@ -42,7 +42,7 @@ jobs:
           curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
 
       - name: Generate WASM TypeScript types (wasm-pack)
-        run: pnpm -C sdk exec bash ./scripts/generate-types.sh
+        run: pnpm -C sdk exec bash ./scripts/codegen/generate-types.sh
 
       - name: Check (lint + format + type-check)
         run: pnpm check
@@ -57,10 +57,13 @@ jobs:
         run: pnpm build:sdk-prod
 
       - name: Assert generated palette CSS
-        run: node sdk/scripts/assert-palette-css.mjs
+        run: node sdk/scripts/checks/assert-palette-css.mjs
 
       - name: Run lite SDK tests
         run: pnpm test:lite
+
+      - name: Run signer runtime gates
+        run: pnpm test:signers:gates
 
       - name: Run relayer (server) tests
         run: pnpm -C sdk test:relayer
@@ -97,14 +100,14 @@ jobs:
         run: |
           curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
 
-      - name: Setup Bun (for sdk build in parity script)
+      - name: Setup Bun (for sdk build in parity tests)
         uses: oven-sh/setup-bun@v2
 
       - name: Install Playwright (Chromium)
         run: pnpm -C tests exec playwright install chromium
 
       - name: Run signer parity with iOS Swift replay
-        run: RUN_IOS_SWIFT_REPLAY=1 bash ./sdk/scripts/check-signer-parity.sh
+        run: pnpm -C tests test:signer-parity:swift
 
   threshold-signing-core:
     runs-on: ubuntu-latest

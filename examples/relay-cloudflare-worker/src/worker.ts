@@ -50,7 +50,7 @@ type Env = {
 
 function createAuthService(env: Env): AuthService {
   return new AuthService({
-    relayerAccountId: env.RELAYER_ACCOUNT_ID,
+    relayerAccount: env.RELAYER_ACCOUNT_ID,
     relayerPrivateKey: env.RELAYER_PRIVATE_KEY,
     webAuthnContractId: env.WEBAUTHN_CONTRACT_ID,
     nearRpcUrl: env.NEAR_RPC_URL,

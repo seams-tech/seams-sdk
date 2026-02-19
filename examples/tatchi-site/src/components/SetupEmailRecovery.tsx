@@ -25,7 +25,7 @@ export const SetupEmailRecovery: React.FC = () => {
     }
 
     try {
-      const records = await tatchi.getRecoveryEmails(nearAccountId);
+      const records = await tatchi.recovery.getRecoveryEmails(nearAccountId);
       const labels = (records || []).map(rec => rec.email);
       setOnChainHashes(labels);
     } catch (err) {
@@ -56,10 +56,10 @@ export const SetupEmailRecovery: React.FC = () => {
 
     try {
       toast.loading('Updating recovery emails...', { id: toastId });
-      const result = await tatchi.setRecoveryEmails(
-        nearAccountId,
+      const result = await tatchi.recovery.setRecoveryEmails({
+        accountId: nearAccountId,
         recoveryEmails,
-        {
+        options: {
           waitUntil: TxExecutionStatus.EXECUTED_OPTIMISTIC,
           afterCall: (success: boolean, actionResult?: ActionResult) => {
             try {
@@ -85,7 +85,7 @@ export const SetupEmailRecovery: React.FC = () => {
             }
           },
         },
-      );
+      });
 
       if (!result?.success) {
         toast.error(result?.error || 'Failed to update recovery emails');

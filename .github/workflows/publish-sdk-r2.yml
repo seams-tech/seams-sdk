@@ -88,7 +88,7 @@ jobs:
 
       - name: Assert generated palette CSS
         if: github.event_name == 'workflow_dispatch'
-        run: node sdk/scripts/assert-palette-css.mjs
+        run: node sdk/scripts/checks/assert-palette-css.mjs
 
       - name: Run wallet-iframe tests
         if: github.event_name == 'workflow_dispatch'

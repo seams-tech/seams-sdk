@@ -78,7 +78,7 @@ async function main() {
   const authService = new AuthService({
     // new accounts with be created with this account: e.g. bob.{relayer-account-id}.near
     // you can make it the same account as the webauthn contract id.
-    relayerAccountId: requireEnvVar(env, 'RELAYER_ACCOUNT_ID'),
+    relayerAccount: requireEnvVar(env, 'RELAYER_ACCOUNT_ID'),
     relayerPrivateKey: requireEnvVar(env, 'RELAYER_PRIVATE_KEY'),
     webAuthnContractId: env.WEBAUTHN_CONTRACT_ID || 'w3a-v1.testnet',
     // Optional overrides (SDK provides defaults when omitted)

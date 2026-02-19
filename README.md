@@ -28,7 +28,9 @@ pnpm examples:vite
 - Build SDK (prod/release-style): `pnpm -C sdk build:prod`
 - SDK watch mode: `pnpm -C sdk dev`
 - Tests: `pnpm -C sdk test`
+- Signer runtime regression gate: `pnpm test:signers:gates`
 - Type check: `pnpm -C sdk run type-check`
+- Signer runtime contracts: `docs/signer-runtime-contracts.md`
 
 ## Architecture
 
