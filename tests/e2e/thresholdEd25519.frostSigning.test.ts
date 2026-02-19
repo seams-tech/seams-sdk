@@ -484,7 +484,7 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
             autoProceedDelay: 0,
           };
 
-          const reg = await pm.registerPasskeyInternal(
+          const reg = await pm.registration.registerPasskeyInternal(
             accountId,
             { signerMode: { mode: 'local-signer' } },
             confirmConfig as any,
@@ -500,7 +500,7 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
 
 	          // Mint a threshold relayer auth session (one WebAuthn prompt).
 	          // Subsequent threshold signing calls should use the cached session JWT and warm PRF session.
-	          const login = await pm.loginAndCreateSession(accountId);
+	          const login = await pm.auth.login(accountId);
 	          if (!login?.success) {
 	            return { ok: false, error: login?.error || 'login failed' };
 	          }

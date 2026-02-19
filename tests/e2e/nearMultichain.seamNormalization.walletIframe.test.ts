@@ -64,7 +64,7 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
         });
 
         const confirmationConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const;
-        const registration = await tatchi.registerPasskeyInternal(
+        const registration = await tatchi.registration.registerPasskeyInternal(
           accountId,
           { signerMode: { mode: 'local-signer' } },
           confirmationConfig as any,
@@ -73,7 +73,7 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
           return { ok: false as const, error: registration?.error || 'registration failed' };
         }
 
-        const login = await tatchi.loginAndCreateSession(accountId);
+        const login = await tatchi.auth.login(accountId);
         if (!login?.success) {
           return { ok: false as const, error: login?.error || 'login failed' };
         }

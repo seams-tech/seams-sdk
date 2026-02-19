@@ -54,7 +54,7 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
         try {
           const pm = (window as any).tatchi;
           if (!pm || typeof pm.getLoginSession !== 'function') return null;
-          return await pm.getLoginSession();
+          return await pm.auth.getSession();
         } catch {
           return null;
         }

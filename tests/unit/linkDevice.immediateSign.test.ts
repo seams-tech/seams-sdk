@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest, handleInfrastructureErrors } from '../setup';
 
 const IMPORT_PATHS = {
-  linkDevice: '/sdk/esm/core/TatchiPasskey/linkDevice.js',
+  linkDevice: '/sdk/esm/core/TatchiPasskey/recovery/deviceLinking.js',
   clientDb: '/sdk/esm/core/IndexedDBManager/passkeyClientDB/manager.js',
   nearKeysDb: '/sdk/esm/core/IndexedDBManager/passkeyNearKeysDB/manager.js',
   getDeviceNumber: '/sdk/esm/core/signing/webauthn/device/getDeviceNumber.js',

@@ -1,11 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { NearSigner } from '@/core/TatchiPasskey/signers/nearSigner';
-import { TempoSigner } from '@/core/TatchiPasskey/signers/tempoSigner';
-import { EvmSigner } from '@/core/TatchiPasskey/signers/evmSigner';
+import {
+  createEvmSignerCapability,
+  createNearSignerCapability,
+  createTempoSignerCapability,
+} from '@/core/signing/chainAdaptors/capabilityFactories';
 import { ActionPhase } from '@/core/types/sdkSentEvents';
 
-function createNearSignerWithRouter(router: Record<string, unknown>): NearSigner {
-  return new NearSigner({
+function createNearSignerWithRouter(router: Record<string, unknown>) {
+  return createNearSignerCapability({
     getContext: () =>
       ({
         configs: {
@@ -33,8 +35,8 @@ test.describe('TatchiPasskey chain signer modules', () => {
       receiverId: 'contract.testnet',
       actionArgs: { type: 'FunctionCall', methodName: 'ping' } as any,
       options: {
-        afterCall: async (ok, out) => afterCalls.push({ ok, result: out }),
-        onError: async (err) => onErrors.push(err),
+        afterCall: async (ok: boolean, out?: unknown) => afterCalls.push({ ok, result: out }),
+        onError: async (err: Error) => onErrors.push(err),
       } as any,
     });
 
@@ -58,8 +60,8 @@ test.describe('TatchiPasskey chain signer modules', () => {
         receiverId: 'contract.testnet',
         actionArgs: { type: 'FunctionCall', methodName: 'ping' } as any,
         options: {
-          afterCall: async (ok, out) => afterCalls.push({ ok, result: out }),
-          onError: async (err) => onErrors.push(err),
+          afterCall: async (ok: boolean, out?: unknown) => afterCalls.push({ ok, result: out }),
+          onError: async (err: Error) => onErrors.push(err),
         } as any,
       }),
     ).rejects.toThrow('router execute failed');
@@ -88,7 +90,7 @@ test.describe('TatchiPasskey chain signer modules', () => {
       transactions: [{ receiverId: 'contract.testnet', actions: [] }] as any,
       options: {
         onEvent: (event: any) => progressEvents.push(event),
-        afterCall: async (ok, out) => afterCalls.push({ ok, result: out }),
+        afterCall: async (ok: boolean, out?: unknown) => afterCalls.push({ ok, result: out }),
       } as any,
     });
 
@@ -119,7 +121,7 @@ test.describe('TatchiPasskey chain signer modules', () => {
       delegate: { senderId: 'alice.testnet', receiverId: 'contract.testnet', actions: [] } as any,
       relayerUrl: 'https://relay.example.test',
       options: {
-        afterCall: async (ok, out) => afterCalls.push({ ok, result: out }),
+        afterCall: async (ok: boolean, out?: unknown) => afterCalls.push({ ok, result: out }),
       } as any,
     });
 
@@ -131,7 +133,7 @@ test.describe('TatchiPasskey chain signer modules', () => {
     let capturedArgs: any = null;
     const expectedResult = { chain: 'tempo', kind: 'eip1559', txHashHex: '0x1', rawTxHex: '0x2' } as any;
     const shouldAbort = () => false;
-    const signer = new TempoSigner({
+    const signer = createTempoSignerCapability({
       getContext: () =>
         ({
           webAuthnManager: {
@@ -180,7 +182,7 @@ test.describe('TatchiPasskey chain signer modules', () => {
     const tempoCalls: any[] = [];
     const evmCalls: any[] = [];
 
-    const tempoSigner = new TempoSigner({
+    const tempoSigner = createTempoSignerCapability({
       getContext: () => ({}) as any,
       walletIframe: {
         shouldUseWalletIframe: () => true,
@@ -193,7 +195,7 @@ test.describe('TatchiPasskey chain signer modules', () => {
           }) as any,
       },
     });
-    const evmSigner = new EvmSigner({
+    const evmSigner = createEvmSignerCapability({
       getContext: () => ({}) as any,
       walletIframe: {
         shouldUseWalletIframe: () => true,

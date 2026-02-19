@@ -370,7 +370,7 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
 
         (window as any).__registrationEvents = [];
 
-        const res = await pm.registerPasskeyInternal(
+        const res = await pm.registration.registerPasskeyInternal(
           accountId,
           {
             signerOptions: {
@@ -720,7 +720,7 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
         };
 
         (window as any).__registrationEvents = [];
-        const res = await pm.registerPasskeyInternal(
+        const res = await pm.registration.registerPasskeyInternal(
           accountId,
           {
             signerOptions: {

@@ -48,12 +48,12 @@ test.describe('NonceManager Integration Tests', () => {
         // Register and login to get a working session
         const cfg = ((window as any).testUtils?.confirmOverrides?.none)
           || ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0} as const);
-        const registrationResult = await pm.registerPasskeyInternal(testAccountId, {}, cfg as any);
+        const registrationResult = await pm.registration.registerPasskeyInternal(testAccountId, {}, cfg as any);
         if (!registrationResult.success) {
           throw new Error(`Registration failed: ${registrationResult.error}`);
         }
 
-        const loginResult = await pm.loginAndCreateSession(testAccountId);
+        const loginResult = await pm.auth.login(testAccountId);
         if (!loginResult.success) {
           throw new Error(`Login failed: ${loginResult.error}`);
         }
@@ -138,12 +138,12 @@ test.describe('NonceManager Integration Tests', () => {
         // Register and login
         const cfg = ((window as any).testUtils?.confirmOverrides?.none)
           || ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0} as const);
-        const registrationResult = await pm.registerPasskeyInternal(testAccountId, {}, cfg as any);
+        const registrationResult = await pm.registration.registerPasskeyInternal(testAccountId, {}, cfg as any);
         if (!registrationResult.success) {
           throw new Error(`Registration failed: ${registrationResult.error}`);
         }
 
-        const loginResult = await pm.loginAndCreateSession(testAccountId);
+        const loginResult = await pm.auth.login(testAccountId);
         if (!loginResult.success) {
           throw new Error(`Login failed: ${loginResult.error}`);
         }
@@ -235,12 +235,12 @@ test.describe('NonceManager Integration Tests', () => {
         // Register and login
         const cfg = ((window as any).testUtils?.confirmOverrides?.none)
           || ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0} as const);
-        const registrationResult = await pm.registerPasskeyInternal(testAccountId, {}, cfg as any);
+        const registrationResult = await pm.registration.registerPasskeyInternal(testAccountId, {}, cfg as any);
         if (!registrationResult.success) {
           throw new Error(`Registration failed: ${registrationResult.error}`);
         }
 
-        const loginResult = await pm.loginAndCreateSession(testAccountId);
+        const loginResult = await pm.auth.login(testAccountId);
         if (!loginResult.success) {
           throw new Error(`Login failed: ${loginResult.error}`);
         }

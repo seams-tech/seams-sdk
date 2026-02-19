@@ -146,13 +146,13 @@ test.describe('threshold-ed25519 batch signing', () => {
 
           const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
 
-          const reg = await pm.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
+          const reg = await pm.registration.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
           if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
 
           const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
           if (!enrollment?.success) return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
 
-          const login = await pm.loginAndCreateSession(accountId);
+          const login = await pm.auth.login(accountId);
           if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
 
           const receiverId = 'w3a-v1.testnet';

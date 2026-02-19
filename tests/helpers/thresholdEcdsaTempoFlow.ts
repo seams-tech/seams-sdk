@@ -146,7 +146,7 @@ export async function runThresholdEcdsaTempoFlow(
     });
 
     try {
-      const registration = await pm.registerPasskeyInternal(
+      const registration = await pm.registration.registerPasskeyInternal(
         accountId,
         {
           signerOptions: {

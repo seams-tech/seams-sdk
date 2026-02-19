@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { DeviceRecoveryDomain } from '@/core/TatchiPasskey/deviceRecoveryDomain';
+import { EmailRecoveryDomain } from '@/core/TatchiPasskey/near/emailRecovery';
 import { IndexedDBManager } from '@/core/IndexedDBManager';
 import { EmailRecoveryPhase } from '@/core/types/sdkSentEvents';
 
@@ -109,7 +109,7 @@ function createLocalDomain(options?: {
     },
   } as any;
 
-  const domain = new DeviceRecoveryDomain({
+  const domain = new EmailRecoveryDomain({
     getContext: () => context,
     walletIframe: {
       shouldUseWalletIframe: () => false,
@@ -122,7 +122,7 @@ function createLocalDomain(options?: {
   return { domain, storeUserDataCalls, storeAuthenticatorCalls };
 }
 
-test.describe('DeviceRecoveryDomain email recovery', () => {
+test.describe('EmailRecoveryDomain', () => {
   test('local startEmailRecovery emits progress phases and persists pending record', async () => {
     const pendingStore = createPendingStoreMock();
     const events: any[] = [];
@@ -260,7 +260,7 @@ test.describe('DeviceRecoveryDomain email recovery', () => {
       },
     };
 
-    const domain = new DeviceRecoveryDomain({
+    const domain = new EmailRecoveryDomain({
       getContext: () => {
         localContextTouched = true;
         return {} as any;

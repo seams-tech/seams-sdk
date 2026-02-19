@@ -410,7 +410,7 @@ test.describe('Threshold Ed25519 rotation helper', () => {
           autoProceedDelay: 0,
         };
 
-        const reg = await pm.registerPasskeyInternal(
+        const reg = await pm.registration.registerPasskeyInternal(
           accountId,
           {
             signerMode: { mode: 'threshold-signer' },

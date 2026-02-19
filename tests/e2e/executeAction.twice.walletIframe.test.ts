@@ -59,12 +59,12 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
         });
 
         const cfg = { uiMode: 'modal', behavior: 'requireClick', autoProceedDelay: 0 } as const;
-        const reg = await tatchi.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, cfg as any);
+        const reg = await tatchi.registration.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, cfg as any);
         if (!reg?.success) {
           return { ok: false as const, error: reg?.error || 'registration failed' };
         }
 
-        const login = await tatchi.loginAndCreateSession(accountId);
+        const login = await tatchi.auth.login(accountId);
         if (!login?.success) {
           return { ok: false as const, error: login?.error || 'login failed' };
         }

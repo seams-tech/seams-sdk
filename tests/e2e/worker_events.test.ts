@@ -74,7 +74,7 @@ test.describe('Worker Communication Protocol', () => {
         // Register first to have an account (skip confirmation UI in tests)
         const cfg = ((window as any).testUtils?.confirmOverrides?.none)
           || ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0} as const);
-        const registrationResult = await tatchi.registerPasskeyInternal(testAccountId, {
+        const registrationResult = await tatchi.registration.registerPasskeyInternal(testAccountId, {
           onEvent: (event: any) => {
             progressEvents.push(event);
             registrationEvents.push(event);
@@ -86,7 +86,7 @@ test.describe('Worker Communication Protocol', () => {
         }
 
         // Login to activate session
-        const loginResult = await tatchi.loginAndCreateSession(testAccountId, {
+        const loginResult = await tatchi.auth.login(testAccountId, {
           onEvent: (event: any) => {
             console.log(`Login [${event.step}]: ${event.phase} - ${event.message}`);
           }
@@ -322,7 +322,7 @@ test.describe('Worker Communication Protocol', () => {
 
         const capturedEvents: Array<{ phase: string; status: string; message: string }> = [];
 
-        const loginResult = await tatchi.loginAndCreateSession(testAccountId, {
+        const loginResult = await tatchi.auth.login(testAccountId, {
           onEvent: (event: any) => {
             capturedEvents.push({
               phase: event?.phase ?? '',
@@ -388,7 +388,7 @@ test.describe('Worker Communication Protocol', () => {
         const loginEvents: Array<{ phase: string; status: string; message: string }> = [];
 
         const cfg = (utils?.confirmOverrides?.none) || ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0} as const);
-        const registrationResult = await utils.tatchi.registerPasskeyInternal(testAccountId, {
+        const registrationResult = await utils.tatchi.registration.registerPasskeyInternal(testAccountId, {
           onEvent: (event: any) => {
             registrationEvents.push({
               phase: event?.phase ?? '',
@@ -401,7 +401,7 @@ test.describe('Worker Communication Protocol', () => {
           throw new Error(`Registration failed unexpectedly: ${registrationResult?.error}`);
         }
 
-        const loginResult = await utils.tatchi.loginAndCreateSession(testAccountId, {
+        const loginResult = await utils.tatchi.auth.login(testAccountId, {
           session: { kind: 'jwt' },
           onEvent: (event: any) => {
             loginEvents.push({
@@ -508,7 +508,7 @@ test.describe('Worker Communication Protocol', () => {
           // Test registration flow (should generate REGISTRATION_PROGRESS messages)
           const cfg2 = ((window as any).testUtils?.confirmOverrides?.none)
             || ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0} as const);
-          const registrationResult = await tatchi.registerPasskeyInternal(testAccountId, {
+          const registrationResult = await tatchi.registration.registerPasskeyInternal(testAccountId, {
             onEvent: (event: any) => {
               progressEvents.push(event);
               messageTypes.add(`${event.phase}:${event.status}`);
@@ -519,7 +519,7 @@ test.describe('Worker Communication Protocol', () => {
           }
 
           // Test login flow (should generate various progress messages)
-          const loginResult = await tatchi.loginAndCreateSession(testAccountId, {
+          const loginResult = await tatchi.auth.login(testAccountId, {
             onEvent: (event: any) => {
               progressEvents.push(event);
               messageTypes.add(`${event.phase}:${event.status}`);
@@ -632,7 +632,7 @@ test.describe('Worker Communication Protocol', () => {
         try {
           const cfg3 = ((window as any).testUtils?.confirmOverrides?.none)
             || ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0} as const);
-          result = await tatchi.registerPasskeyInternal(validAccountId, {
+          result = await tatchi.registration.registerPasskeyInternal(validAccountId, {
             onEvent: (event: any) => {
               progressEvents.push(event);
               if (event.status === 'error') {

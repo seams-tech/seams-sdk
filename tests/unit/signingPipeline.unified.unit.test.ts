@@ -336,7 +336,7 @@ test.describe('unified signing pipeline', () => {
 
   test('runtime secp signing enforces threshold keyRef guardrail', () => {
     const secpEngineSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signing/engines/secp256k1.ts'),
+      path.resolve(process.cwd(), '../client/src/core/signing/algorithms/secp256k1.ts'),
       'utf8',
     );
 

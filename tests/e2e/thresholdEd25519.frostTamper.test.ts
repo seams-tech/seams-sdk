@@ -118,7 +118,7 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
 
           const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
 
-          const reg = await pm.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
+          const reg = await pm.registration.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
           if (!reg?.success) throw new Error(reg?.error || 'registration failed');
 
           const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
@@ -223,7 +223,7 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
 
           const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
 
-          const reg = await pm.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
+          const reg = await pm.registration.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
           if (!reg?.success) throw new Error(reg?.error || 'registration failed');
 
           const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });

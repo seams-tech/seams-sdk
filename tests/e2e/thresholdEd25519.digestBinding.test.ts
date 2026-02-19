@@ -353,7 +353,7 @@ test.describe('threshold-ed25519 digest binding', () => {
 
           const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
 
-          const reg = await pm.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
+          const reg = await pm.registration.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
           if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
 
           const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
@@ -659,7 +659,7 @@ test.describe('threshold-ed25519 digest binding', () => {
 
           const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
 
-          const reg = await pm.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
+          const reg = await pm.registration.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
           if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
 
           const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
