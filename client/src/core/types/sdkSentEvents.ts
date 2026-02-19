@@ -622,7 +622,7 @@ export interface RegistrationHooksOptions {
    * Optional: registration signing policy.
    * - `{ mode: 'threshold-signer' }`: default registration behavior.
    *   Derives threshold Ed25519 share material and enrolls threshold key during relay registration.
-   * - `{ mode: 'local-signer' }`: legacy compatibility path for local-key account registration.
+   * - `{ mode: 'local-signer' }`: local-key registration path without threshold enrollment.
    *
    * Registration defaults to `{ mode: 'threshold-signer' }` when omitted.
    */

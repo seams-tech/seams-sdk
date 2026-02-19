@@ -86,6 +86,7 @@ import type {
   LoginAndCreateSessionResult,
   LoginSession,
   RegistrationResult,
+  SignDelegateActionResult,
   SignTransactionResult,
 } from '../../types/tatchi';
 import type {
@@ -105,9 +106,9 @@ import {
 import type { DelegateActionInput } from '../../types/delegate';
 import { IframeTransport } from './transport/IframeTransport';
 import OverlayController, { type DOMRectLike } from './overlay/overlay-controller';
-import { isObject, isPlainSignedTransactionLike, extractBorshBytesFromPlainSignedTx, isBoolean, toBasePath } from '../../../../../shared/src/utils/validation';
+import { isObject, isPlainSignedTransactionLike, extractBorshBytesFromPlainSignedTx, isBoolean, toBasePath } from '@shared/utils/validation';
 import type { WalletUIRegistry } from '../host/lit-ui/iframe-lit-element-registry';
-import { toError } from '../../../../../shared/src/utils/errors';
+import { toError } from '@shared/utils/errors';
 import type { AuthenticatorOptions } from '../../types/authenticatorOptions';
 import { mergeSignerMode, type ConfirmationConfig, type SignerMode } from '../../types/signer-worker';
 import type { AccessKeyList } from '../../near/NearClient';
@@ -339,8 +340,9 @@ export class WalletIframeRouter {
   private attachExportUiClosedListener = (walletOrigin: string): (() => void) => {
     const onUiClosed = (ev: MessageEvent) => {
       if (ev.origin !== walletOrigin) return;
-      const data = ev.data as unknown;
-      if (!data || (data as any).type !== 'WALLET_UI_CLOSED') return;
+      const data = ev.data;
+      if (!isObject(data)) return;
+      if ((data as { type?: unknown }).type !== 'WALLET_UI_CLOSED') return;
       this.overlayState.controller.setSticky(false);
       this.hideFrameForActivation();
       globalThis.removeEventListener?.('message', onUiClosed);
@@ -552,16 +554,16 @@ export class WalletIframeRouter {
       confirmationConfig?: Partial<ConfirmationConfig>;
       confirmerText?: { title?: string; body?: string };
     }
-  }): Promise<unknown> {
+  }): Promise<SignDelegateActionResult> {
     const safeOptions = {
       signerMode: this.resolveSignerMode(payload.options.signerMode),
       ...(typeof payload.options.deviceNumber === 'number' ? { deviceNumber: payload.options.deviceNumber } : {}),
       ...(payload.options.confirmationConfig
-        ? { confirmationConfig: payload.options.confirmationConfig as unknown as Record<string, unknown> }
+        ? { confirmationConfig: payload.options.confirmationConfig }
         : {}),
       ...(payload.options.confirmerText ? { confirmerText: payload.options.confirmerText } : {}),
     };
-    const res = await this.post<unknown>({
+    const res = await this.post<SignDelegateActionResult>({
       type: 'PM_SIGN_DELEGATE_ACTION',
       payload: {
         nearAccountId: payload.nearAccountId,
@@ -607,7 +609,7 @@ export class WalletIframeRouter {
         payload: {
           nearAccountId: payload.nearAccountId,
           options: safeOptions,
-          ...(payload.confirmationConfig ? { confirmationConfig: payload.confirmationConfig as unknown as Record<string, unknown> } : {})
+          ...(payload.confirmationConfig ? { confirmationConfig: payload.confirmationConfig } : {})
         },
         // Bridge progress events from iframe back to parent callback
         options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationSSEEvent) }
@@ -814,7 +816,7 @@ export class WalletIframeRouter {
       ...(typeof payload.options.deviceNumber === 'number' ? { deviceNumber: payload.options.deviceNumber } : {}),
       ...(payload.options.confirmerText ? { confirmerText: payload.options.confirmerText } : {}),
       ...(payload.options.confirmationConfig
-        ? { confirmationConfig: payload.options.confirmationConfig as unknown as Record<string, unknown> }
+        ? { confirmationConfig: payload.options.confirmationConfig }
         : {}),
     };
     const res = await this.post<SignNEP413MessageResult>({
@@ -1361,7 +1363,7 @@ export class WalletIframeRouter {
       if (this.debug) {
         console.debug('[WalletIframeRouter] Non-PROGRESS without pending → hide + unregister', {
           requestId,
-          type: (msg as unknown as { type?: unknown })?.type || 'unknown'
+          type: msg.type
         });
       }
       this.progressBus.unregister(requestId);
@@ -1472,7 +1474,9 @@ export class WalletIframeRouter {
         // Step 6: Strip non-cloneable fields (functions) from envelope options before posting
         const stickyVal = isObject(options) ? (options as { sticky?: unknown }).sticky : undefined;
         const wireOptions = isBoolean(stickyVal) ? { sticky: stickyVal } : undefined;
-        const serializableFull = wireOptions ? { ...full, options: wireOptions } : { ...full, options: undefined };
+        const serializableFull = wireOptions
+          ? { ...full, options: wireOptions }
+          : { ...full, options: undefined };
 
         // Align overlay stickiness with request options (phase 2 will use intents)
         this.overlayState.controller.setSticky(!!(wireOptions && (wireOptions as { sticky?: boolean }).sticky));
@@ -1587,10 +1591,10 @@ export class WalletIframeRouter {
    * iframe will be offset by the page scroll. To avoid that mismatch, anchor the
    * overlay using absolute positioning in document coordinates.
    */
-  setOverlayBounds(rect: { top: number; left: number; width: number; height: number }): void {
+  setOverlayBounds(rect: DOMRectLike): void {
     if (this.overlayState.forceFullscreen) return; // ignore anchored bounds while locked to fullscreen
     this.transport.ensureIframeMounted();
-    this.overlayState.controller.showAnchored(rect as DOMRectLike);
+    this.overlayState.controller.showAnchored(rect);
   }
 
   // Post a window message and surface errors in debug mode instead of silently swallowing them
@@ -1615,7 +1619,7 @@ const SYNC_ACCOUNT_PHASES = new Set<string>(Object.values(SyncAccountPhase) as s
 const EMAIL_RECOVERY_PHASES = new Set<string>(Object.values(EmailRecoveryPhase) as string[]);
 
 function phaseOf(progress: ProgressPayload): string {
-  return String((progress as { phase?: unknown })?.phase ?? '');
+  return String(progress.phase ?? '');
 }
 
 function isRegistrationSSEEvent(progress: ProgressPayload): progress is RegistrationSSEEvent {
@@ -1644,8 +1648,9 @@ function isEmailRecoverySSEEvent(p: ProgressPayload): p is EmailRecoverySSEEvent
 
 export function isDelegateSSEEvent(p: ProgressPayload): p is DelegateActionSSEEvent {
   if (!isActionSSEEvent(p)) return false;
-  const data = (p as any).data;
-  return !!data && typeof data === 'object' && (data as any).context === 'delegate';
+  const data = p.data;
+  if (!isObject(data)) return false;
+  return data.context === 'delegate';
 }
 
 /**
@@ -1654,15 +1659,13 @@ export function isDelegateSSEEvent(p: ProgressPayload): p is DelegateActionSSEEv
 function normalizeSignedTransactionObject(result: SignTransactionResult) {
   const arr = Array.isArray(result) ? result : [];
   const normalized = arr.map(entry => {
-    if (entry?.signedTransaction) {
-      const st = entry.signedTransaction as unknown;
-      if (isPlainSignedTransactionLike(st)) {
-        entry.signedTransaction = SignedTransaction.fromPlain({
-          transaction: (st as { transaction: unknown }).transaction,
-          signature: (st as { signature: unknown }).signature,
-          borsh_bytes: extractBorshBytesFromPlainSignedTx(st),
-        });
-      }
+    const st = entry?.signedTransaction;
+    if (st && isPlainSignedTransactionLike(st)) {
+      entry.signedTransaction = SignedTransaction.fromPlain({
+        transaction: st.transaction,
+        signature: st.signature,
+        borsh_bytes: extractBorshBytesFromPlainSignedTx(st),
+      });
     }
     return entry;
   });
@@ -1672,8 +1675,9 @@ function normalizeSignedTransactionObject(result: SignTransactionResult) {
 /**
  * Strips out functions as they cannot be sent over postMessage to iframe
  */
-import { stripFunctionsShallow } from '../../../../../shared/src/utils/validation';
+import { stripFunctionsShallow } from '@shared/utils/validation';
 
 function removeFunctionsFromOptions(options?: object): object | undefined {
-  return stripFunctionsShallow(options as Record<string, unknown>);
+  if (!options || !isObject(options)) return undefined;
+  return stripFunctionsShallow(options);
 }

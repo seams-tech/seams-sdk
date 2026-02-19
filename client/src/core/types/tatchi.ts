@@ -2,7 +2,7 @@ import type { FinalExecutionOutcome } from '@near-js/types';
 import type { AccountId } from './accountIds';
 import type { SignedTransaction } from '../near/NearClient';
 import type { AuthenticatorOptions } from './authenticatorOptions';
-import type { ClientUserData } from '../IndexedDBManager/passkeyClientDB';
+import type { ClientUserData } from '../IndexedDBManager/passkeyClientDB.types';
 import type { SignerMode, WasmSignedDelegate } from './signer-worker';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../signing/orchestration/types';
 import type { RegistrationSignerOptions } from './registrationSignerOptions';
@@ -143,23 +143,18 @@ export interface TatchiConfigsInput {
   /**
    * NEAR account ID under which the relay server creates new subaccounts.
    *
-   * This must match the relay server config `RELAYER_ACCOUNT_ID` (aka `relayerAccountId`) when
+   * This must match the relay server config `RELAYER_ACCOUNT_ID` when
    * using atomic registration via `POST /registration/bootstrap`.
    *
-   * Defaults to `contractId` for backwards compatibility.
+   * Defaults to `contractId`.
    */
   relayerAccount?: string;
-  /**
-   * Deprecated alias for `relayerAccount`.
-   * Some integrations use the relay-server naming (`relayerAccountId`) on the client config.
-   */
-  relayerAccountId?: string;
   nearExplorerUrl?: string; // NEAR Explorer URL for transaction links
   /**
    * Default signing mode used by higher-level convenience helpers and UI wrappers when a per-call
    * `signerMode` is not explicitly provided.
    *
-   * Defaults to `{ mode: 'local-signer' }` for backwards compatibility.
+   * Defaults to `{ mode: 'local-signer' }`.
    *
    */
   signerMode?: SignerMode;

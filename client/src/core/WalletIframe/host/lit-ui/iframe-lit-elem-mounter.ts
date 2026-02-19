@@ -26,25 +26,23 @@
  * - WALLET_UI_REGISTER_TYPES: Register new component types
  */
 
-// Import arrow register button so it's defined and not tree-shaken in wallet origin
-import type { TatchiPasskeyIframe } from '../../TatchiPasskeyIframe';
-import type { TatchiPasskey } from '../../../TatchiPasskey';
-import type { SignAndSendTransactionHooksOptions } from '../../../types/sdkSentEvents';
+import type { TatchiPasskey } from '@/core/TatchiPasskey';
+import type { SignAndSendTransactionHooksOptions } from '@/core/types/sdkSentEvents';
 import {
   fromTransactionInputsWasm,
   type ActionResult,
   type TatchiConfigsInput,
   type TransactionInput,
   type TransactionInputWasm
-} from '../../../types';
+} from '@/core/types';
 import { uiBuiltinRegistry, type PmActionName, type WalletUIRegistry } from './iframe-lit-element-registry';
-import { errorMessage } from '../../../../../../shared/src/utils/errors';
-import { isObject, isString, toTrimmedString } from '../../../../../../shared/src/utils/validation';
-import { type SignerMode, coerceSignerMode } from '../../../types/signer-worker';
+import { errorMessage } from '@shared/utils/errors';
+import { isObject, isString, toTrimmedString } from '@shared/utils/validation';
+import { type SignerMode, coerceSignerMode } from '@/core/types/signer-worker';
 import { ensureHostBaseStyles, markContainer, setContainerAnchored, clearContainerRule, HostMounterClasses } from './mounter-styles';
 
 export type EnsureTatchiPasskey = () => void;
-export type GetPasskeyManager = () => TatchiPasskey | TatchiPasskeyIframe | null; // Avoid tight coupling to class type
+export type GetPasskeyManager = () => TatchiPasskey | null;
 export type UpdateWalletConfigs = (patch: Partial<TatchiConfigsInput>) => void;
 
 type StructuredPrimitive = string | number | boolean | null;
@@ -325,10 +323,10 @@ export function setupLitElemMounter(opts: SetupLitElemMounterOptions) {
         if (!nearAccountId || transactions.length === 0) {
           throw new Error('nearAccountId and transactions required');
         }
-        return await pm.signAndSendTransactions({
+        return await pm.near.signAndSendTransactions({
           nearAccountId,
           transactions,
-          options: { ...options, signerMode }
+          options: { ...options, signerMode },
         });
       }
       default:

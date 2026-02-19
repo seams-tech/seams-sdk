@@ -227,8 +227,9 @@ export class UserPreferencesManager {
   applyWalletHostConfirmationConfig(args: {
     nearAccountId?: AccountId | null;
     confirmationConfig: ConfirmationConfig;
-  }): void {
-    const { nearAccountId, confirmationConfig } = args || ({} as any);
+  } | undefined): void {
+    const nearAccountId = args?.nearAccountId;
+    const confirmationConfig = args?.confirmationConfig ?? DEFAULT_CONFIRMATION_CONFIG;
     const sanitized = this.sanitizeConfirmationConfig(confirmationConfig);
     const next = this.mergeConfirmationConfig(DEFAULT_CONFIRMATION_CONFIG, sanitized);
 
@@ -251,8 +252,9 @@ export class UserPreferencesManager {
   applyWalletHostSignerMode(args: {
     nearAccountId?: AccountId | null;
     signerMode: SignerMode;
-  }): void {
-    const { nearAccountId, signerMode } = args || ({} as any);
+  } | undefined): void {
+    const nearAccountId = args?.nearAccountId;
+    const signerMode = args?.signerMode;
     if (nearAccountId) {
       const prev = this.currentUserAccountId;
       this.currentUserAccountId = nearAccountId;

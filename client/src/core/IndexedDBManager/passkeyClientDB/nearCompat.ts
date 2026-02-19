@@ -1,7 +1,7 @@
 import type { AccountId } from '../../types/accountIds';
 import { toAccountId } from '../../types/accountIds';
 import type { IDBPDatabase } from 'idb';
-import { toTrimmedString } from '../../../../../shared/src/utils/validation';
+import { toTrimmedString } from '@shared/utils/validation';
 import type {
   AccountSignerRecord,
   ChainAccountRecord,
@@ -189,7 +189,6 @@ export async function upsertLegacyNearUserProjection(args: {
     accountAddress,
     accountModel: 'near-native',
     isPrimary: true,
-    legacyNearAccountId: accountId,
   });
 
   const existingSigner = await ops.getAccountSigner({
@@ -210,7 +209,6 @@ export async function upsertLegacyNearUserProjection(args: {
       clientNearPublicKey: userData.clientNearPublicKey,
       passkeyCredentialId: userData.passkeyCredential?.id,
       passkeyCredentialRawId: userData.passkeyCredential?.rawId,
-      legacyNearAccountId: accountId,
     },
     mutation: { routeThroughOutbox: false },
   });
@@ -332,7 +330,6 @@ export async function backfillCoreFromLegacyUserRecord(args: {
     isPrimary: existingChain?.isPrimary ?? true,
     createdAt: existingChain?.createdAt ?? now,
     updatedAt: now,
-    legacyNearAccountId: accountId,
   };
   await db.put(stores.chainAccountsStore, chainAccount);
 
@@ -345,7 +342,6 @@ export async function backfillCoreFromLegacyUserRecord(args: {
     clientNearPublicKey: userData.clientNearPublicKey,
     passkeyCredentialId: userData.passkeyCredential?.id,
     passkeyCredentialRawId: userData.passkeyCredential?.rawId,
-    legacyNearAccountId: accountId,
   };
   const signer: AccountSignerRecord = {
     profileId,

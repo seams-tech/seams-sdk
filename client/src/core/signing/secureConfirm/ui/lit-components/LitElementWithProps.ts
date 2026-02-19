@@ -21,7 +21,7 @@
  */
 
 import { LitElement } from 'lit';
-import { isObject } from '../../../../../../../shared/src/utils/validation';
+import { isObject } from '@shared/utils/validation';
 
 export type CSSProperties = Record<string, string | Record<string, string> | undefined>;
 
@@ -62,7 +62,7 @@ export class LitElementWithProps extends LitElement {
    * to prevent bundlers from tree-shaking those definitions when they are only used
    * through side effects (e.g., nested custom elements inside templates).
    * Example usage in a subclass:
-   *   import TxTree from '../../../../WebAuthnManager/TxTree';
+   *   import TxTree from '@/core/WebAuthnManager/TxTree';
    *   static keepDefinitions = [TxTree];
    */
   static keepDefinitions?: ReadonlyArray<KeepDefinition>;

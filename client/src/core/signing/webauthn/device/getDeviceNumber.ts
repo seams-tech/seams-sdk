@@ -1,5 +1,5 @@
-import type { PasskeyClientDBManager } from '../../../IndexedDBManager';
-import { toAccountId, type AccountId } from '../../../types/accountIds';
+import type { PasskeyClientDBManager } from '@/core/IndexedDBManager';
+import { toAccountId, type AccountId } from '@/core/types/accountIds';
 
 export function parseDeviceNumber(
   value: unknown,

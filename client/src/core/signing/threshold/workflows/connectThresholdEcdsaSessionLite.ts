@@ -8,12 +8,9 @@ import { bootstrapThresholdEcdsaLite } from './bootstrapThresholdEcdsaLite';
 import type { ThresholdEcdsaSessionKind } from '../session/thresholdEcdsaAuthSession';
 
 /**
- * Wallet-origin helper (legacy-compatible signature):
- * - now runs atomic bootstrap (`POST /threshold-ecdsa/bootstrap`) under the hood
+ * Wallet-origin helper for threshold-ECDSA session bootstrap.
+ * - runs atomic bootstrap (`POST /threshold-ecdsa/bootstrap`)
  * - validates that returned `relayerKeyId` matches the requested key id
- *
- * Notes:
- * - This helper now re-keygens idempotently as part of bootstrap, then returns session fields.
  */
 export async function connectThresholdEcdsaSessionLite(args: {
   indexedDB: ThresholdIndexedDbPort;

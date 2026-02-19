@@ -1,5 +1,5 @@
 
-import { WorkerRequestType, isExtractCosePublicKeySuccess } from '../../../../types/signer-worker';
+import { WorkerRequestType, isExtractCosePublicKeySuccess } from '@/core/types/signer-worker';
 import { SignerWorkerManagerContext } from '..';
 
 

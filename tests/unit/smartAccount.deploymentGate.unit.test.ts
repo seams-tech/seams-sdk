@@ -384,4 +384,231 @@ test.describe('smart-account deployment gate helper', () => {
     expect(result.message).toContain('after 3/3 attempts');
     expect(result.message).toContain('request_failed');
   });
+
+  test('concurrent same deployment identity dedupes to one deploy attempt', async ({ page }) => {
+    const result = await page.evaluate(async ({ paths }) => {
+      const { PasskeyClientDBManager } = await import(paths.clientDB);
+      const { ensureSmartAccountDeployed } = await import(paths.deployment);
+      const now = Date.now();
+      const dbm = new PasskeyClientDBManager();
+      dbm.setDbName(`PasskeyClientDB-smartacct-dedupe-${now}-${Math.random().toString(16).slice(2)}`);
+
+      await dbm.upsertProfile({
+        profileId: 'profile-smartacct-dedupe',
+        defaultDeviceNumber: 1,
+        passkeyCredential: { id: 'cred-dedupe', rawId: 'raw-dedupe' },
+      });
+      await dbm.upsertChainAccount({
+        profileId: 'profile-smartacct-dedupe',
+        chainId: 'near:testnet',
+        accountAddress: 'alice.testnet',
+        accountModel: 'near-native',
+        isPrimary: true,
+      });
+      await dbm.upsertChainAccount({
+        profileId: 'profile-smartacct-dedupe',
+        chainId: 'eip155:11155111',
+        accountAddress: '0xdedupe111',
+        accountModel: 'erc4337',
+        isPrimary: true,
+        deployed: false,
+      });
+
+      let deployCalls = 0;
+      let releaseFirstDeploy: (() => void) | null = null;
+      let firstDeployStartedResolve: (() => void) | null = null;
+      const firstDeployStarted = new Promise<void>((resolve) => {
+        firstDeployStartedResolve = resolve;
+      });
+      const firstDeployGate = new Promise<void>((resolve) => {
+        releaseFirstDeploy = resolve;
+      });
+
+      const deploy = async () => {
+        deployCalls += 1;
+        if (deployCalls === 1) {
+          firstDeployStartedResolve?.();
+          await firstDeployGate;
+        }
+        return { ok: true, deploymentTxHash: '0xdedupehash' };
+      };
+
+      const p1 = ensureSmartAccountDeployed({
+        clientDB: dbm,
+        nearAccountId: 'alice.testnet',
+        chain: 'evm',
+        chainIdCandidates: ['eip155:11155111'],
+        accountModelCandidates: ['erc4337'],
+        enforce: true,
+        deploy,
+      });
+      await firstDeployStarted;
+      const p2 = ensureSmartAccountDeployed({
+        clientDB: dbm,
+        nearAccountId: 'alice.testnet',
+        chain: 'evm',
+        chainIdCandidates: ['eip155:11155111'],
+        accountModelCandidates: ['erc4337'],
+        enforce: true,
+        deploy,
+      });
+      releaseFirstDeploy?.();
+
+      const [r1, r2] = await Promise.all([p1, p2]);
+      const rows = await dbm.listChainAccountsByProfileAndChain(
+        'profile-smartacct-dedupe',
+        'eip155:11155111',
+      );
+      const account = rows.find((row: any) => row.accountAddress === '0xdedupe111') || null;
+
+      return {
+        deployCalls,
+        firstStatus: r1.status,
+        secondStatus: r2.status,
+        firstAttempts: r1.attempts,
+        secondAttempts: r2.attempts,
+        accountDeployed: !!account?.deployed,
+        accountDeploymentTxHash: account?.deploymentTxHash || null,
+      };
+    }, { paths: IMPORT_PATHS });
+
+    expect(result.deployCalls).toBe(1);
+    expect(result.firstStatus).toBe('deployed');
+    expect(result.firstAttempts).toBe(1);
+    expect(result.secondStatus).toBe('already_deployed');
+    expect(result.secondAttempts).toBe(0);
+    expect(result.accountDeployed).toBe(true);
+    expect(result.accountDeploymentTxHash).toBe('0xdedupehash');
+  });
+
+  test('concurrent different deployment identities are not blocked by dedupe lock', async ({ page }) => {
+    const result = await page.evaluate(async ({ paths }) => {
+      const { PasskeyClientDBManager } = await import(paths.clientDB);
+      const { ensureSmartAccountDeployed } = await import(paths.deployment);
+      const now = Date.now();
+      const dbm = new PasskeyClientDBManager();
+      dbm.setDbName(`PasskeyClientDB-smartacct-dedupe-keys-${now}-${Math.random().toString(16).slice(2)}`);
+
+      await dbm.upsertProfile({
+        profileId: 'profile-smartacct-dedupe-keys',
+        defaultDeviceNumber: 1,
+        passkeyCredential: { id: 'cred-dedupe-keys', rawId: 'raw-dedupe-keys' },
+      });
+      await dbm.upsertChainAccount({
+        profileId: 'profile-smartacct-dedupe-keys',
+        chainId: 'near:testnet',
+        accountAddress: 'alice.testnet',
+        accountModel: 'near-native',
+        isPrimary: true,
+      });
+      await dbm.upsertChainAccount({
+        profileId: 'profile-smartacct-dedupe-keys',
+        chainId: 'eip155:11155111',
+        accountAddress: '0xaaa111',
+        accountModel: 'erc4337',
+        isPrimary: true,
+        deployed: false,
+      });
+      await dbm.upsertChainAccount({
+        profileId: 'profile-smartacct-dedupe-keys',
+        chainId: 'eip155:11155111',
+        accountAddress: '0xbbb222',
+        accountModel: 'erc4337',
+        isPrimary: false,
+        deployed: false,
+      });
+
+      let deployCalls = 0;
+      const deployAddresses: string[] = [];
+      let releaseFirstDeploy: (() => void) | null = null;
+      let firstDeployStartedResolve: (() => void) | null = null;
+      let secondDeployStartedResolve: (() => void) | null = null;
+      const firstDeployStarted = new Promise<void>((resolve) => {
+        firstDeployStartedResolve = resolve;
+      });
+      const secondDeployStarted = new Promise<void>((resolve) => {
+        secondDeployStartedResolve = resolve;
+      });
+      const firstDeployGate = new Promise<void>((resolve) => {
+        releaseFirstDeploy = resolve;
+      });
+
+      const deploy = async (input: any) => {
+        deployCalls += 1;
+        const accountAddress = String(input?.account?.accountAddress || '');
+        deployAddresses.push(accountAddress);
+        if (accountAddress === '0xaaa111') {
+          firstDeployStartedResolve?.();
+          await firstDeployGate;
+          return { ok: true, deploymentTxHash: '0xhash-aaa' };
+        }
+        if (accountAddress === '0xbbb222') {
+          secondDeployStartedResolve?.();
+          return { ok: true, deploymentTxHash: '0xhash-bbb' };
+        }
+        return { ok: true, deploymentTxHash: '0xhash-unknown' };
+      };
+
+      const p1 = ensureSmartAccountDeployed({
+        clientDB: dbm,
+        nearAccountId: 'alice.testnet',
+        chain: 'evm',
+        chainIdCandidates: ['eip155:11155111'],
+        accountModelCandidates: ['erc4337'],
+        enforce: true,
+        deploy,
+      });
+      await firstDeployStarted;
+
+      await dbm.upsertChainAccount({
+        profileId: 'profile-smartacct-dedupe-keys',
+        chainId: 'eip155:11155111',
+        accountAddress: '0xaaa111',
+        accountModel: 'erc4337',
+        isPrimary: false,
+        deployed: false,
+      });
+      await dbm.upsertChainAccount({
+        profileId: 'profile-smartacct-dedupe-keys',
+        chainId: 'eip155:11155111',
+        accountAddress: '0xbbb222',
+        accountModel: 'erc4337',
+        isPrimary: true,
+        deployed: false,
+      });
+
+      const p2 = ensureSmartAccountDeployed({
+        clientDB: dbm,
+        nearAccountId: 'alice.testnet',
+        chain: 'evm',
+        chainIdCandidates: ['eip155:11155111'],
+        accountModelCandidates: ['erc4337'],
+        enforce: true,
+        deploy,
+      });
+
+      const secondStartedBeforeRelease = await Promise.race<boolean>([
+        secondDeployStarted.then(() => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1200)),
+      ]);
+
+      releaseFirstDeploy?.();
+      const [r1, r2] = await Promise.all([p1, p2]);
+
+      return {
+        deployCalls,
+        deployAddresses,
+        secondStartedBeforeRelease,
+        firstStatus: r1.status,
+        secondStatus: r2.status,
+      };
+    }, { paths: IMPORT_PATHS });
+
+    expect(result.secondStartedBeforeRelease).toBe(true);
+    expect(result.deployCalls).toBe(2);
+    expect(result.deployAddresses).toContain('0xaaa111');
+    expect(result.deployAddresses).toContain('0xbbb222');
+    expect(result.firstStatus).toBe('deployed');
+    expect(result.secondStatus).toBe('deployed');
+  });
 });

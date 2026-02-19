@@ -2,12 +2,11 @@
  * TatchiPasskeyIframe - Entry Point Layer
  *
  * This is the main API that developers interact with when using the WalletIframe system.
- * It provides the same interface as the regular TatchiPasskey but routes all calls to
+ * It provides the same interface as the regular TatchiPasskey for core wallet actions, and routes calls to
  * a secure iframe for enhanced security and WebAuthn compatibility.
  *
  * Key Responsibilities:
  * - Acts as a transparent proxy to the real TatchiPasskey running in the iframe
- * - Maintains API compatibility with the regular TatchiPasskey
  * - Handles hook callbacks (afterCall, onError, onEvent) locally
  * - Avoids app-origin IndexedDB persistence (no silent fallbacks)
  * - Manages theme state and user settings synchronization
@@ -16,21 +15,22 @@
  * Architecture:
  * - Uses WalletIframeRouter for all iframe communication
  * - Maintains local state for immediate synchronous access (theme, config)
- * - Provides NearClient facade that routes calls to iframe when ready
  * - Does not fall back to app-origin persistence when the iframe is unavailable
  */
 
 import { WalletIframeRouter } from './client/router';
-import { TatchiPasskey } from '../TatchiPasskey';
-import { MinimalNearClient } from '../near/NearClient';
-import type { NearClient, SignedTransaction, AccessKeyList } from '../near/NearClient';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../signing/api/WebAuthnManager';
+import type { SignedTransaction, AccessKeyList } from '../near/NearClient';
+import type { PreferencesChangedPayload } from './shared/messages';
 import type {
   ActionResult,
+  DelegateRelayResult,
   GetRecentLoginsResult,
   LoginAndCreateSessionResult,
   LoginSession,
   LoginState,
   RegistrationResult,
+  SignAndSendDelegateActionResult,
   SignDelegateActionResult,
   SignTransactionResult,
   ThemeName,
@@ -40,33 +40,49 @@ import type {
 import type {
   ActionHooksOptions,
   DelegateActionHooksOptions,
+  DelegateRelayHooksOptions,
   LoginHooksOptions,
   RegistrationHooksOptions,
   SendTransactionHooksOptions,
+  SignAndSendDelegateActionHooksOptions,
   SignAndSendTransactionHooksOptions,
   SignNEP413HooksOptions,
   SignTransactionHooksOptions,
 } from '../types/sdkSentEvents';
 
 import type { ActionArgs, TransactionInput, TxExecutionStatus } from '../types';
-import { type ConfirmationConfig, type SignerMode, DEFAULT_CONFIRMATION_CONFIG } from '../types/signer-worker';
+import { type ConfirmationConfig, type SignerMode, type WasmSignedDelegate, DEFAULT_CONFIRMATION_CONFIG } from '../types/signer-worker';
 import type { SignNEP413MessageParams, SignNEP413MessageResult } from '../TatchiPasskey/signNEP413';
-import type { PasskeyManagerContext } from '../TatchiPasskey';
-import { toError } from '../../../../shared/src/utils/errors';
-import { coerceThemeName } from '../../../../shared/src/utils/theme';
+import { toError } from '@shared/utils/errors';
+import { coerceThemeName } from '@shared/utils/theme';
 import type { WalletUIRegistry } from './host/lit-ui/iframe-lit-element-registry';
-import type { DelegateActionInput } from '../types/delegate';
+import type { DelegateActionInput, SignedDelegate } from '../types/delegate';
 import { buildConfigsFromEnv } from '../config/defaultConfigs';
 import { configureIndexedDB, type DerivedAddressRecord } from '../IndexedDBManager';
+import type { TempoSignedResult } from '../signing/chainAdaptors/tempo/tempoAdapter';
+import type {
+  BootstrapThresholdEcdsaSessionArgs,
+  RecoveryCapability,
+  EvmSignerCapability,
+  KeyExportCapability,
+  NearSignerCapability,
+  SignTempoArgs,
+  SignTempoWithThresholdEcdsaArgs,
+  TempoSignerCapability,
+} from '../TatchiPasskey/capabilities';
 
 
 export class TatchiPasskeyIframe {
   readonly configs: TatchiConfigs;
   theme: ThemeName;
   private router: WalletIframeRouter;
-  private fallbackLocal: TatchiPasskey | null = null;
   private lastConfirmationConfig: ConfirmationConfig = DEFAULT_CONFIRMATION_CONFIG;
   private prefsUnsubscribe: (() => void) | null = null;
+  readonly near: NearSignerCapability;
+  readonly tempo: TempoSignerCapability;
+  readonly evm: EvmSignerCapability;
+  readonly recovery: RecoveryCapability;
+  readonly keys: KeyExportCapability;
 
   // Expose a userPreferences shim so API matches TatchiPasskey
   get userPreferences() {
@@ -121,13 +137,132 @@ export class TatchiPasskeyIframe {
       rpIdOverride: this.configs.iframeWallet?.rpIdOverride,
       authenticatorOptions: this.configs.authenticatorOptions,
     });
+
+    this.near = {
+      executeAction: async (args) => await this.executeActionDomain(args),
+      signAndSendTransactions: async (args) => await this.signAndSendTransactionsDomain(args),
+      signAndSendTransaction: async (args) => {
+        const results = await this.signAndSendTransactionsDomain({
+          nearAccountId: args.nearAccountId,
+          transactions: [
+            {
+              receiverId: args.receiverId,
+              actions: args.actions,
+            },
+          ],
+          options: args.options,
+        });
+        return results[0] as ActionResult;
+      },
+      signTransactionsWithActions: async (args) => await this.signTransactionsWithActionsDomain(args),
+      sendTransaction: async (args) => await this.sendTransactionDomain(args),
+      signDelegateAction: async (args) => await this.signDelegateActionDomain(args),
+      sendDelegateActionViaRelayer: async (args) => await this.sendDelegateActionViaRelayerDomain(args),
+      signAndSendDelegateAction: async (args) => await this.signAndSendDelegateActionDomain(args),
+      signNEP413Message: async (args) => await this.signNEP413MessageDomain(args),
+    };
+    this.tempo = {
+      signTempo: async (args) => await this.signTempoDomain(args),
+      signTempoWithThresholdEcdsa: async (args) =>
+        await this.signTempoWithThresholdEcdsaDomain(args),
+      bootstrapThresholdEcdsaSession: async (args) =>
+        await this.bootstrapThresholdEcdsaSessionDomain({
+          nearAccountId: args.nearAccountId,
+          options: { ...(args.options || {}), chain: 'tempo' },
+        }),
+    };
+    this.evm = {
+      bootstrapThresholdEcdsaSession: async (args) =>
+        await this.bootstrapThresholdEcdsaSessionDomain({
+          nearAccountId: args.nearAccountId,
+          options: { ...(args.options || {}), chain: 'evm' },
+        }),
+    };
+    this.recovery = {
+      getRecoveryEmails: async (accountId) => {
+        await this.requireRouterReady();
+        return await this.router.getRecoveryEmails(accountId);
+      },
+      setRecoveryEmails: async (args) => {
+        await this.requireRouterReady();
+        return await this.router.setRecoveryEmails({
+          nearAccountId: args.accountId,
+          recoveryEmails: args.recoveryEmails,
+          options: args.options,
+        });
+      },
+      syncAccount: async (args) => {
+        await this.requireRouterReady();
+        return await this.router.syncAccount({
+          ...(args?.accountId ? { accountId: args.accountId } : {}),
+          onEvent: args?.options?.onEvent,
+        });
+      },
+      startEmailRecovery: async (args) => {
+        await this.requireRouterReady();
+        return await this.router.startEmailRecovery({
+          accountId: args.accountId,
+          onEvent: args.options?.onEvent,
+          options: {
+            ...(args.options?.confirmerText
+              ? { confirmerText: args.options.confirmerText }
+              : {}),
+            ...(args.options?.confirmationConfig
+              ? { confirmationConfig: args.options.confirmationConfig }
+              : {}),
+          },
+        });
+      },
+      finalizeEmailRecovery: async (args) => {
+        await this.requireRouterReady();
+        await this.router.finalizeEmailRecovery({
+          accountId: args.accountId,
+          ...(args.nearPublicKey ? { nearPublicKey: args.nearPublicKey } : {}),
+          onEvent: args.options?.onEvent,
+        });
+      },
+      cancelEmailRecovery: async (args) => {
+        await this.requireRouterReady();
+        await this.router.stopEmailRecovery(args);
+      },
+      startDevice2LinkingFlow: async (args) => {
+        await this.requireRouterReady();
+        return await this.router.startDevice2LinkingFlow(args);
+      },
+      stopDevice2LinkingFlow: async () => {
+        await this.requireRouterReady();
+        await this.router.stopDevice2LinkingFlow();
+      },
+      linkDeviceWithScannedQRData: async (qrData, options) => {
+        await this.requireRouterReady();
+        return await this.router.linkDeviceWithScannedQRData({
+          qrData,
+          fundingAmount: options.fundingAmount,
+          options: {
+            onEvent: options.onEvent,
+            ...(options.confirmerText
+              ? { confirmerText: options.confirmerText }
+              : {}),
+            ...(options.confirmationConfig
+              ? { confirmationConfig: options.confirmationConfig }
+              : {}),
+          },
+        });
+      },
+    };
+    this.keys = {
+      exportNearKeypairWithUI: async (nearAccountId, options) =>
+        await this.exportNearKeypairWithUIDomain(nearAccountId, options),
+      exportPrivateKeysWithUI: async (nearAccountId, options) =>
+        await this.exportPrivateKeysWithUIDomain(nearAccountId, options),
+    };
   }
 
   async initWalletIframe(): Promise<void> {
     await this.router.init();
     if (!this.prefsUnsubscribe) {
-      this.prefsUnsubscribe = this.router.onPreferencesChanged?.((payload: any) => {
-        const cfg = payload?.confirmationConfig as ConfirmationConfig | undefined;
+      this.prefsUnsubscribe = this.router.onPreferencesChanged?.((payload: PreferencesChangedPayload) => {
+        const cfg = payload.confirmationConfig;
         if (!cfg) return;
         this.applyRemoteConfirmationConfig(cfg);
       }) || null;
@@ -290,7 +425,7 @@ export class TatchiPasskeyIframe {
     return await this.router.getLoginSession(nearAccountId);
   }
 
-  async signTransactionsWithActions(args: {
+  private async signTransactionsWithActionsDomain(args: {
     nearAccountId: string;
     transactions: TransactionInput[];
     options: SignTransactionHooksOptions
@@ -323,7 +458,7 @@ export class TatchiPasskeyIframe {
     }
   }
 
-  async signNEP413Message(args: {
+  private async signNEP413MessageDomain(args: {
     nearAccountId: string;
     params: SignNEP413MessageParams;
     options: SignNEP413HooksOptions
@@ -352,7 +487,7 @@ export class TatchiPasskeyIframe {
     }
   }
 
-  async signDelegateAction(args: {
+  private async signDelegateActionDomain(args: {
     nearAccountId: string;
     delegate: DelegateActionInput;
     options: DelegateActionHooksOptions;
@@ -381,33 +516,145 @@ export class TatchiPasskeyIframe {
     }
   }
 
-  // Local fallback manager is retained only for API parity helpers (NearClient/context).
-  private ensureFallbackLocal(): TatchiPasskey {
-    if (!this.fallbackLocal) {
-      const near = new MinimalNearClient(this.configs.nearRpcUrl);
-      this.fallbackLocal = new TatchiPasskey(this.configs, near);
+  private async sendDelegateActionViaRelayerDomain(args: {
+    relayerUrl: string;
+    signedDelegate: SignedDelegate | WasmSignedDelegate;
+    hash: string;
+    signal?: AbortSignal;
+    options?: DelegateRelayHooksOptions;
+  }): Promise<DelegateRelayResult> {
+    const base = args.relayerUrl.replace(/\/+$/, '');
+    const route = (this.configs.relayer?.delegateActionRoute || '/signed-delegate').replace(
+      /^\/?/,
+      '/',
+    );
+    const endpoint = `${base}${route}`;
+    const { sendDelegateActionViaRelayer } = await import('../TatchiPasskey/relay');
+    return sendDelegateActionViaRelayer({
+      url: endpoint,
+      payload: {
+        hash: args.hash,
+        signedDelegate: args.signedDelegate,
+      },
+      signal: args.signal,
+      options: args.options,
+    });
+  }
+
+  private async signAndSendDelegateActionDomain(args: {
+    nearAccountId: string;
+    delegate: DelegateActionInput;
+    relayerUrl: string;
+    signal?: AbortSignal;
+    options: SignAndSendDelegateActionHooksOptions;
+  }): Promise<SignAndSendDelegateActionResult> {
+    const { nearAccountId, delegate, relayerUrl, signal, options } = args;
+
+    const signOptions: DelegateActionHooksOptions | undefined = options
+      ? {
+          signerMode: options.signerMode,
+          deviceNumber: options.deviceNumber,
+          onEvent: options.onEvent,
+          onError: options.onError,
+          waitUntil: options.waitUntil,
+          confirmationConfig: options.confirmationConfig,
+          confirmerText: options.confirmerText,
+          afterCall: () => {},
+        }
+      : undefined;
+
+    let signResult: SignDelegateActionResult;
+    try {
+      signResult = await this.signDelegateActionDomain({
+        nearAccountId,
+        delegate,
+        options: signOptions as DelegateActionHooksOptions,
+      });
+    } catch (error) {
+      await options?.afterCall?.(false);
+      throw error;
     }
-    return this.fallbackLocal;
+
+    const relayOptions: DelegateRelayHooksOptions | undefined = options
+      ? {
+          onEvent: options.onEvent,
+          onError: options.onError,
+        }
+      : undefined;
+
+    let relayResult: DelegateRelayResult;
+    try {
+      relayResult = await this.sendDelegateActionViaRelayerDomain({
+        relayerUrl,
+        hash: signResult.hash,
+        signedDelegate: signResult.signedDelegate,
+        signal,
+        options: relayOptions,
+      });
+    } catch (error) {
+      await options?.afterCall?.(false);
+      throw error;
+    }
+
+    const combined: SignAndSendDelegateActionResult = {
+      signResult,
+      relayResult,
+    };
+
+    const success = relayResult.ok !== false;
+    if (success) {
+      await options?.afterCall?.(true, combined);
+    } else {
+      await options?.afterCall?.(false);
+    }
+    return combined;
   }
 
-  getNearClient(): NearClient {
-    // The fallback PasskeyManager holds a fully-implemented NearClient (MinimalNearClient).
-    // Returning it directly avoids API drift and stays aligned with core behavior.
-    return this.ensureFallbackLocal().getNearClient();
+  private async signTempoDomain(args: SignTempoArgs): Promise<TempoSignedResult> {
+    await this.requireRouterReady();
+    return await this.router.signTempo({
+      nearAccountId: args.nearAccountId,
+      request: args.request,
+      options: {
+        confirmationConfig: args.options?.confirmationConfig,
+        thresholdEcdsaKeyRef: args.options?.thresholdEcdsaKeyRef,
+        onEvent: args.options?.onEvent,
+      },
+    });
   }
 
-  /**
-   * Provide a PasskeyManager-like context. For the iframe proxy, this delegates
-   * to the local fallback instance which holds concrete WebAuthn/NearClient state.
-   */
-  getContext(): PasskeyManagerContext {
-    return this.ensureFallbackLocal().getContext();
+  private async signTempoWithThresholdEcdsaDomain(
+    args: SignTempoWithThresholdEcdsaArgs,
+  ): Promise<TempoSignedResult> {
+    if (args.request.senderSignatureAlgorithm !== 'secp256k1') {
+      throw new Error(
+        '[TatchiPasskeyIframe] signTempoWithThresholdEcdsa requires senderSignatureAlgorithm=secp256k1',
+      );
+    }
+    await this.requireRouterReady();
+    return await this.router.signTempoWithThresholdEcdsa({
+      nearAccountId: args.nearAccountId,
+      request: args.request,
+      thresholdEcdsaKeyRef: args.thresholdEcdsaKeyRef,
+      options: {
+        confirmationConfig: args.options?.confirmationConfig,
+      },
+    });
+  }
+
+  private async bootstrapThresholdEcdsaSessionDomain(
+    args: BootstrapThresholdEcdsaSessionArgs,
+  ): Promise<ThresholdEcdsaSessionBootstrapResult> {
+    await this.requireRouterReady();
+    return await this.router.bootstrapThresholdEcdsaSession({
+      nearAccountId: args.nearAccountId,
+      options: args.options,
+    });
   }
 
   /**
    * Internal registration with confirmation config override, for parity with
-   * the host-side TatchiPasskey. Routes to the wallet iframe router when ready,
-   * otherwise falls back to the local manager.
+   * the host-side TatchiPasskey. Routes to the wallet iframe router when ready.
    */
   async registerPasskeyInternal(
     nearAccountId: string,
@@ -522,7 +769,7 @@ export class TatchiPasskeyIframe {
       throw e;
     }
   }
-  async executeAction(args: {
+  private async executeActionDomain(args: {
     nearAccountId: string;
     receiverId: string;
     actionArgs: ActionArgs | ActionArgs[];
@@ -544,7 +791,7 @@ export class TatchiPasskeyIframe {
       throw e;
     }
   }
-  async sendTransaction(args: {
+  private async sendTransactionDomain(args: {
     signedTransaction: SignedTransaction;
     options?: SendTransactionHooksOptions
   }): Promise<ActionResult> {
@@ -568,11 +815,15 @@ export class TatchiPasskeyIframe {
     }
   }
 
-  async exportNearKeypairWithUI(nearAccountId: string): Promise<void> {
-    return this.router.exportNearKeypairWithUI(nearAccountId);
+  private async exportNearKeypairWithUIDomain(
+    nearAccountId: string,
+    options?: { variant?: 'drawer' | 'modal'; theme?: 'dark' | 'light' },
+  ): Promise<void> {
+    await this.requireRouterReady();
+    return this.router.exportNearKeypairWithUI(nearAccountId, options);
   }
 
-  async exportPrivateKeysWithUI(
+  private async exportPrivateKeysWithUIDomain(
     nearAccountId: string,
     options?: {
       schemes?: Array<'ed25519' | 'secp256k1'>;
@@ -580,11 +831,12 @@ export class TatchiPasskeyIframe {
       theme?: 'dark' | 'light';
     },
   ): Promise<void> {
+    await this.requireRouterReady();
     return this.router.exportPrivateKeysWithUI(nearAccountId, options);
   }
 
   // Utility: sign and send in one call via wallet iframe (single before/after)
-  async signAndSendTransactions(args: {
+  private async signAndSendTransactionsDomain(args: {
     nearAccountId: string;
     transactions: TransactionInput[];
     options: SignAndSendTransactionHooksOptions;

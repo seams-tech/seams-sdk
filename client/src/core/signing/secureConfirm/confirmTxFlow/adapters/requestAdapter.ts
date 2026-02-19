@@ -1,6 +1,6 @@
 import type { SecureConfirmRequest } from '../types';
 import { SecureConfirmationType } from '../types';
-import { isObject, isString } from '../../../../../../../shared/src/utils/validation';
+import { isObject, isString } from '@shared/utils/validation';
 
 /**
  * Validates secure-confirm requests (V2 only).

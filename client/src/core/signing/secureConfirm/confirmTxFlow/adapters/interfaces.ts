@@ -1,9 +1,9 @@
-import type { ConfirmationConfig } from '../../../../types/signer-worker';
-import type { TransactionContext, SecureConfirmSecurityContext } from '../../../../types';
+import type { ConfirmationConfig } from '@/core/types/signer-worker';
+import type { TransactionContext, SecureConfirmSecurityContext } from '@/core/types';
 import type { ConfirmUIHandle } from '../../ui/confirm-ui';
-import type { ProfileAuthenticatorRecord } from '../../../../IndexedDBManager';
+import type { ProfileAuthenticatorRecord } from '@/core/IndexedDBManager';
 import type { KnownSecureConfirmRequest, SerializableCredential, TransactionSummary } from '../types';
-import type { ThemeName } from '../../../../types/tatchi';
+import type { ThemeName } from '@/core/types/tatchi';
 
 export type NearContextResult = {
   transactionContext: TransactionContext | null;

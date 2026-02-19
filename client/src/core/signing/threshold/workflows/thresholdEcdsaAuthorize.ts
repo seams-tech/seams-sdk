@@ -1,4 +1,4 @@
-import { stripTrailingSlashes, toTrimmedString } from '../../../../../../shared/src/utils/validation';
+import { stripTrailingSlashes, toTrimmedString } from '@shared/utils/validation';
 
 function toDigest32Bytes(input: Uint8Array | number[]): Uint8Array | null {
   if (input instanceof Uint8Array) {

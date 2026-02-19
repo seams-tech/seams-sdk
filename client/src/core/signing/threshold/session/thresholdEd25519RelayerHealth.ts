@@ -1,6 +1,6 @@
-import type { SignerMode, ThresholdBehavior } from '../../../types/signer-worker';
-import { DEFAULT_THRESHOLD_BEHAVIOR, getThresholdBehaviorFromSignerMode } from '../../../types/signer-worker';
-import { stripTrailingSlashes, toTrimmedString } from '../../../../../../shared/src/utils/validation';
+import type { SignerMode, ThresholdBehavior } from '@/core/types/signer-worker';
+import { DEFAULT_THRESHOLD_BEHAVIOR, getThresholdBehaviorFromSignerMode } from '@/core/types/signer-worker';
+import { stripTrailingSlashes, toTrimmedString } from '@shared/utils/validation';
 
 export type ThresholdEd25519HealthzResponse =
   | { ok: true; configured: true }

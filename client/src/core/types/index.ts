@@ -30,4 +30,4 @@ export * from './sdkSentEvents'
 export * from './tatchi'
 export * from './delegate'
 
-export type { ClientUserData } from '../IndexedDBManager/passkeyClientDB';
+export type { ClientUserData } from '../IndexedDBManager/passkeyClientDB.types';

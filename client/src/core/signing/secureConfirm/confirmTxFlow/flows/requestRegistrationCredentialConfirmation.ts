@@ -1,5 +1,5 @@
-import type { ConfirmationConfig } from '../../../../types/signer-worker';
-import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../../../../config/defaultConfigs';
+import type { ConfirmationConfig } from '@/core/types/signer-worker';
+import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import type { SecureConfirmWorkerManagerContext } from '../../';
 import { runSecureConfirm } from '../../secureConfirmBridge';
 import {
@@ -10,7 +10,7 @@ import {
 import {
   parseAndValidateRegistrationCredentialConfirmationPayload,
   type RegistrationCredentialConfirmationPayload,
-} from '../../../workers/signerWorkerManager/internal/validation';
+} from '@/core/signing/workers/signerWorkerManager/internal/validation';
 
 export async function requestRegistrationCredentialConfirmation({
   ctx,

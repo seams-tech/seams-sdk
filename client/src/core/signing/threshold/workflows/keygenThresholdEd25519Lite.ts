@@ -1,7 +1,7 @@
-import { base64UrlEncode } from '../../../../../../shared/src/utils/encoders';
-import { computeThresholdEd25519KeygenIntentDigest } from '../../../../utils/intentDigest';
-import { thresholdEd25519Keygen } from '../../../near/rpcCalls';
-import { toAccountId } from '../../../types/accountIds';
+import { base64UrlEncode } from '@shared/utils/encoders';
+import { computeThresholdEd25519KeygenIntentDigest } from '@/utils/intentDigest';
+import { thresholdEd25519Keygen } from '@/core/near/rpcCalls';
+import { toAccountId } from '@/core/types/accountIds';
 import {
   collectAuthenticationCredentialForChallengeB64u,
   getPrfFirstB64uFromCredential,

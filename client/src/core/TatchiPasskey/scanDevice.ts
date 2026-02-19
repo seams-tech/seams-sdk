@@ -1,5 +1,5 @@
 import type { PasskeyManagerContext } from './index';
-import { validateNearAccountId } from '../../../../shared/src/utils/validation';
+import { validateNearAccountId } from '@shared/utils/validation';
 import { getLoginSession } from './login';
 import type {
   DeviceLinkingQRData,
@@ -10,7 +10,8 @@ import { DeviceLinkingPhase, DeviceLinkingStatus } from '../types/sdkSentEvents'
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '../types/linkDevice';
 import { DEVICE_LINKING_CONFIG } from '../../config.js';
 import { executeDeviceLinkingContractCalls } from '../near/rpcCalls';
-import { ensureEd25519Prefix } from '../../../../shared/src/utils/validation';
+import { ensureEd25519Prefix } from '@shared/utils/validation';
+import { errorMessage } from '@shared/utils/errors';
 
 /**
  * Device1 (original device): Link device using pre-scanned QR data
@@ -79,9 +80,9 @@ export async function linkDeviceWithScannedQRData(
 
     // Best-effort: claim the link-device session on the relay so Device2 can discover
     // the accountId without on-chain polling.
-    const sessionId = String((qrData as any)?.sessionId || '').trim();
+    const sessionId = String(qrData?.sessionId || '').trim();
     const relayerUrl = String(context?.configs?.relayer?.url || '').trim();
-    const addKeyTxHash = (addKeyTxResult as any)?.transaction?.hash as string | undefined;
+    const addKeyTxHash = String(addKeyTxResult?.transaction?.hash || '').trim() || undefined;
     if (sessionId && relayerUrl) {
       try {
         const resp = await fetch(`${relayerUrl.replace(/\/$/, '')}/link-device/session/claim`, {
@@ -94,9 +95,11 @@ export async function linkDeviceWithScannedQRData(
             ...(addKeyTxHash ? { add_key_tx_hash: addKeyTxHash } : {}),
           }),
         });
-        const json: any = await resp.json().catch(() => ({}));
-        if (!resp.ok || json?.ok !== true) {
-          console.warn('[link-device] relay claim failed:', json?.message || `HTTP ${resp.status}`);
+        const json: unknown = await resp.json().catch(() => ({}));
+        const response = (json && typeof json === 'object') ? json as Record<string, unknown> : {};
+        if (!resp.ok || response.ok !== true) {
+          const message = typeof response.message === 'string' ? response.message : `HTTP ${resp.status}`;
+          console.warn('[link-device] relay claim failed:', message);
         }
       } catch (err) {
         console.warn('[link-device] relay claim error:', err);
@@ -120,14 +123,14 @@ export async function linkDeviceWithScannedQRData(
 
     return result;
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('LinkDeviceFlow: linkDeviceWithQRData caught error:', error);
 
-    const errorMessage = `Failed to scan and link device: ${error.message}`;
-    onError?.(new Error(errorMessage));
+    const message = `Failed to scan and link device: ${errorMessage(error)}`;
+    onError?.(new Error(message));
 
     throw new DeviceLinkingError(
-      errorMessage,
+      message,
       DeviceLinkingErrorCode.AUTHORIZATION_TIMEOUT,
       'authorization'
     );

@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import type { TatchiPasskey } from '@/core/TatchiPasskey';
 import { toAccountId } from '@/core/types/accountIds';
 import { awaitWalletIframeReady } from '../utils/walletIframe';
+import { isObject } from '@shared/utils/validation';
 
-async function discoverRelayerAccountIdFromHealthz(relayUrl: string): Promise<string | null> {
+async function discoverRelayerAccountFromHealthz(relayUrl: string): Promise<string | null> {
   const base = String(relayUrl || '').trim().replace(/\/$/, '');
   if (!base) return null;
 
@@ -16,11 +17,11 @@ async function discoverRelayerAccountIdFromHealthz(relayUrl: string): Promise<st
       ...(controller ? { signal: controller.signal } : {}),
     });
     if (!res.ok) return null;
-    const json = await res.json().catch(() => ({}));
-    const relayerAccountId =
-      (typeof json?.relayerAccountId === 'string' ? json.relayerAccountId : '') ||
-      (typeof json?.relayer_account_id === 'string' ? json.relayer_account_id : '');
-    const normalized = String(relayerAccountId || '').trim().replace(/^\./, '').toLowerCase();
+    const jsonData: unknown = await res.json().catch(() => ({}));
+    const json = isObject(jsonData) ? jsonData : {};
+    const relayerAccount =
+      typeof json.relayerAccount === 'string' ? json.relayerAccount : '';
+    const normalized = String(relayerAccount).trim().replace(/^\./, '').toLowerCase();
     return normalized || null;
   } catch {
     return null;
@@ -47,11 +48,6 @@ export interface UseAccountInputOptions {
    * (e.g. `w3a-relayer.testnet` for `alice.w3a-relayer.testnet`).
    */
   accountDomain?: string;
-  /**
-   * @deprecated Use `accountDomain` instead.
-   * Kept for backwards-compat with earlier versions of this hook.
-   */
-  contractId?: string;
   currentNearAccountId?: string | null;
   isLoggedIn: boolean;
 }
@@ -64,7 +60,6 @@ export interface UseAccountInputReturn extends AccountInputState {
 export function useAccountInput({
   tatchi,
   accountDomain,
-  contractId,
   currentNearAccountId,
   isLoggedIn
 }: UseAccountInputOptions): UseAccountInputReturn {
@@ -87,7 +82,7 @@ export function useAccountInput({
 
     let cancelled = false;
     void (async () => {
-      const discovered = await discoverRelayerAccountIdFromHealthz(relayUrl);
+      const discovered = await discoverRelayerAccountFromHealthz(relayUrl);
       if (cancelled || !discovered) return;
       setDiscoveredRelayerAccount(discovered);
     })();
@@ -96,7 +91,7 @@ export function useAccountInput({
     };
   }, [accountDomain, tatchi]);
 
-  const normalizedDomain = (accountDomain || discoveredRelayerAccount || contractId || tatchi.configs.relayerAccount || tatchi.configs.contractId || '')
+  const normalizedDomain = (accountDomain || discoveredRelayerAccount || tatchi.configs.relayerAccount || tatchi.configs.contractId || '')
     .trim()
     .replace(/^\./, '')
     .toLowerCase();

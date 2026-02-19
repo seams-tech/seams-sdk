@@ -294,7 +294,7 @@ test.describe('unified signing pipeline', () => {
 
   test('chain entrypoints stay wired to the unified intent runner', () => {
     const signerWorkerBridgeSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signing/api/signerWorkerBridge.ts'),
+      path.resolve(process.cwd(), '../client/src/core/signing/api/signing/signerWorkerBridge.ts'),
       'utf8',
     );
     const tempoHandlerSource = fs.readFileSync(
@@ -305,7 +305,7 @@ test.describe('unified signing pipeline', () => {
       'utf8',
     );
 
-    expect(signerWorkerBridgeSource).toContain("import('../orchestration/signWithIntent')");
+    expect(signerWorkerBridgeSource).toContain("import('../../orchestration/signWithIntent')");
     expect(tempoHandlerSource).toContain('executeSigningIntent({');
   });
 
@@ -315,11 +315,11 @@ test.describe('unified signing pipeline', () => {
       'utf8',
     );
     const thresholdSessionActivationSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signing/api/thresholdSessionActivation.ts'),
+      path.resolve(process.cwd(), '../client/src/core/signing/api/thresholdLifecycle/thresholdSessionActivation.ts'),
       'utf8',
     );
     const thresholdEd25519LifecycleSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signing/api/thresholdEd25519Lifecycle.ts'),
+      path.resolve(process.cwd(), '../client/src/core/signing/api/thresholdLifecycle/thresholdEd25519Lifecycle.ts'),
       'utf8',
     );
 

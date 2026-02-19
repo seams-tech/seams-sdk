@@ -1,6 +1,6 @@
-import { normalizeThresholdEd25519ParticipantIds } from '../../../../../../shared/src/threshold/participants';
-import { computeThresholdEcdsaKeygenIntentDigest } from '../../../../utils/intentDigest';
-import { thresholdEcdsaBootstrap } from '../../../near/rpcCalls';
+import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import { computeThresholdEcdsaKeygenIntentDigest } from '@/utils/intentDigest';
+import { thresholdEcdsaBootstrap } from '@/core/near/rpcCalls';
 import { deriveThresholdSecp256k1ClientShareWasm } from '../../chainAdaptors/evm/ethSignerWasm';
 import type { WorkerOperationContext } from '../../workers/operations/executeSignerWorkerOperation';
 import {

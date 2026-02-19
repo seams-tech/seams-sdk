@@ -1,11 +1,11 @@
 
-import { SignedTransaction } from '../../../../near/NearClient';
-import { type ActionArgsWasm, validateActionArgsWasm } from '../../../../types/actions';
+import { SignedTransaction } from '@/core/near/NearClient';
+import { type ActionArgsWasm, validateActionArgsWasm } from '@/core/types/actions';
 import {
   WorkerRequestType,
   WorkerResponseType,
   WasmTransactionSignResult,
-} from '../../../../types/signer-worker';
+} from '@/core/types/signer-worker';
 import { SignerWorkerManagerContext } from '..';
 
 /**

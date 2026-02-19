@@ -1,7 +1,7 @@
-import { stripTrailingSlashes, toTrimmedString } from '../../../../../../shared/src/utils/validation';
+import { stripTrailingSlashes, toTrimmedString } from '@shared/utils/validation';
 import type { ThresholdEd25519SessionPolicy } from './thresholdSessionPolicy';
-import type { WebAuthnAuthenticationCredential } from '../../../types/webauthn';
-import { normalizeThresholdEd25519ParticipantIds } from '../../../../../../shared/src/threshold/participants';
+import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
+import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { redactCredentialExtensionOutputs } from '../webauthn';
 
 export type ThresholdEd25519SessionKind = 'jwt' | 'cookie';

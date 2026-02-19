@@ -1,12 +1,12 @@
 import type { SecureConfirmWorkerManagerContext } from '../../';
-import type { ConfirmationConfig } from '../../../../types/signer-worker';
+import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import {
   SecureConfirmationType,
   TransactionSummary,
   SigningSecureConfirmRequest,
   SigningAuthMode,
 } from '../types';
-import type { SecureConfirmSecurityContext, TransactionContext } from '../../../../types';
+import type { SecureConfirmSecurityContext, TransactionContext } from '@/core/types';
 import {
   getNearAccountId,
   getIntentDigest,
@@ -15,12 +15,12 @@ import {
   ERROR_MESSAGES,
   getSignTransactionPayload,
 } from './index';
-import { toError } from '../../../../../../../shared/src/utils/errors';
+import { toError } from '@shared/utils/errors';
 import { createConfirmSession } from '../adapters/session';
 import { createConfirmTxFlowAdapters } from '../adapters/createAdapters';
-import { computeUiIntentDigestFromNep413 } from '../../../../../utils/intentDigest';
-import type { ThemeName } from '../../../../types/tatchi';
-import { collectAuthenticationCredentialForChallengeB64u } from '../../../webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
+import { computeUiIntentDigestFromNep413 } from '@/utils/intentDigest';
+import type { ThemeName } from '@/core/types/tatchi';
+import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signing/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
 
 function getSigningAuthMode(request: SigningSecureConfirmRequest): SigningAuthMode {
   if (request.type === SecureConfirmationType.SIGN_TRANSACTION) {

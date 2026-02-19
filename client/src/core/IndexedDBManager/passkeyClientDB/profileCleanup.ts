@@ -1,5 +1,5 @@
 import type { IDBPDatabase } from 'idb';
-import { toTrimmedString } from '../../../../../shared/src/utils/validation';
+import { toTrimmedString } from '@shared/utils/validation';
 
 async function deleteRowsByProfileId(args: {
   db: IDBPDatabase;

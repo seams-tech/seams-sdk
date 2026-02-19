@@ -1,12 +1,12 @@
 import type { SecureConfirmWorkerManagerContext } from '../../';
-import type { ConfirmationConfig } from '../../../../types/signer-worker';
+import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import {
   TransactionSummary,
   RegistrationSecureConfirmRequest,
 } from '../types';
-import type { SecureConfirmSecurityContext, TransactionContext } from '../../../../types';
-import type { WebAuthnRegistrationCredential } from '../../../../types/webauthn';
-import { sha256Base64UrlUtf8 } from '../../../../../utils/intentDigest';
+import type { SecureConfirmSecurityContext, TransactionContext } from '@/core/types';
+import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
+import { sha256Base64UrlUtf8 } from '@/utils/intentDigest';
 import {
   getNearAccountId,
   getIntentDigest,
@@ -17,11 +17,11 @@ import {
 import {
   isSerializedRegistrationCredential,
   serializeRegistrationCredentialWithPRF,
-} from '../../../webauthn/credentials/serialization';
-import { toError } from '../../../../../../../shared/src/utils/errors';
+} from '@/core/signing/webauthn/credentials/helpers';
+import { toError } from '@shared/utils/errors';
 import { createConfirmSession } from '../adapters/session';
 import { createConfirmTxFlowAdapters } from '../adapters/createAdapters';
-import type { ThemeName } from '../../../../types/tatchi';
+import type { ThemeName } from '@/core/types/tatchi';
 
 export async function handleRegistrationFlow(
   ctx: SecureConfirmWorkerManagerContext,

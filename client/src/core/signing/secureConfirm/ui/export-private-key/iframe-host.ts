@@ -5,11 +5,11 @@ import { LitElementWithProps } from '../lit-components/LitElementWithProps';
 import { IFRAME_EXPORT_BOOTSTRAP_MODULE, EXPORT_VIEWER_BUNDLE } from '../tags';
 import { resolveEmbeddedBase } from '../lit-components/asset-base';
 import type { ExportViewerVariant, ExportViewerTheme } from '../lit-components/ExportPrivateKey/viewer';
-import { isObject, isString, isBoolean } from '../../../../../../../shared/src/utils/validation';
+import { isObject, isString, isBoolean } from '@shared/utils/validation';
 import { dispatchLitCancel, dispatchLitConfirm, dispatchLitCopy } from '../lit-events';
 import { ensureExternalStyles } from '../lit-components/css/css-loader';
 import type { ExportPrivateKeyDisplayEntry } from '../../confirmTxFlow/types';
-import type { ThemeTokenOverridesInput } from '../../../../types/tatchi';
+import type { ThemeTokenOverridesInput } from '@/core/types/tatchi';
 
 type MessageType =
   | 'READY'

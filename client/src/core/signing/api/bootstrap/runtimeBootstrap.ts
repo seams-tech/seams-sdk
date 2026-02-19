@@ -1,6 +1,6 @@
-import { __isWalletIframeHostMode } from '../../../WalletIframe/host-mode';
-import { onEmbeddedBaseChange, resolveWorkerBaseOrigin } from '../../../runtimeAssetPaths';
-import type { TatchiConfigs } from '../../../types/tatchi';
+import { __isWalletIframeHostMode } from '@/core/WalletIframe/host-mode';
+import { onEmbeddedBaseChange, resolveWorkerBaseOrigin } from '@/core/runtimeAssetPaths';
+import type { TatchiConfigs } from '@/core/types/tatchi';
 import type { UserPreferencesManager } from '../userPreferences';
 
 export type RuntimeBootstrapDeps = {

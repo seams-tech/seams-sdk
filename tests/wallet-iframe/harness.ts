@@ -70,7 +70,7 @@ export const buildWalletServiceHtml = (options: WalletServiceHtmlOptions = {}): 
                 adoptedPort.postMessage({
                   type: 'ERROR',
                   requestId: id,
-                  payload: { code: 'CANCELLED', message: 'Cancelled by test harness' }
+                  payload: { code: 'cancelled', message: 'Cancelled by test harness' }
                 });
               } catch (err) {
                 console.error('Failed to post ERROR for cancelled request', err);

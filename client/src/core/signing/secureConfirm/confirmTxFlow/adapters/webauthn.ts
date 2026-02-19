@@ -1,7 +1,7 @@
 import type { SecureConfirmWorkerManagerContext } from '../../';
 import type { SerializableCredential } from '../types';
-import type { ProfileAuthenticatorRecord } from '../../../../IndexedDBManager';
-import { collectAuthenticationCredentialForChallengeB64u } from '../../../webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
+import type { ProfileAuthenticatorRecord } from '@/core/IndexedDBManager';
+import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signing/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
 
 export async function collectAuthenticationCredentialWithPRF({
   ctx,

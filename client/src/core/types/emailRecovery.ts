@@ -4,7 +4,7 @@ import type { ConfirmationConfig } from './signer-worker';
 import type { EmailRecoverySSEEvent, EventCallback, AfterCall } from './sdkSentEvents';
 import type { WebAuthnRegistrationCredential } from './webauthn';
 import type { PendingStore } from '../../utils/emailRecovery';
-import type { StoreUserDataInput } from '../IndexedDBManager/passkeyClientDB';
+import type { StoreUserDataInput } from '../IndexedDBManager/passkeyClientDB.types';
 
 export enum EmailRecoveryErrorCode {
   REGISTRATION_NOT_VERIFIED = 'EMAIL_RECOVERY_REGISTRATION_NOT_VERIFIED',

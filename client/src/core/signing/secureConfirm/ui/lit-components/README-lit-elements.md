@@ -184,13 +184,13 @@ export async function ensureDefined(tag: string, loader: () => Promise<unknown>)
 // Usage (export viewer)
 import { W3A_EXPORT_VIEWER_IFRAME_ID } from '../../tags';
 import { ensureDefined } from '../../ensure-defined';
-await ensureDefined(W3A_EXPORT_VIEWER_IFRAME_ID, () => import('../ExportPrivateKey/iframe-host'));
+await ensureDefined(W3A_EXPORT_VIEWER_IFRAME_ID, () => import('../../export-private-key/iframe-host'));
 const host = document.createElement(W3A_EXPORT_VIEWER_IFRAME_ID);
 document.body.appendChild(host);
 ```
 
 Reference in codebase:
-- `SecureConfirmWorkerManager/confirmTxFlow/flows/localOnly.ts` dynamically imports `ExportPrivateKey/iframe-host` before `createElement('w3a-export-viewer-iframe')`.
+- `SecureConfirmWorkerManager/confirmTxFlow/flows/localOnly.ts` dynamically imports `ui/export-private-key/iframe-host` before `createElement('w3a-export-viewer-iframe')`.
 
 ### Dev/Test guardrails
 - Unit: keep the SHOW_SECURE_PRIVATE_KEY_UI test that verifies the viewer remains mounted (already present under `tests/unit/confirmTxFlow.defensivePaths.test.ts`).

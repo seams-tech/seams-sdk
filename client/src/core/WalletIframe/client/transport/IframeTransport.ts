@@ -26,8 +26,8 @@
  * - Manages timing issues with cross-origin iframe boot sequences
  */
 
-import { isObject } from '../../../../../../shared/src/utils/validation';
-import { WebAuthnBridgeMessage } from '../../../signing/webauthn/fallbacks';
+import { isObject } from '@shared/utils/validation';
+import { WebAuthnBridgeMessage } from '@/core/signing/webauthn/fallbacks';
 import { createWalletIframe, removeExistingOverlaysForOrigin } from './iframe-transport-dom';
 import { performHandshake, waitForBootHint, waitForLoad } from './iframe-transport-handshake';
 import { handleWebAuthnBridgeMessage } from './webauthn-bridge';

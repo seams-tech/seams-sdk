@@ -115,13 +115,22 @@ test.describe('TatchiPasskey.initWalletIframe', () => {
         }), timeoutMs)),
       ]);
 
+      const waitUntilReady = async (pmInst: any, waitMs = 1000): Promise<boolean> => {
+        const started = Date.now();
+        while (Date.now() - started < waitMs) {
+          try {
+            if (pmInst.isWalletIframeReady?.()) return true;
+          } catch {}
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        try { return !!pmInst.isWalletIframeReady?.(); } catch { return false; }
+      };
+
       return {
         ok: out.ok,
         error: (out as any).error,
         iframeCount: document.querySelectorAll('iframe.w3a-wallet-overlay').length,
-        routerReady: (() => {
-          try { return !!pm.getWalletIframeClient?.()?.isReady?.(); } catch { return false; }
-        })(),
+        routerReady: await waitUntilReady(pm),
       };
     }, { walletOrigin: WALLET_ORIGIN });
 

@@ -1,30 +1,12 @@
 import { buildWebauthnP256SignatureWasm } from '../chainAdaptors/evm/ethSignerWasm';
 import type { KeyRef, SignRequest, SignatureBytes, SigningEngine } from '../orchestration/types';
 import type { WorkerOperationContext } from '../workers/operations/executeSignerWorkerOperation';
+import { base64Decode, base64UrlDecode } from '@shared/utils/base64';
 
 function bytesEq(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
   return true;
-}
-
-
-function base64ToBytes(base64: string): Uint8Array {
-  const normalized = String(base64 || '').trim();
-  if (!normalized) return new Uint8Array();
-  if (typeof Buffer !== 'undefined') return Uint8Array.from(Buffer.from(normalized, 'base64'));
-  // eslint-disable-next-line no-undef
-  const bin = atob(normalized);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-function base64UrlToBytes(base64Url: string): Uint8Array {
-  const normalized = String(base64Url || '').trim().replace(/-/g, '+').replace(/_/g, '/');
-  if (!normalized) return new Uint8Array();
-  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
-  return base64ToBytes(padded);
 }
 
 export class WebAuthnP256Engine implements SigningEngine {
@@ -74,15 +56,15 @@ export class WebAuthnP256Engine implements SigningEngine {
 
     const fromSerializedCredential = async (credential: any): Promise<SignatureBytes> => {
       const rawIdB64 = String(credential?.rawId || '').trim();
-      const rawId = base64ToBytes(rawIdB64);
+      const rawId = base64Decode(rawIdB64);
       if (!bytesEq(rawId, keyRef.credentialId)) {
         throw new Error('[WebAuthnP256Engine] WebAuthn credential rawId does not match keyRef');
       }
 
       const response = credential?.response;
-      const authenticatorData = base64UrlToBytes(String(response?.authenticatorData || ''));
-      const clientDataJSON = base64UrlToBytes(String(response?.clientDataJSON || ''));
-      const signatureDer = base64UrlToBytes(String(response?.signature || ''));
+      const authenticatorData = base64UrlDecode(String(response?.authenticatorData || ''));
+      const clientDataJSON = base64UrlDecode(String(response?.clientDataJSON || ''));
+      const signatureDer = base64UrlDecode(String(response?.signature || ''));
       if (authenticatorData.length === 0 || clientDataJSON.length === 0 || signatureDer.length === 0) {
         throw new Error('[WebAuthnP256Engine] missing authenticatorData/clientDataJSON/signature in credential');
       }

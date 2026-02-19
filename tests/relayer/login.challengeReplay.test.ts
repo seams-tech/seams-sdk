@@ -7,7 +7,7 @@ import { DEFAULT_TEST_CONFIG } from '../setup/config';
 test.describe('relayer login challenge replay', () => {
   test('POST /auth/passkey/verify: replayed challengeId is rejected', async () => {
     const service = new AuthService({
-      relayerAccountId: 'relayer.testnet',
+      relayerAccount: 'relayer.testnet',
       relayerPrivateKey: 'ed25519:dummy',
       webAuthnContractId: DEFAULT_TEST_CONFIG.contractId,
       nearRpcUrl: DEFAULT_TEST_CONFIG.nearRpcUrl,

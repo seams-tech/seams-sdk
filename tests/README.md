@@ -109,19 +109,10 @@ pnpm -C tests exec playwright test **/unit/**/*.test.ts
 
 Chromium only; `workers=1` to avoid relay/faucet rate limits.
 
-Phase 1 signer gate (direct command):
+Signer runtime gate (Phase 0-5):
+
 ```bash
-pnpm -C ../sdk run build:check:fresh || pnpm -C ../sdk run build
-USE_RELAY_SERVER=0 pnpm -C tests exec playwright test \
-  ./unit/thresholdEcdsa.signInFlightGate.unit.test.ts \
-  ./unit/walletIframeHost.signTempoCancel.unit.test.ts \
-  ./unit/tempo.signingAuthMode.unit.test.ts \
-  ./wallet-iframe/passkeyAuthMenu.qrButton.overlay.test.ts \
-  ./wallet-iframe/router.computeOverlayIntent.test.ts \
-  ./wallet-iframe/router.behavior.sticky.test.ts \
-  ./wallet-iframe/router.behavior.concurrent.test.ts \
-  ./e2e/signTransactions.concurrentSessions.walletIframe.test.ts \
-  --reporter=line
+pnpm -C tests run test:signers:gates
 ```
 
 ## Environment
@@ -198,7 +189,7 @@ To keep iframe tests stable:
 - Theme regression guardrails for confirm UI (light vs dark tokens)
 - Consider gating `data-w3a-router-id` to debug/test builds only (cosmetic)
 - Optional: convenience `waitForOverlayShown/Hidden` helpers in harness (wrap `captureOverlay` + `waitFor`)
-- Keep the wallet stub aligned with production host: adopt ports, reply to `PM_CANCEL` with `ERROR{ code: 'CANCELLED' }`, emit expected phases (e.g., `user-confirmation`) so overlay assertions have signal
+- Keep the wallet stub aligned with production host: adopt ports, reply to `PM_CANCEL` with `ERROR{ code: 'cancelled' }`, emit expected phases (e.g., `user-confirmation`) so overlay assertions have signal
 
 If you update the handshake logic, re-run:
 

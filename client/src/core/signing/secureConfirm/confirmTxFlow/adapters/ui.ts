@@ -1,11 +1,11 @@
 import type { SecureConfirmWorkerManagerContext } from '../../';
-import type { ConfirmationConfig, ConfirmationUIMode } from '../../../../types/signer-worker';
+import type { ConfirmationConfig, ConfirmationUIMode } from '@/core/types/signer-worker';
 import type { SecureConfirmRequest, TransactionSummary } from '../types';
 import { SecureConfirmationType } from '../types';
-import type { SecureConfirmSecurityContext } from '../../../../types';
+import type { SecureConfirmSecurityContext } from '@/core/types';
 import { awaitConfirmUIDecision, mountConfirmUI, type ConfirmUIHandle } from '../../ui/confirm-ui';
 import { getNearAccountId, getSignTransactionPayload } from './requestHelpers';
-import type { ThemeName } from '../../../../types/tatchi';
+import type { ThemeName } from '@/core/types/tatchi';
 
 export function closeModalSafely(confirmed: boolean, handle?: ConfirmUIHandle) {
   handle?.close?.(confirmed);

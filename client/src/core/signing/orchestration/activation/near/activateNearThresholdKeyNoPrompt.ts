@@ -1,22 +1,22 @@
-import { IndexedDBManager } from '../../../../IndexedDBManager';
-import { SignedTransaction } from '../../../../near/NearClient';
-import { toAccountId } from '../../../../types/accountIds';
-import type { AccountId } from '../../../../types/accountIds';
-import type { TransactionContext } from '../../../../types/rpc';
-import type { onProgressEvents } from '../../../../types/sdkSentEvents';
+import { IndexedDBManager } from '@/core/IndexedDBManager';
+import { SignedTransaction } from '@/core/near/NearClient';
+import { toAccountId } from '@/core/types/accountIds';
+import type { AccountId } from '@/core/types/accountIds';
+import type { TransactionContext } from '@/core/types/rpc';
+import type { onProgressEvents } from '@/core/types/sdkSentEvents';
 import {
   INTERNAL_WORKER_REQUEST_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT,
   isSignAddKeyThresholdPublicKeyNoPromptSuccess,
-} from '../../../../types/signer-worker';
-import type { SignTransactionResult } from '../../../../types/tatchi';
+} from '@/core/types/signer-worker';
+import type { SignTransactionResult } from '@/core/types/tatchi';
 import type {
   WebAuthnAuthenticationCredential,
   WebAuthnRegistrationCredential,
-} from '../../../../types/webauthn';
-import { ensureEd25519Prefix } from '../../../../../../../shared/src/utils/validation';
-import { getPrfFirstB64uFromCredential } from '../../../webauthn/credentials/credentialExtensions';
-import { getLastLoggedInDeviceNumber } from '../../../webauthn/device/getDeviceNumber';
-import type { SignerWorkerManagerContext } from '../../../workers/signerWorkerManager';
+} from '@/core/types/webauthn';
+import { ensureEd25519Prefix } from '@shared/utils/validation';
+import { getPrfFirstB64uFromCredential } from '@/core/signing/webauthn/credentials/credentialExtensions';
+import { getLastLoggedInDeviceNumber } from '@/core/signing/webauthn/device/getDeviceNumber';
+import type { SignerWorkerManagerContext } from '@/core/signing/workers/signerWorkerManager';
 
 export type ActivateNearThresholdKeyNoPromptRequest = {
   nearAccountId: AccountId | string;

@@ -1,7 +1,7 @@
 import React from 'react';
-import type { DeviceLinkingSSEEvent } from '../../../core/types/sdkSentEvents';
+import type { DeviceLinkingSSEEvent } from '@/core/types/sdkSentEvents';
 import { AuthMenuMode, AuthMenuModeMap, type AuthMenuModeLabel, type AuthMenuHeadings } from './authMenuTypes';
-import type { EmailRecoverySSEEvent } from '../../../core/types/sdkSentEvents';
+import type { EmailRecoverySSEEvent } from '@/core/types/sdkSentEvents';
 
 export { AuthMenuMode, AuthMenuModeMap };
 export type { AuthMenuModeLabel, AuthMenuHeadings };

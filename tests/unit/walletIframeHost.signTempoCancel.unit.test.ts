@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createWalletIframeHandlers } from '@/core/WalletIframe/host/wallet-iframe-handlers';
+import { resolveWalletBoundaryErrorCode } from '@/core/WalletIframe/host/canonicalSignerErrorCode';
 import type { ChildToParentEnvelope } from '@/core/WalletIframe/shared/messages';
 
 function makeTempoRequest(requestId: string): any {
@@ -80,5 +81,58 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
 
     expect(signCalls).toBe(1);
     expect(posts.some((msg) => msg.type === 'PM_RESULT')).toBe(true);
+  });
+});
+
+test.describe('wallet iframe host canonical signer error mapping', () => {
+  test('normalizes legacy CANCELLED into canonical cancelled', async () => {
+    const code = resolveWalletBoundaryErrorCode({
+      requestType: 'PM_SIGN_TEMPO',
+      rawCode: 'CANCELLED',
+      message: 'Request cancelled',
+    });
+    expect(code).toBe('cancelled');
+  });
+
+  test('maps threshold in-flight message to signing_in_progress', async () => {
+    const code = resolveWalletBoundaryErrorCode({
+      requestType: 'PM_SIGN_TEMPO',
+      message: '[WebAuthnManager] threshold ECDSA signing already in progress for alice.testnet',
+    });
+    expect(code).toBe('signing_in_progress');
+  });
+
+  test('maps deployment failure message to deployment_failed', async () => {
+    const code = resolveWalletBoundaryErrorCode({
+      requestType: 'PM_SIGN_TEMPO',
+      message: '[WebAuthnManager] smart-account deployment must succeed before first EVM send: gateway timeout',
+    });
+    expect(code).toBe('deployment_failed');
+  });
+
+  test('maps deployment_in_progress variants to canonical code', async () => {
+    const code = resolveWalletBoundaryErrorCode({
+      requestType: 'PM_SIGN_TEMPO',
+      rawCode: 'DEPLOYMENT-IN-PROGRESS',
+      message: 'smart-account deployment already in progress',
+    });
+    expect(code).toBe('deployment_in_progress');
+  });
+
+  test('maps threshold session auth errors to session_not_ready', async () => {
+    const code = resolveWalletBoundaryErrorCode({
+      requestType: 'PM_SIGN_TEMPO',
+      message: 'relayer threshold session expired',
+    });
+    expect(code).toBe('session_not_ready');
+  });
+
+  test('prevents unknown signer-boundary code leakage', async () => {
+    const code = resolveWalletBoundaryErrorCode({
+      requestType: 'PM_SIGN_TEMPO',
+      rawCode: 'SOME_INTERNAL_RUNTIME_ERROR',
+      message: 'unexpected runtime path',
+    });
+    expect(code).toBe('session_not_ready');
   });
 });

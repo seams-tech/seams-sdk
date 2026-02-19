@@ -1,7 +1,7 @@
 /*
   AUTO-GENERATED FILE – DO NOT EDIT.
   Source: client/src/theme/palette.json + mappings from client/src/theme/base-styles.js (createThemeTokens)
-  Run: node sdk/scripts/generate-w3a-components-css.mjs
+  Run: node sdk/scripts/codegen/generate-w3a-components-css.mjs
 */
 
 /* Base CSS variables for W3A custom elements (applied on hosts) */

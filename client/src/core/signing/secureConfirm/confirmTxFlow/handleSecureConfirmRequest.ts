@@ -1,5 +1,5 @@
 import type { SecureConfirmWorkerManagerContext } from '../';
-import type { ConfirmationConfig } from '../../../types/signer-worker';
+import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import { determineConfirmationConfig } from './determineConfirmationConfig';
 import {
   TransactionSummary,
@@ -7,7 +7,7 @@ import {
   SecureConfirmRequest,
   SecureConfirmationType,
 } from './types';
-import { errorMessage, toError } from '../../../../../../shared/src/utils/errors';
+import { errorMessage, toError } from '@shared/utils/errors';
 import {
   parseTransactionSummary,
   getIntentDigest,
@@ -24,8 +24,8 @@ import type {
   SigningSecureConfirmRequest,
   IntentDigestSecureConfirmRequest,
 } from './types';
-import { coerceThemeName } from '../../../../../../shared/src/utils/theme';
-import type { ThemeName } from '../../../types/tatchi';
+import { coerceThemeName } from '@shared/utils/theme';
+import type { ThemeName } from '@/core/types/tatchi';
 
 /**
  * Handles secure confirmation requests from the worker with robust error handling

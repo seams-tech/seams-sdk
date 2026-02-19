@@ -1,11 +1,11 @@
-import { base64UrlEncode } from "../../../../../../shared/src/utils/base64";
-import { isObject, isString, isArray } from '../../../../../../shared/src/utils/validation';
+import { base64UrlEncode } from "@shared/utils/base64";
+import { isObject, isString, isArray } from '@shared/utils/validation';
 import {
   type WebAuthnAuthenticationCredential,
   type WebAuthnRegistrationCredential,
   type AuthenticationExtensionsClientOutputs,
   type CredentialPropertiesOutput,
-} from '../../../types/webauthn';
+} from '@/core/types/webauthn';
 import { PRF_FIRST_SALT_V1, PRF_SECOND_SALT_V1 } from '../../threshold/prfSalts';
 
 /**

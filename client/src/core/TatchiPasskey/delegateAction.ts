@@ -8,7 +8,7 @@ import type { SignDelegateActionResult } from '../types/tatchi';
 import type { AccountId } from '../types/accountIds';
 import { ActionPhase, ActionStatus } from '../types/sdkSentEvents';
 import { toAccountId } from '../types/accountIds';
-import { toError } from '../../../../shared/src/utils/errors';
+import { toError } from '@shared/utils/errors';
 import { mergeSignerMode } from '../types/signer-worker';
 
 

@@ -159,7 +159,7 @@ test.describe('Wallet iframe preferences sync', () => {
           finalTheme: tatchi.theme,
           initialConfig,
           finalConfig: tatchi.getConfirmationConfig(),
-          currentUser: String(tatchi.userPreferences.getCurrentUserAccountId?.() || ''),
+          currentUser: String(tatchi.preferences.getCurrentUserAccountId?.() || ''),
           seeded,
           mirrored,
         };

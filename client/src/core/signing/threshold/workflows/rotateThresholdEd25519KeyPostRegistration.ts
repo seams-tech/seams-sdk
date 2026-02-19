@@ -1,16 +1,16 @@
-import type { NearClient } from '../../../near/NearClient';
-import { IndexedDBManager } from '../../../IndexedDBManager';
-import { hasAccessKey, waitForAccessKeyAbsent } from '../../../near/rpcCalls';
-import { ensureEd25519Prefix } from '../../../../../../shared/src/utils/validation';
-import { ActionType, type ActionArgsWasm, type TransactionInputWasm } from '../../../types/actions';
-import { toAccountId, type AccountId } from '../../../types/accountIds';
-import { DEFAULT_WAIT_STATUS } from '../../../types/rpc';
+import type { NearClient } from '@/core/near/NearClient';
+import { IndexedDBManager } from '@/core/IndexedDBManager';
+import { hasAccessKey, waitForAccessKeyAbsent } from '@/core/near/rpcCalls';
+import { ensureEd25519Prefix } from '@shared/utils/validation';
+import { ActionType, type ActionArgsWasm, type TransactionInputWasm } from '@/core/types/actions';
+import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import { DEFAULT_WAIT_STATUS } from '@/core/types/rpc';
 import type {
   ConfirmationConfig,
   RpcCallPayload,
   SignerMode,
-} from '../../../types/signer-worker';
-import type { SignTransactionResult } from '../../../types/tatchi';
+} from '@/core/types/signer-worker';
+import type { SignTransactionResult } from '@/core/types/tatchi';
 
 export type RotateThresholdEd25519KeyPostRegistrationHandlerContext = {
   nearClient: NearClient;

@@ -1,8 +1,8 @@
-import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../../../../config/defaultConfigs';
-import { AccountId, toAccountId } from '../../../../types/accountIds';
-import { toActionArgsWasm, validateActionArgsWasm } from '../../../../types/actions';
-import { DelegateActionInput } from '../../../../types/delegate';
-import { type onProgressEvents } from '../../../../types/sdkSentEvents';
+import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
+import { AccountId, toAccountId } from '@/core/types/accountIds';
+import { toActionArgsWasm, validateActionArgsWasm } from '@/core/types/actions';
+import { DelegateActionInput } from '@/core/types/delegate';
+import { type onProgressEvents } from '@/core/types/sdkSentEvents';
 import {
   ConfirmationConfig,
   RpcCallPayload,
@@ -15,45 +15,45 @@ import {
   type WorkerSuccessResponse,
   WasmSignedDelegate,
   getThresholdBehaviorFromSignerMode,
-} from '../../../../types/signer-worker';
-import type { WebAuthnAuthenticationCredential } from '../../../../types';
+} from '@/core/types/signer-worker';
+import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import {
   getPrfResultsFromCredential,
   redactCredentialExtensionOutputs,
-} from '../../../webauthn/credentials/credentialExtensions';
+} from '@/core/signing/webauthn/credentials/credentialExtensions';
 import {
   isRelayerThresholdEd25519Configured,
   resolveSignerModeForThresholdSigning,
-} from '../../../threshold/session/thresholdEd25519RelayerHealth';
+} from '@/core/signing/threshold/session/thresholdEd25519RelayerHealth';
 import type {
   LocalNearSkV3Material,
   ThresholdEd25519_2p_V1Material,
-} from '../../../../IndexedDBManager/passkeyNearKeysDB';
+} from '@/core/IndexedDBManager/passkeyNearKeysDB.types';
 import {
   clearCachedThresholdEd25519AuthSession,
   getCachedThresholdEd25519AuthSessionJwt,
   makeThresholdEd25519AuthSessionCacheKey,
   mintThresholdEd25519AuthSessionLite,
   putCachedThresholdEd25519AuthSession,
-} from '../../../threshold/session/thresholdEd25519AuthSession';
-import type { SigningAuthMode } from '../../../secureConfirm/confirmTxFlow/types';
+} from '@/core/signing/threshold/session/thresholdEd25519AuthSession';
+import type { SigningAuthMode } from '@/core/signing/secureConfirm/confirmTxFlow/types';
 import {
   buildThresholdSessionPolicy,
   isThresholdSessionAuthUnavailableError,
   isThresholdSignerMissingKeyError,
-} from '../../../threshold/session/thresholdSessionPolicy';
-import { normalizeThresholdEd25519ParticipantIds } from '../../../../../../../shared/src/threshold/participants';
+} from '@/core/signing/threshold/session/thresholdSessionPolicy';
+import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import type { SigningRuntimeDeps } from '../../types';
 import {
   getLastLoggedInDeviceNumber,
   parseDeviceNumber,
-} from '../../../webauthn/device/getDeviceNumber';
+} from '@/core/signing/webauthn/device/getDeviceNumber';
 import {
   ensureEd25519Prefix,
   toPublicKeyString,
-} from '../../../workers/signerWorkerManager/internal/validation';
-import { deriveThresholdEd25519ClientVerifyingShare } from '../../../threshold/workflows/deriveThresholdEd25519ClientVerifyingShare';
-import { executeSignerWorkerOperation } from '../../../workers/operations/executeSignerWorkerOperation';
+} from '@/core/signing/workers/signerWorkerManager/internal/validation';
+import { deriveThresholdEd25519ClientVerifyingShare } from '@/core/signing/workers/signerWorkerManager/nearKeyOps/deriveThresholdEd25519ClientVerifyingShare';
+import { executeSignerWorkerOperation } from '@/core/signing/workers/operations/executeSignerWorkerOperation';
 import {
   assertRuntimeSigningLocalKeyMaterial,
   isRuntimeSigningLocalKeyMaterial,

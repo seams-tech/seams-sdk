@@ -1,13 +1,13 @@
-import { isObject } from '../../../../../../../shared/src/utils/validation';
-import { AccountId, toAccountId } from '../../../../types/accountIds';
+import { isObject } from '@shared/utils/validation';
+import { AccountId, toAccountId } from '@/core/types/accountIds';
 import {
   WorkerRequestType,
   isDecryptPrivateKeyWithPrfSuccess,
-} from '../../../../types/signer-worker';
-import { runSecureConfirm } from '../../../secureConfirm/secureConfirmBridge';
-import { SecureConfirmationType } from '../../../secureConfirm/confirmTxFlow/types';
+} from '@/core/types/signer-worker';
+import { runSecureConfirm } from '@/core/signing/secureConfirm/secureConfirmBridge';
+import { SecureConfirmationType } from '@/core/signing/secureConfirm/confirmTxFlow/types';
 import { SignerWorkerManagerContext } from '..';
-import { getLastLoggedInDeviceNumber } from '../getDeviceNumber';
+import { getLastLoggedInDeviceNumber } from '@/core/signing/webauthn/device/getDeviceNumber';
 
 /**
  * Two-phase export (worker-driven):

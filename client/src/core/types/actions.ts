@@ -511,4 +511,4 @@ export function fromTransactionInputWasm(tx: TransactionInputWasm): TransactionI
 export function fromTransactionInputsWasm(txs: TransactionInputWasm[]): TransactionInput[] {
   return (txs || []).map(fromTransactionInputWasm);
 }
-import { isObject } from '../../../../shared/src/utils/validation';
+import { isObject } from '@shared/utils/validation';

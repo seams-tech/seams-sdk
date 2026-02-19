@@ -4,8 +4,8 @@ import type {
   SecureConfirmProgressEvent,
 } from '../types';
 import { SecureConfirmMessageType } from '../types';
-import { isObject, isFunction, isString } from '../../../../../../../shared/src/utils/validation';
-import { toError, isTouchIdCancellationError } from '../../../../../../../shared/src/utils/errors';
+import { isObject, isFunction, isString } from '@shared/utils/validation';
+import { toError, isTouchIdCancellationError } from '@shared/utils/errors';
 
 export function parseTransactionSummary(summaryData: unknown): TransactionSummary {
   if (!summaryData) return {};

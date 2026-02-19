@@ -1,7 +1,7 @@
 import type {
   SecureConfirmWorkerMessage,
   SecureConfirmWorkerResponse,
-} from '../../../types/secure-confirm-worker';
+} from '@/core/types/secure-confirm-worker';
 import type { SecureConfirmWorkerManagerContext } from '..';
 
 export interface SecureConfirmWorkerManagerHandlerContext {

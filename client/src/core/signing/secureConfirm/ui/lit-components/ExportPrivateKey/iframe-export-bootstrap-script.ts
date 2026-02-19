@@ -1,9 +1,9 @@
-import { isObject, isString, isBoolean } from '../../../../../../../../shared/src/utils/validation';
+import { isObject, isString, isBoolean } from '@shared/utils/validation';
 import { LitComponentEvents, type LitComponentEventDetailMap } from '../../lit-events';
 import { W3A_DRAWER_ID, W3A_EXPORT_KEY_VIEWER_ID } from '../../tags';
-import type { ExportPrivateKeyDisplayEntry } from '../../../confirmTxFlow/types';
-import type { ThemeTokenOverridesInput } from '../../../../../types/tatchi';
-import { createCspStylesheetManager, getDefaultCspNonce } from '../../../../../WalletIframe/shared/csp-stylesheet';
+import type { ExportPrivateKeyDisplayEntry } from '@/core/signing/secureConfirm/confirmTxFlow/types';
+import type { ThemeTokenOverridesInput } from '@/core/types/tatchi';
+import { createCspStylesheetManager, getDefaultCspNonce } from '@/core/WalletIframe/shared/csp-stylesheet';
 
 type MessageType =
   | 'READY'

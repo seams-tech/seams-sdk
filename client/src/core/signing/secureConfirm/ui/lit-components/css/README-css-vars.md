@@ -15,7 +15,7 @@ This document explains how theme colors and CSS variables are defined, generated
 
 ## Generated CSS: `w3a-components.css`
 
-- Generator: `node sdk/scripts/generate-w3a-components-css.mjs`
+- Generator: `node sdk/scripts/codegen/generate-w3a-components-css.mjs`
   - Reads `palette.json` + the same mappings produced by `createThemeTokens` in `client/src/theme/base-styles.js`.
   - Emits a single stylesheet at:
     - `client/src/core/signing/secureConfirm/ui/lit-components/css/w3a-components.css`
@@ -65,9 +65,9 @@ Note: `@import` inside constructable stylesheets is ignored by browsers. Do not 
 ## Regenerating tokens
 
 - From repo root:
-  - `node sdk/scripts/generate-w3a-components-css.mjs`
+  - `node sdk/scripts/codegen/generate-w3a-components-css.mjs`
 - From `sdk/`:
-  - `node ./scripts/generate-w3a-components-css.mjs`
+  - `node ./scripts/codegen/generate-w3a-components-css.mjs`
 - Verify changes to `client/src/core/signing/secureConfirm/ui/lit-components/css/w3a-components.css` and commit.
 
 ## Customizing the palette
@@ -96,5 +96,5 @@ Note: `@import` inside constructable stylesheets is ignored by browsers. Do not 
 ---
 
 If anything here drifts from the implementation:
-- Check `sdk/scripts/generate-w3a-components-css.mjs` and `client/src/theme/base-styles.js` for the current mapping and output shape.
+- Check `sdk/scripts/codegen/generate-w3a-components-css.mjs` and `client/src/theme/base-styles.js` for the current mapping and output shape.
 - Search for `ensureExternalStyles(…, 'w3a-components.css' …)` to see which entrypoints ensure tokens.

@@ -50,8 +50,7 @@ export interface SecureConfirmWorkerManagerContext {
 /**
  * SecureConfirm Worker Manager
  *
- * This worker previously hosted a legacy challenge WASM runtime. In the lite threshold-signer refactor,
- * the worker only hosts SecureConfirm (confirmTxFlow bridge) and the threshold PRF.first cache.
+ * The worker hosts SecureConfirm (confirmTxFlow bridge) and the threshold PRF.first cache.
  */
 export class SecureConfirmWorkerManager {
   private worker: Worker | null = null;

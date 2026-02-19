@@ -1,9 +1,9 @@
-import type { ClientAuthenticatorData } from '../../../IndexedDBManager';
-import type { SignedTransaction } from '../../../near/NearClient';
-import type { ActionArgsWasm } from '../../../types/actions';
-import type { AuthenticatorOptions } from '../../../types/authenticatorOptions';
-import type { AccountId } from '../../../types/accountIds';
-import type { WebAuthnAuthenticationCredential, WebAuthnRegistrationCredential } from '../../../types';
+import type { ClientAuthenticatorData } from '@/core/IndexedDBManager';
+import type { SignedTransaction } from '@/core/near/NearClient';
+import type { ActionArgsWasm } from '@/core/types/actions';
+import type { AuthenticatorOptions } from '@/core/types/authenticatorOptions';
+import type { AccountId } from '@/core/types/accountIds';
+import type { WebAuthnAuthenticationCredential, WebAuthnRegistrationCredential } from '@/core/types';
 import {
   decryptPrivateKeyWithPrf,
 } from './nearKeyOps/decryptPrivateKeyWithPrf';
@@ -25,6 +25,9 @@ import {
 import {
   deriveThresholdEd25519ClientVerifyingShare,
 } from './nearKeyOps/deriveThresholdEd25519ClientVerifyingShare';
+import {
+  generateEphemeralNearKeypair,
+} from './nearKeyOps/generateEphemeralNearKeypair';
 import type { SignerWorkerManagerContext } from './index';
 
 export class NearSigningKeyOpsService {
@@ -124,6 +127,13 @@ export class NearSigningKeyOpsService {
     logs?: string[];
   }> {
     return signTransactionWithKeyPair({ ctx: this.getContext(), ...args });
+  }
+
+  async generateEphemeralNearKeypair(): Promise<{
+    publicKey: string;
+    privateKey: string;
+  }> {
+    return generateEphemeralNearKeypair({ ctx: this.getContext() });
   }
 
   async exportNearKeypairUi(args: {

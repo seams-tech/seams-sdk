@@ -14,7 +14,7 @@ import type { PasskeyManagerContext } from './index';
 import type { SignedTransaction } from '../near/NearClient';
 import type { AccountId } from '../types/accountIds';
 import { ActionPhase, ActionStatus, type ActionSSEEvent, type onProgressEvents } from '../types/sdkSentEvents';
-import { toError, getNearShortErrorMessage } from '../../../../shared/src/utils/errors';
+import { toError, getNearShortErrorMessage } from '@shared/utils/errors';
 
 /**
  * executeAction signs a single transaction (with actions[]) to a single receiver.
@@ -175,14 +175,15 @@ export async function sendTransaction({
   try {
     // Debug snapshot of the signed transaction shape to aid integration debugging.
     try {
-      const st: any = signedTransaction as any;
+      const st: unknown = signedTransaction;
+      const stObj = (st && typeof st === 'object') ? (st as Record<string, unknown>) : null;
       const snapshot = {
         type: typeof st,
-        keys: st && typeof st === 'object' ? Object.keys(st) : null,
-        hasBase64Encode: typeof st?.base64Encode === 'function',
-        hasEncode: typeof st?.encode === 'function',
-        hasSnakeBytes: !!st?.borsh_bytes,
-        hasCamelBytes: !!st?.borshBytes,
+        keys: stObj ? Object.keys(stObj) : null,
+        hasBase64Encode: typeof stObj?.base64Encode === 'function',
+        hasEncode: typeof stObj?.encode === 'function',
+        hasSnakeBytes: !!stObj?.borsh_bytes,
+        hasCamelBytes: !!stObj?.borshBytes,
       };
       console.debug('[sendTransaction] signedTransaction snapshot', snapshot);
     } catch {
@@ -313,6 +314,7 @@ export async function executeActionInternal({
   } catch (error: unknown) {
     console.error('[executeAction] Error during execution:', error);
     const e = toError(error);
+    const details = (e as { details?: unknown }).details;
     const short = (e as { short?: string }).short || getNearShortErrorMessage(e);
     onError?.(e);
     onEvent?.({
@@ -326,7 +328,7 @@ export async function executeActionInternal({
       success: false,
       error: e.message,
       // propagate structured RPC details when present so UIs can render helpful errors
-      errorDetails: (e as any)?.details,
+      errorDetails: details,
       transactionId: undefined,
     };
     afterCall?.(false);
@@ -504,7 +506,7 @@ export async function signTransactionsWithActionsInternal({
       } : undefined,
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[signTransactionsWithActions] Error during execution:', error);
     const e = toError(error);
     const short = (e as { short?: string }).short || getNearShortErrorMessage(e) || e.message;

@@ -6,7 +6,7 @@ import type { ThresholdIndexedDbPort, ThresholdWebAuthnPromptPort } from '../web
  * Threshold-ecdsa (secp256k1) keygen helper (standard WebAuthn).
  *
  * - Uses the atomic relay bootstrap path (`POST /threshold-ecdsa/bootstrap`)
- * - Returns the keygen projection of the bootstrap response for backward compatibility
+ * - Returns the keygen projection of the bootstrap response
  *
  * Notes:
  * - This helper now performs bootstrap-side session mint as part of the atomic flow.

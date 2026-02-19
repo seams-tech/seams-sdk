@@ -26,7 +26,7 @@ async function main() {
   const cache = await readCache();
 
   const config = {
-    relayerAccountId: cache.accountId,
+    relayerAccount: cache.accountId,
     relayerPrivateKey: cache.nearPrivateKey,
     webAuthnContractId: 'w3a-v1.testnet',
     nearRpcUrl: process.env.NEAR_RPC_URL || 'https://test.rpc.fastnear.com',
@@ -110,7 +110,7 @@ async function main() {
     const url = new URL(req.url, `http://localhost:${port}`);
     try {
       if (req.method === 'GET' && url.pathname === '/healthz') {
-        return sendJson(res, 200, { ok: true, relayerAccountId: cache.accountId, contractId: config.webAuthnContractId });
+        return sendJson(res, 200, { ok: true, relayerAccount: cache.accountId, contractId: config.webAuthnContractId });
       }
       if (req.method === 'GET' && url.pathname === '/threshold-ed25519/healthz') {
         return sendJson(res, 200, { ok: true, configured: true });

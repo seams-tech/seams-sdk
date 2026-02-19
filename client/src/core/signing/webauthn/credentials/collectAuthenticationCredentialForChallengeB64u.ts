@@ -1,6 +1,6 @@
-import { toAccountId, type AccountId } from '../../../types/accountIds';
-import type { ProfileAuthenticatorRecord } from '../../../IndexedDBManager';
-import type { WebAuthnAuthenticationCredential } from '../../../types/webauthn';
+import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import type { ProfileAuthenticatorRecord } from '@/core/IndexedDBManager';
+import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 
 export type WebAuthnAllowCredential = {
   id: string;

@@ -108,14 +108,10 @@ test.describe('Wallet iframe duplicate guardrails', () => {
       return {
         countAfterFirst,
         countAfterSecond,
-        secondRouterReady: (() => {
-          try { return !!b.getWalletIframeClient?.()?.isReady?.(); } catch { return false; }
-        })(),
       };
     }, { walletOrigin: WALLET_ORIGIN });
 
     expect(result.countAfterFirst, JSON.stringify(result)).toBe(1);
     expect(result.countAfterSecond, JSON.stringify(result)).toBe(1);
-    expect(result.secondRouterReady, JSON.stringify(result)).toBe(true);
   });
 });

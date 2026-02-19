@@ -13,7 +13,7 @@ import type {
 } from '../types/tatchi';
 import type { PasskeyManagerContext } from './index';
 import type { AccountId } from '../types/accountIds';
-import { getUserFriendlyErrorMessage } from '../../../../shared/src/utils/errors';
+import { getUserFriendlyErrorMessage, toError } from '@shared/utils/errors';
 import { authenticatorsToAllowCredentials } from '../signing/webauthn/credentials';
 import { IndexedDBManager } from '../IndexedDBManager';
 import type { ClientAuthenticatorData, ClientUserData } from '../IndexedDBManager';
@@ -21,7 +21,7 @@ import { createWebAuthnLoginOptions, verifyWebAuthnLogin } from '../near/rpcCall
 import { parseDeviceNumber } from '../signing/webauthn/device/getDeviceNumber';
 import { clearAllCachedThresholdEd25519AuthSessions } from '../signing/threshold/session/thresholdEd25519AuthSession';
 import { clearAllCachedThresholdEcdsaAuthSessions } from '../signing/threshold/session/thresholdEcdsaAuthSession';
-import { normalizeThresholdEd25519ParticipantIds } from '../../../../shared/src/threshold/participants';
+import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 
 /**
  * Core login function (standard WebAuthn; relay-issued sessions).
@@ -281,7 +281,7 @@ export async function loginAndCreateSession(
       );
 
       const selectedUserData = await webAuthnManager
-        .getUserByDevice(nearAccountId, selectedDeviceNumber)
+        .indexedDbRegistration.getUserByDevice(nearAccountId, selectedDeviceNumber)
         .catch(() => userData);
 
       const v = await verifyWebAuthnLogin(relayUrl, verifyPath, session.kind, {
@@ -317,13 +317,14 @@ export async function loginAndCreateSession(
 
       await persistSuccessfulLoginState(selectedDeviceNumber);
 
+      const enrichedLoginResult: LoginAndCreateSessionResult = {
+        ...loginResult,
+        ...(signingSession ? { signingSession } : {}),
+        ...(thresholdEcdsaKeyRef ? { thresholdEcdsaKeyRef } : {}),
+      };
       return await finalizeLoginSuccess({
         nearAccountId,
-        loginResult: {
-          ...(loginResult as any),
-          ...(signingSession ? { signingSession } : {}),
-          ...(thresholdEcdsaKeyRef ? { thresholdEcdsaKeyRef } : {}),
-        },
+        loginResult: enrichedLoginResult,
         onEvent,
         afterCall,
       });
@@ -405,7 +406,7 @@ async function finalizeLoginError(args: {
   } = args;
 
   if (callOnError) {
-    onError?.(error as any);
+    onError?.(toError(error));
   }
 
   onEvent?.({

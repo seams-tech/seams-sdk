@@ -88,7 +88,7 @@ export const useDeviceLinking = (options: UseDeviceLinkingOptions): UseDeviceLin
       console.log(`useDeviceLinking: Starting device linking from ${source}...`);
       hasClosedEarlyRef.current = false; // Reset for this linking attempt
 
-      const result = await tatchi.linkDeviceWithScannedQRData(qrData, {
+      const result = await tatchi.recovery.linkDeviceWithScannedQRData(qrData, {
         fundingAmount,
         onEvent: (event) => {
           onEvent?.(event);

@@ -1,15 +1,15 @@
-import { isActionArgsWasm, toActionArgsWasm, type ActionArgs, type ActionArgsWasm } from '../../../types/actions';
+import { isActionArgsWasm, toActionArgsWasm, type ActionArgs, type ActionArgsWasm } from '@/core/types/actions';
 import type { SecureConfirmWorkerManagerContext } from '..';
 import type { TransactionSummary } from '../confirmTxFlow/types';
-import { WalletIframeDomEvents } from '../../../WalletIframe/events';
-import type { TransactionInputWasm, SecureConfirmSecurityContext } from '../../../types';
+import { WalletIframeDomEvents } from '@/core/WalletIframe/events';
+import type { TransactionInputWasm, SecureConfirmSecurityContext } from '@/core/types';
 
 import { W3A_TX_CONFIRMER_ID, CONFIRM_UI_ELEMENT_SELECTORS, W3A_CONFIRM_PORTAL_ID } from './tags';
 import type { ConfirmUIHandle, ConfirmUIUpdate, ConfirmationUIMode, ThemeName } from './confirm-ui-types';
 export type { ConfirmUIHandle, ConfirmUIUpdate, ConfirmationUIMode } from './confirm-ui-types';
 import { validateTheme } from './confirm-ui-types';
-import { computeUiIntentDigestFromTxs, orderActionForDigest } from '../../../../utils/intentDigest';
-import { __isWalletIframeHostMode } from '../../../WalletIframe/host-mode';
+import { computeUiIntentDigestFromTxs, orderActionForDigest } from '@/utils/intentDigest';
+import { __isWalletIframeHostMode } from '@/core/WalletIframe/host-mode';
 // Ensure the wrapper element is registered when this module loads.
 // Note: this must be a value import (not side-effect-only) so bundlers don't
 // tree-shake it away under `sideEffects: false`.

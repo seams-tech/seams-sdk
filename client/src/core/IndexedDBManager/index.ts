@@ -1,5 +1,5 @@
-export { PasskeyClientDBManager, DBConstraintError } from './passkeyClientDB';
-export { PasskeyNearKeysDBManager } from './passkeyNearKeysDB';
+export { PasskeyClientDBManager, DBConstraintError } from './passkeyClientDB/manager';
+export { PasskeyNearKeysDBManager } from './passkeyNearKeysDB/manager';
 export { UnifiedIndexedDBManager } from './unifiedIndexedDBManager';
 export { passkeyClientDB, passkeyNearKeysDB } from './singletons';
 
@@ -33,7 +33,7 @@ export type {
   UpsertChainAccountInput,
   UpsertAccountSignerInput,
   EnqueueSignerOperationInput,
-} from './passkeyClientDB';
+} from './passkeyClientDB.types';
 
 export type {
   PasskeyNearKeyMaterial,
@@ -46,15 +46,15 @@ export type {
   PasskeyChainKeyAlgorithm,
   PasskeyChainKeyPayloadEnvelope,
   PasskeyChainKeyPayloadEnvelopeAAD,
-} from './passkeyNearKeysDB';
+} from './passkeyNearKeysDB.types';
 
 import { UnifiedIndexedDBManager } from './unifiedIndexedDBManager';
 import { passkeyClientDB, passkeyNearKeysDB } from './singletons';
 
-export type IndexedDBMode = 'legacy' | 'wallet' | 'disabled';
+export type IndexedDBMode = 'app' | 'wallet' | 'disabled';
 
 const DB_CONFIG_BY_MODE: Record<IndexedDBMode, { clientDbName: string; nearKeysDbName: string; disabled: boolean }> = {
-  legacy: { clientDbName: 'PasskeyClientDB', nearKeysDbName: 'PasskeyNearKeys', disabled: false },
+  app: { clientDbName: 'PasskeyClientDB', nearKeysDbName: 'PasskeyNearKeys', disabled: false },
   wallet: { clientDbName: 'PasskeyClientDB', nearKeysDbName: 'PasskeyNearKeys', disabled: false },
   // When running the SDK on the app origin with a wallet iframe configured, we disable IndexedDB entirely
   // to ensure no SDK tables are created and nothing can accidentally persist there.
@@ -69,7 +69,7 @@ let configured: { mode: IndexedDBMode; clientDbName: string; nearKeysDbName: str
  * Call this once, early (before any IndexedDB access).
  * - Wallet iframe host should use `mode: 'wallet'`.
  * - App origin should use `mode: 'disabled'` when wallet-iframe mode is enabled.
- * - Non-iframe apps should use `mode: 'legacy'`.
+ * - Non-iframe apps should use `mode: 'app'`.
  */
 export function configureIndexedDB(args: { mode: IndexedDBMode }): { clientDbName: string; nearKeysDbName: string } {
   const mode = args?.mode;

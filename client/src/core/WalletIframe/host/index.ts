@@ -21,14 +21,15 @@ import type {
 import { CONFIRM_UI_ELEMENT_SELECTORS } from '../../signing/secureConfirm/ui/tags';
 import { setupLitElemMounter } from './lit-ui/iframe-lit-elem-mounter';
 import type { TatchiConfigsInput } from '../../types/tatchi';
-import { isObject } from '../../../../../shared/src/utils/validation';
-import { errorMessage } from '../../../../../shared/src/utils/errors';
+import { isObject } from '@shared/utils/validation';
+import { errorMessage } from '@shared/utils/errors';
 import { TatchiPasskey } from '../../TatchiPasskey';
 import { WalletIframeDomEvents } from '../events';
 // handlers moved to dedicated module; host no longer imports per-call hook types
 import { createWalletIframeHandlers } from './wallet-iframe-handlers';
 import { applyWalletConfig, createHostContext, ensurePasskeyManager } from './context';
 import { addHostListeners, post as postMessage, postToParent as postToParentMessage } from './messaging';
+import { resolveWalletBoundaryErrorCode } from './canonicalSignerErrorCode';
 
 const PROTOCOL: ReadyPayload['protocolVersion'] = '1.0.0';
 let initialized = false;
@@ -64,7 +65,7 @@ export function initWalletIFrame(): void {
   const emitCancellationPayload = (requestId: string | undefined): void => {
     if (!requestId) return;
     postProgress(requestId, { step: 0, phase: 'cancelled', status: 'error', message: 'Cancelled by user' });
-    post({ type: 'ERROR', requestId, payload: { code: 'CANCELLED', message: 'Request cancelled' } });
+    post({ type: 'ERROR', requestId, payload: { code: 'cancelled', message: 'Request cancelled' } });
   };
 
   const respondIfCancelled = (requestId: string | undefined): boolean => {
@@ -78,7 +79,7 @@ export function initWalletIFrame(): void {
     const prev = ctx.tatchiPasskey;
     const pm = ensurePasskeyManager(ctx) as TatchiPasskey;
     if (prev !== pm) {
-      const up = pm.userPreferences;
+      const up = pm.preferences;
 
       // Bridge wallet-host preferences to the parent app so app UI can mirror wallet host state.
       ctx.prefsUnsubscribe?.();
@@ -153,8 +154,7 @@ export function initWalletIFrame(): void {
       if (ctx.walletConfigs?.nearRpcUrl && ctx.walletConfigs?.contractId) {
         Promise.resolve().then(() => {
           const pm = ensureTatchiPasskey();
-          const pmAny = pm as unknown as { warmCriticalResources?: () => Promise<void> };
-          if (pmAny?.warmCriticalResources) return pmAny.warmCriticalResources();
+          return pm.initWalletIframe();
         }).catch(() => {});
       }
       post({ type: 'PONG', requestId });
@@ -183,7 +183,7 @@ export function initWalletIFrame(): void {
       }
       if (rid) {
         // Immediately emit a terminal cancellation for the original request.
-        // Handlers may also emit their own CANCELLED error; router tolerates duplicates.
+        // Handlers may also emit their own cancelled error; router tolerates duplicates.
         emitCancellationPayload(rid);
       }
       post({ type: 'PONG', requestId });
@@ -204,8 +204,14 @@ export function initWalletIFrame(): void {
       const details = (err && typeof err === 'object' && 'details' in err)
         ? (err as { details?: unknown }).details
         : undefined;
-      const code = typeof codeRaw === 'string' && codeRaw.trim() ? codeRaw.trim() : 'HOST_ERROR';
-      if (code === 'CANCELLED') {
+      const message = errorMessage(err);
+      const code = resolveWalletBoundaryErrorCode({
+        requestType: req.type,
+        rawCode: codeRaw,
+        message,
+        defaultCode: 'HOST_ERROR',
+      });
+      if (code === 'cancelled') {
         clearCancelled(requestId);
       }
       post({
@@ -213,7 +219,7 @@ export function initWalletIFrame(): void {
         requestId,
         payload: {
           code,
-          message: errorMessage(err),
+          message,
           ...(details !== undefined ? { details } : {}),
         },
       });

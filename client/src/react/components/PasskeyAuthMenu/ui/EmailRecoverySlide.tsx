@@ -25,7 +25,7 @@ type EmailRecoveryAccountInfo = {
 
 type MailtoUiState = 'ready' | 'opening';
 
-type RecoveryEmailRecord = Awaited<ReturnType<TatchiPasskey['getRecoveryEmails']>>[number];
+type RecoveryEmailRecord = Awaited<ReturnType<TatchiPasskey['recovery']['getRecoveryEmails']>>[number];
 
 type ExplorerToast = { url: string; accountId?: string; transactionHash?: string };
 
@@ -501,7 +501,7 @@ export const EmailRecoverySlide: React.FC<EmailRecoverySlideProps> = ({
     const handle = window.setTimeout(() => {
       void (async () => {
         try {
-          const records = await tatchiPasskey.getRecoveryEmails(normalized);
+          const records = await tatchiPasskey.recovery.getRecoveryEmails(normalized);
           const resolvedEmails = deriveEmailsFromRecoveryRecords(records);
 
           if (!cancelled) {
@@ -570,7 +570,7 @@ export const EmailRecoverySlide: React.FC<EmailRecoverySlideProps> = ({
 
     let didForwardError = false;
     try {
-      const result = await tatchiPasskey.startEmailRecovery({
+      const result = await tatchiPasskey.recovery.startEmailRecovery({
         accountId: normalizedAccountId,
         options: {
           onEvent,
@@ -594,7 +594,7 @@ export const EmailRecoverySlide: React.FC<EmailRecoverySlideProps> = ({
       attemptOpenMailtoAuto(result.mailtoUrl);
 
       // Start polling immediately after attempting to open the email prompt.
-      const finalizePromise = tatchiPasskey.finalizeEmailRecovery({
+      const finalizePromise = tatchiPasskey.recovery.finalizeEmailRecovery({
         accountId: normalizedAccountId,
         nearPublicKey: result.nearPublicKey,
         options: {
@@ -691,7 +691,7 @@ export const EmailRecoverySlide: React.FC<EmailRecoverySlideProps> = ({
     try {
       cancelRequestedRef.current = true;
       await tatchiPasskey
-        .cancelEmailRecovery({
+        .recovery.cancelEmailRecovery({
           accountId: normalizedAccountId,
           nearPublicKey: pendingNearPublicKey || undefined,
         })

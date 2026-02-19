@@ -6,7 +6,7 @@ import type {
   PMExecuteActionPayload,
 } from '../shared/messages';
 import type { TatchiPasskey } from '../../TatchiPasskey';
-import { errorMessage, isTouchIdCancellationError } from '../../../../../shared/src/utils/errors';
+import { errorMessage, isTouchIdCancellationError } from '@shared/utils/errors';
 import type {
   ActionHooksOptions,
   DelegateActionHooksOptions,
@@ -25,7 +25,7 @@ import type {
 import type { ConfirmationConfig } from '../../types/signer-worker';
 import { toAccountId } from '../../types/accountIds';
 import { SignedTransaction } from '../../near/NearClient';
-import { isPlainSignedTransactionLike, extractBorshBytesFromPlainSignedTx, PlainSignedTransactionLike } from '../../../../../shared/src/utils/validation';
+import { isPlainSignedTransactionLike, extractBorshBytesFromPlainSignedTx, PlainSignedTransactionLike } from '@shared/utils/validation';
 import type { ActionArgs } from '../../types';
 
 type Req<T extends ParentToChildType> = Extract<ParentToChildEnvelope, { type: T }>;
@@ -152,10 +152,16 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const { nearAccountId, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
 
-      const result = await pm.bootstrapThresholdEcdsaSession({
-        nearAccountId,
-        options: options || {},
-      });
+      const chain = options?.chain;
+      const result = chain === 'evm'
+        ? await pm.evm.bootstrapThresholdEcdsaSession({
+            nearAccountId,
+            options: options || {},
+          })
+        : await pm.tempo.bootstrapThresholdEcdsaSession({
+            nearAccountId,
+            options: options || {},
+          });
       if (respondIfCancelled(req.requestId)) return;
       respondOkResult(req.requestId, result);
     },
@@ -164,7 +170,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = getTatchiPasskey();
       const { nearAccountId, transactions, options } = req.payload!;
 
-      const results = await pm.signTransactionsWithActions({
+      const results = await pm.near.signTransactionsWithActions({
         nearAccountId,
         transactions: transactions,
         options: {
@@ -180,7 +186,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = getTatchiPasskey();
       const { nearAccountId, transactions, options } = req.payload || {};
 
-      const results = await pm.signAndSendTransactions({
+      const results = await pm.near.signAndSendTransactions({
         nearAccountId: nearAccountId as string,
         transactions: transactions || [],
         options: {
@@ -196,7 +202,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = getTatchiPasskey();
       const { signedTransaction, options } = req.payload || {};
       const st = normalizeSignedTransaction(signedTransaction);
-      const result = await pm.sendTransaction({
+      const result = await pm.near.sendTransaction({
         signedTransaction: st as SignedTransaction,
         options: {
           ...withProgress(req.requestId, options || {}),
@@ -210,7 +216,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_EXECUTE_ACTION: async (req: Req<'PM_EXECUTE_ACTION'>) => {
       const pm = getTatchiPasskey();
       const { nearAccountId, receiverId, actionArgs, options } = (req.payload || ({} as Partial<PMExecuteActionPayload>));
-      const result = await pm.executeAction({
+      const result = await pm.near.executeAction({
         nearAccountId: nearAccountId as string,
         receiverId: receiverId as string,
         actionArgs: (actionArgs as ActionArgs | ActionArgs[])!,
@@ -225,7 +231,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_SIGN_DELEGATE_ACTION: async (req: Req<'PM_SIGN_DELEGATE_ACTION'>) => {
       const pm = getTatchiPasskey();
       const { nearAccountId, delegate, options } = req.payload!;
-      const result = await pm.signDelegateAction({
+      const result = await pm.near.signDelegateAction({
         nearAccountId: nearAccountId,
         delegate,
         options: {
@@ -239,7 +245,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_SIGN_NEP413: async (req: Req<'PM_SIGN_NEP413'>) => {
       const pm = getTatchiPasskey();
       const { nearAccountId, params, options } = req.payload!;
-      const result = await pm.signNEP413Message({
+      const result = await pm.near.signNEP413Message({
         nearAccountId,
         params,
         options: {
@@ -254,7 +260,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = getTatchiPasskey();
       const { nearAccountId, request, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
-      const result = await pm.signTempo({
+      const result = await pm.tempo.signTempo({
         nearAccountId,
         request,
         options: {
@@ -271,36 +277,32 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_EXPORT_KEYS_UI: async (req: Req<'PM_EXPORT_KEYS_UI'>) => {
       const pm = getTatchiPasskey();
       const { nearAccountId, schemes, variant, theme } = req.payload!;
-      if ((pm as any).exportPrivateKeysWithUI) {
-        void (pm as any).exportPrivateKeysWithUI(nearAccountId, { schemes, variant, theme })
-          .catch((err: unknown) => {
-            if (isTouchIdCancellationError(err)) {
-              postToParent?.({ type: 'EXPORT_KEYS_CANCELLED', nearAccountId });
-              postToParent?.({ type: 'WALLET_UI_CLOSED' });
-              return;
-            }
-            postToParent?.({ type: 'WALLET_UI_CLOSED', error: errorMessage(err) });
-          });
-      }
+      void pm.keys.exportPrivateKeysWithUI(nearAccountId, { schemes, variant, theme })
+        .catch((err: unknown) => {
+          if (isTouchIdCancellationError(err)) {
+            postToParent?.({ type: 'EXPORT_KEYS_CANCELLED', nearAccountId });
+            postToParent?.({ type: 'WALLET_UI_CLOSED' });
+            return;
+          }
+          postToParent?.({ type: 'WALLET_UI_CLOSED', error: errorMessage(err) });
+        });
       respondOk(req.requestId);
     },
 
     PM_EXPORT_NEAR_KEYPAIR_UI: async (req: Req<'PM_EXPORT_NEAR_KEYPAIR_UI'>) => {
       const pm = getTatchiPasskey();
       const { nearAccountId, variant, theme } = req.payload!;
-      if (pm.exportNearKeypairWithUI) {
-        void pm.exportNearKeypairWithUI(nearAccountId, { variant, theme })
-          .catch((err: unknown) => {
-            // User cancelled TouchID/FaceID prompt: close UI and emit a cancellation hint
-            // for parent UIs.
-            if (isTouchIdCancellationError(err)) {
-              postToParent?.({ type: 'EXPORT_NEAR_KEYPAIR_CANCELLED', nearAccountId });
-              postToParent?.({ type: 'WALLET_UI_CLOSED' });
-              return;
-            }
-            postToParent?.({ type: 'WALLET_UI_CLOSED', error: errorMessage(err) });
-          });
-      }
+      void pm.keys.exportNearKeypairWithUI(nearAccountId, { variant, theme })
+        .catch((err: unknown) => {
+          // User cancelled TouchID/FaceID prompt: close UI and emit a cancellation hint
+          // for parent UIs.
+          if (isTouchIdCancellationError(err)) {
+            postToParent?.({ type: 'EXPORT_NEAR_KEYPAIR_CANCELLED', nearAccountId });
+            postToParent?.({ type: 'WALLET_UI_CLOSED' });
+            return;
+          }
+          postToParent?.({ type: 'WALLET_UI_CLOSED', error: errorMessage(err) });
+        });
       respondOk(req.requestId);
     },
 
@@ -347,7 +349,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = getTatchiPasskey();
       const { nearAccountId } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
-      const result = await pm.getRecoveryEmails(nearAccountId);
+      const result = await pm.recovery.getRecoveryEmails(nearAccountId);
       if (respondIfCancelled(req.requestId)) return;
       respondOkResult(req.requestId, result);
     },
@@ -356,13 +358,13 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = getTatchiPasskey();
       const { nearAccountId, recoveryEmails, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
-      const result = await pm.setRecoveryEmails(
-        nearAccountId,
-        Array.isArray(recoveryEmails) ? recoveryEmails : [],
-        {
+      const result = await pm.recovery.setRecoveryEmails({
+        accountId: nearAccountId,
+        recoveryEmails: Array.isArray(recoveryEmails) ? recoveryEmails : [],
+        options: {
           ...withProgress(req.requestId, options || {}),
         } as ActionHooksOptions,
-      );
+      });
       if (respondIfCancelled(req.requestId)) return;
       respondOkResult(req.requestId, result);
     },
@@ -371,7 +373,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = getTatchiPasskey();
       const { accountId } = req.payload || {};
       if (respondIfCancelled(req.requestId)) return;
-      const result = await pm.syncAccount({
+      const result = await pm.recovery.syncAccount({
         ...(accountId ? { accountId } : {}),
         options: {
           ...withProgress(req.requestId, {}),
@@ -385,7 +387,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = getTatchiPasskey();
       const { accountId, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
-      const result = await pm.startEmailRecovery({
+      const result = await pm.recovery.startEmailRecovery({
         accountId,
         options: {
           ...withProgress(req.requestId, options || {}),
@@ -399,7 +401,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = getTatchiPasskey();
       const { accountId, nearPublicKey } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
-      await pm.finalizeEmailRecovery({
+      await pm.recovery.finalizeEmailRecovery({
         accountId,
         ...(nearPublicKey ? { nearPublicKey } : {}),
         options: {
@@ -414,7 +416,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = getTatchiPasskey();
       const { accountId, nearPublicKey } = req.payload || {};
       if (respondIfCancelled(req.requestId)) return;
-      await pm.cancelEmailRecovery({
+      await pm.recovery.cancelEmailRecovery({
         ...(accountId ? { accountId } : {}),
         ...(nearPublicKey ? { nearPublicKey } : {}),
       });
@@ -427,7 +429,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const { ui, cameraId, accountId, deviceNumber, localSignerEnabled, options } = req.payload || {};
       const accountIdValue = accountId ? toAccountId(accountId) : undefined;
       if (respondIfCancelled(req.requestId)) return;
-      const result = await pm.startDevice2LinkingFlow({
+      const result = await pm.recovery.startDevice2LinkingFlow({
         ...(ui ? { ui } : {}),
         ...(cameraId ? { cameraId } : {}),
         ...(accountIdValue ? { accountId: accountIdValue } : {}),
@@ -444,7 +446,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_STOP_DEVICE2_LINKING_FLOW: async (req: Req<'PM_STOP_DEVICE2_LINKING_FLOW'>) => {
       const pm = getTatchiPasskey();
       if (respondIfCancelled(req.requestId)) return;
-      await pm.stopDevice2LinkingFlow();
+      await pm.recovery.stopDevice2LinkingFlow();
       if (respondIfCancelled(req.requestId)) return;
       respondOk(req.requestId);
     },
@@ -453,7 +455,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = getTatchiPasskey();
       const { qrData, fundingAmount, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
-      const result = await pm.linkDeviceWithScannedQRData(qrData, {
+      const result = await pm.recovery.linkDeviceWithScannedQRData(qrData, {
         fundingAmount: String(fundingAmount || ''),
         ...withProgress(req.requestId, options || {}),
       });

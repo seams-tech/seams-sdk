@@ -1,5 +1,5 @@
-import { base64UrlEncode } from '../../../../../../shared/src/utils/encoders';
-import { toAccountId } from '../../../types/accountIds';
+import { base64UrlEncode } from '@shared/utils/encoders';
+import { toAccountId } from '@/core/types/accountIds';
 import {
   collectAuthenticationCredentialForChallengeB64u,
   getPrfFirstB64uFromCredential,

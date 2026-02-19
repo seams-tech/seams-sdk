@@ -1,8 +1,8 @@
-import type { TransactionInputWasm } from '../../../types/actions';
-import { ActionType } from '../../../types/actions';
-import type { RpcCallPayload, ConfirmationConfig } from '../../../types/signer-worker';
-import type { TransactionContext } from '../../../types/rpc';
-import { computeUiIntentDigestFromTxs, orderActionForDigest } from '../../../../utils/intentDigest';
+import type { TransactionInputWasm } from '@/core/types/actions';
+import { ActionType } from '@/core/types/actions';
+import type { RpcCallPayload, ConfirmationConfig } from '@/core/types/signer-worker';
+import type { TransactionContext } from '@/core/types/rpc';
+import { computeUiIntentDigestFromTxs, orderActionForDigest } from '@/utils/intentDigest';
 import {
   SecureConfirmationType,
   type SecureConfirmRequest,

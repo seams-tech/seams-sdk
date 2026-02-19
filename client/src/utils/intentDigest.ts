@@ -3,8 +3,8 @@
 //
 // Uses Web Crypto API (crypto.subtle). Import a minimal base64url helper that does not pull bs58.
 import { ActionType, type ActionArgsWasm, type TransactionInputWasm } from '../core/types';
-import { base64UrlEncode } from '../../../shared/src/utils/base64';
-import { alphabetizeStringify, sha256BytesUtf8 } from '../../../shared/src/utils/digests';
+import { base64UrlEncode } from '@shared/utils/base64';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 
 export async function sha256Base64UrlUtf8(input: string): Promise<string> {
   const digest = await sha256BytesUtf8(input);

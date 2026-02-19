@@ -1,7 +1,6 @@
-import { stripTrailingSlashes, toTrimmedString } from '../../../../../../shared/src/utils/validation';
+import { stripTrailingSlashes, toTrimmedString } from '@shared/utils/validation';
 import type { ThresholdEcdsaSessionPolicy } from './thresholdSessionPolicy';
-import type { WebAuthnAuthenticationCredential } from '../../../types/webauthn';
-import { normalizeThresholdEd25519ParticipantIds } from '../../../../../../shared/src/threshold/participants';
+import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 
 export type ThresholdEcdsaSessionKind = 'jwt' | 'cookie';
 
@@ -69,40 +68,4 @@ export function getCachedThresholdEcdsaAuthSessionJwt(cacheKey: string): string 
   }
   if (cached) clearCachedThresholdEcdsaAuthSession(cacheKey);
   return undefined;
-}
-
-/**
- * Lite (WebAuthn-only) threshold session mint.
- *
- * The server verifies the WebAuthn assertion directly and binds the session to the
- * `sessionPolicyDigest32` by using it as the WebAuthn challenge bytes (base64url string).
- *
- * Notes:
- * - Callers must ensure the WebAuthn `challenge` equals the session policy digest.
- * - PRF outputs must never be sent to the relay; they should be used only in wallet origin.
- */
-export async function mintThresholdEcdsaAuthSessionLite(args: {
-  relayerUrl: string;
-  sessionKind: ThresholdEcdsaSessionKind;
-  relayerKeyId: string;
-  clientVerifyingShareB64u: string;
-  sessionPolicy: ThresholdEcdsaSessionPolicy;
-  webauthnAuthentication: WebAuthnAuthenticationCredential;
-}): Promise<{
-  ok: boolean;
-  sessionId?: string;
-  expiresAtMs?: number;
-  remainingUses?: number;
-  jwt?: string;
-  code?: string;
-  message?: string;
-}> {
-  // Bootstrap-only ECDSA flow: `/threshold-ecdsa/session` is no longer exposed.
-  // Keep this API surface as an explicit compatibility error.
-  void args;
-  return {
-    ok: false,
-    code: 'not_supported',
-    message: 'Legacy threshold-ecdsa/session flow removed; use bootstrapThresholdEcdsaLite',
-  };
 }

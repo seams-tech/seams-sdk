@@ -1,7 +1,7 @@
 import { TxTreeStyles } from './tx-tree-themes';
-import type { ActionArgs, TransactionInput } from '../../../../../types/actions';
+import type { ActionArgs, TransactionInput } from '@/core/types/actions';
 import { formatArgs, formatDeposit, shortenPubkey, formatCodeSize } from '../common/formatters';
-import { isString } from '../../../../../../../../shared/src/utils/validation';
+import { isString } from '@shared/utils/validation';
 
 export type TreeNodeType = 'folder' | 'file';
 

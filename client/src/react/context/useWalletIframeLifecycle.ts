@@ -1,19 +1,17 @@
 import { useEffect } from 'react';
-import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import type { TatchiPasskey } from '@/core/TatchiPasskey';
-import type { WalletIframeRouter } from '@/core/WalletIframe/client/router';
 import { toAccountId } from '@/core/types/accountIds';
 import type { LoginState } from '../types';
+import { isLoginSessionReadyForUi } from './loginReadiness';
 
 export function useWalletIframeLifecycle(args: {
   tatchi: TatchiPasskey;
-  walletIframeClientRef: MutableRefObject<WalletIframeRouter | null>;
   setWalletIframeConnected: Dispatch<SetStateAction<boolean>>;
   setLoginState: Dispatch<SetStateAction<LoginState>>;
 }) {
   const {
     tatchi,
-    walletIframeClientRef,
     setWalletIframeConnected,
     setLoginState,
   } = args;
@@ -26,6 +24,7 @@ export function useWalletIframeLifecycle(args: {
 
     (async () => {
       try {
+        const signerMode = tatchi.configs?.signerMode;
         const useIframe = !!tatchi.configs.iframeWallet?.walletOrigin;
         if (!useIframe) {
           setWalletIframeConnected(false);
@@ -33,27 +32,32 @@ export function useWalletIframeLifecycle(args: {
         }
 
         await tatchi.initWalletIframe();
-        const client = tatchi.getWalletIframeClient?.();
-        if (!client) {
-          setWalletIframeConnected(false);
-          return;
-        }
         if (cancelled) return;
 
-        setWalletIframeConnected(client.isReady());
-        offReady = client.onReady?.(() => setWalletIframeConnected(true));
+        setWalletIframeConnected(tatchi.isWalletIframeReady());
+        offReady = tatchi.onWalletIframeReady(() => setWalletIframeConnected(true));
 
-        offLogin = client.onLoginStatusChanged?.(async (status: { isLoggedIn: boolean; nearAccountId: string | null }) => {
+        offLogin = tatchi.onWalletIframeLoginStatusChanged(async (status: { isLoggedIn: boolean; nearAccountId: string | null }) => {
           if (cancelled) return;
           if (status?.isLoggedIn && status?.nearAccountId) {
-            const { login: state } = await client.getLoginSession(status.nearAccountId);
-            tatchi.userPreferences.setCurrentUser(toAccountId(status.nearAccountId));
-            setLoginState(prev => ({
-              ...prev,
-              isLoggedIn: true,
-              nearAccountId: status.nearAccountId,
-              nearPublicKey: state.publicKey || null,
-            }));
+            const session = await tatchi.getLoginSession(status.nearAccountId);
+            const { login: state } = session;
+            if (isLoginSessionReadyForUi({ session, signerMode })) {
+              tatchi.preferences.setCurrentUser(toAccountId(status.nearAccountId));
+              setLoginState(prev => ({
+                ...prev,
+                isLoggedIn: true,
+                nearAccountId: status.nearAccountId,
+                nearPublicKey: state.publicKey || null,
+              }));
+            } else {
+              setLoginState(prev => ({
+                ...prev,
+                isLoggedIn: false,
+                nearAccountId: null,
+                nearPublicKey: null,
+              }));
+            }
           } else if (status && status.isLoggedIn === false) {
             setLoginState(prev => ({
               ...prev,
@@ -66,14 +70,15 @@ export function useWalletIframeLifecycle(args: {
 
         // Preferences changes (including current-user changes from wallet-host flows like device linking)
         // should update login state on the app origin as well.
-        offPrefs = client.onPreferencesChanged?.(async (payload) => {
+        offPrefs = tatchi.onWalletIframePreferencesChanged(async (payload) => {
           if (cancelled) return;
           const acct = payload?.nearAccountId;
           if (acct) {
             try {
-              const { login: state } = await client.getLoginSession(acct);
-              if (state?.isLoggedIn && state?.nearAccountId) {
-                tatchi.userPreferences.setCurrentUser(toAccountId(state.nearAccountId));
+              const session = await tatchi.getLoginSession(acct);
+              const { login: state } = session;
+              if (isLoginSessionReadyForUi({ session, signerMode }) && state?.nearAccountId) {
+                tatchi.preferences.setCurrentUser(toAccountId(state.nearAccountId));
                 setLoginState(prev => ({
                   ...prev,
                   isLoggedIn: true,
@@ -92,8 +97,9 @@ export function useWalletIframeLifecycle(args: {
           }));
         });
 
-        const { login: st } = await client.getLoginSession();
-        if (st?.isLoggedIn && st?.nearAccountId) {
+        const session = await tatchi.getLoginSession();
+        const { login: st } = session;
+        if (isLoginSessionReadyForUi({ session, signerMode })) {
           setLoginState(prev => ({
             ...prev,
             isLoggedIn: true,
@@ -102,7 +108,6 @@ export function useWalletIframeLifecycle(args: {
           }));
         }
 
-        walletIframeClientRef.current = client;
       } catch (err) {
         console.warn('[TatchiContextProvider] WalletIframe init failed:', err);
       }
@@ -113,7 +118,6 @@ export function useWalletIframeLifecycle(args: {
       offReady && offReady();
       offLogin && offLogin();
       offPrefs && offPrefs();
-      walletIframeClientRef.current = null;
     };
-  }, [setLoginState, setWalletIframeConnected, tatchi, walletIframeClientRef]);
+  }, [setLoginState, setWalletIframeConnected, tatchi]);
 }

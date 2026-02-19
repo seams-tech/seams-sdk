@@ -1,6 +1,6 @@
-import { toAccountId } from '../../../../types/accountIds';
+import { toAccountId } from '@/core/types/accountIds';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../types';
-import { bootstrapThresholdEcdsaLite } from '../../../threshold/workflows/bootstrapThresholdEcdsaLite';
+import { bootstrapThresholdEcdsaLite } from '@/core/signing/threshold/workflows/bootstrapThresholdEcdsaLite';
 import type {
   ActivateThresholdEcdsaSessionLiteDeps,
   ActivateThresholdEcdsaSessionLiteRequest,

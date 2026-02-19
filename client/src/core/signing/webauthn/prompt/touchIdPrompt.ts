@@ -1,4 +1,4 @@
-import { base64UrlDecode } from '../../../../../../shared/src/utils/encoders';
+import { base64UrlDecode } from '@shared/utils/encoders';
 import {
   serializeAuthenticationCredentialWithPRF,
   getPrfFirstSaltV1,
@@ -8,7 +8,7 @@ import type { WebAuthnAllowCredential } from '../credentials';
 import type {
   WebAuthnAuthenticationCredential,
   WebAuthnRegistrationCredential
-} from '../../../types/webauthn';
+} from '@/core/types/webauthn';
 import { executeWebAuthnWithParentFallbacksSafari } from '../fallbacks';
 // Local rpId policy helpers (moved back from WebAuthnFallbacks)
 function isRegistrableSuffix(host: string, cand: string): boolean {

@@ -1,5 +1,5 @@
 import type { ComponentStyles } from '../LitElementWithProps';
-import { DARK_THEME, LIGHT_THEME } from '../../../../../../base-styles';
+import { DARK_THEME, LIGHT_THEME } from '@/base-styles';
 
 export type TxTreeTheme = 'dark' | 'light';
 

@@ -11,7 +11,7 @@
  * - "simple.testnet"
  */
 
-import { validateNearAccountId } from '../../../../shared/src/utils/validation';
+import { validateNearAccountId } from '@shared/utils/validation';
 
 // Branded string type for compile-time type safety
 export type AccountId = string & { readonly __brand: 'AccountId' };

@@ -1,7 +1,7 @@
-import { errorMessage } from '../../../../../../../shared/src/utils/errors';
-import type { MultichainWorkerKind } from '../../../../runtimeAssetPaths/multichainWorkers';
-import { resolveMultichainWorkerUrl } from '../../../../runtimeAssetPaths/multichainWorkers';
-import { WorkerControlMessage } from '../../../../workers/workerControlMessages';
+import { errorMessage } from '@shared/utils/errors';
+import type { MultichainWorkerKind } from '@/core/runtimeAssetPaths/multichainWorkers';
+import { resolveMultichainWorkerUrl } from '@/core/runtimeAssetPaths/multichainWorkers';
+import { WorkerControlMessage } from '@/core/signing/runtime/workers/workerControlMessages';
 import type {
   MultichainOperationType,
   MultichainWorkerTransportContract,

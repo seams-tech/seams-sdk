@@ -1,8 +1,8 @@
-import type { ConfirmationConfig } from '../../../types/signer-worker';
+import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { SecureConfirmWorkerManagerContext } from '../';
 import type { SecureConfirmRequest } from './types';
 import { SecureConfirmationType } from './types';
-import { needsExplicitActivation } from '../../../../react/deviceDetection';
+import { needsExplicitActivation } from '@/react/deviceDetection';
 
 /**
  * determineConfirmationConfig

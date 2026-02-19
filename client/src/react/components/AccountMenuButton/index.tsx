@@ -16,8 +16,8 @@ import { QRCodeScanner } from '../QRCodeScanner';
 import { LinkedDevicesModal } from './LinkedDevicesModal';
 import './Web3AuthProfileButton.css';
 import { Theme, useTheme } from '../theme';
-import { AccountId, toAccountId } from '../../../core/types/accountIds';
-import type { SignerMode } from '../../../core/types/signer-worker';
+import { AccountId, toAccountId } from '@/core/types/accountIds';
+import type { SignerMode } from '@/core/types/signer-worker';
 
 function resolveDefaultPortalTarget(
   explicit: HTMLElement | ShadowRoot | null | undefined,
@@ -126,16 +126,16 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
     let cancelled = false;
 
     if (AccountId.validate(loggedInAccountId).valid) {
-      tatchi.userPreferences.setCurrentUser(toAccountId(loggedInAccountId));
+      tatchi.preferences.setCurrentUser(toAccountId(loggedInAccountId));
     }
     setCurrentConfirmConfig(tatchi.getConfirmationConfig());
     setCurrentSignerMode(tatchi.getSignerMode());
 
-    const unsubConfirmConfig = tatchi.userPreferences.onConfirmationConfigChange?.((cfg: any) => {
+    const unsubConfirmConfig = tatchi.preferences.onConfirmationConfigChange?.((cfg: any) => {
       if (cancelled) return;
       setCurrentConfirmConfig(cfg);
     });
-    const unsubSignerMode = tatchi.userPreferences.onSignerModeChange?.((mode) => {
+    const unsubSignerMode = tatchi.preferences.onSignerModeChange?.((mode) => {
       if (cancelled) return;
       setCurrentSignerMode(mode);
     });
@@ -207,7 +207,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       disabled: !loginState.isLoggedIn,
       onClick: async () => {
         try {
-          await tatchi.exportNearKeypairWithUI(nearAccountId!);
+          await tatchi.keys.exportNearKeypairWithUI(nearAccountId!);
         } catch (error: any) {
           console.error('Key export failed:', error);
           const msg = String(error?.message || 'Unknown error');

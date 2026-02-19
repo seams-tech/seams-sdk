@@ -26,7 +26,7 @@ import {
   LoginPhase,
   EmailRecoveryPhase,
   DelegateActionPhase,
-} from '../../../types/sdkSentEvents';
+} from '@/core/types/sdkSentEvents';
 
 // Phases that should temporarily SHOW the overlay (to capture activation)
 // Keep this list focused on actual WebAuthn/TouchID activation windows.
@@ -299,7 +299,7 @@ export const defaultPhaseHeuristics: PhaseHeuristics = (payload: ProgressPayload
     // Step 2: Check if this phase indicates we should hide the overlay (post-activation)
     if (HIDE_PHASES.has(phase)) return 'hide';
 
-    // Step 3: Handle legacy/custom completion markers
+    // Step 3: Handle custom completion markers
     const raw = phase.toLowerCase();
     if (raw === 'user-confirmation-complete') return 'hide';
 

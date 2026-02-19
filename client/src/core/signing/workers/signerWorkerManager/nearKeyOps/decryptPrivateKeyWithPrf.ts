@@ -1,14 +1,14 @@
 
-import { ClientAuthenticatorData } from '../../../../IndexedDBManager';
+import { ClientAuthenticatorData } from '@/core/IndexedDBManager';
 import {
   WorkerRequestType,
   isDecryptPrivateKeyWithPrfSuccess,
-} from '../../../../types/signer-worker';
-import { AccountId, toAccountId } from "../../../../types/accountIds";
+} from '@/core/types/signer-worker';
+import { AccountId, toAccountId } from "@/core/types/accountIds";
 
 import { SignerWorkerManagerContext } from '..';
-import { getLastLoggedInDeviceNumber } from '../getDeviceNumber';
-import { isObject } from '../../../../../../../shared/src/utils/validation';
+import { getLastLoggedInDeviceNumber } from '@/core/signing/webauthn/device/getDeviceNumber';
+import { isObject } from '@shared/utils/validation';
 import { withSessionId } from '../internal/session';
 
 export async function decryptPrivateKeyWithPrf({

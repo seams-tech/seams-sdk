@@ -33,7 +33,7 @@ export {
 export { TatchiPasskey } from '../core/TatchiPasskey';
 export { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../core/config/defaultConfigs';
 export type { TatchiConfigs, TatchiConfigsInput } from '../core/types/tatchi';
-export type { StoreUserDataInput } from '../core/IndexedDBManager/passkeyClientDB';
+export type { StoreUserDataInput } from '../core/IndexedDBManager/passkeyClientDB.types';
 
 // === RE-EXPORT ACTION TYPES ===
 // Value export for enum

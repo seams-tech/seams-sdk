@@ -44,7 +44,7 @@ test.describe('EmailRecoveryService.verifyEncryptedEmailAndRecover', () => {
           };
 
           return {
-            relayerAccountId: 'w3a-relayer.testnet',
+            relayerAccount: 'w3a-relayer.testnet',
             relayerPrivateKey: 'ed25519:dummy',
             networkId: 'testnet',
             emailDkimVerifierContract: 'email-dkim-verifier-v1.testnet',
@@ -118,7 +118,7 @@ test.describe('EmailRecoveryService.verifyEncryptedEmailAndRecover', () => {
           };
 
           return {
-            relayerAccountId: 'w3a-relayer.testnet',
+            relayerAccount: 'w3a-relayer.testnet',
             relayerPrivateKey: 'ed25519:dummy',
             networkId: 'testnet',
             emailDkimVerifierContract: 'email-dkim-verifier-v1.testnet',
@@ -241,7 +241,7 @@ test.describe('EmailRecoveryService.requestEmailRecovery', () => {
           };
 
           return {
-            relayerAccountId: 'w3a-relayer.testnet',
+            relayerAccount: 'w3a-relayer.testnet',
             relayerPrivateKey: 'ed25519:dummy',
             networkId: 'testnet',
             emailDkimVerifierContract: 'email-dkim-verifier-v1.testnet',

@@ -1,10 +1,9 @@
 import { MinimalNearClient } from '../../near/NearClient';
 import { TatchiPasskey } from '../../TatchiPasskey';
 import { __setWalletIframeHostMode } from '../host-mode';
-import { TatchiPasskeyIframe } from '../TatchiPasskeyIframe';
 import type { TatchiConfigsInput } from '../../types/tatchi';
 import type { PMSetConfigPayload } from '../shared/messages';
-import { isString } from '../../../../../shared/src/utils/validation';
+import { isString } from '@shared/utils/validation';
 import { setEmbeddedBase } from '../../runtimeAssetPaths';
 import { assertWalletHostConfigsNoNestedIframeWallet, sanitizeWalletHostConfigs } from './config-guards';
 import { createCspStylesheetManager, getDefaultCspNonce } from '../shared/csp-stylesheet';
@@ -99,12 +98,12 @@ function upsertLitThemeOverrideStyle(args: {
   const cssText = cssBlocks.join('\n\n').trim();
   if (!cssText) {
     getLitThemeOverrideStyleManager().deleteDynamicRule(W3A_LIT_THEME_OVERRIDE_RULE_ID);
-    // Cleanup legacy inline style node from older SDK versions, if present.
+    // Cleanup stale inline style node, if present.
     document.getElementById(W3A_LIT_THEME_OVERRIDE_STYLE_ID)?.remove();
     return;
   }
   getLitThemeOverrideStyleManager().setDynamicRule(W3A_LIT_THEME_OVERRIDE_RULE_ID, cssText);
-  // Cleanup legacy inline style node from older SDK versions, if present.
+  // Cleanup stale inline style node, if present.
   document.getElementById(W3A_LIT_THEME_OVERRIDE_STYLE_ID)?.remove();
 }
 
@@ -113,7 +112,7 @@ export interface HostContext {
   port: MessagePort | null;
   walletConfigs: TatchiConfigsInput | null;
   nearClient: MinimalNearClient | null;
-  tatchiPasskey: TatchiPasskey | TatchiPasskeyIframe | null;
+  tatchiPasskey: TatchiPasskey | null;
   prefsUnsubscribe?: (() => void) | null;
   onWindowMessage?: (e: MessageEvent) => void;
 }
@@ -130,7 +129,7 @@ export function createHostContext(): HostContext {
   };
 }
 
-export function ensurePasskeyManager(ctx: HostContext): TatchiPasskey | TatchiPasskeyIframe {
+export function ensurePasskeyManager(ctx: HostContext): TatchiPasskey {
   const { walletConfigs } = ctx;
   if (!walletConfigs || !walletConfigs.nearRpcUrl) {
     throw new Error('Wallet service not configured. Call PM_SET_CONFIG first.');
@@ -147,10 +146,7 @@ export function ensurePasskeyManager(ctx: HostContext): TatchiPasskey | TatchiPa
     __setWalletIframeHostMode(true);
     ctx.tatchiPasskey = new TatchiPasskey(cfg, ctx.nearClient);
     try {
-      const pmAny = ctx.tatchiPasskey as unknown as { warmCriticalResources?: () => Promise<void> };
-      if (pmAny?.warmCriticalResources) {
-        void pmAny.warmCriticalResources().catch(() => {});
-      }
+      void ctx.tatchiPasskey.initWalletIframe().catch(() => {});
     } catch {}
     updateThemeBridge(ctx);
   }
@@ -161,7 +157,7 @@ export function updateThemeBridge(ctx: HostContext): void {
   try {
     const pm = ctx.tatchiPasskey;
     if (!pm) return;
-    const theme = (pm as any)?.theme as string | undefined;
+    const theme = pm.theme;
     if (theme === 'light' || theme === 'dark') {
       document.documentElement.setAttribute('data-w3a-theme', theme);
     }

@@ -9,12 +9,8 @@
  */
 
 import type { NearClient } from './NearClient';
-import type { SignedTransaction } from './NearClient';
 import type { AccountId } from '../types/accountIds';
-import type {
-  WebAuthnRegistrationCredential,
-  WebAuthnAuthenticationCredential
-} from '../types/webauthn';
+import type { WebAuthnAuthenticationCredential } from '../types/webauthn';
 import type { PasskeyManagerContext } from '../TatchiPasskey';
 import type { ConfirmationConfig } from '../types/signer-worker';
 import type { FinalExecutionOutcome } from '@near-js/types';
@@ -22,8 +18,8 @@ import type { FinalExecutionOutcome } from '@near-js/types';
 import { TransactionContext } from '../types/rpc';
 import { DEFAULT_WAIT_STATUS } from '../types/rpc';
 import { redactCredentialExtensionOutputs } from '../signing/webauthn/credentials';
-import { errorMessage } from '../../../../shared/src/utils/errors';
-import { ensureEd25519Prefix } from '../../../../shared/src/utils/validation';
+import { errorMessage } from '@shared/utils/errors';
+import { ensureEd25519Prefix, isObject } from '@shared/utils/validation';
 import { ActionType } from '../types/actions';
 import {
   DeviceLinkingPhase,
@@ -226,30 +222,34 @@ export async function createWebAuthnLoginOptions(
       }),
     });
 
-    const data: any = await response.json().catch(() => ({}));
+    const dataJson: unknown = await response.json().catch(() => ({}));
+    const data: Record<string, unknown> = isObject(dataJson) ? dataJson : {};
     if (!response.ok) {
       return {
         success: false,
-        error: data?.message || `HTTP ${response.status}`,
+        error: typeof data.message === 'string' ? data.message : `HTTP ${response.status}`,
       };
     }
-    if (data?.ok !== true) {
-      return { success: false, error: data?.message || 'Failed to create login options' };
+    if (data.ok !== true) {
+      return {
+        success: false,
+        error: typeof data.message === 'string' ? data.message : 'Failed to create login options',
+      };
     }
 
     const expiresAtMs = (() => {
-      const n = typeof data?.expiresAtMs === 'number' ? data.expiresAtMs : Number(data?.expiresAtMs);
+      const n = typeof data.expiresAtMs === 'number' ? data.expiresAtMs : Number(data.expiresAtMs);
       return Number.isFinite(n) ? Math.floor(n) : undefined;
     })();
 
     return {
       success: true,
-      challengeId: typeof data?.challengeId === 'string' ? data.challengeId : undefined,
-      challengeB64u: typeof data?.challengeB64u === 'string' ? data.challengeB64u : undefined,
+      challengeId: typeof data.challengeId === 'string' ? data.challengeId : undefined,
+      challengeB64u: typeof data.challengeB64u === 'string' ? data.challengeB64u : undefined,
       expiresAtMs,
     };
-  } catch (error: any) {
-    return { success: false, error: error?.message || 'Failed to create login options' };
+  } catch (error: unknown) {
+    return { success: false, error: errorMessage(error) || 'Failed to create login options' };
   }
 }
 
@@ -293,16 +293,28 @@ export async function verifyWebAuthnLogin(
       }),
     });
 
-    const data: any = await response.json().catch(() => ({}));
+    const dataJson: unknown = await response.json().catch(() => ({}));
+    const data: Record<string, unknown> = isObject(dataJson) ? dataJson : {};
     if (!response.ok) {
-      return { success: false, error: data?.message || `HTTP ${response.status}` };
+      return {
+        success: false,
+        error: typeof data.message === 'string' ? data.message : `HTTP ${response.status}`,
+      };
     }
-    if (data?.ok !== true || data?.verified !== true) {
-      return { success: false, verified: false, error: data?.message || 'Authentication verification failed' };
+    if (data.ok !== true || data.verified !== true) {
+      return {
+        success: false,
+        verified: false,
+        error: typeof data.message === 'string' ? data.message : 'Authentication verification failed',
+      };
     }
-    return { success: true, verified: true, jwt: data?.jwt };
-  } catch (error: any) {
-    return { success: false, error: error?.message || 'Failed to verify login' };
+    return {
+      success: true,
+      verified: true,
+      jwt: typeof data.jwt === 'string' ? data.jwt : undefined,
+    };
+  } catch (error: unknown) {
+    return { success: false, error: errorMessage(error) || 'Failed to verify login' };
   }
 }
 
@@ -377,8 +389,8 @@ export async function thresholdEd25519Keygen(
       code: json?.code,
       message: json?.message,
     };
-  } catch (error: any) {
-    return { ok: false, error: error?.message || 'Failed to keygen threshold-ed25519' };
+  } catch (error: unknown) {
+    return { ok: false, error: errorMessage(error) || 'Failed to keygen threshold-ed25519' };
   }
 }
 
@@ -421,8 +433,8 @@ export async function thresholdEcdsaKeygen(
     if (!clientVerifyingShareB64u) throw new Error('Missing clientVerifyingShareB64u');
 
     const sessionId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-      ? `legacy-keygen-${crypto.randomUUID()}`
-      : `legacy-keygen-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      ? `threshold-keygen-${crypto.randomUUID()}`
+      : `threshold-keygen-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
     const bootstrap = await thresholdEcdsaBootstrap(relayServerUrl, {
       userId,
@@ -464,8 +476,8 @@ export async function thresholdEcdsaKeygen(
       code: bootstrap.code,
       message: bootstrap.message,
     };
-  } catch (error: any) {
-    return { ok: false, error: error?.message || 'Failed to keygen threshold-ecdsa' };
+  } catch (error: unknown) {
+    return { ok: false, error: errorMessage(error) || 'Failed to keygen threshold-ecdsa' };
   }
 }
 
@@ -574,8 +586,8 @@ export async function thresholdEcdsaBootstrap(
       code: json?.code,
       message: json?.message,
     };
-  } catch (error: any) {
-    return { ok: false, error: error?.message || 'Failed to bootstrap threshold-ecdsa session' };
+  } catch (error: unknown) {
+    return { ok: false, error: errorMessage(error) || 'Failed to bootstrap threshold-ecdsa session' };
   }
 }
 
@@ -657,7 +669,13 @@ export async function getEmailRecoveryAttempt(
   accountId: string,
   requestId: string
 ): Promise<RecoveryAttempt | null> {
-  const raw = await nearClient.view<{ request_id: string }, Omit<RecoveryAttempt, 'status'> & { status: any } | null>({
+  const raw = await nearClient.view<
+    { request_id: string },
+    (Omit<RecoveryAttempt, 'status' | 'from_address_hash'> & {
+      status: unknown;
+      from_address_hash?: unknown;
+    }) | null
+  >({
     account: accountId,
     method: 'get_recovery_attempt',
     args: { request_id: requestId },
@@ -667,6 +685,7 @@ export async function getEmailRecoveryAttempt(
 
   // Normalization logic for status (string or object enum)
   const statusRaw = raw.status;
+  const fromAddressHashRaw = raw.from_address_hash;
   const status = (() => {
     if (typeof statusRaw === 'string') return statusRaw.trim();
     if (statusRaw && typeof statusRaw === 'object') {
@@ -678,9 +697,16 @@ export async function getEmailRecoveryAttempt(
     return '';
   })();
 
+  const from_address_hash = (() => {
+    const normalized = normalizeByteArray(fromAddressHashRaw);
+    if (normalized !== undefined) return normalized;
+    if (fromAddressHashRaw == null) return fromAddressHashRaw;
+    return undefined;
+  })();
+
   return {
     ...raw,
-    from_address_hash: normalizeByteArray((raw as any).from_address_hash) ?? (raw as any).from_address_hash,
+    from_address_hash,
     status: status as RecoveryAttemptStatus,
   };
 }
@@ -743,10 +769,7 @@ export async function executeDeviceLinkingContractCalls({
       },
     ],
     onEvent: (progress) => {
-      // Bridge all action progress events to the parent so the wallet iframe overlay
-      // can expand during user confirmation in wallet-iframe mode.
-      try { onEvent?.(progress as any); } catch { }
-      // Keep existing mapping for device linking semantics; surface signing as a loading state
+      // Keep device-linking progress semantic and surface signing as a loading state.
       if (progress.phase == ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE) {
         onEvent?.({
           step: 3,
@@ -771,8 +794,8 @@ export async function executeDeviceLinkingContractCalls({
       signedTransactions[0].signedTransaction,
       DEFAULT_WAIT_STATUS.linkDeviceAddKey
     );
-  } catch (txError: any) {
-    throw new Error(`Transaction broadcasting failed: ${txError.message}`);
+  } catch (txError: unknown) {
+    throw new Error(`Transaction broadcasting failed: ${errorMessage(txError)}`);
   }
 
   onEvent?.({

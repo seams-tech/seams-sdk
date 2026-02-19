@@ -1,4 +1,4 @@
-import { type ThresholdEd25519ParticipantV1 } from '../../../../shared/src/threshold/participants';
+import { type ThresholdEd25519ParticipantV1 } from '@shared/threshold/participants';
 
 export type ClientShareDerivation = 'prf_first_v1';
 

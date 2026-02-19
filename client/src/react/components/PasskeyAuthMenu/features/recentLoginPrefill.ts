@@ -1,5 +1,5 @@
 import type { TatchiPasskey } from '@/core/TatchiPasskey';
-import { awaitWalletIframeReady } from '../../../utils/walletIframe';
+import { awaitWalletIframeReady } from '@/react/utils/walletIframe';
 
 export interface RecentLoginPrefillResult {
   username: string;

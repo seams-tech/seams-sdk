@@ -1,16 +1,16 @@
 
-import type { AuthenticatorOptions } from '../../../../types/authenticatorOptions';
+import type { AuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import {
   WorkerRequestType,
   isDeriveNearKeypairAndEncryptSuccess,
-} from '../../../../types/signer-worker';
-import { AccountId, toAccountId } from "../../../../types/accountIds";
-import { getLastLoggedInDeviceNumber } from '../getDeviceNumber';
+} from '@/core/types/signer-worker';
+import { AccountId, toAccountId } from "@/core/types/accountIds";
+import { getLastLoggedInDeviceNumber } from '@/core/signing/webauthn/device/getDeviceNumber';
 import { SignerWorkerManagerContext } from '..';
-import type { WebAuthnRegistrationCredential } from '../../../../types/webauthn';
-import { toEnumUserVerificationPolicy } from '../../../../types/authenticatorOptions';
+import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
+import { toEnumUserVerificationPolicy } from '@/core/types/authenticatorOptions';
 import { withSessionId } from '../internal/session';
-import { base64UrlEncode } from '../../../../../../../shared/src/utils/encoders';
+import { base64UrlEncode } from '@shared/utils/encoders';
 
 /**
  * Derive NEAR keypair and encrypt it from a serialized WebAuthn registration credential

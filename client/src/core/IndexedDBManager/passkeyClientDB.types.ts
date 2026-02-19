@@ -184,7 +184,6 @@ export interface ChainAccountRecord {
   isPrimary?: boolean;
   createdAt: number;
   updatedAt: number;
-  legacyNearAccountId?: AccountId;
   factory?: string;
   entryPoint?: string;
   salt?: string;
@@ -238,7 +237,6 @@ export type UpsertChainAccountInput = {
   accountAddress: AccountAddress;
   accountModel: AccountModel;
   isPrimary?: boolean;
-  legacyNearAccountId?: AccountId;
   factory?: string | null;
   entryPoint?: string | null;
   salt?: string | null;

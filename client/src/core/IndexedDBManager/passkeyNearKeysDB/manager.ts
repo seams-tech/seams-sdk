@@ -1,5 +1,5 @@
 import { openDB, type IDBPDatabase } from 'idb';
-import { toTrimmedString } from '../../../../../shared/src/utils/validation';
+import { toTrimmedString } from '@shared/utils/validation';
 import type {
   ClientShareDerivation,
   LocalNearSkV3Material,

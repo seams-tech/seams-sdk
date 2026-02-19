@@ -5,8 +5,8 @@ import { W3A_DRAWER_ID } from '../../tags';
 import TxConfirmContentElement from './tx-confirm-content';
 import PadlockIconElement from '../common/PadlockIcon';
 import { ensureExternalStyles } from '../css/css-loader';
-import { WalletIframeDomEvents } from '../../../../../WalletIframe/events';
-import type { TransactionInputWasm, SecureConfirmSecurityContext } from '../../../../../types';
+import { WalletIframeDomEvents } from '@/core/WalletIframe/events';
+import type { TransactionInputWasm, SecureConfirmSecurityContext } from '@/core/types';
 import type { ThemeName } from '../../confirm-ui-types';
 import type { ConfirmUIElement } from '../../confirm-ui-types';
 

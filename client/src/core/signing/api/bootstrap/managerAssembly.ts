@@ -1,8 +1,8 @@
-import { IndexedDBManager } from '../../../IndexedDBManager';
-import type { NearClient } from '../../../near/NearClient';
-import { NonceManager } from '../../../near/nonceManager';
-import NonceManagerInstance from '../../../near/nonceManager';
-import type { ThemeName, ThemeTokenOverridesInput, TatchiConfigs } from '../../../types/tatchi';
+import { IndexedDBManager } from '@/core/IndexedDBManager';
+import type { NearClient } from '@/core/near/NearClient';
+import { NonceManager } from '@/core/near/nonceManager';
+import NonceManagerInstance from '@/core/near/nonceManager';
+import type { ThemeName, ThemeTokenOverridesInput, TatchiConfigs } from '@/core/types/tatchi';
 import { SecureConfirmWorkerManager } from '../../secureConfirm';
 import { TouchIdPrompt } from '../../webauthn/prompt/touchIdPrompt';
 import { SignerWorkerManager } from '../../workers/signerWorkerManager';

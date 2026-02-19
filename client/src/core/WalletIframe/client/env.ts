@@ -1,4 +1,4 @@
-import { isString } from '../../../../../shared/src/utils/validation';
+import { isString } from '@shared/utils/validation';
 
 type PublicEnv = Record<string, string | undefined>;
 

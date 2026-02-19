@@ -1,36 +1,54 @@
-import { IndexedDBManager } from '../../../IndexedDBManager';
-import type { NearClient } from '../../../near/NearClient';
-import type { NonceManager } from '../../../near/nonceManager';
-import type { AccountId } from '../../../types/accountIds';
-import type { ThemeName, TatchiConfigs } from '../../../types/tatchi';
+import { IndexedDBManager } from '@/core/IndexedDBManager';
+import type { UnifiedIndexedDBManager } from '@/core/IndexedDBManager';
+import type { NearClient } from '@/core/near/NearClient';
+import type { NonceManager } from '@/core/near/nonceManager';
+import type { AccountId } from '@/core/types/accountIds';
+import type { ConfirmationConfig } from '@/core/types/signer-worker';
+import type { SigningSessionStatus, ThemeName, TatchiConfigs } from '@/core/types/tatchi';
 import type { SecureConfirmWorkerManager } from '../../secureConfirm';
+import type { TempoSigningRequest } from '../../chainAdaptors/tempo/types';
+import type { TempoSignedResult } from '../../chainAdaptors/tempo/tempoAdapter';
+import type { ThresholdEcdsaSecp256k1KeyRef } from '../../orchestration/types';
 import type { TouchIdPrompt } from '../../webauthn/prompt/touchIdPrompt';
 import type { SignerWorkerManager } from '../../workers/signerWorkerManager';
-import type { FacadeConvenienceDeps } from '../facade/facadeConvenience';
-import { createFacadeConvenienceDeps } from '../facade/facadeDependencyFactory';
-import type { IndexedDbFacadeDeps } from '../indexedDbFacade';
-import type { NearKeyDerivationDeps } from '../nearKeyDerivation';
-import type { NearSigningApiDeps } from '../nearSigning';
-import type { PrivateKeyExportRecoveryDeps } from '../privateKeyExportRecovery';
-import type { RegistrationAccountLifecycleDeps } from '../registrationAccountLifecycle';
-import type { RegistrationSessionDeps } from '../registrationSession';
-import type { SignerWorkerBridgeDeps } from '../signerWorkerBridge';
+import type { NearKeyDerivationDeps } from '../recovery/nearKeyDerivation';
+import type { NearSigningApiDeps } from '../signing/nearSigning';
+import type { PrivateKeyExportRecoveryDeps } from '../recovery/privateKeyExportRecovery';
+import type { RegistrationAccountLifecycleDeps } from '../registration/registrationAccountLifecycle';
+import type { RegistrationSessionDeps } from '../registration/registrationSession';
+import type { SignerWorkerBridgeDeps } from '../signing/signerWorkerBridge';
 import {
   generateSessionId as generateSessionIdValue,
   getOrCreateActiveSigningSessionId as getOrCreateActiveSigningSessionIdValue,
   getWarmSigningSessionStatus as getWarmSigningSessionStatusValue,
   resolveSigningSessionPolicy as resolveSigningSessionPolicyValue,
   type SigningSessionStateDeps,
-} from '../signingSessionState';
-import type { TempoSigningDeps } from '../tempoSigning';
-import type { ThresholdEd25519LifecycleDeps } from '../thresholdEd25519Lifecycle';
-import type { ThresholdSessionActivationDeps } from '../thresholdSessionActivation';
+} from '../signing/signingSessionState';
+import type { TempoSigningDeps } from '../signing/tempoSigning';
+import type { ThresholdEd25519LifecycleDeps } from '../thresholdLifecycle/thresholdEd25519Lifecycle';
+import type { ThresholdSessionActivationDeps } from '../thresholdLifecycle/thresholdSessionActivation';
 import {
   prewarmSignerWorkers as prewarmSignerWorkersValue,
   warmCriticalResources as warmCriticalResourcesValue,
   type WorkerResourceWarmupDeps,
 } from './workerResourceWarmup';
 import type { UserPreferencesManager } from '../userPreferences';
+
+export type OrchestrationSignTempoInput = {
+  nearAccountId: string;
+  request: TempoSigningRequest;
+  confirmationConfigOverride?: Partial<ConfirmationConfig>;
+  thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
+};
+
+export type ManagerConvenienceDeps = {
+  signTempo: (args: OrchestrationSignTempoInput) => Promise<TempoSignedResult>;
+  prewarmSignerWorkers: () => void;
+  warmCriticalResources: (nearAccountId?: string) => Promise<void>;
+  getWarmSigningSessionStatus: (
+    nearAccountId: AccountId | string,
+  ) => Promise<SigningSessionStatus | null>;
+};
 
 export type CreateOrchestrationDependencyBundleArgs = {
   tatchiPasskeyConfigs: TatchiConfigs;
@@ -43,7 +61,7 @@ export type CreateOrchestrationDependencyBundleArgs = {
   activeSigningSessionIds: Map<string, string>;
   getWorkerBaseOrigin: () => string;
   getTheme: () => ThemeName;
-  signTempo: FacadeConvenienceDeps['signTempo'];
+  signTempo: ManagerConvenienceDeps['signTempo'];
   signTransactionsWithActions: ThresholdEd25519LifecycleDeps['signTransactionsWithActions'];
   signNearWithIntent: NearSigningApiDeps['signNearWithIntent'];
   deriveNearKeypairFromCredentialViaWorker:
@@ -55,6 +73,7 @@ export type CreateOrchestrationDependencyBundleArgs = {
 };
 
 export type OrchestrationDependencyBundle = {
+  indexedDB: UnifiedIndexedDBManager;
   thresholdEd25519LifecycleDeps: ThresholdEd25519LifecycleDeps;
   nearSigningDeps: NearSigningApiDeps;
   tempoSigningDeps: TempoSigningDeps;
@@ -62,12 +81,11 @@ export type OrchestrationDependencyBundle = {
   nearKeyDerivationDeps: NearKeyDerivationDeps;
   registrationAccountLifecycleDeps: RegistrationAccountLifecycleDeps;
   registrationSessionDeps: RegistrationSessionDeps;
-  indexedDbFacadeDeps: IndexedDbFacadeDeps;
   signingSessionStateDeps: SigningSessionStateDeps;
   thresholdSessionActivationDeps: ThresholdSessionActivationDeps;
   signerWorkerBridgeDeps: SignerWorkerBridgeDeps;
   getWorkerResourceWarmupDeps: () => WorkerResourceWarmupDeps;
-  getFacadeConvenienceDeps: () => FacadeConvenienceDeps;
+  getManagerConvenienceDeps: () => ManagerConvenienceDeps;
 };
 
 export function createOrchestrationDependencyBundle(
@@ -102,6 +120,7 @@ export function createOrchestrationDependencyBundle(
   });
 
   return {
+    indexedDB: IndexedDBManager,
     thresholdEd25519LifecycleDeps: {
       indexedDB: IndexedDBManager,
       touchIdPrompt: args.touchIdPrompt,
@@ -149,9 +168,6 @@ export function createOrchestrationDependencyBundle(
       secureConfirmWorkerManager: args.secureConfirmWorkerManager,
       touchIdPrompt: args.touchIdPrompt,
     },
-    indexedDbFacadeDeps: {
-      indexedDB: IndexedDBManager,
-    },
     signingSessionStateDeps: signingSessionStateDeps,
     thresholdSessionActivationDeps: {
       indexedDB: IndexedDBManager,
@@ -168,15 +184,14 @@ export function createOrchestrationDependencyBundle(
       signingKeyOps: args.signerWorkerManager.nearKeyOps,
     },
     getWorkerResourceWarmupDeps: getWorkerResourceWarmupDeps,
-    getFacadeConvenienceDeps: (): FacadeConvenienceDeps =>
-      createFacadeConvenienceDeps({
-        signTempo: args.signTempo,
-        prewarmSignerWorkers: () =>
-          prewarmSignerWorkersValue(getWorkerResourceWarmupDeps()),
-        warmCriticalResources: (nearAccountId?: string) =>
-          warmCriticalResourcesValue(getWorkerResourceWarmupDeps(), nearAccountId),
-        getWarmSigningSessionStatus: (nearAccountId: AccountId | string) =>
-          getWarmSigningSessionStatusValue(signingSessionStateDeps, nearAccountId),
-      }),
+    getManagerConvenienceDeps: (): ManagerConvenienceDeps => ({
+      signTempo: args.signTempo,
+      prewarmSignerWorkers: () =>
+        prewarmSignerWorkersValue(getWorkerResourceWarmupDeps()),
+      warmCriticalResources: (nearAccountId?: string) =>
+        warmCriticalResourcesValue(getWorkerResourceWarmupDeps(), nearAccountId),
+      getWarmSigningSessionStatus: (nearAccountId: AccountId | string) =>
+        getWarmSigningSessionStatusValue(signingSessionStateDeps, nearAccountId),
+    }),
   };
 }

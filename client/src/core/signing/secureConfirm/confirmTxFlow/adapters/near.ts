@@ -1,7 +1,7 @@
 import type { SecureConfirmWorkerManagerContext } from '../../';
-import { TransactionContext } from '../../../../types';
+import { TransactionContext } from '@/core/types';
 import type { BlockReference, AccessKeyView } from '@near-js/types';
-import { errorMessage } from '../../../../../../../shared/src/utils/errors';
+import { errorMessage } from '@shared/utils/errors';
 
 export async function fetchNearContext(
   ctx: SecureConfirmWorkerManagerContext,

@@ -1,13 +1,13 @@
-import type { AccountId } from '../../../../types/accountIds';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../../orchestration/types';
-import type { WorkerOperationContext } from '../../../workers/operations/executeSignerWorkerOperation';
+import type { AccountId } from '@/core/types/accountIds';
+import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signing/orchestration/types';
+import type { WorkerOperationContext } from '@/core/signing/workers/operations/executeSignerWorkerOperation';
 import type {
   ThresholdIndexedDbPort,
   ThresholdPrfFirstCachePort,
   ThresholdWebAuthnPromptPort,
-} from '../../../threshold/webauthn';
-import type { keygenThresholdEcdsaLite } from '../../../threshold/workflows/keygenThresholdEcdsaLite';
-import type { connectThresholdEcdsaSessionLite } from '../../../threshold/workflows/connectThresholdEcdsaSessionLite';
+} from '@/core/signing/threshold/webauthn';
+import type { keygenThresholdEcdsaLite } from '@/core/signing/threshold/workflows/keygenThresholdEcdsaLite';
+import type { connectThresholdEcdsaSessionLite } from '@/core/signing/threshold/workflows/connectThresholdEcdsaSessionLite';
 
 export type ThresholdEcdsaActivationChain = 'evm' | 'tempo';
 

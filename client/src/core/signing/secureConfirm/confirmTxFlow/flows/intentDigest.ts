@@ -1,13 +1,13 @@
 import type { SecureConfirmWorkerManagerContext } from '../../';
-import type { ConfirmationConfig } from '../../../../types/signer-worker';
-import { ActionPhase } from '../../../../types/sdkSentEvents';
+import type { ConfirmationConfig } from '@/core/types/signer-worker';
+import { ActionPhase } from '@/core/types/sdkSentEvents';
 import {
   SecureConfirmationType,
   TransactionSummary,
   type IntentDigestSecureConfirmRequest,
   type SigningAuthMode,
 } from '../types';
-import type { SecureConfirmSecurityContext } from '../../../../types';
+import type { SecureConfirmSecurityContext } from '@/core/types';
 import {
   getNearAccountId,
   getIntentDigest,
@@ -15,11 +15,11 @@ import {
   ERROR_MESSAGES,
   sendConfirmProgress,
 } from './index';
-import { toError } from '../../../../../../../shared/src/utils/errors';
+import { toError } from '@shared/utils/errors';
 import { createConfirmSession } from '../adapters/session';
 import { createConfirmTxFlowAdapters } from '../adapters/createAdapters';
-import type { ThemeName } from '../../../../types/tatchi';
-import { collectAuthenticationCredentialForChallengeB64u } from '../../../webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
+import type { ThemeName } from '@/core/types/tatchi';
+import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signing/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
 
 function getSigningAuthMode(request: IntentDigestSecureConfirmRequest): SigningAuthMode {
   return request.payload.signingAuthMode ?? 'webauthn';

@@ -1,19 +1,19 @@
-import type { ConfirmationConfig } from '../../../../types/signer-worker';
+import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type {
   SecureConfirmWorkerManager,
   SecureConfirmWorkerManagerContext,
-} from '../../../secureConfirm';
-import type { KeyRef, SignRequest, SigningEngine } from '../../../orchestration/types';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../../orchestration/types';
-import { base64UrlEncode } from '../../../../../../../shared/src/utils/base64';
+} from '@/core/signing/secureConfirm';
+import type { KeyRef, SignRequest, SigningEngine } from '@/core/signing/orchestration/types';
+import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signing/orchestration/types';
+import { base64UrlEncode } from '@shared/utils/base64';
 import { bytesToHex } from '../../evm/bytes';
-import type { WorkerOperationContext } from '../../../workers/operations/executeSignerWorkerOperation';
+import type { WorkerOperationContext } from '@/core/signing/workers/operations/executeSignerWorkerOperation';
 import { TempoAdapter, type TempoSignedResult } from '../tempoAdapter';
 import type { TempoSigningRequest } from '../types';
-import { resolveWebAuthnP256KeyRefForNearAccount } from '../../../orchestration/walletOrigin/webauthnKeyRef';
-import { executeSigningIntent } from '../../../orchestration/executeSigningIntent';
-import type { SigningAuthMode } from '../../../secureConfirm/confirmTxFlow/types';
-import { normalizeAuthenticationCredential } from '../../../webauthn/credentials/helpers';
+import { resolveWebAuthnP256KeyRefForNearAccount } from '@/core/signing/orchestration/walletOrigin/webauthnKeyRef';
+import { executeSigningIntent } from '@/core/signing/orchestration/executeSigningIntent';
+import type { SigningAuthMode } from '@/core/signing/secureConfirm/confirmTxFlow/types';
+import { normalizeAuthenticationCredential } from '@/core/signing/webauthn/credentials/helpers';
 
 function makeRequestId(prefix: string): string {
   const c = globalThis.crypto;

@@ -3,10 +3,8 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react';
-import type { WalletIframeRouter } from '@/core/WalletIframe/client/router';
 import { useNearClient } from '../hooks/useNearClient';
 import { useAccountInput } from '../hooks/useAccountInput';
 import { useEagerPrewarm } from './useEagerPrewarm';
@@ -39,22 +37,16 @@ export const TatchiContextProvider: React.FC<TatchiContextProviderProps> = ({
   const nearClient = useNearClient();
   const tatchi = useMemo(() => getOrCreateTatchiManager(config, nearClient), [config, nearClient]);
 
-  const walletIframeClientRef = useRef<WalletIframeRouter | null>(null);
-
   useEagerPrewarm(tatchi, eager);
 
   useWalletIframeLifecycle({
     tatchi,
-    walletIframeClientRef,
     setWalletIframeConnected,
     setLoginState,
   });
 
   const hasExplicitAccountDomainOverride = Boolean(
-    (typeof (config as any)?.relayerAccount === 'string' && String((config as any).relayerAccount).trim())
-    || (typeof (config as any)?.relayerAccountId === 'string' && String((config as any).relayerAccountId).trim())
-    || (typeof (config as any)?.relayer?.accountId === 'string' && String((config as any).relayer?.accountId).trim())
-    || (typeof (config as any)?.relayer?.relayerAccountId === 'string' && String((config as any).relayer?.relayerAccountId).trim())
+    (typeof config?.relayerAccount === 'string' && String(config.relayerAccount).trim())
   );
 
   const accountInputHook = useAccountInput({
@@ -102,7 +94,6 @@ export const TatchiContextProvider: React.FC<TatchiContextProviderProps> = ({
   const refreshLoginState = useLoginStateRefresher({
     tatchi,
     walletIframeConnected,
-    walletIframeClientRef,
     setLoginState,
   });
 

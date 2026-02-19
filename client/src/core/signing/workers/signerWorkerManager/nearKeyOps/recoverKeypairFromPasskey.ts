@@ -1,11 +1,11 @@
 import {
   WorkerRequestType,  // from wasm worker
   isRecoverKeypairFromPasskeySuccess,
-} from '../../../../types/signer-worker';
-import type { WebAuthnAuthenticationCredential } from '../../../../types/webauthn';
+} from '@/core/types/signer-worker';
+import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import { SignerWorkerManagerContext } from '..';
 import { withSessionId } from '../internal/session';
-import { base64UrlEncode } from '../../../../../../../shared/src/utils/encoders';
+import { base64UrlEncode } from '@shared/utils/encoders';
 
 /**
  * Recover keypair from authentication credential for account recovery

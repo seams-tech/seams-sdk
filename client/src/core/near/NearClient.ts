@@ -20,11 +20,11 @@ import type {
   RpcQueryRequest,
   FinalityReference,
 } from "@near-js/types";
-import { base64Encode, base64Decode } from "../../../../shared/src/utils/base64";
-import { errorMessage } from "../../../../shared/src/utils/errors";
+import { base64Encode, base64Decode } from "@shared/utils/base64";
+import { errorMessage } from "@shared/utils/errors";
 import { NearRpcError } from "./NearRpcError";
 import { DEFAULT_WAIT_STATUS, RpcResponse } from "../types/rpc";
-import { isFunction } from '../../../../shared/src/utils/validation';
+import { isFunction } from '@shared/utils/validation';
 import {
   WasmTransaction,
   WasmSignature,
@@ -442,7 +442,7 @@ export class MinimalNearClient implements NearClient {
     );
   }
 
-  // legacy helpers removed in favor of NearRpcError
+  // RPC error helpers are centralized in NearRpcError.
 
   async callFunction<A, T>(
     contractId: string,

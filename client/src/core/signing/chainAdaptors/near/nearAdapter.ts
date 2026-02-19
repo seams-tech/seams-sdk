@@ -2,8 +2,8 @@ import {
   toActionArgsWasm,
   validateActionArgsWasm,
   type TransactionInputWasm,
-} from '../../../types/actions';
-import type { TransactionPayload } from '../../../types/signer-worker';
+} from '@/core/types/actions';
+import type { TransactionPayload } from '@/core/types/signer-worker';
 import type { ChainAdapter, SigningIntent } from '../../orchestration/types';
 import type { signDelegateAction } from './delegateFlow';
 import type { signNep413Message } from './nep413Flow';

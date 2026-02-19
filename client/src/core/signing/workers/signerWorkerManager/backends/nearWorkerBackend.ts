@@ -1,6 +1,6 @@
-import { SIGNER_WORKER_MANAGER_CONFIG } from '../../../../../config';
-import { resolveWorkerUrl } from '../../../../runtimeAssetPaths';
-import { WorkerControlMessage } from '../../../../workers/workerControlMessages';
+import { SIGNER_WORKER_MANAGER_CONFIG } from '@/config';
+import { resolveWorkerUrl } from '@/core/runtimeAssetPaths';
+import { WorkerControlMessage } from '@/core/signing/runtime/workers/workerControlMessages';
 import {
   type WorkerResponseForRequest,
   isWorkerError,
@@ -8,10 +8,10 @@ import {
   isWorkerSuccess,
   type WorkerErrorResponse,
   type WorkerProgressResponse,
-} from '../../../../types/signer-worker';
+} from '@/core/types/signer-worker';
 import { withSessionId } from '../internal/session';
-import { isObject } from '../../../../../../../shared/src/utils/validation';
-import { toError } from '../../../../../../../shared/src/utils/errors';
+import { isObject } from '@shared/utils/validation';
+import { toError } from '@shared/utils/errors';
 import type {
   NearSignerWorkerTransportContract,
   NearWorkerOperationRequest,

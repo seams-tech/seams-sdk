@@ -1,6 +1,6 @@
-import type { UnifiedIndexedDBManager } from '../../../IndexedDBManager';
-import { toAccountId } from '../../../types/accountIds';
-import { base64UrlDecode } from '../../../../../../shared/src/utils/base64';
+import type { UnifiedIndexedDBManager } from '@/core/IndexedDBManager';
+import { toAccountId } from '@/core/types/accountIds';
+import { base64UrlDecode } from '@shared/utils/base64';
 import type { KeyRef } from '../types';
 import { coseP256PublicKeyToXY } from '../../webauthn/cose/coseP256';
 

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { TatchiPasskey } from '@/core/TatchiPasskey';
+import type { RecoveryCapability } from '@/core/TatchiPasskey/capabilities';
 import {
   LoginPhase,
   LoginStatus,
@@ -34,7 +35,7 @@ export function useTatchiWithSdkFlow(args: {
     */
     type LoginAndCreateSessionFn = TatchiPasskey['loginAndCreateSession'];
     type RegisterPasskeyFn = TatchiPasskey['registerPasskey'];
-    type SyncAccountFn = TatchiPasskey['syncAccount'];
+    type SyncAccountFn = RecoveryCapability['syncAccount'];
     type SetThemeFn = TatchiPasskey['setTheme'];
 
     const loginAndCreateSessionWithSdkFlow: LoginAndCreateSessionFn = async (
@@ -104,7 +105,7 @@ export function useTatchiWithSdkFlow(args: {
           if (event.phase === SyncAccountPhase.STEP_5_SYNC_ACCOUNT_COMPLETE && event.status === SyncAccountStatus.SUCCESS) {
             endSdkFlow('sync', seq, 'success');
           } else if (event.phase === SyncAccountPhase.ERROR || event.status === SyncAccountStatus.ERROR) {
-            const error = 'error' in event ? (event as any).error : event.message;
+            const error = 'error' in event ? event.error : event.message;
             endSdkFlow('sync', seq, 'error', error || event.message);
           }
           (args?.options as SyncAccountHooksOptions | undefined)?.onEvent?.(event);
@@ -116,7 +117,7 @@ export function useTatchiWithSdkFlow(args: {
         },
       };
 
-      return await tatchi.syncAccount({
+      return await tatchi.recovery.syncAccount({
         ...(args?.accountId ? { accountId: args.accountId } : {}),
         options: wrappedOptions,
       });
@@ -139,8 +140,27 @@ export function useTatchiWithSdkFlow(args: {
           return registerPasskeyWithSdkFlow;
         }
 
-        if (prop === 'syncAccount') {
-          return syncAccountWithSdkFlow;
+        if (prop === 'recovery') {
+          const recovery = Reflect.get(target as object, prop, receiver) as RecoveryCapability;
+          return {
+            getRecoveryEmails: (...args: Parameters<RecoveryCapability['getRecoveryEmails']>) =>
+              recovery.getRecoveryEmails(...args),
+            setRecoveryEmails: (...args: Parameters<RecoveryCapability['setRecoveryEmails']>) =>
+              recovery.setRecoveryEmails(...args),
+            syncAccount: syncAccountWithSdkFlow,
+            startEmailRecovery: (...args: Parameters<RecoveryCapability['startEmailRecovery']>) =>
+              recovery.startEmailRecovery(...args),
+            finalizeEmailRecovery: (...args: Parameters<RecoveryCapability['finalizeEmailRecovery']>) =>
+              recovery.finalizeEmailRecovery(...args),
+            cancelEmailRecovery: (...args: Parameters<RecoveryCapability['cancelEmailRecovery']>) =>
+              recovery.cancelEmailRecovery(...args),
+            startDevice2LinkingFlow: (...args: Parameters<RecoveryCapability['startDevice2LinkingFlow']>) =>
+              recovery.startDevice2LinkingFlow(...args),
+            stopDevice2LinkingFlow: (...args: Parameters<RecoveryCapability['stopDevice2LinkingFlow']>) =>
+              recovery.stopDevice2LinkingFlow(...args),
+            linkDeviceWithScannedQRData: (...args: Parameters<RecoveryCapability['linkDeviceWithScannedQRData']>) =>
+              recovery.linkDeviceWithScannedQRData(...args),
+          } as RecoveryCapability;
         }
 
         if (prop === 'setTheme') {

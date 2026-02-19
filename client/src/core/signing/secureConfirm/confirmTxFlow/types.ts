@@ -1,9 +1,9 @@
-import { TransactionInputWasm } from '../../../types';
-import { ConfirmationConfig } from '../../../types';
-import { TransactionContext } from '../../../types/rpc';
-import { RpcCallPayload } from '../../../types/signer-worker';
-import { WebAuthnAuthenticationCredential, WebAuthnRegistrationCredential } from '../../../types/webauthn';
-import { isObject, isString } from '../../../../../../shared/src/utils/validation';
+import { TransactionInputWasm } from '@/core/types';
+import { ConfirmationConfig } from '@/core/types';
+import { TransactionContext } from '@/core/types/rpc';
+import { RpcCallPayload } from '@/core/types/signer-worker';
+import { WebAuthnAuthenticationCredential, WebAuthnRegistrationCredential } from '@/core/types/webauthn';
+import { isObject, isString } from '@shared/utils/validation';
 
 // === SECURE CONFIRM TYPES (V2) ===
 

@@ -11,8 +11,10 @@ import type {
   TatchiContextType,
 } from '../types';
 import type { ThemeName } from '@/core/types/tatchi';
+import type { RecoveryCapability } from '@/core/TatchiPasskey/capabilities';
 import { useSDKFlowRuntime } from './useSDKFlowRuntime';
 import { useTatchiWithSdkFlow } from './useTatchiWithSdkFlow';
+import { isLoginSessionReadyForUi } from './loginReadiness';
 
 export function useTatchiContextValue(args: {
   tatchi: TatchiContextType['tatchi'];
@@ -65,13 +67,14 @@ export function useTatchiContextValue(args: {
 
   const startDevice2LinkingFlow: TatchiContextType['startDevice2LinkingFlow'] = useCallback(
     async (args) => {
-      return await tatchiWithSdkFlow.startDevice2LinkingFlow((args ?? {}) as any);
+      const request: Parameters<RecoveryCapability['startDevice2LinkingFlow']>[0] = args ?? {};
+      return await tatchiWithSdkFlow.recovery.startDevice2LinkingFlow(request);
     },
     [tatchiWithSdkFlow],
   );
 
   const stopDevice2LinkingFlow: TatchiContextType['stopDevice2LinkingFlow'] = useCallback(async () => {
-    await tatchi.stopDevice2LinkingFlow();
+    await tatchi.recovery.stopDevice2LinkingFlow();
   }, [tatchi]);
 
   const loginAndCreateSession: TatchiContextType['loginAndCreateSession'] = useCallback(async (nearAccountId, options) => {
@@ -79,13 +82,17 @@ export function useTatchiContextValue(args: {
       ...options,
       onEvent: async (event) => {
         if (event.phase === LoginPhase.STEP_4_LOGIN_COMPLETE && event.status === LoginStatus.SUCCESS) {
-          const { login } = await tatchi.getLoginSession(nearAccountId);
-          const isLoggedIn = login.isLoggedIn;
+          const session = await tatchi.getLoginSession(nearAccountId);
+          const { login } = session;
+          const isLoggedIn = isLoginSessionReadyForUi({
+            session,
+            signerMode: tatchi.configs?.signerMode,
+          });
           setLoginState(prevState => ({
             ...prevState,
             isLoggedIn,
-            nearAccountId: event.nearAccountId || null,
-            nearPublicKey: event.clientNearPublicKey || null,
+            nearAccountId: isLoggedIn ? (login.nearAccountId || null) : null,
+            nearPublicKey: isLoggedIn ? (login.publicKey || null) : null,
           }));
         }
         return options?.onEvent?.(event);
@@ -113,15 +120,15 @@ export function useTatchiContextValue(args: {
   }, [logout, refreshLoginState, tatchiWithSdkFlow]);
 
   const executeAction: TatchiContextType['executeAction'] = useCallback((args) => {
-    return tatchi.executeAction({ ...args, options: { ...(args.options || {}) } });
+    return tatchi.near.executeAction({ ...args, options: { ...(args.options || {}) } });
   }, [tatchi]);
 
   const signNEP413Message: TatchiContextType['signNEP413Message'] = useCallback((args) => {
-    return tatchi.signNEP413Message({ ...args, options: { ...(args.options || {}) } });
+    return tatchi.near.signNEP413Message({ ...args, options: { ...(args.options || {}) } });
   }, [tatchi]);
 
   const signDelegateAction: TatchiContextType['signDelegateAction'] = useCallback((args) => {
-    return tatchi.signDelegateAction({ ...args, options: { ...(args.options || {}) } });
+    return tatchi.near.signDelegateAction({ ...args, options: { ...(args.options || {}) } });
   }, [tatchi]);
 
   const getLoginSession: TatchiContextType['getLoginSession'] = useCallback((nearAccountId?: string) => {

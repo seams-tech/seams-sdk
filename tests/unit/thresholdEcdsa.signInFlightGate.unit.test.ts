@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   withThresholdEcdsaSignInFlightGate,
-} from '@/core/signing/api/thresholdEcdsaSignInFlightGate';
+} from '@/core/signing/api/thresholdLifecycle/thresholdEcdsaSignInFlightGate';
 
 function deferred<T = void>(): {
   promise: Promise<T>;

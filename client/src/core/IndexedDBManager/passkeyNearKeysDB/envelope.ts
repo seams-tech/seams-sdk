@@ -3,7 +3,7 @@ import type {
   PasskeyChainKeyPayloadEnvelope,
   PasskeyChainKeyPayloadEnvelopeAAD,
 } from '../passkeyNearKeysDB.types';
-import { toTrimmedString } from '../../../../../shared/src/utils/validation';
+import { toTrimmedString } from '@shared/utils/validation';
 
 export const KEY_PAYLOAD_ENC_VERSION = 1;
 export const LOCAL_SK_ENVELOPE_ALG = 'chacha20poly1305-b64u-v1';

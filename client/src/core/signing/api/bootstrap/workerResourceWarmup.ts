@@ -1,7 +1,7 @@
-import type { UnifiedIndexedDBManager } from '../../../IndexedDBManager';
-import type { NearClient } from '../../../near/NearClient';
-import type { NonceManager } from '../../../near/nonceManager';
-import { toAccountId, type AccountId } from '../../../types/accountIds';
+import type { UnifiedIndexedDBManager } from '@/core/IndexedDBManager';
+import type { NearClient } from '@/core/near/NearClient';
+import type { NonceManager } from '@/core/near/nonceManager';
+import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { getLastLoggedInDeviceNumber } from '../../webauthn/device/getDeviceNumber';
 
 export type WorkerResourceWarmupDeps = {
@@ -14,7 +14,7 @@ export type WorkerResourceWarmupDeps = {
 };
 
 export function prewarmSignerWorkers(deps: WorkerResourceWarmupDeps): void {
-  if (typeof window === 'undefined' || typeof (window as any).Worker === 'undefined') return;
+  if (typeof window === 'undefined' || typeof window.Worker === 'undefined') return;
   // Avoid noisy SecurityError in cross-origin dev: only prewarm when same-origin.
   if (deps.workerBaseOrigin && deps.workerBaseOrigin !== window.location.origin) return;
   deps.preWarmWorkerPool().catch(() => {});

@@ -1,5 +1,5 @@
 import React from 'react';
-import type { SDKFlowRuntime } from '../../../types';
+import type { SDKFlowRuntime } from '@/react/types';
 
 /*
  * Feeds SDK events to the PasskeyAuthMenu so that we can display SDk events

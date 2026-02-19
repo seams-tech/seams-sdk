@@ -1,5 +1,5 @@
-import { base64UrlDecode, base64UrlEncode } from '../../../../../../shared/src/utils/encoders';
-import { normalizeThresholdEd25519ParticipantIds } from '../../../../../../shared/src/threshold/participants';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
   addSecp256k1PublicKeys33Wasm,
   mapAdditiveShareToThresholdSignaturesShare2pWasm,

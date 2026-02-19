@@ -1,5 +1,5 @@
 import type { NearClient } from '../near/NearClient';
-import { ensureEd25519Prefix, validateNearAccountId } from '../../../../shared/src/utils/validation';
+import { ensureEd25519Prefix, validateNearAccountId } from '@shared/utils/validation';
 import type {
   RegistrationHooksOptions,
   RegistrationSSEEvent,
@@ -15,8 +15,8 @@ import { WebAuthnManager } from '../signing/api/WebAuthnManager';
 import { IndexedDBManager } from '../IndexedDBManager';
 import { type ConfirmationConfig, mergeSignerMode } from '../types/signer-worker';
 import type { AccountId } from '../types/accountIds';
-import { getUserFriendlyErrorMessage } from '../../../../shared/src/utils/errors';
-import { buildThresholdEd25519Participants2pV1 } from '../../../../shared/src/threshold/participants';
+import { errorMessage, getUserFriendlyErrorMessage } from '@shared/utils/errors';
+import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
 import { THRESHOLD_ED25519_2P_PARTICIPANT_IDS } from '../config/defaultConfigs';
 import { checkNearAccountExistsBestEffort } from '../near/rpcCalls';
 import type {
@@ -139,7 +139,7 @@ export async function registerPasskeyInternal(
 
     const baseSignerMode = webAuthnManager.getUserPreferences().getSignerMode();
     // Registration defaults to threshold mode even when global/user defaults are local-signer.
-    // Explicit per-call overrides can still force local mode for legacy compatibility.
+    // Explicit per-call overrides can still force local mode for account-key registration.
     const registrationDefaultSignerMode = baseSignerMode.mode === 'threshold-signer'
       ? baseSignerMode
       : { mode: 'threshold-signer' as const };
@@ -193,7 +193,7 @@ export async function registerPasskeyInternal(
     // 2) Key material:
     // - threshold-signer: derive client verifying share from PRF.first (default)
     // - threshold-signer + backupLocalKey: also derive encrypted local backup key material for export
-    // - local-signer (legacy compatibility): derive encrypted local key material for account key usage
+    // - local-signer: derive encrypted local key material for account key usage
     if (requestedSignerModeStr === 'threshold-signer') {
       const derived = await webAuthnManager.thresholdKeyLifecycle.deriveThresholdEd25519ClientVerifyingShareFromCredential({
         credential,
@@ -818,7 +818,7 @@ export async function registerPasskeyInternal(
   }
 }
 
-// Backward-compatible wrapper without explicit confirmationConfig override
+// Public wrapper without explicit confirmationConfig override.
 export async function registerPasskey(
   context: PasskeyManagerContext,
   nearAccountId: AccountId,
@@ -831,8 +831,6 @@ export async function registerPasskey(
 //////////////////////////////////////
 // HELPER FUNCTIONS
 //////////////////////////////////////
-
-// NOTE: legacy bootstrap challenge generation has been removed (threshold-only stack).
 
 /**
  * Validates registration inputs and throws errors if invalid
@@ -984,7 +982,7 @@ async function verifyAccountAccessKeysPresent(
     try {
       const accessKeyList = await nearClient.viewAccessKeyList(
         nearAccountId,
-        { finality } as any,
+        { finality },
       );
       const keys = accessKeyList.keys.map((k) => ensureEd25519Prefix(k.public_key)).filter(Boolean);
       const allPresent = unique.every((expected) => keys.includes(expected));
@@ -1017,10 +1015,10 @@ async function fetchNonceBlockHashForKey(
     try {
       const [accessKey, block] = await Promise.all([
         nearClient.viewAccessKey(String(nearAccountId), pk),
-        nearClient.viewBlock({ finality } as any),
+        nearClient.viewBlock({ finality }),
       ]);
       const nextNonce = (BigInt(accessKey.nonce) + 1n).toString();
-      const blockHash = String((block as any)?.header?.hash || '').trim();
+      const blockHash = String(block?.header?.hash || '').trim();
       if (!blockHash) throw new Error('Missing block hash from RPC');
       return { nextNonce, blockHash };
     } catch (e: unknown) {
@@ -1030,5 +1028,5 @@ async function fetchNonceBlockHashForKey(
       await new Promise((res) => setTimeout(res, delayMs));
     }
   }
-  throw new Error(`Failed to fetch nonce/blockHash for ${nearAccountId}: ${String((lastErr as any)?.message || lastErr || '')}`);
+  throw new Error(`Failed to fetch nonce/blockHash for ${nearAccountId}: ${errorMessage(lastErr) || String(lastErr || '')}`);
 }

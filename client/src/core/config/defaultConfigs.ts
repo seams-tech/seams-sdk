@@ -5,8 +5,8 @@ import type {
 } from '../types/tatchi';
 import type { RegistrationSignerOptions } from '../types/registrationSignerOptions';
 import { coerceSignerMode } from '../types/signer-worker';
-import { toTrimmedString } from '../../../../shared/src/utils/validation';
-import { coerceThemeName } from '../../../../shared/src/utils/theme';
+import { toTrimmedString } from '@shared/utils/validation';
+import { coerceThemeName } from '@shared/utils/theme';
 
 // Default SDK configs suitable for local dev.
 // Cross-origin wallet isolation is recommended; set iframeWallet in your app config when you have a dedicated origin.
@@ -144,15 +144,7 @@ export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiC
 
   const defaults = PASSKEY_MANAGER_DEFAULT_CONFIGS;
   const relayerUrl = overrides.relayer?.url ?? defaults.relayer?.url ?? '';
-  const overridesAny = overrides as unknown as {
-    relayerAccount?: unknown;
-    relayerAccountId?: unknown;
-    relayer?: { accountId?: unknown; relayerAccountId?: unknown };
-  };
-  const relayerAccount = toTrimmedString(overridesAny.relayerAccount)
-    || toTrimmedString(overridesAny.relayerAccountId)
-    || toTrimmedString(overridesAny.relayer?.accountId)
-    || toTrimmedString(overridesAny.relayer?.relayerAccountId)
+  const relayerAccount = toTrimmedString(overrides.relayerAccount)
     || toTrimmedString(overrides.contractId)
     || toTrimmedString(defaults.relayerAccount)
     || toTrimmedString(defaults.contractId);

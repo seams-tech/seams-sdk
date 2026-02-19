@@ -1,6 +1,6 @@
-import { useTatchi } from '../../../context';
+import { useTatchi } from '@/react/context';
 import type { TatchiPasskey } from '@/core/TatchiPasskey';
-import { type SDKFlowRuntime } from '../../../types';
+import { type SDKFlowRuntime } from '@/react/types';
 
 export interface PasskeyAuthMenuRuntime {
   tatchiPasskey: TatchiPasskey;

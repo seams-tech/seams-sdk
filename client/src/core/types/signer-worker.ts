@@ -117,13 +117,20 @@ export function getThresholdBehaviorFromSignerMode(mode: SignerMode): ThresholdB
  * arbitrary actions/receivers to be signed without SecureConfirm/WebAuthn binding.
  */
 export const INTERNAL_WORKER_REQUEST_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT = 10 as const;
+export const INTERNAL_WORKER_REQUEST_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR = 11 as const;
 export const INTERNAL_WORKER_RESPONSE_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT_SUCCESS = 24 as const;
 export const INTERNAL_WORKER_RESPONSE_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT_FAILURE = 25 as const;
+export const INTERNAL_WORKER_RESPONSE_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR_SUCCESS = 26 as const;
+export const INTERNAL_WORKER_RESPONSE_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR_FAILURE = 27 as const;
 
-type InternalSignerWorkerRequestType = typeof INTERNAL_WORKER_REQUEST_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT;
+type InternalSignerWorkerRequestType =
+  | typeof INTERNAL_WORKER_REQUEST_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT
+  | typeof INTERNAL_WORKER_REQUEST_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR;
 type InternalSignerWorkerResponseType =
   | typeof INTERNAL_WORKER_RESPONSE_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT_SUCCESS
-  | typeof INTERNAL_WORKER_RESPONSE_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT_FAILURE;
+  | typeof INTERNAL_WORKER_RESPONSE_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT_FAILURE
+  | typeof INTERNAL_WORKER_RESPONSE_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR_SUCCESS
+  | typeof INTERNAL_WORKER_RESPONSE_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR_FAILURE;
 
 export type SignerWorkerRequestType = WorkerRequestType | InternalSignerWorkerRequestType;
 export type SignerWorkerResponseType = WorkerResponseType | InternalSignerWorkerResponseType;
@@ -220,6 +227,13 @@ export interface WasmSignAddKeyThresholdPublicKeyNoPromptRequest {
   wrapKeySalt?: string;
 }
 
+export type WasmGenerateEphemeralNearKeypairRequest = Record<string, never>;
+
+export interface WasmGenerateEphemeralNearKeypairResult {
+  publicKey: string;
+  privateKey: string;
+}
+
 export interface WasmSignDelegateActionRequest {
   signerMode: SignerMode['mode'];
   rpcCall: RpcCallPayload;
@@ -277,6 +291,7 @@ export type WasmRequestPayload = WasmDeriveNearKeypairAndEncryptRequest
   | WasmDeriveThresholdEd25519ClientVerifyingShareRequest
   | WasmSignTransactionsWithActionsRequest
   | WasmSignAddKeyThresholdPublicKeyNoPromptRequest
+  | WasmGenerateEphemeralNearKeypairRequest
   | WasmSignDelegateActionRequest
   | WasmDecryptPrivateKeyRequest
   | WasmExtractCosePublicKeyRequest
@@ -328,6 +343,11 @@ export interface WorkerRequestTypeMap {
     type: typeof INTERNAL_WORKER_REQUEST_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT;
     request: WasmSignAddKeyThresholdPublicKeyNoPromptRequest;
     result: WasmTransactionSignResult;
+  };
+  [INTERNAL_WORKER_REQUEST_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR]: {
+    type: typeof INTERNAL_WORKER_REQUEST_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR;
+    request: WasmGenerateEphemeralNearKeypairRequest;
+    result: WasmGenerateEphemeralNearKeypairResult;
   };
   [WorkerRequestType.SignDelegateAction]: {
     type: WorkerRequestType.SignDelegateAction;
@@ -509,6 +529,7 @@ export interface RequestResponseMap {
   [WorkerRequestType.DeriveThresholdEd25519ClientVerifyingShare]: WasmDeriveThresholdEd25519ClientVerifyingShareResult;
   [WorkerRequestType.SignTransactionsWithActions]: WasmTransactionSignResult;
   [INTERNAL_WORKER_REQUEST_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT]: WasmTransactionSignResult;
+  [INTERNAL_WORKER_REQUEST_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR]: WasmGenerateEphemeralNearKeypairResult;
   [WorkerRequestType.SignDelegateAction]: WasmDelegateSignResult;
   [WorkerRequestType.ExtractCosePublicKey]: wasmModule.CoseExtractionResult;
   [WorkerRequestType.SignTransactionWithKeyPair]: WasmTransactionSignResult;
@@ -592,7 +613,8 @@ export function isWorkerSuccess<T extends RequestTypeKey>(
     response.type === WorkerResponseType.SignNep413MessageSuccess ||
     response.type === WorkerResponseType.RegisterDevice2WithDerivedKeySuccess ||
     response.type === WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareSuccess ||
-    response.type === INTERNAL_WORKER_RESPONSE_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT_SUCCESS
+    response.type === INTERNAL_WORKER_RESPONSE_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT_SUCCESS ||
+    response.type === INTERNAL_WORKER_RESPONSE_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR_SUCCESS
   );
 }
 
@@ -610,7 +632,8 @@ export function isWorkerError<T extends RequestTypeKey>(
     response.type === WorkerResponseType.SignNep413MessageFailure ||
     response.type === WorkerResponseType.RegisterDevice2WithDerivedKeyFailure ||
     response.type === WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareFailure ||
-    response.type === INTERNAL_WORKER_RESPONSE_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT_FAILURE
+    response.type === INTERNAL_WORKER_RESPONSE_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT_FAILURE ||
+    response.type === INTERNAL_WORKER_RESPONSE_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR_FAILURE
   );
 }
 
@@ -632,6 +655,12 @@ export function isSignAddKeyThresholdPublicKeyNoPromptSuccess(
   response: WorkerResponseForRequest<typeof INTERNAL_WORKER_REQUEST_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT>
 ): response is WorkerSuccessResponse<typeof INTERNAL_WORKER_REQUEST_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT> {
   return response.type === INTERNAL_WORKER_RESPONSE_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT_SUCCESS;
+}
+
+export function isGenerateEphemeralNearKeypairSuccess(
+  response: WorkerResponseForRequest<typeof INTERNAL_WORKER_REQUEST_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR>
+): response is WorkerSuccessResponse<typeof INTERNAL_WORKER_REQUEST_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR> {
+  return response.type === INTERNAL_WORKER_RESPONSE_TYPE_GENERATE_EPHEMERAL_NEAR_KEYPAIR_SUCCESS;
 }
 
 export function isSignDelegateActionSuccess(response: DelegateSignResponse): response is WorkerSuccessResponse<typeof WorkerRequestType.SignDelegateAction> {

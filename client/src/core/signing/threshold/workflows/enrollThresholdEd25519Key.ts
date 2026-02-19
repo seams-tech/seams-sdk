@@ -1,7 +1,7 @@
-import { toAccountId, type AccountId } from '../../../types/accountIds';
-import { thresholdEd25519Keygen } from '../../../near/rpcCalls';
-import { ensureEd25519Prefix } from '../../../../../../shared/src/utils/validation';
-import type { WebAuthnAuthenticationCredential } from '../../../types/webauthn';
+import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import { thresholdEd25519Keygen } from '@/core/near/rpcCalls';
+import { ensureEd25519Prefix } from '@shared/utils/validation';
+import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { ThresholdWebAuthnPromptPort } from '../webauthn';
 
 type DeriveThresholdClientShareResult = {

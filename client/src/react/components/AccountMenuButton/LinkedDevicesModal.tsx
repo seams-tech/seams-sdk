@@ -4,7 +4,7 @@ import './LinkedDevicesModal.css';
 import { useTheme, Theme } from '../theme';
 import type { AccessKeyList } from '@/core/near/NearClient';
 import { IndexedDBManager } from '@/core/IndexedDBManager';
-import { toAccountId } from '../../../core/types/accountIds';
+import { toAccountId } from '@/core/types/accountIds';
 
 interface LinkedDevicesModalProps {
   nearAccountId: string;

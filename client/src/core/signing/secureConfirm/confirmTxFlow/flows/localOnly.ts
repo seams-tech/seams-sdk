@@ -1,5 +1,5 @@
 import type { SecureConfirmWorkerManagerContext } from '../../';
-import type { ConfirmationConfig } from '../../../../types/signer-worker';
+import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import {
   SecureConfirmationType,
   TransactionSummary,
@@ -7,11 +7,11 @@ import {
   type ShowSecurePrivateKeyUiPayload,
   type ExportPrivateKeyDisplayEntry,
 } from '../types';
-import type { SecureConfirmSecurityContext } from '../../../../types';
+import type { SecureConfirmSecurityContext } from '@/core/types';
 import { addLitCancelListener } from '../../ui/lit-events';
 import { ensureDefined } from '../../ui/ensure-defined';
 import { W3A_EXPORT_VIEWER_IFRAME_ID } from '../../ui/tags';
-import { __isWalletIframeHostMode } from '../../../../WalletIframe/host-mode';
+import { __isWalletIframeHostMode } from '@/core/WalletIframe/host-mode';
 import type { ExportViewerIframeElement } from '../../ui/export-private-key/iframe-host';
 import {
   getNearAccountId,
@@ -19,11 +19,11 @@ import {
   isUserCancelledSecureConfirm,
   ERROR_MESSAGES,
 } from './index';
-import { errorMessage } from '../../../../../../../shared/src/utils/errors';
-import { base64UrlEncode } from '../../../../../../../shared/src/utils/encoders';
+import { errorMessage } from '@shared/utils/errors';
+import { base64UrlEncode } from '@shared/utils/encoders';
 import { createConfirmSession } from '../adapters/session';
 import { createConfirmTxFlowAdapters } from '../adapters/createAdapters';
-import type { ThemeName, ThemeTokenOverridesInput } from '../../../../types/tatchi';
+import type { ThemeName, ThemeTokenOverridesInput } from '@/core/types/tatchi';
 
 function createRandomChallengeB64u(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));

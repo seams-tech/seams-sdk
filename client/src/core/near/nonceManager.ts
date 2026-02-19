@@ -2,8 +2,8 @@ import type { NearClient } from './NearClient';
 import type { AccountId } from '../types/accountIds';
 import type { TransactionContext } from '../types/rpc';
 import type { AccessKeyView, BlockResult } from '@near-js/types';
-import { isObject, isNumber, isString } from '../../../../shared/src/utils/validation';
-import { errorMessage } from '../../../../shared/src/utils/errors';
+import { isObject, isNumber, isString } from '@shared/utils/validation';
+import { errorMessage } from '@shared/utils/errors';
 
 /**
  * NonceManager - Singleton for managing NEAR transaction context
@@ -415,7 +415,6 @@ export class NonceManager {
    * Release all reserved nonces
    */
   public releaseAllNonces(): void {
-    const count = this.reservedNonces.size;
     this.reservedNonces.clear();
     this.lastReservedNonce = null;
   }

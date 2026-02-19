@@ -1,10 +1,10 @@
-import type { ConfirmationConfig } from '../../../../types/signer-worker';
+import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { ConfirmUIHandle, ConfirmUIUpdate } from '../../ui/confirm-ui';
 import type { KnownSecureConfirmRequest, SecureConfirmDecision, TransactionSummary } from '../types';
-import type { SecureConfirmSecurityContext } from '../../../../types';
+import type { SecureConfirmSecurityContext } from '@/core/types';
 import { sendConfirmResponse } from './common';
 import type { ConfirmTxFlowAdapters } from './interfaces';
-import type { ThemeName } from '../../../../types/tatchi';
+import type { ThemeName } from '@/core/types/tatchi';
 
 export function createConfirmSession({
   adapters,

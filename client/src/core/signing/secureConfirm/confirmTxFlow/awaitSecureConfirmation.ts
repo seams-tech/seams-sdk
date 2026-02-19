@@ -4,9 +4,9 @@ import {
   SecureConfirmRequest,
   SerializableCredential,
 } from './types';
-import { isObject, isString, isBoolean } from '../../../../../../shared/src/utils/validation';
-import { errorMessage, toError } from '../../../../../../shared/src/utils/errors';
-import { TransactionContext } from '../../../types/rpc';
+import { isObject, isString, isBoolean } from '@shared/utils/validation';
+import { errorMessage, toError } from '@shared/utils/errors';
+import { TransactionContext } from '@/core/types/rpc';
 import { validateSecureConfirmRequest } from './adapters/requestAdapter';
 
 type ConfirmResponsePayload = {
@@ -29,7 +29,7 @@ type ConfirmResponseEnvelope = {
  * Where this runs:
  * - Runs inside the SecureConfirm Web Worker (not the main thread).
  * - Invoked from the worker runtime; the SecureConfirm worker exposes this as
- *   `globalThis.awaitSecureConfirmationV2` in `client/src/core/workers/passkey-confirm.worker.ts`.
+ *   `globalThis.awaitSecureConfirmationV2` in `client/src/core/signing/runtime/workers/passkey-confirm.worker.ts`.
  *
  * High-level flow:
  * 1) SecureConfirm runtime calls `awaitSecureConfirmationV2(request)`

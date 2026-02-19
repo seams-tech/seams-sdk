@@ -1,7 +1,7 @@
 import { html, type PropertyValues } from 'lit';
 import { LitElementWithProps } from '../LitElementWithProps';
 
-import type { TransactionInputWasm, SecureConfirmSecurityContext } from '../../../../../types';
+import type { TransactionInputWasm, SecureConfirmSecurityContext } from '@/core/types';
 
 import TxTree from '../TxTree';
 import { ensureExternalStyles } from '../css/css-loader';
@@ -11,7 +11,7 @@ import type { ThemeName } from '../../confirm-ui-types';
 import HaloBorderElement from '../HaloBorder';
 import PasskeyHaloLoadingElement from '../PasskeyHaloLoading';
 import type { ConfirmUIElement } from '../../confirm-ui-types';
-import { WalletIframeDomEvents } from '../../../../../WalletIframe/events';
+import { WalletIframeDomEvents } from '@/core/WalletIframe/events';
 
 export interface SecureTxSummary {
   to?: string;

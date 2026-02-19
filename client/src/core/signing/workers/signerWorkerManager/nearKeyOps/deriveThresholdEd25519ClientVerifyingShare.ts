@@ -1,9 +1,9 @@
-import type { SigningRuntimeDeps } from '../../../chainAdaptors/types';
+import type { SigningRuntimeDeps } from '@/core/signing/chainAdaptors/types';
 import {
   WorkerRequestType,
   WorkerResponseType,
   type WasmDeriveThresholdEd25519ClientVerifyingShareResult,
-} from '../../../../types/signer-worker';
+} from '@/core/types/signer-worker';
 
 export async function deriveThresholdEd25519ClientVerifyingShare(args: {
   ctx: SigningRuntimeDeps;

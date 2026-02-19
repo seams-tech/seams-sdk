@@ -4,7 +4,7 @@ import {
   executeSignerWorkerOperation,
   type WorkerOperationContext,
 } from '../../workers/operations/executeSignerWorkerOperation';
-import { base64UrlDecode, base64UrlEncode } from '../../../../../../shared/src/utils/base64';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 
 type Eip1559TxWasmJson = {
   chainId: string;

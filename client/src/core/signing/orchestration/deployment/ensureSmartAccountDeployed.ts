@@ -1,9 +1,9 @@
-import type { AccountId } from '../../../types/accountIds';
-import { toAccountId } from '../../../types/accountIds';
+import type { AccountId } from '@/core/types/accountIds';
+import { toAccountId } from '@/core/types/accountIds';
 import type {
   ChainAccountRecord,
   UpsertChainAccountInput,
-} from '../../../IndexedDBManager/passkeyClientDB';
+} from '@/core/IndexedDBManager/passkeyClientDB.types';
 import type { TempoSigningRequest } from '../../chainAdaptors/tempo/types';
 
 export type SmartAccountDeploymentChain = 'evm' | 'tempo';
@@ -61,6 +61,15 @@ export type EnsureSmartAccountDeployedResult = {
   checkedAt: number;
 };
 
+type DeploymentIdentity = {
+  profileId: string;
+  chainId: string;
+  accountModel: string;
+  accountAddress: string;
+};
+
+const deploymentInFlightByIdentity = new Map<string, Promise<void>>();
+
 function normalizeChainId(value: unknown): string {
   return String(value || '').trim().toLowerCase();
 }
@@ -72,6 +81,10 @@ function normalizeAccountModel(value: unknown): string {
 function normalizeOptionalString(value: unknown): string | undefined {
   const normalized = String(value || '').trim();
   return normalized || undefined;
+}
+
+function normalizeAccountAddress(value: unknown): string {
+  return String(value || '').trim().toLowerCase();
 }
 
 function normalizeRetryAttempts(value: unknown): number {
@@ -122,6 +135,70 @@ function dedupeChainIds(chainIds: string[]): string[] {
     out.push(chainId);
   }
   return out;
+}
+
+function toDeploymentIdentity(account: ChainAccountRecord): DeploymentIdentity {
+  return {
+    profileId: String(account.profileId || '').trim(),
+    chainId: normalizeChainId(account.chainId),
+    accountModel: normalizeAccountModel(account.accountModel),
+    accountAddress: normalizeAccountAddress(account.accountAddress),
+  };
+}
+
+function deploymentIdentityKey(identity: DeploymentIdentity): string {
+  return [
+    identity.profileId,
+    identity.chainId,
+    identity.accountModel,
+    identity.accountAddress,
+  ].join('|');
+}
+
+async function findChainAccountByIdentity(args: {
+  clientDB: SmartAccountStatePort;
+  profileId: string;
+  chainId: string;
+  accountModel: string;
+  accountAddress: string;
+}): Promise<ChainAccountRecord | null> {
+  const rows = await args.clientDB
+    .listChainAccountsByProfileAndChain(args.profileId, args.chainId)
+    .catch(() => []);
+  return (
+    rows.find(
+      (row) =>
+        normalizeAccountModel(row.accountModel) === args.accountModel
+        && normalizeAccountAddress(row.accountAddress) === args.accountAddress,
+    ) || null
+  );
+}
+
+async function withDeploymentIdentityLock<T>(args: {
+  identity: DeploymentIdentity;
+  task: (ctx: { waited: boolean }) => Promise<T>;
+}): Promise<T> {
+  const key = deploymentIdentityKey(args.identity);
+  const hadPrevious = deploymentInFlightByIdentity.has(key);
+  const previous = deploymentInFlightByIdentity.get(key) || Promise.resolve();
+  const waitForPrevious = previous.catch(() => undefined);
+
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const next = waitForPrevious.then(() => gate);
+  deploymentInFlightByIdentity.set(key, next);
+
+  await waitForPrevious;
+  try {
+    return await args.task({ waited: hadPrevious });
+  } finally {
+    release();
+    if (deploymentInFlightByIdentity.get(key) === next) {
+      deploymentInFlightByIdentity.delete(key);
+    }
+  }
 }
 
 function deriveMirrorAccountDefaults(chain: SmartAccountDeploymentChain): {
@@ -182,7 +259,6 @@ async function mirrorMissingSmartAccountRowFromCounterpart(args: {
     accountAddress: seed.accountAddress,
     accountModel: mirror.mirrorAccountModel,
     isPrimary: true,
-    legacyNearAccountId: seed.legacyNearAccountId || args.nearAccountId,
     factory: seed.factory,
     entryPoint: seed.entryPoint,
     salt: seed.salt,
@@ -235,7 +311,6 @@ async function upsertDeploymentCheckState(args: {
     accountAddress: args.account.accountAddress,
     accountModel: args.account.accountModel,
     isPrimary: args.account.isPrimary,
-    legacyNearAccountId: args.account.legacyNearAccountId,
     factory: args.account.factory,
     entryPoint: args.account.entryPoint,
     salt: args.account.salt,
@@ -341,65 +416,95 @@ export async function ensureSmartAccountDeployed(args: {
     };
   }
 
-  let failureCode: string | undefined;
-  let failureMessage: string | undefined;
-  for (let attempt = 1; attempt <= maxDeployAttempts; attempt += 1) {
-    const deployResult = await args.deploy({
-      nearAccountId,
-      chain: args.chain,
-      chainId: touched.chainId,
-      account: touched,
-    });
-    if (deployResult.ok) {
-      const deployed = await upsertDeploymentCheckState({
-        clientDB: args.clientDB,
-        account: touched,
-        checkedAt,
-        deployed: true,
-        deploymentTxHash: normalizeOptionalString(deployResult.deploymentTxHash),
-      });
-      return {
-        status: 'deployed',
-        chainId: deployed.chainId,
-        accountAddress: deployed.accountAddress,
-        deploymentTxHash: deployed.deploymentTxHash,
-        attempts: attempt,
-        checkedAt,
-      };
-    }
+  const identity = toDeploymentIdentity(touched);
+  return await withDeploymentIdentityLock({
+    identity,
+    task: async ({ waited }) => {
+      let current = touched;
+      if (waited) {
+        const refreshed = await findChainAccountByIdentity({
+          clientDB: args.clientDB,
+          profileId: identity.profileId,
+          chainId: identity.chainId,
+          accountModel: identity.accountModel,
+          accountAddress: identity.accountAddress,
+        });
+        if (refreshed?.deployed) {
+          return {
+            status: 'already_deployed',
+            chainId: refreshed.chainId,
+            accountAddress: refreshed.accountAddress,
+            deploymentTxHash: refreshed.deploymentTxHash,
+            attempts: 0,
+            checkedAt,
+          };
+        }
+        if (refreshed) {
+          current = refreshed;
+        }
+      }
 
-    failureCode = normalizeOptionalString(deployResult.code);
-    failureMessage = normalizeOptionalString(deployResult.message) || 'deployment failed';
-    const retriable = isRetriableDeployFailure(failureCode, failureMessage);
-    const isLastAttempt = attempt >= maxDeployAttempts;
-    if (!retriable || isLastAttempt) {
+      let failureCode: string | undefined;
+      let failureMessage: string | undefined;
+      for (let attempt = 1; attempt <= maxDeployAttempts; attempt += 1) {
+        const deployResult = await args.deploy!({
+          nearAccountId,
+          chain: args.chain,
+          chainId: current.chainId,
+          account: current,
+        });
+        if (deployResult.ok) {
+          const deployed = await upsertDeploymentCheckState({
+            clientDB: args.clientDB,
+            account: current,
+            checkedAt,
+            deployed: true,
+            deploymentTxHash: normalizeOptionalString(deployResult.deploymentTxHash),
+          });
+          return {
+            status: 'deployed',
+            chainId: deployed.chainId,
+            accountAddress: deployed.accountAddress,
+            deploymentTxHash: deployed.deploymentTxHash,
+            attempts: attempt,
+            checkedAt,
+          };
+        }
+
+        failureCode = normalizeOptionalString(deployResult.code);
+        failureMessage = normalizeOptionalString(deployResult.message) || 'deployment failed';
+        const retriable = isRetriableDeployFailure(failureCode, failureMessage);
+        const isLastAttempt = attempt >= maxDeployAttempts;
+        if (!retriable || isLastAttempt) {
+          if (enforce) {
+            throw new Error(
+              `[deployment] smart-account deployment failed${failureCode ? ` (${failureCode})` : ''} after ${attempt}/${maxDeployAttempts} attempt${maxDeployAttempts === 1 ? '' : 's'}: ${failureMessage}`,
+            );
+          }
+          return {
+            status: 'deploy_failed',
+            chainId: current.chainId,
+            accountAddress: current.accountAddress,
+            ...(failureCode ? { failureCode } : {}),
+            ...(failureMessage ? { failureMessage } : {}),
+            attempts: attempt,
+            checkedAt,
+          };
+        }
+      }
+
       if (enforce) {
-        throw new Error(
-          `[deployment] smart-account deployment failed${failureCode ? ` (${failureCode})` : ''} after ${attempt}/${maxDeployAttempts} attempt${maxDeployAttempts === 1 ? '' : 's'}: ${failureMessage}`,
-        );
+        throw new Error('[deployment] smart-account deployment failed after retries');
       }
       return {
         status: 'deploy_failed',
-        chainId: touched.chainId,
-        accountAddress: touched.accountAddress,
+        chainId: current.chainId,
+        accountAddress: current.accountAddress,
         ...(failureCode ? { failureCode } : {}),
         ...(failureMessage ? { failureMessage } : {}),
-        attempts: attempt,
+        attempts: maxDeployAttempts,
         checkedAt,
       };
-    }
-  }
-
-  if (enforce) {
-    throw new Error('[deployment] smart-account deployment failed after retries');
-  }
-  return {
-    status: 'deploy_failed',
-    chainId: touched.chainId,
-    accountAddress: touched.accountAddress,
-    ...(failureCode ? { failureCode } : {}),
-    ...(failureMessage ? { failureMessage } : {}),
-    attempts: maxDeployAttempts,
-    checkedAt,
-  };
+    },
+  });
 }

@@ -1,6 +1,6 @@
-import type { onProgressEvents } from '../../../../types/sdkSentEvents';
-import type { WorkerRequestTypeMap, WorkerResponseForRequest } from '../../../../types/signer-worker';
-import type { MultichainWorkerKind } from '../../../../runtimeAssetPaths/multichainWorkers';
+import type { onProgressEvents } from '@/core/types/sdkSentEvents';
+import type { WorkerRequestTypeMap, WorkerResponseForRequest } from '@/core/types/signer-worker';
+import type { MultichainWorkerKind } from '@/core/runtimeAssetPaths/multichainWorkers';
 
 export const SIGNER_WORKER_CONTRACT_VERSION = 1 as const;
 

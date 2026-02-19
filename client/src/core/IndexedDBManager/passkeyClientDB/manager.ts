@@ -1,5 +1,5 @@
 import { openDB, type IDBPDatabase } from 'idb';
-import { toTrimmedString } from '../../../../../shared/src/utils/validation';
+import { toTrimmedString } from '@shared/utils/validation';
 import type { AccountId } from '../../types/accountIds';
 import { toAccountId } from '../../types/accountIds';
 import { DEFAULT_CONFIRMATION_CONFIG } from '../../types/signer-worker';
@@ -801,7 +801,6 @@ export class PasskeyClientDBManager {
       isPrimary: input.isPrimary ?? existing?.isPrimary ?? false,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
-      legacyNearAccountId: input.legacyNearAccountId ?? existing?.legacyNearAccountId,
       ...(factory ? { factory } : {}),
       ...(entryPoint ? { entryPoint } : {}),
       ...(salt ? { salt } : {}),
@@ -926,7 +925,7 @@ export class PasskeyClientDBManager {
     if (!nearRows.length) return null;
     const selected = nearRows.find((row) => !!row.isPrimary) || nearRows[0];
     if (!selected) return null;
-    const candidate = toTrimmedString(selected.legacyNearAccountId || selected.accountAddress || '');
+    const candidate = toTrimmedString(selected.accountAddress || '');
     if (!candidate) return null;
     try {
       return toAccountId(candidate);
@@ -1000,7 +999,7 @@ export class PasskeyClientDBManager {
 
     const accountCandidates = new Set<AccountId>();
     for (const row of [...(nearTestnetRows || []), ...(nearMainnetRows || [])]) {
-      const candidate = toTrimmedString(row.legacyNearAccountId || row.accountAddress || '');
+      const candidate = toTrimmedString(row.accountAddress || '');
       if (!candidate) continue;
       try {
         accountCandidates.add(toAccountId(candidate));

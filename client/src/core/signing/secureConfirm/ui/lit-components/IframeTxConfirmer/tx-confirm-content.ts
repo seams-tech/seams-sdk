@@ -2,9 +2,9 @@ import { html, type PropertyValues } from 'lit';
 import { LitElementWithProps } from '../LitElementWithProps';
 import { dispatchLitCancel, dispatchLitConfirm } from '../../lit-events';
 
-import type { TransactionInputWasm } from '../../../../../types';
-import type { SecureConfirmSecurityContext } from '../../../../../types';
-import { fromTransactionInputsWasm } from '../../../../../types/actions';
+import type { TransactionInputWasm } from '@/core/types';
+import type { SecureConfirmSecurityContext } from '@/core/types';
+import { fromTransactionInputsWasm } from '@/core/types/actions';
 import TxTree from '../TxTree';
 import { buildDisplayTreeFromTxPayloads } from '../TxTree/tx-tree-utils';
 import { ensureExternalStyles } from '../css/css-loader';

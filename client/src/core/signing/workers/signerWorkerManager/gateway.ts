@@ -1,4 +1,4 @@
-import type { MultichainWorkerKind } from '../../../runtimeAssetPaths/multichainWorkers';
+import type { MultichainWorkerKind } from '@/core/runtimeAssetPaths/multichainWorkers';
 import { getMultichainSignerWorkerTransport } from './backends/multichainWorkerBackend';
 import type {
   MultichainOperationType,

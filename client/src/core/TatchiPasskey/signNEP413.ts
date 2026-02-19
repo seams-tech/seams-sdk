@@ -3,7 +3,7 @@ import type { SignNEP413HooksOptions } from '../types/sdkSentEvents';
 import { ActionPhase, ActionStatus } from '../types/sdkSentEvents';
 import type { AccountId } from '../types/accountIds';
 import { mergeSignerMode } from '../types/signer-worker';
-import { base64Encode } from '../../../../shared/src/utils/encoders';
+import { base64Encode } from '@shared/utils/encoders';
 
 /**
  * NEP-413 message signing parameters
@@ -151,8 +151,8 @@ export async function signNEP413Message(args: {
     // Emit error event
     options?.onEvent?.({
       step: 0,
-      phase: 'action-error' as any,
-      status: 'error' as any,
+      phase: ActionPhase.ACTION_ERROR,
+      status: ActionStatus.ERROR,
       message: `NEP-413 signing failed: ${errorMessage}`,
       error: errorMessage
     });

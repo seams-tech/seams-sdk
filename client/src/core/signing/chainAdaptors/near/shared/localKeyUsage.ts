@@ -1,4 +1,4 @@
-import type { LocalNearSkV3Material } from '../../../../IndexedDBManager/passkeyNearKeysDB';
+import type { LocalNearSkV3Material } from '@/core/IndexedDBManager/passkeyNearKeysDB.types';
 
 export function isRuntimeSigningLocalKeyMaterial(
   value: LocalNearSkV3Material | null | undefined,

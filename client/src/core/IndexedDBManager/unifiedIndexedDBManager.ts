@@ -2,15 +2,15 @@ import type { AccountId } from '../types/accountIds';
 import {
   buildThresholdEd25519Participants2pV1,
   parseThresholdEd25519ParticipantsV1,
-} from '../../../../shared/src/threshold/participants';
-import { toTrimmedString } from '../../../../shared/src/utils/validation';
+} from '@shared/threshold/participants';
+import { toTrimmedString } from '@shared/utils/validation';
+import type { PasskeyClientDBManager } from './passkeyClientDB/manager';
 import type {
   AccountSignerRecord,
   AccountSignerStatus,
   ChainAccountRecord,
   EnqueueSignerOperationInput,
   LastProfileState,
-  PasskeyClientDBManager,
   ProfileRecord,
   SignerMutationOptions,
   SignerOperationStatus,
@@ -18,16 +18,16 @@ import type {
   UpsertAccountSignerInput,
   UpsertChainAccountInput,
   UpsertProfileInput,
-} from './passkeyClientDB';
+} from './passkeyClientDB.types';
+import type { PasskeyNearKeysDBManager } from './passkeyNearKeysDB/manager';
 import {
   type ClientShareDerivation,
   type LocalNearSkV3Material,
-  type PasskeyNearKeysDBManager,
   type PasskeyChainKeyAlgorithm,
   type PasskeyChainKeyKind,
   type PasskeyChainKeyMaterialV2,
   type ThresholdEd25519_2p_V1Material,
-} from './passkeyNearKeysDB';
+} from './passkeyNearKeysDB.types';
 import { passkeyClientDB, passkeyNearKeysDB } from './singletons';
 
 function inferNearChainCandidates(nearAccountId: string): string[] {

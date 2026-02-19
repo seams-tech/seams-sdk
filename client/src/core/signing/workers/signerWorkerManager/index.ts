@@ -1,6 +1,6 @@
-import { UnifiedIndexedDBManager } from '../../../IndexedDBManager';
-import { IndexedDBManager } from '../../../IndexedDBManager';
-import { type NearClient } from '../../../near/NearClient';
+import { UnifiedIndexedDBManager } from '@/core/IndexedDBManager';
+import { IndexedDBManager } from '@/core/IndexedDBManager';
+import { type NearClient } from '@/core/near/NearClient';
 import { SecureConfirmWorkerManager } from '../../secureConfirm';
 import { TouchIdPrompt } from '../../webauthn/prompt/touchIdPrompt';
 import type { SigningRuntimeDeps } from '../../chainAdaptors/types';
@@ -13,12 +13,12 @@ import type {
   NearWorkerOperationType,
 } from './backends/types';
 import { UserPreferencesManager } from '../../api/userPreferences';
-import { NonceManager } from '../../../near/nonceManager';
-import type { ThemeName } from '../../../types/tatchi';
+import { NonceManager } from '@/core/near/nonceManager';
+import type { ThemeName } from '@/core/types/tatchi';
 import { NearSignerWorkerTransport } from './backends/nearWorkerBackend';
 import { requestMultichainWorkerOperation } from './gateway';
 import { NearSigningKeyOpsService } from './nearKeyOpsService';
-import type { MultichainWorkerKind } from '../../../runtimeAssetPaths/multichainWorkers';
+import type { MultichainWorkerKind } from '@/core/runtimeAssetPaths/multichainWorkers';
 
 export interface SignerWorkerManagerContext extends SigningRuntimeDeps {
   userPreferencesManager: UserPreferencesManager;

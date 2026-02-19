@@ -226,9 +226,9 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
             ...(controller ? { signal: controller.signal } : {}),
           });
           const json = await res.json().catch(() => ({}));
-          const relayerAccountId = String(json?.relayerAccountId || json?.relayer_account_id || '').trim();
-          if (relayerAccountId) {
-            (window as any).configs = { ...(cfg || {}), relayerAccount: relayerAccountId };
+          const relayerAccount = String(json?.relayerAccount || '').trim();
+          if (relayerAccount) {
+            (window as any).configs = { ...(cfg || {}), relayerAccount };
             if ((window as any).testUtils) {
               (window as any).testUtils.configs = (window as any).configs;
             }

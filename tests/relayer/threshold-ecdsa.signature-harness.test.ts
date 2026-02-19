@@ -18,7 +18,7 @@ function makeAuthServiceForThreshold(): {
   threshold: ReturnType<typeof createThresholdSigningService>;
 } {
   const service = new AuthService({
-    relayerAccountId: 'relayer.testnet',
+    relayerAccount: 'relayer.testnet',
     relayerPrivateKey: 'ed25519:dummy',
     webAuthnContractId: 'w3a-v1.testnet',
     nearRpcUrl: 'https://rpc.testnet.near.org',

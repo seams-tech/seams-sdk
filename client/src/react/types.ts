@@ -12,7 +12,7 @@ import type {
 import type { ThemeName } from '../core/types/tatchi';
 import { TransactionInput } from '../core/types/actions';
 import type { ConfirmationConfig, ConfirmationBehavior } from '../core/types/signer-worker';
-import type { ClientUserData } from '../core/IndexedDBManager/passkeyClientDB';
+import type { ClientUserData } from '../core/IndexedDBManager/passkeyClientDB.types';
 import type { ActionArgs } from '../core/types/actions';
 import type {
   ActionSSEEvent,
@@ -215,7 +215,7 @@ export interface TatchiContextType {
  *   nearNetwork: 'testnet',
  *   contractId: 'w3a-v1.testnet',
  *   // Parent account used for new subaccount creation via the relay server.
- *   // Must match relay-server `RELAYER_ACCOUNT_ID` (aka `relayerAccountId`) when using atomic registration.
+ *   // Must match relay-server `RELAYER_ACCOUNT_ID` when using atomic registration.
  *   relayerAccount: 'w3a-relayer.testnet',
  *   relayer: { url: 'https://relay.example.com' },
  *   nearExplorerUrl: 'https://testnet.nearblocks.io',

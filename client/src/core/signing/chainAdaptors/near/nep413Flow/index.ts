@@ -8,39 +8,39 @@ import {
   type WasmSignNep413MessageRequest,
   type WorkerSuccessResponse,
   getThresholdBehaviorFromSignerMode,
-} from '../../../../types/signer-worker';
-import type { WebAuthnAuthenticationCredential } from '../../../../types';
+} from '@/core/types/signer-worker';
+import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import {
   getPrfResultsFromCredential,
   redactCredentialExtensionOutputs,
-} from '../../../webauthn/credentials/credentialExtensions';
-import { resolveSignerModeForThresholdSigning } from '../../../threshold/session/thresholdEd25519RelayerHealth';
+} from '@/core/signing/webauthn/credentials/credentialExtensions';
+import { resolveSignerModeForThresholdSigning } from '@/core/signing/threshold/session/thresholdEd25519RelayerHealth';
 import type {
   LocalNearSkV3Material,
   ThresholdEd25519_2p_V1Material,
-} from '../../../../IndexedDBManager/passkeyNearKeysDB';
+} from '@/core/IndexedDBManager/passkeyNearKeysDB.types';
 import {
   clearCachedThresholdEd25519AuthSession,
   getCachedThresholdEd25519AuthSessionJwt,
   makeThresholdEd25519AuthSessionCacheKey,
   mintThresholdEd25519AuthSessionLite,
   putCachedThresholdEd25519AuthSession,
-} from '../../../threshold/session/thresholdEd25519AuthSession';
-import type { SigningAuthMode } from '../../../secureConfirm/confirmTxFlow/types';
+} from '@/core/signing/threshold/session/thresholdEd25519AuthSession';
+import type { SigningAuthMode } from '@/core/signing/secureConfirm/confirmTxFlow/types';
 import {
   buildThresholdSessionPolicy,
   isThresholdSessionAuthUnavailableError,
   isThresholdSignerMissingKeyError,
-} from '../../../threshold/session/thresholdSessionPolicy';
-import { normalizeThresholdEd25519ParticipantIds } from '../../../../../../../shared/src/threshold/participants';
+} from '@/core/signing/threshold/session/thresholdSessionPolicy';
+import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
   getLastLoggedInDeviceNumber,
   parseDeviceNumber,
-} from '../../../webauthn/device/getDeviceNumber';
+} from '@/core/signing/webauthn/device/getDeviceNumber';
 import type { SigningRuntimeDeps } from '../../types';
-import { toAccountId } from '../../../../types/accountIds';
-import { deriveThresholdEd25519ClientVerifyingShare } from '../../../threshold/workflows/deriveThresholdEd25519ClientVerifyingShare';
-import { executeSignerWorkerOperation } from '../../../workers/operations/executeSignerWorkerOperation';
+import { toAccountId } from '@/core/types/accountIds';
+import { deriveThresholdEd25519ClientVerifyingShare } from '@/core/signing/workers/signerWorkerManager/nearKeyOps/deriveThresholdEd25519ClientVerifyingShare';
+import { executeSignerWorkerOperation } from '@/core/signing/workers/operations/executeSignerWorkerOperation';
 import {
   assertRuntimeSigningLocalKeyMaterial,
   isRuntimeSigningLocalKeyMaterial,

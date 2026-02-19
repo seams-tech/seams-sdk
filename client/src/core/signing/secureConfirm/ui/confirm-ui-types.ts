@@ -1,4 +1,4 @@
-import type { TransactionInputWasm, SecureConfirmSecurityContext } from '../../../types';
+import type { TransactionInputWasm, SecureConfirmSecurityContext } from '@/core/types';
 
 export interface ConfirmUIElement {
   /** When true, host controls element removal (two-phase close). */

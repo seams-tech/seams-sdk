@@ -9,8 +9,8 @@ import type {
   ThresholdEcdsaSessionPolicy,
   ThresholdEd25519SessionPolicy,
 } from '../../signing/threshold/session/thresholdSessionPolicy';
-import { isObject } from '../../../../../shared/src/utils/validation';
-import { errorMessage } from '../../../../../shared/src/utils/errors';
+import { isObject } from '@shared/utils/validation';
+import { errorMessage } from '@shared/utils/errors';
 
 function isSerializedRegistrationCredential(
   credential: WebAuthnRegistrationCredential | PublicKeyCredential,
@@ -32,10 +32,10 @@ function improveAtomicRegistrationError(args: {
 
   // Server validation: account creation can only create subaccounts under a specific namespace.
   // Depending on the deployment, that namespace can be the WebAuthn contract account (contractId)
-  // or the relayer signer account (relayerAccountId).
+  // or the relayer signer account.
   const mContract = /new_account_id must be a subaccount of contractId\s*\(([^)]+)\)/i.exec(raw);
   const mWebAuthn = /new_account_id must be a subaccount of webAuthnContractId\s*\(([^)]+)\)/i.exec(raw);
-  const mRelayer = /new_account_id must be a subaccount of relayerAccountId\s*\(([^)]+)\)/i.exec(raw);
+  const mRelayer = /new_account_id must be a subaccount of relayer(?:\s+signer\s+)?account\s*\(([^)]+)\)/i.exec(raw);
 
   const expectedContract = (mContract?.[1] || mWebAuthn?.[1]) ? String(mContract?.[1] || mWebAuthn?.[1]).trim() : '';
   const expectedRelayer = mRelayer?.[1] ? String(mRelayer[1]).trim() : '';

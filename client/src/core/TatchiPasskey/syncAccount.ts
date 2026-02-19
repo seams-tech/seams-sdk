@@ -1,13 +1,16 @@
 import type { SyncAccountHooksOptions } from '../types/sdkSentEvents';
 import { SyncAccountPhase, SyncAccountStatus } from '../types/sdkSentEvents';
+import type { SyncAccountSSEEvent } from '../types/sdkSentEvents';
 import type { PasskeyManagerContext } from './index';
 import type { AccountId, WebAuthnAuthenticationCredential } from '../types';
 import { toAccountId } from '../types/accountIds';
 import { redactCredentialExtensionOutputs } from '../signing/webauthn/credentials';
-import { base64UrlDecode } from '../../../../shared/src/utils/base64';
-import { errorMessage } from '../../../../shared/src/utils/errors';
+import type { WebAuthnAllowCredential } from '../signing/webauthn/credentials';
+import { base64UrlDecode } from '@shared/utils/base64';
+import { errorMessage } from '@shared/utils/errors';
+import { isObject } from '@shared/utils/validation';
 import { IndexedDBManager } from '../IndexedDBManager';
-import { buildThresholdEd25519Participants2pV1 } from '../../../../shared/src/threshold/participants';
+import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
 
 export interface SyncAccountResult {
   success: boolean;
@@ -20,96 +23,6 @@ export interface SyncAccountResult {
   };
 }
 
-export interface PasskeyOptionWithoutCredential {
-  credentialId: string;
-  accountId: string | null;
-  publicKey: string;
-  displayName: string;
-}
-
-export interface PasskeySelection {
-  credentialId: string;
-  accountId: string | null;
-}
-
-/**
- * Minimal placeholder for the legacy syncAccount flow.
- *
- * The threshold-only refactor will re-implement account sync against relay-private authenticator
- * storage (not the legacy on-chain registry).
- */
-export class SyncAccountFlow {
-  private context: PasskeyManagerContext;
-  private options?: SyncAccountHooksOptions;
-  private phase: 'idle' | 'discovering' | 'ready' | 'syncing' | 'complete' | 'error' = 'idle';
-  private error?: Error;
-  private availableAccounts?: Array<{
-    credentialId: string;
-    accountId: AccountId | null;
-    publicKey: string;
-    displayName: string;
-  }>;
-
-  constructor(context: PasskeyManagerContext, options?: SyncAccountHooksOptions) {
-    this.context = context;
-    this.options = options;
-  }
-
-  async discover(_accountId?: string): Promise<PasskeyOptionWithoutCredential[]> {
-    this.phase = 'discovering';
-    this.error = undefined;
-    this.availableAccounts = [];
-    this.phase = 'ready';
-    return [];
-  }
-
-  async sync(_selection: PasskeySelection): Promise<SyncAccountResult> {
-    this.phase = 'syncing';
-    this.error = undefined;
-    try {
-      const result = await syncAccount(this.context, _selection.accountId ? toAccountId(_selection.accountId) : null, this.options);
-      this.phase = result.success ? 'complete' : 'error';
-      return result;
-    } catch (e: unknown) {
-      const err = e instanceof Error ? e : new Error(String(e || 'Unknown error'));
-      this.error = err;
-      this.phase = 'error';
-      return {
-        success: false,
-        accountId: _selection.accountId || '',
-        publicKey: '',
-        message: err.message,
-        error: err.message,
-        loginState: { isLoggedIn: false },
-      };
-    }
-  }
-
-  getState(): {
-    phase: 'idle' | 'discovering' | 'ready' | 'syncing' | 'complete' | 'error';
-    availableAccounts: Array<{ credentialId: string; accountId: AccountId | null; publicKey: string; displayName: string }> | undefined;
-    error: Error | undefined;
-    isReady: boolean;
-    isComplete: boolean;
-    hasError: boolean;
-  } {
-    return {
-      phase: this.phase,
-      availableAccounts: this.availableAccounts,
-      error: this.error,
-      isReady: this.phase === 'ready',
-      isComplete: this.phase === 'complete',
-      hasError: this.phase === 'error',
-    };
-  }
-
-  reset(): void {
-    this.phase = 'idle';
-    this.error = undefined;
-    this.availableAccounts = undefined;
-  }
-}
-
 export async function syncAccount(
   context: PasskeyManagerContext,
   accountId: AccountId | null,
@@ -118,6 +31,11 @@ export async function syncAccount(
   allowedCredentialIds?: string[],
 ): Promise<SyncAccountResult> {
   const onEvent = options?.onEvent;
+  const emit = (event: SyncAccountEventPayload): void => {
+    try {
+      onEvent?.(event as SyncAccountSSEEvent);
+    } catch {}
+  };
 
   const relayerUrl = String(context.configs.relayer?.url || '').trim();
   if (!relayerUrl) {
@@ -144,12 +62,12 @@ export async function syncAccount(
   }
 
   try {
-    onEvent?.({
+    emit({
       step: 1,
       phase: SyncAccountPhase.STEP_1_PREPARATION,
       status: SyncAccountStatus.PROGRESS,
       message: 'Preparing account sync...',
-    } as any);
+    });
 
     // 1) Get a relay-minted challenge for discovery.
     const optionsResp = await fetch(`${relayerUrl}/sync-account/options`, {
@@ -157,9 +75,13 @@ export async function syncAccount(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rp_id: rpId }),
     });
-    const optionsJson: any = await optionsResp.json().catch(() => ({}));
-    if (!optionsResp.ok || !optionsJson?.ok) {
-      throw new Error(optionsJson?.message || optionsJson?.error || `sync-account/options failed (HTTP ${optionsResp.status})`);
+    const optionsJsonUnknown: unknown = await optionsResp.json().catch(() => ({}));
+    const optionsJson = isObject(optionsJsonUnknown) ? optionsJsonUnknown : {};
+    const optionsOk = optionsJson.ok === true;
+    const optionsMessage = typeof optionsJson.message === 'string' ? optionsJson.message : '';
+    const optionsError = typeof optionsJson.error === 'string' ? optionsJson.error : '';
+    if (!optionsResp.ok || !optionsOk) {
+      throw new Error(optionsMessage || optionsError || `sync-account/options failed (HTTP ${optionsResp.status})`);
     }
 
     const challengeId = String(optionsJson.challengeId || '').trim();
@@ -168,27 +90,27 @@ export async function syncAccount(
       throw new Error('sync-account/options returned invalid challenge');
     }
 
-    onEvent?.({
+    emit({
       step: 2,
       phase: SyncAccountPhase.STEP_2_WEBAUTHN_AUTHENTICATION,
       status: SyncAccountStatus.PROGRESS,
       message: 'Authenticating with passkey...',
-    } as any);
+    });
 
-    const allowCredentials = Array.isArray(allowedCredentialIds) && allowedCredentialIds.length
-      ? allowedCredentialIds.map((id) => ({ id, transports: [] as string[] }))
+    const allowCredentials: WebAuthnAllowCredential[] = Array.isArray(allowedCredentialIds) && allowedCredentialIds.length
+      ? allowedCredentialIds.map((id) => ({ id, type: 'public-key', transports: [] }))
       : [];
 
     // NOTE: We intentionally avoid requiring a known accountId for discovery. When `allowCredentials`
     // is empty, the browser prompts the user to select any passkey for `rpId`.
     const credential = reuseCredential || await context.webAuthnManager.credentialRecovery.getAuthenticationCredentialsSerialized({
-      nearAccountId: (accountId || ('dummy.testnet' as any)) as any,
+      nearAccountId: accountId || toAccountId('dummy.testnet'),
       challengeB64u,
       allowCredentials,
       includeSecondPrfOutput: false,
-    } as any);
+    });
 
-    const credentialForRelay = redactCredentialExtensionOutputs<WebAuthnAuthenticationCredential>(credential as any);
+    const credentialForRelay = redactCredentialExtensionOutputs<WebAuthnAuthenticationCredential>(credential);
     const verifyResp = await fetch(`${relayerUrl}/sync-account/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -197,9 +119,14 @@ export async function syncAccount(
         webauthn_authentication: credentialForRelay,
       }),
     });
-    const verifyJson: any = await verifyResp.json().catch(() => ({}));
-    if (!verifyResp.ok || !verifyJson?.ok || !verifyJson?.verified) {
-      throw new Error(verifyJson?.message || verifyJson?.error || `sync-account/verify failed (HTTP ${verifyResp.status})`);
+    const verifyJsonUnknown: unknown = await verifyResp.json().catch(() => ({}));
+    const verifyJson = isObject(verifyJsonUnknown) ? verifyJsonUnknown : {};
+    const verifyOk = verifyJson.ok === true;
+    const verified = verifyJson.verified === true;
+    const verifyMessage = typeof verifyJson.message === 'string' ? verifyJson.message : '';
+    const verifyError = typeof verifyJson.error === 'string' ? verifyJson.error : '';
+    if (!verifyResp.ok || !verifyOk || !verified) {
+      throw new Error(verifyMessage || verifyError || `sync-account/verify failed (HTTP ${verifyResp.status})`);
     }
 
     const syncedAccountId = String(verifyJson.accountId || '').trim();
@@ -233,14 +160,14 @@ export async function syncAccount(
       clientNearPublicKey: publicKey,
       lastUpdated: Date.now(),
       passkeyCredential: {
-        id: String((credential as any).id || ''),
-        rawId: String((credential as any).rawId || ''),
+        id: String(credential.id || ''),
+        rawId: String(credential.rawId || ''),
       },
       version: 2,
     });
     await context.webAuthnManager.indexedDbRegistration.storeAuthenticator({
       nearAccountId: normalizedAccountId,
-      credentialId: String((credential as any).rawId || ''),
+      credentialId: String(credential.rawId || ''),
       credentialPublicKey,
       transports: [],
       name: `Passkey for ${syncedAccountId}`,
@@ -249,20 +176,20 @@ export async function syncAccount(
       deviceNumber,
     });
 
-    onEvent?.({
+    emit({
       step: 4,
       phase: SyncAccountPhase.STEP_4_AUTHENTICATOR_SAVED,
       status: SyncAccountStatus.SUCCESS,
       message: 'Passkey saved locally',
-    } as any);
+    });
 
     // 3) Persist threshold key material when available.
-    const thresholdEd25519 = verifyJson.thresholdEd25519 || null;
-    const relayerKeyId = String((thresholdEd25519?.relayerKeyId ?? verifyJson.relayerKeyId ?? '') || '').trim();
+    const thresholdEd25519 = isObject(verifyJson.thresholdEd25519) ? verifyJson.thresholdEd25519 : {};
+    const relayerKeyId = String((thresholdEd25519.relayerKeyId ?? verifyJson.relayerKeyId ?? '') || '').trim();
     if (relayerKeyId) {
-      const relayerVerifyingShareB64u = String(thresholdEd25519?.relayerVerifyingShareB64u || '').trim();
+      const relayerVerifyingShareB64u = String(thresholdEd25519.relayerVerifyingShareB64u || '').trim();
       const derived = await context.webAuthnManager.thresholdKeyLifecycle.deriveThresholdEd25519ClientVerifyingShareFromCredential({
-        credential: credential as any,
+        credential,
         nearAccountId: normalizedAccountId,
       });
       const clientVerifyingShareB64u = derived.success ? String(derived.clientVerifyingShareB64u || '').trim() : '';
@@ -274,8 +201,12 @@ export async function syncAccount(
         relayerKeyId,
         clientShareDerivation: 'prf_first_v1',
         participants: buildThresholdEd25519Participants2pV1({
-          clientParticipantId: thresholdEd25519?.clientParticipantId,
-          relayerParticipantId: thresholdEd25519?.relayerParticipantId,
+          clientParticipantId: Number.isFinite(Number(thresholdEd25519.clientParticipantId))
+            ? Math.floor(Number(thresholdEd25519.clientParticipantId))
+            : null,
+          relayerParticipantId: Number.isFinite(Number(thresholdEd25519.relayerParticipantId))
+            ? Math.floor(Number(thresholdEd25519.relayerParticipantId))
+            : null,
           relayerKeyId,
           relayerUrl: context.configs?.relayer?.url,
           clientVerifyingShareB64u,
@@ -286,12 +217,12 @@ export async function syncAccount(
       });
     }
 
-    onEvent?.({
+    emit({
       step: 5,
       phase: SyncAccountPhase.STEP_5_SYNC_ACCOUNT_COMPLETE,
       status: SyncAccountStatus.SUCCESS,
       message: 'Account synced',
-    } as any);
+    });
 
     return {
       success: true,
@@ -302,13 +233,13 @@ export async function syncAccount(
     };
   } catch (e: unknown) {
     const msg = errorMessage(e) || 'syncAccount failed';
-    onEvent?.({
+    emit({
       step: 0,
       phase: SyncAccountPhase.ERROR,
       status: SyncAccountStatus.ERROR,
       message: 'Account sync failed',
       error: msg,
-    } as any);
+    });
     return {
       success: false,
       accountId: accountId ? String(accountId) : '',
@@ -319,3 +250,13 @@ export async function syncAccount(
     };
   }
 }
+
+type SyncAccountEventPayload = {
+  step: number;
+  phase: SyncAccountPhase;
+  status: SyncAccountStatus;
+  message: string;
+  error?: string;
+  data?: Record<string, unknown>;
+  [key: string]: unknown;
+};

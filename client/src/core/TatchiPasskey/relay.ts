@@ -2,6 +2,7 @@ import { ActionPhase, ActionStatus, type ActionSSEEvent, type DelegateRelayHooks
 import type { DelegateRelayResult } from '../types/tatchi';
 import type { SignedDelegate } from '../types/delegate';
 import type { WasmSignedDelegate } from '../types/signer-worker';
+import { isObject } from '@shared/utils/validation';
 
 export interface RelayDelegateRequest {
   hash: string;
@@ -95,9 +96,10 @@ export async function sendDelegateActionViaRelayer(args: {
     return response;
   }
 
-  let json: any;
+  let json: Record<string, unknown>;
   try {
-    json = await res.json();
+    const parsed: unknown = await res.json();
+    json = isObject(parsed) ? parsed : {};
   } catch (err: unknown) {
     const response: DelegateRelayResult = {
       ok: false,
@@ -111,11 +113,15 @@ export async function sendDelegateActionViaRelayer(args: {
   }
 
   const response: DelegateRelayResult = {
-    ok: Boolean(json?.ok ?? true),
-    relayerTxHash: json?.relayerTxHash ?? json?.transactionId ?? json?.txHash,
-    status: json?.status,
-    outcome: json?.outcome,
-    error: json?.error,
+    ok: Boolean(json.ok ?? true),
+    relayerTxHash: typeof json.relayerTxHash === 'string'
+      ? json.relayerTxHash
+      : (typeof json.transactionId === 'string'
+        ? json.transactionId
+        : (typeof json.txHash === 'string' ? json.txHash : undefined)),
+    status: typeof json.status === 'string' ? json.status : undefined,
+    outcome: json.outcome,
+    error: typeof json.error === 'string' ? json.error : undefined,
   };
 
   const success = response.ok !== false;
