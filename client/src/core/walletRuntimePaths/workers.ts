@@ -45,7 +45,7 @@ export function resolveWorkerScriptUrl(input: string): string {
 
 export function resolveWorkerUrl(
   input: string | undefined,
-  opts: { worker: 'signer' | 'secureConfirm'; baseOrigin?: string }
+  opts: { worker: 'signer' | 'touchConfirm'; baseOrigin?: string }
 ): string {
   const worker = opts.worker
   const baseOrigin = opts.baseOrigin || resolveWorkerBaseOrigin() || (typeof window !== 'undefined' ? window.location.origin : '') || 'https://invalid.local'
@@ -54,7 +54,7 @@ export function resolveWorkerUrl(
     const ovAny = (typeof window !== 'undefined' ? (window as any) : {}) as any
     const override = worker === 'signer'
       ? ovAny.__W3A_SIGNER_WORKER_URL__
-      : ovAny.__W3A_SECURE_CONFIRM_WORKER_URL__
+      : ovAny.__W3A_TOUCH_CONFIRM_WORKER_URL__
     const candidate = (typeof override === 'string' && override) ? override : (input || defaultWorkerPath(worker))
     if (/^https?:\/\//i.test(candidate)) {
       return new URL(candidate).toString()
@@ -66,11 +66,11 @@ export function resolveWorkerUrl(
   }
 }
 
-function detectWorkerFromPath(p: string): 'signer' | 'secureConfirm' {
-  return /near-signer\.worker\.js(?:$|\?)/.test(p) ? 'signer' : 'secureConfirm'
+function detectWorkerFromPath(p: string): 'signer' | 'touchConfirm' {
+  return /near-signer\.worker\.js(?:$|\?)/.test(p) ? 'signer' : 'touchConfirm'
 }
 
-function defaultWorkerPath(worker: 'signer' | 'secureConfirm'): string {
+function defaultWorkerPath(worker: 'signer' | 'touchConfirm'): string {
   return worker === 'signer'
     ? '/sdk/workers/near-signer.worker.js'
     : '/sdk/workers/passkey-confirm.worker.js'

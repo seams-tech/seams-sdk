@@ -74,7 +74,6 @@ export async function executeWebAuthnWithParentFallbacksSafari(
 ): Promise<PublicKeyCredential | unknown> {
 
   const {
-    rpId,
     inIframe,
     timeoutMs = 60000,
     permitGetBridgeOnAncestorError = true
@@ -82,13 +81,16 @@ export async function executeWebAuthnWithParentFallbacksSafari(
   const bridgeClient = deps.bridgeClient || new WindowParentDomainWebAuthnClient();
 
   const isTestForceNativeFail = (): boolean => {
-    const g = (globalThis as any);
-    const w = (typeof window !== 'undefined' ? (window as any) : undefined);
-    return !!(g && g.__W3A_TEST_FORCE_NATIVE_FAIL) || !!(w && w.__W3A_TEST_FORCE_NATIVE_FAIL);
+    const g = globalThis as typeof globalThis & { __W3A_TEST_FORCE_NATIVE_FAIL?: unknown };
+    const w = (typeof window !== 'undefined')
+      ? (window as Window & { __W3A_TEST_FORCE_NATIVE_FAIL?: unknown })
+      : undefined;
+    return !!g.__W3A_TEST_FORCE_NATIVE_FAIL || !!w?.__W3A_TEST_FORCE_NATIVE_FAIL;
   };
   const bumpCounter = (key: string) => {
-    const g = (globalThis as any);
-    g[key] = (g[key] || 0) + 1;
+    const g = globalThis as Record<string, unknown>;
+    const current = typeof g[key] === 'number' ? g[key] as number : 0;
+    g[key] = current + 1;
   };
 
   // Test harness fast-path: when explicitly forcing native fail, skip native and go straight to bridge.
@@ -105,7 +107,7 @@ export async function executeWebAuthnWithParentFallbacksSafari(
       throw new Error('WebAuthn bridge timeout');
     } catch (be: unknown) {
       // Ensure consistent error type for unit tests
-      throw notAllowedError((be as any)?.message || 'WebAuthn bridge failed');
+      throw notAllowedError(safeMessage(be) || 'WebAuthn bridge failed');
     }
   }
 
@@ -152,7 +154,7 @@ export async function executeWebAuthnWithParentFallbacksSafari(
           throw notAllowedError(bridgedCredentials.error || 'WebAuthn get cancelled or failed (bridge)');
         }
       } catch (be: unknown) {
-        throw notAllowedError((be as any)?.message || 'WebAuthn bridge failed');
+        throw notAllowedError(safeMessage(be) || 'WebAuthn bridge failed');
       }
     }
 
@@ -170,7 +172,7 @@ export async function executeWebAuthnWithParentFallbacksSafari(
             throw notAllowedError(bridgedCredentials.error || 'WebAuthn get cancelled or failed (bridge)');
           }
         } catch (be: unknown) {
-          throw notAllowedError((be as any)?.message || 'WebAuthn bridge failed');
+          throw notAllowedError(safeMessage(be) || 'WebAuthn bridge failed');
         }
       }
     }
@@ -180,15 +182,15 @@ export async function executeWebAuthnWithParentFallbacksSafari(
       try {
         const bridgedCredentials = await requestParentDomainWebAuthn(kind, publicKey, bridgeClient, timeoutMs);
         if (bridgedCredentials?.ok) return bridgedCredentials.credential;
-        if (bridgedCredentials && !bridgedCredentials.timeout) {
-          throw notAllowedError(bridgedCredentials.error || 'WebAuthn cancelled or failed (bridge)');
-        }
-        // Timeout: surface an explicit error without re‑trying native again
-        throw new Error('WebAuthn bridge timeout');
-      } catch (be: unknown) {
-        throw notAllowedError((be as any)?.message || 'WebAuthn bridge failed');
+      if (bridgedCredentials && !bridgedCredentials.timeout) {
+        throw notAllowedError(bridgedCredentials.error || 'WebAuthn cancelled or failed (bridge)');
       }
+      // Timeout: surface an explicit error without re‑trying native again
+      throw new Error('WebAuthn bridge timeout');
+    } catch (be: unknown) {
+      throw notAllowedError(safeMessage(be) || 'WebAuthn bridge failed');
     }
+  }
 
     // Step 5: not an iframe or no recognized fallback – rethrow original error
     throw e;
@@ -237,7 +239,12 @@ export class WindowParentDomainWebAuthnClient implements ParentDomainWebAuthnCli
         return finish({ ok: false, error: typeof err === 'string' ? err : undefined });
       };
       window.addEventListener('message', onMessage);
-      window.parent?.postMessage({ type: kind, requestId, publicKey } as { type: K; requestId: string; publicKey: any }, '*');
+      const envelope: {
+        type: K;
+        requestId: string;
+        publicKey: PublicKeyCredentialCreationOptions | PublicKeyCredentialRequestOptions;
+      } = { type: kind, requestId, publicKey };
+      window.parent?.postMessage(envelope, '*');
       setTimeout(() => { window.removeEventListener('message', onMessage); finish({ ok: false, timeout: true }); }, timeoutMs);
     });
   }
@@ -245,7 +252,7 @@ export class WindowParentDomainWebAuthnClient implements ParentDomainWebAuthnCli
 
 function notAllowedError(message: string): Error {
   const e = new Error(message);
-  (e as any).name = 'NotAllowedError';
+  Object.defineProperty(e, 'name', { value: 'NotAllowedError', configurable: true });
   return e;
 }
 
@@ -274,8 +281,10 @@ function safeName(err: unknown): string {
 
 // Private: focus utility to mitigate Safari focus issues
 async function attemptRefocus(maxRetries = 2, delays: number[] = [50, 120]): Promise<boolean> {
-  (window as any).focus?.();
-  (document?.body as any)?.focus?.();
+  window.focus?.();
+  if (document?.body) {
+    document.body.focus?.();
+  }
 
   const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
   const total = Math.max(0, maxRetries);
@@ -283,7 +292,7 @@ async function attemptRefocus(maxRetries = 2, delays: number[] = [50, 120]): Pro
     const d = delays[i] ?? delays[delays.length - 1] ?? 80;
     await wait(d);
     if (document.hasFocus()) return true;
-    (window as any).focus?.();
+    window.focus?.();
   }
   return document.hasFocus();
 }

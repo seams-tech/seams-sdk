@@ -8,11 +8,11 @@ import { errorMessage } from '@shared/utils/errors';
 import { WorkerControlMessage } from '../workerTypes';
 
 type TempoSignerWorkerRequest =
-  | { id: string; type: 'computeTempoSenderHash'; payload: { tx: any } }
+  | { id: string; type: 'computeTempoSenderHash'; payload: { tx: unknown } }
   | {
       id: string;
       type: 'encodeTempoSignedTx';
-      payload: { tx: any; senderSignature: any };
+      payload: { tx: unknown; senderSignature: unknown };
     };
 
 type WorkerErrorPayload = {
@@ -41,11 +41,22 @@ function asWorkerErrorPayload(err: unknown): WorkerErrorPayload {
   return { message: errorMessage(err) };
 }
 
-function toU8(v: any): Uint8Array {
+function toU8(v: unknown): Uint8Array {
   if (v instanceof Uint8Array) return v;
   if (v instanceof ArrayBuffer) return new Uint8Array(v);
   if (ArrayBuffer.isView(v)) return new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
   throw new Error('expected bytes');
+}
+
+function postToMainThread(message: unknown, transfer?: Transferable[]): void {
+  const workerSelf = self as unknown as {
+    postMessage: (message: unknown, transfer?: Transferable[]) => void;
+  };
+  if (transfer && transfer.length > 0) {
+    workerSelf.postMessage(message, transfer);
+    return;
+  }
+  workerSelf.postMessage(message);
 }
 
 const wasmUrl = resolveWasmUrl('tempo_signer.wasm', 'Tempo Signer');
@@ -57,7 +68,7 @@ async function ensureWasm(): Promise<void> {
     await initializeWasm({
       workerName: 'Tempo Signer',
       wasmUrl,
-      initFunction: init as any,
+      initFunction: init as unknown as (wasmModule?: unknown) => Promise<void>,
       validateFunction: () => init_tempo_signer(),
     });
   })();
@@ -65,7 +76,7 @@ async function ensureWasm(): Promise<void> {
 }
 
 setTimeout(() => {
-  (self as any).postMessage({ type: WorkerControlMessage.WORKER_READY, ready: true });
+  postToMainThread({ type: WorkerControlMessage.WORKER_READY, ready: true });
 }, 0);
 
 self.addEventListener('message', async (event: MessageEvent) => {
@@ -78,19 +89,19 @@ self.addEventListener('message', async (event: MessageEvent) => {
       case 'computeTempoSenderHash': {
         const out = compute_tempo_sender_hash(msg.payload.tx) as Uint8Array;
         const ab = out.slice().buffer;
-        (self as any).postMessage({ id: msg.id, ok: true, result: ab }, [ab]);
+        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
         return;
       }
       case 'encodeTempoSignedTx': {
         const out = encode_tempo_signed_tx(msg.payload.tx, toU8(msg.payload.senderSignature)) as Uint8Array;
         const ab = out.slice().buffer;
-        (self as any).postMessage({ id: msg.id, ok: true, result: ab }, [ab]);
+        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
         return;
       }
     }
   } catch (e) {
     const err = asWorkerErrorPayload(e);
-    (self as any).postMessage({
+    postToMainThread({
       id: msg.id,
       ok: false,
       error: err.message,

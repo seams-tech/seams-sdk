@@ -7,7 +7,6 @@ import {
 import type { WebAuthnAllowCredential } from '../credentials';
 import type {
   WebAuthnAuthenticationCredential,
-  WebAuthnRegistrationCredential
 } from '@/core/types/webauthn';
 import { executeWebAuthnWithParentFallbacksSafari } from '../fallbacks';
 // Local rpId policy helpers (moved back from WebAuthnFallbacks)
@@ -98,7 +97,7 @@ export class TouchIdPrompt {
    * is already a canonical digest (e.g. `sessionPolicyDigest32`).
    */
   async getAuthenticationCredentialsSerializedForChallengeB64u({
-    nearAccountId,
+    nearAccountId: _nearAccountId,
     challengeB64u,
     allowCredentials = [],
     includeSecondPrfOutput = false,

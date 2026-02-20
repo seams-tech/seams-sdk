@@ -83,7 +83,6 @@ function warnOnce(key: string, message: string, opts?: { warnTtlMs?: number; war
   const existing = warnedUnsupportedRelayerByKey.get(key);
   if (existing && existing > nowMs) return;
   warnedUnsupportedRelayerByKey.set(key, nowMs + ttlMs);
-  // eslint-disable-next-line no-console
   console.warn(message);
   opts?.warnings?.push(message);
 }

@@ -18,7 +18,7 @@ import type {
   PreferencesChangedPayload,
   ProgressPayload,
 } from '../shared/messages';
-import { CONFIRM_UI_ELEMENT_SELECTORS } from '../../signingEngine/secureConfirm/ui/tags';
+import { CONFIRM_UI_ELEMENT_SELECTORS } from '../../signingEngine/touchConfirm/ui/registry';
 import { setupLitElemMounter } from './lit-ui/iframe-lit-elem-mounter';
 import type { TatchiConfigsInput } from '../../types/tatchi';
 import { isObject } from '@shared/utils/validation';

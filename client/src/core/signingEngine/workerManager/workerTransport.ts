@@ -36,7 +36,6 @@ import {
 
 type RpcOk<T = unknown> = { id: string; ok: true; result: T };
 type RpcErr = { id: string; ok: false; error: string; code?: string; coreCode?: string };
-type RpcResp<T = unknown> = RpcOk<T> | RpcErr;
 
 type NearRpcProgressFrame = {
   id: string;

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, isValidElement, cloneElement } from 'react';
 import { createComponent } from '@lit/react';
-import PasskeyHaloLoadingElement from '../../core/signingEngine/secureConfirm/ui/lit-components/PasskeyHaloLoading';
+import PasskeyHaloLoadingElement from '../../core/signingEngine/touchConfirm/ui/lit-components/PasskeyHaloLoading';
 
 export interface LitPasskeyHaloLoadingProps {
   // Pass-through to HaloBorder

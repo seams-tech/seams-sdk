@@ -41,13 +41,13 @@ export const BUILD_PATHS = {
   RUNTIME: {
     SDK_BASE: '/sdk',
     WORKERS_BASE: '/sdk/workers',
-    SECURE_CONFIRM_WORKER: '/sdk/workers/passkey-confirm.worker.js',
+    TOUCH_CONFIRM_WORKER: '/sdk/workers/passkey-confirm.worker.js',
     SIGNER_WORKER: '/sdk/workers/near-signer.worker.js',
   },
 
   // Worker file names
   WORKERS: {
-    SECURE_CONFIRM: 'passkey-confirm.worker.js',
+    TOUCH_CONFIRM: 'passkey-confirm.worker.js',
     SIGNER: 'near-signer.worker.js',
     WASM_SIGNER_JS: 'wasm_signer_worker.js',
     WASM_SIGNER_WASM: 'wasm_signer_worker_bg.wasm',
@@ -55,7 +55,7 @@ export const BUILD_PATHS = {
 
   // Test worker file paths (for test files)
   TEST_WORKERS: {
-    SECURE_CONFIRM: '/sdk/workers/passkey-confirm.worker.js',
+    TOUCH_CONFIRM: '/sdk/workers/passkey-confirm.worker.js',
     SIGNER: '/sdk/workers/near-signer.worker.js',
     WASM_SIGNER_JS: '/sdk/workers/wasm_signer_worker.js',
     WASM_SIGNER_WASM: '/sdk/workers/wasm_signer_worker_bg.wasm',

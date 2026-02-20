@@ -54,14 +54,24 @@ export class WebAuthnP256Engine implements Signer {
       throw new Error('[WebAuthnP256Engine] credentialId must be non-empty');
     }
 
-    const fromSerializedCredential = async (credential: any): Promise<SignatureBytes> => {
-      const rawIdB64 = String(credential?.rawId || '').trim();
+    const fromSerializedCredential = async (credential: unknown): Promise<SignatureBytes> => {
+      const serialized = (credential && typeof credential === 'object')
+        ? (credential as {
+            rawId?: unknown;
+            response?: {
+              authenticatorData?: unknown;
+              clientDataJSON?: unknown;
+              signature?: unknown;
+            } | undefined;
+          })
+        : {};
+      const rawIdB64 = String(serialized.rawId || '').trim();
       const rawId = base64Decode(rawIdB64);
       if (!bytesEq(rawId, keyRef.credentialId)) {
         throw new Error('[WebAuthnP256Engine] WebAuthn credential rawId does not match keyRef');
       }
 
-      const response = credential?.response;
+      const response = serialized.response;
       const authenticatorData = base64UrlDecode(String(response?.authenticatorData || ''));
       const clientDataJSON = base64UrlDecode(String(response?.clientDataJSON || ''));
       const signatureDer = base64UrlDecode(String(response?.signature || ''));

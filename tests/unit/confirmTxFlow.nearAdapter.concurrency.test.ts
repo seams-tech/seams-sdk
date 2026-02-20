@@ -3,10 +3,10 @@ import { handleInfrastructureErrors } from '../setup';
 
 const IMPORT_PATHS = {
   nonceManager: '/sdk/esm/core/rpcClients/near/nonceManager.js',
-  nearAdapter: '/sdk/esm/core/signingEngine/secureConfirm/confirmTxFlow/adapters/near.js',
+  nearAdapter: '/sdk/esm/core/signingEngine/touchConfirm/handlers/flows/adapters/adapters.js',
 } as const;
 
-test.describe('confirmTxFlow near adapter – concurrency', () => {
+test.describe('touchConfirm near adapter – concurrency', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
   });
@@ -34,11 +34,12 @@ test.describe('confirmTxFlow near adapter – concurrency', () => {
         (nonceManager as any).lastBlockHeightUpdate = Date.now();
 
         const ctx = { nonceManager, nearClient: {} } as any;
+        const adapters = nearAdapter.createConfirmTxFlowAdapters(ctx);
 
         // Run two reservations "concurrently" to mimic rapid-fire signing requests.
         const [r1, r2] = await Promise.all([
-          nearAdapter.fetchNearContext(ctx, { nearAccountId: 'test-account', txCount: 1, reserveNonces: true }),
-          nearAdapter.fetchNearContext(ctx, { nearAccountId: 'test-account', txCount: 1, reserveNonces: true }),
+          adapters.near.fetchNearContext({ nearAccountId: 'test-account', txCount: 1, reserveNonces: true }),
+          adapters.near.fetchNearContext({ nearAccountId: 'test-account', txCount: 1, reserveNonces: true }),
         ]);
 
         return {
@@ -65,4 +66,3 @@ test.describe('confirmTxFlow near adapter – concurrency', () => {
     expect(result.nonce1).not.toBe(result.nonce2);
   });
 });
-

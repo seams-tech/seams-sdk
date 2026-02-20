@@ -37,11 +37,11 @@ FRONTEND_WORKERS="../examples/tatchi-site/src/public/sdk/workers"
 # Runtime paths (used by workers and tests)
 RUNTIME_SDK_BASE="/sdk"
 RUNTIME_WORKERS_BASE="/sdk/workers"
-RUNTIME_SECURE_CONFIRM_WORKER="/sdk/workers/passkey-confirm.worker.js"
+RUNTIME_TOUCH_CONFIRM_WORKER="/sdk/workers/passkey-confirm.worker.js"
 RUNTIME_SIGNER_WORKER="/sdk/workers/near-signer.worker.js"
 
 # Worker file names
-WORKER_SECURE_CONFIRM="passkey-confirm.worker.js"
+WORKER_TOUCH_CONFIRM="passkey-confirm.worker.js"
 WORKER_SIGNER="near-signer.worker.js"
 WORKER_ETH_SIGNER="eth-signer.worker.js"
 WORKER_TEMPO_SIGNER="tempo-signer.worker.js"
@@ -52,7 +52,7 @@ WORKER_WASM_TEMPO_SIGNER_WASM="tempo_signer.wasm"
 
 # Critical files to check for build freshness
 CRITICAL_FILES=(
-    "../client/src/core/signingEngine/secureConfirm/index.ts"
+    "../client/src/core/signingEngine/touchConfirm/index.ts"
     "../client/src/core/signingEngine/workerManager/index.ts"
     "../client/src/core/signingEngine/workerManager/session.ts"
     "../client/src/core/signingEngine/workerManager/validation.ts"
@@ -60,7 +60,8 @@ CRITICAL_FILES=(
     "../client/src/core/signingEngine/chainAdaptors/near"
     "../client/src/core/signingEngine/chainAdaptors/tempo"
     "../client/src/core/signingEngine/chainAdaptors"
-    "../client/src/core/signingEngine/secureConfirm/confirmTxFlow"
+    "../client/src/core/signingEngine/touchConfirm/handlers"
+    "../client/src/core/signingEngine/touchConfirm/workerBridge"
     "../client/src/core/signingEngine/SigningEngine.ts"
     "../client/src/core/TatchiPasskey/index.ts"
     "../client/src/core/TatchiPasskey/near/actions.ts"

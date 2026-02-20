@@ -1,6 +1,6 @@
 import React from 'react';
 import { createComponent } from '@lit/react';
-import DrawerElement from '../../core/signingEngine/secureConfirm/ui/lit-components/Drawer';
+import DrawerElement from '../../core/signingEngine/touchConfirm/ui/lit-components/Drawer';
 
 export interface LitDrawerProps {
   open?: boolean;

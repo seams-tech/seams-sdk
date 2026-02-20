@@ -14,7 +14,7 @@ import { withSessionId } from '../session';
 export async function decryptPrivateKeyWithPrf({
   ctx,
   nearAccountId,
-  authenticators,
+  authenticators: _authenticators,
   sessionId,
   prfFirstB64u,
   wrapKeySalt,
@@ -96,8 +96,14 @@ export async function decryptPrivateKeyWithPrf({
 
     if (!isDecryptPrivateKeyWithPrfSuccess(response)) {
       console.error('SigningEngine: Dual PRF private key decryption failed:', response);
-      const payloadError = isObject(response?.payload) && (response as any)?.payload?.error;
-      throw new Error(payloadError || 'Private key decryption failed');
+      const payloadError = isObject(response?.payload)
+        ? (response.payload as { error?: unknown }).error
+        : undefined;
+      throw new Error(
+        (typeof payloadError === 'string' && payloadError.trim())
+          ? payloadError
+          : 'Private key decryption failed',
+      );
     }
     return {
       decryptedPrivateKey: response.payload.privateKey,

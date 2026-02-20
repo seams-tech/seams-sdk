@@ -58,8 +58,6 @@ export type NearNep413Payload = {
     signingSessionTtlMs?: number;
     signingSessionRemainingUses?: number;
     sessionId?: string;
-    contractId?: string;
-    nearRpcUrl?: string;
   };
 };
 

@@ -167,7 +167,7 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
 
       expect(result.ok).toBe(false);
       const msg = String(result.error || '');
-      expect(msg).toMatch(/No cached threshold-ecdsa session token|threshold session expired|PRF\.first not cached for threshold session/i);
+      expect(msg).toMatch(/Missing threshold signingSessionId|No cached threshold-ecdsa session token|threshold session expired|PRF\.first not cached for threshold session/i);
     } finally {
       await harness.close();
     }

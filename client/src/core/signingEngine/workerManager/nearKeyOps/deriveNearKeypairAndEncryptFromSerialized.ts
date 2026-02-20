@@ -11,6 +11,7 @@ import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import { toEnumUserVerificationPolicy } from '@/core/types/authenticatorOptions';
 import { withSessionId } from '../session';
 import { base64UrlEncode } from '@shared/utils/encoders';
+import { getPrfResultsFromCredential } from '@/core/signingEngine/signers/webauthn/credentials/credentialExtensions';
 
 /**
  * Derive NEAR keypair and encrypt it from a serialized WebAuthn registration credential
@@ -47,9 +48,7 @@ export async function deriveNearKeypairAndEncryptFromSerialized({
   try {
     if (!sessionId) throw new Error('Missing sessionId for registration request');
 
-    const prfResults = (credential as any)?.clientExtensionResults?.prf?.results as
-      | { first?: string; second?: string }
-      | undefined;
+    const prfResults = getPrfResultsFromCredential(credential);
     const prfFirstB64u = typeof prfResults?.first === 'string' ? prfResults.first.trim() : '';
     const prfSecondB64u = typeof prfResults?.second === 'string' ? prfResults.second.trim() : '';
     if (!prfFirstB64u || !prfSecondB64u) {

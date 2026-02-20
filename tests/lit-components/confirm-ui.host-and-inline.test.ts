@@ -43,7 +43,7 @@ test.describe('confirm-ui inline confirmer', () => {
       const waitFor = eval(waitForSource) as typeof harnessWaitFor;
       const mod = await import(paths.confirmUi);
       const events = await import(paths.events);
-      const { awaitConfirmUIDecision } = mod as typeof import('@/core/signingEngine/secureConfirm/ui/confirm-ui');
+      const { awaitConfirmUIDecision } = mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
       const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
         userPreferencesManager: {
           getCurrentUserAccountId: () => 'alice.testnet',
@@ -88,7 +88,7 @@ test.describe('confirm-ui inline confirmer', () => {
       const waitFor = eval(waitForSource) as typeof harnessWaitFor;
       const mod = await import(paths.confirmUi);
       const events = await import(paths.events);
-      const { awaitConfirmUIDecision } = mod as typeof import('@/core/signingEngine/secureConfirm/ui/confirm-ui');
+      const { awaitConfirmUIDecision } = mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
       const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
         userPreferencesManager: {
           getCurrentUserAccountId: () => 'alice.testnet',
@@ -142,7 +142,7 @@ test.describe('confirm-ui inline confirmer', () => {
       const waitFor = eval(waitForSource) as typeof harnessWaitFor;
       const mod = await import(paths.confirmUi);
       const events = await import(paths.events);
-      const { awaitConfirmUIDecision } = mod as typeof import('@/core/signingEngine/secureConfirm/ui/confirm-ui');
+      const { awaitConfirmUIDecision } = mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
       const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
         userPreferencesManager: {
           getCurrentUserAccountId: () => 'alice.testnet',
@@ -192,7 +192,7 @@ test.describe('confirm-ui inline confirmer', () => {
       const waitFor = eval(waitForSource) as typeof harnessWaitFor;
       const mod = await import(paths.confirmUi);
       const events = await import(paths.events);
-      const { awaitConfirmUIDecision } = mod as typeof import('@/core/signingEngine/secureConfirm/ui/confirm-ui');
+      const { awaitConfirmUIDecision } = mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
       const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
         userPreferencesManager: {
           getCurrentUserAccountId: () => 'alice.testnet',
@@ -240,7 +240,7 @@ test.describe('confirm-ui inline confirmer', () => {
       const waitFor = eval(waitForSource) as typeof harnessWaitFor;
       const mod = await import(paths.confirmUi);
       const events = await import(paths.events);
-      const { awaitConfirmUIDecision } = mod as typeof import('@/core/signingEngine/secureConfirm/ui/confirm-ui');
+      const { awaitConfirmUIDecision } = mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
       const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
         userPreferencesManager: {
           getCurrentUserAccountId: () => 'alice.testnet',
@@ -297,5 +297,59 @@ test.describe('confirm-ui inline confirmer', () => {
     expect(result.confirmed).toBe(false);
     expect(result.error).toBe('INTENT_DIGEST_MISMATCH');
     expect(result.dataError).toBe('INTENT_DIGEST_MISMATCH');
+  });
+
+  test('raw fallback model still allows confirmation (non-blocking UX)', async ({ page }) => {
+    const result = await page.evaluate(async ({ securityContext, waitForSource, paths }) => {
+      const waitFor = eval(waitForSource) as typeof harnessWaitFor;
+      const mod = await import(paths.confirmUi);
+      const events = await import(paths.events);
+      const { awaitConfirmUIDecision } = mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+      const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
+        userPreferencesManager: {
+          getCurrentUserAccountId: () => 'alice.testnet',
+          getConfirmationConfig: () => ({
+            uiMode: 'modal',
+            behavior: 'requireClick',
+            autoProceedDelay: 0,
+            theme: 'dark'
+          })
+        },
+        ...overrides,
+      });
+      const ctx = (window as any).ctxStub || ((window as any).ctxStub = buildCtxStub());
+
+      const decisionPromise = awaitConfirmUIDecision({
+        ctx: ctx as any,
+        summary: { intentDigest: 'fallback-intent' },
+        txSigningRequests: [],
+        model: {
+          chain: 'unknown',
+          title: 'Unknown Payload',
+          operations: [{
+            id: 'unknown-op',
+            kind: 'raw.fallback',
+            label: 'Unsupported Payload',
+            raw: '{"kind":"unknown"}',
+          }],
+        } as any,
+        securityContext: securityContext as any,
+        theme: 'dark',
+        uiMode: 'modal',
+        nearAccountIdOverride: 'alice.testnet',
+      });
+
+      await waitFor(() => !!document.getElementById('w3a-confirm-portal')?.firstElementChild);
+      const portalChild = document.getElementById('w3a-confirm-portal')?.firstElementChild as HTMLElement | null;
+      portalChild?.dispatchEvent(new CustomEvent(
+        events.WalletIframeDomEvents.TX_CONFIRMER_CONFIRM,
+        { detail: { confirmed: true }, bubbles: true, composed: true } as any
+      ));
+
+      const { confirmed } = await decisionPromise;
+      return { confirmed };
+    }, { securityContext: SECURITY_CONTEXT, waitForSource: WAIT_FOR_SOURCE, paths: IMPORT_PATHS });
+
+    expect(result.confirmed).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 import { getEmbeddedBase, setEmbeddedBase } from '../../walletRuntimePaths';
-import { ensureKnownW3aElement } from '../../signingEngine/secureConfirm/ui/ensure-defined';
+import { ensureKnownW3aElement } from '../../signingEngine/touchConfirm/ui/registry';
 import { isDevHost } from '../shared/is-dev-host';
 
 interface GlobalThis {

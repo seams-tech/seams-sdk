@@ -116,7 +116,7 @@ export async function keygenEd25519(args: {
       ...(keygen.message ? { message: keygen.message } : {}),
     };
   } catch (e: unknown) {
-    const msg = (e && typeof e === 'object' && 'message' in e) ? String((e as any).message || 'keygen failed') : String(e || 'keygen failed');
+    const msg = e instanceof Error ? (e.message || 'keygen failed') : String(e || 'keygen failed');
     return { ok: false, code: 'internal', message: msg };
   }
 }

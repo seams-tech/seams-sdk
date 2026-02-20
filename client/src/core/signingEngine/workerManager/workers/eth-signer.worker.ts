@@ -17,22 +17,22 @@ import { errorMessage } from '@shared/utils/errors';
 import { WorkerControlMessage } from '../workerTypes';
 
 type EthSignerWorkerRequest =
-  | { id: string; type: 'computeEip1559TxHash'; payload: { tx: any } }
+  | { id: string; type: 'computeEip1559TxHash'; payload: { tx: unknown } }
   | {
       id: string;
       type: 'encodeEip1559SignedTxFromSignature65';
-      payload: { tx: any; signature65: any };
+      payload: { tx: unknown; signature65: unknown };
     }
   | {
       id: string;
       type: 'signSecp256k1Recoverable';
-      payload: { digest32: any; privateKey32: any };
+      payload: { digest32: unknown; privateKey32: unknown };
     }
   | {
       id: string;
       type: 'deriveThresholdSecp256k1ClientShare';
       payload: {
-        prfFirst32: any;
+        prfFirst32: unknown;
         userId: string;
         derivationPath?: number;
       };
@@ -41,7 +41,7 @@ type EthSignerWorkerRequest =
       id: string;
       type: 'deriveSecp256k1KeypairFromPrfSecond';
       payload: {
-        prfSecond: any;
+        prfSecond: unknown;
         nearAccountId: string;
       };
     }
@@ -49,7 +49,7 @@ type EthSignerWorkerRequest =
       id: string;
       type: 'mapAdditiveShareToThresholdSignaturesShare2p';
       payload: {
-        additiveShare32: any;
+        additiveShare32: unknown;
         participantId: number;
       };
     }
@@ -57,27 +57,27 @@ type EthSignerWorkerRequest =
       id: string;
       type: 'validateSecp256k1PublicKey33';
       payload: {
-        publicKey33: any;
+        publicKey33: unknown;
       };
     }
   | {
       id: string;
       type: 'addSecp256k1PublicKeys33';
       payload: {
-        left33: any;
-        right33: any;
+        left33: unknown;
+        right33: unknown;
       };
     }
   | {
       id: string;
       type: 'buildWebauthnP256Signature';
       payload: {
-        challenge32: any;
-        authenticatorData: any;
-        clientDataJSON: any;
-        signatureDer: any;
-        pubKeyX32: any;
-        pubKeyY32: any;
+        challenge32: unknown;
+        authenticatorData: unknown;
+        clientDataJSON: unknown;
+        signatureDer: unknown;
+        pubKeyX32: unknown;
+        pubKeyY32: unknown;
       };
     }
   | {
@@ -88,8 +88,8 @@ type EthSignerWorkerRequest =
         participantIds: number[];
         clientParticipantId: number;
         threshold: number;
-        clientThresholdSigningShare32: any;
-        groupPublicKey33: any;
+        clientThresholdSigningShare32: unknown;
+        groupPublicKey33: unknown;
       };
     }
   | {
@@ -99,7 +99,7 @@ type EthSignerWorkerRequest =
         sessionId: string;
         relayerParticipantId: number;
         stage: 'triples' | 'presign';
-        incomingMessages?: any[];
+        incomingMessages?: unknown[];
       };
     }
   | {
@@ -113,12 +113,12 @@ type EthSignerWorkerRequest =
       payload: {
         participantIds: number[];
         clientParticipantId: number;
-        groupPublicKey33: any;
-        presignBigR33: any;
-        presignKShare32: any;
-        presignSigmaShare32: any;
-        digest32: any;
-        entropy32: any;
+        groupPublicKey33: unknown;
+        presignBigR33: unknown;
+        presignKShare32: unknown;
+        presignSigmaShare32: unknown;
+        digest32: unknown;
+        entropy32: unknown;
       };
     };
 
@@ -148,11 +148,22 @@ function asWorkerErrorPayload(err: unknown): WorkerErrorPayload {
   return { message: errorMessage(err) };
 }
 
-function toU8(v: any): Uint8Array {
+function toU8(v: unknown): Uint8Array {
   if (v instanceof Uint8Array) return v;
   if (v instanceof ArrayBuffer) return new Uint8Array(v);
   if (ArrayBuffer.isView(v)) return new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
   throw new Error('expected bytes');
+}
+
+function postToMainThread(message: unknown, transfer?: Transferable[]): void {
+  const workerSelf = self as unknown as {
+    postMessage: (message: unknown, transfer?: Transferable[]) => void;
+  };
+  if (transfer && transfer.length > 0) {
+    workerSelf.postMessage(message, transfer);
+    return;
+  }
+  workerSelf.postMessage(message);
 }
 
 type PresignProgressResult = {
@@ -246,7 +257,7 @@ async function ensureWasm(): Promise<void> {
     await initializeWasm({
       workerName: 'Eth Signer',
       wasmUrl,
-      initFunction: init as any,
+      initFunction: init as unknown as (wasmModule?: unknown) => Promise<void>,
       validateFunction: () => init_eth_signer(),
     });
   })();
@@ -254,7 +265,7 @@ async function ensureWasm(): Promise<void> {
 }
 
 setTimeout(() => {
-  (self as any).postMessage({ type: WorkerControlMessage.WORKER_READY, ready: true });
+  postToMainThread({ type: WorkerControlMessage.WORKER_READY, ready: true });
 }, 0);
 
 self.addEventListener('message', async (event: MessageEvent) => {
@@ -267,7 +278,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
       case 'computeEip1559TxHash': {
         const out = compute_eip1559_tx_hash(msg.payload.tx) as Uint8Array;
         const ab = out.slice().buffer;
-        (self as any).postMessage({ id: msg.id, ok: true, result: ab }, [ab]);
+        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
         return;
       }
       case 'encodeEip1559SignedTxFromSignature65': {
@@ -276,7 +287,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           toU8(msg.payload.signature65),
         ) as Uint8Array;
         const ab = out.slice().buffer;
-        (self as any).postMessage({ id: msg.id, ok: true, result: ab }, [ab]);
+        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
         return;
       }
       case 'signSecp256k1Recoverable': {
@@ -285,7 +296,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           toU8(msg.payload.privateKey32),
         ) as Uint8Array;
         const ab = out.slice().buffer;
-        (self as any).postMessage({ id: msg.id, ok: true, result: ab }, [ab]);
+        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
         return;
       }
       case 'deriveThresholdSecp256k1ClientShare': {
@@ -304,7 +315,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
         }
         const signingShare32 = out.slice(0, 32).buffer;
         const verifyingShare33 = out.slice(32, 65).buffer;
-        (self as any).postMessage(
+        postToMainThread(
           {
             id: msg.id,
             ok: true,
@@ -330,7 +341,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
         const privateKey32 = out.slice(0, 32).buffer;
         const publicKey33 = out.slice(32, 65).buffer;
         const ethereumAddress20 = out.slice(65, 85).buffer;
-        (self as any).postMessage(
+        postToMainThread(
           {
             id: msg.id,
             ok: true,
@@ -355,7 +366,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           throw new Error(`map_additive_share_to_threshold_signatures_share_2p must return 32 bytes (got ${out.length})`);
         }
         const ab = out.slice().buffer;
-        (self as any).postMessage({ id: msg.id, ok: true, result: ab }, [ab]);
+        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
         return;
       }
       case 'validateSecp256k1PublicKey33': {
@@ -365,7 +376,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           throw new Error(`validate_secp256k1_public_key_33 must return 33 bytes (got ${out.length})`);
         }
         const ab = out.slice().buffer;
-        (self as any).postMessage({ id: msg.id, ok: true, result: ab }, [ab]);
+        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
         return;
       }
       case 'addSecp256k1PublicKeys33': {
@@ -376,7 +387,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           throw new Error(`add_secp256k1_public_keys_33 must return 33 bytes (got ${out.length})`);
         }
         const ab = out.slice().buffer;
-        (self as any).postMessage({ id: msg.id, ok: true, result: ab }, [ab]);
+        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
         return;
       }
       case 'buildWebauthnP256Signature': {
@@ -392,7 +403,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           toU8(msg.payload.pubKeyY32),
         ) as Uint8Array;
         const ab = out.slice().buffer;
-        (self as any).postMessage({ id: msg.id, ok: true, result: ab }, [ab]);
+        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
         return;
       }
       case 'thresholdEcdsaPresignSessionInit': {
@@ -420,7 +431,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
         const progress = pollPresignSession(sessionId, session);
         const transferables = [...progress.outgoingMessages];
         if (progress.presignature97) transferables.push(progress.presignature97);
-        (self as any).postMessage({ id: msg.id, ok: true, result: progress }, transferables);
+        postToMainThread({ id: msg.id, ok: true, result: progress }, transferables);
         return;
       }
       case 'thresholdEcdsaPresignSessionStep': {
@@ -457,14 +468,14 @@ self.addEventListener('message', async (event: MessageEvent) => {
         const progress = pollPresignSession(sessionId, session);
         const transferables = [...progress.outgoingMessages];
         if (progress.presignature97) transferables.push(progress.presignature97);
-        (self as any).postMessage({ id: msg.id, ok: true, result: progress }, transferables);
+        postToMainThread({ id: msg.id, ok: true, result: progress }, transferables);
         return;
       }
       case 'thresholdEcdsaPresignSessionAbort': {
         const sessionId = String(msg.payload.sessionId || '').trim();
         if (!sessionId) throw new Error('Missing sessionId');
         freePresignSession(sessionId);
-        (self as any).postMessage({ id: msg.id, ok: true, result: { ok: true } });
+        postToMainThread({ id: msg.id, ok: true, result: { ok: true } });
         return;
       }
       case 'thresholdEcdsaComputeSignatureShare': {
@@ -479,7 +490,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           toU8(msg.payload.entropy32),
         ) as Uint8Array;
         const ab = out.slice().buffer;
-        (self as any).postMessage({ id: msg.id, ok: true, result: ab }, [ab]);
+        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
         return;
       }
     }
@@ -489,7 +500,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
       if (sessionId) freePresignSession(sessionId);
     }
     const err = asWorkerErrorPayload(e);
-    (self as any).postMessage({
+    postToMainThread({
       id: msg.id,
       ok: false,
       error: err.message,

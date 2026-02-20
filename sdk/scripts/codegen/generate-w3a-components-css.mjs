@@ -28,7 +28,7 @@ const cssOutPath = path.join(
   'src',
   'core',
   'signingEngine',
-  'secureConfirm',
+  'touchConfirm',
   'ui',
   'lit-components',
   'css',
