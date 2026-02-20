@@ -1,6 +1,7 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { computeThresholdEcdsaKeygenIntentDigest } from '@/utils/intentDigest';
 import { thresholdEcdsaBootstrap } from '@/core/rpcClients/near/rpcCalls';
+import { cacheSigningSessionPrfFirstBestEffort } from '@/core/signingEngine/api/session/signingSessionState';
 import { deriveThresholdSecp256k1ClientShareWasm } from '../../signers/wasm/ethSignerWasm';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
@@ -154,12 +155,12 @@ export async function bootstrapEcdsaSession(args: {
 
     const prfFirstCache = args.prfFirstCache;
     if (prfFirstCache) {
-      await prfFirstCache.putPrfFirstForThresholdSession({
+      await cacheSigningSessionPrfFirstBestEffort(prfFirstCache, {
         sessionId: resolvedSessionId,
         prfFirstB64u,
         expiresAtMs,
         remainingUses: resolvedRemainingUses,
-      }).catch(() => {});
+      });
     }
 
     const { policy, policyJson, sessionPolicyDigest32 } = await buildEcdsaSessionPolicy({

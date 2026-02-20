@@ -15,6 +15,7 @@ import { bytesToHex } from '@/core/signingEngine/chainAdaptors/evm/bytes';
 import { EvmAdapter, type EvmSignedResult } from '@/core/signingEngine/chainAdaptors/evm/evmAdapter';
 import type { EvmSigningRequest } from '@/core/signingEngine/chainAdaptors/evm/types';
 import { executeSigningIntent } from '@/core/signingEngine/orchestration/executeSigningIntent';
+import { buildEvmDisplayModel } from '@/core/signingEngine/touchConfirm/flows/signing/evm/buildDisplayModel';
 import {
   asThresholdEcdsaKeyRef,
   inferDigest32FromSignRequest,
@@ -52,6 +53,15 @@ export async function signEvmWithSecureConfirm(args: {
   const firstDigest = inferDigest32FromSignRequest(firstSignRequest);
   const challengeB64u = base64UrlEncode(firstDigest);
   const intentDigestHex = bytesToHex(firstDigest);
+  const title = 'Sign EIP-1559 (0x02)';
+  const body = 'Review and approve signing the transaction hash.';
+  const displayModel = buildEvmDisplayModel({
+    request: args.request,
+    intentDigest: intentDigestHex,
+    signerAccount: args.nearAccountId,
+    title,
+    subtitle: body,
+  });
   const thresholdEcdsaKeyRef = asThresholdEcdsaKeyRef(args.keyRefsByAlgorithm?.secp256k1);
   const signingAuthMode = await resolveSigningAuthMode({
     needsWebAuthn: false,
@@ -67,8 +77,9 @@ export async function signEvmWithSecureConfirm(args: {
     nearAccountId: args.nearAccountId,
     challengeB64u,
     intentDigest: intentDigestHex,
-    title: 'Sign EIP-1559 (0x02)',
-    body: 'Review and approve signing the transaction hash.',
+    displayModel,
+    title,
+    body,
     signingAuthMode,
     onProgress: args.onEvent,
     confirmationConfigOverride: args.confirmationConfigOverride,

@@ -236,7 +236,7 @@ test.describe('unified signing pipeline', () => {
 
   test('chain entrypoints stay wired to the unified intent runner', () => {
     const nearSigningSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signingEngine/api/near/nearSigning.ts'),
+      path.resolve(process.cwd(), '../client/src/core/signingEngine/api/nearSigning.ts'),
       'utf8',
     );
     const evmHandlerSource = fs.readFileSync(
@@ -254,7 +254,8 @@ test.describe('unified signing pipeline', () => {
       'utf8',
     );
 
-    expect(nearSigningSource).toContain("import('../../orchestration/near/nearSigningFlow')");
+    expect(nearSigningSource).toContain("from '../orchestration/near/nearSigningFlow'");
+    expect(nearSigningSource).not.toContain('export async function signNearWithIntent');
     expect(evmHandlerSource).toContain('executeSigningIntent({');
     expect(tempoHandlerSource).toContain('executeSigningIntent({');
   });
@@ -292,5 +293,24 @@ test.describe('unified signing pipeline', () => {
 
     expect(secpEngineSource).toContain("if (keyRef.type !== 'threshold-ecdsa-secp256k1')");
     expect(secpEngineSource).toContain('runtime signing requires threshold-ecdsa-secp256k1 keyRef');
+  });
+
+  test('registration session hydration uses high-level signingSession API only', () => {
+    const registrationSource = fs.readFileSync(
+      path.resolve(process.cwd(), '../client/src/core/TatchiPasskey/registration.ts'),
+      'utf8',
+    );
+    const signingEngineSource = fs.readFileSync(
+      path.resolve(process.cwd(), '../client/src/core/signingEngine/SigningEngine.ts'),
+      'utf8',
+    );
+
+    expect(registrationSource).toContain('signingEngine.hydrateSigningSession({');
+    expect(registrationSource).not.toContain('signingEngine.setActiveSigningSessionId(');
+    expect(registrationSource).not.toContain('signingEngine.putPrfFirstForThresholdSession(');
+
+    expect(signingEngineSource).toContain("| 'hydrateSigningSession'");
+    expect(signingEngineSource).not.toContain("| 'setActiveSigningSessionId'");
+    expect(signingEngineSource).not.toContain("| 'putPrfFirstForThresholdSession'");
   });
 });

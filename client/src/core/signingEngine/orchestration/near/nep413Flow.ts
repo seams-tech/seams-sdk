@@ -30,6 +30,10 @@ import { toAccountId } from '@/core/types/accountIds';
 import { deriveThresholdEd25519ClientVerifyingShareWasm } from '@/core/signingEngine/signers/wasm/nearSignerWasm';
 import { executeWorkerOperation } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
+  cacheSigningSessionPrfFirstBestEffort,
+  clearSigningSessionPrfFirstBestEffort,
+} from '@/core/signingEngine/api/session/signingSessionState';
+import {
   generateSessionId,
   requirePrfFirstFromCredential,
   resolveNearSigningMaterials,
@@ -162,9 +166,7 @@ export async function signNep413Message({
       if (delivered.ok) {
         prfFirstB64u = delivered.prfFirstB64u;
       } else {
-        await secureConfirmWorkerManager
-          .clearPrfFirstForThresholdSession({ sessionId })
-          .catch(() => {});
+        await clearSigningSessionPrfFirstBestEffort(secureConfirmWorkerManager, sessionId);
         signingAuthMode = 'webauthn';
 
         thresholdSessionPlan = await buildEd25519SessionPolicyForNearSigning({
@@ -238,14 +240,12 @@ export async function signNep413Message({
       if (!prfFirstB64u) {
         throw new Error('Missing PRF.first output for threshold session cache');
       }
-      await secureConfirmWorkerManager
-        .putPrfFirstForThresholdSession({
-          sessionId,
-          prfFirstB64u,
-          expiresAtMs,
-          remainingUses,
-        })
-        .catch(() => {});
+      await cacheSigningSessionPrfFirstBestEffort(secureConfirmWorkerManager, {
+        sessionId,
+        prfFirstB64u,
+        expiresAtMs,
+        remainingUses,
+      });
 
       putCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey, {
         sessionKind: 'jwt',
@@ -334,9 +334,7 @@ export async function signNep413Message({
 
         if (attempt === 0 && isThresholdSessionAuthUnavailableError(err)) {
           clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
-          await secureConfirmWorkerManager
-            .clearPrfFirstForThresholdSession({ sessionId })
-            .catch(() => {});
+          await clearSigningSessionPrfFirstBestEffort(secureConfirmWorkerManager, sessionId);
           signingContext.threshold.thresholdSessionJwt = undefined;
           requestPayload.threshold!.thresholdSessionJwt = undefined;
 
@@ -392,14 +390,12 @@ export async function signNep413Message({
           const expiresAtMs = minted.expiresAtMs ?? Date.now() + thresholdSessionPlan.policy.ttlMs;
           const remainingUses = minted.remainingUses ?? thresholdSessionPlan.policy.remainingUses;
 
-          await secureConfirmWorkerManager
-            .putPrfFirstForThresholdSession({
-              sessionId,
-              prfFirstB64u: prfFirst,
-              expiresAtMs,
-              remainingUses,
-            })
-            .catch(() => {});
+          await cacheSigningSessionPrfFirstBestEffort(secureConfirmWorkerManager, {
+            sessionId,
+            prfFirstB64u: prfFirst,
+            expiresAtMs,
+            remainingUses,
+          });
 
           putCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey, {
             sessionKind: 'jwt',

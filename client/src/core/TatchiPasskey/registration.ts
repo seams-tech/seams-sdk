@@ -19,7 +19,7 @@ import type {
 import { IndexedDBManager } from '../indexedDB';
 import { type ConfirmationConfig, mergeSignerMode } from '../types/signer-worker';
 import type { AccountId } from '../types/accountIds';
-import { errorMessage, getUserFriendlyErrorMessage } from '@shared/utils/errors';
+import { getUserFriendlyErrorMessage } from '@shared/utils/errors';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
 import { THRESHOLD_ED25519_2P_PARTICIPANT_IDS } from '../config/defaultConfigs';
 import { checkNearAccountExistsBestEffort } from '../rpcClients/near/rpcCalls';
@@ -610,12 +610,13 @@ export async function registerPasskeyInternal(
           ? thresholdEd25519Session.participantIds
           : [...THRESHOLD_ED25519_2P_PARTICIPANT_IDS];
 
-        signingEngine.setActiveSigningSessionId(nearAccountId, edSessionId);
-        await signingEngine.putPrfFirstForThresholdSession({
+        await signingEngine.hydrateSigningSession({
+          nearAccountId,
           sessionId: edSessionId,
           prfFirstB64u: thresholdPrfFirstB64u,
           expiresAtMs: edExpiresAtMs,
           remainingUses: edRemainingUses,
+          setActiveSigningSessionId: true,
         });
 
         const edPolicy = await buildEd25519SessionPolicy({
@@ -673,11 +674,13 @@ export async function registerPasskeyInternal(
             ? thresholdEcdsaKeyRef.participantIds
             : thresholdEcdsaSessionPolicyForRegistration.participantIds;
 
-        await signingEngine.putPrfFirstForThresholdSession({
+        await signingEngine.hydrateSigningSession({
+          nearAccountId,
           sessionId: ecdsaSessionId,
           prfFirstB64u: thresholdPrfFirstB64u,
           expiresAtMs: ecdsaExpiresAtMs,
           remainingUses: ecdsaRemainingUses,
+          setActiveSigningSessionId: false,
         });
 
         const ecdsaPolicy = await buildEcdsaSessionPolicy({

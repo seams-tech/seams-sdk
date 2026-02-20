@@ -9,6 +9,7 @@ import { bytesToHex } from '../../chainAdaptors/evm/bytes';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { TempoAdapter, type TempoSignedResult } from '../../chainAdaptors/tempo/tempoAdapter';
 import type { TempoSigningRequest } from '../../chainAdaptors/tempo/types';
+import { buildTempoDisplayModel } from '@/core/signingEngine/touchConfirm/flows/signing/tempo/buildDisplayModel';
 import { resolveWebAuthnP256KeyRefForNearAccount } from '@/core/signingEngine/orchestration/walletOrigin/webauthnKeyRef';
 import { executeSigningIntent } from '@/core/signingEngine/orchestration/executeSigningIntent';
 import { normalizeAuthenticationCredential } from '@/core/signingEngine/signers/webauthn/credentials/helpers';
@@ -54,6 +55,15 @@ export async function signTempoWithSecureConfirm(args: {
   const firstDigest = inferDigest32FromSignRequest(firstSignRequest);
   const challengeB64u = base64UrlEncode(firstDigest);
   const intentDigestHex = bytesToHex(firstDigest);
+  const title = 'Sign TempoTransaction (0x76)';
+  const body = 'Review and approve signing the Tempo sender hash.';
+  const displayModel = buildTempoDisplayModel({
+    request: args.request,
+    intentDigest: intentDigestHex,
+    signerAccount: args.nearAccountId,
+    title,
+    subtitle: body,
+  });
   const needsWebAuthn = webauthnReqs.length === 1;
   const thresholdEcdsaKeyRef = asThresholdEcdsaKeyRef(args.keyRefsByAlgorithm?.secp256k1);
   const signingAuthMode = await resolveSigningAuthMode({
@@ -70,8 +80,9 @@ export async function signTempoWithSecureConfirm(args: {
     nearAccountId: args.nearAccountId,
     challengeB64u,
     intentDigest: intentDigestHex,
-    title: 'Sign TempoTransaction (0x76)',
-    body: 'Review and approve signing the Tempo sender hash.',
+    displayModel,
+    title,
+    body,
     signingAuthMode,
     onProgress: args.onEvent,
     confirmationConfigOverride: args.confirmationConfigOverride,

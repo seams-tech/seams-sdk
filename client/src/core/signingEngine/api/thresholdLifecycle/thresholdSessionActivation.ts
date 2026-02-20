@@ -14,10 +14,6 @@ import {
 } from '../../orchestration/thresholdActivation';
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from './thresholdEcdsaBootstrapPersistence';
 
-type PutPrfFirstForThresholdSessionArgs = Parameters<
-  SecureConfirmWorkerManager['putPrfFirstForThresholdSession']
->[0];
-
 export type ConnectEd25519SessionArgs = {
   nearAccountId: AccountId | string;
   relayerKeyId: string;
@@ -77,10 +73,7 @@ export async function connectEd25519SessionValue(
     indexedDB: deps.indexedDB,
     touchIdPrompt: deps.touchIdPrompt,
     signingKeyOps: deps.signingKeyOps,
-    prfFirstCache: {
-      putPrfFirstForThresholdSession: (params: PutPrfFirstForThresholdSessionArgs) =>
-        deps.secureConfirmWorkerManager.putPrfFirstForThresholdSession(params),
-    },
+    prfFirstCache: deps.secureConfirmWorkerManager,
     relayerUrl,
     relayerKeyId: args.relayerKeyId,
     nearAccountId,
@@ -104,10 +97,7 @@ export async function bootstrapEcdsaSessionValue(
   const activationDeps = {
     indexedDB: deps.indexedDB,
     touchIdPrompt: deps.touchIdPrompt,
-    prfFirstCache: {
-      putPrfFirstForThresholdSession: (params: PutPrfFirstForThresholdSessionArgs) =>
-        deps.secureConfirmWorkerManager.putPrfFirstForThresholdSession(params),
-    },
+    prfFirstCache: deps.secureConfirmWorkerManager,
     workerCtx: signerWorkerCtx,
     getOrCreateActiveSigningSessionId: deps.getOrCreateActiveSigningSessionId,
   };

@@ -1,5 +1,6 @@
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { toAccountId } from '@/core/types/accountIds';
+import { cacheSigningSessionPrfFirstBestEffort } from '@/core/signingEngine/api/session/signingSessionState';
 import {
   collectAuthenticationCredentialForChallengeB64u,
   getPrfFirstB64uFromCredential,
@@ -113,12 +114,12 @@ export async function connectEd25519Session(args: {
   const remainingUses = minted.remainingUses ?? policy.remainingUses;
   const prfFirstCache = args.prfFirstCache;
   if (prfFirstCache) {
-    await prfFirstCache.putPrfFirstForThresholdSession({
+    await cacheSigningSessionPrfFirstBestEffort(prfFirstCache, {
       sessionId,
       prfFirstB64u,
       expiresAtMs,
       remainingUses,
-    }).catch(() => {});
+    });
   }
 
   // 4) Cache for on-demand `/threshold-ed25519/authorize` usage.

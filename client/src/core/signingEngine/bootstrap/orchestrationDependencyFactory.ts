@@ -65,7 +65,6 @@ export type CreateOrchestrationDependencyBundleArgs = {
   getTheme: () => ThemeName;
   signTempo: ManagerConvenienceDeps['signTempo'];
   signTransactionsWithActions: ThresholdEd25519LifecycleDeps['signTransactionsWithActions'];
-  signNearWithIntent: NearSigningApiDeps['signNearWithIntent'];
   deriveNearKeypairFromCredentialViaWorker:
     PrivateKeyExportRecoveryDeps['deriveNearKeypairFromCredentialViaWorker'];
   extractCosePublicKey: RegistrationAccountLifecycleDeps['extractCosePublicKey'];
@@ -115,8 +114,8 @@ export function createOrchestrationDependencyBundle(
     resolveSigningSessionPolicy: (policyArgs) =>
       resolveSigningSessionPolicyValue(signingSessionStateDeps, policyArgs),
     getOrCreateActiveSigningSessionId: getOrCreateActiveSigningSessionId,
+    createSigningSessionId: (prefix: string): string => generateSessionIdValue(prefix),
     getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
-    signNearWithIntent: args.signNearWithIntent,
   };
 
   const getWorkerResourceWarmupDeps = (): WorkerResourceWarmupDeps => ({

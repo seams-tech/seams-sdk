@@ -46,12 +46,17 @@ import {
 } from './api/thresholdLifecycle/thresholdEcdsaBootstrapPersistence';
 import {
   signNear as signNearValue,
-  signNearWithIntent as signNearWithIntentValue,
   type NearSignIntentRequest,
   type NearSignIntentResult,
   type SignTransactionsWithActionsInput,
 } from './api/nearSigning';
 import { signTempo as signTempoValue } from './api/tempoSigning';
+import {
+  clearSigningSessionPrfFirstBestEffort as clearSigningSessionPrfFirstBestEffortValue,
+  clearActiveSigningSessionId as clearActiveSigningSessionIdValue,
+  clearAllActiveSigningSessionIds as clearAllActiveSigningSessionIdsValue,
+  hydrateSigningSession as hydrateSigningSessionValue,
+} from './api/session/signingSessionState';
 import { withThresholdEcdsaSignInFlightGate } from './api/thresholdLifecycle/thresholdEcdsaSignInFlightGate';
 import {
   deriveNearKeypairAndEncryptFromSerialized as deriveNearKeypairAndEncryptFromSerializedValue,
@@ -142,7 +147,6 @@ export class SigningEngine {
           kind: 'transactionsWithActions',
           args,
         }),
-      signNearWithIntent: signNearWithIntentValue,
       deriveNearKeypairFromCredentialViaWorker: (args) =>
         this.deriveNearKeypairFromCredentialViaWorker(args),
       extractCosePublicKey: (attestationObjectBase64url: string) =>
@@ -467,45 +471,32 @@ export class SigningEngine {
       .getWarmSigningSessionStatus(nearAccountId);
   }
 
-  setActiveSigningSessionId(nearAccountId: AccountId | string, sessionId: string): void {
-    const accountKey = String(toAccountId(nearAccountId));
-    const normalizedSessionId = String(sessionId || '').trim();
-    if (!normalizedSessionId) {
-      this.activeSigningSessionIds.delete(accountKey);
-      return;
-    }
-    this.activeSigningSessionIds.set(accountKey, normalizedSessionId);
-  }
-
-  putPrfFirstForThresholdSession(args: {
+  async hydrateSigningSession(args: {
+    nearAccountId: AccountId | string;
     sessionId: string;
     prfFirstB64u: string;
     expiresAtMs: number;
     remainingUses: number;
+    setActiveSigningSessionId?: boolean;
   }): Promise<void> {
-    return this.secureConfirmWorkerManager.putPrfFirstForThresholdSession(args);
+    await hydrateSigningSessionValue(this.orchestrationDeps.signingSessionStateDeps, args);
   }
 
   async clearWarmSigningSessions(nearAccountId?: AccountId | string): Promise<void> {
-    const sessionIds: string[] = [];
-    if (nearAccountId != null) {
-      const accountKey = String(toAccountId(nearAccountId));
-      const sessionId = String(this.activeSigningSessionIds.get(accountKey) || '').trim();
-      if (sessionId) sessionIds.push(sessionId);
-      this.activeSigningSessionIds.delete(accountKey);
-    } else {
-      for (const sessionIdRaw of this.activeSigningSessionIds.values()) {
-        const sessionId = String(sessionIdRaw || '').trim();
-        if (sessionId) sessionIds.push(sessionId);
-      }
-      this.activeSigningSessionIds.clear();
-    }
+    const sessionIds = nearAccountId != null
+      ? (() => {
+          const active = clearActiveSigningSessionIdValue(
+            this.orchestrationDeps.signingSessionStateDeps,
+            nearAccountId,
+          );
+          return active ? [active] : [];
+        })()
+      : clearAllActiveSigningSessionIdsValue(this.orchestrationDeps.signingSessionStateDeps);
 
     await Promise.all(
       sessionIds.map((sessionId) =>
-        this.secureConfirmWorkerManager
-          .clearPrfFirstForThresholdSession({ sessionId })
-          .catch(() => undefined)),
+        clearSigningSessionPrfFirstBestEffortValue(this.secureConfirmWorkerManager, sessionId),
+      ),
     );
   }
 
@@ -579,7 +570,7 @@ export class SigningEngine {
   destroy(): void {
     this.userPreferencesManager.destroy();
     this.nonceManager.clear();
-    this.activeSigningSessionIds.clear();
+    clearAllActiveSigningSessionIdsValue(this.orchestrationDeps.signingSessionStateDeps);
   }
 }
 
@@ -621,8 +612,7 @@ export type SigningEnginePublic = Pick<
   | 'bootstrapEcdsaSession'
   | 'persistThresholdEcdsaBootstrapChainAccount'
   | 'getWarmSigningSessionStatus'
-  | 'setActiveSigningSessionId'
-  | 'putPrfFirstForThresholdSession'
+  | 'hydrateSigningSession'
   | 'clearWarmSigningSessions'
   | 'deriveThresholdEd25519ClientVerifyingShareFromCredential'
   | 'deriveThresholdEcdsaClientVerifyingShareFromCredential'

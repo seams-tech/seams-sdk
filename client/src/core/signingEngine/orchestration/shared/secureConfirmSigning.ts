@@ -30,14 +30,21 @@ export async function resolveSigningAuthMode(args: {
   if (args.needsWebAuthn) return 'webauthn';
 
   const thresholdSessionId = String(args.thresholdEcdsaKeyRef?.thresholdSessionId || '').trim();
-  if (!thresholdSessionId) return 'warmSession';
+  if (!thresholdSessionId) {
+    throw new Error('[chains] Missing threshold signingSessionId; reconnect threshold session before signing');
+  }
 
   const peek = await args.secureConfirmWorkerManager.peekPrfFirstForThresholdSession({
     sessionId: thresholdSessionId,
   });
-  // Do not fail pre-confirm on stale/missing local session cache.
-  // The engine can still resolve a newer cached session token/keyRef scope after confirm.
-  if (!peek.ok || peek.remainingUses < 1) return 'warmSession';
+  if (!peek.ok) {
+    throw new Error(
+      `[chains] threshold signingSession is ${peek.code}; reconnect threshold session before signing`,
+    );
+  }
+  if (peek.remainingUses < 1) {
+    throw new Error('[chains] threshold signingSession is exhausted; reconnect threshold session before signing');
+  }
   return 'warmSession';
 }
 

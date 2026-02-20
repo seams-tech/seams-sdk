@@ -9,10 +9,6 @@ import type {
 } from '@/core/types/signer-worker';
 import type { SignTransactionResult } from '@/core/types/tatchi';
 import type { TransactionInputWasm } from '@/core/types/actions';
-import type {
-  NearIntentResult,
-  NearSigningRequest,
-} from '../interfaces/near';
 import type { SignerWorkerManagerContext } from '../workerManager';
 import { signNearWithSecureConfirm } from '../orchestration/near/nearSigningFlow';
 
@@ -117,12 +113,6 @@ export async function signNear<TRequest extends NearSignIntentRequest>(
   throw new Error(`[SigningEngine] unsupported near signing intent: ${String((request as { kind?: unknown }).kind || '')}`);
 }
 
-export async function signNearWithIntent<TRequest extends NearSigningRequest>(
-  request: TRequest,
-): Promise<NearIntentResult<TRequest>> {
-  return await signNearWithSecureConfirm(request);
-}
-
 export type NearSigningApiDeps = {
   contractId: string;
   nearRpcUrl: string;
@@ -130,22 +120,42 @@ export type NearSigningApiDeps = {
     args: ResolveSigningSessionPolicyArgs,
   ) => ResolveSigningSessionPolicyResult;
   getOrCreateActiveSigningSessionId: (nearAccountId: AccountId) => string;
+  createSigningSessionId: (prefix: string) => string;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
-  signNearWithIntent: <TRequest extends NearSigningRequest>(
-    request: TRequest,
-  ) => Promise<NearIntentResult<TRequest>>;
 };
+
+function resolveSigningRequestSessionId(args: {
+  deps: NearSigningApiDeps;
+  providedSessionId?: string;
+  nearAccountId: AccountId;
+  signerMode: SignerMode;
+}): string {
+  const provided = String(args.providedSessionId || '').trim();
+  if (provided) return provided;
+
+  // Keep long-lived active session ids for threshold signing only.
+  if (args.signerMode.mode === 'threshold-signer') {
+    return args.deps.getOrCreateActiveSigningSessionId(args.nearAccountId);
+  }
+
+  // Local signing uses one-off session ids and does not persist account session pointers.
+  return args.deps.createSigningSessionId('signing-request');
+}
 
 export async function signTransactionsWithActions(
   deps: NearSigningApiDeps,
   args: SignTransactionsWithActionsInput,
 ): Promise<SignTransactionResult[]> {
   const signingSessionPolicy = deps.resolveSigningSessionPolicy({});
-  const resolvedSessionId =
-    String(args.sessionId || '').trim() ||
-    deps.getOrCreateActiveSigningSessionId(toAccountId(args.rpcCall.nearAccountId));
+  const nearAccountId = toAccountId(args.rpcCall.nearAccountId);
+  const resolvedSessionId = resolveSigningRequestSessionId({
+    deps,
+    providedSessionId: args.sessionId,
+    nearAccountId,
+    signerMode: args.signerMode,
+  });
   const ctx = deps.getSignerWorkerContext();
-  return await deps.signNearWithIntent({
+  return await signNearWithSecureConfirm({
     chain: 'near',
     kind: 'transactionsWithActions',
     payload: {
@@ -178,10 +188,14 @@ export async function signDelegateAction(
   };
 
   try {
-    const activeSessionId = deps.getOrCreateActiveSigningSessionId(nearAccountId);
+    const activeSessionId = resolveSigningRequestSessionId({
+      deps,
+      nearAccountId,
+      signerMode: args.signerMode,
+    });
     console.debug('[SigningEngine][delegate] session created', { sessionId: activeSessionId });
     const ctx = deps.getSignerWorkerContext();
-    return await deps.signNearWithIntent({
+    return await signNearWithSecureConfirm({
       chain: 'near',
       kind: 'delegateAction',
       payload: {
@@ -210,11 +224,16 @@ export async function signNEP413Message(
   payload: SignNep413MessagePayload,
 ): Promise<SignNep413MessageResult> {
   try {
-    const activeSessionId = deps.getOrCreateActiveSigningSessionId(payload.accountId);
+    const nearAccountId = toAccountId(payload.accountId);
+    const activeSessionId = resolveSigningRequestSessionId({
+      deps,
+      nearAccountId,
+      signerMode: payload.signerMode,
+    });
     const signingSessionPolicy = deps.resolveSigningSessionPolicy({});
     const nearRpcUrl = deps.nearRpcUrl.split(',')[0] || deps.nearRpcUrl;
     const ctx = deps.getSignerWorkerContext();
-    const result = await deps.signNearWithIntent({
+    const result = await signNearWithSecureConfirm({
       chain: 'near',
       kind: 'nep413',
       payload: {

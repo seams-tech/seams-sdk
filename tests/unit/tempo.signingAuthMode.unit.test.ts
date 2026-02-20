@@ -3,6 +3,8 @@ import { expect, test } from '@playwright/test';
 const IMPORT_PATHS = {
   signEvmWithSecureConfirm:
     '/sdk/esm/core/signingEngine/orchestration/evm/evmSigningFlow.js',
+  signTempoWithSecureConfirm:
+    '/sdk/esm/core/signingEngine/orchestration/tempo/tempoSigningFlow.js',
 } as const;
 
 test.describe('tempo signing auth-mode resolution', () => {
@@ -10,7 +12,7 @@ test.describe('tempo signing auth-mode resolution', () => {
     await page.goto('/');
   });
 
-  test('falls back to warmSession when threshold warm session cache is unavailable', async ({
+  test('fails fast when threshold warm session cache is unavailable (EVM)', async ({
     page,
   }) => {
     const result = await page.evaluate(async ({ paths }) => {
@@ -96,9 +98,10 @@ test.describe('tempo signing auth-mode resolution', () => {
       }
     }, { paths: IMPORT_PATHS });
 
-    expect(result.ok).toBe(true);
-    expect(result.confirmCalls).toBe(1);
-    expect(result.capturedAuthMode).toBe('warmSession');
+    expect(result.ok).toBe(false);
+    expect(result.confirmCalls).toBe(0);
+    expect(result.capturedAuthMode).toBeNull();
+    expect(result.message).toContain('threshold signingSession is expired');
   });
 
   test('uses warmSession mode when threshold warm cache is available', async ({ page }) => {
@@ -182,5 +185,94 @@ test.describe('tempo signing auth-mode resolution', () => {
     expect(result.capturedAuthMode).toBe('warmSession');
     expect(result.chain).toBe('evm');
     expect(result.kind).toBe('eip1559');
+  });
+
+  test('fails fast when threshold warm session cache is unavailable (Tempo)', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(async ({ paths }) => {
+      const { signTempoWithSecureConfirm } = await import(paths.signTempoWithSecureConfirm);
+      let confirmCalls = 0;
+
+      const workerCtx = {
+        requestWorkerOperation: async ({ request }: { request: any }) => {
+          const type = String(request?.type || '');
+          if (type === 'computeTempoSenderHash') return new Uint8Array(32).buffer;
+          if (type === 'encodeTempoSignedTx') return new Uint8Array([0x76, 0xaa]).buffer;
+          throw new Error(`Unexpected worker operation: ${type}`);
+        },
+      };
+
+      try {
+        await signTempoWithSecureConfirm({
+          ctx: { indexedDB: {} } as any,
+          workerCtx: workerCtx as any,
+          secureConfirmWorkerManager: {
+            peekPrfFirstForThresholdSession: async () => ({
+              ok: false,
+              code: 'expired',
+              message: 'expired',
+            }),
+            confirmAndPrepareSigningSession: async () => {
+              confirmCalls += 1;
+              return {
+                sessionId: 'intent',
+                intentDigest: '0x' + '11'.repeat(32),
+              };
+            },
+          } as any,
+          nearAccountId: 'alice.testnet',
+          request: {
+            chain: 'tempo',
+            kind: 'tempoTransaction',
+            senderSignatureAlgorithm: 'secp256k1',
+            tx: {
+              chainId: 11155111n,
+              maxPriorityFeePerGas: 1n,
+              maxFeePerGas: 2n,
+              gasLimit: 21_000n,
+              calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
+              accessList: [],
+              nonceKey: 1n,
+              nonce: 1n,
+              validBefore: null,
+              validAfter: null,
+              feePayerSignature: { kind: 'none' },
+            },
+          } as any,
+          engines: {
+            secp256k1: {
+              algorithm: 'secp256k1',
+              sign: async () => {
+                const sig = new Uint8Array(65);
+                sig[64] = 0;
+                return sig;
+              },
+            },
+          } as any,
+          keyRefsByAlgorithm: {
+            secp256k1: {
+              type: 'threshold-ecdsa-secp256k1',
+              userId: 'alice.testnet',
+              relayerUrl: 'https://relayer.example',
+              relayerKeyId: 'rk-1',
+              clientVerifyingShareB64u: 'AQ',
+              thresholdSessionId: 'session-1',
+            },
+          } as any,
+        });
+        return { ok: true, confirmCalls };
+      } catch (error: any) {
+        return {
+          ok: false,
+          confirmCalls,
+          message: String(error?.message || error),
+        };
+      }
+    }, { paths: IMPORT_PATHS });
+
+    expect(result.ok).toBe(false);
+    expect(result.confirmCalls).toBe(0);
+    expect(result.message).toContain('threshold signingSession is expired');
   });
 });
