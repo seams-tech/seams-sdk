@@ -5,7 +5,7 @@ import type { NonceManager } from '@/core/rpcClients/near/nonceManager';
 import type { AccountId } from '@/core/types/accountIds';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { SigningSessionStatus, ThemeName, TatchiConfigs } from '@/core/types/tatchi';
-import type { SecureConfirmWorkerManager } from '../secureConfirm';
+import type { TouchConfirmManager } from '../touchConfirm';
 import type { EvmSigningRequest } from '../chainAdaptors/evm/types';
 import type { EvmSignedResult } from '../chainAdaptors/evm/evmAdapter';
 import type { TempoSigningRequest } from '../chainAdaptors/tempo/types';
@@ -58,7 +58,7 @@ export type CreateOrchestrationDependencyBundleArgs = {
   touchIdPrompt: TouchIdPrompt;
   userPreferencesManager: UserPreferencesManager;
   nonceManager: NonceManager;
-  secureConfirmWorkerManager: SecureConfirmWorkerManager;
+  touchConfirmManager: TouchConfirmManager;
   signerWorkerManager: SignerWorkerManager;
   getWorkerBaseOrigin: () => string;
   getTheme: () => ThemeName;
@@ -101,7 +101,7 @@ export function createOrchestrationDependencyBundle(
   const activeSigningSessionIds = new Map<string, string>();
   const signingSessionStateDeps: SigningSessionStateDeps = {
     activeSigningSessionIds,
-    secureConfirmWorkerManager: args.secureConfirmWorkerManager,
+    touchConfirmManager: args.touchConfirmManager,
     createSessionId: (prefix: string): string => generateSessionIdValue(prefix),
     signingSessionDefaults: args.tatchiPasskeyConfigs.signingSessionDefaults,
   };
@@ -148,11 +148,11 @@ export function createOrchestrationDependencyBundle(
       indexedDB: IndexedDBManager,
       tatchiPasskeyConfigs: args.tatchiPasskeyConfigs,
       getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
-      secureConfirmWorkerManager: args.secureConfirmWorkerManager,
+      touchConfirmManager: args.touchConfirmManager,
     },
     privateKeyExportRecoveryDeps: {
       indexedDB: IndexedDBManager,
-      secureConfirmWorkerManager: args.secureConfirmWorkerManager,
+      touchConfirmManager: args.touchConfirmManager,
       getTheme: args.getTheme,
       signingKeyOps: args.signerWorkerManager.nearKeyOps,
       deriveNearKeypairFromCredentialViaWorker:
@@ -173,7 +173,7 @@ export function createOrchestrationDependencyBundle(
     registrationSessionDeps: {
       contractId: args.tatchiPasskeyConfigs.contractId,
       nearRpcUrl: args.tatchiPasskeyConfigs.nearRpcUrl,
-      secureConfirmWorkerManager: args.secureConfirmWorkerManager,
+      touchConfirmManager: args.touchConfirmManager,
       touchIdPrompt: args.touchIdPrompt,
     },
     signingSessionStateDeps: signingSessionStateDeps,
@@ -181,7 +181,7 @@ export function createOrchestrationDependencyBundle(
       indexedDB: IndexedDBManager,
       touchIdPrompt: args.touchIdPrompt,
       signingKeyOps: args.signerWorkerManager.nearKeyOps,
-      secureConfirmWorkerManager: args.secureConfirmWorkerManager,
+      touchConfirmManager: args.touchConfirmManager,
       getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
       getOrCreateActiveSigningSessionId: getOrCreateActiveSigningSessionId,
       defaultRelayerUrl: args.tatchiPasskeyConfigs.relayer?.url || '',

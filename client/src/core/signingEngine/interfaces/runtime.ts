@@ -1,7 +1,7 @@
 import type { UnifiedIndexedDBManager } from '../../indexedDB';
 import type { NearClient } from '../../rpcClients/near/NearClient';
 import type { NonceManager } from '../../rpcClients/near/nonceManager';
-import type { SecureConfirmWorkerManager } from '../secureConfirm';
+import type { TouchConfirmSigningSessionPort } from '../touchConfirm';
 import type { TouchIdPrompt } from '../signers/webauthn/prompt/touchIdPrompt';
 import type { UserPreferencesManager } from '../api/userPreferences';
 import type { ThemeName } from '../../types/tatchi';
@@ -26,7 +26,7 @@ export interface SigningRuntimeDeps {
   rpIdOverride?: string;
   nearExplorerUrl?: string;
   relayerUrl: string;
-  secureConfirmWorkerManager?: SecureConfirmWorkerManager;
+  touchConfirmManager?: TouchConfirmSigningSessionPort;
   requestWorkerOperation: <
     K extends SignerWorkerKind,
     T extends SignerWorkerOperationType<K>,

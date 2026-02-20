@@ -11,7 +11,12 @@ import {
   deriveSmartAccountDeploymentTargetFromSigningRequest,
   ensureSmartAccountDeployed,
 } from '../orchestration/ensureSmartAccountDeployed';
-import { SecureConfirmWorkerManager } from '../secureConfirm';
+import type {
+  TouchConfirmContextPort,
+  TouchConfirmSigningPort,
+  ThresholdPrfFirstCacheDispensePort,
+  ThresholdPrfFirstCachePeekPort,
+} from '../touchConfirm';
 import type { SignerWorkerManagerContext } from '../workerManager';
 import {
   deploySmartAccountForChain,
@@ -23,7 +28,11 @@ export type EvmFamilySigningDeps = {
   indexedDB: UnifiedIndexedDBManager;
   tatchiPasskeyConfigs: TatchiConfigs;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
-  secureConfirmWorkerManager: SecureConfirmWorkerManager;
+  touchConfirmManager:
+    & TouchConfirmContextPort
+    & TouchConfirmSigningPort
+    & ThresholdPrfFirstCachePeekPort
+    & ThresholdPrfFirstCacheDispensePort;
 };
 
 type EvmFamilySigningCancelledError = Error & { code: 'cancelled' };
@@ -102,10 +111,10 @@ export async function signEvmFamily(
   ]);
 
   const signerWorkerCtx = deps.getSignerWorkerContext();
-  const ctx = deps.secureConfirmWorkerManager.getContext();
+  const ctx = deps.touchConfirmManager.getContext();
   const flowArgs = {
     ctx,
-    secureConfirmWorkerManager: deps.secureConfirmWorkerManager,
+    touchConfirmManager: deps.touchConfirmManager,
     workerCtx: signerWorkerCtx,
     nearAccountId: args.nearAccountId,
     onEvent: args.onEvent,
@@ -114,7 +123,7 @@ export async function signEvmFamily(
         getRpId: () => ctx.touchIdPrompt.getRpId(),
         workerCtx: signerWorkerCtx,
         dispenseThresholdEcdsaPrfFirstForSession: (payload) =>
-          deps.secureConfirmWorkerManager.dispensePrfFirstForThresholdSession(payload),
+          deps.touchConfirmManager.dispensePrfFirstForThresholdSession(payload),
       }),
       webauthnP256: new WebAuthnP256Engine(signerWorkerCtx),
     },
@@ -125,17 +134,17 @@ export async function signEvmFamily(
   };
 
   if (args.request.chain === 'evm') {
-    const { signEvmWithSecureConfirm } =
+    const { signEvmWithTouchConfirm } =
       await import('../orchestration/evm/evmSigningFlow');
-    return await signEvmWithSecureConfirm({
+    return await signEvmWithTouchConfirm({
       ...flowArgs,
       request: args.request,
     });
   }
 
-  const { signTempoWithSecureConfirm } =
+  const { signTempoWithTouchConfirm } =
     await import('../orchestration/tempo/tempoSigningFlow');
-  return await signTempoWithSecureConfirm({
+  return await signTempoWithTouchConfirm({
     ...flowArgs,
     request: args.request,
   });

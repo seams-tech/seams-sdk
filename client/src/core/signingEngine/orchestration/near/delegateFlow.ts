@@ -113,9 +113,9 @@ export async function signDelegateAction({
   });
 
   const warnings: string[] = [];
-  const secureConfirmWorkerManager = ctx.secureConfirmWorkerManager;
-  if (!secureConfirmWorkerManager) {
-    throw new Error('SecureConfirmWorkerManager not available for delegate signing');
+  const touchConfirmManager = ctx.touchConfirmManager;
+  if (!touchConfirmManager) {
+    throw new Error('TouchConfirmManager not available for delegate signing');
   }
 
   const {
@@ -165,14 +165,15 @@ export async function signDelegateAction({
     usesNeeded,
     nearAccountId,
     getRpId: () => ctx.touchIdPrompt.getRpId(),
-    secureConfirmWorkerManager,
+    touchConfirmManager,
     desiredTtlMs,
     desiredRemainingUses,
   });
 
-  const confirmation = await secureConfirmWorkerManager.confirmAndPrepareSigningSession({
+  const confirmation = await touchConfirmManager.orchestrateSigningConfirmation({
     ctx,
     sessionId,
+    chain: 'near',
     kind: 'delegate',
     ...(signingAuthMode ? { signingAuthMode } : {}),
     ...(thresholdSessionPlan
@@ -204,14 +205,14 @@ export async function signDelegateAction({
   let prfFirstB64u: string | undefined;
 
   if (signingContext.threshold && signingAuthMode === 'warmSession') {
-    const delivered = await secureConfirmWorkerManager.dispensePrfFirstForThresholdSession({
+    const delivered = await touchConfirmManager.dispensePrfFirstForThresholdSession({
       sessionId,
       uses: usesNeeded,
     });
     if (delivered.ok) {
       prfFirstB64u = delivered.prfFirstB64u;
     } else {
-      await clearSigningSessionPrfFirstBestEffort(secureConfirmWorkerManager, sessionId);
+      await clearSigningSessionPrfFirstBestEffort(touchConfirmManager, sessionId);
       signingAuthMode = 'webauthn';
 
       thresholdSessionPlan = await buildEd25519SessionPolicyForNearSigning({
@@ -223,9 +224,10 @@ export async function signDelegateAction({
         desiredRemainingUses,
       });
 
-      const refreshed = await secureConfirmWorkerManager.confirmAndPrepareSigningSession({
+      const refreshed = await touchConfirmManager.orchestrateSigningConfirmation({
         ctx,
         sessionId,
+        chain: 'near',
         kind: 'delegate',
         signingAuthMode: 'webauthn',
         sessionPolicyDigest32: thresholdSessionPlan.sessionPolicyDigest32,
@@ -338,7 +340,7 @@ export async function signDelegateAction({
     if (!prfFirstB64u) {
       throw new Error('Missing PRF.first output for threshold session cache');
     }
-    await cacheSigningSessionPrfFirstBestEffort(secureConfirmWorkerManager, {
+    await cacheSigningSessionPrfFirstBestEffort(touchConfirmManager, {
       sessionId,
       prfFirstB64u,
       expiresAtMs,
@@ -413,7 +415,7 @@ export async function signDelegateAction({
 
       if (attempt === 0 && isThresholdSessionAuthUnavailableError(err)) {
         clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
-        await clearSigningSessionPrfFirstBestEffort(secureConfirmWorkerManager, sessionId);
+        await clearSigningSessionPrfFirstBestEffort(touchConfirmManager, sessionId);
         signingContext.threshold.thresholdSessionJwt = undefined;
         requestPayload.threshold!.thresholdSessionJwt = undefined;
 
@@ -426,9 +428,10 @@ export async function signDelegateAction({
           desiredRemainingUses,
         });
 
-        const refreshed = await secureConfirmWorkerManager.confirmAndPrepareSigningSession({
+        const refreshed = await touchConfirmManager.orchestrateSigningConfirmation({
           ctx,
           sessionId,
+          chain: 'near',
           kind: 'delegate',
           signingAuthMode: 'webauthn',
           sessionPolicyDigest32: thresholdSessionPlan.sessionPolicyDigest32,
@@ -475,7 +478,7 @@ export async function signDelegateAction({
         const expiresAtMs = minted.expiresAtMs ?? Date.now() + thresholdSessionPlan.policy.ttlMs;
         const remainingUses = minted.remainingUses ?? thresholdSessionPlan.policy.remainingUses;
 
-        await cacheSigningSessionPrfFirstBestEffort(secureConfirmWorkerManager, {
+        await cacheSigningSessionPrfFirstBestEffort(touchConfirmManager, {
           sessionId,
           prfFirstB64u: prfFirst,
           expiresAtMs,

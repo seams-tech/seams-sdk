@@ -1,15 +1,16 @@
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type {
-  SecureConfirmWorkerManager,
-  SecureConfirmWorkerManagerContext,
-} from '@/core/signingEngine/secureConfirm';
+  TouchConfirmSigningPort,
+  TouchConfirmContext,
+  ThresholdPrfFirstCachePeekPort,
+} from '@/core/signingEngine/touchConfirm';
 import type { KeyRef, SignRequest, SignerMap, SignatureBytes } from '@/core/signingEngine/interfaces/signing';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { bytesToHex } from '../../chainAdaptors/evm/bytes';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { TempoAdapter, type TempoSignedResult } from '../../chainAdaptors/tempo/tempoAdapter';
 import type { TempoSigningRequest } from '../../chainAdaptors/tempo/types';
-import { buildTempoDisplayModel } from '@/core/signingEngine/touchConfirm/flows/signing/tempo/buildDisplayModel';
+import { buildTempoDisplayModel } from '@/core/signingEngine/touchConfirm/displayFormat/tempoTx';
 import { resolveWebAuthnP256KeyRefForNearAccount } from '@/core/signingEngine/orchestration/walletOrigin/webauthnKeyRef';
 import { executeSigningIntent } from '@/core/signingEngine/orchestration/executeSigningIntent';
 import { normalizeAuthenticationCredential } from '@/core/signingEngine/signers/webauthn/credentials/helpers';
@@ -19,14 +20,11 @@ import {
   makeRequestId,
   resolveKeyRefForSignRequest,
   resolveSigningAuthMode,
-} from '../shared/secureConfirmSigning';
+} from '../shared/touchConfirmSigning';
 
-export async function signTempoWithSecureConfirm(args: {
-  ctx: SecureConfirmWorkerManagerContext;
-  secureConfirmWorkerManager: Pick<
-    SecureConfirmWorkerManager,
-    'confirmAndPrepareSigningSession' | 'peekPrfFirstForThresholdSession'
-  >;
+export async function signTempoWithTouchConfirm(args: {
+  ctx: TouchConfirmContext;
+  touchConfirmManager: TouchConfirmSigningPort & ThresholdPrfFirstCachePeekPort;
   nearAccountId: string;
   request: TempoSigningRequest;
   engines: SignerMap<SignRequest, KeyRef, SignatureBytes>;
@@ -69,15 +67,16 @@ export async function signTempoWithSecureConfirm(args: {
   const signingAuthMode = await resolveSigningAuthMode({
     needsWebAuthn,
     thresholdEcdsaKeyRef,
-    secureConfirmWorkerManager: args.secureConfirmWorkerManager,
+    touchConfirmManager: args.touchConfirmManager,
   });
 
   const sessionId = makeRequestId('intent');
-  const confirmation = await args.secureConfirmWorkerManager.confirmAndPrepareSigningSession({
+  const confirmation = await args.touchConfirmManager.orchestrateSigningConfirmation({
     ctx: args.ctx,
     sessionId,
+    chain: 'tempo',
     kind: 'intentDigest',
-    nearAccountId: args.nearAccountId,
+    signerAccountId: args.nearAccountId,
     challengeB64u,
     intentDigest: intentDigestHex,
     displayModel,
@@ -94,7 +93,7 @@ export async function signTempoWithSecureConfirm(args: {
     resolveSignInput: async (signReq: SignRequest) => {
       if (signReq.kind === 'webauthn') {
         if (!confirmation.credential) {
-          throw new Error('[chains] missing WebAuthn credential from SecureConfirm');
+          throw new Error('[chains] missing WebAuthn credential from touchConfirm');
         }
         const credential = normalizeAuthenticationCredential(confirmation.credential);
         const webauthnKeyRef = await resolveWebAuthnP256KeyRefForNearAccount({

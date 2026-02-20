@@ -1,7 +1,7 @@
 import { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { type NearClient } from '@/core/rpcClients/near/NearClient';
-import { SecureConfirmWorkerManager } from '../secureConfirm';
+import type { TouchConfirmSigningSessionPort } from '../touchConfirm';
 import { TouchIdPrompt } from '../signers/webauthn/prompt/touchIdPrompt';
 import type { SigningRuntimeDeps } from '../interfaces/runtime';
 import type {
@@ -37,7 +37,7 @@ export interface SignerWorkerManagerContext extends SigningRuntimeDeps {
 export class SignerWorkerManager {
   private indexedDB: UnifiedIndexedDBManager;
   private touchIdPrompt: TouchIdPrompt;
-  private secureConfirmWorkerManager: SecureConfirmWorkerManager;
+  private touchConfirmManager: TouchConfirmSigningSessionPort;
   private nearClient: NearClient;
   private userPreferencesManager: UserPreferencesManager;
   private nonceManager: NonceManager;
@@ -48,7 +48,7 @@ export class SignerWorkerManager {
   readonly nearKeyOps: NearSigningKeyOps;
 
   constructor(
-    secureConfirmWorkerManager: SecureConfirmWorkerManager,
+    touchConfirmManager: TouchConfirmSigningSessionPort,
     nearClient: NearClient,
     userPreferencesManager: UserPreferencesManager,
     nonceManager: NonceManager,
@@ -63,7 +63,7 @@ export class SignerWorkerManager {
       rpIdOverride,
       enableSafariGetWebauthnRegistrationFallback,
     );
-    this.secureConfirmWorkerManager = secureConfirmWorkerManager;
+    this.touchConfirmManager = touchConfirmManager;
     this.nearClient = nearClient;
     this.userPreferencesManager = userPreferencesManager;
     this.nonceManager = nonceManager;
@@ -83,7 +83,7 @@ export class SignerWorkerManager {
       requestWorkerOperation: this.requestWorkerOperation.bind(this),
       indexedDB: this.indexedDB,
       touchIdPrompt: this.touchIdPrompt,
-      secureConfirmWorkerManager: this.secureConfirmWorkerManager,
+      touchConfirmManager: this.touchConfirmManager,
       nearClient: this.nearClient,
       userPreferencesManager: this.userPreferencesManager,
       nonceManager: this.nonceManager,

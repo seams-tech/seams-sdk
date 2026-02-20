@@ -1,8 +1,9 @@
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type {
-  SecureConfirmWorkerManager,
-  SecureConfirmWorkerManagerContext,
-} from '@/core/signingEngine/secureConfirm';
+  TouchConfirmSigningPort,
+  TouchConfirmContext,
+  ThresholdPrfFirstCachePeekPort,
+} from '@/core/signingEngine/touchConfirm';
 import type {
   KeyRef,
   SignRequest,
@@ -15,21 +16,18 @@ import { bytesToHex } from '@/core/signingEngine/chainAdaptors/evm/bytes';
 import { EvmAdapter, type EvmSignedResult } from '@/core/signingEngine/chainAdaptors/evm/evmAdapter';
 import type { EvmSigningRequest } from '@/core/signingEngine/chainAdaptors/evm/types';
 import { executeSigningIntent } from '@/core/signingEngine/orchestration/executeSigningIntent';
-import { buildEvmDisplayModel } from '@/core/signingEngine/touchConfirm/flows/signing/evm/buildDisplayModel';
+import { buildEvmDisplayModel } from '@/core/signingEngine/touchConfirm/displayFormat/evmTx';
 import {
   asThresholdEcdsaKeyRef,
   inferDigest32FromSignRequest,
   makeRequestId,
   resolveKeyRefForSignRequest,
   resolveSigningAuthMode,
-} from '../shared/secureConfirmSigning';
+} from '../shared/touchConfirmSigning';
 
-export async function signEvmWithSecureConfirm(args: {
-  ctx: SecureConfirmWorkerManagerContext;
-  secureConfirmWorkerManager: Pick<
-    SecureConfirmWorkerManager,
-    'confirmAndPrepareSigningSession' | 'peekPrfFirstForThresholdSession'
-  >;
+export async function signEvmWithTouchConfirm(args: {
+  ctx: TouchConfirmContext;
+  touchConfirmManager: TouchConfirmSigningPort & ThresholdPrfFirstCachePeekPort;
   nearAccountId: string;
   request: EvmSigningRequest;
   engines: SignerMap<SignRequest, KeyRef, SignatureBytes>;
@@ -66,15 +64,16 @@ export async function signEvmWithSecureConfirm(args: {
   const signingAuthMode = await resolveSigningAuthMode({
     needsWebAuthn: false,
     thresholdEcdsaKeyRef,
-    secureConfirmWorkerManager: args.secureConfirmWorkerManager,
+    touchConfirmManager: args.touchConfirmManager,
   });
 
   const sessionId = makeRequestId('intent');
-  await args.secureConfirmWorkerManager.confirmAndPrepareSigningSession({
+  await args.touchConfirmManager.orchestrateSigningConfirmation({
     ctx: args.ctx,
     sessionId,
+    chain: 'evm',
     kind: 'intentDigest',
-    nearAccountId: args.nearAccountId,
+    signerAccountId: args.nearAccountId,
     challengeB64u,
     intentDigest: intentDigestHex,
     displayModel,
