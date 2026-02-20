@@ -49,7 +49,7 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigs = {
   nearExplorerUrl: 'https://testnet.nearblocks.io',
   signerMode: { mode: 'local-signer' },
   // Warm signing session defaults used by login/unlock flows.
-  // Enforcement (TTL/uses) is owned by the SecureConfirm worker (wallet origin); signer workers remain one-shot.
+  // Enforcement (TTL/uses) is owned by the UserConfirm worker (wallet origin); signer workers remain one-shot.
   signingSessionDefaults: {
     ttlMs: 24 * 60 * 60 * 1000, // 1 day
     remainingUses: 10_000,

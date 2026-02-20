@@ -2,7 +2,7 @@ import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import type { TouchConfirmContext } from '../../';
 import {
-  SecureConfirmationType,
+  UserConfirmationType,
   type RegistrationSummary,
   type UserConfirmRequest,
 } from '../../shared/confirmTypes';
@@ -30,7 +30,7 @@ export async function requestRegistrationCredentialConfirmation({
 }): Promise<RegistrationCredentialConfirmationPayload> {
   const requestUserConfirmation = ctx.requestUserConfirmation;
   if (typeof requestUserConfirmation !== 'function') {
-    throw new Error('SecureConfirm request bridge is unavailable (worker handshake path only)');
+    throw new Error('UserConfirm request bridge is unavailable (worker handshake path only)');
   }
 
   // Ensure required fields are present; JSON.stringify drops undefined causing Rust parse failure
@@ -51,7 +51,7 @@ export async function requestRegistrationCredentialConfirmation({
     rpcCall: { contractId: string; nearRpcUrl: string; nearAccountId: string };
   }, RegistrationSummary> = {
     requestId,
-    type: SecureConfirmationType.REGISTER_ACCOUNT,
+    type: UserConfirmationType.REGISTER_ACCOUNT,
     summary: {
       nearAccountId,
       deviceNumber,

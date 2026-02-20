@@ -21,7 +21,7 @@ import type {
 } from './orchestration/thresholdActivation';
 import type { SignerWorkerManager } from './workerManager';
 import type { RegistrationCredentialConfirmationPayload } from './workerManager/validation';
-import type { SecureConfirmWorkerManager } from './secureConfirm';
+import type { TouchConfirmManager } from './touchConfirm';
 import type { TouchIdPrompt } from './signers/webauthn/prompt/touchIdPrompt';
 import type { WebAuthnAllowCredential } from './signers/webauthn/credentials';
 import type { EvmSigningRequest } from './chainAdaptors/evm/types';
@@ -97,7 +97,7 @@ export type { NearSignIntentRequest, NearSignIntentResult } from './api/nearSign
  */
 export class SigningEngine {
   // Kept as fields for low-level tests that intentionally access internals.
-  private readonly secureConfirmWorkerManager: SecureConfirmWorkerManager;
+  private readonly touchConfirmManager: TouchConfirmManager;
   private readonly signerWorkerManager: SignerWorkerManager;
   private readonly touchIdPrompt: TouchIdPrompt;
   private readonly userPreferencesManager: UserPreferencesManager;
@@ -125,7 +125,7 @@ export class SigningEngine {
     this.touchIdPrompt = assembly.touchIdPrompt;
     this.userPreferencesManager = assembly.userPreferencesManager;
     this.nonceManager = assembly.nonceManager;
-    this.secureConfirmWorkerManager = assembly.secureConfirmWorkerManager;
+    this.touchConfirmManager = assembly.touchConfirmManager;
     this.signerWorkerManager = assembly.signerWorkerManager;
 
     this.orchestrationDeps = createOrchestrationDependencyBundle({
@@ -134,7 +134,7 @@ export class SigningEngine {
       touchIdPrompt: this.touchIdPrompt,
       userPreferencesManager: this.userPreferencesManager,
       nonceManager: this.nonceManager,
-      secureConfirmWorkerManager: this.secureConfirmWorkerManager,
+      touchConfirmManager: this.touchConfirmManager,
       signerWorkerManager: this.signerWorkerManager,
       getWorkerBaseOrigin: () => this.workerBaseOrigin,
       getTheme: () => this.theme,
@@ -162,7 +162,7 @@ export class SigningEngine {
       setWorkerBaseOrigin: (origin: string) => {
         this.workerBaseOrigin = origin;
         this.signerWorkerManager.setWorkerBaseOrigin(origin);
-        this.secureConfirmWorkerManager.setWorkerBaseOrigin?.(origin);
+        this.touchConfirmManager.setWorkerBaseOrigin?.(origin);
       },
     });
   }
@@ -493,7 +493,7 @@ export class SigningEngine {
 
     await Promise.all(
       sessionIds.map((sessionId) =>
-        clearSigningSessionPrfFirstBestEffortValue(this.secureConfirmWorkerManager, sessionId),
+        clearSigningSessionPrfFirstBestEffortValue(this.touchConfirmManager, sessionId),
       ),
     );
   }

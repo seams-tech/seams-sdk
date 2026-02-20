@@ -278,9 +278,6 @@ export class LinkDeviceFlow {
       confirmerText: this.options?.options?.confirmerText,
       confirmationConfigOverride: this.options?.options?.confirmationConfig,
     });
-    if (!confirm?.confirmed || !confirm?.credential) {
-      throw new Error(confirm?.error || 'User cancelled link-device registration');
-    }
     const credential = confirm.credential;
     const resolvedDeviceNumber = parseDeviceNumberFromIntentDigest(confirm.intentDigest, deviceNumberHint);
 
@@ -474,7 +471,7 @@ export class LinkDeviceFlow {
   /**
    * Device2: Attempt auto-login after successful device linking.
    *
-   * Note: In the lite-signer refactor we no longer do SecureConfirm WebAuthn verification/unlocks here.
+   * Note: In the lite-signer refactor we no longer do UserConfirm WebAuthn verification/unlocks here.
    * Auto-login is simply: set last-user pointer + initialize current user state for signing.
    */
   private async attemptAutoLogin(input: { accountId: string; deviceNumber: number }): Promise<void> {

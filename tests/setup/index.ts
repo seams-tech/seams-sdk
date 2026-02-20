@@ -55,9 +55,9 @@ export { SDK_ESM_BASE_PATH, SDK_ESM_PATHS, sdkEsmPath } from './sdkEsmPaths';
  * This function orchestrates the complete test environment setup following
  * a precise sequence to avoid module loading race conditions:
  *
- * SecureConfirm context:
+ * UserConfirm context:
  * - The wallet iframe now loads two cooperating workers:
- *   - SecureConfirm worker: owns WebAuthn PRF + SecureConfirm (`awaitSecureConfirmationV2`).
+ *   - UserConfirm worker: owns WebAuthn PRF + UserConfirm (`awaitUserConfirmationV2`).
  *   - Signer worker: derives WrapKeySeed from prfFirstB64u + wrapKeySalt supplied in wallet-origin
  *     requests and performs NEAR signing; confirmTxFlow never carries raw PRF material.
  *
@@ -134,7 +134,7 @@ export async function setupBasicPasskeyTest(
         })();
 
         const OriginalWorker = window.Worker;
-        // Normalize worker URLs for both signer + SecureConfirm workers.
+        // Normalize worker URLs for both signer + UserConfirm workers.
         const normalize = (url: string) => {
           try {
             const u = new URL(url, frameOrigin);

@@ -4,7 +4,7 @@ import {
   TransactionSummary,
   RegistrationUserConfirmRequest,
 } from '../../shared/confirmTypes';
-import type { SecureConfirmSecurityContext, TransactionContext } from '@/core/types';
+import type { UserConfirmSecurityContext, TransactionContext } from '@/core/types';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import { sha256Base64UrlUtf8 } from '@/utils/intentDigest';
 import {
@@ -75,7 +75,7 @@ export async function handleRegistrationFlow(
     if (!rpId) throw new Error('Missing rpId for registration challenge');
 
     let challengeB64u = await computeBoundIntentDigestB64u();
-    const securityContext: SecureConfirmSecurityContext = {
+    const securityContext: UserConfirmSecurityContext = {
       rpId,
       blockHeight: transactionContext.txBlockHeight,
       blockHash: transactionContext.txBlockHash,

@@ -41,7 +41,7 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
       tatchi: (window as any).tatchi,
       configs: (window as any).configs || setupConfig,
       confirmOverrides: {
-        // SecureConfirm invariants:
+        // UserConfirm invariants:
         // - LocalOnly decrypt flows (DECRYPT_PRIVATE_KEY_WITH_PRF) typically run with uiMode: 'none'
         //   and never leak PRF outputs outside the wallet origin.
         // - Registration/signing flows use modal UI and never return PRF/WrapKeySeed to app-origin code.
@@ -258,7 +258,7 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
       const tatchi = (window as any).tatchi;
       const nonceManager = tatchi?.webAuthnManager?.getNonceManager?.();
 
-      // SecureConfirm-driven confirmTxFlow tests rely on these fallbacks when NonceManager
+      // UserConfirm-driven confirmTxFlow tests rely on these fallbacks when NonceManager
       // has not been initialized with a user yet (pre-login or LocalOnly decrypt).
       if (!nonceManager) {
         console.warn('[TEST PATCH] NonceManager not available for patching');

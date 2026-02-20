@@ -1,24 +1,24 @@
 /**
- * SecureConfirm Web Worker
+ * UserConfirm Web Worker
  *
- * Hosts the SecureConfirm handshake runtime (`awaitUserConfirmationV2`) and the
+ * Hosts the UserConfirm handshake runtime (`awaitUserConfirmationV2`) and the
  * threshold PRF.first warm-session cache.
  */
 import {
   awaitUserConfirmationV2,
 } from '../../touchConfirm/awaitUserConfirmation';
 import {
-  SecureConfirmMessageType,
+  UserConfirmMessageType,
   type UserConfirmRequest,
-  type SecureConfirmDecision,
+  type UserConfirmDecision,
 } from '../../touchConfirm/shared/confirmTypes';
 
 // Expose the confirmation bridge under the JS name expected by wasm-bindgen.
 // awaitUserConfirmationV2 expects a UserConfirmRequest object.
-type SecureConfirmWorkerGlobal = typeof globalThis & {
+type UserConfirmWorkerGlobal = typeof globalThis & {
   awaitUserConfirmationV2?: typeof awaitUserConfirmationV2;
 };
-(globalThis as SecureConfirmWorkerGlobal).awaitUserConfirmationV2 = awaitUserConfirmationV2;
+(globalThis as UserConfirmWorkerGlobal).awaitUserConfirmationV2 = awaitUserConfirmationV2;
 
 type ThresholdPrfFirstCacheEntry = {
   prfFirstB64u: string;
@@ -32,15 +32,15 @@ type ErrResult = { ok: false; code: string; message: string };
 
 const prfFirstSessionCache = new Map<string, ThresholdPrfFirstCacheEntry>();
 
-type SecureConfirmWorkerIncomingMessage = {
+type UserConfirmWorkerIncomingMessage = {
   id?: unknown;
   type?: unknown;
   payload?: unknown;
 };
 
-function asIncomingMessage(value: unknown): SecureConfirmWorkerIncomingMessage {
+function asIncomingMessage(value: unknown): UserConfirmWorkerIncomingMessage {
   if (!value || typeof value !== 'object') return {};
-  return value as SecureConfirmWorkerIncomingMessage;
+  return value as UserConfirmWorkerIncomingMessage;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -102,7 +102,7 @@ function postUserConfirmWorkerResponse(id: unknown, payload: { success: boolean;
   try { self.postMessage(response); } catch {}
 }
 
-function toDecisionFromWorkerResponse(response: Awaited<ReturnType<typeof awaitUserConfirmationV2>>): SecureConfirmDecision {
+function toDecisionFromWorkerResponse(response: Awaited<ReturnType<typeof awaitUserConfirmationV2>>): UserConfirmDecision {
   return {
     requestId: String(response.request_id || '').trim(),
     intentDigest: response.intent_digest,
@@ -118,7 +118,7 @@ function toDecisionFromWorkerResponse(response: Awaited<ReturnType<typeof awaitU
 self.onmessage = (event: MessageEvent) => {
   const incoming = asIncomingMessage(event.data);
   const eventType = incoming.type;
-  if (eventType === SecureConfirmMessageType.USER_PASSKEY_CONFIRM_RESPONSE) return;
+  if (eventType === UserConfirmMessageType.USER_PASSKEY_CONFIRM_RESPONSE) return;
 
   const id = incoming.id;
 
@@ -202,7 +202,7 @@ self.onmessage = (event: MessageEvent) => {
 
   // Unknown message types: respond with an explicit error (prevents sendMessage timeouts).
   if (typeof id === 'string' && id.trim()) {
-    postUserConfirmWorkerResponse(id, { success: false, error: `Unsupported SecureConfirm worker message type: ${String(eventType)}` });
+    postUserConfirmWorkerResponse(id, { success: false, error: `Unsupported UserConfirm worker message type: ${String(eventType)}` });
   }
 };
 

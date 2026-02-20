@@ -1,11 +1,11 @@
 import type { TouchConfirmContext } from '../../';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import { ActionPhase } from '@/core/types/sdkSentEvents';
-import type { SecureConfirmSecurityContext, TransactionContext } from '@/core/types';
+import type { UserConfirmSecurityContext, TransactionContext } from '@/core/types';
 import type { ThemeName } from '@/core/types/tatchi';
 import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingEngine/signers/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
 import {
-  SecureConfirmationType,
+  UserConfirmationType,
   type TransactionSummary,
   type SigningUserConfirmRequest,
   type IntentDigestUserConfirmRequest,
@@ -27,10 +27,10 @@ import { createConfirmSession, createConfirmTxFlowAdapters } from './adapters/ad
 import { computeUiIntentDigestFromNep413 } from '@/utils/intentDigest';
 
 function getTransactionSigningAuthMode(request: SigningUserConfirmRequest): SigningAuthMode {
-  if (request.type === SecureConfirmationType.SIGN_TRANSACTION) {
+  if (request.type === UserConfirmationType.SIGN_TRANSACTION) {
     return getSignTransactionPayload(request).signingAuthMode ?? 'webauthn';
   }
-  if (request.type === SecureConfirmationType.SIGN_NEP413_MESSAGE) {
+  if (request.type === UserConfirmationType.SIGN_NEP413_MESSAGE) {
     return request.payload.signingAuthMode ?? 'webauthn';
   }
   return 'webauthn';
@@ -56,9 +56,9 @@ export async function handleTransactionSigningFlow(
   try {
     const signingAuthMode = getTransactionSigningAuthMode(request);
     const usesNeeded = getTxCount(request);
-    const intentDigestB64u = request.type === SecureConfirmationType.SIGN_TRANSACTION
+    const intentDigestB64u = request.type === UserConfirmationType.SIGN_TRANSACTION
       ? getIntentDigest(request)
-      : request.type === SecureConfirmationType.SIGN_NEP413_MESSAGE
+      : request.type === UserConfirmationType.SIGN_NEP413_MESSAGE
         ? await computeUiIntentDigestFromNep413({
           nearAccountId,
           recipient: request.payload.recipient,
@@ -90,7 +90,7 @@ export async function handleTransactionSigningFlow(
     // For warmSession signing we still want to show this context even though
     // we won't collect a WebAuthn credential.
     const rpId = adapters.security.getRpId();
-    const securityContext: Partial<SecureConfirmSecurityContext> | undefined = rpId
+    const securityContext: Partial<UserConfirmSecurityContext> | undefined = rpId
       ? {
           rpId,
           blockHeight: transactionContext.txBlockHeight,
@@ -188,7 +188,7 @@ export async function handleIntentDigestSigningFlow(
       confirmationConfig.uiMode !== 'none'
       && confirmationConfig.behavior === 'requireClick';
     const rpId = adapters.security.getRpId();
-    const securityContext: Partial<SecureConfirmSecurityContext> | undefined = rpId ? { rpId } : undefined;
+    const securityContext: Partial<UserConfirmSecurityContext> | undefined = rpId ? { rpId } : undefined;
 
     if (requiresExplicitConfirmClick) {
       sendConfirmProgress(worker, {

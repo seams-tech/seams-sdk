@@ -10,7 +10,7 @@ import type {
 import type { SignTransactionResult } from '@/core/types/tatchi';
 import type { TransactionInputWasm } from '@/core/types/actions';
 import type { SignerWorkerManagerContext } from '../workerManager';
-import { signNearWithSecureConfirm } from '../orchestration/near/nearSigningFlow';
+import { signNearWithTouchConfirm } from '../orchestration/near/nearSigningFlow';
 
 export type ResolveSigningSessionPolicyArgs = { ttlMs?: number; remainingUses?: number };
 export type ResolveSigningSessionPolicyResult = { ttlMs: number; remainingUses: number };
@@ -155,7 +155,7 @@ export async function signTransactionsWithActions(
     signerMode: args.signerMode,
   });
   const ctx = deps.getSignerWorkerContext();
-  return await signNearWithSecureConfirm({
+  return await signNearWithTouchConfirm({
     chain: 'near',
     kind: 'transactionsWithActions',
     payload: {
@@ -195,7 +195,7 @@ export async function signDelegateAction(
     });
     console.debug('[SigningEngine][delegate] session created', { sessionId: activeSessionId });
     const ctx = deps.getSignerWorkerContext();
-    return await signNearWithSecureConfirm({
+    return await signNearWithTouchConfirm({
       chain: 'near',
       kind: 'delegateAction',
       payload: {
@@ -231,9 +231,8 @@ export async function signNEP413Message(
       signerMode: payload.signerMode,
     });
     const signingSessionPolicy = deps.resolveSigningSessionPolicy({});
-    const nearRpcUrl = deps.nearRpcUrl.split(',')[0] || deps.nearRpcUrl;
     const ctx = deps.getSignerWorkerContext();
-    const result = await signNearWithSecureConfirm({
+    const result = await signNearWithTouchConfirm({
       chain: 'near',
       kind: 'nep413',
       payload: {
@@ -241,8 +240,6 @@ export async function signNEP413Message(
         payload: {
           ...payload,
           sessionId: activeSessionId,
-          contractId: deps.contractId,
-          nearRpcUrl,
           signingSessionTtlMs: signingSessionPolicy.ttlMs,
           signingSessionRemainingUses: signingSessionPolicy.remainingUses,
         },

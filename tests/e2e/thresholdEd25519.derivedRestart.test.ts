@@ -251,7 +251,7 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
 
           const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
 
-          // After relayer restart, we must re-login (fresh threshold session / SecureConfirm confirmation).
+          // After relayer restart, we must re-login (fresh threshold session / UserConfirm confirmation).
           const login = await pm.auth.login(accountId);
           if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
 

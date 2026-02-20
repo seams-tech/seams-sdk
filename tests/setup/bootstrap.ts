@@ -194,10 +194,10 @@ async function waitForEnvironmentStabilization(page: Page): Promise<void> {
  * Step 4: DYNAMIC IMPORTS
  * Load TatchiPasskey only after environment is ready
  *
- * NOTE (SecureConfirm worker):
+ * NOTE (UserConfirm worker):
  * - The dynamically loaded TatchiPasskey instance wires:
- *   - SecureConfirm worker as the owner of WebAuthn PRF + SecureConfirm
- *     (via awaitSecureConfirmationV2 in the SecureConfirm worker bundle).
+ *   - UserConfirm worker as the owner of WebAuthn PRF + UserConfirm
+ *     (via awaitUserConfirmationV2 in the UserConfirm worker bundle).
  *   - Signer worker as a WrapKeySeed/KEK/NEAR‑signature enclave that derives
  *     WrapKeySeed from prfFirstB64u + wrapKeySalt supplied in wallet-origin requests.
  */

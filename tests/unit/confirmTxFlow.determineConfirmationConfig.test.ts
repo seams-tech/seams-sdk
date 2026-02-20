@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  determine: '/sdk/esm/core/signingEngine/secureConfirm/confirmTxFlow/determineConfirmationConfig.js',
-  types: '/sdk/esm/core/signingEngine/secureConfirm/confirmTxFlow/types.js',
+  determine: '/sdk/esm/core/signingEngine/touchConfirm/handlers/determineConfirmationConfig.js',
+  types: '/sdk/esm/core/signingEngine/touchConfirm/shared/confirmTypes.js',
 } as const;
 
 test.describe('determineConfirmationConfig', () => {
@@ -29,7 +29,7 @@ test.describe('determineConfirmationConfig', () => {
       };
 
       const request = {
-        type: types.SecureConfirmationType.SIGN_TRANSACTION,
+        type: types.UserConfirmationType.SIGN_TRANSACTION,
         confirmationConfig: {
           uiMode: 'drawer',
           behavior: 'skipClick',
@@ -64,7 +64,7 @@ test.describe('determineConfirmationConfig', () => {
         }
       };
 
-      const request = { type: types.SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF } as any;
+      const request = { type: types.UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF } as any;
       const cfg = determine(ctx, request);
       return { cfg };
     }, { paths: IMPORT_PATHS });
@@ -89,7 +89,7 @@ test.describe('determineConfirmationConfig', () => {
         }
       };
 
-      const req = { type: types.SecureConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI } as any;
+      const req = { type: types.UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI } as any;
       const cfg = determine(ctx, req);
       return { cfg };
     }, { paths: IMPORT_PATHS });
@@ -116,7 +116,7 @@ test.describe('determineConfirmationConfig', () => {
       };
 
       const request = {
-        type: types.SecureConfirmationType.SIGN_INTENT_DIGEST,
+        type: types.UserConfirmationType.SIGN_INTENT_DIGEST,
         confirmationConfig: {
           uiMode: 'none',
           behavior: 'skipClick',
@@ -190,8 +190,8 @@ test.describe('determineConfirmationConfig', () => {
             })
           }
         };
-        const req1 = { type: types.SecureConfirmationType.REGISTER_ACCOUNT } as any;
-        const req2 = { type: types.SecureConfirmationType.LINK_DEVICE } as any;
+        const req1 = { type: types.UserConfirmationType.REGISTER_ACCOUNT } as any;
+        const req2 = { type: types.UserConfirmationType.LINK_DEVICE } as any;
         const cfg1 = determine(ctx, req1);
         const cfg2 = determine(ctx, req2);
         return { cfg1, cfg2 };

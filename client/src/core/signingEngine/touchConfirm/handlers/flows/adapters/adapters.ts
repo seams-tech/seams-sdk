@@ -8,10 +8,10 @@ import type {
   UserConfirmRequest,
   TransactionSummary,
   KnownUserConfirmRequest,
-  SecureConfirmDecision,
+  UserConfirmDecision,
 } from '../../../shared/confirmTypes';
-import { SecureConfirmationType } from '../../../shared/confirmTypes';
-import type { SecureConfirmSecurityContext } from '@/core/types';
+import { UserConfirmationType } from '../../../shared/confirmTypes';
+import type { UserConfirmSecurityContext } from '@/core/types';
 import { awaitConfirmUIDecision, mountConfirmUI, type ConfirmUIHandle, type ConfirmUIUpdate } from '../../../ui/confirm-ui';
 import { getDisplayModel, getNearAccountId, getSignTransactionPayload } from './request';
 import type { ThemeName } from '@/core/types/tatchi';
@@ -145,13 +145,13 @@ async function renderConfirmUI({
   request: UserConfirmRequest;
   confirmationConfig: ConfirmationConfig;
   transactionSummary: TransactionSummary;
-  securityContext?: Partial<SecureConfirmSecurityContext>;
+  securityContext?: Partial<UserConfirmSecurityContext>;
   theme: ThemeName;
 }): Promise<{ confirmed: boolean; confirmHandle?: ConfirmUIHandle; error?: string }> {
   const nearAccountIdForUi = getNearAccountId(request);
 
   const uiMode = confirmationConfig.uiMode as ConfirmationUIMode;
-  const txSigningRequests = request.type === SecureConfirmationType.SIGN_TRANSACTION
+  const txSigningRequests = request.type === UserConfirmationType.SIGN_TRANSACTION
     ? getSignTransactionPayload(request).txSigningRequests
     : [];
   const model = getDisplayModel(request);
@@ -254,13 +254,13 @@ export function createConfirmSession({
 }): {
   setReservedNonces: (nonces?: string[]) => void;
   updateUI: (props: ConfirmUIUpdate) => void;
-  promptUser: (args: { securityContext?: Partial<SecureConfirmSecurityContext> }) => Promise<{ confirmed: boolean; error?: string }>;
+  promptUser: (args: { securityContext?: Partial<UserConfirmSecurityContext> }) => Promise<{ confirmed: boolean; error?: string }>;
   /**
    * Send decision back to worker and perform standard cleanup.
    * - On `confirmed: false`, releases any reserved nonces.
    * - Always closes the confirm UI handle when present.
    */
-  confirmAndCloseModal: (decision: SecureConfirmDecision) => void;
+  confirmAndCloseModal: (decision: UserConfirmDecision) => void;
 } {
   let reservedNonces: string[] | undefined;
   let confirmHandle: ConfirmUIHandle | undefined;
@@ -273,7 +273,7 @@ export function createConfirmSession({
     confirmHandle?.update?.(props);
   };
 
-  const promptUser = async ({ securityContext }: { securityContext?: Partial<SecureConfirmSecurityContext> }) => {
+  const promptUser = async ({ securityContext }: { securityContext?: Partial<UserConfirmSecurityContext> }) => {
     const { confirmed, confirmHandle: handle, error } = await adapters.ui.renderConfirmUI({
       request,
       confirmationConfig,
@@ -285,7 +285,7 @@ export function createConfirmSession({
     return { confirmed, error };
   };
 
-  const confirmAndCloseModal = (decision: SecureConfirmDecision) => {
+  const confirmAndCloseModal = (decision: UserConfirmDecision) => {
     try {
       sendConfirmResponse(worker, decision);
     } finally {

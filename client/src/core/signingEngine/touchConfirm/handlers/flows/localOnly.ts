@@ -1,13 +1,13 @@
 import type { TouchConfirmContext } from '../../';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import {
-  SecureConfirmationType,
+  UserConfirmationType,
   TransactionSummary,
   LocalOnlyUserConfirmRequest,
   type ShowSecurePrivateKeyUiPayload,
   type ExportPrivateKeyDisplayEntry,
 } from '../../shared/confirmTypes';
-import type { SecureConfirmSecurityContext } from '@/core/types';
+import type { UserConfirmSecurityContext } from '@/core/types';
 import { addLitCancelListener } from '../../ui/lit-events';
 import { ensureDefined, W3A_EXPORT_VIEWER_IFRAME_ID } from '../../ui/registry';
 import { __isWalletIframeHostMode } from '@/core/WalletIframe/host-mode';
@@ -97,7 +97,7 @@ export async function handleLocalOnlyFlow(
   const nearAccountId = getNearAccountId(request);
 
   // SHOW_SECURE_PRIVATE_KEY_UI: purely visual; keep UI open and return confirmed immediately
-  if (request.type === SecureConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI) {
+  if (request.type === UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI) {
     try {
       await mountExportViewer(ctx, request.payload as ShowSecurePrivateKeyUiPayload, confirmationConfig, theme);
       // Keep viewer open; do not close here.
@@ -119,7 +119,7 @@ export async function handleLocalOnlyFlow(
 
   // DECRYPT_PRIVATE_KEY_WITH_PRF: collect an authentication credential (with PRF extension results)
   // and return it; wallet-origin code extracts PRF outputs for signer-worker requests.
-  if (request.type === SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF) {
+  if (request.type === UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF) {
     if (__isWalletIframeHostMode()) {
       confirmationConfig.uiMode = 'none';
       confirmationConfig.behavior = 'skipClick';
@@ -142,11 +142,11 @@ export async function handleLocalOnlyFlow(
         }
       } catch { }
 
-      const securityContext: Partial<SecureConfirmSecurityContext> = (() => {
+      const securityContext: Partial<UserConfirmSecurityContext> = (() => {
         try {
-          return { rpId: adapters.security.getRpId() } as Partial<SecureConfirmSecurityContext>;
+          return { rpId: adapters.security.getRpId() } as Partial<UserConfirmSecurityContext>;
         } catch {
-          return {} as Partial<SecureConfirmSecurityContext>;
+          return {} as Partial<UserConfirmSecurityContext>;
         }
       })();
 

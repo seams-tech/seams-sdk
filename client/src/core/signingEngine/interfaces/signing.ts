@@ -46,7 +46,7 @@ export type SignRequest =
       rpId?: string;
       label?: string;
       /**
-       * Optional serialized WebAuthn credential collected by SecureConfirm.
+       * Optional serialized WebAuthn credential collected by touchConfirm.
        * When present, engines must not call `navigator.credentials.get`.
        */
       credential?: WebAuthnAuthenticationCredential;

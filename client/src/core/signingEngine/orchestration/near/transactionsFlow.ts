@@ -185,7 +185,7 @@ export async function signTransactionsWithActions({
     actions: tx.actions,
   }));
 
-  // SecureConfirm before sending anything to the signer worker.
+  // UserConfirm before sending anything to the signer worker.
   // WebAuthn uses a challenge digest (threshold sessions use `sessionPolicyDigest32`).
   if (!ctx.touchConfirmManager) {
     throw new Error('TouchConfirmManager not available for signing');

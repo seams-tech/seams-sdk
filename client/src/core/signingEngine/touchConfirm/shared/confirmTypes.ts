@@ -8,13 +8,13 @@ import { isObject, isString } from '@shared/utils/validation';
 
 // === SECURE CONFIRM TYPES (V2) ===
 
-export enum SecureConfirmMessageType {
+export enum UserConfirmMessageType {
   PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD = 'PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD',
   USER_PASSKEY_CONFIRM_RESPONSE = 'USER_PASSKEY_CONFIRM_RESPONSE',
   USER_PASSKEY_CONFIRM_PROGRESS = 'USER_PASSKEY_CONFIRM_PROGRESS',
 }
 
-export interface SecureConfirmProgressEvent {
+export interface UserConfirmProgressEvent {
   requestId: string;
   step: number;
   phase: string;
@@ -23,8 +23,8 @@ export interface SecureConfirmProgressEvent {
   data?: unknown;
 }
 
-export interface SecureConfirmPromptEnvelope {
-  type: SecureConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD;
+export interface UserConfirmPromptEnvelope {
+  type: UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD;
   requestId: string;
   channelToken?: string;
   data: UserConfirmRequest;
@@ -43,7 +43,7 @@ export type ForbiddenMainThreadSecrets = {
   prfKey?: never;
 };
 
-export interface SecureConfirmDecision extends ForbiddenMainThreadSecrets {
+export interface UserConfirmDecision extends ForbiddenMainThreadSecrets {
   requestId: string;
   intentDigest?: string;
   confirmed: boolean;
@@ -54,18 +54,18 @@ export interface SecureConfirmDecision extends ForbiddenMainThreadSecrets {
   error?: string;
 }
 
-export interface SecureConfirmResponseEnvelope {
-  type: SecureConfirmMessageType.USER_PASSKEY_CONFIRM_RESPONSE;
+export interface UserConfirmResponseEnvelope {
+  type: UserConfirmMessageType.USER_PASSKEY_CONFIRM_RESPONSE;
   requestId: string;
   channelToken?: string;
-  data: SecureConfirmDecision;
+  data: UserConfirmDecision;
 }
 
-export interface SecureConfirmProgressEnvelope {
-  type: SecureConfirmMessageType.USER_PASSKEY_CONFIRM_PROGRESS;
+export interface UserConfirmProgressEnvelope {
+  type: UserConfirmMessageType.USER_PASSKEY_CONFIRM_PROGRESS;
   requestId: string;
   channelToken?: string;
-  data: SecureConfirmProgressEvent;
+  data: UserConfirmProgressEvent;
 }
 
 export interface TransactionSummary {
@@ -99,7 +99,7 @@ export interface WorkerConfirmationResponse {
 
 // ===== V2 MESSAGE TYPES =====
 
-export enum SecureConfirmationType {
+export enum UserConfirmationType {
   SIGN_TRANSACTION = 'signTransaction',
   REGISTER_ACCOUNT = 'registerAccount',
   LINK_DEVICE = 'linkDevice',
@@ -125,32 +125,32 @@ export interface ExportSummary { operation: ExportOperation; accountId: string; 
 export interface Nep413Summary { operation: 'Sign NEP-413 Message'; message: string; recipient: string; accountId: string }
 
 // V2 request envelope
-export type SecureConfirmPayloadByType = {
-  [SecureConfirmationType.SIGN_TRANSACTION]: SignTransactionPayload;
-  [SecureConfirmationType.REGISTER_ACCOUNT]: RegisterAccountPayload;
-  [SecureConfirmationType.LINK_DEVICE]: RegisterAccountPayload;
-  [SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF]: DecryptPrivateKeyWithPrfPayload;
-  [SecureConfirmationType.SIGN_NEP413_MESSAGE]: SignNep413Payload;
-  [SecureConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI]: ShowSecurePrivateKeyUiPayload;
-  [SecureConfirmationType.SIGN_INTENT_DIGEST]: SignIntentDigestPayload;
+export type UserConfirmPayloadByType = {
+  [UserConfirmationType.SIGN_TRANSACTION]: SignTransactionPayload;
+  [UserConfirmationType.REGISTER_ACCOUNT]: RegisterAccountPayload;
+  [UserConfirmationType.LINK_DEVICE]: RegisterAccountPayload;
+  [UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF]: DecryptPrivateKeyWithPrfPayload;
+  [UserConfirmationType.SIGN_NEP413_MESSAGE]: SignNep413Payload;
+  [UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI]: ShowSecurePrivateKeyUiPayload;
+  [UserConfirmationType.SIGN_INTENT_DIGEST]: SignIntentDigestPayload;
 };
 
-export type SecureConfirmSummaryByType = {
-  [SecureConfirmationType.SIGN_TRANSACTION]: TransactionSummary;
-  [SecureConfirmationType.REGISTER_ACCOUNT]: RegistrationSummary;
-  [SecureConfirmationType.LINK_DEVICE]: RegistrationSummary;
-  [SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF]: ExportSummary;
-  [SecureConfirmationType.SIGN_NEP413_MESSAGE]: TransactionSummary;
-  [SecureConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI]: ExportSummary;
-  [SecureConfirmationType.SIGN_INTENT_DIGEST]: TransactionSummary;
+export type UserConfirmSummaryByType = {
+  [UserConfirmationType.SIGN_TRANSACTION]: TransactionSummary;
+  [UserConfirmationType.REGISTER_ACCOUNT]: RegistrationSummary;
+  [UserConfirmationType.LINK_DEVICE]: RegistrationSummary;
+  [UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF]: ExportSummary;
+  [UserConfirmationType.SIGN_NEP413_MESSAGE]: TransactionSummary;
+  [UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI]: ExportSummary;
+  [UserConfirmationType.SIGN_INTENT_DIGEST]: TransactionSummary;
 };
 
-export type SecureConfirmPayload = SecureConfirmPayloadByType[keyof SecureConfirmPayloadByType];
-export type SecureConfirmSummary = SecureConfirmSummaryByType[keyof SecureConfirmSummaryByType];
+export type UserConfirmPayload = UserConfirmPayloadByType[keyof UserConfirmPayloadByType];
+export type UserConfirmSummary = UserConfirmSummaryByType[keyof UserConfirmSummaryByType];
 
-export interface UserConfirmRequest<TPayload = SecureConfirmPayload, TSummary = SecureConfirmSummary> {
+export interface UserConfirmRequest<TPayload = UserConfirmPayload, TSummary = UserConfirmSummary> {
   requestId: string;
-  type: SecureConfirmationType;
+  type: UserConfirmationType;
   summary: TSummary;
   payload: TPayload;
   // Allow partial override from callers; effective config is computed later
@@ -250,23 +250,23 @@ export function isUserConfirmRequestV2(x: unknown): x is UserConfirmRequest {
 export type SerializableCredential = WebAuthnAuthenticationCredential | WebAuthnRegistrationCredential;
 
 // Discriminated unions to bind `type` to payload shape
-export type UserConfirmRequestByType<TType extends SecureConfirmationType> =
-  UserConfirmRequest<SecureConfirmPayloadByType[TType], SecureConfirmSummaryByType[TType]> & { type: TType };
+export type UserConfirmRequestByType<TType extends UserConfirmationType> =
+  UserConfirmRequest<UserConfirmPayloadByType[TType], UserConfirmSummaryByType[TType]> & { type: TType };
 
 export type LocalOnlyUserConfirmRequest =
-  | UserConfirmRequestByType<SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF>
-  | UserConfirmRequestByType<SecureConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI>;
+  | UserConfirmRequestByType<UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF>
+  | UserConfirmRequestByType<UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI>;
 
 export type RegistrationUserConfirmRequest =
-  | UserConfirmRequestByType<SecureConfirmationType.REGISTER_ACCOUNT>
-  | UserConfirmRequestByType<SecureConfirmationType.LINK_DEVICE>;
+  | UserConfirmRequestByType<UserConfirmationType.REGISTER_ACCOUNT>
+  | UserConfirmRequestByType<UserConfirmationType.LINK_DEVICE>;
 
 export type SigningUserConfirmRequest =
-  | UserConfirmRequestByType<SecureConfirmationType.SIGN_TRANSACTION>
-  | UserConfirmRequestByType<SecureConfirmationType.SIGN_NEP413_MESSAGE>;
+  | UserConfirmRequestByType<UserConfirmationType.SIGN_TRANSACTION>
+  | UserConfirmRequestByType<UserConfirmationType.SIGN_NEP413_MESSAGE>;
 
 export type IntentDigestUserConfirmRequest =
-  UserConfirmRequestByType<SecureConfirmationType.SIGN_INTENT_DIGEST>;
+  UserConfirmRequestByType<UserConfirmationType.SIGN_INTENT_DIGEST>;
 
 export type KnownUserConfirmRequest =
   | LocalOnlyUserConfirmRequest

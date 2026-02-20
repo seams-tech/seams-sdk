@@ -1,7 +1,7 @@
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { TouchConfirmContext } from '../';
 import type { UserConfirmRequest } from '../shared/confirmTypes';
-import { SecureConfirmationType } from '../shared/confirmTypes';
+import { UserConfirmationType } from '../shared/confirmTypes';
 import { needsExplicitActivation } from '@/react/deviceDetection';
 
 /**
@@ -42,7 +42,7 @@ export function determineConfirmationConfig(
   // Default decrypt-private-key confirmations to 'none' UI. The flow collects
   // WebAuthn credentials silently and the worker may follow up with a
   // SHOW_SECURE_PRIVATE_KEY_UI request to display the key.
-  if (request?.type === SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF) {
+  if (request?.type === UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF) {
     return {
       uiMode: 'none',
       behavior: cfg.behavior,
@@ -55,7 +55,7 @@ export function determineConfirmationConfig(
   // explicit confirm click first so UX ordering is deterministic:
   // 1) confirmation modal
   // 2) WebAuthn/TouchID prompt
-  if (request?.type === SecureConfirmationType.SIGN_INTENT_DIGEST) {
+  if (request?.type === UserConfirmationType.SIGN_INTENT_DIGEST) {
     const signingAuthMode = String(
       ((request as unknown as { payload?: { signingAuthMode?: unknown } })?.payload?.signingAuthMode || 'webauthn'),
     ).trim().toLowerCase();
@@ -92,7 +92,7 @@ export function determineConfirmationConfig(
   if (
     inIframe &&
     request?.type &&
-    (request.type === SecureConfirmationType.REGISTER_ACCOUNT || request.type === SecureConfirmationType.LINK_DEVICE)
+    (request.type === UserConfirmationType.REGISTER_ACCOUNT || request.type === UserConfirmationType.LINK_DEVICE)
   ) {
     // Cross‑origin registration/link flows: always require a visible, clickable confirmation
     // so the click lands inside the wallet iframe and satisfies WebAuthn activation.

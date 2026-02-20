@@ -8,8 +8,8 @@ import type { UnifiedIndexedDBManager } from '../../indexedDB';
 import type { UserPreferencesManager } from '../api/userPreferences';
 import type { NonceManager } from '../../rpcClients/near/nonceManager';
 import type {
-  SecureConfirmDecision,
-  SecureConfirmProgressEvent,
+  UserConfirmDecision,
+  UserConfirmProgressEvent,
   UserConfirmRequest,
 } from './shared/confirmTypes';
 import type { ConfirmationConfig } from '../../types/signer-worker';
@@ -22,7 +22,7 @@ import type {
 } from './handlers/flowOrchestrator';
 
 export type RequestUserConfirmationOptions = {
-  onProgress?: (progress: SecureConfirmProgressEvent) => void;
+  onProgress?: (progress: UserConfirmProgressEvent) => void;
 };
 
 /** TouchConfirm-owned host context passed into the touchConfirm confirmation runtime. */
@@ -39,7 +39,7 @@ export interface TouchConfirmContext {
   requestUserConfirmation?: (
     request: UserConfirmRequest,
     options?: RequestUserConfirmationOptions,
-  ) => Promise<SecureConfirmDecision>;
+  ) => Promise<UserConfirmDecision>;
 }
 
 export type ThresholdPrfCachePeekResult =
@@ -128,7 +128,7 @@ export interface TouchConfirmSecureConfirmationPort {
   requestUserConfirmation(
     request: UserConfirmRequest,
     options?: RequestUserConfirmationOptions,
-  ): Promise<SecureConfirmDecision>;
+  ): Promise<UserConfirmDecision>;
 }
 
 export interface TouchConfirmManager

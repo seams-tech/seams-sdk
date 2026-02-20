@@ -6,7 +6,7 @@ import type {
   WebAuthnRegistrationCredential,
 } from '@/core/types';
 import {
-  SecureConfirmationType,
+  UserConfirmationType,
   type ExportPrivateKeyDisplayEntry,
   type UserConfirmRequest,
 } from '../../touchConfirm/shared/confirmTypes';
@@ -83,7 +83,7 @@ async function requestUserConfirmation(
 ) {
   const requestUserConfirmation = deps.touchConfirmManager.getContext().requestUserConfirmation;
   if (typeof requestUserConfirmation !== 'function') {
-    throw new Error('SecureConfirm request bridge is unavailable (worker handshake path only)');
+    throw new Error('UserConfirm request bridge is unavailable (worker handshake path only)');
   }
   return requestUserConfirmation(request);
 }
@@ -125,7 +125,7 @@ export async function exportNearKeypairWithUIWorkerDriven(
     const requestId = deps.createSessionId('decrypt');
     const decision = await requestUserConfirmation(deps, {
       requestId,
-      type: SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
+      type: UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
       summary: {
         operation: 'Decrypt Private Key',
         accountId: String(accountId),
@@ -169,7 +169,7 @@ export async function exportNearKeypairWithUIWorkerDriven(
     const requestId = deps.createSessionId('export');
     const decision = await requestUserConfirmation(deps, {
       requestId,
-      type: SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
+      type: UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
       summary: {
         operation: 'Export Private Key',
         accountId: String(accountId),
@@ -196,7 +196,7 @@ export async function exportNearKeypairWithUIWorkerDriven(
     });
     await requestUserConfirmation(deps, {
       requestId: `${requestId}-show`,
-      type: SecureConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
+      type: UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
       summary: {
         operation: 'Export Private Key',
         accountId: String(accountId),
@@ -296,7 +296,7 @@ export async function exportPrivateKeysWithUIWorkerDriven(
   const requestId = deps.createSessionId('export-keys');
   const decision = await requestUserConfirmation(deps, {
     requestId,
-    type: SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
+    type: UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
     summary: {
       operation: 'Export Private Key',
       accountId: String(accountId),
@@ -377,7 +377,7 @@ export async function exportPrivateKeysWithUIWorkerDriven(
   const first = exportKeys[0]!;
   await requestUserConfirmation(deps, {
     requestId: `${requestId}-show`,
-    type: SecureConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
+    type: UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
     summary: {
       operation: 'Export Private Key',
       accountId: String(accountId),

@@ -161,8 +161,8 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
     /**
      * Creates mock PRF outputs for WebAuthn PRF extension testing.
      *
-     * Threshold/SecureConfirm note:
-     * - These deterministic PRF outputs feed the SecureConfirm worker in tests:
+     * Threshold/UserConfirm note:
+     * - These deterministic PRF outputs feed the UserConfirm worker in tests:
      *   - Registration flows may use PRF outputs to derive deterministic key material.
      *   - Signing/decrypt flows use PRF.first to drive WrapKeySeed derivation.
      * - Signer worker receives PRF outputs via direct request fields (wallet-origin only);

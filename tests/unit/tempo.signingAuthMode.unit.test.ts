@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 
 const IMPORT_PATHS = {
-  signEvmWithSecureConfirm:
+  signEvmWithTouchConfirm:
     '/sdk/esm/core/signingEngine/orchestration/evm/evmSigningFlow.js',
-  signTempoWithSecureConfirm:
+  signTempoWithTouchConfirm:
     '/sdk/esm/core/signingEngine/orchestration/tempo/tempoSigningFlow.js',
 } as const;
 
@@ -16,7 +16,7 @@ test.describe('tempo signing auth-mode resolution', () => {
     page,
   }) => {
     const result = await page.evaluate(async ({ paths }) => {
-      const { signEvmWithSecureConfirm } = await import(paths.signEvmWithSecureConfirm);
+      const { signEvmWithTouchConfirm } = await import(paths.signEvmWithTouchConfirm);
       let confirmCalls = 0;
       let capturedAuthMode: string | null = null;
 
@@ -31,10 +31,10 @@ test.describe('tempo signing auth-mode resolution', () => {
       };
 
       try {
-        await signEvmWithSecureConfirm({
+        await signEvmWithTouchConfirm({
           ctx: { indexedDB: {} } as any,
           workerCtx: workerCtx as any,
-          secureConfirmWorkerManager: {
+          touchConfirmManager: {
             peekPrfFirstForThresholdSession: async () => ({
               ok: false,
               code: 'expired',
@@ -106,7 +106,7 @@ test.describe('tempo signing auth-mode resolution', () => {
 
   test('uses warmSession mode when threshold warm cache is available', async ({ page }) => {
     const result = await page.evaluate(async ({ paths }) => {
-      const { signEvmWithSecureConfirm } = await import(paths.signEvmWithSecureConfirm);
+      const { signEvmWithTouchConfirm } = await import(paths.signEvmWithTouchConfirm);
       let capturedAuthMode: string | null = null;
 
       const workerCtx = {
@@ -119,10 +119,10 @@ test.describe('tempo signing auth-mode resolution', () => {
         },
       };
 
-      const signed = await signEvmWithSecureConfirm({
+      const signed = await signEvmWithTouchConfirm({
         ctx: { indexedDB: {} } as any,
         workerCtx: workerCtx as any,
-        secureConfirmWorkerManager: {
+        touchConfirmManager: {
           peekPrfFirstForThresholdSession: async () => ({
             ok: true,
             remainingUses: 2,
@@ -191,7 +191,7 @@ test.describe('tempo signing auth-mode resolution', () => {
     page,
   }) => {
     const result = await page.evaluate(async ({ paths }) => {
-      const { signTempoWithSecureConfirm } = await import(paths.signTempoWithSecureConfirm);
+      const { signTempoWithTouchConfirm } = await import(paths.signTempoWithTouchConfirm);
       let confirmCalls = 0;
 
       const workerCtx = {
@@ -204,10 +204,10 @@ test.describe('tempo signing auth-mode resolution', () => {
       };
 
       try {
-        await signTempoWithSecureConfirm({
+        await signTempoWithTouchConfirm({
           ctx: { indexedDB: {} } as any,
           workerCtx: workerCtx as any,
-          secureConfirmWorkerManager: {
+          touchConfirmManager: {
             peekPrfFirstForThresholdSession: async () => ({
               ok: false,
               code: 'expired',

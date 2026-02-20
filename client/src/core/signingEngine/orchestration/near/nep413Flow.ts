@@ -114,8 +114,8 @@ export async function signNep413Message({
       thresholdKeyMaterial,
     });
 
-    // Initialize nonce manager for a better SecureConfirm context (block height + access key lookup).
-    // NEP-413 signing itself doesn't require nonces, but SecureConfirm uses Near context for UI.
+    // Initialize nonce manager for a better UserConfirm context (block height + access key lookup).
+    // NEP-413 signing itself doesn't require nonces, but UserConfirm uses Near context for UI.
     ctx.nonceManager.initializeUser(toAccountId(nearAccountId), signingContext.nearPublicKey);
 
     const usesNeeded = 1;

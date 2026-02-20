@@ -1,6 +1,6 @@
 import type { ThresholdEd25519_2p_V1Material } from '@/core/indexedDB/passkeyNearKeysDB.types';
-import type { SecureConfirmWorkerManager } from '@/core/signingEngine/secureConfirm';
-import type { SigningAuthMode } from '@/core/signingEngine/secureConfirm/confirmTxFlow/types';
+import type { ThresholdPrfFirstCachePeekPort } from '@/core/signingEngine/touchConfirm';
+import type { SigningAuthMode } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import { buildEd25519SessionPolicy } from '@/core/signingEngine/threshold/session/sessionPolicy';
 
 export type ThresholdSessionPolicyPlan = Awaited<ReturnType<typeof buildEd25519SessionPolicy>>;
@@ -49,7 +49,7 @@ export async function resolveInitialThresholdSigningAuthPlan(args: {
   usesNeeded: number;
   nearAccountId: string;
   getRpId: () => string | null;
-  secureConfirmWorkerManager: Pick<SecureConfirmWorkerManager, 'peekPrfFirstForThresholdSession'>;
+  touchConfirmManager: ThresholdPrfFirstCachePeekPort;
   desiredTtlMs?: number;
   desiredRemainingUses?: number;
 }): Promise<{
@@ -66,7 +66,7 @@ export async function resolveInitialThresholdSigningAuthPlan(args: {
   const hasJwt = !!args.threshold.thresholdSessionJwt;
   let warmOk = false;
   if (hasJwt) {
-    const peek = await args.secureConfirmWorkerManager.peekPrfFirstForThresholdSession({
+    const peek = await args.touchConfirmManager.peekPrfFirstForThresholdSession({
       sessionId: args.sessionId,
     });
     warmOk = peek.ok && peek.remainingUses >= args.usesNeeded;

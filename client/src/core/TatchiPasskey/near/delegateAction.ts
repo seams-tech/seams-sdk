@@ -45,7 +45,7 @@ export async function signDelegateAction(args: {
     message: 'Preparing delegate action inputs',
   });
 
-  // Emit a user-confirmation phase before kicking off the SecureConfirm-driven
+  // Emit a user-confirmation phase before kicking off the UserConfirm-driven
   // confirmation flow so the wallet-iframe overlay can expand and allow
   // the TxConfirmer modal to capture activation.
   options?.onEvent?.({

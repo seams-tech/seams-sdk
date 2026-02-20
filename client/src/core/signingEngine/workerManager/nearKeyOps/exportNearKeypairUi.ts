@@ -4,8 +4,7 @@ import {
   WorkerRequestType,
   isDecryptPrivateKeyWithPrfSuccess,
 } from '@/core/types/signer-worker';
-import { runSecureConfirm } from '@/core/signingEngine/secureConfirm/secureConfirmBridge';
-import { SecureConfirmationType } from '@/core/signingEngine/secureConfirm/confirmTxFlow/types';
+import { UserConfirmationType } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import { SignerWorkerManagerContext } from '..';
 import { getLastLoggedInDeviceNumber } from '@/core/signingEngine/signers/webauthn/device/getDeviceNumber';
 
@@ -78,10 +77,10 @@ export async function exportNearKeypairUi({
 
   const privateKey = response.payload.privateKey;
 
-  // Phase 2: show secure UI (SecureConfirm viewer)
+  // Phase 2: show secure UI (UserConfirm viewer)
   const showReq = {
     requestId: sessionId,
-    type: SecureConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
+    type: UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
     summary: {
       operation: 'Export Private Key' as const,
       accountId,
@@ -96,5 +95,8 @@ export async function exportNearKeypairUi({
       theme,
     },
   };
-  await runSecureConfirm(ctx, showReq);
+  if (!ctx.touchConfirmManager?.requestUserConfirmation) {
+    throw new Error('UserConfirm request bridge is unavailable (worker handshake path only)');
+  }
+  await ctx.touchConfirmManager.requestUserConfirmation(showReq);
 }

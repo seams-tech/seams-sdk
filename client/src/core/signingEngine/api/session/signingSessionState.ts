@@ -1,6 +1,10 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/tatchi';
-import type { SecureConfirmWorkerManager } from '../../secureConfirm';
+import type {
+  ThresholdPrfFirstCacheClearPort,
+  ThresholdPrfFirstCachePeekPort,
+  ThresholdPrfFirstCacheWriterPort,
+} from '../../touchConfirm';
 
 export type SigningSessionPolicyArgs = { ttlMs?: number; remainingUses?: number };
 export type SigningSessionPolicy = { ttlMs: number; remainingUses: number };
@@ -11,23 +15,14 @@ export type SigningSessionCacheEntry = {
   remainingUses: number;
 };
 
-type SigningSessionPrfCacheWriter = Pick<
-  SecureConfirmWorkerManager,
-  'putPrfFirstForThresholdSession'
->;
-type SigningSessionPrfCacheClearer = Pick<
-  SecureConfirmWorkerManager,
-  'clearPrfFirstForThresholdSession'
->;
+type SigningSessionPrfCacheWriter = ThresholdPrfFirstCacheWriterPort;
+type SigningSessionPrfCacheClearer = ThresholdPrfFirstCacheClearPort;
 
 export type SigningSessionStateDeps = {
   activeSigningSessionIds: Map<string, string>;
-  secureConfirmWorkerManager: Pick<
-    SecureConfirmWorkerManager,
-    | 'peekPrfFirstForThresholdSession'
-    | 'putPrfFirstForThresholdSession'
-    | 'clearPrfFirstForThresholdSession'
-  >;
+  touchConfirmManager: ThresholdPrfFirstCacheWriterPort
+    & ThresholdPrfFirstCachePeekPort
+    & ThresholdPrfFirstCacheClearPort;
   createSessionId: (prefix: string) => string;
   signingSessionDefaults: SigningSessionPolicy;
 };
@@ -164,7 +159,7 @@ export async function hydrateSigningSession(
   args: HydrateSigningSessionArgs,
 ): Promise<void> {
   const normalized = normalizeSigningSessionCacheEntry(args);
-  await cacheSigningSessionPrfFirst(deps.secureConfirmWorkerManager, normalized);
+  await cacheSigningSessionPrfFirst(deps.touchConfirmManager, normalized);
 
   if (args.setActiveSigningSessionId !== false) {
     setActiveSigningSessionId(deps, args.nearAccountId, normalized.sessionId);
@@ -180,7 +175,7 @@ export async function getWarmSigningSessionStatus(
     const sessionId = deps.activeSigningSessionIds.get(key);
     if (!sessionId) return null;
 
-    const peek = await deps.secureConfirmWorkerManager.peekPrfFirstForThresholdSession({ sessionId });
+    const peek = await deps.touchConfirmManager.peekPrfFirstForThresholdSession({ sessionId });
     if (peek.ok) {
       return {
         sessionId,

@@ -17,7 +17,7 @@ import { signTransactionsWithActions } from './transactionsFlow';
 import { signDelegateAction } from './delegateFlow';
 import { signNep413Message } from './nep413Flow';
 
-export async function signNearWithSecureConfirm<TRequest extends NearSigningRequest>(
+export async function signNearWithTouchConfirm<TRequest extends NearSigningRequest>(
   request: TRequest,
 ): Promise<NearIntentResult<TRequest>> {
   const adapter = new NearAdapter();

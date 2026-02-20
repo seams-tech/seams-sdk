@@ -114,7 +114,7 @@ export function getThresholdBehaviorFromSignerMode(mode: SignerMode): ThresholdB
  *
  * These are intentionally *not* exposed as general-purpose "no prompt" signing APIs.
  * They exist to support tightly-scoped post-registration flows without allowing
- * arbitrary actions/receivers to be signed without SecureConfirm/WebAuthn binding.
+ * arbitrary actions/receivers to be signed without UserConfirm/WebAuthn binding.
  */
 export const INTERNAL_WORKER_REQUEST_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT =
   WorkerRequestType.SignAddKeyThresholdPublicKeyNoPrompt;

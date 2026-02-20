@@ -2,11 +2,11 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  handle: '/sdk/esm/core/signingEngine/secureConfirm/confirmTxFlow/handleSecureConfirmRequest.js',
-  types: '/sdk/esm/core/signingEngine/secureConfirm/confirmTxFlow/types.js',
+  handle: '/sdk/esm/core/signingEngine/touchConfirm/handlers/handlePromptFromWorker.js',
+  types: '/sdk/esm/core/signingEngine/touchConfirm/shared/confirmTypes.js',
 } as const;
 
-test.describe('SecureConfirm – warm signing', () => {
+test.describe('UserConfirm – warm signing', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page);
   });
@@ -15,7 +15,7 @@ test.describe('SecureConfirm – warm signing', () => {
     const result = await page.evaluate(async ({ paths }) => {
       const mod = await import(paths.handle);
       const types = await import(paths.types);
-      const handle = mod.handlePromptUserConfirmInJsMainThread as Function;
+      const handle = mod.handlePromptFromWorker as Function;
 
       const counts = { touchId: 0 };
       const reserved: string[] = [];
@@ -71,7 +71,7 @@ test.describe('SecureConfirm – warm signing', () => {
 
       const request = {
         requestId: 'sess-warm',
-        type: types.SecureConfirmationType.SIGN_TRANSACTION,
+        type: types.UserConfirmationType.SIGN_TRANSACTION,
         summary: {},
         payload: {
           intentDigest: 'intent-warm',
@@ -94,7 +94,7 @@ test.describe('SecureConfirm – warm signing', () => {
       const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
 
       await handle(ctx, {
-        type: types.SecureConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+        type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
         data: request
       }, worker);
 

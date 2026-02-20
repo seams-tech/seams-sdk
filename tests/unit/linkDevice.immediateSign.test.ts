@@ -132,7 +132,7 @@ test.describe('Link device → immediate sign (regression)', () => {
         const authenticators = await clientDB.listNearAuthenticators(nearAccountId);
 
         // Exercise the signing handler path up to and including the IndexedDB lookups.
-        // We stub the SecureConfirm confirmation and worker response so the test stays deterministic
+        // We stub the UserConfirm confirmation and worker response so the test stays deterministic
         // and focuses on "link device → immediate sign" state wiring.
         const signingCtx: any = {
           indexedDB: {
@@ -170,7 +170,7 @@ test.describe('Link device → immediate sign (regression)', () => {
           touchIdPrompt: { getRpId: () => 'example.localhost' },
           relayerUrl: 'https://relay-server.localhost',
           postWrapKeySeedToSigner: () => {},
-          secureConfirmWorkerManager: {
+          touchConfirmManager: {
             confirmAndPrepareSigningSession: async () => ({
               intentDigest: 'intent',
               transactionContext: {
@@ -361,7 +361,7 @@ test.describe('Link device → immediate sign (regression)', () => {
         const authenticators = await clientDB.listNearAuthenticators(nearAccountId);
 
         // Exercise the signing handler path up to and including the IndexedDB lookups.
-        // We stub the SecureConfirm confirmation and worker response so the test stays deterministic
+        // We stub the UserConfirm confirmation and worker response so the test stays deterministic
         // and focuses on "link device → immediate sign" state wiring.
         const signingCtx: any = {
           indexedDB: {
@@ -399,7 +399,7 @@ test.describe('Link device → immediate sign (regression)', () => {
           touchIdPrompt: { getRpId: () => 'example.localhost' },
           relayerUrl: 'https://relay-server.localhost',
           postWrapKeySeedToSigner: () => {},
-          secureConfirmWorkerManager: {
+          touchConfirmManager: {
             confirmAndPrepareSigningSession: async () => ({
               intentDigest: 'intent',
               transactionContext: {

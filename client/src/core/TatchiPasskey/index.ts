@@ -222,7 +222,7 @@ export class TatchiPasskey {
         }
         : null
     );
-    // SecureConfirm worker initializes automatically in the constructor
+    // UserConfirm worker initializes automatically in the constructor
   }
 
   /**
@@ -526,7 +526,7 @@ export class TatchiPasskey {
    * - Optional: mints a relay session (JWT/cookie) via standard WebAuthn login challenge/verify
    * - In `threshold-signer` mode with warm-session policy enabled, threshold warm-up
    *   (ed25519 + ECDSA) is part of login and must succeed.
-   * - Signing flows still prompt via SecureConfirm/WebAuthn as needed
+   * - Signing flows still prompt via UserConfirm/WebAuthn as needed
    */
   async loginAndCreateSession(
     nearAccountId: string,

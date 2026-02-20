@@ -1,6 +1,6 @@
 # Passkey SDK Test Suite
 
-Playwright tests for the Passkey SDK, covering WebAuthn + PRF flows, wallet iframe behavior, Lit confirm UI, orchestrator logic, and SecureConfirm/nonce subsystems.
+Playwright tests for the Passkey SDK, covering WebAuthn + PRF flows, wallet iframe behavior, Lit confirm UI, orchestrator logic, and UserConfirm/nonce subsystems.
 
 ## Table of Contents
 
@@ -27,7 +27,7 @@ Playwright config includes wallet‑iframe and lit‑components suites in `testM
 
 ## Coverage Overview
 
-- SecureConfirm + Nonce: strong unit/integration coverage
+- UserConfirm + Nonce: strong unit/integration coverage
 - Wallet Iframe: CONNECT→READY handshake, intent mapping, timeout hide, anchored pre‑show, sticky lifecycle; progress heuristics partially covered
 - Confirm Orchestrator: success and defensive paths; batching and local‑only cancel remain
 - Lit Confirm UI: host/iframe modal + drawer behavior covered; theme guardrails pending
@@ -36,7 +36,7 @@ Status highlights from recent additions:
 - OnEventsProgressBus default heuristics for show/hide/none mapping and cancelled → hide
 - Overlay controller CSS/ARIA semantics; sticky prevents hide
 - Router behavior for pre‑show, timeout hide, anchored bounds, sticky lifecycle
-- awaitSecureConfirmationV2 error handling via signer worker global
+- awaitUserConfirmationV2 error handling via signer worker global
 - confirmTxFlow success/defensive paths and helpers sanitization/parsing
 
 ## Build & Assets
@@ -132,7 +132,7 @@ pnpm -C sdk build
 
 - E2E
   - `e2e/thresholdEd25519.*.test.ts` threshold keygen/session/signing coverage
-  - `e2e/worker_events.test.ts` signer/SecureConfirm worker wiring and events
+  - `e2e/worker_events.test.ts` signer/UserConfirm worker wiring and events
   - `e2e/nonceManager.test.ts` reserved nonce lifecycle in real session
   - `e2e/cancel_overlay_contracts.test.ts` cancel + overlay contract (cancel hides UI)
   - `e2e/signTransactions.concurrentSessions.walletIframe.test.ts` concurrent signing session isolation
@@ -142,7 +142,7 @@ pnpm -C sdk build
   - `unit/confirmTxFlow.defensivePaths.test.ts` cancel releases nonces, PRF errors
   - `unit/confirmTxFlow.determineConfirmationConfig.test.ts` override precedence
   - `unit/confirmTxFlow.common.helpers.test.ts` sanitization + summary parsing
-  - `unit/awaitSecureConfirmationV2.test.ts` error/abort/timeout/mismatch via worker global
+  - `unit/awaitUserConfirmationV2.test.ts` error/abort/timeout/mismatch via worker global
   - `unit/progressBus.defaultPhaseHeuristics.test.ts` phase → visibility mapping
   - `unit/overlayController.test.ts` aria/anchor/sticky behavior
   - `unit/handleSecureConfirmRequest.test.ts` request handler behavior
@@ -162,7 +162,7 @@ pnpm -C sdk build
 
 ## Fixes & Learnings
 
-- Use SecureConfirm worker bundle for `awaitSecureConfirmationV2`; read export from global, not `/sdk/esm` direct
+- Use UserConfirm worker bundle for `awaitUserConfirmationV2`; read export from global, not `/sdk/esm` direct
 - Target the iframe with `allow` containing `publickey-credentials` in tests
 - Router hide asserts should check `aria-hidden` and 0×0 with opacity 0
 - Registration challenge path may reuse bootstrap challenge in tests

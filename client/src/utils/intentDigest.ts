@@ -1,5 +1,5 @@
 // Canonical intent digest helpers for UI/host validation.
-// Used by SecureConfirm flows and signer-worker signing flows.
+// Used by UserConfirm flows and signer-worker signing flows.
 //
 // Uses Web Crypto API (crypto.subtle). Import a minimal base64url helper that does not pull bs58.
 import { ActionType, type ActionArgsWasm, type TransactionInputWasm } from '../core/types';
@@ -54,7 +54,7 @@ export async function computeLoginIntentDigest(args: {
 // Canonical intent digest for signing flows.
 // This is a UI/host validation digest derived from `{ receiverId, actions }` only; it is NOT the
 // canonical NEAR signing hash (NEAR signs `sha256(borsh(Transaction))`, computed in the WASM signer).
-// Both SecureConfirm code (confirmAndPrepareSigningSession) and all UI confirmers MUST call this with
+// Both UserConfirm code (orchestrateSigningConfirmation) and all UI confirmers MUST call this with
 // TransactionInputWasm[] built from:
 //   { receiverId, actions: ActionArgsWasm[] }
 // where each ActionArgsWasm has been normalized via orderActionForDigest.

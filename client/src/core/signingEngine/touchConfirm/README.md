@@ -8,7 +8,7 @@ It owns:
 
 - the worker/main-thread handshake for `UserConfirmRequest`
 - main-thread routing of prompts to typed confirmation flows
-- SecureConfirm worker lifecycle plus PRF.first warm-session cache helpers
+- UserConfirm worker lifecycle plus PRF.first warm-session cache helpers
 
 ## Current Structure
 
@@ -61,7 +61,7 @@ client/src/core/signingEngine/touchConfirm/
 ## Message Contract
 
 - Worker -> main thread: `PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD` with `UserConfirmRequest`
-- Main thread -> worker: `USER_PASSKEY_CONFIRM_RESPONSE` with `SecureConfirmDecision`
+- Main thread -> worker: `USER_PASSKEY_CONFIRM_RESPONSE` with `UserConfirmDecision`
 - Progress: `USER_PASSKEY_CONFIRM_PROGRESS`
 
 Main-thread envelopes must never include forbidden secrets (`prfOutput`, `wrapKeySeed`, `wrapKeySalt`).

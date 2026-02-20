@@ -3,10 +3,10 @@ import { setupBasicPasskeyTest } from '../setup';
 import { createHash } from 'node:crypto';
 
 const IMPORT_PATHS = {
-  handle: '/sdk/esm/core/signingEngine/secureConfirm/confirmTxFlow/handleSecureConfirmRequest.js',
-  types: '/sdk/esm/core/signingEngine/secureConfirm/confirmTxFlow/types.js',
-  localOnly: '/sdk/esm/core/signingEngine/secureConfirm/confirmTxFlow/flows/localOnly.js',
-  litTags: '/sdk/esm/core/signingEngine/secureConfirm/ui/tags.js',
+  handle: '/sdk/esm/core/signingEngine/touchConfirm/handlers/handlePromptFromWorker.js',
+  types: '/sdk/esm/core/signingEngine/touchConfirm/shared/confirmTypes.js',
+  localOnly: '/sdk/esm/core/signingEngine/touchConfirm/handlers/flows/localOnly.js',
+  litRegistry: '/sdk/esm/core/signingEngine/touchConfirm/ui/registry.js',
 } as const;
 
 test.describe('confirmTxFlow – success paths', () => {
@@ -18,7 +18,7 @@ test.describe('confirmTxFlow – success paths', () => {
     const result = await page.evaluate(async ({ paths }) => {
       const mod = await import(paths.handle);
       const types = await import(paths.types);
-      const handle = mod.handlePromptUserConfirmInJsMainThread as Function;
+      const handle = mod.handlePromptFromWorker as Function;
 
       // Minimal ctx stub
       const ctx: any = {
@@ -67,17 +67,17 @@ test.describe('confirmTxFlow – success paths', () => {
         // not used in LocalOnly branch
         nonceManager: {},
         nearClient: {},
-        secureConfirmWorkerManager: {},
+        touchConfirmManager: {},
       };
 
       const request = {
-        requestId: 'r1', type: types.SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
+        requestId: 'r1', type: types.UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
         summary: {}, payload: { nearAccountId: 'alice.testnet', publicKey: 'pk' }
       };
 
       const msgs: any[] = [];
       const worker = { postMessage: (m: any) => msgs.push(m) } as unknown as Worker;
-      await handle(ctx, { type: types.SecureConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD, data: request }, worker);
+      await handle(ctx, { type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD, data: request }, worker);
       const resp = msgs[0]?.data;
       return {
         ok: !!resp?.confirmed,
@@ -110,7 +110,7 @@ test.describe('confirmTxFlow – success paths', () => {
     // to click a redundant drawer before the TouchID prompt appears (the bug that prompted this test).
     const result = await page.evaluate(async ({ paths }) => {
       const types = await import(paths.types);
-      const tags = await import(paths.litTags);
+      const tags = await import(paths.litRegistry);
       const localOnly = await import(paths.localOnly);
 
       // Force wallet-iframe host behavior (test-only global override).
@@ -180,7 +180,7 @@ test.describe('confirmTxFlow – success paths', () => {
 
         const request = {
           requestId: 'r-decrypt-host',
-          type: types.SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
+          type: types.UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
           summary: {},
           payload: { nearAccountId: 'alice.testnet', publicKey: 'pk' },
         } as any;
@@ -233,7 +233,7 @@ test.describe('confirmTxFlow – success paths', () => {
     const result = await page.evaluate(async ({ paths }) => {
       const mod = await import(paths.handle);
       const types = await import(paths.types);
-      const handle = mod.handlePromptUserConfirmInJsMainThread as Function;
+      const handle = mod.handlePromptFromWorker as Function;
 
       let nonceReserved: string[] = [];
       let capturedChallengeB64u: string | null = null;
@@ -304,7 +304,7 @@ test.describe('confirmTxFlow – success paths', () => {
       };
 
 	      const request = {
-	        requestId: 'r2', type: types.SecureConfirmationType.REGISTER_ACCOUNT,
+	        requestId: 'r2', type: types.UserConfirmationType.REGISTER_ACCOUNT,
 	        summary: {},
 	        payload: {
 	          nearAccountId: 'bob.testnet',
@@ -315,7 +315,7 @@ test.describe('confirmTxFlow – success paths', () => {
 	      };
       const msgs: any[] = [];
       const worker = { postMessage: (m: any) => msgs.push(m) } as unknown as Worker;
-      await handle(ctx, { type: types.SecureConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD, data: request }, worker);
+      await handle(ctx, { type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD, data: request }, worker);
       const resp = msgs[0]?.data;
       return {
         confirmed: resp?.confirmed,
@@ -334,7 +334,7 @@ test.describe('confirmTxFlow – success paths', () => {
     expect(result.capturedChallengeB64u).toBe(expectedChallengeB64u);
     expect(result.tx?.nextNonce).toBe('101');
     expect(result.reserved).toEqual(['101']);
-    // Registration responses should not contain PRF output in SecureConfirm-driven design.
+    // Registration responses should not contain PRF output in UserConfirm-driven design.
     expect(result.prf).toBeUndefined();
   });
 
@@ -342,7 +342,7 @@ test.describe('confirmTxFlow – success paths', () => {
     const result = await page.evaluate(async ({ paths }) => {
       const mod = await import(paths.handle);
       const types = await import(paths.types);
-      const handle = mod.handlePromptUserConfirmInJsMainThread as Function;
+      const handle = mod.handlePromptFromWorker as Function;
 
       let reserved: string[] = [];
       const ctx: any = {
@@ -439,7 +439,7 @@ test.describe('confirmTxFlow – success paths', () => {
 
       const request = {
         requestId: 'r3',
-        type: types.SecureConfirmationType.SIGN_TRANSACTION,
+        type: types.UserConfirmationType.SIGN_TRANSACTION,
         summary: {},
         payload: {
           intentDigest: 'intent-1',
@@ -457,7 +457,7 @@ test.describe('confirmTxFlow – success paths', () => {
       const msgs: any[] = [];
       const worker = { postMessage: (m: any) => msgs.push(m) } as unknown as Worker;
       await handle(ctx, {
-        type: types.SecureConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+        type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
         data: request
       }, worker);
       const resp = msgs[0]?.data;
@@ -473,7 +473,7 @@ test.describe('confirmTxFlow – success paths', () => {
     expect(result.confirmed, result.error || 'unknown error').toBe(true);
     expect(result.tx?.nextNonce).toBe('201');
     expect(result.reserved).toEqual(['201']);
-    // Signing responses must not expose PRF in SecureConfirm-driven design.
+    // Signing responses must not expose PRF in UserConfirm-driven design.
     expect(result.prf).toBeUndefined();
   });
 
@@ -481,7 +481,7 @@ test.describe('confirmTxFlow – success paths', () => {
     const result = await page.evaluate(async ({ paths }) => {
       const mod = await import(paths.handle);
       const types = await import(paths.types);
-      const handle = mod.handlePromptUserConfirmInJsMainThread as Function;
+      const handle = mod.handlePromptFromWorker as Function;
 
       const ctx: any = {
         userPreferencesManager: {
@@ -576,7 +576,7 @@ test.describe('confirmTxFlow – success paths', () => {
 
       const request = {
         requestId: 'r-nep',
-        type: types.SecureConfirmationType.SIGN_NEP413_MESSAGE,
+        type: types.UserConfirmationType.SIGN_NEP413_MESSAGE,
         summary: {},
         payload: {
           nearAccountId: 'nep.testnet',
@@ -590,7 +590,7 @@ test.describe('confirmTxFlow – success paths', () => {
       const msgs: any[] = [];
       const worker = { postMessage: (m: any) => msgs.push(m) } as unknown as Worker;
       await handle(ctx, {
-        type: types.SecureConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+        type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
         data: request
       }, worker);
       const resp = msgs[0]?.data;

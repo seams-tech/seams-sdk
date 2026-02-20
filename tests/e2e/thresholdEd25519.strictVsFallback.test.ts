@@ -206,7 +206,7 @@ test.describe('threshold-ed25519 strict vs fallback semantics', () => {
 
           const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
 
-          // Ensure SecureConfirm + warm signing session are available. Threshold session mint is best-effort and may fail.
+          // Ensure UserConfirm + warm signing session are available. Threshold session mint is best-effort and may fail.
           const login = await pm.auth.login(accountId);
           if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
 

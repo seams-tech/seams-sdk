@@ -1,31 +1,32 @@
 /**
- * SecureConfirm worker types
+ * UserConfirm worker types
  *
- * The SecureConfirm worker now hosts:
- * - the SecureConfirm bridge (`awaitSecureConfirmationV2`) used by confirmTxFlow, and
+ * The UserConfirm worker now hosts:
+ * - the UserConfirm bridge (`awaitUserConfirmationV2`) used by confirmTxFlow, and
  * - a small PRF.first cache for threshold warm sessions.
  */
 
-export interface SecureConfirmWorkerManagerConfig {
+export interface TouchConfirmManagerConfig {
   workerUrl?: string;
   workerTimeout?: number;
   debug?: boolean;
 }
 
-export type SecureConfirmWorkerMessageType =
+export type UserConfirmWorkerMessageType =
   | 'PING'
+  | 'SECURE_CONFIRM_REQUEST'
   | 'THRESHOLD_PRF_FIRST_CACHE_PUT'
   | 'THRESHOLD_PRF_FIRST_CACHE_PEEK'
   | 'THRESHOLD_PRF_FIRST_CACHE_DISPENSE'
   | 'THRESHOLD_PRF_FIRST_CACHE_CLEAR';
 
-export interface SecureConfirmWorkerMessage<TPayload = unknown> {
-  type: SecureConfirmWorkerMessageType;
+export interface UserConfirmWorkerMessage<TPayload = unknown> {
+  type: UserConfirmWorkerMessageType;
   id?: string;
   payload?: TPayload;
 }
 
-export interface SecureConfirmWorkerResponse<TData = unknown> {
+export interface UserConfirmWorkerResponse<TData = unknown> {
   id?: string;
   success: boolean;
   data?: TData;

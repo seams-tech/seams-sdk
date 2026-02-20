@@ -6,7 +6,7 @@ This folder is the signing runtime for NEAR + Tempo/EVM flows.
 
 - `api/`
   - Internal composition/surface wiring used by `SigningEngine`.
-  - Coordinates session policy, worker context, SecureConfirm, and engine dispatch.
+  - Coordinates session policy, worker context, touchConfirm, and engine dispatch.
 - `interfaces/`
   - Shared signing contracts (`SigningIntent`, `SignRequest`, `Signer`) and runtime dependency interfaces.
   - `interfaces/nearKeyOps`: NEAR key-ops contract consumed by `api/*` without importing `workerManager/*`.
@@ -18,7 +18,7 @@ This folder is the signing runtime for NEAR + Tempo/EVM flows.
   - WASM-backed chain signing wrappers (`nearSignerWasm`, `ethSignerWasm`, `tempoSignerWasm`).
 - `chainAdaptors/`
   - Chain-specific intent builders and handlers (NEAR, Tempo, EVM helpers).
-- `secureConfirm/`
+- `touchConfirm/`
   - User confirmation flow + WebAuthn credential collection.
 - `workerManager/`
   - Unified worker architecture layer (host + runtime).
@@ -40,7 +40,7 @@ flowchart LR
   SE --> ORCH["orchestration/executeSigningIntent"]
   ORCH --> ENG["signers/algorithms/*"]
   ENG --> CHAINS["chainAdaptors/*"]
-  SE --> SC["secureConfirm/*"]
+  SE --> SC["touchConfirm/*"]
   CHAINS --> WORKERS["workerManager/workers/*"]
 ```
 
@@ -80,7 +80,7 @@ flowchart LR
 2. `NearEd25519Engine` routes by request kind to NEAR handlers.
 3. Handler performs:
    - input normalization (`NearAdapter` for transactions),
-   - SecureConfirm handshake (`SecureConfirmWorkerManager.confirmAndPrepareSigningSession`),
+   - touchConfirm handshake (`TouchConfirmManager.orchestrateSigningConfirmation`),
    - signer worker call via `ctx.requestWorkerOperation(...)`.
 4. `SignerWorkerManager.requestWorkerOperation` sends request to `near-signer.worker`.
 5. Worker response returns signed payload back through handler -> engine -> `finalize`.
@@ -88,13 +88,13 @@ flowchart LR
 ### 2) Tempo Signing (`eip1559` / `tempoTransaction`)
 
 1. `SigningEngine.signTempo` imports:
-   - `signTempoWithSecureConfirm`,
+   - `signTempoWithTouchConfirm`,
    - `Secp256k1Engine`,
    - `WebAuthnP256Engine`.
 2. `TempoAdapter.buildIntent` computes signing digest/challenge using:
    - `ethSignerWasm` (EIP-1559 hash/encoding),
    - `tempoSignerWasm` (Tempo sender hash/encoding).
-3. `signTempoWithSecureConfirm` runs SecureConfirm once for intent approval.
+3. `signTempoWithTouchConfirm` runs touchConfirm once for intent approval.
 4. `executeSigningIntent` dispatches to:
    - `secp256k1` engine (local or threshold ECDSA path), or
    - `webauthnP256` engine (serialized credential or browser WebAuthn call).
@@ -104,7 +104,7 @@ flowchart LR
 
 1. Validate cached/session JWT and threshold key ref.
 2. Authorize digest with relayer (`authorizeEcdsaWithSession`).
-3. Dispense PRF.first from SecureConfirm session cache.
+3. Dispense PRF.first from touchConfirm session cache.
 4. Derive client share in `ethSignerWasm`.
 5. Run distributed signing coordination (`thresholdEcdsaCoordinator`).
 6. Return 65-byte recoverable secp256k1 signature.

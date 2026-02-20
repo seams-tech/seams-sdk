@@ -5,7 +5,7 @@ import type {
   SignNep413Payload,
   SignTransactionPayload,
 } from '../../../shared/confirmTypes';
-import { SecureConfirmationType } from '../../../shared/confirmTypes';
+import { UserConfirmationType } from '../../../shared/confirmTypes';
 import { isObject, isString } from '@shared/utils/validation';
 import type { TxDisplayModel } from '@/core/signingEngine/touchConfirm/shared/displayModel';
 
@@ -35,8 +35,8 @@ export function validateUserConfirmRequest(input: unknown): UserConfirmRequest {
 
 export function assertNoForbiddenMainThreadSigningSecrets(request: UserConfirmRequest): void {
   if (
-    request.type !== SecureConfirmationType.SIGN_TRANSACTION
-    && request.type !== SecureConfirmationType.SIGN_NEP413_MESSAGE
+    request.type !== UserConfirmationType.SIGN_TRANSACTION
+    && request.type !== UserConfirmationType.SIGN_NEP413_MESSAGE
   ) {
     return;
   }
@@ -55,20 +55,20 @@ export function assertNoForbiddenMainThreadSigningSecrets(request: UserConfirmRe
 
 export function getNearAccountId(request: UserConfirmRequest): string {
   switch (request.type) {
-    case SecureConfirmationType.SIGN_TRANSACTION:
+    case UserConfirmationType.SIGN_TRANSACTION:
       return getSignTransactionPayload(request).rpcCall.nearAccountId;
-    case SecureConfirmationType.SIGN_NEP413_MESSAGE:
+    case UserConfirmationType.SIGN_NEP413_MESSAGE:
       return (request.payload as SignNep413Payload).nearAccountId;
-    case SecureConfirmationType.SIGN_INTENT_DIGEST:
+    case UserConfirmationType.SIGN_INTENT_DIGEST:
       return (request.payload as SignIntentDigestPayload).nearAccountId;
-    case SecureConfirmationType.REGISTER_ACCOUNT:
-    case SecureConfirmationType.LINK_DEVICE:
+    case UserConfirmationType.REGISTER_ACCOUNT:
+    case UserConfirmationType.LINK_DEVICE:
       return getRegisterAccountPayload(request).nearAccountId;
-    case SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF: {
+    case UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF: {
       const p = request.payload as { nearAccountId?: string };
       return p?.nearAccountId || '';
     }
-    case SecureConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI: {
+    case UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI: {
       const p = request.payload as { nearAccountId?: string };
       return p?.nearAccountId || '';
     }
@@ -78,13 +78,13 @@ export function getNearAccountId(request: UserConfirmRequest): string {
 }
 
 export function getTxCount(request: UserConfirmRequest): number {
-  return request.type === SecureConfirmationType.SIGN_TRANSACTION
+  return request.type === UserConfirmationType.SIGN_TRANSACTION
     ? (getSignTransactionPayload(request).txSigningRequests?.length || 1)
     : 1;
 }
 
 export function getIntentDigest(request: UserConfirmRequest): string | undefined {
-  if (request.type === SecureConfirmationType.SIGN_TRANSACTION) {
+  if (request.type === UserConfirmationType.SIGN_TRANSACTION) {
     const p = request?.payload as Partial<SignTransactionPayload> | undefined;
     return p?.intentDigest;
   }
@@ -92,27 +92,27 @@ export function getIntentDigest(request: UserConfirmRequest): string | undefined
 }
 
 export function getSignTransactionPayload(request: UserConfirmRequest): SignTransactionPayload {
-  if (request.type !== SecureConfirmationType.SIGN_TRANSACTION) {
+  if (request.type !== UserConfirmationType.SIGN_TRANSACTION) {
     throw new Error(`Expected SIGN_TRANSACTION request, got ${request.type}`);
   }
   return request.payload as SignTransactionPayload;
 }
 
 export function getDisplayModel(request: UserConfirmRequest): TxDisplayModel | undefined {
-  if (request.type === SecureConfirmationType.SIGN_TRANSACTION) {
+  if (request.type === UserConfirmationType.SIGN_TRANSACTION) {
     return getSignTransactionPayload(request).displayModel;
   }
-  if (request.type === SecureConfirmationType.SIGN_NEP413_MESSAGE) {
+  if (request.type === UserConfirmationType.SIGN_NEP413_MESSAGE) {
     return (request.payload as SignNep413Payload).displayModel;
   }
-  if (request.type === SecureConfirmationType.SIGN_INTENT_DIGEST) {
+  if (request.type === UserConfirmationType.SIGN_INTENT_DIGEST) {
     return (request.payload as SignIntentDigestPayload).displayModel;
   }
   return undefined;
 }
 
 export function getRegisterAccountPayload(request: UserConfirmRequest): RegisterAccountPayload {
-  if (request.type !== SecureConfirmationType.REGISTER_ACCOUNT && request.type !== SecureConfirmationType.LINK_DEVICE) {
+  if (request.type !== UserConfirmationType.REGISTER_ACCOUNT && request.type !== UserConfirmationType.LINK_DEVICE) {
     throw new Error(`Expected REGISTER_ACCOUNT or LINK_DEVICE request, got ${request.type}`);
   }
   return request.payload as RegisterAccountPayload;

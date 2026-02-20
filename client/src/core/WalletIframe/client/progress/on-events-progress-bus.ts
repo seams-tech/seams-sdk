@@ -32,7 +32,7 @@ import {
 // Keep this list focused on actual WebAuthn/TouchID activation windows.
 const SHOW_PHASES = new Set<string>([
   // Gate overlay to moments of imminent activation only.
-  // Intent-digest SecureConfirm can require an explicit confirm click before
+  // Intent-digest UserConfirm can require an explicit confirm click before
   // WebAuthn starts; show overlay only for that explicit gate.
   'intent-confirmation-required',
   ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION,

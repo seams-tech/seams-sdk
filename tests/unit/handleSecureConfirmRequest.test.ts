@@ -2,10 +2,10 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest, handleInfrastructureErrors } from '../setup';
 
 const IMPORT_PATHS = {
-  handle: '/sdk/esm/core/signingEngine/secureConfirm/confirmTxFlow/handleSecureConfirmRequest.js',
+  handle: '/sdk/esm/core/signingEngine/touchConfirm/handlers/handlePromptFromWorker.js',
 } as const;
 
-test.describe('handlePromptUserConfirmInJsMainThread - Orchestrator Unit Tests', () => {
+test.describe('handlePromptFromWorker - Orchestrator Unit Tests', () => {
   test.beforeEach(async ({ page }) => {
     // These unit tests only import the orchestrator module; avoid initializing a full TatchiPasskey instance
     // (which can be slow/flaky in dev due to iframe + externalized dependency resolution).
@@ -18,7 +18,7 @@ test.describe('handlePromptUserConfirmInJsMainThread - Orchestrator Unit Tests',
       try {
         // Dynamically import orchestrator from built ESM bundle
         const mod = await import(paths.handle);
-        const handle = mod.handlePromptUserConfirmInJsMainThread as Function;
+        const handle = mod.handlePromptFromWorker as Function;
 
         // Minimal SignerWorkerManagerContext stub (determineConfirmationConfig uses user preferences)
         const ctx: any = {
@@ -70,7 +70,7 @@ test.describe('handlePromptUserConfirmInJsMainThread - Orchestrator Unit Tests',
     const result = await page.evaluate(async ({ paths }) => {
       try {
         const mod = await import(paths.handle);
-        const handle = mod.handlePromptUserConfirmInJsMainThread as Function;
+        const handle = mod.handlePromptFromWorker as Function;
 
         const ctx: any = {
           userPreferencesManager: {
@@ -119,8 +119,8 @@ test.describe('handlePromptUserConfirmInJsMainThread - Orchestrator Unit Tests',
     const result = await page.evaluate(async ({ paths }) => {
       try {
         const mod = await import(paths.handle);
-        const handle = mod.handlePromptUserConfirmInJsMainThread as Function;
-        const types = await import('/sdk/esm/core/signingEngine/secureConfirm/confirmTxFlow/types.js');
+        const handle = mod.handlePromptFromWorker as Function;
+        const types = await import('/sdk/esm/core/signingEngine/touchConfirm/shared/confirmTypes.js');
 
         const ctx: any = {
           userPreferencesManager: {
@@ -137,7 +137,7 @@ test.describe('handlePromptUserConfirmInJsMainThread - Orchestrator Unit Tests',
         // Include fields that should never appear in a main-thread signing envelope.
         const request = {
           requestId: 'req-prf-wrap',
-          type: types.SecureConfirmationType.SIGN_TRANSACTION,
+          type: types.UserConfirmationType.SIGN_TRANSACTION,
           summary: {},
           payload: {
             intentDigest: 'intent-prf-wrap',

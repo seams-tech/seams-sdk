@@ -2,10 +2,10 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  handle: '/sdk/esm/core/signingEngine/secureConfirm/confirmTxFlow/handleSecureConfirmRequest.js',
-  types: '/sdk/esm/core/signingEngine/secureConfirm/confirmTxFlow/types.js',
+  handle: '/sdk/esm/core/signingEngine/touchConfirm/handlers/handlePromptFromWorker.js',
+  types: '/sdk/esm/core/signingEngine/touchConfirm/shared/confirmTypes.js',
   events: '/sdk/esm/core/WalletIframe/events.js',
-  localOnly: '/sdk/esm/core/signingEngine/secureConfirm/confirmTxFlow/flows/localOnly.js',
+  localOnly: '/sdk/esm/core/signingEngine/touchConfirm/handlers/flows/localOnly.js',
 } as const;
 
 test.describe('confirmTxFlow – defensive paths', () => {
@@ -18,7 +18,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
       const mod = await import(paths.handle);
       const types = await import(paths.types);
       const events = await import(paths.events);
-      const handle = mod.handlePromptUserConfirmInJsMainThread as Function;
+      const handle = mod.handlePromptFromWorker as Function;
 
       const reserved: string[] = [];
       const released: string[] = [];
@@ -77,7 +77,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
 
       const request = {
         requestId: 'cancel-sign',
-        type: types.SecureConfirmationType.SIGN_TRANSACTION,
+        type: types.UserConfirmationType.SIGN_TRANSACTION,
         summary: {},
         payload: {
           intentDigest: 'intent-sign-cancel',
@@ -114,7 +114,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
 
       triggerCancel();
       await handle(ctx, {
-        type: types.SecureConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+        type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
         data: request
       }, worker);
       const response = workerMessages[0]?.data;
@@ -126,12 +126,76 @@ test.describe('confirmTxFlow – defensive paths', () => {
     expect(result.response.confirmed).toBe(false);
   });
 
+  test('Signing flow: nonce manager failure is fail-fast (no synthetic tx-context fallback)', async ({ page }) => {
+    const result = await page.evaluate(async ({ paths }) => {
+      const mod = await import(paths.handle);
+      const types = await import(paths.types);
+      const handle = mod.handlePromptFromWorker as Function;
+
+      const ctx: any = {
+        userPreferencesManager: {
+          getConfirmationConfig: () => ({
+            uiMode: 'none',
+            behavior: 'skipClick',
+            autoProceedDelay: 0,
+          }),
+        },
+        nonceManager: {
+          async getNonceBlockHashAndHeight() {
+            throw new Error('nonce manager unavailable');
+          },
+          reserveNonces: () => ['never-used'],
+          releaseNonce: () => {},
+        },
+        // Would be used by fallback paths, but signing should not use it.
+        nearClient: {
+          async viewBlock() {
+            return { header: { height: 777, hash: 'h777' } };
+          },
+        },
+      };
+
+      const request = {
+        requestId: 'fail-fast-signing',
+        type: types.UserConfirmationType.SIGN_TRANSACTION,
+        summary: {},
+        payload: {
+          intentDigest: 'intent-fail-fast',
+          nearAccountId: 'alice.testnet',
+          txSigningRequests: [{ receiverId: 'x', actions: [] }],
+          rpcCall: {
+            method: 'sign',
+            argsJson: {},
+            nearAccountId: 'alice.testnet',
+            contractId: 'web3-authn.testnet',
+            nearRpcUrl: 'https://rpc.testnet.near.org',
+          },
+        },
+      } as any;
+
+      const workerMessages: any[] = [];
+      const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
+
+      await handle(ctx, {
+        type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+        data: request,
+      }, worker);
+
+      return { response: workerMessages[0]?.data, messageCount: workerMessages.length };
+    }, { paths: IMPORT_PATHS });
+
+    expect(result.messageCount).toBe(1);
+    expect(result.response.confirmed).toBe(false);
+    expect(String(result.response.error || '')).toContain('Failed to fetch NEAR data');
+    expect(String(result.response.error || '')).toContain('nonce manager unavailable');
+  });
+
   test('Registration flow: cancel releases reserved nonces', async ({ page }) => {
     const result = await page.evaluate(async ({ paths }) => {
       const mod = await import(paths.handle);
       const types = await import(paths.types);
       const events = await import(paths.events);
-      const handle = mod.handlePromptUserConfirmInJsMainThread as Function;
+      const handle = mod.handlePromptFromWorker as Function;
 
       const reserved: string[] = [];
       const released: string[] = [];
@@ -184,7 +248,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
 
 	      const request = {
 	        requestId: 'cancel-reg',
-	        type: types.SecureConfirmationType.REGISTER_ACCOUNT,
+	        type: types.UserConfirmationType.REGISTER_ACCOUNT,
 	        summary: {},
 	        payload: {
 	          nearAccountId: 'cancel-reg.testnet',
@@ -215,7 +279,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
 
       triggerCancel();
       await handle(ctx, {
-        type: types.SecureConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+        type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
         data: request
       }, worker);
       const response = workerMessages[0]?.data;
@@ -232,7 +296,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
       const mod = await import(paths.handle);
       const types = await import(paths.types);
       const events = await import(paths.events);
-      const handle = mod.handlePromptUserConfirmInJsMainThread as Function;
+      const handle = mod.handlePromptFromWorker as Function;
 
       const reserved: string[] = [];
       const released: string[] = [];
@@ -291,7 +355,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
 
       const request = {
         requestId: 'cancel-nep',
-        type: types.SecureConfirmationType.SIGN_NEP413_MESSAGE,
+        type: types.UserConfirmationType.SIGN_NEP413_MESSAGE,
         summary: {},
         payload: {
           nearAccountId: 'cancel-nep.testnet',
@@ -321,7 +385,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
 
       triggerCancel();
       await handle(ctx, {
-        type: types.SecureConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+        type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
         data: request
       }, worker);
       const response = workerMessages[0]?.data;
@@ -337,7 +401,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
     const result = await page.evaluate(async ({ paths }) => {
       const mod = await import(paths.handle);
       const types = await import(paths.types);
-      const handle = mod.handlePromptUserConfirmInJsMainThread as Function;
+      const handle = mod.handlePromptFromWorker as Function;
 
       const ctx: any = {
         userPreferencesManager: {
@@ -381,7 +445,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
 
       const request = {
         requestId: 'show-key',
-        type: types.SecureConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
+        type: types.UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
         summary: {},
         payload: {
           nearAccountId: 'viewer.testnet',
@@ -394,7 +458,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
       const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
 
       await handle(ctx, {
-        type: types.SecureConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+        type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
         data: request
       }, worker);
       const response = workerMessages[0]?.data;
@@ -457,7 +521,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
 
       const request = {
         requestId: 'decrypt-1',
-        type: types.SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
+        type: types.UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
         summary: {},
         payload: { nearAccountId: 'alice.testnet' },
       } as any;
@@ -486,7 +550,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
     const result = await page.evaluate(async ({ paths }) => {
       const mod = await import(paths.handle);
       const types = await import(paths.types);
-      const handle = mod.handlePromptUserConfirmInJsMainThread as Function;
+      const handle = mod.handlePromptFromWorker as Function;
 
       const ctx: any = {
         userPreferencesManager: {
@@ -558,7 +622,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
 
       const request = {
         requestId: 'prf-fail-sign',
-        type: types.SecureConfirmationType.SIGN_TRANSACTION,
+        type: types.UserConfirmationType.SIGN_TRANSACTION,
         summary: {},
         payload: {
           intentDigest: 'intent-error',
@@ -577,7 +641,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
       const workerMessages: any[] = [];
       const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
       await handle(ctx, {
-        type: types.SecureConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+        type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
         data: request
       }, worker);
       const response = workerMessages[0]?.data;
@@ -593,7 +657,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
     const result = await page.evaluate(async ({ paths }) => {
       const mod = await import(paths.handle);
       const types = await import(paths.types);
-      const handle = mod.handlePromptUserConfirmInJsMainThread as Function;
+      const handle = mod.handlePromptFromWorker as Function;
 
       const ctx: any = {
         userPreferencesManager: {
@@ -648,7 +712,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
 
 	      const request = {
 	        requestId: 'prf-fail-reg',
-	        type: types.SecureConfirmationType.REGISTER_ACCOUNT,
+	        type: types.UserConfirmationType.REGISTER_ACCOUNT,
 	        summary: {},
 	        payload: {
 	          nearAccountId: 'error-reg.testnet',
@@ -661,7 +725,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
       const workerMessages: any[] = [];
       const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
       await handle(ctx, {
-        type: types.SecureConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+        type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
         data: request
       }, worker);
       const response = workerMessages[0]?.data;
@@ -677,7 +741,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
 	    const result = await page.evaluate(async ({ paths }) => {
       const mod = await import(paths.handle);
       const types = await import(paths.types);
-      const handle = mod.handlePromptUserConfirmInJsMainThread as Function;
+      const handle = mod.handlePromptFromWorker as Function;
 
       const reserved: string[] = [];
       const released: string[] = [];
@@ -732,7 +796,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
 
       const request = {
         requestId: 'credential-collection-error',
-        type: types.SecureConfirmationType.SIGN_TRANSACTION,
+        type: types.UserConfirmationType.SIGN_TRANSACTION,
         summary: {},
         payload: {
           intentDigest: 'intent-credential-error',
@@ -752,7 +816,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
       const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
 
       await handle(ctx, {
-        type: types.SecureConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+        type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
         data: request
       }, worker);
 

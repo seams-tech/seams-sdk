@@ -4,12 +4,12 @@ import type { RpcCallPayload, ConfirmationConfig } from '@/core/types/signer-wor
 import type { TransactionContext } from '@/core/types/rpc';
 import { computeUiIntentDigestFromTxs, orderActionForDigest } from '@/utils/intentDigest';
 import {
-  SecureConfirmationType,
+  UserConfirmationType,
   type UserConfirmRequest,
   type SigningAuthMode,
   type TransactionSummary,
   type SerializableCredential,
-  type SecureConfirmProgressEvent,
+  type UserConfirmProgressEvent,
 } from '../shared/confirmTypes';
 import type { TouchConfirmContext } from '..';
 import type { TxDisplayModel } from '../shared/displayModel';
@@ -22,18 +22,18 @@ export interface OrchestrateSigningConfirmationBaseParams {
   sessionId: string;
   chain: SigningConfirmationChain;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
-  onProgress?: (progress: SecureConfirmProgressEvent) => void;
+  onProgress?: (progress: UserConfirmProgressEvent) => void;
   /**
    * Optional override for signing auth mode.
-   * When omitted, the SecureConfirm worker may auto-select `warmSession` when a warm session is available.
+   * When omitted, the UserConfirm worker may auto-select `warmSession` when a warm session is available.
    *
    * Threshold signing typically selects `warmSession` only when a valid relay session token exists
-   * and PRF.first is cached in the SecureConfirm worker; otherwise it uses `webauthn`.
+   * and PRF.first is cached in the UserConfirm worker; otherwise it uses `webauthn`.
    */
   signingAuthMode?: SigningAuthMode;
   /**
    * Optional base64url-encoded 32-byte digest to bind a relayer session policy into the WebAuthn challenge.
-   * When provided, it is forwarded to SecureConfirm for challenge construction and intent binding.
+   * When provided, it is forwarded to UserConfirm for challenge construction and intent binding.
    */
   sessionPolicyDigest32?: string;
 }
@@ -103,7 +103,7 @@ export interface SigningConfirmationResultIntentDigest {
 }
 
 /**
- * Orchestrates chain-specific signing confirmation requests for SecureConfirm.
+ * Orchestrates chain-specific signing confirmation requests for UserConfirm.
  *
  * This creates a `UserConfirmRequest` and routes it through the worker handshake so touchConfirm
  * can render UI in wallet origin and collect signing artifacts.
@@ -123,7 +123,7 @@ export async function orchestrateSigningConfirmation(
   const { sessionId } = params;
   const requestUserConfirmation = params.ctx.requestUserConfirmation;
   if (typeof requestUserConfirmation !== 'function') {
-    throw new Error('SecureConfirm request bridge is unavailable (worker handshake path only)');
+    throw new Error('UserConfirm request bridge is unavailable (worker handshake path only)');
   }
 
   let intentDigest: string;
@@ -157,7 +157,7 @@ export async function orchestrateSigningConfirmation(
 
       request = {
         requestId: sessionId,
-        type: SecureConfirmationType.SIGN_TRANSACTION,
+        type: UserConfirmationType.SIGN_TRANSACTION,
         summary,
         payload: {
           txSigningRequests,
@@ -209,7 +209,7 @@ export async function orchestrateSigningConfirmation(
 
       request = {
         requestId: sessionId,
-        type: SecureConfirmationType.SIGN_TRANSACTION,
+        type: UserConfirmationType.SIGN_TRANSACTION,
         summary,
         payload: {
           txSigningRequests,
@@ -236,7 +236,7 @@ export async function orchestrateSigningConfirmation(
 
       request = {
         requestId: sessionId,
-        type: SecureConfirmationType.SIGN_NEP413_MESSAGE,
+        type: UserConfirmationType.SIGN_NEP413_MESSAGE,
         summary,
         payload: {
           nearAccountId: params.nearAccountId,
@@ -268,7 +268,7 @@ export async function orchestrateSigningConfirmation(
 
       request = {
         requestId: sessionId,
-        type: SecureConfirmationType.SIGN_INTENT_DIGEST,
+        type: UserConfirmationType.SIGN_INTENT_DIGEST,
         summary,
         payload: {
           nearAccountId: params.signerAccountId,

@@ -109,7 +109,7 @@ export async function signNEP413Message(args: {
     });
 
     // Send to SigningEngine for signing.
-    // Note: NEP-413 uses SecureConfirm-driven confirmTxFlow; this call triggers
+    // Note: NEP-413 uses UserConfirm-driven confirmTxFlow; this call triggers
     // its own confirmation + WebAuthn authentication as needed.
     const result = await context.signingEngine.signNear({
       chain: 'near',

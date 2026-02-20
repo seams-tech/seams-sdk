@@ -30,7 +30,7 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
  * - Select the active account + passkey deviceNumber (last-user pointer).
  * - Optionally mint a relayer session (JWT/cookie) via standard WebAuthn challenge/verify.
  *
- * Note: signing flows still perform their own SecureConfirm/WebAuthn prompting as needed.
+ * Note: signing flows still perform their own UserConfirm/WebAuthn prompting as needed.
  */
 export async function loginAndCreateSession(
   context: PasskeyManagerContext,
@@ -453,7 +453,7 @@ function prioritizeAuthenticatorsByDeviceNumber(
  * Login state is derived from:
  * - IndexedDB last-user pointer, and
  * - when threshold-signer warm sessions are enabled, an active PRF-first cache entry
- *   in the SecureConfirm worker for the account's active signing session id.
+ *   in the UserConfirm worker for the account's active signing session id.
  */
 export async function getLoginSession(
   context: PasskeyManagerContext,

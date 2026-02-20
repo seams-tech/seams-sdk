@@ -1,7 +1,7 @@
 /**
  * Enhanced WASM Signer Worker (v2)
  * This worker uses Rust-based message handling for better type safety and performance
- * Similar to the SecureConfirm worker architecture
+ * Similar to the UserConfirm worker architecture
  *
  * MESSAGING FLOW DOCUMENTATION:
  * =============================
@@ -57,7 +57,7 @@ import { WorkerControlMessage } from '../workerTypes';
 
 // Resolve WASM URL using the centralized resolution strategy
 const wasmUrl = resolveWasmUrl('wasm_signer_worker_bg.wasm', 'Signer Worker');
-// SecureConfirm bridge removed: signer no longer initiates confirmations
+// UserConfirm bridge removed: signer no longer initiates confirmations
 
 let wasmInitPromise: Promise<void> | null = null;
 let messageQueue: Promise<void> = Promise.resolve();
@@ -83,8 +83,8 @@ function sendProgressMessage(
   step: number,
   stepName: string,
   message: string,
-  data: any,
-  logs?: any
+  data: unknown,
+  logs?: unknown
 ): void {
   try {
     // Parse structured data and logs using helper if they are strings
@@ -115,7 +115,7 @@ function sendProgressMessage(
       payload: progressPayload,
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[signer-worker]: Failed to send progress message:', error);
     if (!activeRequestId) return;
     self.postMessage({
@@ -128,7 +128,10 @@ function sendProgressMessage(
 }
 
 // Important: Make sendProgressMessage available globally for WASM to call
-(globalThis as any).sendProgressMessage = sendProgressMessage;
+type NearSignerWorkerGlobal = typeof globalThis & {
+  sendProgressMessage?: typeof sendProgressMessage;
+};
+(globalThis as NearSignerWorkerGlobal).sendProgressMessage = sendProgressMessage;
 
 
 /**
@@ -139,7 +142,7 @@ async function initializeWasm(): Promise<void> {
   wasmInitPromise = (async () => {
     try {
       await init({ module_or_path: wasmUrl });
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Allow retry if init fails (e.g., transient path/config issues during dev).
       wasmInitPromise = null;
       console.error('[signer-worker]: WASM initialization failed:', error);
@@ -152,7 +155,7 @@ async function initializeWasm(): Promise<void> {
 // Signal readiness so the main thread can health-check persisted worker availability.
 // Delay one tick to allow listener registration on main thread
 setTimeout(() => {
-  (self as any).postMessage({ type: WorkerControlMessage.WORKER_READY, ready: true });
+  self.postMessage({ type: WorkerControlMessage.WORKER_READY, ready: true });
 }, 0);
 
 /**
@@ -179,7 +182,7 @@ async function processWorkerMessage(event: MessageEvent): Promise<void> {
       ok: true,
       result: response,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[signer-worker]: Message processing failed:', error);
     self.postMessage({
       id: requestId,
@@ -219,9 +222,12 @@ self.onmessage = async (event: MessageEvent<SignerWorkerRpcRequest>): Promise<vo
   await messageQueue;
 };
 
-function assertNoPrfSecretsInSignerPayload(data: any): void {
-  const payload = data?.payload;
+function assertNoPrfSecretsInSignerPayload(data: unknown): void {
+  const payload = (data && typeof data === 'object')
+    ? (data as { payload?: unknown }).payload
+    : undefined;
   if (!payload || typeof payload !== 'object') return;
+  const payloadRecord = payload as Record<string, unknown>;
   const forbiddenKeys = [
     'prfOutput',
     'prf_output',
@@ -230,7 +236,7 @@ function assertNoPrfSecretsInSignerPayload(data: any): void {
     'prf',
   ];
   for (const key of forbiddenKeys) {
-    if ((payload as any)[key] !== undefined) {
+    if (payloadRecord[key] !== undefined) {
       throw new Error(`Forbidden secret field in signer payload: ${key}`);
     }
   }
@@ -254,7 +260,7 @@ self.onunhandledrejection = (event) => {
 /**
  * Helper function to safely parse JSON with fallback
  */
-function safeJsonParse(jsonString: string, fallback: any = {}): any {
+function safeJsonParse(jsonString: string, fallback: unknown = {}): unknown {
   try {
     return jsonString ? JSON.parse(jsonString) : fallback;
   } catch (error) {

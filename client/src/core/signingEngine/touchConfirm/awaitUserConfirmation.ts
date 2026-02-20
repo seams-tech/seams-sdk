@@ -1,15 +1,15 @@
 /**
  * Worker-side handshake entrypoint.
  *
- * Called by the SecureConfirm worker runtime (`passkey-confirm.worker.ts`) and waits for
+ * Called by the UserConfirm worker runtime (`passkey-confirm.worker.ts`) and waits for
  * `USER_PASSKEY_CONFIRM_RESPONSE` messages emitted by `TouchConfirmManager` on the main thread.
  */
 import {
   WorkerConfirmationResponse,
-  SecureConfirmMessageType,
-  SecureConfirmPromptEnvelope,
+  UserConfirmMessageType,
+  UserConfirmPromptEnvelope,
   UserConfirmRequest,
-  SecureConfirmResponseEnvelope,
+  UserConfirmResponseEnvelope,
   SerializableCredential,
 } from './shared/confirmTypes';
 import { isObject, isString, isBoolean } from '@shared/utils/validation';
@@ -27,22 +27,22 @@ type ConfirmResponsePayload = {
 };
 
 type ConfirmResponseEnvelope = {
-  type: SecureConfirmMessageType.USER_PASSKEY_CONFIRM_RESPONSE;
+  type: UserConfirmMessageType.USER_PASSKEY_CONFIRM_RESPONSE;
   requestId?: string;
   channelToken?: string;
   data: ConfirmResponsePayload;
 };
 
 /**
- * Worker-side bridge used by the SecureConfirm worker runtime to request a main-thread confirmation.
+ * Worker-side bridge used by the UserConfirm worker runtime to request a main-thread confirmation.
  *
  * Where this runs:
- * - Runs inside the SecureConfirm Web Worker (not the main thread).
- * - Invoked from the worker runtime; the SecureConfirm worker exposes this as
+ * - Runs inside the UserConfirm Web Worker (not the main thread).
+ * - Invoked from the worker runtime; the UserConfirm worker exposes this as
  *   `globalThis.awaitUserConfirmationV2` in `client/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts`.
  *
  * High-level flow:
- * 1) SecureConfirm runtime calls `awaitUserConfirmationV2(request)`
+ * 1) UserConfirm runtime calls `awaitUserConfirmationV2(request)`
  * 2) This posts `PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD` to the main thread
  * 3) `TouchConfirmManager` intercepts that message and runs touchConfirm handlers on the main thread
  *    (`handlePromptFromWorker`), then posts back `USER_PASSKEY_CONFIRM_RESPONSE`
@@ -58,7 +58,7 @@ export function awaitUserConfirmationV2(
 ): Promise<WorkerConfirmationResponse> {
   return new Promise((resolve, reject) => {
 
-    // 1) Validate request object coming from the SecureConfirm worker runtime.
+    // 1) Validate request object coming from the UserConfirm worker runtime.
     // Rust passes a plain JS object (serde_wasm_bindgen), so we validate defensively here
     // to avoid propagating malformed requests to the main thread.
     let request: UserConfirmRequest;
@@ -124,8 +124,8 @@ export function awaitUserConfirmationV2(
     // prototype/function fields across the Worker boundary.
     try {
       const safeRequest = deepClonePlain(request);
-      const promptEnvelope: SecureConfirmPromptEnvelope = {
-        type: SecureConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+      const promptEnvelope: UserConfirmPromptEnvelope = {
+        type: UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
         requestId: request.requestId,
         channelToken,
         data: safeRequest,
@@ -154,7 +154,7 @@ function deepClonePlain<T>(obj: T): T {
 function isConfirmResponseEnvelope(msg: unknown): msg is ConfirmResponseEnvelope {
   if (!isObject(msg)) return false;
   const type = (msg as { type?: unknown }).type;
-  if (type !== SecureConfirmMessageType.USER_PASSKEY_CONFIRM_RESPONSE) return false;
+  if (type !== UserConfirmMessageType.USER_PASSKEY_CONFIRM_RESPONSE) return false;
   const data = (msg as { data?: unknown }).data;
   if (!isObject(data)) return false;
   const d = data as { requestId?: unknown; confirmed?: unknown };
@@ -184,7 +184,7 @@ function normalizeChannelToken(token: unknown): string {
   return token.trim();
 }
 
-function resolveEnvelopeRequestId(env: ConfirmResponseEnvelope | SecureConfirmResponseEnvelope): string {
+function resolveEnvelopeRequestId(env: ConfirmResponseEnvelope | UserConfirmResponseEnvelope): string {
   const topLevelRequestId = isString((env as { requestId?: unknown }).requestId)
     ? String((env as { requestId?: string }).requestId).trim()
     : '';
@@ -195,7 +195,7 @@ function resolveEnvelopeRequestId(env: ConfirmResponseEnvelope | SecureConfirmRe
 }
 
 function isMatchingChannelToken(
-  env: ConfirmResponseEnvelope | SecureConfirmResponseEnvelope,
+  env: ConfirmResponseEnvelope | UserConfirmResponseEnvelope,
   expectedChannelToken: string,
 ): boolean {
   return normalizeChannelToken((env as { channelToken?: unknown }).channelToken) === expectedChannelToken;

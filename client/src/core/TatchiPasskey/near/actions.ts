@@ -1,7 +1,6 @@
 import { ActionType, toActionArgsWasm } from '../../types/actions';
 import type {
   ActionHooksOptions,
-  ExecutionWaitOption,
   SendTransactionHooksOptions,
   SignAndSendTransactionHooksOptions,
   SignTransactionHooksOptions,
@@ -436,7 +435,7 @@ export async function signTransactionsWithActionsInternal({
     // 1. Basic validation (NEAR data fetching moved to confirmation flow)
     await validateInputsOnly(nearAccountId, transactionInputs, { onEvent, onError, waitUntil });
 
-    // 2. SecureConfirm/WebAuthn + transaction signing (NEAR data fetched in confirmation flow)
+    // 2. UserConfirm/WebAuthn + transaction signing (NEAR data fetched in confirmation flow)
     onEvent?.({
       step: 2,
       phase: ActionPhase.STEP_2_USER_CONFIRMATION,
@@ -531,7 +530,7 @@ async function validateInputsOnly(
   transactionInputs: TransactionInput[],
   options?: Omit<ActionHooksOptions, 'afterCall'>,
 ): Promise<void> {
-  const { onEvent, onError } = options || {};
+  const { onEvent } = options || {};
 
   // Basic validation
   if (!nearAccountId) {
