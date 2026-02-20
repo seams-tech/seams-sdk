@@ -123,7 +123,7 @@ test.describe('EmailRecoveryDomain', () => {
     const thresholdMaterialWrites: any[] = [];
 
     const originalFetch = globalThis.fetch;
-    const originalStoreThreshold = (IndexedDBManager as any).storeNearThresholdKeyMaterialV2;
+    const originalStoreThreshold = (IndexedDBManager as any).storeNearThresholdKeyMaterial;
     try {
       globalThis.fetch = (async (input: unknown) => {
         const url = String((input as any)?.url || input);
@@ -141,7 +141,7 @@ test.describe('EmailRecoveryDomain', () => {
           },
         }), { status: 200 });
       }) as any;
-      (IndexedDBManager as any).storeNearThresholdKeyMaterialV2 = async (input: any) => {
+      (IndexedDBManager as any).storeNearThresholdKeyMaterial = async (input: any) => {
         thresholdMaterialWrites.push(input);
       };
 
@@ -172,7 +172,7 @@ test.describe('EmailRecoveryDomain', () => {
       expect(thresholdMaterialWrites[0]?.publicKey).toBe('ed25519:recovery-key');
     } finally {
       globalThis.fetch = originalFetch;
-      (IndexedDBManager as any).storeNearThresholdKeyMaterialV2 = originalStoreThreshold;
+      (IndexedDBManager as any).storeNearThresholdKeyMaterial = originalStoreThreshold;
     }
   });
 

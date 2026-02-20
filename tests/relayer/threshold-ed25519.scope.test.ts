@@ -11,12 +11,12 @@ import { threshold_ed25519_compute_near_tx_signing_digests } from '../../wasm/ne
 import { callCf, fetchJson, makeCfCtx, makeSessionAdapter, startExpressRouter } from './helpers';
 import type {
   ThresholdEd25519AuthConsumeUsesResult,
-  ThresholdEd25519AuthSessionRecord,
-  ThresholdEd25519AuthSessionStore,
+  Ed25519AuthSessionRecord,
+  Ed25519AuthSessionStore,
 } from '@server/core/ThresholdService/stores/AuthSessionStore';
 
 type ThresholdEd25519AuthConsumeResult =
-  | { ok: true; record: ThresholdEd25519AuthSessionRecord; remainingUses: number }
+  | { ok: true; record: Ed25519AuthSessionRecord; remainingUses: number }
   | { ok: false; code: string; message: string };
 
 function makeAuthServiceForThreshold(): { service: AuthService; threshold: ReturnType<typeof createThresholdSigningService> } {
@@ -105,22 +105,22 @@ function createTestSessionAdapter(): {
   return { session };
 }
 
-class SplitAuthSessionStore implements ThresholdEd25519AuthSessionStore {
-  readonly records = new Map<string, ThresholdEd25519AuthSessionRecord>();
+class SplitAuthSessionStore implements Ed25519AuthSessionStore {
+  readonly records = new Map<string, Ed25519AuthSessionRecord>();
   readonly uses = new Map<string, number>();
   consumeUseCalls = 0;
   consumeUseCountCalls = 0;
 
   async putSession(
     id: string,
-    record: ThresholdEd25519AuthSessionRecord,
+    record: Ed25519AuthSessionRecord,
     opts: { ttlMs: number; remainingUses: number },
   ): Promise<void> {
     this.records.set(id, record);
     this.uses.set(id, Math.max(0, Number(opts.remainingUses) || 0));
   }
 
-  async getSession(id: string): Promise<ThresholdEd25519AuthSessionRecord | null> {
+  async getSession(id: string): Promise<Ed25519AuthSessionRecord | null> {
     return this.records.get(id) ?? null;
   }
 

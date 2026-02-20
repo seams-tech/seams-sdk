@@ -44,19 +44,6 @@ test.describe('buildConfigsFromEnv appearance defaults and overrides', () => {
     expect(cfg.appearance.tokens.dark.colors.borderPrimary).toBe('#556677');
   });
 
-  test('falls back to default palette for removed legacy cream palette', async () => {
-    const cfg = buildConfigsFromEnv({
-      relayer: { url: 'https://relay.example' },
-      appearance: {
-        theme: 'light',
-        palette: 'cream' as any,
-      } as any,
-    });
-
-    expect(cfg.appearance.theme).toBe('light');
-    expect(cfg.appearance.palette).toBe('default');
-  });
-
   test('falls back to defaults for invalid appearance enum values', async () => {
     const cfg = buildConfigsFromEnv({
       relayer: { url: 'https://relay.example' },

@@ -5,7 +5,7 @@ const IMPORT_PATHS = {
   clientDb: '/sdk/esm/core/indexedDB/passkeyClientDB/manager.js',
   nearKeysDb: '/sdk/esm/core/indexedDB/passkeyNearKeysDB/manager.js',
   getDeviceNumber: '/sdk/esm/core/signingEngine/signers/webauthn/device/getDeviceNumber.js',
-  signTxs: '/sdk/esm/core/signingEngine/orchestration/near/transactionsFlow/index.js',
+  signTxs: '/sdk/esm/core/signingEngine/orchestration/near/transactionsFlow.js',
   signerTypes: '/sdk/esm/core/types/signer-worker.js',
   actions: '/sdk/esm/core/types/actions.js',
 } as const;
@@ -110,7 +110,7 @@ test.describe('Link device → immediate sign (regression)', () => {
 
         // LinkDeviceFlow derives/stores the encrypted NEAR key earlier in the real flow.
         // For this regression, store a minimal entry so signing can proceed immediately.
-        await nearKeysDB.storeKeyMaterialV2({
+        await nearKeysDB.storeKeyMaterial({
           profileId,
           deviceNumber,
           chainId,
@@ -128,7 +128,7 @@ test.describe('Link device → immediate sign (regression)', () => {
 
         const last = await clientDB.getLastSelectedNearAccountProjection();
         const deviceFromHelper = await getLastLoggedInDeviceNumber(nearAccountId, clientDB);
-        const key = await nearKeysDB.getKeyMaterialV2(profileId, deviceFromHelper, chainId, 'local_sk_encrypted_v1');
+        const key = await nearKeysDB.getKeyMaterial(profileId, deviceFromHelper, chainId, 'local_sk_encrypted_v1');
         const authenticators = await clientDB.listNearAuthenticators(nearAccountId);
 
         // Exercise the signing handler path up to and including the IndexedDB lookups.
@@ -138,11 +138,11 @@ test.describe('Link device → immediate sign (regression)', () => {
           indexedDB: {
             clientDB,
             nearKeysDB,
-            getNearLocalKeyMaterialV2First: async (accountId: string, deviceNum: number) => {
+            getNearLocalKeyMaterial: async (accountId: string, deviceNum: number) => {
               const normalizedAccountId = String(accountId || '').trim().toLowerCase();
               const localProfileId = `legacy-near:${normalizedAccountId}`;
               const localChainId = normalizedAccountId.endsWith('.testnet') ? 'near:testnet' : 'near:mainnet';
-              const row = await nearKeysDB.getKeyMaterialV2(
+              const row = await nearKeysDB.getKeyMaterial(
                 localProfileId,
                 deviceNum,
                 localChainId,
@@ -164,7 +164,7 @@ test.describe('Link device → immediate sign (regression)', () => {
                 timestamp: row.timestamp,
               };
             },
-            getNearThresholdKeyMaterialV2First: async () => null,
+            getNearThresholdKeyMaterial: async () => null,
           },
           nonceManager: { initializeUser: () => {} },
           touchIdPrompt: { getRpId: () => 'example.localhost' },
@@ -339,7 +339,7 @@ test.describe('Link device → immediate sign (regression)', () => {
 
         // LinkDeviceFlow derives/stores the encrypted NEAR key earlier in the real flow.
         // For this regression, store a minimal entry so signing can proceed immediately.
-        await nearKeysDB.storeKeyMaterialV2({
+        await nearKeysDB.storeKeyMaterial({
           profileId,
           deviceNumber: 2,
           chainId,
@@ -357,7 +357,7 @@ test.describe('Link device → immediate sign (regression)', () => {
 
         const last = await clientDB.getLastSelectedNearAccountProjection();
         const deviceFromHelper = await getLastLoggedInDeviceNumber(nearAccountId, clientDB);
-        const key = await nearKeysDB.getKeyMaterialV2(profileId, deviceFromHelper, chainId, 'local_sk_encrypted_v1');
+        const key = await nearKeysDB.getKeyMaterial(profileId, deviceFromHelper, chainId, 'local_sk_encrypted_v1');
         const authenticators = await clientDB.listNearAuthenticators(nearAccountId);
 
         // Exercise the signing handler path up to and including the IndexedDB lookups.
@@ -367,11 +367,11 @@ test.describe('Link device → immediate sign (regression)', () => {
           indexedDB: {
             clientDB,
             nearKeysDB,
-            getNearLocalKeyMaterialV2First: async (accountId: string, deviceNum: number) => {
+            getNearLocalKeyMaterial: async (accountId: string, deviceNum: number) => {
               const normalizedAccountId = String(accountId || '').trim().toLowerCase();
               const localProfileId = `legacy-near:${normalizedAccountId}`;
               const localChainId = normalizedAccountId.endsWith('.testnet') ? 'near:testnet' : 'near:mainnet';
-              const row = await nearKeysDB.getKeyMaterialV2(
+              const row = await nearKeysDB.getKeyMaterial(
                 localProfileId,
                 deviceNum,
                 localChainId,
@@ -393,7 +393,7 @@ test.describe('Link device → immediate sign (regression)', () => {
                 timestamp: row.timestamp,
               };
             },
-            getNearThresholdKeyMaterialV2First: async () => null,
+            getNearThresholdKeyMaterial: async () => null,
           },
           nonceManager: { initializeUser: () => {} },
           touchIdPrompt: { getRpId: () => 'example.localhost' },

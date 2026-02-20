@@ -80,7 +80,7 @@ Tradeoff:
 
 ## Proxy Re-Encryption Position
 
-- Proxy re-encryption can be used as a secure transport primitive for encrypted share payloads between control planes.
+- Proxy re-encryption can be used as a secure transport primitive for encrypted share payloads between console and relay services.
 - PRE does not by itself solve trust-reset semantics.
 - Use PRE only as an implementation detail for Mode A transfer, not as the core trust argument.
 
@@ -164,20 +164,25 @@ Tradeoff:
 
 ## API Plan (new clean endpoints)
 
+Namespace split:
+
+- `/console/*` for migration orchestration/admin APIs.
+- `/relay/*` for signer-runtime protocol helpers.
+
 ### Common
 
-- `POST /threshold-migrations/start`
-- `POST /threshold-migrations/:migrationId/export`
-- `POST /threshold-migrations/:migrationId/import-ack`
-- `POST /threshold-migrations/:migrationId/verify`
-- `POST /threshold-migrations/:migrationId/cutover`
-- `POST /threshold-migrations/:migrationId/abort`
-- `GET /threshold-migrations/:migrationId`
+- `POST /console/threshold-migrations/start`
+- `POST /console/threshold-migrations/:migrationId/export`
+- `POST /console/threshold-migrations/:migrationId/import-ack`
+- `POST /console/threshold-migrations/:migrationId/verify`
+- `POST /console/threshold-migrations/:migrationId/cutover`
+- `POST /console/threshold-migrations/:migrationId/abort`
+- `GET /console/threshold-migrations/:migrationId`
 
 ### Scheme-Specific Helpers
 
-- `POST /threshold-ecdsa/migrations/*` for secp256k1 specific proof/metadata.
-- `POST /threshold-ed25519/migrations/*` for Ed25519 specific proof/metadata.
+- `POST /relay/threshold-ecdsa/migrations/*` for secp256k1 specific proof/metadata.
+- `POST /relay/threshold-ed25519/migrations/*` for Ed25519 specific proof/metadata.
 
 No legacy aliases:
 

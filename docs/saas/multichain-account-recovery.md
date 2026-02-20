@@ -4,7 +4,7 @@ Last updated: 2026-02-19
 
 ## Goal
 
-Extend the existing NEAR email-recovery flow into a multichain recovery control plane where NEAR authority can rotate owners/keys on EVM and Tempo smart accounts, including ERC-4337 accounts via NEAR-derived EVM guardian addresses.
+Extend the existing NEAR email-recovery flow into a multichain recovery console/backend flow where NEAR authority can rotate owners/keys on EVM and Tempo smart accounts, including ERC-4337 accounts via NEAR-derived EVM guardian addresses.
 
 ## Product Model
 
@@ -144,7 +144,7 @@ Required invariants:
 ### New Components
 
 - `RecoveryIntent` builder + canonical serializer in wallet origin.
-- Relayer endpoint to submit signed intent to verifier contract.
+- Relay endpoint under `/relay/*` to submit signed intent to verifier contract.
 - EVM/Tempo verifier bindings and smart-account recovery adapters.
 - ERC-4337 UserOperation builder for guardian-based `addOwner` / `rotateOwner`.
 - Deterministic derivation-path registry for `nearAccountId -> derivedGuardianAddress` mapping.
@@ -161,7 +161,7 @@ Required invariants:
 ### Phase 1: EVM Recovery MVP
 
 - Implement `ed25519Verifier` interface for `setOwner`.
-- Add relayer route to submit signed recovery intent.
+- Add relay route (for example, `POST /relay/recovery-intents/submit`) to submit signed recovery intent.
 - Add smart-account recovery call guardrails and eventing.
 
 ### Phase 2: Tempo Recovery MVP

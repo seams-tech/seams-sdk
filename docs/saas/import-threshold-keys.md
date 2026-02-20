@@ -26,8 +26,8 @@ Implement “import private key → threshold MPC signing” for both Ed25519 (N
   - `eth_signer.wasm` (already does hashing/encoding + local secp signing; extend or add a dedicated MPC-ECDSA wasm module)
   - `tempo_signer.wasm` (Tempo `0x76` hashing/encoding)
 - Relay endpoints:
-  - `/threshold-ed25519/*` (extend with “import” endpoint)
-  - New `/threshold-ecdsa/*` (or similar) for ECDSA sessions, presigning, signing, and optional import
+  - `/relay/threshold-ed25519/*` (extend with “import” endpoint)
+  - New `/relay/threshold-ecdsa/*` (or similar) for ECDSA sessions, presigning, signing, and optional import
 
 ## Data model / API changes
 ### Common (both algorithms)
@@ -41,12 +41,12 @@ Implement “import private key → threshold MPC signing” for both Ed25519 (N
   - `createdAt`, `rotatedAt`, `status`
 
 ### NEAR / Ed25519
-- Add `POST /threshold-ed25519/keys/import`:
+- Add `POST /relay/threshold-ed25519/keys/import`:
   - Request: `keyId`, `participantId=relay`, `shareBytes`, `commitments`, `publicKey`, metadata (account binding)
   - Relay validates share against commitments and stores relay share + commitments
 
 ### ETH/Tempo / ECDSA
-- Add a new route family, e.g. `POST /threshold-ecdsa/*`:
+- Add a new route family, e.g. `POST /relay/threshold-ecdsa/*`:
   - Key lifecycle: DKG (optional), import (optional), refresh/rotate (later)
   - Signing lifecycle: start session → (optional) presign/preprocess → sign digest → finalize signature
   - Store relay share + any public verification material required by the chosen scheme
@@ -146,10 +146,10 @@ Out of MVP scope; requires a different protocol where the user provides encrypte
 ## Action items
 [ ] Add `docs/import_threshold_private_keys.md` (this document) and link it from `docs/multichain_adaptor.md`.
 [ ] Ed25519: add WASM function “import ed25519 key → (s1,s2,commitments)” to `near_signer.wasm`.
-[ ] Ed25519: add relay endpoint `POST /threshold-ed25519/keys/import` + storage + verification.
+[ ] Ed25519: add relay endpoint `POST /relay/threshold-ed25519/keys/import` + storage + verification.
 [ ] Ed25519: add wallet-origin import UI + SecureConfirm gating + local storage for client share.
 [ ] ECDSA: adopt `near/threshold-signatures` + implement fixed-participant derived-share mapping (`share_i = x_i * inv(λ_i)`).
-[ ] ECDSA: implement `/threshold-ecdsa/*` sessions + presigning + signing (end-to-end) producing recoverable signatures.
+[ ] ECDSA: implement `/relay/threshold-ecdsa/*` sessions + presigning + signing (end-to-end) producing recoverable signatures.
 [ ] ECDSA: implement “import secp256k1 key → additive shares” and store relay share + verification material.
 [ ] Integrate both into multichain orchestrator/engines so adapters request `digest32` signing and get chain-specific finalized tx bytes.
 

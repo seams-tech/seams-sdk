@@ -1,7 +1,15 @@
 # Dashboard Requirements Plan (Wallet-as-a-Service)
 
+Related implementation plan:
+
+- `docs/saas/dashboard-backend-implementation-plan.md`
+
 ## Objective
-Build a control-plane dashboard at `/dashboard` for teams running embedded threshold wallets, with operational controls for wallet lifecycle, authorization policy, app security, and integrations.
+Build a console dashboard at `/dashboard` for teams running embedded threshold wallets, with operational controls for wallet lifecycle, authorization policy, app security, and integrations.
+
+## API Namespace Convention
+- `/console/*` for SaaS/admin APIs used by dashboard features.
+- `/relay/*` for runtime/transaction APIs used by signing and relay execution flows.
 
 ## Personas
 - Product admin: configures wallet behavior and app-level settings.
@@ -84,14 +92,14 @@ Build a control-plane dashboard at `/dashboard` for teams running embedded thres
 - Responsive behavior: desktop-first with functional mobile fallback.
 
 ## Suggested API surfaces
-- `GET /wallets`, `GET /wallets/:id`
-- `GET /wallets/search`
-- `GET/POST/PATCH /policies`, `POST /policies/:id/simulate`, `POST /policies/:id/publish`
-- `GET/PATCH /settings/app`, `GET/PATCH /settings/security`
-- `GET/POST/PATCH /gas-sponsorship`, `GET/POST/PATCH /smart-wallets`
-- `GET/POST /key-exports`, `POST /key-exports/:id/approve`
-- `GET/POST/DELETE /api-keys`, `POST /api-keys/:id/rotate`
-- `GET/POST/PATCH/DELETE /webhooks`, `GET /webhooks/:id/deliveries`, `POST /webhooks/:id/replay`
+- `GET /console/wallets`, `GET /console/wallets/:id`
+- `GET /console/wallets/search`
+- `GET/POST/PATCH /console/policies`, `POST /console/policies/:id/simulate`, `POST /console/policies/:id/publish`
+- `GET/PATCH /console/settings/app`, `GET/PATCH /console/settings/security`
+- `GET/POST/PATCH /console/gas-sponsorship`, `GET/POST/PATCH /console/smart-wallets`
+- `GET/POST /console/key-exports`, `POST /console/key-exports/:id/approve`
+- `GET/POST/DELETE /console/api-keys`, `POST /console/api-keys/:id/rotate`
+- `GET/POST/PATCH/DELETE /console/webhooks`, `GET /console/webhooks/:id/deliveries`, `POST /console/webhooks/:id/replay`
 
 ## Delivery plan
 - Phase 1 (MVP): wallets list/search, baseline policy controls, app settings core, API keys, webhooks basics.

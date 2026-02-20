@@ -129,7 +129,7 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
               jwt: 'mock-jwt-token',
             };
           },
-          bootstrapThresholdEcdsaSession: async ({
+          bootstrapEcdsaSession: async ({
             nearAccountId,
             options,
           }: {

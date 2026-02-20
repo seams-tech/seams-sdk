@@ -2,9 +2,13 @@
 
 Date updated: February 19, 2026
 
+Related implementation plan:
+
+- `docs/saas/dashboard-backend-implementation-plan.md`
+
 ## Objective
 
-Define a production-ready database model for SaaS dashboard features, while keeping runtime SDK concerns separate from control-plane concerns.
+Define a production-ready database model for SaaS dashboard features, while keeping runtime SDK concerns separate from console/admin concerns.
 
 This plan covers:
 
@@ -18,8 +22,13 @@ This plan covers:
 ## Scope Boundary
 
 - `SDK + relay`: signing/runtime execution path only.
-- `SaaS backend (new app)`: org/project/admin/policy/billing/control-plane features.
+- `SaaS console backend (new app)`: org/project/admin/policy/billing features.
 - Shared contracts only via versioned API schemas and minimal shared types package.
+
+## API Namespace Boundary
+
+- `/console/*` routes map to SaaS/admin APIs backed by this schema.
+- `/relay/*` routes map to runtime/transaction APIs and should stay isolated at auth + routing layers.
 
 ## Tenancy and Isolation Plan
 
