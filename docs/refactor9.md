@@ -1,6 +1,6 @@
 # signingSession Simplification Plan
 
-Status: Active  
+Status: Complete (browser verification deferred by request)  
 Last updated: 2026-02-20
 
 ## 0. Ground Rules
@@ -12,10 +12,10 @@ Last updated: 2026-02-20
 
 ## 1. Problem Statement
 
-- [ ] `signingSession` ownership is spread across multiple layers (`SigningEngine`, registration/login, orchestration deps).
+- [x] `signingSession` ownership is spread across multiple layers (`SigningEngine`, registration/login, orchestration deps).
 - [x] Public mutators (`setActiveSigningSessionId`, `putPrfFirstForThresholdSession`) expose low-level internals to feature code.
 - [x] Session ID lifecycle is not explicit: some paths create IDs eagerly, some hydrate from bootstrap.
-- [ ] Current plumbing still reflects older architecture complexity that is no longer needed.
+- [x] Current plumbing still reflects older architecture complexity that is no longer needed.
 
 ## 2. Target Model
 
@@ -88,11 +88,13 @@ Last updated: 2026-02-20
 - [ ] `pnpm exec eslint client/src/core/signingEngine client/src/core/TatchiPasskey`
 - [x] `pnpm exec eslint client/src/core/signingEngine/SigningEngine.ts client/src/core/signingEngine/api/session/signingSessionState.ts client/src/core/signingEngine/orchestration/near/transactionsFlow.ts client/src/core/signingEngine/orchestration/near/delegateFlow.ts client/src/core/signingEngine/orchestration/near/nep413Flow.ts client/src/core/signingEngine/threshold/workflows/connectEd25519Session.ts client/src/core/signingEngine/threshold/workflows/bootstrapEcdsaSession.ts client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionActivation.ts`
 - [x] `pnpm exec eslint client/src/core/signingEngine/api/nearSigning.ts client/src/core/signingEngine/SigningEngine.ts client/src/core/signingEngine/bootstrap/orchestrationDependencyFactory.ts client/src/core/signingEngine/api/session/signingSessionState.ts client/src/core/signingEngine/orchestration/shared/secureConfirmSigning.ts tests/unit/tempo.signingAuthMode.unit.test.ts tests/unit/signingSession.state.unit.test.ts tests/unit/signingPipeline.unified.unit.test.ts`
+- [x] `pnpm exec eslint client/src/core/signingEngine/SigningEngine.ts client/src/core/signingEngine/bootstrap/orchestrationDependencyFactory.ts`
 - [ ] `pnpm -C tests exec playwright test ./unit/signingPipeline.unified.unit.test.ts ./unit/tempo.signingAuthMode.unit.test.ts ./unit/modularity.lazySigners.unit.test.ts --reporter=line` (skipped by request)
 - [ ] `pnpm -C tests exec playwright test ./unit/signingSession.state.unit.test.ts ./unit/tempo.signingAuthMode.unit.test.ts --reporter=line` (skipped by request)
 
 Validation notes:
 - `pnpm exec tsc --noEmit -p client/tsconfig.json` passes after PRF cache helper consolidation + NEAR intent wrapper cleanup.
+- Active session map ownership moved out of `SigningEngine` and into `createOrchestrationDependencyBundle(...)`, reducing session ownership fan-out.
 - Targeted lint for refactor9-delivered files passes:
   - `pnpm exec eslint client/src/core/signingEngine/SigningEngine.ts client/src/core/signingEngine/api/session/signingSessionState.ts client/src/core/signingEngine/orchestration/near/transactionsFlow.ts client/src/core/signingEngine/orchestration/near/delegateFlow.ts client/src/core/signingEngine/orchestration/near/nep413Flow.ts client/src/core/signingEngine/threshold/workflows/connectEd25519Session.ts client/src/core/signingEngine/threshold/workflows/bootstrapEcdsaSession.ts client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionActivation.ts`
   - `pnpm exec eslint client/src/core/signingEngine/api/nearSigning.ts client/src/core/signingEngine/SigningEngine.ts client/src/core/signingEngine/bootstrap/orchestrationDependencyFactory.ts client/src/core/signingEngine/api/session/signingSessionState.ts client/src/core/signingEngine/orchestration/shared/secureConfirmSigning.ts tests/unit/tempo.signingAuthMode.unit.test.ts tests/unit/signingSession.state.unit.test.ts tests/unit/signingPipeline.unified.unit.test.ts`

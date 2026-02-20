@@ -60,7 +60,6 @@ export type CreateOrchestrationDependencyBundleArgs = {
   nonceManager: NonceManager;
   secureConfirmWorkerManager: SecureConfirmWorkerManager;
   signerWorkerManager: SignerWorkerManager;
-  activeSigningSessionIds: Map<string, string>;
   getWorkerBaseOrigin: () => string;
   getTheme: () => ThemeName;
   signTempo: ManagerConvenienceDeps['signTempo'];
@@ -99,8 +98,9 @@ export type OrchestrationDependencyBundle = {
 export function createOrchestrationDependencyBundle(
   args: CreateOrchestrationDependencyBundleArgs,
 ): OrchestrationDependencyBundle {
+  const activeSigningSessionIds = new Map<string, string>();
   const signingSessionStateDeps: SigningSessionStateDeps = {
-    activeSigningSessionIds: args.activeSigningSessionIds,
+    activeSigningSessionIds,
     secureConfirmWorkerManager: args.secureConfirmWorkerManager,
     createSessionId: (prefix: string): string => generateSessionIdValue(prefix),
     signingSessionDefaults: args.tatchiPasskeyConfigs.signingSessionDefaults,

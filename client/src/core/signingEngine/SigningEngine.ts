@@ -105,7 +105,6 @@ export class SigningEngine {
   private readonly nonceManager: NonceManager;
   private workerBaseOrigin: string = '';
   private theme: ThemeName = 'dark';
-  private readonly activeSigningSessionIds: Map<string, string> = new Map();
   private readonly thresholdEcdsaBootstrapQueueByAccount: Map<string, Promise<void>> = new Map();
   private readonly thresholdEcdsaSignInFlightByAccount: Set<string> = new Set();
   private readonly orchestrationDeps: OrchestrationDependencyBundle;
@@ -137,7 +136,6 @@ export class SigningEngine {
       nonceManager: this.nonceManager,
       secureConfirmWorkerManager: this.secureConfirmWorkerManager,
       signerWorkerManager: this.signerWorkerManager,
-      activeSigningSessionIds: this.activeSigningSessionIds,
       getWorkerBaseOrigin: () => this.workerBaseOrigin,
       getTheme: () => this.theme,
       signTempo: (args) => this.signTempo(args),
