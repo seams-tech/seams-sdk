@@ -2,46 +2,46 @@ import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import { toAccountId } from '@/core/types/accountIds';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { TatchiConfigs } from '@/core/types/tatchi';
-import type { EvmSigningRequest } from '../../chainAdaptors/evm/types';
-import type { EvmSignedResult } from '../../chainAdaptors/evm/evmAdapter';
-import type { TempoSigningRequest } from '../../chainAdaptors/tempo/types';
-import type { TempoSignedResult } from '../../chainAdaptors/tempo/tempoAdapter';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
+import type { EvmSigningRequest } from '../chainAdaptors/evm/types';
+import type { EvmSignedResult } from '../chainAdaptors/evm/evmAdapter';
+import type { TempoSigningRequest } from '../chainAdaptors/tempo/types';
+import type { TempoSignedResult } from '../chainAdaptors/tempo/tempoAdapter';
+import type { ThresholdEcdsaSecp256k1KeyRef } from '../interfaces/signing';
 import {
   deriveSmartAccountDeploymentTargetFromSigningRequest,
   ensureSmartAccountDeployed,
-} from '../../orchestration/deployment/ensureSmartAccountDeployed';
-import { SecureConfirmWorkerManager } from '../../secureConfirm';
-import type { SignerWorkerManagerContext } from '../../workerManager';
+} from '../orchestration/ensureSmartAccountDeployed';
+import { SecureConfirmWorkerManager } from '../secureConfirm';
+import type { SignerWorkerManagerContext } from '../workerManager';
 import {
   deploySmartAccountForChain,
   resolveSmartAccountDeploymentMaxAttempts,
   resolveSmartAccountDeploymentMode,
-} from './smartAccountDeployment';
+} from '../orchestration/smartAccountDeployment';
 
-export type TempoSigningDeps = {
+export type EvmFamilySigningDeps = {
   indexedDB: UnifiedIndexedDBManager;
   tatchiPasskeyConfigs: TatchiConfigs;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
   secureConfirmWorkerManager: SecureConfirmWorkerManager;
 };
 
-type TempoSigningCancelledError = Error & { code: 'cancelled' };
+type EvmFamilySigningCancelledError = Error & { code: 'cancelled' };
 
-function createTempoSigningCancelledError(): TempoSigningCancelledError {
-  const err = new Error('Request cancelled') as TempoSigningCancelledError;
+function createEvmFamilySigningCancelledError(): EvmFamilySigningCancelledError {
+  const err = new Error('Request cancelled') as EvmFamilySigningCancelledError;
   err.code = 'cancelled';
   return err;
 }
 
-function throwIfTempoSigningCancelled(shouldAbort?: () => boolean): void {
+function throwIfEvmFamilySigningCancelled(shouldAbort?: () => boolean): void {
   if (typeof shouldAbort === 'function' && shouldAbort()) {
-    throw createTempoSigningCancelledError();
+    throw createEvmFamilySigningCancelledError();
   }
 }
 
-export async function signTempo(
-  deps: TempoSigningDeps,
+export async function signEvmFamily(
+  deps: EvmFamilySigningDeps,
   args: {
     nearAccountId: string;
     request: TempoSigningRequest | EvmSigningRequest;
@@ -57,7 +57,7 @@ export async function signTempo(
     }) => void;
   },
 ): Promise<TempoSignedResult | EvmSignedResult> {
-  throwIfTempoSigningCancelled(args.shouldAbort);
+  throwIfEvmFamilySigningCancelled(args.shouldAbort);
 
   if (args.request.chain !== 'tempo' && args.request.chain !== 'evm') {
     throw new Error('[SigningEngine] invalid request: chain must be tempo or evm');
@@ -94,23 +94,20 @@ export async function signTempo(
     }
   }
 
-  throwIfTempoSigningCancelled(args.shouldAbort);
+  throwIfEvmFamilySigningCancelled(args.shouldAbort);
 
-  const [{ signTempoWithSecureConfirm }, { Secp256k1Engine }, { WebAuthnP256Engine }] =
-    await Promise.all([
-      import('../../orchestration/tempo/tempoSigningFlow'),
-      import('../../signers/algorithms/secp256k1'),
-      import('../../signers/algorithms/webauthnP256'),
-    ]);
+  const [{ Secp256k1Engine }, { WebAuthnP256Engine }] = await Promise.all([
+    import('../signers/algorithms/secp256k1'),
+    import('../signers/algorithms/webauthnP256'),
+  ]);
 
   const signerWorkerCtx = deps.getSignerWorkerContext();
   const ctx = deps.secureConfirmWorkerManager.getContext();
-  return await signTempoWithSecureConfirm({
+  const flowArgs = {
     ctx,
     secureConfirmWorkerManager: deps.secureConfirmWorkerManager,
     workerCtx: signerWorkerCtx,
     nearAccountId: args.nearAccountId,
-    request: args.request,
     onEvent: args.onEvent,
     engines: {
       secp256k1: new Secp256k1Engine({
@@ -125,5 +122,21 @@ export async function signTempo(
       ? { keyRefsByAlgorithm: { secp256k1: args.thresholdEcdsaKeyRef } }
       : {}),
     confirmationConfigOverride: args.confirmationConfigOverride,
+  };
+
+  if (args.request.chain === 'evm') {
+    const { signEvmWithSecureConfirm } =
+      await import('../orchestration/evm/evmSigningFlow');
+    return await signEvmWithSecureConfirm({
+      ...flowArgs,
+      request: args.request,
+    });
+  }
+
+  const { signTempoWithSecureConfirm } =
+    await import('../orchestration/tempo/tempoSigningFlow');
+  return await signTempoWithSecureConfirm({
+    ...flowArgs,
+    request: args.request,
   });
 }

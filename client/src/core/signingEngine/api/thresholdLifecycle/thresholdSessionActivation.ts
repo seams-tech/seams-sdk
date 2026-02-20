@@ -11,7 +11,7 @@ import {
   activateThresholdKeyForChain,
   type ThresholdEcdsaActivationChain,
   type ThresholdEcdsaSessionBootstrapResult,
-} from '../../orchestration/activation';
+} from '../../orchestration/thresholdActivation';
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from './thresholdEcdsaBootstrapPersistence';
 
 type PutPrfFirstForThresholdSessionArgs = Parameters<

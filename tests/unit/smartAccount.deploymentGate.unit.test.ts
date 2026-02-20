@@ -3,7 +3,7 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   clientDB: '/sdk/esm/core/indexedDB/passkeyClientDB/manager.js',
-  deployment: '/sdk/esm/core/signingEngine/orchestration/deployment/ensureSmartAccountDeployed.js',
+  deployment: '/sdk/esm/core/signingEngine/orchestration/ensureSmartAccountDeployed.js',
 } as const;
 
 test.describe('smart-account deployment gate helper', () => {

@@ -3,15 +3,18 @@ import type {
   SecureConfirmWorkerManager,
   SecureConfirmWorkerManagerContext,
 } from '@/core/signingEngine/secureConfirm';
-import type { KeyRef, SignRequest, SignerMap, SignatureBytes } from '@/core/signingEngine/interfaces/signing';
-import { base64UrlEncode } from '@shared/utils/base64';
-import { bytesToHex } from '../../chainAdaptors/evm/bytes';
+import type {
+  KeyRef,
+  SignRequest,
+  SignerMap,
+  SignatureBytes,
+} from '@/core/signingEngine/interfaces/signing';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import { TempoAdapter, type TempoSignedResult } from '../../chainAdaptors/tempo/tempoAdapter';
-import type { TempoSigningRequest } from '../../chainAdaptors/tempo/types';
-import { resolveWebAuthnP256KeyRefForNearAccount } from '@/core/signingEngine/orchestration/walletOrigin/webauthnKeyRef';
+import { base64UrlEncode } from '@shared/utils/base64';
+import { bytesToHex } from '@/core/signingEngine/chainAdaptors/evm/bytes';
+import { EvmAdapter, type EvmSignedResult } from '@/core/signingEngine/chainAdaptors/evm/evmAdapter';
+import type { EvmSigningRequest } from '@/core/signingEngine/chainAdaptors/evm/types';
 import { executeSigningIntent } from '@/core/signingEngine/orchestration/executeSigningIntent';
-import { normalizeAuthenticationCredential } from '@/core/signingEngine/signers/webauthn/credentials/helpers';
 import {
   asThresholdEcdsaKeyRef,
   inferDigest32FromSignRequest,
@@ -20,14 +23,14 @@ import {
   resolveSigningAuthMode,
 } from '../shared/secureConfirmSigning';
 
-export async function signTempoWithSecureConfirm(args: {
+export async function signEvmWithSecureConfirm(args: {
   ctx: SecureConfirmWorkerManagerContext;
   secureConfirmWorkerManager: Pick<
     SecureConfirmWorkerManager,
     'confirmAndPrepareSigningSession' | 'peekPrfFirstForThresholdSession'
   >;
   nearAccountId: string;
-  request: TempoSigningRequest;
+  request: EvmSigningRequest;
   engines: SignerMap<SignRequest, KeyRef, SignatureBytes>;
   onEvent?: (event: {
     step: number;
@@ -39,13 +42,8 @@ export async function signTempoWithSecureConfirm(args: {
   keyRefsByAlgorithm?: Partial<Record<SignRequest['algorithm'], KeyRef>>;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   workerCtx: WorkerOperationContext;
-}): Promise<TempoSignedResult> {
-  const intent = await new TempoAdapter(args.workerCtx).buildIntent(args.request);
-
-  const webauthnReqs = intent.signRequests.filter((r) => r.kind === 'webauthn');
-  if (webauthnReqs.length > 1) {
-    throw new Error('[chains] multiple WebAuthn sign requests are not supported yet');
-  }
+}): Promise<EvmSignedResult> {
+  const intent = await new EvmAdapter(args.workerCtx).buildIntent(args.request);
 
   const firstSignRequest = intent.signRequests[0];
   if (!firstSignRequest) {
@@ -54,24 +52,23 @@ export async function signTempoWithSecureConfirm(args: {
   const firstDigest = inferDigest32FromSignRequest(firstSignRequest);
   const challengeB64u = base64UrlEncode(firstDigest);
   const intentDigestHex = bytesToHex(firstDigest);
-  const needsWebAuthn = webauthnReqs.length === 1;
   const thresholdEcdsaKeyRef = asThresholdEcdsaKeyRef(args.keyRefsByAlgorithm?.secp256k1);
   const signingAuthMode = await resolveSigningAuthMode({
-    needsWebAuthn,
+    needsWebAuthn: false,
     thresholdEcdsaKeyRef,
     secureConfirmWorkerManager: args.secureConfirmWorkerManager,
   });
 
   const sessionId = makeRequestId('intent');
-  const confirmation = await args.secureConfirmWorkerManager.confirmAndPrepareSigningSession({
+  await args.secureConfirmWorkerManager.confirmAndPrepareSigningSession({
     ctx: args.ctx,
     sessionId,
     kind: 'intentDigest',
     nearAccountId: args.nearAccountId,
     challengeB64u,
     intentDigest: intentDigestHex,
-    title: 'Sign TempoTransaction (0x76)',
-    body: 'Review and approve signing the Tempo sender hash.',
+    title: 'Sign EIP-1559 (0x02)',
+    body: 'Review and approve signing the transaction hash.',
     signingAuthMode,
     onProgress: args.onEvent,
     confirmationConfigOverride: args.confirmationConfigOverride,
@@ -80,27 +77,10 @@ export async function signTempoWithSecureConfirm(args: {
   return await executeSigningIntent({
     intent,
     engines: args.engines,
-    resolveSignInput: async (signReq: SignRequest) => {
-      if (signReq.kind === 'webauthn') {
-        if (!confirmation.credential) {
-          throw new Error('[chains] missing WebAuthn credential from SecureConfirm');
-        }
-        const credential = normalizeAuthenticationCredential(confirmation.credential);
-        const webauthnKeyRef = await resolveWebAuthnP256KeyRefForNearAccount({
-          indexedDB: args.ctx.indexedDB,
-          nearAccountId: args.nearAccountId,
-          rpId: signReq.rpId,
-        });
-        return {
-          signReq: { ...signReq, credential },
-          keyRef: webauthnKeyRef,
-        };
-      }
-
-      return resolveKeyRefForSignRequest({
+    resolveSignInput: async (signReq: SignRequest) =>
+      resolveKeyRefForSignRequest({
         signReq,
         keyRefsByAlgorithm: args.keyRefsByAlgorithm,
-      });
-    },
+      }),
   });
 }

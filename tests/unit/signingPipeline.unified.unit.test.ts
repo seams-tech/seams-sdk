@@ -235,8 +235,15 @@ test.describe('unified signing pipeline', () => {
   });
 
   test('chain entrypoints stay wired to the unified intent runner', () => {
-    const signerWorkerBridgeSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signingEngine/api/signing/signerWorkerBridge.ts'),
+    const nearSigningSource = fs.readFileSync(
+      path.resolve(process.cwd(), '../client/src/core/signingEngine/api/near/nearSigning.ts'),
+      'utf8',
+    );
+    const evmHandlerSource = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        '../client/src/core/signingEngine/orchestration/evm/evmSigningFlow.ts',
+      ),
       'utf8',
     );
     const tempoHandlerSource = fs.readFileSync(
@@ -247,7 +254,8 @@ test.describe('unified signing pipeline', () => {
       'utf8',
     );
 
-    expect(signerWorkerBridgeSource).toContain("import('../../orchestration/near/nearSigningFlow')");
+    expect(nearSigningSource).toContain("import('../../orchestration/near/nearSigningFlow')");
+    expect(evmHandlerSource).toContain('executeSigningIntent({');
     expect(tempoHandlerSource).toContain('executeSigningIntent({');
   });
 

@@ -4,8 +4,8 @@ import type {
   ChainAccountRecord,
   UpsertChainAccountInput,
 } from '@/core/indexedDB/passkeyClientDB.types';
-import type { EvmSigningRequest } from '../../chainAdaptors/evm/types';
-import type { TempoSigningRequest } from '../../chainAdaptors/tempo/types';
+import type { EvmSigningRequest } from '../chainAdaptors/evm/types';
+import type { TempoSigningRequest } from '../chainAdaptors/tempo/types';
 
 export type SmartAccountDeploymentChain = 'evm' | 'tempo';
 

@@ -12,8 +12,9 @@ import type { TransactionInputWasm } from '@/core/types/actions';
 import type {
   NearIntentResult,
   NearSigningRequest,
-} from '../../interfaces/near';
-import type { SignerWorkerManagerContext } from '../../workerManager';
+} from '../interfaces/near';
+import type { SignerWorkerManagerContext } from '../workerManager';
+import { signNearWithSecureConfirm } from '../orchestration/near/nearSigningFlow';
 
 export type ResolveSigningSessionPolicyArgs = { ttlMs?: number; remainingUses?: number };
 export type ResolveSigningSessionPolicyResult = { ttlMs: number; remainingUses: number };
@@ -114,6 +115,12 @@ export async function signNear<TRequest extends NearSignIntentRequest>(
     return (await signNEP413Message(deps, request.args)) as NearSignIntentResult<TRequest>;
   }
   throw new Error(`[SigningEngine] unsupported near signing intent: ${String((request as { kind?: unknown }).kind || '')}`);
+}
+
+export async function signNearWithIntent<TRequest extends NearSigningRequest>(
+  request: TRequest,
+): Promise<NearIntentResult<TRequest>> {
+  return await signNearWithSecureConfirm(request);
 }
 
 export type NearSigningApiDeps = {

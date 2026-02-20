@@ -14,21 +14,21 @@ import type { ThresholdEcdsaSecp256k1KeyRef } from '../interfaces/signing';
 import type { TouchIdPrompt } from '../signers/webauthn/prompt/touchIdPrompt';
 import type { SignerWorkerManager } from '../workerManager';
 import type { NearKeyDerivationDeps } from '../api/recovery/nearKeyDerivation';
-import type { NearSigningApiDeps } from '../api/signing/nearSigning';
+import type { NearSigningApiDeps } from '../api/nearSigning';
 import type { PrivateKeyExportRecoveryDeps } from '../api/recovery/privateKeyExportRecovery';
 import type { RegistrationAccountLifecycleDeps } from '../api/registration/registrationAccountLifecycle';
 import type { RegistrationSessionDeps } from '../api/registration/registrationSession';
-import type { SignerWorkerBridgeDeps } from '../api/signing/signerWorkerBridge';
 import {
   generateSessionId as generateSessionIdValue,
   getOrCreateActiveSigningSessionId as getOrCreateActiveSigningSessionIdValue,
   getWarmSigningSessionStatus as getWarmSigningSessionStatusValue,
   resolveSigningSessionPolicy as resolveSigningSessionPolicyValue,
   type SigningSessionStateDeps,
-} from '../api/signing/signingSessionState';
-import type { TempoSigningDeps } from '../api/signing/tempoSigning';
+} from '../api/session/signingSessionState';
+import type { TempoSigningDeps } from '../api/tempoSigning';
 import type { ThresholdEd25519LifecycleDeps } from '../api/thresholdLifecycle/thresholdEd25519Lifecycle';
 import type { ThresholdSessionActivationDeps } from '../api/thresholdLifecycle/thresholdSessionActivation';
+import type { NearSigningKeyOps } from '../interfaces/nearKeyOps';
 import {
   prewarmSignerWorkers as prewarmSignerWorkersValue,
   warmCriticalResources as warmCriticalResourcesValue,
@@ -74,6 +74,13 @@ export type CreateOrchestrationDependencyBundleArgs = {
     ThresholdSessionActivationDeps['persistThresholdEcdsaBootstrapChainAccount'];
 };
 
+export type NearKeyOpsDeps = {
+  signingKeyOps: Pick<
+    NearSigningKeyOps,
+    'extractCosePublicKey' | 'signTransactionWithKeyPair' | 'generateEphemeralNearKeypair'
+  >;
+};
+
 export type OrchestrationDependencyBundle = {
   indexedDB: UnifiedIndexedDBManager;
   thresholdEd25519LifecycleDeps: ThresholdEd25519LifecycleDeps;
@@ -85,7 +92,7 @@ export type OrchestrationDependencyBundle = {
   registrationSessionDeps: RegistrationSessionDeps;
   signingSessionStateDeps: SigningSessionStateDeps;
   thresholdSessionActivationDeps: ThresholdSessionActivationDeps;
-  signerWorkerBridgeDeps: SignerWorkerBridgeDeps;
+  nearKeyOpsDeps: NearKeyOpsDeps;
   getWorkerResourceWarmupDeps: () => WorkerResourceWarmupDeps;
   getManagerConvenienceDeps: () => ManagerConvenienceDeps;
 };
@@ -182,7 +189,7 @@ export function createOrchestrationDependencyBundle(
       persistThresholdEcdsaBootstrapChainAccount:
         args.persistThresholdEcdsaBootstrapChainAccount,
     },
-    signerWorkerBridgeDeps: {
+    nearKeyOpsDeps: {
       signingKeyOps: args.signerWorkerManager.nearKeyOps,
     },
     getWorkerResourceWarmupDeps: getWorkerResourceWarmupDeps,

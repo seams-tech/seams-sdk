@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 
 const IMPORT_PATHS = {
-  signTempoWithSecureConfirm:
-    '/sdk/esm/core/signingEngine/orchestration/tempo/tempoSigningFlow.js',
+  signEvmWithSecureConfirm:
+    '/sdk/esm/core/signingEngine/orchestration/evm/evmSigningFlow.js',
 } as const;
 
 test.describe('tempo signing auth-mode resolution', () => {
@@ -14,7 +14,7 @@ test.describe('tempo signing auth-mode resolution', () => {
     page,
   }) => {
     const result = await page.evaluate(async ({ paths }) => {
-      const { signTempoWithSecureConfirm } = await import(paths.signTempoWithSecureConfirm);
+      const { signEvmWithSecureConfirm } = await import(paths.signEvmWithSecureConfirm);
       let confirmCalls = 0;
       let capturedAuthMode: string | null = null;
 
@@ -29,7 +29,7 @@ test.describe('tempo signing auth-mode resolution', () => {
       };
 
       try {
-        await signTempoWithSecureConfirm({
+        await signEvmWithSecureConfirm({
           ctx: { indexedDB: {} } as any,
           workerCtx: workerCtx as any,
           secureConfirmWorkerManager: {
@@ -103,7 +103,7 @@ test.describe('tempo signing auth-mode resolution', () => {
 
   test('uses warmSession mode when threshold warm cache is available', async ({ page }) => {
     const result = await page.evaluate(async ({ paths }) => {
-      const { signTempoWithSecureConfirm } = await import(paths.signTempoWithSecureConfirm);
+      const { signEvmWithSecureConfirm } = await import(paths.signEvmWithSecureConfirm);
       let capturedAuthMode: string | null = null;
 
       const workerCtx = {
@@ -116,7 +116,7 @@ test.describe('tempo signing auth-mode resolution', () => {
         },
       };
 
-      const signed = await signTempoWithSecureConfirm({
+      const signed = await signEvmWithSecureConfirm({
         ctx: { indexedDB: {} } as any,
         workerCtx: workerCtx as any,
         secureConfirmWorkerManager: {

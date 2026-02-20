@@ -2,7 +2,7 @@ import type { TatchiConfigs } from '@/core/types/tatchi';
 import type {
   SmartAccountDeployerInput,
   SmartAccountDeployerResult,
-} from '../../orchestration/deployment/ensureSmartAccountDeployed';
+} from './ensureSmartAccountDeployed';
 
 function normalizeOptionalString(value: unknown): string | undefined {
   const normalized = String(value || '').trim();

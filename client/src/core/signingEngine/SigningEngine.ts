@@ -18,7 +18,7 @@ import type { ThresholdEcdsaSecp256k1KeyRef } from './interfaces/signing';
 import type {
   ThresholdEcdsaActivationChain,
   ThresholdEcdsaSessionBootstrapResult,
-} from './orchestration/activation';
+} from './orchestration/thresholdActivation';
 import type { SignerWorkerManager } from './workerManager';
 import type { RegistrationCredentialConfirmationPayload } from './workerManager/validation';
 import type { SecureConfirmWorkerManager } from './secureConfirm';
@@ -46,11 +46,12 @@ import {
 } from './api/thresholdLifecycle/thresholdEcdsaBootstrapPersistence';
 import {
   signNear as signNearValue,
+  signNearWithIntent as signNearWithIntentValue,
   type NearSignIntentRequest,
   type NearSignIntentResult,
   type SignTransactionsWithActionsInput,
-} from './api/signing/nearSigning';
-import { signTempo as signTempoValue } from './api/signing/tempoSigning';
+} from './api/nearSigning';
+import { signTempo as signTempoValue } from './api/tempoSigning';
 import { withThresholdEcdsaSignInFlightGate } from './api/thresholdLifecycle/thresholdEcdsaSignInFlightGate';
 import {
   deriveNearKeypairAndEncryptFromSerialized as deriveNearKeypairAndEncryptFromSerializedValue,
@@ -70,12 +71,6 @@ import {
   storeUserData as storeUserDataValue,
   type StoreAuthenticatorInput,
 } from './api/registration/registrationAccountLifecycle';
-import {
-  extractCosePublicKey as extractCosePublicKeyValue,
-  generateEphemeralNearKeypair as generateEphemeralNearKeypairValue,
-  signNearWithIntent as signNearWithIntentValue,
-  signTransactionWithKeyPair as signTransactionWithKeyPairValue,
-} from './api/signing/signerWorkerBridge';
 import { initializeRuntimeBootstrap } from './bootstrap/runtimeBootstrap';
 import { createManagerAssembly } from './bootstrap/managerAssembly';
 import {
@@ -86,8 +81,8 @@ import {
 export type {
   ThresholdEcdsaActivationChain,
   ThresholdEcdsaSessionBootstrapResult,
-} from './orchestration/activation';
-export type { NearSignIntentRequest, NearSignIntentResult } from './api/signing/nearSigning';
+} from './orchestration/thresholdActivation';
+export type { NearSignIntentRequest, NearSignIntentResult } from './api/nearSigning';
 
 /**
  * SigningEngine is the signing composition root:
@@ -379,7 +374,8 @@ export class SigningEngine {
   }
 
   extractCosePublicKey(attestationObjectBase64url: string): Promise<Uint8Array> {
-    return extractCosePublicKeyValue(this.orchestrationDeps.signerWorkerBridgeDeps, attestationObjectBase64url);
+    return this.orchestrationDeps.nearKeyOpsDeps.signingKeyOps
+      .extractCosePublicKey(attestationObjectBase64url);
   }
 
   exportPrivateKeysWithUI(
@@ -407,14 +403,21 @@ export class SigningEngine {
     signedTransaction: SignedTransaction;
     logs?: string[];
   }> {
-    return signTransactionWithKeyPairValue(this.orchestrationDeps.signerWorkerBridgeDeps, args);
+    return this.orchestrationDeps.nearKeyOpsDeps.signingKeyOps.signTransactionWithKeyPair({
+      nearPrivateKey: args.nearPrivateKey,
+      signerAccountId: args.signerAccountId,
+      receiverId: args.receiverId,
+      nonce: args.nonce,
+      blockHash: args.blockHash,
+      actions: args.actions,
+    });
   }
 
   generateEphemeralNearKeypair(): Promise<{
     publicKey: string;
     privateKey: string;
   }> {
-    return generateEphemeralNearKeypairValue(this.orchestrationDeps.signerWorkerBridgeDeps);
+    return this.orchestrationDeps.nearKeyOpsDeps.signingKeyOps.generateEphemeralNearKeypair();
   }
 
   connectEd25519Session(

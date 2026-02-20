@@ -6,7 +6,7 @@ import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type {
   ThresholdEcdsaActivationChain,
   ThresholdEcdsaSessionBootstrapResult,
-} from '../../orchestration/activation';
+} from '../../orchestration/thresholdActivation';
 
 export type ThresholdEcdsaSmartAccountBootstrapInput = {
   chainId?: string;

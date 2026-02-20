@@ -20,7 +20,7 @@ import { computeThresholdEd25519KeygenIntentDigest } from '@/utils/intentDigest'
 import {
   activateNearThresholdKeyNoPrompt,
   activateThresholdKeyForChain,
-} from '../../orchestration/activation';
+} from '../../orchestration/thresholdActivation';
 import { enrollEd25519KeyHandler } from '../../threshold/workflows/enrollEd25519Key';
 import { rotateEd25519KeyPostRegistrationHandler } from '../../threshold/workflows/rotateEd25519KeyPostRegistration';
 import { collectAuthenticationCredentialForChallengeB64u } from '../../signers/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
