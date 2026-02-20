@@ -1,0 +1,275 @@
+import { TransactionInputWasm } from '@/core/types';
+import { ConfirmationConfig } from '@/core/types';
+import { TransactionContext } from '@/core/types/rpc';
+import { RpcCallPayload } from '@/core/types/signer-worker';
+import { WebAuthnAuthenticationCredential, WebAuthnRegistrationCredential } from '@/core/types/webauthn';
+import type { TxDisplayModel } from '@/core/signingEngine/touchConfirm/shared/displayModel';
+import { isObject, isString } from '@shared/utils/validation';
+
+// === SECURE CONFIRM TYPES (V2) ===
+
+export enum SecureConfirmMessageType {
+  PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD = 'PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD',
+  USER_PASSKEY_CONFIRM_RESPONSE = 'USER_PASSKEY_CONFIRM_RESPONSE',
+  USER_PASSKEY_CONFIRM_PROGRESS = 'USER_PASSKEY_CONFIRM_PROGRESS',
+}
+
+export interface SecureConfirmProgressEvent {
+  requestId: string;
+  step: number;
+  phase: string;
+  status: 'progress' | 'success' | 'error';
+  message?: string;
+  data?: unknown;
+}
+
+export interface SecureConfirmPromptEnvelope {
+  type: SecureConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD;
+  requestId: string;
+  channelToken?: string;
+  data: UserConfirmRequest;
+}
+
+/**
+ * Type-level guardrail: these secrets must never appear in main-thread
+ * request/response envelopes. PRF outputs are extracted from credentials and
+ * passed directly to signer-worker payloads in wallet origin only.
+ */
+export type ForbiddenMainThreadSecrets = {
+  prfOutput?: never;
+  prf_output?: never;
+  wrapKeySeed?: never;
+  wrapKeySalt?: never;
+  prfKey?: never;
+};
+
+export interface SecureConfirmDecision extends ForbiddenMainThreadSecrets {
+  requestId: string;
+  intentDigest?: string;
+  confirmed: boolean;
+  credential?: SerializableCredential; // Serialized WebAuthn credential
+  transactionContext?: TransactionContext; // NEAR data fetched during confirmation
+  // This is a private field used to close the confirmation modal
+  _confirmHandle?: { close: (confirmed: boolean) => void };
+  error?: string;
+}
+
+export interface SecureConfirmResponseEnvelope {
+  type: SecureConfirmMessageType.USER_PASSKEY_CONFIRM_RESPONSE;
+  requestId: string;
+  channelToken?: string;
+  data: SecureConfirmDecision;
+}
+
+export interface SecureConfirmProgressEnvelope {
+  type: SecureConfirmMessageType.USER_PASSKEY_CONFIRM_PROGRESS;
+  requestId: string;
+  channelToken?: string;
+  data: SecureConfirmProgressEvent;
+}
+
+export interface TransactionSummary {
+  totalAmount?: string;
+  title?: string;
+  body?: string;
+  method?: string;
+  operation?: string;
+  warning?: string;
+  intentDigest?: string;
+  receiverId?: string;
+  type?: string;
+  delegate?: {
+    senderId?: string;
+    receiverId?: string;
+    nonce?: string;
+    maxBlockHeight?: string;
+  };
+  summary?: unknown;
+}
+
+// Payload to return to Rust WASM is snake_case
+export interface WorkerConfirmationResponse {
+  request_id: string;
+  intent_digest?: string;
+  confirmed: boolean;
+  credential?: SerializableCredential;
+  transaction_context?: TransactionContext; // NEAR data fetched during confirmation
+  error?: string;
+}
+
+// ===== V2 MESSAGE TYPES =====
+
+export enum SecureConfirmationType {
+  SIGN_TRANSACTION = 'signTransaction',
+  REGISTER_ACCOUNT = 'registerAccount',
+  LINK_DEVICE = 'linkDevice',
+  DECRYPT_PRIVATE_KEY_WITH_PRF = 'decryptPrivateKeyWithPrf',
+  SIGN_NEP413_MESSAGE = 'signNep413Message',
+  SHOW_SECURE_PRIVATE_KEY_UI = 'showSecurePrivateKeyUi',
+  SIGN_INTENT_DIGEST = 'signIntentDigest',
+}
+
+export type SigningAuthMode = 'webauthn' | 'warmSession';
+
+// V2 summaries (render-oriented / UI hints)
+export interface TxSummary { totalAmount?: string; method?: string; receiverId?: string }
+export interface RegistrationSummary {
+  nearAccountId: string;
+  deviceNumber?: number;
+  contractId?: string;
+  title?: string;
+  body?: string;
+}
+export type ExportOperation = 'Export Private Key' | 'Decrypt Private Key';
+export interface ExportSummary { operation: ExportOperation; accountId: string; publicKey: string; warning: string }
+export interface Nep413Summary { operation: 'Sign NEP-413 Message'; message: string; recipient: string; accountId: string }
+
+// V2 request envelope
+export type SecureConfirmPayloadByType = {
+  [SecureConfirmationType.SIGN_TRANSACTION]: SignTransactionPayload;
+  [SecureConfirmationType.REGISTER_ACCOUNT]: RegisterAccountPayload;
+  [SecureConfirmationType.LINK_DEVICE]: RegisterAccountPayload;
+  [SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF]: DecryptPrivateKeyWithPrfPayload;
+  [SecureConfirmationType.SIGN_NEP413_MESSAGE]: SignNep413Payload;
+  [SecureConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI]: ShowSecurePrivateKeyUiPayload;
+  [SecureConfirmationType.SIGN_INTENT_DIGEST]: SignIntentDigestPayload;
+};
+
+export type SecureConfirmSummaryByType = {
+  [SecureConfirmationType.SIGN_TRANSACTION]: TransactionSummary;
+  [SecureConfirmationType.REGISTER_ACCOUNT]: RegistrationSummary;
+  [SecureConfirmationType.LINK_DEVICE]: RegistrationSummary;
+  [SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF]: ExportSummary;
+  [SecureConfirmationType.SIGN_NEP413_MESSAGE]: TransactionSummary;
+  [SecureConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI]: ExportSummary;
+  [SecureConfirmationType.SIGN_INTENT_DIGEST]: TransactionSummary;
+};
+
+export type SecureConfirmPayload = SecureConfirmPayloadByType[keyof SecureConfirmPayloadByType];
+export type SecureConfirmSummary = SecureConfirmSummaryByType[keyof SecureConfirmSummaryByType];
+
+export interface UserConfirmRequest<TPayload = SecureConfirmPayload, TSummary = SecureConfirmSummary> {
+  requestId: string;
+  type: SecureConfirmationType;
+  summary: TSummary;
+  payload: TPayload;
+  // Allow partial override from callers; effective config is computed later
+  confirmationConfig?: Partial<ConfirmationConfig>;
+  // Optional intent digest to echo back in responses for flows that
+  // do not have a tx-centric payload (e.g., registration/link flows)
+  intentDigest?: string;
+}
+
+// V2 payloads
+export interface SignTransactionPayload {
+  txSigningRequests: TransactionInputWasm[];
+  intentDigest: string;
+  displayModel?: TxDisplayModel;
+  rpcCall: RpcCallPayload;
+  /**
+   * Optional base64url-encoded 32-byte digest used as the preferred WebAuthn challenge for signing flows.
+   *
+   * In threshold-signer mode, this is typically the `sessionPolicyDigest32` produced when minting a
+   * threshold session token (so the same digest can be used for both session mint + subsequent signing auth).
+   */
+  sessionPolicyDigest32?: string;
+  /**
+   * Controls whether touchConfirm signing flow should collect a WebAuthn credential.
+   * - `webauthn`: prompt TouchID/FaceID and collect PRF outputs for signer requests.
+   * - `warmSession`: skip WebAuthn when a wallet-origin warm session is available (e.g. cached PRF.first).
+   */
+  signingAuthMode?: SigningAuthMode;
+}
+
+export interface RegisterAccountPayload {
+  nearAccountId: string;
+  deviceNumber?: number;
+  rpcCall: RpcCallPayload;
+}
+
+export interface DecryptPrivateKeyWithPrfPayload {
+  nearAccountId: string;
+  publicKey: string;
+}
+
+export type ExportPrivateKeyScheme = 'ed25519' | 'secp256k1';
+
+export interface ExportPrivateKeyDisplayEntry {
+  scheme: ExportPrivateKeyScheme;
+  label: string;
+  publicKey: string;
+  privateKey: string;
+  address?: string;
+}
+
+export interface ShowSecurePrivateKeyUiPayload {
+  nearAccountId: string;
+  publicKey?: string;
+  privateKey?: string;
+  keys?: ExportPrivateKeyDisplayEntry[];
+  variant?: 'drawer' | 'modal';
+  theme?: 'dark' | 'light';
+}
+
+export interface SignNep413Payload {
+  nearAccountId: string;
+  message: string;
+  recipient: string;
+  displayModel?: TxDisplayModel;
+  /**
+   * Optional base64url-encoded 32-byte digest used as the preferred WebAuthn challenge for this signing flow.
+   */
+  sessionPolicyDigest32?: string;
+  /**
+   * Controls whether touchConfirm signing flow should collect a WebAuthn credential for this signing intent.
+   * See `SignTransactionPayload.signingAuthMode`.
+   */
+  signingAuthMode?: SigningAuthMode;
+}
+
+export interface SignIntentDigestPayload {
+  nearAccountId: string;
+  /**
+   * Base64url-encoded 32-byte digest used as WebAuthn challenge when `signingAuthMode='webauthn'`.
+   */
+  challengeB64u: string;
+  displayModel?: TxDisplayModel;
+  signingAuthMode?: SigningAuthMode;
+}
+
+// Type guards
+export function isUserConfirmRequestV2(x: unknown): x is UserConfirmRequest {
+  return isObject(x)
+    && isString((x as { type?: unknown }).type)
+    && isString((x as { requestId?: unknown }).requestId)
+    && (x as { summary?: unknown }).summary != null
+    && (x as { payload?: unknown }).payload != null;
+}
+
+// Serialized WebAuthn credential (authentication or registration)
+export type SerializableCredential = WebAuthnAuthenticationCredential | WebAuthnRegistrationCredential;
+
+// Discriminated unions to bind `type` to payload shape
+export type UserConfirmRequestByType<TType extends SecureConfirmationType> =
+  UserConfirmRequest<SecureConfirmPayloadByType[TType], SecureConfirmSummaryByType[TType]> & { type: TType };
+
+export type LocalOnlyUserConfirmRequest =
+  | UserConfirmRequestByType<SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF>
+  | UserConfirmRequestByType<SecureConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI>;
+
+export type RegistrationUserConfirmRequest =
+  | UserConfirmRequestByType<SecureConfirmationType.REGISTER_ACCOUNT>
+  | UserConfirmRequestByType<SecureConfirmationType.LINK_DEVICE>;
+
+export type SigningUserConfirmRequest =
+  | UserConfirmRequestByType<SecureConfirmationType.SIGN_TRANSACTION>
+  | UserConfirmRequestByType<SecureConfirmationType.SIGN_NEP413_MESSAGE>;
+
+export type IntentDigestUserConfirmRequest =
+  UserConfirmRequestByType<SecureConfirmationType.SIGN_INTENT_DIGEST>;
+
+export type KnownUserConfirmRequest =
+  | LocalOnlyUserConfirmRequest
+  | RegistrationUserConfirmRequest
+  | SigningUserConfirmRequest
+  | IntentDigestUserConfirmRequest;

@@ -1,17 +1,24 @@
 /**
  * SecureConfirm Web Worker
  *
- * Hosts the SecureConfirm bridge (`awaitSecureConfirmationV2`) and the
+ * Hosts the SecureConfirm handshake runtime (`awaitUserConfirmationV2`) and the
  * threshold PRF.first warm-session cache.
  */
 import {
-  awaitSecureConfirmationV2,
-} from '../../secureConfirm/confirmTxFlow/awaitSecureConfirmation';
-import { SecureConfirmMessageType } from '../../secureConfirm/confirmTxFlow/types';
+  awaitUserConfirmationV2,
+} from '../../touchConfirm/awaitUserConfirmation';
+import {
+  SecureConfirmMessageType,
+  type UserConfirmRequest,
+  type SecureConfirmDecision,
+} from '../../touchConfirm/shared/confirmTypes';
 
 // Expose the confirmation bridge under the JS name expected by wasm-bindgen.
-// awaitSecureConfirmationV2 expects a SecureConfirmRequest object.
-(globalThis as any).awaitSecureConfirmationV2 = awaitSecureConfirmationV2;
+// awaitUserConfirmationV2 expects a UserConfirmRequest object.
+type SecureConfirmWorkerGlobal = typeof globalThis & {
+  awaitUserConfirmationV2?: typeof awaitUserConfirmationV2;
+};
+(globalThis as SecureConfirmWorkerGlobal).awaitUserConfirmationV2 = awaitUserConfirmationV2;
 
 type ThresholdPrfFirstCacheEntry = {
   prfFirstB64u: string;
@@ -24,6 +31,21 @@ type OkDispenseResult = OkResult & { prfFirstB64u: string };
 type ErrResult = { ok: false; code: string; message: string };
 
 const prfFirstSessionCache = new Map<string, ThresholdPrfFirstCacheEntry>();
+
+type SecureConfirmWorkerIncomingMessage = {
+  id?: unknown;
+  type?: unknown;
+  payload?: unknown;
+};
+
+function asIncomingMessage(value: unknown): SecureConfirmWorkerIncomingMessage {
+  if (!value || typeof value !== 'object') return {};
+  return value as SecureConfirmWorkerIncomingMessage;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+}
 
 function nowMs(): number {
   return Date.now();
@@ -70,7 +92,7 @@ function dispensePrfFirstEntry(sessionId: string, uses: number): OkDispenseResul
   return { ok: true, prfFirstB64u: entry.prfFirstB64u, remainingUses: entry.remainingUses, expiresAtMs: entry.expiresAtMs };
 }
 
-function postSecureConfirmWorkerResponse(id: unknown, payload: { success: boolean; data?: unknown; error?: string }): void {
+function postUserConfirmWorkerResponse(id: unknown, payload: { success: boolean; data?: unknown; error?: string }): void {
   const response = {
     ...(typeof id === 'string' && id.trim() ? { id: id.trim() } : {}),
     success: !!payload.success,
@@ -80,70 +102,107 @@ function postSecureConfirmWorkerResponse(id: unknown, payload: { success: boolea
   try { self.postMessage(response); } catch {}
 }
 
+function toDecisionFromWorkerResponse(response: Awaited<ReturnType<typeof awaitUserConfirmationV2>>): SecureConfirmDecision {
+  return {
+    requestId: String(response.request_id || '').trim(),
+    intentDigest: response.intent_digest,
+    confirmed: !!response.confirmed,
+    credential: response.credential,
+    transactionContext: response.transaction_context,
+    error: response.error,
+  };
+}
+
 // This worker intentionally ignores USER_PASSKEY_CONFIRM_RESPONSE at the
-// `onmessage` level so awaitSecureConfirmationV2's listener can consume it.
+// `onmessage` level so awaitUserConfirmationV2's listener can consume it.
 self.onmessage = (event: MessageEvent) => {
-  const eventType = (event.data as any)?.type;
+  const incoming = asIncomingMessage(event.data);
+  const eventType = incoming.type;
   if (eventType === SecureConfirmMessageType.USER_PASSKEY_CONFIRM_RESPONSE) return;
 
-  const id = (event.data as any)?.id;
+  const id = incoming.id;
 
   // Health check / liveness
   if (eventType === 'PING') {
-    postSecureConfirmWorkerResponse(id, { success: true, data: { ok: true } });
+    postUserConfirmWorkerResponse(id, { success: true, data: { ok: true } });
+    return;
+  }
+
+  if (eventType === 'SECURE_CONFIRM_REQUEST') {
+    void (async () => {
+      try {
+        const payload = asRecord(incoming.payload);
+        const requestInput = payload?.request;
+        if (!requestInput || typeof requestInput !== 'object') {
+          postUserConfirmWorkerResponse(id, {
+            success: false,
+            error: 'Invalid SECURE_CONFIRM_REQUEST payload: missing request object',
+          });
+          return;
+        }
+        const workerResponse = await awaitUserConfirmationV2(requestInput as UserConfirmRequest);
+        postUserConfirmWorkerResponse(id, {
+          success: true,
+          data: toDecisionFromWorkerResponse(workerResponse),
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        postUserConfirmWorkerResponse(id, { success: false, error: msg });
+      }
+    })();
     return;
   }
 
   if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_PUT') {
     try {
-      const payload = (event.data as any)?.payload as any;
+      const payload = asRecord(incoming.payload);
       const sessionId = normalizeSessionId(payload?.sessionId);
       const prfFirstB64u = normalizeB64u(payload?.prfFirstB64u);
       const expiresAtMs = Math.floor(Number(payload?.expiresAtMs) || 0);
       const remainingUses = Math.floor(Number(payload?.remainingUses) || 0);
       if (!sessionId || !prfFirstB64u) {
-        postSecureConfirmWorkerResponse(id, { success: true, data: { ok: false, code: 'invalid_args', message: 'Missing sessionId or prfFirstB64u' } satisfies ErrResult });
+        postUserConfirmWorkerResponse(id, { success: true, data: { ok: false, code: 'invalid_args', message: 'Missing sessionId or prfFirstB64u' } satisfies ErrResult });
         return;
       }
       if (expiresAtMs <= nowMs() || remainingUses <= 0) {
-        postSecureConfirmWorkerResponse(id, { success: true, data: { ok: false, code: 'invalid_args', message: 'Invalid expiresAtMs or remainingUses' } satisfies ErrResult });
+        postUserConfirmWorkerResponse(id, { success: true, data: { ok: false, code: 'invalid_args', message: 'Invalid expiresAtMs or remainingUses' } satisfies ErrResult });
         return;
       }
       prfFirstSessionCache.set(sessionId, { prfFirstB64u, expiresAtMs, remainingUses });
-      postSecureConfirmWorkerResponse(id, { success: true, data: { ok: true, remainingUses, expiresAtMs } satisfies OkResult });
+      postUserConfirmWorkerResponse(id, { success: true, data: { ok: true, remainingUses, expiresAtMs } satisfies OkResult });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      postSecureConfirmWorkerResponse(id, { success: false, error: msg });
+      postUserConfirmWorkerResponse(id, { success: false, error: msg });
     }
     return;
   }
 
   if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_PEEK') {
-    const payload = (event.data as any)?.payload as any;
+    const payload = asRecord(incoming.payload);
     const sessionId = normalizeSessionId(payload?.sessionId);
-    postSecureConfirmWorkerResponse(id, { success: true, data: peekPrfFirstEntry(sessionId) });
+    postUserConfirmWorkerResponse(id, { success: true, data: peekPrfFirstEntry(sessionId) });
     return;
   }
 
   if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_DISPENSE') {
-    const payload = (event.data as any)?.payload as any;
+    const payload = asRecord(incoming.payload);
     const sessionId = normalizeSessionId(payload?.sessionId);
     const uses = Math.max(1, Math.floor(Number(payload?.uses) || 1));
-    postSecureConfirmWorkerResponse(id, { success: true, data: dispensePrfFirstEntry(sessionId, uses) });
+    postUserConfirmWorkerResponse(id, { success: true, data: dispensePrfFirstEntry(sessionId, uses) });
     return;
   }
 
   if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_CLEAR') {
-    const payload = (event.data as any)?.payload as any;
+    const payload = asRecord(incoming.payload);
     const sessionId = normalizeSessionId(payload?.sessionId);
     if (sessionId) prfFirstSessionCache.delete(sessionId);
-    postSecureConfirmWorkerResponse(id, { success: true, data: { ok: true } });
+    postUserConfirmWorkerResponse(id, { success: true, data: { ok: true } });
     return;
   }
 
   // Unknown message types: respond with an explicit error (prevents sendMessage timeouts).
   if (typeof id === 'string' && id.trim()) {
-    postSecureConfirmWorkerResponse(id, { success: false, error: `Unsupported SecureConfirm worker message type: ${String(eventType)}` });
+    postUserConfirmWorkerResponse(id, { success: false, error: `Unsupported SecureConfirm worker message type: ${String(eventType)}` });
   }
 };
 

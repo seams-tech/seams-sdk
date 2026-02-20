@@ -1,0 +1,119 @@
+import type {
+  RegisterAccountPayload,
+  UserConfirmRequest,
+  SignIntentDigestPayload,
+  SignNep413Payload,
+  SignTransactionPayload,
+} from '../../../shared/confirmTypes';
+import { SecureConfirmationType } from '../../../shared/confirmTypes';
+import { isObject, isString } from '@shared/utils/validation';
+import type { TxDisplayModel } from '@/core/signingEngine/touchConfirm/shared/displayModel';
+
+/**
+ * Validates secure-confirm requests (V2 only).
+ * This deliberately does not accept JSON strings or shorthand/legacy shapes.
+ */
+export function validateUserConfirmRequest(input: unknown): UserConfirmRequest {
+  if (typeof input === 'string') {
+    throw new Error('Invalid secure confirm request: expected an object (JSON strings are not supported)');
+  }
+  if (!isObject(input)) throw new Error('parsed is not an object');
+  const p = input as {
+    requestId?: unknown;
+    type?: unknown;
+    summary?: unknown;
+    payload?: unknown;
+  };
+  if (!isString(p.requestId) || !p.requestId) throw new Error('missing requestId');
+  if (!isString(p.type) || !p.type) throw new Error('missing type');
+  if (p.summary === undefined || p.summary === null) throw new Error('missing summary');
+  if (!isObject(p.summary) || Array.isArray(p.summary)) throw new Error('invalid summary: expected an object');
+  if (p.payload === undefined || p.payload === null) throw new Error('missing payload');
+  if (!isObject(p.payload) || Array.isArray(p.payload)) throw new Error('invalid payload: expected an object');
+  return input as unknown as UserConfirmRequest;
+}
+
+export function assertNoForbiddenMainThreadSigningSecrets(request: UserConfirmRequest): void {
+  if (
+    request.type !== SecureConfirmationType.SIGN_TRANSACTION
+    && request.type !== SecureConfirmationType.SIGN_NEP413_MESSAGE
+  ) {
+    return;
+  }
+
+  const payload = ((request as { payload?: unknown }).payload ?? {}) as Record<string, unknown>;
+  if (payload.prfOutput !== undefined) {
+    throw new Error('Invalid secure confirm request: forbidden signing payload field prfOutput');
+  }
+  if (payload.wrapKeySeed !== undefined) {
+    throw new Error('Invalid secure confirm request: forbidden signing payload field wrapKeySeed');
+  }
+  if (payload.wrapKeySalt !== undefined) {
+    throw new Error('Invalid secure confirm request: forbidden signing payload field wrapKeySalt');
+  }
+}
+
+export function getNearAccountId(request: UserConfirmRequest): string {
+  switch (request.type) {
+    case SecureConfirmationType.SIGN_TRANSACTION:
+      return getSignTransactionPayload(request).rpcCall.nearAccountId;
+    case SecureConfirmationType.SIGN_NEP413_MESSAGE:
+      return (request.payload as SignNep413Payload).nearAccountId;
+    case SecureConfirmationType.SIGN_INTENT_DIGEST:
+      return (request.payload as SignIntentDigestPayload).nearAccountId;
+    case SecureConfirmationType.REGISTER_ACCOUNT:
+    case SecureConfirmationType.LINK_DEVICE:
+      return getRegisterAccountPayload(request).nearAccountId;
+    case SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF: {
+      const p = request.payload as { nearAccountId?: string };
+      return p?.nearAccountId || '';
+    }
+    case SecureConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI: {
+      const p = request.payload as { nearAccountId?: string };
+      return p?.nearAccountId || '';
+    }
+    default:
+      return '';
+  }
+}
+
+export function getTxCount(request: UserConfirmRequest): number {
+  return request.type === SecureConfirmationType.SIGN_TRANSACTION
+    ? (getSignTransactionPayload(request).txSigningRequests?.length || 1)
+    : 1;
+}
+
+export function getIntentDigest(request: UserConfirmRequest): string | undefined {
+  if (request.type === SecureConfirmationType.SIGN_TRANSACTION) {
+    const p = request?.payload as Partial<SignTransactionPayload> | undefined;
+    return p?.intentDigest;
+  }
+  return request?.intentDigest;
+}
+
+export function getSignTransactionPayload(request: UserConfirmRequest): SignTransactionPayload {
+  if (request.type !== SecureConfirmationType.SIGN_TRANSACTION) {
+    throw new Error(`Expected SIGN_TRANSACTION request, got ${request.type}`);
+  }
+  return request.payload as SignTransactionPayload;
+}
+
+export function getDisplayModel(request: UserConfirmRequest): TxDisplayModel | undefined {
+  if (request.type === SecureConfirmationType.SIGN_TRANSACTION) {
+    return getSignTransactionPayload(request).displayModel;
+  }
+  if (request.type === SecureConfirmationType.SIGN_NEP413_MESSAGE) {
+    return (request.payload as SignNep413Payload).displayModel;
+  }
+  if (request.type === SecureConfirmationType.SIGN_INTENT_DIGEST) {
+    return (request.payload as SignIntentDigestPayload).displayModel;
+  }
+  return undefined;
+}
+
+export function getRegisterAccountPayload(request: UserConfirmRequest): RegisterAccountPayload {
+  if (request.type !== SecureConfirmationType.REGISTER_ACCOUNT && request.type !== SecureConfirmationType.LINK_DEVICE) {
+    throw new Error(`Expected REGISTER_ACCOUNT or LINK_DEVICE request, got ${request.type}`);
+  }
+  return request.payload as RegisterAccountPayload;
+}

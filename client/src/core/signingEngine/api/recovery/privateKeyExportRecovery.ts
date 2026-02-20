@@ -8,10 +8,9 @@ import type {
 import {
   SecureConfirmationType,
   type ExportPrivateKeyDisplayEntry,
-  type SecureConfirmRequest,
-} from '../../secureConfirm/confirmTxFlow/types';
-import { runSecureConfirm } from '../../secureConfirm/secureConfirmBridge';
-import type { SecureConfirmWorkerManager } from '../../secureConfirm';
+  type UserConfirmRequest,
+} from '../../touchConfirm/shared/confirmTypes';
+import type { TouchConfirmContextPort } from '../../touchConfirm';
 import { getLastLoggedInDeviceNumber } from '../../signers/webauthn/device/getDeviceNumber';
 import { getPrfResultsFromCredential } from '../../signers/webauthn/credentials/credentialExtensions';
 import type { SignerWorkerManagerContext } from '../../workerManager';
@@ -29,10 +28,7 @@ type RecoverKeypairResult = {
 
 export type PrivateKeyExportRecoveryDeps = {
   indexedDB: UnifiedIndexedDBManager;
-  secureConfirmWorkerManager: Pick<
-    SecureConfirmWorkerManager,
-    'getContext'
-  >;
+  touchConfirmManager: TouchConfirmContextPort;
   getTheme: () => ThemeName;
   signingKeyOps: {
     exportNearKeypairUi: (args: {
@@ -81,6 +77,17 @@ function requirePrfB64uFromCredential(
   return value;
 }
 
+async function requestUserConfirmation(
+  deps: PrivateKeyExportRecoveryDeps,
+  request: UserConfirmRequest,
+) {
+  const requestUserConfirmation = deps.touchConfirmManager.getContext().requestUserConfirmation;
+  if (typeof requestUserConfirmation !== 'function') {
+    throw new Error('SecureConfirm request bridge is unavailable (worker handshake path only)');
+  }
+  return requestUserConfirmation(request);
+}
+
 export async function exportNearKeypairWithUIWorkerDriven(
   deps: PrivateKeyExportRecoveryDeps,
   args: {
@@ -116,7 +123,7 @@ export async function exportNearKeypairWithUIWorkerDriven(
     }
 
     const requestId = deps.createSessionId('decrypt');
-    const decision = await runSecureConfirm(deps.secureConfirmWorkerManager.getContext(), {
+    const decision = await requestUserConfirmation(deps, {
       requestId,
       type: SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
       summary: {
@@ -130,7 +137,7 @@ export async function exportNearKeypairWithUIWorkerDriven(
         publicKey,
       },
       intentDigest: `decrypt:${accountId}:${deviceNumber}`,
-    } satisfies SecureConfirmRequest);
+    } satisfies UserConfirmRequest);
 
     if (!decision?.confirmed) {
       throw new Error(decision?.error || 'User rejected decrypt request');
@@ -160,7 +167,7 @@ export async function exportNearKeypairWithUIWorkerDriven(
     ).trim();
 
     const requestId = deps.createSessionId('export');
-    const decision = await runSecureConfirm(deps.secureConfirmWorkerManager.getContext(), {
+    const decision = await requestUserConfirmation(deps, {
       requestId,
       type: SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
       summary: {
@@ -174,7 +181,7 @@ export async function exportNearKeypairWithUIWorkerDriven(
         publicKey: publicKeyHint,
       },
       intentDigest: `export-backup:${accountId}:${deviceNumber}`,
-    } satisfies SecureConfirmRequest);
+    } satisfies UserConfirmRequest);
 
     if (!decision?.confirmed) {
       throw new Error(decision?.error || 'User rejected export request');
@@ -187,7 +194,7 @@ export async function exportNearKeypairWithUIWorkerDriven(
       credential: decision.credential as WebAuthnAuthenticationCredential,
       nearAccountId: accountId,
     });
-    await runSecureConfirm(deps.secureConfirmWorkerManager.getContext(), {
+    await requestUserConfirmation(deps, {
       requestId: `${requestId}-show`,
       type: SecureConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
       summary: {
@@ -204,7 +211,7 @@ export async function exportNearKeypairWithUIWorkerDriven(
         theme: resolvedTheme,
       },
       intentDigest: `export-backup:${accountId}:${deviceNumber}`,
-    } satisfies SecureConfirmRequest);
+    } satisfies UserConfirmRequest);
     return;
   }
 
@@ -287,7 +294,7 @@ export async function exportPrivateKeysWithUIWorkerDriven(
   ).trim();
 
   const requestId = deps.createSessionId('export-keys');
-  const decision = await runSecureConfirm(deps.secureConfirmWorkerManager.getContext(), {
+  const decision = await requestUserConfirmation(deps, {
     requestId,
     type: SecureConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
     summary: {
@@ -301,7 +308,7 @@ export async function exportPrivateKeysWithUIWorkerDriven(
       publicKey: publicKeyHint,
     },
     intentDigest: `export-keys:${accountId}:${deviceNumber}`,
-  } satisfies SecureConfirmRequest);
+  } satisfies UserConfirmRequest);
 
   if (!decision?.confirmed) {
     throw new Error(decision?.error || 'User rejected export request');
@@ -368,7 +375,7 @@ export async function exportPrivateKeysWithUIWorkerDriven(
   }
 
   const first = exportKeys[0]!;
-  await runSecureConfirm(deps.secureConfirmWorkerManager.getContext(), {
+  await requestUserConfirmation(deps, {
     requestId: `${requestId}-show`,
     type: SecureConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
     summary: {
@@ -386,7 +393,7 @@ export async function exportPrivateKeysWithUIWorkerDriven(
       theme: resolvedTheme,
     },
     intentDigest: `export-keys:${accountId}:${deviceNumber}`,
-  } satisfies SecureConfirmRequest);
+  } satisfies UserConfirmRequest);
 }
 
 export async function exportPrivateKeysWithUI(
@@ -443,7 +450,6 @@ export async function recoverKeypairFromPasskey(
       sessionId,
     });
   } catch (error: unknown) {
-    // eslint-disable-next-line no-console
     console.error('SigningEngine: Deterministic keypair derivation error:', error);
     const message = error instanceof Error ? error.message : String(error || 'Unknown error');
     throw new Error(`Deterministic keypair derivation failed: ${message}`);
