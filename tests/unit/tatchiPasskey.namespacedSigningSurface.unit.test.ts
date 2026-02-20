@@ -13,7 +13,7 @@ const FLAT_ROOT_SIGNING_METHODS = [
   'signNEP413Message',
   'signTempo',
   'signTempoWithThresholdEcdsa',
-  'bootstrapThresholdEcdsaSession',
+  'bootstrapEcdsaSession',
 ] as const;
 
 test.describe('TatchiPasskey namespaced signing surface', () => {
@@ -46,9 +46,9 @@ test.describe('TatchiPasskey namespaced signing surface', () => {
       const hasTempo = !!tatchi.tempo
         && typeof tatchi.tempo.signTempo === 'function'
         && typeof tatchi.tempo.signTempoWithThresholdEcdsa === 'function'
-        && typeof tatchi.tempo.bootstrapThresholdEcdsaSession === 'function';
+        && typeof tatchi.tempo.bootstrapEcdsaSession === 'function';
       const hasEvm = !!tatchi.evm
-        && typeof tatchi.evm.bootstrapThresholdEcdsaSession === 'function';
+        && typeof tatchi.evm.bootstrapEcdsaSession === 'function';
       const noFlatMethods = flatMethods.every((name: string) => !(name in tatchi));
 
       return { hasNear, hasTempo, hasEvm, noFlatMethods };

@@ -11,7 +11,11 @@ import {
   createAccountAndRegisterWithRelayServer
 } from './faucets/createAccountRelayServer';
 import { PasskeyManagerContext } from './index';
-import type { SigningEnginePublic } from '../signingEngine/SigningEngine';
+import type {
+  SigningEnginePublic,
+  ThresholdEcdsaActivationChain,
+  ThresholdEcdsaSessionBootstrapResult,
+} from '../signingEngine/SigningEngine';
 import { IndexedDBManager } from '../indexedDB';
 import { type ConfirmationConfig, mergeSignerMode } from '../types/signer-worker';
 import type { AccountId } from '../types/accountIds';
@@ -19,25 +23,21 @@ import { errorMessage, getUserFriendlyErrorMessage } from '@shared/utils/errors'
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
 import { THRESHOLD_ED25519_2P_PARTICIPANT_IDS } from '../config/defaultConfigs';
 import { checkNearAccountExistsBestEffort } from '../rpcClients/near/rpcCalls';
-import type {
-  ThresholdEcdsaActivationChain,
-  ThresholdEcdsaSessionBootstrapResult,
-} from '../signingEngine/orchestration/activation';
 import { getPrfResultsFromCredential } from '../signingEngine/signers/webauthn/credentials/credentialExtensions';
 import {
   THRESHOLD_SESSION_POLICY_VERSION,
-  buildThresholdEcdsaSessionPolicy,
-  buildThresholdSessionPolicy,
+  buildEcdsaSessionPolicy,
+  buildEd25519SessionPolicy,
   generateThresholdSessionId,
-} from '../signingEngine/threshold/session/thresholdSessionPolicy';
+} from '../signingEngine/threshold/session/sessionPolicy';
 import {
-  makeThresholdEd25519AuthSessionCacheKey,
-  putCachedThresholdEd25519AuthSession,
-} from '../signingEngine/threshold/session/thresholdEd25519AuthSession';
+  makeEd25519AuthSessionCacheKey,
+  putCachedEd25519AuthSession,
+} from '../signingEngine/threshold/session/ed25519AuthSession';
 import {
-  makeThresholdEcdsaAuthSessionCacheKey,
-  putCachedThresholdEcdsaAuthSession,
-} from '../signingEngine/threshold/session/thresholdEcdsaAuthSession';
+  makeEcdsaAuthSessionCacheKey,
+  putCachedEcdsaAuthSession,
+} from '../signingEngine/threshold/session/ecdsaAuthSession';
 import type {
   RegistrationSignerOptions,
   RegistrationThresholdEcdsaSignerOptions,
@@ -618,7 +618,7 @@ export async function registerPasskeyInternal(
           remainingUses: edRemainingUses,
         });
 
-        const edPolicy = await buildThresholdSessionPolicy({
+        const edPolicy = await buildEd25519SessionPolicy({
           nearAccountId: String(nearAccountId),
           rpId,
           relayerKeyId,
@@ -628,7 +628,7 @@ export async function registerPasskeyInternal(
           remainingUses: thresholdEd25519SessionPolicyForRegistration.remainingUses,
         });
 
-        const edCacheKey = makeThresholdEd25519AuthSessionCacheKey({
+        const edCacheKey = makeEd25519AuthSessionCacheKey({
           nearAccountId: String(nearAccountId),
           rpId,
           relayerUrl: context.configs.relayer.url,
@@ -636,7 +636,7 @@ export async function registerPasskeyInternal(
           participantIds: edParticipantIds,
         });
 
-        putCachedThresholdEd25519AuthSession(edCacheKey, {
+        putCachedEd25519AuthSession(edCacheKey, {
           sessionKind: 'jwt',
           policy: edPolicy.policy,
           policyJson: edPolicy.policyJson,
@@ -680,7 +680,7 @@ export async function registerPasskeyInternal(
           remainingUses: ecdsaRemainingUses,
         });
 
-        const ecdsaPolicy = await buildThresholdEcdsaSessionPolicy({
+        const ecdsaPolicy = await buildEcdsaSessionPolicy({
           userId: String(nearAccountId),
           rpId,
           relayerKeyId: thresholdEcdsaRelayerKeyId,
@@ -690,7 +690,7 @@ export async function registerPasskeyInternal(
           remainingUses: thresholdEcdsaSessionPolicyForRegistration.remainingUses,
         });
 
-        const ecdsaCacheKey = makeThresholdEcdsaAuthSessionCacheKey({
+        const ecdsaCacheKey = makeEcdsaAuthSessionCacheKey({
           userId: String(nearAccountId),
           rpId,
           relayerUrl: context.configs.relayer.url,
@@ -698,7 +698,7 @@ export async function registerPasskeyInternal(
           participantIds: ecdsaParticipantIds,
         });
 
-        putCachedThresholdEcdsaAuthSession(ecdsaCacheKey, {
+        putCachedEcdsaAuthSession(ecdsaCacheKey, {
           sessionKind: 'jwt',
           policy: ecdsaPolicy.policy,
           policyJson: ecdsaPolicy.policyJson,
@@ -994,38 +994,4 @@ async function verifyAccountAccessKeysPresent(
     }
   }
   return false;
-}
-
-async function fetchNonceBlockHashForKey(
-  nearClient: NearClient,
-  nearAccountId: string,
-  publicKey: string,
-  opts?: { attempts?: number; delayMs?: number; finality?: 'optimistic' | 'final' },
-): Promise<{ nextNonce: string; blockHash: string }> {
-  const attempts = Math.max(1, Math.floor(opts?.attempts ?? 6));
-  const delayMs = Math.max(50, Math.floor(opts?.delayMs ?? 250));
-  const finality = opts?.finality ?? 'final';
-
-  const pk = ensureEd25519Prefix(publicKey);
-  if (!pk) throw new Error('Missing publicKey for tx context fetch');
-
-  let lastErr: unknown = null;
-  for (let i = 0; i < attempts; i++) {
-    try {
-      const [accessKey, block] = await Promise.all([
-        nearClient.viewAccessKey(String(nearAccountId), pk),
-        nearClient.viewBlock({ finality }),
-      ]);
-      const nextNonce = (BigInt(accessKey.nonce) + 1n).toString();
-      const blockHash = String(block?.header?.hash || '').trim();
-      if (!blockHash) throw new Error('Missing block hash from RPC');
-      return { nextNonce, blockHash };
-    } catch (e: unknown) {
-      lastErr = e;
-    }
-    if (i < attempts - 1) {
-      await new Promise((res) => setTimeout(res, delayMs));
-    }
-  }
-  throw new Error(`Failed to fetch nonce/blockHash for ${nearAccountId}: ${errorMessage(lastErr) || String(lastErr || '')}`);
 }

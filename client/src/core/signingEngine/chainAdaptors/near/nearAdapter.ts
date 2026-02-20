@@ -7,7 +7,7 @@ import type { TransactionPayload } from '@/core/types/signer-worker';
 import type { ChainAdapter, SigningIntent } from '../../interfaces/signing';
 import type {
   NearEd25519SignOutput,
-  NearEd25519IntentSignRequest,
+  NearEd25519SignRequest,
   NearIntentUiModel,
   NearSignedResult,
   NearSigningRequest,
@@ -43,7 +43,7 @@ export class NearAdapter implements ChainAdapter<
   NearSigningRequest,
   NearIntentUiModel,
   NearSignedResult,
-  NearEd25519IntentSignRequest,
+  NearEd25519SignRequest,
   NearEd25519SignOutput
 > {
   readonly chain = 'near' as const;
@@ -54,7 +54,7 @@ export class NearAdapter implements ChainAdapter<
     SigningIntent<
       NearIntentUiModel,
       NearSignedResult,
-      NearEd25519IntentSignRequest,
+      NearEd25519SignRequest,
       NearEd25519SignOutput
     >
   > {

@@ -16,7 +16,7 @@ export {
 } from './stores/SessionStore';
 
 export {
-  createThresholdEd25519AuthSessionStore,
-  type ThresholdEd25519AuthSessionStore,
-  type ThresholdEd25519AuthSessionRecord,
+  createEd25519AuthSessionStore,
+  type Ed25519AuthSessionStore,
+  type Ed25519AuthSessionRecord,
 } from './stores/AuthSessionStore';

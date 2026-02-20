@@ -455,55 +455,59 @@ export async function signTransactionsWithActionsInternal({
     // WebAuthn challenge digest and NEAR data are computed in the confirmation flow
     // - Nonce will be fetched within the confirmation flow
     // This eliminates the ~500ms blocking operations before modal display
-    return context.signingEngine.signTransactionsWithActions({
-      transactions: transactionInputsWasm,
-      rpcCall: {
-        contractId: context.configs.contractId,
-        nearRpcUrl: context.configs.nearRpcUrl,
-        nearAccountId: nearAccountId, // caller account
+    return context.signingEngine.signNear({
+      chain: 'near',
+      kind: 'transactionsWithActions',
+      args: {
+        transactions: transactionInputsWasm,
+        rpcCall: {
+          contractId: context.configs.contractId,
+          nearRpcUrl: context.configs.nearRpcUrl,
+          nearAccountId: nearAccountId, // caller account
+        },
+        deviceNumber,
+        signerMode,
+        confirmationConfigOverride: confirmationConfigOverride,
+        title: confirmerText?.title,
+        body: confirmerText?.body,
+        // Pass through the onEvent callback for progress updates
+        onEvent: onEvent ? (progressEvent: onProgressEvents) => {
+          if (progressEvent.phase === ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION) {
+            onEvent?.({
+              step: 3,
+              phase: ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION,
+              status: ActionStatus.PROGRESS,
+              message: 'Authenticating with passkey...',
+            });
+          }
+          if (progressEvent.phase === ActionPhase.STEP_4_AUTHENTICATION_COMPLETE) {
+            onEvent?.({
+              step: 4,
+              phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE,
+              status: ActionStatus.SUCCESS,
+              message: 'WebAuthn verification complete',
+            });
+          }
+          if (progressEvent.phase === ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS) {
+            onEvent?.({
+              step: 5,
+              phase: ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS,
+              status: ActionStatus.PROGRESS,
+              message: 'Signing transaction...',
+            });
+          }
+          if (progressEvent.phase === ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE) {
+            onEvent?.({
+              step: 6,
+              phase: ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE,
+              status: ActionStatus.SUCCESS,
+              message: 'Transaction signed successfully',
+            });
+          }
+          // Bridge worker onProgressEvents (generic) to ActionSSEEvent expected by public hooks
+          onEvent(progressEvent as ActionSSEEvent);
+        } : undefined,
       },
-      deviceNumber,
-      signerMode,
-      confirmationConfigOverride: confirmationConfigOverride,
-      title: confirmerText?.title,
-      body: confirmerText?.body,
-      // Pass through the onEvent callback for progress updates
-      onEvent: onEvent ? (progressEvent: onProgressEvents) => {
-        if (progressEvent.phase === ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION) {
-          onEvent?.({
-            step: 3,
-            phase: ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION,
-            status: ActionStatus.PROGRESS,
-            message: 'Authenticating with passkey...',
-          });
-        }
-        if (progressEvent.phase === ActionPhase.STEP_4_AUTHENTICATION_COMPLETE) {
-          onEvent?.({
-            step: 4,
-            phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE,
-            status: ActionStatus.SUCCESS,
-            message: 'WebAuthn verification complete',
-          });
-        }
-        if (progressEvent.phase === ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS) {
-          onEvent?.({
-            step: 5,
-            phase: ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS,
-            status: ActionStatus.PROGRESS,
-            message: 'Signing transaction...',
-          });
-        }
-        if (progressEvent.phase === ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE) {
-          onEvent?.({
-            step: 6,
-            phase: ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE,
-            status: ActionStatus.SUCCESS,
-            message: 'Transaction signed successfully',
-          });
-        }
-        // Bridge worker onProgressEvents (generic) to ActionSSEEvent expected by public hooks
-        onEvent(progressEvent as ActionSSEEvent);
-      } : undefined,
     });
 
   } catch (error: unknown) {

@@ -16,7 +16,7 @@ import type {
 import { ensureEd25519Prefix } from '@shared/utils/validation';
 import { getPrfFirstB64uFromCredential } from '@/core/signingEngine/signers/webauthn/credentials/credentialExtensions';
 import { getLastLoggedInDeviceNumber } from '@/core/signingEngine/signers/webauthn/device/getDeviceNumber';
-import type { SignerWorkerManagerContext } from '@/core/signingEngine/workers/signerWorkerManager';
+import type { SignerWorkerManagerContext } from '@/core/signingEngine/workerManager';
 
 export type ActivateNearThresholdKeyNoPromptRequest = {
   nearAccountId: AccountId | string;

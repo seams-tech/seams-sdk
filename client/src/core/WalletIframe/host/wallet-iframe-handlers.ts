@@ -154,11 +154,11 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
       const chain = options?.chain;
       const result = chain === 'evm'
-        ? await pm.evm.bootstrapThresholdEcdsaSession({
+        ? await pm.evm.bootstrapEcdsaSession({
             nearAccountId,
             options: options || {},
           })
-        : await pm.tempo.bootstrapThresholdEcdsaSession({
+        : await pm.tempo.bootstrapEcdsaSession({
             nearAccountId,
             options: options || {},
           });

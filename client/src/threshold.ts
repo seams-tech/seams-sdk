@@ -1,24 +1,24 @@
 // Stable threshold/lite session APIs.
-export { keygenThresholdEd25519Lite } from './core/signingEngine/threshold/workflows/keygenThresholdEd25519Lite';
-export { keygenThresholdEcdsaLite } from './core/signingEngine/threshold/workflows/keygenThresholdEcdsaLite';
-export { connectThresholdEd25519SessionLite } from './core/signingEngine/threshold/workflows/connectThresholdEd25519SessionLite';
-export { connectThresholdEcdsaSessionLite } from './core/signingEngine/threshold/workflows/connectThresholdEcdsaSessionLite';
-export { authorizeThresholdEcdsaWithSession } from './core/signingEngine/threshold/workflows/thresholdEcdsaAuthorize';
+export { keygenEd25519 } from './core/signingEngine/threshold/workflows/keygenEd25519';
+export { keygenEcdsa } from './core/signingEngine/threshold/workflows/keygenEcdsa';
+export { connectEd25519Session } from './core/signingEngine/threshold/workflows/connectEd25519Session';
+export { connectEcdsaSession } from './core/signingEngine/threshold/workflows/connectEcdsaSession';
+export { authorizeEcdsaWithSession } from './core/signingEngine/threshold/workflows/authorizeEcdsa';
 export {
-  thresholdEcdsaPresignInit,
-  thresholdEcdsaPresignStep,
-  thresholdEcdsaSignInit,
-  thresholdEcdsaSignFinalize,
-} from './core/signingEngine/threshold/workflows/thresholdEcdsaSigning';
+  ecdsaPresignInit,
+  ecdsaPresignStep,
+  ecdsaSignInit,
+  ecdsaSignFinalize,
+} from './core/signingEngine/threshold/workflows/signEcdsa';
 export {
   THRESHOLD_SESSION_POLICY_VERSION,
-  buildThresholdSessionPolicy,
-  buildThresholdEcdsaSessionPolicy,
-  computeThresholdSessionPolicyDigest32,
-  computeThresholdEcdsaSessionPolicyDigest32,
-  type ThresholdEd25519SessionPolicy,
-  type ThresholdEcdsaSessionPolicy,
-} from './core/signingEngine/threshold/session/thresholdSessionPolicy';
+  buildEd25519SessionPolicy,
+  buildEcdsaSessionPolicy,
+  computeEd25519SessionPolicyDigest32,
+  computeEcdsaSessionPolicyDigest32,
+  type Ed25519SessionPolicy,
+  type EcdsaSessionPolicy,
+} from './core/signingEngine/threshold/session/sessionPolicy';
 export { PRF_FIRST_SALT_V1, PRF_SECOND_SALT_V1 } from './core/signingEngine/threshold/prfSalts';
 export { computeThresholdEd25519KeygenIntentDigest } from './utils/intentDigest';
 export { computeThresholdEcdsaKeygenIntentDigest } from './utils/intentDigest';

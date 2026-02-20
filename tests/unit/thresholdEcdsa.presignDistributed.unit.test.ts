@@ -153,7 +153,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       thresholdExpiresAtMs,
     };
 
-    const init = await handlerA.thresholdEcdsaPresignInit({
+    const init = await handlerA.ecdsaPresignInit({
       claims: claims as any,
       request: { relayerKeyId, clientVerifyingShareB64u, count: 1 },
     });
@@ -203,7 +203,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
 
       if (!serverDone) {
         const activeHandler = i % 2 === 0 ? handlerB : handlerA;
-        const step = await activeHandler.thresholdEcdsaPresignStep({
+        const step = await activeHandler.ecdsaPresignStep({
           claims: claims as any,
           request: {
             presignSessionId,

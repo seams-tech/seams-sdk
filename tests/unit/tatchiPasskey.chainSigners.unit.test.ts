@@ -129,7 +129,7 @@ test.describe('TatchiPasskey chain signer modules', () => {
 
   test('TempoSigner forwards shouldAbort and keyRef in non-iframe mode', async () => {
     let capturedArgs: any = null;
-    const expectedResult = { chain: 'tempo', kind: 'eip1559', txHashHex: '0x1', rawTxHex: '0x2' } as any;
+    const expectedResult = { chain: 'evm', txHashHex: '0x1', rawTxHex: '0x2' } as any;
     const shouldAbort = () => false;
     const signer = new TempoSigner({
       getContext: () =>
@@ -152,7 +152,7 @@ test.describe('TatchiPasskey chain signer modules', () => {
     const result = await signer.signTempo({
       nearAccountId: 'alice.testnet',
       request: {
-        chain: 'tempo',
+        chain: 'evm',
         kind: 'eip1559',
         senderSignatureAlgorithm: 'secp256k1',
         tx: {},
@@ -184,7 +184,7 @@ test.describe('TatchiPasskey chain signer modules', () => {
         shouldUseWalletIframe: () => true,
         requireRouter: async () =>
           ({
-            bootstrapThresholdEcdsaSession: async (args: any) => {
+            bootstrapEcdsaSession: async (args: any) => {
               tempoCalls.push(args);
               return { ok: true };
             },
@@ -197,7 +197,7 @@ test.describe('TatchiPasskey chain signer modules', () => {
         shouldUseWalletIframe: () => true,
         requireRouter: async () =>
           ({
-            bootstrapThresholdEcdsaSession: async (args: any) => {
+            bootstrapEcdsaSession: async (args: any) => {
               evmCalls.push(args);
               return { ok: true };
             },
@@ -205,11 +205,11 @@ test.describe('TatchiPasskey chain signer modules', () => {
       },
     });
 
-    await tempoSigner.bootstrapThresholdEcdsaSession({
+    await tempoSigner.bootstrapEcdsaSession({
       nearAccountId: 'alice.testnet',
       options: { chain: 'evm', relayerUrl: 'https://relay.example.test' },
     });
-    await evmSigner.bootstrapThresholdEcdsaSession({
+    await evmSigner.bootstrapEcdsaSession({
       nearAccountId: 'alice.testnet',
       options: { chain: 'tempo', relayerUrl: 'https://relay.example.test' },
     });

@@ -5,7 +5,7 @@ import type {
   WebAuthnRegistrationCredential,
 } from '@/core/types';
 import { getPrfResultsFromCredential } from '../../signers/webauthn/credentials/credentialExtensions';
-import type { NearSigningKeyOpsService } from '../../workers/signerWorkerManager/nearKeyOpsService';
+import type { NearSigningKeyOps } from '../../interfaces/nearKeyOps';
 
 function requirePrfB64uFromCredential(
   credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential,
@@ -27,7 +27,7 @@ function isWebAuthnRegistrationCredential(
 export type NearKeyDerivationDeps = {
   createSessionId: (prefix: string) => string;
   signingKeyOps: Pick<
-    NearSigningKeyOpsService,
+    NearSigningKeyOps,
     'deriveNearKeypairAndEncryptFromSerialized' | 'decryptPrivateKeyWithPrf' | 'recoverKeypairFromPasskey'
   >;
 };

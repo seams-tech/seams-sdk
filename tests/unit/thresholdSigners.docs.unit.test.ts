@@ -18,7 +18,7 @@ type MockBootstrapArgs = {
 
 type MockTatchi = {
   tempo: {
-    bootstrapThresholdEcdsaSession: (
+    bootstrapEcdsaSession: (
       args: MockBootstrapArgs,
     ) => Promise<{ thresholdEcdsaKeyRef: ThresholdEcdsaKeyRef }>;
   };
@@ -100,7 +100,7 @@ test.describe('docs threshold signer helpers', () => {
     let calls = 0;
     const mock: MockTatchi = {
       tempo: {
-        bootstrapThresholdEcdsaSession: async () => {
+        bootstrapEcdsaSession: async () => {
           calls += 1;
           return { thresholdEcdsaKeyRef: makeThresholdKeyRef('tempo') };
         },
@@ -122,7 +122,7 @@ test.describe('docs threshold signer helpers', () => {
     const keyRef = makeThresholdKeyRef('evm');
     const mock: MockTatchi = {
       tempo: {
-        bootstrapThresholdEcdsaSession: async () => {
+        bootstrapEcdsaSession: async () => {
           calls += 1;
           return { thresholdEcdsaKeyRef: keyRef };
         },
@@ -145,7 +145,7 @@ test.describe('docs threshold signer helpers', () => {
     const sharedKeyRef = makeThresholdKeyRef('tempo');
     const mock: MockTatchi = {
       tempo: {
-        bootstrapThresholdEcdsaSession: async (args) => {
+        bootstrapEcdsaSession: async (args) => {
           calls.push(args);
           return { thresholdEcdsaKeyRef: sharedKeyRef };
         },
@@ -168,7 +168,7 @@ test.describe('docs threshold signer helpers', () => {
   test('provisionTempoAndEvmThresholdSigners surfaces bootstrap failures', async () => {
     const mock: MockTatchi = {
       tempo: {
-        bootstrapThresholdEcdsaSession: async () => {
+        bootstrapEcdsaSession: async () => {
           throw new Error('bootstrap failed');
         },
       },

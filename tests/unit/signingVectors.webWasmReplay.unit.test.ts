@@ -5,7 +5,8 @@ import path from 'node:path';
 const IMPORT_PATHS = {
   ethSignerWasm: '/sdk/esm/core/signingEngine/signers/wasm/ethSignerWasm.js',
   tempoSignerWasm: '/sdk/esm/core/signingEngine/signers/wasm/tempoSignerWasm.js',
-  signerGateway: '/sdk/esm/core/signingEngine/workers/signerWorkerManager/gateway.js',
+  signerGateway:
+    '/sdk/esm/core/signingEngine/workerManager/workerTransport.js',
 } as const;
 
 const VECTORS_PATH = path.resolve(
@@ -36,11 +37,11 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
         const { computeTempoSenderHashWasm, encodeTempoSignedTxWasm } = await import(
           paths.tempoSignerWasm
         );
-        const { requestMultichainWorkerOperation } = await import(paths.signerGateway);
+        const { requestWorkerOperation } = await import(paths.signerGateway);
 
         const workerCtx = {
           requestWorkerOperation: async ({ kind, request }: { kind: string; request: unknown }) =>
-            await requestMultichainWorkerOperation({
+            await requestWorkerOperation({
               kind: kind as any,
               request: request as any,
             }),
@@ -242,11 +243,11 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
   test('tempo wasm finalization rejects unsupported MVP authorization fields', async ({ page }) => {
     const result = await page.evaluate(async ({ paths }) => {
       const { encodeTempoSignedTxWasm } = await import(paths.tempoSignerWasm);
-      const { requestMultichainWorkerOperation } = await import(paths.signerGateway);
+      const { requestWorkerOperation } = await import(paths.signerGateway);
 
       const workerCtx = {
         requestWorkerOperation: async ({ kind, request }: { kind: string; request: unknown }) =>
-          await requestMultichainWorkerOperation({
+          await requestWorkerOperation({
             kind: kind as any,
             request: request as any,
           }),
@@ -306,11 +307,11 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
   test('eip1559 wasm finalization rejects invalid signature65 length', async ({ page }) => {
     const result = await page.evaluate(async ({ paths, vectors }) => {
       const { encodeEip1559SignedTxFromSignature65Wasm } = await import(paths.ethSignerWasm);
-      const { requestMultichainWorkerOperation } = await import(paths.signerGateway);
+      const { requestWorkerOperation } = await import(paths.signerGateway);
 
       const workerCtx = {
         requestWorkerOperation: async ({ kind, request }: { kind: string; request: unknown }) =>
-          await requestMultichainWorkerOperation({
+          await requestWorkerOperation({
             kind: kind as any,
             request: request as any,
           }),

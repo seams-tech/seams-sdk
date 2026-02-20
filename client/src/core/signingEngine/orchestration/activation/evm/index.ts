@@ -1,1 +1,1 @@
-export * from './activateEvmThresholdEcdsaSessionLite';
+export * from './activateEvmEcdsaSession';

@@ -4,11 +4,11 @@ import type {
   NearIntentResult,
   NearSigningRequest,
 } from '../../interfaces/near';
-import type { NearSigningKeyOpsService } from '../../workers/signerWorkerManager/nearKeyOpsService';
+import type { NearSigningKeyOps } from '../../interfaces/nearKeyOps';
 
 export type SignerWorkerBridgeDeps = {
   signingKeyOps: Pick<
-    NearSigningKeyOpsService,
+    NearSigningKeyOps,
     'extractCosePublicKey' | 'signTransactionWithKeyPair' | 'generateEphemeralNearKeypair'
   >;
 };

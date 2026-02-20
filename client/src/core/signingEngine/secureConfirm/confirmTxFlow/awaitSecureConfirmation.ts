@@ -29,7 +29,7 @@ type ConfirmResponseEnvelope = {
  * Where this runs:
  * - Runs inside the SecureConfirm Web Worker (not the main thread).
  * - Invoked from the worker runtime; the SecureConfirm worker exposes this as
- *   `globalThis.awaitSecureConfirmationV2` in `client/src/core/signingEngine/workers/passkey-confirm.worker.ts`.
+ *   `globalThis.awaitSecureConfirmationV2` in `client/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts`.
  *
  * High-level flow:
  * 1) SecureConfirm runtime calls `awaitSecureConfirmationV2(request)`

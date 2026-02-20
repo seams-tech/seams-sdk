@@ -13,7 +13,7 @@ import type {
   NearIntentResult,
   NearSigningRequest,
 } from '../../interfaces/near';
-import type { SignerWorkerManagerContext } from '../../workers/signerWorkerManager';
+import type { SignerWorkerManagerContext } from '../../workerManager';
 
 export type ResolveSigningSessionPolicyArgs = { ttlMs?: number; remainingUses?: number };
 export type ResolveSigningSessionPolicyResult = { ttlMs: number; remainingUses: number };
@@ -47,6 +47,75 @@ export type SignNep413MessageResult = {
   error?: string;
 };
 
+export type SignTransactionsWithActionsInput = {
+  transactions: TransactionInputWasm[];
+  rpcCall: RpcCallPayload;
+  deviceNumber?: number;
+  signerMode: SignerMode;
+  confirmationConfigOverride?: Partial<ConfirmationConfig>;
+  title?: string;
+  body?: string;
+  onEvent?: (update: onProgressEvents) => void;
+  sessionId?: string;
+};
+
+export type SignDelegateActionInput = {
+  delegate: DelegateActionInput;
+  rpcCall: RpcCallPayload;
+  deviceNumber?: number;
+  signerMode: SignerMode;
+  confirmationConfigOverride?: Partial<ConfirmationConfig>;
+  title?: string;
+  body?: string;
+  onEvent?: (update: onProgressEvents) => void;
+};
+
+export type NearSignIntentRequest =
+  | {
+      chain: 'near';
+      kind: 'transactionsWithActions';
+      args: SignTransactionsWithActionsInput;
+    }
+  | {
+      chain: 'near';
+      kind: 'delegateAction';
+      args: SignDelegateActionInput;
+    }
+  | {
+      chain: 'near';
+      kind: 'nep413';
+      args: SignNep413MessagePayload;
+    };
+
+export type NearSignIntentResultByKind = {
+  transactionsWithActions: SignTransactionResult[];
+  delegateAction: SignDelegateActionResult;
+  nep413: SignNep413MessageResult;
+};
+
+export type NearSignIntentResult<TRequest extends NearSignIntentRequest> =
+  TRequest extends { kind: infer TKind }
+    ? TKind extends keyof NearSignIntentResultByKind
+      ? NearSignIntentResultByKind[TKind]
+      : never
+    : never;
+
+export async function signNear<TRequest extends NearSignIntentRequest>(
+  deps: NearSigningApiDeps,
+  request: TRequest,
+): Promise<NearSignIntentResult<TRequest>> {
+  if (request.kind === 'transactionsWithActions') {
+    return (await signTransactionsWithActions(deps, request.args)) as NearSignIntentResult<TRequest>;
+  }
+  if (request.kind === 'delegateAction') {
+    return (await signDelegateAction(deps, request.args)) as NearSignIntentResult<TRequest>;
+  }
+  if (request.kind === 'nep413') {
+    return (await signNEP413Message(deps, request.args)) as NearSignIntentResult<TRequest>;
+  }
+  throw new Error(`[SigningEngine] unsupported near signing intent: ${String((request as { kind?: unknown }).kind || '')}`);
+}
+
 export type NearSigningApiDeps = {
   contractId: string;
   nearRpcUrl: string;
@@ -62,17 +131,7 @@ export type NearSigningApiDeps = {
 
 export async function signTransactionsWithActions(
   deps: NearSigningApiDeps,
-  args: {
-    transactions: TransactionInputWasm[];
-    rpcCall: RpcCallPayload;
-    deviceNumber?: number;
-    signerMode: SignerMode;
-    confirmationConfigOverride?: Partial<ConfirmationConfig>;
-    title?: string;
-    body?: string;
-    onEvent?: (update: onProgressEvents) => void;
-    sessionId?: string;
-  },
+  args: SignTransactionsWithActionsInput,
 ): Promise<SignTransactionResult[]> {
   const signingSessionPolicy = deps.resolveSigningSessionPolicy({});
   const resolvedSessionId =
@@ -101,16 +160,7 @@ export async function signTransactionsWithActions(
 
 export async function signDelegateAction(
   deps: NearSigningApiDeps,
-  args: {
-    delegate: DelegateActionInput;
-    rpcCall: RpcCallPayload;
-    deviceNumber?: number;
-    signerMode: SignerMode;
-    confirmationConfigOverride?: Partial<ConfirmationConfig>;
-    title?: string;
-    body?: string;
-    onEvent?: (update: onProgressEvents) => void;
-  },
+  args: SignDelegateActionInput,
 ): Promise<SignDelegateActionResult> {
   const nearAccountId = toAccountId(args.rpcCall.nearAccountId || args.delegate.senderId);
   const signingSessionPolicy = deps.resolveSigningSessionPolicy({});

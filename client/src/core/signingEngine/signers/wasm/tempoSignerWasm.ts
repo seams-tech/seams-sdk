@@ -1,8 +1,8 @@
 import type { TempoUnsignedTx } from '../../chainAdaptors/tempo/types';
 import {
-  executeSignerWorkerOperation,
+  executeWorkerOperation,
   type WorkerOperationContext,
-} from '../../workers/operations/executeSignerWorkerOperation';
+} from '../../workerManager/executeWorkerOperation';
 
 type TempoRlpValueWasm = number[] | TempoRlpValueWasm[];
 
@@ -73,7 +73,7 @@ export async function computeTempoSenderHashWasm(
   tx: TempoUnsignedTx,
   workerCtx: WorkerOperationContext,
 ): Promise<Uint8Array> {
-  const ab = await executeSignerWorkerOperation({
+  const ab = await executeWorkerOperation({
     ctx: workerCtx,
     kind: TEMPO_SIGNER_WORKER_KIND,
     request: { type: 'computeTempoSenderHash', payload: { tx: toWasmTx(tx) } },
@@ -87,7 +87,7 @@ export async function encodeTempoSignedTxWasm(args: {
   workerCtx: WorkerOperationContext;
 }): Promise<Uint8Array> {
   const sigBuf = args.senderSignature.slice().buffer;
-  const ab = await executeSignerWorkerOperation({
+  const ab = await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: TEMPO_SIGNER_WORKER_KIND,
     request: {

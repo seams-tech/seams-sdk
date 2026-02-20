@@ -56,21 +56,25 @@ export async function signDelegateAction(args: {
   });
 
   try {
-    const coreResult = await context.signingEngine.signDelegateAction({
-      delegate: resolvedDelegate,
-      rpcCall: {
-        contractId: context.configs.contractId,
-        nearRpcUrl: context.configs.nearRpcUrl,
-        nearAccountId: String(nearAccountId),
+    const coreResult = await context.signingEngine.signNear({
+      chain: 'near',
+      kind: 'delegateAction',
+      args: {
+        delegate: resolvedDelegate,
+        rpcCall: {
+          contractId: context.configs.contractId,
+          nearRpcUrl: context.configs.nearRpcUrl,
+          nearAccountId: String(nearAccountId),
+        },
+        signerMode,
+        deviceNumber: options?.deviceNumber,
+        confirmationConfigOverride: options?.confirmationConfig,
+        title,
+        body,
+        onEvent: options?.onEvent
+          ? (ev) => options.onEvent?.(ev as DelegateActionSSEEvent)
+          : undefined,
       },
-      signerMode,
-      deviceNumber: options?.deviceNumber,
-      confirmationConfigOverride: options?.confirmationConfig,
-      title,
-      body,
-      onEvent: options?.onEvent
-        ? (ev) => options.onEvent?.(ev as DelegateActionSSEEvent)
-        : undefined,
     });
 
     const result: SignDelegateActionResult = {

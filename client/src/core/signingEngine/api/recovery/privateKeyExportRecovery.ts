@@ -14,7 +14,7 @@ import { runSecureConfirm } from '../../secureConfirm/secureConfirmBridge';
 import type { SecureConfirmWorkerManager } from '../../secureConfirm';
 import { getLastLoggedInDeviceNumber } from '../../signers/webauthn/device/getDeviceNumber';
 import { getPrfResultsFromCredential } from '../../signers/webauthn/credentials/credentialExtensions';
-import type { SignerWorkerManagerContext } from '../../workers/signerWorkerManager';
+import type { SignerWorkerManagerContext } from '../../workerManager';
 
 type ExportScheme = 'ed25519' | 'secp256k1';
 

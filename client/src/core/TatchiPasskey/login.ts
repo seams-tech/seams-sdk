@@ -19,8 +19,8 @@ import { IndexedDBManager } from '../indexedDB';
 import type { ClientAuthenticatorData, ClientUserData } from '../indexedDB';
 import { createWebAuthnLoginOptions, verifyWebAuthnLogin } from '../rpcClients/near/rpcCalls';
 import { parseDeviceNumber } from '../signingEngine/signers/webauthn/device/getDeviceNumber';
-import { clearAllCachedThresholdEd25519AuthSessions } from '../signingEngine/threshold/session/thresholdEd25519AuthSession';
-import { clearAllCachedThresholdEcdsaAuthSessions } from '../signingEngine/threshold/session/thresholdEcdsaAuthSession';
+import { clearAllCachedEd25519AuthSessions } from '../signingEngine/threshold/session/ed25519AuthSession';
+import { clearAllCachedEcdsaAuthSessions } from '../signingEngine/threshold/session/ecdsaAuthSession';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 
 /**
@@ -160,7 +160,7 @@ export async function loginAndCreateSession(
         message: 'Preparing a warm NEAR signing session...',
       });
 
-      const connect = await signingEngine.connectThresholdEd25519SessionLite({
+      const connect = await signingEngine.connectEd25519Session({
         nearAccountId,
         relayerKeyId: thresholdKeyMaterial.relayerKeyId,
         ...(participantIds ? { participantIds } : {}),
@@ -199,7 +199,7 @@ export async function loginAndCreateSession(
         message: 'Preparing a warm Tempo/EVM signing session...',
       });
 
-      const bootstrap = await signingEngine.bootstrapThresholdEcdsaSessionLite({
+      const bootstrap = await signingEngine.bootstrapEcdsaSession({
         nearAccountId,
         chain: 'tempo',
         relayerUrl,
@@ -559,6 +559,6 @@ export async function logoutAndClearSession(context: PasskeyManagerContext): Pro
   await IndexedDBManager.clientDB.clearLastProfileSelection().catch(() => undefined);
   try { signingEngine.getNonceManager().clear(); } catch {}
   try { await signingEngine.clearWarmSigningSessions(); } catch {}
-  try { clearAllCachedThresholdEd25519AuthSessions(); } catch {}
-  try { clearAllCachedThresholdEcdsaAuthSessions(); } catch {}
+  try { clearAllCachedEd25519AuthSessions(); } catch {}
+  try { clearAllCachedEcdsaAuthSessions(); } catch {}
 }

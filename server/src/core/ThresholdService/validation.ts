@@ -310,7 +310,7 @@ export function parseThresholdEd25519CoordinatorSigningSessionRecord(raw: unknow
   };
 }
 
-export type ParsedThresholdEd25519AuthSessionRecord = {
+export type ParsedEd25519AuthSessionRecord = {
   expiresAtMs: number;
   relayerKeyId: string;
   userId: string;
@@ -318,7 +318,7 @@ export type ParsedThresholdEd25519AuthSessionRecord = {
   participantIds: number[];
 };
 
-export function parseThresholdEd25519AuthSessionRecord(raw: unknown): ParsedThresholdEd25519AuthSessionRecord | null {
+export function parseEd25519AuthSessionRecord(raw: unknown): ParsedEd25519AuthSessionRecord | null {
   if (!isObject(raw)) return null;
   const expiresAtMs = raw.expiresAtMs;
   const relayerKeyId = toOptionalString(raw.relayerKeyId);

@@ -2,12 +2,12 @@ import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { SecureConfirmWorkerManager } from '../../secureConfirm';
 import type { TouchIdPrompt } from '../../signers/webauthn/prompt/touchIdPrompt';
-import type { SignerWorkerManagerContext } from '../../workers/signerWorkerManager';
-import type { NearSigningKeyOpsService } from '../../workers/signerWorkerManager/nearKeyOpsService';
-import { connectThresholdEd25519SessionLite } from '../../threshold/workflows/connectThresholdEd25519SessionLite';
+import type { SignerWorkerManagerContext } from '../../workerManager';
+import type { NearSigningKeyOps } from '../../interfaces/nearKeyOps';
+import { connectEd25519Session } from '../../threshold/workflows/connectEd25519Session';
 import {
-  activateEvmThresholdEcdsaSessionLite,
-  activateTempoThresholdEcdsaSessionLite,
+  activateEvmEcdsaSession,
+  activateTempoEcdsaSession,
   activateThresholdKeyForChain,
   type ThresholdEcdsaActivationChain,
   type ThresholdEcdsaSessionBootstrapResult,
@@ -18,7 +18,7 @@ type PutPrfFirstForThresholdSessionArgs = Parameters<
   SecureConfirmWorkerManager['putPrfFirstForThresholdSession']
 >[0];
 
-export type ConnectThresholdEd25519SessionLiteArgs = {
+export type ConnectEd25519SessionArgs = {
   nearAccountId: AccountId | string;
   relayerKeyId: string;
   participantIds?: number[];
@@ -28,7 +28,7 @@ export type ConnectThresholdEd25519SessionLiteArgs = {
   remainingUses?: number;
 };
 
-export type BootstrapThresholdEcdsaSessionLiteArgs = {
+export type BootstrapEcdsaSessionArgs = {
   nearAccountId: AccountId | string;
   chain?: ThresholdEcdsaActivationChain;
   relayerUrl?: string;
@@ -42,7 +42,7 @@ export type BootstrapThresholdEcdsaSessionLiteArgs = {
 export type ThresholdSessionActivationDeps = {
   indexedDB: UnifiedIndexedDBManager;
   touchIdPrompt: Pick<TouchIdPrompt, 'getRpId' | 'getAuthenticationCredentialsSerializedForChallengeB64u'>;
-  signingKeyOps: Pick<NearSigningKeyOpsService, 'deriveThresholdEd25519ClientVerifyingShare'>;
+  signingKeyOps: Pick<NearSigningKeyOps, 'deriveThresholdEd25519ClientVerifyingShare'>;
   secureConfirmWorkerManager: Pick<
     SecureConfirmWorkerManager,
     'putPrfFirstForThresholdSession'
@@ -66,14 +66,14 @@ function resolveRelayerUrl(relayerUrlOverride: string | undefined, defaultRelaye
   return relayerUrl;
 }
 
-export async function connectThresholdEd25519SessionLiteValue(
+export async function connectEd25519SessionValue(
   deps: ThresholdSessionActivationDeps,
-  args: ConnectThresholdEd25519SessionLiteArgs,
-): Promise<Awaited<ReturnType<typeof connectThresholdEd25519SessionLite>>> {
+  args: ConnectEd25519SessionArgs,
+): Promise<Awaited<ReturnType<typeof connectEd25519Session>>> {
   const nearAccountId = toAccountId(args.nearAccountId);
   const relayerUrl = resolveRelayerUrl(args.relayerUrl, deps.defaultRelayerUrl);
   const sessionId = deps.getOrCreateActiveSigningSessionId(nearAccountId);
-  return await connectThresholdEd25519SessionLite({
+  return await connectEd25519Session({
     indexedDB: deps.indexedDB,
     touchIdPrompt: deps.touchIdPrompt,
     signingKeyOps: deps.signingKeyOps,
@@ -92,9 +92,9 @@ export async function connectThresholdEd25519SessionLiteValue(
   });
 }
 
-export async function bootstrapThresholdEcdsaSessionLiteValue(
+export async function bootstrapEcdsaSessionValue(
   deps: ThresholdSessionActivationDeps,
-  args: BootstrapThresholdEcdsaSessionLiteArgs,
+  args: BootstrapEcdsaSessionArgs,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
   const nearAccountId = toAccountId(args.nearAccountId);
   const chain: ThresholdEcdsaActivationChain = args.chain || 'tempo';
@@ -115,8 +115,8 @@ export async function bootstrapThresholdEcdsaSessionLiteValue(
   const bootstrap = await activateThresholdKeyForChain({
     chain,
     adapters: {
-      evm: (request) => activateEvmThresholdEcdsaSessionLite(activationDeps, request),
-      tempo: (request) => activateTempoThresholdEcdsaSessionLite(activationDeps, request),
+      evm: (request) => activateEvmEcdsaSession(activationDeps, request),
+      tempo: (request) => activateTempoEcdsaSession(activationDeps, request),
     },
     request: {
       nearAccountId,

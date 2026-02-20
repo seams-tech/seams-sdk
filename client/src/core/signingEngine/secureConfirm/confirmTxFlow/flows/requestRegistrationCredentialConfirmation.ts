@@ -10,7 +10,7 @@ import {
 import {
   parseAndValidateRegistrationCredentialConfirmationPayload,
   type RegistrationCredentialConfirmationPayload,
-} from '@/core/signingEngine/workers/signerWorkerManager/internal/validation';
+} from '@/core/signingEngine/workerManager/validation';
 
 export async function requestRegistrationCredentialConfirmation({
   ctx,

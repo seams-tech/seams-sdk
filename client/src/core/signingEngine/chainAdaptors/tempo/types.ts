@@ -1,4 +1,11 @@
-import type { Eip1559UnsignedTx, EvmAccessListItem, EvmAddress, EvmBytes, Hex } from '../evm/types';
+import type {
+  EvmAccessListItem,
+  EvmAddress,
+  EvmBytes,
+  Hex,
+  EvmSecp256k1SigningRequest,
+  EvmSigningRequest,
+} from '../evm/types';
 
 export type TempoRlpValue = Uint8Array | TempoRlpValue[];
 
@@ -31,20 +38,19 @@ export type TempoUnsignedTx = {
 };
 
 export type TempoSigningRequest =
-  | {
-      chain: 'tempo';
-      kind: 'tempoTransaction';
-      tx: TempoUnsignedTx;
-      senderSignatureAlgorithm: 'secp256k1' | 'webauthnP256';
-    }
-  | {
-      chain: 'tempo';
-      kind: 'eip1559';
-      tx: Eip1559UnsignedTx;
-      senderSignatureAlgorithm: 'secp256k1';
-    };
+  {
+    chain: 'tempo';
+    kind: 'tempoTransaction';
+    tx: TempoUnsignedTx;
+    senderSignatureAlgorithm: 'secp256k1' | 'webauthnP256';
+  };
 
 export type TempoSecp256k1SigningRequest = Extract<
   TempoSigningRequest,
   { senderSignatureAlgorithm: 'secp256k1' }
 >;
+
+export type MultichainSigningRequest = EvmSigningRequest | TempoSigningRequest;
+
+export type MultichainSecp256k1SigningRequest =
+  EvmSecp256k1SigningRequest | TempoSecp256k1SigningRequest;

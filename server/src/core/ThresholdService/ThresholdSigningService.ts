@@ -12,8 +12,8 @@ import type {
   ThresholdEcdsaSigningSessionStore,
 } from './stores/EcdsaSigningStore';
 import type {
-  ThresholdEd25519AuthSessionStore,
-  ThresholdEd25519AuthSessionRecord,
+  Ed25519AuthSessionStore,
+  Ed25519AuthSessionRecord,
 } from './stores/AuthSessionStore';
 import type { ThresholdEd25519KeygenStrategy } from './keygenStrategy';
 import { ThresholdEd25519KeygenStrategyV1 } from './keygenStrategy';
@@ -25,12 +25,12 @@ import type {
   ThresholdEd25519AuthorizeWithSessionRequest,
   ThresholdEd25519KeygenRequest,
   ThresholdEd25519KeygenResponse,
-  ThresholdEd25519SessionPolicy,
+  Ed25519SessionPolicy,
   ThresholdEcdsaKeygenRequest,
   ThresholdEcdsaKeygenResponse,
   ThresholdEcdsaBootstrapRequest,
   ThresholdEcdsaBootstrapResponse,
-  ThresholdEcdsaSessionPolicy,
+  EcdsaSessionPolicy,
   ThresholdEcdsaSessionRequest,
   ThresholdEcdsaSessionResponse,
   ThresholdEcdsaAuthorizeWithSessionRequest,
@@ -520,10 +520,10 @@ export class ThresholdSigningService {
   private readonly logger: NormalizedLogger;
   private readonly keyStore: ThresholdEd25519KeyStore;
   private readonly sessionStore: ThresholdEd25519SessionStore;
-  private readonly authSessionStore: ThresholdEd25519AuthSessionStore;
+  private readonly authSessionStore: Ed25519AuthSessionStore;
   private readonly ecdsaKeyStore: ThresholdEd25519KeyStore;
   private readonly ecdsaSessionStore: ThresholdEd25519SessionStore;
-  private readonly ecdsaAuthSessionStore: ThresholdEd25519AuthSessionStore;
+  private readonly ecdsaAuthSessionStore: Ed25519AuthSessionStore;
   private readonly clientParticipantId: number;
   private readonly relayerParticipantId: number;
   private readonly participantIds2p: number[];
@@ -554,10 +554,10 @@ export class ThresholdSigningService {
     logger: NormalizedLogger;
     keyStore: ThresholdEd25519KeyStore;
     sessionStore: ThresholdEd25519SessionStore;
-    authSessionStore: ThresholdEd25519AuthSessionStore;
+    authSessionStore: Ed25519AuthSessionStore;
     ecdsaKeyStore: ThresholdEd25519KeyStore;
     ecdsaSessionStore: ThresholdEd25519SessionStore;
-    ecdsaAuthSessionStore: ThresholdEd25519AuthSessionStore;
+    ecdsaAuthSessionStore: Ed25519AuthSessionStore;
     ecdsaSigningSessionStore: ThresholdEcdsaSigningSessionStore;
     ecdsaPresignSessionStore: ThresholdEcdsaPresignSessionStore;
     ecdsaPresignaturePool: ThresholdEcdsaPresignaturePool;
@@ -688,14 +688,14 @@ export class ThresholdSigningService {
           bootstrap: (request) => this.ecdsaBootstrap(request),
           authorize: (input) => this.ecdsaAuthorizeWithSession(input),
           presign: {
-            init: (input) => this.ecdsaSigningHandlers.thresholdEcdsaPresignInit(input),
-            step: (input) => this.ecdsaSigningHandlers.thresholdEcdsaPresignStep(input),
+            init: (input) => this.ecdsaSigningHandlers.ecdsaPresignInit(input),
+            step: (input) => this.ecdsaSigningHandlers.ecdsaPresignStep(input),
           },
           protocol: {
             signInit: (request: ThresholdEcdsaSignInitRequest): Promise<ThresholdEcdsaSignInitResponse> =>
-              this.ecdsaSigningHandlers.thresholdEcdsaSignInit(request),
+              this.ecdsaSigningHandlers.ecdsaSignInit(request),
             signFinalize: (request: ThresholdEcdsaSignFinalizeRequest): Promise<ThresholdEcdsaSignFinalizeResponse> =>
-              this.ecdsaSigningHandlers.thresholdEcdsaSignFinalize(request),
+              this.ecdsaSigningHandlers.ecdsaSignFinalize(request),
           },
         });
       }
@@ -744,9 +744,9 @@ export class ThresholdSigningService {
   }
 
   private async putAuthSessionRecord(input: {
-    store: ThresholdEd25519AuthSessionStore;
+    store: Ed25519AuthSessionStore;
     sessionId: string;
-    record: ThresholdEd25519AuthSessionRecord;
+    record: Ed25519AuthSessionRecord;
     ttlMs: number;
     remainingUses: number;
   }): Promise<void> {
@@ -987,7 +987,7 @@ export class ThresholdSigningService {
     rpId: string;
     relayerKeyId: string;
     clientVerifyingShareB64u: string;
-    sessionPolicy: ThresholdEd25519SessionPolicy;
+    sessionPolicy: Ed25519SessionPolicy;
   }): Promise<ThresholdEd25519SessionResponse> {
     try {
       await this.ensureReady();
@@ -1000,7 +1000,7 @@ export class ThresholdSigningService {
         return { ok: false, code: 'invalid_body', message: 'Missing required ed25519 session bootstrap inputs' };
       }
 
-      const policy = (input.sessionPolicy || {}) as ThresholdEd25519SessionPolicy;
+      const policy = (input.sessionPolicy || {}) as Ed25519SessionPolicy;
       if (String(policy.version || '').trim() !== 'threshold_session_v1') {
         return { ok: false, code: 'invalid_body', message: 'threshold_ed25519.session_policy.version must be threshold_session_v1' };
       }
@@ -1119,7 +1119,7 @@ export class ThresholdSigningService {
     rpId: string;
     relayerKeyId: string;
     clientVerifyingShareB64u: string;
-    sessionPolicy: ThresholdEcdsaSessionPolicy;
+    sessionPolicy: EcdsaSessionPolicy;
   }): Promise<ThresholdEcdsaSessionResponse> {
     const userId = String(input.userId || '').trim();
     const rpId = String(input.rpId || '').trim();
@@ -1129,7 +1129,7 @@ export class ThresholdSigningService {
       return { ok: false, code: 'invalid_body', message: 'Missing required ecdsa session bootstrap inputs' };
     }
 
-    const policy = (input.sessionPolicy || {}) as ThresholdEcdsaSessionPolicy;
+    const policy = (input.sessionPolicy || {}) as EcdsaSessionPolicy;
     if (String(policy.version || '').trim() !== 'threshold_session_v1') {
       return { ok: false, code: 'invalid_body', message: 'threshold_ecdsa.session_policy.version must be threshold_session_v1' };
     }

@@ -5,6 +5,7 @@ import path from 'node:path';
 const IMPORT_PATHS = {
   executeSigningIntent: '/sdk/esm/core/signingEngine/orchestration/executeSigningIntent.js',
   nearAdapter: '/sdk/esm/core/signingEngine/chainAdaptors/near/nearAdapter.js',
+  evmAdapter: '/sdk/esm/core/signingEngine/chainAdaptors/evm/evmAdapter.js',
   tempoAdapter: '/sdk/esm/core/signingEngine/chainAdaptors/tempo/tempoAdapter.js',
   ethSignerWasm: '/sdk/esm/core/signingEngine/signers/wasm/ethSignerWasm.js',
   actions: '/sdk/esm/core/types/actions.js',
@@ -19,6 +20,7 @@ test.describe('unified signing pipeline', () => {
     const result = await page.evaluate(async ({ paths }) => {
       const { executeSigningIntent } = await import(paths.executeSigningIntent);
       const { NearAdapter } = await import(paths.nearAdapter);
+      const { EvmAdapter } = await import(paths.evmAdapter);
       const { TempoAdapter } = await import(paths.tempoAdapter);
       const { ActionType } = await import(paths.actions);
 
@@ -109,9 +111,9 @@ test.describe('unified signing pipeline', () => {
       });
 
       const evmResult = await runIntent({
-        adapter: new TempoAdapter(workerCtx as any),
+        adapter: new EvmAdapter(workerCtx as any),
         request: {
-          chain: 'tempo',
+          chain: 'evm',
           kind: 'eip1559',
           senderSignatureAlgorithm: 'secp256k1',
           tx: {
@@ -192,66 +194,6 @@ test.describe('unified signing pipeline', () => {
     expect(result.tempoResult?.kind).toBe('tempoTransaction');
   });
 
-  test('EIP-1559 finalize never requests the legacy split-signature worker op', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      const { executeSigningIntent } = await import(paths.executeSigningIntent);
-      const { TempoAdapter } = await import(paths.tempoAdapter);
-
-      const workerTypes: string[] = [];
-      const workerCtx = {
-        requestWorkerOperation: async ({ request }: { request: any }) => {
-          const type = String(request?.type || '');
-          workerTypes.push(type);
-
-          if (type === 'computeEip1559TxHash') return new Uint8Array(32).buffer;
-          if (type === 'encodeEip1559SignedTxFromSignature65') return new Uint8Array([0x02, 0xaa]).buffer;
-          if (type === 'encodeEip1559SignedTx') {
-            throw new Error('legacy split-signature op requested');
-          }
-          throw new Error(`Unexpected worker operation: ${type}`);
-        },
-      };
-
-      const adapter = new TempoAdapter(workerCtx as any);
-      const intent = await adapter.buildIntent({
-        chain: 'tempo',
-        kind: 'eip1559',
-        senderSignatureAlgorithm: 'secp256k1',
-        tx: {
-          chainId: 11155111n,
-          nonce: 7n,
-          maxPriorityFeePerGas: 1_500_000_000n,
-          maxFeePerGas: 3_000_000_000n,
-          gasLimit: 21_000n,
-          to: '0x' + '22'.repeat(20),
-          value: 12_345n,
-          data: '0x',
-          accessList: [],
-        },
-      } as any);
-
-      await executeSigningIntent({
-        intent,
-        engines: {
-          secp256k1: {
-            algorithm: 'secp256k1',
-            sign: async () => {
-              const sig = new Uint8Array(65);
-              sig[64] = 0;
-              return sig;
-            },
-          },
-        } as any,
-        resolveSignInput: async (signReq: any) => ({ signReq, keyRef: {} }),
-      });
-
-      return { workerTypes };
-    }, { paths: IMPORT_PATHS });
-
-    expect(result.workerTypes).toContain('encodeEip1559SignedTxFromSignature65');
-    expect(result.workerTypes).not.toContain('encodeEip1559SignedTx');
-  });
-
   test('eth signer wrapper requests only signature65 EIP-1559 encode operation', async ({ page }) => {
     const workerTypes = await page.evaluate(async ({ paths }) => {
       const { encodeEip1559SignedTxFromSignature65Wasm } = await import(paths.ethSignerWasm);
@@ -300,7 +242,7 @@ test.describe('unified signing pipeline', () => {
     const tempoHandlerSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/signingEngine/chainAdaptors/tempo/tempoSigningFlow/index.ts',
+        '../client/src/core/signingEngine/orchestration/tempo/tempoSigningFlow.ts',
       ),
       'utf8',
     );

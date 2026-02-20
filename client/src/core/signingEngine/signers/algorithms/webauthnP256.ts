@@ -1,6 +1,6 @@
 import { buildWebauthnP256SignatureWasm } from '../wasm/ethSignerWasm';
 import type { KeyRef, SignRequest, SignatureBytes, Signer } from '../../interfaces/signing';
-import type { WorkerOperationContext } from '../../workers/operations/executeSignerWorkerOperation';
+import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import { base64Decode, base64UrlDecode } from '@shared/utils/base64';
 
 function bytesEq(a: Uint8Array, b: Uint8Array): boolean {

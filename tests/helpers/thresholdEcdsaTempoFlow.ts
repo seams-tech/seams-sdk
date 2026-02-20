@@ -54,7 +54,7 @@ export type ThresholdEcdsaTempoFlowResult = {
     senderHashHex: string;
     rawTxHex: string;
   } | {
-    chain: 'tempo';
+    chain: 'evm';
     kind: 'eip1559';
     txHashHex: string;
     rawTxHex: string;
@@ -114,7 +114,7 @@ export async function runThresholdEcdsaTempoFlow(
     const indexedDbMod = await import('/sdk/esm/core/indexedDB/index.js');
 
     const { TatchiPasskey } = sdkMod as any;
-    const { keygenThresholdEcdsaLite, connectThresholdEcdsaSessionLite } = thresholdMod as any;
+    const { keygenEcdsa, connectEcdsaSession } = thresholdMod as any;
     const { IndexedDBManager } = indexedDbMod as any;
 
     const accountId =
@@ -183,7 +183,7 @@ export async function runThresholdEcdsaTempoFlow(
       const useBootstrapApi = input.useBootstrapApi !== false && input.connectSession !== false;
       if (useBootstrapApi) {
         try {
-          const boot = await pm.tempo.bootstrapThresholdEcdsaSession({
+          const boot = await pm.tempo.bootstrapEcdsaSession({
             nearAccountId: accountId,
             options: {
               relayerUrl: input.relayerUrl,
@@ -201,7 +201,7 @@ export async function runThresholdEcdsaTempoFlow(
             error: String(
               (e && typeof e === 'object' && 'message' in e)
                 ? (e as { message?: unknown }).message
-                : e || 'bootstrapThresholdEcdsaSession failed',
+                : e || 'bootstrapEcdsaSession failed',
             ),
           };
         }
@@ -225,7 +225,7 @@ export async function runThresholdEcdsaTempoFlow(
           };
         }
 
-        keygen = await keygenThresholdEcdsaLite({
+        keygen = await keygenEcdsa({
           indexedDB: IndexedDBManager,
           touchIdPrompt,
           relayerUrl: input.relayerUrl,
@@ -242,7 +242,7 @@ export async function runThresholdEcdsaTempoFlow(
         }
 
         if (input.connectSession !== false) {
-          session = await connectThresholdEcdsaSessionLite({
+          session = await connectEcdsaSession({
             indexedDB: IndexedDBManager,
             touchIdPrompt,
             relayerUrl: input.relayerUrl,
@@ -259,7 +259,7 @@ export async function runThresholdEcdsaTempoFlow(
               accountId,
               keygen,
               session,
-              error: String(session?.message || session?.code || 'connectThresholdEcdsaSessionLite failed'),
+              error: String(session?.message || session?.code || 'connectEcdsaSession failed'),
             };
           }
         }
@@ -299,14 +299,14 @@ export async function runThresholdEcdsaTempoFlow(
 
       if (input.clearCachedThresholdSessionBeforeSign) {
         try {
-          const authSessionMod = await import('/sdk/esm/core/signingEngine/threshold/session/thresholdEcdsaAuthSession.js');
-          authSessionMod.clearAllCachedThresholdEcdsaAuthSessions?.();
+          const authSessionMod = await import('/sdk/esm/core/signingEngine/threshold/session/ecdsaAuthSession.js');
+          authSessionMod.clearAllCachedEcdsaAuthSessions?.();
         } catch {}
       }
 
       const request = input.signingKind === 'eip1559'
         ? {
-            chain: 'tempo' as const,
+            chain: 'evm' as const,
             kind: 'eip1559' as const,
             senderSignatureAlgorithm: 'secp256k1' as const,
             tx: {

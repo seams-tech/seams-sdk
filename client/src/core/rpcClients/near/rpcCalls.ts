@@ -737,48 +737,52 @@ export async function executeDeviceLinkingContractCalls({
   addKeyTxResult: FinalExecutionOutcome;
 }> {
 
-  const signTransactions = () => context.signingEngine.signTransactionsWithActions({
-    sessionId: (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-      ? `link-device-${crypto.randomUUID()}`
-      : `link-device-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    rpcCall: {
-      contractId: context.signingEngine.tatchiPasskeyConfigs.contractId,
-      nearRpcUrl: context.signingEngine.tatchiPasskeyConfigs.nearRpcUrl,
-      nearAccountId: device1AccountId
-    },
-    // Prefer threshold signing when available; fall back to local signing if the account
-    // is not enrolled with threshold key material.
-    signerMode: { mode: 'threshold-signer', behavior: 'fallback' },
-    confirmationConfigOverride,
-    title: confirmerText?.title,
-    body: confirmerText?.body,
-    transactions: [
-      // Transaction 1: AddKey - Add Device2's key to Device1's account
-      {
-        receiverId: device1AccountId,
-        actions: [{
-          action_type: ActionType.AddKey,
-          public_key: device2PublicKey,
-          access_key: JSON.stringify({
-            // NEAR-style AccessKey JSON shape, matching near-api-js:
-            // { nonce: number, permission: { FullAccess: {} } }
-            nonce: 0,
-            permission: { FullAccess: {} },
-          }),
-        }],
+  const signTransactions = () => context.signingEngine.signNear({
+    chain: 'near',
+    kind: 'transactionsWithActions',
+    args: {
+      sessionId: (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+        ? `link-device-${crypto.randomUUID()}`
+        : `link-device-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      rpcCall: {
+        contractId: context.signingEngine.tatchiPasskeyConfigs.contractId,
+        nearRpcUrl: context.signingEngine.tatchiPasskeyConfigs.nearRpcUrl,
+        nearAccountId: device1AccountId
       },
-    ],
-    onEvent: (progress) => {
-      // Keep device-linking progress semantic and surface signing as a loading state.
-      if (progress.phase == ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE) {
-        onEvent?.({
-          step: 3,
-          phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION,
-          status: DeviceLinkingStatus.PROGRESS,
-          message: progress.message || 'Transaction signing in progress...'
-        })
+      // Prefer threshold signing when available; fall back to local signing if the account
+      // is not enrolled with threshold key material.
+      signerMode: { mode: 'threshold-signer', behavior: 'fallback' },
+      confirmationConfigOverride,
+      title: confirmerText?.title,
+      body: confirmerText?.body,
+      transactions: [
+        // Transaction 1: AddKey - Add Device2's key to Device1's account
+        {
+          receiverId: device1AccountId,
+          actions: [{
+            action_type: ActionType.AddKey,
+            public_key: device2PublicKey,
+            access_key: JSON.stringify({
+              // NEAR-style AccessKey JSON shape, matching near-api-js:
+              // { nonce: number, permission: { FullAccess: {} } }
+              nonce: 0,
+              permission: { FullAccess: {} },
+            }),
+          }],
+        },
+      ],
+      onEvent: (progress) => {
+        // Keep device-linking progress semantic and surface signing as a loading state.
+        if (progress.phase == ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE) {
+          onEvent?.({
+            step: 3,
+            phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION,
+            status: DeviceLinkingStatus.PROGRESS,
+            message: progress.message || 'Transaction signing in progress...'
+          })
+        }
       }
-    }
+    },
   });
 
   // Sign both transactions with one PRF authentication

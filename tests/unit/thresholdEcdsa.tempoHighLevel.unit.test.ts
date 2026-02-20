@@ -105,7 +105,7 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       expect(result.ok, result.error || JSON.stringify(result)).toBe(true);
       expect(result.keygen?.ok).toBe(true);
       expect(result.session?.ok).toBe(true);
-      expect(result.signed?.chain).toBe('tempo');
+      expect(result.signed?.chain).toBe('evm');
       expect(result.signed?.kind).toBe('eip1559');
 
       if (!result.signed || result.signed.kind !== 'eip1559') {
@@ -115,8 +115,8 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       const expectedSigningHashHex = keccak256(
         serializeTransaction({
           type: 'eip1559',
-          chainId: EIP1559_TEST_TX.chainId,
-          nonce: EIP1559_TEST_TX.nonce,
+          chainId: Number(EIP1559_TEST_TX.chainId),
+          nonce: Number(EIP1559_TEST_TX.nonce),
           maxPriorityFeePerGas: EIP1559_TEST_TX.maxPriorityFeePerGas,
           maxFeePerGas: EIP1559_TEST_TX.maxFeePerGas,
           gas: EIP1559_TEST_TX.gasLimit,
@@ -142,7 +142,7 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       expect(parsedTx.accessList || []).toEqual([]);
 
       const recoveredAddress = await recoverTransactionAddress({
-        serializedTransaction: result.signed.rawTxHex as `0x${string}`,
+        serializedTransaction: result.signed.rawTxHex as `0x02${string}`,
       });
       const groupPublicKeyCompressed = Buffer.from(String(result.keygen?.groupPublicKeyB64u || ''), 'base64url');
       expect(groupPublicKeyCompressed.length).toBe(33);

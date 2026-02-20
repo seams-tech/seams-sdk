@@ -14,11 +14,11 @@ test.describe('signer worker JS guards – PRF rejection', () => {
 
         const messages: any[] = [];
         const errors: any[] = [];
+        const requestId = 'guard-prf-output';
 
         worker.onmessage = (ev: MessageEvent) => messages.push(ev.data);
         worker.onerror = (ev: ErrorEvent) => errors.push(ev.message || ev.error);
 
-        const combined = () => [...errors, ...messages.map((m: any) => JSON.stringify(m))].join(' ');
         const waitFor = async (predicate: () => boolean, timeoutMs: number = 5000): Promise<void> => {
           const start = Date.now();
           while (Date.now() - start < timeoutMs) {
@@ -29,23 +29,28 @@ test.describe('signer worker JS guards – PRF rejection', () => {
 
         await waitFor(() => messages.some((m: any) => m?.type === 'WORKER_READY'), 5000);
         worker.postMessage({
+          id: requestId,
           type: 0, // WorkerRequestType.DeriveNearKeypairAndEncrypt (numeric)
           payload: {
             prfOutput: 'leaked-prf',
           },
         });
-        await waitFor(() => combined().includes('Forbidden secret field'), 5000);
+        await waitFor(
+          () => messages.some((m: any) => m?.id === requestId && m?.ok === false),
+          5000,
+        );
+        const response = messages.find((m: any) => m?.id === requestId && m?.ok === false) || null;
         worker.terminate();
 
-        return { messages, errors };
+        return { messages, errors, response };
       } catch (err: any) {
         return { messages: [], errors: [err?.message || String(err)] };
       }
     });
 
-    // Either we get an error event or a failure message containing the guard text.
     const combined = [...res.errors, ...res.messages.map((m: any) => JSON.stringify(m))].join(' ');
-    expect(combined).toContain('Forbidden secret field');
+    const errorText = String((res as any)?.response?.error || combined);
+    expect(errorText).toContain('Forbidden secret field');
   });
 
   test('rejects payloads containing prfFirst', async ({ page }) => {
@@ -56,11 +61,11 @@ test.describe('signer worker JS guards – PRF rejection', () => {
 
         const messages: any[] = [];
         const errors: any[] = [];
+        const requestId = 'guard-prf-first';
 
         worker.onmessage = (ev: MessageEvent) => messages.push(ev.data);
         worker.onerror = (ev: ErrorEvent) => errors.push(ev.message || ev.error);
 
-        const combined = () => [...errors, ...messages.map((m: any) => JSON.stringify(m))].join(' ');
         const waitFor = async (predicate: () => boolean, timeoutMs: number = 5000): Promise<void> => {
           const start = Date.now();
           while (Date.now() - start < timeoutMs) {
@@ -71,21 +76,27 @@ test.describe('signer worker JS guards – PRF rejection', () => {
 
         await waitFor(() => messages.some((m: any) => m?.type === 'WORKER_READY'), 5000);
         worker.postMessage({
+          id: requestId,
           type: 4, // WorkerRequestType.SignTransactionsWithActions (numeric)
           payload: {
             prfFirst: 'leaked-prf-first',
           },
         });
-        await waitFor(() => combined().includes('Forbidden secret field'), 5000);
+        await waitFor(
+          () => messages.some((m: any) => m?.id === requestId && m?.ok === false),
+          5000,
+        );
+        const response = messages.find((m: any) => m?.id === requestId && m?.ok === false) || null;
         worker.terminate();
 
-        return { messages, errors };
+        return { messages, errors, response };
       } catch (err: any) {
         return { messages: [], errors: [err?.message || String(err)] };
       }
     });
 
     const combined = [...res.errors, ...res.messages.map((m: any) => JSON.stringify(m))].join(' ');
-    expect(combined).toContain('Forbidden secret field');
+    const errorText = String((res as any)?.response?.error || combined);
+    expect(errorText).toContain('Forbidden secret field');
   });
 });

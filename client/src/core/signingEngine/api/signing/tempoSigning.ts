@@ -2,15 +2,17 @@ import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import { toAccountId } from '@/core/types/accountIds';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { TatchiConfigs } from '@/core/types/tatchi';
+import type { EvmSigningRequest } from '../../chainAdaptors/evm/types';
+import type { EvmSignedResult } from '../../chainAdaptors/evm/evmAdapter';
 import type { TempoSigningRequest } from '../../chainAdaptors/tempo/types';
 import type { TempoSignedResult } from '../../chainAdaptors/tempo/tempoAdapter';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import {
-  deriveSmartAccountDeploymentTargetFromTempoRequest,
+  deriveSmartAccountDeploymentTargetFromSigningRequest,
   ensureSmartAccountDeployed,
 } from '../../orchestration/deployment/ensureSmartAccountDeployed';
 import { SecureConfirmWorkerManager } from '../../secureConfirm';
-import type { SignerWorkerManagerContext } from '../../workers/signerWorkerManager';
+import type { SignerWorkerManagerContext } from '../../workerManager';
 import {
   deploySmartAccountForChain,
   resolveSmartAccountDeploymentMaxAttempts,
@@ -42,7 +44,7 @@ export async function signTempo(
   deps: TempoSigningDeps,
   args: {
     nearAccountId: string;
-    request: TempoSigningRequest;
+    request: TempoSigningRequest | EvmSigningRequest;
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
     shouldAbort?: () => boolean;
@@ -54,17 +56,17 @@ export async function signTempo(
       data?: unknown;
     }) => void;
   },
-): Promise<TempoSignedResult> {
+): Promise<TempoSignedResult | EvmSignedResult> {
   throwIfTempoSigningCancelled(args.shouldAbort);
 
-  if (args.request.chain !== 'tempo') {
-    throw new Error('[SigningEngine] invalid Tempo request: chain must be tempo');
+  if (args.request.chain !== 'tempo' && args.request.chain !== 'evm') {
+    throw new Error('[SigningEngine] invalid request: chain must be tempo or evm');
   }
   if (args.request.senderSignatureAlgorithm === 'secp256k1' && !args.thresholdEcdsaKeyRef) {
-    throw new Error('[SigningEngine] Tempo secp256k1 signing requires thresholdEcdsaKeyRef');
+    throw new Error('[SigningEngine] secp256k1 signing requires thresholdEcdsaKeyRef');
   }
   if (args.request.senderSignatureAlgorithm === 'secp256k1') {
-    const target = deriveSmartAccountDeploymentTargetFromTempoRequest(args.request);
+    const target = deriveSmartAccountDeploymentTargetFromSigningRequest(args.request);
     const deploymentMode = resolveSmartAccountDeploymentMode(deps.tatchiPasskeyConfigs);
     try {
       await ensureSmartAccountDeployed({
@@ -96,7 +98,7 @@ export async function signTempo(
 
   const [{ signTempoWithSecureConfirm }, { Secp256k1Engine }, { WebAuthnP256Engine }] =
     await Promise.all([
-      import('../../chainAdaptors/tempo/tempoSigningFlow'),
+      import('../../orchestration/tempo/tempoSigningFlow'),
       import('../../signers/algorithms/secp256k1'),
       import('../../signers/algorithms/webauthnP256'),
     ]);

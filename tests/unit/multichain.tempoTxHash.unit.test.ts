@@ -2,7 +2,8 @@ import { test, expect } from '@playwright/test';
 
 const IMPORT_PATHS = {
   tempoSignerWasm: '/sdk/esm/core/signingEngine/signers/wasm/tempoSignerWasm.js',
-  signerGateway: '/sdk/esm/core/signingEngine/workers/signerWorkerManager/gateway.js',
+  signerGateway:
+    '/sdk/esm/core/signingEngine/workerManager/workerTransport.js',
 } as const;
 
 test.describe('TempoTransaction sender hash', () => {
@@ -13,12 +14,12 @@ test.describe('TempoTransaction sender hash', () => {
   test('omits feeToken when fee payer is present (placeholder mode)', async ({ page }) => {
     const res = await page.evaluate(async ({ paths }) => {
       const { computeTempoSenderHashWasm } = await import(paths.tempoSignerWasm);
-      const { requestMultichainWorkerOperation } = await import(paths.signerGateway);
+      const { requestWorkerOperation } = await import(paths.signerGateway);
       const hex = (bytes: Uint8Array) =>
         `0x${Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('')}`;
       const workerCtx = {
         requestWorkerOperation: async ({ kind, request }: { kind: string; request: unknown }) =>
-          await requestMultichainWorkerOperation({ kind: kind as any, request: request as any }),
+          await requestWorkerOperation({ kind: kind as any, request: request as any }),
       };
 
       const mkTx = (feeToken: string) => ({
@@ -49,12 +50,12 @@ test.describe('TempoTransaction sender hash', () => {
   test('includes feeToken when no fee payer is present', async ({ page }) => {
     const res = await page.evaluate(async ({ paths }) => {
       const { computeTempoSenderHashWasm } = await import(paths.tempoSignerWasm);
-      const { requestMultichainWorkerOperation } = await import(paths.signerGateway);
+      const { requestWorkerOperation } = await import(paths.signerGateway);
       const hex = (bytes: Uint8Array) =>
         `0x${Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('')}`;
       const workerCtx = {
         requestWorkerOperation: async ({ kind, request }: { kind: string; request: unknown }) =>
-          await requestMultichainWorkerOperation({ kind: kind as any, request: request as any }),
+          await requestWorkerOperation({ kind: kind as any, request: request as any }),
       };
 
       const mkTx = (feeToken: string) => ({

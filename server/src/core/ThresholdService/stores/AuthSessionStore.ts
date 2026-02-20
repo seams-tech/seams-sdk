@@ -9,14 +9,14 @@ import {
   toThresholdEcdsaPrefixFromBase,
   toThresholdEd25519AuthPrefix,
   toThresholdEd25519PrefixFromBase,
-  parseThresholdEd25519AuthSessionRecord,
+  parseEd25519AuthSessionRecord,
 } from '../validation';
 import {
   createCloudflareDurableObjectThresholdEcdsaStores,
   createCloudflareDurableObjectThresholdEd25519Stores,
 } from './CloudflareDurableObjectStore';
 
-export type ThresholdEd25519AuthSessionRecord = {
+export type Ed25519AuthSessionRecord = {
   expiresAtMs: number;
   relayerKeyId: string;
   userId: string;
@@ -28,13 +28,13 @@ export type ThresholdEd25519AuthConsumeUsesResult =
   | { ok: true; remainingUses: number }
   | { ok: false; code: string; message: string };
 
-export interface ThresholdEd25519AuthSessionStore {
+export interface Ed25519AuthSessionStore {
   putSession(
     id: string,
-    record: ThresholdEd25519AuthSessionRecord,
+    record: Ed25519AuthSessionRecord,
     opts: { ttlMs: number; remainingUses: number },
   ): Promise<void>;
-  getSession(id: string): Promise<ThresholdEd25519AuthSessionRecord | null>;
+  getSession(id: string): Promise<Ed25519AuthSessionRecord | null>;
   /**
    * Consume one use from the session counter without fetching the session record.
    *
@@ -44,9 +44,9 @@ export interface ThresholdEd25519AuthSessionStore {
   consumeUseCount(id: string): Promise<ThresholdEd25519AuthConsumeUsesResult>;
 }
 
-class InMemoryThresholdEd25519AuthSessionStore implements ThresholdEd25519AuthSessionStore {
+class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   private readonly keyPrefix: string;
-  private readonly map = new Map<string, { record: ThresholdEd25519AuthSessionRecord; remainingUses: number; expiresAtMs: number }>();
+  private readonly map = new Map<string, { record: Ed25519AuthSessionRecord; remainingUses: number; expiresAtMs: number }>();
 
   constructor(input: { keyPrefix?: string }) {
     this.keyPrefix = toThresholdEd25519AuthPrefix(input.keyPrefix);
@@ -58,7 +58,7 @@ class InMemoryThresholdEd25519AuthSessionStore implements ThresholdEd25519AuthSe
 
   async putSession(
     id: string,
-    record: ThresholdEd25519AuthSessionRecord,
+    record: Ed25519AuthSessionRecord,
     opts: { ttlMs: number; remainingUses: number },
   ): Promise<void> {
     const key = this.key(id);
@@ -67,7 +67,7 @@ class InMemoryThresholdEd25519AuthSessionStore implements ThresholdEd25519AuthSe
     this.map.set(key, { record, remainingUses: Math.max(0, Number(opts.remainingUses) || 0), expiresAtMs });
   }
 
-  async getSession(id: string): Promise<ThresholdEd25519AuthSessionRecord | null> {
+  async getSession(id: string): Promise<Ed25519AuthSessionRecord | null> {
     const key = this.key(id);
     const entry = this.map.get(key);
     if (!entry) return null;
@@ -94,7 +94,7 @@ class InMemoryThresholdEd25519AuthSessionStore implements ThresholdEd25519AuthSe
   }
 }
 
-class UpstashRedisRestThresholdEd25519AuthSessionStore implements ThresholdEd25519AuthSessionStore {
+class UpstashRedisRestEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   private readonly client: UpstashRedisRestClient;
   private readonly keyPrefix: string;
 
@@ -117,7 +117,7 @@ class UpstashRedisRestThresholdEd25519AuthSessionStore implements ThresholdEd255
 
   async putSession(
     id: string,
-    record: ThresholdEd25519AuthSessionRecord,
+    record: Ed25519AuthSessionRecord,
     opts: { ttlMs: number; remainingUses: number },
   ): Promise<void> {
     const ttlMs = Math.max(0, Number(opts.ttlMs) || 0);
@@ -125,9 +125,9 @@ class UpstashRedisRestThresholdEd25519AuthSessionStore implements ThresholdEd255
     await this.client.setRaw(this.usesKey(id), String(Math.max(0, Number(opts.remainingUses) || 0)), ttlMs);
   }
 
-  async getSession(id: string): Promise<ThresholdEd25519AuthSessionRecord | null> {
+  async getSession(id: string): Promise<Ed25519AuthSessionRecord | null> {
     const raw = await this.client.getJson(this.metaKey(id));
-    return parseThresholdEd25519AuthSessionRecord(raw);
+    return parseEd25519AuthSessionRecord(raw);
   }
 
   async consumeUseCount(id: string): Promise<ThresholdEd25519AuthConsumeUsesResult> {
@@ -144,7 +144,7 @@ class UpstashRedisRestThresholdEd25519AuthSessionStore implements ThresholdEd255
   }
 }
 
-class RedisTcpThresholdEd25519AuthSessionStore implements ThresholdEd25519AuthSessionStore {
+class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   private readonly client: RedisTcpClient;
   private readonly keyPrefix: string;
 
@@ -165,7 +165,7 @@ class RedisTcpThresholdEd25519AuthSessionStore implements ThresholdEd25519AuthSe
 
   async putSession(
     id: string,
-    record: ThresholdEd25519AuthSessionRecord,
+    record: Ed25519AuthSessionRecord,
     opts: { ttlMs: number; remainingUses: number },
   ): Promise<void> {
     const ttlMs = Math.max(0, Number(opts.ttlMs) || 0);
@@ -176,9 +176,9 @@ class RedisTcpThresholdEd25519AuthSessionStore implements ThresholdEd25519AuthSe
     if (resp.type === 'error') throw new Error(`Redis SET error: ${resp.value}`);
   }
 
-  async getSession(id: string): Promise<ThresholdEd25519AuthSessionRecord | null> {
+  async getSession(id: string): Promise<Ed25519AuthSessionRecord | null> {
     const raw = await redisGetJson(this.client, this.metaKey(id));
-    return parseThresholdEd25519AuthSessionRecord(raw);
+    return parseEd25519AuthSessionRecord(raw);
   }
 
   async consumeUseCount(id: string): Promise<ThresholdEd25519AuthConsumeUsesResult> {
@@ -200,7 +200,7 @@ class RedisTcpThresholdEd25519AuthSessionStore implements ThresholdEd25519AuthSe
   }
 }
 
-class PostgresThresholdEd25519AuthSessionStore implements ThresholdEd25519AuthSessionStore {
+class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
   private readonly namespace: string;
 
@@ -211,14 +211,14 @@ class PostgresThresholdEd25519AuthSessionStore implements ThresholdEd25519AuthSe
 
   async putSession(
     id: string,
-    record: ThresholdEd25519AuthSessionRecord,
+    record: Ed25519AuthSessionRecord,
     opts: { ttlMs: number; remainingUses: number },
   ): Promise<void> {
     const ttlMs = Math.max(0, Number(opts.ttlMs) || 0);
     const expiresAtMs = Date.now() + ttlMs;
     const remainingUses = Math.max(0, Number(opts.remainingUses) || 0);
     const storedRecord = { ...record, expiresAtMs };
-    const parsed = parseThresholdEd25519AuthSessionRecord(storedRecord);
+    const parsed = parseEd25519AuthSessionRecord(storedRecord);
     if (!parsed) throw new Error('Invalid threshold auth session record');
     const pool = await this.poolPromise;
     await pool.query(
@@ -232,7 +232,7 @@ class PostgresThresholdEd25519AuthSessionStore implements ThresholdEd25519AuthSe
     );
   }
 
-  async getSession(id: string): Promise<ThresholdEd25519AuthSessionRecord | null> {
+  async getSession(id: string): Promise<Ed25519AuthSessionRecord | null> {
     const pool = await this.poolPromise;
     const nowMs = Date.now();
     const { rows } = await pool.query(
@@ -244,7 +244,7 @@ class PostgresThresholdEd25519AuthSessionStore implements ThresholdEd25519AuthSe
       `,
       [this.namespace, 'auth', id, nowMs],
     );
-    return parseThresholdEd25519AuthSessionRecord(rows[0]?.record_json);
+    return parseEd25519AuthSessionRecord(rows[0]?.record_json);
   }
 
   private async explainMissing(id: string, nowMs: number): Promise<{ code: string; message: string }> {
@@ -295,11 +295,11 @@ class PostgresThresholdEd25519AuthSessionStore implements ThresholdEd25519AuthSe
   }
 }
 
-export function createThresholdEd25519AuthSessionStore(input: {
+export function createEd25519AuthSessionStore(input: {
   config?: ThresholdEd25519KeyStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
-}): ThresholdEd25519AuthSessionStore {
+}): Ed25519AuthSessionStore {
   const doStores = createCloudflareDurableObjectThresholdEd25519Stores({ config: input.config, logger: input.logger });
   if (doStores) return doStores.authSessionStore;
 
@@ -317,10 +317,10 @@ export function createThresholdEd25519AuthSessionStore(input: {
     if (requirePersistent) {
       throw new Error('[threshold-ed25519] In-memory auth session store is not supported in this runtime; configure Upstash/Redis or Durable Objects');
     }
-    return new InMemoryThresholdEd25519AuthSessionStore({ keyPrefix: envPrefix || undefined });
+    return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix || undefined });
   }
   if (kind === 'upstash-redis-rest') {
-    return new UpstashRedisRestThresholdEd25519AuthSessionStore({
+    return new UpstashRedisRestEd25519AuthSessionStore({
       url: toOptionalTrimmedString(config.url) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL),
       token: toOptionalTrimmedString(config.token) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN),
       keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
@@ -332,9 +332,9 @@ export function createThresholdEd25519AuthSessionStore(input: {
         throw new Error('[threshold-ed25519] redis-tcp auth session store is not supported in this runtime; configure Upstash/Redis REST or Durable Objects');
       }
       input.logger.warn('[threshold-ed25519] redis-tcp auth session store is not supported in this runtime; falling back to in-memory');
-      return new InMemoryThresholdEd25519AuthSessionStore({ keyPrefix: envPrefix || undefined });
+      return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix || undefined });
     }
-    return new RedisTcpThresholdEd25519AuthSessionStore({
+    return new RedisTcpEd25519AuthSessionStore({
       redisUrl: toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL),
       keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
     });
@@ -346,7 +346,7 @@ export function createThresholdEd25519AuthSessionStore(input: {
     const postgresUrl = getPostgresUrlFromConfig(config);
     if (!postgresUrl) throw new Error('[threshold-ed25519] postgres auth session store enabled but POSTGRES_URL is not set');
     input.logger.info('[threshold-ed25519] Using Postgres store for threshold auth sessions');
-    return new PostgresThresholdEd25519AuthSessionStore({ postgresUrl, namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix });
+    return new PostgresEd25519AuthSessionStore({ postgresUrl, namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix });
   }
 
   // Env-shaped config: prefer Redis/Upstash for auth session storage (TTL + counters) to avoid Postgres churn.
@@ -357,7 +357,7 @@ export function createThresholdEd25519AuthSessionStore(input: {
       throw new Error('Upstash auth session store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set');
     }
     input.logger.info('[threshold-ed25519] Using Upstash REST store for threshold auth sessions');
-    return new UpstashRedisRestThresholdEd25519AuthSessionStore({ url: upstashUrl, token: upstashToken, keyPrefix: envPrefix || undefined });
+    return new UpstashRedisRestEd25519AuthSessionStore({ url: upstashUrl, token: upstashToken, keyPrefix: envPrefix || undefined });
   }
 
   const redisUrl = toOptionalTrimmedString(config.REDIS_URL);
@@ -367,10 +367,10 @@ export function createThresholdEd25519AuthSessionStore(input: {
         throw new Error('[threshold-ed25519] REDIS_URL is set but TCP Redis is not supported in this runtime; use Upstash/Redis REST or Durable Objects');
       }
       input.logger.warn('[threshold-ed25519] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory');
-      return new InMemoryThresholdEd25519AuthSessionStore({ keyPrefix: envPrefix || undefined });
+      return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix || undefined });
     }
     input.logger.info('[threshold-ed25519] Using redis-tcp store for threshold auth sessions');
-    return new RedisTcpThresholdEd25519AuthSessionStore({ redisUrl, keyPrefix: envPrefix || undefined });
+    return new RedisTcpEd25519AuthSessionStore({ redisUrl, keyPrefix: envPrefix || undefined });
   }
 
   const postgresUrl = getPostgresUrlFromConfig(config);
@@ -379,21 +379,21 @@ export function createThresholdEd25519AuthSessionStore(input: {
       throw new Error('[threshold-ed25519] POSTGRES_URL is set but Postgres is not supported in this runtime');
     }
     input.logger.info('[threshold-ed25519] Using Postgres store for threshold auth sessions');
-    return new PostgresThresholdEd25519AuthSessionStore({ postgresUrl, namespace: envPrefix || '' });
+    return new PostgresEd25519AuthSessionStore({ postgresUrl, namespace: envPrefix || '' });
   }
 
   if (requirePersistent) {
     throw new Error('[threshold-ed25519] Threshold auth sessions require persistent storage in this runtime; configure UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN or Durable Objects');
   }
   input.logger.info('[threshold-ed25519] Using in-memory auth session store for threshold sessions (non-persistent)');
-  return new InMemoryThresholdEd25519AuthSessionStore({ keyPrefix: envPrefix || undefined });
+  return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix || undefined });
 }
 
-export function createThresholdEcdsaAuthSessionStore(input: {
+export function createEcdsaAuthSessionStore(input: {
   config?: ThresholdEd25519KeyStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
-}): ThresholdEd25519AuthSessionStore {
+}): Ed25519AuthSessionStore {
   const doStores = createCloudflareDurableObjectThresholdEcdsaStores({ config: input.config, logger: input.logger });
   if (doStores) return doStores.authSessionStore;
 
@@ -411,10 +411,10 @@ export function createThresholdEcdsaAuthSessionStore(input: {
     if (requirePersistent) {
       throw new Error('[threshold-ecdsa] In-memory auth session store is not supported in this runtime; configure Upstash/Redis or Durable Objects');
     }
-    return new InMemoryThresholdEd25519AuthSessionStore({ keyPrefix: envPrefix });
+    return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix });
   }
   if (kind === 'upstash-redis-rest') {
-    return new UpstashRedisRestThresholdEd25519AuthSessionStore({
+    return new UpstashRedisRestEd25519AuthSessionStore({
       url: toOptionalTrimmedString(config.url) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL),
       token: toOptionalTrimmedString(config.token) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN),
       keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
@@ -426,9 +426,9 @@ export function createThresholdEcdsaAuthSessionStore(input: {
         throw new Error('[threshold-ecdsa] redis-tcp auth session store is not supported in this runtime; configure Upstash/Redis REST or Durable Objects');
       }
       input.logger.warn('[threshold-ecdsa] redis-tcp auth session store is not supported in this runtime; falling back to in-memory');
-      return new InMemoryThresholdEd25519AuthSessionStore({ keyPrefix: envPrefix });
+      return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix });
     }
-    return new RedisTcpThresholdEd25519AuthSessionStore({
+    return new RedisTcpEd25519AuthSessionStore({
       redisUrl: toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL),
       keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
     });
@@ -440,7 +440,7 @@ export function createThresholdEcdsaAuthSessionStore(input: {
     const postgresUrl = getPostgresUrlFromConfig(config);
     if (!postgresUrl) throw new Error('[threshold-ecdsa] postgres auth session store enabled but POSTGRES_URL is not set');
     input.logger.info('[threshold-ecdsa] Using Postgres store for threshold auth sessions');
-    return new PostgresThresholdEd25519AuthSessionStore({ postgresUrl, namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix });
+    return new PostgresEd25519AuthSessionStore({ postgresUrl, namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix });
   }
 
   // Env-shaped config: prefer Redis/Upstash for auth session storage (TTL + counters) to avoid Postgres churn.
@@ -451,7 +451,7 @@ export function createThresholdEcdsaAuthSessionStore(input: {
       throw new Error('Upstash auth session store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set');
     }
     input.logger.info('[threshold-ecdsa] Using Upstash REST store for threshold auth sessions');
-    return new UpstashRedisRestThresholdEd25519AuthSessionStore({ url: upstashUrl, token: upstashToken, keyPrefix: envPrefix });
+    return new UpstashRedisRestEd25519AuthSessionStore({ url: upstashUrl, token: upstashToken, keyPrefix: envPrefix });
   }
 
   const redisUrl = toOptionalTrimmedString(config.REDIS_URL);
@@ -461,10 +461,10 @@ export function createThresholdEcdsaAuthSessionStore(input: {
         throw new Error('[threshold-ecdsa] REDIS_URL is set but TCP Redis is not supported in this runtime; use Upstash/Redis REST or Durable Objects');
       }
       input.logger.warn('[threshold-ecdsa] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory');
-      return new InMemoryThresholdEd25519AuthSessionStore({ keyPrefix: envPrefix });
+      return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix });
     }
     input.logger.info('[threshold-ecdsa] Using redis-tcp store for threshold auth sessions');
-    return new RedisTcpThresholdEd25519AuthSessionStore({ redisUrl, keyPrefix: envPrefix });
+    return new RedisTcpEd25519AuthSessionStore({ redisUrl, keyPrefix: envPrefix });
   }
 
   const postgresUrl = getPostgresUrlFromConfig(config);
@@ -473,12 +473,12 @@ export function createThresholdEcdsaAuthSessionStore(input: {
       throw new Error('[threshold-ecdsa] POSTGRES_URL is set but Postgres is not supported in this runtime');
     }
     input.logger.info('[threshold-ecdsa] Using Postgres store for threshold auth sessions');
-    return new PostgresThresholdEd25519AuthSessionStore({ postgresUrl, namespace: envPrefix });
+    return new PostgresEd25519AuthSessionStore({ postgresUrl, namespace: envPrefix });
   }
 
   if (requirePersistent) {
     throw new Error('[threshold-ecdsa] Threshold auth sessions require persistent storage in this runtime; configure UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN or Durable Objects');
   }
   input.logger.info('[threshold-ecdsa] Using in-memory auth session store for threshold sessions (non-persistent)');
-  return new InMemoryThresholdEd25519AuthSessionStore({ keyPrefix: envPrefix });
+  return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix });
 }

@@ -21,14 +21,14 @@ import {
   activateNearThresholdKeyNoPrompt,
   activateThresholdKeyForChain,
 } from '../../orchestration/activation';
-import { enrollThresholdEd25519KeyHandler } from '../../threshold/workflows/enrollThresholdEd25519Key';
-import { rotateThresholdEd25519KeyPostRegistrationHandler } from '../../threshold/workflows/rotateThresholdEd25519KeyPostRegistration';
+import { enrollEd25519KeyHandler } from '../../threshold/workflows/enrollEd25519Key';
+import { rotateEd25519KeyPostRegistrationHandler } from '../../threshold/workflows/rotateEd25519KeyPostRegistration';
 import { collectAuthenticationCredentialForChallengeB64u } from '../../signers/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
 import { getPrfResultsFromCredential } from '../../signers/webauthn/credentials/credentialExtensions';
 import { getLastLoggedInDeviceNumber } from '../../signers/webauthn/device/getDeviceNumber';
 import type { TouchIdPrompt } from '../../signers/webauthn/prompt/touchIdPrompt';
-import type { SignerWorkerManagerContext } from '../../workers/signerWorkerManager';
-import type { NearSigningKeyOpsService } from '../../workers/signerWorkerManager/nearKeyOpsService';
+import type { SignerWorkerManagerContext } from '../../workerManager';
+import type { NearSigningKeyOps } from '../../interfaces/nearKeyOps';
 
 const DUMMY_WRAP_KEY_SALT_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
@@ -45,7 +45,7 @@ type SignTransactionsWithActionsInput = {
 export type ThresholdEd25519LifecycleDeps = {
   indexedDB: UnifiedIndexedDBManager;
   touchIdPrompt: Pick<TouchIdPrompt, 'getRpId' | 'getAuthenticationCredentialsSerializedForChallengeB64u'>;
-  signingKeyOps: Pick<NearSigningKeyOpsService, 'deriveThresholdEd25519ClientVerifyingShare'>;
+  signingKeyOps: Pick<NearSigningKeyOps, 'deriveThresholdEd25519ClientVerifyingShare'>;
   getSignerWorkerRequestOperation: () => SignerWorkerManagerContext['requestWorkerOperation'];
   createSessionId: (prefix: string) => string;
   nearClient: NearClient;
@@ -216,7 +216,7 @@ export async function rotateThresholdEd25519KeyPostRegistration(
       throw new Error(enrollment.error || 'Threshold keygen/enrollment failed');
     }
 
-    return await rotateThresholdEd25519KeyPostRegistrationHandler(
+    return await rotateEd25519KeyPostRegistrationHandler(
       {
         nearClient: deps.nearClient,
         contractId: deps.contractId,
@@ -276,7 +276,7 @@ export async function enrollThresholdEd25519Key(
       throw new Error('Authentication credential required for threshold keygen');
     }
     const webauthnAuthentication: WebAuthnAuthenticationCredential = args.credential;
-    const keygen = await enrollThresholdEd25519KeyHandler(
+    const keygen = await enrollEd25519KeyHandler(
       {
         signingKeyOps: deps.signingKeyOps,
         touchIdPrompt: deps.touchIdPrompt,

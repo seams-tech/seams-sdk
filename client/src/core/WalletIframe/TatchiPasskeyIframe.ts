@@ -59,6 +59,7 @@ import type { WalletUIRegistry } from './host/lit-ui/iframe-lit-element-registry
 import type { DelegateActionInput, SignedDelegate } from '../types/delegate';
 import { buildConfigsFromEnv } from '../config/defaultConfigs';
 import { configureIndexedDB } from '../indexedDB';
+import type { EvmSignedResult } from '../signingEngine/chainAdaptors/evm/evmAdapter';
 import type { TempoSignedResult } from '../signingEngine/chainAdaptors/tempo/tempoAdapter';
 import type {
   BootstrapThresholdEcdsaSessionArgs,
@@ -165,15 +166,15 @@ export class TatchiPasskeyIframe {
       signTempo: async (args) => await this.signTempoDomain(args),
       signTempoWithThresholdEcdsa: async (args) =>
         await this.signTempoWithThresholdEcdsaDomain(args),
-      bootstrapThresholdEcdsaSession: async (args) =>
-        await this.bootstrapThresholdEcdsaSessionDomain({
+      bootstrapEcdsaSession: async (args) =>
+        await this.bootstrapEcdsaSessionDomain({
           nearAccountId: args.nearAccountId,
           options: { ...(args.options || {}), chain: 'tempo' },
         }),
     };
     this.evm = {
-      bootstrapThresholdEcdsaSession: async (args) =>
-        await this.bootstrapThresholdEcdsaSessionDomain({
+      bootstrapEcdsaSession: async (args) =>
+        await this.bootstrapEcdsaSessionDomain({
           nearAccountId: args.nearAccountId,
           options: { ...(args.options || {}), chain: 'evm' },
         }),
@@ -610,7 +611,7 @@ export class TatchiPasskeyIframe {
     return combined;
   }
 
-  private async signTempoDomain(args: SignTempoArgs): Promise<TempoSignedResult> {
+  private async signTempoDomain(args: SignTempoArgs): Promise<TempoSignedResult | EvmSignedResult> {
     await this.requireRouterReady();
     return await this.router.signTempo({
       nearAccountId: args.nearAccountId,
@@ -625,7 +626,7 @@ export class TatchiPasskeyIframe {
 
   private async signTempoWithThresholdEcdsaDomain(
     args: SignTempoWithThresholdEcdsaArgs,
-  ): Promise<TempoSignedResult> {
+  ): Promise<TempoSignedResult | EvmSignedResult> {
     if (args.request.senderSignatureAlgorithm !== 'secp256k1') {
       throw new Error(
         '[TatchiPasskeyIframe] signTempoWithThresholdEcdsa requires senderSignatureAlgorithm=secp256k1',
@@ -642,11 +643,11 @@ export class TatchiPasskeyIframe {
     });
   }
 
-  private async bootstrapThresholdEcdsaSessionDomain(
+  private async bootstrapEcdsaSessionDomain(
     args: BootstrapThresholdEcdsaSessionArgs,
   ): Promise<ThresholdEcdsaSessionBootstrapResult> {
     await this.requireRouterReady();
-    return await this.router.bootstrapThresholdEcdsaSession({
+    return await this.router.bootstrapEcdsaSession({
       nearAccountId: args.nearAccountId,
       options: args.options,
     });

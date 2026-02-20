@@ -10,7 +10,7 @@ function makeTempoRequest(requestId: string): any {
     payload: {
       nearAccountId: 'alice.testnet',
       request: {
-        chain: 'tempo',
+        chain: 'evm',
         kind: 'eip1559',
         senderSignatureAlgorithm: 'secp256k1',
         tx: {},
@@ -31,7 +31,7 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
         tempo: {
           signTempo: async () => {
             signCalls += 1;
-            return { chain: 'tempo', kind: 'eip1559', txHashHex: '0x1', rawTxHex: '0x2' } as any;
+            return { chain: 'evm', txHashHex: '0x1', rawTxHex: '0x2' } as any;
           },
         },
       } as any),
@@ -67,7 +67,7 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
             cancelled = true;
             expect(shouldAbort()).toBe(true);
             cancelled = false;
-            return { chain: 'tempo', kind: 'eip1559', txHashHex: '0x1', rawTxHex: '0x2' } as any;
+            return { chain: 'evm', txHashHex: '0x1', rawTxHex: '0x2' } as any;
           },
         },
       } as any),
@@ -85,15 +85,6 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
 });
 
 test.describe('wallet iframe host canonical signer error mapping', () => {
-  test('normalizes legacy CANCELLED into canonical cancelled', async () => {
-    const code = resolveWalletBoundaryErrorCode({
-      requestType: 'PM_SIGN_TEMPO',
-      rawCode: 'CANCELLED',
-      message: 'Request cancelled',
-    });
-    expect(code).toBe('cancelled');
-  });
-
   test('maps threshold in-flight message to signing_in_progress', async () => {
     const code = resolveWalletBoundaryErrorCode({
       requestType: 'PM_SIGN_TEMPO',

@@ -428,7 +428,7 @@ export class ThresholdEcdsaSigningHandlers {
     this.createPresignSessionId = input.createPresignSessionId;
   }
 
-  async thresholdEcdsaPresignInit(input: {
+  async ecdsaPresignInit(input: {
     claims: ThresholdEcdsaSessionClaims;
     request: ThresholdEcdsaPresignInitRequest;
   }): Promise<ThresholdEcdsaPresignInitResponse> {
@@ -584,7 +584,7 @@ export class ThresholdEcdsaSigningHandlers {
     return { ok: false, code: 'internal', message: 'Failed to allocate presignSessionId; retry' };
   }
 
-  async thresholdEcdsaPresignStep(input: {
+  async ecdsaPresignStep(input: {
     claims: ThresholdEcdsaSessionClaims;
     request: ThresholdEcdsaPresignStepRequest;
   }): Promise<ThresholdEcdsaPresignStepResponse> {
@@ -853,7 +853,7 @@ export class ThresholdEcdsaSigningHandlers {
     };
   }
 
-  async thresholdEcdsaSignInit(request: ThresholdEcdsaSignInitRequest): Promise<ThresholdEcdsaSignInitResponse> {
+  async ecdsaSignInit(request: ThresholdEcdsaSignInitRequest): Promise<ThresholdEcdsaSignInitResponse> {
     const route = '/threshold-ecdsa/sign/init';
 
     if (this.nodeRole !== 'coordinator') {
@@ -939,7 +939,7 @@ export class ThresholdEcdsaSigningHandlers {
     };
   }
 
-  async thresholdEcdsaSignFinalize(request: ThresholdEcdsaSignFinalizeRequest): Promise<ThresholdEcdsaSignFinalizeResponse> {
+  async ecdsaSignFinalize(request: ThresholdEcdsaSignFinalizeRequest): Promise<ThresholdEcdsaSignFinalizeResponse> {
     const route = '/threshold-ecdsa/sign/finalize';
 
     if (this.nodeRole !== 'coordinator') {

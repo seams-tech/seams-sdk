@@ -1,5 +1,6 @@
 import type {
   SigningEnginePublic,
+  ThresholdEcdsaActivationChain,
   ThresholdEcdsaSessionBootstrapResult,
 } from '../signingEngine/SigningEngine';
 import type { NearClient, SignedTransaction } from '../rpcClients/near/NearClient';
@@ -39,9 +40,10 @@ import type { AccountId } from '../types/accountIds';
 import type { ActionArgs, TransactionInput } from '../types/actions';
 import type { DelegateActionInput, SignedDelegate } from '../types/delegate';
 import type {
-  TempoSecp256k1SigningRequest,
-  TempoSigningRequest,
+  MultichainSecp256k1SigningRequest,
+  MultichainSigningRequest,
 } from '../signingEngine/chainAdaptors/tempo/types';
+import type { EvmSignedResult } from '../signingEngine/chainAdaptors/evm/evmAdapter';
 import type { TempoSignedResult } from '../signingEngine/chainAdaptors/tempo/tempoAdapter';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../signingEngine/interfaces/signing';
 import type {
@@ -60,7 +62,7 @@ import type {
 
 export type SignTempoArgs = {
   nearAccountId: string;
-  request: TempoSigningRequest;
+  request: MultichainSigningRequest;
   options?: {
     confirmationConfig?: Partial<ConfirmationConfig>;
     thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
@@ -78,7 +80,7 @@ export type SignTempoArgs = {
 
 export type SignTempoWithThresholdEcdsaArgs = {
   nearAccountId: string;
-  request: TempoSecp256k1SigningRequest;
+  request: MultichainSecp256k1SigningRequest;
   thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
   options?: {
     confirmationConfig?: Partial<ConfirmationConfig>;
@@ -88,7 +90,7 @@ export type SignTempoWithThresholdEcdsaArgs = {
 export type BootstrapThresholdEcdsaSessionArgs = {
   nearAccountId: string;
   options?: {
-    chain?: 'evm' | 'tempo';
+    chain?: ThresholdEcdsaActivationChain;
     relayerUrl?: string;
     participantIds?: number[];
     sessionKind?: 'jwt' | 'cookie';
@@ -189,17 +191,17 @@ export interface NearSignerCapability {
 }
 
 export interface TempoSignerCapability {
-  signTempo(args: SignTempoArgs): Promise<TempoSignedResult>;
+  signTempo(args: SignTempoArgs): Promise<TempoSignedResult | EvmSignedResult>;
   signTempoWithThresholdEcdsa(
     args: SignTempoWithThresholdEcdsaArgs,
-  ): Promise<TempoSignedResult>;
-  bootstrapThresholdEcdsaSession(
+  ): Promise<TempoSignedResult | EvmSignedResult>;
+  bootstrapEcdsaSession(
     args: BootstrapThresholdEcdsaSessionArgs,
   ): Promise<ThresholdEcdsaSessionBootstrapResult>;
 }
 
 export interface EvmSignerCapability {
-  bootstrapThresholdEcdsaSession(
+  bootstrapEcdsaSession(
     args: BootstrapThresholdEcdsaSessionArgs,
   ): Promise<ThresholdEcdsaSessionBootstrapResult>;
 }

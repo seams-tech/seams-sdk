@@ -9,7 +9,7 @@ import {
   parseThresholdEcdsaPresignSessionRecord,
   parseThresholdEcdsaPresignatureRelayerShareRecord,
   parseThresholdEcdsaSigningSessionRecord,
-  parseThresholdEd25519AuthSessionRecord,
+  parseEd25519AuthSessionRecord,
   parseThresholdEd25519CoordinatorSigningSessionRecord,
   parseThresholdEd25519KeyRecord,
   parseThresholdEd25519MpcSessionRecord,
@@ -27,8 +27,8 @@ import {
 } from '../validation';
 import type {
   ThresholdEd25519AuthConsumeUsesResult,
-  ThresholdEd25519AuthSessionRecord,
-  ThresholdEd25519AuthSessionStore,
+  Ed25519AuthSessionRecord,
+  Ed25519AuthSessionStore,
 } from './AuthSessionStore';
 import type { ThresholdEd25519KeyRecord, ThresholdEd25519KeyStore } from './KeyStore';
 import type {
@@ -80,7 +80,7 @@ type DoRequest =
   | DoEcdsaPresignSessionAdvanceCasRequest;
 
 type DoAuthEntry = {
-  record: ThresholdEd25519AuthSessionRecord;
+  record: Ed25519AuthSessionRecord;
   remainingUses: number;
   expiresAtMs: number;
 };
@@ -188,7 +188,7 @@ function computeSigningPrefixEcdsa(config: Record<string, unknown>): string {
   return toThresholdEcdsaSigningPrefix(explicit || toThresholdEcdsaPrefixFromBase(basePrefix, 'signing'));
 }
 
-export class CloudflareDurableObjectThresholdEd25519AuthSessionStore implements ThresholdEd25519AuthSessionStore {
+export class CloudflareDurableObjectEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   private readonly stub: DurableObjectStubLike;
   private readonly keyPrefix: string;
 
@@ -207,7 +207,7 @@ export class CloudflareDurableObjectThresholdEd25519AuthSessionStore implements 
 
   async putSession(
     id: string,
-    record: ThresholdEd25519AuthSessionRecord,
+    record: Ed25519AuthSessionRecord,
     opts: { ttlMs: number; remainingUses: number },
   ): Promise<void> {
     const ttlMs = Math.max(0, Number(opts.ttlMs) || 0);
@@ -221,12 +221,12 @@ export class CloudflareDurableObjectThresholdEd25519AuthSessionStore implements 
     if (!resp.ok) throw new Error(resp.message);
   }
 
-  async getSession(id: string): Promise<ThresholdEd25519AuthSessionRecord | null> {
+  async getSession(id: string): Promise<Ed25519AuthSessionRecord | null> {
     const resp = await callDo<unknown | null>(this.stub, { op: 'get', key: this.key(id) });
     if (!resp.ok) return null;
     const raw = resp.value;
     const entry = isObject(raw) ? raw as Record<string, unknown> : null;
-    const record = entry ? parseThresholdEd25519AuthSessionRecord((entry as { record?: unknown }).record) : null;
+    const record = entry ? parseEd25519AuthSessionRecord((entry as { record?: unknown }).record) : null;
     const expiresAtMs = entry ? (entry as { expiresAtMs?: unknown }).expiresAtMs : null;
     if (!record || typeof expiresAtMs !== 'number' || !Number.isFinite(expiresAtMs)) return null;
     if (Date.now() > expiresAtMs) return null;
@@ -540,7 +540,7 @@ export function createCloudflareDurableObjectThresholdEd25519Stores(input: {
 }): {
   keyStore: ThresholdEd25519KeyStore;
   sessionStore: ThresholdEd25519SessionStore;
-  authSessionStore: ThresholdEd25519AuthSessionStore;
+  authSessionStore: Ed25519AuthSessionStore;
 } | null {
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
   const kind = toOptionalTrimmedString(config.kind);
@@ -564,7 +564,7 @@ export function createCloudflareDurableObjectThresholdEd25519Stores(input: {
   return {
     keyStore: new CloudflareDurableObjectThresholdEd25519KeyStore({ namespace, objectName, keyPrefix }),
     sessionStore: new CloudflareDurableObjectThresholdEd25519SessionStore({ namespace, objectName, keyPrefix: sessionPrefix }),
-    authSessionStore: new CloudflareDurableObjectThresholdEd25519AuthSessionStore({ namespace, objectName, keyPrefix: authPrefix }),
+    authSessionStore: new CloudflareDurableObjectEd25519AuthSessionStore({ namespace, objectName, keyPrefix: authPrefix }),
   };
 }
 
@@ -574,7 +574,7 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
 }): {
   keyStore: ThresholdEd25519KeyStore;
   sessionStore: ThresholdEd25519SessionStore;
-  authSessionStore: ThresholdEd25519AuthSessionStore;
+  authSessionStore: Ed25519AuthSessionStore;
   signingSessionStore: ThresholdEcdsaSigningSessionStore;
   presignSessionStore: ThresholdEcdsaPresignSessionStore;
   presignaturePool: ThresholdEcdsaPresignaturePool;
@@ -603,7 +603,7 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
   return {
     keyStore: new CloudflareDurableObjectThresholdEd25519KeyStore({ namespace, objectName, keyPrefix }),
     sessionStore: new CloudflareDurableObjectThresholdEd25519SessionStore({ namespace, objectName, keyPrefix: sessionPrefix }),
-    authSessionStore: new CloudflareDurableObjectThresholdEd25519AuthSessionStore({ namespace, objectName, keyPrefix: authPrefix }),
+    authSessionStore: new CloudflareDurableObjectEd25519AuthSessionStore({ namespace, objectName, keyPrefix: authPrefix }),
     signingSessionStore: new CloudflareDurableObjectThresholdEcdsaSigningSessionStore({ namespace, objectName, keyPrefix: signingPrefix }),
     presignSessionStore: new CloudflareDurableObjectThresholdEcdsaPresignSessionStore({ namespace, objectName, keyPrefix: presignPrefix }),
     presignaturePool: new CloudflareDurableObjectThresholdEcdsaPresignaturePool({ namespace, objectName, keyPrefix: presignPrefix }),

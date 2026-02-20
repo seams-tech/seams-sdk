@@ -34,22 +34,60 @@ function firstExistingLineMatch(paths, substring, repoRoot) {
   return null;
 }
 
+function collectSourceFiles(dir) {
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return [];
+  const out = [];
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const absolute = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...collectSourceFiles(absolute));
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    if (!absolute.endsWith('.ts') && !absolute.endsWith('.tsx')) continue;
+    if (absolute.endsWith('.d.ts')) continue;
+    out.push(absolute);
+  }
+  return out;
+}
+
+function findExistingPathViolations(paths, repoRoot) {
+  const violations = [];
+  for (const relativePath of paths) {
+    const absolutePath = path.join(repoRoot, relativePath);
+    if (!fs.existsSync(absolutePath)) continue;
+    violations.push({
+      file: toPosixPath(path.relative(repoRoot, absolutePath)),
+      line: null,
+      pattern: relativePath,
+      text: 'legacy artifact exists and must be removed',
+    });
+  }
+  return violations;
+}
+
 export function findWorkerRuntimeBoundaryViolations(repoRoot) {
-  const executeHelperFile = 'client/src/core/signingEngine/workers/operations/executeSignerWorkerOperation.ts';
+  const executeHelperFile = 'client/src/core/signingEngine/workerManager/executeWorkerOperation.ts';
+  const signingEngineRoot = path.join(repoRoot, 'client/src/core/signingEngine');
   const legacyWorkerRoot = 'client/src/core/workers';
-  const workerBoundaryFiles = [
-    'client/src/core/signingEngine/workers/signerWorkerManager/backends/multichainWorkerBackend.ts',
-    'client/src/core/signingEngine/workers/signerWorkerManager/backends/nearWorkerBackend.ts',
-    'client/src/core/signingEngine/workers/eth-signer.worker.ts',
-    'client/src/core/signingEngine/workers/tempo-signer.worker.ts',
-  ];
   const workerTransportFiles = [
-    'client/src/core/signingEngine/workers/signerWorkerManager/backends/multichainWorkerBackend.ts',
-    'client/src/core/signingEngine/workers/signerWorkerManager/backends/nearWorkerBackend.ts',
+    'client/src/core/signingEngine/workerManager/workerTransport.ts',
   ];
   const workerRuntimeFiles = [
-    'client/src/core/signingEngine/workers/eth-signer.worker.ts',
-    'client/src/core/signingEngine/workers/tempo-signer.worker.ts',
+    'client/src/core/signingEngine/workerManager/workers/eth-signer.worker.ts',
+    'client/src/core/signingEngine/workerManager/workers/tempo-signer.worker.ts',
+  ];
+  const forbiddenLegacyNearFiles = [
+    'client/src/core/signingEngine/workerManager/backends/multichainWorkerBackend.ts',
+    'client/src/core/signingEngine/workerManager/backends/nearWorkerBackend.ts',
+    'client/src/core/signingEngine/workerManager/backends/multichainSignerWorkerTransport.ts',
+    'client/src/core/signingEngine/workerManager/backends/nearSignerWorkerTransport.ts',
+    'client/src/core/signingEngine/workerManager/nearKeyOpsService.ts',
+    'client/src/core/signingEngine/workerManager/gateway.ts',
+  ];
+  const forbiddenLegacyWorkerRoots = [
+    'client/src/core/signingEngine/workers',
   ];
 
   const checks = [];
@@ -82,24 +120,16 @@ export function findWorkerRuntimeBoundaryViolations(repoRoot) {
     violations: legacyWorkerRootViolations,
   });
 
-  const contractVersionMatch = firstExistingLineMatch(
-    workerBoundaryFiles,
-    'resolveSignerWorkerContractVersion',
-    repoRoot,
-  );
   checks.push({
-    id: 'worker-contract-version-guardrails',
-    description: 'signer worker backends/workers must enforce contract version guardrails',
-    violations: contractVersionMatch
-      ? []
-      : [
-          {
-            file: workerBoundaryFiles.join(','),
-            line: null,
-            pattern: 'resolveSignerWorkerContractVersion',
-            text: 'missing in expected worker boundary files',
-          },
-        ],
+    id: 'legacy-near-worker-artifacts-removed',
+    description: 'legacy NEAR worker transport/service shims must stay removed',
+    violations: findExistingPathViolations(forbiddenLegacyNearFiles, repoRoot),
+  });
+
+  checks.push({
+    id: 'no-top-level-signing-workers-root',
+    description: 'worker runtimes must stay nested under workerManager/workers',
+    violations: findExistingPathViolations(forbiddenLegacyWorkerRoots, repoRoot),
   });
 
   const typedErrorMatch = firstExistingLineMatch(
@@ -136,6 +166,39 @@ export function findWorkerRuntimeBoundaryViolations(repoRoot) {
             text: 'missing in expected worker runtime files',
           },
         ],
+  });
+
+  const legacyExecutionRequestViolations = [];
+  const signingEngineFiles = collectSourceFiles(signingEngineRoot);
+  for (const filePath of signingEngineFiles) {
+    legacyExecutionRequestViolations.push(
+      ...findSubstringLineMatches(filePath, 'NearEd25519ExecutionRequest', repoRoot),
+    );
+  }
+  checks.push({
+    id: 'no-near-execution-closure-request-type',
+    description: 'legacy NearEd25519ExecutionRequest type must not be reintroduced',
+    violations: legacyExecutionRequestViolations,
+  });
+
+  const legacyTransportSymbolPatterns = [
+    'requestMultichainWorkerOperation',
+    'NearSignerWorkerTransport',
+    'MultichainSignerWorkerTransport',
+    'preWarmWorkerPool',
+  ];
+  const legacyTransportSymbolViolations = [];
+  for (const filePath of signingEngineFiles) {
+    for (const pattern of legacyTransportSymbolPatterns) {
+      legacyTransportSymbolViolations.push(
+        ...findSubstringLineMatches(filePath, pattern, repoRoot),
+      );
+    }
+  }
+  checks.push({
+    id: 'no-legacy-signer-transport-symbols',
+    description: 'legacy split transport and worker-pool symbols must stay removed',
+    violations: legacyTransportSymbolViolations,
   });
 
   return {

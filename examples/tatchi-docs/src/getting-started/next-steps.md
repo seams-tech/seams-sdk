@@ -214,7 +214,7 @@ export function SignEvm(props: { nearAccountId: string; thresholdEcdsaKeyRef: an
 ## Troubleshooting
 
 - `threshold session expired` or `No cached threshold-ecdsa session token`
-  - Re-bootstrap the chain signer with `bootstrapThresholdEcdsaSession({ chain: 'tempo' | 'evm' })`, then retry signing.
+  - Re-bootstrap the chain signer with `bootstrapEcdsaSession({ chain: 'tempo' | 'evm' })`, then retry signing.
 - Missing Tempo/EVM keyRef in memory after reload
   - Re-run provisioning for both chains and cache the returned `thresholdEcdsaKeyRef` values.
 - Signing fails right after login due to session state

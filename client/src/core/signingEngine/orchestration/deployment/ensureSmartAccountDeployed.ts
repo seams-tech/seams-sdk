@@ -4,6 +4,7 @@ import type {
   ChainAccountRecord,
   UpsertChainAccountInput,
 } from '@/core/indexedDB/passkeyClientDB.types';
+import type { EvmSigningRequest } from '../../chainAdaptors/evm/types';
 import type { TempoSigningRequest } from '../../chainAdaptors/tempo/types';
 
 export type SmartAccountDeploymentChain = 'evm' | 'tempo';
@@ -275,10 +276,10 @@ function toChainIdFromBigint(prefix: 'eip155' | 'tempo', chainId: bigint): strin
   return `${prefix}:${String(chainId)}`;
 }
 
-export function deriveSmartAccountDeploymentTargetFromTempoRequest(
-  request: TempoSigningRequest,
+export function deriveSmartAccountDeploymentTargetFromSigningRequest(
+  request: EvmSigningRequest | TempoSigningRequest,
 ): SmartAccountDeploymentTarget {
-  if (request.kind === 'eip1559') {
+  if (request.chain === 'evm') {
     return {
       chain: 'evm',
       chainIdCandidates: [

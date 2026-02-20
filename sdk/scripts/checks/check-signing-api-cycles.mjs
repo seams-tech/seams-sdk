@@ -2,6 +2,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  findForbiddenOrchestrationImportsOutsideSigningEngine,
   findForbiddenSignerToAdapterImports,
   findSigningApiCrossLayerCycles,
 } from '../lib/signing-api-cycles.mjs';
@@ -12,6 +13,7 @@ function main() {
 
   const result = findSigningApiCrossLayerCycles(repoRoot);
   const signerBoundaryResult = findForbiddenSignerToAdapterImports(repoRoot);
+  const orchestrationBoundaryResult = findForbiddenOrchestrationImportsOutsideSigningEngine(repoRoot);
   if (result.error) {
     console.error(result.error);
     process.exit(1);
@@ -20,10 +22,18 @@ function main() {
     console.error(signerBoundaryResult.error);
     process.exit(1);
   }
+  if (orchestrationBoundaryResult.error) {
+    console.error(orchestrationBoundaryResult.error);
+    process.exit(1);
+  }
 
-  if (!result.cycles.length && !signerBoundaryResult.violations.length) {
+  if (
+    !result.cycles.length &&
+    !signerBoundaryResult.violations.length &&
+    !orchestrationBoundaryResult.violations.length
+  ) {
     console.log(
-      '[check-signing-api-cycles] OK: no api/lower-layer cycles and no signer->chainAdapter imports detected',
+      '[check-signing-api-cycles] OK: no api/lower-layer cycles, no signer->chainAdapter imports, and no external orchestration imports detected',
     );
     return;
   }
@@ -44,6 +54,16 @@ function main() {
       '[check-signing-api-cycles] failed: signers/algorithms must not import chainAdaptors',
     );
     for (const violation of signerBoundaryResult.violations) {
+      const location = violation.line ? `${violation.file}:${violation.line}` : violation.file;
+      console.error(`  - ${location} imports ${violation.specifier} -> ${violation.target}`);
+    }
+  }
+
+  if (orchestrationBoundaryResult.violations.length) {
+    console.error(
+      '[check-signing-api-cycles] failed: non-signingEngine modules must not import signingEngine/orchestration internals',
+    );
+    for (const violation of orchestrationBoundaryResult.violations) {
       const location = violation.line ? `${violation.file}:${violation.line}` : violation.file;
       console.error(`  - ${location} imports ${violation.specifier} -> ${violation.target}`);
     }

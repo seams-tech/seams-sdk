@@ -16,9 +16,9 @@ import {
   parseDeviceNumber,
 } from '@/core/signingEngine/signers/webauthn/device/getDeviceNumber';
 import {
-  isRelayerThresholdEd25519Configured,
+  isRelayerEd25519Configured,
   resolveSignerModeForThresholdSigning,
-} from '@/core/signingEngine/threshold/session/thresholdEd25519RelayerHealth';
+} from '@/core/signingEngine/threshold/session/ed25519RelayerHealth';
 
 export const DUMMY_WRAP_KEY_SALT_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
@@ -135,7 +135,7 @@ export async function resolveNearSigningMaterials(args: {
     !localKeyMaterial &&
     !!thresholdKeyMaterial
   ) {
-    const configured = await isRelayerThresholdEd25519Configured(relayerUrl).catch(() => false);
+    const configured = await isRelayerEd25519Configured(relayerUrl).catch(() => false);
     if (!configured) {
       throw new Error(
         '[SigningEngine] local-signer requested but no local key material found and the relayer is not configured for threshold signing',

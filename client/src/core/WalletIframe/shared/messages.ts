@@ -11,7 +11,7 @@ import { type DeviceLinkingQRData } from '../../types/linkDevice';
 import type { DelegateActionInput } from '../../types/delegate';
 import type { ConfirmationConfig } from '../../types/signer-worker';
 import type { SignerMode } from '../../types/signer-worker';
-import type { TempoSigningRequest } from '../../signingEngine/chainAdaptors/tempo/types';
+import type { MultichainSigningRequest } from '../../signingEngine/chainAdaptors/tempo/types';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../signingEngine/interfaces/signing';
 
 export type WalletProtocolVersion = '1.0.0';
@@ -247,7 +247,7 @@ export interface PMSignNep413Payload {
 
 export interface PMSignTempoPayload {
   nearAccountId: string;
-  request: TempoSigningRequest;
+  request: MultichainSigningRequest;
   options?: {
     confirmationConfig?: Partial<ConfirmationConfig>;
     thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;

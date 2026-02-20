@@ -19,3 +19,12 @@ export type Eip1559UnsignedTx = {
   data?: EvmBytes; // defaults to 0x
   accessList?: EvmAccessListItem[]; // defaults to []
 };
+
+export type EvmSigningRequest = {
+  chain: 'evm';
+  kind: 'eip1559';
+  tx: Eip1559UnsignedTx;
+  senderSignatureAlgorithm: 'secp256k1';
+};
+
+export type EvmSecp256k1SigningRequest = EvmSigningRequest;

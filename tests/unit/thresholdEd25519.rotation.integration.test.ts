@@ -5,7 +5,7 @@ import bs58 from 'bs58';
 import { ed25519 } from '@noble/curves/ed25519';
 
 const IMPORT_PATHS = {
-  nearKeysDb: sdkEsmPath('core/indexedDB/passkeyNearKeysDB/manager.js'),
+  indexedDb: sdkEsmPath('core/indexedDB/index.js'),
   tatchi: SDK_ESM_PATHS.tatchiPasskey,
 } as const;
 
@@ -399,14 +399,13 @@ test.describe('Threshold Ed25519 rotation helper', () => {
       // - rotate the threshold key and return the helper output for assertions
       try {
         const { TatchiPasskey } = await import(paths.tatchi);
-        const { PasskeyNearKeysDBManager } = await import(paths.nearKeysDb);
+        const { IndexedDBManager } = await import(paths.indexedDb);
         const suffix =
           (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
             ? crypto.randomUUID()
             : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
         const accountId = `e2e${suffix}.w3a-v1.testnet`;
-        const profileId = `legacy-near:${accountId.toLowerCase()}`;
-        const chainId = accountId.toLowerCase().endsWith('.testnet') ? 'near:testnet' : 'near:mainnet';
+        const normalizedAccountId = accountId.toLowerCase();
 
         const pm = new TatchiPasskey({
           nearNetwork: 'testnet',
@@ -450,19 +449,20 @@ test.describe('Threshold Ed25519 rotation helper', () => {
         }
 
         // Rotation requires the old threshold key material to already be stored.
-        const db = new PasskeyNearKeysDBManager();
         const start = Date.now();
         const maxWaitMs = 10_000;
         while (Date.now() - start < maxWaitMs) {
-          const existing = await db
-            .getKeyMaterialV2(profileId, 1, chainId, 'threshold_share_v1')
-            .catch(() => null);
+          const existing = await IndexedDBManager.getNearThresholdKeyMaterial(
+            normalizedAccountId,
+            1,
+          ).catch(() => null);
           if (existing) break;
           await new Promise((r) => setTimeout(r, 50));
         }
-        const existing = await db
-          .getKeyMaterialV2(profileId, 1, chainId, 'threshold_share_v1')
-          .catch(() => null);
+        const existing = await IndexedDBManager.getNearThresholdKeyMaterial(
+          normalizedAccountId,
+          1,
+        ).catch(() => null);
         if (!existing) {
           return { ok: false, accountId, error: 'threshold enrollment did not complete in time' };
         }
@@ -519,19 +519,17 @@ test.describe('Threshold Ed25519 rotation helper', () => {
     expect(Array.from(thresholdKeysOnChain)).toEqual([thresholdPublicKeyOld]);
 
     const stored = await page.evaluate(async ({ paths, accountId }) => {
-      const { PasskeyNearKeysDBManager } = await import(paths.nearKeysDb);
-      const db = new PasskeyNearKeysDBManager();
-      const profileId = `legacy-near:${String(accountId || '').trim().toLowerCase()}`;
-      const chainId = String(accountId || '').trim().toLowerCase().endsWith('.testnet')
-        ? 'near:testnet'
-        : 'near:mainnet';
-      const rec = await db.getKeyMaterialV2(profileId, 1, chainId, 'threshold_share_v1');
+      const { IndexedDBManager } = await import(paths.indexedDb);
+      const rec = await IndexedDBManager.getNearThresholdKeyMaterial(
+        String(accountId || '').trim().toLowerCase(),
+        1,
+      );
       return rec ? { ...rec } : null;
     }, { paths: IMPORT_PATHS, accountId: result.accountId });
 
-    expect(stored?.keyKind).toBe('threshold_share_v1');
+    expect(stored?.kind).toBe('threshold_ed25519_2p_v1');
     expect(stored?.publicKey).toBe(thresholdPublicKeyNew);
-    expect(String(stored?.payload?.relayerKeyId || '')).toBe(relayerKeyIdNew);
+    expect(String(stored?.relayerKeyId || '')).toBe(relayerKeyIdNew);
 
     page.off('console', onConsole);
     page.off('pageerror', onPageError);

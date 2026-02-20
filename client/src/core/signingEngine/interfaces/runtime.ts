@@ -10,7 +10,7 @@ import type {
   SignerWorkerOperationRequest,
   SignerWorkerOperationResult,
   SignerWorkerOperationType,
-} from '../workers/signerWorkerManager/backends/types';
+} from '../workerManager/workerTypes';
 
 /**
  * Runtime dependencies required by chain adapters/handlers.

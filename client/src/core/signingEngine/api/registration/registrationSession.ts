@@ -1,7 +1,7 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
-import type { RegistrationCredentialConfirmationPayload } from '../../workers/signerWorkerManager/internal/validation';
+import type { RegistrationCredentialConfirmationPayload } from '../../workerManager/validation';
 import type { SecureConfirmWorkerManager } from '../../secureConfirm';
 import type { TouchIdPrompt } from '../../signers/webauthn/prompt/touchIdPrompt';
 import type { WebAuthnAllowCredential } from '../../signers/webauthn/credentials';

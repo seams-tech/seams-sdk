@@ -1,17 +1,17 @@
 import type { KeyRef, SignRequest, SignatureBytes, Signer } from '../../interfaces/signing';
-import type { WorkerOperationContext } from '../../workers/operations/executeSignerWorkerOperation';
+import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
   deriveThresholdSecp256k1ClientShareWasm,
 } from '../wasm/ethSignerWasm';
-import { authorizeThresholdEcdsaWithSession } from '../../threshold/workflows/thresholdEcdsaAuthorize';
+import { authorizeEcdsaWithSession } from '../../threshold/workflows/authorizeEcdsa';
 import {
-  getCachedThresholdEcdsaAuthSession,
-  getCachedThresholdEcdsaAuthSessionJwt,
-  makeThresholdEcdsaAuthSessionCacheKey,
-} from '../../threshold/session/thresholdEcdsaAuthSession';
+  getCachedEcdsaAuthSession,
+  getCachedEcdsaAuthSessionJwt,
+  makeEcdsaAuthSessionCacheKey,
+} from '../../threshold/session/ecdsaAuthSession';
 import { signThresholdEcdsaDigestWithPool } from '../../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 
-type ThresholdEcdsaSessionKind = 'jwt' | 'cookie';
+type EcdsaSessionKind = 'jwt' | 'cookie';
 
 export type ThresholdEcdsaPrfFirstDispenseFn = (args: {
   sessionId: string;
@@ -54,7 +54,7 @@ export class Secp256k1Engine implements Signer {
     const cacheKeyCandidates: string[] = [];
     if (rpId) {
       cacheKeyCandidates.push(
-        makeThresholdEcdsaAuthSessionCacheKey({
+        makeEcdsaAuthSessionCacheKey({
           userId: keyRef.userId,
           rpId,
           relayerUrl: keyRef.relayerUrl,
@@ -66,7 +66,7 @@ export class Secp256k1Engine implements Signer {
       // Fallback for callers still holding pre-session keyRefs without participant ids.
       if (!Array.isArray(keyRef.participantIds) || keyRef.participantIds.length === 0) {
         cacheKeyCandidates.push(
-          makeThresholdEcdsaAuthSessionCacheKey({
+          makeEcdsaAuthSessionCacheKey({
             userId: keyRef.userId,
             rpId,
             relayerUrl: keyRef.relayerUrl,
@@ -78,9 +78,9 @@ export class Secp256k1Engine implements Signer {
     }
 
     let resolvedCacheKey: string | null = null;
-    let cachedThresholdSession: ReturnType<typeof getCachedThresholdEcdsaAuthSession> = null;
+    let cachedThresholdSession: ReturnType<typeof getCachedEcdsaAuthSession> = null;
     for (const candidate of cacheKeyCandidates) {
-      const cached = getCachedThresholdEcdsaAuthSession(candidate);
+      const cached = getCachedEcdsaAuthSession(candidate);
       if (cached) {
         resolvedCacheKey = candidate;
         cachedThresholdSession = cached;
@@ -92,20 +92,20 @@ export class Secp256k1Engine implements Signer {
       }
     }
 
-    const sessionKind: ThresholdEcdsaSessionKind = keyRef.thresholdSessionKind || 'jwt';
+    const sessionKind: EcdsaSessionKind = keyRef.thresholdSessionKind || 'jwt';
     const thresholdSessionJwt = sessionKind === 'jwt'
       ? (
-          (resolvedCacheKey ? getCachedThresholdEcdsaAuthSessionJwt(resolvedCacheKey) : undefined)
+          (resolvedCacheKey ? getCachedEcdsaAuthSessionJwt(resolvedCacheKey) : undefined)
           || keyRef.thresholdSessionJwt
         )
       : undefined;
 
     if (sessionKind === 'jwt' && !thresholdSessionJwt) {
-      throw new Error('[multichain] No cached threshold-ecdsa session token; call connectThresholdEcdsaSessionLite first');
+      throw new Error('[multichain] No cached threshold-ecdsa session token; call connectEcdsaSession first');
     }
 
     const purpose = String(req.label || 'secp256k1');
-    const authorized = await authorizeThresholdEcdsaWithSession({
+    const authorized = await authorizeEcdsaWithSession({
       relayerUrl: keyRef.relayerUrl,
       relayerKeyId: keyRef.relayerKeyId,
       clientVerifyingShareB64u: keyRef.clientVerifyingShareB64u,
@@ -125,7 +125,7 @@ export class Secp256k1Engine implements Signer {
       || ''
     ).trim();
     if (!thresholdSessionId) {
-      throw new Error('[multichain] Missing threshold-ecdsa sessionId; reconnect session via connectThresholdEcdsaSessionLite');
+      throw new Error('[multichain] Missing threshold-ecdsa sessionId; reconnect session via connectEcdsaSession');
     }
     if (!this.dispenseThresholdEcdsaPrfFirstForSession) {
       throw new Error('[multichain] Missing PRF.first dispenser for threshold-ecdsa signing');

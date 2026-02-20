@@ -255,3 +255,58 @@ export function findForbiddenSignerToAdapterImports(repoRoot) {
     error: null,
   };
 }
+
+export function findForbiddenOrchestrationImportsOutsideSigningEngine(repoRoot) {
+  const coreRoot = path.join(repoRoot, 'client/src/core');
+  const signingRoot = path.join(coreRoot, 'signingEngine');
+  const orchestrationRoot = path.join(signingRoot, 'orchestration');
+
+  if (!fs.existsSync(coreRoot)) {
+    return {
+      coreRoot,
+      violations: [],
+      error: `[check-signing-api-cycles] core root is missing: ${coreRoot}`,
+    };
+  }
+
+  if (!fs.existsSync(signingRoot)) {
+    return {
+      coreRoot,
+      violations: [],
+      error: `[check-signing-api-cycles] signing root is missing: ${signingRoot}`,
+    };
+  }
+
+  const allCoreFiles = collectSourceFiles(coreRoot);
+  const allCoreFileSet = new Set(allCoreFiles);
+  const violations = [];
+
+  for (const filePath of allCoreFiles) {
+    if (filePath.startsWith(`${signingRoot}${path.sep}`)) continue;
+    const imports = readImports(filePath);
+    for (const specifier of imports) {
+      const resolved = resolveImportTarget(
+        filePath,
+        specifier,
+        allCoreFileSet,
+        signingRoot,
+        repoRoot,
+      );
+      if (!resolved) continue;
+      if (!resolved.startsWith(`${orchestrationRoot}${path.sep}`)) continue;
+
+      violations.push({
+        file: toPosixPath(path.relative(repoRoot, filePath)),
+        line: findImportLine(filePath, specifier),
+        specifier,
+        target: toPosixPath(path.relative(repoRoot, resolved)),
+      });
+    }
+  }
+
+  return {
+    coreRoot,
+    violations,
+    error: null,
+  };
+}

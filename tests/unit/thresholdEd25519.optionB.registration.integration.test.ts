@@ -6,7 +6,7 @@ import { ed25519 } from '@noble/curves/ed25519';
 import { createHash } from 'node:crypto';
 
 const IMPORT_PATHS = {
-  nearKeysDb: sdkEsmPath('core/indexedDB/passkeyNearKeysDB/manager.js'),
+  indexedDb: sdkEsmPath('core/indexedDB/index.js'),
   tatchi: SDK_ESM_PATHS.tatchiPasskey,
 } as const;
 
@@ -439,13 +439,11 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
     await expect
       .poll(async () => {
         return await page.evaluate(async ({ paths, accountId }) => {
-          const { PasskeyNearKeysDBManager } = await import(paths.nearKeysDb);
-          const db = new PasskeyNearKeysDBManager();
-          const profileId = `legacy-near:${String(accountId || '').trim().toLowerCase()}`;
-          const chainId = String(accountId || '').trim().toLowerCase().endsWith('.testnet')
-            ? 'near:testnet'
-            : 'near:mainnet';
-          const rec = await db.getKeyMaterialV2(profileId, 1, chainId, 'threshold_share_v1');
+          const { IndexedDBManager } = await import(paths.indexedDb);
+          const rec = await IndexedDBManager.getNearThresholdKeyMaterial(
+            String(accountId || '').trim().toLowerCase(),
+            1,
+          );
           return !!rec;
         }, { paths: IMPORT_PATHS, accountId: registration.accountId });
       }, { timeout: 10_000 })
@@ -476,25 +474,21 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
     expect(thresholdReadyEvent?.relayerKeyId).toBe(relayerKeyId);
 
     const stored = await page.evaluate(async ({ paths, accountId }) => {
-      const { PasskeyNearKeysDBManager } = await import(paths.nearKeysDb);
-      const db = new PasskeyNearKeysDBManager();
-      const profileId = `legacy-near:${String(accountId || '').trim().toLowerCase()}`;
-      const chainId = String(accountId || '').trim().toLowerCase().endsWith('.testnet')
-        ? 'near:testnet'
-        : 'near:mainnet';
-      const thresholdRec = await db.getKeyMaterialV2(profileId, 1, chainId, 'threshold_share_v1');
-      const localRec = await db.getKeyMaterialV2(profileId, 1, chainId, 'local_sk_encrypted_v1');
+      const { IndexedDBManager } = await import(paths.indexedDb);
+      const normalizedAccountId = String(accountId || '').trim().toLowerCase();
+      const thresholdRec = await IndexedDBManager.getNearThresholdKeyMaterial(normalizedAccountId, 1);
+      const localRec = await IndexedDBManager.getNearLocalKeyMaterial(normalizedAccountId, 1);
       return {
         threshold: thresholdRec ? { ...thresholdRec } : null,
         local: localRec ? { ...localRec } : null,
       };
     }, { paths: IMPORT_PATHS, accountId: registration.accountId });
 
-    expect(stored?.threshold?.keyKind).toBe('threshold_share_v1');
+    expect(stored?.threshold?.kind).toBe('threshold_ed25519_2p_v1');
     expect(stored?.threshold?.publicKey).toBe(thresholdPublicKey);
-    expect(String(stored?.threshold?.payload?.relayerKeyId || '')).toBe(relayerKeyId);
-    expect(stored?.local?.keyKind).toBe('local_sk_encrypted_v1');
-    expect(String(stored?.local?.payload?.usage || '')).toBe('export-only');
+    expect(String(stored?.threshold?.relayerKeyId || '')).toBe(relayerKeyId);
+    expect(stored?.local?.kind).toBe('local_near_sk_v3');
+    expect(String(stored?.local?.usage || '')).toBe('export-only');
   });
 
   test('registration fails if relay omits threshold key material (no stored threshold material)', async ({ page }) => {
@@ -772,13 +766,11 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
     expect(localNearPublicKey).toBe('');
 
     const stored = await page.evaluate(async ({ paths, accountId }) => {
-      const { PasskeyNearKeysDBManager } = await import(paths.nearKeysDb);
-      const db = new PasskeyNearKeysDBManager();
-      const profileId = `legacy-near:${String(accountId || '').trim().toLowerCase()}`;
-      const chainId = String(accountId || '').trim().toLowerCase().endsWith('.testnet')
-        ? 'near:testnet'
-        : 'near:mainnet';
-      const rec = await db.getKeyMaterialV2(profileId, 1, chainId, 'threshold_share_v1');
+      const { IndexedDBManager } = await import(paths.indexedDb);
+      const rec = await IndexedDBManager.getNearThresholdKeyMaterial(
+        String(accountId || '').trim().toLowerCase(),
+        1,
+      );
       return rec ? { ...rec } : null;
     }, { paths: IMPORT_PATHS, accountId: registration.accountId });
 

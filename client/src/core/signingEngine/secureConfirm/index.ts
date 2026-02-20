@@ -23,7 +23,7 @@ import {
 } from './confirmTxFlow/types';
 import type { ConfirmationConfig } from '../../types/signer-worker';
 import type { ThemeName, ThemeTokenOverridesInput } from '../../types/tatchi';
-import type { RegistrationCredentialConfirmationPayload } from '../workers/signerWorkerManager/internal/validation';
+import type { RegistrationCredentialConfirmationPayload } from '../workerManager/validation';
 import { handlePromptUserConfirmInJsMainThread } from './confirmTxFlow';
 import type { SecureConfirmWorkerManagerHandlerContext } from './handlers/types';
 import {

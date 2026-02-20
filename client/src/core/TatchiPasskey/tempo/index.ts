@@ -1,3 +1,4 @@
+import type { EvmSignedResult } from '../../signingEngine/chainAdaptors/evm/evmAdapter';
 import type { TempoSignedResult } from '../../signingEngine/chainAdaptors/tempo/tempoAdapter';
 import { toError } from '@shared/utils/errors';
 import { toAccountId } from '../../types/accountIds';
@@ -29,7 +30,7 @@ export class TempoSigner implements TempoSignerCapability {
     this.walletIframe = deps.walletIframe;
   }
 
-  async signTempo(args: SignTempoArgs): Promise<TempoSignedResult> {
+  async signTempo(args: SignTempoArgs): Promise<TempoSignedResult | EvmSignedResult> {
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
       nearAccountId: args.nearAccountId,
@@ -62,7 +63,7 @@ export class TempoSigner implements TempoSignerCapability {
 
   async signTempoWithThresholdEcdsa(
     args: SignTempoWithThresholdEcdsaArgs,
-  ): Promise<TempoSignedResult> {
+  ): Promise<TempoSignedResult | EvmSignedResult> {
     if (args.request.senderSignatureAlgorithm !== 'secp256k1') {
       throw new Error(
         '[TatchiPasskey] signTempoWithThresholdEcdsa requires senderSignatureAlgorithm=secp256k1',
@@ -99,8 +100,8 @@ export class TempoSigner implements TempoSignerCapability {
     });
   }
 
-  async bootstrapThresholdEcdsaSession(
-    args: Parameters<TempoSignerCapability['bootstrapThresholdEcdsaSession']>[0],
+  async bootstrapEcdsaSession(
+    args: Parameters<TempoSignerCapability['bootstrapEcdsaSession']>[0],
   ) {
     const options = {
       ...(args.options || {}),
@@ -111,7 +112,7 @@ export class TempoSigner implements TempoSignerCapability {
       walletIframe: this.walletIframe,
       nearAccountId: args.nearAccountId,
       remote: async (router) => {
-        return await router.bootstrapThresholdEcdsaSession({
+        return await router.bootstrapEcdsaSession({
           nearAccountId: args.nearAccountId,
           options,
         });
@@ -120,7 +121,7 @@ export class TempoSigner implements TempoSignerCapability {
         return await this
           .getContext()
           .signingEngine
-          .bootstrapThresholdEcdsaSessionLite({
+          .bootstrapEcdsaSession({
             nearAccountId: toAccountId(args.nearAccountId),
             chain: options.chain,
             relayerUrl: options.relayerUrl,

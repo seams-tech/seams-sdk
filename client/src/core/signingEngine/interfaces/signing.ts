@@ -1,6 +1,6 @@
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
 
-export type ChainNamespace = 'near' | 'tempo';
+export type ChainNamespace = 'near' | 'evm' | 'tempo';
 
 export type SignatureAlgorithm = 'ed25519' | 'secp256k1' | 'webauthnP256';
 

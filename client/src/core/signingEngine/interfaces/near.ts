@@ -80,12 +80,7 @@ export type NearSigningRequest =
       payload: NearNep413Payload;
     };
 
-/**
- * Adapter-produced NEAR intent sign requests.
- * These carry high-level payloads and are converted by orchestration into
- * execution requests that the ed25519 engine can run.
- */
-export type NearEd25519IntentSignRequest =
+export type NearEd25519SignRequest =
   | {
       kind: 'near-transactions-with-actions';
       algorithm: 'ed25519';
@@ -100,28 +95,6 @@ export type NearEd25519IntentSignRequest =
       kind: 'near-nep413-message';
       algorithm: 'ed25519';
       payload: NearNep413Payload;
-    };
-
-/**
- * Engine-consumable NEAR ed25519 requests.
- * Orchestration prepares these as runnable execution units so the engine
- * does not own SecureConfirm/session orchestration concerns.
- */
-export type NearEd25519ExecutionRequest =
-  | {
-      kind: 'near-transactions-with-actions';
-      algorithm: 'ed25519';
-      execute: () => Promise<NearTransactionsWithActionsResult>;
-    }
-  | {
-      kind: 'near-delegate-action';
-      algorithm: 'ed25519';
-      execute: () => Promise<NearDelegateActionResult>;
-    }
-  | {
-      kind: 'near-nep413-message';
-      algorithm: 'ed25519';
-      execute: () => Promise<NearNep413Result>;
     };
 
 export type NearTransactionsWithActionsResult = Array<{

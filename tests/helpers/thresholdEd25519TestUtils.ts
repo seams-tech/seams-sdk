@@ -1,7 +1,7 @@
 import { ThresholdSigningService } from '@server/core/ThresholdService/ThresholdSigningService';
 import { createThresholdEd25519SessionStore } from '@server/core/ThresholdService/stores/SessionStore';
 import { createThresholdEcdsaSessionStore } from '@server/core/ThresholdService/stores/SessionStore';
-import { createThresholdEcdsaAuthSessionStore } from '@server/core/ThresholdService/stores/AuthSessionStore';
+import { createEcdsaAuthSessionStore } from '@server/core/ThresholdService/stores/AuthSessionStore';
 import { createThresholdEcdsaKeyStore } from '@server/core/ThresholdService/stores/KeyStore';
 import { createThresholdEcdsaSigningStores } from '@server/core/ThresholdService/stores/EcdsaSigningStore';
 import type { ThresholdEd25519KeyStoreConfigInput } from '@server/core/types';
@@ -42,7 +42,7 @@ export function createThresholdSigningServiceForUnitTests(input: {
     logger,
     isNode: true,
   });
-  const ecdsaAuthSessionStore = createThresholdEcdsaAuthSessionStore({
+  const ecdsaAuthSessionStore = createEcdsaAuthSessionStore({
     config: { kind: 'in-memory' },
     logger,
     isNode: true,

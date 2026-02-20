@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 const IMPORT_PATHS = {
   signTempoWithSecureConfirm:
-    '/sdk/esm/core/signingEngine/chainAdaptors/tempo/tempoSigningFlow/index.js',
+    '/sdk/esm/core/signingEngine/orchestration/tempo/tempoSigningFlow.js',
 } as const;
 
 test.describe('tempo signing auth-mode resolution', () => {
@@ -49,7 +49,7 @@ test.describe('tempo signing auth-mode resolution', () => {
           } as any,
           nearAccountId: 'alice.testnet',
           request: {
-            chain: 'tempo',
+            chain: 'evm',
             kind: 'eip1559',
             senderSignatureAlgorithm: 'secp256k1',
             tx: {
@@ -135,7 +135,7 @@ test.describe('tempo signing auth-mode resolution', () => {
         } as any,
         nearAccountId: 'alice.testnet',
         request: {
-          chain: 'tempo',
+          chain: 'evm',
           kind: 'eip1559',
           senderSignatureAlgorithm: 'secp256k1',
           tx: {
@@ -180,7 +180,7 @@ test.describe('tempo signing auth-mode resolution', () => {
     }, { paths: IMPORT_PATHS });
 
     expect(result.capturedAuthMode).toBe('warmSession');
-    expect(result.chain).toBe('tempo');
+    expect(result.chain).toBe('evm');
     expect(result.kind).toBe('eip1559');
   });
 });

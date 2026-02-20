@@ -22,8 +22,8 @@ export class EvmSigner implements EvmSignerCapability {
     this.walletIframe = deps.walletIframe;
   }
 
-  async bootstrapThresholdEcdsaSession(
-    args: Parameters<EvmSignerCapability['bootstrapThresholdEcdsaSession']>[0],
+  async bootstrapEcdsaSession(
+    args: Parameters<EvmSignerCapability['bootstrapEcdsaSession']>[0],
   ) {
     const options = {
       ...(args.options || {}),
@@ -34,13 +34,13 @@ export class EvmSigner implements EvmSignerCapability {
       walletIframe: this.walletIframe,
       nearAccountId: args.nearAccountId,
       remote: async (router) => {
-        return await router.bootstrapThresholdEcdsaSession({
+        return await router.bootstrapEcdsaSession({
           nearAccountId: args.nearAccountId,
           options,
         });
       },
       local: async () => {
-        return await this.getContext().signingEngine.bootstrapThresholdEcdsaSessionLite({
+        return await this.getContext().signingEngine.bootstrapEcdsaSession({
           nearAccountId: toAccountId(args.nearAccountId),
           chain: options.chain,
           relayerUrl: options.relayerUrl,

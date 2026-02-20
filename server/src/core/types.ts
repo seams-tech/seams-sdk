@@ -310,14 +310,14 @@ export interface CreateAccountAndRegisterRequest {
   device_number?: number;
   threshold_ed25519?: {
     client_verifying_share_b64u: string;
-    session_policy: Omit<ThresholdEd25519SessionPolicy, 'relayerKeyId'> & {
+    session_policy: Omit<Ed25519SessionPolicy, 'relayerKeyId'> & {
       relayerKeyId?: string;
     };
     session_kind: 'jwt' | 'cookie';
   };
   threshold_ecdsa?: {
     client_verifying_share_b64u: string;
-    session_policy: Omit<ThresholdEcdsaSessionPolicy, 'relayerKeyId'> & {
+    session_policy: Omit<EcdsaSessionPolicy, 'relayerKeyId'> & {
       relayerKeyId?: string;
     };
     session_kind: 'jwt' | 'cookie';
@@ -462,7 +462,7 @@ export interface VerifyAuthenticationResponse {
 
 export type ThresholdEd25519Purpose = 'near_tx' | 'nep461_delegate' | 'nep413' | string;
 
-export type ThresholdEd25519SessionPolicy = {
+export type Ed25519SessionPolicy = {
   version: 'threshold_session_v1';
   nearAccountId: string;
   rpId: string;
@@ -478,7 +478,7 @@ export interface ThresholdEd25519SessionRequest {
   relayerKeyId: string;
   /** Base64url-encoded 32-byte client verifying share (Ed25519 compressed point) for participant id=1. */
   clientVerifyingShareB64u: string;
-  sessionPolicy: ThresholdEd25519SessionPolicy;
+  sessionPolicy: Ed25519SessionPolicy;
   webauthn_authentication: WebAuthnAuthenticationCredential;
   // Optional: whether to return JWT in JSON or set an HttpOnly cookie
   sessionKind?: 'jwt' | 'cookie';
@@ -688,7 +688,7 @@ export interface ThresholdEcdsaKeygenResponse {
   participantIds?: number[];
 }
 
-export type ThresholdEcdsaSessionPolicy = {
+export type EcdsaSessionPolicy = {
   version: 'threshold_session_v1';
   userId: string;
   rpId: string;
@@ -707,7 +707,7 @@ export interface ThresholdEcdsaSessionRequest {
    * Used to validate that `relayerKeyId` is correctly bound to the client share (derived, stateless relayer mode).
    */
   clientVerifyingShareB64u: string;
-  sessionPolicy: ThresholdEcdsaSessionPolicy;
+  sessionPolicy: EcdsaSessionPolicy;
   webauthn_authentication: WebAuthnAuthenticationCredential;
   sessionKind?: 'jwt' | 'cookie';
 }

@@ -1,30 +1,30 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
-import type { WorkerOperationContext } from '@/core/signingEngine/workers/operations/executeSignerWorkerOperation';
+import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
   ThresholdIndexedDbPort,
   ThresholdPrfFirstCachePort,
   ThresholdWebAuthnPromptPort,
 } from '@/core/signingEngine/threshold/webauthn';
-import type { keygenThresholdEcdsaLite } from '@/core/signingEngine/threshold/workflows/keygenThresholdEcdsaLite';
-import type { connectThresholdEcdsaSessionLite } from '@/core/signingEngine/threshold/workflows/connectThresholdEcdsaSessionLite';
+import type { keygenEcdsa } from '@/core/signingEngine/threshold/workflows/keygenEcdsa';
+import type { connectEcdsaSession } from '@/core/signingEngine/threshold/workflows/connectEcdsaSession';
 
 export type ThresholdEcdsaActivationChain = 'evm' | 'tempo';
 
-export type ThresholdEcdsaKeygenLiteResult = Awaited<ReturnType<typeof keygenThresholdEcdsaLite>>;
-export type ThresholdEcdsaSessionLiteResult = Awaited<
-  ReturnType<typeof connectThresholdEcdsaSessionLite>
+export type EcdsaKeygenResult = Awaited<ReturnType<typeof keygenEcdsa>>;
+export type EcdsaSessionResult = Awaited<
+  ReturnType<typeof connectEcdsaSession>
 >;
-export type ThresholdEcdsaKeygenLiteSuccess = ThresholdEcdsaKeygenLiteResult & { ok: true };
-export type ThresholdEcdsaSessionLiteSuccess = ThresholdEcdsaSessionLiteResult & { ok: true };
+export type EcdsaKeygenSuccess = EcdsaKeygenResult & { ok: true };
+export type EcdsaSessionSuccess = EcdsaSessionResult & { ok: true };
 
 export type ThresholdEcdsaSessionBootstrapResult = {
   thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
-  keygen: ThresholdEcdsaKeygenLiteSuccess;
-  session: ThresholdEcdsaSessionLiteSuccess;
+  keygen: EcdsaKeygenSuccess;
+  session: EcdsaSessionSuccess;
 };
 
-export type ActivateThresholdEcdsaSessionLiteDeps = {
+export type ActivateEcdsaSessionDeps = {
   indexedDB: ThresholdIndexedDbPort;
   touchIdPrompt: ThresholdWebAuthnPromptPort;
   prfFirstCache: ThresholdPrfFirstCachePort;
@@ -32,7 +32,7 @@ export type ActivateThresholdEcdsaSessionLiteDeps = {
   getOrCreateActiveSigningSessionId: (nearAccountId: AccountId) => string;
 };
 
-export type ActivateThresholdEcdsaSessionLiteRequest = {
+export type ActivateEcdsaSessionRequest = {
   nearAccountId: AccountId | string;
   relayerUrl: string;
   participantIds?: number[];

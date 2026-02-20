@@ -3,17 +3,12 @@ import type { StoreUserDataInput } from '../indexedDB/passkeyClientDB.types';
 import type { NearClient, SignedTransaction } from '../rpcClients/near/NearClient';
 import type { NonceManager } from '../rpcClients/near/nonceManager';
 import { toAccountId, type AccountId } from '../types/accountIds';
-import type { ActionArgsWasm, TransactionInputWasm } from '../types/actions';
+import type { ActionArgsWasm } from '../types/actions';
 import type { AuthenticatorOptions } from '../types/authenticatorOptions';
-import type { DelegateActionInput } from '../types/delegate';
-import type { onProgressEvents } from '../types/sdkSentEvents';
 import type {
   ConfirmationConfig,
-  RpcCallPayload,
-  SignerMode,
-  WasmSignedDelegate,
 } from '../types/signer-worker';
-import type { SignTransactionResult, SigningSessionStatus, TatchiConfigs, ThemeName } from '../types/tatchi';
+import type { SigningSessionStatus, TatchiConfigs, ThemeName } from '../types/tatchi';
 import type {
   WebAuthnAuthenticationCredential,
   WebAuthnRegistrationCredential,
@@ -24,18 +19,20 @@ import type {
   ThresholdEcdsaActivationChain,
   ThresholdEcdsaSessionBootstrapResult,
 } from './orchestration/activation';
-import type { SignerWorkerManager } from './workers/signerWorkerManager';
-import type { RegistrationCredentialConfirmationPayload } from './workers/signerWorkerManager/internal/validation';
+import type { SignerWorkerManager } from './workerManager';
+import type { RegistrationCredentialConfirmationPayload } from './workerManager/validation';
 import type { SecureConfirmWorkerManager } from './secureConfirm';
 import type { TouchIdPrompt } from './signers/webauthn/prompt/touchIdPrompt';
 import type { WebAuthnAllowCredential } from './signers/webauthn/credentials';
-import type { TempoSecp256k1SigningRequest, TempoSigningRequest } from './chainAdaptors/tempo/types';
+import type { EvmSigningRequest } from './chainAdaptors/evm/types';
+import type { EvmSignedResult } from './chainAdaptors/evm/evmAdapter';
+import type { MultichainSecp256k1SigningRequest, TempoSigningRequest } from './chainAdaptors/tempo/types';
 import type { TempoSignedResult } from './chainAdaptors/tempo/tempoAdapter';
 import { getPrfResultsFromCredential } from './signers/webauthn/credentials/credentialExtensions';
 import { deriveThresholdSecp256k1ClientShareWasm } from './signers/wasm/ethSignerWasm';
 import {
-  connectThresholdEd25519SessionLiteValue,
-  bootstrapThresholdEcdsaSessionLiteValue,
+  connectEd25519SessionValue,
+  bootstrapEcdsaSessionValue,
 } from './api/thresholdLifecycle/thresholdSessionActivation';
 import {
   deriveThresholdEd25519ClientVerifyingShareFromCredential as deriveThresholdEd25519ClientVerifyingShareFromCredentialValue,
@@ -48,9 +45,10 @@ import {
   type ThresholdEcdsaSmartAccountBootstrapInput,
 } from './api/thresholdLifecycle/thresholdEcdsaBootstrapPersistence';
 import {
-  signDelegateAction as signDelegateActionValue,
-  signNEP413Message as signNEP413MessageValue,
-  signTransactionsWithActions as signTransactionsWithActionsValue,
+  signNear as signNearValue,
+  type NearSignIntentRequest,
+  type NearSignIntentResult,
+  type SignTransactionsWithActionsInput,
 } from './api/signing/nearSigning';
 import { signTempo as signTempoValue } from './api/signing/tempoSigning';
 import { withThresholdEcdsaSignInFlightGate } from './api/thresholdLifecycle/thresholdEcdsaSignInFlightGate';
@@ -78,14 +76,18 @@ import {
   signNearWithIntent as signNearWithIntentValue,
   signTransactionWithKeyPair as signTransactionWithKeyPairValue,
 } from './api/signing/signerWorkerBridge';
-import { initializeRuntimeBootstrap } from './api/bootstrap/runtimeBootstrap';
-import { createManagerAssembly } from './api/bootstrap/managerAssembly';
+import { initializeRuntimeBootstrap } from './bootstrap/runtimeBootstrap';
+import { createManagerAssembly } from './bootstrap/managerAssembly';
 import {
   createOrchestrationDependencyBundle,
   type OrchestrationDependencyBundle,
-} from './api/bootstrap/orchestrationDependencyFactory';
+} from './bootstrap/orchestrationDependencyFactory';
 
-export type { ThresholdEcdsaSessionBootstrapResult } from './orchestration/activation';
+export type {
+  ThresholdEcdsaActivationChain,
+  ThresholdEcdsaSessionBootstrapResult,
+} from './orchestration/activation';
+export type { NearSignIntentRequest, NearSignIntentResult } from './api/signing/nearSigning';
 
 /**
  * SigningEngine is the signing composition root:
@@ -139,7 +141,12 @@ export class SigningEngine {
       getWorkerBaseOrigin: () => this.workerBaseOrigin,
       getTheme: () => this.theme,
       signTempo: (args) => this.signTempo(args),
-      signTransactionsWithActions: (args) => this.signTransactionsWithActions(args),
+      signTransactionsWithActions: (args: SignTransactionsWithActionsInput) =>
+        this.signNear({
+          chain: 'near',
+          kind: 'transactionsWithActions',
+          args,
+        }),
       signNearWithIntent: signNearWithIntentValue,
       deriveNearKeypairFromCredentialViaWorker: (args) =>
         this.deriveNearKeypairFromCredentialViaWorker(args),
@@ -220,63 +227,15 @@ export class SigningEngine {
     return this.userPreferencesManager;
   }
 
-  async signTransactionsWithActions(args: {
-    transactions: TransactionInputWasm[];
-    rpcCall: RpcCallPayload;
-    deviceNumber?: number;
-    signerMode: SignerMode;
-    confirmationConfigOverride?: Partial<ConfirmationConfig>;
-    title?: string;
-    body?: string;
-    onEvent?: (update: onProgressEvents) => void;
-    sessionId?: string;
-  }): Promise<SignTransactionResult[]> {
-    return await signTransactionsWithActionsValue(this.orchestrationDeps.nearSigningDeps, args);
-  }
-
-  async signDelegateAction(args: {
-    delegate: DelegateActionInput;
-    rpcCall: RpcCallPayload;
-    deviceNumber?: number;
-    signerMode: SignerMode;
-    confirmationConfigOverride?: Partial<ConfirmationConfig>;
-    title?: string;
-    body?: string;
-    onEvent?: (update: onProgressEvents) => void;
-  }): Promise<{
-    signedDelegate: WasmSignedDelegate;
-    hash: string;
-    nearAccountId: AccountId;
-    logs?: string[];
-  }> {
-    return await signDelegateActionValue(this.orchestrationDeps.nearSigningDeps, args);
-  }
-
-  async signNEP413Message(payload: {
-    message: string;
-    recipient: string;
-    nonce: string;
-    state: string | null;
-    accountId: AccountId;
-    signerMode: SignerMode;
-    deviceNumber?: number;
-    title?: string;
-    body?: string;
-    confirmationConfigOverride?: Partial<ConfirmationConfig>;
-  }): Promise<{
-    success: boolean;
-    accountId: string;
-    publicKey: string;
-    signature: string;
-    state?: string;
-    error?: string;
-  }> {
-    return await signNEP413MessageValue(this.orchestrationDeps.nearSigningDeps, payload);
+  async signNear<TRequest extends NearSignIntentRequest>(
+    request: TRequest,
+  ): Promise<NearSignIntentResult<TRequest>> {
+    return await signNearValue(this.orchestrationDeps.nearSigningDeps, request);
   }
 
   async signTempo(args: {
     nearAccountId: string;
-    request: TempoSigningRequest;
+    request: TempoSigningRequest | EvmSigningRequest;
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
     shouldAbort?: () => boolean;
@@ -287,7 +246,7 @@ export class SigningEngine {
       message?: string;
       data?: unknown;
     }) => void;
-  }): Promise<TempoSignedResult> {
+  }): Promise<TempoSignedResult | EvmSignedResult> {
     return await withThresholdEcdsaSignInFlightGate({
       inFlightByAccount: this.thresholdEcdsaSignInFlightByAccount,
       nearAccountId: args.nearAccountId,
@@ -298,10 +257,10 @@ export class SigningEngine {
 
   async signTempoWithThresholdEcdsa(args: {
     nearAccountId: string;
-    request: TempoSecp256k1SigningRequest;
+    request: MultichainSecp256k1SigningRequest;
     thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
-  }): Promise<TempoSignedResult> {
+  }): Promise<TempoSignedResult | EvmSignedResult> {
     if (args.request.senderSignatureAlgorithm !== 'secp256k1') {
       throw new Error(
         '[SigningEngine] signTempoWithThresholdEcdsa requires senderSignatureAlgorithm=secp256k1',
@@ -458,21 +417,21 @@ export class SigningEngine {
     return generateEphemeralNearKeypairValue(this.orchestrationDeps.signerWorkerBridgeDeps);
   }
 
-  connectThresholdEd25519SessionLite(
-    args: Parameters<typeof connectThresholdEd25519SessionLiteValue>[1],
-  ): ReturnType<typeof connectThresholdEd25519SessionLiteValue> {
-    return connectThresholdEd25519SessionLiteValue(
+  connectEd25519Session(
+    args: Parameters<typeof connectEd25519SessionValue>[1],
+  ): ReturnType<typeof connectEd25519SessionValue> {
+    return connectEd25519SessionValue(
       this.orchestrationDeps.thresholdSessionActivationDeps,
       args,
     );
   }
 
-  async bootstrapThresholdEcdsaSessionLite(
-    args: Parameters<typeof bootstrapThresholdEcdsaSessionLiteValue>[1],
+  async bootstrapEcdsaSession(
+    args: Parameters<typeof bootstrapEcdsaSessionValue>[1],
   ): Promise<ThresholdEcdsaSessionBootstrapResult> {
     const nearAccountId = toAccountId(args.nearAccountId);
     return await this.withThresholdEcdsaBootstrapQueue(nearAccountId, async () => {
-      return await bootstrapThresholdEcdsaSessionLiteValue(
+      return await bootstrapEcdsaSessionValue(
         this.orchestrationDeps.thresholdSessionActivationDeps,
         {
           ...args,
@@ -633,9 +592,7 @@ export type SigningEnginePublic = Pick<
   | 'getRpId'
   | 'getNonceManager'
   | 'warmCriticalResources'
-  | 'signTransactionsWithActions'
-  | 'signDelegateAction'
-  | 'signNEP413Message'
+  | 'signNear'
   | 'signTempo'
   | 'signTempoWithThresholdEcdsa'
   | 'storeUserData'
@@ -657,8 +614,8 @@ export type SigningEnginePublic = Pick<
   | 'exportPrivateKeysWithUI'
   | 'signTransactionWithKeyPair'
   | 'generateEphemeralNearKeypair'
-  | 'connectThresholdEd25519SessionLite'
-  | 'bootstrapThresholdEcdsaSessionLite'
+  | 'connectEd25519Session'
+  | 'bootstrapEcdsaSession'
   | 'persistThresholdEcdsaBootstrapChainAccount'
   | 'getWarmSigningSessionStatus'
   | 'setActiveSigningSessionId'

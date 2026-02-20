@@ -1,1 +1,1 @@
-export * from './activateTempoThresholdEcdsaSessionLite';
+export * from './activateTempoEcdsaSession';

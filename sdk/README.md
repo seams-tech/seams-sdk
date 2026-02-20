@@ -111,7 +111,7 @@ Use `@tatchi-xyz/sdk` for the main surface (for example `TatchiPasskey` and core
 Threshold APIs are stable under an explicit subpath:
 
 ```ts
-import { keygenThresholdEcdsaLite } from '@tatchi-xyz/sdk/threshold'
+import { keygenEcdsa } from '@tatchi-xyz/sdk/threshold'
 ```
 
 ## Configuration Options

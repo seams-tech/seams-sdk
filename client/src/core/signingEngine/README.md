@@ -9,22 +9,22 @@ This folder is the signing runtime for NEAR + Tempo/EVM flows.
   - Coordinates session policy, worker context, SecureConfirm, and engine dispatch.
 - `interfaces/`
   - Shared signing contracts (`SigningIntent`, `SignRequest`, `Signer`) and runtime dependency interfaces.
+  - `interfaces/nearKeyOps`: NEAR key-ops contract consumed by `api/*` without importing `workerManager/*`.
 - `orchestration/`
   - Generic runner (`executeSigningIntent`) and activation/deployment orchestration.
 - `signers/algorithms/`
   - Algorithm-specific signing implementations (`ed25519`, `secp256k1`, `webauthnP256`).
 - `signers/wasm/`
-  - WASM-backed chain signing wrappers (`ethSignerWasm`, `tempoSignerWasm`).
+  - WASM-backed chain signing wrappers (`nearSignerWasm`, `ethSignerWasm`, `tempoSignerWasm`).
 - `chainAdaptors/`
   - Chain-specific intent builders and handlers (NEAR, Tempo, EVM helpers).
 - `secureConfirm/`
   - User confirmation flow + WebAuthn credential collection.
-- `workers/`
-  - Worker transports:
-  - `signerWorkerManager`: unified worker architecture layer.
-  - `signerWorkerManager/backends/nearWorkerBackend`: NEAR signer worker transport.
-  - `signerWorkerManager/backends/multichainWorkerBackend`: EVM/Tempo worker transport.
-  - `signerWorkerManager/nearKeyOps`: NEAR-only key operations invoked via `SignerWorkerManager.nearKeyOps`.
+- `workerManager/`
+  - Unified worker architecture layer (host + runtime).
+  - `workerManager/workers/*`: worker runtime modules (`*.worker.ts`) and operation dispatch helpers.
+  - `workerManager/workerTransport`: canonical single transport (persistent worker per signer kind).
+  - `workerManager/nearKeyOps`: implementation of the `NearSigningKeyOps` interface used by `SignerWorkerManager.nearKeyOps`.
 - `threshold/`
   - Threshold session, authorization, and signing workflows.
 - `signers/webauthn/`
@@ -41,7 +41,7 @@ flowchart LR
   ORCH --> ENG["signers/algorithms/*"]
   ENG --> CHAINS["chainAdaptors/*"]
   SE --> SC["secureConfirm/*"]
-  CHAINS --> WORKERS["workers/*"]
+  CHAINS --> WORKERS["workerManager/workers/*"]
 ```
 
 ### 2) Signing execution pipeline
@@ -61,16 +61,15 @@ flowchart LR
 flowchart LR
   NH["NEAR handlers"] --> SWM["SignerWorkerManager"]
   SE["SigningEngine (NEAR key ops)"] --> SWM
-  SWM --> NB["NearSignerWorkerTransport"]
-  SWM --> NKO["nearKeyOps service"]
-  NB --> NSW["near-signer.worker"]
-  NKO --> NB
+  SWM --> ST["WorkerTransport"]
+  SWM --> NKO["nearKeyOps"]
+  NKO --> ST
+  ST --> NSW["near-signer.worker"]
+  ST --> EWK["eth-signer.worker"]
+  ST --> TWK["tempo-signer.worker"]
 
-  WASM["ethSignerWasm / tempoSignerWasm"] --> EX["executeSignerWorkerOperation"]
+  WASM["ethSignerWasm / tempoSignerWasm"] --> EX["executeWorkerOperation"]
   EX --> SWM
-  EX --> MB
-  MB --> EWK["eth-signer.worker"]
-  MB --> TWK["tempo-signer.worker"]
 ```
 
 ## Core Flows
@@ -104,7 +103,7 @@ flowchart LR
 ### 3) secp256k1 Threshold Path (inside `Secp256k1Engine`)
 
 1. Validate cached/session JWT and threshold key ref.
-2. Authorize digest with relayer (`thresholdEcdsaAuthorize`).
+2. Authorize digest with relayer (`authorizeEcdsaWithSession`).
 3. Dispense PRF.first from SecureConfirm session cache.
 4. Derive client share in `ethSignerWasm`.
 5. Run distributed signing coordination (`thresholdEcdsaCoordinator`).
@@ -112,9 +111,9 @@ flowchart LR
 
 ### 4) Worker RPC Path (`ethSigner` / `tempoSigner`)
 
-1. Chain wasm wrapper (`ethSignerWasm` or `tempoSignerWasm`) calls `executeSignerWorkerOperation(...)`.
+1. Chain wasm wrapper (`ethSignerWasm` or `tempoSignerWasm`) calls `executeWorkerOperation(...)`.
 2. Helper dispatches via `SignerWorkerManager.requestWorkerOperation({ kind, request })` (runtime context is required).
-3. `MultichainSignerWorkerTransport` lazily creates a dedicated module worker by kind.
+3. `WorkerTransport` keeps one persistent worker per signer kind (`nearSigner`, `ethSigner`, `tempoSigner`).
 4. Request/response is correlated by message `id`.
 5. Returned `ArrayBuffer` is decoded to `Uint8Array` in caller.
 
@@ -125,4 +124,4 @@ flowchart LR
 - `orchestration/` owns generic signing execution and activation/deployment orchestration.
 - `signers/algorithms/` own algorithm-level signing behavior.
 - `chainAdaptors/` own chain-specific intent shape and final serialization.
-- `workers/` own runtime transport to WASM worker transports.
+- `workerManager/` owns both runtime transport and host worker orchestration.

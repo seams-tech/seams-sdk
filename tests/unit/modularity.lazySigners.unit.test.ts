@@ -5,10 +5,12 @@ import path from 'node:path';
 const IMPORT_PATHS = {
   nearAdapter:
     '/sdk/esm/core/signingEngine/chainAdaptors/near/nearAdapter.js',
+  evmAdapter:
+    '/sdk/esm/core/signingEngine/chainAdaptors/evm/evmAdapter.js',
   tempoAdapter:
     '/sdk/esm/core/signingEngine/chainAdaptors/tempo/tempoAdapter.js',
   signerGateway:
-    '/sdk/esm/core/signingEngine/workers/signerWorkerManager/gateway.js',
+    '/sdk/esm/core/signingEngine/workerManager/workerTransport.js',
   actions: '/sdk/esm/core/types/actions.js',
 } as const;
 
@@ -29,7 +31,7 @@ test.describe('modularity lazy signer loading', () => {
 
     expect(signerWorkerBridgeSource).toContain("import('../../orchestration/near/nearSigningFlow')");
     expect(tempoSigningSource).toContain(
-      "import('../../chainAdaptors/tempo/tempoSigningFlow')",
+      "import('../../orchestration/tempo/tempoSigningFlow')",
     );
     expect(tempoSigningSource).toContain("import('../../signers/algorithms/secp256k1')");
     expect(tempoSigningSource).toContain("import('../../signers/algorithms/webauthnP256')");
@@ -39,7 +41,7 @@ test.describe('modularity lazy signer loading', () => {
     expect(signerWorkerBridgeSource).not.toContain(
       "await import('../chainAdaptors/near/walletOrigin')",
     );
-    expect(tempoSigningSource).not.toContain("from '../../chainAdaptors/tempo/tempoSigningFlow'");
+    expect(tempoSigningSource).not.toContain("from '../../orchestration/tempo/tempoSigningFlow'");
     expect(signerWorkerBridgeSource).not.toContain("from '../../signers/algorithms/ed25519'");
     expect(tempoSigningSource).not.toContain("from '../../signers/algorithms/secp256k1'");
     expect(tempoSigningSource).not.toContain("from '../../signers/algorithms/webauthnP256'");
@@ -181,21 +183,23 @@ test.describe('modularity lazy signer loading', () => {
       const originalWorker = window.Worker;
       try {
         (window as any).Worker = FakeWorker as any;
+        const { EvmAdapter } = await import(paths.evmAdapter);
         const { TempoAdapter } = await import(paths.tempoAdapter);
-        const { requestMultichainWorkerOperation } = await import(paths.signerGateway);
+        const { requestWorkerOperation } = await import(paths.signerGateway);
         const workerCtx = {
           requestWorkerOperation: async ({ kind, request }: { kind: string; request: unknown }) =>
-            await requestMultichainWorkerOperation({ kind: kind as any, request: request as any }),
+            await requestWorkerOperation({ kind: kind as any, request: request as any }),
         };
 
-        const adapter = new TempoAdapter(workerCtx as any);
+        const evmAdapter = new EvmAdapter(workerCtx as any);
+        const tempoAdapter = new TempoAdapter(workerCtx as any);
         const baseline = {
           eth: countEthWorkers(workerCreations),
           tempo: countTempoWorkers(workerCreations),
         };
 
         const eip1559Request = {
-          chain: 'tempo' as const,
+          chain: 'evm' as const,
           kind: 'eip1559' as const,
           senderSignatureAlgorithm: 'secp256k1' as const,
           tx: {
@@ -211,8 +215,8 @@ test.describe('modularity lazy signer loading', () => {
           },
         };
 
-        await adapter.buildIntent(eip1559Request);
-        await adapter.buildIntent(eip1559Request);
+        await evmAdapter.buildIntent(eip1559Request);
+        await evmAdapter.buildIntent(eip1559Request);
 
         const afterEip = {
           eth: countEthWorkers(workerCreations),
@@ -239,7 +243,7 @@ test.describe('modularity lazy signer loading', () => {
           },
         };
 
-        await adapter.buildIntent(tempoRequest);
+        await tempoAdapter.buildIntent(tempoRequest);
 
         const afterTempo = {
           eth: countEthWorkers(workerCreations),

@@ -1,9 +1,9 @@
 import type { ThresholdEd25519_2p_V1Material } from '@/core/indexedDB/passkeyNearKeysDB.types';
 import type { SecureConfirmWorkerManager } from '@/core/signingEngine/secureConfirm';
 import type { SigningAuthMode } from '@/core/signingEngine/secureConfirm/confirmTxFlow/types';
-import { buildThresholdSessionPolicy } from '@/core/signingEngine/threshold/session/thresholdSessionPolicy';
+import { buildEd25519SessionPolicy } from '@/core/signingEngine/threshold/session/sessionPolicy';
 
-export type ThresholdSessionPolicyPlan = Awaited<ReturnType<typeof buildThresholdSessionPolicy>>;
+export type ThresholdSessionPolicyPlan = Awaited<ReturnType<typeof buildEd25519SessionPolicy>>;
 
 export function normalizeOptionalPositiveInt(value?: number): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
@@ -21,7 +21,7 @@ export function resolveDesiredSessionOptions(args: {
   };
 }
 
-export async function buildThresholdSessionPolicyForNearSigning(args: {
+export async function buildEd25519SessionPolicyForNearSigning(args: {
   nearAccountId: string;
   getRpId: () => string | null;
   thresholdKeyMaterial: ThresholdEd25519_2p_V1Material;
@@ -30,7 +30,7 @@ export async function buildThresholdSessionPolicyForNearSigning(args: {
   desiredRemainingUses?: number;
 }): Promise<ThresholdSessionPolicyPlan> {
   const rpId = String(args.getRpId() || '').trim();
-  return await buildThresholdSessionPolicy({
+  return await buildEd25519SessionPolicy({
     nearAccountId: args.nearAccountId,
     rpId,
     relayerKeyId: args.thresholdKeyMaterial.relayerKeyId,
@@ -75,7 +75,7 @@ export async function resolveInitialThresholdSigningAuthPlan(args: {
   const signingAuthMode: SigningAuthMode = warmOk ? 'warmSession' : 'webauthn';
   const thresholdSessionPlan = warmOk
     ? null
-    : await buildThresholdSessionPolicyForNearSigning({
+    : await buildEd25519SessionPolicyForNearSigning({
         nearAccountId: args.nearAccountId,
         getRpId: args.getRpId,
         thresholdKeyMaterial: args.threshold.thresholdKeyMaterial,

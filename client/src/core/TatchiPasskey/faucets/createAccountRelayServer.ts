@@ -6,9 +6,9 @@ import type { WebAuthnRegistrationCredential } from '../../types/webauthn';
 import type { AuthenticatorOptions } from '../../types/authenticatorOptions';
 import type { CreateAccountAndRegisterResult } from '@server/core/types';
 import type {
-  ThresholdEcdsaSessionPolicy,
-  ThresholdEd25519SessionPolicy,
-} from '../../signingEngine/threshold/session/thresholdSessionPolicy';
+  EcdsaSessionPolicy,
+  Ed25519SessionPolicy,
+} from '../../signingEngine/threshold/session/sessionPolicy';
 import { isObject } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
 
@@ -79,9 +79,9 @@ function improveAtomicRegistrationError(args: {
  * HTTP Request body for the relay server's /registration/bootstrap endpoint
  */
 type ThresholdEd25519RegistrationSessionPolicy =
-  Omit<ThresholdEd25519SessionPolicy, 'relayerKeyId'> & { relayerKeyId?: string };
+  Omit<Ed25519SessionPolicy, 'relayerKeyId'> & { relayerKeyId?: string };
 type ThresholdEcdsaRegistrationSessionPolicy =
-  Omit<ThresholdEcdsaSessionPolicy, 'relayerKeyId'> & { relayerKeyId?: string };
+  Omit<EcdsaSessionPolicy, 'relayerKeyId'> & { relayerKeyId?: string };
 
 export interface CreateAccountAndRegisterUserRequest {
   new_account_id: string;

@@ -99,7 +99,7 @@ const stickyResponseScript = String.raw`
                   requestId,
                   payload: {
                     ok: true,
-                    result: { chain: 'tempo', kind: 'eip1559', txHashHex: '0xabc', rawTxHex: '0xdef' }
+                    result: { chain: 'evm', txHashHex: '0xabc', rawTxHex: '0xdef' }
                   }
                 });
               } catch (err) {
@@ -226,7 +226,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
         const signPromise = (router as any).signTempo({
           nearAccountId: 'sticky.testnet',
           request: {
-            chain: 'tempo',
+            chain: 'evm',
             kind: 'eip1559',
             senderSignatureAlgorithm: 'secp256k1',
             tx: {},

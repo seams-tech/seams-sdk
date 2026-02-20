@@ -90,9 +90,10 @@ import type {
   SignTransactionResult,
 } from '../../types/tatchi';
 import type {
-  TempoSecp256k1SigningRequest,
-  TempoSigningRequest,
+  MultichainSecp256k1SigningRequest,
+  MultichainSigningRequest,
 } from '../../signingEngine/chainAdaptors/tempo/types';
+import type { EvmSignedResult } from '../../signingEngine/chainAdaptors/evm/evmAdapter';
 import type { TempoSignedResult } from '../../signingEngine/chainAdaptors/tempo/tempoAdapter';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../signingEngine/interfaces/signing';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../signingEngine/SigningEngine';
@@ -701,7 +702,7 @@ export class WalletIframeRouter {
     }
   }
 
-  async bootstrapThresholdEcdsaSession(payload: {
+  async bootstrapEcdsaSession(payload: {
     nearAccountId: string;
     options?: {
       chain?: 'evm' | 'tempo';
@@ -836,7 +837,7 @@ export class WalletIframeRouter {
 
   async signTempo(payload: {
     nearAccountId: string;
-    request: TempoSigningRequest;
+    request: MultichainSigningRequest;
     options?: {
       confirmationConfig?: Partial<ConfirmationConfig>;
       thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
@@ -848,7 +849,7 @@ export class WalletIframeRouter {
         data?: unknown;
       }) => void;
     };
-  }): Promise<TempoSignedResult> {
+  }): Promise<TempoSignedResult | EvmSignedResult> {
     const res = await this.post<TempoSignedResult>({
       type: 'PM_SIGN_TEMPO',
       payload: {
@@ -868,12 +869,12 @@ export class WalletIframeRouter {
 
   async signTempoWithThresholdEcdsa(payload: {
     nearAccountId: string;
-    request: TempoSecp256k1SigningRequest;
+    request: MultichainSecp256k1SigningRequest;
     thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
     options?: {
       confirmationConfig?: Partial<ConfirmationConfig>;
     };
-  }): Promise<TempoSignedResult> {
+  }): Promise<TempoSignedResult | EvmSignedResult> {
     if (payload.request.senderSignatureAlgorithm !== 'secp256k1') {
       throw new Error('[WalletIframeRouter] signTempoWithThresholdEcdsa requires senderSignatureAlgorithm=secp256k1');
     }

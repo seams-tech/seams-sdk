@@ -1,9 +1,9 @@
 import type { Eip1559UnsignedTx } from '../../chainAdaptors/evm/types';
 import { bytesToHex } from '../../chainAdaptors/evm/bytes';
 import {
-  executeSignerWorkerOperation,
+  executeWorkerOperation,
   type WorkerOperationContext,
-} from '../../workers/operations/executeSignerWorkerOperation';
+} from '../../workerManager/executeWorkerOperation';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 
 type Eip1559TxWasmJson = {
@@ -46,7 +46,7 @@ export async function computeEip1559TxHashWasm(
   tx: Eip1559UnsignedTx,
   workerCtx: WorkerOperationContext,
 ): Promise<Uint8Array> {
-  const ab = await executeSignerWorkerOperation({
+  const ab = await executeWorkerOperation({
     ctx: workerCtx,
     kind: ETH_SIGNER_WORKER_KIND,
     request: { type: 'computeEip1559TxHash', payload: { tx: toWasmTx(tx) } },
@@ -60,7 +60,7 @@ export async function encodeEip1559SignedTxFromSignature65Wasm(args: {
   workerCtx: WorkerOperationContext;
 }): Promise<Uint8Array> {
   const signature65 = args.signature65.slice().buffer;
-  const ab = await executeSignerWorkerOperation({
+  const ab = await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: ETH_SIGNER_WORKER_KIND,
     request: {
@@ -79,7 +79,7 @@ export async function signSecp256k1RecoverableWasm(args: {
 }): Promise<Uint8Array> {
   const digestBuf = args.digest32.slice().buffer;
   const pkBuf = args.privateKey32.slice().buffer;
-  const ab = await executeSignerWorkerOperation({
+  const ab = await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: ETH_SIGNER_WORKER_KIND,
     request: {
@@ -115,7 +115,7 @@ export async function deriveThresholdSecp256k1ClientShareWasm(args: {
   }
   const prfFirst32Copy = prfFirst32.slice();
 
-  const raw = await executeSignerWorkerOperation({
+  const raw = await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: ETH_SIGNER_WORKER_KIND,
     request: {
@@ -171,7 +171,7 @@ export async function deriveSecp256k1KeypairFromPrfSecondWasm(args: {
   }
   const prfSecondCopy = prfSecond.slice();
 
-  const raw = await executeSignerWorkerOperation({
+  const raw = await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: ETH_SIGNER_WORKER_KIND,
     request: {
@@ -225,7 +225,7 @@ export async function mapAdditiveShareToThresholdSignaturesShare2pWasm(args: {
     throw new Error(`Invalid participantId: ${args.participantId}`);
   }
 
-  const ab = await executeSignerWorkerOperation({
+  const ab = await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: ETH_SIGNER_WORKER_KIND,
     request: {
@@ -254,7 +254,7 @@ export async function validateSecp256k1PublicKey33Wasm(args: {
     throw new Error('publicKey33 must be 33 bytes');
   }
   const publicKey33 = args.publicKey33.slice();
-  const ab = await executeSignerWorkerOperation({
+  const ab = await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: ETH_SIGNER_WORKER_KIND,
     request: {
@@ -285,7 +285,7 @@ export async function addSecp256k1PublicKeys33Wasm(args: {
   }
   const left33 = args.left33.slice();
   const right33 = args.right33.slice();
-  const ab = await executeSignerWorkerOperation({
+  const ab = await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: ETH_SIGNER_WORKER_KIND,
     request: {
@@ -341,7 +341,7 @@ export async function buildWebauthnP256SignatureWasm(args: {
   const pubKeyX32 = args.pubKeyX32.slice();
   const pubKeyY32 = args.pubKeyY32.slice();
 
-  const ab = await executeSignerWorkerOperation({
+  const ab = await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: ETH_SIGNER_WORKER_KIND,
     request: {
@@ -417,7 +417,7 @@ export async function thresholdEcdsaPresignSessionInitWasm(args: {
   const clientThresholdSigningShare32 = args.clientThresholdSigningShare32.slice();
   const groupPublicKey33 = args.groupPublicKey33.slice();
 
-  const raw = await executeSignerWorkerOperation({
+  const raw = await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: ETH_SIGNER_WORKER_KIND,
     request: {
@@ -447,7 +447,7 @@ export async function thresholdEcdsaPresignSessionStepWasm(args: {
   const incomingMessages = (args.incomingMessages || []).map((entry) => entry.slice());
   const transfer = incomingMessages.map((entry) => entry.buffer);
 
-  const raw = await executeSignerWorkerOperation({
+  const raw = await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: ETH_SIGNER_WORKER_KIND,
     request: {
@@ -469,7 +469,7 @@ export async function thresholdEcdsaPresignSessionAbortWasm(args: {
   sessionId: string;
   workerCtx: WorkerOperationContext;
 }): Promise<void> {
-  await executeSignerWorkerOperation({
+  await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: ETH_SIGNER_WORKER_KIND,
     request: {
@@ -497,7 +497,7 @@ export async function thresholdEcdsaComputeSignatureShareWasm(args: {
   const digest32 = args.digest32.slice();
   const entropy32 = args.entropy32.slice();
 
-  const ab = await executeSignerWorkerOperation({
+  const ab = await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: ETH_SIGNER_WORKER_KIND,
     request: {
