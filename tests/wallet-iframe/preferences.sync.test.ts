@@ -149,7 +149,7 @@ test.describe('Wallet iframe preferences sync', () => {
         const initialConfig = tatchi.getConfirmationConfig();
 
         // Flip confirmation config on the wallet host and ensure the app-origin mirrors it via PREFERENCES_CHANGED.
-        const router = await (tatchi as any).requireWalletIframeRouter();
+        const router = await (tatchi as any).walletIframe.requireRouter();
         await router.setConfirmationConfig({ uiMode: 'drawer', behavior: 'skipClick', autoProceedDelay: 5 });
         const mirrored = await waitFor(() => tatchi.getConfirmationConfig().uiMode === 'drawer', 3000);
 

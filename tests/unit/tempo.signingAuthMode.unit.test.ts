@@ -40,7 +40,7 @@ test.describe('tempo signing auth-mode resolution', () => {
               code: 'expired',
               message: 'expired',
             }),
-            confirmAndPrepareSigningSession: async (params: any) => {
+            orchestrateSigningConfirmation: async (params: any) => {
               confirmCalls += 1;
               capturedAuthMode = String(params?.signingAuthMode || '');
               return {
@@ -128,7 +128,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             remainingUses: 2,
             expiresAtMs: Date.now() + 10_000,
           }),
-          confirmAndPrepareSigningSession: async (params: any) => {
+          orchestrateSigningConfirmation: async (params: any) => {
             capturedAuthMode = String(params?.signingAuthMode || '');
             return {
               sessionId: 'intent',
@@ -213,7 +213,7 @@ test.describe('tempo signing auth-mode resolution', () => {
               code: 'expired',
               message: 'expired',
             }),
-            confirmAndPrepareSigningSession: async () => {
+            orchestrateSigningConfirmation: async () => {
               confirmCalls += 1;
               return {
                 sessionId: 'intent',

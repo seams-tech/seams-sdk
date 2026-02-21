@@ -48,7 +48,11 @@ test.describe('NonceManager Integration Tests', () => {
         // Register and login to get a working session
         const cfg = ((window as any).testUtils?.confirmOverrides?.none)
           || ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0} as const);
-        const registrationResult = await pm.registration.registerPasskeyInternal(testAccountId, {}, cfg as any);
+        const registrationResult = await pm.registration.registerPasskeyInternal(
+          testAccountId,
+          { signerMode: { mode: 'local-signer' } },
+          cfg as any,
+        );
         if (!registrationResult.success) {
           throw new Error(`Registration failed: ${registrationResult.error}`);
         }
@@ -64,7 +68,7 @@ test.describe('NonceManager Integration Tests', () => {
         const ctx = pm.getContext();
 
         // Test nonce manager integration
-        const nonceManager = ctx.webAuthnManager.getNonceManager();
+        const nonceManager = ctx.signingEngine.getNonceManager();
 
         // Get initial nonce
         const initialContext = await nonceManager.getNonceBlockHashAndHeight(ctx.nearClient);
@@ -138,7 +142,11 @@ test.describe('NonceManager Integration Tests', () => {
         // Register and login
         const cfg = ((window as any).testUtils?.confirmOverrides?.none)
           || ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0} as const);
-        const registrationResult = await pm.registration.registerPasskeyInternal(testAccountId, {}, cfg as any);
+        const registrationResult = await pm.registration.registerPasskeyInternal(
+          testAccountId,
+          { signerMode: { mode: 'local-signer' } },
+          cfg as any,
+        );
         if (!registrationResult.success) {
           throw new Error(`Registration failed: ${registrationResult.error}`);
         }
@@ -151,7 +159,7 @@ test.describe('NonceManager Integration Tests', () => {
         await new Promise(resolve => setTimeout(resolve, 2000));
 
         const ctx = pm.getContext();
-        const nonceManager = ctx.webAuthnManager.getNonceManager();
+        const nonceManager = ctx.signingEngine.getNonceManager();
 
         // Ensure transaction context exists so getNextNonce()/reserveNonces() are meaningful
         await nonceManager.getNonceBlockHashAndHeight(ctx.nearClient);
@@ -235,7 +243,11 @@ test.describe('NonceManager Integration Tests', () => {
         // Register and login
         const cfg = ((window as any).testUtils?.confirmOverrides?.none)
           || ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0} as const);
-        const registrationResult = await pm.registration.registerPasskeyInternal(testAccountId, {}, cfg as any);
+        const registrationResult = await pm.registration.registerPasskeyInternal(
+          testAccountId,
+          { signerMode: { mode: 'local-signer' } },
+          cfg as any,
+        );
         if (!registrationResult.success) {
           throw new Error(`Registration failed: ${registrationResult.error}`);
         }
@@ -248,7 +260,7 @@ test.describe('NonceManager Integration Tests', () => {
         await new Promise(resolve => setTimeout(resolve, 2000));
 
         const ctx = pm.getContext();
-        const nonceManager = ctx.webAuthnManager.getNonceManager();
+        const nonceManager = ctx.signingEngine.getNonceManager();
 
         // Ensure transaction context exists so reservations are tracked
         await nonceManager.getNonceBlockHashAndHeight(ctx.nearClient);

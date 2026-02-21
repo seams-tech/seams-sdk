@@ -171,7 +171,7 @@ test.describe('Link device → immediate sign (regression)', () => {
           relayerUrl: 'https://relay-server.localhost',
           postWrapKeySeedToSigner: () => {},
           touchConfirmManager: {
-            confirmAndPrepareSigningSession: async () => ({
+            orchestrateSigningConfirmation: async () => ({
               intentDigest: 'intent',
               transactionContext: {
                 nearPublicKeyStr: 'ed25519:pk-device2',
@@ -400,7 +400,7 @@ test.describe('Link device → immediate sign (regression)', () => {
           relayerUrl: 'https://relay-server.localhost',
           postWrapKeySeedToSigner: () => {},
           touchConfirmManager: {
-            confirmAndPrepareSigningSession: async () => ({
+            orchestrateSigningConfirmation: async () => ({
               intentDigest: 'intent',
               transactionContext: {
                 nearPublicKeyStr: 'ed25519:pk-device2',
