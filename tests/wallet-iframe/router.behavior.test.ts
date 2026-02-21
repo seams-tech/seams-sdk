@@ -85,4 +85,81 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
     expect(result.hidden).toBe(true);
   });
 
+  test('executeAction still times out when host keeps sending PROGRESS frames', async ({ page }) => {
+    await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
+    const spamProgressHtml = buildWalletServiceHtml({
+      extraScript: `
+        setInterval(() => {
+          if (!adoptedPort) return;
+          for (const requestId of pendingRequests.keys()) {
+            try {
+              adoptedPort.postMessage({
+                type: 'PROGRESS',
+                requestId,
+                payload: {
+                  step: 2,
+                  phase: 'still-working',
+                  status: 'progress',
+                  message: 'continuous progress from harness'
+                }
+              });
+            } catch (err) {
+              console.error('Failed to spam PROGRESS frame', err);
+            }
+          }
+        }, 40);
+      `,
+    });
+    await registerWalletServiceRoute(page, spamProgressHtml, WALLET_SERVICE_ROUTE);
+
+    const routerPath = SDK_ESM_PATHS.walletIframeRouter;
+    const result = await page.evaluate(async ({ walletOrigin, routerPath }) => {
+      try {
+        const mod = await import(routerPath);
+        const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
+
+        const router = new WalletIframeRouter({
+          walletOrigin,
+          servicePath: '/wallet-service',
+          connectTimeoutMs: 3000,
+          requestTimeoutMs: 200,
+          debug: true,
+          sdkBasePath: '/sdk',
+        });
+        await router.init();
+
+        const start = Date.now();
+        const outcome = await router.executeAction({
+          nearAccountId: 'e2e_router_progress_timeout.testnet',
+          receiverId: 'w3a-v1.testnet',
+          actionArgs: { type: 'Transfer', amount: '1' } as any,
+          options: { signerMode: { mode: 'local-signer' } },
+        }).then(
+          () => ({ ok: true as const }),
+          (error: unknown) => ({
+            ok: false as const,
+            error: String((error as { message?: unknown })?.message || error || ''),
+            elapsedMs: Date.now() - start,
+          }),
+        );
+
+        return { success: true, outcome };
+      } catch (error: unknown) {
+        return { success: false, error: String((error as { message?: unknown })?.message || error || '') };
+      }
+    }, { walletOrigin: WALLET_ORIGIN, routerPath });
+
+    if (!result.success) {
+      if (handleInfrastructureErrors(result)) return;
+      expect(result.success).toBe(true);
+      return;
+    }
+
+    expect(result.outcome.ok).toBe(false);
+    if (result.outcome.ok) return;
+    expect(result.outcome.error).toContain('Wallet request timeout for PM_EXECUTE_ACTION');
+    expect(result.outcome.elapsedMs).toBeGreaterThanOrEqual(500);
+    expect(result.outcome.elapsedMs).toBeLessThan(2500);
+  });
+
 });

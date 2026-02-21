@@ -30,6 +30,9 @@ test.describe('WalletIframeRouter.computeOverlayIntent', () => {
         'PM_EXECUTE_ACTION',
         'PM_SEND_TRANSACTION',
         'PM_SIGN_TXS_WITH_ACTIONS',
+        'PM_SIGN_DELEGATE_ACTION',
+        'PM_SIGN_NEP413',
+        'PM_SIGN_TEMPO',
       ];
       const hiddenTypes = [
         'PM_GET_LOGIN_SESSION',
@@ -38,7 +41,6 @@ test.describe('WalletIframeRouter.computeOverlayIntent', () => {
         'PM_SET_CONFIRM_BEHAVIOR',
         'PM_SET_CONFIRMATION_CONFIG',
         'PM_PREFETCH_BLOCKHEIGHT',
-        'PM_SIGN_TEMPO',
         'PM_START_DEVICE2_LINKING_FLOW',
         'PM_LOGOUT',
       ];
@@ -59,6 +61,9 @@ test.describe('WalletIframeRouter.computeOverlayIntent', () => {
     expect(byType['PM_EXECUTE_ACTION']).toBe('fullscreen');
     expect(byType['PM_SEND_TRANSACTION']).toBe('fullscreen');
     expect(byType['PM_SIGN_TXS_WITH_ACTIONS']).toBe('fullscreen');
+    expect(byType['PM_SIGN_DELEGATE_ACTION']).toBe('fullscreen');
+    expect(byType['PM_SIGN_NEP413']).toBe('fullscreen');
+    expect(byType['PM_SIGN_TEMPO']).toBe('fullscreen');
     // Hidden intents
     expect(byType['PM_GET_LOGIN_SESSION']).toBe('hidden');
     expect(byType['PM_SET_THEME']).toBe('hidden');
@@ -66,7 +71,6 @@ test.describe('WalletIframeRouter.computeOverlayIntent', () => {
     expect(byType['PM_SET_CONFIRM_BEHAVIOR']).toBe('hidden');
     expect(byType['PM_SET_CONFIRMATION_CONFIG']).toBe('hidden');
     expect(byType['PM_PREFETCH_BLOCKHEIGHT']).toBe('hidden');
-    expect(byType['PM_SIGN_TEMPO']).toBe('hidden');
     expect(byType['PM_START_DEVICE2_LINKING_FLOW']).toBe('hidden');
     expect(byType['PM_LOGOUT']).toBe('hidden');
   });

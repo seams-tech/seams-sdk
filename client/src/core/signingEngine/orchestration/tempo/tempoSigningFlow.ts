@@ -14,6 +14,7 @@ import { buildTempoDisplayModel } from '@/core/signingEngine/touchConfirm/displa
 import { resolveWebAuthnP256KeyRefForNearAccount } from '@/core/signingEngine/orchestration/walletOrigin/webauthnKeyRef';
 import { executeSigningIntent } from '@/core/signingEngine/orchestration/executeSigningIntent';
 import { normalizeAuthenticationCredential } from '@/core/signingEngine/signers/webauthn/credentials/helpers';
+import { ActionPhase } from '@/core/types/sdkSentEvents';
 import {
   asThresholdEcdsaKeyRef,
   inferDigest32FromSignRequest,
@@ -39,6 +40,18 @@ export async function signTempoWithTouchConfirm(args: {
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   workerCtx: WorkerOperationContext;
 }): Promise<TempoSignedResult> {
+  const emitProgress = (event: {
+    step: number;
+    phase: string;
+    status: 'progress' | 'success' | 'error';
+    message?: string;
+    data?: unknown;
+  }) => {
+    try {
+      args.onEvent?.(event);
+    } catch {}
+  };
+
   const intent = await new TempoAdapter(args.workerCtx).buildIntent(args.request);
 
   const webauthnReqs = intent.signRequests.filter((r) => r.kind === 'webauthn');
@@ -71,6 +84,12 @@ export async function signTempoWithTouchConfirm(args: {
   });
 
   const sessionId = makeRequestId('intent');
+  emitProgress({
+    step: 2,
+    phase: 'user-confirmation',
+    status: 'progress',
+    message: 'Awaiting transaction confirmation',
+  });
   const confirmation = await args.touchConfirmManager.orchestrateSigningConfirmation({
     ctx: args.ctx,
     sessionId,
@@ -86,8 +105,20 @@ export async function signTempoWithTouchConfirm(args: {
     onProgress: args.onEvent,
     confirmationConfigOverride: args.confirmationConfigOverride,
   });
+  emitProgress({
+    step: 2,
+    phase: 'user-confirmation-complete',
+    status: 'success',
+    message: 'Confirmation complete',
+  });
 
-  return await executeSigningIntent({
+  emitProgress({
+    step: 5,
+    phase: ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS,
+    status: 'progress',
+    message: 'Signing transaction...',
+  });
+  const result = await executeSigningIntent({
     intent,
     engines: args.engines,
     resolveSignInput: async (signReq: SignRequest) => {
@@ -113,4 +144,11 @@ export async function signTempoWithTouchConfirm(args: {
       });
     },
   });
+  emitProgress({
+    step: 6,
+    phase: ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE,
+    status: 'success',
+    message: 'Transaction signed',
+  });
+  return result;
 }
