@@ -2,7 +2,6 @@ import { expect, test } from '@playwright/test';
 import {
   provisionTempoAndEvmThresholdSigners,
   readCachedThresholdKeyRef,
-  resolveThresholdKeyRef,
   writeCachedThresholdKeyRef,
   type ThresholdEcdsaKeyRef,
 } from '../../examples/tatchi-site/src/utils/thresholdSigners';
@@ -91,53 +90,6 @@ test.describe('docs threshold signer helpers', () => {
     writeCachedThresholdKeyRef('alice.testnet', 'evm', keyRef);
     const cached = readCachedThresholdKeyRef('alice.testnet', 'evm');
     expect(cached).toEqual(keyRef);
-  });
-
-  test('resolveThresholdKeyRef returns cached keyRef without bootstrap call', async () => {
-    const keyRef = makeThresholdKeyRef('tempo');
-    writeCachedThresholdKeyRef('alice.testnet', 'tempo', keyRef);
-
-    let calls = 0;
-    const mock: MockTatchi = {
-      tempo: {
-        bootstrapEcdsaSession: async () => {
-          calls += 1;
-          return { thresholdEcdsaKeyRef: makeThresholdKeyRef('tempo') };
-        },
-      },
-    };
-
-    const resolved = await resolveThresholdKeyRef({
-      tatchi: mock as any,
-      nearAccountId: 'alice.testnet',
-      chain: 'tempo',
-    });
-
-    expect(resolved).toEqual(keyRef);
-    expect(calls).toBe(0);
-  });
-
-  test('resolveThresholdKeyRef bootstraps and caches when missing', async () => {
-    let calls = 0;
-    const keyRef = makeThresholdKeyRef('evm');
-    const mock: MockTatchi = {
-      tempo: {
-        bootstrapEcdsaSession: async () => {
-          calls += 1;
-          return { thresholdEcdsaKeyRef: keyRef };
-        },
-      },
-    };
-
-    const resolved = await resolveThresholdKeyRef({
-      tatchi: mock as any,
-      nearAccountId: 'alice.testnet',
-      chain: 'evm',
-    });
-
-    expect(calls).toBe(1);
-    expect(resolved).toEqual(keyRef);
-    expect(readCachedThresholdKeyRef('alice.testnet', 'evm')).toEqual(keyRef);
   });
 
   test('provisionTempoAndEvmThresholdSigners reuses one bootstrap for both chains', async () => {

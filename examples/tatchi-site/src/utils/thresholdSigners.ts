@@ -14,10 +14,6 @@ type ProvisionThresholdSignerForChainArgs = {
   remainingUses?: number;
 };
 
-type ResolveThresholdKeyRefArgs = ProvisionThresholdSignerForChainArgs & {
-  forceReprovision?: boolean;
-};
-
 const CACHE_KEY_PREFIX = 'tatchi-site:threshold-keyref:v1';
 const DEFAULT_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_REMAINING_USES = 12;
@@ -131,21 +127,4 @@ export async function provisionTempoAndEvmThresholdSigners(args: {
     evm: sharedBootstrap,
     tempo: sharedBootstrap,
   };
-}
-
-export async function resolveThresholdKeyRef(
-  args: ResolveThresholdKeyRefArgs,
-): Promise<ThresholdEcdsaKeyRef> {
-  if (!args.forceReprovision) {
-    const cached = readCachedThresholdKeyRef(args.nearAccountId, args.chain);
-    if (cached) return cached;
-  }
-  const bootstrap = await provisionThresholdSignerForChain({
-    tatchi: args.tatchi,
-    nearAccountId: args.nearAccountId,
-    chain: args.chain,
-    ttlMs: args.ttlMs,
-    remainingUses: args.remainingUses,
-  });
-  return bootstrap.thresholdEcdsaKeyRef;
 }

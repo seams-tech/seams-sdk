@@ -143,7 +143,6 @@ test.describe('docs frontend signing actions smoke', () => {
               useTatchiHook,
               useSetGreetingHook,
               readCachedThresholdKeyRef: () => keyRef as any,
-              resolveThresholdKeyRef: async () => keyRef as any,
             },
           }),
         );

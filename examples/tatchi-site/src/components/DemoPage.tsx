@@ -16,35 +16,14 @@ import { useSetGreeting } from '../hooks/useSetGreeting';
 import { NEAR_EXPLORER_BASE_URL, WEBAUTHN_CONTRACT_ID } from '../types';
 import {
   readCachedThresholdKeyRef,
-  resolveThresholdKeyRef,
   type ThresholdEcdsaChain,
   type ThresholdEcdsaKeyRef,
 } from '../utils/thresholdSigners';
 import './DemoPage.css';
 
-const THRESHOLD_SIGNER_TTL_MS = 30 * 60 * 1000;
-const THRESHOLD_SIGNER_REMAINING_USES = 12;
-
-function isThresholdSessionExpiredError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error || '');
-  return /threshold session expired|No cached threshold-ecdsa session token|reconnect/i.test(
-    message,
-  );
-}
-
 function shortenHex(value: string, size = 24): string {
   if (!value) return '—';
   return value.length <= size ? value : `${value.slice(0, size)}…`;
-}
-
-function hasWarmThresholdSession(keyRef: ThresholdEcdsaKeyRef | null | undefined): boolean {
-  if (!keyRef) return false;
-  const sessionId = String(keyRef.thresholdSessionId || '').trim();
-  if (!sessionId) return false;
-  const sessionKind = String(keyRef.thresholdSessionKind || 'jwt').trim().toLowerCase();
-  if (sessionKind !== 'jwt') return true;
-  const jwt = String(keyRef.thresholdSessionJwt || '').trim();
-  return jwt.length > 0;
 }
 
 function buildDemoTempoTransactionRequest() {
@@ -106,7 +85,6 @@ type DemoPageTestOverrides = {
   useTatchiHook?: typeof useTatchi;
   useSetGreetingHook?: typeof useSetGreeting;
   readCachedThresholdKeyRef?: typeof readCachedThresholdKeyRef;
-  resolveThresholdKeyRef?: typeof resolveThresholdKeyRef;
 };
 
 type DemoPageProps = {
@@ -118,8 +96,6 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
   const useSetGreetingHook = props.__testOverrides?.useSetGreetingHook || useSetGreeting;
   const readCachedKeyRef =
     props.__testOverrides?.readCachedThresholdKeyRef || readCachedThresholdKeyRef;
-  const resolveThresholdKeyRefForChain =
-    props.__testOverrides?.resolveThresholdKeyRef || resolveThresholdKeyRef;
 
   const [clockMs, setClockMs] = useState(() => Date.now());
 
@@ -443,39 +419,27 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
   ]);
 
   const getKeyRefForChain = useCallback(
-    async (chain: ThresholdEcdsaChain, forceReprovision = false): Promise<ThresholdEcdsaKeyRef> => {
+    (chain: ThresholdEcdsaChain): ThresholdEcdsaKeyRef => {
       if (!nearAccountId) throw new Error('Missing nearAccountId');
-      if (!forceReprovision) {
+
+      const cached = readCachedKeyRef(nearAccountId, chain);
+      if (cached) {
         const inMemory = thresholdKeyRefs[chain];
-        const cached = readCachedKeyRef(nearAccountId, chain);
-        if (cached && hasWarmThresholdSession(cached) && !hasWarmThresholdSession(inMemory)) {
+        if (inMemory !== cached) {
           setThresholdKeyRefForChain(chain, cached);
-          return cached;
         }
-        if (inMemory) return inMemory;
-        if (cached) {
-          setThresholdKeyRefForChain(chain, cached);
-          return cached;
-        }
+        return cached;
       }
-      const keyRef = await resolveThresholdKeyRefForChain({
-        tatchi,
-        nearAccountId,
-        chain,
-        forceReprovision,
-        ttlMs: THRESHOLD_SIGNER_TTL_MS,
-        remainingUses: THRESHOLD_SIGNER_REMAINING_USES,
-      });
-      setThresholdKeyRefForChain(chain, keyRef);
-      return keyRef;
+
+      const inMemory = thresholdKeyRefs[chain];
+      if (inMemory) return inMemory;
+
+      const chainLabel = chain === 'evm' ? 'EVM' : 'Tempo';
+      throw new Error(
+        `${chainLabel} threshold signer is not provisioned. Log out and log in again to provision threshold signers.`,
+      );
     },
-    [
-      nearAccountId,
-      resolveThresholdKeyRefForChain,
-      setThresholdKeyRefForChain,
-      tatchi,
-      thresholdKeyRefs,
-    ],
+    [nearAccountId, readCachedKeyRef, setThresholdKeyRefForChain, thresholdKeyRefs],
   );
 
   const handleSignTempoThresholdTx = useCallback(async () => {
@@ -485,23 +449,12 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     toast.loading('Signing Tempo transaction with threshold signer…', { id: toastId });
     try {
       const request = buildDemoTempoTransactionRequest();
-      let thresholdEcdsaKeyRef = await getKeyRefForChain('tempo');
-      let signed: Awaited<ReturnType<typeof tatchi.signTempo>>;
-      try {
-        signed = await tatchi.tempo.signTempo({
-          nearAccountId,
-          request,
-          options: { thresholdEcdsaKeyRef },
-        });
-      } catch (error: unknown) {
-        if (!isThresholdSessionExpiredError(error)) throw error;
-        thresholdEcdsaKeyRef = await getKeyRefForChain('tempo', true);
-        signed = await tatchi.tempo.signTempo({
-          nearAccountId,
-          request,
-          options: { thresholdEcdsaKeyRef },
-        });
-      }
+      const thresholdEcdsaKeyRef = getKeyRefForChain('tempo');
+      const signed = await tatchi.tempo.signTempo({
+        nearAccountId,
+        request,
+        options: { thresholdEcdsaKeyRef },
+      });
 
       if (signed.kind !== 'tempoTransaction') {
         throw new Error(`Unexpected signing result kind: ${signed.kind}`);
@@ -527,23 +480,12 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     toast.loading('Signing EIP-1559 transaction with threshold signer…', { id: toastId });
     try {
       const request = buildDemoEip1559Request();
-      let thresholdEcdsaKeyRef = await getKeyRefForChain('evm');
-      let signed: Awaited<ReturnType<typeof tatchi.signTempoWithThresholdEcdsa>>;
-      try {
-        signed = await tatchi.tempo.signTempoWithThresholdEcdsa({
-          nearAccountId,
-          request,
-          thresholdEcdsaKeyRef,
-        });
-      } catch (error: unknown) {
-        if (!isThresholdSessionExpiredError(error)) throw error;
-        thresholdEcdsaKeyRef = await getKeyRefForChain('evm', true);
-        signed = await tatchi.tempo.signTempoWithThresholdEcdsa({
-          nearAccountId,
-          request,
-          thresholdEcdsaKeyRef,
-        });
-      }
+      const thresholdEcdsaKeyRef = getKeyRefForChain('evm');
+      const signed = await tatchi.tempo.signTempoWithThresholdEcdsa({
+        nearAccountId,
+        request,
+        thresholdEcdsaKeyRef,
+      });
 
       if (signed.kind !== 'eip1559') {
         throw new Error(`Unexpected signing result kind: ${signed.kind}`);
@@ -644,8 +586,8 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
         <div className="demo-divider" aria-hidden="true" />
         <h2 className="demo-subtitle">Tempo + EVM Threshold Signers</h2>
         <div className="action-text">
-          Registration provisions your NEAR signer. Tempo + EVM threshold signers are provisioned
-          on first use per chain and cached for follow-up signatures.
+          Login provisions shared Tempo + EVM threshold signers, then caches them for follow-up
+          signatures.
         </div>
 
         <div
