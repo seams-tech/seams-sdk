@@ -89,13 +89,13 @@
 
 .pricing-button--solid {
   background: var(--pricing-brand);
-  color: #ffffff;
+  color: var(--site-text-button, #000000);
   box-shadow: 0 8px 24px color-mix(in srgb, var(--pricing-brand) 35%, transparent);
 }
 
 .pricing-button--solid:hover {
   background: var(--pricing-brand-hover);
-  color: #ffffff;
+  color: var(--site-text-button, #000000);
 }
 
 .pricing-button--ghost {

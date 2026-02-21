@@ -74,7 +74,7 @@
   width: 100%;
   border: 1px solid color-mix(in srgb, var(--fe-border-strong) 56%, transparent 44%);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--site-surface-muted) 82%, transparent);
+  background: var(--site-surface);
   color: var(--fe-text-primary);
   font-size: 0.95rem;
   line-height: 1.3;

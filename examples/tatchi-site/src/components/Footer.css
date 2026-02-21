@@ -229,7 +229,7 @@ html[data-w3a-theme="dark"] .app-footer__newsletter {
   min-width: 0;
   border-radius: 0.86rem;
   border: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary) 82%, transparent);
-  background: color-mix(in srgb, var(--w3a-colors-surface2) 58%, var(--w3a-colors-textButton) 42%);
+  background: var(--w3a-colors-surface2);
   color: var(--fe-text);
   padding: 0.68rem 0.82rem;
   font: inherit;
