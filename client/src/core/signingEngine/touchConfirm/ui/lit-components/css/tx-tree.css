@@ -39,6 +39,10 @@
   --w3a-tree__connector__elbow-length: 10px;
   /* Optional per-surface tweak to adjust elbow length without overriding calc */
   --w3a-tree__connector__elbow-delta: 0rem;
+  --w3a-tree__label-hover__resolved-background: var(
+    --w3a-tree__label-hover__background,
+    rgba(255, 255, 255, 0.04)
+  );
 }
 
 :is(w3a-tx-tree, tx-tree)[theme="dark"] {
@@ -314,18 +318,18 @@
   -webkit-text-fill-color: transparent;
 }
 
-:is(w3a-tx-tree, tx-tree) .label:hover {
-  background: var(--w3a-tree__label-hover__background, var(--w3a-tree__summary-row-hover__background, rgba(255, 255, 255, 0.06)));
-}
-
 @supports (background: color-mix(in oklch, black 50%, white 50%)) {
-  :is(w3a-tx-tree, tx-tree) .label:hover {
-    background: color-mix(
+  :is(w3a-tx-tree, tx-tree) {
+    --w3a-tree__label-hover__resolved-background: color-mix(
       in oklch,
-      var(--w3a-tree__label-hover__background, var(--w3a-tree__summary-row-hover__background, rgba(255, 255, 255, 0.06))) 88%,
-      var(--w3a-colors-textPrimary, #fff) 12%
+      var(--w3a-tree__label-hover__background, rgba(255, 255, 255, 0.04)) 88%,
+      var(--w3a-tree__label-hover__mix-color, var(--w3a-colors-textPrimary, #fff)) 12%
     );
   }
+}
+
+:is(w3a-tx-tree, tx-tree) .label:hover {
+  background: var(--w3a-tree__label-hover__resolved-background);
 }
 
 :is(w3a-tx-tree, tx-tree) .label-text > * {

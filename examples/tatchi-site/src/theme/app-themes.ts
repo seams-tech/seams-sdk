@@ -68,7 +68,7 @@ const SOLARIZED_LIGHT_COLORS: Record<string, string> = {
   surface3: '#ddd6c1',
   surface4: '#d3cbb4',
 
-  hover: '#eee8d5',
+  hover: '#e8e2d0',
   active: '#e7e1cf',
   focus: '#2aa198',
 
