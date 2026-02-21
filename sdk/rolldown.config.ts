@@ -368,6 +368,8 @@ const configs = [
       '../client/src/core/indexedDB/index.ts',
       '../client/src/core/indexedDB/passkeyClientDB/manager.ts',
       '../client/src/core/indexedDB/passkeyNearKeysDB/manager.ts',
+      // Keep worker-facing WASM wrapper exports stable for deep imports used by tests/tools.
+      '../client/src/core/signingEngine/signers/wasm/ethSignerWasm.ts',
     ],
     output: {
       dir: BUILD_PATHS.BUILD.ESM,

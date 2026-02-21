@@ -41,6 +41,7 @@ function toWasmTx(tx: Eip1559UnsignedTx): Eip1559TxWasmJson {
 }
 
 const ETH_SIGNER_WORKER_KIND = 'ethSigner' as const;
+const ETH_SIGNER_WORKER_TIMEOUT_MS = 20_000;
 
 export async function computeEip1559TxHashWasm(
   tx: Eip1559UnsignedTx,
@@ -49,7 +50,11 @@ export async function computeEip1559TxHashWasm(
   const ab = await executeWorkerOperation({
     ctx: workerCtx,
     kind: ETH_SIGNER_WORKER_KIND,
-    request: { type: 'computeEip1559TxHash', payload: { tx: toWasmTx(tx) } },
+    request: {
+      type: 'computeEip1559TxHash',
+      payload: { tx: toWasmTx(tx) },
+      timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
+    },
   });
   return new Uint8Array(ab);
 }
@@ -66,6 +71,7 @@ export async function encodeEip1559SignedTxFromSignature65Wasm(args: {
     request: {
       type: 'encodeEip1559SignedTxFromSignature65',
       payload: { tx: toWasmTx(args.tx), signature65 },
+      timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
       transfer: [signature65],
     },
   });
@@ -85,6 +91,7 @@ export async function signSecp256k1RecoverableWasm(args: {
     request: {
       type: 'signSecp256k1Recoverable',
       payload: { digest32: digestBuf, privateKey32: pkBuf },
+      timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
       transfer: [digestBuf, pkBuf],
     },
   });
@@ -125,6 +132,7 @@ export async function deriveThresholdSecp256k1ClientShareWasm(args: {
         userId,
         derivationPath,
       },
+      timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
       transfer: [prfFirst32Copy.buffer],
     },
   });
@@ -180,6 +188,7 @@ export async function deriveSecp256k1KeypairFromPrfSecondWasm(args: {
         prfSecond: prfSecondCopy.buffer,
         nearAccountId,
       },
+      timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
       transfer: [prfSecondCopy.buffer],
     },
   });
@@ -234,6 +243,7 @@ export async function mapAdditiveShareToThresholdSignaturesShare2pWasm(args: {
         additiveShare32: additiveShare32.buffer,
         participantId,
       },
+      timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
       transfer: [additiveShare32.buffer],
     },
   });
@@ -260,6 +270,7 @@ export async function validateSecp256k1PublicKey33Wasm(args: {
     request: {
       type: 'validateSecp256k1PublicKey33',
       payload: { publicKey33: publicKey33.buffer },
+      timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
       transfer: [publicKey33.buffer],
     },
   });
@@ -294,6 +305,7 @@ export async function addSecp256k1PublicKeys33Wasm(args: {
         left33: left33.buffer,
         right33: right33.buffer,
       },
+      timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
       transfer: [left33.buffer, right33.buffer],
     },
   });
@@ -354,6 +366,7 @@ export async function buildWebauthnP256SignatureWasm(args: {
         pubKeyX32: pubKeyX32.buffer,
         pubKeyY32: pubKeyY32.buffer,
       },
+      timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
       transfer: [
         challenge32.buffer,
         authenticatorData.buffer,
@@ -430,6 +443,7 @@ export async function thresholdEcdsaPresignSessionInitWasm(args: {
         clientThresholdSigningShare32: clientThresholdSigningShare32.buffer,
         groupPublicKey33: groupPublicKey33.buffer,
       },
+      timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
       transfer: [clientThresholdSigningShare32.buffer, groupPublicKey33.buffer],
     },
   });
@@ -458,6 +472,7 @@ export async function thresholdEcdsaPresignSessionStepWasm(args: {
         stage: args.stage,
         incomingMessages: incomingMessages.map((entry) => entry.buffer),
       },
+      timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
       transfer,
     },
   });
@@ -475,6 +490,7 @@ export async function thresholdEcdsaPresignSessionAbortWasm(args: {
     request: {
       type: 'thresholdEcdsaPresignSessionAbort',
       payload: { sessionId: args.sessionId },
+      timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
     },
   });
 }
@@ -512,6 +528,7 @@ export async function thresholdEcdsaComputeSignatureShareWasm(args: {
         digest32: digest32.buffer,
         entropy32: entropy32.buffer,
       },
+      timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
       transfer: [
         groupPublicKey33.buffer,
         presignBigR33.buffer,

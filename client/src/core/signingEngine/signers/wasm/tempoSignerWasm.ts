@@ -68,6 +68,7 @@ function toWasmTx(tx: TempoUnsignedTx): TempoTxWasmJson {
 }
 
 const TEMPO_SIGNER_WORKER_KIND = 'tempoSigner' as const;
+const TEMPO_SIGNER_WORKER_TIMEOUT_MS = 20_000;
 
 export async function computeTempoSenderHashWasm(
   tx: TempoUnsignedTx,
@@ -76,7 +77,11 @@ export async function computeTempoSenderHashWasm(
   const ab = await executeWorkerOperation({
     ctx: workerCtx,
     kind: TEMPO_SIGNER_WORKER_KIND,
-    request: { type: 'computeTempoSenderHash', payload: { tx: toWasmTx(tx) } },
+    request: {
+      type: 'computeTempoSenderHash',
+      payload: { tx: toWasmTx(tx) },
+      timeoutMs: TEMPO_SIGNER_WORKER_TIMEOUT_MS,
+    },
   });
   return new Uint8Array(ab);
 }
@@ -93,6 +98,7 @@ export async function encodeTempoSignedTxWasm(args: {
     request: {
       type: 'encodeTempoSignedTx',
       payload: { tx: toWasmTx(args.tx), senderSignature: sigBuf },
+      timeoutMs: TEMPO_SIGNER_WORKER_TIMEOUT_MS,
       transfer: [sigBuf],
     },
   });

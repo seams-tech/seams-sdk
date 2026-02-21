@@ -98,6 +98,9 @@ self.addEventListener('message', async (event: MessageEvent) => {
         postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
         return;
       }
+      default: {
+        throw new Error(`Unsupported tempoSigner worker operation type: ${String((msg as { type?: unknown }).type)}`);
+      }
     }
   } catch (e) {
     const err = asWorkerErrorPayload(e);

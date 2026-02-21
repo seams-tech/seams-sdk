@@ -1,4 +1,5 @@
 import { stripTrailingSlashes, toTrimmedString } from '@shared/utils/validation';
+import { fetchThresholdEcdsaJson } from './httpRequest';
 
 function toDigest32Bytes(input: Uint8Array | number[]): Uint8Array | null {
   if (input instanceof Uint8Array) {
@@ -18,6 +19,7 @@ export async function authorizeEcdsaWithSession(args: {
   signingPayload?: unknown;
   sessionKind?: 'jwt' | 'cookie';
   thresholdSessionJwt?: string;
+  requestTimeoutMs?: number;
 }): Promise<{
   ok: boolean;
   mpcSessionId?: string;
@@ -75,20 +77,23 @@ export async function authorizeEcdsaWithSession(args: {
 
   try {
     const url = `${relayerUrl}/threshold-ecdsa/authorize`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      credentials: sessionKind === 'cookie' ? 'include' : 'omit',
-      body: JSON.stringify({
-        relayerKeyId,
-        clientVerifyingShareB64u,
-        purpose,
-        signing_digest_32: Array.from(signingDigest32),
-        ...(args.signingPayload !== undefined ? { signingPayload: args.signingPayload } : {}),
-      }),
+    const { response, data } = await fetchThresholdEcdsaJson<ThresholdEcdsaAuthorizeResponseBody>({
+      url,
+      operation: 'authorize',
+      timeoutMs: args.requestTimeoutMs,
+      init: {
+        method: 'POST',
+        headers,
+        credentials: sessionKind === 'cookie' ? 'include' : 'omit',
+        body: JSON.stringify({
+          relayerKeyId,
+          clientVerifyingShareB64u,
+          purpose,
+          signing_digest_32: Array.from(signingDigest32),
+          ...(args.signingPayload !== undefined ? { signingPayload: args.signingPayload } : {}),
+        }),
+      },
     });
-
-    const data = (await response.json().catch(() => ({}))) as ThresholdEcdsaAuthorizeResponseBody;
     if (!response.ok) {
       return {
         ok: false,

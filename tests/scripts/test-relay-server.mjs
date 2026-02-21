@@ -24,6 +24,9 @@ async function readCache() {
 
 async function main() {
   const cache = await readCache();
+  const thresholdEcdsaMasterSecretB64u =
+    String(process.env.THRESHOLD_SECP256K1_MASTER_SECRET_B64U || '').trim()
+    || Buffer.from(new Uint8Array(32).fill(9)).toString('base64url');
 
   const config = {
     relayerAccount: cache.accountId,
@@ -47,7 +50,11 @@ async function main() {
   // Threshold signing services (in-memory stores are sufficient for test runs).
   const threshold = createThresholdSigningService({
     authService,
-    thresholdEd25519KeyStore: { kind: 'in-memory' },
+    thresholdEd25519KeyStore: {
+      kind: 'in-memory',
+      THRESHOLD_NODE_ROLE: 'coordinator',
+      THRESHOLD_SECP256K1_MASTER_SECRET_B64U: thresholdEcdsaMasterSecretB64u,
+    },
     logger: null,
   });
 

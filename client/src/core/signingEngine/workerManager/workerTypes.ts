@@ -148,6 +148,7 @@ export type MultichainWorkerOperationRequest<
 > = {
   type: T;
   payload: MultichainWorkerOperationEntry<K, T>['payload'];
+  timeoutMs?: number;
   transfer?: Transferable[];
 };
 

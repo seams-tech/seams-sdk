@@ -88,6 +88,7 @@ const SIGNER_WORKER_KINDS: readonly SignerWorkerKind[] = [
   'ethSigner',
   'tempoSigner',
 ];
+const MULTICHAIN_WORKER_DEFAULT_TIMEOUT_MS = 20_000;
 
 function makeId(prefix: string): string {
   const c = globalThis.crypto;
@@ -276,11 +277,29 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
   ): Promise<MultichainWorkerOperationResult<K, T>> {
     const worker = this.getOrCreateWorker(kind);
     const requestId = makeId(kind);
+    const parsedTimeoutMs = Math.floor(Number(request.timeoutMs));
+    const timeoutMs = Number.isFinite(parsedTimeoutMs) && parsedTimeoutMs > 0
+      ? parsedTimeoutMs
+      : MULTICHAIN_WORKER_DEFAULT_TIMEOUT_MS;
 
     return await new Promise<MultichainWorkerOperationResult<K, T>>((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        this.rejectRequest(
+          kind,
+          requestId,
+          new SignerWorkerOperationError({
+            message: `Worker operation timed out after ${timeoutMs}ms`,
+            code: 'TIMEOUT',
+            workerKind: kind,
+          }),
+        );
+        this.resetWorker(kind);
+      }, timeoutMs);
+
       this.getPendingMap(kind).set(requestId, {
         resolve: (value) => resolve(value as MultichainWorkerOperationResult<K, T>),
         reject,
+        timeoutId,
       });
 
       try {

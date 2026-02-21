@@ -1,5 +1,6 @@
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { stripTrailingSlashes, toTrimmedString } from '@shared/utils/validation';
+import { fetchThresholdEcdsaJson } from './httpRequest';
 
 type EcdsaSessionKind = 'jwt' | 'cookie';
 
@@ -56,6 +57,7 @@ export async function ecdsaPresignInit(args: {
   count?: number;
   sessionKind?: EcdsaSessionKind;
   thresholdSessionJwt?: string;
+  requestTimeoutMs?: number;
 }): Promise<ThresholdEcdsaPresignProgress & { presignSessionId?: string }> {
   const relayerUrl = resolveRelayerUrl(args.relayerUrl);
   if (!relayerUrl) {
@@ -86,17 +88,21 @@ export async function ecdsaPresignInit(args: {
   }>;
 
   try {
-    const response = await fetch(`${relayerUrl}/threshold-ecdsa/presign/init`, {
-      method: 'POST',
-      headers: auth.headers,
-      credentials: auth.sessionKind === 'cookie' ? 'include' : 'omit',
-      body: JSON.stringify({
-        relayerKeyId,
-        clientVerifyingShareB64u,
-        count: Number.isFinite(args.count) ? Math.max(1, Math.floor(Number(args.count))) : 1,
-      }),
+    const { response, data } = await fetchThresholdEcdsaJson<ResponseBody>({
+      url: `${relayerUrl}/threshold-ecdsa/presign/init`,
+      operation: 'presign/init',
+      timeoutMs: args.requestTimeoutMs,
+      init: {
+        method: 'POST',
+        headers: auth.headers,
+        credentials: auth.sessionKind === 'cookie' ? 'include' : 'omit',
+        body: JSON.stringify({
+          relayerKeyId,
+          clientVerifyingShareB64u,
+          count: Number.isFinite(args.count) ? Math.max(1, Math.floor(Number(args.count))) : 1,
+        }),
+      },
     });
-    const data = (await response.json().catch(() => ({}))) as ResponseBody;
     if (!response.ok) {
       return {
         ok: false,
@@ -125,6 +131,7 @@ export async function ecdsaPresignStep(args: {
   outgoingMessagesB64u?: string[];
   sessionKind?: EcdsaSessionKind;
   thresholdSessionJwt?: string;
+  requestTimeoutMs?: number;
 }): Promise<ThresholdEcdsaPresignProgress> {
   const relayerUrl = resolveRelayerUrl(args.relayerUrl);
   if (!relayerUrl) {
@@ -153,17 +160,21 @@ export async function ecdsaPresignStep(args: {
   }>;
 
   try {
-    const response = await fetch(`${relayerUrl}/threshold-ecdsa/presign/step`, {
-      method: 'POST',
-      headers: auth.headers,
-      credentials: auth.sessionKind === 'cookie' ? 'include' : 'omit',
-      body: JSON.stringify({
-        presignSessionId,
-        stage: args.stage,
-        outgoingMessagesB64u: Array.isArray(args.outgoingMessagesB64u) ? args.outgoingMessagesB64u : [],
-      }),
+    const { response, data } = await fetchThresholdEcdsaJson<ResponseBody>({
+      url: `${relayerUrl}/threshold-ecdsa/presign/step`,
+      operation: 'presign/step',
+      timeoutMs: args.requestTimeoutMs,
+      init: {
+        method: 'POST',
+        headers: auth.headers,
+        credentials: auth.sessionKind === 'cookie' ? 'include' : 'omit',
+        body: JSON.stringify({
+          presignSessionId,
+          stage: args.stage,
+          outgoingMessagesB64u: Array.isArray(args.outgoingMessagesB64u) ? args.outgoingMessagesB64u : [],
+        }),
+      },
     });
-    const data = (await response.json().catch(() => ({}))) as ResponseBody;
     if (!response.ok) {
       return {
         ok: false,
@@ -193,6 +204,7 @@ export async function ecdsaSignInit(args: {
   relayerKeyId: string;
   signingDigest32: Uint8Array;
   presignatureId?: string;
+  requestTimeoutMs?: number;
 }): Promise<{
   ok: boolean;
   code?: string;
@@ -237,19 +249,23 @@ export async function ecdsaSignInit(args: {
   }>;
 
   try {
-    const response = await fetch(`${relayerUrl}/threshold-ecdsa/sign/init`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        mpcSessionId,
-        relayerKeyId,
-        signingDigestB64u: base64UrlEncode(args.signingDigest32),
-        ...(args.presignatureId
-          ? { clientRound1: { presignatureId: String(args.presignatureId).trim() } }
-          : {}),
-      }),
+    const { response, data } = await fetchThresholdEcdsaJson<ResponseBody>({
+      url: `${relayerUrl}/threshold-ecdsa/sign/init`,
+      operation: 'sign/init',
+      timeoutMs: args.requestTimeoutMs,
+      init: {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mpcSessionId,
+          relayerKeyId,
+          signingDigestB64u: base64UrlEncode(args.signingDigest32),
+          ...(args.presignatureId
+            ? { clientRound1: { presignatureId: String(args.presignatureId).trim() } }
+            : {}),
+        }),
+      },
     });
-    const data = (await response.json().catch(() => ({}))) as ResponseBody;
     if (!response.ok) {
       return {
         ok: false,
@@ -274,6 +290,7 @@ export async function ecdsaSignFinalize(args: {
   relayerUrl: string;
   signingSessionId: string;
   clientSignatureShare32: Uint8Array;
+  requestTimeoutMs?: number;
 }): Promise<{
   ok: boolean;
   code?: string;
@@ -314,17 +331,21 @@ export async function ecdsaSignFinalize(args: {
   }>;
 
   try {
-    const response = await fetch(`${relayerUrl}/threshold-ecdsa/sign/finalize`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        signingSessionId,
-        clientRound2: {
-          clientSignatureShareB64u: base64UrlEncode(args.clientSignatureShare32),
-        },
-      }),
+    const { response, data } = await fetchThresholdEcdsaJson<ResponseBody>({
+      url: `${relayerUrl}/threshold-ecdsa/sign/finalize`,
+      operation: 'sign/finalize',
+      timeoutMs: args.requestTimeoutMs,
+      init: {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          signingSessionId,
+          clientRound2: {
+            clientSignatureShareB64u: base64UrlEncode(args.clientSignatureShare32),
+          },
+        }),
+      },
     });
-    const data = (await response.json().catch(() => ({}))) as ResponseBody;
     if (!response.ok) {
       return {
         ok: false,

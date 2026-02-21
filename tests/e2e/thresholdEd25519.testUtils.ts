@@ -25,6 +25,7 @@ export async function setupThresholdE2ePage(page: Page): Promise<void> {
 const DEFAULT_ACCOUNTS_ON_CHAIN = new Set<string>(
   [DEFAULT_TEST_CONFIG.contractId, DEFAULT_TEST_CONFIG.relayerAccount].filter((id): id is string => !!id),
 );
+const DEFAULT_ECDSA_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString('base64url');
 
 export function makeAuthServiceForThreshold(
   keysOnChain: Set<string>,
@@ -58,9 +59,23 @@ export function makeAuthServiceForThreshold(
       return { keys };
     };
 
+  const thresholdConfigDefaults: ThresholdEd25519KeyStoreConfigInput = {
+    THRESHOLD_NODE_ROLE: 'coordinator',
+    THRESHOLD_SECP256K1_MASTER_SECRET_B64U: DEFAULT_ECDSA_MASTER_SECRET_B64U,
+  };
+  const thresholdConfig: ThresholdEd25519KeyStoreConfigInput = thresholdEd25519KeyStore
+    ? {
+        ...thresholdConfigDefaults,
+        ...thresholdEd25519KeyStore,
+        THRESHOLD_SECP256K1_MASTER_SECRET_B64U:
+          String(thresholdEd25519KeyStore.THRESHOLD_SECP256K1_MASTER_SECRET_B64U || '').trim()
+          || DEFAULT_ECDSA_MASTER_SECRET_B64U,
+      }
+    : thresholdConfigDefaults;
+
   const threshold = createThresholdSigningService({
     authService: svc,
-    thresholdEd25519KeyStore: thresholdEd25519KeyStore ?? { THRESHOLD_NODE_ROLE: 'coordinator' },
+    thresholdEd25519KeyStore: thresholdConfig,
     logger: null,
   });
 

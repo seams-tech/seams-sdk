@@ -493,6 +493,9 @@ self.addEventListener('message', async (event: MessageEvent) => {
         postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
         return;
       }
+      default: {
+        throw new Error(`Unsupported ethSigner worker operation type: ${String((msg as { type?: unknown }).type)}`);
+      }
     }
   } catch (e) {
     if (msg?.type === 'thresholdEcdsaPresignSessionInit' || msg?.type === 'thresholdEcdsaPresignSessionStep') {
