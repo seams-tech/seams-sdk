@@ -7,6 +7,15 @@ There are two separate “publishes” in this repo:
 
 The Cloudflare Pages deploy workflows serve the SDK runtime assets from Pages under `/sdk/*`, so R2 publishing is optional unless you explicitly serve/proxy SDK assets from R2.
 
+## Current release note draft
+
+### 2026-02-21: Export Flow Security Hardening (worker-owned confirmation)
+
+- Export flow now fail-closes when legacy JS-main-thread shortcut paths are encountered.
+- Error is explicit and typed: `SIGNER_EXPORT_TEMP_DISABLED_LEGACY_SHORTCUT`.
+- Blocked legacy-path attempts emit telemetry event `signer.export.legacy_shortcut_blocked`.
+- This behavior is intentional during worker-owned export hardening and prevents silent fallback.
+
 ## Manually tag releases
 
 1) Tag the release
