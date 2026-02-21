@@ -108,9 +108,10 @@ async function runExportWorkerOperation(
   const accountId = toAccountId(args.nearAccountId);
   const schemes = normalizeRequestedSchemes(args.options?.schemes);
   if (!schemes.length) throw new Error('No export schemes requested');
-  const exportPrivateKeysWithUiMaybe = (deps.touchConfirmManager as {
+  const touchConfirmManager = deps.touchConfirmManager as {
     exportPrivateKeysWithUi?: unknown;
-  }).exportPrivateKeysWithUi;
+  };
+  const exportPrivateKeysWithUiMaybe = touchConfirmManager.exportPrivateKeysWithUi;
   if (typeof exportPrivateKeysWithUiMaybe !== 'function') {
     throwLegacyExportShortcutDisabled({
       nearAccountId: accountId,
@@ -118,7 +119,8 @@ async function runExportWorkerOperation(
     });
   }
   const exportPrivateKeysWithUi =
-    exportPrivateKeysWithUiMaybe as TouchConfirmSecureConfirmationPort['exportPrivateKeysWithUi'];
+    touchConfirmManager.exportPrivateKeysWithUi as TouchConfirmSecureConfirmationPort['exportPrivateKeysWithUi'];
+  const exportPrivateKeysWithUiBound = exportPrivateKeysWithUi.bind(touchConfirmManager);
 
   const resolvedTheme = args.options?.theme ?? deps.getTheme();
   const deviceNumber = await getLastLoggedInDeviceNumber(accountId, deps.indexedDB.clientDB).catch(
@@ -159,7 +161,7 @@ async function runExportWorkerOperation(
 
   const result = await (async (): Promise<ExportPrivateKeysWithUiWorkerResult> => {
     try {
-      return await exportPrivateKeysWithUi({
+      return await exportPrivateKeysWithUiBound({
         nearAccountId: accountId,
         deviceNumber,
         publicKeyHint,

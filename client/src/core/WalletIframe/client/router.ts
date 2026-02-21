@@ -115,6 +115,7 @@ import { mergeSignerMode, type ConfirmationConfig, type SignerMode } from '../..
 import type { AccessKeyList } from '../../rpcClients/near/NearClient';
 import type { SignNEP413MessageResult } from '../../TatchiPasskey/near';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../../config/defaultConfigs';
+import { logThresholdTrace } from '../../signingEngine/debug/thresholdTrace';
 
 // Simple, framework-agnostic service iframe client.
 // Responsibilities split:
@@ -166,9 +167,13 @@ type Pending = {
   reject: (reason?: unknown) => void;
   timer: number | undefined;
   timeoutMs: number;
+  deadlineAtMs: number;
   onProgress?: (payload: ProgressPayload) => void;
   onTimeout: () => Error;
 };
+
+const WALLET_IFRAME_PROGRESS_TIMEOUT_EXTENSION_FACTOR = 4;
+const WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS = 20_000;
 
 type PostResult<T> = {
   ok: boolean,
@@ -343,6 +348,10 @@ export class WalletIframeRouter {
       const data = ev.data;
       if (!isObject(data)) return;
       if ((data as { type?: unknown }).type !== 'WALLET_UI_CLOSED') return;
+      const uiError = (data as { error?: unknown }).error;
+      if (typeof uiError === 'string' && uiError.trim().length > 0) {
+        console.error('[WalletIframeRouter] Export UI closed with error:', uiError);
+      }
       this.overlayState.controller.setSticky(false);
       this.hideFrameForActivation();
       globalThis.removeEventListener?.('message', onUiClosed);
@@ -720,6 +729,12 @@ export class WalletIframeRouter {
       };
     };
   }): Promise<ThresholdEcdsaSessionBootstrapResult> {
+    logThresholdTrace('wallet-router', 'bootstrap-ecdsa:dispatch', {
+      nearAccountId: payload.nearAccountId,
+      chain: payload.options?.chain || 'tempo',
+      sessionKind: payload.options?.sessionKind || 'jwt',
+      timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
+    });
     this.showFrameForActivation();
     try {
       const safeOptions = removeFunctionsFromOptions(payload.options);
@@ -729,6 +744,14 @@ export class WalletIframeRouter {
           nearAccountId: payload.nearAccountId,
           options: safeOptions,
         },
+      }, {
+        timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
+        progressTimeoutExtensionFactor: 1,
+      });
+      logThresholdTrace('wallet-router', 'bootstrap-ecdsa:result', {
+        nearAccountId: payload.nearAccountId,
+        chain: payload.options?.chain || 'tempo',
+        hasResult: !!res?.result,
       });
       return res.result;
     } finally {
@@ -850,6 +873,13 @@ export class WalletIframeRouter {
       }) => void;
     };
   }): Promise<TempoSignedResult | EvmSignedResult> {
+    logThresholdTrace('wallet-router', 'sign-tempo:dispatch', {
+      nearAccountId: payload.nearAccountId,
+      chain: payload.request?.chain,
+      kind: payload.request?.kind,
+      senderSignatureAlgorithm: payload.request?.senderSignatureAlgorithm,
+      timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
+    });
     const res = await this.post<TempoSignedResult>({
       type: 'PM_SIGN_TEMPO',
       payload: {
@@ -863,6 +893,14 @@ export class WalletIframeRouter {
           : undefined,
       },
       options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isActionSSEEvent) },
+    }, {
+      timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
+      progressTimeoutExtensionFactor: 1,
+    });
+    logThresholdTrace('wallet-router', 'sign-tempo:result', {
+      nearAccountId: payload.nearAccountId,
+      chain: res?.result?.chain,
+      kind: (res?.result as { kind?: unknown })?.kind,
     });
     return res.result;
   }
@@ -1300,10 +1338,17 @@ export class WalletIframeRouter {
       const pend = this.state.pending.get(requestId);
       if (pend) {
         if (pend.timer) window.clearTimeout(pend.timer);
+        const remainingLifetimeMs = Math.max(0, pend.deadlineAtMs - Date.now());
+        if (remainingLifetimeMs === 0) {
+          const err = pend.onTimeout();
+          pend.reject(err);
+          return;
+        }
+        const nextTimeoutMs = Math.max(1, Math.min(pend.timeoutMs, remainingLifetimeMs));
         pend.timer = window.setTimeout(() => {
           const err = pend.onTimeout();
           pend.reject(err);
-        }, pend.timeoutMs);
+        }, nextTimeoutMs);
       }
       return;
     }
@@ -1378,7 +1423,7 @@ export class WalletIframeRouter {
    */
   private async post<T>(
     envelope: Omit<ParentToChildEnvelope, 'requestId'>,
-    postOpts?: { timeoutMs?: number },
+    postOpts?: { timeoutMs?: number; progressTimeoutExtensionFactor?: number },
   ): Promise<PostResult<T>> {
 
     // Step 1: Lazily initialize the iframe/client if not ready yet
@@ -1392,6 +1437,17 @@ export class WalletIframeRouter {
     const { options } = full;
     const overlayIntent = this.computeOverlayIntent(envelope.type);
     const timeoutMs = postOpts?.timeoutMs ?? this.opts.requestTimeoutMs;
+    const parsedProgressTimeoutExtensionFactor = Number(postOpts?.progressTimeoutExtensionFactor);
+    const progressTimeoutExtensionFactor = Number.isFinite(parsedProgressTimeoutExtensionFactor)
+      && parsedProgressTimeoutExtensionFactor >= 1
+      ? parsedProgressTimeoutExtensionFactor
+      : WALLET_IFRAME_PROGRESS_TIMEOUT_EXTENSION_FACTOR;
+    const requestStartMs = Date.now();
+    const maxLifetimeMs = Math.max(
+      timeoutMs,
+      timeoutMs * progressTimeoutExtensionFactor,
+    );
+    const deadlineAtMs = requestStartMs + maxLifetimeMs;
 
     return new Promise<PostResult<T>>((resolve, reject) => {
       const onTimeout = () => {
@@ -1404,7 +1460,8 @@ export class WalletIframeRouter {
           this.hideFrameForActivation();
         }
       this.sendBestEffortCancel(requestId);
-      return new Error(`Wallet request timeout for ${envelope.type}`);
+      const elapsedMs = Math.max(0, Date.now() - requestStartMs);
+      return new Error(`Wallet request timeout for ${envelope.type} after ${elapsedMs}ms`);
       };
 
       // Step 3: Set up timeout handler for request
@@ -1419,6 +1476,7 @@ export class WalletIframeRouter {
         reject,
         timer,
         timeoutMs,
+        deadlineAtMs,
         onProgress: options?.onProgress,
         onTimeout,
       });
@@ -1483,6 +1541,9 @@ export class WalletIframeRouter {
       case 'PM_EXECUTE_ACTION':
       case 'PM_SEND_TRANSACTION':
       case 'PM_SIGN_TXS_WITH_ACTIONS':
+      case 'PM_SIGN_DELEGATE_ACTION':
+      case 'PM_SIGN_NEP413':
+      case 'PM_SIGN_TEMPO':
       case 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION':
       case 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA':
         return { mode: 'fullscreen' };

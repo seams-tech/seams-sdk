@@ -27,6 +27,7 @@ import { toAccountId } from '../../types/accountIds';
 import { SignedTransaction } from '../../rpcClients/near/NearClient';
 import { isPlainSignedTransactionLike, extractBorshBytesFromPlainSignedTx, PlainSignedTransactionLike } from '@shared/utils/validation';
 import type { ActionArgs } from '../../types';
+import { logThresholdTrace } from '../../signingEngine/debug/thresholdTrace';
 
 type Req<T extends ParentToChildType> = Extract<ParentToChildEnvelope, { type: T }>;
 type HandlerMap = Partial<{ [K in ParentToChildType]: (req: Extract<ParentToChildEnvelope, { type: K }>) => Promise<void> }>;
@@ -153,15 +154,42 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       if (respondIfCancelled(req.requestId)) return;
 
       const chain = options?.chain;
-      const result = chain === 'evm'
-        ? await pm.evm.bootstrapEcdsaSession({
-            nearAccountId,
-            options: options || {},
-          })
-        : await pm.tempo.bootstrapEcdsaSession({
-            nearAccountId,
-            options: options || {},
-          });
+      logThresholdTrace('wallet-host', 'bootstrap-ecdsa-session:start', {
+        requestId: req.requestId,
+        nearAccountId,
+        chain: chain || 'tempo',
+        sessionKind: options?.sessionKind || 'jwt',
+        ttlMs: options?.ttlMs,
+        remainingUses: options?.remainingUses,
+      });
+      let result: Awaited<ReturnType<typeof pm.tempo.bootstrapEcdsaSession>>;
+      try {
+        result = chain === 'evm'
+          ? await pm.evm.bootstrapEcdsaSession({
+              nearAccountId,
+              options: options || {},
+            })
+          : await pm.tempo.bootstrapEcdsaSession({
+              nearAccountId,
+              options: options || {},
+            });
+      } catch (error: unknown) {
+        logThresholdTrace('wallet-host', 'bootstrap-ecdsa-session:error', {
+          requestId: req.requestId,
+          nearAccountId,
+          chain: chain || 'tempo',
+          message: errorMessage(error),
+        });
+        throw error;
+      }
+      logThresholdTrace('wallet-host', 'bootstrap-ecdsa-session:success', {
+        requestId: req.requestId,
+        nearAccountId,
+        chain: chain || 'tempo',
+        sessionId: result?.thresholdEcdsaKeyRef?.thresholdSessionId,
+        relayerKeyId: result?.thresholdEcdsaKeyRef?.relayerKeyId,
+        thresholdSessionKind: result?.thresholdEcdsaKeyRef?.thresholdSessionKind,
+      });
       if (respondIfCancelled(req.requestId)) return;
       respondOkResult(req.requestId, result);
     },
@@ -260,15 +288,49 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = getTatchiPasskey();
       const { nearAccountId, request, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
-      const result = await pm.tempo.signTempo({
+      logThresholdTrace('wallet-host', 'sign-tempo:start', {
+        requestId: req.requestId,
         nearAccountId,
-        request,
-        options: {
-          confirmationConfig: options?.confirmationConfig,
-          thresholdEcdsaKeyRef: options?.thresholdEcdsaKeyRef,
-          shouldAbort: () => isCancelled(req.requestId),
-          onEvent: (ev) => postProgress(req.requestId, ev as unknown as ProgressPayload),
-        },
+        chain: request?.chain,
+        kind: request?.kind,
+        senderSignatureAlgorithm: request?.senderSignatureAlgorithm,
+        hasThresholdEcdsaKeyRef: !!options?.thresholdEcdsaKeyRef,
+      });
+      let result: Awaited<ReturnType<typeof pm.tempo.signTempo>>;
+      try {
+        result = await pm.tempo.signTempo({
+          nearAccountId,
+          request,
+          options: {
+            confirmationConfig: options?.confirmationConfig,
+            thresholdEcdsaKeyRef: options?.thresholdEcdsaKeyRef,
+            shouldAbort: () => isCancelled(req.requestId),
+            onEvent: (ev) => {
+              logThresholdTrace('wallet-host', 'sign-tempo:progress', {
+                requestId: req.requestId,
+                nearAccountId,
+                step: ev?.step,
+                phase: ev?.phase,
+                status: ev?.status,
+                message: ev?.message,
+              });
+              postProgress(req.requestId, ev as unknown as ProgressPayload);
+            },
+          },
+        });
+      } catch (error: unknown) {
+        logThresholdTrace('wallet-host', 'sign-tempo:error', {
+          requestId: req.requestId,
+          nearAccountId,
+          message: errorMessage(error),
+        });
+        throw error;
+      }
+      logThresholdTrace('wallet-host', 'sign-tempo:success', {
+        requestId: req.requestId,
+        nearAccountId,
+        chain: result?.chain,
+        kind: (result as { kind?: unknown })?.kind,
       });
       if (respondIfCancelled(req.requestId)) return;
       respondOkResult(req.requestId, result);
@@ -277,32 +339,44 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_EXPORT_KEYS_UI: async (req: Req<'PM_EXPORT_KEYS_UI'>) => {
       const pm = getTatchiPasskey();
       const { nearAccountId, schemes, variant, theme } = req.payload!;
-      void pm.keys.exportPrivateKeysWithUI(nearAccountId, { schemes, variant, theme })
-        .catch((err: unknown) => {
-          if (isTouchIdCancellationError(err)) {
-            postToParent?.({ type: 'EXPORT_KEYS_CANCELLED', nearAccountId });
-            postToParent?.({ type: 'WALLET_UI_CLOSED' });
-            return;
-          }
-          postToParent?.({ type: 'WALLET_UI_CLOSED', error: errorMessage(err) });
-        });
+      if (respondIfCancelled(req.requestId)) return;
+      try {
+        await pm.keys.exportPrivateKeysWithUI(nearAccountId, { schemes, variant, theme });
+      } catch (err: unknown) {
+        if (isTouchIdCancellationError(err)) {
+          postToParent?.({ type: 'EXPORT_KEYS_CANCELLED', nearAccountId });
+          postToParent?.({ type: 'WALLET_UI_CLOSED' });
+          if (respondIfCancelled(req.requestId)) return;
+          respondOk(req.requestId);
+          return;
+        }
+        postToParent?.({ type: 'WALLET_UI_CLOSED', error: errorMessage(err) });
+        throw err;
+      }
+      if (respondIfCancelled(req.requestId)) return;
       respondOk(req.requestId);
     },
 
     PM_EXPORT_NEAR_KEYPAIR_UI: async (req: Req<'PM_EXPORT_NEAR_KEYPAIR_UI'>) => {
       const pm = getTatchiPasskey();
       const { nearAccountId, variant, theme } = req.payload!;
-      void pm.keys.exportNearKeypairWithUI(nearAccountId, { variant, theme })
-        .catch((err: unknown) => {
-          // User cancelled TouchID/FaceID prompt: close UI and emit a cancellation hint
-          // for parent UIs.
-          if (isTouchIdCancellationError(err)) {
-            postToParent?.({ type: 'EXPORT_NEAR_KEYPAIR_CANCELLED', nearAccountId });
-            postToParent?.({ type: 'WALLET_UI_CLOSED' });
-            return;
-          }
-          postToParent?.({ type: 'WALLET_UI_CLOSED', error: errorMessage(err) });
-        });
+      if (respondIfCancelled(req.requestId)) return;
+      try {
+        await pm.keys.exportNearKeypairWithUI(nearAccountId, { variant, theme });
+      } catch (err: unknown) {
+        // User cancelled TouchID/FaceID prompt: close UI and emit a cancellation hint
+        // for parent UIs.
+        if (isTouchIdCancellationError(err)) {
+          postToParent?.({ type: 'EXPORT_NEAR_KEYPAIR_CANCELLED', nearAccountId });
+          postToParent?.({ type: 'WALLET_UI_CLOSED' });
+          if (respondIfCancelled(req.requestId)) return;
+          respondOk(req.requestId);
+          return;
+        }
+        postToParent?.({ type: 'WALLET_UI_CLOSED', error: errorMessage(err) });
+        throw err;
+      }
+      if (respondIfCancelled(req.requestId)) return;
       respondOk(req.requestId);
     },
 
