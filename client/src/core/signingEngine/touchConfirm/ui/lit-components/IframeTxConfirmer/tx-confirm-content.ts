@@ -2,9 +2,11 @@ import { html, type PropertyValues } from 'lit';
 import { LitElementWithProps } from '../LitElementWithProps';
 import { dispatchLitCancel, dispatchLitConfirm } from '../../lit-events';
 
+import type { TransactionInputWasm } from '@/core/types';
+import { fromTransactionInputsWasm } from '@/core/types/actions';
 import type { UserConfirmSecurityContext } from '@/core/types';
 import TxTree from '../TxTree';
-import { buildDisplayTreeFromModel } from '../TxTree/tx-tree-utils';
+import { buildDisplayTreeFromModel, buildDisplayTreeFromTxPayloads } from '../TxTree/tx-tree-utils';
 import { ensureExternalStyles } from '../css/css-loader';
 import { W3A_TX_TREE_ID } from '../../registry';
 import type { ThemeName } from '../../confirm-ui-types';
@@ -22,6 +24,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
   static keepDefinitions = [TxTree];
   static properties = {
     nearAccountId: { type: String, attribute: 'near-account-id' },
+    txSigningRequests: { attribute: false },
     model: { attribute: false },
     intentDigest: { type: String, attribute: 'intent-digest' },
     securityContext: { type: Object },
@@ -42,6 +45,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
   } as const;
 
   declare nearAccountId: string;
+  declare txSigningRequests: TransactionInputWasm[];
   declare model?: TxDisplayModel;
   declare intentDigest?: string;
   declare securityContext?: Partial<UserConfirmSecurityContext>;
@@ -86,6 +90,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
       );
     }
     this.nearAccountId = '';
+    this.txSigningRequests = [];
     this.model = undefined;
     this.theme = 'dark';
     this.loading = false;
@@ -142,7 +147,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
 
   updated(changed: PropertyValues) {
     super.updated(changed);
-    if (changed.has('model')) {
+    if (changed.has('txSigningRequests') || changed.has('model')) {
       this._rebuildTree();
     }
     if (changed.has('tooltipWidth')) {
@@ -166,6 +171,13 @@ export class TxConfirmContentElement extends LitElementWithProps {
 
   private _rebuildTree() {
     try {
+      const txs = Array.isArray(this.txSigningRequests) ? this.txSigningRequests : [];
+      if (txs.length > 0) {
+        const uiTxs = fromTransactionInputsWasm(txs);
+        this._treeNode = buildDisplayTreeFromTxPayloads(uiTxs);
+        this.requestUpdate();
+        return;
+      }
       if (this.model && Array.isArray(this.model.operations)) {
         this._treeNode = buildDisplayTreeFromModel(this.model);
         this.requestUpdate();

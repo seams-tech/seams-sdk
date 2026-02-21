@@ -7,6 +7,7 @@ import PadlockIconElement from '../common/PadlockIcon';
 import { ensureExternalStyles } from '../css/css-loader';
 import { WalletIframeDomEvents } from '@/core/WalletIframe/events';
 import type { UserConfirmSecurityContext } from '@/core/types';
+import type { TransactionInputWasm } from '@/core/types';
 import type { ThemeName } from '../../confirm-ui-types';
 import type { ConfirmUIElement } from '../../confirm-ui-types';
 import type { TxDisplayModel } from '@/core/signingEngine/touchConfirm/shared/displayModel';
@@ -21,6 +22,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   static keepDefinitions = [TxConfirmContentElement, PadlockIconElement];
   static properties = {
     nearAccountId: { type: String, attribute: 'near-account-id' },
+    txSigningRequests: { attribute: false },
     model: { attribute: false },
     securityContext: { type: Object },
     theme: { type: String, reflect: true },
@@ -36,6 +38,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   } as const;
 
   declare nearAccountId: string;
+  declare txSigningRequests?: TransactionInputWasm[];
   declare model?: TxDisplayModel;
   declare securityContext?: Partial<UserConfirmSecurityContext>;
   // Theme tokens now come from external CSS (tx-confirmer.css)
@@ -97,6 +100,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   constructor() {
     super();
     this.nearAccountId = '';
+    this.txSigningRequests = undefined;
     this.model = undefined;
     this.theme = 'dark';
     this.loading = false;
@@ -289,6 +293,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
           <div class="section responsive-card responsive-card-center">
             <w3a-tx-confirm-content
               .nearAccountId=${this.nearAccountId || ''}
+              .txSigningRequests=${this.txSigningRequests}
               .model=${this.model}
               .intentDigest=${this.intentDigest}
               .securityContext=${this.securityContext}

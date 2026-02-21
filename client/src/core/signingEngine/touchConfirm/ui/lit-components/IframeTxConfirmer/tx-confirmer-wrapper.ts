@@ -8,6 +8,7 @@ import { W3A_TX_CONFIRMER_ID } from '../../registry';
 import { DrawerTxConfirmerElement } from './viewer-drawer';
 import { ModalTxConfirmElement } from './viewer-modal';
 import type { TxDisplayModel } from '@/core/signingEngine/touchConfirm/shared/displayModel';
+import type { TransactionInputWasm } from '@/core/types';
 
 const DEFAULT_VARIANT: Variant = 'modal';
 
@@ -15,6 +16,7 @@ export type Variant = 'modal' | 'drawer';
 
 export type TxConfirmerVariantElement = (ConfirmUIElement & HTMLElement) & {
   nearAccountId?: string;
+  txSigningRequests?: TransactionInputWasm[];
   model?: TxDisplayModel;
   securityContext?: Partial<UserConfirmSecurityContext>;
   theme?: ThemeName;
@@ -39,6 +41,7 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
   static properties = {
     variant: { type: String, reflect: true },
     nearAccountId: { type: String, attribute: 'near-account-id' },
+    txSigningRequests: { attribute: false },
     model: { attribute: false },
     securityContext: { type: Object },
     theme: { type: String },
@@ -57,6 +60,7 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
 
   declare variant: Variant;
   declare nearAccountId: string;
+  declare txSigningRequests?: TransactionInputWasm[];
   declare model?: TxDisplayModel;
   declare securityContext?: Partial<UserConfirmSecurityContext>;
   declare theme: ThemeName;
@@ -80,6 +84,7 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
     super();
     this.variant = DEFAULT_VARIANT;
     this.nearAccountId = '';
+    this.txSigningRequests = undefined;
     this.model = undefined;
     this.theme = 'dark';
     this.loading = false;
@@ -111,6 +116,7 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
         <w3a-drawer-tx-confirmer
           ${ref(this.childRef)}
           .nearAccountId=${this.nearAccountId}
+          .txSigningRequests=${this.txSigningRequests}
           .model=${this.model}
           .securityContext=${this.securityContext}
           .theme=${this.theme}
@@ -130,6 +136,7 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
       <w3a-modal-tx-confirmer
         ${ref(this.childRef)}
         .nearAccountId=${this.nearAccountId}
+        .txSigningRequests=${this.txSigningRequests}
         .model=${this.model}
         .securityContext=${this.securityContext}
         .theme=${this.theme}
@@ -148,6 +155,7 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
     const child = this.childRef.value;
     if (!child) return;
     child.nearAccountId = this.nearAccountId;
+    child.txSigningRequests = this.txSigningRequests;
     child.model = this.model;
     child.securityContext = this.securityContext;
     child.theme = this.theme;

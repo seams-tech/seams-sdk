@@ -2,6 +2,7 @@ import { html, type PropertyValues } from 'lit';
 import { LitElementWithProps } from '../LitElementWithProps';
 
 import type { UserConfirmSecurityContext } from '@/core/types';
+import type { TransactionInputWasm } from '@/core/types';
 import type { TxDisplayModel } from '@/core/signingEngine/touchConfirm/shared/displayModel';
 
 import TxTree from '../TxTree';
@@ -43,6 +44,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   // Component properties (automatically reactive)
   static properties = {
     nearAccountId: { type: String, attribute: 'near-account-id' },
+    txSigningRequests: { attribute: false },
     to: { type: String },
     totalAmount: { type: String },
     method: { type: String },
@@ -76,6 +78,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   nearExplorerUrl?: string;
   intentDigest?: string;
   declare nearAccountId: string;
+  declare txSigningRequests?: TransactionInputWasm[];
   // When true, this element will NOT remove itself on confirm/cancel.
   // The host is responsible for sending a CLOSE_MODAL instruction.
   deferClose = false;
@@ -304,6 +307,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
           <div class="responsive-card">
             <w3a-tx-confirm-content
               .nearAccountId=${this['nearAccountId'] || ''}
+              .txSigningRequests=${this.txSigningRequests}
               .model=${this.model}
               .intentDigest=${this.intentDigest}
               .securityContext=${this.securityContext}

@@ -11,7 +11,8 @@ import {
 import type { TreeNode } from './tx-tree-utils';
 import type { TxTreeStyles } from './tx-tree-themes';
 import { TX_TREE_THEMES } from './tx-tree-themes';
-import { isString } from '@shared/utils/validation';
+import { formatGas, formatDeposit, formatCodeSize, shortenPubkey } from '../common/formatters';
+import { isNumber, isString } from '@shared/utils/validation';
 import { ensureExternalStyles } from '../css/css-loader';
 // Re-exported for co-located theme typing convenience.
 export type { TxTreeStyles } from './tx-tree-themes';
@@ -330,7 +331,84 @@ export class TxTree extends LitElementWithProps {
   }
 
   private renderLabelWithSelectiveHighlight(treeNode: TreeNode): TemplateResult | string {
-    // Display nodes are already normalized before they reach TxTree.
+    // Action-level labels (with inline highlights)
+    if (treeNode.action) {
+      const a = treeNode.action;
+      switch (a.type) {
+        case 'FunctionCall': {
+          const method = a.methodName;
+          const gasStr = formatGas(a.gas);
+          const depositStr = formatDeposit(a.deposit);
+          return html`Calling <span class="highlight-method-name">${method}</span>
+              ${depositStr !== '0 NEAR' ? html` with <span class="highlight-method-name">${depositStr}</span>` : ''}
+              ${gasStr ? html` using <span class="highlight-method-name">${gasStr}</span>` : ''}`;
+        }
+        case 'Transfer': {
+          const amount = formatDeposit(a.amount);
+          return html`Transfer <span class="highlight-amount">${amount}</span>`;
+        }
+        case 'CreateAccount':
+          return 'Creating Account';
+        case 'DeleteAccount':
+          return 'Deleting Account';
+        case 'Stake':
+          return `Staking ${formatDeposit(a.stake)}`;
+        case 'AddKey':
+          return 'Adding Key';
+        case 'DeleteKey':
+          return 'Deleting Key';
+        case 'DeployContract': {
+          const codeSize = formatCodeSize(a.code as unknown as string);
+          return `Deploying WASM contract (${codeSize})`;
+        }
+        case 'DeployGlobalContract': {
+          const codeSize = formatCodeSize((a as unknown as { code?: unknown }).code as string);
+          const mode = (a as unknown as { deployMode?: unknown }).deployMode || 'Unknown';
+          return `Deploy global WASM contract (mode: ${String(mode)}, size ${codeSize})`;
+        }
+        case 'UseGlobalContract': {
+          const accountId = (a as unknown as { accountId?: unknown }).accountId;
+          const codeHash = (a as unknown as { codeHash?: unknown }).codeHash;
+          if (accountId) {
+            const base = (this.nearExplorerUrl || 'https://testnet.nearblocks.io').replace(/\/$/, '');
+            const href = `${base}/address/${encodeURIComponent(String(accountId))}`;
+            return html`Use global contract <a
+              class="highlight-receiver-id"
+              href=${href}
+              target="_blank"
+              rel="noopener noreferrer"
+            >${String(accountId)}</a>`;
+          }
+          if (codeHash) {
+            const short = shortenPubkey(String(codeHash), { prefix: 10, suffix: 6 });
+            return html`Use global contract by hash <span class="highlight-method-name">${short}</span>`;
+          }
+          return 'Use global contract';
+        }
+        default: {
+          const idxText = isNumber(treeNode.actionIndex) ? ` ${treeNode.actionIndex + 1}` : '';
+          const typeText = a.type || 'Unknown';
+          return `Action${idxText}: ${typeText}`;
+        }
+      }
+    }
+
+    // Transaction-level labels (with inline receiver highlight)
+    if (treeNode.transaction) {
+      const total = treeNode.totalTransactions ?? 1;
+      const idx = treeNode.transactionIndex ?? 0;
+      const prefix = total > 1 ? `Transaction ${idx + 1}: to ` : 'Transaction to ';
+      const receiverId = treeNode.transaction.receiverId;
+      const base = (this.nearExplorerUrl || 'https://testnet.nearblocks.io').replace(/\/$/, '');
+      const href = `${base}/address/${encodeURIComponent(receiverId)}`;
+      return html`${prefix}<a
+        class="highlight-receiver-id"
+        href=${href}
+        target="_blank"
+        rel="noopener noreferrer"
+      >${receiverId}</a>`;
+    }
+
     return treeNode.label || '';
   }
 
@@ -339,6 +417,61 @@ export class TxTree extends LitElementWithProps {
    * Mirrors renderLabelWithSelectiveHighlight.
    */
   private computePlainLabel(treeNode: TreeNode): string {
+    if (treeNode.action) {
+      const a = treeNode.action;
+      switch (a.type) {
+        case 'FunctionCall': {
+          const method = a.methodName;
+          const gasStr = formatGas(a.gas);
+          const depositStr = formatDeposit(a.deposit);
+          return `Calling ${method} with ${depositStr} using ${gasStr}`;
+        }
+        case 'Transfer':
+          return `Transfer ${formatDeposit(a.amount)}`;
+        case 'CreateAccount':
+          return 'Creating Account';
+        case 'DeleteAccount':
+          return 'Deleting Account';
+        case 'Stake':
+          return `Staking ${formatDeposit(a.stake)}`;
+        case 'AddKey':
+          return 'Adding Key';
+        case 'DeleteKey':
+          return 'Deleting Key';
+        case 'DeployContract':
+          return 'Deploying WASM contract';
+        case 'DeployGlobalContract': {
+          const codeSize = formatCodeSize((a as unknown as { code?: unknown }).code as string);
+          const mode = (a as unknown as { deployMode?: unknown }).deployMode || 'Unknown';
+          return `Deploy global WASM contract (mode: ${String(mode)}, size ${codeSize})`;
+        }
+        case 'UseGlobalContract': {
+          const accountId = (a as unknown as { accountId?: unknown }).accountId;
+          const codeHash = (a as unknown as { codeHash?: unknown }).codeHash;
+          if (accountId) {
+            return `Use global contract by account ${String(accountId)}`;
+          }
+          if (codeHash) {
+            return `Use global contract by hash ${String(codeHash)}`;
+          }
+          return 'Use global contract';
+        }
+        default: {
+          const idxText = isNumber(treeNode.actionIndex) ? ` ${treeNode.actionIndex + 1}` : '';
+          const typeText = a.type || 'Unknown';
+          return `Action${idxText}: ${typeText}`;
+        }
+      }
+    }
+
+    if (treeNode.transaction) {
+      const total = treeNode.totalTransactions ?? 1;
+      const idx = treeNode.transactionIndex ?? 0;
+      const prefix = total > 1 ? `Transaction ${idx + 1}: to ` : 'Transaction to ';
+      const receiverId = treeNode.transaction.receiverId;
+      return `${prefix}${receiverId}`;
+    }
+
     return treeNode.label || '';
   }
 

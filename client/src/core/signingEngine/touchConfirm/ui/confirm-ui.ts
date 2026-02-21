@@ -34,6 +34,7 @@ type ConfirmEventDetail = {
 interface HostTxConfirmerElement extends HTMLElement {
   variant?: 'modal' | 'drawer';
   nearAccountId: string;
+  txSigningRequests?: TransactionInputWasm[];
   model?: TxDisplayModel;
   intentDigest?: string;
   securityContext?: Partial<UserConfirmSecurityContext>;
@@ -359,6 +360,7 @@ function mountHostElement({
   const element = document.createElement(W3A_TX_CONFIRMER_ID) as HostTxConfirmerElement;
   element.variant = resolvedVariant;
   element.nearAccountId = nearAccountIdOverride || ctx.userPreferencesManager.getCurrentUserAccountId() || '';
+  element.txSigningRequests = txSigningRequests;
   element.model = model;
 
   if (ctx.nearExplorerUrl) {
