@@ -15,7 +15,6 @@ import Refresh from './icons/Refresh';
 import { useSetGreeting } from '../hooks/useSetGreeting';
 import { NEAR_EXPLORER_BASE_URL, WEBAUTHN_CONTRACT_ID } from '../types';
 import {
-  provisionTempoAndEvmThresholdSigners,
   readCachedThresholdKeyRef,
   resolveThresholdKeyRef,
   type ThresholdEcdsaChain,
@@ -76,7 +75,7 @@ function buildDemoEip1559Request() {
   const to = `0x${'22'.repeat(20)}` as `0x${string}`;
   const data = '0x' as `0x${string}`;
   return {
-    chain: 'tempo' as const,
+    chain: 'evm' as const,
     kind: 'eip1559' as const,
     senderSignatureAlgorithm: 'secp256k1' as const,
     tx: {
@@ -106,7 +105,6 @@ type LastEvmSigned = {
 type DemoPageTestOverrides = {
   useTatchiHook?: typeof useTatchi;
   useSetGreetingHook?: typeof useSetGreeting;
-  provisionTempoAndEvmThresholdSigners?: typeof provisionTempoAndEvmThresholdSigners;
   readCachedThresholdKeyRef?: typeof readCachedThresholdKeyRef;
   resolveThresholdKeyRef?: typeof resolveThresholdKeyRef;
 };
@@ -646,8 +644,8 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
         <div className="demo-divider" aria-hidden="true" />
         <h2 className="demo-subtitle">Tempo + EVM Threshold Signers</h2>
         <div className="action-text">
-          Registration provisions your NEAR threshold signer, and login/registration attempts to
-          auto-provision Tempo + EVM signers. Sign one sample transaction on each chain.
+          Registration provisions your NEAR signer. Tempo + EVM threshold signers are provisioned
+          on first use per chain and cached for follow-up signatures.
         </div>
 
         <div

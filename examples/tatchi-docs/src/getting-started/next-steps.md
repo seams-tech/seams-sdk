@@ -179,7 +179,7 @@ export function SignEvm(props: { nearAccountId: string; thresholdEcdsaKeyRef: an
       nearAccountId: props.nearAccountId,
       thresholdEcdsaKeyRef: props.thresholdEcdsaKeyRef,
       request: {
-        chain: 'tempo',
+        chain: 'evm',
         kind: 'eip1559',
         senderSignatureAlgorithm: 'secp256k1',
         tx: {

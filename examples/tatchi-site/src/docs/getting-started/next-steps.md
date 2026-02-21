@@ -2,20 +2,20 @@
 title: Next Steps
 ---
 
-# Next Steps: Register, Auto-Provision, Sign NEAR/Tempo/EVM
+# Next Steps: Register and Sign NEAR/Tempo/EVM
 
 After [installation](./installation.md), the fastest path is:
 
 1. Register a passkey account.
-2. Auto-provision threshold signers for all chains.
-3. Sign one transaction per chain (NEAR, Tempo, EVM).
+2. Log in and sign one transaction per chain (NEAR, Tempo, EVM).
+3. Reuse cached chain key refs for follow-up signatures.
 
-## 1. Register and Auto-Provision Threshold Signers
+## 1. Register and Prepare Threshold Signers
 
 In this setup:
 
 - NEAR threshold signer is created during registration (`signerMode: threshold-signer`).
-- Tempo + EVM threshold signers are provisioned during registration by default (`signerOptions`).
+- Tempo + EVM signer sessions are provisioned lazily on first signing attempt per chain.
 
 ```tsx
 import { useState } from 'react'
@@ -179,7 +179,7 @@ export function SignEvm(props: { nearAccountId: string; thresholdEcdsaKeyRef: an
       nearAccountId: props.nearAccountId,
       thresholdEcdsaKeyRef: props.thresholdEcdsaKeyRef,
       request: {
-        chain: 'tempo',
+        chain: 'evm',
         kind: 'eip1559',
         senderSignatureAlgorithm: 'secp256k1',
         tx: {
@@ -205,7 +205,7 @@ export function SignEvm(props: { nearAccountId: string; thresholdEcdsaKeyRef: an
 ## Recap
 
 - Registration creates your NEAR threshold signer.
-- Registration auto-provisions Tempo + EVM threshold signers by default.
+- Tempo + EVM threshold signers are provisioned lazily on first signing attempt per chain.
 - With those key refs, you can sign:
   - NEAR transactions (`signTransactionsWithActions`)
   - Tempo transactions (`signTempoWithThresholdEcdsa`, `kind: 'tempoTransaction'`)
@@ -214,7 +214,7 @@ export function SignEvm(props: { nearAccountId: string; thresholdEcdsaKeyRef: an
 ## Troubleshooting
 
 - `threshold session expired` or `No cached threshold-ecdsa session token`
-  - Re-bootstrap the chain signer with `bootstrapEcdsaSession({ chain: 'tempo' | 'evm' })`, then retry signing.
+  - Retry signing and force re-bootstrap the failing chain (`chain: 'tempo'` or `chain: 'evm'`) when needed.
 - Missing Tempo/EVM keyRef in memory after reload
   - Re-run provisioning for both chains and cache the returned `thresholdEcdsaKeyRef` values.
 - Signing fails right after login due to session state

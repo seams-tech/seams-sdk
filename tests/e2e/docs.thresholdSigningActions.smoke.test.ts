@@ -10,7 +10,7 @@ test.describe('docs frontend signing actions smoke', () => {
     await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
   });
 
-  test('logged-in demo exposes NEAR, Tempo, and EVM signing actions and invokes each', async ({
+  test('logged-in demo invokes NEAR action + Tempo/EVM threshold signing actions', async ({
     page,
   }) => {
     await page.evaluate(async ({ paths }) => {
@@ -36,11 +36,15 @@ test.describe('docs frontend signing actions smoke', () => {
       }
 
       const counters = {
-        nearSigns: 0,
+        nearActions: 0,
         tempoSigns: 0,
         evmSigns: 0,
       };
       (window as any).__docsSigningSmokeCounters = counters;
+      (window as any).__docsSigningSmokeRequests = {
+        tempo: null,
+        evm: null,
+      };
 
       const keyRef = {
         type: 'threshold-ecdsa-secp256k1',
@@ -57,56 +61,62 @@ test.describe('docs frontend signing actions smoke', () => {
             nearAccountId: 'alice.testnet',
           },
           tatchi: {
-            getLoginSession: async () => ({
-              signingSession: {
-                sessionId: 'session-1',
-                status: 'active',
-                remainingUses: 3,
-                expiresAtMs: Date.now() + 60_000,
-                createdAtMs: Date.now(),
-              },
-            }),
-            loginAndCreateSession: async () => ({ success: true }),
-            signTransactionsWithActions: async () => {
-              counters.nearSigns += 1;
-              return [
-                {
-                  signedTransaction: {
-                    borsh_bytes: [1, 2, 3, 4],
-                  },
+            auth: {
+              getSession: async () => ({
+                signingSession: {
+                  sessionId: 'session-1',
+                  status: 'active',
+                  remainingUses: 3,
+                  expiresAtMs: Date.now() + 60_000,
+                  createdAtMs: Date.now(),
                 },
-              ];
+              }),
+              login: async () => ({ success: true }),
             },
-            signTempoWithThresholdEcdsa: async ({
-              request,
-            }: {
-              request: { kind: 'tempoTransaction' | 'eip1559' };
-            }) => {
-              if (request.kind === 'tempoTransaction') {
+            near: {
+              executeAction: async (args: any) => {
+                counters.nearActions += 1;
+                args?.options?.afterCall?.(true, {
+                  success: true,
+                  transactionId: 'mock-near-tx',
+                });
+                return { success: true };
+              },
+              signDelegateAction: async () => ({
+                hash: 'mock-hash',
+                signedDelegate: {},
+              }),
+              sendDelegateActionViaRelayer: async () => ({
+                ok: true,
+                relayerTxHash: 'mock-relayer-tx',
+              }),
+            },
+            tempo: {
+              signTempo: async () => {
                 counters.tempoSigns += 1;
+                (window as any).__docsSigningSmokeRequests.tempo = {
+                  chain: 'tempo',
+                  kind: 'tempoTransaction',
+                };
                 return {
                   kind: 'tempoTransaction',
                   senderHashHex: `0x${'ab'.repeat(32)}`,
                   rawTxHex: `0x${'12'.repeat(32)}`,
                 };
-              }
-
-              counters.evmSigns += 1;
-              return {
-                kind: 'eip1559',
-                txHashHex: `0x${'cd'.repeat(32)}`,
-                rawTxHex: `0x${'34'.repeat(32)}`,
-              };
+              },
+              signTempoWithThresholdEcdsa: async (args: any) => {
+                counters.evmSigns += 1;
+                (window as any).__docsSigningSmokeRequests.evm = {
+                  chain: args?.request?.chain,
+                  kind: args?.request?.kind,
+                };
+                return {
+                  kind: 'eip1559',
+                  txHashHex: `0x${'cd'.repeat(32)}`,
+                  rawTxHex: `0x${'34'.repeat(32)}`,
+                };
+              },
             },
-            executeAction: async () => ({ success: true }),
-            signDelegateAction: async () => ({
-              hash: 'mock-hash',
-              signedDelegate: {},
-            }),
-            sendDelegateActionViaRelayer: async () => ({
-              ok: true,
-              relayerTxHash: 'mock-relayer-tx',
-            }),
             configs: { relayer: { url: 'https://relay.example' } },
           },
         };
@@ -134,10 +144,6 @@ test.describe('docs frontend signing actions smoke', () => {
               useSetGreetingHook,
               readCachedThresholdKeyRef: () => keyRef as any,
               resolveThresholdKeyRef: async () => keyRef as any,
-              provisionTempoAndEvmThresholdSigners: async () => ({
-                evm: { thresholdEcdsaKeyRef: keyRef as any },
-                tempo: { thresholdEcdsaKeyRef: keyRef as any },
-              }),
             },
           }),
         );
@@ -145,15 +151,15 @@ test.describe('docs frontend signing actions smoke', () => {
     }, { paths: IMPORT_PATHS });
 
     const scope = page.locator('#demo-page-test-mount');
-    const nearButton = scope.getByRole('button', { name: 'Sign NEAR Threshold Transaction' });
+    const nearActionButton = scope.getByRole('button', { name: 'Set Greeting' });
     const tempoButton = scope.getByRole('button', { name: 'Sign Tempo Threshold Transaction' });
     const evmButton = scope.getByRole('button', { name: 'Sign EVM Threshold EIP-1559 Transaction' });
 
-    await expect(nearButton).toBeVisible();
+    await expect(nearActionButton).toBeVisible();
     await expect(tempoButton).toBeVisible();
     await expect(evmButton).toBeVisible();
 
-    await nearButton.evaluate((el: HTMLElement) => el.click());
+    await nearActionButton.evaluate((el: HTMLElement) => el.click());
     await tempoButton.evaluate((el: HTMLElement) => el.click());
     await evmButton.evaluate((el: HTMLElement) => el.click());
 
@@ -161,7 +167,7 @@ test.describe('docs frontend signing actions smoke', () => {
       const counters = (window as any).__docsSigningSmokeCounters;
       return (
         counters &&
-        counters.nearSigns === 1 &&
+        counters.nearActions === 1 &&
         counters.tempoSigns === 1 &&
         counters.evmSigns === 1
       );
@@ -169,9 +175,15 @@ test.describe('docs frontend signing actions smoke', () => {
 
     const counters = await page.evaluate(() => (window as any).__docsSigningSmokeCounters);
     expect(counters).toEqual({
-      nearSigns: 1,
+      nearActions: 1,
       tempoSigns: 1,
       evmSigns: 1,
+    });
+
+    const requests = await page.evaluate(() => (window as any).__docsSigningSmokeRequests);
+    expect(requests).toEqual({
+      tempo: { chain: 'tempo', kind: 'tempoTransaction' },
+      evm: { chain: 'evm', kind: 'eip1559' },
     });
   });
 });

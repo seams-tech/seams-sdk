@@ -40,7 +40,6 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
       registerCalls: 0,
       loginCalls: 0,
       bootstrapCalls: [] as string[],
-      nearSigns: 0,
       tempoSigns: 0,
       evmSigns: 0,
     };
@@ -129,66 +128,58 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
               jwt: 'mock-jwt-token',
             };
           },
-          bootstrapEcdsaSession: async ({
-            nearAccountId,
-            options,
-          }: {
-            nearAccountId: string;
-            options?: { chain?: 'evm' | 'tempo' };
-          }) => {
-            const chain = options?.chain === 'tempo' ? 'tempo' : 'evm';
-            counters.bootstrapCalls.push(`${nearAccountId}:${chain}`);
-            const keySuffix = counters.bootstrapCalls.length;
-            return {
-              thresholdEcdsaKeyRef: buildKeyRef(chain, keySuffix),
-            };
-          },
-          getLoginSession: async () => ({
-            signingSession: {
-              sessionId: 'session-1',
-              status: 'active',
-              remainingUses: 3,
-              expiresAtMs: Date.now() + 60_000,
-              createdAtMs: Date.now(),
-            },
-          }),
-          signTransactionsWithActions: async () => {
-            counters.nearSigns += 1;
-            return [
-              {
-                signedTransaction: {
-                  borsh_bytes: [1, 2, 3, 4],
-                },
+          auth: {
+            getSession: async () => ({
+              signingSession: {
+                sessionId: 'session-1',
+                status: 'active',
+                remainingUses: 3,
+                expiresAtMs: Date.now() + 60_000,
+                createdAtMs: Date.now(),
               },
-            ];
+            }),
+            login: async () => ({ success: true }),
           },
-          signTempoWithThresholdEcdsa: async ({
-            request,
-          }: {
-            request: { kind: 'tempoTransaction' | 'eip1559' };
-          }) => {
-            if (request.kind === 'tempoTransaction') {
+          near: {
+            executeAction: async () => ({ success: true }),
+            signDelegateAction: async () => ({ hash: 'mock-hash', signedDelegate: {} }),
+            sendDelegateActionViaRelayer: async () => ({
+              ok: true,
+              relayerTxHash: 'mock-relayer-tx',
+            }),
+          },
+          tempo: {
+            bootstrapEcdsaSession: async ({
+              nearAccountId,
+              options,
+            }: {
+              nearAccountId: string;
+              options?: { chain?: 'evm' | 'tempo' };
+            }) => {
+              const chain = options?.chain === 'tempo' ? 'tempo' : 'evm';
+              counters.bootstrapCalls.push(`${nearAccountId}:${chain}`);
+              const keySuffix = counters.bootstrapCalls.length;
+              return {
+                thresholdEcdsaKeyRef: buildKeyRef(chain, keySuffix),
+              };
+            },
+            signTempo: async () => {
               counters.tempoSigns += 1;
               return {
                 kind: 'tempoTransaction' as const,
                 senderHashHex: `0x${'ab'.repeat(32)}`,
                 rawTxHex: `0x${'12'.repeat(64)}`,
               };
-            }
-
-            counters.evmSigns += 1;
-            return {
-              kind: 'eip1559' as const,
-              txHashHex: `0x${'cd'.repeat(32)}`,
-              rawTxHex: `0x${'34'.repeat(64)}`,
-            };
+            },
+            signTempoWithThresholdEcdsa: async () => {
+              counters.evmSigns += 1;
+              return {
+                kind: 'eip1559' as const,
+                txHashHex: `0x${'cd'.repeat(32)}`,
+                rawTxHex: `0x${'34'.repeat(64)}`,
+              };
+            },
           },
-          executeAction: async () => ({ success: true }),
-          signDelegateAction: async () => ({ hash: 'mock-hash', signedDelegate: {} }),
-          sendDelegateActionViaRelayer: async () => ({
-            ok: true,
-            relayerTxHash: 'mock-relayer-tx',
-          }),
           configs: {
             relayer: {
               url: 'https://relay.example',
@@ -301,29 +292,28 @@ async function mountTempoRetryHarness(page: Page): Promise<void> {
       nearAccountId: accountId,
     };
     const stableTatchi = {
-      getLoginSession: async () => ({
-        signingSession: {
-          sessionId: 'session-1',
-          status: 'active',
-          remainingUses: 3,
-          expiresAtMs: Date.now() + 60_000,
-          createdAtMs: Date.now(),
-        },
-      }),
-      loginAndCreateSession: async () => ({ success: true }),
-      signTransactionsWithActions: async () => [
-        {
-          signedTransaction: {
-            borsh_bytes: [1, 2, 3, 4],
+      auth: {
+        getSession: async () => ({
+          signingSession: {
+            sessionId: 'session-1',
+            status: 'active',
+            remainingUses: 3,
+            expiresAtMs: Date.now() + 60_000,
+            createdAtMs: Date.now(),
           },
-        },
-      ],
-      signTempoWithThresholdEcdsa: async ({
-        request,
-      }: {
-        request: { kind: 'tempoTransaction' | 'eip1559' };
-      }) => {
-        if (request.kind === 'tempoTransaction') {
+        }),
+        login: async () => ({ success: true }),
+      },
+      near: {
+        executeAction: async () => ({ success: true }),
+        signDelegateAction: async () => ({ hash: 'mock-hash', signedDelegate: {} }),
+        sendDelegateActionViaRelayer: async () => ({
+          ok: true,
+          relayerTxHash: 'mock-relayer-tx',
+        }),
+      },
+      tempo: {
+        signTempo: async () => {
           counters.tempoSignAttempts += 1;
           if (counters.tempoSignAttempts === 1) {
             throw new Error('threshold session expired');
@@ -333,19 +323,13 @@ async function mountTempoRetryHarness(page: Page): Promise<void> {
             senderHashHex: `0x${'ab'.repeat(32)}`,
             rawTxHex: `0x${'12'.repeat(64)}`,
           };
-        }
-        return {
+        },
+        signTempoWithThresholdEcdsa: async () => ({
           kind: 'eip1559' as const,
           txHashHex: `0x${'cd'.repeat(32)}`,
           rawTxHex: `0x${'34'.repeat(64)}`,
-        };
+        }),
       },
-      executeAction: async () => ({ success: true }),
-      signDelegateAction: async () => ({ hash: 'mock-hash', signedDelegate: {} }),
-      sendDelegateActionViaRelayer: async () => ({
-        ok: true,
-        relayerTxHash: 'mock-relayer-tx',
-      }),
       configs: {
         relayer: {
           url: 'https://relay.example',
@@ -390,10 +374,6 @@ async function mountTempoRetryHarness(page: Page): Promise<void> {
               if (chain === 'evm') return makeKeyRef('evm') as any;
               return makeKeyRef(forceReprovision ? 'tempo-refreshed' : 'tempo-initial') as any;
             },
-            provisionTempoAndEvmThresholdSigners: async () => ({
-              evm: { thresholdEcdsaKeyRef: makeKeyRef('evm') as any },
-              tempo: { thresholdEcdsaKeyRef: makeKeyRef('tempo') as any },
-            }),
           },
         }),
       );
@@ -427,7 +407,8 @@ async function mountProvisionUiHarness(page: Page): Promise<void> {
 
     const accountId = 'alice.testnet';
     const counters = {
-      provisionCalls: 0,
+      resolveCalls: 0,
+      tempoSignCalls: 0,
     };
     (window as any).__docsProvisionUiCounters = counters;
 
@@ -451,47 +432,41 @@ async function mountProvisionUiHarness(page: Page): Promise<void> {
       nearAccountId: accountId,
     };
     const stableTatchi = {
-      getLoginSession: async () => ({
-        signingSession: {
-          sessionId: 'session-1',
-          status: 'active',
-          remainingUses: 3,
-          expiresAtMs: Date.now() + 60_000,
-          createdAtMs: Date.now(),
-        },
-      }),
-      loginAndCreateSession: async () => ({ success: true }),
-      signTransactionsWithActions: async () => [
-        {
-          signedTransaction: {
-            borsh_bytes: [1, 2, 3, 4],
+      auth: {
+        getSession: async () => ({
+          signingSession: {
+            sessionId: 'session-1',
+            status: 'active',
+            remainingUses: 3,
+            expiresAtMs: Date.now() + 60_000,
+            createdAtMs: Date.now(),
           },
-        },
-      ],
-      signTempoWithThresholdEcdsa: async ({
-        request,
-      }: {
-        request: { kind: 'tempoTransaction' | 'eip1559' };
-      }) => {
-        if (request.kind === 'tempoTransaction') {
+        }),
+        login: async () => ({ success: true }),
+      },
+      near: {
+        executeAction: async () => ({ success: true }),
+        signDelegateAction: async () => ({ hash: 'mock-hash', signedDelegate: {} }),
+        sendDelegateActionViaRelayer: async () => ({
+          ok: true,
+          relayerTxHash: 'mock-relayer-tx',
+        }),
+      },
+      tempo: {
+        signTempo: async () => {
+          counters.tempoSignCalls += 1;
           return {
             kind: 'tempoTransaction' as const,
             senderHashHex: `0x${'ab'.repeat(32)}`,
             rawTxHex: `0x${'12'.repeat(64)}`,
           };
-        }
-        return {
+        },
+        signTempoWithThresholdEcdsa: async () => ({
           kind: 'eip1559' as const,
           txHashHex: `0x${'cd'.repeat(32)}`,
           rawTxHex: `0x${'34'.repeat(64)}`,
-        };
+        }),
       },
-      executeAction: async () => ({ success: true }),
-      signDelegateAction: async () => ({ hash: 'mock-hash', signedDelegate: {} }),
-      sendDelegateActionViaRelayer: async () => ({
-        ok: true,
-        relayerTxHash: 'mock-relayer-tx',
-      }),
       configs: {
         relayer: {
           url: 'https://relay.example',
@@ -528,16 +503,11 @@ async function mountProvisionUiHarness(page: Page): Promise<void> {
             useTatchiHook,
             useSetGreetingHook,
             readCachedThresholdKeyRef: () => null,
-            resolveThresholdKeyRef: async ({ chain }: { chain: 'evm' | 'tempo' }) =>
-              makeKeyRef(chain) as any,
-            provisionTempoAndEvmThresholdSigners: async () => {
-              counters.provisionCalls += 1;
+            resolveThresholdKeyRef: async ({ chain }: { chain: 'evm' | 'tempo' }) => {
+              counters.resolveCalls += 1;
               return await new Promise((resolve) => {
                 releaseProvision = () => {
-                  resolve({
-                    evm: { thresholdEcdsaKeyRef: makeKeyRef('evm') as any },
-                    tempo: { thresholdEcdsaKeyRef: makeKeyRef('tempo') as any },
-                  });
+                  resolve(makeKeyRef(chain) as any);
                 };
               });
             },
@@ -553,68 +523,64 @@ test.describe('docs frontend register + threshold signing integration', () => {
     await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
   });
 
-  test('register auto-provisions tempo/evm signers and login flow signs NEAR, Tempo, and EVM', async ({
+  test('register/login keeps signers unprovisioned until first sign, then signs Tempo and EVM', async ({
     page,
   }) => {
     await mountRegisterToSigningHarness(page);
 
     const scope = page.locator('#docs-register-to-signing-root');
 
-    await expect(scope.getByRole('button', { name: 'Sign NEAR Threshold Transaction' })).toHaveCount(
-      0,
-    );
+    await expect(scope.getByRole('button', { name: 'Sign Tempo Threshold Transaction' })).toHaveCount(0);
 
     await scope.getByRole('button', { name: 'Register' }).evaluate((el: HTMLElement) => el.click());
 
     await page.waitForFunction(() => {
       const counters = (window as any).__docsRegisterFlowCounters;
-      return counters && counters.bootstrapCalls.length === 2;
+      return counters && counters.registerCalls === 1;
     });
 
     const afterRegister = await page.evaluate(() => (window as any).__docsRegisterFlowCounters);
     expect(afterRegister.registerCalls).toBe(1);
     expect(afterRegister.loginCalls).toBe(0);
-    expect((afterRegister.bootstrapCalls as string[]).slice().sort()).toEqual([
-      'alice.testnet:evm',
-      'alice.testnet:tempo',
-    ]);
+    expect(afterRegister.bootstrapCalls).toEqual([]);
 
     await scope.getByRole('button', { name: 'Login' }).evaluate((el: HTMLElement) => el.click());
 
-    const nearButton = scope.getByRole('button', { name: 'Sign NEAR Threshold Transaction' });
     const tempoButton = scope.getByRole('button', { name: 'Sign Tempo Threshold Transaction' });
     const evmButton = scope.getByRole('button', {
       name: 'Sign EVM Threshold EIP-1559 Transaction',
     });
 
-    await expect(nearButton).toBeVisible();
     await expect(tempoButton).toBeVisible();
     await expect(evmButton).toBeVisible();
 
-    await expect(scope.getByText(/EVM signer:\s*ready/i)).toBeVisible();
-    await expect(scope.getByText(/Tempo signer:\s*ready/i)).toBeVisible();
+    await expect(scope.getByText(/EVM signer:\s*not provisioned/i)).toBeVisible();
+    await expect(scope.getByText(/Tempo signer:\s*not provisioned/i)).toBeVisible();
 
-    await nearButton.evaluate((el: HTMLElement) => el.click());
     await tempoButton.evaluate((el: HTMLElement) => el.click());
+    await expect(scope.getByText(/Tempo sender hash:/i)).toBeVisible();
     await evmButton.evaluate((el: HTMLElement) => el.click());
+    await expect(scope.getByText(/EIP-1559 tx hash:/i)).toBeVisible();
 
     await page.waitForFunction(() => {
       const counters = (window as any).__docsRegisterFlowCounters;
       return (
         counters &&
         counters.loginCalls === 1 &&
-        counters.nearSigns === 1 &&
+        counters.bootstrapCalls.length === 2 &&
         counters.tempoSigns === 1 &&
         counters.evmSigns === 1
       );
     });
 
+    await expect(scope.getByText(/EVM signer:\s*ready/i)).toBeVisible();
+    await expect(scope.getByText(/Tempo signer:\s*ready/i)).toBeVisible();
+
     const finalCounters = await page.evaluate(() => (window as any).__docsRegisterFlowCounters);
     expect(finalCounters).toEqual({
       registerCalls: 1,
       loginCalls: 1,
-      bootstrapCalls: ['alice.testnet:evm', 'alice.testnet:tempo'],
-      nearSigns: 1,
+      bootstrapCalls: ['alice.testnet:tempo', 'alice.testnet:evm'],
       tempoSigns: 1,
       evmSigns: 1,
     });
@@ -648,35 +614,40 @@ test.describe('docs frontend register + threshold signing integration', () => {
     await expect(scope.getByText(/Tempo sender hash:/i)).toBeVisible();
   });
 
-  test('re-provision control reflects busy state and updates signer readiness when complete', async ({
+  test('lazy provisioning shows signing busy state and updates signer readiness when complete', async ({
     page,
   }) => {
     await mountProvisionUiHarness(page);
 
     const scope = page.locator('#docs-provision-ui-mount');
-    const provisionButton = scope.getByRole('button', {
-      name: 'Re-provision Tempo + EVM Signers',
-    });
+    const tempoButton = scope.getByRole('button', { name: 'Sign Tempo Threshold Transaction' });
 
     await expect(scope.getByText(/EVM signer:\s*not provisioned/i)).toBeVisible();
     await expect(scope.getByText(/Tempo signer:\s*not provisioned/i)).toBeVisible();
+    await expect(tempoButton).toBeVisible();
 
-    await provisionButton.evaluate((el: HTMLElement) => el.click());
+    await tempoButton.evaluate((el: HTMLElement) => el.click());
 
-    const busyButton = scope.getByRole('button', { name: 'Provisioning...' });
+    const busyButton = scope.getByRole('button', { name: 'Signing...' });
     await expect(busyButton).toBeVisible();
     await expect(busyButton).toBeDisabled();
 
     const countersDuringProvision = await page.evaluate(() => (window as any).__docsProvisionUiCounters);
-    expect(countersDuringProvision.provisionCalls).toBe(1);
+    expect(countersDuringProvision.resolveCalls).toBe(1);
+    expect(countersDuringProvision.tempoSignCalls).toBe(0);
 
     await page.evaluate(() => {
       (window as any).__releaseDocsProvision?.();
     });
 
-    await expect(scope.getByText(/EVM signer:\s*ready/i)).toBeVisible();
     await expect(scope.getByText(/Tempo signer:\s*ready/i)).toBeVisible();
-    await expect(provisionButton).toBeVisible();
-    await expect(provisionButton).toBeEnabled();
+    await expect(scope.getByText(/EVM signer:\s*not provisioned/i)).toBeVisible();
+    await expect(scope.getByText(/Tempo sender hash:/i)).toBeVisible();
+    await expect(tempoButton).toBeVisible();
+    await expect(tempoButton).toBeEnabled();
+
+    const countersAfterProvision = await page.evaluate(() => (window as any).__docsProvisionUiCounters);
+    expect(countersAfterProvision.resolveCalls).toBe(1);
+    expect(countersAfterProvision.tempoSignCalls).toBe(1);
   });
 });
