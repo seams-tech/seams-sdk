@@ -77,12 +77,4 @@ export type NearSigningKeyOps = {
     publicKey: string;
     privateKey: string;
   }>;
-  exportNearKeypairUi(args: {
-    nearAccountId: AccountId;
-    variant?: 'drawer' | 'modal';
-    theme?: 'dark' | 'light';
-    sessionId: string;
-    prfFirstB64u: string;
-    wrapKeySalt: string;
-  }): Promise<void>;
 };

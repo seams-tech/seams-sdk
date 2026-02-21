@@ -20,6 +20,10 @@ import type {
   SigningConfirmationResultIntentDigest,
   SigningConfirmationResultWithTxContext,
 } from './handlers/flowOrchestrator';
+import type {
+  ExportPrivateKeysWithUiWorkerPayload,
+  ExportPrivateKeysWithUiWorkerResult,
+} from '@/core/types/secure-confirm-worker';
 
 export type RequestUserConfirmationOptions = {
   onProgress?: (progress: UserConfirmProgressEvent) => void;
@@ -129,6 +133,9 @@ export interface TouchConfirmSecureConfirmationPort {
     request: UserConfirmRequest,
     options?: RequestUserConfirmationOptions,
   ): Promise<UserConfirmDecision>;
+  exportPrivateKeysWithUi(
+    payload: ExportPrivateKeysWithUiWorkerPayload,
+  ): Promise<ExportPrivateKeysWithUiWorkerResult>;
 }
 
 export interface TouchConfirmManager

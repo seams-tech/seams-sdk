@@ -6,6 +6,8 @@
  */
 
 import type {
+  ExportPrivateKeysWithUiWorkerPayload,
+  ExportPrivateKeysWithUiWorkerResult,
   TouchConfirmManagerConfig,
   UserConfirmWorkerMessage,
   UserConfirmWorkerResponse,
@@ -113,6 +115,27 @@ function parseUserConfirmProgressEvent(data: unknown): UserConfirmProgressEvent 
     status,
     ...(typeof data.message === 'string' ? { message: data.message } : {}),
     ...('data' in data ? { data: data.data } : {}),
+  };
+}
+
+function parseExportPrivateKeysWithUiWorkerResult(
+  data: unknown,
+): ExportPrivateKeysWithUiWorkerResult | null {
+  if (!isObjectRecord(data)) return null;
+  if (typeof data.ok !== 'boolean') return null;
+  if (typeof data.accountId !== 'string') return null;
+  const rawSchemes = Array.isArray(data.exportedSchemes) ? data.exportedSchemes : null;
+  if (!rawSchemes) return null;
+  const exportedSchemes = rawSchemes.filter(
+    (value): value is 'ed25519' | 'secp256k1' => value === 'ed25519' || value === 'secp256k1',
+  );
+  if (exportedSchemes.length !== rawSchemes.length) return null;
+  return {
+    ok: data.ok,
+    accountId: data.accountId,
+    exportedSchemes,
+    ...(typeof data.cancelled === 'boolean' ? { cancelled: data.cancelled } : {}),
+    ...(typeof data.error === 'string' ? { error: data.error } : {}),
   };
 }
 
@@ -246,6 +269,25 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     } finally {
       this.userConfirmProgressListeners.delete(requestId);
     }
+  }
+
+  async exportPrivateKeysWithUi(
+    payload: ExportPrivateKeysWithUiWorkerPayload,
+  ): Promise<ExportPrivateKeysWithUiWorkerResult> {
+    await this.ensureWorkerReady(false);
+    const response = await this.sendMessage({
+      type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
+      id: this.generateMessageId(),
+      payload,
+    });
+    if (!response?.success) {
+      throw new Error(String(response?.error || 'Export private keys request failed'));
+    }
+    const parsed = parseExportPrivateKeysWithUiWorkerResult(response.data);
+    if (!parsed) {
+      throw new Error('Export private keys request failed: invalid worker response payload');
+    }
+    return parsed;
   }
 
   /**

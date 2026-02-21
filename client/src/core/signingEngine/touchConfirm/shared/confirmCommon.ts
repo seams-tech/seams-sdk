@@ -10,6 +10,19 @@ import { isObject, isFunction, isString } from '@shared/utils/validation';
 import { toError, isTouchIdCancellationError } from '@shared/utils/errors';
 
 export function parseTransactionSummary(summaryData: unknown): TransactionSummary {
+  if (typeof summaryData === 'string') {
+    const raw = summaryData.trim();
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      if (isObject(parsed) && !Array.isArray(parsed)) {
+        return parsed as TransactionSummary;
+      }
+      return {};
+    } catch {
+      return {};
+    }
+  }
   if (!isObject(summaryData) || Array.isArray(summaryData)) {
     throw new Error('Invalid secure confirm request summary: expected an object');
   }

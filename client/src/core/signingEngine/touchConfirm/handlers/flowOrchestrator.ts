@@ -102,6 +102,21 @@ export interface SigningConfirmationResultIntentDigest {
   credential?: SerializableCredential;
 }
 
+function resolveRequestUserConfirmation(ctx: TouchConfirmContext) {
+  if (typeof ctx.requestUserConfirmation === 'function') {
+    return ctx.requestUserConfirmation;
+  }
+  const manager = (ctx as TouchConfirmContext & {
+    touchConfirmManager?: { requestUserConfirmation?: TouchConfirmContext['requestUserConfirmation'] };
+  }).touchConfirmManager;
+  if (manager && typeof manager.requestUserConfirmation === 'function') {
+    const managerRequestUserConfirmation = manager.requestUserConfirmation.bind(manager);
+    return (request: UserConfirmRequest, options?: { onProgress?: (progress: UserConfirmProgressEvent) => void }) =>
+      managerRequestUserConfirmation(request, options);
+  }
+  return null;
+}
+
 /**
  * Orchestrates chain-specific signing confirmation requests for UserConfirm.
  *
@@ -121,7 +136,7 @@ export async function orchestrateSigningConfirmation(
   params: OrchestrateSigningConfirmationParams,
 ): Promise<SigningConfirmationResultWithTxContext | SigningConfirmationResultIntentDigest> {
   const { sessionId } = params;
-  const requestUserConfirmation = params.ctx.requestUserConfirmation;
+  const requestUserConfirmation = resolveRequestUserConfirmation(params.ctx);
   if (typeof requestUserConfirmation !== 'function') {
     throw new Error('UserConfirm request bridge is unavailable (worker handshake path only)');
   }

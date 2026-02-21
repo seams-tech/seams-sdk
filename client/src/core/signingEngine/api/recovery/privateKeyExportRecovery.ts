@@ -1,19 +1,10 @@
-import type { ClientAuthenticatorData, UnifiedIndexedDBManager } from '@/core/indexedDB';
+import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import type { ExportPrivateKeysWithUiWorkerResult } from '@/core/types/secure-confirm-worker';
 import type { ThemeName } from '@/core/types/tatchi';
-import type {
-  WebAuthnAuthenticationCredential,
-  WebAuthnRegistrationCredential,
-} from '@/core/types';
-import {
-  UserConfirmationType,
-  type ExportPrivateKeyDisplayEntry,
-  type UserConfirmRequest,
-} from '../../touchConfirm/shared/confirmTypes';
-import type { TouchConfirmContextPort } from '../../touchConfirm';
+import type { WebAuthnAuthenticationCredential } from '@/core/types';
+import type { TouchConfirmSecureConfirmationPort } from '../../touchConfirm';
 import { getLastLoggedInDeviceNumber } from '../../signers/webauthn/device/getDeviceNumber';
-import { getPrfResultsFromCredential } from '../../signers/webauthn/credentials/credentialExtensions';
-import type { SignerWorkerManagerContext } from '../../workerManager';
 
 type ExportScheme = 'ed25519' | 'secp256k1';
 
@@ -26,66 +17,174 @@ type RecoverKeypairResult = {
   stored?: boolean;
 };
 
+type ExportHardeningErrorCode = 'SIGNER_EXPORT_TEMP_DISABLED_LEGACY_SHORTCUT';
+type ExportHardeningError = Error & { code: ExportHardeningErrorCode };
+
+const EXPORT_LEGACY_SHORTCUT_DISABLED_CODE: ExportHardeningErrorCode =
+  'SIGNER_EXPORT_TEMP_DISABLED_LEGACY_SHORTCUT';
+
+function createExportHardeningError(args: {
+  message: string;
+  code: ExportHardeningErrorCode;
+}): ExportHardeningError {
+  const error = new Error(args.message) as ExportHardeningError;
+  error.name = 'SignerExportHardeningError';
+  error.code = args.code;
+  return error;
+}
+
+function emitExportHardeningTelemetry(args: {
+  event: 'signer.export.legacy_shortcut_blocked';
+  nearAccountId: string;
+  deviceNumber?: number;
+  reason: string;
+}): void {
+  // Structured logs are currently the canonical low-overhead telemetry surface in wallet origin.
+  console.warn('[signer-export-telemetry]', {
+    event: args.event,
+    nearAccountId: args.nearAccountId,
+    ...(typeof args.deviceNumber === 'number' ? { deviceNumber: args.deviceNumber } : {}),
+    reason: args.reason,
+    timestamp: Date.now(),
+  });
+}
+
+// Export orchestration boundary rule:
+// - This module may only invoke the worker-owned export operation.
+// - It must not orchestrate confirm steps or parse PRF material in JS main thread.
+function throwLegacyExportShortcutDisabled(args: {
+  nearAccountId: string;
+  deviceNumber?: number;
+  reason: string;
+}): never {
+  emitExportHardeningTelemetry({
+    event: 'signer.export.legacy_shortcut_blocked',
+    nearAccountId: args.nearAccountId,
+    deviceNumber: args.deviceNumber,
+    reason: args.reason,
+  });
+  throw createExportHardeningError({
+    code: EXPORT_LEGACY_SHORTCUT_DISABLED_CODE,
+    message:
+      `Export is temporarily disabled until worker-owned export hardening is active `
+      + `(${EXPORT_LEGACY_SHORTCUT_DISABLED_CODE})`,
+  });
+}
+
 export type PrivateKeyExportRecoveryDeps = {
   indexedDB: UnifiedIndexedDBManager;
-  touchConfirmManager: TouchConfirmContextPort;
+  touchConfirmManager: Pick<TouchConfirmSecureConfirmationPort, 'exportPrivateKeysWithUi'>;
   getTheme: () => ThemeName;
   signingKeyOps: {
-    exportNearKeypairUi: (args: {
-      nearAccountId: AccountId;
-      variant?: 'drawer' | 'modal';
-      theme?: 'dark' | 'light';
-      sessionId: string;
-      prfFirstB64u: string;
-      wrapKeySalt: string;
-    }) => Promise<void>;
-    decryptPrivateKeyWithPrf: (args: {
-      nearAccountId: AccountId;
-      authenticators: ClientAuthenticatorData[];
-      sessionId: string;
-      prfFirstB64u?: string;
-      wrapKeySalt?: string;
-      encryptedPrivateKeyData?: string;
-      encryptedPrivateKeyChacha20NonceB64u?: string;
-      deviceNumber?: number;
-    }) => Promise<{
-      decryptedPrivateKey: string;
-      nearAccountId: AccountId;
-    }>;
     recoverKeypairFromPasskey: (args: {
       credential: WebAuthnAuthenticationCredential;
       accountIdHint?: string;
       sessionId: string;
     }) => Promise<RecoverKeypairResult>;
   };
-  deriveNearKeypairFromCredentialViaWorker: (args: {
-    credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
-    nearAccountId: AccountId;
-  }) => Promise<{ publicKey: string; privateKey: string }>;
-  getSignerWorkerContext: () => SignerWorkerManagerContext;
   createSessionId: (prefix: string) => string;
 };
 
-function requirePrfB64uFromCredential(
-  credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential,
-  output: 'first' | 'second',
-): string {
-  const value = getPrfResultsFromCredential(credential)[output];
-  if (!value) {
-    throw new Error(`Missing PRF.${output} output from credential (requires a PRF-enabled passkey)`);
-  }
-  return value;
+function normalizeRequestedSchemes(input?: ExportScheme[]): ExportScheme[] {
+  const requested = Array.isArray(input) && input.length
+    ? input
+    : (['ed25519', 'secp256k1'] as const);
+  return Array.from(new Set(requested)).filter(
+    (scheme): scheme is ExportScheme => scheme === 'ed25519' || scheme === 'secp256k1',
+  );
 }
 
-async function requestUserConfirmation(
+async function runExportWorkerOperation(
   deps: PrivateKeyExportRecoveryDeps,
-  request: UserConfirmRequest,
-) {
-  const requestUserConfirmation = deps.touchConfirmManager.getContext().requestUserConfirmation;
-  if (typeof requestUserConfirmation !== 'function') {
-    throw new Error('UserConfirm request bridge is unavailable (worker handshake path only)');
+  args: {
+    nearAccountId: AccountId;
+    options?: {
+      schemes?: ExportScheme[];
+      variant?: 'drawer' | 'modal';
+      theme?: 'dark' | 'light';
+    };
+  },
+): Promise<ExportPrivateKeysWithUiWorkerResult> {
+  const accountId = toAccountId(args.nearAccountId);
+  const schemes = normalizeRequestedSchemes(args.options?.schemes);
+  if (!schemes.length) throw new Error('No export schemes requested');
+  const exportPrivateKeysWithUiMaybe = (deps.touchConfirmManager as {
+    exportPrivateKeysWithUi?: unknown;
+  }).exportPrivateKeysWithUi;
+  if (typeof exportPrivateKeysWithUiMaybe !== 'function') {
+    throwLegacyExportShortcutDisabled({
+      nearAccountId: accountId,
+      reason: 'missing_export_worker_operation',
+    });
   }
-  return requestUserConfirmation(request);
+  const exportPrivateKeysWithUi =
+    exportPrivateKeysWithUiMaybe as TouchConfirmSecureConfirmationPort['exportPrivateKeysWithUi'];
+
+  const resolvedTheme = args.options?.theme ?? deps.getTheme();
+  const deviceNumber = await getLastLoggedInDeviceNumber(accountId, deps.indexedDB.clientDB).catch(
+    () => null as number | null,
+  );
+  if (deviceNumber == null) {
+    throw new Error(`No deviceNumber found for account ${accountId} (export/decrypt)`);
+  }
+
+  const [userForAccount, keyMaterial, thresholdKeyMaterial] = await Promise.all([
+    deps.indexedDB.clientDB.getNearAccountProjection(accountId, deviceNumber).catch(() => null),
+    deps.indexedDB.getNearLocalKeyMaterial(accountId, deviceNumber).catch(() => null),
+    deps.indexedDB.getNearThresholdKeyMaterial(accountId, deviceNumber).catch(() => null),
+  ]);
+
+  if (!keyMaterial && !thresholdKeyMaterial) {
+    throw new Error(`No key material found for account ${accountId} device ${deviceNumber}`);
+  }
+
+  const publicKeyHint = String(
+    userForAccount?.clientNearPublicKey
+      || keyMaterial?.publicKey
+      || thresholdKeyMaterial?.publicKey
+      || '',
+  ).trim();
+
+  const encryptedSk = String(keyMaterial?.encryptedSk || '').trim();
+  const chacha20NonceB64u = String(keyMaterial?.chacha20NonceB64u || '').trim();
+  const wrapKeySalt = String(keyMaterial?.wrapKeySalt || '').trim();
+  const localKeyMaterial = (encryptedSk && chacha20NonceB64u && wrapKeySalt)
+    ? {
+        encryptedSk,
+        chacha20NonceB64u,
+        wrapKeySalt,
+        publicKey: String(keyMaterial?.publicKey || publicKeyHint || '').trim(),
+      }
+    : undefined;
+
+  const result = await (async (): Promise<ExportPrivateKeysWithUiWorkerResult> => {
+    try {
+      return await exportPrivateKeysWithUi({
+        nearAccountId: accountId,
+        deviceNumber,
+        publicKeyHint,
+        hasThresholdKeyMaterial: !!thresholdKeyMaterial,
+        localKeyMaterial,
+        schemes,
+        variant: args.options?.variant,
+        theme: resolvedTheme,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error || '');
+      if (message.includes('Unsupported UserConfirm worker message type: EXPORT_PRIVATE_KEYS_WITH_UI')) {
+        throwLegacyExportShortcutDisabled({
+          nearAccountId: accountId,
+          deviceNumber,
+          reason: 'worker_missing_export_operation',
+        });
+      }
+      throw error;
+    }
+  })();
+  if (!result.ok) {
+    throw new Error(result.error || 'Export private keys request failed');
+  }
+  return result;
 }
 
 export async function exportNearKeypairWithUIWorkerDriven(
@@ -95,127 +194,14 @@ export async function exportNearKeypairWithUIWorkerDriven(
     options?: { variant?: 'drawer' | 'modal'; theme?: 'dark' | 'light' };
   },
 ): Promise<void> {
-  const resolvedTheme = args.options?.theme ?? deps.getTheme();
-
-  const accountId = toAccountId(args.nearAccountId);
-  const deviceNumber = await getLastLoggedInDeviceNumber(accountId, deps.indexedDB.clientDB).catch(
-    () => null as number | null,
-  );
-  if (deviceNumber == null) {
-    throw new Error(`No deviceNumber found for account ${accountId} (export/decrypt)`);
-  }
-  const userForAccount = await deps.indexedDB.clientDB
-    .getNearAccountProjection(accountId, deviceNumber)
-    .catch(() => null);
-
-  const [keyMaterial, thresholdKeyMaterial] = await Promise.all([
-    deps.indexedDB.getNearLocalKeyMaterial(accountId, deviceNumber).catch(() => null),
-    deps.indexedDB.getNearThresholdKeyMaterial(accountId, deviceNumber).catch(
-      () => null,
-    ),
-  ]);
-
-  const wrapKeySalt = String(keyMaterial?.wrapKeySalt || '').trim();
-  if (keyMaterial && wrapKeySalt) {
-    const publicKey = String(userForAccount?.clientNearPublicKey || '').trim();
-    if (!publicKey) {
-      throw new Error(`Missing public key for account ${accountId}; please login again.`);
-    }
-
-    const requestId = deps.createSessionId('decrypt');
-    const decision = await requestUserConfirmation(deps, {
-      requestId,
-      type: UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
-      summary: {
-        operation: 'Decrypt Private Key',
-        accountId: String(accountId),
-        publicKey,
-        warning: 'Authenticate with your passkey to decrypt your local key material.',
-      },
-      payload: {
-        nearAccountId: String(accountId),
-        publicKey,
-      },
-      intentDigest: `decrypt:${accountId}:${deviceNumber}`,
-    } satisfies UserConfirmRequest);
-
-    if (!decision?.confirmed) {
-      throw new Error(decision?.error || 'User rejected decrypt request');
-    }
-    if (!decision.credential) {
-      throw new Error('Missing WebAuthn credential for decrypt request');
-    }
-
-    const prfFirstB64u = requirePrfB64uFromCredential(
-      decision.credential as WebAuthnAuthenticationCredential,
-      'first',
-    );
-    await deps.signingKeyOps.exportNearKeypairUi({
-      nearAccountId: accountId,
+  await runExportWorkerOperation(deps, {
+    nearAccountId: args.nearAccountId,
+    options: {
+      schemes: ['ed25519'],
       variant: args.options?.variant,
-      theme: resolvedTheme,
-      sessionId: requestId,
-      prfFirstB64u,
-      wrapKeySalt,
-    });
-    return;
-  }
-
-  if (thresholdKeyMaterial) {
-    const publicKeyHint = String(
-      userForAccount?.clientNearPublicKey || thresholdKeyMaterial.publicKey || '',
-    ).trim();
-
-    const requestId = deps.createSessionId('export');
-    const decision = await requestUserConfirmation(deps, {
-      requestId,
-      type: UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
-      summary: {
-        operation: 'Export Private Key',
-        accountId: String(accountId),
-        publicKey: publicKeyHint || '(derived from passkey)',
-        warning: 'Authenticate with your passkey to derive your backup key (escape hatch).',
-      },
-      payload: {
-        nearAccountId: String(accountId),
-        publicKey: publicKeyHint,
-      },
-      intentDigest: `export-backup:${accountId}:${deviceNumber}`,
-    } satisfies UserConfirmRequest);
-
-    if (!decision?.confirmed) {
-      throw new Error(decision?.error || 'User rejected export request');
-    }
-    if (!decision.credential) {
-      throw new Error('Missing WebAuthn credential for export request');
-    }
-
-    const derived = await deps.deriveNearKeypairFromCredentialViaWorker({
-      credential: decision.credential as WebAuthnAuthenticationCredential,
-      nearAccountId: accountId,
-    });
-    await requestUserConfirmation(deps, {
-      requestId: `${requestId}-show`,
-      type: UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
-      summary: {
-        operation: 'Export Private Key',
-        accountId: String(accountId),
-        publicKey: derived.publicKey,
-        warning: 'Anyone with your private key can fully control your account. Never share it.',
-      },
-      payload: {
-        nearAccountId: String(accountId),
-        publicKey: derived.publicKey,
-        privateKey: derived.privateKey,
-        variant: args.options?.variant,
-        theme: resolvedTheme,
-      },
-      intentDigest: `export-backup:${accountId}:${deviceNumber}`,
-    } satisfies UserConfirmRequest);
-    return;
-  }
-
-  throw new Error(`No key material found for account ${accountId} device ${deviceNumber}`);
+      theme: args.options?.theme,
+    },
+  });
 }
 
 export async function exportNearKeypairWithUI(
@@ -254,146 +240,8 @@ export async function exportPrivateKeysWithUIWorkerDriven(
       theme?: 'dark' | 'light';
     };
   },
-): Promise<void> {
-  const resolvedTheme = args.options?.theme ?? deps.getTheme();
-  const requestedSchemes =
-    Array.isArray(args.options?.schemes) && args.options?.schemes.length
-      ? args.options.schemes
-      : (['ed25519', 'secp256k1'] as const);
-  const schemes = Array.from(new Set(requestedSchemes)).filter(
-    (scheme): scheme is ExportScheme => scheme === 'ed25519' || scheme === 'secp256k1',
-  );
-  if (!schemes.length) throw new Error('No export schemes requested');
-
-  const accountId = toAccountId(args.nearAccountId);
-  const deviceNumber = await getLastLoggedInDeviceNumber(accountId, deps.indexedDB.clientDB).catch(
-    () => null as number | null,
-  );
-  if (deviceNumber == null) {
-    throw new Error(`No deviceNumber found for account ${accountId} (export/decrypt)`);
-  }
-  const userForAccount = await deps.indexedDB.clientDB
-    .getNearAccountProjection(accountId, deviceNumber)
-    .catch(() => null);
-
-  const [keyMaterial, thresholdKeyMaterial] = await Promise.all([
-    deps.indexedDB.getNearLocalKeyMaterial(accountId, deviceNumber).catch(() => null),
-    deps.indexedDB.getNearThresholdKeyMaterial(accountId, deviceNumber).catch(
-      () => null,
-    ),
-  ]);
-  if (!keyMaterial && !thresholdKeyMaterial) {
-    throw new Error(`No key material found for account ${accountId} device ${deviceNumber}`);
-  }
-
-  const publicKeyHint = String(
-    userForAccount?.clientNearPublicKey ||
-      keyMaterial?.publicKey ||
-      thresholdKeyMaterial?.publicKey ||
-      '',
-  ).trim();
-
-  const requestId = deps.createSessionId('export-keys');
-  const decision = await requestUserConfirmation(deps, {
-    requestId,
-    type: UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
-    summary: {
-      operation: 'Export Private Key',
-      accountId: String(accountId),
-      publicKey: publicKeyHint || '(derived from passkey)',
-      warning: 'Authenticate with your passkey to prepare export keys.',
-    },
-    payload: {
-      nearAccountId: String(accountId),
-      publicKey: publicKeyHint,
-    },
-    intentDigest: `export-keys:${accountId}:${deviceNumber}`,
-  } satisfies UserConfirmRequest);
-
-  if (!decision?.confirmed) {
-    throw new Error(decision?.error || 'User rejected export request');
-  }
-  if (!decision.credential) {
-    throw new Error('Missing WebAuthn credential for export request');
-  }
-
-  const credential = decision.credential as WebAuthnAuthenticationCredential;
-  const exportKeys: ExportPrivateKeyDisplayEntry[] = [];
-
-  if (schemes.includes('ed25519')) {
-    const localWrapKeySalt = String(keyMaterial?.wrapKeySalt || '').trim();
-    if (keyMaterial && localWrapKeySalt) {
-      const prfFirstB64u = requirePrfB64uFromCredential(credential, 'first');
-      const decrypted = await deps.signingKeyOps.decryptPrivateKeyWithPrf({
-        nearAccountId: accountId,
-        authenticators: [],
-        sessionId: `${requestId}:ed25519`,
-        prfFirstB64u,
-        wrapKeySalt: localWrapKeySalt,
-      });
-      exportKeys.push({
-        scheme: 'ed25519',
-        label: 'NEAR Ed25519',
-        publicKey: String(keyMaterial.publicKey || publicKeyHint || '').trim(),
-        privateKey: String(decrypted.decryptedPrivateKey || '').trim(),
-      });
-    } else {
-      const derived = await deps.deriveNearKeypairFromCredentialViaWorker({
-        credential,
-        nearAccountId: accountId,
-      });
-      exportKeys.push({
-        scheme: 'ed25519',
-        label: 'NEAR Ed25519',
-        publicKey: derived.publicKey,
-        privateKey: derived.privateKey,
-      });
-    }
-  }
-
-  if (schemes.includes('secp256k1')) {
-    const prfSecondB64u = requirePrfB64uFromCredential(credential, 'second');
-    const { deriveSecp256k1KeypairFromPrfSecondWasm } = await import(
-      '../../signers/wasm/ethSignerWasm'
-    );
-    const derived = await deriveSecp256k1KeypairFromPrfSecondWasm({
-      prfSecondB64u,
-      nearAccountId: String(accountId),
-      workerCtx: deps.getSignerWorkerContext(),
-    });
-    exportKeys.push({
-      scheme: 'secp256k1',
-      label: 'EVM secp256k1',
-      publicKey: derived.publicKeyHex,
-      privateKey: derived.privateKeyHex,
-      address: derived.ethereumAddress,
-    });
-  }
-
-  if (!exportKeys.length) {
-    throw new Error('No exportable keys were produced');
-  }
-
-  const first = exportKeys[0]!;
-  await requestUserConfirmation(deps, {
-    requestId: `${requestId}-show`,
-    type: UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
-    summary: {
-      operation: 'Export Private Key',
-      accountId: String(accountId),
-      publicKey: first.publicKey,
-      warning: 'Anyone with your private key can fully control your account. Never share it.',
-    },
-    payload: {
-      nearAccountId: String(accountId),
-      publicKey: first.publicKey,
-      privateKey: first.privateKey,
-      keys: exportKeys,
-      variant: args.options?.variant,
-      theme: resolvedTheme,
-    },
-    intentDigest: `export-keys:${accountId}:${deviceNumber}`,
-  } satisfies UserConfirmRequest);
+): Promise<ExportPrivateKeysWithUiWorkerResult> {
+  return runExportWorkerOperation(deps, args);
 }
 
 export async function exportPrivateKeysWithUI(
@@ -407,17 +255,10 @@ export async function exportPrivateKeysWithUI(
     };
   },
 ): Promise<{ accountId: string; exportedSchemes: ExportScheme[] }> {
-  const requestedSchemes =
-    Array.isArray(args.options?.schemes) && args.options?.schemes.length
-      ? args.options.schemes
-      : (['ed25519', 'secp256k1'] as const);
-  const exportedSchemes = Array.from(new Set(requestedSchemes)).filter(
-    (scheme): scheme is ExportScheme => scheme === 'ed25519' || scheme === 'secp256k1',
-  );
-  await exportPrivateKeysWithUIWorkerDriven(deps, args);
+  const result = await exportPrivateKeysWithUIWorkerDriven(deps, args);
   return {
-    accountId: String(args.nearAccountId),
-    exportedSchemes,
+    accountId: result.accountId,
+    exportedSchemes: result.exportedSchemes,
   };
 }
 

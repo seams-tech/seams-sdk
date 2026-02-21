@@ -15,10 +15,39 @@ export interface TouchConfirmManagerConfig {
 export type UserConfirmWorkerMessageType =
   | 'PING'
   | 'SECURE_CONFIRM_REQUEST'
+  | 'EXPORT_PRIVATE_KEYS_WITH_UI'
   | 'THRESHOLD_PRF_FIRST_CACHE_PUT'
   | 'THRESHOLD_PRF_FIRST_CACHE_PEEK'
   | 'THRESHOLD_PRF_FIRST_CACHE_DISPENSE'
   | 'THRESHOLD_PRF_FIRST_CACHE_CLEAR';
+
+export type ExportPrivateKeyScheme = 'ed25519' | 'secp256k1';
+
+export type ExportLocalKeyMaterialSnapshot = {
+  publicKey?: string;
+  encryptedSk: string;
+  chacha20NonceB64u: string;
+  wrapKeySalt: string;
+};
+
+export interface ExportPrivateKeysWithUiWorkerPayload {
+  nearAccountId: string;
+  deviceNumber: number;
+  publicKeyHint?: string;
+  hasThresholdKeyMaterial: boolean;
+  localKeyMaterial?: ExportLocalKeyMaterialSnapshot;
+  schemes?: ExportPrivateKeyScheme[];
+  variant?: 'drawer' | 'modal';
+  theme?: 'dark' | 'light';
+}
+
+export interface ExportPrivateKeysWithUiWorkerResult {
+  ok: boolean;
+  cancelled?: boolean;
+  accountId: string;
+  exportedSchemes: ExportPrivateKeyScheme[];
+  error?: string;
+}
 
 export interface UserConfirmWorkerMessage<TPayload = unknown> {
   type: UserConfirmWorkerMessageType;

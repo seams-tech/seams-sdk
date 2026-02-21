@@ -3,7 +3,6 @@ import type { SignerWorkerManagerContext } from '..';
 import { decryptPrivateKeyWithPrf } from './decryptPrivateKeyWithPrf';
 import { recoverKeypairFromPasskey } from './recoverKeypairFromPasskey';
 import { deriveNearKeypairAndEncryptFromSerialized } from './deriveNearKeypairAndEncryptFromSerialized';
-import { exportNearKeypairUi } from './exportNearKeypairUi';
 import {
   deriveThresholdEd25519ClientVerifyingShareWasm,
   extractCosePublicKeyWasm,
@@ -72,9 +71,6 @@ export function createNearKeyOps(
     },
     async generateEphemeralNearKeypair() {
       return generateEphemeralNearKeypairWasm({ workerCtx: getContext() });
-    },
-    async exportNearKeypairUi(args) {
-      return exportNearKeypairUi({ ctx: getContext(), ...args });
     },
   };
 }

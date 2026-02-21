@@ -145,8 +145,6 @@ export class SigningEngine {
           kind: 'transactionsWithActions',
           args,
         }),
-      deriveNearKeypairFromCredentialViaWorker: (args) =>
-        this.deriveNearKeypairFromCredentialViaWorker(args),
       extractCosePublicKey: (attestationObjectBase64url: string) =>
         this.extractCosePublicKey(attestationObjectBase64url),
       initializeCurrentUser: (nearAccountId: AccountId, nearClientArg?: NearClient) =>

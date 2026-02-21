@@ -89,6 +89,10 @@ export function findWorkerRuntimeBoundaryViolations(repoRoot) {
   const forbiddenLegacyWorkerRoots = [
     'client/src/core/signingEngine/workers',
   ];
+  const exportRecoveryFile = 'client/src/core/signingEngine/api/recovery/privateKeyExportRecovery.ts';
+  const forbiddenLegacyExportFiles = [
+    'client/src/core/signingEngine/workerManager/nearKeyOps/exportNearKeypairUi.ts',
+  ];
 
   const checks = [];
 
@@ -199,6 +203,50 @@ export function findWorkerRuntimeBoundaryViolations(repoRoot) {
     id: 'no-legacy-signer-transport-symbols',
     description: 'legacy split transport and worker-pool symbols must stay removed',
     violations: legacyTransportSymbolViolations,
+  });
+
+  checks.push({
+    id: 'legacy-export-shortcut-artifacts-removed',
+    description: 'legacy export shortcut wrapper modules must stay removed',
+    violations: findExistingPathViolations(forbiddenLegacyExportFiles, repoRoot),
+  });
+
+  const exportRecoveryAbsolute = path.join(repoRoot, exportRecoveryFile);
+  const exportShortcutForbiddenPatterns = [
+    'getContext().requestUserConfirmation',
+    'getPrfResultsFromCredential',
+    'UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI',
+  ];
+  const exportShortcutPatternViolations = [];
+  for (const pattern of exportShortcutForbiddenPatterns) {
+    exportShortcutPatternViolations.push(
+      ...findSubstringLineMatches(exportRecoveryAbsolute, pattern, repoRoot),
+    );
+  }
+  checks.push({
+    id: 'no-mainthread-export-confirmation-shortcuts',
+    description: 'private key export API must not orchestrate confirmations or parse PRF in main thread',
+    violations: exportShortcutPatternViolations,
+  });
+
+  const exportHardeningGuardMatch = firstExistingLineMatch(
+    [exportRecoveryFile],
+    'SIGNER_EXPORT_TEMP_DISABLED_LEGACY_SHORTCUT',
+    repoRoot,
+  );
+  checks.push({
+    id: 'export-hardening-typed-disable-code',
+    description: 'export flow must provide typed fail-closed code for blocked legacy shortcut paths',
+    violations: exportHardeningGuardMatch
+      ? []
+      : [
+          {
+            file: exportRecoveryFile,
+            line: null,
+            pattern: 'SIGNER_EXPORT_TEMP_DISABLED_LEGACY_SHORTCUT',
+            text: 'missing typed fail-closed code in export orchestration',
+          },
+        ],
   });
 
   return {

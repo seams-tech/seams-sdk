@@ -64,8 +64,6 @@ export type CreateOrchestrationDependencyBundleArgs = {
   getTheme: () => ThemeName;
   signTempo: ManagerConvenienceDeps['signTempo'];
   signTransactionsWithActions: ThresholdEd25519LifecycleDeps['signTransactionsWithActions'];
-  deriveNearKeypairFromCredentialViaWorker:
-    PrivateKeyExportRecoveryDeps['deriveNearKeypairFromCredentialViaWorker'];
   extractCosePublicKey: RegistrationAccountLifecycleDeps['extractCosePublicKey'];
   initializeCurrentUser: WorkerResourceWarmupDeps['initializeCurrentUser'];
   persistThresholdEcdsaBootstrapChainAccount:
@@ -155,9 +153,6 @@ export function createOrchestrationDependencyBundle(
       touchConfirmManager: args.touchConfirmManager,
       getTheme: args.getTheme,
       signingKeyOps: args.signerWorkerManager.nearKeyOps,
-      deriveNearKeypairFromCredentialViaWorker:
-        args.deriveNearKeypairFromCredentialViaWorker,
-      getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
       createSessionId: (prefix: string): string => generateSessionIdValue(prefix),
     },
     nearKeyDerivationDeps: {
