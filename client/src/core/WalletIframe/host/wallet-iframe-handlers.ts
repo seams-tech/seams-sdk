@@ -27,7 +27,6 @@ import { toAccountId } from '../../types/accountIds';
 import { SignedTransaction } from '../../rpcClients/near/NearClient';
 import { isPlainSignedTransactionLike, extractBorshBytesFromPlainSignedTx, PlainSignedTransactionLike } from '@shared/utils/validation';
 import type { ActionArgs } from '../../types';
-import { logThresholdTrace } from '../../signingEngine/debug/thresholdTrace';
 
 type Req<T extends ParentToChildType> = Extract<ParentToChildEnvelope, { type: T }>;
 type HandlerMap = Partial<{ [K in ParentToChildType]: (req: Extract<ParentToChildEnvelope, { type: K }>) => Promise<void> }>;
@@ -154,14 +153,6 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       if (respondIfCancelled(req.requestId)) return;
 
       const chain = options?.chain;
-      logThresholdTrace('wallet-host', 'bootstrap-ecdsa-session:start', {
-        requestId: req.requestId,
-        nearAccountId,
-        chain: chain || 'tempo',
-        sessionKind: options?.sessionKind || 'jwt',
-        ttlMs: options?.ttlMs,
-        remainingUses: options?.remainingUses,
-      });
       let result: Awaited<ReturnType<typeof pm.tempo.bootstrapEcdsaSession>>;
       try {
         result = chain === 'evm'
@@ -174,22 +165,8 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
               options: options || {},
             });
       } catch (error: unknown) {
-        logThresholdTrace('wallet-host', 'bootstrap-ecdsa-session:error', {
-          requestId: req.requestId,
-          nearAccountId,
-          chain: chain || 'tempo',
-          message: errorMessage(error),
-        });
         throw error;
       }
-      logThresholdTrace('wallet-host', 'bootstrap-ecdsa-session:success', {
-        requestId: req.requestId,
-        nearAccountId,
-        chain: chain || 'tempo',
-        sessionId: result?.thresholdEcdsaKeyRef?.thresholdSessionId,
-        relayerKeyId: result?.thresholdEcdsaKeyRef?.relayerKeyId,
-        thresholdSessionKind: result?.thresholdEcdsaKeyRef?.thresholdSessionKind,
-      });
       if (respondIfCancelled(req.requestId)) return;
       respondOkResult(req.requestId, result);
     },
@@ -288,14 +265,6 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = getTatchiPasskey();
       const { nearAccountId, request, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
-      logThresholdTrace('wallet-host', 'sign-tempo:start', {
-        requestId: req.requestId,
-        nearAccountId,
-        chain: request?.chain,
-        kind: request?.kind,
-        senderSignatureAlgorithm: request?.senderSignatureAlgorithm,
-        hasThresholdEcdsaKeyRef: !!options?.thresholdEcdsaKeyRef,
-      });
       let result: Awaited<ReturnType<typeof pm.tempo.signTempo>>;
       try {
         result = await pm.tempo.signTempo({
@@ -306,32 +275,13 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
             thresholdEcdsaKeyRef: options?.thresholdEcdsaKeyRef,
             shouldAbort: () => isCancelled(req.requestId),
             onEvent: (ev) => {
-              logThresholdTrace('wallet-host', 'sign-tempo:progress', {
-                requestId: req.requestId,
-                nearAccountId,
-                step: ev?.step,
-                phase: ev?.phase,
-                status: ev?.status,
-                message: ev?.message,
-              });
               postProgress(req.requestId, ev as unknown as ProgressPayload);
             },
           },
         });
       } catch (error: unknown) {
-        logThresholdTrace('wallet-host', 'sign-tempo:error', {
-          requestId: req.requestId,
-          nearAccountId,
-          message: errorMessage(error),
-        });
         throw error;
       }
-      logThresholdTrace('wallet-host', 'sign-tempo:success', {
-        requestId: req.requestId,
-        nearAccountId,
-        chain: result?.chain,
-        kind: (result as { kind?: unknown })?.kind,
-      });
       if (respondIfCancelled(req.requestId)) return;
       respondOkResult(req.requestId, result);
     },

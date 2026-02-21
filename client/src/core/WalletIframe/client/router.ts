@@ -115,7 +115,6 @@ import { mergeSignerMode, type ConfirmationConfig, type SignerMode } from '../..
 import type { AccessKeyList } from '../../rpcClients/near/NearClient';
 import type { SignNEP413MessageResult } from '../../TatchiPasskey/near';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../../config/defaultConfigs';
-import { logThresholdTrace } from '../../signingEngine/debug/thresholdTrace';
 
 // Simple, framework-agnostic service iframe client.
 // Responsibilities split:
@@ -729,12 +728,6 @@ export class WalletIframeRouter {
       };
     };
   }): Promise<ThresholdEcdsaSessionBootstrapResult> {
-    logThresholdTrace('wallet-router', 'bootstrap-ecdsa:dispatch', {
-      nearAccountId: payload.nearAccountId,
-      chain: payload.options?.chain || 'tempo',
-      sessionKind: payload.options?.sessionKind || 'jwt',
-      timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
-    });
     this.showFrameForActivation();
     try {
       const safeOptions = removeFunctionsFromOptions(payload.options);
@@ -747,11 +740,6 @@ export class WalletIframeRouter {
       }, {
         timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
         progressTimeoutExtensionFactor: 1,
-      });
-      logThresholdTrace('wallet-router', 'bootstrap-ecdsa:result', {
-        nearAccountId: payload.nearAccountId,
-        chain: payload.options?.chain || 'tempo',
-        hasResult: !!res?.result,
       });
       return res.result;
     } finally {
@@ -873,13 +861,6 @@ export class WalletIframeRouter {
       }) => void;
     };
   }): Promise<TempoSignedResult | EvmSignedResult> {
-    logThresholdTrace('wallet-router', 'sign-tempo:dispatch', {
-      nearAccountId: payload.nearAccountId,
-      chain: payload.request?.chain,
-      kind: payload.request?.kind,
-      senderSignatureAlgorithm: payload.request?.senderSignatureAlgorithm,
-      timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
-    });
     const res = await this.post<TempoSignedResult>({
       type: 'PM_SIGN_TEMPO',
       payload: {
@@ -896,11 +877,6 @@ export class WalletIframeRouter {
     }, {
       timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
       progressTimeoutExtensionFactor: 1,
-    });
-    logThresholdTrace('wallet-router', 'sign-tempo:result', {
-      nearAccountId: payload.nearAccountId,
-      chain: res?.result?.chain,
-      kind: (res?.result as { kind?: unknown })?.kind,
     });
     return res.result;
   }
