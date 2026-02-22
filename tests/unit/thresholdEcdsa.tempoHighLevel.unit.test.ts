@@ -53,6 +53,104 @@ async function observePostCalls(
   });
 }
 
+async function signTempoWithExistingPasskey(
+  page: Page,
+  args: {
+    relayerUrl: string;
+    accountId: string;
+    thresholdEcdsaPresignPool?: {
+      enabled?: boolean;
+      targetDepth?: number;
+      lowWatermark?: number;
+      maxRefillInFlight?: number;
+      refillAttemptTimeoutMs?: number;
+    };
+  },
+): Promise<{
+  ok: boolean;
+  keygen?: { participantIds?: number[]; relayerKeyId?: string; clientVerifyingShareB64u?: string };
+  session?: { ok: boolean; sessionId?: string };
+  signed?: { chain: 'tempo'; kind: 'tempoTransaction'; senderHashHex: string; rawTxHex: string };
+  error?: string;
+}> {
+  return await page.evaluate(async (input) => {
+    const sdkMod = await import('/sdk/esm/index.js');
+    const { TatchiPasskey } = sdkMod as any;
+
+    const confirmationConfig = {
+      uiMode: 'none' as const,
+      behavior: 'skipClick' as const,
+      autoProceedDelay: 0,
+    };
+
+    const pm = new TatchiPasskey({
+      nearNetwork: 'testnet',
+      nearRpcUrl: 'https://test.rpc.fastnear.com',
+      contractId: 'web3-authn-v4.testnet',
+      relayerAccount: 'web3-authn-v4.testnet',
+      ...(input.thresholdEcdsaPresignPool
+        ? { thresholdEcdsaPresignPool: input.thresholdEcdsaPresignPool }
+        : {}),
+      relayer: {
+        url: input.relayerUrl,
+        smartAccountDeploymentMode: 'observe',
+      },
+      iframeWallet: {
+        walletOrigin: '',
+        walletServicePath: '/wallet-service',
+        sdkBasePath: '/sdk',
+        rpIdOverride: 'example.localhost',
+      },
+    });
+
+    try {
+      const boot = await pm.tempo.bootstrapEcdsaSession({
+        nearAccountId: input.accountId,
+        options: { relayerUrl: input.relayerUrl },
+      });
+      const signed = await pm.tempo.signTempo({
+        nearAccountId: input.accountId,
+        request: {
+          chain: 'tempo',
+          kind: 'tempoTransaction',
+          senderSignatureAlgorithm: 'secp256k1',
+          tx: {
+            chainId: 42431n,
+            maxPriorityFeePerGas: 1n,
+            maxFeePerGas: 2n,
+            gasLimit: 21_000n,
+            calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
+            accessList: [],
+            nonceKey: 0n,
+            nonce: 2n,
+            validBefore: null,
+            validAfter: null,
+            feePayerSignature: { kind: 'none' as const },
+            aaAuthorizationList: [],
+          },
+        },
+        options: { confirmationConfig },
+      });
+
+      return {
+        ok: true,
+        keygen: boot.keygen,
+        session: boot.session,
+        signed,
+      };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        error: String(
+          (e && typeof e === 'object' && 'message' in e)
+            ? (e as { message?: unknown }).message
+            : e || 'signTempo failed',
+        ),
+      };
+    }
+  }, args);
+}
+
 test.describe('Threshold ECDSA Tempo high-level API', () => {
   test.setTimeout(180_000);
 
@@ -226,6 +324,98 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       } else {
         expect(counters.signFinalize).toBeGreaterThanOrEqual(1);
       }
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('repeated same-account signs complete after warm-up even when presign/init is blocked', async ({ page }) => {
+    const harness = await setupThresholdEcdsaTempoHarness(page);
+    const counters: Counters = {
+      authorize: 0,
+      presignInit: 0,
+      presignStep: 0,
+      signInit: 0,
+      signFinalize: 0,
+    };
+    let blockPresignInit = false;
+    let blockedPresignInitCalls = 0;
+
+    try {
+      await observePostCalls(page, `${harness.baseUrl}/threshold-ecdsa/authorize`, counters, 'authorize');
+      await observePostCalls(page, `${harness.baseUrl}/threshold-ecdsa/presign/step`, counters, 'presignStep');
+      await observePostCalls(page, `${harness.baseUrl}/threshold-ecdsa/sign/init`, counters, 'signInit');
+      await observePostCalls(page, `${harness.baseUrl}/threshold-ecdsa/sign/finalize`, counters, 'signFinalize');
+
+      await page.route(`${harness.baseUrl}/threshold-ecdsa/presign/init`, async (route) => {
+        if (route.request().method().toUpperCase() === 'POST') {
+          counters.presignInit += 1;
+          if (blockPresignInit) {
+            blockedPresignInitCalls += 1;
+            await new Promise((resolve) => setTimeout(resolve, 5_000));
+            await route.fulfill({
+              status: 500,
+              headers: {
+                'Content-Type': 'application/json',
+                ...corsHeadersForRoute(route),
+              },
+              body: JSON.stringify({
+                ok: false,
+                code: 'forced_presign_init_blocked',
+                message: 'forced blocked presign/init',
+              }),
+            });
+            return;
+          }
+        }
+        await route.fallback();
+      });
+
+      const first = await runThresholdEcdsaTempoFlow(page, {
+        relayerUrl: harness.baseUrl,
+        thresholdEcdsaPresignPool: {
+          enabled: true,
+          targetDepth: 4,
+          lowWatermark: 0,
+          maxRefillInFlight: 2,
+          refillAttemptTimeoutMs: 45_000,
+        },
+      });
+      expect(first.ok, first.error || JSON.stringify(first)).toBe(true);
+      expect(first.keygen?.ok).toBe(true);
+
+      for (let i = 0; i < 240 && counters.presignInit < 4; i += 1) {
+        await page.waitForTimeout(50);
+      }
+      expect(counters.presignInit).toBeGreaterThanOrEqual(4);
+      await page.waitForTimeout(200);
+
+      blockPresignInit = true;
+      const startedAt = Date.now();
+      const second = await signTempoWithExistingPasskey(page, {
+        relayerUrl: harness.baseUrl,
+        accountId: first.accountId,
+        thresholdEcdsaPresignPool: {
+          enabled: true,
+          targetDepth: 4,
+          lowWatermark: 0,
+          maxRefillInFlight: 2,
+          refillAttemptTimeoutMs: 45_000,
+        },
+      });
+      const elapsedMs = Date.now() - startedAt;
+
+      expect(second.ok, second.error || JSON.stringify(second)).toBe(true);
+      expect(second.signed?.chain).toBe('tempo');
+      expect(second.signed?.kind).toBe('tempoTransaction');
+      expect(counters.signInit).toBeGreaterThanOrEqual(2);
+      expect(counters.signFinalize).toBeGreaterThanOrEqual(2);
+      expect(elapsedMs).toBeLessThan(5_000);
+
+      for (let i = 0; i < 80 && blockedPresignInitCalls < 1; i += 1) {
+        await page.waitForTimeout(50);
+      }
+      expect(blockedPresignInitCalls).toBeGreaterThanOrEqual(1);
     } finally {
       await harness.close();
     }

@@ -180,6 +180,15 @@ export type ThresholdEd25519KeyStoreEnvInput = {
    * `T` cosigners per signing round.
    */
   THRESHOLD_ED25519_RELAYER_COSIGNER_T?: string;
+  /**
+   * Optional threshold ECDSA presign-pool policy hint returned to clients during `/threshold-ecdsa/authorize`.
+   * Values are advisory and clients may clamp them locally.
+   */
+  THRESHOLD_ECDSA_PRESIGN_POOL_HINT_ENABLED?: string;
+  THRESHOLD_ECDSA_PRESIGN_POOL_HINT_TARGET_DEPTH?: string;
+  THRESHOLD_ECDSA_PRESIGN_POOL_HINT_LOW_WATERMARK?: string;
+  THRESHOLD_ECDSA_PRESIGN_POOL_HINT_MAX_REFILL_IN_FLIGHT?: string;
+  THRESHOLD_ECDSA_PRESIGN_POOL_HINT_REFILL_ATTEMPT_TIMEOUT_MS?: string;
 };
 
 /**
@@ -786,12 +795,21 @@ export interface ThresholdEcdsaAuthorizeWithSessionRequest {
   signingPayload?: unknown;
 }
 
+export interface ThresholdEcdsaPresignPoolPolicyHint {
+  enabled?: boolean;
+  targetDepth?: number;
+  lowWatermark?: number;
+  maxRefillInFlight?: number;
+  refillAttemptTimeoutMs?: number;
+}
+
 export interface ThresholdEcdsaAuthorizeResponse {
   ok: boolean;
   code?: string;
   message?: string;
   mpcSessionId?: string;
   expiresAt?: string;
+  presignPoolPolicy?: ThresholdEcdsaPresignPoolPolicyHint;
 }
 
 // =====================================

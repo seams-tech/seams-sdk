@@ -98,4 +98,20 @@ test.describe('threshold ECDSA legacy-surface guard', () => {
     expect(signingEngineContent.includes('withThresholdEcdsaSignQueue({')).toBe(false);
     expect(secp256k1Content.includes('enqueueThresholdEcdsaCommit')).toBe(true);
   });
+
+  test('presign refill scheduler remains wired to secp256k1 signing path', () => {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+    const secp256k1Path = path.join(repoRoot, 'client/src/core/signingEngine/signers/algorithms/secp256k1.ts');
+    const evmSigningPath = path.join(repoRoot, 'client/src/core/signingEngine/api/evmSigning.ts');
+    const secp256k1Content = fs.readFileSync(secp256k1Path, 'utf8');
+    const evmSigningContent = fs.readFileSync(evmSigningPath, 'utf8');
+    const schedulerCallCount =
+      secp256k1Content.match(/scheduleThresholdEcdsaClientPresignaturePoolRefill\(/g)?.length
+      || 0;
+
+    expect(schedulerCallCount).toBeGreaterThanOrEqual(2);
+    expect(secp256k1Content.includes("trigger: 'commit_start'")).toBe(true);
+    expect(secp256k1Content.includes("trigger: 'post_sign_success'")).toBe(true);
+    expect(evmSigningContent.includes("phase: 'presign-refill-scheduled'")).toBe(true);
+  });
 });

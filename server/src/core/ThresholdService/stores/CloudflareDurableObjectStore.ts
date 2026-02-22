@@ -60,6 +60,13 @@ type DoGetDelRequest = { op: 'getdel'; key: string };
 type DoAuthConsumeUseCountRequest = { op: 'authConsumeUseCount'; key: string };
 type DoEcdsaPresignPutRequest = { op: 'ecdsaPresignPut'; listKey: string; value: unknown };
 type DoEcdsaPresignReserveRequest = { op: 'ecdsaPresignReserve'; listKey: string; reservedKeyPrefix: string; ttlMs?: number };
+type DoEcdsaPresignReserveByIdRequest = {
+  op: 'ecdsaPresignReserveById';
+  listKey: string;
+  reservedKeyPrefix: string;
+  presignatureId: string;
+  ttlMs?: number;
+};
 type DoEcdsaPresignSessionCreateRequest = { op: 'ecdsaPresignSessionCreate'; key: string; value: unknown; ttlMs?: number };
 type DoEcdsaPresignSessionAdvanceCasRequest = {
   op: 'ecdsaPresignSessionAdvanceCas';
@@ -76,6 +83,7 @@ type DoRequest =
   | DoAuthConsumeUseCountRequest
   | DoEcdsaPresignPutRequest
   | DoEcdsaPresignReserveRequest
+  | DoEcdsaPresignReserveByIdRequest
   | DoEcdsaPresignSessionCreateRequest
   | DoEcdsaPresignSessionAdvanceCasRequest;
 
@@ -510,6 +518,24 @@ export class CloudflareDurableObjectThresholdEcdsaPresignaturePool implements Th
       op: 'ecdsaPresignReserve',
       listKey: this.listKey(key),
       reservedKeyPrefix: this.reservedKeyPrefix(key),
+      ttlMs: this.reservationTtlMs,
+    });
+    if (!resp.ok) return null;
+    return (parseThresholdEcdsaPresignatureRelayerShareRecord(resp.value) as ThresholdEcdsaPresignatureRelayerShareRecord | null);
+  }
+
+  async reserveById(
+    relayerKeyId: string,
+    presignatureId: string,
+  ): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
+    const key = toOptionalTrimmedString(relayerKeyId);
+    const id = toOptionalTrimmedString(presignatureId);
+    if (!key || !id) return null;
+    const resp = await callDo<unknown | null>(this.stub, {
+      op: 'ecdsaPresignReserveById',
+      listKey: this.listKey(key),
+      reservedKeyPrefix: this.reservedKeyPrefix(key),
+      presignatureId: id,
       ttlMs: this.reservationTtlMs,
     });
     if (!resp.ok) return null;

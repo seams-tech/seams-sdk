@@ -79,6 +79,7 @@ export interface ThresholdEcdsaPresignSessionStore {
 
 export interface ThresholdEcdsaPresignaturePool {
   reserve(relayerKeyId: string): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null>;
+  reserveById(relayerKeyId: string, presignatureId: string): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null>;
   consume(relayerKeyId: string, presignatureId: string): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null>;
   discard(relayerKeyId: string, presignatureId: string): Promise<void>;
   put(record: ThresholdEcdsaPresignatureRelayerShareRecord): Promise<void>;
@@ -217,6 +218,31 @@ export class InMemoryThresholdEcdsaPresignaturePool implements ThresholdEcdsaPre
     const list = this.availableByKey.get(key);
     if (!list || list.length === 0) return null;
     const record = list.shift()!;
+    this.availableByKey.set(key, list);
+
+    let reserved = this.reservedByKey.get(key);
+    if (!reserved) {
+      reserved = new Map();
+      this.reservedByKey.set(key, reserved);
+    }
+    reserved.set(record.presignatureId, { value: record, expiresAtMs: Date.now() + this.reservationTtlMs });
+    return record;
+  }
+
+  async reserveById(
+    relayerKeyId: string,
+    presignatureId: string,
+  ): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
+    const key = toOptionalTrimmedString(relayerKeyId);
+    const id = toOptionalTrimmedString(presignatureId);
+    if (!key || !id) return null;
+    this.gc(key);
+    const list = this.availableByKey.get(key);
+    if (!list || list.length === 0) return null;
+    const idx = list.findIndex((entry) => entry.presignatureId === id);
+    if (idx < 0) return null;
+    const [record] = list.splice(idx, 1);
+    if (!record) return null;
     this.availableByKey.set(key, list);
 
     let reserved = this.reservedByKey.get(key);
@@ -754,6 +780,40 @@ end
 return nil
 `.trim();
 
+const ECDSA_PRESIGN_RESERVE_BY_ID_LUA = `
+local listKey = KEYS[1]
+local reservedKey = KEYS[2]
+local requestedId = ARGV[1]
+local ttlSeconds = tonumber(ARGV[2]) or 120
+local marker = ARGV[3]
+
+if type(requestedId) ~= 'string' or requestedId == '' then
+  return nil
+end
+if type(marker) ~= 'string' or marker == '' then
+  marker = '__tatchi_threshold_ecdsa_presign_deleted__'
+end
+
+local len = redis.call('LLEN', listKey)
+for i = 0, len - 1 do
+  local item = redis.call('LINDEX', listKey, i)
+  if item then
+    local ok, decoded = pcall(cjson.decode, item)
+    if ok and type(decoded) == 'table' then
+      local presignatureId = decoded['presignatureId']
+      if presignatureId == requestedId then
+        redis.call('LSET', listKey, i, marker)
+        redis.call('LREM', listKey, 1, marker)
+        redis.call('SET', reservedKey, item, 'EX', ttlSeconds)
+        return item
+      end
+    end
+  end
+end
+
+return nil
+`.trim();
+
 const ECDSA_PRESIGN_SESSION_CREATE_LUA = `
 local key = KEYS[1]
 local value = ARGV[1]
@@ -916,6 +976,31 @@ class UpstashRedisRestThresholdEcdsaPresignaturePool implements ThresholdEcdsaPr
     }
   }
 
+  async reserveById(
+    relayerKeyId: string,
+    presignatureId: string,
+  ): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
+    const key = toOptionalTrimmedString(relayerKeyId);
+    const id = toOptionalTrimmedString(presignatureId);
+    if (!key || !id) return null;
+    const ttlSeconds = String(toRedisSeconds(this.reservationTtlMs));
+    const marker = `__tatchi_threshold_ecdsa_presign_deleted__:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+    try {
+      const raw = await this.client.eval(
+        ECDSA_PRESIGN_RESERVE_BY_ID_LUA,
+        [this.availKey(key), this.reservedKey(key, id)],
+        [id, ttlSeconds, marker],
+      );
+      return parsePresignatureRecordFromRaw(raw);
+    } catch (e: unknown) {
+      const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || '');
+      if (isEvalUnsupportedError(msg)) {
+        throw new Error('[threshold-ecdsa] Upstash EVAL is required for atomic presignature reserve-by-id; ensure scripting is enabled');
+      }
+      throw e;
+    }
+  }
+
   async consume(relayerKeyId: string, presignatureId: string): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     const id = toOptionalTrimmedString(presignatureId);
@@ -988,6 +1073,37 @@ class RedisTcpThresholdEcdsaPresignaturePool implements ThresholdEcdsaPresignatu
     if (evalResp.type === 'error') {
       if (isEvalUnsupportedError(evalResp.value)) {
         throw new Error('[threshold-ecdsa] Redis EVAL is required for atomic presignature reserve; enable scripting permissions');
+      }
+      throw new Error(`Redis EVAL error: ${evalResp.value}`);
+    }
+    throw new Error(`[threshold-ecdsa] Redis EVAL returned unexpected response type: ${evalResp.type}`);
+  }
+
+  async reserveById(
+    relayerKeyId: string,
+    presignatureId: string,
+  ): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
+    const key = toOptionalTrimmedString(relayerKeyId);
+    const id = toOptionalTrimmedString(presignatureId);
+    if (!key || !id) return null;
+    const ttlSeconds = String(toRedisSeconds(this.reservationTtlMs));
+    const marker = `__tatchi_threshold_ecdsa_presign_deleted__:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+    const evalResp = await this.client.send([
+      'EVAL',
+      ECDSA_PRESIGN_RESERVE_BY_ID_LUA,
+      '2',
+      this.availKey(key),
+      this.reservedKey(key, id),
+      id,
+      ttlSeconds,
+      marker,
+    ]);
+    if (evalResp.type === 'bulk') {
+      return parsePresignatureRecordFromRaw(evalResp.value);
+    }
+    if (evalResp.type === 'error') {
+      if (isEvalUnsupportedError(evalResp.value)) {
+        throw new Error('[threshold-ecdsa] Redis EVAL is required for atomic presignature reserve-by-id; enable scripting permissions');
       }
       throw new Error(`Redis EVAL error: ${evalResp.value}`);
     }
@@ -1070,6 +1186,41 @@ class PostgresThresholdEcdsaPresignaturePool implements ThresholdEcdsaPresignatu
         RETURNING p.record_json
       `,
       [this.namespace, relayer, nowMs, reserveExpiresAtMs],
+    );
+    const record = rows[0]?.record_json;
+    return (parseThresholdEcdsaPresignatureRelayerShareRecord(record) as ThresholdEcdsaPresignatureRelayerShareRecord | null);
+  }
+
+  async reserveById(
+    relayerKeyId: string,
+    presignatureId: string,
+  ): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
+    const relayer = toOptionalTrimmedString(relayerKeyId);
+    const id = toOptionalTrimmedString(presignatureId);
+    if (!relayer || !id) return null;
+    const pool = await this.poolPromise;
+    const nowMs = Date.now();
+    const reserveExpiresAtMs = nowMs + this.reservationTtlMs;
+    const { rows } = await pool.query(
+      `
+        WITH expired AS (
+          DELETE FROM threshold_ecdsa_presignatures
+          WHERE namespace = $1 AND relayer_key_id = $2 AND state = 'reserved' AND reserve_expires_at_ms < $4
+        ),
+        picked AS (
+          SELECT presignature_id
+          FROM threshold_ecdsa_presignatures
+          WHERE namespace = $1 AND relayer_key_id = $2 AND state = 'available' AND presignature_id = $3
+          LIMIT 1
+          FOR UPDATE SKIP LOCKED
+        )
+        UPDATE threshold_ecdsa_presignatures p
+        SET state = 'reserved', reserved_at_ms = $4, reserve_expires_at_ms = $5
+        FROM picked
+        WHERE p.namespace = $1 AND p.relayer_key_id = $2 AND p.presignature_id = picked.presignature_id
+        RETURNING p.record_json
+      `,
+      [this.namespace, relayer, id, nowMs, reserveExpiresAtMs],
     );
     const record = rows[0]?.record_json;
     return (parseThresholdEcdsaPresignatureRelayerShareRecord(record) as ThresholdEcdsaPresignatureRelayerShareRecord | null);

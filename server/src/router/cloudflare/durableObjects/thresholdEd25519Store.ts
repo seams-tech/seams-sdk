@@ -26,6 +26,7 @@ type DoReq =
   | { op: 'authConsumeUseCount'; key: string }
   | { op: 'ecdsaPresignPut'; listKey: string; value: unknown }
   | { op: 'ecdsaPresignReserve'; listKey: string; reservedKeyPrefix: string; ttlMs?: number }
+  | { op: 'ecdsaPresignReserveById'; listKey: string; reservedKeyPrefix: string; presignatureId: string; ttlMs?: number }
   | { op: 'ecdsaPresignSessionCreate'; key: string; value: unknown; ttlMs?: number }
   | { op: 'ecdsaPresignSessionAdvanceCas'; key: string; expectedVersion: number; value: unknown; ttlMs?: number };
 
@@ -216,6 +217,38 @@ export class ThresholdEd25519StoreDurableObject {
         if (presignatureId) {
           await store.put(`${reservedKeyPrefix}${presignatureId}`, item, { expirationTtl: ttlSeconds });
         }
+        return item ?? null;
+      });
+
+      return json(ok(value));
+    }
+
+    if (op === 'ecdsaPresignReserveById') {
+      const listKey = toKey((req as { listKey?: unknown }).listKey);
+      const reservedKeyPrefix = toKey((req as { reservedKeyPrefix?: unknown }).reservedKeyPrefix);
+      const presignatureId = toKey((req as { presignatureId?: unknown }).presignatureId);
+      const ttlSeconds = toTtlSeconds((req as { ttlMs?: unknown }).ttlMs) || 120;
+      if (!listKey) return json(err('invalid_body', 'Missing listKey'));
+      if (!reservedKeyPrefix) return json(err('invalid_body', 'Missing reservedKeyPrefix'));
+      if (!presignatureId) return json(err('invalid_body', 'Missing presignatureId'));
+
+      const value = await withTxn(this.state, async (store) => {
+        const raw = await store.get(listKey);
+        const list = Array.isArray(raw) ? [...raw] : [];
+        if (!list.length) return null;
+        let pickedIndex = -1;
+        for (let i = 0; i < list.length; i += 1) {
+          const item = list[i];
+          const itemPresignatureId = isObject(item) ? toKey((item as { presignatureId?: unknown }).presignatureId) : '';
+          if (itemPresignatureId === presignatureId) {
+            pickedIndex = i;
+            break;
+          }
+        }
+        if (pickedIndex < 0) return null;
+        const [item] = list.splice(pickedIndex, 1);
+        await store.put(listKey, list);
+        await store.put(`${reservedKeyPrefix}${presignatureId}`, item, { expirationTtl: ttlSeconds });
         return item ?? null;
       });
 

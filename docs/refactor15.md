@@ -1,6 +1,6 @@
 # Refactor 15: Threshold ECDSA Presign Pool Wiring
 
-Status: Planned  
+Status: Completed  
 Severity: High (sign latency + timeout risk under commit queue pressure)  
 Last updated: 2026-02-22
 
@@ -72,9 +72,9 @@ Client policy is resolved from:
 
 ## Phase 0: Types + Config Surface
 
-- [ ] Add `ThresholdEcdsaPresignPoolPolicy` interface and resolved policy helper.
-- [ ] Extend SDK config types for local bounds/defaults.
-- [ ] Add policy defaults in config builder.
+- [x] Add `ThresholdEcdsaPresignPoolPolicy` interface and resolved policy helper.
+- [x] Extend SDK config types for local bounds/defaults.
+- [x] Add policy defaults in config builder.
 
 Files:
 
@@ -84,10 +84,10 @@ Files:
 
 ## Phase 1: Coordinator Pool Manager Wiring
 
-- [ ] Add pool depth helper for existing client pool map.
-- [ ] Add refill scheduler with in-flight dedupe map keyed by presign pool key.
-- [ ] Add `ensurePoolDepth(...)` helper that fills toward target depth (best-effort).
-- [ ] Keep existing `signThresholdEcdsaDigestWithPool(...)` fallback logic for correctness.
+- [x] Add pool depth helper for existing client pool map.
+- [x] Add refill scheduler with in-flight dedupe map keyed by presign pool key.
+- [x] Add `ensurePoolDepth(...)` helper that fills toward target depth (best-effort).
+- [x] Keep existing `signThresholdEcdsaDigestWithPool(...)` fallback logic for correctness.
 
 Files:
 
@@ -95,10 +95,10 @@ Files:
 
 ## Phase 2: Runtime Call-Site Integration
 
-- [ ] Wire post-sign top-up trigger from secp256k1 signing engine success path.
-- [ ] Wire low-watermark scheduling at commit start (or immediately before commit task).
-- [ ] Keep queue semantics unchanged; refill must not block queued commit completion path.
-- [ ] Add minimal progress event hook for debugging (`presign-refill-scheduled`), if needed.
+- [x] Wire post-sign top-up trigger from secp256k1 signing engine success path.
+- [x] Wire low-watermark scheduling at commit start (or immediately before commit task).
+- [x] Keep queue semantics unchanged; refill must not block queued commit completion path.
+- [x] Add minimal progress event hook for debugging (`presign-refill-scheduled`), if needed.
 
 Files:
 
@@ -107,34 +107,36 @@ Files:
 
 ## Phase 3: Server Policy Hint (Recommended)
 
-- [ ] Add server-side presign pool policy config fields (env + resolved config).
-- [ ] Include optional pool-policy hint in threshold ECDSA authorize response.
-- [ ] Clamp and apply hint in client policy resolver.
-- [ ] Keep v1 `count=1` behavior intact for now; refill loops if target depth > current depth.
+- [x] Add server-side presign pool policy config fields (env + resolved config).
+- [x] Include optional pool-policy hint in threshold ECDSA authorize response.
+- [x] Clamp and apply hint in client policy resolver.
+- [x] Keep v1 `count=1` behavior intact for now; refill loops if target depth > current depth.
 
 Files:
 
 - `server/src/core/types.ts`
 - `server/src/core/ThresholdService/ThresholdSigningService.ts`
-- `server/src/core/ThresholdService/ecdsaSigningHandlers.ts`
+- `server/src/core/ThresholdService/createThresholdSigningService.ts`
 - `client/src/core/signingEngine/threshold/workflows/authorizeEcdsa.ts`
+- `client/src/core/signingEngine/signers/algorithms/secp256k1.ts`
 
 ## Phase 4: Tests and Guardrails
 
-- [ ] Unit: post-sign success schedules refill.
-- [ ] Unit: second sign can consume pooled presignature without inline presign in steady state.
-- [ ] Unit: refill failure does not fail active user sign.
-- [ ] Unit: dedupe prevents duplicate refill jobs for same pool key.
-- [ ] Unit: policy hint clamp logic rejects unsafe values.
-- [ ] Integration: repeated same-account signs reduce `presign/init` frequency after warm-up.
-- [ ] Guard: prevent reintroduction of dead/unwired refill symbols.
+- [x] Unit: post-sign success schedules refill.
+- [x] Unit: second sign can consume pooled presignature without inline presign in steady state.
+- [x] Unit: refill failure does not fail active user sign.
+- [x] Unit: dedupe prevents duplicate refill jobs for same pool key.
+- [x] Unit: policy hint clamp logic rejects unsafe values.
+- [x] Integration: repeated same-account signs reduce `presign/init` frequency after warm-up.
+- [x] Guard: prevent reintroduction of dead/unwired refill symbols.
 
 Suggested tests/files:
 
 - `tests/unit/thresholdEcdsa.tempoHighLevel.unit.test.ts`
 - `tests/unit/thresholdEcdsa.presignPoolRefill.unit.test.ts`
-- `tests/unit/thresholdEcdsa.policyHint.unit.test.ts`
+- `tests/unit/thresholdEcdsa.authorizePolicyHint.unit.test.ts`
 - `tests/relayer/threshold-ecdsa.durable-stores.test.ts`
+- `tests/relayer/threshold-ecdsa.signature-harness.test.ts`
 
 ## 6. Risks and Mitigations
 
@@ -148,30 +150,32 @@ Mitigation: server-owned policy hint + client clamp bounds.
 Mitigation: typed refill diagnostics separated from sign result errors.
 
 4. v1 `count=1` may increase refill loop chatter.  
-Mitigation: keep low default target depth (for example 2) until batched prefill exists.
+Mitigation: keep a bounded default target depth (currently 20) until batched prefill exists.
 
 ## 7. Done Criteria
 
-- [ ] Refill path is actively wired from runtime signing flow.
-- [ ] Warm steady-state signs usually avoid inline presign handshake.
-- [ ] Same-account commit serialization remains unchanged.
-- [ ] Refill errors are non-fatal to active sign requests.
-- [ ] Policy source of truth is clear (server hint + client clamp), documented, and tested.
-- [ ] No duplicate legacy or dead presign refill code remains.
+- [x] Refill path is actively wired from runtime signing flow.
+- [x] Warm steady-state signs usually avoid inline presign handshake.
+- [x] Same-account commit serialization remains unchanged.
+- [x] Refill errors are non-fatal to active sign requests.
+- [x] Policy source of truth is clear (server hint + client clamp), documented, and tested.
+- [x] No duplicate legacy or dead presign refill code remains.
+- [x] Server `sign/init` selects client-requested presignature via store-level `reserveById` (no scan/requeue fallback).
 
 ## 8. Phased TODO List
 
 ## Immediate
 
-- [ ] Land Phase 0 interfaces and defaults.
-- [ ] Land Phase 1 coordinator refill manager.
+- [x] Land Phase 0 interfaces and defaults.
+- [x] Land Phase 1 coordinator refill manager.
 
 ## Next
 
-- [ ] Wire Phase 2 runtime call sites and progress diagnostics.
-- [ ] Add/refactor unit tests for refill scheduling and non-blocking behavior.
+- [x] Wire Phase 2 runtime call sites and progress diagnostics.
+- [x] Add/refactor unit tests for refill scheduling and non-blocking behavior.
 
 ## Finalize
 
-- [ ] Add optional Phase 3 server policy hint surface.
-- [ ] Run focused threshold ECDSA suites and close checklist.
+- [x] Add optional Phase 3 server policy hint surface.
+- [x] Run focused threshold ECDSA suites.
+- [x] Close remaining checklist items.

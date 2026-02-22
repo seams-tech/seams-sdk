@@ -16,6 +16,13 @@ export type ThresholdEcdsaTempoFlowOptions = {
   relayerUrl: string;
   signingKind?: 'tempoTransaction' | 'eip1559';
   accountId?: string;
+  thresholdEcdsaPresignPool?: {
+    enabled?: boolean;
+    targetDepth?: number;
+    lowWatermark?: number;
+    maxRefillInFlight?: number;
+    refillAttemptTimeoutMs?: number;
+  };
   connectSession?: boolean;
   connectSessionTtlMs?: number;
   connectSessionRemainingUses?: number;
@@ -125,6 +132,9 @@ export async function runThresholdEcdsaTempoFlow(
       nearRpcUrl: 'https://test.rpc.fastnear.com',
       contractId: 'web3-authn-v4.testnet',
       relayerAccount: 'web3-authn-v4.testnet',
+      ...(input.thresholdEcdsaPresignPool
+        ? { thresholdEcdsaPresignPool: input.thresholdEcdsaPresignPool }
+        : {}),
       relayer: {
         url: input.relayerUrl,
         smartAccountDeploymentMode: 'observe',

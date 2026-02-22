@@ -238,4 +238,100 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     expect(reserved?.presignatureId).toBe(serverPresignatureId);
     expect(reserved?.bigRB64u).toBe(serverBigRB64u);
   });
+
+  test('sign/init honors client-selected presignature and preserves other pool items', async () => {
+    const relayerKeyId = 'secp-test-relayer-key';
+    const digest32 = new Uint8Array(32).fill(7);
+    const signingDigestB64u = base64UrlEncode(digest32);
+    const mpcSessionId = 'mpc-signinit-select';
+
+    const firstRecord = {
+      relayerKeyId,
+      presignatureId: 'ps-first',
+      bigRB64u: base64UrlEncode(new Uint8Array(33).fill(11)),
+      kShareB64u: base64UrlEncode(new Uint8Array(32).fill(12)),
+      sigmaShareB64u: base64UrlEncode(new Uint8Array(32).fill(13)),
+      createdAtMs: Date.now() - 2,
+    };
+    const secondRecord = {
+      relayerKeyId,
+      presignatureId: 'ps-second',
+      bigRB64u: base64UrlEncode(new Uint8Array(33).fill(21)),
+      kShareB64u: base64UrlEncode(new Uint8Array(32).fill(22)),
+      sigmaShareB64u: base64UrlEncode(new Uint8Array(32).fill(23)),
+      createdAtMs: Date.now() - 1,
+    };
+
+    const sharedPresignaturePool = new InMemoryThresholdEcdsaPresignaturePool();
+    await sharedPresignaturePool.put(firstRecord as any);
+    await sharedPresignaturePool.put(secondRecord as any);
+
+    const sharedSigningSessionStore = new InMemoryThresholdEcdsaSigningSessionStore();
+    const sharedPresignSessionStore = new InMemoryThresholdEcdsaPresignSessionStore();
+
+    const mpcSessions = new Map<string, unknown>([
+      [
+        mpcSessionId,
+        {
+          expiresAtMs: Date.now() + 120_000,
+          relayerKeyId,
+          purpose: 'test-sign-init-select',
+          intentDigestB64u: signingDigestB64u,
+          signingDigestB64u,
+          userId: 'user-select',
+          rpId: 'example.localhost',
+          clientVerifyingShareB64u: base64UrlEncode(new Uint8Array(33).fill(3)),
+          participantIds: [1, 2],
+        },
+      ],
+    ]);
+
+    const fakeSessionStore = {
+      putMpcSession: async () => {},
+      takeMpcSession: async (id: string) => {
+        const rec = mpcSessions.get(id) || null;
+        mpcSessions.delete(id);
+        return rec as any;
+      },
+      putSigningSession: async () => {},
+      takeSigningSession: async () => null,
+      putCoordinatorSigningSession: async () => {},
+      takeCoordinatorSigningSession: async () => null,
+    } as const;
+
+    const handler = new ThresholdEcdsaSigningHandlers({
+      logger: console as any,
+      nodeRole: 'coordinator',
+      participantIds2p: [1, 2],
+      clientParticipantId: 1,
+      relayerParticipantId: 2,
+      secp256k1MasterSecretB64u: TEST_MASTER_SECRET_B64U,
+      sessionStore: fakeSessionStore as any,
+      signingSessionStore: sharedSigningSessionStore,
+      presignSessionStore: sharedPresignSessionStore,
+      presignaturePool: sharedPresignaturePool,
+      ensureReady: async () => {},
+      createSigningSessionId: () => `sign-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      createPresignSessionId: () => `presign-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    });
+
+    const signInit = await handler.ecdsaSignInit({
+      mpcSessionId,
+      relayerKeyId,
+      signingDigestB64u,
+      clientRound1: { presignatureId: secondRecord.presignatureId },
+    });
+    expect(signInit.ok, JSON.stringify(signInit)).toBe(true);
+    expect(signInit.relayerRound1?.presignatureId).toBe(secondRecord.presignatureId);
+    expect(signInit.relayerRound1?.bigRB64u).toBe(secondRecord.bigRB64u);
+
+    const selectedReserved = await sharedPresignaturePool.consume(
+      relayerKeyId,
+      secondRecord.presignatureId,
+    );
+    expect(selectedReserved?.presignatureId).toBe(secondRecord.presignatureId);
+
+    const remaining = await sharedPresignaturePool.reserve(relayerKeyId);
+    expect(remaining?.presignatureId).toBe(firstRecord.presignatureId);
+  });
 });

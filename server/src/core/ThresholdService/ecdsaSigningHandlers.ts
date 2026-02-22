@@ -17,6 +17,7 @@ import type { ThresholdEd25519SessionStore } from './stores/SessionStore';
 import type {
   ThresholdEcdsaPresignSessionRecord,
   ThresholdEcdsaPresignSessionStore,
+  ThresholdEcdsaPresignatureRelayerShareRecord,
   ThresholdEcdsaPresignaturePool,
   ThresholdEcdsaSigningSessionRecord,
   ThresholdEcdsaSigningSessionStore,
@@ -60,6 +61,7 @@ function parseThresholdEcdsaSignInitRequest(request: ThresholdEcdsaSignInitReque
   mpcSessionId: string;
   relayerKeyId: string;
   signingDigestB64u: string;
+  clientPresignatureId?: string;
 }> {
   const mpcSessionId = toOptionalTrimmedString(request.mpcSessionId);
   if (!mpcSessionId) return { ok: false, code: 'invalid_body', message: 'mpcSessionId is required' };
@@ -70,7 +72,30 @@ function parseThresholdEcdsaSignInitRequest(request: ThresholdEcdsaSignInitReque
   const signingDigestB64u = toOptionalTrimmedString(request.signingDigestB64u);
   if (!signingDigestB64u) return { ok: false, code: 'invalid_body', message: 'signingDigestB64u is required' };
 
-  return { ok: true, value: { mpcSessionId, relayerKeyId, signingDigestB64u } };
+  const clientRound1Raw = (request as { clientRound1?: unknown }).clientRound1;
+  const clientRound1 = (
+    clientRound1Raw
+    && typeof clientRound1Raw === 'object'
+    && !Array.isArray(clientRound1Raw)
+  )
+    ? (clientRound1Raw as { presignatureId?: unknown })
+    : null;
+  const clientPresignatureId = clientRound1
+    ? toOptionalTrimmedString(clientRound1.presignatureId)
+    : null;
+  if (clientRound1 && clientRound1.presignatureId !== undefined && !clientPresignatureId) {
+    return { ok: false, code: 'invalid_body', message: 'clientRound1.presignatureId must be a non-empty string when provided' };
+  }
+
+  return {
+    ok: true,
+    value: {
+      mpcSessionId,
+      relayerKeyId,
+      signingDigestB64u,
+      ...(clientPresignatureId ? { clientPresignatureId } : {}),
+    },
+  };
 }
 
 function parseThresholdEcdsaSignFinalizeRequest(request: ThresholdEcdsaSignFinalizeRequest): ParseResult<{
@@ -867,13 +892,19 @@ export class ThresholdEcdsaSigningHandlers {
     await this.ensureReady();
     const parsedRequest = parseThresholdEcdsaSignInitRequest(request);
     if (!parsedRequest.ok) return parsedRequest;
-    const { mpcSessionId, relayerKeyId, signingDigestB64u } = parsedRequest.value;
+    const {
+      mpcSessionId,
+      relayerKeyId,
+      signingDigestB64u,
+      clientPresignatureId,
+    } = parsedRequest.value;
 
     this.logger.info('[threshold-ecdsa] request', {
       route,
       mpcSessionId,
       relayerKeyId,
       signingDigestB64u_len: signingDigestB64u.length,
+      ...(clientPresignatureId ? { clientPresignatureId } : {}),
     });
 
     const sess = await this.sessionStore.takeMpcSession(mpcSessionId);
@@ -893,8 +924,15 @@ export class ThresholdEcdsaSigningHandlers {
       return { ok: false, code: 'unauthorized', message: 'signingDigestB64u does not match mpcSessionId scope' };
     }
 
-    const presignature = await this.presignaturePool.reserve(relayerKeyId);
+    const presignature = await this.reserveSignInitPresignature(relayerKeyId, clientPresignatureId);
     if (!presignature) {
+      if (clientPresignatureId) {
+        return {
+          ok: false,
+          code: 'pool_empty',
+          message: 'requested presignature is unavailable; refill required',
+        };
+      }
       return { ok: false, code: 'pool_empty', message: 'presignature pool is empty; refill required' };
     }
 
@@ -937,6 +975,17 @@ export class ThresholdEcdsaSigningHandlers {
         ...(presignature.bigRB64u ? { bigRB64u: presignature.bigRB64u } : {}),
       },
     };
+  }
+
+  private async reserveSignInitPresignature(
+    relayerKeyId: string,
+    requestedPresignatureId?: string,
+  ): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
+    const requested = toOptionalTrimmedString(requestedPresignatureId);
+    if (!requested) {
+      return await this.presignaturePool.reserve(relayerKeyId);
+    }
+    return await this.presignaturePool.reserveById(relayerKeyId, requested);
   }
 
   async ecdsaSignFinalize(request: ThresholdEcdsaSignFinalizeRequest): Promise<ThresholdEcdsaSignFinalizeResponse> {

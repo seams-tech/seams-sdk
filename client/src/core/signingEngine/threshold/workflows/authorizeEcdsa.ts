@@ -1,4 +1,5 @@
 import { stripTrailingSlashes, toTrimmedString } from '@shared/utils/validation';
+import type { ThresholdEcdsaPresignPoolPolicyInput } from '@/core/types/tatchi';
 import { fetchThresholdEcdsaJson } from './httpRequest';
 
 function toDigest32Bytes(input: Uint8Array | number[]): Uint8Array | null {
@@ -8,6 +9,24 @@ function toDigest32Bytes(input: Uint8Array | number[]): Uint8Array | null {
   if (!Array.isArray(input)) return null;
   const bytes = Uint8Array.from(input.map((v) => Number(v)));
   return bytes.length === 32 ? bytes : null;
+}
+
+function parseThresholdEcdsaPresignPoolPolicyHint(
+  value: unknown,
+): ThresholdEcdsaPresignPoolPolicyInput | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const raw = value as Record<string, unknown>;
+  const out: ThresholdEcdsaPresignPoolPolicyInput = {};
+  if (typeof raw.enabled === 'boolean') out.enabled = raw.enabled;
+  if (typeof raw.targetDepth === 'number' && Number.isFinite(raw.targetDepth)) out.targetDepth = Math.floor(raw.targetDepth);
+  if (typeof raw.lowWatermark === 'number' && Number.isFinite(raw.lowWatermark)) out.lowWatermark = Math.floor(raw.lowWatermark);
+  if (typeof raw.maxRefillInFlight === 'number' && Number.isFinite(raw.maxRefillInFlight)) {
+    out.maxRefillInFlight = Math.floor(raw.maxRefillInFlight);
+  }
+  if (typeof raw.refillAttemptTimeoutMs === 'number' && Number.isFinite(raw.refillAttemptTimeoutMs)) {
+    out.refillAttemptTimeoutMs = Math.floor(raw.refillAttemptTimeoutMs);
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 export async function authorizeEcdsaWithSession(args: {
@@ -25,6 +44,7 @@ export async function authorizeEcdsaWithSession(args: {
   mpcSessionId?: string;
   expiresAtMs?: number;
   expiresAt?: string;
+  presignPoolPolicy?: ThresholdEcdsaPresignPoolPolicyInput;
   code?: string;
   message?: string;
 }> {
@@ -71,6 +91,7 @@ export async function authorizeEcdsaWithSession(args: {
     ok: boolean;
     mpcSessionId: string;
     expiresAt: string;
+    presignPoolPolicy: ThresholdEcdsaPresignPoolPolicyInput;
     code: string;
     message: string;
   }>;
@@ -106,12 +127,14 @@ export async function authorizeEcdsaWithSession(args: {
       const raw = typeof data.expiresAt === 'string' ? Date.parse(data.expiresAt) : NaN;
       return Number.isFinite(raw) ? raw : undefined;
     })();
+    const presignPoolPolicy = parseThresholdEcdsaPresignPoolPolicyHint(data.presignPoolPolicy);
 
     return {
       ok: data.ok === true,
       mpcSessionId: data.mpcSessionId,
       ...(data.expiresAt ? { expiresAt: data.expiresAt } : {}),
       ...(expiresAtMs ? { expiresAtMs } : {}),
+      ...(presignPoolPolicy ? { presignPoolPolicy } : {}),
       ...(data.code ? { code: data.code } : {}),
       ...(data.message ? { message: data.message } : {}),
     };

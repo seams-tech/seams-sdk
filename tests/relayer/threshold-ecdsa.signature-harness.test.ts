@@ -4,6 +4,7 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { createRelayRouter } from '@server/router/express-adaptor';
 import { AuthService } from '@server/core/AuthService';
 import { createThresholdSigningService } from '@server/core/ThresholdService';
+import type { ThresholdEd25519KeyStoreConfigInput } from '@server/core/types';
 import { makeSessionAdapter, fetchJson, startExpressRouter } from './helpers';
 import {
   ThresholdEcdsaPresignSession,
@@ -13,7 +14,9 @@ import { mapAdditiveShareToThresholdSignaturesShare2p } from '../../shared/src/t
 
 const TEST_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString('base64url');
 
-function makeAuthServiceForThreshold(): {
+function makeAuthServiceForThreshold(
+  thresholdEd25519KeyStore?: ThresholdEd25519KeyStoreConfigInput | null,
+): {
   service: AuthService;
   threshold: ReturnType<typeof createThresholdSigningService>;
 } {
@@ -32,13 +35,24 @@ function makeAuthServiceForThreshold(): {
     verifyWebAuthnAuthenticationLite: (req: unknown) => Promise<{ success: boolean; verified: boolean }>;
   }).verifyWebAuthnAuthenticationLite = async (_req: unknown) => ({ success: true, verified: true });
 
+  const thresholdConfigDefaults: ThresholdEd25519KeyStoreConfigInput = {
+    kind: 'in-memory',
+    THRESHOLD_NODE_ROLE: 'coordinator',
+    THRESHOLD_SECP256K1_MASTER_SECRET_B64U: TEST_MASTER_SECRET_B64U,
+  };
+  const thresholdConfig: ThresholdEd25519KeyStoreConfigInput = thresholdEd25519KeyStore
+    ? {
+        ...thresholdConfigDefaults,
+        ...thresholdEd25519KeyStore,
+        THRESHOLD_SECP256K1_MASTER_SECRET_B64U:
+          String(thresholdEd25519KeyStore.THRESHOLD_SECP256K1_MASTER_SECRET_B64U || '').trim()
+          || TEST_MASTER_SECRET_B64U,
+      }
+    : thresholdConfigDefaults;
+
   const threshold = createThresholdSigningService({
     authService: service,
-    thresholdEd25519KeyStore: {
-      kind: 'in-memory',
-      THRESHOLD_NODE_ROLE: 'coordinator',
-      THRESHOLD_SECP256K1_MASTER_SECRET_B64U: TEST_MASTER_SECRET_B64U,
-    },
+    thresholdEd25519KeyStore: thresholdConfig,
     logger: null,
   });
 
@@ -457,6 +471,82 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(authorized.status, authorized.text).toBe(200);
       expect(authorized.json?.ok, authorized.text).toBe(true);
       expect(String(authorized.json?.mpcSessionId || '')).toBeTruthy();
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('authorize returns configured presign pool policy hint', async () => {
+    const { service, threshold } = makeAuthServiceForThreshold({
+      THRESHOLD_ECDSA_PRESIGN_POOL_HINT_ENABLED: 'true',
+      THRESHOLD_ECDSA_PRESIGN_POOL_HINT_TARGET_DEPTH: '3',
+      THRESHOLD_ECDSA_PRESIGN_POOL_HINT_LOW_WATERMARK: '1',
+      THRESHOLD_ECDSA_PRESIGN_POOL_HINT_MAX_REFILL_IN_FLIGHT: '4',
+      THRESHOLD_ECDSA_PRESIGN_POOL_HINT_REFILL_ATTEMPT_TIMEOUT_MS: '45000',
+    });
+    const session = makeJwtSessionAdapter();
+    const router = createRelayRouter(service, { threshold, session });
+    const srv = await startExpressRouter(router);
+
+    try {
+      const userId = 'hint-bob.testnet';
+      const rpId = 'example.localhost';
+      const participantIds = [1, 2];
+      const digest32 = Uint8Array.from(Array.from({ length: 32 }, (_, i) => i + 19));
+      const clientSigningShare32 = randomSecpSecretKey32();
+      const clientVerifyingShareB64u = base64UrlEncode(secp256k1.getPublicKey(clientSigningShare32, true));
+      const sessionId = `sess-${Date.now()}`;
+
+      const bootstrap = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/bootstrap`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          rpId,
+          keygenSessionId: `keygen-${Date.now()}`,
+          clientVerifyingShareB64u,
+          webauthn_authentication: fakeWebAuthnAuthentication(),
+          sessionKind: 'jwt',
+          sessionPolicy: {
+            version: 'threshold_session_v1',
+            userId,
+            rpId,
+            sessionId,
+            ttlMs: 60_000,
+            remainingUses: 3,
+            participantIds,
+          },
+        }),
+      });
+      expect(bootstrap.status, bootstrap.text).toBe(200);
+      expect(bootstrap.json?.ok, bootstrap.text).toBe(true);
+      const relayerKeyId = String(bootstrap.json?.relayerKeyId || '');
+      const jwt = String(bootstrap.json?.jwt || '');
+      expect(relayerKeyId).toBeTruthy();
+      expect(jwt).toBeTruthy();
+
+      const authorized = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/authorize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({
+          relayerKeyId,
+          clientVerifyingShareB64u,
+          purpose: 'test:presign_policy_hint',
+          signing_digest_32: Array.from(digest32),
+        }),
+      });
+      expect(authorized.status, authorized.text).toBe(200);
+      expect(authorized.json?.ok, authorized.text).toBe(true);
+      expect(authorized.json?.presignPoolPolicy).toEqual({
+        enabled: true,
+        targetDepth: 3,
+        lowWatermark: 1,
+        maxRefillInFlight: 4,
+        refillAttemptTimeoutMs: 45_000,
+      });
     } finally {
       await srv.close();
     }

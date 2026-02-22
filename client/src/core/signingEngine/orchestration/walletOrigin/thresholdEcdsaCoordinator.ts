@@ -1,5 +1,9 @@
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import type {
+  ThresholdEcdsaPresignPoolPolicy,
+  ThresholdEcdsaPresignPoolPolicyInput,
+} from '@/core/types/tatchi';
 import {
   addSecp256k1PublicKeys33Wasm,
   mapAdditiveShareToThresholdSignaturesShare2pWasm,
@@ -18,6 +22,35 @@ import {
 } from '../../threshold/workflows/signEcdsa';
 
 type EcdsaSessionKind = 'jwt' | 'cookie';
+
+export type ThresholdEcdsaClientPresignatureRefillInput = {
+  relayerUrl: string;
+  relayerKeyId: string;
+  clientVerifyingShareB64u: string;
+  participantIds: number[];
+  clientParticipantId?: number;
+  relayerParticipantId?: number;
+  clientSigningShare32: Uint8Array;
+  groupPublicKeyB64u?: string;
+  relayerVerifyingShareB64u?: string;
+  sessionKind?: EcdsaSessionKind;
+  thresholdSessionJwt?: string;
+  workerCtx: WorkerOperationContext;
+};
+
+export type ThresholdEcdsaClientPresignatureRefillScheduleResult = {
+  scheduled: boolean;
+  reason:
+    | 'scheduled'
+    | 'disabled'
+    | 'depth_above_trigger'
+    | 'depth_at_or_above_target'
+    | 'in_flight_for_pool_key'
+    | 'global_in_flight_limit'
+    | 'invalid_args';
+  depth: number;
+  targetDepth: number;
+};
 
 type ThresholdEcdsaClientPresignatureShare = {
   presignatureId: string;
@@ -45,7 +78,70 @@ type ThresholdEcdsaCoordinatorOk = {
 export type ThresholdEcdsaCoordinatorResult = ThresholdEcdsaCoordinatorOk | ThresholdEcdsaCoordinatorError;
 
 const MAX_HANDSHAKE_STEPS = 64;
+const DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY: ThresholdEcdsaPresignPoolPolicy = {
+  enabled: true,
+  targetDepth: 20,
+  lowWatermark: 5,
+  maxRefillInFlight: 2,
+  refillAttemptTimeoutMs: 30_000,
+};
 const clientPresignaturePool = new Map<string, ThresholdEcdsaClientPresignatureShare[]>();
+const clientPresignatureRefillInFlightByPoolKey = new Map<string, Promise<void>>();
+
+function normalizeIntInRange(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n)) return fallback;
+  if (n < min) return min;
+  if (n > max) return max;
+  return n;
+}
+
+function normalizePresignPoolTargetDepth(value: unknown, fallback: number): number {
+  return normalizeIntInRange(value, fallback, 1, 64);
+}
+
+function normalizePresignPoolLowWatermark(value: unknown, fallback: number, targetDepth: number): number {
+  return normalizeIntInRange(value, fallback, 0, targetDepth);
+}
+
+export function resolveThresholdEcdsaPresignPoolPolicy(
+  input?: ThresholdEcdsaPresignPoolPolicyInput | ThresholdEcdsaPresignPoolPolicy,
+): ThresholdEcdsaPresignPoolPolicy {
+  const source = input || DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY;
+  const targetDepth = normalizePresignPoolTargetDepth(
+    source.targetDepth,
+    DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.targetDepth,
+  );
+  const lowWatermark = normalizePresignPoolLowWatermark(
+    source.lowWatermark,
+    DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.lowWatermark,
+    targetDepth,
+  );
+  return {
+    enabled: typeof source.enabled === 'boolean'
+      ? source.enabled
+      : DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.enabled,
+    targetDepth,
+    lowWatermark,
+    maxRefillInFlight: normalizeIntInRange(
+      source.maxRefillInFlight,
+      DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.maxRefillInFlight,
+      1,
+      8,
+    ),
+    refillAttemptTimeoutMs: normalizeIntInRange(
+      source.refillAttemptTimeoutMs,
+      DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.refillAttemptTimeoutMs,
+      5_000,
+      120_000,
+    ),
+  };
+}
 
 function createClientPresignSessionId(): string {
   const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
@@ -124,8 +220,105 @@ function pushClientPresignature(poolKey: string, item: ThresholdEcdsaClientPresi
   clientPresignaturePool.set(poolKey, list);
 }
 
+function getClientPresignaturePoolDepth(poolKey: string): number {
+  return clientPresignaturePool.get(poolKey)?.length || 0;
+}
+
 export function clearAllThresholdEcdsaClientPresignatures(): void {
   clientPresignaturePool.clear();
+  clientPresignatureRefillInFlightByPoolKey.clear();
+}
+
+export function getThresholdEcdsaClientPresignaturePoolDepth(args: {
+  relayerUrl: string;
+  relayerKeyId: string;
+  clientVerifyingShareB64u: string;
+  participantIds: number[];
+}): number {
+  const poolKey = makePresignaturePoolKey({
+    relayerUrl: args.relayerUrl,
+    relayerKeyId: args.relayerKeyId,
+    clientVerifyingShareB64u: args.clientVerifyingShareB64u,
+    participantIds: args.participantIds,
+  });
+  return getClientPresignaturePoolDepth(poolKey);
+}
+
+export function scheduleThresholdEcdsaClientPresignaturePoolRefill(
+  args: ThresholdEcdsaClientPresignatureRefillInput & {
+    poolPolicy?: ThresholdEcdsaPresignPoolPolicyInput | ThresholdEcdsaPresignPoolPolicy;
+    targetDepth?: number;
+    triggerIfDepthAtOrBelow?: number;
+  },
+): ThresholdEcdsaClientPresignatureRefillScheduleResult {
+  try {
+    const policy = resolveThresholdEcdsaPresignPoolPolicy(args.poolPolicy);
+    const participantIds = normalizeParticipantIds(args.participantIds);
+    const poolKey = makePresignaturePoolKey({
+      relayerUrl: args.relayerUrl,
+      relayerKeyId: args.relayerKeyId,
+      clientVerifyingShareB64u: args.clientVerifyingShareB64u,
+      participantIds,
+    });
+    const targetDepth = normalizePresignPoolTargetDepth(args.targetDepth, policy.targetDepth);
+    const triggerDepth = normalizePresignPoolLowWatermark(
+      args.triggerIfDepthAtOrBelow,
+      policy.lowWatermark,
+      targetDepth,
+    );
+    const depth = getClientPresignaturePoolDepth(poolKey);
+
+    if (!policy.enabled) {
+      return { scheduled: false, reason: 'disabled', depth, targetDepth };
+    }
+    if (depth > triggerDepth) {
+      return { scheduled: false, reason: 'depth_above_trigger', depth, targetDepth };
+    }
+    if (depth >= targetDepth) {
+      return { scheduled: false, reason: 'depth_at_or_above_target', depth, targetDepth };
+    }
+    if (clientPresignatureRefillInFlightByPoolKey.has(poolKey)) {
+      return { scheduled: false, reason: 'in_flight_for_pool_key', depth, targetDepth };
+    }
+    if (clientPresignatureRefillInFlightByPoolKey.size >= policy.maxRefillInFlight) {
+      return { scheduled: false, reason: 'global_in_flight_limit', depth, targetDepth };
+    }
+
+    const refillInput: ThresholdEcdsaClientPresignatureRefillInput = {
+      relayerUrl: args.relayerUrl,
+      relayerKeyId: args.relayerKeyId,
+      clientVerifyingShareB64u: args.clientVerifyingShareB64u,
+      participantIds,
+      clientParticipantId: args.clientParticipantId,
+      relayerParticipantId: args.relayerParticipantId,
+      clientSigningShare32: args.clientSigningShare32,
+      groupPublicKeyB64u: args.groupPublicKeyB64u,
+      relayerVerifyingShareB64u: args.relayerVerifyingShareB64u,
+      sessionKind: args.sessionKind,
+      thresholdSessionJwt: args.thresholdSessionJwt,
+      workerCtx: args.workerCtx,
+    };
+    const deadlineAtMs = Date.now() + policy.refillAttemptTimeoutMs;
+    const refillTask = (async (): Promise<void> => {
+      while (Date.now() < deadlineAtMs) {
+        const currentDepth = getClientPresignaturePoolDepth(poolKey);
+        if (currentDepth >= targetDepth) return;
+        const refill = await refillThresholdEcdsaClientPresignaturePool(refillInput);
+        if (!refill.ok) return;
+      }
+    })()
+      .catch(() => {})
+      .finally(() => {
+        const inFlight = clientPresignatureRefillInFlightByPoolKey.get(poolKey);
+        if (inFlight === refillTask) {
+          clientPresignatureRefillInFlightByPoolKey.delete(poolKey);
+        }
+      });
+    clientPresignatureRefillInFlightByPoolKey.set(poolKey, refillTask);
+    return { scheduled: true, reason: 'scheduled', depth, targetDepth };
+  } catch {
+    return { scheduled: false, reason: 'invalid_args', depth: 0, targetDepth: 0 };
+  }
 }
 
 function toB64uMessages(messages: Uint8Array[]): string[] {
@@ -564,20 +757,9 @@ export async function signThresholdEcdsaDigestWithPool(args: {
   }
 }
 
-export async function refillThresholdEcdsaClientPresignaturePool(args: {
-  relayerUrl: string;
-  relayerKeyId: string;
-  clientVerifyingShareB64u: string;
-  participantIds: number[];
-  clientParticipantId?: number;
-  relayerParticipantId?: number;
-  clientSigningShare32: Uint8Array;
-  groupPublicKeyB64u?: string;
-  relayerVerifyingShareB64u?: string;
-  sessionKind?: EcdsaSessionKind;
-  thresholdSessionJwt?: string;
-  workerCtx: WorkerOperationContext;
-}): Promise<{ ok: true; presignatureId: string } | ThresholdEcdsaCoordinatorError> {
+export async function refillThresholdEcdsaClientPresignaturePool(
+  args: ThresholdEcdsaClientPresignatureRefillInput,
+): Promise<{ ok: true; presignatureId: string } | ThresholdEcdsaCoordinatorError> {
   try {
     const participantIds = normalizeParticipantIds(args.participantIds);
     const { clientParticipantId, relayerParticipantId } = resolveParticipantRoles({

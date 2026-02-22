@@ -170,6 +170,20 @@ export async function signEvmFamily(
         getRpId: () => ctx.touchIdPrompt.getRpId(),
         workerCtx: signerWorkerCtx,
         shouldAbort: args.shouldAbort,
+        thresholdEcdsaPresignPoolPolicy: deps.tatchiPasskeyConfigs.thresholdEcdsaPresignPool,
+        onThresholdEcdsaPresignRefillScheduled: ({ trigger, result }) => {
+          try {
+            args.onEvent?.({
+              step: 4,
+              phase: 'presign-refill-scheduled',
+              status: 'progress',
+              message: result.scheduled
+                ? `Scheduled threshold presign refill (${trigger})`
+                : `Skipped threshold presign refill (${trigger}): ${result.reason}`,
+              data: { trigger, ...result },
+            });
+          } catch {}
+        },
         enqueueThresholdEcdsaCommit: thresholdEcdsaKeyRef
           ? async (queueArgs) => {
               try {

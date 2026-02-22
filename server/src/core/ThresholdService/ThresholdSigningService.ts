@@ -48,6 +48,7 @@ import type {
   ThresholdEd25519SignFinalizeRequest,
   ThresholdEd25519SignFinalizeResponse,
   ThresholdEd25519KeyStoreConfigInput,
+  ThresholdEcdsaPresignPoolPolicyHint,
   WebAuthnAuthenticationCredential,
 } from '../types';
 import {
@@ -119,6 +120,52 @@ function isEthSignerWasmRuntimeError(messageRaw: string): boolean {
   return message.includes('eth_signer wasm')
     || message.includes('initialize eth_signer wasm')
     || message.includes('not initialized');
+}
+
+function parseOptionalBoolean(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  const raw = toOptionalTrimmedString(value);
+  if (!raw) return undefined;
+  const normalized = raw.toLowerCase();
+  if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on') {
+    return true;
+  }
+  if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off') {
+    return false;
+  }
+  return undefined;
+}
+
+function parseOptionalIntInRange(value: unknown, min: number, max: number): number | undefined {
+  const raw = toOptionalTrimmedString(value);
+  if (!raw) return undefined;
+  const parsed = Math.floor(Number(raw));
+  if (!Number.isFinite(parsed)) return undefined;
+  if (parsed < min || parsed > max) return undefined;
+  return parsed;
+}
+
+function parseThresholdEcdsaPresignPoolPolicyHint(
+  config: Record<string, unknown>,
+): ThresholdEcdsaPresignPoolPolicyHint | undefined {
+  const hint: ThresholdEcdsaPresignPoolPolicyHint = {
+    ...(parseOptionalBoolean(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_ENABLED) !== undefined
+      ? { enabled: parseOptionalBoolean(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_ENABLED) }
+      : {}),
+    ...(parseOptionalIntInRange(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_TARGET_DEPTH, 1, 64) !== undefined
+      ? { targetDepth: parseOptionalIntInRange(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_TARGET_DEPTH, 1, 64) }
+      : {}),
+    ...(parseOptionalIntInRange(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_LOW_WATERMARK, 0, 64) !== undefined
+      ? { lowWatermark: parseOptionalIntInRange(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_LOW_WATERMARK, 0, 64) }
+      : {}),
+    ...(parseOptionalIntInRange(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_MAX_REFILL_IN_FLIGHT, 1, 8) !== undefined
+      ? { maxRefillInFlight: parseOptionalIntInRange(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_MAX_REFILL_IN_FLIGHT, 1, 8) }
+      : {}),
+    ...(parseOptionalIntInRange(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_REFILL_ATTEMPT_TIMEOUT_MS, 5_000, 120_000) !== undefined
+      ? { refillAttemptTimeoutMs: parseOptionalIntInRange(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_REFILL_ATTEMPT_TIMEOUT_MS, 5_000, 120_000) }
+      : {}),
+  };
+  return Object.keys(hint).length ? hint : undefined;
 }
 
 type ParsedThresholdEd25519KeygenRequest =
@@ -536,6 +583,7 @@ export class ThresholdSigningService {
   private readonly ecdsaSigningSessionStore: ThresholdEcdsaSigningSessionStore;
   private readonly ecdsaPresignSessionStore: ThresholdEcdsaPresignSessionStore;
   private readonly ecdsaPresignaturePool: ThresholdEcdsaPresignaturePool;
+  private readonly ecdsaPresignPoolPolicyHint: ThresholdEcdsaPresignPoolPolicyHint | undefined;
   private readonly ecdsaSigningHandlers: ThresholdEcdsaSigningHandlers;
   private readonly ensureReady: () => Promise<void>;
   private readonly ensureSignerWasm: () => Promise<void>;
@@ -583,6 +631,7 @@ export class ThresholdSigningService {
     this.ecdsaPresignSessionStore = input.ecdsaPresignSessionStore;
     this.ecdsaPresignaturePool = input.ecdsaPresignaturePool;
     const cfg = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
+    this.ecdsaPresignPoolPolicyHint = parseThresholdEcdsaPresignPoolPolicyHint(cfg);
 
     const nodeRole = coerceThresholdNodeRole(cfg.THRESHOLD_NODE_ROLE);
     const coordinatorSharedSecretBytes =
@@ -1668,6 +1717,9 @@ export class ThresholdSigningService {
         ok: true,
         mpcSessionId,
         expiresAt: new Date(expiresAtMs).toISOString(),
+        ...(this.ecdsaPresignPoolPolicyHint
+          ? { presignPoolPolicy: this.ecdsaPresignPoolPolicyHint }
+          : {}),
       };
     } catch (e: unknown) {
       const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'Internal error');

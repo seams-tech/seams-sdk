@@ -1,5 +1,6 @@
 import type {
   ThemePaletteName,
+  ThresholdEcdsaPresignPoolPolicy,
   TatchiConfigs,
   TatchiConfigsInput,
 } from '../types/tatchi';
@@ -29,6 +30,14 @@ export const DEFAULT_REGISTRATION_SIGNER_OPTIONS: RegistrationSignerOptions = {
   },
 };
 
+export const DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY: ThresholdEcdsaPresignPoolPolicy = {
+  enabled: true,
+  targetDepth: 20,
+  lowWatermark: 5,
+  maxRefillInFlight: 2,
+  refillAttemptTimeoutMs: 30_000,
+};
+
 export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigs = {
   // You can provide a single URL or a comma-separated list for failover.
   // First URL is treated as primary, subsequent URLs are fallbacks.
@@ -54,6 +63,7 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigs = {
     ttlMs: 24 * 60 * 60 * 1000, // 1 day
     remainingUses: 10_000,
   },
+  thresholdEcdsaPresignPool: DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY,
   registrationSignerDefaults: DEFAULT_REGISTRATION_SIGNER_OPTIONS,
   relayer: {
     // accountId: 'w3a-v1.testnet',
@@ -103,6 +113,10 @@ function coercePositiveIntInRange(value: unknown, fallback: number, min: number,
   if (rounded < min) return min;
   if (rounded > max) return max;
   return rounded;
+}
+
+function coerceBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
 }
 
 function coerceThemePaletteName(value: unknown): ThemePaletteName | undefined {
@@ -172,6 +186,38 @@ export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiC
   const registrationSignerDefaults = cloneRegistrationSignerOptions(
     overrides.registrationSignerDefaults ?? defaults.registrationSignerDefaults,
   );
+  const thresholdEcdsaPresignPoolDefaults = (
+    overrides.thresholdEcdsaPresignPool
+    ?? defaults.thresholdEcdsaPresignPool
+    ?? DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY
+  );
+  const thresholdEcdsaPresignPoolEnabledDefault =
+    thresholdEcdsaPresignPoolDefaults.enabled
+    ?? DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.enabled;
+  const thresholdEcdsaPresignPoolTargetDepthDefault =
+    thresholdEcdsaPresignPoolDefaults.targetDepth
+    ?? DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.targetDepth;
+  const thresholdEcdsaPresignPoolLowWatermarkDefault =
+    thresholdEcdsaPresignPoolDefaults.lowWatermark
+    ?? DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.lowWatermark;
+  const thresholdEcdsaPresignPoolMaxRefillInFlightDefault =
+    thresholdEcdsaPresignPoolDefaults.maxRefillInFlight
+    ?? DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.maxRefillInFlight;
+  const thresholdEcdsaPresignPoolRefillAttemptTimeoutMsDefault =
+    thresholdEcdsaPresignPoolDefaults.refillAttemptTimeoutMs
+    ?? DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.refillAttemptTimeoutMs;
+  const thresholdEcdsaPresignPoolTargetDepth = coercePositiveIntInRange(
+    overrides.thresholdEcdsaPresignPool?.targetDepth ?? thresholdEcdsaPresignPoolTargetDepthDefault,
+    thresholdEcdsaPresignPoolTargetDepthDefault,
+    1,
+    64,
+  );
+  const thresholdEcdsaPresignPoolLowWatermark = coercePositiveIntInRange(
+    overrides.thresholdEcdsaPresignPool?.lowWatermark ?? thresholdEcdsaPresignPoolLowWatermarkDefault,
+    thresholdEcdsaPresignPoolLowWatermarkDefault,
+    0,
+    thresholdEcdsaPresignPoolTargetDepth,
+  );
   const merged: TatchiConfigs = {
     nearRpcUrl: overrides.nearRpcUrl ?? defaults.nearRpcUrl,
     nearNetwork: overrides.nearNetwork ?? defaults.nearNetwork,
@@ -202,6 +248,28 @@ export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiC
         ?? defaults.signingSessionDefaults?.ttlMs,
       remainingUses: overrides.signingSessionDefaults?.remainingUses
         ?? defaults.signingSessionDefaults?.remainingUses,
+    },
+    thresholdEcdsaPresignPool: {
+      enabled: coerceBoolean(
+        overrides.thresholdEcdsaPresignPool?.enabled,
+        thresholdEcdsaPresignPoolEnabledDefault,
+      ),
+      targetDepth: thresholdEcdsaPresignPoolTargetDepth,
+      lowWatermark: thresholdEcdsaPresignPoolLowWatermark,
+      maxRefillInFlight: coercePositiveIntInRange(
+        overrides.thresholdEcdsaPresignPool?.maxRefillInFlight
+          ?? thresholdEcdsaPresignPoolMaxRefillInFlightDefault,
+        thresholdEcdsaPresignPoolMaxRefillInFlightDefault,
+        1,
+        8,
+      ),
+      refillAttemptTimeoutMs: coercePositiveIntInRange(
+        overrides.thresholdEcdsaPresignPool?.refillAttemptTimeoutMs
+          ?? thresholdEcdsaPresignPoolRefillAttemptTimeoutMsDefault,
+        thresholdEcdsaPresignPoolRefillAttemptTimeoutMsDefault,
+        5_000,
+        120_000,
+      ),
     },
     registrationSignerDefaults,
     relayer: {

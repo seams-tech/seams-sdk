@@ -132,6 +132,22 @@ export interface SignAndSendDelegateActionResult {
   relayResult: DelegateRelayResult;
 }
 
+export interface ThresholdEcdsaPresignPoolPolicyInput {
+  enabled?: boolean;
+  targetDepth?: number;
+  lowWatermark?: number;
+  maxRefillInFlight?: number;
+  refillAttemptTimeoutMs?: number;
+}
+
+export interface ThresholdEcdsaPresignPoolPolicy {
+  enabled: boolean;
+  targetDepth: number;
+  lowWatermark: number;
+  maxRefillInFlight: number;
+  refillAttemptTimeoutMs: number;
+}
+
 //////////////////////////////////
 /// TatchiPasskey Configuration
 //////////////////////////////////
@@ -167,6 +183,12 @@ export interface TatchiConfigsInput {
     ttlMs?: number;
     remainingUses?: number;
   };
+  /**
+   * Client-side presign pool policy for threshold ECDSA.
+   *
+   * Controls best-effort background refill behavior only; signing correctness does not depend on refill success.
+   */
+  thresholdEcdsaPresignPool?: ThresholdEcdsaPresignPoolPolicyInput;
   /**
    * Default registration signer provisioning policy.
    * Per-call overrides are available via `RegistrationHooksOptions.signerOptions`.
@@ -242,6 +264,7 @@ export interface TatchiConfigs {
     ttlMs: number;
     remainingUses: number;
   };
+  thresholdEcdsaPresignPool: ThresholdEcdsaPresignPoolPolicy;
   registrationSignerDefaults: RegistrationSignerOptions;
   iframeWallet?: {
     walletOrigin?: string;
