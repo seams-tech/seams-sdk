@@ -2,7 +2,7 @@
 
 Status: Completed  
 Severity: Medium-High (user-facing capability gap + duplicate export API surface)  
-Last updated: 2026-02-21
+Last updated: 2026-02-22
 
 ## 1. Problem Statement
 
@@ -126,7 +126,7 @@ Suggested tests/files:
 ## 6. Risks and Mitigations
 
 1. Breaking changes for downstream callers using `exportNearKeypairWithUI` or scheme-based public options.  
-   Mitigation: document migration to canonical chain-scoped API.
+   Mitigation: none required for current prototype phase; breaking cleanup is intentional.
 
 2. Misinterpretation that EVM and Tempo should have distinct exported private keys.  
    Mitigation: docs/copy explicitly state both chain intents map to shared secp256k1 export key material in the current signer model.
@@ -146,3 +146,18 @@ Suggested tests/files:
 - [x] No `exportNearKeypairWithUI` symbol remains in SDK runtime codepaths.
 - [x] No `PM_EXPORT_NEAR_KEYPAIR_UI` symbol remains in iframe protocol/runtime codepaths.
 - [x] Existing export hardening invariants (worker-owned flow, no secret leakage in API responses) remain intact.
+
+## 8. Validation Snapshot (2026-02-22)
+
+- `pnpm -C sdk build` passes.
+- Chain-scoped export suites pass (`24/24`) across unit + wallet-iframe integration:
+  - `tests/unit/keyExport.noLegacySurface.guard.unit.test.ts`
+  - `tests/unit/privateKeyExportRecovery.binding.unit.test.ts`
+  - `tests/unit/privateKeyExportRecovery.hardening.unit.test.ts`
+  - `tests/unit/passkeyConfirm.exportFlow.unit.test.ts`
+  - `tests/unit/walletIframeHost.exportUi.unit.test.ts`
+  - `tests/unit/touchConfirm.workerRouter.unit.test.ts`
+  - `tests/wallet-iframe/export.flow.integration.test.ts`
+  - `tests/wallet-iframe/router.computeOverlayIntent.test.ts`
+  - `tests/wallet-iframe/router.behavior.sticky.test.ts`
+- Repository-wide `pnpm -s lint` / `pnpm -s type-check` are currently red from unrelated in-flight changes outside this refactor scope.

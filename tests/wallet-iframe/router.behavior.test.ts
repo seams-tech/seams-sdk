@@ -174,9 +174,12 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
           }),
         );
 
-        return { success: true, outcome };
+        return { success: true as const, outcome };
       } catch (error: unknown) {
-        return { success: false, error: String((error as { message?: unknown })?.message || error || '') };
+        return {
+          success: false as const,
+          error: String((error as { message?: unknown })?.message || error || ''),
+        };
       }
     }, { walletOrigin: WALLET_ORIGIN, routerPath });
 
