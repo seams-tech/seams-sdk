@@ -1129,6 +1129,8 @@ export class ThresholdSigningService {
         nearAccountId,
         relayerPublicKey: relayerKey.publicKey,
         viewAccessKeyList: this.viewAccessKeyList,
+        maxAttempts: 6,
+        initialDelayMs: 60,
       });
       if (!scope.ok) {
         return { ok: false, code: scope.code, message: scope.message };
@@ -1812,6 +1814,8 @@ export class ThresholdSigningService {
         nearAccountId,
         relayerPublicKey: relayerKey.publicKey,
         viewAccessKeyList: this.viewAccessKeyList,
+        maxAttempts: 6,
+        initialDelayMs: 60,
       });
       if (!scope.ok) {
         return { ok: false, code: scope.code, message: scope.message };

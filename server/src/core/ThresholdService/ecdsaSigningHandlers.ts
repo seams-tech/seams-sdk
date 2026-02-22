@@ -879,8 +879,6 @@ export class ThresholdEcdsaSigningHandlers {
   }
 
   async ecdsaSignInit(request: ThresholdEcdsaSignInitRequest): Promise<ThresholdEcdsaSignInitResponse> {
-    const route = '/threshold-ecdsa/sign/init';
-
     if (this.nodeRole !== 'coordinator') {
       return {
         ok: false,
@@ -898,14 +896,6 @@ export class ThresholdEcdsaSigningHandlers {
       signingDigestB64u,
       clientPresignatureId,
     } = parsedRequest.value;
-
-    this.logger.info('[threshold-ecdsa] request', {
-      route,
-      mpcSessionId,
-      relayerKeyId,
-      signingDigestB64u_len: signingDigestB64u.length,
-      ...(clientPresignatureId ? { clientPresignatureId } : {}),
-    });
 
     const sess = await this.sessionStore.takeMpcSession(mpcSessionId);
     if (!sess) {
@@ -989,8 +979,6 @@ export class ThresholdEcdsaSigningHandlers {
   }
 
   async ecdsaSignFinalize(request: ThresholdEcdsaSignFinalizeRequest): Promise<ThresholdEcdsaSignFinalizeResponse> {
-    const route = '/threshold-ecdsa/sign/finalize';
-
     if (this.nodeRole !== 'coordinator') {
       return {
         ok: false,
@@ -1004,12 +992,6 @@ export class ThresholdEcdsaSigningHandlers {
     const parsedRequest = parseThresholdEcdsaSignFinalizeRequest(request);
     if (!parsedRequest.ok) return parsedRequest;
     const { signingSessionId, clientSignatureShareB64u } = parsedRequest.value;
-
-    this.logger.info('[threshold-ecdsa] request', {
-      route,
-      signingSessionId,
-      clientSignatureShareB64u_len: clientSignatureShareB64u.length,
-    });
 
     const sess = await this.signingSessionStore.takeSigningSession(signingSessionId);
     if (!sess) {

@@ -1027,7 +1027,9 @@ export class AuthService {
           blockHash,
           actions,
         });
-        const result = await this.nearClient.sendTransaction(signed);
+        // Atomic registration immediately validates relayer key scope against account access keys.
+        // Wait for FINAL so the key list reflects the just-created account/key state.
+        const result = await this.nearClient.sendTransaction(signed, 'FINAL');
 
         // 3) Persist the authenticator privately on the relay.
         const credentialIdB64u = String(verification?.registrationInfo?.credential?.id || '').trim();

@@ -14,6 +14,7 @@ import {
   makeEcdsaAuthSessionCacheKey,
 } from '../../threshold/session/ecdsaAuthSession';
 import {
+  getThresholdEcdsaClientPresignaturePoolDepth,
   resolveThresholdEcdsaPresignPoolPolicy,
   scheduleThresholdEcdsaClientPresignaturePoolRefill,
   signThresholdEcdsaDigestWithPool,
@@ -206,12 +207,26 @@ export class Secp256k1Engine implements Signer {
         ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
         workerCtx: this.workerCtx,
       };
-      const presignRefillScheduledAtCommitStart = scheduleThresholdEcdsaClientPresignaturePoolRefill({
-        ...refillBaseArgs,
-        poolPolicy: effectiveThresholdEcdsaPresignPoolPolicy,
-        targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
-        triggerIfDepthAtOrBelow: effectiveThresholdEcdsaPresignPoolPolicy.lowWatermark,
+      const presignPoolDepthAtCommitStart = getThresholdEcdsaClientPresignaturePoolDepth({
+        relayerUrl: keyRef.relayerUrl,
+        relayerKeyId: keyRef.relayerKeyId,
+        clientVerifyingShareB64u: keyRef.clientVerifyingShareB64u,
+        participantIds,
       });
+      const presignRefillScheduledAtCommitStart =
+        presignPoolDepthAtCommitStart > 0
+          ? scheduleThresholdEcdsaClientPresignaturePoolRefill({
+            ...refillBaseArgs,
+            poolPolicy: effectiveThresholdEcdsaPresignPoolPolicy,
+            targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
+            triggerIfDepthAtOrBelow: effectiveThresholdEcdsaPresignPoolPolicy.lowWatermark,
+          })
+          : {
+            scheduled: false,
+            reason: 'cold_start_pool_empty' as const,
+            depth: presignPoolDepthAtCommitStart,
+            targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
+          };
       try {
         this.onThresholdEcdsaPresignRefillScheduled?.({
           trigger: 'commit_start',

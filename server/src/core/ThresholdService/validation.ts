@@ -712,10 +712,20 @@ export async function ensureRelayerKeyIsActiveAccessKey(input: {
   relayerPublicKey: unknown;
   expectedSigningPublicKey?: unknown;
   viewAccessKeyList: (accountId: string) => Promise<AccessKeyList>;
+  maxAttempts?: unknown;
+  initialDelayMs?: unknown;
 }): Promise<ThresholdValidationResult> {
   const nearAccountId = toOptionalString(input.nearAccountId);
   const relayerPublicKey = toNearPublicKeyStr(input.relayerPublicKey);
   const expectedSigningPublicKey = toNearPublicKeyStr(input.expectedSigningPublicKey);
+  const maxAttemptsRaw = Number(input.maxAttempts);
+  const maxAttempts = Number.isFinite(maxAttemptsRaw) && maxAttemptsRaw >= 1
+    ? Math.min(10, Math.floor(maxAttemptsRaw))
+    : 1;
+  const initialDelayMsRaw = Number(input.initialDelayMs);
+  const initialDelayMs = Number.isFinite(initialDelayMsRaw) && initialDelayMsRaw >= 0
+    ? Math.min(1_000, Math.floor(initialDelayMsRaw))
+    : 50;
   if (!nearAccountId) return { ok: false, code: 'invalid_body', message: 'nearAccountId is required' };
   if (!relayerPublicKey) return { ok: false, code: 'internal', message: 'Missing relayer public key for relayerKeyId' };
 
@@ -723,14 +733,34 @@ export async function ensureRelayerKeyIsActiveAccessKey(input: {
     return { ok: false, code: 'unauthorized', message: 'relayerKeyId does not match signingPayload public key' };
   }
 
+  let lastLookupError: unknown = null;
+  let delayMs = initialDelayMs;
   try {
-    const list = await input.viewAccessKeyList(nearAccountId);
-    const keys = list.keys || [];
-    const found = keys.some((k) => toNearPublicKeyStr(k.public_key) === relayerPublicKey);
-    if (!found) {
-      return { ok: false, code: 'unauthorized', message: 'relayerKeyId public key is not an active access key for nearAccountId' };
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const list = await input.viewAccessKeyList(nearAccountId);
+        const keys = list.keys || [];
+        const found = keys.some((k) => toNearPublicKeyStr(k.public_key) === relayerPublicKey);
+        if (found) return { ok: true };
+      } catch (e: unknown) {
+        lastLookupError = e;
+      }
+
+      if (attempt < maxAttempts && delayMs > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+        delayMs = Math.min(1_000, delayMs * 2);
+      }
     }
-    return { ok: true };
+
+    if (lastLookupError) {
+      const msg = String(
+        (lastLookupError && typeof lastLookupError === 'object' && 'message' in lastLookupError)
+          ? (lastLookupError as { message?: unknown }).message
+          : lastLookupError || 'Failed to query NEAR access keys',
+      );
+      return { ok: false, code: 'internal', message: `Failed to verify access key scope: ${msg}` };
+    }
+    return { ok: false, code: 'unauthorized', message: 'relayerKeyId public key is not an active access key for nearAccountId' };
   } catch (e: unknown) {
     const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'Failed to query NEAR access keys');
     return { ok: false, code: 'internal', message: `Failed to verify access key scope: ${msg}` };

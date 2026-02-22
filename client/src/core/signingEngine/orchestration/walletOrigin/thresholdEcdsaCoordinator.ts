@@ -43,6 +43,7 @@ export type ThresholdEcdsaClientPresignatureRefillScheduleResult = {
   reason:
     | 'scheduled'
     | 'disabled'
+    | 'cold_start_pool_empty'
     | 'depth_above_trigger'
     | 'depth_at_or_above_target'
     | 'in_flight_for_pool_key'

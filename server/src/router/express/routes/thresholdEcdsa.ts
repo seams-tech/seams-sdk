@@ -30,14 +30,26 @@ async function handle<T extends { ok: boolean; code?: string; message?: string }
   requestMeta: Record<string, unknown>,
   fn: () => Promise<T>
 ): Promise<void> {
+  const startedAtMs = Date.now();
   try {
     ctx.logger.info('[threshold-ecdsa] request', { route, method: req.method, ...(requestMeta || {}) });
     const result = await fn();
     const status = thresholdEcdsaStatusCode(result);
-    ctx.logger.info('[threshold-ecdsa] response', { route, status, ok: result.ok, ...(result.code ? { code: result.code } : {}) });
+    ctx.logger.info('[threshold-ecdsa] response', {
+      route,
+      status,
+      ok: result.ok,
+      durationMs: Math.max(0, Date.now() - startedAtMs),
+      ...(result.code ? { code: result.code } : {}),
+    });
     res.status(status).json(result);
   } catch (e: unknown) {
-    ctx.logger.error('[threshold-ecdsa] error', { route, message: errMessage(e), ...(requestMeta || {}) });
+    ctx.logger.error('[threshold-ecdsa] error', {
+      route,
+      message: errMessage(e),
+      durationMs: Math.max(0, Date.now() - startedAtMs),
+      ...(requestMeta || {}),
+    });
     res.status(500).json({ ok: false, code: 'internal', message: errMessage(e) });
   }
 }
