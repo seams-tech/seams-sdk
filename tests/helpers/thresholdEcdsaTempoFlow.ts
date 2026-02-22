@@ -17,13 +17,9 @@ export type ThresholdEcdsaTempoFlowOptions = {
   signingKind?: 'tempoTransaction' | 'eip1559';
   accountId?: string;
   connectSession?: boolean;
-  useBootstrapApi?: boolean;
   connectSessionTtlMs?: number;
   connectSessionRemainingUses?: number;
   waitBeforeSignMs?: number;
-  keyRefUserId?: string;
-  omitThresholdSessionFromKeyRef?: boolean;
-  clearCachedThresholdSessionBeforeSign?: boolean;
 };
 
 export type ThresholdEcdsaTempoFlowResult = {
@@ -110,12 +106,8 @@ export async function runThresholdEcdsaTempoFlow(
 ): Promise<ThresholdEcdsaTempoFlowResult> {
   return await page.evaluate(async (input) => {
     const sdkMod = await import('/sdk/esm/index.js');
-    const thresholdMod = await import('/sdk/esm/threshold.js');
-    const indexedDbMod = await import('/sdk/esm/core/indexedDB/index.js');
 
     const { TatchiPasskey } = sdkMod as any;
-    const { keygenEcdsa, connectEcdsaSession } = thresholdMod as any;
-    const { IndexedDBManager } = indexedDbMod as any;
 
     const accountId =
       (typeof input.accountId === 'string' && input.accountId.trim())
@@ -178,10 +170,7 @@ export async function runThresholdEcdsaTempoFlow(
 
       let keygen: any;
       let session: any = undefined;
-      let thresholdEcdsaKeyRef: any;
-
-      const useBootstrapApi = input.useBootstrapApi !== false && input.connectSession !== false;
-      if (useBootstrapApi) {
+      if (input.connectSession !== false) {
         try {
           const boot = await pm.tempo.bootstrapEcdsaSession({
             nearAccountId: accountId,
@@ -193,7 +182,6 @@ export async function runThresholdEcdsaTempoFlow(
           });
           keygen = boot.keygen;
           session = boot.session;
-          thresholdEcdsaKeyRef = { ...boot.thresholdEcdsaKeyRef };
         } catch (e: unknown) {
           return {
             ok: false,
@@ -205,103 +193,11 @@ export async function runThresholdEcdsaTempoFlow(
             ),
           };
         }
-      } else {
-        const ctx = pm.getContext();
-        const signingEngine = ctx.signingEngine as any;
-        const signerWorkerCtx = signingEngine?.signerWorkerManager?.getContext?.();
-        if (!signerWorkerCtx) {
-          return {
-            ok: false,
-            accountId,
-            error: 'signer worker context unavailable on SigningEngine',
-          };
-        }
-        const touchIdPrompt = signingEngine?.touchIdPrompt;
-        if (!touchIdPrompt) {
-          return {
-            ok: false,
-            accountId,
-            error: 'touchIdPrompt unavailable on SigningEngine',
-          };
-        }
-
-        keygen = await keygenEcdsa({
-          indexedDB: IndexedDBManager,
-          touchIdPrompt,
-          relayerUrl: input.relayerUrl,
-          userId: accountId,
-          workerCtx: signerWorkerCtx,
-        });
-        if (!keygen?.ok) {
-          return {
-            ok: false,
-            accountId,
-            keygen,
-            error: String(keygen?.message || keygen?.code || 'threshold ecdsa keygen failed'),
-          };
-        }
-
-        if (input.connectSession !== false) {
-          session = await connectEcdsaSession({
-            indexedDB: IndexedDBManager,
-            touchIdPrompt,
-            relayerUrl: input.relayerUrl,
-            relayerKeyId: String(keygen.relayerKeyId || ''),
-            userId: accountId,
-            participantIds: keygen.participantIds,
-            workerCtx: signerWorkerCtx,
-            ...(typeof input.connectSessionTtlMs === 'number' ? { ttlMs: input.connectSessionTtlMs } : {}),
-            ...(typeof input.connectSessionRemainingUses === 'number' ? { remainingUses: input.connectSessionRemainingUses } : {}),
-          });
-          if (!session?.ok) {
-            return {
-              ok: false,
-              accountId,
-              keygen,
-              session,
-              error: String(session?.message || session?.code || 'connectEcdsaSession failed'),
-            };
-          }
-        }
-
-        thresholdEcdsaKeyRef = {
-          type: 'threshold-ecdsa-secp256k1',
-          userId: accountId,
-          relayerUrl: input.relayerUrl,
-          relayerKeyId: String(keygen.relayerKeyId || ''),
-          clientVerifyingShareB64u: String(keygen.clientVerifyingShareB64u || ''),
-          participantIds: Array.isArray(keygen.participantIds) ? keygen.participantIds : [1, 2],
-          groupPublicKeyB64u: String(keygen.groupPublicKeyB64u || ''),
-          relayerVerifyingShareB64u: String(keygen.relayerVerifyingShareB64u || ''),
-        };
-
-        if (session?.ok) {
-          thresholdEcdsaKeyRef.thresholdSessionKind = 'jwt';
-          thresholdEcdsaKeyRef.thresholdSessionJwt = session.jwt;
-          thresholdEcdsaKeyRef.thresholdSessionId = session.sessionId;
-        }
       }
 
       const waitBeforeSignMs = input.waitBeforeSignMs;
       if (typeof waitBeforeSignMs === 'number' && waitBeforeSignMs > 0) {
         await new Promise((resolve) => setTimeout(resolve, Math.floor(waitBeforeSignMs)));
-      }
-
-      if (typeof input.keyRefUserId === 'string') {
-        thresholdEcdsaKeyRef.userId = input.keyRefUserId;
-      }
-
-      if (input.omitThresholdSessionFromKeyRef) {
-        delete thresholdEcdsaKeyRef.thresholdSessionKind;
-        delete thresholdEcdsaKeyRef.thresholdSessionJwt;
-        delete thresholdEcdsaKeyRef.thresholdSessionId;
-      }
-
-      if (input.clearCachedThresholdSessionBeforeSign) {
-        try {
-          const authSessionMod = await import('/sdk/esm/core/signingEngine/threshold/session/ecdsaAuthSession.js');
-          authSessionMod.clearAllCachedEcdsaAuthSessions?.();
-        } catch {}
       }
 
       const request = input.signingKind === 'eip1559'
@@ -342,10 +238,9 @@ export async function runThresholdEcdsaTempoFlow(
           };
 
       try {
-        const signed = await pm.tempo.signTempoWithThresholdEcdsa({
+        const signed = await pm.tempo.signTempo({
           nearAccountId: accountId,
           request,
-          thresholdEcdsaKeyRef,
           options: { confirmationConfig },
         });
 
@@ -360,7 +255,7 @@ export async function runThresholdEcdsaTempoFlow(
         const message = String(
           (e && typeof e === 'object' && 'message' in e)
             ? (e as { message?: unknown }).message
-            : e || 'signTempoWithThresholdEcdsa failed',
+            : e || 'signTempo failed',
         );
         return {
           ok: false,

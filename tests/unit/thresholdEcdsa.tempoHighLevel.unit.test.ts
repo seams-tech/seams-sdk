@@ -162,12 +162,13 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       const result = await runThresholdEcdsaTempoFlow(page, {
         relayerUrl: harness.baseUrl,
         connectSession: false,
-        omitThresholdSessionFromKeyRef: true,
       });
 
       expect(result.ok).toBe(false);
       const msg = String(result.error || '');
-      expect(msg).toMatch(/Missing threshold signingSessionId|No cached threshold-ecdsa session token|threshold session expired|PRF\.first not cached for threshold session/i);
+      expect(msg).toMatch(
+        /missing canonical threshold ECDSA session|Missing threshold signingSessionId|threshold-ecdsa session token unavailable|threshold session expired|PRF\.first not cached for threshold session/i,
+      );
     } finally {
       await harness.close();
     }
@@ -230,18 +231,4 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
     }
   });
 
-  test('fails when PRF-derived share mismatches keyRef binding', async ({ page }) => {
-    const harness = await setupThresholdEcdsaTempoHarness(page);
-    try {
-      const result = await runThresholdEcdsaTempoFlow(page, {
-        relayerUrl: harness.baseUrl,
-        keyRefUserId: `mismatch-${Date.now()}.w3a-v1.testnet`,
-      });
-
-      expect(result.ok).toBe(false);
-      expect(String(result.error || '')).toContain('Derived client share does not match keyRef.clientVerifyingShareB64u');
-    } finally {
-      await harness.close();
-    }
-  });
 });

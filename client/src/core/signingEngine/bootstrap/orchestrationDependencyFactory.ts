@@ -40,7 +40,6 @@ export type OrchestrationSignTempoInput = {
   nearAccountId: string;
   request: TempoSigningRequest | EvmSigningRequest;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
-  thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
 };
 
 export type ManagerConvenienceDeps = {
@@ -68,6 +67,20 @@ export type CreateOrchestrationDependencyBundleArgs = {
   initializeCurrentUser: WorkerResourceWarmupDeps['initializeCurrentUser'];
   persistThresholdEcdsaBootstrapChainAccount:
     ThresholdSessionActivationDeps['persistThresholdEcdsaBootstrapChainAccount'];
+  upsertThresholdEcdsaSessionFromBootstrap:
+    ThresholdSessionActivationDeps['upsertThresholdEcdsaSessionFromBootstrap'];
+  getThresholdEcdsaKeyRefForSigning: (args: {
+    nearAccountId: AccountId | string;
+    chain: 'tempo' | 'evm';
+  }) => ThresholdEcdsaSecp256k1KeyRef;
+  withThresholdEcdsaCommitQueue: <T>(args: {
+    nearAccountId: AccountId | string;
+    enabled: boolean;
+    shouldAbort?: () => boolean;
+    maxQueueLength?: number;
+    queueTimeoutMs?: number;
+    task: () => Promise<T>;
+  }) => Promise<T>;
 };
 
 export type NearKeyOpsDeps = {
@@ -146,6 +159,10 @@ export function createOrchestrationDependencyBundle(
       indexedDB: IndexedDBManager,
       tatchiPasskeyConfigs: args.tatchiPasskeyConfigs,
       getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
+      getThresholdEcdsaKeyRefForSigning: ({ nearAccountId, chain }) =>
+        args.getThresholdEcdsaKeyRefForSigning({ nearAccountId, chain }),
+      withThresholdEcdsaCommitQueue: (queueArgs) =>
+        args.withThresholdEcdsaCommitQueue(queueArgs),
       touchConfirmManager: args.touchConfirmManager,
     },
     privateKeyExportRecoveryDeps: {
@@ -182,6 +199,8 @@ export function createOrchestrationDependencyBundle(
       defaultRelayerUrl: args.tatchiPasskeyConfigs.relayer?.url || '',
       persistThresholdEcdsaBootstrapChainAccount:
         args.persistThresholdEcdsaBootstrapChainAccount,
+      upsertThresholdEcdsaSessionFromBootstrap:
+        args.upsertThresholdEcdsaSessionFromBootstrap,
     },
     nearKeyOpsDeps: {
       signingKeyOps: args.signerWorkerManager.nearKeyOps,

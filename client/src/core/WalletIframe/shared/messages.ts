@@ -12,7 +12,6 @@ import type { DelegateActionInput } from '../../types/delegate';
 import type { ConfirmationConfig } from '../../types/signer-worker';
 import type { SignerMode } from '../../types/signer-worker';
 import type { MultichainSigningRequest } from '../../signingEngine/chainAdaptors/tempo/types';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../signingEngine/interfaces/signing';
 
 export type WalletProtocolVersion = '1.0.0';
 
@@ -37,8 +36,7 @@ export type ParentToChildType =
   | 'PM_SIGN_DELEGATE_ACTION'
   | 'PM_SIGN_NEP413'
   | 'PM_SIGN_TEMPO'
-  | 'PM_EXPORT_KEYS_UI'
-  | 'PM_EXPORT_NEAR_KEYPAIR_UI'
+  | 'PM_EXPORT_KEYPAIR_UI'
   | 'PM_GET_RECENT_LOGINS'
   | 'PM_PREFETCH_BLOCKHEIGHT'
   | 'PM_SET_CONFIRM_BEHAVIOR'
@@ -250,15 +248,12 @@ export interface PMSignTempoPayload {
   request: MultichainSigningRequest;
   options?: {
     confirmationConfig?: Partial<ConfirmationConfig>;
-    thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
   };
 }
 
-export interface PMExportNearKeypairPayload { nearAccountId: string }
-export interface PMExportNearKeypairUiPayload { nearAccountId: string; variant?: 'modal' | 'drawer'; theme?: 'dark' | 'light' }
-export interface PMExportKeysUiPayload {
+export interface PMExportKeypairUiPayload {
   nearAccountId: string;
-  schemes?: Array<'ed25519' | 'secp256k1'>;
+  chain: 'near' | 'evm' | 'tempo';
   variant?: 'modal' | 'drawer';
   theme?: 'dark' | 'light';
 }
@@ -359,8 +354,7 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_SIGN_DELEGATE_ACTION', PMSignDelegateActionPayload>
   | RpcEnvelope<'PM_SIGN_NEP413', PMSignNep413Payload>
   | RpcEnvelope<'PM_SIGN_TEMPO', PMSignTempoPayload>
-  | RpcEnvelope<'PM_EXPORT_KEYS_UI', PMExportKeysUiPayload>
-  | RpcEnvelope<'PM_EXPORT_NEAR_KEYPAIR_UI', PMExportNearKeypairUiPayload>
+  | RpcEnvelope<'PM_EXPORT_KEYPAIR_UI', PMExportKeypairUiPayload>
   | RpcEnvelope<'PM_GET_RECENT_LOGINS'>
   | RpcEnvelope<'PM_PREFETCH_BLOCKHEIGHT'>
   | RpcEnvelope<'PM_SET_CONFIRM_BEHAVIOR', PMSetConfirmBehaviorPayload>

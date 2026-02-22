@@ -22,6 +22,7 @@ export type UserConfirmWorkerMessageType =
   | 'THRESHOLD_PRF_FIRST_CACHE_CLEAR';
 
 export type ExportPrivateKeyScheme = 'ed25519' | 'secp256k1';
+export type ExportKeypairChain = 'near' | 'evm' | 'tempo';
 
 export type ExportLocalKeyMaterialSnapshot = {
   publicKey?: string;
@@ -33,10 +34,10 @@ export type ExportLocalKeyMaterialSnapshot = {
 export interface ExportPrivateKeysWithUiWorkerPayload {
   nearAccountId: string;
   deviceNumber: number;
+  chain: ExportKeypairChain;
   publicKeyHint?: string;
   hasThresholdKeyMaterial: boolean;
   localKeyMaterial?: ExportLocalKeyMaterialSnapshot;
-  schemes?: ExportPrivateKeyScheme[];
   variant?: 'drawer' | 'modal';
   theme?: 'dark' | 'light';
 }

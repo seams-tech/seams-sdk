@@ -16,7 +16,7 @@ export default defineConfig({
   testIgnore: [
     ...(Array.isArray((base as any).testIgnore) ? ((base as any).testIgnore as string[]) : []),
     // Local-signer coverage (excluded from lite validation)
-    // This wallet-iframe suite exercises exportNearKeypairWithUI sticky behavior.
+    // This wallet-iframe suite exercises exportKeypairWithUI sticky behavior.
     '**/wallet-iframe/router.behavior.sticky.test.ts',
   ],
 });

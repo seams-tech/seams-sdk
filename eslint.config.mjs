@@ -42,6 +42,18 @@ export default [
     },
     rules: {
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      'max-len': [
+        'warn',
+        {
+          code: 140,
+          tabWidth: 2,
+          ignoreUrls: true,
+          ignoreStrings: true,
+          ignoreTemplateLiterals: true,
+          ignoreRegExpLiterals: true,
+          ignoreComments: true,
+        },
+      ],
       // TS-aware version should apply only to TS files (see TS override).
       '@typescript-eslint/no-unused-vars': 'off',
 

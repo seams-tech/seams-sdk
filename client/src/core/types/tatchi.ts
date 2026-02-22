@@ -4,7 +4,6 @@ import type { SignedTransaction } from '../rpcClients/near/NearClient';
 import type { AuthenticatorOptions } from './authenticatorOptions';
 import type { ClientUserData } from '../indexedDB/passkeyClientDB.types';
 import type { SignerMode, WasmSignedDelegate } from './signer-worker';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../signingEngine/interfaces/signing';
 import type { RegistrationSignerOptions } from './registrationSignerOptions';
 
 //////////////////////////////////
@@ -55,7 +54,6 @@ export interface RegistrationResult {
   clientNearPublicKey?: string | null;
   nearAccountId?: AccountId;
   transactionId?: string | null;
-  thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
   thresholdEcdsaEthereumAddress?: string;
 }
 
@@ -67,8 +65,6 @@ export interface LoginResult {
   nearAccountId?: AccountId;
   // Present when session.kind === 'jwt' and verification succeeded
   jwt?: string;
-  // Present when login minted a warm threshold-ECDSA session bootstrap.
-  thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
 }
 
 export interface SigningSessionStatus {
@@ -81,6 +77,11 @@ export interface SigningSessionStatus {
 
 export interface LoginAndCreateSessionResult extends LoginResult {
   signingSession?: SigningSessionStatus;
+}
+
+export interface ThresholdWarmLoginAndCreateSessionResult extends LoginAndCreateSessionResult {
+  success: true;
+  signingSession: SigningSessionStatus & { status: 'active' };
 }
 
 export interface LoginSession {

@@ -44,12 +44,6 @@ type ThresholdEcdsaCoordinatorOk = {
 
 export type ThresholdEcdsaCoordinatorResult = ThresholdEcdsaCoordinatorOk | ThresholdEcdsaCoordinatorError;
 
-const THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1 = Object.freeze({
-  clientId: 1,
-  relayerId: 2,
-  participantIds: [1, 2] as const,
-});
-
 const MAX_HANDSHAKE_STEPS = 64;
 const clientPresignaturePool = new Map<string, ThresholdEcdsaClientPresignatureShare[]>();
 
@@ -60,8 +54,38 @@ function createClientPresignSessionId(): string {
 }
 
 function normalizeParticipantIds(participantIds: number[] | undefined): number[] {
-  return normalizeThresholdEd25519ParticipantIds(participantIds)
-    || [...THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1.participantIds];
+  const normalized = normalizeThresholdEd25519ParticipantIds(participantIds);
+  if (!normalized) {
+    throw new Error(
+      '[threshold-ecdsa] Missing participantIds; reconnect threshold session before signing',
+    );
+  }
+  return normalized;
+}
+
+function resolveParticipantRoles(args: {
+  participantIds: number[];
+  clientParticipantId?: number;
+  relayerParticipantId?: number;
+}): { clientParticipantId: number; relayerParticipantId: number } {
+  const clientParticipantId = Number.isFinite(args.clientParticipantId)
+    ? Math.floor(Number(args.clientParticipantId))
+    : args.participantIds[0];
+  const relayerParticipantId = Number.isFinite(args.relayerParticipantId)
+    ? Math.floor(Number(args.relayerParticipantId))
+    : args.participantIds[1];
+  if (!Number.isFinite(clientParticipantId) || !Number.isFinite(relayerParticipantId)) {
+    throw new Error(
+      '[threshold-ecdsa] Missing client/relayer participant IDs; reconnect threshold session before signing',
+    );
+  }
+  if (clientParticipantId === relayerParticipantId) {
+    throw new Error('[threshold-ecdsa] clientParticipantId must differ from relayerParticipantId');
+  }
+  if (!args.participantIds.includes(clientParticipantId) || !args.participantIds.includes(relayerParticipantId)) {
+    throw new Error('[threshold-ecdsa] participant role IDs must be members of participantIds');
+  }
+  return { clientParticipantId, relayerParticipantId };
 }
 
 function makePresignaturePoolKey(args: {
@@ -350,7 +374,7 @@ export async function signThresholdEcdsaDigestWithPool(args: {
   mpcSessionId: string;
   signingDigest32: Uint8Array;
   clientSigningShare32: Uint8Array;
-  participantIds?: number[];
+  participantIds: number[];
   clientParticipantId?: number;
   relayerParticipantId?: number;
   groupPublicKeyB64u?: string;
@@ -378,12 +402,11 @@ export async function signThresholdEcdsaDigestWithPool(args: {
     }
 
     const participantIds = normalizeParticipantIds(args.participantIds);
-    const clientParticipantId = Number.isFinite(args.clientParticipantId)
-      ? Math.floor(Number(args.clientParticipantId))
-      : THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1.clientId;
-    const relayerParticipantId = Number.isFinite(args.relayerParticipantId)
-      ? Math.floor(Number(args.relayerParticipantId))
-      : THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1.relayerId;
+    const { clientParticipantId, relayerParticipantId } = resolveParticipantRoles({
+      participantIds,
+      clientParticipantId: args.clientParticipantId,
+      relayerParticipantId: args.relayerParticipantId,
+    });
     const sessionKind: EcdsaSessionKind = args.sessionKind || 'jwt';
 
     const groupPublicKey33 = await resolveGroupPublicKey33({
@@ -545,7 +568,7 @@ export async function refillThresholdEcdsaClientPresignaturePool(args: {
   relayerUrl: string;
   relayerKeyId: string;
   clientVerifyingShareB64u: string;
-  participantIds?: number[];
+  participantIds: number[];
   clientParticipantId?: number;
   relayerParticipantId?: number;
   clientSigningShare32: Uint8Array;
@@ -557,12 +580,11 @@ export async function refillThresholdEcdsaClientPresignaturePool(args: {
 }): Promise<{ ok: true; presignatureId: string } | ThresholdEcdsaCoordinatorError> {
   try {
     const participantIds = normalizeParticipantIds(args.participantIds);
-    const clientParticipantId = Number.isFinite(args.clientParticipantId)
-      ? Math.floor(Number(args.clientParticipantId))
-      : THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1.clientId;
-    const relayerParticipantId = Number.isFinite(args.relayerParticipantId)
-      ? Math.floor(Number(args.relayerParticipantId))
-      : THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1.relayerId;
+    const { clientParticipantId, relayerParticipantId } = resolveParticipantRoles({
+      participantIds,
+      clientParticipantId: args.clientParticipantId,
+      relayerParticipantId: args.relayerParticipantId,
+    });
     const sessionKind: EcdsaSessionKind = args.sessionKind || 'jwt';
     const groupPublicKey33 = await resolveGroupPublicKey33({
       clientVerifyingShareB64u: args.clientVerifyingShareB64u,

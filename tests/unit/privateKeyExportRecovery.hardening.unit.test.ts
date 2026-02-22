@@ -20,7 +20,7 @@ test.describe('private key export recovery hardening', () => {
       };
 
       try {
-        await mod.exportPrivateKeysWithUI({
+        await mod.exportKeypairWithUI({
           indexedDB: {} as any,
           touchConfirmManager: {} as any,
           getTheme: () => 'dark',
@@ -32,7 +32,7 @@ test.describe('private key export recovery hardening', () => {
           createSessionId: () => 'session-unused',
         }, {
           nearAccountId: 'alice.testnet',
-          options: { schemes: ['ed25519'] },
+          options: { chain: 'near' },
         });
         return { ok: true, warnings };
       } catch (error: any) {
@@ -70,7 +70,7 @@ test.describe('private key export recovery hardening', () => {
       };
 
       try {
-        await mod.exportPrivateKeysWithUI({
+        await mod.exportKeypairWithUI({
           indexedDB: {
             clientDB: {
               resolveNearAccountContext: async () => ({ profileId: 'profile-1' }),
@@ -99,7 +99,7 @@ test.describe('private key export recovery hardening', () => {
           createSessionId: () => 'session-unused',
         }, {
           nearAccountId: 'alice.testnet',
-          options: { schemes: ['ed25519'] },
+          options: { chain: 'near' },
         });
         return { ok: true, warnings };
       } catch (error: any) {
@@ -125,12 +125,12 @@ test.describe('private key export recovery hardening', () => {
     expect(result.telemetryDeviceNumber).toBe(7);
   });
 
-  test('routes successful export through worker operation with normalized schemes', async ({ page }) => {
+  test('routes successful export through worker operation with chain-scoped payload', async ({ page }) => {
     const result = await page.evaluate(async ({ paths }) => {
       const mod = await import(paths.privateKeyExportRecovery);
       const calls: Array<Record<string, unknown>> = [];
 
-      const exportResult = await mod.exportPrivateKeysWithUI({
+      const exportResult = await mod.exportKeypairWithUI({
         indexedDB: {
           clientDB: {
             resolveNearAccountContext: async () => ({ profileId: 'profile-1' }),
@@ -148,10 +148,11 @@ test.describe('private key export recovery hardening', () => {
         touchConfirmManager: {
           exportPrivateKeysWithUi: async (payload: Record<string, unknown>) => {
             calls.push(payload);
+            const chain = String(payload.chain || '');
             return {
               ok: true,
               accountId: 'alice.testnet',
-              exportedSchemes: payload.schemes,
+              exportedSchemes: chain === 'near' ? ['ed25519'] : ['secp256k1'],
             };
           },
         } as any,
@@ -165,7 +166,7 @@ test.describe('private key export recovery hardening', () => {
       }, {
         nearAccountId: 'alice.testnet',
         options: {
-          schemes: ['ed25519', 'ed25519', 'secp256k1'] as Array<'ed25519' | 'secp256k1'>,
+          chain: 'evm',
           variant: 'drawer',
         },
       });
@@ -178,12 +179,12 @@ test.describe('private key export recovery hardening', () => {
 
     expect(result.exportResult).toEqual({
       accountId: 'alice.testnet',
-      exportedSchemes: ['ed25519', 'secp256k1'],
+      exportedSchemes: ['secp256k1'],
     });
     expect(result.payload).toMatchObject({
       nearAccountId: 'alice.testnet',
       deviceNumber: 3,
-      schemes: ['ed25519', 'secp256k1'],
+      chain: 'evm',
       variant: 'drawer',
       theme: 'light',
     });

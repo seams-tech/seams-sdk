@@ -13,6 +13,7 @@ import {
   type ThresholdEcdsaSessionBootstrapResult,
 } from '../../orchestration/thresholdActivation';
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from './thresholdEcdsaBootstrapPersistence';
+import type { ThresholdEcdsaSessionStoreSource } from './thresholdEcdsaSessionStore';
 
 export type ConnectEd25519SessionArgs = {
   nearAccountId: AccountId | string;
@@ -27,6 +28,7 @@ export type ConnectEd25519SessionArgs = {
 export type BootstrapEcdsaSessionArgs = {
   nearAccountId: AccountId | string;
   chain?: ThresholdEcdsaActivationChain;
+  source?: ThresholdEcdsaSessionStoreSource;
   relayerUrl?: string;
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
@@ -49,6 +51,12 @@ export type ThresholdSessionActivationDeps = {
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
   }) => Promise<void>;
+  upsertThresholdEcdsaSessionFromBootstrap: (args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+    bootstrap: ThresholdEcdsaSessionBootstrapResult;
+    source: ThresholdEcdsaSessionStoreSource;
+  }) => void;
 };
 
 function resolveRelayerUrl(relayerUrlOverride: string | undefined, defaultRelayerUrl: string): string {
@@ -120,6 +128,12 @@ export async function bootstrapEcdsaSessionValue(
     chain,
     bootstrap,
     smartAccount: args.smartAccount,
+  });
+  deps.upsertThresholdEcdsaSessionFromBootstrap({
+    nearAccountId,
+    chain,
+    bootstrap,
+    source: args.source || 'manual-bootstrap',
   });
   return bootstrap;
 }

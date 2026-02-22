@@ -90,12 +90,10 @@ import type {
   SignTransactionResult,
 } from '../../types/tatchi';
 import type {
-  MultichainSecp256k1SigningRequest,
   MultichainSigningRequest,
 } from '../../signingEngine/chainAdaptors/tempo/types';
 import type { EvmSignedResult } from '../../signingEngine/chainAdaptors/evm/evmAdapter';
 import type { TempoSignedResult } from '../../signingEngine/chainAdaptors/tempo/tempoAdapter';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../signingEngine/interfaces/signing';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../signingEngine/SigningEngine';
 import type { LinkDeviceResult, StartDevice2LinkingFlowArgs, StartDevice2LinkingFlowResults, DeviceLinkingQRData } from '../../types/linkDevice';
 import type { SyncAccountResult } from '../../TatchiPasskey/syncAccount';
@@ -172,11 +170,30 @@ type Pending = {
 };
 
 const WALLET_IFRAME_PROGRESS_TIMEOUT_EXTENSION_FACTOR = 4;
-const WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS = 20_000;
+const WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS = 30_000;
 
 type PostResult<T> = {
   ok: boolean,
   result: T
+}
+
+const CANONICAL_SIGNER_BOUNDARY_MESSAGES: Record<string, string> = {
+  commit_queue_overflow: 'Threshold signing commit queue is full. Wait for pending requests and retry.',
+  commit_queue_timeout: 'Threshold signing commit request timed out in queue. Retry the request.',
+  session_not_ready:
+    'Threshold signing session is not ready. Reconnect threshold session via bootstrapEcdsaSession and retry.',
+  deployment_in_progress: 'Smart-account deployment is already in progress.',
+  deployment_failed: 'Smart-account deployment failed before signing.',
+  cancelled: 'Request cancelled.',
+};
+
+function resolveCanonicalSignerBoundaryMessage(rawCode: unknown, fallbackMessage: unknown): string {
+  const code = String(rawCode || '').trim().toLowerCase();
+  if (code && CANONICAL_SIGNER_BOUNDARY_MESSAGES[code]) {
+    return CANONICAL_SIGNER_BOUNDARY_MESSAGES[code];
+  }
+  const fallback = String(fallbackMessage || '').trim();
+  return fallback || 'Wallet error';
 }
 
 export class WalletIframeRouter {
@@ -851,7 +868,6 @@ export class WalletIframeRouter {
     request: MultichainSigningRequest;
     options?: {
       confirmationConfig?: Partial<ConfirmationConfig>;
-      thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
       onEvent?: (ev: {
         step: number;
         phase: string;
@@ -869,7 +885,6 @@ export class WalletIframeRouter {
         options: payload.options
           ? {
               ...(payload.options.confirmationConfig ? { confirmationConfig: payload.options.confirmationConfig } : {}),
-              ...(payload.options.thresholdEcdsaKeyRef ? { thresholdEcdsaKeyRef: payload.options.thresholdEcdsaKeyRef } : {}),
             }
           : undefined,
       },
@@ -879,27 +894,6 @@ export class WalletIframeRouter {
       progressTimeoutExtensionFactor: 1,
     });
     return res.result;
-  }
-
-  async signTempoWithThresholdEcdsa(payload: {
-    nearAccountId: string;
-    request: MultichainSecp256k1SigningRequest;
-    thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
-    options?: {
-      confirmationConfig?: Partial<ConfirmationConfig>;
-    };
-  }): Promise<TempoSignedResult | EvmSignedResult> {
-    if (payload.request.senderSignatureAlgorithm !== 'secp256k1') {
-      throw new Error('[WalletIframeRouter] signTempoWithThresholdEcdsa requires senderSignatureAlgorithm=secp256k1');
-    }
-    return await this.signTempo({
-      nearAccountId: payload.nearAccountId,
-      request: payload.request,
-      options: {
-        confirmationConfig: payload.options?.confirmationConfig,
-        thresholdEcdsaKeyRef: payload.thresholdEcdsaKeyRef,
-      },
-    });
   }
 
   async signTransactionWithKeyPair(payload: {
@@ -1226,21 +1220,10 @@ export class WalletIframeRouter {
     return res.result
   }
 
-  async exportNearKeypairWithUI(
+  async exportKeypairWithUI(
     nearAccountId: string,
-    options?: { variant?: 'drawer' | 'modal'; theme?: 'dark' | 'light' }
-  ): Promise<void> {
-    return await this.exportPrivateKeysWithUI(nearAccountId, {
-      schemes: ['ed25519'],
-      variant: options?.variant,
-      theme: options?.theme,
-    });
-  }
-
-  async exportPrivateKeysWithUI(
-    nearAccountId: string,
-    options?: {
-      schemes?: Array<'ed25519' | 'secp256k1'>;
+    options: {
+      chain: 'near' | 'evm' | 'tempo';
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
     },
@@ -1253,12 +1236,12 @@ export class WalletIframeRouter {
     const detachClosed = this.attachExportUiClosedListener(walletOrigin);
     try {
       await this.post<void>({
-        type: 'PM_EXPORT_KEYS_UI',
+        type: 'PM_EXPORT_KEYPAIR_UI',
         payload: {
           nearAccountId,
-          schemes: Array.isArray(options?.schemes) ? options?.schemes : undefined,
-          variant: options?.variant,
-          theme: options?.theme,
+          chain: options.chain,
+          variant: options.variant,
+          theme: options.theme,
         },
         options: { sticky: true }
       });
@@ -1360,7 +1343,11 @@ export class WalletIframeRouter {
     if (pending.timer) window.clearTimeout(pending.timer);
 
     if (msg.type === 'ERROR') {
-      const err: Error & { code?: string; details?: unknown } = new Error(msg.payload?.message || 'Wallet error');
+      const message = resolveCanonicalSignerBoundaryMessage(
+        msg.payload?.code,
+        msg.payload?.message,
+      );
+      const err: Error & { code?: string; details?: unknown } = new Error(message);
       err.code = msg.payload?.code;
       err.details = msg.payload?.details;
       // Deliver to pending promise if present
@@ -1372,7 +1359,7 @@ export class WalletIframeRouter {
           step: 0,
           phase: 'error',
           status: 'error',
-          message: msg.payload?.message
+          message,
         }
       });
       this.progressBus.unregister(requestId);
@@ -1509,8 +1496,7 @@ export class WalletIframeRouter {
   private computeOverlayIntent(type: ParentToChildEnvelope['type']): { mode: 'hidden' | 'fullscreen' } {
     switch (type) {
       // Operations that require fullscreen overlay for WebAuthn activation
-      case 'PM_EXPORT_KEYS_UI':
-      case 'PM_EXPORT_NEAR_KEYPAIR_UI':
+      case 'PM_EXPORT_KEYPAIR_UI':
       case 'PM_REGISTER':
       case 'PM_LOGIN':
       case 'PM_SIGN_AND_SEND_TXS':

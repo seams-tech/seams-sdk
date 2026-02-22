@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { exportPrivateKeysWithUI } from '@/core/signingEngine/api/recovery/privateKeyExportRecovery';
+import { exportKeypairWithUI } from '@/core/signingEngine/api/recovery/privateKeyExportRecovery';
 
 test.describe('privateKeyExportRecovery method binding', () => {
   test('invokes touchConfirmManager.exportPrivateKeysWithUi with preserved this context', async () => {
@@ -12,15 +12,16 @@ test.describe('privateKeyExportRecovery method binding', () => {
       async exportPrivateKeysWithUi(payload: Record<string, unknown>) {
         await this.ensureWorkerReady();
         this.lastPayload = payload;
+        const chain = String(payload.chain || '');
         return {
           ok: true,
           accountId: String(payload.nearAccountId || ''),
-          exportedSchemes: payload.schemes,
+          exportedSchemes: chain === 'near' ? ['ed25519'] : ['secp256k1'],
         };
       },
     };
 
-    const result = await exportPrivateKeysWithUI({
+    const result = await exportKeypairWithUI({
       indexedDB: {
         clientDB: {
           resolveNearAccountContext: async () => ({ profileId: 'profile-1' }),
@@ -45,7 +46,7 @@ test.describe('privateKeyExportRecovery method binding', () => {
       createSessionId: () => 'session-unused',
     }, {
       nearAccountId: 'alice.testnet' as any,
-      options: { schemes: ['ed25519'], variant: 'drawer' },
+      options: { chain: 'near', variant: 'drawer' },
     });
 
     expect(result).toEqual({
@@ -56,7 +57,7 @@ test.describe('privateKeyExportRecovery method binding', () => {
     expect(touchConfirmManager.lastPayload).toMatchObject({
       nearAccountId: 'alice.testnet',
       deviceNumber: 9,
-      schemes: ['ed25519'],
+      chain: 'near',
       variant: 'drawer',
       theme: 'dark',
     });

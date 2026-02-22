@@ -10,8 +10,15 @@ import {
   makeEcdsaAuthSessionCacheKey,
 } from '../../threshold/session/ecdsaAuthSession';
 import { signThresholdEcdsaDigestWithPool } from '../../orchestration/walletOrigin/thresholdEcdsaCoordinator';
+import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 
 type EcdsaSessionKind = 'jwt' | 'cookie';
+
+export type ThresholdEcdsaCommitQueueEnqueueFn = <T>(args: {
+  nearAccountId: string;
+  shouldAbort?: () => boolean;
+  task: () => Promise<T>;
+}) => Promise<T>;
 
 export type ThresholdEcdsaPrfFirstDispenseFn = (args: {
   sessionId: string;
@@ -26,15 +33,21 @@ export class Secp256k1Engine implements Signer {
 
   private readonly getRpId?: () => string | null;
   private readonly dispenseThresholdEcdsaPrfFirstForSession?: ThresholdEcdsaPrfFirstDispenseFn;
+  private readonly enqueueThresholdEcdsaCommit?: ThresholdEcdsaCommitQueueEnqueueFn;
+  private readonly shouldAbort?: () => boolean;
   private readonly workerCtx: WorkerOperationContext;
 
   constructor(opts: {
     getRpId?: () => string | null;
     dispenseThresholdEcdsaPrfFirstForSession?: ThresholdEcdsaPrfFirstDispenseFn;
+    enqueueThresholdEcdsaCommit?: ThresholdEcdsaCommitQueueEnqueueFn;
+    shouldAbort?: () => boolean;
     workerCtx: WorkerOperationContext;
   }) {
     this.getRpId = opts.getRpId;
     this.dispenseThresholdEcdsaPrfFirstForSession = opts.dispenseThresholdEcdsaPrfFirstForSession;
+    this.enqueueThresholdEcdsaCommit = opts.enqueueThresholdEcdsaCommit;
+    this.shouldAbort = opts.shouldAbort;
     this.workerCtx = opts.workerCtx;
   }
 
@@ -50,122 +63,136 @@ export class Secp256k1Engine implements Signer {
       throw new Error('[Secp256k1Engine] runtime signing requires threshold-ecdsa-secp256k1 keyRef');
     }
 
-    const rpId = this.getRpId?.() || null;
-    const cacheKeyCandidates: string[] = [];
-    if (rpId) {
-      cacheKeyCandidates.push(
-        makeEcdsaAuthSessionCacheKey({
-          userId: keyRef.userId,
-          rpId,
-          relayerUrl: keyRef.relayerUrl,
-          relayerKeyId: keyRef.relayerKeyId,
-          participantIds: keyRef.participantIds,
-        }),
-      );
+    const runCommit = async (): Promise<SignatureBytes> => {
+      if (this.shouldAbort?.()) {
+        const aborted = new Error('Request cancelled') as Error & { code: 'cancelled' };
+        aborted.code = 'cancelled';
+        throw aborted;
+      }
 
-      // Fallback for callers still holding pre-session keyRefs without participant ids.
-      if (!Array.isArray(keyRef.participantIds) || keyRef.participantIds.length === 0) {
-        cacheKeyCandidates.push(
-          makeEcdsaAuthSessionCacheKey({
-            userId: keyRef.userId,
-            rpId,
-            relayerUrl: keyRef.relayerUrl,
-            relayerKeyId: keyRef.relayerKeyId,
-            participantIds: [1, 2],
-          }),
+      const rpId = String(this.getRpId?.() || '').trim();
+      if (!rpId) {
+        throw new Error('[multichain] Missing rpId for threshold-ecdsa signing');
+      }
+      const participantIds = normalizeThresholdEd25519ParticipantIds(keyRef.participantIds);
+      if (!participantIds) {
+        throw new Error('[multichain] Missing threshold-ecdsa participantIds; reconnect threshold session');
+      }
+
+      const cacheKey = makeEcdsaAuthSessionCacheKey({
+        userId: keyRef.userId,
+        rpId,
+        relayerUrl: keyRef.relayerUrl,
+        relayerKeyId: keyRef.relayerKeyId,
+        participantIds,
+      });
+
+      const cachedThresholdSession = getCachedEcdsaAuthSession(cacheKey);
+      if (!cachedThresholdSession) {
+        throw new Error(
+          '[multichain] threshold-ecdsa session record not available; reconnect threshold session via bootstrapEcdsaSession',
         );
       }
-    }
 
-    let resolvedCacheKey: string | null = null;
-    let cachedThresholdSession: ReturnType<typeof getCachedEcdsaAuthSession> = null;
-    for (const candidate of cacheKeyCandidates) {
-      const cached = getCachedEcdsaAuthSession(candidate);
-      if (cached) {
-        resolvedCacheKey = candidate;
-        cachedThresholdSession = cached;
-        break;
+      const keyRefSessionKind = keyRef.thresholdSessionKind;
+      if (keyRefSessionKind && keyRefSessionKind !== cachedThresholdSession.sessionKind) {
+        throw new Error('[multichain] threshold-ecdsa session kind mismatch; reconnect threshold session');
       }
-      if (!resolvedCacheKey) {
-        // Keep the first candidate so JWT lookup can still succeed when only token survives.
-        resolvedCacheKey = candidate;
+      const sessionKind: EcdsaSessionKind = keyRefSessionKind || cachedThresholdSession.sessionKind || 'jwt';
+
+      const keyRefThresholdSessionId = String(keyRef.thresholdSessionId || '').trim();
+      if (!keyRefThresholdSessionId) {
+        throw new Error('[multichain] Missing threshold-ecdsa sessionId on keyRef; reconnect threshold session via bootstrapEcdsaSession');
       }
+      const cachedSessionId = String(cachedThresholdSession.policy?.sessionId || '').trim();
+      if (!cachedSessionId || cachedSessionId !== keyRefThresholdSessionId) {
+        throw new Error(
+          '[multichain] threshold-ecdsa sessionId mismatch; reconnect threshold session via bootstrapEcdsaSession',
+        );
+      }
+
+      const thresholdSessionJwt = sessionKind === 'jwt'
+        ? getCachedEcdsaAuthSessionJwt(cacheKey)
+        : undefined;
+
+      if (sessionKind === 'jwt' && !thresholdSessionJwt) {
+        throw new Error(
+          '[multichain] threshold-ecdsa session token unavailable; reconnect threshold session via bootstrapEcdsaSession',
+        );
+      }
+      if (sessionKind === 'jwt') {
+        const keyRefJwt = String(keyRef.thresholdSessionJwt || '').trim();
+        if (keyRefJwt && keyRefJwt !== thresholdSessionJwt) {
+          throw new Error(
+            '[multichain] threshold-ecdsa keyRef JWT does not match session record; reconnect threshold session',
+          );
+        }
+      }
+
+      const purpose = String(req.label || 'secp256k1');
+      const authorized = await authorizeEcdsaWithSession({
+        relayerUrl: keyRef.relayerUrl,
+        relayerKeyId: keyRef.relayerKeyId,
+        clientVerifyingShareB64u: keyRef.clientVerifyingShareB64u,
+        purpose,
+        signingDigest32: req.digest32,
+        sessionKind,
+        ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+      });
+      if (!authorized.ok || !authorized.mpcSessionId) {
+        throw new Error(authorized.message || authorized.code || '[multichain] threshold-ecdsa authorize failed');
+      }
+
+      if (!this.dispenseThresholdEcdsaPrfFirstForSession) {
+        throw new Error('[multichain] Missing PRF.first dispenser for threshold-ecdsa signing');
+      }
+
+      const dispensed = await this.dispenseThresholdEcdsaPrfFirstForSession({
+        sessionId: keyRefThresholdSessionId,
+        uses: 1,
+      });
+      if (!dispensed.ok) {
+        throw new Error(dispensed.message || dispensed.code || '[multichain] failed to load PRF.first for threshold-ecdsa signing');
+      }
+
+      const derived = await deriveThresholdSecp256k1ClientShareWasm({
+        prfFirstB64u: dispensed.prfFirstB64u,
+        userId: keyRef.userId,
+        workerCtx: this.workerCtx,
+      });
+      if (derived.clientVerifyingShareB64u !== keyRef.clientVerifyingShareB64u) {
+        throw new Error('[multichain] Derived client share does not match keyRef.clientVerifyingShareB64u');
+      }
+
+      const signed = await signThresholdEcdsaDigestWithPool({
+        relayerUrl: keyRef.relayerUrl,
+        relayerKeyId: keyRef.relayerKeyId,
+        clientVerifyingShareB64u: keyRef.clientVerifyingShareB64u,
+        mpcSessionId: authorized.mpcSessionId,
+        signingDigest32: req.digest32,
+        clientSigningShare32: derived.clientSigningShare32,
+        participantIds,
+        groupPublicKeyB64u: keyRef.groupPublicKeyB64u,
+        relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
+        sessionKind,
+        ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+        workerCtx: this.workerCtx,
+      });
+      if (!signed.ok) {
+        throw new Error(signed.message || signed.code || '[multichain] threshold-ecdsa signing failed');
+      }
+
+      return signed.signature65;
+    };
+
+    if (this.enqueueThresholdEcdsaCommit) {
+      return await this.enqueueThresholdEcdsaCommit({
+        nearAccountId: keyRef.userId,
+        shouldAbort: this.shouldAbort,
+        task: runCommit,
+      });
     }
 
-    const sessionKind: EcdsaSessionKind = keyRef.thresholdSessionKind || 'jwt';
-    const thresholdSessionJwt = sessionKind === 'jwt'
-      ? (
-          (resolvedCacheKey ? getCachedEcdsaAuthSessionJwt(resolvedCacheKey) : undefined)
-          || keyRef.thresholdSessionJwt
-        )
-      : undefined;
-
-    if (sessionKind === 'jwt' && !thresholdSessionJwt) {
-      throw new Error('[multichain] No cached threshold-ecdsa session token; call connectEcdsaSession first');
-    }
-
-    const purpose = String(req.label || 'secp256k1');
-    const authorized = await authorizeEcdsaWithSession({
-      relayerUrl: keyRef.relayerUrl,
-      relayerKeyId: keyRef.relayerKeyId,
-      clientVerifyingShareB64u: keyRef.clientVerifyingShareB64u,
-      purpose,
-      signingDigest32: req.digest32,
-      sessionKind,
-      ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
-    });
-    if (!authorized.ok || !authorized.mpcSessionId) {
-      throw new Error(authorized.message || authorized.code || '[multichain] threshold-ecdsa authorize failed');
-    }
-    keyRef.mpcSessionId = authorized.mpcSessionId;
-
-    const thresholdSessionId = String(
-      cachedThresholdSession?.policy?.sessionId
-      || keyRef.thresholdSessionId
-      || ''
-    ).trim();
-    if (!thresholdSessionId) {
-      throw new Error('[multichain] Missing threshold-ecdsa sessionId; reconnect session via connectEcdsaSession');
-    }
-    if (!this.dispenseThresholdEcdsaPrfFirstForSession) {
-      throw new Error('[multichain] Missing PRF.first dispenser for threshold-ecdsa signing');
-    }
-
-    const dispensed = await this.dispenseThresholdEcdsaPrfFirstForSession({
-      sessionId: thresholdSessionId,
-      uses: 1,
-    });
-    if (!dispensed.ok) {
-      throw new Error(dispensed.message || dispensed.code || '[multichain] failed to load PRF.first for threshold-ecdsa signing');
-    }
-
-    const derived = await deriveThresholdSecp256k1ClientShareWasm({
-      prfFirstB64u: dispensed.prfFirstB64u,
-      userId: keyRef.userId,
-      workerCtx: this.workerCtx,
-    });
-    if (derived.clientVerifyingShareB64u !== keyRef.clientVerifyingShareB64u) {
-      throw new Error('[multichain] Derived client share does not match keyRef.clientVerifyingShareB64u');
-    }
-
-    const signed = await signThresholdEcdsaDigestWithPool({
-      relayerUrl: keyRef.relayerUrl,
-      relayerKeyId: keyRef.relayerKeyId,
-      clientVerifyingShareB64u: keyRef.clientVerifyingShareB64u,
-      mpcSessionId: authorized.mpcSessionId,
-      signingDigest32: req.digest32,
-      clientSigningShare32: derived.clientSigningShare32,
-      participantIds: keyRef.participantIds || cachedThresholdSession?.policy?.participantIds,
-      groupPublicKeyB64u: keyRef.groupPublicKeyB64u,
-      relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
-      sessionKind,
-      ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
-      workerCtx: this.workerCtx,
-    });
-    if (!signed.ok) {
-      throw new Error(signed.message || signed.code || '[multichain] threshold-ecdsa signing failed');
-    }
-
-    return signed.signature65;
+    return await runCommit();
   }
 }

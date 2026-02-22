@@ -45,16 +45,6 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
     };
     (window as any).__docsRegisterFlowCounters = counters;
 
-    function buildKeyRef(chain: 'evm' | 'tempo', keySuffix: number) {
-      return {
-        type: 'threshold-ecdsa-secp256k1',
-        userId: accountId,
-        relayerUrl: 'https://relay.example',
-        relayerKeyId: `${chain}-relayer-key-${keySuffix}`,
-        clientVerifyingShareB64u: `${chain}-client-share-${keySuffix}`,
-      };
-    }
-
     const TatchiContext = ReactRuntime.createContext(null as any);
 
     function useTatchiHook() {
@@ -122,13 +112,11 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
           loginAndCreateSession: async () => {
             counters.loginCalls += 1;
             counters.bootstrapCalls.push(`${accountId}:tempo`);
-            const keySuffix = counters.bootstrapCalls.length;
             setLoginState({ isLoggedIn: true, nearAccountId: accountId });
             return {
               success: true,
               nearAccountId: accountId,
               jwt: 'mock-jwt-token',
-              thresholdEcdsaKeyRef: buildKeyRef('tempo', keySuffix),
             };
           },
           auth: {
@@ -152,20 +140,20 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
             }),
           },
           tempo: {
-            signTempo: async () => {
+            signTempo: async (args: any) => {
+              if (args?.request?.kind === 'eip1559') {
+                counters.evmSigns += 1;
+                return {
+                  kind: 'eip1559' as const,
+                  txHashHex: `0x${'cd'.repeat(32)}`,
+                  rawTxHex: `0x${'34'.repeat(64)}`,
+                };
+              }
               counters.tempoSigns += 1;
               return {
                 kind: 'tempoTransaction' as const,
                 senderHashHex: `0x${'ab'.repeat(32)}`,
                 rawTxHex: `0x${'12'.repeat(64)}`,
-              };
-            },
-            signTempoWithThresholdEcdsa: async () => {
-              counters.evmSigns += 1;
-              return {
-                kind: 'eip1559' as const,
-                txHashHex: `0x${'cd'.repeat(32)}`,
-                rawTxHex: `0x${'34'.repeat(64)}`,
               };
             },
           },
@@ -287,8 +275,8 @@ test.describe('docs frontend register + threshold signing integration', () => {
       );
     });
 
-    await expect(scope.getByText(/EVM signer:\s*ready/i)).toBeVisible();
-    await expect(scope.getByText(/Tempo signer:\s*ready/i)).toBeVisible();
+    await expect(scope.getByText(/Provisioning path:\s*login\/register\/bootstrap flow/i)).toBeVisible();
+    await expect(scope.getByText(/Signing source:\s*canonical threshold session state/i)).toBeVisible();
 
     const finalCounters = await page.evaluate(() => (window as any).__docsRegisterFlowCounters);
     expect(finalCounters).toEqual({

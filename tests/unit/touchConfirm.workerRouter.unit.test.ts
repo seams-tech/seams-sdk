@@ -317,7 +317,7 @@ test.describe('UserConfirm worker router', () => {
         nearAccountId: 'alice.testnet',
         deviceNumber: 1,
         hasThresholdKeyMaterial: true,
-        schemes: ['ed25519'],
+        chain: 'near',
       } as any);
       const posted = await new Promise<any>((resolve, reject) => {
         let attempts = 0;
@@ -411,7 +411,7 @@ test.describe('UserConfirm worker router', () => {
         nearAccountId: 'alice.testnet',
         deviceNumber: 1,
         hasThresholdKeyMaterial: true,
-        schemes: ['ed25519'],
+        chain: 'near',
       } as any).then(
         () => ({ ok: true, error: '' }),
         (error: any) => ({ ok: false, error: String(error?.message || error) }),

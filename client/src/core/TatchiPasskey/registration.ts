@@ -421,7 +421,7 @@ export async function registerPasskeyInternal(
       && thresholdEcdsaSessionPolicyForRegistration
       && (!thresholdEcdsaRelayerKeyId || !thresholdEcdsaGroupPublicKeyB64u || !thresholdEcdsaRelayerVerifyingShareB64u)
     ) {
-      console.warn('[Registration] threshold ECDSA keygen result missing key material; skipping thresholdEcdsaKeyRef cache');
+      console.warn('[Registration] threshold ECDSA keygen result missing key material; canonical threshold session record cannot be built');
     }
     const accountCreationPublicKey = requestedSignerModeStr === 'threshold-signer'
       ? thresholdPublicKey
@@ -746,6 +746,14 @@ export async function registerPasskeyInternal(
           },
         };
 
+        const canonicalChain = thresholdEcdsaPrimaryProvisionTarget?.chain || 'tempo';
+        signingEngine.upsertThresholdEcdsaSessionFromBootstrap({
+          nearAccountId,
+          chain: canonicalChain,
+          bootstrap: bootstrapProjection,
+          source: 'registration',
+        });
+
         for (const target of thresholdEcdsaProvisionTargets) {
           await signingEngine.persistThresholdEcdsaBootstrapChainAccount({
             nearAccountId,
@@ -776,7 +784,6 @@ export async function registerPasskeyInternal(
       nearAccountId: nearAccountId,
       clientNearPublicKey,
       transactionId: registrationState.contractTransactionId,
-      ...(thresholdEcdsaKeyRef ? { thresholdEcdsaKeyRef } : {}),
       ...(thresholdEcdsaEthereumAddress ? { thresholdEcdsaEthereumAddress } : {}),
     };
 

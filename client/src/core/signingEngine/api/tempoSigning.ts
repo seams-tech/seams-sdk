@@ -2,7 +2,6 @@ import type { EvmSigningRequest } from '../chainAdaptors/evm/types';
 import type { EvmSignedResult } from '../chainAdaptors/evm/evmAdapter';
 import type { TempoSigningRequest } from '../chainAdaptors/tempo/types';
 import type { TempoSignedResult } from '../chainAdaptors/tempo/tempoAdapter';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../interfaces/signing';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import { signEvmFamily, type EvmFamilySigningDeps } from './evmSigning';
 
@@ -14,7 +13,6 @@ export async function signTempo(
     nearAccountId: string;
     request: TempoSigningRequest | EvmSigningRequest;
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
-    thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
     shouldAbort?: () => boolean;
     onEvent?: (event: {
       step: number;

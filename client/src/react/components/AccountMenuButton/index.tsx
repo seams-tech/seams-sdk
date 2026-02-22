@@ -207,7 +207,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       disabled: !loginState.isLoggedIn,
       onClick: async () => {
         try {
-          await tatchi.keys.exportNearKeypairWithUI(nearAccountId!);
+          await tatchi.keys.exportKeypairWithUI(nearAccountId!, { chain: 'near' });
         } catch (error: any) {
           console.error('Key export failed:', error);
           const msg = String(error?.message || 'Unknown error');

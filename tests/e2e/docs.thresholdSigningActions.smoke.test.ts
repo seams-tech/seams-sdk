@@ -46,14 +46,6 @@ test.describe('docs frontend signing actions smoke', () => {
         evm: null,
       };
 
-      const keyRef = {
-        type: 'threshold-ecdsa-secp256k1',
-        userId: 'alice.testnet',
-        relayerUrl: 'https://relay.example',
-        relayerKeyId: 'mock-relayer-key-id',
-        clientVerifyingShareB64u: 'mock-client-share',
-      };
-
       function useTatchiHook() {
         return {
           loginState: {
@@ -92,28 +84,26 @@ test.describe('docs frontend signing actions smoke', () => {
               }),
             },
             tempo: {
-              signTempo: async () => {
+              signTempo: async (args: any) => {
+                const kind = String(args?.request?.kind || '').trim();
+                const chain = String(args?.request?.chain || '').trim();
+
+                if (kind === 'eip1559') {
+                  counters.evmSigns += 1;
+                  (window as any).__docsSigningSmokeRequests.evm = { chain, kind };
+                  return {
+                    kind: 'eip1559',
+                    txHashHex: `0x${'cd'.repeat(32)}`,
+                    rawTxHex: `0x${'34'.repeat(32)}`,
+                  };
+                }
+
                 counters.tempoSigns += 1;
-                (window as any).__docsSigningSmokeRequests.tempo = {
-                  chain: 'tempo',
-                  kind: 'tempoTransaction',
-                };
+                (window as any).__docsSigningSmokeRequests.tempo = { chain, kind };
                 return {
                   kind: 'tempoTransaction',
                   senderHashHex: `0x${'ab'.repeat(32)}`,
                   rawTxHex: `0x${'12'.repeat(32)}`,
-                };
-              },
-              signTempoWithThresholdEcdsa: async (args: any) => {
-                counters.evmSigns += 1;
-                (window as any).__docsSigningSmokeRequests.evm = {
-                  chain: args?.request?.chain,
-                  kind: args?.request?.kind,
-                };
-                return {
-                  kind: 'eip1559',
-                  txHashHex: `0x${'cd'.repeat(32)}`,
-                  rawTxHex: `0x${'34'.repeat(32)}`,
                 };
               },
             },
@@ -142,7 +132,6 @@ test.describe('docs frontend signing actions smoke', () => {
             __testOverrides: {
               useTatchiHook,
               useSetGreetingHook,
-              readCachedThresholdKeyRef: () => keyRef as any,
             },
           }),
         );

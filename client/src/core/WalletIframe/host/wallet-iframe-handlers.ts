@@ -272,7 +272,6 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
           request,
           options: {
             confirmationConfig: options?.confirmationConfig,
-            thresholdEcdsaKeyRef: options?.thresholdEcdsaKeyRef,
             shouldAbort: () => isCancelled(req.requestId),
             onEvent: (ev) => {
               postProgress(req.requestId, ev as unknown as ProgressPayload);
@@ -286,38 +285,15 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOkResult(req.requestId, result);
     },
 
-    PM_EXPORT_KEYS_UI: async (req: Req<'PM_EXPORT_KEYS_UI'>) => {
+    PM_EXPORT_KEYPAIR_UI: async (req: Req<'PM_EXPORT_KEYPAIR_UI'>) => {
       const pm = getTatchiPasskey();
-      const { nearAccountId, schemes, variant, theme } = req.payload!;
+      const { nearAccountId, chain, variant, theme } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       try {
-        await pm.keys.exportPrivateKeysWithUI(nearAccountId, { schemes, variant, theme });
+        await pm.keys.exportKeypairWithUI(nearAccountId, { chain, variant, theme });
       } catch (err: unknown) {
         if (isTouchIdCancellationError(err)) {
-          postToParent?.({ type: 'EXPORT_KEYS_CANCELLED', nearAccountId });
-          postToParent?.({ type: 'WALLET_UI_CLOSED' });
-          if (respondIfCancelled(req.requestId)) return;
-          respondOk(req.requestId);
-          return;
-        }
-        postToParent?.({ type: 'WALLET_UI_CLOSED', error: errorMessage(err) });
-        throw err;
-      }
-      if (respondIfCancelled(req.requestId)) return;
-      respondOk(req.requestId);
-    },
-
-    PM_EXPORT_NEAR_KEYPAIR_UI: async (req: Req<'PM_EXPORT_NEAR_KEYPAIR_UI'>) => {
-      const pm = getTatchiPasskey();
-      const { nearAccountId, variant, theme } = req.payload!;
-      if (respondIfCancelled(req.requestId)) return;
-      try {
-        await pm.keys.exportNearKeypairWithUI(nearAccountId, { variant, theme });
-      } catch (err: unknown) {
-        // User cancelled TouchID/FaceID prompt: close UI and emit a cancellation hint
-        // for parent UIs.
-        if (isTouchIdCancellationError(err)) {
-          postToParent?.({ type: 'EXPORT_NEAR_KEYPAIR_CANCELLED', nearAccountId });
+          postToParent?.({ type: 'EXPORT_KEYPAIR_CANCELLED', nearAccountId, chain });
           postToParent?.({ type: 'WALLET_UI_CLOSED' });
           if (respondIfCancelled(req.requestId)) return;
           respondOk(req.requestId);

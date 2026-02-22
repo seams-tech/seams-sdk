@@ -6,6 +6,7 @@ import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { TouchConfirmSecureConfirmationPort } from '../../touchConfirm';
 import { getLastLoggedInDeviceNumber } from '../../signers/webauthn/device/getDeviceNumber';
 
+type ExportKeypairChain = 'near' | 'evm' | 'tempo';
 type ExportScheme = 'ed25519' | 'secp256k1';
 
 type RecoverKeypairResult = {
@@ -85,29 +86,18 @@ export type PrivateKeyExportRecoveryDeps = {
   createSessionId: (prefix: string) => string;
 };
 
-function normalizeRequestedSchemes(input?: ExportScheme[]): ExportScheme[] {
-  const requested = Array.isArray(input) && input.length
-    ? input
-    : (['ed25519', 'secp256k1'] as const);
-  return Array.from(new Set(requested)).filter(
-    (scheme): scheme is ExportScheme => scheme === 'ed25519' || scheme === 'secp256k1',
-  );
-}
-
 async function runExportWorkerOperation(
   deps: PrivateKeyExportRecoveryDeps,
   args: {
     nearAccountId: AccountId;
-    options?: {
-      schemes?: ExportScheme[];
+    options: {
+      chain: ExportKeypairChain;
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
     };
   },
 ): Promise<ExportPrivateKeysWithUiWorkerResult> {
   const accountId = toAccountId(args.nearAccountId);
-  const schemes = normalizeRequestedSchemes(args.options?.schemes);
-  if (!schemes.length) throw new Error('No export schemes requested');
   const touchConfirmManager = deps.touchConfirmManager as {
     exportPrivateKeysWithUi?: unknown;
   };
@@ -164,11 +154,11 @@ async function runExportWorkerOperation(
       return await exportPrivateKeysWithUiBound({
         nearAccountId: accountId,
         deviceNumber,
+        chain: args.options.chain,
         publicKeyHint,
         hasThresholdKeyMaterial: !!thresholdKeyMaterial,
         localKeyMaterial,
-        schemes,
-        variant: args.options?.variant,
+        variant: args.options.variant,
         theme: resolvedTheme,
       });
     } catch (error: unknown) {
@@ -189,75 +179,32 @@ async function runExportWorkerOperation(
   return result;
 }
 
-export async function exportNearKeypairWithUIWorkerDriven(
+export async function exportKeypairWithUIWorkerDriven(
   deps: PrivateKeyExportRecoveryDeps,
   args: {
     nearAccountId: AccountId;
-    options?: { variant?: 'drawer' | 'modal'; theme?: 'dark' | 'light' };
-  },
-): Promise<void> {
-  await runExportWorkerOperation(deps, {
-    nearAccountId: args.nearAccountId,
     options: {
-      schemes: ['ed25519'],
-      variant: args.options?.variant,
-      theme: args.options?.theme,
+      chain: ExportKeypairChain;
+      variant?: 'drawer' | 'modal';
+      theme?: 'dark' | 'light';
     },
-  });
-}
-
-export async function exportNearKeypairWithUI(
-  deps: PrivateKeyExportRecoveryDeps,
-  args: {
-    nearAccountId: AccountId;
-    options?: {
-      variant?: 'drawer' | 'modal';
-      theme?: 'dark' | 'light';
-    };
-  },
-): Promise<{ accountId: string; publicKey: string; privateKey: string }> {
-  await exportNearKeypairWithUIWorkerDriven(deps, args);
-  const accountId = toAccountId(args.nearAccountId);
-  const deviceNumber = await getLastLoggedInDeviceNumber(accountId, deps.indexedDB.clientDB).catch(
-    () => null as number | null,
-  );
-  const userData =
-    deviceNumber != null
-      ? await deps.indexedDB.clientDB.getNearAccountProjection(accountId, deviceNumber).catch(() => null)
-      : null;
-  return {
-    accountId: String(args.nearAccountId),
-    publicKey: userData?.clientNearPublicKey ?? '',
-    privateKey: '',
-  };
-}
-
-export async function exportPrivateKeysWithUIWorkerDriven(
-  deps: PrivateKeyExportRecoveryDeps,
-  args: {
-    nearAccountId: AccountId;
-    options?: {
-      schemes?: ExportScheme[];
-      variant?: 'drawer' | 'modal';
-      theme?: 'dark' | 'light';
-    };
   },
 ): Promise<ExportPrivateKeysWithUiWorkerResult> {
   return runExportWorkerOperation(deps, args);
 }
 
-export async function exportPrivateKeysWithUI(
+export async function exportKeypairWithUI(
   deps: PrivateKeyExportRecoveryDeps,
   args: {
     nearAccountId: AccountId;
-    options?: {
-      schemes?: ExportScheme[];
+    options: {
+      chain: ExportKeypairChain;
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
     };
   },
 ): Promise<{ accountId: string; exportedSchemes: ExportScheme[] }> {
-  const result = await exportPrivateKeysWithUIWorkerDriven(deps, args);
+  const result = await exportKeypairWithUIWorkerDriven(deps, args);
   return {
     accountId: result.accountId,
     exportedSchemes: result.exportedSchemes,

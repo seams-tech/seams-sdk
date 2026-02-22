@@ -127,7 +127,7 @@ test.describe('TatchiPasskey chain signer modules', () => {
     expect(afterCalls).toEqual([{ ok: false, result: undefined }]);
   });
 
-  test('TempoSigner forwards shouldAbort and keyRef in non-iframe mode', async () => {
+  test('TempoSigner forwards shouldAbort in non-iframe mode', async () => {
     let capturedArgs: any = null;
     const expectedResult = { chain: 'evm', txHashHex: '0x1', rawTxHex: '0x2' } as any;
     const shouldAbort = () => false;
@@ -159,18 +159,12 @@ test.describe('TatchiPasskey chain signer modules', () => {
       } as any,
       options: {
         confirmationConfig: { uiMode: 'modal' },
-        thresholdEcdsaKeyRef: {
-          kind: 'threshold-ecdsa-secp256k1',
-          nearAccountId: 'alice.testnet',
-          keyId: 'k1',
-        } as any,
         shouldAbort,
       },
     });
 
     expect(result).toEqual(expectedResult);
     expect(capturedArgs?.shouldAbort).toBe(shouldAbort);
-    expect(capturedArgs?.thresholdEcdsaKeyRef?.kind).toBe('threshold-ecdsa-secp256k1');
     expect(capturedArgs?.confirmationConfigOverride?.uiMode).toBe('modal');
   });
 

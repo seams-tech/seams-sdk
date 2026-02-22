@@ -9,7 +9,7 @@
     "test:e2e": "playwright test ./e2e --reporter=line",
     "test:unit": "pnpm -C ../sdk run build:check:fresh || pnpm -C ../sdk run build && playwright test ./unit --reporter=line",
     "test:threshold-core": "playwright test -c playwright.relayer.config.ts ./relayer/threshold-ecdsa.signature-harness.test.ts ./relayer/threshold-ecdsa.durable-stores.test.ts --reporter=line && playwright test ./unit/thresholdEcdsa.tempoHighLevel.unit.test.ts --reporter=line",
-    "test:signers:gates": "pnpm -C ../sdk run build:check:fresh || pnpm -C ../sdk run build && USE_RELAY_SERVER=0 playwright test ./unit/loginReadiness.gate.unit.test.ts ./unit/thresholdEcdsa.signInFlightGate.unit.test.ts ./unit/walletIframeHost.signTempoCancel.unit.test.ts ./unit/tempo.signingAuthMode.unit.test.ts ./unit/smartAccount.deploymentGate.unit.test.ts ./wallet-iframe/router.behavior.concurrent.test.ts --reporter=line",
+    "test:signers:gates": "pnpm -C ../sdk run build:check:fresh || pnpm -C ../sdk run build && USE_RELAY_SERVER=0 playwright test ./unit/loginReadiness.gate.unit.test.ts ./unit/thresholdEcdsa.commitQueue.unit.test.ts ./unit/walletIframeHost.signTempoCancel.unit.test.ts ./unit/tempo.signingAuthMode.unit.test.ts ./unit/smartAccount.deploymentGate.unit.test.ts ./wallet-iframe/router.behavior.concurrent.test.ts --reporter=line",
     "test:signer-parity:rust": "playwright test ./unit/signerParity.rustPlatforms.unit.test.ts --workers=1 --reporter=line",
     "test:signer-parity:web-wasm-replay": "pnpm -C ../sdk run build:check:fresh || pnpm -C ../sdk run build && playwright test ./unit/signingVectors.webWasmReplay.unit.test.ts --workers=1 --reporter=line",
     "test:signer-parity": "pnpm run test:signer-parity:rust && pnpm run test:signer-parity:web-wasm-replay",

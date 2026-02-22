@@ -17,7 +17,7 @@ const exportFlowScript = String.raw`
           originalHandler?.(event);
           const data = event.data || {};
           if (!data || typeof data !== 'object') return;
-          if (data.type !== 'PM_EXPORT_KEYS_UI' || typeof data.requestId !== 'string') return;
+          if (data.type !== 'PM_EXPORT_KEYPAIR_UI' || typeof data.requestId !== 'string') return;
 
           try {
             window.parent?.postMessage({
@@ -81,7 +81,7 @@ const exportSigningIsolationScript = String.raw`
           const data = event.data || {};
           if (!data || typeof data !== 'object' || typeof data.requestId !== 'string') return;
 
-          if (data.type === 'PM_EXPORT_KEYS_UI') {
+          if (data.type === 'PM_EXPORT_KEYPAIR_UI') {
             try {
               window.parent?.postMessage({
                 type: 'TEST_MARKER',
@@ -232,8 +232,8 @@ test.describe('wallet-origin export flow integration', () => {
         });
         await router.init();
 
-        const exportPromise = router.exportPrivateKeysWithUI('export-flow.testnet', {
-          schemes: ['ed25519', 'secp256k1'],
+        const exportPromise = router.exportKeypairWithUI('export-flow.testnet', {
+          chain: 'near',
           variant: 'drawer',
           theme: 'light',
         });
@@ -286,7 +286,7 @@ test.describe('wallet-origin export flow integration', () => {
     expect(result.hiddenAfterClose).toBe(true);
     expect(result.exportPayload).toMatchObject({
       nearAccountId: 'export-flow.testnet',
-      schemes: ['ed25519', 'secp256k1'],
+      chain: 'near',
       variant: 'drawer',
       theme: 'light',
     });
@@ -339,8 +339,8 @@ test.describe('wallet-origin export flow integration', () => {
         });
         await router.init();
 
-        const exportPromise = router.exportPrivateKeysWithUI('isolation.testnet', {
-          schemes: ['ed25519'],
+        const exportPromise = router.exportKeypairWithUI('isolation.testnet', {
+          chain: 'near',
           variant: 'drawer',
           theme: 'dark',
         });

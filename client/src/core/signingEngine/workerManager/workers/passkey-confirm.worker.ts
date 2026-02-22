@@ -7,6 +7,7 @@
 import { toAccountId } from '@/core/types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type {
+  ExportKeypairChain,
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
 } from '@/core/types/secure-confirm-worker';
@@ -110,11 +111,17 @@ function coerceVariant(value: unknown): 'drawer' | 'modal' | undefined {
   return value === 'drawer' || value === 'modal' ? value : undefined;
 }
 
-function coerceSchemes(value: unknown): Array<'ed25519' | 'secp256k1'> {
-  const input = Array.isArray(value) ? value : ['ed25519', 'secp256k1'];
-  const normalized = Array.from(new Set(input))
-    .filter((item): item is 'ed25519' | 'secp256k1' => item === 'ed25519' || item === 'secp256k1');
-  return normalized;
+function coerceExportChain(value: unknown): ExportKeypairChain | null {
+  if (value === 'near' || value === 'evm' || value === 'tempo') return value;
+  return null;
+}
+
+function schemeForExportChain(chain: ExportKeypairChain): 'ed25519' | 'secp256k1' {
+  return chain === 'near' ? 'ed25519' : 'secp256k1';
+}
+
+function secp256k1LabelForExportChain(chain: ExportKeypairChain): string {
+  return chain === 'tempo' ? 'Tempo secp256k1' : 'EVM secp256k1';
 }
 
 function parseExportLocalKeyMaterial(
@@ -141,18 +148,18 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
   if (!payload) return null;
   const nearAccountId = normalizeSessionId(payload.nearAccountId);
   const deviceNumber = Math.floor(Number(payload.deviceNumber));
+  const chain = coerceExportChain(payload.chain);
   if (!nearAccountId || !Number.isFinite(deviceNumber) || deviceNumber < 1) return null;
+  if (!chain) return null;
   const localKeyMaterial = parseExportLocalKeyMaterial(payload.localKeyMaterial);
   const hasThresholdKeyMaterial = payload.hasThresholdKeyMaterial === true;
   if (!localKeyMaterial && !hasThresholdKeyMaterial) return null;
-  const schemes = coerceSchemes(payload.schemes);
-  if (!schemes.length) return null;
   return {
     nearAccountId,
     deviceNumber,
+    chain,
     hasThresholdKeyMaterial,
     localKeyMaterial,
-    schemes,
     variant: coerceVariant(payload.variant),
     theme: coerceTheme(payload.theme),
     ...(typeof payload.publicKeyHint === 'string' && payload.publicKeyHint.trim()
@@ -340,10 +347,9 @@ async function runExportPrivateKeysWithUi(
   // Worker-owned export flow boundary:
   // only this runtime initiates export confirmations via awaitUserConfirmationV2.
   const nearAccountId = toAccountId(payload.nearAccountId);
-  const schemes = coerceSchemes(payload.schemes);
-  if (!schemes.length) {
-    throw new Error('No export schemes requested');
-  }
+  const exportChain = coerceExportChain(payload.chain);
+  if (!exportChain) throw new Error('Invalid export chain');
+  const exportScheme = schemeForExportChain(exportChain);
 
   const localKeyMaterial = payload.localKeyMaterial;
   if (!localKeyMaterial && !payload.hasThresholdKeyMaterial) {
@@ -393,11 +399,11 @@ async function runExportPrivateKeysWithUi(
     }
 
     prfFirstB64u = requirePrfB64uFromCredential(credential, 'first');
-    if (schemes.includes('secp256k1') || !localKeyMaterial) {
+    if (exportScheme === 'secp256k1' || !localKeyMaterial) {
       prfSecondB64u = requirePrfB64uFromCredential(credential, 'second');
     }
 
-    if (schemes.includes('ed25519')) {
+    if (exportScheme === 'ed25519') {
       if (localKeyMaterial) {
         const decrypted = await decryptPrivateKeyWithPrfInWorker({
           nearAccountId,
@@ -438,14 +444,14 @@ async function runExportPrivateKeysWithUi(
       }
     }
 
-    if (schemes.includes('secp256k1')) {
+    if (exportScheme === 'secp256k1') {
       const derived = await deriveSecp256k1FromPrfSecondInWorker({
         prfSecondB64u,
         nearAccountId,
       });
       exportKeys.push({
         scheme: 'secp256k1',
-        label: 'EVM secp256k1',
+        label: secp256k1LabelForExportChain(exportChain),
         publicKey: derived.publicKeyHex,
         privateKey: derived.privateKeyHex,
         address: derived.ethereumAddress,

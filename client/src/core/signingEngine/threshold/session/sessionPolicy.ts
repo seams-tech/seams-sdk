@@ -151,6 +151,8 @@ export function isThresholdSessionAuthUnavailableError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return (
     msg.includes('no cached threshold session token') ||
+    msg.includes('threshold-ecdsa session token unavailable') ||
+    msg.includes('threshold-ecdsa session record not available') ||
     msg.includes('relayer threshold session expired') ||
     msg.includes('threshold session exhausted') ||
     msg.includes('threshold session expired') ||

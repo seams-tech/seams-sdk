@@ -14,11 +14,6 @@ import { LoadingButton } from './LoadingButton';
 import Refresh from './icons/Refresh';
 import { useSetGreeting } from '../hooks/useSetGreeting';
 import { NEAR_EXPLORER_BASE_URL, WEBAUTHN_CONTRACT_ID } from '../types';
-import {
-  readCachedThresholdKeyRef,
-  type ThresholdEcdsaChain,
-  type ThresholdEcdsaKeyRef,
-} from '../utils/thresholdSigners';
 import './DemoPage.css';
 
 function shortenHex(value: string, size = 24): string {
@@ -84,7 +79,6 @@ type LastEvmSigned = {
 type DemoPageTestOverrides = {
   useTatchiHook?: typeof useTatchi;
   useSetGreetingHook?: typeof useSetGreeting;
-  readCachedThresholdKeyRef?: typeof readCachedThresholdKeyRef;
 };
 
 type DemoPageProps = {
@@ -94,8 +88,6 @@ type DemoPageProps = {
 export const DemoPage: React.FC<DemoPageProps> = (props) => {
   const useTatchiHook = props.__testOverrides?.useTatchiHook || useTatchi;
   const useSetGreetingHook = props.__testOverrides?.useSetGreetingHook || useSetGreeting;
-  const readCachedKeyRef =
-    props.__testOverrides?.readCachedThresholdKeyRef || readCachedThresholdKeyRef;
 
   const [clockMs, setClockMs] = useState(() => Date.now());
 
@@ -128,38 +120,19 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
 
   const [tempoThresholdSignLoading, setTempoThresholdSignLoading] = useState(false);
   const [evmThresholdSignLoading, setEvmThresholdSignLoading] = useState(false);
-  const [thresholdKeyRefs, setThresholdKeyRefs] = useState<{
-    evm: ThresholdEcdsaKeyRef | null;
-    tempo: ThresholdEcdsaKeyRef | null;
-  }>({
-    evm: null,
-    tempo: null,
-  });
   const [lastTempoSigned, setLastTempoSigned] = useState<LastTempoSigned | null>(null);
   const [lastEvmSigned, setLastEvmSigned] = useState<LastEvmSigned | null>(null);
 
   useEffect(() => {
     if (!nearAccountId) {
-      setThresholdKeyRefs({ evm: null, tempo: null });
       setLastTempoSigned(null);
       setLastEvmSigned(null);
       return;
     }
 
-    setThresholdKeyRefs({
-      evm: readCachedKeyRef(nearAccountId, 'evm'),
-      tempo: readCachedKeyRef(nearAccountId, 'tempo'),
-    });
     setLastTempoSigned(null);
     setLastEvmSigned(null);
-  }, [nearAccountId, readCachedKeyRef]);
-
-  const setThresholdKeyRefForChain = useCallback(
-    (chain: ThresholdEcdsaChain, keyRef: ThresholdEcdsaKeyRef) => {
-      setThresholdKeyRefs((prev) => ({ ...prev, [chain]: keyRef }));
-    },
-    [],
-  );
+  }, [nearAccountId]);
 
   const refreshSessionStatus = useCallback(async () => {
     if (!nearAccountId) return;
@@ -418,30 +391,6 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     tatchi,
   ]);
 
-  const getKeyRefForChain = useCallback(
-    (chain: ThresholdEcdsaChain): ThresholdEcdsaKeyRef => {
-      if (!nearAccountId) throw new Error('Missing nearAccountId');
-
-      const cached = readCachedKeyRef(nearAccountId, chain);
-      if (cached) {
-        const inMemory = thresholdKeyRefs[chain];
-        if (inMemory !== cached) {
-          setThresholdKeyRefForChain(chain, cached);
-        }
-        return cached;
-      }
-
-      const inMemory = thresholdKeyRefs[chain];
-      if (inMemory) return inMemory;
-
-      const chainLabel = chain === 'evm' ? 'EVM' : 'Tempo';
-      throw new Error(
-        `${chainLabel} threshold signer is not provisioned. Log out and log in again to provision threshold signers.`,
-      );
-    },
-    [nearAccountId, readCachedKeyRef, setThresholdKeyRefForChain, thresholdKeyRefs],
-  );
-
   const handleSignTempoThresholdTx = useCallback(async () => {
     if (!nearAccountId) return;
     const toastId = 'tempo-threshold-sign';
@@ -449,11 +398,9 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     toast.loading('Signing Tempo transaction with threshold signer…', { id: toastId });
     try {
       const request = buildDemoTempoTransactionRequest();
-      const thresholdEcdsaKeyRef = getKeyRefForChain('tempo');
       const signed = await tatchi.tempo.signTempo({
         nearAccountId,
         request,
-        options: { thresholdEcdsaKeyRef },
       });
 
       if (signed.kind !== 'tempoTransaction') {
@@ -471,7 +418,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     } finally {
       setTempoThresholdSignLoading(false);
     }
-  }, [getKeyRefForChain, nearAccountId, tatchi]);
+  }, [nearAccountId, tatchi]);
 
   const handleSignEvmThresholdTx = useCallback(async () => {
     if (!nearAccountId) return;
@@ -480,11 +427,9 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     toast.loading('Signing EIP-1559 transaction with threshold signer…', { id: toastId });
     try {
       const request = buildDemoEip1559Request();
-      const thresholdEcdsaKeyRef = getKeyRefForChain('evm');
-      const signed = await tatchi.tempo.signTempoWithThresholdEcdsa({
+      const signed = await tatchi.tempo.signTempo({
         nearAccountId,
         request,
-        thresholdEcdsaKeyRef,
       });
 
       if (signed.kind !== 'eip1559') {
@@ -502,7 +447,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     } finally {
       setEvmThresholdSignLoading(false);
     }
-  }, [getKeyRefForChain, nearAccountId, tatchi]);
+  }, [nearAccountId, tatchi]);
 
   if (!isLoggedIn || !nearAccountId) {
     return null;
@@ -586,8 +531,8 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
         <div className="demo-divider" aria-hidden="true" />
         <h2 className="demo-subtitle">Tempo + EVM Threshold Signers</h2>
         <div className="action-text">
-          Login provisions shared Tempo + EVM threshold signers, then caches them for follow-up
-          signatures.
+          Login provisions the threshold signer session. Signing uses canonical SDK session state
+          directly.
         </div>
 
         <div
@@ -603,16 +548,10 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
         >
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
             <div>
-              <strong>EVM signer:</strong>&nbsp;
-              {thresholdKeyRefs.evm
-                ? `ready (${shortenHex(thresholdKeyRefs.evm.relayerKeyId)})`
-                : 'not provisioned'}
+              <strong>Provisioning path:</strong>&nbsp;login/register/bootstrap flow
             </div>
             <div>
-              <strong>Tempo signer:</strong>&nbsp;
-              {thresholdKeyRefs.tempo
-                ? `ready (${shortenHex(thresholdKeyRefs.tempo.relayerKeyId)})`
-                : 'not provisioned'}
+              <strong>Signing source:</strong>&nbsp;canonical threshold session state
             </div>
           </div>
         </div>

@@ -1,14 +1,16 @@
 import type { ParentToChildType } from '../shared/messages';
 
 export type CanonicalWalletSignerErrorCode =
-  | 'signing_in_progress'
+  | 'commit_queue_overflow'
+  | 'commit_queue_timeout'
   | 'session_not_ready'
   | 'deployment_in_progress'
   | 'deployment_failed'
   | 'cancelled';
 
 const CANONICAL_SIGNER_CODES = new Set<CanonicalWalletSignerErrorCode>([
-  'signing_in_progress',
+  'commit_queue_overflow',
+  'commit_queue_timeout',
   'session_not_ready',
   'deployment_in_progress',
   'deployment_failed',
@@ -24,6 +26,16 @@ const SIGNER_BOUNDARY_REQUEST_TYPES = new Set<ParentToChildType>([
   'PM_SIGN_DELEGATE_ACTION',
   'PM_SIGN_NEP413',
 ]);
+
+const CANONICAL_SIGNER_ERROR_MESSAGES: Record<CanonicalWalletSignerErrorCode, string> = {
+  commit_queue_overflow: 'Threshold signing commit queue is full. Wait for pending requests and retry.',
+  commit_queue_timeout: 'Threshold signing commit request timed out in queue. Retry the request.',
+  session_not_ready:
+    'Threshold signing session is not ready. Reconnect threshold session via bootstrapEcdsaSession and retry.',
+  deployment_in_progress: 'Smart-account deployment is already in progress.',
+  deployment_failed: 'Smart-account deployment failed before signing.',
+  cancelled: 'Request cancelled.',
+};
 
 function normalizeCodeToken(value: unknown): string {
   return String(value || '')
@@ -47,8 +59,18 @@ function inferCanonicalCodeFromRawCode(rawCode: string): CanonicalWalletSignerEr
     return 'cancelled';
   }
 
-  if (rawCode === 'in_flight' || (rawCode.includes('signing') && rawCode.includes('progress'))) {
-    return 'signing_in_progress';
+  if (
+    rawCode === 'commit_queue_overflow'
+    || (rawCode.includes('commit') && rawCode.includes('queue') && rawCode.includes('overflow'))
+  ) {
+    return 'commit_queue_overflow';
+  }
+
+  if (
+    rawCode === 'commit_queue_timeout'
+    || (rawCode.includes('commit') && rawCode.includes('queue') && rawCode.includes('timeout'))
+  ) {
+    return 'commit_queue_timeout';
   }
 
   if (
@@ -87,10 +109,17 @@ function inferCanonicalCodeFromMessage(message: string): CanonicalWalletSignerEr
   }
 
   if (
-    (message.includes('already in progress') || message.includes('in-flight'))
-    && (message.includes('threshold ecdsa') || message.includes('signing'))
+    message.includes('commit queue overflow')
+    && (message.includes('threshold ecdsa') || message.includes('threshold signing'))
   ) {
-    return 'signing_in_progress';
+    return 'commit_queue_overflow';
+  }
+
+  if (
+    message.includes('commit queue timeout')
+    && (message.includes('threshold ecdsa') || message.includes('threshold signing'))
+  ) {
+    return 'commit_queue_timeout';
   }
 
   if (message.includes('smart-account deployment') || message.includes('[deployment]')) {
@@ -102,6 +131,9 @@ function inferCanonicalCodeFromMessage(message: string): CanonicalWalletSignerEr
 
   if (
     message.includes('no cached threshold session token')
+    || message.includes('threshold-ecdsa session token unavailable')
+    || message.includes('threshold-ecdsa session record not available')
+    || message.includes('missing canonical threshold ecdsa session')
     || message.includes('relayer threshold session expired')
     || message.includes('threshold session exhausted')
     || message.includes('threshold session expired')
@@ -114,9 +146,10 @@ function inferCanonicalCodeFromMessage(message: string): CanonicalWalletSignerEr
   }
 
   if (
-    message.includes('threshold session')
+    (message.includes('threshold session') || message.includes('threshold signingsession'))
     && (
       message.includes('not ready')
+      || message.includes('not_found')
       || message.includes('expired')
       || message.includes('missing')
       || message.includes('invalid')
@@ -164,4 +197,27 @@ export function resolveWalletBoundaryErrorCode(args: {
 
   const fallback = String(args.defaultCode || 'HOST_ERROR').trim();
   return fallback || 'HOST_ERROR';
+}
+
+export function resolveWalletBoundaryErrorMessage(args: {
+  requestType?: unknown;
+  rawCode?: unknown;
+  code?: unknown;
+  message?: unknown;
+}): string {
+  const canonical = resolveCanonicalWalletSignerErrorCode({
+    requestType: args.requestType,
+    rawCode: args.rawCode ?? args.code,
+    message: args.message,
+  });
+  if (canonical) {
+    return CANONICAL_SIGNER_ERROR_MESSAGES[canonical];
+  }
+
+  if (isWalletSignerBoundaryRequestType(args.requestType)) {
+    return CANONICAL_SIGNER_ERROR_MESSAGES.session_not_ready;
+  }
+
+  const fallback = String(args.message || '').trim();
+  return fallback || 'Wallet operation failed';
 }

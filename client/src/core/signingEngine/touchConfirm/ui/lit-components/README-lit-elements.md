@@ -151,8 +151,8 @@ Implementation reference:
   ```ts
   // In wallet iframe client router
   await this.post({
-    type: 'PM_EXPORT_NEAR_KEYPAIR_UI',
-    payload: { nearAccountId, variant, theme },
+    type: 'PM_EXPORT_KEYPAIR_UI',
+    payload: { nearAccountId, chain, variant, theme },
     options: { sticky: true },
   });
 

@@ -199,10 +199,8 @@ export class TatchiPasskey {
         await deviceLinking.linkDeviceWithScannedQRData(qrData, options),
     };
     this.keys = {
-      exportPrivateKeysWithUI: async (nearAccountId, options) =>
-        await this.exportPrivateKeysWithUIDomain(nearAccountId, options),
-      exportNearKeypairWithUI: async (nearAccountId, options) =>
-        await this.exportNearKeypairWithUIDomain(nearAccountId, options),
+      exportKeypairWithUI: async (nearAccountId, options) =>
+        await this.exportKeypairWithUIDomain(nearAccountId, options),
     };
     const signerDeps = {
       getContext: () => this.getContext(),
@@ -617,40 +615,26 @@ export class TatchiPasskey {
    * Canonical entrypoint to show secure key export UI (wallet-origin only) without
    * returning private keys to the caller.
    */
-  private async exportPrivateKeysWithUIDomain(
+  private async exportKeypairWithUIDomain(
     nearAccountId: string,
-    options?: {
-      schemes?: Array<'ed25519' | 'secp256k1'>;
+    options: {
+      chain: 'near' | 'evm' | 'tempo';
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
     },
   ): Promise<void> {
     const resolvedOptions = {
       ...options,
-      theme: options?.theme ?? this.theme,
+      theme: options.theme ?? this.theme,
     };
 
     if (this.walletIframe.shouldUseWalletIframe()) {
       const router = await this.walletIframe.requireRouter(nearAccountId);
-      await router.exportPrivateKeysWithUI(nearAccountId, resolvedOptions);
+      await router.exportKeypairWithUI(nearAccountId, resolvedOptions);
       return;
     }
 
-    await this.signingEngine.exportPrivateKeysWithUI(toAccountId(nearAccountId), resolvedOptions);
-  }
-
-  /**
-   * NEAR-only export helper.
-   */
-  private async exportNearKeypairWithUIDomain(
-    nearAccountId: string,
-    options?: { variant?: 'drawer' | 'modal'; theme?: 'dark' | 'light' }
-  ): Promise<void> {
-    await this.exportPrivateKeysWithUIDomain(nearAccountId, {
-      schemes: ['ed25519'],
-      variant: options?.variant,
-      theme: options?.theme,
-    });
+    await this.signingEngine.exportKeypairWithUI(toAccountId(nearAccountId), resolvedOptions);
   }
 
   /**
@@ -699,7 +683,6 @@ export type {
   RegistrationCapability,
   RecoveryCapability,
   SignTempoArgs,
-  SignTempoWithThresholdEcdsaArgs,
   TempoSignerCapability,
 } from './interfaces';
 

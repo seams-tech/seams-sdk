@@ -6,6 +6,37 @@ const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
 const WAIT_FOR_SOURCE = `(${waitFor.toString()})`;
 const CAPTURE_OVERLAY_SOURCE = `(${captureOverlay.toString()})`;
+const SIGN_TEMPO_SESSION_LOSS_SCRIPT = String.raw`
+      const originalAdoptPort = adoptPort;
+      adoptPort = function patchedAdoptPort(port) {
+        originalAdoptPort(port);
+        if (!adoptedPort) return;
+        const originalHandler = adoptedPort.onmessage;
+        adoptedPort.onmessage = (event) => {
+          originalHandler?.(event);
+          const data = event.data || {};
+          if (!data || typeof data !== 'object') return;
+          if (data.type !== 'PM_SIGN_TEMPO' || typeof data.requestId !== 'string') return;
+          const requestId = data.requestId;
+          setTimeout(() => {
+            pendingRequests.delete(requestId);
+            try {
+              adoptedPort.postMessage({
+                type: 'ERROR',
+                requestId,
+                payload: {
+                  code: 'session_not_ready',
+                  message:
+                    '[SigningEngine] missing canonical threshold ECDSA session for alice.testnet; reconnect threshold session via bootstrapEcdsaSession',
+                },
+              });
+            } catch (err) {
+              console.error('Failed to post ERROR for PM_SIGN_TEMPO session loss test', err);
+            }
+          }, 20);
+        };
+      };
+`;
 
 test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
   test.beforeEach(async ({ page }) => {
@@ -160,6 +191,69 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
     expect(result.outcome.error).toContain('Wallet request timeout for PM_EXECUTE_ACTION');
     expect(result.outcome.elapsedMs).toBeGreaterThanOrEqual(500);
     expect(result.outcome.elapsedMs).toBeLessThan(2500);
+  });
+
+  test('signTempo session-loss error is surfaced as session_not_ready with canonical guidance', async ({
+    page,
+  }) => {
+    await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
+    await registerWalletServiceRoute(
+      page,
+      buildWalletServiceHtml({ extraScript: SIGN_TEMPO_SESSION_LOSS_SCRIPT }),
+      WALLET_SERVICE_ROUTE,
+    );
+
+    const routerPath = SDK_ESM_PATHS.walletIframeRouter;
+    const result = await page.evaluate(async ({ walletOrigin, routerPath }) => {
+      try {
+        const mod = await import(routerPath);
+        const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
+
+        const router = new WalletIframeRouter({
+          walletOrigin,
+          servicePath: '/wallet-service',
+          connectTimeoutMs: 3000,
+          requestTimeoutMs: 800,
+          debug: true,
+          sdkBasePath: '/sdk',
+        });
+        await router.init();
+
+        const outcome = await (router as any).signTempo({
+          nearAccountId: 'alice.testnet',
+          request: {
+            chain: 'evm',
+            kind: 'eip1559',
+            senderSignatureAlgorithm: 'secp256k1',
+            tx: {},
+          },
+        }).then(
+          () => ({ ok: true as const }),
+          (error: any) => ({
+            ok: false as const,
+            code: String(error?.code || ''),
+            message: String(error?.message || ''),
+          }),
+        );
+
+        return { success: true as const, outcome };
+      } catch (error: any) {
+        return { success: false as const, error: error?.message || String(error) };
+      }
+    }, { walletOrigin: WALLET_ORIGIN, routerPath });
+
+    if (!result.success) {
+      if (handleInfrastructureErrors(result)) return;
+      expect(result.success).toBe(true);
+      return;
+    }
+
+    expect(result.outcome.ok).toBe(false);
+    if (result.outcome.ok) return;
+    expect(result.outcome.code).toBe('session_not_ready');
+    expect(result.outcome.message).toContain('Threshold signing session is not ready');
+    expect(result.outcome.message).toContain('bootstrapEcdsaSession');
+    expect(result.outcome.message).not.toContain('missing canonical threshold ECDSA session');
   });
 
 });

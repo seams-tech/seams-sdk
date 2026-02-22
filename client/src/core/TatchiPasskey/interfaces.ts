@@ -40,12 +40,10 @@ import type { AccountId } from '../types/accountIds';
 import type { ActionArgs, TransactionInput } from '../types/actions';
 import type { DelegateActionInput, SignedDelegate } from '../types/delegate';
 import type {
-  MultichainSecp256k1SigningRequest,
   MultichainSigningRequest,
 } from '../signingEngine/chainAdaptors/tempo/types';
 import type { EvmSignedResult } from '../signingEngine/chainAdaptors/evm/evmAdapter';
 import type { TempoSignedResult } from '../signingEngine/chainAdaptors/tempo/tempoAdapter';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../signingEngine/interfaces/signing';
 import type {
   SignNEP413MessageParams,
   SignNEP413MessageResult,
@@ -65,7 +63,6 @@ export type SignTempoArgs = {
   request: MultichainSigningRequest;
   options?: {
     confirmationConfig?: Partial<ConfirmationConfig>;
-    thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
     /** Internal host-only cancellation probe; ignored in wallet-router calls. */
     shouldAbort?: () => boolean;
     onEvent?: (event: {
@@ -75,15 +72,6 @@ export type SignTempoArgs = {
       message?: string;
       data?: unknown;
     }) => void;
-  };
-};
-
-export type SignTempoWithThresholdEcdsaArgs = {
-  nearAccountId: string;
-  request: MultichainSecp256k1SigningRequest;
-  thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
-  options?: {
-    confirmationConfig?: Partial<ConfirmationConfig>;
   };
 };
 
@@ -192,9 +180,6 @@ export interface NearSignerCapability {
 
 export interface TempoSignerCapability {
   signTempo(args: SignTempoArgs): Promise<TempoSignedResult | EvmSignedResult>;
-  signTempoWithThresholdEcdsa(
-    args: SignTempoWithThresholdEcdsaArgs,
-  ): Promise<TempoSignedResult | EvmSignedResult>;
   bootstrapEcdsaSession(
     args: BootstrapThresholdEcdsaSessionArgs,
   ): Promise<ThresholdEcdsaSessionBootstrapResult>;
@@ -247,19 +232,16 @@ export interface RecoveryCapability {
   ): Promise<LinkDeviceResult>;
 }
 
+export type ExportKeypairChain = 'near' | 'evm' | 'tempo';
+
 export interface KeyExportCapability {
-  exportPrivateKeysWithUI(
+  exportKeypairWithUI(
     nearAccountId: string,
-    options?: {
-      schemes?: Array<'ed25519' | 'secp256k1'>;
+    options: {
+      chain: ExportKeypairChain;
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
     },
-  ): Promise<void>;
-
-  exportNearKeypairWithUI(
-    nearAccountId: string,
-    options?: { variant?: 'drawer' | 'modal'; theme?: 'dark' | 'light' },
   ): Promise<void>;
 }
 

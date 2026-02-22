@@ -26,7 +26,7 @@ import type { TouchIdPrompt } from './signers/webauthn/prompt/touchIdPrompt';
 import type { WebAuthnAllowCredential } from './signers/webauthn/credentials';
 import type { EvmSigningRequest } from './chainAdaptors/evm/types';
 import type { EvmSignedResult } from './chainAdaptors/evm/evmAdapter';
-import type { MultichainSecp256k1SigningRequest, TempoSigningRequest } from './chainAdaptors/tempo/types';
+import type { TempoSigningRequest } from './chainAdaptors/tempo/types';
 import type { TempoSignedResult } from './chainAdaptors/tempo/tempoAdapter';
 import { getPrfResultsFromCredential } from './signers/webauthn/credentials/credentialExtensions';
 import { deriveThresholdSecp256k1ClientShareWasm } from './signers/wasm/ethSignerWasm';
@@ -45,6 +45,15 @@ import {
   type ThresholdEcdsaSmartAccountBootstrapInput,
 } from './api/thresholdLifecycle/thresholdEcdsaBootstrapPersistence';
 import {
+  clearAllThresholdEcdsaSessionRecords as clearAllThresholdEcdsaSessionRecordsValue,
+  clearThresholdEcdsaSessionRecordForAccount as clearThresholdEcdsaSessionRecordForAccountValue,
+  getThresholdEcdsaKeyRefForSigning as getThresholdEcdsaKeyRefForSigningValue,
+  getThresholdEcdsaSessionRecordForSigning as getThresholdEcdsaSessionRecordForSigningValue,
+  upsertThresholdEcdsaSessionFromBootstrap as upsertThresholdEcdsaSessionFromBootstrapValue,
+  type ThresholdEcdsaSessionRecord,
+  type ThresholdEcdsaSessionStoreSource,
+} from './api/thresholdLifecycle/thresholdEcdsaSessionStore';
+import {
   signNear as signNearValue,
   type NearSignIntentRequest,
   type NearSignIntentResult,
@@ -57,12 +66,16 @@ import {
   clearAllActiveSigningSessionIds as clearAllActiveSigningSessionIdsValue,
   hydrateSigningSession as hydrateSigningSessionValue,
 } from './api/session/signingSessionState';
-import { withThresholdEcdsaSignInFlightGate } from './api/thresholdLifecycle/thresholdEcdsaSignInFlightGate';
+import {
+  clearThresholdEcdsaCommitQueue,
+  withThresholdEcdsaCommitQueue,
+  type ThresholdEcdsaCommitQueueByAccount,
+} from './api/thresholdLifecycle/thresholdEcdsaCommitQueue';
 import {
   deriveNearKeypairAndEncryptFromSerialized as deriveNearKeypairAndEncryptFromSerializedValue,
   deriveNearKeypairFromCredentialViaWorker as deriveNearKeypairFromCredentialViaWorkerValue,
 } from './api/recovery/nearKeyDerivation';
-import { exportPrivateKeysWithUI as exportPrivateKeysWithUIValue } from './api/recovery/privateKeyExportRecovery';
+import { exportKeypairWithUI as exportKeypairWithUIValue } from './api/recovery/privateKeyExportRecovery';
 import {
   getAuthenticationCredentialsSerialized as getAuthenticationCredentialsSerializedValue,
   requestRegistrationCredentialConfirmation as requestRegistrationCredentialConfirmationValue,
@@ -106,7 +119,10 @@ export class SigningEngine {
   private workerBaseOrigin: string = '';
   private theme: ThemeName = 'dark';
   private readonly thresholdEcdsaBootstrapQueueByAccount: Map<string, Promise<void>> = new Map();
-  private readonly thresholdEcdsaSignInFlightByAccount: Set<string> = new Set();
+  private readonly thresholdEcdsaCommitQueueByAccount: ThresholdEcdsaCommitQueueByAccount =
+    new Map();
+  private readonly thresholdEcdsaSessionByAccount: Map<string, ThresholdEcdsaSessionRecord> =
+    new Map();
   private readonly orchestrationDeps: OrchestrationDependencyBundle;
 
   readonly tatchiPasskeyConfigs: TatchiConfigs;
@@ -151,6 +167,12 @@ export class SigningEngine {
         this.initializeCurrentUser(nearAccountId, nearClientArg),
       persistThresholdEcdsaBootstrapChainAccount: (args) =>
         this.persistThresholdEcdsaBootstrapChainAccount(args),
+      upsertThresholdEcdsaSessionFromBootstrap: (args) =>
+        this.upsertThresholdEcdsaSessionFromBootstrap(args),
+      getThresholdEcdsaKeyRefForSigning: (args) =>
+        this.getThresholdEcdsaKeyRefForSigning(args),
+      withThresholdEcdsaCommitQueue: (queueArgs) =>
+        this.withThresholdEcdsaCommitQueue(queueArgs),
     });
 
     initializeRuntimeBootstrap({
@@ -232,7 +254,6 @@ export class SigningEngine {
     nearAccountId: string;
     request: TempoSigningRequest | EvmSigningRequest;
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
-    thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
     shouldAbort?: () => boolean;
     onEvent?: (event: {
       step: number;
@@ -242,32 +263,7 @@ export class SigningEngine {
       data?: unknown;
     }) => void;
   }): Promise<TempoSignedResult | EvmSignedResult> {
-    return await withThresholdEcdsaSignInFlightGate({
-      inFlightByAccount: this.thresholdEcdsaSignInFlightByAccount,
-      nearAccountId: args.nearAccountId,
-      enabled: args.request.senderSignatureAlgorithm === 'secp256k1',
-      task: async () => await signTempoValue(this.orchestrationDeps.tempoSigningDeps, args),
-    });
-  }
-
-  async signTempoWithThresholdEcdsa(args: {
-    nearAccountId: string;
-    request: MultichainSecp256k1SigningRequest;
-    thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
-    confirmationConfigOverride?: Partial<ConfirmationConfig>;
-  }): Promise<TempoSignedResult | EvmSignedResult> {
-    if (args.request.senderSignatureAlgorithm !== 'secp256k1') {
-      throw new Error(
-        '[SigningEngine] signTempoWithThresholdEcdsa requires senderSignatureAlgorithm=secp256k1',
-      );
-    }
-
-    return await this.signTempo({
-      nearAccountId: args.nearAccountId,
-      request: args.request,
-      thresholdEcdsaKeyRef: args.thresholdEcdsaKeyRef,
-      confirmationConfigOverride: args.confirmationConfigOverride,
-    });
+    return await signTempoValue(this.orchestrationDeps.tempoSigningDeps, args);
   }
 
   storeUserData(userData: StoreUserDataInput): Promise<void> {
@@ -378,15 +374,15 @@ export class SigningEngine {
       .extractCosePublicKey(attestationObjectBase64url);
   }
 
-  exportPrivateKeysWithUI(
+  exportKeypairWithUI(
     nearAccountId: AccountId,
-    options?: {
-      schemes?: Array<'ed25519' | 'secp256k1'>;
+    options: {
+      chain: 'near' | 'evm' | 'tempo';
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
     },
   ): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
-    return exportPrivateKeysWithUIValue(this.orchestrationDeps.privateKeyExportRecoveryDeps, {
+    return exportKeypairWithUIValue(this.orchestrationDeps.privateKeyExportRecoveryDeps, {
       nearAccountId,
       options,
     });
@@ -444,6 +440,59 @@ export class SigningEngine {
     });
   }
 
+  upsertThresholdEcdsaSessionFromBootstrap(args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+    bootstrap: ThresholdEcdsaSessionBootstrapResult;
+    source: ThresholdEcdsaSessionStoreSource;
+  }): void {
+    upsertThresholdEcdsaSessionFromBootstrapValue(
+      {
+        recordsByAccount: this.thresholdEcdsaSessionByAccount,
+      },
+      args,
+    );
+  }
+
+  getThresholdEcdsaKeyRefForSigning(args: {
+    nearAccountId: AccountId | string;
+    chain?: ThresholdEcdsaActivationChain;
+  }): ThresholdEcdsaSecp256k1KeyRef {
+    return getThresholdEcdsaKeyRefForSigningValue(
+      {
+        recordsByAccount: this.thresholdEcdsaSessionByAccount,
+      },
+      args,
+    );
+  }
+
+  getThresholdEcdsaSessionRecordForSigning(args: {
+    nearAccountId: AccountId | string;
+    chain?: ThresholdEcdsaActivationChain;
+  }): ThresholdEcdsaSessionRecord {
+    return getThresholdEcdsaSessionRecordForSigningValue(
+      {
+        recordsByAccount: this.thresholdEcdsaSessionByAccount,
+      },
+      args,
+    );
+  }
+
+  clearThresholdEcdsaSessionRecordForAccount(nearAccountId: AccountId | string): void {
+    clearThresholdEcdsaSessionRecordForAccountValue(
+      {
+        recordsByAccount: this.thresholdEcdsaSessionByAccount,
+      },
+      nearAccountId,
+    );
+  }
+
+  clearAllThresholdEcdsaSessionRecords(): void {
+    clearAllThresholdEcdsaSessionRecordsValue({
+      recordsByAccount: this.thresholdEcdsaSessionByAccount,
+    });
+  }
+
   persistThresholdEcdsaBootstrapChainAccount(args: {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
@@ -494,6 +543,29 @@ export class SigningEngine {
         clearSigningSessionPrfFirstBestEffortValue(this.touchConfirmManager, sessionId),
       ),
     );
+  }
+
+  private async withThresholdEcdsaCommitQueue<T>(args: {
+    nearAccountId: AccountId | string;
+    enabled: boolean;
+    shouldAbort?: () => boolean;
+    maxQueueLength?: number;
+    queueTimeoutMs?: number;
+    task: () => Promise<T>;
+  }): Promise<T> {
+    return await withThresholdEcdsaCommitQueue({
+      queueByAccount: this.thresholdEcdsaCommitQueueByAccount,
+      nearAccountId: args.nearAccountId,
+      enabled: args.enabled,
+      shouldAbort: args.shouldAbort,
+      maxQueueLength: args.maxQueueLength,
+      queueTimeoutMs: args.queueTimeoutMs,
+      task: args.task,
+    });
+  }
+
+  clearThresholdEcdsaCommitQueue(): void {
+    clearThresholdEcdsaCommitQueue(this.thresholdEcdsaCommitQueueByAccount);
   }
 
   deriveThresholdEd25519ClientVerifyingShareFromCredential(
@@ -567,6 +639,8 @@ export class SigningEngine {
     this.userPreferencesManager.destroy();
     this.nonceManager.clear();
     clearAllActiveSigningSessionIdsValue(this.orchestrationDeps.signingSessionStateDeps);
+    this.clearThresholdEcdsaCommitQueue();
+    this.clearAllThresholdEcdsaSessionRecords();
   }
 }
 
@@ -584,7 +658,6 @@ export type SigningEnginePublic = Pick<
   | 'warmCriticalResources'
   | 'signNear'
   | 'signTempo'
-  | 'signTempoWithThresholdEcdsa'
   | 'storeUserData'
   | 'getAllUsers'
   | 'getUserByDevice'
@@ -601,15 +674,21 @@ export type SigningEnginePublic = Pick<
   | 'getAuthenticationCredentialsSerialized'
   | 'deriveNearKeypairAndEncryptFromSerialized'
   | 'extractCosePublicKey'
-  | 'exportPrivateKeysWithUI'
+  | 'exportKeypairWithUI'
   | 'signTransactionWithKeyPair'
   | 'generateEphemeralNearKeypair'
   | 'connectEd25519Session'
   | 'bootstrapEcdsaSession'
+  | 'upsertThresholdEcdsaSessionFromBootstrap'
+  | 'getThresholdEcdsaKeyRefForSigning'
+  | 'getThresholdEcdsaSessionRecordForSigning'
+  | 'clearThresholdEcdsaSessionRecordForAccount'
+  | 'clearAllThresholdEcdsaSessionRecords'
   | 'persistThresholdEcdsaBootstrapChainAccount'
   | 'getWarmSigningSessionStatus'
   | 'hydrateSigningSession'
   | 'clearWarmSigningSessions'
+  | 'clearThresholdEcdsaCommitQueue'
   | 'deriveThresholdEd25519ClientVerifyingShareFromCredential'
   | 'deriveThresholdEcdsaClientVerifyingShareFromCredential'
   | 'enrollThresholdEd25519KeyPostRegistration'

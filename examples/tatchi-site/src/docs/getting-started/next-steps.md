@@ -8,7 +8,7 @@ After [installation](./installation.md), the fastest path is:
 
 1. Register a passkey account.
 2. Log in and sign one transaction per chain (NEAR, Tempo, EVM).
-3. Reuse cached chain key refs for follow-up signatures.
+3. Reuse warm threshold sessions for follow-up signatures.
 
 ## 1. Register and Prepare Threshold Signers
 
@@ -24,7 +24,6 @@ import { useTatchi } from '@tatchi-xyz/sdk/react'
 export function RegisterAndProvision() {
   const { registerPasskey, tatchi } = useTatchi()
   const [accountId, setAccountId] = useState<string | null>(null)
-  const [keyRefReady, setKeyRefReady] = useState(false)
 
   async function onRegister(): Promise<void> {
     const id = Date.now()
@@ -36,14 +35,13 @@ export function RegisterAndProvision() {
     if (!result.success || !result.nearAccountId) return
 
     setAccountId(result.nearAccountId)
-    setKeyRefReady(!!result.thresholdEcdsaKeyRef)
   }
 
   return (
     <div>
       <button onClick={onRegister}>Register Account</button>
       {accountId ? <p>account: {accountId}</p> : null}
-      <p>tempo+evm signer session: {keyRefReady ? 'ready' : 'pending'}</p>
+      <p>tempo+evm signer session: login required</p>
     </div>
   )
 }
@@ -132,13 +130,12 @@ export function SignNear(props: { nearAccountId: string }) {
 ```tsx
 import { useTatchi } from '@tatchi-xyz/sdk/react'
 
-export function SignTempo(props: { nearAccountId: string; thresholdEcdsaKeyRef: any }) {
+export function SignTempo(props: { nearAccountId: string }) {
   const { tatchi } = useTatchi()
 
   async function onSignTempo(): Promise<void> {
-    const signed = await tatchi.tempo.signTempoWithThresholdEcdsa({
+    const signed = await tatchi.tempo.signTempo({
       nearAccountId: props.nearAccountId,
-      thresholdEcdsaKeyRef: props.thresholdEcdsaKeyRef,
       request: {
         chain: 'tempo',
         kind: 'tempoTransaction',
@@ -171,13 +168,12 @@ export function SignTempo(props: { nearAccountId: string; thresholdEcdsaKeyRef: 
 ```tsx
 import { useTatchi } from '@tatchi-xyz/sdk/react'
 
-export function SignEvm(props: { nearAccountId: string; thresholdEcdsaKeyRef: any }) {
+export function SignEvm(props: { nearAccountId: string }) {
   const { tatchi } = useTatchi()
 
   async function onSignEvm(): Promise<void> {
-    const signed = await tatchi.tempo.signTempoWithThresholdEcdsa({
+    const signed = await tatchi.tempo.signTempo({
       nearAccountId: props.nearAccountId,
-      thresholdEcdsaKeyRef: props.thresholdEcdsaKeyRef,
       request: {
         chain: 'evm',
         kind: 'eip1559',
@@ -206,17 +202,17 @@ export function SignEvm(props: { nearAccountId: string; thresholdEcdsaKeyRef: an
 
 - Registration creates your NEAR threshold signer.
 - Login provisions shared Tempo + EVM threshold signers before transaction signing.
-- With those key refs, you can sign:
+- With an active warm session, you can sign:
   - NEAR transactions (`signTransactionsWithActions`)
-  - Tempo transactions (`signTempoWithThresholdEcdsa`, `kind: 'tempoTransaction'`)
-  - EVM EIP-1559 transactions (`signTempoWithThresholdEcdsa`, `kind: 'eip1559'`)
+  - Tempo transactions (`signTempo`, `kind: 'tempoTransaction'`)
+  - EVM EIP-1559 transactions (`signTempo`, `kind: 'eip1559'`)
 
 ## Troubleshooting
 
 - `threshold session expired` or `No cached threshold-ecdsa session token`
   - Log out and log in again to reprovision threshold signers, then retry signing.
-- Missing Tempo/EVM keyRef in memory after reload
-  - Log in again to reprovision and recache `thresholdEcdsaKeyRef`.
+- Missing Tempo/EVM session after reload
+  - Log in again to provision a fresh warm signing session.
 - Signing fails right after login due to session state
   - Wait for login provisioning to finish, then retry signing.
 

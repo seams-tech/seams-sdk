@@ -8,7 +8,6 @@ import {
 } from '../walletIframeRoute';
 import type {
   SignTempoArgs,
-  SignTempoWithThresholdEcdsaArgs,
   TempoSignerCapability,
 } from '..';
 
@@ -40,7 +39,6 @@ export class TempoSigner implements TempoSignerCapability {
           request: args.request,
           options: {
             confirmationConfig: args.options?.confirmationConfig,
-            thresholdEcdsaKeyRef: args.options?.thresholdEcdsaKeyRef,
             onEvent: args.options?.onEvent,
           },
         });
@@ -53,49 +51,9 @@ export class TempoSigner implements TempoSignerCapability {
           nearAccountId: args.nearAccountId,
           request: args.request,
           confirmationConfigOverride: args.options?.confirmationConfig,
-          thresholdEcdsaKeyRef: args.options?.thresholdEcdsaKeyRef,
           shouldAbort: args.options?.shouldAbort,
           onEvent: args.options?.onEvent,
         });
-      },
-    });
-  }
-
-  async signTempoWithThresholdEcdsa(
-    args: SignTempoWithThresholdEcdsaArgs,
-  ): Promise<TempoSignedResult | EvmSignedResult> {
-    if (args.request.senderSignatureAlgorithm !== 'secp256k1') {
-      throw new Error(
-        '[TatchiPasskey] signTempoWithThresholdEcdsa requires senderSignatureAlgorithm=secp256k1',
-      );
-    }
-
-    return await routeWalletIframeOrLocal({
-      walletIframe: this.walletIframe,
-      nearAccountId: args.nearAccountId,
-      remote: async (router) => {
-        return await router.signTempoWithThresholdEcdsa({
-          nearAccountId: args.nearAccountId,
-          request: args.request,
-          thresholdEcdsaKeyRef: args.thresholdEcdsaKeyRef,
-          options: {
-            confirmationConfig: args.options?.confirmationConfig,
-          },
-        });
-      },
-      onRemoteError: async (error) => {
-        throw toError(error);
-      },
-      local: async () => {
-        return await this
-          .getContext()
-          .signingEngine
-          .signTempoWithThresholdEcdsa({
-            nearAccountId: args.nearAccountId,
-            request: args.request,
-            thresholdEcdsaKeyRef: args.thresholdEcdsaKeyRef,
-            confirmationConfigOverride: args.options?.confirmationConfig,
-          });
       },
     });
   }

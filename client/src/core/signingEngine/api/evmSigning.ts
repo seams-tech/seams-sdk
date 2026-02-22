@@ -28,6 +28,18 @@ export type EvmFamilySigningDeps = {
   indexedDB: UnifiedIndexedDBManager;
   tatchiPasskeyConfigs: TatchiConfigs;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
+  withThresholdEcdsaCommitQueue: <T>(args: {
+    nearAccountId: string;
+    enabled: boolean;
+    shouldAbort?: () => boolean;
+    maxQueueLength?: number;
+    queueTimeoutMs?: number;
+    task: () => Promise<T>;
+  }) => Promise<T>;
+  getThresholdEcdsaKeyRefForSigning: (args: {
+    nearAccountId: string;
+    chain: 'tempo' | 'evm';
+  }) => ThresholdEcdsaSecp256k1KeyRef;
   touchConfirmManager:
     & TouchConfirmContextPort
     & TouchConfirmSigningPort
@@ -49,13 +61,66 @@ function throwIfEvmFamilySigningCancelled(shouldAbort?: () => boolean): void {
   }
 }
 
+async function assertThresholdSigningSessionReady(args: {
+  thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
+  touchConfirmManager: ThresholdPrfFirstCachePeekPort;
+}): Promise<void> {
+  const thresholdSessionId = String(args.thresholdEcdsaKeyRef.thresholdSessionId || '').trim();
+  if (!thresholdSessionId) {
+    throw new Error('[chains] Missing threshold signingSessionId; reconnect threshold session before signing');
+  }
+  const peek = await args.touchConfirmManager.peekPrfFirstForThresholdSession({
+    sessionId: thresholdSessionId,
+  });
+  if (!peek.ok) {
+    throw new Error(
+      `[chains] threshold signingSession is ${peek.code}; reconnect threshold session before signing`,
+    );
+  }
+  if (peek.remainingUses < 1) {
+    throw new Error('[chains] threshold signingSession is exhausted; reconnect threshold session before signing');
+  }
+}
+
+async function ensureSmartAccountDeploymentReady(args: {
+  deps: EvmFamilySigningDeps;
+  nearAccountId: string;
+  request: TempoSigningRequest | EvmSigningRequest;
+}): Promise<void> {
+  const target = deriveSmartAccountDeploymentTargetFromSigningRequest(args.request);
+  const deploymentMode = resolveSmartAccountDeploymentMode(args.deps.tatchiPasskeyConfigs);
+  try {
+    await ensureSmartAccountDeployed({
+      clientDB: args.deps.indexedDB.clientDB,
+      nearAccountId: toAccountId(args.nearAccountId),
+      chain: target.chain,
+      chainIdCandidates: target.chainIdCandidates,
+      accountModelCandidates: target.accountModelCandidates,
+      maxDeployAttempts: resolveSmartAccountDeploymentMaxAttempts(args.deps.tatchiPasskeyConfigs),
+      ...(deploymentMode === 'enforce'
+        ? {
+            deploy: (input) =>
+              deploySmartAccountForChain(args.deps.tatchiPasskeyConfigs, input),
+            enforce: true,
+          }
+        : { enforce: false }),
+    });
+  } catch (error: unknown) {
+    const details =
+      String((error as { message?: unknown })?.message || error || '').trim()
+      || 'deployment failed';
+    throw new Error(
+      `[SigningEngine] smart-account deployment must succeed before first ${target.chain.toUpperCase()} send: ${details}`,
+    );
+  }
+}
+
 export async function signEvmFamily(
   deps: EvmFamilySigningDeps,
   args: {
     nearAccountId: string;
     request: TempoSigningRequest | EvmSigningRequest;
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
-    thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
     shouldAbort?: () => boolean;
     onEvent?: (event: {
       step: number;
@@ -71,36 +136,18 @@ export async function signEvmFamily(
   if (args.request.chain !== 'tempo' && args.request.chain !== 'evm') {
     throw new Error('[SigningEngine] invalid request: chain must be tempo or evm');
   }
-  if (args.request.senderSignatureAlgorithm === 'secp256k1' && !args.thresholdEcdsaKeyRef) {
-    throw new Error('[SigningEngine] secp256k1 signing requires thresholdEcdsaKeyRef');
-  }
+  const thresholdEcdsaKeyRef = args.request.senderSignatureAlgorithm === 'secp256k1'
+    ? deps.getThresholdEcdsaKeyRefForSigning({
+        nearAccountId: args.nearAccountId,
+        chain: args.request.chain,
+      })
+    : undefined;
+
   if (args.request.senderSignatureAlgorithm === 'secp256k1') {
-    const target = deriveSmartAccountDeploymentTargetFromSigningRequest(args.request);
-    const deploymentMode = resolveSmartAccountDeploymentMode(deps.tatchiPasskeyConfigs);
-    try {
-      await ensureSmartAccountDeployed({
-        clientDB: deps.indexedDB.clientDB,
-        nearAccountId: toAccountId(args.nearAccountId),
-        chain: target.chain,
-        chainIdCandidates: target.chainIdCandidates,
-        accountModelCandidates: target.accountModelCandidates,
-        maxDeployAttempts: resolveSmartAccountDeploymentMaxAttempts(deps.tatchiPasskeyConfigs),
-        ...(deploymentMode === 'enforce'
-          ? {
-              deploy: (input) =>
-                deploySmartAccountForChain(deps.tatchiPasskeyConfigs, input),
-              enforce: true,
-            }
-          : { enforce: false }),
-      });
-    } catch (error: unknown) {
-      const details =
-        String((error as { message?: unknown })?.message || error || '').trim()
-        || 'deployment failed';
-      throw new Error(
-        `[SigningEngine] smart-account deployment must succeed before first ${target.chain.toUpperCase()} send: ${details}`,
-      );
-    }
+    await assertThresholdSigningSessionReady({
+      thresholdEcdsaKeyRef: thresholdEcdsaKeyRef!,
+      touchConfirmManager: deps.touchConfirmManager,
+    });
   }
 
   throwIfEvmFamilySigningCancelled(args.shouldAbort);
@@ -122,13 +169,53 @@ export async function signEvmFamily(
       secp256k1: new Secp256k1Engine({
         getRpId: () => ctx.touchIdPrompt.getRpId(),
         workerCtx: signerWorkerCtx,
+        shouldAbort: args.shouldAbort,
+        enqueueThresholdEcdsaCommit: thresholdEcdsaKeyRef
+          ? async (queueArgs) => {
+              try {
+                args.onEvent?.({
+                  step: 4,
+                  phase: 'commit-queued',
+                  status: 'progress',
+                  message: 'Queued for threshold signing commit',
+                });
+              } catch {}
+              return await deps.withThresholdEcdsaCommitQueue({
+                nearAccountId: queueArgs.nearAccountId,
+                enabled: true,
+                shouldAbort: queueArgs.shouldAbort,
+                task: async () => {
+                  throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
+                  await assertThresholdSigningSessionReady({
+                    thresholdEcdsaKeyRef: thresholdEcdsaKeyRef,
+                    touchConfirmManager: deps.touchConfirmManager,
+                  });
+                  try {
+                    args.onEvent?.({
+                      step: 4,
+                      phase: 'commit-started',
+                      status: 'progress',
+                      message: 'Starting threshold signing commit',
+                    });
+                  } catch {}
+                  await ensureSmartAccountDeploymentReady({
+                    deps,
+                    nearAccountId: args.nearAccountId,
+                    request: args.request,
+                  });
+                  throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
+                  return await queueArgs.task();
+                },
+              });
+            }
+          : undefined,
         dispenseThresholdEcdsaPrfFirstForSession: (payload) =>
           deps.touchConfirmManager.dispensePrfFirstForThresholdSession(payload),
       }),
       webauthnP256: new WebAuthnP256Engine(signerWorkerCtx),
     },
-    ...(args.thresholdEcdsaKeyRef
-      ? { keyRefsByAlgorithm: { secp256k1: args.thresholdEcdsaKeyRef } }
+    ...(thresholdEcdsaKeyRef
+      ? { keyRefsByAlgorithm: { secp256k1: thresholdEcdsaKeyRef } }
       : {}),
     confirmationConfigOverride: args.confirmationConfigOverride,
   };

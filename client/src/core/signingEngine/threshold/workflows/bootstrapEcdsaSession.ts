@@ -142,6 +142,13 @@ export async function bootstrapEcdsaSession(args: {
     const resolvedParticipantIds = normalizeThresholdEd25519ParticipantIds(bootstrap.participantIds)
       || participantIds
       || undefined;
+    if (!resolvedParticipantIds) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Threshold bootstrap response missing participantIds',
+      };
+    }
     const resolvedSessionId = String(bootstrap.sessionId || sessionId).trim();
     if (!resolvedSessionId) {
       return { ok: false, code: 'internal', message: 'Threshold bootstrap response missing sessionId' };

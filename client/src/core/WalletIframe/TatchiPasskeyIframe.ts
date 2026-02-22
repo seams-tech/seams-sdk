@@ -68,7 +68,6 @@ import type {
   KeyExportCapability,
   NearSignerCapability,
   SignTempoArgs,
-  SignTempoWithThresholdEcdsaArgs,
   TempoSignerCapability,
 } from '../TatchiPasskey';
 
@@ -164,8 +163,6 @@ export class TatchiPasskeyIframe {
     };
     this.tempo = {
       signTempo: async (args) => await this.signTempoDomain(args),
-      signTempoWithThresholdEcdsa: async (args) =>
-        await this.signTempoWithThresholdEcdsaDomain(args),
       bootstrapEcdsaSession: async (args) =>
         await this.bootstrapEcdsaSessionDomain({
           nearAccountId: args.nearAccountId,
@@ -252,10 +249,8 @@ export class TatchiPasskeyIframe {
       },
     };
     this.keys = {
-      exportNearKeypairWithUI: async (nearAccountId, options) =>
-        await this.exportNearKeypairWithUIDomain(nearAccountId, options),
-      exportPrivateKeysWithUI: async (nearAccountId, options) =>
-        await this.exportPrivateKeysWithUIDomain(nearAccountId, options),
+      exportKeypairWithUI: async (nearAccountId, options) =>
+        await this.exportKeypairWithUIDomain(nearAccountId, options),
     };
   }
 
@@ -618,27 +613,7 @@ export class TatchiPasskeyIframe {
       request: args.request,
       options: {
         confirmationConfig: args.options?.confirmationConfig,
-        thresholdEcdsaKeyRef: args.options?.thresholdEcdsaKeyRef,
         onEvent: args.options?.onEvent,
-      },
-    });
-  }
-
-  private async signTempoWithThresholdEcdsaDomain(
-    args: SignTempoWithThresholdEcdsaArgs,
-  ): Promise<TempoSignedResult | EvmSignedResult> {
-    if (args.request.senderSignatureAlgorithm !== 'secp256k1') {
-      throw new Error(
-        '[TatchiPasskeyIframe] signTempoWithThresholdEcdsa requires senderSignatureAlgorithm=secp256k1',
-      );
-    }
-    await this.requireRouterReady();
-    return await this.router.signTempoWithThresholdEcdsa({
-      nearAccountId: args.nearAccountId,
-      request: args.request,
-      thresholdEcdsaKeyRef: args.thresholdEcdsaKeyRef,
-      options: {
-        confirmationConfig: args.options?.confirmationConfig,
       },
     });
   }
@@ -793,24 +768,16 @@ export class TatchiPasskeyIframe {
     }
   }
 
-  private async exportNearKeypairWithUIDomain(
+  private async exportKeypairWithUIDomain(
     nearAccountId: string,
-    options?: { variant?: 'drawer' | 'modal'; theme?: 'dark' | 'light' },
-  ): Promise<void> {
-    await this.requireRouterReady();
-    return this.router.exportNearKeypairWithUI(nearAccountId, options);
-  }
-
-  private async exportPrivateKeysWithUIDomain(
-    nearAccountId: string,
-    options?: {
-      schemes?: Array<'ed25519' | 'secp256k1'>;
+    options: {
+      chain: 'near' | 'evm' | 'tempo';
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
     },
   ): Promise<void> {
     await this.requireRouterReady();
-    return this.router.exportPrivateKeysWithUI(nearAccountId, options);
+    return this.router.exportKeypairWithUI(nearAccountId, options);
   }
 
   // Utility: sign and send in one call via wallet iframe (single before/after)

@@ -29,7 +29,10 @@ import { WalletIframeDomEvents } from '../events';
 import { createWalletIframeHandlers } from './wallet-iframe-handlers';
 import { applyWalletConfig, createHostContext, ensurePasskeyManager } from './context';
 import { addHostListeners, post as postMessage, postToParent as postToParentMessage } from './messaging';
-import { resolveWalletBoundaryErrorCode } from './canonicalSignerErrorCode';
+import {
+  resolveWalletBoundaryErrorCode,
+  resolveWalletBoundaryErrorMessage,
+} from './canonicalSignerErrorCode';
 
 const PROTOCOL: ReadyPayload['protocolVersion'] = '1.0.0';
 let initialized = false;
@@ -211,6 +214,12 @@ export function initWalletIFrame(): void {
         message,
         defaultCode: 'HOST_ERROR',
       });
+      const canonicalMessage = resolveWalletBoundaryErrorMessage({
+        requestType: req.type,
+        rawCode: codeRaw,
+        code,
+        message,
+      });
       if (code === 'cancelled') {
         clearCancelled(requestId);
       }
@@ -219,7 +228,7 @@ export function initWalletIFrame(): void {
         requestId,
         payload: {
           code,
-          message,
+          message: canonicalMessage,
           ...(details !== undefined ? { details } : {}),
         },
       });

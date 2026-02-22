@@ -18,13 +18,13 @@ function createDeferred<T>(): Deferred<T> {
   return { promise, resolve, reject };
 }
 
-function makeExportKeysReq(requestId: string): any {
+function makeExportKeypairReq(requestId: string): any {
   return {
-    type: 'PM_EXPORT_KEYS_UI',
+    type: 'PM_EXPORT_KEYPAIR_UI',
     requestId,
     payload: {
       nearAccountId: 'alice.testnet',
-      schemes: ['ed25519'],
+      chain: 'near',
       variant: 'drawer',
       theme: 'dark',
     },
@@ -32,7 +32,7 @@ function makeExportKeysReq(requestId: string): any {
 }
 
 test.describe('wallet iframe host export UI handlers', () => {
-  test('PM_EXPORT_KEYS_UI waits for export operation before PM_RESULT', async () => {
+  test('PM_EXPORT_KEYPAIR_UI waits for export operation before PM_RESULT', async () => {
     const posts: ChildToParentEnvelope[] = [];
     const deferred = createDeferred<void>();
     let exportCalls = 0;
@@ -41,7 +41,7 @@ test.describe('wallet iframe host export UI handlers', () => {
       getTatchiPasskey: () =>
         ({
           keys: {
-            exportPrivateKeysWithUI: async () => {
+            exportKeypairWithUI: async () => {
               exportCalls += 1;
               return await deferred.promise;
             },
@@ -53,7 +53,7 @@ test.describe('wallet iframe host export UI handlers', () => {
       respondIfCancelled: () => false,
     });
 
-    const requestPromise = handlers.PM_EXPORT_KEYS_UI!(makeExportKeysReq('req-await') as any);
+    const requestPromise = handlers.PM_EXPORT_KEYPAIR_UI!(makeExportKeypairReq('req-await') as any);
     await Promise.resolve();
 
     expect(exportCalls).toBe(1);
@@ -70,7 +70,7 @@ test.describe('wallet iframe host export UI handlers', () => {
     ]);
   });
 
-  test('PM_EXPORT_KEYS_UI throws on non-cancellation export errors', async () => {
+  test('PM_EXPORT_KEYPAIR_UI throws on non-cancellation export errors', async () => {
     const posts: ChildToParentEnvelope[] = [];
     const parentPosts: unknown[] = [];
 
@@ -78,7 +78,7 @@ test.describe('wallet iframe host export UI handlers', () => {
       getTatchiPasskey: () =>
         ({
           keys: {
-            exportPrivateKeysWithUI: async () => {
+            exportKeypairWithUI: async () => {
               throw new Error('No key material found for account alice.testnet device 1');
             },
           },
@@ -90,7 +90,7 @@ test.describe('wallet iframe host export UI handlers', () => {
       respondIfCancelled: () => false,
     });
 
-    await expect(handlers.PM_EXPORT_KEYS_UI!(makeExportKeysReq('req-error') as any)).rejects.toThrow(
+    await expect(handlers.PM_EXPORT_KEYPAIR_UI!(makeExportKeypairReq('req-error') as any)).rejects.toThrow(
       'No key material found for account alice.testnet device 1',
     );
 
@@ -101,7 +101,7 @@ test.describe('wallet iframe host export UI handlers', () => {
     });
   });
 
-  test('PM_EXPORT_KEYS_UI treats TouchID cancellation as non-fatal', async () => {
+  test('PM_EXPORT_KEYPAIR_UI treats TouchID cancellation as non-fatal', async () => {
     const posts: ChildToParentEnvelope[] = [];
     const parentPosts: unknown[] = [];
 
@@ -109,7 +109,7 @@ test.describe('wallet iframe host export UI handlers', () => {
       getTatchiPasskey: () =>
         ({
           keys: {
-            exportPrivateKeysWithUI: async () => {
+            exportKeypairWithUI: async () => {
               throw new Error('NotAllowedError: The operation either timed out or was not allowed.');
             },
           },
@@ -121,7 +121,7 @@ test.describe('wallet iframe host export UI handlers', () => {
       respondIfCancelled: () => false,
     });
 
-    await handlers.PM_EXPORT_KEYS_UI!(makeExportKeysReq('req-cancel') as any);
+    await handlers.PM_EXPORT_KEYPAIR_UI!(makeExportKeypairReq('req-cancel') as any);
 
     expect(posts).toEqual([
       expect.objectContaining({
@@ -130,8 +130,9 @@ test.describe('wallet iframe host export UI handlers', () => {
       }),
     ]);
     expect(parentPosts).toContainEqual({
-      type: 'EXPORT_KEYS_CANCELLED',
+      type: 'EXPORT_KEYPAIR_CANCELLED',
       nearAccountId: 'alice.testnet',
+      chain: 'near',
     });
     expect(parentPosts).toContainEqual({
       type: 'WALLET_UI_CLOSED',

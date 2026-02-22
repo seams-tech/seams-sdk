@@ -27,6 +27,7 @@ import type { connectEcdsaSession } from '@/core/signingEngine/threshold/workflo
 import type { keygenEcdsa } from '@/core/signingEngine/threshold/workflows/keygenEcdsa';
 import type { SignerWorkerManagerContext } from '@/core/signingEngine/workerManager';
 import { ensureEd25519Prefix } from '@shared/utils/validation';
+import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 
 export type ThresholdKeyActivationChain = 'near' | 'evm' | 'tempo';
 
@@ -134,6 +135,12 @@ export async function activateEcdsaSession(
   if (!sessionId) {
     throw new Error('threshold-ecdsa bootstrap returned empty sessionId');
   }
+  const participantIds = normalizeThresholdEd25519ParticipantIds(
+    Array.isArray(args.participantIds) ? args.participantIds : bootstrap.participantIds,
+  );
+  if (!participantIds) {
+    throw new Error('threshold-ecdsa bootstrap returned empty participantIds');
+  }
 
   const keygen: EcdsaKeygenSuccess = {
     ok: true,
@@ -144,7 +151,7 @@ export async function activateEcdsaSession(
     groupPublicKeyB64u: bootstrap.groupPublicKeyB64u,
     ethereumAddress: bootstrap.ethereumAddress,
     relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,
-    participantIds: bootstrap.participantIds,
+    participantIds,
     ...(typeof bootstrap.chainId === 'string' ? { chainId: bootstrap.chainId } : {}),
     ...(typeof bootstrap.factory === 'string' ? { factory: bootstrap.factory } : {}),
     ...(typeof bootstrap.entryPoint === 'string' ? { entryPoint: bootstrap.entryPoint } : {}),
@@ -173,11 +180,7 @@ export async function activateEcdsaSession(
     relayerUrl: args.relayerUrl,
     relayerKeyId,
     clientVerifyingShareB64u,
-    ...(Array.isArray(args.participantIds)
-      ? { participantIds: args.participantIds }
-      : Array.isArray(bootstrap.participantIds)
-        ? { participantIds: bootstrap.participantIds }
-        : {}),
+    participantIds,
     ...(typeof bootstrap.groupPublicKeyB64u === 'string' && bootstrap.groupPublicKeyB64u.trim()
       ? { groupPublicKeyB64u: bootstrap.groupPublicKeyB64u.trim() }
       : {}),

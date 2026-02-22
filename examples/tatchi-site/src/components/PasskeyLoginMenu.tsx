@@ -17,17 +17,11 @@ import { toast } from 'sonner';
 
 import './PasskeyLoginMenu.css';
 import { useAuthMenuControl } from '../contexts/AuthMenuControl';
-import {
-  provisionTempoAndEvmThresholdSigners,
-  writeCachedThresholdKeyRef,
-} from '../utils/thresholdSigners';
 
 type PasskeyLoginMenuTestOverrides = {
   useTatchiHook?: typeof useTatchi;
   useAuthMenuControlHook?: typeof useAuthMenuControl;
   PasskeyAuthMenuComponent?: typeof PasskeyAuthMenu;
-  writeCachedThresholdKeyRef?: typeof writeCachedThresholdKeyRef;
-  provisionTempoAndEvmThresholdSigners?: typeof provisionTempoAndEvmThresholdSigners;
 };
 
 type PasskeyLoginMenuProps = {
@@ -41,11 +35,6 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     props.__testOverrides?.useAuthMenuControlHook || useAuthMenuControl;
   const PasskeyAuthMenuComponent =
     props.__testOverrides?.PasskeyAuthMenuComponent || PasskeyAuthMenu;
-  const writeCachedKeyRef =
-    props.__testOverrides?.writeCachedThresholdKeyRef || writeCachedThresholdKeyRef;
-  const provisionSigners =
-    props.__testOverrides?.provisionTempoAndEvmThresholdSigners
-      || provisionTempoAndEvmThresholdSigners;
 
   const {
     accountInputState: { targetAccountId, accountExists },
@@ -56,25 +45,6 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
 
   // let tutorial control the menu (programmatically open/close menus)
   const authMenuControl = useAuthMenuControlHook();
-
-  const cacheThresholdEcdsaKeyRef = React.useCallback(
-    (nearAccountId: string, keyRef: unknown): boolean => {
-      if (!keyRef || typeof keyRef !== 'object') return false;
-      const obj = keyRef as Record<string, unknown>;
-      if (
-        String(obj.type || '').trim() !== 'threshold-ecdsa-secp256k1'
-        || !String(obj.relayerKeyId || '').trim()
-        || !String(obj.clientVerifyingShareB64u || '').trim()
-      ) {
-        return false;
-      }
-      const typedKeyRef = keyRef as Parameters<typeof writeCachedThresholdKeyRef>[2];
-      writeCachedKeyRef(nearAccountId, 'evm', typedKeyRef);
-      writeCachedKeyRef(nearAccountId, 'tempo', typedKeyRef);
-      return true;
-    },
-    [writeCachedKeyRef],
-  );
 
   const onRegister = async () => {
     const result = await registerPasskey(targetAccountId, {
@@ -118,8 +88,6 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     });
 
     if (result.success && result.nearAccountId) {
-      const thresholdEcdsaKeyRef = (result as unknown as { thresholdEcdsaKeyRef?: unknown }).thresholdEcdsaKeyRef;
-      cacheThresholdEcdsaKeyRef(String(result.nearAccountId), thresholdEcdsaKeyRef);
       const tx = result.transactionId ? ` tx: ${result.transactionId}` : '';
       toast.success(`Registration completed: ${tx}`, { id: 'registration' });
       return result;
@@ -158,24 +126,6 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
       const accountId = String(result.nearAccountId || '').trim();
       if (!accountId) {
         throw new Error('Login succeeded but nearAccountId is missing');
-      }
-      const thresholdEcdsaKeyRef = (result as unknown as { thresholdEcdsaKeyRef?: unknown }).thresholdEcdsaKeyRef;
-      const cachedFromLogin = cacheThresholdEcdsaKeyRef(accountId, thresholdEcdsaKeyRef);
-      if (!cachedFromLogin) {
-        toast.loading('Finalizing Tempo + EVM threshold signer setup…', { id: 'threshold-signers' });
-        let thresholdProvision: Awaited<ReturnType<typeof provisionSigners>>;
-        try {
-          thresholdProvision = await provisionSigners({
-            tatchi,
-            nearAccountId: accountId,
-          });
-        } catch (error: unknown) {
-          const message = error instanceof Error ? error.message : String(error || 'Unknown error');
-          toast.error(`Threshold signer provisioning failed: ${message}`, { id: 'threshold-signers' });
-          throw error;
-        }
-        cacheThresholdEcdsaKeyRef(accountId, thresholdProvision.tempo.thresholdEcdsaKeyRef);
-        toast.success('Tempo + EVM threshold signers ready', { id: 'threshold-signers' });
       }
       // Surface the minted JWT via toast (truncate to 8 chars)
       if (result.jwt) {
