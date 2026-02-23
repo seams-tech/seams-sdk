@@ -43,7 +43,7 @@
     <polygon points="676.158425,228.5 800,300 800,443 676.158425,371.5" fill="rgba(80, 150, 255, 0.1)" stroke="none" />
     <polygon points="800,300 923.841575,228.5 923.841575,371.5 800,443" fill="rgba(40, 90, 180, 0.15)" stroke="none" />
     <path d="M 923.841575 371.5 L 800 443 M 800 443 L 676.158425 371.5 M 923.841575 228.5 L 800 300 M 800 300 L 676.158425 228.5 M 923.841575 371.5 L 923.841575 228.5 M 676.158425 371.5 L 676.158425 228.5 M 800 443 L 800 300 " fill="none" stroke="rgba(200, 225, 255, 0.6)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-    <path d="M 800 300 L 923.841575 371.5 M 676.158425 371.5 L 800 300 M 800 157 L 923.841575 228.5 M 676.158425 228.5 L 800 157 M 800 300 L 800 157 M 923.841575 371.5 L 800 443 M 800 443 L 676.158425 371.5 M 923.841575 228.5 L 800 300 M 800 300 L 676.158425 228.5 M 923.841575 371.5 L 923.841575 228.5 M 676.158425 371.5 L 676.158425 228.5 M 800 443 L 800 300 " fill="none" stroke="#5debff" stroke-width="2" filter="url(#glow)" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 800 300 L 923.841575 371.5 M 676.158425 371.5 L 800 300 M 800 157 L 923.841575 228.5 M 676.158425 228.5 L 800 157 M 800 300 L 800 157 M 923.841575 371.5 L 800 443 M 800 443 L 676.158425 371.5 M 923.841575 228.5 L 800 300 M 800 300 L 676.158425 228.5 M 923.841575 371.5 L 923.841575 228.5 M 676.158425 371.5 L 676.158425 228.5 M 800 443 L 800 300 " fill="none" stroke="var(--diagram-glow, #5debff)" stroke-width="2" filter="url(#glow)" stroke-linecap="round" stroke-linejoin="round">
       <animate attributeName="opacity" values="0.1; 0.6; 0.1" dur="3s" repeatCount="indefinite" />
     </path>
   </g>
@@ -56,126 +56,126 @@
   <circle cx="980.1332" cy="196" r="3" fill="#ffffff" stroke="none" opacity="1" />
   <circle cx="800" cy="300" r="3" fill="#ffffff" stroke="none" opacity="1" />
   <circle cx="619.8668" cy="196" r="3" fill="#ffffff" stroke="none" opacity="1" />
-  <path id="pulse-bright" d="M 800 300 L 980.1332 404 L 800 508 L 619.8668 404 L 800 300 L 800 92 L 980.1332 196 L 800 300 L 619.8668 196 L 800 92 " fill="none" mask="url(#front-mask)" stroke="#5debff" stroke-width="3" filter="url(#glow)" stroke-dasharray="100 1000">
+  <path id="pulse-bright" d="M 800 300 L 980.1332 404 L 800 508 L 619.8668 404 L 800 300 L 800 92 L 980.1332 196 L 800 300 L 619.8668 196 L 800 92 " fill="none" mask="url(#front-mask)" stroke="var(--diagram-glow, #5debff)" stroke-width="3" filter="url(#glow)" stroke-dasharray="100 1000">
     <animate attributeName="stroke-dashoffset" values="1100;0" dur="4s" repeatCount="indefinite" />
   </path>
-  <circle cx="189.2716434500004" cy="120.60316903767281" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="189.2716434500004" cy="120.60316903767281" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="120.60316903767281;90.60316903767281;120.60316903767281" dur="4.5133277131472065s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="4.5133277131472065s" repeatCount="indefinite" />
   </circle>
-  <circle cx="1399.4724786590023" cy="233.17337292428002" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="1399.4724786590023" cy="233.17337292428002" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="233.17337292428002;203.17337292428002;233.17337292428002" dur="6.866034117591074s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="6.866034117591074s" repeatCount="indefinite" />
   </circle>
-  <circle cx="334.0896683821379" cy="91.57480568582059" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="334.0896683821379" cy="91.57480568582059" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="91.57480568582059;61.57480568582059;91.57480568582059" dur="5.164705131179653s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="5.164705131179653s" repeatCount="indefinite" />
   </circle>
-  <circle cx="60.763929195524724" cy="254.59534813751463" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="60.763929195524724" cy="254.59534813751463" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="254.59534813751463;224.59534813751463;254.59534813751463" dur="3.4011091358447576s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="3.4011091358447576s" repeatCount="indefinite" />
   </circle>
-  <circle cx="1337.5486652512793" cy="729.6383165983023" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="1337.5486652512793" cy="729.6383165983023" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="729.6383165983023;699.6383165983023;729.6383165983023" dur="4.467857935200884s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="4.467857935200884s" repeatCount="indefinite" />
   </circle>
-  <circle cx="1180.9754619123996" cy="401.1200386140003" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="1180.9754619123996" cy="401.1200386140003" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="401.1200386140003;371.1200386140003;401.1200386140003" dur="3.357695939417055s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="3.357695939417055s" repeatCount="indefinite" />
   </circle>
-  <circle cx="803.5669307923326" cy="255.6350020949511" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="803.5669307923326" cy="255.6350020949511" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="255.6350020949511;225.6350020949511;255.6350020949511" dur="5.9288876392699s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="5.9288876392699s" repeatCount="indefinite" />
   </circle>
-  <circle cx="810.0033493256847" cy="499.0628013667237" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="810.0033493256847" cy="499.0628013667237" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="499.0628013667237;469.0628013667237;499.0628013667237" dur="3.720263991420696s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="3.720263991420696s" repeatCount="indefinite" />
   </circle>
-  <circle cx="602.1639772978118" cy="-75.13337803350777" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="602.1639772978118" cy="-75.13337803350777" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="-75.13337803350777;-105.13337803350777;-75.13337803350777" dur="4.621369855013062s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="4.621369855013062s" repeatCount="indefinite" />
   </circle>
-  <circle cx="1025.9511359731655" cy="389.22500245010957" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="1025.9511359731655" cy="389.22500245010957" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="389.22500245010957;359.22500245010957;389.22500245010957" dur="4.8371668470543305s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="4.8371668470543305s" repeatCount="indefinite" />
   </circle>
-  <circle cx="442.73679965387157" cy="144.46878161443965" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="442.73679965387157" cy="144.46878161443965" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="144.46878161443965;114.46878161443965;144.46878161443965" dur="3.1039891337386107s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="3.1039891337386107s" repeatCount="indefinite" />
   </circle>
-  <circle cx="647.2947739881421" cy="225.24933492809475" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="647.2947739881421" cy="225.24933492809475" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="225.24933492809475;195.24933492809475;225.24933492809475" dur="4.558460735652366s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="4.558460735652366s" repeatCount="indefinite" />
   </circle>
-  <circle cx="793.2752734282535" cy="453.0840089588077" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="793.2752734282535" cy="453.0840089588077" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="453.0840089588077;423.0840089588077;453.0840089588077" dur="6.232876629142583s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="6.232876629142583s" repeatCount="indefinite" />
   </circle>
-  <circle cx="384.61361798622227" cy="302.8471851432321" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="384.61361798622227" cy="302.8471851432321" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="302.8471851432321;272.8471851432321;302.8471851432321" dur="3.079678779556101s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="3.079678779556101s" repeatCount="indefinite" />
   </circle>
-  <circle cx="1257.5461416085095" cy="532.1687745196804" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="1257.5461416085095" cy="532.1687745196804" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="532.1687745196804;502.16877451968037;532.1687745196804" dur="4.634180692789894s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="4.634180692789894s" repeatCount="indefinite" />
   </circle>
-  <circle cx="687.7767145217256" cy="536.9494498613686" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="687.7767145217256" cy="536.9494498613686" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="536.9494498613686;506.94944986136863;536.9494498613686" dur="4.99978008697245s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="4.99978008697245s" repeatCount="indefinite" />
   </circle>
-  <circle cx="935.5781957409511" cy="547.7639017851992" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="935.5781957409511" cy="547.7639017851992" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="547.7639017851992;517.7639017851992;547.7639017851992" dur="4.632583693805115s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="4.632583693805115s" repeatCount="indefinite" />
   </circle>
-  <circle cx="835.2987699601355" cy="597.2920668184275" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="835.2987699601355" cy="597.2920668184275" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="597.2920668184275;567.2920668184275;597.2920668184275" dur="6.481043995022261s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="6.481043995022261s" repeatCount="indefinite" />
   </circle>
-  <circle cx="1020.3833971894431" cy="171.51578576266445" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="1020.3833971894431" cy="171.51578576266445" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="171.51578576266445;141.51578576266445;171.51578576266445" dur="6.901118956695206s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="6.901118956695206s" repeatCount="indefinite" />
   </circle>
-  <circle cx="1265.215756109903" cy="533.538610154987" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="1265.215756109903" cy="533.538610154987" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="533.538610154987;503.53861015498705;533.538610154987" dur="4.506802281415673s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="4.506802281415673s" repeatCount="indefinite" />
   </circle>
-  <circle cx="812.0567127978755" cy="134.57754335269235" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="812.0567127978755" cy="134.57754335269235" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="134.57754335269235;104.57754335269235;134.57754335269235" dur="6.186417674038621s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="6.186417674038621s" repeatCount="indefinite" />
   </circle>
-  <circle cx="1047.9106317346007" cy="194.25327221429967" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="1047.9106317346007" cy="194.25327221429967" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="194.25327221429967;164.25327221429967;194.25327221429967" dur="6.5736429333172435s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="6.5736429333172435s" repeatCount="indefinite" />
   </circle>
-  <circle cx="1233.1522179679027" cy="720.8263072335658" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="1233.1522179679027" cy="720.8263072335658" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="720.8263072335658;690.8263072335658;720.8263072335658" dur="6.005872587251423s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="6.005872587251423s" repeatCount="indefinite" />
   </circle>
-  <circle cx="1138.3374203078608" cy="412.7208968942837" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="1138.3374203078608" cy="412.7208968942837" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="412.7208968942837;382.7208968942837;412.7208968942837" dur="3.401954371534205s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="3.401954371534205s" repeatCount="indefinite" />
   </circle>
-  <circle cx="1120.906149624479" cy="425.28659307183864" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="1120.906149624479" cy="425.28659307183864" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="425.28659307183864;395.28659307183864;425.28659307183864" dur="6.1828159220788494s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="6.1828159220788494s" repeatCount="indefinite" />
   </circle>
-  <circle cx="651.7815981355935" cy="273.7769015205166" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="651.7815981355935" cy="273.7769015205166" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="273.7769015205166;243.77690152051662;273.7769015205166" dur="3.0029818840428204s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="3.0029818840428204s" repeatCount="indefinite" />
   </circle>
-  <circle cx="588.598654190534" cy="425.5055943998562" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="588.598654190534" cy="425.5055943998562" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="425.5055943998562;395.5055943998562;425.5055943998562" dur="4.642490825981013s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="4.642490825981013s" repeatCount="indefinite" />
   </circle>
-  <circle cx="339.3597932879651" cy="44.8540120986126" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="339.3597932879651" cy="44.8540120986126" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="44.8540120986126;14.8540120986126;44.8540120986126" dur="6.699327881460914s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="6.699327881460914s" repeatCount="indefinite" />
   </circle>
-  <circle cx="929.7652508504473" cy="160.2780077915788" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="929.7652508504473" cy="160.2780077915788" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="160.2780077915788;130.2780077915788;160.2780077915788" dur="3.0467154464245896s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="3.0467154464245896s" repeatCount="indefinite" />
   </circle>
-  <circle cx="645.9551261922768" cy="268.1075269982586" r="1.5" fill="#aaccff" opacity="0.5">
+  <circle cx="645.9551261922768" cy="268.1075269982586" r="1.5" fill="var(--diagram-node, #aaccff)" opacity="0.5">
     <animate attributeName="cy" values="268.1075269982586;238.1075269982586;268.1075269982586" dur="4.815340255268508s" repeatCount="indefinite" />
     <animate attributeName="opacity" values="0;0.8;0" dur="4.815340255268508s" repeatCount="indefinite" />
   </circle>

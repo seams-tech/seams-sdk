@@ -32,9 +32,6 @@ export function CredibilityBands(): React.JSX.Element {
       <ul className="credibility-bands__logos" aria-label="Trusted by">
         {trustedLogos.map(renderLogo)}
       </ul>
-      <p className="credibility-bands__subtitle">
-        Ethereum, Base, Polygon, Stripe Tempo, Circle Arc, NEAR protocol
-      </p>
     </section>
   )
 }

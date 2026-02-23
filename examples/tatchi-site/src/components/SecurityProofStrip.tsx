@@ -1,12 +1,17 @@
 import { useSiteRouter } from '../hooks/useSiteRouter'
-import { ThemedSecuritySvg } from './ThemedSecuritySvg'
+import {
+  SecurityCustodyDiagram,
+  SecurityDefenseDiagram,
+  SecurityScaleDiagram,
+  SecurityFrictionDiagram,
+} from './SecurityDiagrams'
 
 type SecurityCard = {
   id: 'custody' | 'defense' | 'scale' | 'friction'
   label: string
   detail: string
-  diagramSrc: string
   diagramAlt: string
+  Diagram: React.ElementType
 }
 
 const securityCards: SecurityCard[] = [
@@ -14,31 +19,38 @@ const securityCards: SecurityCard[] = [
     id: 'custody',
     label: 'Hardware-isolated self custody',
     detail: 'Keys are sharded, end-to-end encrypted, and distributed across isolated services. Wallets are only reconstructed in secure hardware environments.',
-    diagramSrc: '/diagrams/security-custody.svg',
     diagramAlt: 'Wireframe cube over a perspective security grid',
+    Diagram: SecurityCustodyDiagram,
   },
   {
     id: 'defense',
     label: 'Defense in depth',
     detail: 'Secure enclaves protect keys, encrypted networks safeguard data, and RBAC with micro-segmentation enforces least privilege.',
-    diagramSrc: '/diagrams/security-defense.svg',
     diagramAlt: 'Wireframe terrain peaks over a mesh grid',
+    Diagram: SecurityDefenseDiagram,
   },
   {
     id: 'scale',
     label: 'Battle-tested at scale',
     detail: 'Core cryptography libraries are widely used and audited, with resilient orchestration paths built for high-throughput transaction pipelines.',
-    diagramSrc: '/diagrams/security-scale.svg',
     diagramAlt: 'System workflow boxes connected across a horizontal graph',
+    Diagram: SecurityScaleDiagram,
   },
   {
     id: 'friction',
     label: 'Friction where it matters',
     detail: 'Add defenses like passkey signing, wallet policies, and transaction MFA without breaking checkout and core product flows.',
-    diagramSrc: '/diagrams/security-friction.svg',
     diagramAlt: 'Stacked secure device panels connected by policy rails',
+    Diagram: SecurityFrictionDiagram,
   },
 ]
+
+const frictionDiagramThemeColors = {
+  glowColor: 'color-mix(in srgb, var(--site-brand) 70%, var(--site-brand-hover) 30%)',
+  nodeColor: 'color-mix(in srgb, var(--site-brand-hover) 62%, var(--site-text-primary) 38%)',
+  lineColor: 'color-mix(in srgb, var(--site-border) 36%, transparent)',
+  canvasColor: 'color-mix(in srgb, var(--site-surface-strong) 78%, var(--site-canvas) 22%)',
+}
 
 export function SecurityProofStrip(): React.JSX.Element {
   const { linkProps } = useSiteRouter()
@@ -61,10 +73,10 @@ export function SecurityProofStrip(): React.JSX.Element {
         {securityCards.map((item) => (
           <article key={item.label} className={`security-diagrams__card security-diagrams__card--${item.id}`} aria-label={item.label}>
             <div className={`security-diagrams__art-wrap security-diagrams__art-wrap--${item.id}`}>
-              <ThemedSecuritySvg
+              <item.Diagram
                 className="security-diagrams__art"
-                src={item.diagramSrc}
                 alt={item.diagramAlt}
+                {...(item.id === 'friction' ? frictionDiagramThemeColors : {})}
               />
             </div>
             <div className="security-diagrams__body">

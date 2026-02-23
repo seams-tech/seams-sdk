@@ -4,6 +4,7 @@ type ThemedSecuritySvgProps = {
   src: string
   alt: string
   className?: string
+  style?: React.CSSProperties
 }
 
 const themedMarkupCache = new Map<string, string>()
@@ -247,7 +248,7 @@ async function loadThemedSvg(src: string): Promise<string> {
   return loadPromise
 }
 
-export function ThemedSecuritySvg({ src, alt, className }: ThemedSecuritySvgProps): React.JSX.Element {
+export function ThemedSecuritySvg({ src, alt, className, style }: ThemedSecuritySvgProps): React.JSX.Element {
   const [markup, setMarkup] = useState<string | null>(() => themedMarkupCache.get(src) ?? null)
   const [useFallbackImage, setUseFallbackImage] = useState(false)
 
@@ -274,8 +275,8 @@ export function ThemedSecuritySvg({ src, alt, className }: ThemedSecuritySvgProp
   }, [src])
 
   if (!markup || useFallbackImage) {
-    return <img className={className} src={src} alt={alt} loading="lazy" />
+    return <img className={className} src={src} alt={alt} loading="lazy" style={style} />
   }
 
-  return <div className={className} role="img" aria-label={alt} dangerouslySetInnerHTML={{ __html: markup }} />
+  return <div className={className} style={style} role="img" aria-label={alt} dangerouslySetInnerHTML={{ __html: markup }} />
 }

@@ -121,61 +121,61 @@
     <rect x="0" y="0" width="100" height="30" rx="4" class="tatchi-node" fill="rgba(32, 38, 51, 0.6)" stroke="rgba(100, 150, 255, 0.4)" stroke-width="1.5"/>
     <line x1="15" y1="15" x2="85" y2="15" stroke="rgba(200, 225, 255, 0.2)" stroke-width="3" stroke-linecap="round"/>
   </g>
-  <path d="M 40 -50 L 40 250 L 220 250" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1460">
+  <path d="M 40 -50 L 40 250 L 220 250" fill="none" class="tatchi-light" stroke="var(--diagram-glow, #5debff)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1460">
     <animate attributeName="stroke-dashoffset" values="560;-480" dur="4s" repeatCount="indefinite" />
   </path>
   <path d="M 40 -50 L 40 250 L 220 250" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 1460">
     <animate attributeName="stroke-dashoffset" values="488;-480" dur="4s" repeatCount="indefinite" />
   </path>
-  <path d="M 340 250 L 480 250 L 480 180 L 520 180" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1000">
+  <path d="M 340 250 L 480 250 L 480 180 L 520 180" fill="none" class="tatchi-light" stroke="var(--diagram-glow, #5debff)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1000">
     <animate attributeName="stroke-dashoffset" values="330;-250" dur="2s" repeatCount="indefinite" />
   </path>
   <path d="M 340 250 L 480 250 L 480 180 L 520 180" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 1000">
     <animate attributeName="stroke-dashoffset" values="258;-250" dur="2s" repeatCount="indefinite" />
   </path>
-  <path d="M 340 250 L 520 250" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 860">
+  <path d="M 340 250 L 520 250" fill="none" class="tatchi-light" stroke="var(--diagram-glow, #5debff)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 860">
     <animate attributeName="stroke-dashoffset" values="260;-180" dur="1s" repeatCount="indefinite" />
   </path>
   <path d="M 340 250 L 520 250" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 860">
     <animate attributeName="stroke-dashoffset" values="188;-180" dur="1s" repeatCount="indefinite" />
   </path>
-  <path d="M 340 250 L 480 250 L 480 320 L 520 320" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1000">
+  <path d="M 340 250 L 480 250 L 480 320 L 520 320" fill="none" class="tatchi-light" stroke="var(--diagram-glow, #5debff)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1000">
     <animate attributeName="stroke-dashoffset" values="330;-250" dur="2s" repeatCount="indefinite" />
   </path>
   <path d="M 340 250 L 480 250 L 480 320 L 520 320" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 1000">
     <animate attributeName="stroke-dashoffset" values="258;-250" dur="2s" repeatCount="indefinite" />
   </path>
-  <path d="M 640 250 L 790 250 L 790 350 L 850 350" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1120">
+  <path d="M 640 250 L 790 250 L 790 350 L 850 350" fill="none" class="tatchi-light" stroke="var(--diagram-glow, #5debff)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1120">
     <animate attributeName="stroke-dashoffset" values="390;-310" dur="2.5s" repeatCount="indefinite" />
   </path>
   <path d="M 640 250 L 790 250 L 790 350 L 850 350" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 1120">
     <animate attributeName="stroke-dashoffset" values="318;-310" dur="2.5s" repeatCount="indefinite" />
   </path>
-  <path d="M 990 350 L 1140 350 L 1140 155 L 1200 155" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1310">
+  <path d="M 990 350 L 1140 350 L 1140 155 L 1200 155" fill="none" class="tatchi-light" stroke="var(--diagram-glow, #5debff)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1310">
     <animate attributeName="stroke-dashoffset" values="485;-405" dur="3.5s" repeatCount="indefinite" />
   </path>
   <path d="M 990 350 L 1140 350 L 1140 155 L 1200 155" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 1310">
     <animate attributeName="stroke-dashoffset" values="413;-405" dur="3.5s" repeatCount="indefinite" />
   </path>
-  <path d="M 990 350 L 1140 350 L 1140 385 L 1200 385" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 990">
+  <path d="M 990 350 L 1140 350 L 1140 385 L 1200 385" fill="none" class="tatchi-light" stroke="var(--diagram-glow, #5debff)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 990">
     <animate attributeName="stroke-dashoffset" values="325;-245" dur="2s" repeatCount="indefinite" />
   </path>
   <path d="M 990 350 L 1140 350 L 1140 385 L 1200 385" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 990">
     <animate attributeName="stroke-dashoffset" values="253;-245" dur="2s" repeatCount="indefinite" />
   </path>
-  <path d="M 1250 400 L 1250 430" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 560">
+  <path d="M 1250 400 L 1250 430" fill="none" class="tatchi-light" stroke="var(--diagram-glow, #5debff)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 560">
     <animate attributeName="stroke-dashoffset" values="110;-30" dur="0.5s" repeatCount="indefinite" />
   </path>
   <path d="M 1250 400 L 1250 430" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 560">
     <animate attributeName="stroke-dashoffset" values="38;-30" dur="0.5s" repeatCount="indefinite" />
   </path>
-  <path d="M 1340 155 L 1400 155 L 1400 80 L 1650 80" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1270">
+  <path d="M 1340 155 L 1400 155 L 1400 80 L 1650 80" fill="none" class="tatchi-light" stroke="var(--diagram-glow, #5debff)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1270">
     <animate attributeName="stroke-dashoffset" values="465;-385" dur="4s" repeatCount="indefinite" />
   </path>
   <path d="M 1340 155 L 1400 155 L 1400 80 L 1650 80" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 1270">
     <animate attributeName="stroke-dashoffset" values="393;-385" dur="4s" repeatCount="indefinite" />
   </path>
-  <path d="M 1250 460 L 1250 500 L 1650 500" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1380">
+  <path d="M 1250 460 L 1250 500 L 1650 500" fill="none" class="tatchi-light" stroke="var(--diagram-glow, #5debff)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1380">
     <animate attributeName="stroke-dashoffset" values="520;-440" dur="4.5s" repeatCount="indefinite" />
   </path>
   <path d="M 1250 460 L 1250 500 L 1650 500" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 1380">

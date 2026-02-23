@@ -42,7 +42,7 @@ export function HomeHero(): React.JSX.Element {
     <>
       <section className="hero" aria-labelledby="hero-title">
         <h1 id="hero-title" className="hero-title">
-          Serverless passkey wallets that ship in hours
+          Seamless Embedded Wallets, Secured by Passkeys + MPC
           <span className="touch-icon-pattern-position" aria-hidden="true">
             <TouchIcon
               style={{ color: theme === 'dark' ? 'var(--w3a-colors-surface)' : 'var(--w3a-colors-surface2)' }}
@@ -53,13 +53,13 @@ export function HomeHero(): React.JSX.Element {
           </span>
         </h1>
         <h2 className="hero-subtitle">
-          Embed passkey registration, login, and signing in your app with an isolated cross-origin wallet iframe.
+          Use biometrics and passkeys for human verification, with embedded wallets that integrate directly into your existing app.
         </h2>
         <p className="hero-description">
-          No wallet backend to run. Authenticate against onchain WebAuthn contracts and sign NEAR, Tempo, and EVM transactions with policy-based threshold sessions.
+          Ship on web today and iOS soon, with threshold-signature (MPC) sessions for secure signing across NEAR, Tempo, and EVM.
         </p>
         <p className="hero-proof">
-          Security model first: passkey-derived keys, wallet isolation by default, and explicit confirmation controls.
+          No lock-in by design: start hosted, then migrate to self-hosted wallet infrastructure when you are ready.
         </p>
         <div className="hero-ctas">
           <a
