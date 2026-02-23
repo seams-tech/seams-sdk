@@ -22,7 +22,7 @@ test.describe('private key export recovery hardening', () => {
       try {
         await mod.exportKeypairWithUI({
           indexedDB: {} as any,
-          touchConfirmManager: {} as any,
+          requestExportPrivateKeysWithUi: undefined as any,
           getTheme: () => 'dark',
           signingKeyOps: {
             recoverKeypairFromPasskey: async () => {
@@ -85,11 +85,9 @@ test.describe('private key export recovery hardening', () => {
             }),
             getNearThresholdKeyMaterial: async () => null,
           } as any,
-          touchConfirmManager: {
-            exportPrivateKeysWithUi: async () => {
-              throw new Error('Unsupported UserConfirm worker message type: EXPORT_PRIVATE_KEYS_WITH_UI');
-            },
-          } as any,
+          requestExportPrivateKeysWithUi: async () => {
+            throw new Error('Unsupported UserConfirm worker message type: EXPORT_PRIVATE_KEYS_WITH_UI');
+          },
           getTheme: () => 'dark',
           signingKeyOps: {
             recoverKeypairFromPasskey: async () => {
@@ -145,17 +143,15 @@ test.describe('private key export recovery hardening', () => {
           }),
           getNearThresholdKeyMaterial: async () => null,
         } as any,
-        touchConfirmManager: {
-          exportPrivateKeysWithUi: async (payload: Record<string, unknown>) => {
-            calls.push(payload);
-            const chain = String(payload.chain || '');
-            return {
-              ok: true,
-              accountId: 'alice.testnet',
-              exportedSchemes: chain === 'near' ? ['ed25519'] : ['secp256k1'],
-            };
-          },
-        } as any,
+        requestExportPrivateKeysWithUi: async (payload: Record<string, unknown>) => {
+          calls.push(payload);
+          const chain = String(payload.chain || '');
+          return {
+            ok: true,
+            accountId: 'alice.testnet',
+            exportedSchemes: chain === 'near' ? ['ed25519'] : ['secp256k1'],
+          };
+        },
         getTheme: () => 'light',
         signingKeyOps: {
           recoverKeypairFromPasskey: async () => {

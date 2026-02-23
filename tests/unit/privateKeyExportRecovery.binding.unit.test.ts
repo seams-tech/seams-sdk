@@ -2,23 +2,20 @@ import { expect, test } from '@playwright/test';
 import { exportKeypairWithUI } from '@/core/signingEngine/api/recovery/privateKeyExportRecovery';
 
 test.describe('privateKeyExportRecovery method binding', () => {
-  test('invokes touchConfirmManager.exportPrivateKeysWithUi with preserved this context', async () => {
-    const touchConfirmManager = {
-      ensureWorkerReadyCallCount: 0,
+  test('invokes requestExportPrivateKeysWithUi with expected payload', async () => {
+    const requestExportState = {
+      callCount: 0,
       lastPayload: null as Record<string, unknown> | null,
-      async ensureWorkerReady(): Promise<void> {
-        this.ensureWorkerReadyCallCount += 1;
-      },
-      async exportPrivateKeysWithUi(payload: Record<string, unknown>) {
-        await this.ensureWorkerReady();
-        this.lastPayload = payload;
-        const chain = String(payload.chain || '');
-        return {
-          ok: true,
-          accountId: String(payload.nearAccountId || ''),
-          exportedSchemes: chain === 'near' ? ['ed25519'] : ['secp256k1'],
-        };
-      },
+    };
+    const requestExportPrivateKeysWithUi = async (payload: Record<string, unknown>) => {
+      requestExportState.callCount += 1;
+      requestExportState.lastPayload = payload;
+      const chain = String(payload.chain || '');
+      return {
+        ok: true,
+        accountId: String(payload.nearAccountId || ''),
+        exportedSchemes: chain === 'near' ? ['ed25519'] : ['secp256k1'],
+      };
     };
 
     const result = await exportKeypairWithUI({
@@ -36,7 +33,7 @@ test.describe('privateKeyExportRecovery method binding', () => {
         }),
         getNearThresholdKeyMaterial: async () => null,
       } as any,
-      touchConfirmManager: touchConfirmManager as any,
+      requestExportPrivateKeysWithUi: requestExportPrivateKeysWithUi as any,
       getTheme: () => 'dark',
       signingKeyOps: {
         recoverKeypairFromPasskey: async () => {
@@ -53,8 +50,8 @@ test.describe('privateKeyExportRecovery method binding', () => {
       accountId: 'alice.testnet',
       exportedSchemes: ['ed25519'],
     });
-    expect(touchConfirmManager.ensureWorkerReadyCallCount).toBe(1);
-    expect(touchConfirmManager.lastPayload).toMatchObject({
+    expect(requestExportState.callCount).toBe(1);
+    expect(requestExportState.lastPayload).toMatchObject({
       nearAccountId: 'alice.testnet',
       deviceNumber: 9,
       chain: 'near',

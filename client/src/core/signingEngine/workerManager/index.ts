@@ -13,6 +13,10 @@ import type {
 import { UserPreferencesManager } from '../api/userPreferences';
 import { NonceManager } from '@/core/rpcClients/near/nonceManager';
 import type { ThemeName } from '@/core/types/tatchi';
+import type {
+  ExportPrivateKeysWithUiWorkerPayload,
+  ExportPrivateKeysWithUiWorkerResult,
+} from '@/core/types/secure-confirm-worker';
 import type { NearSigningKeyOps } from '../interfaces/nearKeyOps';
 import {
   WorkerTransport,
@@ -106,5 +110,11 @@ export class SignerWorkerManager {
     request: SignerWorkerOperationRequest<K, T>;
   }): Promise<SignerWorkerOperationResult<K, T>> {
     return requestWorkerOperation(args);
+  }
+
+  requestExportPrivateKeysWithUi(
+    payload: ExportPrivateKeysWithUiWorkerPayload,
+  ): Promise<ExportPrivateKeysWithUiWorkerResult> {
+    return this.touchConfirmManager.exportPrivateKeysWithUi(payload);
   }
 }

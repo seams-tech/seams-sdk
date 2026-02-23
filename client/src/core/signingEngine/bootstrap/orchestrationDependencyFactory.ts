@@ -167,7 +167,8 @@ export function createOrchestrationDependencyBundle(
     },
     privateKeyExportRecoveryDeps: {
       indexedDB: IndexedDBManager,
-      touchConfirmManager: args.touchConfirmManager,
+      requestExportPrivateKeysWithUi: (payload) =>
+        args.signerWorkerManager.requestExportPrivateKeysWithUi(payload),
       getTheme: args.getTheme,
       signingKeyOps: args.signerWorkerManager.nearKeyOps,
       createSessionId: (prefix: string): string => generateSessionIdValue(prefix),

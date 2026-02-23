@@ -52,6 +52,7 @@ This violates the intended design boundary: export intent should be initiated by
 - JS-main-thread code may request an export operation.
 - JS-main-thread code may not orchestrate intermediate confirmation steps for export.
 - JS-main-thread code may not inspect credential PRF outputs for export.
+- JS export APIs may not depend on `TouchConfirmManager` directly; they must call a worker-operation port.
 
 ## 4. Implementation Plan
 
@@ -102,6 +103,7 @@ Deliverable:
 ## Phase 3: JS Orchestration Cleanup (Delete Shortcuts)
 
 - [x] Refactor `api/recovery/privateKeyExportRecovery.ts` to invoke only the new worker export operation.
+- [x] Remove direct `touchConfirmManager` dependency from `privateKeyExportRecovery.ts`; consume a narrow worker-operation callback instead.
 - [x] Delete export-local `requestUserConfirmation` helper in `privateKeyExportRecovery.ts`.
 - [x] Remove any export path that calls `getContext().requestUserConfirmation` from JS business logic.
 - [x] Remove direct PRF extraction from credentials in JS export orchestration.

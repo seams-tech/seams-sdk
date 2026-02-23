@@ -1,9 +1,11 @@
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import type { ExportPrivateKeysWithUiWorkerResult } from '@/core/types/secure-confirm-worker';
+import type {
+  ExportPrivateKeysWithUiWorkerPayload,
+  ExportPrivateKeysWithUiWorkerResult,
+} from '@/core/types/secure-confirm-worker';
 import type { ThemeName } from '@/core/types/tatchi';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
-import type { TouchConfirmSecureConfirmationPort } from '../../touchConfirm';
 import { getLastLoggedInDeviceNumber } from '../../signers/webauthn/device/getDeviceNumber';
 
 type ExportKeypairChain = 'near' | 'evm' | 'tempo';
@@ -74,7 +76,9 @@ function throwLegacyExportShortcutDisabled(args: {
 
 export type PrivateKeyExportRecoveryDeps = {
   indexedDB: UnifiedIndexedDBManager;
-  touchConfirmManager: Pick<TouchConfirmSecureConfirmationPort, 'exportPrivateKeysWithUi'>;
+  requestExportPrivateKeysWithUi?: (
+    payload: ExportPrivateKeysWithUiWorkerPayload,
+  ) => Promise<ExportPrivateKeysWithUiWorkerResult>;
   getTheme: () => ThemeName;
   signingKeyOps: {
     recoverKeypairFromPasskey: (args: {
@@ -98,19 +102,13 @@ async function runExportWorkerOperation(
   },
 ): Promise<ExportPrivateKeysWithUiWorkerResult> {
   const accountId = toAccountId(args.nearAccountId);
-  const touchConfirmManager = deps.touchConfirmManager as {
-    exportPrivateKeysWithUi?: unknown;
-  };
-  const exportPrivateKeysWithUiMaybe = touchConfirmManager.exportPrivateKeysWithUi;
-  if (typeof exportPrivateKeysWithUiMaybe !== 'function') {
+  if (typeof deps.requestExportPrivateKeysWithUi !== 'function') {
     throwLegacyExportShortcutDisabled({
       nearAccountId: accountId,
       reason: 'missing_export_worker_operation',
     });
   }
-  const exportPrivateKeysWithUi =
-    touchConfirmManager.exportPrivateKeysWithUi as TouchConfirmSecureConfirmationPort['exportPrivateKeysWithUi'];
-  const exportPrivateKeysWithUiBound = exportPrivateKeysWithUi.bind(touchConfirmManager);
+  const requestExportPrivateKeysWithUi = deps.requestExportPrivateKeysWithUi;
 
   const resolvedTheme = args.options?.theme ?? deps.getTheme();
   const deviceNumber = await getLastLoggedInDeviceNumber(accountId, deps.indexedDB.clientDB).catch(
@@ -151,7 +149,7 @@ async function runExportWorkerOperation(
 
   const result = await (async (): Promise<ExportPrivateKeysWithUiWorkerResult> => {
     try {
-      return await exportPrivateKeysWithUiBound({
+      return await requestExportPrivateKeysWithUi({
         nearAccountId: accountId,
         deviceNumber,
         chain: args.options.chain,

@@ -213,6 +213,7 @@ export function findWorkerRuntimeBoundaryViolations(repoRoot) {
 
   const exportRecoveryAbsolute = path.join(repoRoot, exportRecoveryFile);
   const exportShortcutForbiddenPatterns = [
+    'touchConfirmManager',
     'getContext().requestUserConfirmation',
     'getPrfResultsFromCredential',
     'UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI',
