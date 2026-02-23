@@ -42,7 +42,7 @@ export function HomeHero(): React.JSX.Element {
     <>
       <section className="hero" aria-labelledby="hero-title">
         <h1 id="hero-title" className="hero-title">
-          Embedded wallets that ship faster
+          Serverless passkey wallets that ship in hours
           <span className="touch-icon-pattern-position" aria-hidden="true">
             <TouchIcon
               style={{ color: theme === 'dark' ? 'var(--w3a-colors-surface)' : 'var(--w3a-colors-surface2)' }}
@@ -53,13 +53,13 @@ export function HomeHero(): React.JSX.Element {
           </span>
         </h1>
         <h2 className="hero-subtitle">
-          Tatchi gives product and platform teams passkey-native wallet flows without extension installs or popup handoffs.
+          Embed passkey registration, login, and signing in your app with an isolated cross-origin wallet iframe.
         </h2>
         <p className="hero-description">
-          Launch faster with policy-based threshold signing, keep conversion in-app, and keep security controls one click from your docs.
+          No wallet backend to run. Authenticate against onchain WebAuthn contracts and sign NEAR, Tempo, and EVM transactions with policy-based threshold sessions.
         </p>
         <p className="hero-proof">
-          Trusted architecture: WebAuthn confirmation challenges, threshold signing, and explicit security model documentation.
+          Security model first: passkey-derived keys, wallet isolation by default, and explicit confirmation controls.
         </p>
         <div className="hero-ctas">
           <a

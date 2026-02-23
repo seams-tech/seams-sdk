@@ -1,4 +1,4 @@
-import { ArrowRight } from 'lucide-react'
+
 import Github from './icons/Github'
 import { ArrowRightAnim } from './ArrowRightAnim'
 import { useSiteRouter } from '../hooks/useSiteRouter'
@@ -20,11 +20,11 @@ export function FinalCTA(): React.JSX.Element {
       <div className="final-cta__actions">
         <a className="final-cta__button final-cta__button--solid" href={getStartedProps.href} onClick={getStartedProps.onClick}>
           <span>Get Started</span>
-          <ArrowRightAnim size={16} />
+          <ArrowRightAnim size={20} />
         </a>
         <a className="final-cta__button final-cta__button--outline" href={contactProps.href} onClick={contactProps.onClick}>
           <span>Contact Sales</span>
-          <ArrowRightAnim size={16} />
+          <ArrowRightAnim size={20} />
         </a>
         <a
           className="final-cta__button final-cta__button--ghost"
@@ -32,9 +32,9 @@ export function FinalCTA(): React.JSX.Element {
           target="_blank"
           rel="noopener noreferrer"
         >
-          <Github size={16} aria-hidden />
-          <span>GitHub</span>
-          <ArrowRight size={16} aria-hidden />
+          <Github size={20} aria-hidden />
+          <strong>GitHub</strong>
+          <ArrowRightAnim size={20} />
         </a>
       </div>
     </section>

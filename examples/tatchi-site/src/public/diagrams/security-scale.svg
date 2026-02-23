@@ -1,4 +1,4 @@
-<svg viewBox="0 0 1200 600" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="0 0 1600 600" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" stop-color="#2a3243" />
@@ -48,203 +48,287 @@
     <line x1="1120" y1="0" x2="1120" y2="600"/>
     <line x1="1160" y1="0" x2="1160" y2="600"/>
     <line x1="1200" y1="0" x2="1200" y2="600"/>
-    <line x1="0" y1="0" x2="1200" y2="0"/>
-    <line x1="0" y1="40" x2="1200" y2="40"/>
-    <line x1="0" y1="80" x2="1200" y2="80"/>
-    <line x1="0" y1="120" x2="1200" y2="120"/>
-    <line x1="0" y1="160" x2="1200" y2="160"/>
-    <line x1="0" y1="200" x2="1200" y2="200"/>
-    <line x1="0" y1="240" x2="1200" y2="240"/>
-    <line x1="0" y1="280" x2="1200" y2="280"/>
-    <line x1="0" y1="320" x2="1200" y2="320"/>
-    <line x1="0" y1="360" x2="1200" y2="360"/>
-    <line x1="0" y1="400" x2="1200" y2="400"/>
-    <line x1="0" y1="440" x2="1200" y2="440"/>
-    <line x1="0" y1="480" x2="1200" y2="480"/>
-    <line x1="0" y1="520" x2="1200" y2="520"/>
-    <line x1="0" y1="560" x2="1200" y2="560"/>
-    <line x1="0" y1="600" x2="1200" y2="600"/>
+    <line x1="1240" y1="0" x2="1240" y2="600"/>
+    <line x1="1280" y1="0" x2="1280" y2="600"/>
+    <line x1="1320" y1="0" x2="1320" y2="600"/>
+    <line x1="1360" y1="0" x2="1360" y2="600"/>
+    <line x1="1400" y1="0" x2="1400" y2="600"/>
+    <line x1="1440" y1="0" x2="1440" y2="600"/>
+    <line x1="1480" y1="0" x2="1480" y2="600"/>
+    <line x1="1520" y1="0" x2="1520" y2="600"/>
+    <line x1="1560" y1="0" x2="1560" y2="600"/>
+    <line x1="1600" y1="0" x2="1600" y2="600"/>
+    <line x1="0" y1="0" x2="1600" y2="0"/>
+    <line x1="0" y1="40" x2="1600" y2="40"/>
+    <line x1="0" y1="80" x2="1600" y2="80"/>
+    <line x1="0" y1="120" x2="1600" y2="120"/>
+    <line x1="0" y1="160" x2="1600" y2="160"/>
+    <line x1="0" y1="200" x2="1600" y2="200"/>
+    <line x1="0" y1="240" x2="1600" y2="240"/>
+    <line x1="0" y1="280" x2="1600" y2="280"/>
+    <line x1="0" y1="320" x2="1600" y2="320"/>
+    <line x1="0" y1="360" x2="1600" y2="360"/>
+    <line x1="0" y1="400" x2="1600" y2="400"/>
+    <line x1="0" y1="440" x2="1600" y2="440"/>
+    <line x1="0" y1="480" x2="1600" y2="480"/>
+    <line x1="0" y1="520" x2="1600" y2="520"/>
+    <line x1="0" y1="560" x2="1600" y2="560"/>
+    <line x1="0" y1="600" x2="1600" y2="600"/>
   </g>
   <!-- Base paths -->
-  <path d="M 40 -50 L 40 250 L 120 250" fill="none" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M 240 250 L 280 250 L 280 180 L 320 180" fill="none" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M 240 250 L 320 250" fill="none" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M 240 250 L 280 250 L 280 320 L 320 320" fill="none" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M 440 250 L 490 250 L 490 350 L 550 350" fill="none" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M 690 350 L 740 350 L 740 155 L 800 155" fill="none" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M 690 350 L 740 350 L 740 385 L 800 385" fill="none" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M 850 400 L 850 430" fill="none" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M 940 155 L 1000 155 L 1000 80 L 1250 80" fill="none" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M 850 460 L 850 500 L 1250 500" fill="none" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M 40 -50 L 40 250 L 220 250" fill="none" class="tatchi-path" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M 340 250 L 480 250 L 480 180 L 520 180" fill="none" class="tatchi-path" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M 340 250 L 520 250" fill="none" class="tatchi-path" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M 340 250 L 480 250 L 480 320 L 520 320" fill="none" class="tatchi-path" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M 640 250 L 790 250 L 790 350 L 850 350" fill="none" class="tatchi-path" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M 990 350 L 1140 350 L 1140 155 L 1200 155" fill="none" class="tatchi-path" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M 990 350 L 1140 350 L 1140 385 L 1200 385" fill="none" class="tatchi-path" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M 1250 400 L 1250 430" fill="none" class="tatchi-path" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M 1340 155 L 1400 155 L 1400 80 L 1650 80" fill="none" class="tatchi-path" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M 1250 460 L 1250 500 L 1650 500" fill="none" class="tatchi-path" stroke="rgba(100, 150, 255, 0.2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
   <!-- Nodes -->
-  <g transform="translate(120, 235)">
-    <rect x="0" y="0" width="120" height="30" rx="4" fill="rgba(32, 38, 51, 0.6)" stroke="rgba(100, 150, 255, 0.4)" stroke-width="1.5"/>
+  <g transform="translate(220, 235)">
+    <rect x="0" y="0" width="120" height="30" rx="4" class="tatchi-node" fill="rgba(32, 38, 51, 0.6)" stroke="rgba(100, 150, 255, 0.4)" stroke-width="1.5"/>
     <line x1="15" y1="15" x2="105" y2="15" stroke="rgba(200, 225, 255, 0.2)" stroke-width="3" stroke-linecap="round"/>
   </g>
-  <g transform="translate(320, 165)">
-    <rect x="0" y="0" width="120" height="30" rx="4" fill="rgba(32, 38, 51, 0.6)" stroke="rgba(100, 150, 255, 0.4)" stroke-width="1.5"/>
+  <g transform="translate(520, 165)">
+    <rect x="0" y="0" width="120" height="30" rx="4" class="tatchi-node" fill="rgba(32, 38, 51, 0.6)" stroke="rgba(100, 150, 255, 0.4)" stroke-width="1.5"/>
     <line x1="15" y1="15" x2="105" y2="15" stroke="rgba(200, 225, 255, 0.2)" stroke-width="3" stroke-linecap="round"/>
   </g>
-  <g transform="translate(320, 235)">
-    <rect x="0" y="0" width="120" height="30" rx="4" fill="rgba(32, 38, 51, 0.6)" stroke="rgba(100, 150, 255, 0.4)" stroke-width="1.5"/>
+  <g transform="translate(520, 235)">
+    <rect x="0" y="0" width="120" height="30" rx="4" class="tatchi-node" fill="rgba(32, 38, 51, 0.6)" stroke="rgba(100, 150, 255, 0.4)" stroke-width="1.5"/>
     <line x1="15" y1="15" x2="105" y2="15" stroke="rgba(200, 225, 255, 0.2)" stroke-width="3" stroke-linecap="round"/>
   </g>
-  <g transform="translate(320, 305)">
-    <rect x="0" y="0" width="120" height="30" rx="4" fill="rgba(32, 38, 51, 0.6)" stroke="rgba(100, 150, 255, 0.4)" stroke-width="1.5"/>
+  <g transform="translate(520, 305)">
+    <rect x="0" y="0" width="120" height="30" rx="4" class="tatchi-node" fill="rgba(32, 38, 51, 0.6)" stroke="rgba(100, 150, 255, 0.4)" stroke-width="1.5"/>
     <line x1="15" y1="15" x2="105" y2="15" stroke="rgba(200, 225, 255, 0.2)" stroke-width="3" stroke-linecap="round"/>
   </g>
-  <g transform="translate(550, 325)">
-    <rect x="0" y="0" width="140" height="50" rx="8" fill="rgba(40, 50, 70, 0.8)" stroke="rgba(180, 210, 255, 0.6)" stroke-width="1.5"/>
+  <g transform="translate(850, 325)">
+    <rect x="0" y="0" width="140" height="50" rx="8" class="tatchi-node" fill="rgba(40, 50, 70, 0.8)" stroke="rgba(180, 210, 255, 0.6)" stroke-width="1.5"/>
     <rect x="15" y="15" width="20" height="20" rx="3" fill="rgba(100, 180, 255, 0.2)"/>
     <line x1="45" y1="20" x2="125" y2="20" stroke="rgba(200, 225, 255, 0.3)" stroke-width="3" stroke-linecap="round"/>
     <line x1="45" y1="30" x2="100" y2="30" stroke="rgba(200, 225, 255, 0.3)" stroke-width="3" stroke-linecap="round"/>
   </g>
-  <g transform="translate(800, 140)">
-    <rect x="0" y="0" width="140" height="30" rx="4" fill="rgba(32, 38, 51, 0.6)" stroke="rgba(100, 150, 255, 0.4)" stroke-width="1.5"/>
+  <g transform="translate(1200, 140)">
+    <rect x="0" y="0" width="140" height="30" rx="4" class="tatchi-node" fill="rgba(32, 38, 51, 0.6)" stroke="rgba(100, 150, 255, 0.4)" stroke-width="1.5"/>
     <line x1="15" y1="15" x2="125" y2="15" stroke="rgba(200, 225, 255, 0.2)" stroke-width="3" stroke-linecap="round"/>
   </g>
-  <g transform="translate(800, 370)">
-    <rect x="0" y="0" width="100" height="30" rx="4" fill="rgba(32, 38, 51, 0.6)" stroke="rgba(100, 150, 255, 0.4)" stroke-width="1.5"/>
+  <g transform="translate(1200, 370)">
+    <rect x="0" y="0" width="100" height="30" rx="4" class="tatchi-node" fill="rgba(32, 38, 51, 0.6)" stroke="rgba(100, 150, 255, 0.4)" stroke-width="1.5"/>
     <line x1="15" y1="15" x2="85" y2="15" stroke="rgba(200, 225, 255, 0.2)" stroke-width="3" stroke-linecap="round"/>
   </g>
-  <g transform="translate(800, 430)">
-    <rect x="0" y="0" width="100" height="30" rx="4" fill="rgba(32, 38, 51, 0.6)" stroke="rgba(100, 150, 255, 0.4)" stroke-width="1.5"/>
+  <g transform="translate(1200, 430)">
+    <rect x="0" y="0" width="100" height="30" rx="4" class="tatchi-node" fill="rgba(32, 38, 51, 0.6)" stroke="rgba(100, 150, 255, 0.4)" stroke-width="1.5"/>
     <line x1="15" y1="15" x2="85" y2="15" stroke="rgba(200, 225, 255, 0.2)" stroke-width="3" stroke-linecap="round"/>
   </g>
-  <!-- Animated pulses -->
-  <path d="M 40 -50 L 40 250 L 120 250" fill="none" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1260">
-    <animate attributeName="stroke-dashoffset" values="460;-380" dur="4s" repeatCount="indefinite" />
+  <path d="M 40 -50 L 40 250 L 220 250" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1460">
+    <animate attributeName="stroke-dashoffset" values="560;-480" dur="4s" repeatCount="indefinite" />
   </path>
-  <path d="M 40 -50 L 40 250 L 120 250" fill="none" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 1260">
-    <animate attributeName="stroke-dashoffset" values="388;-380" dur="4s" repeatCount="indefinite" />
+  <path d="M 40 -50 L 40 250 L 220 250" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 1460">
+    <animate attributeName="stroke-dashoffset" values="488;-480" dur="4s" repeatCount="indefinite" />
   </path>
-  <path d="M 240 250 L 280 250 L 280 180 L 320 180" fill="none" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 800">
-    <animate attributeName="stroke-dashoffset" values="230;-150" dur="2s" repeatCount="indefinite" />
+  <path d="M 340 250 L 480 250 L 480 180 L 520 180" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1000">
+    <animate attributeName="stroke-dashoffset" values="330;-250" dur="2s" repeatCount="indefinite" />
   </path>
-  <path d="M 240 250 L 280 250 L 280 180 L 320 180" fill="none" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 800">
-    <animate attributeName="stroke-dashoffset" values="158;-150" dur="2s" repeatCount="indefinite" />
+  <path d="M 340 250 L 480 250 L 480 180 L 520 180" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 1000">
+    <animate attributeName="stroke-dashoffset" values="258;-250" dur="2s" repeatCount="indefinite" />
   </path>
-  <path d="M 240 250 L 320 250" fill="none" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 660">
-    <animate attributeName="stroke-dashoffset" values="160;-80" dur="1s" repeatCount="indefinite" />
+  <path d="M 340 250 L 520 250" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 860">
+    <animate attributeName="stroke-dashoffset" values="260;-180" dur="1s" repeatCount="indefinite" />
   </path>
-  <path d="M 240 250 L 320 250" fill="none" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 660">
-    <animate attributeName="stroke-dashoffset" values="88;-80" dur="1s" repeatCount="indefinite" />
+  <path d="M 340 250 L 520 250" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 860">
+    <animate attributeName="stroke-dashoffset" values="188;-180" dur="1s" repeatCount="indefinite" />
   </path>
-  <path d="M 240 250 L 280 250 L 280 320 L 320 320" fill="none" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 800">
-    <animate attributeName="stroke-dashoffset" values="230;-150" dur="2s" repeatCount="indefinite" />
+  <path d="M 340 250 L 480 250 L 480 320 L 520 320" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1000">
+    <animate attributeName="stroke-dashoffset" values="330;-250" dur="2s" repeatCount="indefinite" />
   </path>
-  <path d="M 240 250 L 280 250 L 280 320 L 320 320" fill="none" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 800">
-    <animate attributeName="stroke-dashoffset" values="158;-150" dur="2s" repeatCount="indefinite" />
+  <path d="M 340 250 L 480 250 L 480 320 L 520 320" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 1000">
+    <animate attributeName="stroke-dashoffset" values="258;-250" dur="2s" repeatCount="indefinite" />
   </path>
-  <path d="M 440 250 L 490 250 L 490 350 L 550 350" fill="none" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 920">
-    <animate attributeName="stroke-dashoffset" values="290;-210" dur="2.5s" repeatCount="indefinite" />
+  <path d="M 640 250 L 790 250 L 790 350 L 850 350" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1120">
+    <animate attributeName="stroke-dashoffset" values="390;-310" dur="2.5s" repeatCount="indefinite" />
   </path>
-  <path d="M 440 250 L 490 250 L 490 350 L 550 350" fill="none" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 920">
-    <animate attributeName="stroke-dashoffset" values="218;-210" dur="2.5s" repeatCount="indefinite" />
+  <path d="M 640 250 L 790 250 L 790 350 L 850 350" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 1120">
+    <animate attributeName="stroke-dashoffset" values="318;-310" dur="2.5s" repeatCount="indefinite" />
   </path>
-  <path d="M 690 350 L 740 350 L 740 155 L 800 155" fill="none" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1110">
-    <animate attributeName="stroke-dashoffset" values="385;-305" dur="3.5s" repeatCount="indefinite" />
+  <path d="M 990 350 L 1140 350 L 1140 155 L 1200 155" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1310">
+    <animate attributeName="stroke-dashoffset" values="485;-405" dur="3.5s" repeatCount="indefinite" />
   </path>
-  <path d="M 690 350 L 740 350 L 740 155 L 800 155" fill="none" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 1110">
-    <animate attributeName="stroke-dashoffset" values="313;-305" dur="3.5s" repeatCount="indefinite" />
+  <path d="M 990 350 L 1140 350 L 1140 155 L 1200 155" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 1310">
+    <animate attributeName="stroke-dashoffset" values="413;-405" dur="3.5s" repeatCount="indefinite" />
   </path>
-  <path d="M 690 350 L 740 350 L 740 385 L 800 385" fill="none" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 790">
-    <animate attributeName="stroke-dashoffset" values="225;-145" dur="2s" repeatCount="indefinite" />
+  <path d="M 990 350 L 1140 350 L 1140 385 L 1200 385" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 990">
+    <animate attributeName="stroke-dashoffset" values="325;-245" dur="2s" repeatCount="indefinite" />
   </path>
-  <path d="M 690 350 L 740 350 L 740 385 L 800 385" fill="none" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 790">
-    <animate attributeName="stroke-dashoffset" values="153;-145" dur="2s" repeatCount="indefinite" />
+  <path d="M 990 350 L 1140 350 L 1140 385 L 1200 385" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 990">
+    <animate attributeName="stroke-dashoffset" values="253;-245" dur="2s" repeatCount="indefinite" />
   </path>
-  <path d="M 850 400 L 850 430" fill="none" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 560">
+  <path d="M 1250 400 L 1250 430" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 560">
     <animate attributeName="stroke-dashoffset" values="110;-30" dur="0.5s" repeatCount="indefinite" />
   </path>
-  <path d="M 850 400 L 850 430" fill="none" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 560">
+  <path d="M 1250 400 L 1250 430" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 560">
     <animate attributeName="stroke-dashoffset" values="38;-30" dur="0.5s" repeatCount="indefinite" />
   </path>
-  <path d="M 940 155 L 1000 155 L 1000 80 L 1250 80" fill="none" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1270">
+  <path d="M 1340 155 L 1400 155 L 1400 80 L 1650 80" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1270">
     <animate attributeName="stroke-dashoffset" values="465;-385" dur="4s" repeatCount="indefinite" />
   </path>
-  <path d="M 940 155 L 1000 155 L 1000 80 L 1250 80" fill="none" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 1270">
+  <path d="M 1340 155 L 1400 155 L 1400 80 L 1650 80" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 1270">
     <animate attributeName="stroke-dashoffset" values="393;-385" dur="4s" repeatCount="indefinite" />
   </path>
-  <path d="M 850 460 L 850 500 L 1250 500" fill="none" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1380">
+  <path d="M 1250 460 L 1250 500 L 1650 500" fill="none" class="tatchi-light" stroke="#5debff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" stroke-dasharray="80 1380">
     <animate attributeName="stroke-dashoffset" values="520;-440" dur="4.5s" repeatCount="indefinite" />
   </path>
-  <path d="M 850 460 L 850 500 L 1250 500" fill="none" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 1380">
+  <path d="M 1250 460 L 1250 500 L 1650 500" fill="none" class="tatchi-light" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-strong)" stroke-dasharray="8 1380">
     <animate attributeName="stroke-dashoffset" values="448;-440" dur="4.5s" repeatCount="indefinite" />
   </path>
-  <circle cx="1003.5167953894194" cy="48.97633127546457" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
-    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="4.0837730027935715s" repeatCount="indefinite" />
-    <animate attributeName="cx" values="1003.5167953894194;993.1471211398764;1003.5167953894194" dur="8.167546005587143s" repeatCount="indefinite" />
-    <animate attributeName="cy" values="48.97633127546457;24.04688713267422;48.97633127546457" dur="8.167546005587143s" repeatCount="indefinite" />
+  <circle cx="563.931209662147" cy="130.4329699876832" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="7.635839726155369s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="563.931209662147;561.6758472489983;563.931209662147" dur="15.271679452310739s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="130.4329699876832;146.5043021432619;130.4329699876832" dur="15.271679452310739s" repeatCount="indefinite" />
   </circle>
-  <circle cx="367.2522095543468" cy="67.30394289902986" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
-    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="4.950330724660699s" repeatCount="indefinite" />
-    <animate attributeName="cx" values="367.2522095543468;367.3623510346575;367.2522095543468" dur="9.900661449321397s" repeatCount="indefinite" />
-    <animate attributeName="cy" values="67.30394289902986;70.54926755555947;67.30394289902986" dur="9.900661449321397s" repeatCount="indefinite" />
+  <circle cx="317.69878039631044" cy="238.67708592193685" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="6.019344084863514s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="317.69878039631044;336.78909244118347;317.69878039631044" dur="12.038688169727028s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="238.67708592193685;223.9299174870921;238.67708592193685" dur="12.038688169727028s" repeatCount="indefinite" />
   </circle>
-  <circle cx="998.089709623787" cy="395.347375293483" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
-    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="8.476724028264393s" repeatCount="indefinite" />
-    <animate attributeName="cx" values="998.089709623787;977.9012607947917;998.089709623787" dur="16.953448056528785s" repeatCount="indefinite" />
-    <animate attributeName="cy" values="395.347375293483;401.3039797162352;395.347375293483" dur="16.953448056528785s" repeatCount="indefinite" />
+  <circle cx="796.3443120321596" cy="219.32402285853613" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="8.420916290615066s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="796.3443120321596;799.6768862987618;796.3443120321596" dur="16.841832581230133s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="219.32402285853613;203.34498536410496;219.32402285853613" dur="16.841832581230133s" repeatCount="indefinite" />
   </circle>
-  <circle cx="104.95356064885186" cy="485.33107835676805" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
-    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="8.666043649398734s" repeatCount="indefinite" />
-    <animate attributeName="cx" values="104.95356064885186;101.6109340113064;104.95356064885186" dur="17.332087298797468s" repeatCount="indefinite" />
-    <animate attributeName="cy" values="485.33107835676805;464.3142158427353;485.33107835676805" dur="17.332087298797468s" repeatCount="indefinite" />
+  <circle cx="485.0953956199255" cy="428.5664916249369" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="7.750985998885444s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="485.0953956199255;478.44970523060323;485.0953956199255" dur="15.501971997770887s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="428.5664916249369;410.6295867535757;428.5664916249369" dur="15.501971997770887s" repeatCount="indefinite" />
   </circle>
-  <circle cx="984.8248470312765" cy="126.5769438326795" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
-    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="4.088797734520776s" repeatCount="indefinite" />
-    <animate attributeName="cx" values="984.8248470312765;1007.5485979601723;984.8248470312765" dur="8.177595469041552s" repeatCount="indefinite" />
-    <animate attributeName="cy" values="126.5769438326795;133.6353993701868;126.5769438326795" dur="8.177595469041552s" repeatCount="indefinite" />
+  <circle cx="668.9865252743161" cy="354.767049241693" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="5.327509730182501s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="668.9865252743161;685.1292394389761;668.9865252743161" dur="10.655019460365002s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="354.767049241693;378.63192300531597;354.767049241693" dur="10.655019460365002s" repeatCount="indefinite" />
   </circle>
-  <circle cx="563.9667258624573" cy="129.56091776617185" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
-    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="5.877113094197339s" repeatCount="indefinite" />
-    <animate attributeName="cx" values="563.9667258624573;540.8807106939987;563.9667258624573" dur="11.754226188394679s" repeatCount="indefinite" />
-    <animate attributeName="cy" values="129.56091776617185;127.1872349203749;129.56091776617185" dur="11.754226188394679s" repeatCount="indefinite" />
+  <circle cx="1486.1581365567317" cy="449.95498582965376" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="4.272117480313032s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="1486.1581365567317;1480.295267698509;1486.1581365567317" dur="8.544234960626063s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="449.95498582965376;426.45688829364985;449.95498582965376" dur="8.544234960626063s" repeatCount="indefinite" />
   </circle>
-  <circle cx="401.95644190330665" cy="493.44827809396435" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
-    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="7.74649478264325s" repeatCount="indefinite" />
-    <animate attributeName="cx" values="401.95644190330665;384.28776722252263;401.95644190330665" dur="15.4929895652865s" repeatCount="indefinite" />
-    <animate attributeName="cy" values="493.44827809396435;471.6594994295207;493.44827809396435" dur="15.4929895652865s" repeatCount="indefinite" />
+  <circle cx="1178.3788403545245" cy="303.9001628472759" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="5.229239115051309s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="1178.3788403545245;1172.6699722398694;1178.3788403545245" dur="10.458478230102617s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="303.9001628472759;303.0442768355575;303.9001628472759" dur="10.458478230102617s" repeatCount="indefinite" />
   </circle>
-  <circle cx="818.60469916198" cy="541.6080487258248" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
-    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="5.480985289445278s" repeatCount="indefinite" />
-    <animate attributeName="cx" values="818.60469916198;811.8293434862949;818.60469916198" dur="10.961970578890556s" repeatCount="indefinite" />
-    <animate attributeName="cy" values="541.6080487258248;556.100142420389;541.6080487258248" dur="10.961970578890556s" repeatCount="indefinite" />
+  <circle cx="530.790386879492" cy="218.14273215141893" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="6.88764572272028s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="530.790386879492;536.3631906232687;530.790386879492" dur="13.77529144544056s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="218.14273215141893;197.41762558012442;218.14273215141893" dur="13.77529144544056s" repeatCount="indefinite" />
   </circle>
-  <circle cx="662.1903566010463" cy="164.84448941432984" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
-    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="7.2064249721055464s" repeatCount="indefinite" />
-    <animate attributeName="cx" values="662.1903566010463;686.2209114885378;662.1903566010463" dur="14.412849944211093s" repeatCount="indefinite" />
-    <animate attributeName="cy" values="164.84448941432984;168.32744396684788;164.84448941432984" dur="14.412849944211093s" repeatCount="indefinite" />
+  <circle cx="1144.5900427453846" cy="27.567576898668644" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="5.803070829920394s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="1144.5900427453846;1139.6250127398198;1144.5900427453846" dur="11.606141659840787s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="27.567576898668644;15.42712690236524;27.567576898668644" dur="11.606141659840787s" repeatCount="indefinite" />
   </circle>
-  <circle cx="1166.6571480671828" cy="560.006513404777" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
-    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="5.880676425705658s" repeatCount="indefinite" />
-    <animate attributeName="cx" values="1166.6571480671828;1191.171414616598;1166.6571480671828" dur="11.761352851411315s" repeatCount="indefinite" />
-    <animate attributeName="cy" values="560.006513404777;554.2119524865519;560.006513404777" dur="11.761352851411315s" repeatCount="indefinite" />
+  <circle cx="1245.6029653798269" cy="396.87947177865254" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="5.049226139788645s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="1245.6029653798269;1225.7903965063235;1245.6029653798269" dur="10.09845227957729s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="396.87947177865254;394.4168961084619;396.87947177865254" dur="10.09845227957729s" repeatCount="indefinite" />
   </circle>
-  <circle cx="183.73385270911848" cy="368.3046945161841" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
-    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="8.750507644343127s" repeatCount="indefinite" />
-    <animate attributeName="cx" values="183.73385270911848;191.10763150740686;183.73385270911848" dur="17.501015288686254s" repeatCount="indefinite" />
-    <animate attributeName="cy" values="368.3046945161841;360.78173039976144;368.3046945161841" dur="17.501015288686254s" repeatCount="indefinite" />
+  <circle cx="1452.9881489036181" cy="285.16658918267035" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="8.473678145700534s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="1452.9881489036181;1435.0537235547247;1452.9881489036181" dur="16.947356291401068s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="285.16658918267035;299.72039861947286;285.16658918267035" dur="16.947356291401068s" repeatCount="indefinite" />
   </circle>
-  <circle cx="695.419036341284" cy="162.39692207908863" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
-    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="6.142636619125047s" repeatCount="indefinite" />
-    <animate attributeName="cx" values="695.419036341284;682.4398751012487;695.419036341284" dur="12.285273238250094s" repeatCount="indefinite" />
-    <animate attributeName="cy" values="162.39692207908863;170.71843369966814;162.39692207908863" dur="12.285273238250094s" repeatCount="indefinite" />
+  <circle cx="948.11562978906" cy="336.8331543703106" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="6.412052386159392s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="948.11562978906;946.401421158732;948.11562978906" dur="12.824104772318783s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="336.8331543703106;345.02882668699414;336.8331543703106" dur="12.824104772318783s" repeatCount="indefinite" />
   </circle>
-  <circle cx="1160.2325502304557" cy="576.0883326152231" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
-    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="4.471791686575242s" repeatCount="indefinite" />
-    <animate attributeName="cx" values="1160.2325502304557;1142.9242005684405;1160.2325502304557" dur="8.943583373150483s" repeatCount="indefinite" />
-    <animate attributeName="cy" values="576.0883326152231;563.6162259893775;576.0883326152231" dur="8.943583373150483s" repeatCount="indefinite" />
+  <circle cx="944.5887162733193" cy="391.1397167146232" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="8.508901739279265s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="944.5887162733193;967.7120384763007;944.5887162733193" dur="17.01780347855853s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="391.1397167146232;372.16971878726525;391.1397167146232" dur="17.01780347855853s" repeatCount="indefinite" />
   </circle>
-  <circle cx="663.78439496705" cy="284.32894040001287" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
-    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="6.849195239066007s" repeatCount="indefinite" />
-    <animate attributeName="cx" values="663.78439496705;683.3309100109591;663.78439496705" dur="13.698390478132014s" repeatCount="indefinite" />
-    <animate attributeName="cy" values="284.32894040001287;278.1868551093913;284.32894040001287" dur="13.698390478132014s" repeatCount="indefinite" />
+  <circle cx="1297.5186068979472" cy="33.58596835378509" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="7.434074181399154s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="1297.5186068979472;1299.829760103108;1297.5186068979472" dur="14.868148362798308s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="33.58596835378509;23.22326236882806;33.58596835378509" dur="14.868148362798308s" repeatCount="indefinite" />
   </circle>
-  <circle cx="654.1892136002031" cy="375.14464567984334" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
-    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="8.4262092027893s" repeatCount="indefinite" />
-    <animate attributeName="cx" values="654.1892136002031;642.7773680793705;654.1892136002031" dur="16.8524184055786s" repeatCount="indefinite" />
-    <animate attributeName="cy" values="375.14464567984334;393.82344478112935;375.14464567984334" dur="16.8524184055786s" repeatCount="indefinite" />
+  <circle cx="648.9365867810562" cy="157.84438359313987" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="6.379205444267835s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="648.9365867810562;671.5592363705499;648.9365867810562" dur="12.75841088853567s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="157.84438359313987;164.02169027220353;157.84438359313987" dur="12.75841088853567s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="811.8947845543343" cy="228.93129584869612" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="4.229750824012199s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="811.8947845543343;817.596230886613;811.8947845543343" dur="8.459501648024398s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="228.93129584869612;235.9729361255608;228.93129584869612" dur="8.459501648024398s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="1038.7030832825303" cy="167.05944095247477" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="5.678750935296536s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="1038.7030832825303;1014.5120916909756;1038.7030832825303" dur="11.357501870593072s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="167.05944095247477;142.9000353299008;167.05944095247477" dur="11.357501870593072s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="670.5031239846492" cy="354.42294856442544" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="4.740826040436976s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="670.5031239846492;655.0820047422997;670.5031239846492" dur="9.481652080873952s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="354.42294856442544;373.0610396222517;354.42294856442544" dur="9.481652080873952s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="94.71433256224273" cy="597.8490961824754" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="5.472430069274849s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="94.71433256224273;96.66509269073255;94.71433256224273" dur="10.944860138549698s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="597.8490961824754;587.2950420687208;597.8490961824754" dur="10.944860138549698s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="577.4567815902657" cy="537.3285727989997" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="8.77836567326992s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="577.4567815902657;573.1012584217144;577.4567815902657" dur="17.55673134653984s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="537.3285727989997;529.612678643288;537.3285727989997" dur="17.55673134653984s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="404.68949158006814" cy="145.6506836982587" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="7.968159383654734s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="404.68949158006814;426.61535830736756;404.68949158006814" dur="15.936318767309468s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="145.6506836982587;127.28469916293496;145.6506836982587" dur="15.936318767309468s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="1230.7802359378998" cy="570.3582349019024" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="6.923039575383108s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="1230.7802359378998;1214.5241377264529;1230.7802359378998" dur="13.846079150766217s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="570.3582349019024;560.3827357427707;570.3582349019024" dur="13.846079150766217s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="564.1363579170619" cy="31.402738705814272" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="5.853002333032441s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="564.1363579170619;542.866495577873;564.1363579170619" dur="11.706004666064882s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="31.402738705814272;15.106896655618687;31.402738705814272" dur="11.706004666064882s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="1552.2044716978598" cy="280.9526422290999" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="7.408996539800999s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="1552.2044716978598;1544.32397208696;1552.2044716978598" dur="14.817993079601997s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="280.9526422290999;283.7883657925825;280.9526422290999" dur="14.817993079601997s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="1241.7400595260171" cy="295.3632982936935" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="7.089451879554172s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="1241.7400595260171;1263.2264018090293;1241.7400595260171" dur="14.178903759108344s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="295.3632982936935;305.3184348375656;295.3632982936935" dur="14.178903759108344s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="192.4622075213765" cy="321.3830813324363" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="6.386633711635286s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="192.4622075213765;184.4413780093481;192.4622075213765" dur="12.773267423270571s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="321.3830813324363;321.14029611593503;321.3830813324363" dur="12.773267423270571s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="15.18576909184759" cy="372.0007097606371" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="6.388719857219856s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="15.18576909184759;-2.5069174879938636;15.18576909184759" dur="12.777439714439712s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="372.0007097606371;375.4972243650494;372.0007097606371" dur="12.777439714439712s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="1298.5035861312388" cy="34.93196836633774" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="5.750218627795588s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="1298.5035861312388;1315.7525716557402;1298.5035861312388" dur="11.500437255591176s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="34.93196836633774;12.009563032046625;34.93196836633774" dur="11.500437255591176s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="235.52684140439163" cy="38.24459892635033" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="6.0547052398347105s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="235.52684140439163;223.9320407009711;235.52684140439163" dur="12.109410479669421s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="38.24459892635033;54.64435198282241;38.24459892635033" dur="12.109410479669421s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="1587.522394459447" cy="391.7058378944559" r="1.5" fill="rgba(100, 200, 255, 0.8)" opacity="0.3">
+    <animate attributeName="opacity" values="0.1;0.6;0.1" dur="7.501941511466194s" repeatCount="indefinite" />
+    <animate attributeName="cx" values="1587.522394459447;1586.7101049619005;1587.522394459447" dur="15.003883022932389s" repeatCount="indefinite" />
+    <animate attributeName="cy" values="391.7058378944559;375.3155672608344;391.7058378944559" dur="15.003883022932389s" repeatCount="indefinite" />
   </circle>
 </svg>

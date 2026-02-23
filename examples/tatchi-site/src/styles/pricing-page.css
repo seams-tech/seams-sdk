@@ -29,7 +29,7 @@
 
 .pricing-hero {
   text-align: center;
-  margin: 0 auto;
+  margin: 1rem auto;
   max-width: 860px;
   display: grid;
   gap: 12px;
@@ -382,6 +382,7 @@
 }
 
 @media (max-width: 1080px) {
+
   .pricing-cards,
   .pricing-includes-grid,
   .pricing-cta {
