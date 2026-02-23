@@ -12,6 +12,7 @@ const loadPromiseCache = new Map<string, Promise<string>>()
 const SVG_OPEN_TAG_PATTERN = /<svg\b[^>]*>/i
 const SVG_RECT_TAG_PATTERN = /<rect\b[^>]*\/?>/gi
 const SVG_PATH_TAG_PATTERN = /<path\b[^>]*\/?>/gi
+const SVG_RGBA_COLOR_PATTERN = /rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*([+-]?\d*\.?\d+)\s*\)/gi
 
 function parseSvgDimension(svgTag: string, attribute: 'width' | 'height'): number | null {
   const match = svgTag.match(new RegExp(`\\b${attribute}=["']\\s*([-+]?\\d*\\.?\\d+)`))
@@ -66,7 +67,13 @@ function isApproximatelyEqual(left: number, right: number, tolerance = 0.01): bo
 function isSecurityCanvasFill(fillValue: string | null): boolean {
   if (!fillValue) return false
   const normalized = fillValue.replace(/\s+/g, '').toLowerCase()
-  return normalized === '#2a3144' || normalized === 'var(--security-diagram-canvas,#2a3144)'
+  return (
+    normalized === '#2a3144'
+    || normalized === '#202633'
+    || normalized === 'var(--security-diagram-canvas,#2a3144)'
+    || normalized === 'var(--security-diagram-canvas,#202633)'
+    || normalized === 'url(#bggrad)'
+  )
 }
 
 function getSvgCanvasSize(svgTag: string): { width: number; height: number } | null {
@@ -212,10 +219,87 @@ function normalizeSvgMarkup(svgMarkup: string): string {
   return svgMarkup.replace(originalSvgTag, normalizedSvgTag)
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
+function formatAlphaPercent(alpha: number): string {
+  const normalized = clamp(alpha, 0, 1)
+  const rounded = Math.round(normalized * 1000) / 10
+  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded}%`
+}
+
+function toAlphaColorMix(variableName: string, fallbackColor: string, alpha: number): string {
+  const percent = formatAlphaPercent(alpha)
+  return `color-mix(in srgb, var(${variableName}, ${fallbackColor}) ${percent}, transparent)`
+}
+
+function themedRgbaColor(
+  red: number,
+  green: number,
+  blue: number,
+  alpha: number,
+): string | null {
+  const colorKey = `${red},${green},${blue}`
+
+  switch (colorKey) {
+    case '200,225,255':
+      return toAlphaColorMix('--security-diagram-line-strong', '#c8e1ff', alpha)
+    case '180,210,255':
+      return toAlphaColorMix('--security-diagram-line-strong', '#b4d2ff', alpha)
+    case '150,190,255':
+      return toAlphaColorMix('--security-diagram-line', '#96beff', alpha)
+    case '100,150,255':
+      return toAlphaColorMix('--security-diagram-line', '#6496ff', alpha)
+    case '100,180,255':
+      return toAlphaColorMix('--diagram-glow', '#64b4ff', alpha)
+    case '100,200,255':
+      return toAlphaColorMix('--diagram-node', '#64c8ff', alpha)
+    case '100,255,150':
+      return toAlphaColorMix('--security-diagram-line-strong', '#64ff96', alpha)
+    case '80,150,255':
+      return toAlphaColorMix('--diagram-glow', '#5096ff', alpha)
+    case '40,90,180':
+      return toAlphaColorMix('--security-diagram-line', '#285ab4', alpha)
+    case '32,38,51':
+      return toAlphaColorMix('--security-diagram-canvas', '#202633', alpha)
+    case '40,50,70':
+      return toAlphaColorMix('--security-diagram-canvas', '#283246', alpha)
+    default:
+      return null
+  }
+}
+
+function mapLegacyDiagramColors(svgMarkup: string): string {
+  let themedMarkup = svgMarkup
+    .replace(/#2a3243/gi, 'var(--security-diagram-canvas-top, #2a3243)')
+    .replace(/#181e29/gi, 'var(--security-diagram-canvas-bottom, #181e29)')
+    .replace(
+      /#1a1f2b/gi,
+      'color-mix(in srgb, var(--site-surface, #f5f1ea) 72%, var(--security-diagram-canvas, #1a1f2b) 28%)',
+    )
+
+  themedMarkup = themedMarkup.replace(
+    SVG_RGBA_COLOR_PATTERN,
+    (originalColor, red, green, blue, alpha) => {
+      const mappedColor = themedRgbaColor(
+        Number.parseInt(red, 10),
+        Number.parseInt(green, 10),
+        Number.parseInt(blue, 10),
+        Number.parseFloat(alpha),
+      )
+      return mappedColor ?? originalColor
+    },
+  )
+
+  return themedMarkup
+}
+
 function toThemedMarkup(svgMarkup: string): string {
   let themedSvg = svgMarkup.replace(/^\s*<\?xml[^>]*>\s*/i, '')
   themedSvg = normalizeSvgMarkup(themedSvg)
   themedSvg = stripFullCanvasFill(themedSvg)
+  themedSvg = mapLegacyDiagramColors(themedSvg)
   return themedSvg
 }
 

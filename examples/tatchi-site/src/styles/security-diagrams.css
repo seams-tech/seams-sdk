@@ -222,11 +222,11 @@ html[data-w3a-theme="light"] .security-diagrams {
 }
 
 .security-diagrams__art-wrap--custody {
-  --security-diagram-canvas: color-mix(in srgb, #202a3f 58%, transparent);
+  --security-diagram-canvas: color-mix(in srgb, var(--site-surface-strong) 78%, var(--site-canvas) 22%);
   --security-art-bg:
     radial-gradient(
       140% 164% at 8% -28%,
-      color-mix(in srgb, var(--site-brand) 22%, transparent) 0%,
+      color-mix(in srgb, var(--site-brand) 24%, transparent) 0%,
       transparent 58%
     ),
     radial-gradient(
@@ -236,68 +236,68 @@ html[data-w3a-theme="light"] .security-diagrams {
     ),
     linear-gradient(
       164deg,
-      color-mix(in srgb, #222c41 82%, var(--site-surface-strong) 18%) 0%,
-      color-mix(in srgb, #1a2234 86%, var(--site-surface-muted) 14%) 100%
+      color-mix(in srgb, var(--site-surface-strong) 86%, var(--site-brand) 14%) 0%,
+      color-mix(in srgb, var(--site-surface-muted) 90%, var(--site-canvas) 10%) 100%
     );
 }
 
 .security-diagrams__art-wrap--defense {
-  --security-diagram-canvas: color-mix(in srgb, #2a2f45 56%, transparent);
+  --security-diagram-canvas: color-mix(in srgb, var(--site-surface-strong) 76%, var(--site-canvas) 24%);
   --security-art-bg:
     radial-gradient(
       132% 144% at 14% -24%,
-      color-mix(in srgb, #5d6b9c 26%, transparent) 0%,
+      color-mix(in srgb, var(--site-brand-hover) 22%, transparent) 0%,
       transparent 56%
     ),
     radial-gradient(
       130% 140% at 94% 106%,
-      color-mix(in srgb, #8f7eaa 20%, transparent) 0%,
+      color-mix(in srgb, var(--site-accent) 18%, transparent) 0%,
       transparent 62%
     ),
     linear-gradient(
       164deg,
-      color-mix(in srgb, #1d273a 80%, var(--site-surface-strong) 20%) 0%,
-      color-mix(in srgb, #202a3f 86%, var(--site-surface-muted) 14%) 100%
+      color-mix(in srgb, var(--site-surface-strong) 84%, var(--site-brand-hover) 16%) 0%,
+      color-mix(in srgb, var(--site-surface-muted) 90%, var(--site-canvas) 10%) 100%
     );
 }
 
 .security-diagrams__art-wrap--scale {
-  --security-diagram-canvas: color-mix(in srgb, #2e2d43 56%, transparent);
+  --security-diagram-canvas: color-mix(in srgb, var(--site-surface-strong) 74%, var(--site-canvas) 26%);
   --security-art-bg:
     radial-gradient(
       124% 140% at 50% -30%,
-      color-mix(in srgb, #8c74a7 28%, transparent) 0%,
+      color-mix(in srgb, var(--site-accent) 24%, transparent) 0%,
       transparent 56%
     ),
     radial-gradient(
       120% 136% at 88% 102%,
-      color-mix(in srgb, #ad8d95 20%, transparent) 0%,
+      color-mix(in srgb, var(--site-brand-hover) 18%, transparent) 0%,
       transparent 62%
     ),
     linear-gradient(
       166deg,
-      color-mix(in srgb, #22243b 84%, var(--site-surface-strong) 16%) 0%,
-      color-mix(in srgb, #222336 88%, var(--site-surface-muted) 12%) 100%
+      color-mix(in srgb, var(--site-surface-strong) 84%, var(--site-accent) 16%) 0%,
+      color-mix(in srgb, var(--site-surface-muted) 89%, var(--site-canvas) 11%) 100%
     );
 }
 
 .security-diagrams__art-wrap--friction {
-  --security-diagram-canvas: color-mix(in srgb, #2f3044 56%, transparent);
+  --security-diagram-canvas: color-mix(in srgb, var(--site-surface-strong) 72%, var(--site-canvas) 28%);
   --security-art-bg:
     radial-gradient(
       132% 150% at 14% -26%,
-      color-mix(in srgb, #846f9e 24%, transparent) 0%,
+      color-mix(in srgb, var(--site-brand) 20%, transparent) 0%,
       transparent 56%
     ),
     radial-gradient(
       126% 138% at 96% 108%,
-      color-mix(in srgb, #b68f90 22%, transparent) 0%,
+      color-mix(in srgb, var(--site-brand-hover) 20%, transparent) 0%,
       transparent 60%
     ),
     linear-gradient(
       165deg,
-      color-mix(in srgb, #1d2638 84%, var(--site-surface-strong) 16%) 0%,
-      color-mix(in srgb, #25263a 88%, var(--site-surface-muted) 12%) 100%
+      color-mix(in srgb, var(--site-surface-strong) 82%, var(--site-brand) 18%) 0%,
+      color-mix(in srgb, var(--site-surface-muted) 88%, var(--site-canvas) 12%) 100%
     );
 }
 
@@ -386,86 +386,86 @@ html[data-w3a-theme="light"] .security-diagrams__art-wrap {
 }
 
 html[data-w3a-theme="light"] .security-diagrams__art-wrap--custody {
-  --security-diagram-canvas: color-mix(in srgb, #c7d6ea 36%, transparent);
+  --security-diagram-canvas: color-mix(in srgb, var(--site-surface-muted) 84%, var(--site-brand) 16%);
   --security-art-bg:
     radial-gradient(
       132% 142% at 12% -24%,
-      color-mix(in srgb, #cfbedf 40%, transparent) 0%,
+      color-mix(in srgb, var(--site-brand) 22%, transparent) 0%,
       transparent 56%
     ),
     radial-gradient(
       128% 136% at 94% 106%,
-      color-mix(in srgb, #d8dbe8 30%, transparent) 0%,
+      color-mix(in srgb, var(--site-accent) 16%, transparent) 0%,
       transparent 60%
     ),
     linear-gradient(
       168deg,
-      #e7e0ef 0%,
-      #e2e8f2 58%,
-      #e8e9f2 100%
+      color-mix(in srgb, var(--site-surface) 94%, var(--site-brand) 6%) 0%,
+      color-mix(in srgb, var(--site-surface-muted) 92%, var(--site-accent) 8%) 58%,
+      color-mix(in srgb, var(--site-surface) 90%, var(--site-brand-hover) 10%) 100%
     );
 }
 
 html[data-w3a-theme="light"] .security-diagrams__art-wrap--defense {
-  --security-diagram-canvas: color-mix(in srgb, #d9cde4 34%, transparent);
+  --security-diagram-canvas: color-mix(in srgb, var(--site-surface-muted) 82%, var(--site-brand-hover) 18%);
   --security-art-bg:
     radial-gradient(
       120% 132% at 8% -24%,
-      color-mix(in srgb, #d8cae4 34%, transparent) 0%,
+      color-mix(in srgb, var(--site-brand-hover) 20%, transparent) 0%,
       transparent 56%
     ),
     radial-gradient(
       126% 140% at 92% 108%,
-      color-mix(in srgb, #efdbcf 26%, transparent) 0%,
+      color-mix(in srgb, var(--site-accent) 16%, transparent) 0%,
       transparent 62%
     ),
     linear-gradient(
       170deg,
-      #e8e2ee 0%,
-      #e6e3eb 52%,
-      #efe4dd 100%
+      color-mix(in srgb, var(--site-surface) 94%, var(--site-brand-hover) 6%) 0%,
+      color-mix(in srgb, var(--site-surface-muted) 92%, var(--site-brand) 8%) 52%,
+      color-mix(in srgb, var(--site-surface) 90%, var(--site-accent) 10%) 100%
     );
 }
 
 html[data-w3a-theme="light"] .security-diagrams__art-wrap--scale {
-  --security-diagram-canvas: color-mix(in srgb, #d8cde4 34%, transparent);
+  --security-diagram-canvas: color-mix(in srgb, var(--site-surface-muted) 80%, var(--site-accent) 20%);
   --security-art-bg:
     radial-gradient(
       122% 130% at 12% -24%,
-      color-mix(in srgb, #d9c9e7 32%, transparent) 0%,
+      color-mix(in srgb, var(--site-accent) 20%, transparent) 0%,
       transparent 56%
     ),
     radial-gradient(
       118% 132% at 92% 108%,
-      color-mix(in srgb, #e6d7df 26%, transparent) 0%,
+      color-mix(in srgb, var(--site-brand-hover) 16%, transparent) 0%,
       transparent 62%
     ),
     linear-gradient(
       168deg,
-      #e8e1ef 0%,
-      #ebe3ec 52%,
-      #efe6e2 100%
+      color-mix(in srgb, var(--site-surface) 93%, var(--site-accent) 7%) 0%,
+      color-mix(in srgb, var(--site-surface-muted) 92%, var(--site-brand-hover) 8%) 52%,
+      color-mix(in srgb, var(--site-surface) 90%, var(--site-brand) 10%) 100%
     );
 }
 
 html[data-w3a-theme="light"] .security-diagrams__art-wrap--friction {
-  --security-diagram-canvas: color-mix(in srgb, #e3cee0 34%, transparent);
+  --security-diagram-canvas: color-mix(in srgb, var(--site-surface-muted) 78%, var(--site-brand) 22%);
   --security-art-bg:
     radial-gradient(
       118% 132% at 52% -24%,
-      color-mix(in srgb, #dcc8e8 30%, transparent) 0%,
+      color-mix(in srgb, var(--site-brand) 18%, transparent) 0%,
       transparent 58%
     ),
     radial-gradient(
       120% 136% at 94% 104%,
-      color-mix(in srgb, #efd8cc 24%, transparent) 0%,
+      color-mix(in srgb, var(--site-brand-hover) 16%, transparent) 0%,
       transparent 62%
     ),
     linear-gradient(
       172deg,
-      #eee4f3 0%,
-      #f1e9ef 54%,
-      #f4ede6 100%
+      color-mix(in srgb, var(--site-surface) 92%, var(--site-brand) 8%) 0%,
+      color-mix(in srgb, var(--site-surface-muted) 90%, var(--site-brand-hover) 10%) 54%,
+      color-mix(in srgb, var(--site-surface) 88%, var(--site-accent) 12%) 100%
     );
 }
 

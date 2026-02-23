@@ -19,8 +19,15 @@ function useDiagramStyle(props: SecurityDiagramProps): React.CSSProperties {
 
     if (props.glowColor) vars['--diagram-glow'] = props.glowColor;
     if (props.nodeColor) vars['--diagram-node'] = props.nodeColor;
-    if (props.canvasColor) vars['--security-diagram-canvas'] = props.canvasColor;
-    if (props.lineColor) vars['--security-diagram-line'] = props.lineColor;
+    if (props.canvasColor) {
+        vars['--security-diagram-canvas'] = props.canvasColor;
+        vars['--security-diagram-canvas-top'] = `color-mix(in srgb, ${props.canvasColor} 86%, var(--site-canvas) 14%)`;
+        vars['--security-diagram-canvas-bottom'] = `color-mix(in srgb, ${props.canvasColor} 68%, var(--site-canvas) 32%)`;
+    }
+    if (props.lineColor) {
+        vars['--security-diagram-line'] = props.lineColor;
+        vars['--security-diagram-line-strong'] = `color-mix(in srgb, ${props.lineColor} 78%, var(--site-text-primary) 22%)`;
+    }
 
     return { ...props.style, ...vars } as React.CSSProperties;
 }

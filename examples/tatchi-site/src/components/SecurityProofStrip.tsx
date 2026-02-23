@@ -4,6 +4,7 @@ import {
   SecurityDefenseDiagram,
   SecurityScaleDiagram,
   SecurityFrictionDiagram,
+  type SecurityDiagramProps,
 } from './SecurityDiagrams'
 
 type SecurityCard = {
@@ -45,11 +46,31 @@ const securityCards: SecurityCard[] = [
   },
 ]
 
-const frictionDiagramThemeColors = {
-  glowColor: 'color-mix(in srgb, var(--site-brand) 70%, var(--site-brand-hover) 30%)',
-  nodeColor: 'color-mix(in srgb, var(--site-brand-hover) 62%, var(--site-text-primary) 38%)',
-  lineColor: 'color-mix(in srgb, var(--site-border) 36%, transparent)',
-  canvasColor: 'color-mix(in srgb, var(--site-surface-strong) 78%, var(--site-canvas) 22%)',
+const securityDiagramThemeColors: Record<SecurityCard['id'], SecurityDiagramProps> = {
+  custody: {
+    glowColor: 'color-mix(in srgb, var(--site-brand) 64%, var(--site-accent) 36%)',
+    nodeColor: 'color-mix(in srgb, var(--site-accent) 58%, var(--site-text-primary) 42%)',
+    lineColor: 'color-mix(in srgb, var(--site-border) 44%, var(--site-brand) 56%)',
+    canvasColor: 'color-mix(in srgb, var(--site-surface-strong) 76%, var(--site-canvas) 24%)',
+  },
+  defense: {
+    glowColor: 'color-mix(in srgb, var(--site-brand-hover) 60%, var(--site-accent) 40%)',
+    nodeColor: 'color-mix(in srgb, var(--site-accent) 54%, var(--site-text-primary) 46%)',
+    lineColor: 'color-mix(in srgb, var(--site-border) 42%, var(--site-brand-hover) 58%)',
+    canvasColor: 'color-mix(in srgb, var(--site-surface-strong) 74%, var(--site-canvas) 26%)',
+  },
+  scale: {
+    glowColor: 'color-mix(in srgb, var(--site-accent) 58%, var(--site-brand) 42%)',
+    nodeColor: 'color-mix(in srgb, var(--site-brand-hover) 56%, var(--site-text-primary) 44%)',
+    lineColor: 'color-mix(in srgb, var(--site-border) 46%, var(--site-brand) 54%)',
+    canvasColor: 'color-mix(in srgb, var(--site-surface-strong) 72%, var(--site-canvas) 28%)',
+  },
+  friction: {
+    glowColor: 'color-mix(in srgb, var(--site-brand) 70%, var(--site-brand-hover) 30%)',
+    nodeColor: 'color-mix(in srgb, var(--site-brand-hover) 62%, var(--site-text-primary) 38%)',
+    lineColor: 'color-mix(in srgb, var(--site-text-primary) 72%, var(--site-brand) 28%)',
+    canvasColor: 'color-mix(in srgb, var(--site-surface-strong) 78%, var(--site-canvas) 22%)',
+  },
 }
 
 export function SecurityProofStrip(): React.JSX.Element {
@@ -76,7 +97,7 @@ export function SecurityProofStrip(): React.JSX.Element {
               <item.Diagram
                 className="security-diagrams__art"
                 alt={item.diagramAlt}
-                {...(item.id === 'friction' ? frictionDiagramThemeColors : {})}
+                {...securityDiagramThemeColors[item.id]}
               />
             </div>
             <div className="security-diagrams__body">

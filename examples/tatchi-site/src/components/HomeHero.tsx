@@ -42,7 +42,7 @@ export function HomeHero(): React.JSX.Element {
     <>
       <section className="hero" aria-labelledby="hero-title">
         <h1 id="hero-title" className="hero-title">
-          Seamless Embedded Wallets, Secured by Passkeys + MPC
+          Simple Embedded Wallets, Secured by Passkeys + MPC
           <span className="touch-icon-pattern-position" aria-hidden="true">
             <TouchIcon
               style={{ color: theme === 'dark' ? 'var(--w3a-colors-surface)' : 'var(--w3a-colors-surface2)' }}
