@@ -4,10 +4,6 @@ import { NonceManager } from '@/core/rpcClients/near/nonceManager';
 import NonceManagerInstance from '@/core/rpcClients/near/nonceManager';
 import type { ThemeName, ThemeTokenOverridesInput, TatchiConfigs } from '@/core/types/tatchi';
 import {
-  createTouchConfirmManager,
-  type TouchConfirmManager,
-} from '../touchConfirm';
-import {
   createTouchConfirmBridge,
   type TouchConfirmBridge,
 } from './touchConfirmBridge';
@@ -35,9 +31,9 @@ export function createManagerAssembly(args: {
   userPreferencesManager.configureDefaultSignerMode?.(args.tatchiPasskeyConfigs.signerMode);
   const nonceManager = NonceManagerInstance;
 
-  const touchConfirmManager = createTouchConfirmManager(
-    {},
-    {
+  const touchConfirm = createTouchConfirmBridge({
+    config: {},
+    context: {
       touchIdPrompt: touchIdPrompt,
       nearClient: args.nearClient,
       indexedDB: IndexedDBManager,
@@ -48,8 +44,7 @@ export function createManagerAssembly(args: {
       getTheme: args.getTheme,
       getAppearanceTokens: args.getAppearanceTokens,
     },
-  );
-  const touchConfirm = createTouchConfirmBridge(touchConfirmManager);
+  });
 
   const signerWorkerManager = new SignerWorkerManager(
     touchConfirm,

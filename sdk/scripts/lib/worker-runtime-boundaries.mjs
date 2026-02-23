@@ -206,8 +206,9 @@ export function findWorkerRuntimeBoundaryViolations(repoRoot) {
   });
 
   const touchConfirmDirectUsageAllowlist = new Set([
-    'client/src/core/signingEngine/bootstrap/managerAssembly.ts',
     'client/src/core/signingEngine/bootstrap/touchConfirmBridge.ts',
+    'client/src/core/signingEngine/touchConfirm/TouchConfirmManager.ts',
+    'client/src/core/signingEngine/touchConfirm/types.ts',
   ]);
   const touchConfirmDirectUsagePatterns = [
     'touchConfirmManager',
@@ -218,7 +219,6 @@ export function findWorkerRuntimeBoundaryViolations(repoRoot) {
   for (const filePath of signingEngineFiles) {
     const relativePath = toPosixPath(path.relative(repoRoot, filePath));
     if (touchConfirmDirectUsageAllowlist.has(relativePath)) continue;
-    if (relativePath.startsWith('client/src/core/signingEngine/touchConfirm/')) continue;
     for (const pattern of touchConfirmDirectUsagePatterns) {
       touchConfirmDirectUsageViolations.push(
         ...findSubstringLineMatches(filePath, pattern, repoRoot),
@@ -227,8 +227,32 @@ export function findWorkerRuntimeBoundaryViolations(repoRoot) {
   }
   checks.push({
     id: 'touchconfirm-manager-single-bridge-boundary',
-    description: 'TouchConfirmManager direct usage must stay limited to manager assembly and touchConfirm bridge',
+    description: 'TouchConfirmManager direct usage must stay limited to bridge and manager-definition files',
     violations: touchConfirmDirectUsageViolations,
+  });
+
+  const awaitUserConfirmationAllowlist = new Set([
+    'client/src/core/signingEngine/touchConfirm/awaitUserConfirmation.ts',
+    'client/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts',
+  ]);
+  const awaitUserConfirmationPatterns = [
+    'awaitUserConfirmationV2(',
+    'awaitUserConfirmationV2 = awaitUserConfirmationV2',
+  ];
+  const awaitUserConfirmationViolations = [];
+  for (const filePath of signingEngineFiles) {
+    const relativePath = toPosixPath(path.relative(repoRoot, filePath));
+    if (awaitUserConfirmationAllowlist.has(relativePath)) continue;
+    for (const pattern of awaitUserConfirmationPatterns) {
+      awaitUserConfirmationViolations.push(
+        ...findSubstringLineMatches(filePath, pattern, repoRoot),
+      );
+    }
+  }
+  checks.push({
+    id: 'touchconfirm-await-user-confirmation-worker-owned',
+    description: 'awaitUserConfirmationV2 usage must stay limited to passkey-confirm worker runtime and its bridge helper',
+    violations: awaitUserConfirmationViolations,
   });
 
   checks.push({

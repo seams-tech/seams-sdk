@@ -52,11 +52,11 @@ client/src/core/signingEngine/touchConfirm/
 
 1. Worker calls `awaitUserConfirmationV2(...)` from `awaitUserConfirmation.ts`.
 2. `awaitUserConfirmationV2` posts `PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD` and waits for `USER_PASSKEY_CONFIRM_RESPONSE`.
-3. `TouchConfirmManager` intercepts that prompt and calls `handlers/handlePromptFromWorker.ts`.
+3. The touchConfirm bridge/runtime intercepts that prompt and calls `handlers/handlePromptFromWorker.ts`.
 4. `handlePromptFromWorker` validates request, resolves effective config, and dispatches to flow handlers (`signing`, `registration`, `localOnly`).
 5. Flow sends decision back to worker using `sendConfirmResponse(...)`.
 6. Worker resolves `awaitUserConfirmationV2` and returns the decision payload.
-7. `TouchConfirmManager.requestUserConfirmation(...)` receives that worker response and resolves the original main-thread request.
+7. The bridge/runtime `requestUserConfirmation(...)` path receives that worker response and resolves the original main-thread request.
 
 ## Message Contract
 

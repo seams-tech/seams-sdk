@@ -2,7 +2,7 @@
  * Worker-side handshake entrypoint.
  *
  * Called by the UserConfirm worker runtime (`passkey-confirm.worker.ts`) and waits for
- * `USER_PASSKEY_CONFIRM_RESPONSE` messages emitted by `TouchConfirmManager` on the main thread.
+ * `USER_PASSKEY_CONFIRM_RESPONSE` messages emitted by the main-thread touchConfirm runtime.
  */
 import {
   WorkerConfirmationResponse,
@@ -44,7 +44,7 @@ type ConfirmResponseEnvelope = {
  * High-level flow:
  * 1) UserConfirm runtime calls `awaitUserConfirmationV2(request)`
  * 2) This posts `PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD` to the main thread
- * 3) `TouchConfirmManager` intercepts that message and runs touchConfirm handlers on the main thread
+ * 3) Main-thread touchConfirm runtime intercepts that message and runs touchConfirm handlers
  *    (`handlePromptFromWorker`), then posts back `USER_PASSKEY_CONFIRM_RESPONSE`
  * 4) This resolves to a Rust-friendly `WorkerConfirmationResponse` (snake_case fields)
  *

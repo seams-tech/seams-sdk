@@ -80,7 +80,7 @@ flowchart LR
 2. `NearEd25519Engine` routes by request kind to NEAR handlers.
 3. Handler performs:
    - input normalization (`NearAdapter` for transactions),
-   - touchConfirm handshake (`TouchConfirmManager.orchestrateSigningConfirmation`),
+   - touchConfirm handshake (`touchConfirm.orchestrateSigningConfirmation(...)` via bridge port),
    - signer worker call via `ctx.requestWorkerOperation(...)`.
 4. `SignerWorkerManager.requestWorkerOperation` sends request to `near-signer.worker`.
 5. Worker response returns signed payload back through handler -> engine -> `finalize`.
