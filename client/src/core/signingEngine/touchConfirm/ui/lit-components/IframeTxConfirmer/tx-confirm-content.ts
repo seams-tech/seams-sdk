@@ -178,7 +178,14 @@ export class TxConfirmContentElement extends LitElementWithProps {
         this.requestUpdate();
         return;
       }
-      if (this.model && Array.isArray(this.model.operations)) {
+      if (this.model) {
+        const operations = Array.isArray(this.model.operations) ? this.model.operations : [];
+        const warnings = Array.isArray(this.model.warnings) ? this.model.warnings : [];
+        if (operations.length === 0 && warnings.length === 0) {
+          this._treeNode = null;
+          this.requestUpdate();
+          return;
+        }
         this._treeNode = buildDisplayTreeFromModel(this.model);
         this.requestUpdate();
         return;
@@ -208,25 +215,23 @@ export class TxConfirmContentElement extends LitElementWithProps {
   };
 
   render() {
+    const treeTheme: 'dark' | 'light' = this.theme === 'dark' ? 'dark' : 'light';
+    const explorerBase = this.nearExplorerUrl || 'https://testnet.nearblocks.io';
     return html`
       <div class="txc-root">
         ${this.errorMessage ? html`<div class="error">${this.errorMessage}</div>` : null}
-        ${(() => {
-          const treeTheme: 'dark' | 'light' = this.theme === 'dark' ? 'dark' : 'light';
-          const explorerBase = this.nearExplorerUrl || 'https://testnet.nearblocks.io';
-          return this._treeNode
-            ? html`<div class="tooltip-width">
-                    <w3a-tx-tree
-                      light-dom
-                      .node=${this._treeNode}
-                      .theme=${treeTheme}
-                      .width=${this._txTreeWidth}
-                      .nearExplorerUrl=${explorerBase}
-                      .showShadow=${this.showShadow}
-                    ></w3a-tx-tree>
-                  </div>`
-            : html`<div class="muted">No actions</div>`;
-        })()}
+        ${this._treeNode
+          ? html`<div class="tooltip-width">
+                  <w3a-tx-tree
+                    light-dom
+                    .node=${this._treeNode}
+                    .theme=${treeTheme}
+                    .width=${this._txTreeWidth}
+                    .nearExplorerUrl=${explorerBase}
+                    .showShadow=${this.showShadow}
+                  ></w3a-tx-tree>
+                </div>`
+          : null}
         <div class="actions">
           <button
             class="cancel"

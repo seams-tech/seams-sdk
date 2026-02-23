@@ -1,6 +1,10 @@
 import { toError } from '@shared/utils/errors';
 import type { NearClient } from '../rpcClients/near/NearClient';
-import type { SigningEnginePublic } from '../signingEngine/SigningEngine';
+import type {
+  SigningEnginePublic,
+  ThresholdEcdsaActivationChain,
+  ThresholdEcdsaLoginPrefillResult,
+} from '../signingEngine/SigningEngine';
 import type { AccountId } from '../types/accountIds';
 import { toAccountId } from '../types/accountIds';
 import type { LoginHooksOptions } from '../types/sdkSentEvents';
@@ -146,4 +150,62 @@ export async function getRecentLoginsDomain(
   }
 
   return await getRecentLoginsCore(deps.getContext());
+}
+
+export async function prefillThresholdEcdsaPresignPoolDomain(
+  deps: AuthSessionDomainDeps,
+  args: {
+    nearAccountId: string;
+    chain?: ThresholdEcdsaActivationChain;
+    waitForPoolReady?: boolean;
+    poolReadyTimeoutMs?: number;
+    poolReadyPollIntervalMs?: number;
+    minRemainingUsesBeforePrefill?: number;
+  },
+): Promise<ThresholdEcdsaLoginPrefillResult> {
+  const chain: ThresholdEcdsaActivationChain = args.chain || 'tempo';
+
+  if (deps.walletIframe.shouldUseWalletIframe()) {
+    const router = await deps.walletIframe.requireRouter(args.nearAccountId);
+    return await router.prefillThresholdEcdsaPresignPool({
+      nearAccountId: args.nearAccountId,
+      options: {
+        chain,
+        ...(typeof args.waitForPoolReady === 'boolean'
+          ? { waitForPoolReady: args.waitForPoolReady }
+          : {}),
+        ...(typeof args.poolReadyTimeoutMs === 'number'
+          ? { poolReadyTimeoutMs: args.poolReadyTimeoutMs }
+          : {}),
+        ...(typeof args.poolReadyPollIntervalMs === 'number'
+          ? { poolReadyPollIntervalMs: args.poolReadyPollIntervalMs }
+          : {}),
+        ...(typeof args.minRemainingUsesBeforePrefill === 'number'
+          ? { minRemainingUsesBeforePrefill: args.minRemainingUsesBeforePrefill }
+          : {}),
+      },
+    });
+  }
+
+  const nearAccountId = toAccountId(args.nearAccountId);
+  const keyRef = deps.signingEngine.getThresholdEcdsaKeyRefForSigning({
+    nearAccountId,
+    chain,
+  });
+  return await deps.signingEngine.scheduleThresholdEcdsaLoginPresignPrefill({
+    nearAccountId,
+    thresholdEcdsaKeyRef: keyRef,
+    ...(typeof args.waitForPoolReady === 'boolean'
+      ? { waitForPoolReady: args.waitForPoolReady }
+      : {}),
+    ...(typeof args.poolReadyTimeoutMs === 'number'
+      ? { poolReadyTimeoutMs: args.poolReadyTimeoutMs }
+      : {}),
+    ...(typeof args.poolReadyPollIntervalMs === 'number'
+      ? { poolReadyPollIntervalMs: args.poolReadyPollIntervalMs }
+      : {}),
+    ...(typeof args.minRemainingUsesBeforePrefill === 'number'
+      ? { minRemainingUsesBeforePrefill: args.minRemainingUsesBeforePrefill }
+      : {}),
+  });
 }

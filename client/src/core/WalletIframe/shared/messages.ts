@@ -39,6 +39,7 @@ export type ParentToChildType =
   | 'PM_EXPORT_KEYPAIR_UI'
   | 'PM_GET_RECENT_LOGINS'
   | 'PM_PREFETCH_BLOCKHEIGHT'
+  | 'PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL'
   | 'PM_SET_CONFIRM_BEHAVIOR'
   | 'PM_SET_CONFIRMATION_CONFIG'
   | 'PM_GET_CONFIRMATION_CONFIG'
@@ -264,6 +265,17 @@ export interface PMSetConfirmationConfigPayload { config: Partial<ConfirmationCo
 
 export interface PMGetLoginSessionPayload { nearAccountId?: string }
 
+export interface PMPrefillThresholdEcdsaPresignPoolPayload {
+  nearAccountId: string;
+  options?: {
+    chain?: 'tempo' | 'evm';
+    waitForPoolReady?: boolean;
+    poolReadyTimeoutMs?: number;
+    poolReadyPollIntervalMs?: number;
+    minRemainingUsesBeforePrefill?: number;
+  };
+}
+
 export interface PMSetSignerModePayload { signerMode: SignerMode; nearAccountId?: string }
 
 export interface PMSetThemePayload { theme: 'dark' | 'light' }
@@ -357,6 +369,7 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_EXPORT_KEYPAIR_UI', PMExportKeypairUiPayload>
   | RpcEnvelope<'PM_GET_RECENT_LOGINS'>
   | RpcEnvelope<'PM_PREFETCH_BLOCKHEIGHT'>
+  | RpcEnvelope<'PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL', PMPrefillThresholdEcdsaPresignPoolPayload>
   | RpcEnvelope<'PM_SET_CONFIRM_BEHAVIOR', PMSetConfirmBehaviorPayload>
   | RpcEnvelope<'PM_SET_CONFIRMATION_CONFIG', PMSetConfirmationConfigPayload>
   | RpcEnvelope<'PM_GET_CONFIRMATION_CONFIG'>

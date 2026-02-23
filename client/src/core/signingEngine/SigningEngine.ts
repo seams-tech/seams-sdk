@@ -54,6 +54,10 @@ import {
   type ThresholdEcdsaSessionStoreSource,
 } from './api/thresholdLifecycle/thresholdEcdsaSessionStore';
 import {
+  scheduleThresholdEcdsaLoginPresignPrefill as scheduleThresholdEcdsaLoginPresignPrefillValue,
+  type ThresholdEcdsaLoginPrefillResult,
+} from './api/thresholdLifecycle/thresholdEcdsaLoginPrefill';
+import {
   signNear as signNearValue,
   type NearSignIntentRequest,
   type NearSignIntentResult,
@@ -64,6 +68,7 @@ import {
   clearSigningSessionPrfFirstBestEffort as clearSigningSessionPrfFirstBestEffortValue,
   clearActiveSigningSessionId as clearActiveSigningSessionIdValue,
   clearAllActiveSigningSessionIds as clearAllActiveSigningSessionIdsValue,
+  getWarmSigningSessionStatus as getWarmSigningSessionStatusValue,
   hydrateSigningSession as hydrateSigningSessionValue,
 } from './api/session/signingSessionState';
 import {
@@ -101,6 +106,7 @@ export type {
   ThresholdEcdsaSessionBootstrapResult,
 } from './orchestration/thresholdActivation';
 export type { NearSignIntentRequest, NearSignIntentResult } from './api/nearSigning';
+export type { ThresholdEcdsaLoginPrefillResult } from './api/thresholdLifecycle/thresholdEcdsaLoginPrefill';
 
 /**
  * SigningEngine is the signing composition root:
@@ -516,6 +522,25 @@ export class SigningEngine {
       .getWarmSigningSessionStatus(nearAccountId);
   }
 
+  async scheduleThresholdEcdsaLoginPresignPrefill(args: {
+    nearAccountId: AccountId | string;
+    thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
+    minRemainingUsesBeforePrefill?: number;
+  }): Promise<ThresholdEcdsaLoginPrefillResult> {
+    return await scheduleThresholdEcdsaLoginPresignPrefillValue(
+      {
+        getWarmSigningSessionStatus: (nearAccountId: AccountId | string) =>
+          getWarmSigningSessionStatusValue(this.orchestrationDeps.signingSessionStateDeps, nearAccountId),
+        dispensePrfFirstForThresholdSession: (payload) =>
+          this.touchConfirmManager.dispensePrfFirstForThresholdSession(payload),
+        getSignerWorkerContext: () =>
+          this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
+        thresholdEcdsaPresignPoolPolicy: this.tatchiPasskeyConfigs.thresholdEcdsaPresignPool,
+      },
+      args,
+    );
+  }
+
   async hydrateSigningSession(args: {
     nearAccountId: AccountId | string;
     sessionId: string;
@@ -686,6 +711,7 @@ export type SigningEnginePublic = Pick<
   | 'clearAllThresholdEcdsaSessionRecords'
   | 'persistThresholdEcdsaBootstrapChainAccount'
   | 'getWarmSigningSessionStatus'
+  | 'scheduleThresholdEcdsaLoginPresignPrefill'
   | 'hydrateSigningSession'
   | 'clearWarmSigningSessions'
   | 'clearThresholdEcdsaCommitQueue'

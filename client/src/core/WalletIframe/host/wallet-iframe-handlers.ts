@@ -318,6 +318,32 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOk(req.requestId);
     },
 
+    PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL: async (
+      req: Req<'PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL'>,
+    ) => {
+      const pm = getTatchiPasskey();
+      const { nearAccountId, options } = req.payload!;
+      if (respondIfCancelled(req.requestId)) return;
+      const result = await pm.auth.prefillThresholdEcdsaPresignPool({
+        nearAccountId,
+        ...(options?.chain ? { chain: options.chain } : {}),
+        ...(typeof options?.waitForPoolReady === 'boolean'
+          ? { waitForPoolReady: options.waitForPoolReady }
+          : {}),
+        ...(typeof options?.poolReadyTimeoutMs === 'number'
+          ? { poolReadyTimeoutMs: options.poolReadyTimeoutMs }
+          : {}),
+        ...(typeof options?.poolReadyPollIntervalMs === 'number'
+          ? { poolReadyPollIntervalMs: options.poolReadyPollIntervalMs }
+          : {}),
+        ...(typeof options?.minRemainingUsesBeforePrefill === 'number'
+          ? { minRemainingUsesBeforePrefill: options.minRemainingUsesBeforePrefill }
+          : {}),
+      });
+      if (respondIfCancelled(req.requestId)) return;
+      respondOkResult(req.requestId, result);
+    },
+
     PM_GET_RECOVERY_EMAILS: async (req: Req<'PM_GET_RECOVERY_EMAILS'>) => {
       const pm = getTatchiPasskey();
       const { nearAccountId } = req.payload!;

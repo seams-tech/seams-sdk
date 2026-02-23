@@ -19,7 +19,11 @@
  */
 
 import { WalletIframeRouter } from './client/router';
-import type { ThresholdEcdsaSessionBootstrapResult } from '../signingEngine/SigningEngine';
+import type {
+  ThresholdEcdsaActivationChain,
+  ThresholdEcdsaLoginPrefillResult,
+  ThresholdEcdsaSessionBootstrapResult,
+} from '../signingEngine/SigningEngine';
 import type { SignedTransaction, AccessKeyList } from '../rpcClients/near/NearClient';
 import type { PreferencesChangedPayload } from './shared/messages';
 import type {
@@ -419,6 +423,35 @@ export class TatchiPasskeyIframe {
       return { login, signingSession: null };
     }
     return await this.router.getLoginSession(nearAccountId);
+  }
+
+  async prefillThresholdEcdsaPresignPool(args: {
+    nearAccountId: string;
+    chain?: ThresholdEcdsaActivationChain;
+    waitForPoolReady?: boolean;
+    poolReadyTimeoutMs?: number;
+    poolReadyPollIntervalMs?: number;
+    minRemainingUsesBeforePrefill?: number;
+  }): Promise<ThresholdEcdsaLoginPrefillResult> {
+    await this.requireRouterReady();
+    return await this.router.prefillThresholdEcdsaPresignPool({
+      nearAccountId: args.nearAccountId,
+      options: {
+        ...(args.chain ? { chain: args.chain } : {}),
+        ...(typeof args.waitForPoolReady === 'boolean'
+          ? { waitForPoolReady: args.waitForPoolReady }
+          : {}),
+        ...(typeof args.poolReadyTimeoutMs === 'number'
+          ? { poolReadyTimeoutMs: args.poolReadyTimeoutMs }
+          : {}),
+        ...(typeof args.poolReadyPollIntervalMs === 'number'
+          ? { poolReadyPollIntervalMs: args.poolReadyPollIntervalMs }
+          : {}),
+        ...(typeof args.minRemainingUsesBeforePrefill === 'number'
+          ? { minRemainingUsesBeforePrefill: args.minRemainingUsesBeforePrefill }
+          : {}),
+      },
+    });
   }
 
   private async signTransactionsWithActionsDomain(args: {

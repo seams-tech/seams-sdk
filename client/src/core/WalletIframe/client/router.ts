@@ -94,7 +94,10 @@ import type {
 } from '../../signingEngine/chainAdaptors/tempo/types';
 import type { EvmSignedResult } from '../../signingEngine/chainAdaptors/evm/evmAdapter';
 import type { TempoSignedResult } from '../../signingEngine/chainAdaptors/tempo/tempoAdapter';
-import type { ThresholdEcdsaSessionBootstrapResult } from '../../signingEngine/SigningEngine';
+import type {
+  ThresholdEcdsaLoginPrefillResult,
+  ThresholdEcdsaSessionBootstrapResult,
+} from '../../signingEngine/SigningEngine';
 import type { LinkDeviceResult, StartDevice2LinkingFlowArgs, StartDevice2LinkingFlowResults, DeviceLinkingQRData } from '../../types/linkDevice';
 import type { SyncAccountResult } from '../../TatchiPasskey/syncAccount';
 import {
@@ -980,6 +983,29 @@ export class WalletIframeRouter {
 
   async prefetchBlockheight(): Promise<void> {
     await this.post<void>({ type: 'PM_PREFETCH_BLOCKHEIGHT' } );
+  }
+
+  async prefillThresholdEcdsaPresignPool(payload: {
+    nearAccountId: string;
+    options?: {
+      chain?: 'tempo' | 'evm';
+      waitForPoolReady?: boolean;
+      poolReadyTimeoutMs?: number;
+      poolReadyPollIntervalMs?: number;
+      minRemainingUsesBeforePrefill?: number;
+    };
+  }): Promise<ThresholdEcdsaLoginPrefillResult> {
+    const res = await this.post<ThresholdEcdsaLoginPrefillResult>({
+      type: 'PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL',
+      payload: {
+        nearAccountId: payload.nearAccountId,
+        ...(payload.options ? { options: payload.options } : {}),
+      },
+    }, {
+      timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
+      progressTimeoutExtensionFactor: 1,
+    });
+    return res.result;
   }
 
   async getRecentLogins(): Promise<GetRecentLoginsResult> {

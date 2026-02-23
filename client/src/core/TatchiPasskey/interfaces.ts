@@ -1,6 +1,7 @@
 import type {
   SigningEnginePublic,
   ThresholdEcdsaActivationChain,
+  ThresholdEcdsaLoginPrefillResult,
   ThresholdEcdsaSessionBootstrapResult,
 } from '../signingEngine/SigningEngine';
 import type { NearClient, SignedTransaction } from '../rpcClients/near/NearClient';
@@ -103,6 +104,14 @@ export interface AuthCapability {
   getSession(nearAccountId?: string): Promise<LoginSession>;
   getRecentLogins(): Promise<GetRecentLoginsResult>;
   hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean>;
+  prefillThresholdEcdsaPresignPool(args: {
+    nearAccountId: string;
+    chain?: ThresholdEcdsaActivationChain;
+    waitForPoolReady?: boolean;
+    poolReadyTimeoutMs?: number;
+    poolReadyPollIntervalMs?: number;
+    minRemainingUsesBeforePrefill?: number;
+  }): Promise<ThresholdEcdsaLoginPrefillResult>;
 }
 
 export interface RegistrationCapability {

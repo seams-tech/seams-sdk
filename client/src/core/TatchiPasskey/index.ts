@@ -38,6 +38,7 @@ import { buildConfigsFromEnv } from '../config/defaultConfigs';
 import { WalletIframeCoordinator } from './walletIframeCoordinator';
 import {
   getLoginSessionDomain,
+  prefillThresholdEcdsaPresignPoolDomain,
   getRecentLoginsDomain,
   hasPasskeyCredentialDomain,
   loginAndCreateSessionDomain,
@@ -55,6 +56,10 @@ import type {
   RecoveryCapability,
   TempoSignerCapability,
 } from './interfaces';
+import type {
+  ThresholdEcdsaActivationChain,
+  ThresholdEcdsaLoginPrefillResult,
+} from '../signingEngine/SigningEngine';
 import { EmailRecoveryDomain } from './near/emailRecovery';
 import { DeviceLinkingDomain } from './near/linkDevice';
 import { NearSigner } from './near';
@@ -165,6 +170,8 @@ export class TatchiPasskey {
         await this.getRecentLogins(),
       hasPasskeyCredential: async (nearAccountId) =>
         await this.hasPasskeyCredential(nearAccountId),
+      prefillThresholdEcdsaPresignPool: async (args) =>
+        await this.prefillThresholdEcdsaPresignPool(args),
     };
     this.registration = {
       registerPasskey: async (nearAccountId, options) =>
@@ -552,6 +559,17 @@ export class TatchiPasskey {
    */
   async hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean> {
     return await hasPasskeyCredentialDomain(this.getAuthSessionDeps(), nearAccountId);
+  }
+
+  async prefillThresholdEcdsaPresignPool(args: {
+    nearAccountId: string;
+    chain?: ThresholdEcdsaActivationChain;
+    waitForPoolReady?: boolean;
+    poolReadyTimeoutMs?: number;
+    poolReadyPollIntervalMs?: number;
+    minRemainingUsesBeforePrefill?: number;
+  }): Promise<ThresholdEcdsaLoginPrefillResult> {
+    return await prefillThresholdEcdsaPresignPoolDomain(this.getAuthSessionDeps(), args);
   }
 
   ///////////////////////////////////////
