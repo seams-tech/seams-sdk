@@ -35,9 +35,8 @@
       <path d="M 980.1332 404 L 800 508 M 800 508 L 619.8668 404 M 980.1332 196 L 800 300 M 800 300 L 619.8668 196 M 980.1332 404 L 980.1332 196 M 619.8668 404 L 619.8668 196 M 800 508 L 800 300 " stroke="#ffffff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none" />
     </mask>
   </defs>
-  <path d="M 800 300 L 980.1332 404 M 619.8668 404 L 800 300 M 800 92 L 980.1332 196 M 619.8668 196 L 800 92 M 800 300 L 800 92 " fill="none" stroke="rgba(150, 190, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M 800 300 L 980.1332 404 M 619.8668 404 L 800 300 M 800 300 L 800 92 " fill="none" stroke="var(--security-diagram-line-muted, rgba(150, 190, 255, 0.15))" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
   <g>
-    <animateTransform attributeName="transform" type="translate" values="0,0; 0,-8; 0,0" dur="6s" repeatCount="indefinite" />
     <path d="M 800 300 L 923.841575 371.5 M 676.158425 371.5 L 800 300 M 800 157 L 923.841575 228.5 M 676.158425 228.5 L 800 157 M 800 300 L 800 157 " fill="none" stroke="rgba(150, 190, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
     <polygon points="800,157 923.841575,228.5 800,300 676.158425,228.5" fill="rgba(200, 225, 255, 0.15)" stroke="none" />
     <polygon points="676.158425,228.5 800,300 800,443 676.158425,371.5" fill="rgba(80, 150, 255, 0.1)" stroke="none" />
@@ -47,7 +46,7 @@
       <animate attributeName="opacity" values="0.1; 0.6; 0.1" dur="3s" repeatCount="indefinite" />
     </path>
   </g>
-  <path d="M 980.1332 404 L 800 508 M 800 508 L 619.8668 404 M 980.1332 196 L 800 300 M 800 300 L 619.8668 196 M 980.1332 404 L 980.1332 196 M 619.8668 404 L 619.8668 196 M 800 508 L 800 300 " fill="none" stroke="rgba(200, 225, 255, 0.7)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M 980.1332 404 L 800 508 M 800 508 L 619.8668 404 M 980.1332 196 L 800 300 M 800 300 L 619.8668 196 M 980.1332 404 L 980.1332 196 M 619.8668 404 L 619.8668 196 M 800 508 L 800 300 M 800 92 L 980.1332 196 M 619.8668 196 L 800 92 " fill="none" stroke="var(--security-diagram-line, rgba(200, 225, 255, 0.7))" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
   <circle cx="800" cy="300" r="3" fill="#ffffff" stroke="none" opacity="0.2" />
   <circle cx="980.1332" cy="404" r="3" fill="#ffffff" stroke="none" opacity="1" />
   <circle cx="800" cy="508" r="3" fill="#ffffff" stroke="none" opacity="1" />
