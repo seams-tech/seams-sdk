@@ -31,35 +31,9 @@ function improveAtomicRegistrationError(args: {
   const relayUrl = String(args.relayUrl || '').trim();
 
   // Server validation: account creation can only create subaccounts under a specific namespace.
-  // Depending on the deployment, that namespace can be the WebAuthn contract account (contractId)
-  // or the relayer signer account.
-  const mContract = /new_account_id must be a subaccount of contractId\s*\(([^)]+)\)/i.exec(raw);
-  const mWebAuthn = /new_account_id must be a subaccount of webAuthnContractId\s*\(([^)]+)\)/i.exec(raw);
   const mRelayer = /new_account_id must be a subaccount of relayer(?:\s+signer\s+)?account\s*\(([^)]+)\)/i.exec(raw);
 
-  const expectedContract = (mContract?.[1] || mWebAuthn?.[1]) ? String(mContract?.[1] || mWebAuthn?.[1]).trim() : '';
   const expectedRelayer = mRelayer?.[1] ? String(mRelayer[1]).trim() : '';
-
-  if (expectedContract) {
-    const providedSuffix = (() => {
-      const parts = nearAccountId.split('.');
-      if (parts.length < 2) return '';
-      return parts.slice(1).join('.');
-    })();
-    const hint =
-      `Registration accountId must be a subaccount of the contract account.\n` +
-      `Relay expects: <username>.${expectedContract}\n` +
-      (nearAccountId ? `You provided: ${nearAccountId}\n` : '') +
-      `Fix (pick one):\n` +
-      `- Client: set \`contractId: '${expectedContract}'\` (must match relay WEBAUTHN_CONTRACT_ID)` +
-      (relayUrl ? ` for relayer \`${relayUrl}\`` : '') +
-      `.\n` +
-      (providedSuffix && providedSuffix !== expectedContract
-        ? `- Relay: if \`.${providedSuffix}\` is the intended postfix, set WEBAUTHN_CONTRACT_ID=${providedSuffix} then restart the relay.\n`
-        : '') +
-      `Tip: check \`${relayUrl || '<relayer-url>'}/healthz\` → \`webAuthnContractId\`.`;
-    return hint;
-  }
 
   if (expectedRelayer) {
     const hint =

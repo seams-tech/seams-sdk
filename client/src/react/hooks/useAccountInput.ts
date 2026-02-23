@@ -73,9 +73,7 @@ export function useAccountInput({
     if (hasExplicitDomain) return;
 
     const cfgRelayer = String(tatchi.configs.relayerAccount || '').trim().replace(/^\./, '').toLowerCase();
-    const cfgContract = String(tatchi.configs.contractId || '').trim().replace(/^\./, '').toLowerCase();
-    // If relayerAccount differs from contractId, assume it was configured explicitly or via env and do not override.
-    if (cfgRelayer && cfgContract && cfgRelayer !== cfgContract) return;
+    if (cfgRelayer) return;
 
     const relayUrl = String(tatchi.configs.relayer?.url || '').trim();
     if (!relayUrl) return;
@@ -91,7 +89,7 @@ export function useAccountInput({
     };
   }, [accountDomain, tatchi]);
 
-  const normalizedDomain = (accountDomain || discoveredRelayerAccount || tatchi.configs.relayerAccount || tatchi.configs.contractId || '')
+  const normalizedDomain = (accountDomain || discoveredRelayerAccount || tatchi.configs.relayerAccount || '')
     .trim()
     .replace(/^\./, '')
     .toLowerCase();

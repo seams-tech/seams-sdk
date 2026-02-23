@@ -110,7 +110,6 @@ test.describe('React Theme integration', () => {
           const config = {
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
-            contractId: 'w3a-v1.testnet',
             relayer: { url: 'https://relay-server.localhost' },
             iframeWallet: { walletOrigin: '' },
             appearance: {
@@ -173,7 +172,6 @@ test.describe('React Theme integration', () => {
           const config = {
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
-            contractId: 'w3a-v1.testnet',
             relayer: { url: 'https://relay-server.localhost' },
             iframeWallet: { walletOrigin: '' },
             appearance: {
@@ -244,7 +242,6 @@ test.describe('React Theme integration', () => {
       const config = {
         nearNetwork: 'testnet',
         nearRpcUrl: 'https://test.rpc.fastnear.com',
-        contractId: 'w3a-v1.testnet',
         relayer: { url: 'https://relay-server.localhost' },
         iframeWallet: { walletOrigin: '' },
         appearance: {
@@ -345,7 +342,6 @@ test.describe('React Theme integration', () => {
           const config = {
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
-            contractId: 'w3a-v1.testnet',
             relayer: { url: 'https://relay-server.localhost' },
             iframeWallet: { walletOrigin: '' },
           };
@@ -419,7 +415,6 @@ test.describe('React Theme integration', () => {
       const config = {
         nearNetwork: 'testnet',
         nearRpcUrl: 'https://test.rpc.fastnear.com',
-        contractId: 'w3a-v1.testnet',
         relayer: { url: 'https://relay-server.localhost' },
         iframeWallet: { walletOrigin: '' },
       };

@@ -449,7 +449,6 @@ test.describe('confirmTxFlow – success paths', () => {
             method: 'sign',
             argsJson: {},
             nearAccountId: 'carol.testnet',
-            contractId: 'w3a-v1.testnet',
             nearRpcUrl: 'https://rpc.testnet.near.org'
           },
         }
@@ -582,7 +581,6 @@ test.describe('confirmTxFlow – success paths', () => {
           nearAccountId: 'nep.testnet',
           message: 'hello-world',
           recipient: 'receiver.testnet',
-          contractId: 'custom-contract.testnet',
           nearRpcUrl: 'https://rpc.custom.testnet',
         },
       } as any;

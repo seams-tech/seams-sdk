@@ -27,7 +27,7 @@ export function RegisterAndProvision() {
 
   async function onRegister(): Promise<void> {
     const id = Date.now()
-    const nextAccountId = `tatchi-test-${id}.${tatchi.configs.contractId}`
+    const nextAccountId = `tatchi-test-${id}.${tatchi.configs.relayerAccount}`
 
     const result = await registerPasskey(nextAccountId, {
       onEvent: (event) => console.log('registration event:', event),
@@ -105,7 +105,7 @@ export function SignNear(props: { nearAccountId: string }) {
       nearAccountId: props.nearAccountId,
       transactions: [
         {
-          receiverId: tatchi.configs.contractId,
+          receiverId: 'guest-book.testnet',
           actions: [
             {
               type: ActionType.FunctionCall,

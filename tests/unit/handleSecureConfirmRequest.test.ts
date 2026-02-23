@@ -147,7 +147,6 @@ test.describe('handlePromptFromWorker - Orchestrator Unit Tests', () => {
               method: 'sign',
               argsJson: {},
               nearAccountId: 'alice.testnet',
-              contractId: 'web3-authn.testnet',
               nearRpcUrl: 'https://rpc.testnet.near.org',
             },
             prfOutput: 'leaked-prf',

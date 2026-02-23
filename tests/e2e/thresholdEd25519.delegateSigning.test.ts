@@ -98,7 +98,6 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
           const pm = new TatchiPasskey({
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
-            contractId: 'w3a-v1.testnet',
             relayer: { url: relayerUrl },
             iframeWallet: { walletOrigin: '' },
           });

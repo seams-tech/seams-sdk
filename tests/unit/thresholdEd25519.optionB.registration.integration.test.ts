@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest, SDK_ESM_PATHS, sdkEsmPath } from '../setup';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 import bs58 from 'bs58';
-import { ed25519 } from '@noble/curves/ed25519';
+import { ed25519 } from '@noble/curves/ed25519.js';
 import { createHash } from 'node:crypto';
 
 const IMPORT_PATHS = {
@@ -12,6 +12,10 @@ const IMPORT_PATHS = {
 
 function toB64u(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('base64url');
+}
+
+function bytesToHex(input: Uint8Array): string {
+  return Buffer.from(input).toString('hex');
 }
 
 function getEd25519PointCtor(): any {
@@ -32,8 +36,8 @@ function compute2of2GroupPk(input: {
   const pointCtor = getEd25519PointCtor();
   const clientBytes = new Uint8Array(Buffer.from(input.clientVerifyingShareB64u, 'base64url'));
   const relayerBytes = new Uint8Array(Buffer.from(input.relayerVerifyingShareB64u, 'base64url'));
-  const clientPoint = pointCtor.fromHex(clientBytes);
-  const relayerPoint = pointCtor.fromHex(relayerBytes);
+  const clientPoint = pointCtor.fromHex(bytesToHex(clientBytes));
+  const relayerPoint = pointCtor.fromHex(bytesToHex(relayerBytes));
   const groupPoint = clientPoint.multiply(2n).subtract(relayerPoint);
   return `ed25519:${bs58.encode(ed25519PointToBytes(groupPoint))}`;
 }
@@ -369,7 +373,6 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
         const pm = new TatchiPasskey({
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
-          contractId: 'w3a-v1.testnet',
           relayer: { url: 'http://localhost:3000' },
           iframeWallet: { walletOrigin: '' },
         });
@@ -714,7 +717,6 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
         const pm = new TatchiPasskey({
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
-          contractId: 'w3a-v1.testnet',
           relayer: { url: 'http://localhost:3000' },
           iframeWallet: { walletOrigin: '' },
         });

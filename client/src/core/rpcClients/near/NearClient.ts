@@ -203,7 +203,7 @@ export interface NearClient {
   txStatus(txHash: string, senderAccountId: string): Promise<FinalExecutionOutcome>;
   query<T extends QueryResponseKind>(params: RpcQueryRequest): Promise<T>;
   callFunction<A, T>(
-    contractId: string,
+    accountId: string,
     method: string,
     args: A,
     blockQuery?: BlockReference
@@ -445,7 +445,7 @@ export class MinimalNearClient implements NearClient {
   // RPC error helpers are centralized in NearRpcError.
 
   async callFunction<A, T>(
-    contractId: string,
+    accountId: string,
     method: string,
     args: A,
     blockQuery?: BlockReference
@@ -453,7 +453,7 @@ export class MinimalNearClient implements NearClient {
     const rpcParams = {
       request_type: 'call_function',
       finality: 'final',
-      account_id: contractId,
+      account_id: accountId,
       method_name: method,
       args_base64: base64Encode(new TextEncoder().encode(JSON.stringify(args)).buffer)
     };

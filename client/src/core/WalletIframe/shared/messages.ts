@@ -92,7 +92,6 @@ export interface PMSetConfigPayload {
   // TatchiConfigs subset for wallet host
   nearRpcUrl?: string;
   nearNetwork?: 'testnet' | 'mainnet';
-  contractId?: string;
   relayerAccount?: string;
   nearExplorerUrl?: string;
   /**

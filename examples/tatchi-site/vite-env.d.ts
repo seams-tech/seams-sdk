@@ -9,7 +9,8 @@ interface ImportMetaEnv {
   readonly VITE_NEAR_NETWORK?: 'testnet' | 'mainnet';
   readonly VITE_NEAR_RPC_URL?: string;
   readonly VITE_NEAR_EXPLORER?: string;
-  readonly VITE_WEBAUTHN_CONTRACT_ID?: string;
+  readonly VITE_ROR_CONTRACT_ID?: string;
+  readonly VITE_DEMO_CONTRACT_ID?: string;
 
   readonly VITE_WALLET_ORIGIN?: string;
   readonly VITE_WALLET_SERVICE_PATH?: string;

@@ -26,7 +26,7 @@ test.describe('signing session state', () => {
 
       const deps = {
         activeSigningSessionIds: new Map<string, string>(),
-        touchConfirmManager: {
+        touchConfirm: {
           peekPrfFirstForThresholdSession: async () => ({ ok: false, code: 'not_found', message: 'na' }),
           putPrfFirstForThresholdSession: async (args: {
             sessionId: string;
@@ -82,7 +82,7 @@ test.describe('signing session state', () => {
       let createCounter = 0;
       const deps = {
         activeSigningSessionIds: new Map<string, string>(),
-        touchConfirmManager: {
+        touchConfirm: {
           peekPrfFirstForThresholdSession: async () => ({ ok: false, code: 'not_found', message: 'na' }),
           putPrfFirstForThresholdSession: async () => undefined,
         },
@@ -113,7 +113,7 @@ test.describe('signing session state', () => {
 
       const deps = {
         activeSigningSessionIds: new Map<string, string>([['alice.testnet', 'session-1']]),
-        touchConfirmManager: {
+        touchConfirm: {
           peekPrfFirstForThresholdSession: async ({ sessionId }: { sessionId: string }) => {
             if (sessionId === 'session-active') {
               return { ok: true, remainingUses: 5, expiresAtMs: 999_999 };

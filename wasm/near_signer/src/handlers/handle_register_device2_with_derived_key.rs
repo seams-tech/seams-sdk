@@ -45,9 +45,9 @@ pub struct RegisterDevice2WithDerivedKeyRequest {
     #[serde(rename = "transactionContext")]
     pub transaction_context: Device2TransactionContext,
 
-    /// Contract ID (Receiver ID for the transaction)
-    #[wasm_bindgen(getter_with_clone, js_name = "contractId")]
-    pub contract_id: String,
+    /// Receiver account ID for the registration transaction.
+    #[wasm_bindgen(getter_with_clone, js_name = "receiverId")]
+    pub receiver_id: String,
 
     /// Contract arguments for Device2 registration (JSON string already serialized in JS)
     #[wasm_bindgen(skip)]
@@ -207,7 +207,7 @@ pub async fn handle_register_device2_with_derived_key(
 
     debug!(
         "[rust wasm signer]: Built Device2 registration transaction for contract {}",
-        request.contract_id
+        request.receiver_id
     );
 
     // === STEP 5: Sign transaction with derived NEAR keypair ===
@@ -279,7 +279,7 @@ fn build_device2_registration_transaction(
         public_key: crate::types::near::PublicKey::from_ed25519_bytes(public_key_bytes),
         nonce: parsed_nonce,
         receiver_id: request
-            .contract_id
+            .receiver_id
             .parse()
             .map_err(|e| format!("Invalid receiver_id (contract ID): {}", e))?,
         block_hash: crate::types::near::CryptoHash(block_hash),

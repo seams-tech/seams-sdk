@@ -6,8 +6,8 @@ export async function handleWellKnown(ctx: CloudflareRelayContext): Promise<Resp
   if (ctx.pathname !== '/.well-known/webauthn' && ctx.pathname !== '/.well-known/webauthn/') return null;
 
   // ROR well-known manifest; allow override via env (optional)
-  const contractId = (ctx.env?.ROR_CONTRACT_ID || ctx.env?.WEBAUTHN_CONTRACT_ID || '').toString().trim() || undefined;
+  const rorContractId = (ctx.env?.ROR_CONTRACT_ID || '').toString().trim() || undefined;
   const methodName = (ctx.env?.ROR_METHOD || '').toString().trim() || undefined;
-  const origins = await ctx.service.getRorOrigins({ contractId, method: methodName });
+  const origins = await ctx.service.getRorOrigins({ rorContractId, method: methodName });
   return json({ origins }, { status: 200, headers: { 'Cache-Control': 'max-age=60, stale-while-revalidate=600' } });
 }

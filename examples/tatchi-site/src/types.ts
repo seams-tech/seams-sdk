@@ -1,7 +1,7 @@
 
 export const NEAR_EXPLORER_BASE_URL = 'https://testnet.nearblocks.io';
-const env = import.meta.env as { VITE_WEBAUTHN_CONTRACT_ID?: string };
-export const WEBAUTHN_CONTRACT_ID = env.VITE_WEBAUTHN_CONTRACT_ID || 'w3a-v1.testnet';
+const env = import.meta.env as { VITE_DEMO_CONTRACT_ID?: string };
+export const DEMO_CONTRACT_ID = env.VITE_DEMO_CONTRACT_ID || 'w3a-v1.testnet';
 
 // Types for server responses (simplified, ensure they match your backend)
 export interface ServerRegistrationOptions {

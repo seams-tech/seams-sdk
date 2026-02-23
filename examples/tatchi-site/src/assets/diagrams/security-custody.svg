@@ -1,16 +1,16 @@
-<svg viewBox="0 0 1600 600" xmlns="http://www.w3.org/2000/svg">
+<svg overflow="hidden" preserveAspectRatio="xMidYMid slice" viewBox="0 0 1600 600" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#2a3243" />
-      <stop offset="100%" stop-color="#181e29" />
+      <stop offset="0%" stop-color="var(--security-diagram-canvas-top, #2a3243)" />
+      <stop offset="100%" stop-color="var(--security-diagram-canvas-bottom, #181e29)" />
     </linearGradient>
     <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
       <feGaussianBlur stdDeviation="6" result="blur" />
       <feComposite in="SourceGraphic" in2="blur" operator="over" />
     </filter>
   </defs>
-  <rect width="100%" height="100%" fill="url(#bgGrad)"/>
-  <g stroke="rgba(200, 225, 255, 0.1)" stroke-width="1.5">
+  
+  <g stroke="color-mix(in srgb, var(--security-diagram-line-strong, #c8e1ff) 10%, transparent)" stroke-width="1.5">
     <line x1="-499.03750000000014" y1="-450" x2="2099.0375000000004" y2="1050"/>
     <line x1="2099.0375000000004" y1="-450" x2="-499.03750000000014" y2="1050"/>
     <line x1="-845.4475" y1="-250" x2="1752.6275" y2="1250" opacity="0.3"/>
@@ -35,18 +35,18 @@
       <path d="M 980.1332 404 L 800 508 M 800 508 L 619.8668 404 M 980.1332 196 L 800 300 M 800 300 L 619.8668 196 M 980.1332 404 L 980.1332 196 M 619.8668 404 L 619.8668 196 M 800 508 L 800 300 " stroke="#ffffff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none" />
     </mask>
   </defs>
-  <path d="M 800 300 L 980.1332 404 M 619.8668 404 L 800 300 M 800 300 L 800 92 " fill="none" stroke="var(--security-diagram-line-muted, rgba(150, 190, 255, 0.15))" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M 800 300 L 980.1332 404 M 619.8668 404 L 800 300 M 800 300 L 800 92 " fill="none" stroke="var(--security-diagram-line-muted, color-mix(in srgb, var(--security-diagram-line, #96beff) 15%, transparent))" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
   <g>
-    <path d="M 800 300 L 923.841575 371.5 M 676.158425 371.5 L 800 300 M 800 157 L 923.841575 228.5 M 676.158425 228.5 L 800 157 M 800 300 L 800 157 " fill="none" stroke="rgba(150, 190, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-    <polygon points="800,157 923.841575,228.5 800,300 676.158425,228.5" fill="rgba(200, 225, 255, 0.15)" stroke="none" />
-    <polygon points="676.158425,228.5 800,300 800,443 676.158425,371.5" fill="rgba(80, 150, 255, 0.1)" stroke="none" />
-    <polygon points="800,300 923.841575,228.5 923.841575,371.5 800,443" fill="rgba(40, 90, 180, 0.15)" stroke="none" />
-    <path d="M 923.841575 371.5 L 800 443 M 800 443 L 676.158425 371.5 M 923.841575 228.5 L 800 300 M 800 300 L 676.158425 228.5 M 923.841575 371.5 L 923.841575 228.5 M 676.158425 371.5 L 676.158425 228.5 M 800 443 L 800 300 " fill="none" stroke="rgba(200, 225, 255, 0.6)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M 800 300 L 923.841575 371.5 M 676.158425 371.5 L 800 300 M 800 157 L 923.841575 228.5 M 676.158425 228.5 L 800 157 M 800 300 L 800 157 " fill="none" stroke="color-mix(in srgb, var(--security-diagram-line, #96beff) 15%, transparent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+    <polygon points="800,157 923.841575,228.5 800,300 676.158425,228.5" fill="color-mix(in srgb, var(--security-diagram-line-strong, #c8e1ff) 15%, transparent)" stroke="none" />
+    <polygon points="676.158425,228.5 800,300 800,443 676.158425,371.5" fill="color-mix(in srgb, var(--diagram-glow, #5096ff) 10%, transparent)" stroke="none" />
+    <polygon points="800,300 923.841575,228.5 923.841575,371.5 800,443" fill="color-mix(in srgb, var(--security-diagram-line, #285ab4) 15%, transparent)" stroke="none" />
+    <path d="M 923.841575 371.5 L 800 443 M 800 443 L 676.158425 371.5 M 923.841575 228.5 L 800 300 M 800 300 L 676.158425 228.5 M 923.841575 371.5 L 923.841575 228.5 M 676.158425 371.5 L 676.158425 228.5 M 800 443 L 800 300 " fill="none" stroke="color-mix(in srgb, var(--security-diagram-line-strong, #c8e1ff) 60%, transparent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
     <path d="M 800 300 L 923.841575 371.5 M 676.158425 371.5 L 800 300 M 800 157 L 923.841575 228.5 M 676.158425 228.5 L 800 157 M 800 300 L 800 157 M 923.841575 371.5 L 800 443 M 800 443 L 676.158425 371.5 M 923.841575 228.5 L 800 300 M 800 300 L 676.158425 228.5 M 923.841575 371.5 L 923.841575 228.5 M 676.158425 371.5 L 676.158425 228.5 M 800 443 L 800 300 " fill="none" stroke="var(--diagram-glow, #5debff)" stroke-width="2" filter="url(#glow)" stroke-linecap="round" stroke-linejoin="round">
       <animate attributeName="opacity" values="0.1; 0.6; 0.1" dur="3s" repeatCount="indefinite" />
     </path>
   </g>
-  <path d="M 980.1332 404 L 800 508 M 800 508 L 619.8668 404 M 980.1332 196 L 800 300 M 800 300 L 619.8668 196 M 980.1332 404 L 980.1332 196 M 619.8668 404 L 619.8668 196 M 800 508 L 800 300 M 800 92 L 980.1332 196 M 619.8668 196 L 800 92 " fill="none" stroke="var(--security-diagram-line, rgba(200, 225, 255, 0.7))" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M 980.1332 404 L 800 508 M 800 508 L 619.8668 404 M 980.1332 196 L 800 300 M 800 300 L 619.8668 196 M 980.1332 404 L 980.1332 196 M 619.8668 404 L 619.8668 196 M 800 508 L 800 300 M 800 92 L 980.1332 196 M 619.8668 196 L 800 92 " fill="none" stroke="var(--security-diagram-line, color-mix(in srgb, var(--security-diagram-line-strong, #c8e1ff) 70%, transparent))" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
   <circle cx="800" cy="300" r="3" fill="#ffffff" stroke="none" opacity="0.2" />
   <circle cx="980.1332" cy="404" r="3" fill="#ffffff" stroke="none" opacity="1" />
   <circle cx="800" cy="508" r="3" fill="#ffffff" stroke="none" opacity="1" />

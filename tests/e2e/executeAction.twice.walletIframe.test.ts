@@ -47,7 +47,6 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
         const tatchi = new TatchiPasskey({
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
-          contractId: 'w3a-v1.testnet',
           relayer: { url: relayerUrl },
           // Ensure the wallet iframe path is exercised (bug repro target).
           iframeWallet: {

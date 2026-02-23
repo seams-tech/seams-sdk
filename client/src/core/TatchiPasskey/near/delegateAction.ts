@@ -62,7 +62,6 @@ export async function signDelegateAction(args: {
       args: {
         delegate: resolvedDelegate,
         rpcCall: {
-          contractId: context.configs.contractId,
           nearRpcUrl: context.configs.nearRpcUrl,
           nearAccountId: String(nearAccountId),
         },

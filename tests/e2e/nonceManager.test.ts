@@ -40,7 +40,6 @@ test.describe('NonceManager Integration Tests', () => {
         const pm = new TatchiPasskey({
           nearNetwork: configs.nearNetwork,
           nearRpcUrl: configs.nearRpcUrl,
-          contractId: configs.contractId,
           relayer: configs.relayer,
           iframeWallet: { walletOrigin: '' },
         });
@@ -134,7 +133,6 @@ test.describe('NonceManager Integration Tests', () => {
         const pm = new TatchiPasskey({
           nearNetwork: configs.nearNetwork,
           nearRpcUrl: configs.nearRpcUrl,
-          contractId: configs.contractId,
           relayer: configs.relayer,
           iframeWallet: { walletOrigin: '' },
         });
@@ -235,7 +233,6 @@ test.describe('NonceManager Integration Tests', () => {
         const pm = new TatchiPasskey({
           nearNetwork: configs.nearNetwork,
           nearRpcUrl: configs.nearRpcUrl,
-          contractId: configs.contractId,
           relayer: configs.relayer,
           iframeWallet: { walletOrigin: '' },
         });

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { secp256k1 } from '@noble/curves/secp256k1';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { keccak256, parseTransaction, recoverTransactionAddress, serializeTransaction } from 'viem';
 import { publicKeyToAddress } from 'viem/accounts';
 import { corsHeadersForRoute } from '../e2e/thresholdEd25519.testUtils';
@@ -29,14 +29,18 @@ function asBigInt(value: bigint | number | undefined, field: string): bigint {
   throw new Error(`Expected ${field} to be bigint/number`);
 }
 
+function bytesToHex(input: Uint8Array): string {
+  return Buffer.from(input).toString('hex');
+}
+
 function secpPointFromCompressedHex(compressed33: Uint8Array): any {
   const pointCtor = ((secp256k1 as any).ProjectivePoint || (secp256k1 as any).Point) as
-    | { fromHex: (hex: Uint8Array) => any }
+    | { fromHex: (hex: string | Uint8Array) => any }
     | undefined;
   if (!pointCtor || typeof pointCtor.fromHex !== 'function') {
     throw new Error('secp256k1 point constructor is unavailable');
   }
-  return pointCtor.fromHex(compressed33);
+  return pointCtor.fromHex(bytesToHex(compressed33));
 }
 
 async function observePostCalls(
@@ -86,7 +90,6 @@ async function signTempoWithExistingPasskey(
     const pm = new TatchiPasskey({
       nearNetwork: 'testnet',
       nearRpcUrl: 'https://test.rpc.fastnear.com',
-      contractId: 'web3-authn-v4.testnet',
       relayerAccount: 'web3-authn-v4.testnet',
       ...(input.thresholdEcdsaPresignPool
         ? { thresholdEcdsaPresignPool: input.thresholdEcdsaPresignPool }

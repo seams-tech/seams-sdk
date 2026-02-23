@@ -134,7 +134,6 @@ test.describe('Wallet iframe preferences sync', () => {
         const tatchi = new TatchiPasskey({
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           nearNetwork: 'testnet',
-          contractId: 'w3a-v1.testnet',
           relayer: { url: 'http://localhost:3000' },
           iframeWallet: {
             walletOrigin,
@@ -198,7 +197,6 @@ test.describe('Wallet iframe preferences sync', () => {
         const tatchi = new TatchiPasskey({
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           nearNetwork: 'testnet',
-          contractId: 'w3a-v1.testnet',
           relayer: { url: 'http://localhost:3000' },
           iframeWallet: {
             walletOrigin,

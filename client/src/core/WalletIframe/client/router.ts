@@ -143,7 +143,6 @@ export interface WalletIframeRouterOptions {
   // Optional config forwarded to wallet host
   nearRpcUrl?: string;
   nearNetwork?: 'testnet' | 'mainnet';
-  contractId?: string;
   relayerAccount?: string;
   relayer?: {
     url: string;
@@ -425,9 +424,6 @@ export class WalletIframeRouter {
           signerMode: this.opts.signerMode,
           nearRpcUrl: this.opts.nearRpcUrl,
           nearNetwork: this.opts.nearNetwork,
-          // Align with PMSetConfigPayload which expects `contractId`
-          // while keeping RouterOptions field name `contractId` for external API.
-          contractId: this.opts.contractId,
           relayerAccount: this.opts.relayerAccount,
           nearExplorerUrl: this.opts.nearExplorerUrl,
           relayer: this.opts.relayer,

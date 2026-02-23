@@ -460,7 +460,6 @@ export async function signTransactionsWithActionsInternal({
       args: {
         transactions: transactionInputsWasm,
         rpcCall: {
-          contractId: context.configs.contractId,
           nearRpcUrl: context.configs.nearRpcUrl,
           nearAccountId: nearAccountId, // caller account
         },

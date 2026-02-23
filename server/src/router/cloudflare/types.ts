@@ -6,7 +6,6 @@ export interface CfEnv {
   // KV namespaces, Durable Objects, etc., and requiring `[key: string]: string`
   // makes real-world `Env` types not assignable.
   ROR_CONTRACT_ID?: string;
-  WEBAUTHN_CONTRACT_ID?: string;
   ROR_METHOD?: string;
 }
 
@@ -20,7 +19,7 @@ export interface RelayCloudflareWorkerEnv {
   // Optional overrides (SDK provides defaults when omitted)
   NEAR_RPC_URL?: string;
   NETWORK_ID?: string;
-  WEBAUTHN_CONTRACT_ID: string;
+  ROR_CONTRACT_ID: string;
   ACCOUNT_INITIAL_BALANCE?: string;
   CREATE_ACCOUNT_AND_REGISTER_GAS?: string;
   EXPECTED_ORIGIN?: string;

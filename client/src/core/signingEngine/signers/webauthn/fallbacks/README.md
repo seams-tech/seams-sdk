@@ -83,7 +83,7 @@ Enables top-level page on Origin A to create credentials for RP ID B if B opts-i
 - Example: `{ "origins": ["https://www.example.com"] }`
 - Parent executes `navigator.credentials.create()` with `rp.id = "wallet-provider.com"`
 - Keeps credentials bound to wallet domain while executing at top-level
-- **Dev support:** Wallet dev server serves endpoint by reading chain when `VITE_WEBAUTHN_CONTRACT_ID` is set (optional: `VITE_NEAR_RPC_URL`, `VITE_ROR_METHOD`)
+- **Dev support:** Wallet dev server serves endpoint by reading chain when `VITE_ROR_CONTRACT_ID` is set (optional: `VITE_NEAR_RPC_URL`, `VITE_ROR_METHOD`)
 
 ### Permissions Policy
 **Parent response header:**

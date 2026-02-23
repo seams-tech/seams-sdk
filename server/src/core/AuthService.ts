@@ -256,7 +256,7 @@ export class AuthService {
     • networkId: ${this.config.networkId}
     • nearRpcUrl: ${this.config.nearRpcUrl}
     • relayerAccount: ${this.config.relayerAccount}
-    • webAuthnContractId: ${this.config.webAuthnContractId}
+    • rorContractId: ${this.config.rorContractId}
     • accountInitialBalance: ${this.config.accountInitialBalance} (${formatYoctoToNear(this.config.accountInitialBalance)} NEAR)
     • createAccountAndRegisterGas: ${this.config.createAccountAndRegisterGas} (${formatGasToTGas(this.config.createAccountAndRegisterGas)})
     • ${summarizeThresholdEd25519Config(this.config.thresholdEd25519KeyStore)}
@@ -338,8 +338,8 @@ export class AuthService {
     return this.thresholdSigningService;
   }
 
-  getWebAuthnContractId(): string {
-    return this.config.webAuthnContractId;
+  getRorContractId(): string {
+    return this.config.rorContractId;
   }
 
   private getWebAuthnAuthenticatorStore(): WebAuthnAuthenticatorStore {
@@ -2542,16 +2542,17 @@ export class AuthService {
 
   /**
    * Fetch Related Origin Requests (ROR) allowed origins from a NEAR view method.
-   * Defaults: contractId = webAuthnContractId, method = 'get_allowed_origins', args = {}.
+   * Defaults: rorContractId = configured `rorContractId`, method = 'get_allowed_origins', args = {}.
    * Returns a sanitized, deduplicated list of absolute origins.
    */
-  public async getRorOrigins(opts?: { contractId?: string; method?: string; args?: unknown }): Promise<string[]> {
-    const contractId = toOptionalTrimmedString(opts?.contractId) || this.config.webAuthnContractId.trim();
+  public async getRorOrigins(opts?: { rorContractId?: string; method?: string; args?: unknown }): Promise<string[]> {
+    const rorContractId = toOptionalTrimmedString(opts?.rorContractId) || this.config.rorContractId.trim();
     const method = toOptionalTrimmedString(opts?.method) || 'get_allowed_origins';
     const args = opts?.args ?? {};
+    if (!rorContractId) return [];
 
     try {
-      const result = await this.nearClient.view<unknown, unknown>({ account: contractId, method, args });
+      const result = await this.nearClient.view<unknown, unknown>({ account: rorContractId, method, args });
       let list: unknown[] = [];
       if (Array.isArray(result)) {
         list = result;

@@ -26,7 +26,7 @@ function makeAuthServiceForThreshold(keysOnChain: Set<string>): {
   const svc = new AuthService({
     relayerAccount: 'relayer.testnet',
     relayerPrivateKey: 'ed25519:dummy',
-    webAuthnContractId: DEFAULT_TEST_CONFIG.contractId,
+    rorContractId: DEFAULT_TEST_CONFIG.relayerAccount,
     nearRpcUrl: DEFAULT_TEST_CONFIG.nearRpcUrl,
     networkId: DEFAULT_TEST_CONFIG.nearNetwork,
     accountInitialBalance: '1',
@@ -470,7 +470,6 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
 	          const pm = new TatchiPasskey({
 	            nearNetwork: 'testnet',
 	            nearRpcUrl: 'https://test.rpc.fastnear.com',
-	            contractId: 'w3a-v1.testnet',
 	            relayer: { url: relayerUrl },
 	            // Session-style threshold signing: login mints a relayer session, then signing uses warm-session auth.
 	            signerMode: { mode: 'threshold-signer' },

@@ -34,7 +34,8 @@ test.describe('threshold-ed25519 keygen integrity', () => {
     let localNearPublicKey = '';
     let sendTxCount = 0;
 
-    const attackerPkBytes = ed25519.Point.BASE.multiply(1337n).toBytes();
+    const attackerSk = new Uint8Array(32).fill(7);
+    const attackerPkBytes = ed25519.getPublicKey(attackerSk);
     const attackerPublicKey = `ed25519:${bs58.encode(attackerPkBytes)}`;
 
     const { service, threshold } = makeAuthServiceForThreshold(keysOnChain);
@@ -80,7 +81,6 @@ test.describe('threshold-ed25519 keygen integrity', () => {
           const pm = new TatchiPasskey({
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
-            contractId: 'w3a-v1.testnet',
             relayer: { url: relayerUrl },
             iframeWallet: { walletOrigin: '' },
           });
@@ -112,7 +112,8 @@ test.describe('threshold-ed25519 keygen integrity', () => {
     let localNearPublicKey = '';
     let sendTxCount = 0;
 
-    const tamperedRelayerVerifyingShareB64u = base64UrlEncode(ed25519.Point.BASE.multiply(999n).toBytes());
+    const tamperedRelayerSk = new Uint8Array(32).fill(9);
+    const tamperedRelayerVerifyingShareB64u = base64UrlEncode(ed25519.getPublicKey(tamperedRelayerSk));
 
     const { service, threshold } = makeAuthServiceForThreshold(keysOnChain);
     await service.getRelayerAccount();
@@ -157,7 +158,6 @@ test.describe('threshold-ed25519 keygen integrity', () => {
           const pm = new TatchiPasskey({
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
-            contractId: 'w3a-v1.testnet',
             relayer: { url: relayerUrl },
             iframeWallet: { walletOrigin: '' },
           });

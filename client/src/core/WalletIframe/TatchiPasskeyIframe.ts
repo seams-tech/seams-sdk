@@ -135,7 +135,6 @@ export class TatchiPasskeyIframe {
       signerMode: this.configs.signerMode,
       nearRpcUrl: this.configs.nearRpcUrl,
       nearNetwork: this.configs.nearNetwork,
-      contractId: this.configs.contractId,
       relayerAccount: this.configs.relayerAccount,
       // relayer: configs.relayer,
       rpIdOverride: this.configs.iframeWallet?.rpIdOverride,

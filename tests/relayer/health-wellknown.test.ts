@@ -136,6 +136,6 @@ test.describe('relayer health/ready + well-known', () => {
     expect(res.headers.get('cache-control')).toContain('max-age=60');
     expect(res.json?.origins).toEqual(['https://example.localhost']);
     expect(calls.length).toBe(1);
-    expect(calls[0]).toEqual({ contractId: 'c.testnet', method: 'm' });
+    expect(calls[0]).toEqual({ rorContractId: 'c.testnet', method: 'm' });
   });
 });

@@ -360,14 +360,14 @@ export function SendGreetingButton() {
   }
 
   const nearAccountId = loginState.nearAccountId
-  const contractId = tatchi.configs.contractId
+  const receiverId = 'guest-book.testnet'
 
   return (
     <button
       onClick={async () => {
         await tatchi.near.executeAction({
           nearAccountId,
-          receiverId: contractId,
+          receiverId,
           actionArgs: {
             type: ActionType.FunctionCall,
             methodName: 'set_greeting',

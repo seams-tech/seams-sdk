@@ -62,7 +62,7 @@ const securityDiagramThemeColors: Record<SecurityCard['id'], SecurityDiagramProp
   scale: {
     glowColor: 'color-mix(in srgb, var(--site-accent) 58%, var(--site-brand) 42%)',
     nodeColor: 'color-mix(in srgb, var(--site-brand-hover) 56%, var(--site-text-primary) 44%)',
-    lineColor: 'color-mix(in srgb, var(--site-border) 46%, var(--site-brand) 54%)',
+    lineColor: 'color-mix(in srgb, var(--site-text-primary) 82%, var(--site-brand) 18%)',
     canvasColor: 'color-mix(in srgb, var(--site-surface-strong) 72%, var(--site-canvas) 28%)',
   },
   friction: {

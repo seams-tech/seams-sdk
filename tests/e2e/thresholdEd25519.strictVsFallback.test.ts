@@ -106,7 +106,6 @@ test.describe('threshold-ed25519 strict vs fallback semantics', () => {
           const pm = new TatchiPasskey({
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
-            contractId: 'w3a-v1.testnet',
             relayer: { url: relayerUrl },
             signerMode: { mode: 'threshold-signer' },
             signingSessionDefaults: { ttlMs: 60_000, remainingUses: 10 },
@@ -197,7 +196,6 @@ test.describe('threshold-ed25519 strict vs fallback semantics', () => {
           const pm = new TatchiPasskey({
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
-            contractId: 'w3a-v1.testnet',
             relayer: { url: relayerUrl },
             signerMode: { mode: 'threshold-signer' },
             signingSessionDefaults: { ttlMs: 60_000, remainingUses: 10 },

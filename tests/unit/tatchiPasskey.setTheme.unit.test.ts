@@ -14,7 +14,6 @@ test.describe('TatchiPasskey.setTheme', () => {
       const tatchi = new TatchiPasskey({
         nearNetwork: 'testnet',
         nearRpcUrl: 'https://test.rpc.fastnear.com',
-        contractId: 'w3a-v1.testnet',
         relayer: { url: 'https://relay-server.localhost' },
         iframeWallet: { walletOrigin: '' },
       });
@@ -37,7 +36,6 @@ test.describe('TatchiPasskey.setTheme', () => {
         appearance: { theme: 'light' },
         nearNetwork: 'testnet',
         nearRpcUrl: 'https://test.rpc.fastnear.com',
-        contractId: 'w3a-v1.testnet',
         relayer: { url: 'https://relay-server.localhost' },
         iframeWallet: { walletOrigin: '' },
       });

@@ -13,7 +13,7 @@ import type { ActionArgs, FunctionCallAction } from '@tatchi-xyz/sdk/react';
 import { LoadingButton } from './LoadingButton';
 import Refresh from './icons/Refresh';
 import { useSetGreeting } from '../hooks/useSetGreeting';
-import { NEAR_EXPLORER_BASE_URL, WEBAUTHN_CONTRACT_ID } from '../types';
+import { DEMO_CONTRACT_ID, NEAR_EXPLORER_BASE_URL } from '../types';
 import './DemoPage.css';
 
 function shortenHex(value: string, size = 24): string {
@@ -222,7 +222,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     try {
       await tatchi.near.executeAction({
         nearAccountId: nearAccountId!,
-        receiverId: WEBAUTHN_CONTRACT_ID,
+        receiverId: DEMO_CONTRACT_ID,
         actionArgs: actionToExecute,
         options: {
           onEvent: (event) => {
@@ -303,7 +303,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
         nearAccountId: nearAccountId!,
         delegate: {
           senderId: nearAccountId!,
-          receiverId: WEBAUTHN_CONTRACT_ID,
+          receiverId: DEMO_CONTRACT_ID,
           actions: [delegateAction],
           nonce: Date.now(),
           maxBlockHeight: 0,

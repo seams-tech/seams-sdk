@@ -4,14 +4,13 @@
  * In the threshold-only architecture:
  * - These values are threaded into the TatchiPasskey instance and ultimately
  *   into SigningEngine, NearClient, and the UserConfirm worker configuration.
- * - `nearRpcUrl` / `contractId` are used by confirmTxFlow and signing helpers
+ * - `nearRpcUrl` is used by confirmTxFlow and signing helpers
  *   to fetch NEAR context consistently.
  */
 export interface PasskeyTestConfig {
   frontendUrl: string;
   nearNetwork: 'testnet' | 'mainnet';
   nearRpcUrl: string;
-  contractId: string;
   relayerAccount: string;
   rpId: string;
   useRelayer: boolean;

@@ -213,7 +213,6 @@ export interface TatchiContextType {
  * config: {
  *   nearRpcUrl: 'https://rpc.testnet.near.org',
  *   nearNetwork: 'testnet',
- *   contractId: 'w3a-v1.testnet',
  *   // Parent account used for new subaccount creation via the relay server.
  *   // Must match relay-server `RELAYER_ACCOUNT_ID` when using atomic registration.
  *   relayerAccount: 'w3a-relayer.testnet',

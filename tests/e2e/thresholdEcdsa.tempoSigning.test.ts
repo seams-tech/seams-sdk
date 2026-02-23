@@ -50,7 +50,6 @@ test.describe('threshold-ecdsa tempo signing', () => {
           const pm = new TatchiPasskey({
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
-            contractId: 'web3-authn-v4.testnet',
             relayerAccount: 'web3-authn-v4.testnet',
             relayer: {
               url: relayerUrl,
@@ -258,7 +257,6 @@ test.describe('threshold-ecdsa tempo signing', () => {
           const pm = new TatchiPasskey({
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
-            contractId: 'web3-authn-v4.testnet',
             relayerAccount: 'web3-authn-v4.testnet',
             relayer: {
               url: relayerUrl,

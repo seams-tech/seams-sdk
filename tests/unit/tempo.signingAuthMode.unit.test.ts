@@ -34,7 +34,7 @@ test.describe('tempo signing auth-mode resolution', () => {
         await signEvmWithTouchConfirm({
           ctx: { indexedDB: {} } as any,
           workerCtx: workerCtx as any,
-          touchConfirmManager: {
+          touchConfirm: {
             peekPrfFirstForThresholdSession: async () => ({
               ok: false,
               code: 'expired',
@@ -122,7 +122,7 @@ test.describe('tempo signing auth-mode resolution', () => {
       const signed = await signEvmWithTouchConfirm({
         ctx: { indexedDB: {} } as any,
         workerCtx: workerCtx as any,
-        touchConfirmManager: {
+        touchConfirm: {
           peekPrfFirstForThresholdSession: async () => ({
             ok: true,
             remainingUses: 2,
@@ -207,7 +207,7 @@ test.describe('tempo signing auth-mode resolution', () => {
         await signTempoWithTouchConfirm({
           ctx: { indexedDB: {} } as any,
           workerCtx: workerCtx as any,
-          touchConfirmManager: {
+          touchConfirm: {
             peekPrfFirstForThresholdSession: async () => ({
               ok: false,
               code: 'expired',

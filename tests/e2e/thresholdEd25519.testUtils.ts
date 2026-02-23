@@ -23,7 +23,7 @@ export async function setupThresholdE2ePage(page: Page): Promise<void> {
 }
 
 const DEFAULT_ACCOUNTS_ON_CHAIN = new Set<string>(
-  [DEFAULT_TEST_CONFIG.contractId, DEFAULT_TEST_CONFIG.relayerAccount].filter((id): id is string => !!id),
+  [DEFAULT_TEST_CONFIG.relayerAccount].filter((id): id is string => !!id),
 );
 const DEFAULT_ECDSA_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString('base64url');
 
@@ -37,7 +37,7 @@ export function makeAuthServiceForThreshold(
   const svc = new AuthService({
     relayerAccount: 'relayer.testnet',
     relayerPrivateKey: 'ed25519:dummy',
-    webAuthnContractId: DEFAULT_TEST_CONFIG.contractId,
+    rorContractId: DEFAULT_TEST_CONFIG.relayerAccount,
     nearRpcUrl: DEFAULT_TEST_CONFIG.nearRpcUrl,
     networkId: DEFAULT_TEST_CONFIG.nearNetwork,
     accountInitialBalance: '1',

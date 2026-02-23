@@ -154,7 +154,7 @@ export function initWalletIFrame(): void {
     // Handle ping/pong for connection health checks
     if (req.type === 'PING') {
       // Initialize TatchiPasskey and prewarm workers on wallet origin (non-blocking)
-      if (ctx.walletConfigs?.nearRpcUrl && ctx.walletConfigs?.contractId) {
+      if (ctx.walletConfigs?.nearRpcUrl && ctx.walletConfigs?.relayerAccount) {
         Promise.resolve().then(() => {
           const pm = ensureTatchiPasskey();
           return pm.initWalletIframe();

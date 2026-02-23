@@ -104,7 +104,6 @@ test.describe('threshold-ed25519 relayer failure behavior', () => {
           const pm = new TatchiPasskey({
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
-            contractId: 'w3a-v1.testnet',
             relayer: { url: relayerUrl },
             iframeWallet: { walletOrigin: '' },
           });
@@ -217,7 +216,6 @@ test.describe('threshold-ed25519 relayer failure behavior', () => {
           const pm = new TatchiPasskey({
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
-            contractId: 'w3a-v1.testnet',
             relayer: { url: relayerUrl },
             iframeWallet: { walletOrigin: '' },
           });

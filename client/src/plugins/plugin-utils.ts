@@ -208,14 +208,14 @@ const __rorInflight = new Map<string, Promise<string[]>>()
 
 export async function fetchRorOriginsFromNear(opts: {
   rpcUrl: string
-  contractId: string
+  rorContractId: string
   method: string
   cacheTtlMs?: number
 }): Promise<string[]> {
-  const { rpcUrl, contractId } = opts
+  const { rpcUrl, rorContractId } = opts
   const method = opts.method || 'get_allowed_origins'
   const ttl = Math.max(0, Number(opts.cacheTtlMs ?? (process.env.VITE_ROR_CACHE_TTL_MS as any) ?? 60000)) || 60000
-  const key = `${rpcUrl}|${contractId}|${method}`
+  const key = `${rpcUrl}|${rorContractId}|${method}`
 
   const now = Date.now()
   const cached = __rorCache.get(key)
@@ -231,7 +231,7 @@ export async function fetchRorOriginsFromNear(opts: {
       params: {
         request_type: 'call_function',
         finality: 'final',
-        account_id: contractId,
+        account_id: rorContractId,
         method_name: method,
         args_base64: Buffer.from(JSON.stringify({})).toString('base64'),
       },

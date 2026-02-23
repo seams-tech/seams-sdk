@@ -51,7 +51,6 @@ function App() {
       config={{
         nearRpcUrl: 'https://rpc.testnet.near.org',
         nearNetwork: 'testnet',
-        contractId: 'w3a-v1.testnet',
         iframeWallet: {
           walletOrigin: 'https://wallet.web3authn.org',
         },
@@ -121,7 +120,7 @@ interface TatchiPasskeyConfig {
   // NEAR blockchain settings
   nearRpcUrl: string               // RPC endpoint
   nearNetwork: 'testnet' | 'mainnet'
-  contractId: string               // WebAuthn contract
+  relayerAccount: string           // Parent account used for new subaccounts
 
   // Wallet iframe settings (recommended)
   iframeWallet?: {

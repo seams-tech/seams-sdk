@@ -22,7 +22,7 @@ type Env = {
   RELAYER_PRIVATE_KEY: string;
   NEAR_RPC_URL?: string;
   NETWORK_ID?: string;
-  WEBAUTHN_CONTRACT_ID: string;
+  ROR_CONTRACT_ID: string;
   ACCOUNT_INITIAL_BALANCE?: string;
   CREATE_ACCOUNT_AND_REGISTER_GAS?: string;
   SHAMIR_P_B64U: string;
@@ -52,7 +52,7 @@ function createAuthService(env: Env): AuthService {
   return new AuthService({
     relayerAccount: env.RELAYER_ACCOUNT_ID,
     relayerPrivateKey: env.RELAYER_PRIVATE_KEY,
-    webAuthnContractId: env.WEBAUTHN_CONTRACT_ID,
+    rorContractId: env.ROR_CONTRACT_ID,
     nearRpcUrl: env.NEAR_RPC_URL,
     networkId: env.NETWORK_ID,
     accountInitialBalance: env.ACCOUNT_INITIAL_BALANCE,

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ed25519 } from '@noble/curves/ed25519';
+import { ed25519 } from '@noble/curves/ed25519.js';
 import {
   createThresholdSigningServiceForUnitTests,
   verifyThresholdEd25519CoordinatorGrantHmac,
@@ -53,10 +53,14 @@ function pointB64u(s: bigint): string {
   return Buffer.from(ed25519PointToBytes(p)).toString('base64url');
 }
 
+function bytesToHex(input: Uint8Array): string {
+  return Buffer.from(input).toString('hex');
+}
+
 function sumPointsB64u(aB64u: string, bB64u: string): string {
   const pointCtor = getEd25519PointCtor();
-  const a = pointCtor.fromHex(Buffer.from(aB64u, 'base64url'));
-  const b = pointCtor.fromHex(Buffer.from(bB64u, 'base64url'));
+  const a = pointCtor.fromHex(bytesToHex(Buffer.from(aB64u, 'base64url')));
+  const b = pointCtor.fromHex(bytesToHex(Buffer.from(bB64u, 'base64url')));
   return Buffer.from(ed25519PointToBytes(a.add(b))).toString('base64url');
 }
 

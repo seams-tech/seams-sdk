@@ -308,7 +308,7 @@ export function tatchiHeaders(opts: DevHeadersOptions = {}): VitePlugin {
 
   // Dev convenience: dynamic ROR from NEAR RPC (no relay dependency)
   // The dev server will fetch the allowlist from chain on demand when a contract id is provided.
-  const rorContractId = (process.env.VITE_WEBAUTHN_CONTRACT_ID || '').toString().trim()
+  const rorContractId = (process.env.VITE_ROR_CONTRACT_ID || '').toString().trim()
   const rorMethod = (process.env.VITE_ROR_METHOD || 'get_allowed_origins').toString().trim()
   const nearRpcUrl = (process.env.VITE_NEAR_RPC_URL || 'https://test.rpc.fastnear.com').toString().trim()
   // Caching is handled inside fetchRorOriginsFromNear via TTL
@@ -355,7 +355,7 @@ export function tatchiHeaders(opts: DevHeadersOptions = {}): VitePlugin {
               try {
                 const origins = await fetchRorOriginsFromNear({
                   rpcUrl: nearRpcUrl,
-                  contractId: rorContractId,
+                  rorContractId: rorContractId,
                   method: rorMethod,
                 })
                 res.statusCode = 200

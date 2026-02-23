@@ -21,7 +21,7 @@ export default defineConfig(({ mode }) => {
   // back on explicitly when you need cross-origin isolation testing.
   const coepMode = (env.VITE_COEP_MODE === 'strict' ? 'strict' : 'off') as 'strict' | 'off'
   // Make VITE_* visible to Node-side dev plugins
-  if (env.VITE_WEBAUTHN_CONTRACT_ID) process.env.VITE_WEBAUTHN_CONTRACT_ID = env.VITE_WEBAUTHN_CONTRACT_ID
+  if (env.VITE_ROR_CONTRACT_ID) process.env.VITE_ROR_CONTRACT_ID = env.VITE_ROR_CONTRACT_ID
   if (env.VITE_NEAR_RPC_URL) process.env.VITE_NEAR_RPC_URL = env.VITE_NEAR_RPC_URL
   if (env.VITE_ROR_METHOD) process.env.VITE_ROR_METHOD = env.VITE_ROR_METHOD
   return {

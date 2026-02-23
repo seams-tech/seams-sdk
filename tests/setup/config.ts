@@ -15,7 +15,6 @@ export const DEFAULT_TEST_CONFIG: PasskeyTestConfig = {
   frontendUrl: FRONTEND_URL,
   nearNetwork: 'testnet',
   nearRpcUrl: 'https://test.rpc.fastnear.com',
-  contractId: 'w3a-v1.testnet',
   relayerAccount: 'w3a-v1.testnet',
   rpId: RP_ID,
   useRelayer: true,

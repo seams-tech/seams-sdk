@@ -25,7 +25,6 @@ test.describe('NearAdapter', () => {
             rpcCall: {
               nearAccountId: 'alice.near',
               nearRpcUrl: 'https://rpc.testnet.near.org',
-              contractId: 'web3authn.testnet',
             },
             transactions: [
               {
@@ -74,7 +73,6 @@ test.describe('NearAdapter', () => {
               rpcCall: {
                 nearAccountId: 'alice.near',
                 nearRpcUrl: 'https://rpc.testnet.near.org',
-                contractId: 'web3authn.testnet',
               },
               transactions: [{ receiverId: 'bob.near', actions: [] }],
               signerMode: 'threshold-signer',

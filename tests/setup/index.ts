@@ -188,7 +188,6 @@ export async function setupRelayServerTest(
   options: {
     frontendUrl?: string;
     relayServerUrl?: string;
-    contractId?: string;
     nearRpcUrl?: string;
     rpId?: string;
     testReceiverAccountId?: string;
@@ -209,7 +208,6 @@ export async function setupTestnetFaucetTest(
   page: Page,
   options: {
     frontendUrl?: string;
-    contractId?: string;
     nearRpcUrl?: string;
     rpId?: string;
     testReceiverAccountId?: string;
@@ -232,7 +230,6 @@ export interface TestUtils {
   configs: {
     nearNetwork: 'testnet';
     relayerAccount: string;
-    contractId: string;
     nearRpcUrl: string;
     useRelayer: boolean;
     relayServerUrl?: string;

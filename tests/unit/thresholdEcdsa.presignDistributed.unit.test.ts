@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { secp256k1 } from '@noble/curves/secp256k1';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { bytesToNumberBE, numberToBytesBE } from '../../shared/src/utils/bigint';
 import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -36,14 +36,20 @@ function randomSecpSecretKey32(): Uint8Array {
   throw new Error('secp256k1 random secret key generator is unavailable');
 }
 
+function bytesToHex(input: Uint8Array): string {
+  return Array.from(input, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 function sumSecpPublicKeysCompressed(aCompressed33: Uint8Array, bCompressed33: Uint8Array): Uint8Array {
   const pointCtor = ((secp256k1 as any).ProjectivePoint || (secp256k1 as any).Point) as
-    | { fromHex: (hex: Uint8Array) => any }
+    | { fromHex: (hex: string | Uint8Array) => any }
     | undefined;
   if (!pointCtor || typeof pointCtor.fromHex !== 'function') {
     throw new Error('secp256k1 point constructor is unavailable');
   }
-  const point = pointCtor.fromHex(aCompressed33).add(pointCtor.fromHex(bCompressed33));
+  const point = pointCtor
+    .fromHex(bytesToHex(aCompressed33))
+    .add(pointCtor.fromHex(bytesToHex(bCompressed33)));
   if (typeof point.toRawBytes === 'function') return point.toRawBytes(true);
   return point.toBytes(true);
 }

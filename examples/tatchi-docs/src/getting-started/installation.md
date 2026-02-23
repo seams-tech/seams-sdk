@@ -123,7 +123,7 @@ function App() {
       <h1>Tatchi Example</h1>
       <button onClick={() => {
         const id = Date.now();
-        tatchi.registration.registerPasskey(`tatchi-test-${id}.${configs.contractId}`, {
+        tatchi.registration.registerPasskey(`tatchi-test-${id}.${configs.relayerAccount}`, {
           onEvent: (event) => console.log('registration event: ', event)
         });
       }}>

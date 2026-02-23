@@ -86,7 +86,6 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
           const pm = new TatchiPasskey({
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
-            contractId: 'w3a-v1.testnet',
             relayer: { url: relayerUrl },
             iframeWallet: { walletOrigin: '' },
           });

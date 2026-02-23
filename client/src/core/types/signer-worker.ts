@@ -172,12 +172,14 @@ export interface TransactionPayload {
   receiverId: string;
   actions: ActionArgsWasm[];
 }
-export type RpcCallPayload = StripFree<wasmModule.RpcCallPayload>;
+export interface RpcCallPayload {
+  nearRpcUrl: string;
+  nearAccountId: string;
+}
 /**
  * RPC call parameters for NEAR operations
  * Used to pass essential parameters for background operations
  * export interface RpcCallPayload {
- *    contractId: string;    // Web3Authn contract ID for verification
  *    nearRpcUrl: string;    // NEAR RPC endpoint URL
  *    nearAccountId: string; // Account ID for the current user/session
  * }

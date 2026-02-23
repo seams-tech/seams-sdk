@@ -44,7 +44,7 @@ extra requirements and limitations compared to the Express example.
     - `EXPECTED_ORIGIN` (e.g. docs/app origin)
     - `EXPECTED_WALLET_ORIGIN` (e.g. wallet iframe origin)
   - Chain/runtime config (see `wrangler.toml` defaults):
-    - `RELAYER_ACCOUNT_ID`, `WEBAUTHN_CONTRACT_ID`, `NETWORK_ID`, `NEAR_RPC_URL`, etc.
+    - `RELAYER_ACCOUNT_ID`, `ROR_CONTRACT_ID`, `NETWORK_ID`, `NEAR_RPC_URL`, etc.
 - If you enable Shamir rotation, configure the cron schedule in `[triggers]`
   and set `ENABLE_ROTATION="1"`.
 

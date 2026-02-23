@@ -9,7 +9,7 @@ export function registerHealthRoutes(router: ExpressRouter, ctx: ExpressRelayCon
       res.status(200).json({
         ok: true,
         relayerAccount: ctx.service.getConfiguredRelayerAccount?.() ?? null,
-        webAuthnContractId: ctx.service.getWebAuthnContractId?.() ?? null,
+        rorContractId: ctx.service.getRorContractId?.() ?? null,
         thresholdEd25519: { configured: thresholdConfigured },
       });
     });

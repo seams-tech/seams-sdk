@@ -43,7 +43,6 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigs = {
   // First URL is treated as primary, subsequent URLs are fallbacks.
   nearRpcUrl: 'https://test.rpc.fastnear.com, https://rpc.testnet.near.org',
   nearNetwork: 'testnet',
-  contractId: 'w3a-v1.testnet',
   appearance: {
     theme: 'dark',
     palette: 'default',
@@ -53,7 +52,6 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigs = {
     },
   },
   // Default account domain for newly created accounts (subaccounts under the relayer).
-  // In most deployments this is the same as `contractId`, but it can differ.
   relayerAccount: 'w3a-v1.testnet',
   nearExplorerUrl: 'https://testnet.nearblocks.io',
   signerMode: { mode: 'local-signer' },
@@ -159,9 +157,7 @@ export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiC
   const defaults = PASSKEY_MANAGER_DEFAULT_CONFIGS;
   const relayerUrl = overrides.relayer?.url ?? defaults.relayer?.url ?? '';
   const relayerAccount = toTrimmedString(overrides.relayerAccount)
-    || toTrimmedString(overrides.contractId)
-    || toTrimmedString(defaults.relayerAccount)
-    || toTrimmedString(defaults.contractId);
+    || toTrimmedString(defaults.relayerAccount);
   const signerMode = coerceSignerMode(overrides.signerMode, defaults.signerMode);
   const smartAccountDeploymentMode =
     overrides.relayer?.smartAccountDeploymentMode === 'observe'
@@ -221,7 +217,6 @@ export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiC
   const merged: TatchiConfigs = {
     nearRpcUrl: overrides.nearRpcUrl ?? defaults.nearRpcUrl,
     nearNetwork: overrides.nearNetwork ?? defaults.nearNetwork,
-    contractId: overrides.contractId ?? defaults.contractId,
     appearance: {
       theme: appearanceTheme,
       palette: appearancePalette,
@@ -316,9 +311,6 @@ export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiC
         || '/sdk',
     }
   };
-  if (!merged.contractId) {
-    throw new Error('[configPresets] Missing required config: contractId');
-  }
   if (!merged.relayer.url) {
     throw new Error('[configPresets] Missing required config: relayer.url');
   }

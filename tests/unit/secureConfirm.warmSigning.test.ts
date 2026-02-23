@@ -83,7 +83,6 @@ test.describe('UserConfirm – warm signing', () => {
             method: 'sign',
             argsJson: {},
             nearAccountId: 'alice.testnet',
-            contractId: 'web3-authn.testnet',
             nearRpcUrl: 'https://rpc.testnet.near.org',
           },
           signingAuthMode: 'warmSession',

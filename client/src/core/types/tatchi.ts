@@ -155,7 +155,6 @@ export interface ThresholdEcdsaPresignPoolPolicy {
 export interface TatchiConfigsInput {
   nearRpcUrl?: string;
   nearNetwork?: 'testnet' | 'mainnet';
-  contractId?: 'w3a-v1.testnet' | string;
   appearance?: AppearanceConfigInput;
   /**
    * NEAR account ID under which the relay server creates new subaccounts.
@@ -163,7 +162,7 @@ export interface TatchiConfigsInput {
    * This must match the relay server config `RELAYER_ACCOUNT_ID` when
    * using atomic registration via `POST /registration/bootstrap`.
    *
-   * Defaults to `contractId`.
+   * Defaults to the SDK relayer account default.
    */
   relayerAccount?: string;
   nearExplorerUrl?: string; // NEAR Explorer URL for transaction links
@@ -255,7 +254,6 @@ export interface TatchiConfigsInput {
 export interface TatchiConfigs {
   nearRpcUrl: string;
   nearNetwork: 'testnet' | 'mainnet';
-  contractId: 'w3a-v1.testnet' | string;
   appearance: AppearanceConfig;
   relayerAccount: string;
   nearExplorerUrl?: string;

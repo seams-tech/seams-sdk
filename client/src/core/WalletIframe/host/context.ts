@@ -134,9 +134,6 @@ export function ensurePasskeyManager(ctx: HostContext): TatchiPasskey {
   if (!walletConfigs || !walletConfigs.nearRpcUrl) {
     throw new Error('Wallet service not configured. Call PM_SET_CONFIG first.');
   }
-  if (!walletConfigs.contractId) {
-    throw new Error('Wallet service misconfigured: contractId is required.');
-  }
   if (!ctx.nearClient) {
     ctx.nearClient = new MinimalNearClient(walletConfigs.nearRpcUrl);
   }
@@ -198,8 +195,7 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
   const base = {
     nearRpcUrl: payload?.nearRpcUrl || prev.nearRpcUrl || '',
     nearNetwork: payload?.nearNetwork || prev.nearNetwork || 'testnet',
-    contractId: payload?.contractId || prev.contractId || '',
-    relayerAccount: payload?.relayerAccount || prev.relayerAccount || payload?.contractId || prev.contractId || '',
+    relayerAccount: payload?.relayerAccount || prev.relayerAccount || '',
     nearExplorerUrl: payload?.nearExplorerUrl || prev.nearExplorerUrl,
     signerMode: payload?.signerMode || prev.signerMode,
     relayer: payload?.relayer || prev.relayer,

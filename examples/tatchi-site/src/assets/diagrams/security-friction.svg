@@ -1,80 +1,80 @@
-<svg viewBox="0 0 1600 600" xmlns="http://www.w3.org/2000/svg">
+<svg overflow="hidden" preserveAspectRatio="xMidYMid slice" viewBox="0 0 1600 600" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="var(--security-diagram-canvas, #2a3243)" />
-      <stop offset="100%" stop-color="var(--security-diagram-canvas, #181e29)" />
+      <stop offset="0%" stop-color="var(--security-diagram-canvas, var(--security-diagram-canvas-top, #2a3243))" />
+      <stop offset="100%" stop-color="var(--security-diagram-canvas, var(--security-diagram-canvas-bottom, #181e29))" />
     </linearGradient>
     <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
       <feGaussianBlur stdDeviation="6" result="blur" />
       <feComposite in="SourceGraphic" in2="blur" operator="over" />
     </filter>
   </defs>
-  <rect width="100%" height="100%" fill="url(#bgGrad)"/>
+  
 
   <g id="phone-back-0">
-    <g stroke="rgba(200, 225, 255, 0.3)" stroke-width="1" stroke-dasharray="2 2">
+    <g stroke="color-mix(in srgb, var(--security-diagram-line-strong, #c8e1ff) 30%, transparent)" stroke-width="1" stroke-dasharray="2 2">
       <line x1="380.84389999999996" y1="402" x2="363.5234" y2="412"/>
       <line x1="491.69509999999997" y1="466" x2="474.3746" y2="476"/>
       <line x1="380.84389999999996" y1="114" x2="363.5234" y2="124"/>
       <line x1="491.69509999999997" y1="178" x2="474.3746" y2="188"/>
     </g>
     <g transform="matrix(0.866025, 0.5, 0, 1, 436.27, 290.00)">
-      <rect x="-80" y="-160" width="160" height="320" rx="16" fill="rgba(32, 38, 51, 0.2)" stroke="rgba(100, 150, 255, 0.3)" stroke-width="1.5"/>
+      <rect x="-80" y="-160" width="160" height="320" rx="16" fill="color-mix(in srgb, var(--security-diagram-canvas, #202633) 20%, transparent)" stroke="color-mix(in srgb, var(--security-diagram-line, #6496ff) 30%, transparent)" stroke-width="1.5"/>
     </g>
   </g>
   <g id="phone-back-1">
-    <g stroke="rgba(200, 225, 255, 0.3)" stroke-width="1" stroke-dasharray="2 2">
+    <g stroke="color-mix(in srgb, var(--security-diagram-line-strong, #c8e1ff) 30%, transparent)" stroke-width="1" stroke-dasharray="2 2">
       <line x1="761.8949" y1="402" x2="744.5744" y2="412"/>
       <line x1="872.7461" y1="466" x2="855.4256" y2="476"/>
       <line x1="761.8949" y1="114" x2="744.5744" y2="124"/>
       <line x1="872.7461" y1="178" x2="855.4256" y2="188"/>
     </g>
     <g transform="matrix(0.866025, 0.5, 0, 1, 817.32, 290.00)">
-      <rect x="-80" y="-160" width="160" height="320" rx="16" fill="rgba(32, 38, 51, 0.2)" stroke="rgba(100, 150, 255, 0.3)" stroke-width="1.5"/>
+      <rect x="-80" y="-160" width="160" height="320" rx="16" fill="color-mix(in srgb, var(--security-diagram-canvas, #202633) 20%, transparent)" stroke="color-mix(in srgb, var(--security-diagram-line, #6496ff) 30%, transparent)" stroke-width="1.5"/>
     </g>
   </g>
   <g id="phone-back-2">
-    <g stroke="rgba(200, 225, 255, 0.3)" stroke-width="1" stroke-dasharray="2 2">
+    <g stroke="color-mix(in srgb, var(--security-diagram-line-strong, #c8e1ff) 30%, transparent)" stroke-width="1" stroke-dasharray="2 2">
       <line x1="1142.9459" y1="402" x2="1125.6254" y2="412"/>
       <line x1="1253.7971" y1="466" x2="1236.4766" y2="476"/>
       <line x1="1142.9459" y1="114" x2="1125.6254" y2="124"/>
       <line x1="1253.7971" y1="178" x2="1236.4766" y2="188"/>
     </g>
     <g transform="matrix(0.866025, 0.5, 0, 1, 1198.37, 290.00)">
-      <rect x="-80" y="-160" width="160" height="320" rx="16" fill="rgba(32, 38, 51, 0.2)" stroke="rgba(100, 150, 255, 0.3)" stroke-width="1.5"/>
+      <rect x="-80" y="-160" width="160" height="320" rx="16" fill="color-mix(in srgb, var(--security-diagram-canvas, #202633) 20%, transparent)" stroke="color-mix(in srgb, var(--security-diagram-line, #6496ff) 30%, transparent)" stroke-width="1.5"/>
     </g>
   </g>
-  <path d="M -109.32625000000007 225 L 418.94899999999996 300 L 522.872 240 L 730.718 340 L 800 300 L 886.6025 250 L 1111.769 340 L 1181.051 300 L 1709.32625 375 " fill="none" stroke="var(--security-diagram-line, rgba(80, 150, 255, 0.2))" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M -109.32625000000007 225 L 418.94899999999996 300 L 522.872 240 L 730.718 340 L 800 300 L 886.6025 250 L 1111.769 340 L 1181.051 300 L 1709.32625 375 " fill="none" stroke="var(--security-diagram-line, color-mix(in srgb, var(--diagram-glow, #5096ff) 20%, transparent))" stroke-width="3" stroke-linejoin="round"/>
   <path d="M -109.32625000000007 225 L 418.94899999999996 300 L 522.872 240 L 730.718 340 L 800 300 L 886.6025 250 L 1111.769 340 L 1181.051 300 L 1709.32625 375 " fill="none" stroke="var(--diagram-glow, #5debff)" stroke-width="4" stroke-linejoin="round" filter="url(#glow)" stroke-dasharray="100 860.1416426450473" stroke-dashoffset="1920.2832852900947">
     <animate attributeName="stroke-dashoffset" values="1920.2832852900947;0" dur="4s" repeatCount="indefinite" />
   </path>
   <g id="phone-front-0">
     <g transform="matrix(0.866025, 0.5, 0, 1, 418.95, 300.00)">
-      <rect x="-80" y="-160" width="160" height="320" rx="16" fill="#1a1f2b" stroke="rgba(180, 210, 255, 0.8)" stroke-width="1.5"/>
-<rect x="-60" y="-130" width="120" height="50" rx="8" fill="none" stroke="rgba(200, 225, 255, 0.3)" stroke-width="1.5"/>
-<rect x="-60" y="-60" width="120" height="20" rx="4" fill="none" stroke="rgba(200, 225, 255, 0.5)" stroke-width="1.5"/>
-<rect x="-60" y="-30" width="120" height="20" rx="4" fill="none" stroke="rgba(200, 225, 255, 0.5)" stroke-width="1.5"/>
-<rect x="-60" y="0" width="120" height="20" rx="4" fill="none" stroke="rgba(200, 225, 255, 0.5)" stroke-width="1.5"/>
-<rect x="-40" y="50" width="80" height="28" rx="14" fill="rgba(80, 150, 255, 0.2)" stroke="rgba(100, 180, 255, 0.8)" stroke-width="1"/>
+      <rect x="-80" y="-160" width="160" height="320" rx="16" fill="color-mix(in srgb, var(--site-surface, #f5f1ea) 72%, var(--security-diagram-canvas, #1a1f2b) 28%)" stroke="color-mix(in srgb, var(--security-diagram-line-strong, #b4d2ff) 80%, transparent)" stroke-width="1.5"/>
+<rect x="-60" y="-130" width="120" height="50" rx="8" fill="none" stroke="color-mix(in srgb, var(--security-diagram-line-strong, #c8e1ff) 30%, transparent)" stroke-width="1.5"/>
+<rect x="-60" y="-60" width="120" height="20" rx="4" fill="none" stroke="color-mix(in srgb, var(--security-diagram-line-strong, #c8e1ff) 50%, transparent)" stroke-width="1.5"/>
+<rect x="-60" y="-30" width="120" height="20" rx="4" fill="none" stroke="color-mix(in srgb, var(--security-diagram-line-strong, #c8e1ff) 50%, transparent)" stroke-width="1.5"/>
+<rect x="-60" y="0" width="120" height="20" rx="4" fill="none" stroke="color-mix(in srgb, var(--security-diagram-line-strong, #c8e1ff) 50%, transparent)" stroke-width="1.5"/>
+<rect x="-40" y="50" width="80" height="28" rx="14" fill="color-mix(in srgb, var(--diagram-glow, #5096ff) 20%, transparent)" stroke="color-mix(in srgb, var(--diagram-glow, #64b4ff) 80%, transparent)" stroke-width="1"/>
       <path d="M -70 -140 L 60 -140" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="3" stroke-linecap="round"/>
     </g>
   </g>
   <g id="phone-front-1">
     <g transform="matrix(0.866025, 0.5, 0, 1, 800.00, 300.00)">
-      <rect x="-80" y="-160" width="160" height="320" rx="16" fill="#1a1f2b" stroke="rgba(180, 210, 255, 0.8)" stroke-width="1.5"/>
-<rect x="-60" y="-130" width="120" height="50" rx="8" fill="none" stroke="rgba(200, 225, 255, 0.3)" stroke-width="1.5"/>
-<circle cx="0" cy="-20" r="30" fill="none" stroke="rgba(100, 180, 255, 0.8)" stroke-width="2" stroke-dasharray="10 5"/>
-<rect x="-40" y="50" width="80" height="12" rx="6" fill="none" stroke="rgba(200, 225, 255, 0.3)" stroke-width="1.5"/>
+      <rect x="-80" y="-160" width="160" height="320" rx="16" fill="color-mix(in srgb, var(--site-surface, #f5f1ea) 72%, var(--security-diagram-canvas, #1a1f2b) 28%)" stroke="color-mix(in srgb, var(--security-diagram-line-strong, #b4d2ff) 80%, transparent)" stroke-width="1.5"/>
+<rect x="-60" y="-130" width="120" height="50" rx="8" fill="none" stroke="color-mix(in srgb, var(--security-diagram-line-strong, #c8e1ff) 30%, transparent)" stroke-width="1.5"/>
+<circle cx="0" cy="-20" r="30" fill="none" stroke="color-mix(in srgb, var(--diagram-glow, #64b4ff) 80%, transparent)" stroke-width="2" stroke-dasharray="10 5"/>
+<rect x="-40" y="50" width="80" height="12" rx="6" fill="none" stroke="color-mix(in srgb, var(--security-diagram-line-strong, #c8e1ff) 30%, transparent)" stroke-width="1.5"/>
       <path d="M -70 -140 L 60 -140" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="3" stroke-linecap="round"/>
     </g>
   </g>
   <g id="phone-front-2">
     <g transform="matrix(0.866025, 0.5, 0, 1, 1181.05, 300.00)">
-      <rect x="-80" y="-160" width="160" height="320" rx="16" fill="#1a1f2b" stroke="rgba(180, 210, 255, 0.8)" stroke-width="1.5"/>
-<rect x="-60" y="-130" width="120" height="50" rx="8" fill="none" stroke="rgba(200, 225, 255, 0.3)" stroke-width="1.5"/>
-<circle cx="0" cy="-20" r="30" fill="rgba(100, 255, 150, 0.1)" stroke="rgba(100, 255, 150, 0.8)" stroke-width="2"/>
-<path d="M-10 -20 L-4 -14 L12 -30" fill="none" stroke="rgba(100, 255, 150, 0.8)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-<rect x="-40" y="50" width="80" height="28" rx="14" fill="rgba(100, 255, 150, 0.2)" stroke="rgba(100, 255, 150, 0.8)" stroke-width="1"/>
+      <rect x="-80" y="-160" width="160" height="320" rx="16" fill="color-mix(in srgb, var(--site-surface, #f5f1ea) 72%, var(--security-diagram-canvas, #1a1f2b) 28%)" stroke="color-mix(in srgb, var(--security-diagram-line-strong, #b4d2ff) 80%, transparent)" stroke-width="1.5"/>
+<rect x="-60" y="-130" width="120" height="50" rx="8" fill="none" stroke="color-mix(in srgb, var(--security-diagram-line-strong, #c8e1ff) 30%, transparent)" stroke-width="1.5"/>
+<circle cx="0" cy="-20" r="30" fill="color-mix(in srgb, var(--security-diagram-line-strong, #64ff96) 10%, transparent)" stroke="color-mix(in srgb, var(--security-diagram-line-strong, #64ff96) 80%, transparent)" stroke-width="2"/>
+<path d="M-10 -20 L-4 -14 L12 -30" fill="none" stroke="color-mix(in srgb, var(--security-diagram-line-strong, #64ff96) 80%, transparent)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="-40" y="50" width="80" height="28" rx="14" fill="color-mix(in srgb, var(--security-diagram-line-strong, #64ff96) 20%, transparent)" stroke="color-mix(in srgb, var(--security-diagram-line-strong, #64ff96) 80%, transparent)" stroke-width="1"/>
       <path d="M -70 -140 L 60 -140" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="3" stroke-linecap="round"/>
     </g>
   </g>

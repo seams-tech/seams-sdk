@@ -745,7 +745,6 @@ export async function executeDeviceLinkingContractCalls({
         ? `link-device-${crypto.randomUUID()}`
         : `link-device-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       rpcCall: {
-        contractId: context.signingEngine.tatchiPasskeyConfigs.contractId,
         nearRpcUrl: context.signingEngine.tatchiPasskeyConfigs.nearRpcUrl,
         nearAccountId: device1AccountId
       },

@@ -88,7 +88,6 @@ test.describe('modularity lazy signer loading', () => {
             rpcCall: {
               nearAccountId: 'alice.near',
               nearRpcUrl: 'https://rpc.testnet.near.org',
-              contractId: 'web3authn.testnet',
             },
             transactions: [
               {

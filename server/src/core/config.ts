@@ -148,7 +148,7 @@ export function createAuthServiceConfig(input: AuthServiceConfigInput): AuthServ
   const config: AuthServiceConfig = {
     relayerAccount: toTrimmedString(input.relayerAccount),
     relayerPrivateKey: toTrimmedString(input.relayerPrivateKey),
-    webAuthnContractId: toTrimmedString(input.webAuthnContractId),
+    rorContractId: toTrimmedString(input.rorContractId),
     nearRpcUrl: toTrimmedString(input.nearRpcUrl) || defaultNearRpcUrl(networkId),
     networkId: networkId,
     accountInitialBalance: toTrimmedString(input.accountInitialBalance)

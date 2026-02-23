@@ -79,8 +79,6 @@ impl Default for AuthenticatorOptions {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcCallPayload {
-    #[wasm_bindgen(getter_with_clone, js_name = "contractId")]
-    pub contract_id: String,
     #[wasm_bindgen(getter_with_clone, js_name = "nearRpcUrl")]
     pub near_rpc_url: String,
     #[wasm_bindgen(getter_with_clone, js_name = "nearAccountId")]

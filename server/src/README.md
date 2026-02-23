@@ -14,7 +14,7 @@ import jwt from 'jsonwebtoken';
 const service = new AuthService({
   relayerAccount: process.env.RELAYER_ACCOUNT_ID!,
   relayerPrivateKey: process.env.RELAYER_PRIVATE_KEY!,
-  webAuthnContractId: process.env.WEBAUTHN_CONTRACT_ID || 'w3a-v1.testnet',
+  rorContractId: process.env.ROR_CONTRACT_ID || 'w3a-v1.testnet',
   nearRpcUrl: process.env.NEAR_RPC_URL || 'https://rpc.testnet.near.org',
   networkId: process.env.NETWORK_ID || 'testnet'
 });
@@ -58,7 +58,7 @@ import jwt from 'jsonwebtoken';
 const service = new AuthService({
   relayerAccount: env.RELAYER_ACCOUNT_ID,
   relayerPrivateKey: env.RELAYER_PRIVATE_KEY,
-  webAuthnContractId: env.WEBAUTHN_CONTRACT_ID,
+  rorContractId: env.ROR_CONTRACT_ID,
   nearRpcUrl: env.NEAR_RPC_URL,
   networkId: env.NETWORK_ID || 'testnet',
   signerWasm: { moduleOrPath: signerWasm }
@@ -171,7 +171,7 @@ Cloudflare CORS note
 ```bash
 RELAYER_ACCOUNT_ID=relayer.testnet
 RELAYER_PRIVATE_KEY=ed25519:...
-WEBAUTHN_CONTRACT_ID=w3a-v1.testnet
+ROR_CONTRACT_ID=w3a-v1.testnet
 NEAR_RPC_URL=https://rpc.testnet.near.org
 NETWORK_ID=testnet
 ```

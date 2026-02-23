@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { secp256k1 } from '@noble/curves/secp256k1';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { createRelayRouter } from '@server/router/express-adaptor';
 import { AuthService } from '@server/core/AuthService';
@@ -23,7 +23,7 @@ function makeAuthServiceForThreshold(
   const service = new AuthService({
     relayerAccount: 'relayer.testnet',
     relayerPrivateKey: 'ed25519:dummy',
-    webAuthnContractId: 'w3a-v1.testnet',
+    rorContractId: 'w3a-v1.testnet',
     nearRpcUrl: 'https://rpc.testnet.near.org',
     networkId: 'testnet',
     accountInitialBalance: '1',

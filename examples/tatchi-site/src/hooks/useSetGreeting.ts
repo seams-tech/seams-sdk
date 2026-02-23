@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
-import { WEBAUTHN_CONTRACT_ID } from '../types';
+import { DEMO_CONTRACT_ID } from '../types';
 import { useNearClient } from '@tatchi-xyz/sdk/react';
 
 export interface GreetingResult {
@@ -38,7 +38,7 @@ export const useSetGreeting = (): SetGreetingHook => {
 
     try {
       const result = await nearClient.view<string>({
-        account: WEBAUTHN_CONTRACT_ID,
+        account: DEMO_CONTRACT_ID,
         method: 'get_greeting',
         args: {}
       });

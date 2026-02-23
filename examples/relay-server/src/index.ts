@@ -77,10 +77,10 @@ async function main() {
 
   const authService = new AuthService({
     // new accounts with be created with this account: e.g. bob.{relayer-account-id}.near
-    // you can make it the same account as the webauthn contract id.
+    // you can make it the same account as the ROR contract id.
     relayerAccount: requireEnvVar(env, 'RELAYER_ACCOUNT_ID'),
     relayerPrivateKey: requireEnvVar(env, 'RELAYER_PRIVATE_KEY'),
-    webAuthnContractId: env.WEBAUTHN_CONTRACT_ID || 'w3a-v1.testnet',
+    rorContractId: env.ROR_CONTRACT_ID || 'w3a-v1.testnet',
     // Optional overrides (SDK provides defaults when omitted)
     nearRpcUrl: env.NEAR_RPC_URL,
     networkId: env.NETWORK_ID,

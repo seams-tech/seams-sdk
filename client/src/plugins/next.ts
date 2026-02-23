@@ -105,17 +105,17 @@ export function tatchiNextWallet(opts: {
 
 type RorOpts = {
   rpcUrl?: string
-  contractId?: string
+  rorContractId?: string
   method?: string
   cacheTtlMs?: number
 }
 
 function resolveRorParams(opts: RorOpts) {
   const rpcUrl = (opts.rpcUrl || process.env.VITE_NEAR_RPC_URL || 'https://test.rpc.fastnear.com').toString().trim()
-  const contractId = (opts.contractId || process.env.VITE_WEBAUTHN_CONTRACT_ID || '').toString().trim()
+  const rorContractId = (opts.rorContractId || process.env.VITE_ROR_CONTRACT_ID || '').toString().trim()
   const method = (opts.method || process.env.VITE_ROR_METHOD || 'get_allowed_origins').toString().trim()
   const cacheTtlMs = Number(opts.cacheTtlMs ?? process.env.VITE_ROR_CACHE_TTL_MS ?? 60000)
-  return { rpcUrl, contractId, method, cacheTtlMs }
+  return { rpcUrl, rorContractId, method, cacheTtlMs }
 }
 
 /**
@@ -126,7 +126,7 @@ function resolveRorParams(opts: RorOpts) {
 export async function handleWellKnownRorNode(req: any, res: any, opts: RorOpts = {}) {
   try {
     const params = resolveRorParams(opts)
-    const origins = params.contractId
+    const origins = params.rorContractId
       ? await fetchRorOriginsFromNear(params)
       : []
     res.statusCode = 200
@@ -150,7 +150,7 @@ export async function handleWellKnownRorNode(req: any, res: any, opts: RorOpts =
 export async function handleWellKnownRorEdge(_request: Request, opts: RorOpts = {}): Promise<Response> {
   try {
     const params = resolveRorParams(opts)
-    const origins = params.contractId
+    const origins = params.rorContractId
       ? await fetchRorOriginsFromNear(params)
       : []
     return new Response(JSON.stringify({ origins }), {

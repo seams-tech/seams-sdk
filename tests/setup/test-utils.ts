@@ -64,7 +64,7 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
       // its own subaccounts, so new accounts MUST be subaccounts of the configured parent.
       generateTestAccountId: () => {
         const cfg = (window as any).configs || {};
-        const parent = String(cfg.relayerAccount || cfg.contractId || 'w3a-v1.testnet').trim().replace(/^\./, '');
+        const parent = String(cfg.relayerAccount || 'w3a-v1.testnet').trim().replace(/^\./, '');
         return `e2etest${Date.now()}.${parent}`;
       },
       verifyAccountExists: async (accountId: string) => {

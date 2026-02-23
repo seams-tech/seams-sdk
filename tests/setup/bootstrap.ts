@@ -226,25 +226,23 @@ async function loadPasskeyManagerDynamically(page: Page, configs: PasskeyTestCon
             throw new Error('TatchiPasskey not found in SDK module');
           }
 
-          // Create and validate configuration
-	          const runtimeConfigs = {
-	            nearNetwork: setupOptions.nearNetwork as 'testnet',
-	            relayerAccount: setupOptions.relayerAccount,
-	            contractId: setupOptions.contractId,
-	            nearRpcUrl: setupOptions.nearRpcUrl,
-	            useRelayer: setupOptions.useRelayer || false,
-	            relayServerUrl: setupOptions.relayServerUrl,
-	            relayer: setupOptions.relayer,
+	          // Create and validate configuration
+		          const runtimeConfigs = {
+		            nearNetwork: setupOptions.nearNetwork as 'testnet',
+		            relayerAccount: setupOptions.relayerAccount,
+		            nearRpcUrl: setupOptions.nearRpcUrl,
+		            useRelayer: setupOptions.useRelayer || false,
+		            relayServerUrl: setupOptions.relayServerUrl,
+		            relayer: setupOptions.relayer,
 	            // Additional centralized configuration
 	            frontendUrl: setupOptions.frontendUrl,
 	            rpId: setupOptions.rpId,
 	            testReceiverAccountId: setupOptions.testReceiverAccountId
 	          };
 
-          // Validate required configs
-          if (!runtimeConfigs.nearRpcUrl) throw new Error('nearRpcUrl is required but not provided');
-          if (!runtimeConfigs.contractId) throw new Error('contractId is required but not provided');
-          if (!runtimeConfigs.relayerAccount) throw new Error('relayerAccount is required but not provided');
+	          // Validate required configs
+	          if (!runtimeConfigs.nearRpcUrl) throw new Error('nearRpcUrl is required but not provided');
+	          if (!runtimeConfigs.relayerAccount) throw new Error('relayerAccount is required but not provided');
 
           // Create TatchiPasskey instance
           const tatchi = new TatchiPasskey(runtimeConfigs);

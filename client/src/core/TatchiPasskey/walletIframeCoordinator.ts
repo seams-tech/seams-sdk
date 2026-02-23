@@ -119,7 +119,6 @@ export class WalletIframeCoordinator {
             signerMode: this.configs.signerMode,
             nearRpcUrl: this.configs.nearRpcUrl,
             nearNetwork: this.configs.nearNetwork,
-            contractId: this.configs.contractId,
             relayerAccount: this.configs.relayerAccount,
             nearExplorerUrl: this.configs.nearExplorerUrl,
             relayer: this.configs.relayer,

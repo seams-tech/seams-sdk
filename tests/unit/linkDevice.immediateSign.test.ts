@@ -170,7 +170,7 @@ test.describe('Link device → immediate sign (regression)', () => {
           touchIdPrompt: { getRpId: () => 'example.localhost' },
           relayerUrl: 'https://relay-server.localhost',
           postWrapKeySeedToSigner: () => {},
-          touchConfirmManager: {
+          touchConfirm: {
             orchestrateSigningConfirmation: async () => ({
               intentDigest: 'intent',
               transactionContext: {
@@ -399,7 +399,7 @@ test.describe('Link device → immediate sign (regression)', () => {
           touchIdPrompt: { getRpId: () => 'example.localhost' },
           relayerUrl: 'https://relay-server.localhost',
           postWrapKeySeedToSigner: () => {},
-          touchConfirmManager: {
+          touchConfirm: {
             orchestrateSigningConfirmation: async () => ({
               intentDigest: 'intent',
               transactionContext: {

@@ -53,7 +53,6 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
         const tatchi = new TatchiPasskey({
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
-          contractId: 'w3a-v1.testnet',
           relayer: { url: relayerUrl },
           iframeWallet: {
             walletOrigin,

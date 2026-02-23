@@ -206,7 +206,7 @@ export type ThresholdEd25519KeyStoreConfigInput =
 export interface AuthServiceConfig {
   relayerAccount: string;
   relayerPrivateKey: string;
-  webAuthnContractId: string;
+  rorContractId: string;
   nearRpcUrl: string;
   networkId: string;
   accountInitialBalance: string;
@@ -253,7 +253,7 @@ export type GoogleOidcConfigInput = GoogleOidcConfig | GoogleOidcConfigEnvInput;
  */
 export type AuthServiceConfigInput = Omit<
   AuthServiceConfig,
-  'webAuthnContractId'
+  'rorContractId'
   | 'nearRpcUrl'
   | 'networkId'
   | 'accountInitialBalance'
@@ -261,7 +261,7 @@ export type AuthServiceConfigInput = Omit<
   | 'thresholdEd25519KeyStore'
   | 'googleOidc'
 > & {
-  webAuthnContractId?: string;
+  rorContractId?: string;
   nearRpcUrl?: string;
   networkId?: string;
   accountInitialBalance?: string;

@@ -1,5 +1,36 @@
 import React from 'react';
-import { ThemedSecuritySvg } from './ThemedSecuritySvg';
+
+type InlineSvgProps = {
+    className?: string;
+    style?: React.CSSProperties;
+    alt: string;
+};
+
+function createInlineSvgComponent(markup: string): React.ComponentType<InlineSvgProps> {
+    return function InlineSvg({ className, style, alt }: InlineSvgProps) {
+        return (
+            <div
+                className={className}
+                style={style}
+                role="img"
+                aria-label={alt}
+                dangerouslySetInnerHTML={{ __html: markup }}
+            />
+        );
+    };
+}
+
+function loadInlineSvg(importer: () => Promise<{ default: string }>) {
+    return React.lazy(async () => {
+        const module = await importer();
+        return { default: createInlineSvgComponent(module.default) };
+    });
+}
+
+const SecurityCustodySvg = loadInlineSvg(() => import('../assets/diagrams/security-custody.svg?raw'));
+const SecurityDefenseSvg = loadInlineSvg(() => import('../assets/diagrams/security-defense.svg?raw'));
+const SecurityScaleSvg = loadInlineSvg(() => import('../assets/diagrams/security-scale.svg?raw'));
+const SecurityFrictionSvg = loadInlineSvg(() => import('../assets/diagrams/security-friction.svg?raw'));
 
 export type SecurityDiagramProps = {
     className?: string;
@@ -32,46 +63,59 @@ function useDiagramStyle(props: SecurityDiagramProps): React.CSSProperties {
     return { ...props.style, ...vars } as React.CSSProperties;
 }
 
-export function SecurityCustodyDiagram(props: SecurityDiagramProps) {
+type SecuritySvgComponent = React.LazyExoticComponent<React.ComponentType<InlineSvgProps>>;
+
+function renderSecurityDiagram(
+    Component: SecuritySvgComponent,
+    alt: string,
+    fallbackSrc: string,
+    props: SecurityDiagramProps,
+) {
+    const style = useDiagramStyle(props);
+
     return (
-        <ThemedSecuritySvg
-            src="/diagrams/security-custody.svg"
-            alt="Hardware-isolated self custody diagram"
-            className={props.className}
-            style={useDiagramStyle(props)}
-        />
+        <React.Suspense fallback={<img className={props.className} src={fallbackSrc} alt={alt} loading="lazy" style={style} />}>
+            <Component
+                className={props.className}
+                style={style}
+                alt={alt}
+            />
+        </React.Suspense>
+    );
+}
+
+export function SecurityCustodyDiagram(props: SecurityDiagramProps) {
+    return renderSecurityDiagram(
+        SecurityCustodySvg,
+        'Hardware-isolated self custody diagram',
+        '/diagrams/security-custody.png',
+        props,
     );
 }
 
 export function SecurityDefenseDiagram(props: SecurityDiagramProps) {
-    return (
-        <ThemedSecuritySvg
-            src="/diagrams/security-defense.svg"
-            alt="Defense in depth diagram"
-            className={props.className}
-            style={useDiagramStyle(props)}
-        />
+    return renderSecurityDiagram(
+        SecurityDefenseSvg,
+        'Defense in depth diagram',
+        '/diagrams/security-defense.png',
+        props,
     );
 }
 
 export function SecurityScaleDiagram(props: SecurityDiagramProps) {
-    return (
-        <ThemedSecuritySvg
-            src="/diagrams/security-scale.svg"
-            alt="Battle-tested at scale diagram"
-            className={props.className}
-            style={useDiagramStyle(props)}
-        />
+    return renderSecurityDiagram(
+        SecurityScaleSvg,
+        'Battle-tested at scale diagram',
+        '/diagrams/security-scale.png',
+        props,
     );
 }
 
 export function SecurityFrictionDiagram(props: SecurityDiagramProps) {
-    return (
-        <ThemedSecuritySvg
-            src="/diagrams/security-friction.svg"
-            alt="Friction where it matters diagram"
-            className={props.className}
-            style={useDiagramStyle(props)}
-        />
+    return renderSecurityDiagram(
+        SecurityFrictionSvg,
+        'Friction where it matters diagram',
+        '/diagrams/security-friction.png',
+        props,
     );
 }

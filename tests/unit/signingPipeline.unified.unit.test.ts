@@ -95,7 +95,6 @@ test.describe('unified signing pipeline', () => {
             rpcCall: {
               nearAccountId: 'alice.testnet',
               nearRpcUrl: 'https://rpc.testnet.near.org',
-              contractId: 'web3-authn-v4.testnet',
             },
             transactions: [
               {
