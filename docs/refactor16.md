@@ -1,6 +1,6 @@
-# Refactor 16: Login-Time Background ECDSA Presign Prefill
+# Refactor 16: Post-Login Manual ECDSA Presign Prefill
 
-Status: Planned  
+Status: In progress  
 Severity: High (first-transaction latency after login)  
 Last updated: 2026-02-22
 
@@ -18,8 +18,8 @@ Measured timing details are documented in:
 
 ## 2. Scope and Decisions
 
-1. Implement background presign prefill immediately after successful threshold-signer login warm-up.
-2. Keep prefill non-blocking for login completion (best-effort).
+1. Expose a manual callback to prefill ECDSA presignatures after successful threshold-signer login warm-up.
+2. Keep login flow itself free of automatic prefill work.
 3. Keep presign pool memory-only in this refactor (no IndexedDB persistence of presign shares).
 4. Keep commit queue semantics unchanged (serialized commit, concurrent confirmers).
 5. Use clean switch behavior (no legacy path, no feature flag).
@@ -56,9 +56,10 @@ Do not add duplicate protocol codepaths:
 
 ## 4.3 Runtime Behavior
 
-1. On threshold-signer login success: schedule login prefill in background.
-2. If user signs immediately and prefill is not done yet, existing inline presign fallback remains.
-3. If prefill completes first, first user sign should typically skip inline presign.
+1. Login only establishes the warm threshold session (no auto-prefill side effects).
+2. App calls manual callback `auth.prefillThresholdEcdsaPresignPool(...)` after login when desired.
+3. If user signs before callback or before prefill completion, existing inline presign fallback remains.
+4. If callback prefill completes first, first user sign should typically skip inline presign.
 
 ## 5. Implementation Plan
 
@@ -74,10 +75,10 @@ Files:
 
 ## Phase 1: Client Login Prefill API
 
-- [ ] Add a new signing-engine API entrypoint for login prefill (single-responsibility).
-- [ ] Validate required inputs (keyRef/session/prf cache state).
-- [ ] Reuse coordinator refill primitives instead of introducing new presign protocol code.
-- [ ] Return structured result: `scheduled | skipped | failed` with typed reason.
+- [x] Add a new signing-engine API entrypoint for login prefill (single-responsibility).
+- [x] Validate required inputs (keyRef/session/prf cache state).
+- [x] Reuse coordinator refill primitives instead of introducing new presign protocol code.
+- [x] Return structured result: `scheduled | skipped | failed` with typed reason.
 
 Suggested files:
 
@@ -85,12 +86,12 @@ Suggested files:
 - `client/src/core/signingEngine/SigningEngine.ts`
 - `client/src/core/signingEngine/bootstrap/orchestrationDependencyFactory.ts`
 
-## Phase 2: Login Integration
+## Phase 2: Auth Callback Integration
 
-- [ ] Trigger login prefill right after successful threshold ECDSA warm-up in login flow.
-- [ ] Keep it best-effort and non-blocking for final login success response.
-- [ ] Emit login progress diagnostics for prefill start/result (for debugging and telemetry).
-- [ ] Ensure prefill is no-op when threshold warm mode is disabled.
+- [x] Remove automatic login-triggered prefill from login flow.
+- [x] Add manual callback `auth.prefillThresholdEcdsaPresignPool(...)` for explicit post-login warmup.
+- [x] Keep callback best-effort with structured result (`scheduled | skipped | failed`).
+- [x] Ensure callback works in both local and wallet-iframe mode.
 
 Suggested files:
 
@@ -99,9 +100,9 @@ Suggested files:
 
 ## Phase 3: Policy and Safety
 
-- [ ] Use conservative login prefill target depth (`1`) regardless of larger steady-state pool target.
-- [ ] Guard against low-remaining-uses sessions (skip prefill when budget too low).
-- [ ] Ensure duplicate login-triggered prefill requests are deduped by existing pool-key in-flight logic.
+- [x] Use conservative login prefill target depth (`1`) regardless of larger steady-state pool target.
+- [x] Guard against low-remaining-uses sessions (skip prefill when budget too low).
+- [x] Ensure duplicate login-triggered prefill requests are deduped by existing pool-key in-flight logic.
 
 Suggested files:
 
@@ -110,8 +111,8 @@ Suggested files:
 
 ## Phase 4: Tests and Regression Guards
 
-- [ ] Unit: login threshold warm path schedules prefill.
-- [ ] Unit: prefill failure does not fail login.
+- [x] Unit: login threshold warm path does not auto-schedule prefill.
+- [x] Unit: manual prefill callback forwards correctly in local and iframe mode.
 - [ ] Unit: immediate first sign still succeeds if prefill races (fallback intact).
 - [ ] Unit/Integration: when prefill completes first, first sign avoids inline `presign/init`.
 - [ ] Guard: no IndexedDB writes for presign share material introduced by this refactor.
@@ -139,10 +140,10 @@ Mitigation: enforce reuse of coordinator/scheduler primitives and add guard test
 
 ## 7. Done Criteria
 
-- [ ] Threshold-signer login initiates background ECDSA presign prefill.
-- [ ] Login success is not blocked by prefill completion.
+- [x] Threshold-signer login no longer auto-initiates ECDSA presign prefill.
+- [x] Manual callback exists for explicit post-login prefill.
 - [ ] First sign after login is usually warm when prefill has completed.
-- [ ] No IndexedDB persistence of presign shares is introduced.
+- [x] No IndexedDB persistence of presign shares is introduced.
 - [ ] Existing sign correctness and queue invariants remain unchanged.
 - [ ] Regression tests cover prefill scheduling, fallback, and non-fatal failure behavior.
 
@@ -150,8 +151,8 @@ Mitigation: enforce reuse of coordinator/scheduler primitives and add guard test
 
 ## Immediate
 
-- [ ] Land Phase 1 prefill API and wiring in `SigningEngine`.
-- [ ] Land Phase 2 login integration with best-effort background scheduling.
+- [x] Land Phase 1 prefill API and wiring in `SigningEngine`.
+- [x] Land Phase 2 auth callback integration for explicit post-login scheduling.
 
 ## Next
 

@@ -228,6 +228,8 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
       const portal = document.getElementById('w3a-confirm-portal');
       const initialEl = portal?.firstElementChild as HTMLElement | null;
       const initial = !!initialEl && (getComputedStyle(initialEl).display !== 'none');
+      const hasTreeBeforeUpdate = !!document.querySelector('w3a-tx-tree');
+      const hasNoActionsTextBeforeUpdate = /no actions/i.test(String(portal?.textContent || ''));
 
       // Update loading to false and set error message
       handle.update({ loading: false, errorMessage: 'Oops' });
@@ -238,6 +240,8 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
         loading: el ? (el as any).loading : undefined,
         errorMessage: el ? (el as any).errorMessage : undefined,
         dataError: el ? el.getAttribute('data-error-message') : undefined,
+        hasTree: !!document.querySelector('w3a-tx-tree'),
+        hasNoActionsText: /no actions/i.test(String(document.getElementById('w3a-confirm-portal')?.textContent || '')),
       };
 
       // Close should remove the element
@@ -247,7 +251,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
         childCount: (document.getElementById('w3a-confirm-portal')?.childElementCount) || 0
       };
 
-      return { initial, updated, afterClose };
+      return { initial, updated, afterClose, hasTreeBeforeUpdate, hasNoActionsTextBeforeUpdate };
     }, { paths: IMPORT_PATHS });
 
     expect(result.initial).toBe(true);
@@ -256,6 +260,10 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
     expect(result.updated.loading).toBe(false);
     expect(result.updated.errorMessage).toBe('Oops');
     expect(result.updated.dataError).toBe('Oops');
+    expect(result.hasTreeBeforeUpdate).toBe(false);
+    expect(result.hasNoActionsTextBeforeUpdate).toBe(false);
+    expect(result.updated.hasTree).toBe(false);
+    expect(result.updated.hasNoActionsText).toBe(false);
     expect(result.afterClose.portalExists).toBe(true);
     expect(result.afterClose.childCount).toBe(0);
   });

@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { loginAndCreateSession } from '@/core/TatchiPasskey/login';
 import { IndexedDBManager } from '@/core/indexedDB';
+import { toAccountId } from '@/core/types/accountIds';
+
+const ACCOUNT_ID = toAccountId('alice.testnet');
 
 function createBaseContext(args?: {
   signingEngine?: Record<string, unknown>;
@@ -39,6 +42,10 @@ function createBaseContext(args?: {
         expiresAtMs: now + 60_000,
         createdAtMs: now,
       }),
+      scheduleThresholdEcdsaLoginPresignPrefill: async () => ({
+        status: 'scheduled',
+        reason: 'scheduled',
+      }),
       setLastUser: async () => undefined,
       updateLastLogin: async () => undefined,
       ...(args?.signingEngine || {}),
@@ -65,18 +72,29 @@ async function withMockedMostRecentProjection<T>(fn: () => Promise<T>): Promise<
 
 test.describe('loginAndCreateSession threshold warm-session requirements', () => {
   test('returns active signingSession in threshold-signer warm mode', async () => {
+    let prefillCalls = 0;
+    const context = createBaseContext({
+      signingEngine: {
+        scheduleThresholdEcdsaLoginPresignPrefill: async () => {
+          prefillCalls += 1;
+          return { status: 'scheduled', reason: 'scheduled' };
+        },
+      },
+    });
     const result = await withMockedMostRecentProjection(async () =>
-      await loginAndCreateSession(createBaseContext(), 'alice.testnet'),
+      await loginAndCreateSession(context, ACCOUNT_ID),
     );
 
     expect(result.success).toBe(true);
     expect(result.signingSession?.status).toBe('active');
-    expect('thresholdEcdsaKeyRef' in (result as Record<string, unknown>)).toBe(false);
+    expect('thresholdEcdsaKeyRef' in (result as unknown as Record<string, unknown>)).toBe(false);
+    expect(prefillCalls).toBe(0);
   });
 
   test('fails closed when threshold warm-up returns incomplete session material', async () => {
     let setLastUserCalls = 0;
     let updateLastLoginCalls = 0;
+    let prefillCalls = 0;
     const context = createBaseContext({
       signingEngine: {
         bootstrapEcdsaSession: async () => ({
@@ -97,16 +115,44 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
         updateLastLogin: async () => {
           updateLastLoginCalls += 1;
         },
+        scheduleThresholdEcdsaLoginPresignPrefill: async () => {
+          prefillCalls += 1;
+          return { status: 'scheduled', reason: 'scheduled' };
+        },
       },
     });
 
     const result = await withMockedMostRecentProjection(async () =>
-      await loginAndCreateSession(context, 'alice.testnet'),
+      await loginAndCreateSession(context, ACCOUNT_ID),
     );
 
     expect(result.success).toBe(false);
     expect(String(result.error || '')).toContain('valid threshold session keyRef');
     expect(setLastUserCalls).toBe(0);
     expect(updateLastLoginCalls).toBe(0);
+    expect(prefillCalls).toBe(0);
+  });
+
+  test('login does not invoke ECDSA presign prefill automatically', async () => {
+    let prefillCalls = 0;
+    let prefillArgs: Record<string, unknown> | null = null;
+    const context = createBaseContext({
+      signingEngine: {
+        scheduleThresholdEcdsaLoginPresignPrefill: async (args: Record<string, unknown>) => {
+          prefillCalls += 1;
+          prefillArgs = args;
+          return { status: 'scheduled', reason: 'scheduled' };
+        },
+      },
+    });
+
+    const result = await withMockedMostRecentProjection(async () =>
+      await loginAndCreateSession(context, ACCOUNT_ID),
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.signingSession?.status).toBe('active');
+    expect(prefillCalls).toBe(0);
+    expect(prefillArgs).toBeNull();
   });
 });
