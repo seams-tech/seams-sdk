@@ -1,104 +1,104 @@
 import type { ThemeProps, TatchiConfigsInput } from '@tatchi-xyz/sdk/react';
 
-export type AppThemePreset = 'solarized-dark' | 'solarized-light';
+export type AppThemePreset = 'rose-pine-dark' | 'rose-pine-light';
 
 type AppearanceTokens = NonNullable<NonNullable<TatchiConfigsInput['appearance']>['tokens']>;
 
-const SOLARIZED_DARK_COLORS: Record<string, string> = {
-  primary: '#268bd2',
-  primaryHover: '#2aa198',
-  secondary: '#6c71c4',
-  secondaryHover: '#d33682',
-  accent: '#859900',
+const ROSE_PINE_DARK_COLORS: Record<string, string> = {
+  primary: '#c4a7e7',
+  primaryHover: '#9ccfd8',
+  secondary: '#31748f',
+  secondaryHover: '#ebbcba',
+  accent: '#f6c177',
 
-  textPrimary: '#93a1a1',
-  textSecondary: '#839496',
-  textMuted: '#657b83',
-  textButton: '#fdf6e3',
+  textPrimary: '#e0def4',
+  textSecondary: '#908caa',
+  textMuted: '#6e6a86',
+  textButton: '#191724',
 
-  buttonBackground: '#268bd2',
-  buttonHoverBackground: '#2aa198',
+  buttonBackground: '#c4a7e7',
+  buttonHoverBackground: '#9ccfd8',
 
-  colorBackground: '#002b36',
-  surface: '#073642',
-  surface2: '#0b3b48',
-  surface3: '#0f4452',
-  surface4: '#134d5d',
+  colorBackground: '#191724',
+  surface: '#1f1d2e',
+  surface2: '#26233a',
+  surface3: '#312f44',
+  surface4: '#403d52',
 
-  hover: '#0b3b48',
-  active: '#114654',
-  focus: '#2aa198',
+  hover: '#26233a',
+  active: '#403d52',
+  focus: '#9ccfd8',
 
-  success: '#859900',
-  warning: '#b58900',
-  error: '#dc322f',
-  info: '#268bd2',
+  success: '#31748f',
+  warning: '#f6c177',
+  error: '#eb6f92',
+  info: '#9ccfd8',
 
-  borderPrimary: '#586e75',
-  borderSecondary: '#657b83',
-  borderHover: '#839496',
+  borderPrimary: '#524f67',
+  borderSecondary: '#403d52',
+  borderHover: '#6e6a86',
 
-  gradientPrimary: 'linear-gradient(120deg, #073642 0%, #268bd2 100%)',
-  gradientSecondary: 'linear-gradient(120deg, #002b36 0%, #2aa198 100%)',
-  gradientTertiary: 'linear-gradient(120deg, #002b36 0%, #073642 100%)',
+  gradientPrimary: 'linear-gradient(120deg, #1f1d2e 0%, #c4a7e7 100%)',
+  gradientSecondary: 'linear-gradient(120deg, #191724 0%, #31748f 100%)',
+  gradientTertiary: 'linear-gradient(120deg, #191724 0%, #26233a 100%)',
 
-  highlightReceiverId: '#2aa198',
-  highlightMethodName: '#268bd2',
-  highlightAmount: '#b58900',
+  highlightReceiverId: '#9ccfd8',
+  highlightMethodName: '#c4a7e7',
+  highlightAmount: '#f6c177',
 };
 
-const SOLARIZED_LIGHT_COLORS: Record<string, string> = {
-  primary: '#268bd2',
-  primaryHover: '#2aa198',
-  secondary: '#6c71c4',
-  secondaryHover: '#d33682',
-  accent: '#859900',
+const ROSE_PINE_LIGHT_COLORS: Record<string, string> = {
+  primary: '#907aa9',
+  primaryHover: '#56949f',
+  secondary: '#286983',
+  secondaryHover: '#d7827e',
+  accent: '#ea9d34',
 
-  textPrimary: '#586e75',
-  textSecondary: '#657b83',
-  textMuted: '#839496',
-  textButton: '#fdf6e3',
+  textPrimary: '#575279',
+  textSecondary: '#797593',
+  textMuted: '#9893a5',
+  textButton: '#faf4ed',
 
-  buttonBackground: '#268bd2',
-  buttonHoverBackground: '#2aa198',
+  buttonBackground: '#907aa9',
+  buttonHoverBackground: '#56949f',
 
-  colorBackground: '#fdf6e3',
-  surface: '#f4eddc',
-  surface2: '#e7e1cf',
-  surface3: '#ddd6c1',
-  surface4: '#d3cbb4',
+  colorBackground: '#faf4ed',
+  surface: '#fffaf3',
+  surface2: '#f2e9de',
+  surface3: '#eee6dc',
+  surface4: '#e5dcd2',
 
-  hover: '#e8e2d0',
-  active: '#e7e1cf',
-  focus: '#2aa198',
+  hover: '#f2e9de',
+  active: '#dfdad9',
+  focus: '#56949f',
 
-  success: '#859900',
-  warning: '#b58900',
-  error: '#dc322f',
-  info: '#268bd2',
+  success: '#286983',
+  warning: '#ea9d34',
+  error: '#b4637a',
+  info: '#56949f',
 
-  borderPrimary: '#93a1a1',
-  borderSecondary: '#839496',
-  borderHover: '#657b83',
+  borderPrimary: '#cecacd',
+  borderSecondary: '#dfdad9',
+  borderHover: '#9893a5',
 
-  gradientPrimary: 'linear-gradient(120deg, #fdf6e3 0%, #eee8d5 100%)',
-  gradientSecondary: 'linear-gradient(120deg, #eee8d5 0%, #d3cbb4 100%)',
-  gradientTertiary: 'linear-gradient(120deg, #eee8d5 0%, #fdf6e3 100%)',
+  gradientPrimary: 'linear-gradient(120deg, #fffaf3 0%, #f2e9de 100%)',
+  gradientSecondary: 'linear-gradient(120deg, #faf4ed 0%, #907aa9 100%)',
+  gradientTertiary: 'linear-gradient(120deg, #faf4ed 0%, #fffaf3 100%)',
 
-  highlightReceiverId: '#2aa198',
-  highlightMethodName: '#268bd2',
-  highlightAmount: '#b58900',
+  highlightReceiverId: '#56949f',
+  highlightMethodName: '#907aa9',
+  highlightAmount: '#ea9d34',
 };
 
-export const SOLARIZED_DARK_TOKENS: AppearanceTokens = {
-  dark: { colors: SOLARIZED_DARK_COLORS },
+export const ROSE_PINE_DARK_TOKENS: AppearanceTokens = {
+  dark: { colors: ROSE_PINE_DARK_COLORS },
 };
 
-export const SOLARIZED_LIGHT_TOKENS: AppearanceTokens = {
-  light: { colors: SOLARIZED_LIGHT_COLORS },
+export const ROSE_PINE_LIGHT_TOKENS: AppearanceTokens = {
+  light: { colors: ROSE_PINE_LIGHT_COLORS },
 };
 
 export const APP_THEME_TOKEN_PRESETS: Record<AppThemePreset, ThemeProps['tokens']> = {
-  'solarized-dark': SOLARIZED_DARK_TOKENS,
-  'solarized-light': SOLARIZED_LIGHT_TOKENS,
+  'rose-pine-dark': ROSE_PINE_DARK_TOKENS,
+  'rose-pine-light': ROSE_PINE_LIGHT_TOKENS,
 };
