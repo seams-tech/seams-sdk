@@ -10,19 +10,6 @@ import {
   type RegistrationCredentialConfirmationPayload,
 } from '@/core/signingEngine/workerManager/validation';
 
-function resolveRequestUserConfirmation(ctx: TouchConfirmContext) {
-  if (typeof ctx.requestUserConfirmation === 'function') {
-    return ctx.requestUserConfirmation;
-  }
-  const manager = (ctx as TouchConfirmContext & {
-    touchConfirmManager?: { requestUserConfirmation?: TouchConfirmContext['requestUserConfirmation'] };
-  }).touchConfirmManager;
-  if (manager && typeof manager.requestUserConfirmation === 'function') {
-    return manager.requestUserConfirmation.bind(manager);
-  }
-  return null;
-}
-
 export async function requestRegistrationCredentialConfirmation({
   ctx,
   nearAccountId,
@@ -38,7 +25,7 @@ export async function requestRegistrationCredentialConfirmation({
   nearRpcUrl: string,
   confirmationConfig?: Partial<ConfirmationConfig>,
 }): Promise<RegistrationCredentialConfirmationPayload> {
-  const requestUserConfirmation = resolveRequestUserConfirmation(ctx);
+  const requestUserConfirmation = ctx.requestUserConfirmation;
   if (typeof requestUserConfirmation !== 'function') {
     throw new Error('UserConfirm request bridge is unavailable (worker handshake path only)');
   }

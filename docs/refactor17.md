@@ -1,6 +1,6 @@
 # Refactor 17: TouchConfirm Boundary Lockdown (Single Runtime Bridge)
 
-Status: Planned  
+Status: In Progress  
 Severity: High (architecture boundary drift / confirmation surface sprawl)  
 Last updated: 2026-02-23
 
@@ -70,12 +70,12 @@ No `touchConfirmManager` property in broad runtime interfaces.
 
 ## Phase 0: Baseline Inventory and Cut Lines
 
-- [ ] Capture current direct usage map with `rg` for:
+- [x] Capture current direct usage map with `rg` for:
   - `touchConfirmManager`
   - `TouchConfirmManager`
   - `createTouchConfirmManager`
-- [ ] Define allowlist files for temporary direct usage during migration.
-- [ ] Confirm export path remains on narrow worker-op callback (already landed in Refactor 10 follow-up).
+- [x] Define allowlist files for temporary direct usage during migration.
+- [x] Confirm export path remains on narrow worker-op callback (already landed in Refactor 10 follow-up).
 
 Suggested files:
 
@@ -84,9 +84,9 @@ Suggested files:
 
 ## Phase 1: Introduce Bridge and Ports
 
-- [ ] Add `touchConfirmBridge.ts` with explicit port interfaces + factory.
-- [ ] Move direct manager calls behind bridge methods.
-- [ ] Export only bridge contracts from bootstrap/runtime DI entrypoints.
+- [x] Add `touchConfirmBridge.ts` with explicit port interfaces + factory.
+- [x] Move direct manager calls behind bridge methods.
+- [x] Export only bridge contracts from bootstrap/runtime DI entrypoints.
 
 Suggested files:
 
@@ -96,9 +96,9 @@ Suggested files:
 
 ## Phase 2: Migrate Dependency Injection
 
-- [ ] Remove broad `touchConfirmManager` from generic runtime deps.
-- [ ] Inject narrow bridge ports into orchestration dependency bundle.
-- [ ] Keep compile breakage intentional to force complete migration (no back-compat shim).
+- [x] Remove broad `touchConfirmManager` from generic runtime deps.
+- [x] Inject narrow bridge ports into orchestration dependency bundle.
+- [x] Keep compile breakage intentional to force complete migration (no back-compat shim).
 
 Suggested files:
 
@@ -108,10 +108,10 @@ Suggested files:
 
 ## Phase 3: Migrate Call Sites (No Dual Paths)
 
-- [ ] Near signing flows (`transactions`, `delegate`, `nep413`) use bridge ports only.
-- [ ] EVM/Tempo signing flows use bridge ports only.
-- [ ] Registration/session lifecycle modules use bridge ports only.
-- [ ] Remove direct manager-type imports from migrated modules.
+- [x] Near signing flows (`transactions`, `delegate`, `nep413`) use bridge ports only.
+- [x] EVM/Tempo signing flows use bridge ports only.
+- [x] Registration/session lifecycle modules use bridge ports only.
+- [x] Remove direct manager-type imports from migrated modules.
 
 Likely files:
 
@@ -124,12 +124,12 @@ Likely files:
 
 ## Phase 4: Enforcement Guardrails (CI)
 
-- [ ] Add/extend static boundary check to fail when forbidden direct usage appears outside allowlist.
-- [ ] Check patterns:
+- [x] Add/extend static boundary check to fail when forbidden direct usage appears outside allowlist.
+- [x] Check patterns:
   - direct import/use of `TouchConfirmManager`
   - direct `touchConfirmManager.` callsites
   - direct import/use of `createTouchConfirmManager` outside manager assembly
-- [ ] Keep checks strict and fail-closed (no warning-only mode).
+- [x] Keep checks strict and fail-closed (no warning-only mode).
 
 Suggested files:
 
@@ -142,11 +142,11 @@ Suggested files:
 - [ ] Unit: bridge routes each operation to manager correctly.
 - [ ] Unit: orchestration modules compile/run with bridge ports and without manager type.
 - [ ] Unit: export hardening tests remain green.
-- [ ] Architecture check: no direct manager usage outside allowlist.
+- [x] Architecture check: no direct manager usage outside allowlist.
 - [ ] Regression run:
   - `pnpm test:unit`
   - `pnpm test:wallet-iframe`
-  - `pnpm -s check:signing-architecture`
+  - `pnpm -s check:signing-architecture` (done)
   - `pnpm -C sdk type-check`
 
 Suggested tests:
@@ -173,25 +173,25 @@ Mitigation: CI check is required in `check:signing-architecture`.
 
 ## 7. Done Criteria
 
-- [ ] No non-bridge module directly references `TouchConfirmManager`.
-- [ ] No non-bridge module directly calls manager methods.
-- [ ] `SigningRuntimeDeps` no longer exposes broad `touchConfirmManager`.
-- [ ] Static boundary checks enforce the rule and are green.
+- [x] No non-bridge module directly references `TouchConfirmManager`.
+- [x] No non-bridge module directly calls manager methods.
+- [x] `SigningRuntimeDeps` no longer exposes broad `touchConfirmManager`.
+- [x] Static boundary checks enforce the rule and are green.
 - [ ] Unit + integration suites are green with no behavior regressions.
 
 ## 8. Phased TODO List
 
 ## Immediate
 
-- [ ] Add bridge module + narrow contracts.
-- [ ] Migrate runtime DI for export/registration/session first.
-- [ ] Remove direct manager dependency from `SigningRuntimeDeps`.
+- [x] Add bridge module + narrow contracts.
+- [x] Migrate runtime DI for export/registration/session first.
+- [x] Remove direct manager dependency from `SigningRuntimeDeps`.
 
 ## Next
 
-- [ ] Migrate near/evm/tempo orchestration call sites.
-- [ ] Delete leftover manager-type imports in migrated files.
-- [ ] Land strict CI guardrails for forbidden direct usage.
+- [x] Migrate near/evm/tempo orchestration call sites.
+- [x] Delete leftover manager-type imports in migrated files.
+- [x] Land strict CI guardrails for forbidden direct usage.
 
 ## Finalize
 
