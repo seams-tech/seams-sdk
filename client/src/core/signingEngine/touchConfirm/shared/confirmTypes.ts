@@ -116,7 +116,6 @@ export interface TxSummary { totalAmount?: string; method?: string; receiverId?:
 export interface RegistrationSummary {
   nearAccountId: string;
   deviceNumber?: number;
-  contractId?: string;
   title?: string;
   body?: string;
 }

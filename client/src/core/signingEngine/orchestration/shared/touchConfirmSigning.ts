@@ -25,7 +25,7 @@ export function asThresholdEcdsaKeyRef(
 export async function resolveSigningAuthMode(args: {
   needsWebAuthn: boolean;
   thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef | null;
-  touchConfirmManager: ThresholdPrfFirstCachePeekPort;
+  touchConfirm: ThresholdPrfFirstCachePeekPort;
 }): Promise<SigningAuthMode> {
   if (args.needsWebAuthn) return 'webauthn';
 
@@ -34,7 +34,7 @@ export async function resolveSigningAuthMode(args: {
     throw new Error('[chains] Missing threshold signingSessionId; reconnect threshold session before signing');
   }
 
-  const peek = await args.touchConfirmManager.peekPrfFirstForThresholdSession({
+  const peek = await args.touchConfirm.peekPrfFirstForThresholdSession({
     sessionId: thresholdSessionId,
   });
   if (!peek.ok) {

@@ -205,6 +205,32 @@ export function findWorkerRuntimeBoundaryViolations(repoRoot) {
     violations: legacyTransportSymbolViolations,
   });
 
+  const touchConfirmDirectUsageAllowlist = new Set([
+    'client/src/core/signingEngine/bootstrap/managerAssembly.ts',
+    'client/src/core/signingEngine/bootstrap/touchConfirmBridge.ts',
+  ]);
+  const touchConfirmDirectUsagePatterns = [
+    'touchConfirmManager',
+    'TouchConfirmManager',
+    'createTouchConfirmManager',
+  ];
+  const touchConfirmDirectUsageViolations = [];
+  for (const filePath of signingEngineFiles) {
+    const relativePath = toPosixPath(path.relative(repoRoot, filePath));
+    if (touchConfirmDirectUsageAllowlist.has(relativePath)) continue;
+    if (relativePath.startsWith('client/src/core/signingEngine/touchConfirm/')) continue;
+    for (const pattern of touchConfirmDirectUsagePatterns) {
+      touchConfirmDirectUsageViolations.push(
+        ...findSubstringLineMatches(filePath, pattern, repoRoot),
+      );
+    }
+  }
+  checks.push({
+    id: 'touchconfirm-manager-single-bridge-boundary',
+    description: 'TouchConfirmManager direct usage must stay limited to manager assembly and touchConfirm bridge',
+    violations: touchConfirmDirectUsageViolations,
+  });
+
   checks.push({
     id: 'legacy-export-shortcut-artifacts-removed',
     description: 'legacy export shortcut wrapper modules must stay removed',

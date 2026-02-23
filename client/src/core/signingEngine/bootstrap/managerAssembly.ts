@@ -7,6 +7,10 @@ import {
   createTouchConfirmManager,
   type TouchConfirmManager,
 } from '../touchConfirm';
+import {
+  createTouchConfirmBridge,
+  type TouchConfirmBridge,
+} from './touchConfirmBridge';
 import { TouchIdPrompt } from '../signers/webauthn/prompt/touchIdPrompt';
 import { SignerWorkerManager } from '../workerManager';
 import { UserPreferencesManager } from '../api/userPreferences';
@@ -16,7 +20,7 @@ export type ManagerAssembly = {
   touchIdPrompt: TouchIdPrompt;
   userPreferencesManager: UserPreferencesManager;
   nonceManager: NonceManager;
-  touchConfirmManager: TouchConfirmManager;
+  touchConfirm: TouchConfirmBridge;
   signerWorkerManager: SignerWorkerManager;
 };
 
@@ -45,9 +49,10 @@ export function createManagerAssembly(args: {
       getAppearanceTokens: args.getAppearanceTokens,
     },
   );
+  const touchConfirm = createTouchConfirmBridge(touchConfirmManager);
 
   const signerWorkerManager = new SignerWorkerManager(
-    touchConfirmManager,
+    touchConfirm,
     args.nearClient,
     userPreferencesManager,
     nonceManager,
@@ -62,7 +67,7 @@ export function createManagerAssembly(args: {
     touchIdPrompt,
     userPreferencesManager,
     nonceManager,
-    touchConfirmManager,
+    touchConfirm,
     signerWorkerManager,
   };
 }

@@ -25,7 +25,7 @@ import {
 
 export async function signTempoWithTouchConfirm(args: {
   ctx: TouchConfirmContext;
-  touchConfirmManager: TouchConfirmSigningPort & ThresholdPrfFirstCachePeekPort;
+  touchConfirm: TouchConfirmSigningPort & ThresholdPrfFirstCachePeekPort;
   nearAccountId: string;
   request: TempoSigningRequest;
   engines: SignerMap<SignRequest, KeyRef, SignatureBytes>;
@@ -80,7 +80,7 @@ export async function signTempoWithTouchConfirm(args: {
   const signingAuthMode = await resolveSigningAuthMode({
     needsWebAuthn,
     thresholdEcdsaKeyRef,
-    touchConfirmManager: args.touchConfirmManager,
+    touchConfirm: args.touchConfirm,
   });
 
   const sessionId = makeRequestId('intent');
@@ -90,7 +90,7 @@ export async function signTempoWithTouchConfirm(args: {
     status: 'progress',
     message: 'Awaiting transaction confirmation',
   });
-  const confirmation = await args.touchConfirmManager.orchestrateSigningConfirmation({
+  const confirmation = await args.touchConfirm.orchestrateSigningConfirmation({
     ctx: args.ctx,
     sessionId,
     chain: 'tempo',

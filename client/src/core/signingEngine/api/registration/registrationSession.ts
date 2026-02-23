@@ -7,9 +7,8 @@ import type { TouchIdPrompt } from '../../signers/webauthn/prompt/touchIdPrompt'
 import type { WebAuthnAllowCredential } from '../../signers/webauthn/credentials';
 
 export type RegistrationSessionDeps = {
-  contractId: string;
   nearRpcUrl: string;
-  touchConfirmManager: TouchConfirmRegistrationPort;
+  touchConfirm: TouchConfirmRegistrationPort;
   touchIdPrompt: Pick<TouchIdPrompt, 'getAuthenticationCredentialsSerializedForChallengeB64u'>;
 };
 
@@ -22,12 +21,11 @@ export async function requestRegistrationCredentialConfirmation(
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
   },
 ): Promise<RegistrationCredentialConfirmationPayload> {
-  return await deps.touchConfirmManager.requestRegistrationCredentialConfirmation({
+  return await deps.touchConfirm.requestRegistrationCredentialConfirmation({
     nearAccountId: params.nearAccountId,
     deviceNumber: params.deviceNumber,
     confirmerText: params.confirmerText,
     confirmationConfigOverride: params.confirmationConfigOverride,
-    contractId: deps.contractId,
     nearRpcUrl: deps.nearRpcUrl,
   });
 }

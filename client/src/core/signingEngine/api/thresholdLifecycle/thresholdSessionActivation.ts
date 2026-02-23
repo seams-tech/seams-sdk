@@ -41,7 +41,7 @@ export type ThresholdSessionActivationDeps = {
   indexedDB: UnifiedIndexedDBManager;
   touchIdPrompt: Pick<TouchIdPrompt, 'getRpId' | 'getAuthenticationCredentialsSerializedForChallengeB64u'>;
   signingKeyOps: Pick<NearSigningKeyOps, 'deriveThresholdEd25519ClientVerifyingShare'>;
-  touchConfirmManager: ThresholdPrfFirstCachePort;
+  touchConfirm: ThresholdPrfFirstCachePort;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
   getOrCreateActiveSigningSessionId: (nearAccountId: AccountId) => string;
   defaultRelayerUrl: string;
@@ -78,7 +78,7 @@ export async function connectEd25519SessionValue(
     indexedDB: deps.indexedDB,
     touchIdPrompt: deps.touchIdPrompt,
     signingKeyOps: deps.signingKeyOps,
-    prfFirstCache: deps.touchConfirmManager,
+    prfFirstCache: deps.touchConfirm,
     relayerUrl,
     relayerKeyId: args.relayerKeyId,
     nearAccountId,
@@ -102,7 +102,7 @@ export async function bootstrapEcdsaSessionValue(
   const activationDeps = {
     indexedDB: deps.indexedDB,
     touchIdPrompt: deps.touchIdPrompt,
-    prfFirstCache: deps.touchConfirmManager,
+    prfFirstCache: deps.touchConfirm,
     workerCtx: signerWorkerCtx,
     getOrCreateActiveSigningSessionId: deps.getOrCreateActiveSigningSessionId,
   };

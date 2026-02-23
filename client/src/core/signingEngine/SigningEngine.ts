@@ -21,7 +21,7 @@ import type {
 } from './orchestration/thresholdActivation';
 import type { SignerWorkerManager } from './workerManager';
 import type { RegistrationCredentialConfirmationPayload } from './workerManager/validation';
-import type { TouchConfirmManager } from './touchConfirm';
+import type { TouchConfirmBridge } from './bootstrap/touchConfirmBridge';
 import type { TouchIdPrompt } from './signers/webauthn/prompt/touchIdPrompt';
 import type { WebAuthnAllowCredential } from './signers/webauthn/credentials';
 import type { EvmSigningRequest } from './chainAdaptors/evm/types';
@@ -116,7 +116,7 @@ export type { ThresholdEcdsaLoginPrefillResult } from './api/thresholdLifecycle/
  */
 export class SigningEngine {
   // Kept as fields for low-level tests that intentionally access internals.
-  private readonly touchConfirmManager: TouchConfirmManager;
+  private readonly touchConfirm: TouchConfirmBridge;
   private readonly signerWorkerManager: SignerWorkerManager;
   private readonly touchIdPrompt: TouchIdPrompt;
   private readonly userPreferencesManager: UserPreferencesManager;
@@ -147,7 +147,7 @@ export class SigningEngine {
     this.touchIdPrompt = assembly.touchIdPrompt;
     this.userPreferencesManager = assembly.userPreferencesManager;
     this.nonceManager = assembly.nonceManager;
-    this.touchConfirmManager = assembly.touchConfirmManager;
+    this.touchConfirm = assembly.touchConfirm;
     this.signerWorkerManager = assembly.signerWorkerManager;
 
     this.orchestrationDeps = createOrchestrationDependencyBundle({
@@ -156,7 +156,7 @@ export class SigningEngine {
       touchIdPrompt: this.touchIdPrompt,
       userPreferencesManager: this.userPreferencesManager,
       nonceManager: this.nonceManager,
-      touchConfirmManager: this.touchConfirmManager,
+      touchConfirm: this.touchConfirm,
       signerWorkerManager: this.signerWorkerManager,
       getWorkerBaseOrigin: () => this.workerBaseOrigin,
       getTheme: () => this.theme,
@@ -188,7 +188,7 @@ export class SigningEngine {
       setWorkerBaseOrigin: (origin: string) => {
         this.workerBaseOrigin = origin;
         this.signerWorkerManager.setWorkerBaseOrigin(origin);
-        this.touchConfirmManager.setWorkerBaseOrigin?.(origin);
+        this.touchConfirm.setWorkerBaseOrigin?.(origin);
       },
     });
   }
@@ -532,7 +532,7 @@ export class SigningEngine {
         getWarmSigningSessionStatus: (nearAccountId: AccountId | string) =>
           getWarmSigningSessionStatusValue(this.orchestrationDeps.signingSessionStateDeps, nearAccountId),
         dispensePrfFirstForThresholdSession: (payload) =>
-          this.touchConfirmManager.dispensePrfFirstForThresholdSession(payload),
+          this.touchConfirm.dispensePrfFirstForThresholdSession(payload),
         getSignerWorkerContext: () =>
           this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
         thresholdEcdsaPresignPoolPolicy: this.tatchiPasskeyConfigs.thresholdEcdsaPresignPool,
@@ -565,7 +565,7 @@ export class SigningEngine {
 
     await Promise.all(
       sessionIds.map((sessionId) =>
-        clearSigningSessionPrfFirstBestEffortValue(this.touchConfirmManager, sessionId),
+        clearSigningSessionPrfFirstBestEffortValue(this.touchConfirm, sessionId),
       ),
     );
   }

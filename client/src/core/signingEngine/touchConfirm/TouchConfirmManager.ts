@@ -318,7 +318,6 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       nearAccountId: params.nearAccountId,
       deviceNumber: params.deviceNumber,
       confirmerText: params.confirmerText,
-      contractId: params.contractId,
       nearRpcUrl: params.nearRpcUrl,
       confirmationConfig: params.confirmationConfigOverride,
     });

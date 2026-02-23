@@ -40,7 +40,7 @@ export type EvmFamilySigningDeps = {
     nearAccountId: string;
     chain: 'tempo' | 'evm';
   }) => ThresholdEcdsaSecp256k1KeyRef;
-  touchConfirmManager:
+  touchConfirm:
     & TouchConfirmContextPort
     & TouchConfirmSigningPort
     & ThresholdPrfFirstCachePeekPort
@@ -63,13 +63,13 @@ function throwIfEvmFamilySigningCancelled(shouldAbort?: () => boolean): void {
 
 async function assertThresholdSigningSessionReady(args: {
   thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
-  touchConfirmManager: ThresholdPrfFirstCachePeekPort;
+  touchConfirm: ThresholdPrfFirstCachePeekPort;
 }): Promise<void> {
   const thresholdSessionId = String(args.thresholdEcdsaKeyRef.thresholdSessionId || '').trim();
   if (!thresholdSessionId) {
     throw new Error('[chains] Missing threshold signingSessionId; reconnect threshold session before signing');
   }
-  const peek = await args.touchConfirmManager.peekPrfFirstForThresholdSession({
+  const peek = await args.touchConfirm.peekPrfFirstForThresholdSession({
     sessionId: thresholdSessionId,
   });
   if (!peek.ok) {
@@ -146,7 +146,7 @@ export async function signEvmFamily(
   if (args.request.senderSignatureAlgorithm === 'secp256k1') {
     await assertThresholdSigningSessionReady({
       thresholdEcdsaKeyRef: thresholdEcdsaKeyRef!,
-      touchConfirmManager: deps.touchConfirmManager,
+      touchConfirm: deps.touchConfirm,
     });
   }
 
@@ -158,10 +158,10 @@ export async function signEvmFamily(
   ]);
 
   const signerWorkerCtx = deps.getSignerWorkerContext();
-  const ctx = deps.touchConfirmManager.getContext();
+  const ctx = deps.touchConfirm.getContext();
   const flowArgs = {
     ctx,
-    touchConfirmManager: deps.touchConfirmManager,
+    touchConfirm: deps.touchConfirm,
     workerCtx: signerWorkerCtx,
     nearAccountId: args.nearAccountId,
     onEvent: args.onEvent,
@@ -202,7 +202,7 @@ export async function signEvmFamily(
                   throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
                   await assertThresholdSigningSessionReady({
                     thresholdEcdsaKeyRef: thresholdEcdsaKeyRef,
-                    touchConfirmManager: deps.touchConfirmManager,
+                    touchConfirm: deps.touchConfirm,
                   });
                   try {
                     args.onEvent?.({
@@ -224,7 +224,7 @@ export async function signEvmFamily(
             }
           : undefined,
         dispenseThresholdEcdsaPrfFirstForSession: (payload) =>
-          deps.touchConfirmManager.dispensePrfFirstForThresholdSession(payload),
+          deps.touchConfirm.dispensePrfFirstForThresholdSession(payload),
       }),
       webauthnP256: new WebAuthnP256Engine(signerWorkerCtx),
     },

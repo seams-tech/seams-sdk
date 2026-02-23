@@ -28,7 +28,7 @@ import {
 
 export async function signEvmWithTouchConfirm(args: {
   ctx: TouchConfirmContext;
-  touchConfirmManager: TouchConfirmSigningPort & ThresholdPrfFirstCachePeekPort;
+  touchConfirm: TouchConfirmSigningPort & ThresholdPrfFirstCachePeekPort;
   nearAccountId: string;
   request: EvmSigningRequest;
   engines: SignerMap<SignRequest, KeyRef, SignatureBytes>;
@@ -77,7 +77,7 @@ export async function signEvmWithTouchConfirm(args: {
   const signingAuthMode = await resolveSigningAuthMode({
     needsWebAuthn: false,
     thresholdEcdsaKeyRef,
-    touchConfirmManager: args.touchConfirmManager,
+    touchConfirm: args.touchConfirm,
   });
 
   const sessionId = makeRequestId('intent');
@@ -87,7 +87,7 @@ export async function signEvmWithTouchConfirm(args: {
     status: 'progress',
     message: 'Awaiting transaction confirmation',
   });
-  await args.touchConfirmManager.orchestrateSigningConfirmation({
+  await args.touchConfirm.orchestrateSigningConfirmation({
     ctx: args.ctx,
     sessionId,
     chain: 'evm',

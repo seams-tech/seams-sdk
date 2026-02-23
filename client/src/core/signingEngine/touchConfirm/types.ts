@@ -59,7 +59,6 @@ export type RequestRegistrationCredentialConfirmationParams = {
   deviceNumber: number;
   confirmerText?: { title?: string; body?: string };
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
-  contractId: string;
   nearRpcUrl: string;
 };
 

@@ -26,7 +26,7 @@ export interface SigningRuntimeDeps {
   rpIdOverride?: string;
   nearExplorerUrl?: string;
   relayerUrl: string;
-  touchConfirmManager?: TouchConfirmSigningSessionPort;
+  touchConfirm?: TouchConfirmSigningSessionPort;
   requestWorkerOperation: <
     K extends SignerWorkerKind,
     T extends SignerWorkerOperationType<K>,

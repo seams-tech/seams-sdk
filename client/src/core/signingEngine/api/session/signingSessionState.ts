@@ -20,7 +20,7 @@ type SigningSessionPrfCacheClearer = ThresholdPrfFirstCacheClearPort;
 
 export type SigningSessionStateDeps = {
   activeSigningSessionIds: Map<string, string>;
-  touchConfirmManager: ThresholdPrfFirstCacheWriterPort
+  touchConfirm: ThresholdPrfFirstCacheWriterPort
     & ThresholdPrfFirstCachePeekPort
     & ThresholdPrfFirstCacheClearPort;
   createSessionId: (prefix: string) => string;
@@ -159,7 +159,7 @@ export async function hydrateSigningSession(
   args: HydrateSigningSessionArgs,
 ): Promise<void> {
   const normalized = normalizeSigningSessionCacheEntry(args);
-  await cacheSigningSessionPrfFirst(deps.touchConfirmManager, normalized);
+  await cacheSigningSessionPrfFirst(deps.touchConfirm, normalized);
 
   if (args.setActiveSigningSessionId !== false) {
     setActiveSigningSessionId(deps, args.nearAccountId, normalized.sessionId);
@@ -175,7 +175,7 @@ export async function getWarmSigningSessionStatus(
     const sessionId = deps.activeSigningSessionIds.get(key);
     if (!sessionId) return null;
 
-    const peek = await deps.touchConfirmManager.peekPrfFirstForThresholdSession({ sessionId });
+    const peek = await deps.touchConfirm.peekPrfFirstForThresholdSession({ sessionId });
     if (peek.ok) {
       return {
         sessionId,

@@ -14,7 +14,6 @@ import type { SignTransactionResult } from '@/core/types/tatchi';
 
 export type RotateThresholdEd25519KeyPostRegistrationHandlerContext = {
   nearClient: NearClient;
-  contractId: string;
   nearRpcUrl: string;
   signTransactionsWithActions: (args: {
     transactions: TransactionInputWasm[];
@@ -139,7 +138,6 @@ export async function rotateEd25519KeyPostRegistrationHandler(
     let deleteOldKeyAttempted = false;
     try {
       const rpcCall: RpcCallPayload = {
-        contractId: ctx.contractId,
         nearRpcUrl: ctx.nearRpcUrl,
         nearAccountId,
       };

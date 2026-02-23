@@ -49,7 +49,7 @@ export async function resolveInitialThresholdSigningAuthPlan(args: {
   usesNeeded: number;
   nearAccountId: string;
   getRpId: () => string | null;
-  touchConfirmManager: ThresholdPrfFirstCachePeekPort;
+  touchConfirm: ThresholdPrfFirstCachePeekPort;
   desiredTtlMs?: number;
   desiredRemainingUses?: number;
 }): Promise<{
@@ -66,7 +66,7 @@ export async function resolveInitialThresholdSigningAuthPlan(args: {
   const hasJwt = !!args.threshold.thresholdSessionJwt;
   let warmOk = false;
   if (hasJwt) {
-    const peek = await args.touchConfirmManager.peekPrfFirstForThresholdSession({
+    const peek = await args.touchConfirm.peekPrfFirstForThresholdSession({
       sessionId: args.sessionId,
     });
     warmOk = peek.ok && peek.remainingUses >= args.usesNeeded;

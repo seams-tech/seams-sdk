@@ -165,7 +165,6 @@ export async function signTransactionsWithActions({
 
   // Normalize rpcCall to ensure required fields are present.
   const resolvedRpcCall = {
-    contractId: rpcCall.contractId || PASSKEY_MANAGER_DEFAULT_CONFIGS.contractId,
     nearRpcUrl: rpcCall.nearRpcUrl || PASSKEY_MANAGER_DEFAULT_CONFIGS.nearRpcUrl,
     nearAccountId: rpcCall.nearAccountId,
   } as RpcCallPayload;
@@ -187,10 +186,10 @@ export async function signTransactionsWithActions({
 
   // UserConfirm before sending anything to the signer worker.
   // WebAuthn uses a challenge digest (threshold sessions use `sessionPolicyDigest32`).
-  if (!ctx.touchConfirmManager) {
-    throw new Error('TouchConfirmManager not available for signing');
+  if (!ctx.touchConfirm) {
+    throw new Error('TouchConfirm bridge not available for signing');
   }
-  const touchConfirmManager = ctx.touchConfirmManager;
+  const touchConfirm = ctx.touchConfirm;
   const usesNeeded = Math.max(1, txSigningRequests.length);
   const { desiredTtlMs, desiredRemainingUses } = resolveDesiredSessionOptions({
     signingSessionTtlMs,
@@ -203,11 +202,11 @@ export async function signTransactionsWithActions({
     usesNeeded,
     nearAccountId,
     getRpId: () => ctx.touchIdPrompt.getRpId(),
-    touchConfirmManager,
+    touchConfirm,
     desiredTtlMs,
     desiredRemainingUses,
   });
-  const confirmation = await ctx.touchConfirmManager.orchestrateSigningConfirmation({
+  const confirmation = await ctx.touchConfirm.orchestrateSigningConfirmation({
     ctx,
     sessionId,
     chain: 'near',
@@ -236,7 +235,7 @@ export async function signTransactionsWithActions({
 
   // Resolve PRF.first for signer worker.
   if (signingContext.threshold && signingAuthMode === 'warmSession') {
-    const delivered = await touchConfirmManager.dispensePrfFirstForThresholdSession({
+    const delivered = await touchConfirm.dispensePrfFirstForThresholdSession({
       sessionId,
       uses: usesNeeded,
     });
@@ -244,7 +243,7 @@ export async function signTransactionsWithActions({
       prfFirstB64u = delivered.prfFirstB64u;
     } else {
       // Warm session failed (expired/exhausted). Fall back to WebAuthn.
-      await clearSigningSessionPrfFirstBestEffort(touchConfirmManager, sessionId);
+      await clearSigningSessionPrfFirstBestEffort(touchConfirm, sessionId);
       signingAuthMode = 'webauthn';
 
       thresholdSessionPlan = await buildEd25519SessionPolicyForNearSigning({
@@ -256,7 +255,7 @@ export async function signTransactionsWithActions({
         desiredRemainingUses,
       });
 
-      const refreshed = await touchConfirmManager.orchestrateSigningConfirmation({
+      const refreshed = await touchConfirm.orchestrateSigningConfirmation({
         ctx,
         sessionId,
         chain: 'near',
@@ -331,7 +330,7 @@ export async function signTransactionsWithActions({
     if (!prfFirstB64u) {
       throw new Error('Missing PRF.first output for threshold session cache');
     }
-    await cacheSigningSessionPrfFirstBestEffort(touchConfirmManager, {
+    await cacheSigningSessionPrfFirstBestEffort(touchConfirm, {
       sessionId,
       prfFirstB64u,
       expiresAtMs,
@@ -414,7 +413,7 @@ export async function signTransactionsWithActions({
 
         if (attempt === 0 && isThresholdSessionAuthUnavailableError(err)) {
           clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
-          await clearSigningSessionPrfFirstBestEffort(touchConfirmManager, sessionId);
+          await clearSigningSessionPrfFirstBestEffort(touchConfirm, sessionId);
           signingContext.threshold.thresholdSessionJwt = undefined;
           requestPayload.threshold!.thresholdSessionJwt = undefined;
 
@@ -428,7 +427,7 @@ export async function signTransactionsWithActions({
             desiredRemainingUses,
           });
 
-          const refreshed = await touchConfirmManager.orchestrateSigningConfirmation({
+          const refreshed = await touchConfirm.orchestrateSigningConfirmation({
             ctx,
             sessionId,
             chain: 'near',
@@ -471,7 +470,7 @@ export async function signTransactionsWithActions({
           const expiresAtMs = minted.expiresAtMs ?? Date.now() + thresholdSessionPlan.policy.ttlMs;
           const remainingUses = minted.remainingUses ?? thresholdSessionPlan.policy.remainingUses;
 
-          await cacheSigningSessionPrfFirstBestEffort(touchConfirmManager, {
+          await cacheSigningSessionPrfFirstBestEffort(touchConfirm, {
             sessionId,
             prfFirstB64u: prfFirst,
             expiresAtMs,

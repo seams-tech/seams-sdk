@@ -41,7 +41,7 @@ export interface SignerWorkerManagerContext extends SigningRuntimeDeps {
 export class SignerWorkerManager {
   private indexedDB: UnifiedIndexedDBManager;
   private touchIdPrompt: TouchIdPrompt;
-  private touchConfirmManager: TouchConfirmSigningSessionPort;
+  private touchConfirm: TouchConfirmSigningSessionPort;
   private nearClient: NearClient;
   private userPreferencesManager: UserPreferencesManager;
   private nonceManager: NonceManager;
@@ -52,7 +52,7 @@ export class SignerWorkerManager {
   readonly nearKeyOps: NearSigningKeyOps;
 
   constructor(
-    touchConfirmManager: TouchConfirmSigningSessionPort,
+    touchConfirm: TouchConfirmSigningSessionPort,
     nearClient: NearClient,
     userPreferencesManager: UserPreferencesManager,
     nonceManager: NonceManager,
@@ -67,7 +67,7 @@ export class SignerWorkerManager {
       rpIdOverride,
       enableSafariGetWebauthnRegistrationFallback,
     );
-    this.touchConfirmManager = touchConfirmManager;
+    this.touchConfirm = touchConfirm;
     this.nearClient = nearClient;
     this.userPreferencesManager = userPreferencesManager;
     this.nonceManager = nonceManager;
@@ -87,7 +87,7 @@ export class SignerWorkerManager {
       requestWorkerOperation: this.requestWorkerOperation.bind(this),
       indexedDB: this.indexedDB,
       touchIdPrompt: this.touchIdPrompt,
-      touchConfirmManager: this.touchConfirmManager,
+      touchConfirm: this.touchConfirm,
       nearClient: this.nearClient,
       userPreferencesManager: this.userPreferencesManager,
       nonceManager: this.nonceManager,
@@ -115,6 +115,6 @@ export class SignerWorkerManager {
   requestExportPrivateKeysWithUi(
     payload: ExportPrivateKeysWithUiWorkerPayload,
   ): Promise<ExportPrivateKeysWithUiWorkerResult> {
-    return this.touchConfirmManager.exportPrivateKeysWithUi(payload);
+    return this.touchConfirm.exportPrivateKeysWithUi(payload);
   }
 }

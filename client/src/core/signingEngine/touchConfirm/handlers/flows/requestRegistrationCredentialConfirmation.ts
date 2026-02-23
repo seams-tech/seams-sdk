@@ -1,5 +1,4 @@
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
-import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import type { TouchConfirmContext } from '../../';
 import {
   UserConfirmationType,
@@ -29,7 +28,6 @@ export async function requestRegistrationCredentialConfirmation({
   nearAccountId,
   deviceNumber,
   confirmerText,
-  contractId,
   nearRpcUrl,
   confirmationConfig,
 }: {
@@ -37,7 +35,6 @@ export async function requestRegistrationCredentialConfirmation({
   nearAccountId: string,
   deviceNumber: number,
   confirmerText?: { title?: string; body?: string };
-  contractId: string,
   nearRpcUrl: string,
   confirmationConfig?: Partial<ConfirmationConfig>,
 }): Promise<RegistrationCredentialConfirmationPayload> {
@@ -46,11 +43,9 @@ export async function requestRegistrationCredentialConfirmation({
     throw new Error('UserConfirm request bridge is unavailable (worker handshake path only)');
   }
 
-  // Ensure required fields are present; JSON.stringify drops undefined causing Rust parse failure
-  const resolvedContractId = contractId || PASSKEY_MANAGER_DEFAULT_CONFIGS.contractId;
-  // Use the first URL if defaults include a failover list
-  const resolvedNearRpcUrl = nearRpcUrl
-    || (PASSKEY_MANAGER_DEFAULT_CONFIGS.nearRpcUrl.split(',')[0] || PASSKEY_MANAGER_DEFAULT_CONFIGS.nearRpcUrl);
+  if (!nearRpcUrl) {
+    throw new Error('nearRpcUrl is required for registration confirmation');
+  }
 
   const requestId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
     ? crypto.randomUUID()
@@ -61,14 +56,13 @@ export async function requestRegistrationCredentialConfirmation({
   const request: UserConfirmRequest<{
     nearAccountId: string;
     deviceNumber: number;
-    rpcCall: { contractId: string; nearRpcUrl: string; nearAccountId: string };
+    rpcCall: { nearRpcUrl: string; nearAccountId: string };
   }, RegistrationSummary> = {
     requestId,
     type: UserConfirmationType.REGISTER_ACCOUNT,
     summary: {
       nearAccountId,
       deviceNumber,
-      contractId: resolvedContractId,
       ...(title != null ? { title } : {}),
       ...(body != null ? { body } : {}),
     },
@@ -76,8 +70,7 @@ export async function requestRegistrationCredentialConfirmation({
       nearAccountId,
       deviceNumber,
       rpcCall: {
-        contractId: resolvedContractId,
-        nearRpcUrl: resolvedNearRpcUrl,
+        nearRpcUrl,
         nearAccountId,
       },
     },

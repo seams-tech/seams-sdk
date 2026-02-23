@@ -114,7 +114,6 @@ export async function signNear<TRequest extends NearSignIntentRequest>(
 }
 
 export type NearSigningApiDeps = {
-  contractId: string;
   nearRpcUrl: string;
   resolveSigningSessionPolicy: (
     args: ResolveSigningSessionPolicyArgs,
@@ -182,7 +181,6 @@ export async function signDelegateAction(
   const nearAccountId = toAccountId(args.rpcCall.nearAccountId || args.delegate.senderId);
   const signingSessionPolicy = deps.resolveSigningSessionPolicy({});
   const normalizedRpcCall: RpcCallPayload = {
-    contractId: args.rpcCall.contractId || deps.contractId,
     nearRpcUrl: args.rpcCall.nearRpcUrl || deps.nearRpcUrl,
     nearAccountId,
   };

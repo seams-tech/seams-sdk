@@ -51,7 +51,6 @@ export type ThresholdEd25519LifecycleDeps = {
   nearClient: NearClient;
   nonceManager: Pick<NonceManager, 'initializeUser' | 'getNonceBlockHashAndHeight'>;
   relayerUrl: string;
-  contractId: string;
   nearRpcUrl: string;
   signTransactionsWithActions: (
     args: SignTransactionsWithActionsInput,
@@ -219,7 +218,6 @@ export async function rotateThresholdEd25519KeyPostRegistration(
     return await rotateEd25519KeyPostRegistrationHandler(
       {
         nearClient: deps.nearClient,
-        contractId: deps.contractId,
         nearRpcUrl: deps.nearRpcUrl,
         signTransactionsWithActions: (params) => deps.signTransactionsWithActions(params),
       },
@@ -369,7 +367,6 @@ export async function enrollThresholdEd25519Key(
         const signed = await deps.signTransactionsWithActions({
           transactions: [{ receiverId: nearAccountId, actions: [addKeyAction] }],
           rpcCall: {
-            contractId: deps.contractId,
             nearRpcUrl: deps.nearRpcUrl,
             nearAccountId,
           },
