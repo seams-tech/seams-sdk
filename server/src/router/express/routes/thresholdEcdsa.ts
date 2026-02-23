@@ -22,6 +22,19 @@ function errMessage(e: unknown): string {
   return String(e || 'Internal error');
 }
 
+function parsePresignRequestTag(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined;
+  const tag = String((body as { requestTag?: unknown }).requestTag || '').trim();
+  return tag || undefined;
+}
+
+function resolvePresignLogLabel(requestTag: string | undefined): string | undefined {
+  if (requestTag === 'background_presign_pool_refill') {
+    return 'background presign pool refill';
+  }
+  return undefined;
+}
+
 async function handle<T extends { ok: boolean; code?: string; message?: string }>(
   ctx: ExpressRelayContext,
   req: Request,
@@ -162,10 +175,14 @@ export function registerThresholdEcdsaRoutes(router: ExpressRouter, ctx: Express
 
   router.post('/threshold-ecdsa/presign/init', async (req: Request, res: Response) => {
     const body = (req.body || {}) as ThresholdEcdsaPresignInitRequest;
+    const requestTag = parsePresignRequestTag(body);
+    const label = resolvePresignLogLabel(requestTag);
     await handle(ctx, req, res, '/threshold-ecdsa/presign/init', {
       relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
       clientVerifyingShareB64u_len: typeof body.clientVerifyingShareB64u === 'string' ? body.clientVerifyingShareB64u.length : undefined,
       count: typeof (body as any).count === 'number' ? (body as any).count : undefined,
+      ...(requestTag ? { requestTag } : {}),
+      ...(label ? { label } : {}),
     }, async () => {
       const resolved = resolveThresholdScheme(ctx.opts.threshold, THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID, {
         notFoundMessage: 'threshold-ecdsa scheme is not enabled on this server',
@@ -186,10 +203,14 @@ export function registerThresholdEcdsaRoutes(router: ExpressRouter, ctx: Express
 
   router.post('/threshold-ecdsa/presign/step', async (req: Request, res: Response) => {
     const body = (req.body || {}) as ThresholdEcdsaPresignStepRequest;
+    const requestTag = parsePresignRequestTag(body);
+    const label = resolvePresignLogLabel(requestTag);
     await handle(ctx, req, res, '/threshold-ecdsa/presign/step', {
       presignSessionId: typeof body.presignSessionId === 'string' ? body.presignSessionId : undefined,
       stage: typeof (body as any).stage === 'string' ? (body as any).stage : undefined,
       outgoingMessagesB64u_len: Array.isArray((body as any).outgoingMessagesB64u) ? (body as any).outgoingMessagesB64u.length : undefined,
+      ...(requestTag ? { requestTag } : {}),
+      ...(label ? { label } : {}),
     }, async () => {
       const resolved = resolveThresholdScheme(ctx.opts.threshold, THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID, {
         notFoundMessage: 'threshold-ecdsa scheme is not enabled on this server',

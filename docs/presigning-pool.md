@@ -1,187 +1,218 @@
-# Threshold ECDSA Presigning Pool
+# Threshold ECDSA Presigning Pool and Signing Lifecycle
 
-Last updated: 2026-02-22
+Last updated: 2026-02-23
 
-## 1. Overview
+## 1. Scope
 
-Threshold ECDSA presigning uses two coordinated pools:
+This document covers the full lifecycle of threshold ECDSA signing in this repo:
 
-1. Client presign pool (browser memory): holds the client share of presignature material.
-2. Server presign pool (persistent backend): holds the relayer share of presignature material.
+1. Session/bootstrap and authorize
+2. Foreground transaction signing (pool hit vs cold miss)
+3. Background presign pool refill
+4. Timing profile from observed logs
+5. Security and secrecy requirements for presign artifacts
 
-This split is intentional. The protocol is 2-party; both sides must hold their own material and agree on the same `presignatureId` for a sign.
+Terminology used below:
 
-## 2. How It Works
+- Foreground sign: the user-initiated sign operation that must return a signature now.
+- Presign pool refill: background generation of future presignatures.
+- Presignature: one-time Cait-Sith preprocessing material identified by `presignatureId`.
 
-1. Presign generation:
-- Client and server run the presign handshake (`/threshold-ecdsa/presign/init`, `/threshold-ecdsa/presign/step`).
-- On `presign_done`, both sides derive the same `bigR`.
-- Server stores its presign record in the server pool (`put`).
-- Client can cache its presign record in its in-memory pool.
+## 2. End-to-End Lifecycle
 
-2. Sign initialization:
-- Client sign path tries to pop one presign record from its local pool.
-- Client calls `/threshold-ecdsa/sign/init` and includes `clientRound1.presignatureId`.
-- Server reserves that exact presignature (`reserveById`) when available, otherwise returns `pool_empty`.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as User
+    participant C as Client (wallet/signer)
+    participant A as Relayer /authorize
+    participant P as Relayer /presign/*
+    participant S as Relayer /sign/*
+    participant CP as Client Presign Pool
+    participant SP as Server Presign Pool
 
-3. Sign finalize:
-- Server consumes the reserved presignature (`consume`) exactly once.
-- If the flow fails or expires before finalize, server discards the reservation (`discard`).
+    U->>C: Click "Sign transaction"
+    C->>A: POST /threshold-ecdsa/authorize
+    A-->>C: mpcSessionId
 
-4. Refill / rebalance:
-- Refill is client-driven and best-effort.
-- Scheduler runs when:
-  - commit starts and depth is at/below low watermark,
-  - post-sign success to top up toward target depth.
-- Scheduler dedupes per pool key and enforces global in-flight limits.
-- Refill loops until `targetDepth` or `refillAttemptTimeoutMs`.
+    C->>CP: pop presignature
+    alt Pool hit
+        CP-->>C: presignatureId + (bigR, kShare, sigmaShare)
+    else Pool miss (cold)
+        C->>P: POST /threshold-ecdsa/presign/init
+        loop handshake rounds
+            C->>P: POST /threshold-ecdsa/presign/step
+            P-->>C: outgoing + stage/event
+        end
+        P->>SP: store relayer presign share (available)
+        C-->>C: keep client presign share (memory)
+    end
 
-## 3. Pool Keying Model
+    C->>S: POST /threshold-ecdsa/sign/init (with presignatureId)
+    S->>SP: reserve presignature
+    S-->>C: signingSessionId + entropy (+bigR)
 
-## 3.1 Client Pool Key
+    C->>S: POST /threshold-ecdsa/sign/finalize (client signature share)
+    S->>SP: consume reserved presignature
+    S-->>C: signature65
 
-Client presign pool entries are keyed by:
+    par Background refill (best effort)
+        C->>P: /presign/init + /presign/step loop
+        P->>SP: add available presignature
+        C->>CP: push client presignature
+    and User flow continues
+        C-->>U: Signed tx returned
+    end
+```
 
-- `relayerUrl`
-- `relayerKeyId`
-- `clientVerifyingShareB64u`
-- `participantIds`
+## 3. Which Operations Are Presign vs Actual Tx Signing
 
-This isolates pool entries per relayer endpoint and session identity tuple.
+| Operation | Class | Endpoint(s) | Purpose |
+|---|---|---|---|
+| Threshold session bootstrap | Session/Auth | `/threshold-ecdsa/bootstrap` | Create threshold session + token/cookie binding |
+| Sign authorization | Session/Auth | `/threshold-ecdsa/authorize` | Mint/consume short-lived MPC session id (`mpcSessionId`) |
+| Presign init | Presign (Cait-Sith preprocessing) | `/threshold-ecdsa/presign/init` | Start one presignature handshake |
+| Presign step | Presign (Cait-Sith preprocessing) | `/threshold-ecdsa/presign/step` | Advance triples/presign rounds until `presign_done` |
+| Sign init | Actual tx signing | `/threshold-ecdsa/sign/init` | Bind digest + presignature and get relayer round-1 data |
+| Sign finalize | Actual tx signing | `/threshold-ecdsa/sign/finalize` | Combine shares and return final 65-byte signature |
 
-## 3.2 Server Pool Key
+Important: `/presign/*` is preprocessing, not the final transaction signature itself.
 
-Server presign pool entries are keyed by:
+## 4. Timing Profile (Observed)
 
-- `namespace` (prefix/config scope)
-- `relayer_key_id`
-- `presignature_id`
+Measured from your recent server logs.
 
-Important identity note:
-- The server pool is keyed directly by `relayerKeyId`, not `userId`.
-- `relayerKeyId` is cryptographically bound during authorize to:
-  - `userId`
-  - `rpId`
-  - `clientVerifyingShareB64u`
-- So user scope is enforced indirectly via `relayerKeyId` binding.
+| Operation | Class | Typical server duration |
+|---|---|---|
+| `/threshold-ecdsa/bootstrap` | Session/Auth | ~18ms |
+| `/threshold-ecdsa/authorize` | Session/Auth | ~4-10ms |
+| `/threshold-ecdsa/presign/init` | Presign | ~20-35ms |
+| `/threshold-ecdsa/presign/step` (normal) | Presign | ~740-1150ms per step |
+| `/threshold-ecdsa/presign/step` (under contention) | Presign | ~1800-2300ms per step |
+| `/threshold-ecdsa/sign/init` | Actual signing | ~7-10ms |
+| `/threshold-ecdsa/sign/finalize` | Actual signing | ~24-35ms |
 
-## 4. Where Pools Are Stored
+Cold foreground sign usually includes one full presign handshake:
 
-## 4.1 Client Pool Storage
+- 1 x `presign/init`
+- about 6 x `presign/step` in observed traces
+- then `sign/init` + `sign/finalize`
 
-- In-memory `Map` in the wallet-origin coordinator module.
-- Process-local only (cleared on refresh/tab close/new worker lifetime).
-- Not shared across tabs/devices/processes.
+So cold path is usually dominated by presign steps (often several seconds).
 
-## 4.2 Server Pool Storage
+## 5. Why Logs Continue After Signature Is Returned
 
-Backend is selected by threshold store config:
+Yes, those post-sign `/presign/*` logs are typically background refill.
 
-1. Cloudflare Durable Objects:
-- Available list key: `...avail:{relayerKeyId}`
-- Reserved key prefix: `...res:{relayerKeyId}:{presignatureId}`
+Current signer behavior:
 
-2. Upstash Redis REST:
-- Available list in Redis list (`RPUSH` / reserve via Lua `LPOP` flow).
-- Reserved entries as separate keys with TTL.
+1. On commit start: may schedule refill if pool depth and policy trigger it.
+2. On sign success: schedules refill again toward target depth.
+3. Refill runs asynchronously and can continue after the user already got the signature.
 
-3. Redis TCP:
-- Same model as Upstash (Lua reserve/reserveById + reserved key TTL).
+Current defaults are aggressive for refill depth:
 
-4. Postgres:
-- Table: `threshold_ecdsa_presignatures`
-- Columns include `namespace`, `relayer_key_id`, `presignature_id`, `state`, `reserve_expires_at_ms`.
-- Reservation uses `FOR UPDATE SKIP LOCKED` and state transition `available -> reserved`.
-
-5. In-memory:
-- Dev fallback only, process-local, not shared across server instances.
-
-## 5. Rebalance Policy
-
-Current default client policy:
-
-- `enabled: true`
 - `targetDepth: 20`
 - `lowWatermark: 5`
 - `maxRefillInFlight: 2`
-- `refillAttemptTimeoutMs: 30000`
 
-Policy source:
+With these defaults, post-sign background presign traffic is expected.
 
-1. Client default config.
-2. Optional server hint in `/threshold-ecdsa/authorize` response.
-3. Client clamps final values to local safety bounds.
+## 6. Log Labeling for Background Refill
 
-## 6. Multi-Instance Footguns
+Background refill requests now carry `requestTag: "background_presign_pool_refill"` from client refill code, and server request logs map that to:
 
-## 6.1 In-Memory Stores Across Multiple Servers
+- `label: "background presign pool refill"`
 
-Problem:
-- Each instance has its own isolated pool/session state.
-- A request can authorize on instance A but sign on instance B and fail with missing/expired session or `pool_empty`.
+So when you see that label on `/threshold-ecdsa/presign/init` or `/threshold-ecdsa/presign/step`, it is refill traffic, not the foreground sign operation.
 
-Mitigation:
-- Use shared persistent backends (DO, Upstash/Redis, Postgres) for server presign pool and sessions.
-- Avoid in-memory store mode in load-balanced deployments.
+## 7. Presignature Lifecycle and Single-Use Rules
 
-## 6.2 Mixed Store Configuration Across Instances
+```mermaid
+stateDiagram-v2
+    [*] --> Generating
+    Generating --> Available: presign_done
+    Available --> Reserved: sign/init reserves by id
+    Reserved --> Consumed: sign/finalize succeeds
+    Reserved --> Discarded: timeout / abort / cleanup
+    Available --> Expired: TTL expiry
+    Expired --> [*]
+    Consumed --> [*]
+    Discarded --> [*]
+```
 
-Problem:
-- Some instances use Redis, others Postgres/in-memory.
-- State becomes split-brain and non-deterministic.
+Required invariants:
 
-Mitigation:
-- Ensure every instance in the fleet uses the same store kind and credentials.
+1. Presignatures are one-time use.
+2. A reserved presignature must be consumed or discarded; never returned to available state without strict protocol support.
+3. Reuse of nonce-related presign material across messages is unsafe.
 
-## 6.3 Prefix / Namespace Drift
+## 8. Security and Secret-Handling Notes
 
-Problem:
-- Different `THRESHOLD_PREFIX` or ECDSA-specific prefixes across instances.
-- Instances write/read different logical pools.
+### 8.1 Highly sensitive (must stay private)
 
-Mitigation:
-- Standardize prefix env vars across all instances.
+Do not log or expose:
 
-## 6.4 Durable Object Binding Mismatch
+1. `clientSigningShare32`
+2. Presign private shares: `kShareB64u`, `sigmaShareB64u`
+3. WebAuthn PRF output (`prfFirstB64u`)
+4. Threshold session JWT/cookie secrets
 
-Problem:
-- Instances point to different DO namespaces/object names.
-- Same split-brain behavior as prefix drift.
+Treat these like key material.
 
-Mitigation:
-- Keep identical DO binding config for all instances.
+### 8.2 Sensitive but lower impact (still minimize logging)
 
-## 6.5 Time Skew and Reservation TTL
+1. `presignatureId`
+2. `bigRB64u`
 
-Problem:
-- Reservation expiry checks are time-based.
-- Severe clock skew can increase false expiry behavior.
+These are less sensitive than secret shares but can still aid correlation and traffic analysis.
 
-Mitigation:
-- Keep server clocks synchronized (NTP).
-- Use sane reservation TTL values.
+### 8.3 Public output
 
-## 6.6 Throughput vs Target Depth
+1. Final ECDSA signature (`signature65`) is public by nature once broadcast.
 
-Problem:
-- High `targetDepth` with many active users can generate heavy presign churn.
-- `count=1` presign endpoint means refills are looped, not batched.
+### 8.4 Storage guidance
 
-Mitigation:
-- Start with conservative policy (current `20/5`).
-- Tune based on observed presign latency and backend load.
+1. Client presign shares are intentionally memory-only by default (lower at-rest risk).
+2. If persisting client presign shares in IndexedDB, require strong local encryption, strict TTL, single-use delete semantics, and crash-safe consume flow.
+3. Server-side presign pool must enforce reservation and consume atomically.
 
-## 7. Operational Checklist
+### 8.5 Randomness requirements
 
-Before multi-instance rollout:
+1. Every presign session must use fresh randomness.
+2. Never deterministically reuse presign nonce material across signatures.
+3. Randomness quality directly affects ECDSA security.
 
-1. Use one shared persistent store backend for all instances.
-2. Confirm identical threshold env/prefix settings everywhere.
-3. Confirm presign pool hint settings are consistent (or unset) fleet-wide.
-4. Verify sign path under concurrency with at least two app instances behind LB.
-5. Monitor:
-- `pool_empty` rates
-- sign timeout rates
-- reserve/consume failures
-- refill scheduling reasons (`in_flight_for_pool_key`, `global_in_flight_limit`, etc.)
+## 9. Operational Footguns
 
+1. Two independent client runtimes (for example, two tabs/hosts) can each run refill for the same account and increase duplicate background work.
+2. In-memory server stores are unsafe for multi-instance deployments (state split and `pool_empty`/session mismatch behavior).
+3. Mixed backend/prefix config across instances creates split-brain pool state.
+4. High refill targets can consume substantial CPU because each presignature needs a full handshake.
+
+## 10. Practical Tuning Suggestions
+
+For better interactive latency:
+
+1. Keep `maxRefillInFlight` low (often `1`).
+2. Start with modest pool depth (`targetDepth` around `1-3`) unless throughput requires more.
+3. Keep refill background and non-blocking for UX.
+4. Track separate metrics for foreground sign latency vs refill latency.
+
+## 11. Relevant Code Paths
+
+Client:
+
+1. Presign pool + handshake + refill scheduler:
+   - `client/src/core/signingEngine/orchestration/walletOrigin/thresholdEcdsaCoordinator.ts`
+2. ECDSA signing flow, authorize, and refill triggers:
+   - `client/src/core/signingEngine/signers/algorithms/secp256k1.ts`
+3. HTTP request wrappers for `/threshold-ecdsa/presign/*`:
+   - `client/src/core/signingEngine/threshold/workflows/signEcdsa.ts`
+
+Server:
+
+1. ECDSA presign/sign handlers:
+   - `server/src/core/ThresholdService/ecdsaSigningHandlers.ts`
+2. Express route logging (`durationMs`, request metadata):
+   - `server/src/router/express/routes/thresholdEcdsa.ts`

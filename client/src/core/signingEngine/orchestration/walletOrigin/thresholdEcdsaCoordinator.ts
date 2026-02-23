@@ -386,6 +386,7 @@ async function runPresignHandshake(args: {
   groupPublicKey33: Uint8Array;
   sessionKind: EcdsaSessionKind;
   thresholdSessionJwt?: string;
+  requestTag?: string;
   workerCtx: WorkerOperationContext;
 }): Promise<{ ok: true; presignature: ThresholdEcdsaClientPresignatureShare } | ThresholdEcdsaCoordinatorError> {
   const init = await ecdsaPresignInit({
@@ -395,6 +396,7 @@ async function runPresignHandshake(args: {
     count: 1,
     sessionKind: args.sessionKind,
     thresholdSessionJwt: args.thresholdSessionJwt,
+    requestTag: args.requestTag,
   });
   if (!init.ok) {
     return {
@@ -472,6 +474,7 @@ async function runPresignHandshake(args: {
           outgoingMessagesB64u: toB64uMessages(pendingClientOutgoing),
           sessionKind: args.sessionKind,
           thresholdSessionJwt: args.thresholdSessionJwt,
+          requestTag: args.requestTag,
         });
         pendingClientOutgoing = [];
         if (!stepped.ok) {
@@ -787,6 +790,7 @@ export async function refillThresholdEcdsaClientPresignaturePool(
       groupPublicKey33,
       sessionKind,
       thresholdSessionJwt: args.thresholdSessionJwt,
+      requestTag: 'background_presign_pool_refill',
       workerCtx: args.workerCtx,
     });
     if (!generated.ok) return generated;

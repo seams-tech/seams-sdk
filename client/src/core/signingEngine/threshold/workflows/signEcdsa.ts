@@ -57,6 +57,7 @@ export async function ecdsaPresignInit(args: {
   count?: number;
   sessionKind?: EcdsaSessionKind;
   thresholdSessionJwt?: string;
+  requestTag?: string;
   requestTimeoutMs?: number;
 }): Promise<ThresholdEcdsaPresignProgress & { presignSessionId?: string }> {
   const relayerUrl = resolveRelayerUrl(args.relayerUrl);
@@ -74,6 +75,7 @@ export async function ecdsaPresignInit(args: {
   if (!clientVerifyingShareB64u) {
     return { ok: false, code: 'invalid_args', message: 'Missing clientVerifyingShareB64u for threshold-ecdsa presign/init' };
   }
+  const requestTag = String(args.requestTag || '').trim();
 
   const auth = resolvePresignAuthHeaders(args);
   if (!auth.ok) return auth;
@@ -100,6 +102,7 @@ export async function ecdsaPresignInit(args: {
           relayerKeyId,
           clientVerifyingShareB64u,
           count: Number.isFinite(args.count) ? Math.max(1, Math.floor(Number(args.count))) : 1,
+          ...(requestTag ? { requestTag } : {}),
         }),
       },
     });
@@ -131,6 +134,7 @@ export async function ecdsaPresignStep(args: {
   outgoingMessagesB64u?: string[];
   sessionKind?: EcdsaSessionKind;
   thresholdSessionJwt?: string;
+  requestTag?: string;
   requestTimeoutMs?: number;
 }): Promise<ThresholdEcdsaPresignProgress> {
   const relayerUrl = resolveRelayerUrl(args.relayerUrl);
@@ -144,6 +148,7 @@ export async function ecdsaPresignStep(args: {
   if (!presignSessionId) {
     return { ok: false, code: 'invalid_args', message: 'Missing presignSessionId for threshold-ecdsa presign/step' };
   }
+  const requestTag = String(args.requestTag || '').trim();
 
   const auth = resolvePresignAuthHeaders(args);
   if (!auth.ok) return auth;
@@ -172,6 +177,7 @@ export async function ecdsaPresignStep(args: {
           presignSessionId,
           stage: args.stage,
           outgoingMessagesB64u: Array.isArray(args.outgoingMessagesB64u) ? args.outgoingMessagesB64u : [],
+          ...(requestTag ? { requestTag } : {}),
         }),
       },
     });

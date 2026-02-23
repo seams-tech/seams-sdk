@@ -828,6 +828,11 @@ export type ThresholdEcdsaPresignInitRequest = {
    * v1 supports only `1` (single presignature session).
    */
   count?: number;
+  /**
+   * Optional client-provided request classification for logging/observability.
+   * Example: `background_presign_pool_refill`.
+   */
+  requestTag?: string;
 };
 
 export type ThresholdEcdsaPresignInitResponse = {
@@ -848,6 +853,11 @@ export type ThresholdEcdsaPresignStepRequest = {
    */
   stage: 'triples' | 'presign';
   outgoingMessagesB64u?: string[];
+  /**
+   * Optional client-provided request classification for logging/observability.
+   * Example: `background_presign_pool_refill`.
+   */
+  requestTag?: string;
 };
 
 export type ThresholdEcdsaPresignStepResponse = {

@@ -142,13 +142,14 @@ async fn post_json(
     body: &str,
     label: &str,
     bearer_token: Option<&str>,
+    credentials_mode: &str,
 ) -> Result<JsValue, String> {
     let url = format!(
         "{}/{}",
         cfg.relayer_url.trim_end_matches('/'),
         path.trim_start_matches('/')
     );
-    let init = build_json_post_init(body)?;
+    let init = build_json_post_init(body, credentials_mode)?;
     if let Some(token) = bearer_token {
         set_authorization_header(&init, token)?;
     }
@@ -266,6 +267,19 @@ pub(super) async fn authorize_mpc_session_id_with_threshold_session(
     signing_payload_json: Option<&str>,
     bearer_token: Option<&str>,
 ) -> Result<String, String> {
+    let session_kind = cfg
+        .threshold_session_kind
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("jwt");
+    let credentials_mode = if bearer_token.is_some() {
+        "omit"
+    } else if session_kind == "cookie" {
+        "include"
+    } else {
+        "omit"
+    };
+
     let auth_body = build_authorize_body(
         cfg,
         client_verifying_share_b64u,
@@ -279,6 +293,7 @@ pub(super) async fn authorize_mpc_session_id_with_threshold_session(
         &auth_body,
         "/authorize",
         bearer_token,
+        credentials_mode,
     )
     .await?;
     let auth: AuthorizeResponse = serde_wasm_bindgen::from_value(auth_json)
@@ -364,7 +379,20 @@ pub(super) async fn mint_threshold_session(
         .as_string()
         .ok_or_else(|| "threshold-signer: JSON.stringify did not return a string".to_string())?;
 
-    let resp_json = post_json(cfg, "/threshold-ed25519/session", &body, "/session", None).await?;
+    let credentials_mode = if session_kind.trim() == "cookie" {
+        "include"
+    } else {
+        "omit"
+    };
+    let resp_json = post_json(
+        cfg,
+        "/threshold-ed25519/session",
+        &body,
+        "/session",
+        None,
+        credentials_mode,
+    )
+    .await?;
     let resp: ThresholdSessionResponse = serde_wasm_bindgen::from_value(resp_json)
         .map_err(|e| format!("threshold-signer: failed to parse /session response: {e}"))?;
 
@@ -402,6 +430,7 @@ pub(super) async fn sign_init(
         &init_body,
         "/sign/init",
         None,
+        "omit",
     )
     .await?;
     let init: SignInitResponse = serde_wasm_bindgen::from_value(init_json)
@@ -464,6 +493,7 @@ pub(super) async fn sign_finalize(
         &finalize_body,
         "/sign/finalize",
         None,
+        "omit",
     )
     .await?;
     let finalize: SignFinalizeResponse = serde_wasm_bindgen::from_value(finalize_json)

@@ -3,7 +3,15 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 
-pub fn build_json_post_init(body: &str) -> Result<JsValue, String> {
+fn normalize_credentials_mode(credentials_mode: &str) -> &'static str {
+    match credentials_mode.trim() {
+        "include" => "include",
+        "same-origin" => "same-origin",
+        _ => "omit",
+    }
+}
+
+pub fn build_json_post_init(body: &str, credentials_mode: &str) -> Result<JsValue, String> {
     let init = Object::new();
     Reflect::set(
         &init,
@@ -12,11 +20,13 @@ pub fn build_json_post_init(body: &str) -> Result<JsValue, String> {
     )
     .map_err(|_| "Failed to set fetch init.method".to_string())?;
 
-    // Ensure browser cookies/session credentials are sent to the relayer when configured.
+    // Credential mode must be explicit to avoid cross-origin failures in JWT mode.
+    let credentials = normalize_credentials_mode(credentials_mode);
+
     Reflect::set(
         &init,
         &JsValue::from_str("credentials"),
-        &JsValue::from_str("include"),
+        &JsValue::from_str(credentials),
     )
     .map_err(|_| "Failed to set fetch init.credentials".to_string())?;
 
@@ -37,6 +47,28 @@ pub fn build_json_post_init(body: &str) -> Result<JsValue, String> {
     Ok(init.into())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::normalize_credentials_mode;
+
+    #[test]
+    fn normalize_credentials_mode_accepts_include() {
+        assert_eq!(normalize_credentials_mode("include"), "include");
+    }
+
+    #[test]
+    fn normalize_credentials_mode_accepts_same_origin() {
+        assert_eq!(normalize_credentials_mode("same-origin"), "same-origin");
+    }
+
+    #[test]
+    fn normalize_credentials_mode_defaults_to_omit() {
+        assert_eq!(normalize_credentials_mode("jwt"), "omit");
+        assert_eq!(normalize_credentials_mode(""), "omit");
+        assert_eq!(normalize_credentials_mode(" include "), "include");
+    }
+}
+
 pub async fn fetch_with_init(url: &str, init: &JsValue) -> Result<JsValue, String> {
     let global = js_sys::global();
     let fetch_val = Reflect::get(&global, &JsValue::from_str("fetch"))
@@ -54,7 +86,7 @@ pub async fn fetch_with_init(url: &str, init: &JsValue) -> Result<JsValue, Strin
 
     JsFuture::from(promise)
         .await
-        .map_err(|e| format!("Fetch request failed: {:?}", e))
+        .map_err(|e| format!("Fetch request failed for {url}: {:?}", e))
 }
 
 pub fn response_ok(resp: &JsValue) -> Result<bool, String> {
