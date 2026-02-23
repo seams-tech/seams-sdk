@@ -95,99 +95,99 @@
     );
 }
 
-/* Dark variants tuned to Solarized dark palette roles. */
+/* Dark variants tuned to Rose Pine dark palette roles. */
 html[data-w3a-theme="dark"] {
   --frontpage-gradient-warm-bg:
     radial-gradient(
       124% 168% at 4% 102%,
-      color-mix(in srgb, #6c71c4 22%, transparent) 0%,
+      color-mix(in srgb, #c4a7e7 34%, transparent) 0%,
       transparent 58%
     ),
     radial-gradient(
       122% 160% at 100% -10%,
-      color-mix(in srgb, #2aa198 20%, transparent) 0%,
+      color-mix(in srgb, #eb6f92 24%, transparent) 0%,
       transparent 60%
     ),
     linear-gradient(
       108deg,
-      #073642 0%,
-      #0b3b48 46%,
-      #0f4452 78%,
-      #002b36 100%
+      #2b2440 0%,
+      #3a3156 46%,
+      #4a3f6d 78%,
+      #312948 100%
     );
-  --frontpage-gradient-warm-overlay-opacity: 0.42;
+  --frontpage-gradient-warm-overlay-opacity: 0.36;
   --frontpage-gradient-warm-overlay-bg:
     radial-gradient(
       90% 120% at 2% 100%,
-      color-mix(in srgb, #6c71c4 18%, transparent) 0%,
+      color-mix(in srgb, #c4a7e7 24%, transparent) 0%,
       transparent 64%
     ),
     radial-gradient(
       96% 118% at 98% 0%,
-      color-mix(in srgb, #268bd2 18%, transparent) 0%,
+      color-mix(in srgb, #ebbcba 18%, transparent) 0%,
       transparent 66%
     );
   --frontpage-gradient-warm-corners-bg:
     linear-gradient(
       45deg,
       transparent 48%,
-      color-mix(in srgb, #586e75 50%, transparent) 50%,
+      color-mix(in srgb, #8a83a6 46%, transparent) 50%,
       transparent 52%
     ),
     linear-gradient(
       -45deg,
       transparent 48%,
-      color-mix(in srgb, #657b83 42%, transparent) 50%,
+      color-mix(in srgb, #6c6386 38%, transparent) 50%,
       transparent 52%
     );
 
-  --frontpage-gradient-soft-border: color-mix(in srgb, #586e75 60%, var(--site-border) 40%);
+  --frontpage-gradient-soft-border: color-mix(in srgb, #8a83a6 56%, var(--site-border) 44%);
   --frontpage-gradient-soft-bg:
     radial-gradient(
       118% 136% at 6% -14%,
-      color-mix(in srgb, #6c71c4 22%, transparent) 0%,
+      color-mix(in srgb, #c4a7e7 28%, transparent) 0%,
       transparent 56%
     ),
     radial-gradient(
       110% 122% at 102% 108%,
-      color-mix(in srgb, #2aa198 18%, transparent) 0%,
+      color-mix(in srgb, #eb6f92 22%, transparent) 0%,
       transparent 58%
     ),
     linear-gradient(
       138deg,
-      #0b3b48 0%,
-      #0f4452 54%,
-      #073642 100%
+      #342c4f 0%,
+      #433962 54%,
+      #2f2746 100%
     );
 
   --frontpage-gradient-drift-bg:
     radial-gradient(
       126% 144% at 8% -22%,
-      color-mix(in srgb, #6c71c4 22%, transparent) 0%,
+      color-mix(in srgb, #c4a7e7 30%, transparent) 0%,
       transparent 57%
     ),
     radial-gradient(
       118% 124% at 96% 116%,
-      color-mix(in srgb, #268bd2 20%, transparent) 0%,
+      color-mix(in srgb, #f6c177 24%, transparent) 0%,
       transparent 60%
     ),
     linear-gradient(
       142deg,
-      #0b3b48 0%,
-      #134d5d 52%,
-      #0f4452 80%,
-      #002b36 100%
+      #352d52 0%,
+      #4f4570 52%,
+      #433960 80%,
+      #2f2746 100%
     );
-  --frontpage-gradient-drift-overlay-opacity: 0.38;
+  --frontpage-gradient-drift-overlay-opacity: 0.34;
   --frontpage-gradient-drift-overlay-bg:
     radial-gradient(
       92% 118% at 5% 0%,
-      color-mix(in srgb, #2aa198 18%, transparent) 0%,
+      color-mix(in srgb, #eb6f92 24%, transparent) 0%,
       transparent 62%
     ),
     radial-gradient(
       88% 110% at 98% 100%,
-      color-mix(in srgb, #268bd2 18%, transparent) 0%,
+      color-mix(in srgb, #c4a7e7 24%, transparent) 0%,
       transparent 64%
     );
 }

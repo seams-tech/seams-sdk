@@ -601,7 +601,7 @@ body {
   border-radius: 1rem 1rem 0 0;
 }
 [data-w3a-theme="light"] .install-header {
-  border-bottom: 1px solid color-mix(in srgb, var(--site-border) 60%, transparent);
+  /* border-bottom: 1px solid color-mix(in srgb, var(--site-border) 60%, transparent); */
   background: var(--w3a-colors-surface2);
 }
 
@@ -975,68 +975,78 @@ body {
       color-mix(in srgb, var(--site-canvas) 94%, #000 6%) 100%
     );
   --marketing-final-cta-copy: color-mix(in srgb, var(--fe-text-secondary) 90%, var(--fe-text) 10%);
-  --marketing-btn-solid-surface: linear-gradient(126deg, #6e8fb1 0%, #587393 100%);
-  --marketing-btn-solid-surface-hover: linear-gradient(308deg, #7c9dc0 0%, #547090 100%);
-  --marketing-btn-solid-border: color-mix(in srgb, #6a8cae 54%, var(--site-border) 46%);
+  --marketing-btn-solid-surface:
+    linear-gradient(
+      126deg,
+      color-mix(in srgb, var(--site-brand) 88%, var(--site-accent) 12%) 0%,
+      color-mix(in srgb, var(--site-brand-hover) 82%, var(--site-brand) 18%) 100%
+    );
+  --marketing-btn-solid-surface-hover:
+    linear-gradient(
+      308deg,
+      color-mix(in srgb, var(--site-brand-hover) 86%, var(--site-brand) 14%) 0%,
+      color-mix(in srgb, var(--site-brand) 74%, var(--site-accent) 26%) 100%
+    );
+  --marketing-btn-solid-border: color-mix(in srgb, var(--site-brand) 54%, var(--site-border) 46%);
   --marketing-btn-solid-text: var(--site-text-button);
   --marketing-btn-solid-text-hover: var(--site-text-button);
-  --marketing-btn-outline-surface: color-mix(in srgb, var(--site-surface-muted) 76%, transparent);
-  --marketing-btn-outline-border: color-mix(in srgb, var(--site-border) 68%, transparent);
-  --marketing-btn-outline-text: var(--fe-text-primary);
-  --marketing-btn-ghost-surface: color-mix(in srgb, var(--site-surface) 68%, transparent);
-  --marketing-btn-ghost-border: color-mix(in srgb, var(--site-border) 54%, transparent);
-  --marketing-btn-ghost-text: color-mix(in srgb, var(--fe-text-secondary) 92%, var(--fe-text) 8%);
+  --marketing-btn-outline-surface: color-mix(in srgb, var(--site-surface) 84%, var(--site-brand) 16%);
+  --marketing-btn-outline-border: color-mix(in srgb, var(--site-brand) 28%, var(--site-border) 72%);
+  --marketing-btn-outline-text: var(--site-text-primary);
+  --marketing-btn-ghost-surface: color-mix(in srgb, var(--site-surface-muted) 82%, var(--site-brand) 18%);
+  --marketing-btn-ghost-border: color-mix(in srgb, var(--site-brand) 24%, var(--site-border) 76%);
+  --marketing-btn-ghost-text: color-mix(in srgb, var(--site-text-secondary) 82%, var(--site-brand) 18%);
 }
 
 html[data-w3a-theme="dark"] .marketing-stack {
-  --marketing-focus-ring: color-mix(in srgb, #789abc 34%, transparent);
+  --marketing-focus-ring: color-mix(in srgb, #c4a7e7 36%, transparent);
   --marketing-rail-surface:
     radial-gradient(
       138% 176% at 2% -30%,
-      color-mix(in srgb, #6887a6 11%, var(--site-surface-strong) 89%) 0%,
+      color-mix(in srgb, #c4a7e7 18%, var(--site-surface-strong) 82%) 0%,
       transparent 48%
     ),
     linear-gradient(
       176deg,
-      color-mix(in srgb, var(--site-surface-strong) 91%, #000 9%) 0%,
-      color-mix(in srgb, var(--site-canvas) 95%, #000 5%) 100%
+      color-mix(in srgb, var(--site-surface-strong) 95%, #000 5%) 0%,
+      color-mix(in srgb, var(--site-canvas) 97%, #000 3%) 100%
     );
   --marketing-panel-surface:
     radial-gradient(
       130% 170% at 94% -10%,
-      color-mix(in srgb, #6988a8 12%, var(--site-surface-strong) 88%) 0%,
+      color-mix(in srgb, #eb6f92 14%, var(--site-surface-strong) 86%) 0%,
       transparent 52%
     ),
     linear-gradient(
       154deg,
-      color-mix(in srgb, var(--site-surface-strong) 89%, #000 11%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 93%, #000 7%) 100%
+      color-mix(in srgb, var(--site-surface-strong) 94%, #000 6%) 0%,
+      color-mix(in srgb, var(--site-surface-muted) 96%, #000 4%) 100%
     );
-  --marketing-panel-highlight: linear-gradient(118deg, color-mix(in srgb, #6e8daf 18%, transparent) 0%, transparent 45%);
-  --marketing-panel-highlight-opacity: 0.24;
+  --marketing-panel-highlight: linear-gradient(118deg, color-mix(in srgb, #c4a7e7 24%, transparent) 0%, transparent 45%);
+  --marketing-panel-highlight-opacity: 0.34;
   --marketing-trust-card-surface:
     radial-gradient(
       126% 150% at -6% 100%,
-      color-mix(in srgb, #6f90b2 14%, var(--site-surface-strong) 86%) 0%,
+      color-mix(in srgb, #9ccfd8 16%, var(--site-surface-strong) 84%) 0%,
       transparent 49%
     ),
     linear-gradient(
       201deg,
-      color-mix(in srgb, var(--site-surface-strong) 89%, #000 11%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 93%, #000 7%) 100%
+      color-mix(in srgb, var(--site-surface-strong) 94%, #000 6%) 0%,
+      color-mix(in srgb, var(--site-surface-muted) 96%, #000 4%) 100%
     );
-  --marketing-trust-icon: color-mix(in srgb, var(--fe-text-secondary) 78%, #7d9dc0 22%);
+  --marketing-trust-icon: color-mix(in srgb, var(--fe-text-secondary) 74%, #c4a7e7 26%);
   --marketing-item-surface:
     linear-gradient(
       124deg,
-      color-mix(in srgb, var(--site-surface-strong) 89%, #000 11%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 93%, #000 7%) 100%
+      color-mix(in srgb, var(--site-surface-strong) 94%, #000 6%) 0%,
+      color-mix(in srgb, var(--site-surface-muted) 96%, #000 4%) 100%
     );
   --marketing-item-art:
     linear-gradient(
       44deg,
       color-mix(in srgb, var(--site-border) 30%, transparent),
-      color-mix(in srgb, #6f91b3 12%, transparent)
+      color-mix(in srgb, #9ccfd8 16%, transparent)
     ),
     repeating-linear-gradient(
       -18deg,
@@ -1055,7 +1065,7 @@ html[data-w3a-theme="dark"] .marketing-stack {
   --marketing-solution-item-art:
     linear-gradient(
       224deg,
-      color-mix(in srgb, #7798bb 14%, transparent),
+      color-mix(in srgb, #ebbcba 16%, transparent),
       color-mix(in srgb, var(--site-border) 22%, transparent)
     ),
     repeating-linear-gradient(
@@ -1075,24 +1085,17 @@ html[data-w3a-theme="dark"] .marketing-stack {
   --marketing-security-link-surface:
     linear-gradient(
       238deg,
-      color-mix(in srgb, var(--site-surface-strong) 89%, #000 11%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 93%, #000 7%) 100%
+      color-mix(in srgb, var(--site-surface-strong) 94%, #000 6%) 0%,
+      color-mix(in srgb, var(--site-surface-muted) 96%, #000 4%) 100%
     );
-  --marketing-security-link-accent: linear-gradient(212deg, #6f8fb1 0%, #425a76 100%);
+  --marketing-security-link-accent: linear-gradient(212deg, #c4a7e7 0%, #907aa9 100%);
   --marketing-final-cta-surface:
     linear-gradient(
       24deg,
-      color-mix(in srgb, #6d8fb0 12%, var(--site-surface-strong) 88%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 94%, #000 6%) 44%,
-      color-mix(in srgb, var(--site-canvas) 95%, #000 5%) 100%
+      color-mix(in srgb, #c4a7e7 18%, var(--site-surface-strong) 82%) 0%,
+      color-mix(in srgb, var(--site-surface-muted) 96%, #000 4%) 44%,
+      color-mix(in srgb, var(--site-canvas) 97%, #000 3%) 100%
     );
-  --marketing-btn-solid-surface: linear-gradient(126deg, #6789ad 0%, #4d6787 100%);
-  --marketing-btn-solid-surface-hover: linear-gradient(308deg, #7294ba 0%, #4a6383 100%);
-  --marketing-btn-solid-border: color-mix(in srgb, #6688aa 56%, var(--site-border) 44%);
-  --marketing-btn-outline-surface: color-mix(in srgb, var(--site-surface-strong) 76%, transparent);
-  --marketing-btn-outline-border: color-mix(in srgb, var(--site-border) 64%, transparent);
-  --marketing-btn-ghost-surface: color-mix(in srgb, var(--site-surface-muted) 70%, transparent);
-  --marketing-btn-ghost-border: color-mix(in srgb, var(--site-border) 52%, transparent);
 }
 
 html[data-w3a-theme="light"] .marketing-stack {
@@ -1213,17 +1216,6 @@ html[data-w3a-theme="light"] .marketing-stack {
       #e1e8f1 100%
     );
   --marketing-final-cta-copy: color-mix(in srgb, #5c6d81 90%, #1f2d3a 10%);
-  --marketing-btn-solid-surface: linear-gradient(126deg, #88a5c2 0%, #6f8dac 100%);
-  --marketing-btn-solid-surface-hover: linear-gradient(308deg, #95b2ce 0%, #6b89a9 100%);
-  --marketing-btn-solid-border: color-mix(in srgb, #83a0bd 56%, #aeb9c6 44%);
-  --marketing-btn-solid-text: var(--site-text-button);
-  --marketing-btn-solid-text-hover: var(--site-text-button);
-  --marketing-btn-outline-surface: color-mix(in srgb, #edf3f9 92%, transparent);
-  --marketing-btn-outline-border: color-mix(in srgb, #b8c3cf 62%, transparent);
-  --marketing-btn-outline-text: #1f2d3a;
-  --marketing-btn-ghost-surface: color-mix(in srgb, #e8eef6 84%, transparent);
-  --marketing-btn-ghost-border: color-mix(in srgb, #c2cedb 56%, transparent);
-  --marketing-btn-ghost-text: color-mix(in srgb, #5c6d81 90%, #1f2d3a 10%);
 }
 
 .credibility-bands {

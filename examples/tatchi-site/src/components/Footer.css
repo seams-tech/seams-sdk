@@ -101,36 +101,36 @@ html[data-w3a-theme="light"] .app-footer::after {
 }
 
 html[data-w3a-theme="dark"] .app-footer {
-  --frontpage-footer-border-color: color-mix(in srgb, #586e75 56%, var(--w3a-colors-borderPrimary) 44%);
+  --frontpage-footer-border-color: color-mix(in srgb, #524f67 58%, var(--w3a-colors-borderPrimary) 42%);
   --frontpage-footer-surface-gradient:
     radial-gradient(
       132% 148% at 12% -26%,
-      color-mix(in srgb, #2aa198 16%, transparent) 0%,
+      color-mix(in srgb, #c4a7e7 18%, transparent) 0%,
       transparent 52%
     ),
     linear-gradient(
       154deg,
-      #073642 0%,
-      #0b3b48 56%,
-      #002b36 100%
+      #1f1d2e 0%,
+      #26233a 56%,
+      #191724 100%
     );
-  --frontpage-footer-newsletter-border-color: color-mix(in srgb, #586e75 62%, var(--site-border) 38%);
+  --frontpage-footer-newsletter-border-color: color-mix(in srgb, #524f67 64%, var(--site-border) 36%);
   --frontpage-footer-newsletter-surface-gradient:
     radial-gradient(
       120% 140% at -4% 0%,
-      color-mix(in srgb, #6c71c4 14%, transparent) 0%,
+      color-mix(in srgb, #eb6f92 14%, transparent) 0%,
       transparent 54%
     ),
     linear-gradient(
       162deg,
-      #0f4452 0%,
-      #0b3b48 100%
+      #312f44 0%,
+      #26233a 100%
     );
   --frontpage-footer-copy-color: color-mix(in srgb, var(--fe-text) 94%, var(--fe-text-secondary) 6%);
   --frontpage-footer-heading-color: color-mix(in srgb, var(--fe-text-secondary) 88%, var(--fe-text) 12%);
   --frontpage-footer-subtle-color: color-mix(in srgb, var(--fe-text-secondary) 86%, var(--fe-text) 14%);
   --frontpage-footer-near-color: color-mix(in srgb, var(--fe-text-secondary) 88%, var(--fe-text) 12%);
-  --frontpage-footer-bottom-border-color: color-mix(in srgb, var(--site-border) 58%, transparent);
+  --frontpage-footer-bottom-border-color: color-mix(in srgb, var(--site-border) 62%, transparent);
 }
 
 html[data-w3a-theme="light"] .app-footer__bg-glow,
