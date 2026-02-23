@@ -21,7 +21,7 @@ import type {
 } from './orchestration/thresholdActivation';
 import type { SignerWorkerManager } from './workerManager';
 import type { RegistrationCredentialConfirmationPayload } from './workerManager/validation';
-import type { TouchConfirmBridge } from './bootstrap/touchConfirmBridge';
+import type { TouchConfirmRuntimeBridgePort } from './touchConfirm/types';
 import type { TouchIdPrompt } from './signers/webauthn/prompt/touchIdPrompt';
 import type { WebAuthnAllowCredential } from './signers/webauthn/credentials';
 import type { EvmSigningRequest } from './chainAdaptors/evm/types';
@@ -116,7 +116,7 @@ export type { ThresholdEcdsaLoginPrefillResult } from './api/thresholdLifecycle/
  */
 export class SigningEngine {
   // Kept as fields for low-level tests that intentionally access internals.
-  private readonly touchConfirm: TouchConfirmBridge;
+  private readonly touchConfirm: TouchConfirmRuntimeBridgePort;
   private readonly signerWorkerManager: SignerWorkerManager;
   private readonly touchIdPrompt: TouchIdPrompt;
   private readonly userPreferencesManager: UserPreferencesManager;

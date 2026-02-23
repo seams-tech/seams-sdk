@@ -103,6 +103,14 @@ export type TouchConfirmSigningRuntimePort =
   & TouchConfirmContextPort
   & TouchConfirmSigningSessionPort;
 
+export type TouchConfirmRuntimeBridgePort =
+  & TouchConfirmContextPort
+  & TouchConfirmSigningPort
+  & TouchConfirmRegistrationPort
+  & TouchConfirmSecureConfirmationPort
+  & ThresholdPrfFirstCachePort
+  & TouchConfirmWorkerLifecyclePort;
+
 export interface TouchConfirmContextPort {
   getContext(): TouchConfirmContext;
 }

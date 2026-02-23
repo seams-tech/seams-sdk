@@ -44,7 +44,7 @@ This refactor standardizes one rule:
 
 Create a canonical bridge module (suggested path):
 
-- `client/src/core/signingEngine/bootstrap/touchConfirmBridge.ts`
+- `client/src/core/signingEngine/bootstrap/managerAssembly.ts`
 
 Responsibilities:
 
@@ -84,13 +84,12 @@ Suggested files:
 
 ## Phase 1: Introduce Bridge and Ports
 
-- [x] Add `touchConfirmBridge.ts` with explicit port interfaces + factory.
-- [x] Move direct manager calls behind bridge methods.
+- [x] Use `managerAssembly.ts` as the single runtime bridge module for manager construction.
+- [x] Move direct manager calls behind narrow bridge-port typing.
 - [x] Export only bridge contracts from bootstrap/runtime DI entrypoints.
 
 Suggested files:
 
-- `client/src/core/signingEngine/bootstrap/touchConfirmBridge.ts` (new)
 - `client/src/core/signingEngine/bootstrap/managerAssembly.ts`
 - `client/src/core/signingEngine/touchConfirm/types.ts` (if contract extraction is needed)
 
@@ -201,7 +200,7 @@ Mitigation: CI check is required in `check:signing-architecture`.
 
 Final direct-usage allowlist enforced by `sdk/scripts/lib/worker-runtime-boundaries.mjs`:
 
-- `client/src/core/signingEngine/bootstrap/touchConfirmBridge.ts` (single runtime bridge)
+- `client/src/core/signingEngine/bootstrap/managerAssembly.ts` (single runtime bridge)
 - `client/src/core/signingEngine/touchConfirm/TouchConfirmManager.ts` (manager implementation)
 - `client/src/core/signingEngine/touchConfirm/types.ts` (manager interface declaration)
 

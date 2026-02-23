@@ -3,10 +3,8 @@ import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { NonceManager } from '@/core/rpcClients/near/nonceManager';
 import NonceManagerInstance from '@/core/rpcClients/near/nonceManager';
 import type { ThemeName, ThemeTokenOverridesInput, TatchiConfigs } from '@/core/types/tatchi';
-import {
-  createTouchConfirmBridge,
-  type TouchConfirmBridge,
-} from './touchConfirmBridge';
+import { createTouchConfirmManager } from '../touchConfirm/TouchConfirmManager';
+import type { TouchConfirmRuntimeBridgePort } from '../touchConfirm/types';
 import { TouchIdPrompt } from '../signers/webauthn/prompt/touchIdPrompt';
 import { SignerWorkerManager } from '../workerManager';
 import { UserPreferencesManager } from '../api/userPreferences';
@@ -16,7 +14,7 @@ export type ManagerAssembly = {
   touchIdPrompt: TouchIdPrompt;
   userPreferencesManager: UserPreferencesManager;
   nonceManager: NonceManager;
-  touchConfirm: TouchConfirmBridge;
+  touchConfirm: TouchConfirmRuntimeBridgePort;
   signerWorkerManager: SignerWorkerManager;
 };
 
@@ -31,9 +29,9 @@ export function createManagerAssembly(args: {
   userPreferencesManager.configureDefaultSignerMode?.(args.tatchiPasskeyConfigs.signerMode);
   const nonceManager = NonceManagerInstance;
 
-  const touchConfirm = createTouchConfirmBridge({
-    config: {},
-    context: {
+  const touchConfirm: TouchConfirmRuntimeBridgePort = createTouchConfirmManager(
+    {},
+    {
       touchIdPrompt: touchIdPrompt,
       nearClient: args.nearClient,
       indexedDB: IndexedDBManager,
@@ -44,7 +42,7 @@ export function createManagerAssembly(args: {
       getTheme: args.getTheme,
       getAppearanceTokens: args.getAppearanceTokens,
     },
-  });
+  );
 
   const signerWorkerManager = new SignerWorkerManager(
     touchConfirm,

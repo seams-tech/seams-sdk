@@ -206,7 +206,7 @@ export function findWorkerRuntimeBoundaryViolations(repoRoot) {
   });
 
   const touchConfirmDirectUsageAllowlist = new Set([
-    'client/src/core/signingEngine/bootstrap/touchConfirmBridge.ts',
+    'client/src/core/signingEngine/bootstrap/managerAssembly.ts',
     'client/src/core/signingEngine/touchConfirm/TouchConfirmManager.ts',
     'client/src/core/signingEngine/touchConfirm/types.ts',
   ]);
@@ -227,7 +227,7 @@ export function findWorkerRuntimeBoundaryViolations(repoRoot) {
   }
   checks.push({
     id: 'touchconfirm-manager-single-bridge-boundary',
-    description: 'TouchConfirmManager direct usage must stay limited to bridge and manager-definition files',
+    description: 'TouchConfirmManager direct usage must stay limited to manager assembly and manager-definition files',
     violations: touchConfirmDirectUsageViolations,
   });
 

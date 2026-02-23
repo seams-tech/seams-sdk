@@ -5,7 +5,7 @@ import type { NonceManager } from '@/core/rpcClients/near/nonceManager';
 import type { AccountId } from '@/core/types/accountIds';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { SigningSessionStatus, ThemeName, TatchiConfigs } from '@/core/types/tatchi';
-import type { TouchConfirmBridge } from './touchConfirmBridge';
+import type { TouchConfirmRuntimeBridgePort } from '../touchConfirm/types';
 import type { EvmSigningRequest } from '../chainAdaptors/evm/types';
 import type { EvmSignedResult } from '../chainAdaptors/evm/evmAdapter';
 import type { TempoSigningRequest } from '../chainAdaptors/tempo/types';
@@ -57,7 +57,7 @@ export type CreateOrchestrationDependencyBundleArgs = {
   touchIdPrompt: TouchIdPrompt;
   userPreferencesManager: UserPreferencesManager;
   nonceManager: NonceManager;
-  touchConfirm: TouchConfirmBridge;
+  touchConfirm: TouchConfirmRuntimeBridgePort;
   signerWorkerManager: SignerWorkerManager;
   getWorkerBaseOrigin: () => string;
   getTheme: () => ThemeName;
