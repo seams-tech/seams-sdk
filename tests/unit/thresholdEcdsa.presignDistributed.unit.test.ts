@@ -121,6 +121,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const sharedPresignSessionStore = new InMemoryThresholdEcdsaPresignSessionStore();
     const sharedPresignaturePool = new InMemoryThresholdEcdsaPresignaturePool();
     const sharedSigningSessionStore = new InMemoryThresholdEcdsaSigningSessionStore();
+    const fallbackWarnings: Array<{ msg: string; meta: unknown }> = [];
 
     const fakeSessionStore = {
       putMpcSession: async () => {},
@@ -132,8 +133,19 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     } as const;
 
     let presignIdCounter = 0;
+    const makeLogger = () => ({
+      debug: () => {},
+      info: () => {},
+      warn: (...args: unknown[]) => {
+        const [msg, meta] = args;
+        if (String(msg).includes('presign live-session fallback to replay')) {
+          fallbackWarnings.push({ msg: String(msg), meta });
+        }
+      },
+      error: () => {},
+    });
     const makeHandler = () => new ThresholdEcdsaSigningHandlers({
-      logger: console as any,
+      logger: makeLogger() as any,
       nodeRole: 'coordinator',
       participantIds2p: participantIds,
       clientParticipantId,
@@ -243,6 +255,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const reserved = await sharedPresignaturePool.reserve(relayerKeyId);
     expect(reserved?.presignatureId).toBe(serverPresignatureId);
     expect(reserved?.bigRB64u).toBe(serverBigRB64u);
+    expect(fallbackWarnings.length).toBeGreaterThan(0);
   });
 
   test('sign/init honors client-selected presignature and preserves other pool items', async () => {
