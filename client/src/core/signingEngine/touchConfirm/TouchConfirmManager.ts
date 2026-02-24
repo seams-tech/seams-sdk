@@ -164,7 +164,6 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     };
     this.context = {
       ...context,
-      requestUserConfirmation: this.requestUserConfirmation.bind(this),
     };
   }
 
@@ -314,7 +313,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     params: RequestRegistrationCredentialConfirmationParams,
   ) {
     return requestRegistrationCredentialConfirmationFlow({
-      ctx: this.getContext(),
+      touchConfirm: this,
       nearAccountId: params.nearAccountId,
       deviceNumber: params.deviceNumber,
       confirmerText: params.confirmerText,

@@ -207,7 +207,7 @@ export async function signTransactionsWithActions({
     desiredRemainingUses,
   });
   const confirmation = await ctx.touchConfirm.orchestrateSigningConfirmation({
-    ctx,
+    ctx: { touchConfirm },
     sessionId,
     chain: 'near',
     kind: 'transaction',
@@ -256,7 +256,7 @@ export async function signTransactionsWithActions({
       });
 
       const refreshed = await touchConfirm.orchestrateSigningConfirmation({
-        ctx,
+        ctx: { touchConfirm },
         sessionId,
         chain: 'near',
         kind: 'transaction',
@@ -428,7 +428,7 @@ export async function signTransactionsWithActions({
           });
 
           const refreshed = await touchConfirm.orchestrateSigningConfirmation({
-            ctx,
+            ctx: { touchConfirm },
             sessionId,
             chain: 'near',
             kind: 'transaction',

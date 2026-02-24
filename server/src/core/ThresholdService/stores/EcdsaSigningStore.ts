@@ -1344,6 +1344,9 @@ export function createThresholdEcdsaSigningStores(input: {
     }
     const postgresUrl = getPostgresUrlFromConfig(config);
     if (!postgresUrl) throw new Error('[threshold-ecdsa] postgres selected but POSTGRES_URL is not set');
+    input.logger.warn(
+      '[threshold-ecdsa] Using Postgres for presign/signing hot path; for lower presign p95/p99, prefer Upstash/Redis (set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN or REDIS_URL)',
+    );
     return {
       signingSessionStore: new PostgresThresholdEcdsaSigningSessionStore({ postgresUrl, namespace: signingPrefix }),
       presignaturePool: new PostgresThresholdEcdsaPresignaturePool({ postgresUrl, namespace: presignPrefix }),
@@ -1393,6 +1396,9 @@ export function createThresholdEcdsaSigningStores(input: {
       throw new Error('[threshold-ecdsa] POSTGRES_URL is set but Postgres is not supported in this runtime');
     }
     input.logger.info('[threshold-ecdsa] Using Postgres for presign pool + signing sessions');
+    input.logger.warn(
+      '[threshold-ecdsa] Postgres hot-path selected for threshold-ecdsa presign/signing; for lower tail latency, prefer Upstash/Redis for these stores',
+    );
     return {
       signingSessionStore: new PostgresThresholdEcdsaSigningSessionStore({ postgresUrl, namespace: signingPrefix }),
       presignaturePool: new PostgresThresholdEcdsaPresignaturePool({ postgresUrl, namespace: presignPrefix }),

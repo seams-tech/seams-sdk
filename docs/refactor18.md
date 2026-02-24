@@ -1,8 +1,13 @@
 # Refactor 18: Persistent Client ECDSA Presign Cache (Safe-by-Construction)
 
-Status: Planned  
+Status: Deferred (security-sensitive; out of active scope)  
 Severity: High (first-sign latency after login/logout)  
-Last updated: 2026-02-23
+Last updated: 2026-02-24
+
+Decision note:
+
+1. This refactor remains intentionally deferred while Refactor 19 hybrid optimizations are active.
+2. Persistent client presign cache is treated as a risky follow-on and is not part of the current implementation track.
 
 ## 1. Direct Answer
 
@@ -101,9 +106,9 @@ The encrypted payload includes:
 
 ## Phase 0: Baseline + Threat Model
 
-- [ ] Document threat model and acceptable residual risk in `docs/presigning-pool.md` (link to this refactor).
+- [x] Document threat model and acceptable residual risk in `docs/presigning-pool.md` (security/secrecy guidance and lifecycle notes; this refactor remains deferred).
 - [ ] Define presign cache TTL policy (initial: 24h max, purge on every startup/login/sign path).
-- [ ] Add explicit “no plaintext secret fields in logs” audit checklist.
+- [x] Add explicit “no plaintext secret fields in logs” audit checklist (`docs/presigning-pool.md` Section 8).
 
 ## Phase 1: IndexedDB Schema + Types
 
@@ -229,4 +234,3 @@ Mitigation: encrypted payload only, no persisted key material, short TTL.
 - [ ] Cache entries are single-use and atomically consumed.
 - [ ] Purge/TTL rules prevent unbounded stale accumulation.
 - [ ] Regression tests and latency metrics confirm improvement without security regressions.
-

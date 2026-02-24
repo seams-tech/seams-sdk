@@ -14,9 +14,9 @@ test.describe('threshold ECDSA presign pool policy', () => {
   test('applies sane defaults when no policy is provided', async () => {
     const policy = resolveThresholdEcdsaPresignPoolPolicy();
     expect(policy.enabled).toBe(true);
-    expect(policy.targetDepth).toBe(20);
-    expect(policy.lowWatermark).toBe(5);
-    expect(policy.maxRefillInFlight).toBe(2);
+    expect(policy.targetDepth).toBe(3);
+    expect(policy.lowWatermark).toBe(1);
+    expect(policy.maxRefillInFlight).toBe(1);
     expect(policy.refillAttemptTimeoutMs).toBe(30_000);
   });
 
@@ -57,12 +57,12 @@ test.describe('threshold ECDSA presign pool policy', () => {
       relayer: { url: 'https://relay.example' },
       thresholdEcdsaPresignPool: {
         enabled: true,
-        targetDepth: 20,
-        lowWatermark: 5,
+        targetDepth: 12,
+        lowWatermark: 4,
       },
     });
-    expect(cfg.thresholdEcdsaPresignPool.targetDepth).toBe(20);
-    expect(cfg.thresholdEcdsaPresignPool.lowWatermark).toBe(5);
+    expect(cfg.thresholdEcdsaPresignPool.targetDepth).toBe(12);
+    expect(cfg.thresholdEcdsaPresignPool.lowWatermark).toBe(4);
   });
 
   test('scheduler no-ops cleanly when policy is disabled', async () => {
@@ -127,5 +127,63 @@ test.describe('threshold ECDSA presign pool policy', () => {
     expect(first.scheduled).toBe(true);
     expect(second.scheduled).toBe(false);
     expect(second.reason).toBe('global_in_flight_limit');
+  });
+
+  test('scheduler exits quickly when another runtime holds cross-tab refill authority lock', async () => {
+    const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    if (navigatorDescriptor && !navigatorDescriptor.configurable) {
+      return;
+    }
+    const hadNavigator = Object.prototype.hasOwnProperty.call(globalThis, 'navigator');
+    const originalNavigator = (globalThis as Record<string, unknown>).navigator;
+    try {
+      Object.defineProperty(globalThis, 'navigator', {
+        configurable: true,
+        value: {
+          locks: {
+            request: async (
+              _name: string,
+              _opts: { mode?: string; ifAvailable?: boolean },
+              callback: (lock: unknown) => Promise<void>,
+            ): Promise<void> => {
+              await callback(null);
+            },
+          },
+        },
+      });
+
+      const first = scheduleThresholdEcdsaClientPresignaturePoolRefill({
+        relayerUrl: 'https://relay.example',
+        relayerKeyId: 'rk-1',
+        clientVerifyingShareB64u: 'client-share',
+        participantIds: [1, 2],
+        clientSigningShare32: new Uint8Array(32),
+        workerCtx: {} as any,
+        poolPolicy: { enabled: true, targetDepth: 2, lowWatermark: 1, maxRefillInFlight: 1 },
+      });
+      expect(first.scheduled).toBe(true);
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const second = scheduleThresholdEcdsaClientPresignaturePoolRefill({
+        relayerUrl: 'https://relay.example',
+        relayerKeyId: 'rk-1',
+        clientVerifyingShareB64u: 'client-share',
+        participantIds: [1, 2],
+        clientSigningShare32: new Uint8Array(32),
+        workerCtx: {} as any,
+        poolPolicy: { enabled: true, targetDepth: 2, lowWatermark: 1, maxRefillInFlight: 1 },
+      });
+      expect(second.scheduled).toBe(true);
+    } finally {
+      if (hadNavigator) {
+        Object.defineProperty(globalThis, 'navigator', {
+          configurable: true,
+          value: originalNavigator,
+        });
+      } else {
+        delete (globalThis as Record<string, unknown>).navigator;
+      }
+    }
   });
 });

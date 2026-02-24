@@ -10,15 +10,26 @@ import {
   type TransactionSummary,
   type SerializableCredential,
   type UserConfirmProgressEvent,
+  type UserConfirmDecision,
 } from '../shared/confirmTypes';
-import type { TouchConfirmContext } from '..';
 import type { TxDisplayModel } from '../shared/displayModel';
 import { buildNearDisplayModel } from '../displayFormat/nearTx';
 
 export type SigningConfirmationChain = 'near' | 'evm' | 'tempo';
 
+type RequestUserConfirmationBridge = (
+  request: UserConfirmRequest,
+  options?: { onProgress?: (progress: UserConfirmProgressEvent) => void },
+) => Promise<UserConfirmDecision>;
+
+type TouchConfirmRequestBridgeContext = {
+  touchConfirm: {
+    requestUserConfirmation: RequestUserConfirmationBridge;
+  };
+};
+
 export interface OrchestrateSigningConfirmationBaseParams {
-  ctx: TouchConfirmContext;
+  ctx: TouchConfirmRequestBridgeContext;
   sessionId: string;
   chain: SigningConfirmationChain;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
@@ -121,10 +132,7 @@ export async function orchestrateSigningConfirmation(
   params: OrchestrateSigningConfirmationParams,
 ): Promise<SigningConfirmationResultWithTxContext | SigningConfirmationResultIntentDigest> {
   const { sessionId } = params;
-  const requestUserConfirmation = params.ctx.requestUserConfirmation;
-  if (typeof requestUserConfirmation !== 'function') {
-    throw new Error('UserConfirm request bridge is unavailable (worker handshake path only)');
-  }
+  const requestUserConfirmation = resolveRequestUserConfirmationBridge(params.ctx);
 
   let intentDigest: string;
   let request: UserConfirmRequest;
@@ -312,6 +320,15 @@ export async function orchestrateSigningConfirmation(
     intentDigest: decision.intentDigest || intentDigest,
     credential: decision.credential,
   };
+}
+
+function resolveRequestUserConfirmationBridge(
+  ctx: TouchConfirmRequestBridgeContext,
+): RequestUserConfirmationBridge {
+  if (typeof ctx?.touchConfirm?.requestUserConfirmation !== 'function') {
+    throw new Error('UserConfirm manager request bridge is unavailable');
+  }
+  return async (request, options) => await ctx.touchConfirm.requestUserConfirmation(request, options);
 }
 
 function computeTotalAmountYocto(txSigningRequests: TransactionInputWasm[]): string | undefined {

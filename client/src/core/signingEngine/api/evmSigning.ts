@@ -14,6 +14,7 @@ import {
 import type {
   TouchConfirmContextPort,
   TouchConfirmSigningPort,
+  TouchConfirmSecureConfirmationPort,
   ThresholdPrfFirstCacheDispensePort,
   ThresholdPrfFirstCachePeekPort,
 } from '../touchConfirm';
@@ -43,6 +44,7 @@ export type EvmFamilySigningDeps = {
   touchConfirm:
     & TouchConfirmContextPort
     & TouchConfirmSigningPort
+    & TouchConfirmSecureConfirmationPort
     & ThresholdPrfFirstCachePeekPort
     & ThresholdPrfFirstCacheDispensePort;
 };

@@ -1,5 +1,4 @@
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
-import type { TouchConfirmContext } from '../../';
 import {
   UserConfirmationType,
   type RegistrationSummary,
@@ -9,25 +8,25 @@ import {
   parseAndValidateRegistrationCredentialConfirmationPayload,
   type RegistrationCredentialConfirmationPayload,
 } from '@/core/signingEngine/workerManager/validation';
+import type { TouchConfirmSecureConfirmationPort } from '../../types';
 
 export async function requestRegistrationCredentialConfirmation({
-  ctx,
+  touchConfirm,
   nearAccountId,
   deviceNumber,
   confirmerText,
   nearRpcUrl,
   confirmationConfig,
 }: {
-  ctx: TouchConfirmContext,
+  touchConfirm: Pick<TouchConfirmSecureConfirmationPort, 'requestUserConfirmation'>,
   nearAccountId: string,
   deviceNumber: number,
   confirmerText?: { title?: string; body?: string };
   nearRpcUrl: string,
   confirmationConfig?: Partial<ConfirmationConfig>,
 }): Promise<RegistrationCredentialConfirmationPayload> {
-  const requestUserConfirmation = ctx.requestUserConfirmation;
-  if (typeof requestUserConfirmation !== 'function') {
-    throw new Error('UserConfirm request bridge is unavailable (worker handshake path only)');
+  if (typeof touchConfirm.requestUserConfirmation !== 'function') {
+    throw new Error('UserConfirm manager request bridge is unavailable');
   }
 
   if (!nearRpcUrl) {
@@ -65,7 +64,7 @@ export async function requestRegistrationCredentialConfirmation({
     intentDigest: `register:${nearAccountId}:${deviceNumber}`,
   };
 
-  const decision = await requestUserConfirmation(request);
+  const decision = await touchConfirm.requestUserConfirmation(request);
 
   if (!decision.confirmed) {
     throw new Error(decision.error || 'User rejected registration request');

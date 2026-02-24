@@ -32,9 +32,9 @@ export const DEFAULT_REGISTRATION_SIGNER_OPTIONS: RegistrationSignerOptions = {
 
 export const DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY: ThresholdEcdsaPresignPoolPolicy = {
   enabled: true,
-  targetDepth: 20,
-  lowWatermark: 5,
-  maxRefillInFlight: 2,
+  targetDepth: 3,
+  lowWatermark: 1,
+  maxRefillInFlight: 1,
   refillAttemptTimeoutMs: 30_000,
 };
 
@@ -52,7 +52,7 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigs = {
     },
   },
   // Default account domain for newly created accounts (subaccounts under the relayer).
-  relayerAccount: 'w3a-v1.testnet',
+  relayerAccount: 'w3a-relayer.testnet',
   nearExplorerUrl: 'https://testnet.nearblocks.io',
   signerMode: { mode: 'local-signer' },
   // Warm signing session defaults used by login/unlock flows.
@@ -64,7 +64,7 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigs = {
   thresholdEcdsaPresignPool: DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY,
   registrationSignerDefaults: DEFAULT_REGISTRATION_SIGNER_OPTIONS,
   relayer: {
-    // accountId: 'w3a-v1.testnet',
+    // accountId: 'w3a-relayer.testnet',
     // No default relayer URL. Force apps to configure via env/overrides.
     // Using an empty string triggers early validation errors in code paths that require it.
     url: '',

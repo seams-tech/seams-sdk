@@ -4,6 +4,7 @@ import type {
   ThresholdEcdsaPresignPoolPolicy,
   ThresholdEcdsaPresignPoolPolicyInput,
 } from '@/core/types/tatchi';
+import { DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY } from '@/core/config/defaultConfigs';
 import {
   addSecp256k1PublicKeys33Wasm,
   mapAdditiveShareToThresholdSignaturesShare2pWasm,
@@ -79,15 +80,18 @@ type ThresholdEcdsaCoordinatorOk = {
 export type ThresholdEcdsaCoordinatorResult = ThresholdEcdsaCoordinatorOk | ThresholdEcdsaCoordinatorError;
 
 const MAX_HANDSHAKE_STEPS = 64;
-const DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY: ThresholdEcdsaPresignPoolPolicy = {
-  enabled: true,
-  targetDepth: 20,
-  lowWatermark: 5,
-  maxRefillInFlight: 2,
-  refillAttemptTimeoutMs: 30_000,
-};
+const PRESIGN_REFILL_AUTHORITY_LOCK_PREFIX = 'w3a:threshold-ecdsa:presign-refill:';
 const clientPresignaturePool = new Map<string, ThresholdEcdsaClientPresignatureShare[]>();
 const clientPresignatureRefillInFlightByPoolKey = new Map<string, Promise<void>>();
+const foregroundSignInFlightByPoolKey = new Map<string, number>();
+
+type NavigatorLocksLike = {
+  request: <T>(
+    name: string,
+    options: { mode?: 'exclusive' | 'shared'; ifAvailable?: boolean },
+    callback: (lock: unknown) => Promise<T> | T,
+  ) => Promise<T>;
+};
 
 function normalizeIntInRange(
   value: unknown,
@@ -203,6 +207,29 @@ function makePresignaturePoolKey(args: {
   ].join('|');
 }
 
+async function runAsCrossRuntimeRefillAuthority(input: {
+  poolKey: string;
+  task: () => Promise<void>;
+}): Promise<'acquired' | 'not_available'> {
+  const navigatorObj = (globalThis as unknown as { navigator?: { locks?: NavigatorLocksLike } }).navigator;
+  const locks = navigatorObj?.locks;
+  if (!locks || typeof locks.request !== 'function') {
+    await input.task();
+    return 'acquired';
+  }
+  let acquired = false;
+  await locks.request(
+    `${PRESIGN_REFILL_AUTHORITY_LOCK_PREFIX}${input.poolKey}`,
+    { mode: 'exclusive', ifAvailable: true },
+    async (lock) => {
+      if (!lock) return;
+      acquired = true;
+      await input.task();
+    },
+  );
+  return acquired ? 'acquired' : 'not_available';
+}
+
 function popClientPresignature(poolKey: string): ThresholdEcdsaClientPresignatureShare | null {
   const list = clientPresignaturePool.get(poolKey);
   if (!list || list.length === 0) return null;
@@ -225,9 +252,34 @@ function getClientPresignaturePoolDepth(poolKey: string): number {
   return clientPresignaturePool.get(poolKey)?.length || 0;
 }
 
+function getForegroundSignInFlightCount(poolKey: string): number {
+  return foregroundSignInFlightByPoolKey.get(poolKey) || 0;
+}
+
+function startForegroundSign(poolKey: string): void {
+  const current = getForegroundSignInFlightCount(poolKey);
+  foregroundSignInFlightByPoolKey.set(poolKey, current + 1);
+}
+
+function finishForegroundSign(poolKey: string): void {
+  const current = getForegroundSignInFlightCount(poolKey);
+  if (current <= 1) {
+    foregroundSignInFlightByPoolKey.delete(poolKey);
+    return;
+  }
+  foregroundSignInFlightByPoolKey.set(poolKey, current - 1);
+}
+
+async function waitForInFlightRefill(poolKey: string): Promise<void> {
+  const inFlight = clientPresignatureRefillInFlightByPoolKey.get(poolKey);
+  if (!inFlight) return;
+  await inFlight.catch(() => {});
+}
+
 export function clearAllThresholdEcdsaClientPresignatures(): void {
   clientPresignaturePool.clear();
   clientPresignatureRefillInFlightByPoolKey.clear();
+  foregroundSignInFlightByPoolKey.clear();
 }
 
 export function getThresholdEcdsaClientPresignaturePoolDepth(args: {
@@ -281,6 +333,9 @@ export function scheduleThresholdEcdsaClientPresignaturePoolRefill(
     if (clientPresignatureRefillInFlightByPoolKey.has(poolKey)) {
       return { scheduled: false, reason: 'in_flight_for_pool_key', depth, targetDepth };
     }
+    if (getForegroundSignInFlightCount(poolKey) > 0) {
+      return { scheduled: false, reason: 'in_flight_for_pool_key', depth, targetDepth };
+    }
     if (clientPresignatureRefillInFlightByPoolKey.size >= policy.maxRefillInFlight) {
       return { scheduled: false, reason: 'global_in_flight_limit', depth, targetDepth };
     }
@@ -301,12 +356,18 @@ export function scheduleThresholdEcdsaClientPresignaturePoolRefill(
     };
     const deadlineAtMs = Date.now() + policy.refillAttemptTimeoutMs;
     const refillTask = (async (): Promise<void> => {
-      while (Date.now() < deadlineAtMs) {
-        const currentDepth = getClientPresignaturePoolDepth(poolKey);
-        if (currentDepth >= targetDepth) return;
-        const refill = await refillThresholdEcdsaClientPresignaturePool(refillInput);
-        if (!refill.ok) return;
-      }
+      const authority = await runAsCrossRuntimeRefillAuthority({
+        poolKey,
+        task: async () => {
+          while (Date.now() < deadlineAtMs) {
+            const currentDepth = getClientPresignaturePoolDepth(poolKey);
+            if (currentDepth >= targetDepth) return;
+            const refill = await refillThresholdEcdsaClientPresignaturePool(refillInput);
+            if (!refill.ok) return;
+          }
+        },
+      });
+      if (authority !== 'acquired') return;
     })()
       .catch(() => {})
       .finally(() => {
@@ -619,142 +680,154 @@ export async function signThresholdEcdsaDigestWithPool(args: {
       clientVerifyingShareB64u,
       participantIds,
     });
+    startForegroundSign(poolKey);
+    try {
+      let presignature = popClientPresignature(poolKey);
+      if (!presignature) {
+        await waitForInFlightRefill(poolKey);
+        presignature = popClientPresignature(poolKey);
+      }
+      if (!presignature) {
+        const generated = await runPresignHandshake({
+          relayerUrl,
+          relayerKeyId,
+          clientVerifyingShareB64u,
+          participantIds,
+          clientParticipantId,
+          relayerParticipantId,
+          clientSigningShare32: args.clientSigningShare32,
+          groupPublicKey33,
+          sessionKind,
+          thresholdSessionJwt: args.thresholdSessionJwt,
+          workerCtx: args.workerCtx,
+        });
+        if (!generated.ok) return generated;
+        presignature = generated.presignature;
+      }
 
-    let presignature = popClientPresignature(poolKey);
-    if (!presignature) {
-      const generated = await runPresignHandshake({
-        relayerUrl,
-        relayerKeyId,
-        clientVerifyingShareB64u,
-        participantIds,
-        clientParticipantId,
-        relayerParticipantId,
-        clientSigningShare32: args.clientSigningShare32,
-        groupPublicKey33,
-        sessionKind,
-        thresholdSessionJwt: args.thresholdSessionJwt,
-        workerCtx: args.workerCtx,
-      });
-      if (!generated.ok) return generated;
-      presignature = generated.presignature;
-    }
-
-    let signInit = await ecdsaSignInit({
-      relayerUrl,
-      mpcSessionId,
-      relayerKeyId,
-      signingDigest32: args.signingDigest32,
-      presignatureId: presignature.presignatureId,
-    });
-    if (!signInit.ok && signInit.code === 'pool_empty') {
-      const generated = await runPresignHandshake({
-        relayerUrl,
-        relayerKeyId,
-        clientVerifyingShareB64u,
-        participantIds,
-        clientParticipantId,
-        relayerParticipantId,
-        clientSigningShare32: args.clientSigningShare32,
-        groupPublicKey33,
-        sessionKind,
-        thresholdSessionJwt: args.thresholdSessionJwt,
-        workerCtx: args.workerCtx,
-      });
-      if (!generated.ok) return generated;
-      presignature = generated.presignature;
-      signInit = await ecdsaSignInit({
+      let signInit = await ecdsaSignInit({
         relayerUrl,
         mpcSessionId,
         relayerKeyId,
         signingDigest32: args.signingDigest32,
         presignatureId: presignature.presignatureId,
       });
-    }
-    if (!signInit.ok) {
+      if (!signInit.ok && signInit.code === 'pool_empty') {
+        await waitForInFlightRefill(poolKey);
+        presignature = popClientPresignature(poolKey) || null;
+        if (!presignature) {
+          const generated = await runPresignHandshake({
+            relayerUrl,
+            relayerKeyId,
+            clientVerifyingShareB64u,
+            participantIds,
+            clientParticipantId,
+            relayerParticipantId,
+            clientSigningShare32: args.clientSigningShare32,
+            groupPublicKey33,
+            sessionKind,
+            thresholdSessionJwt: args.thresholdSessionJwt,
+            workerCtx: args.workerCtx,
+          });
+          if (!generated.ok) return generated;
+          presignature = generated.presignature;
+        }
+        signInit = await ecdsaSignInit({
+          relayerUrl,
+          mpcSessionId,
+          relayerKeyId,
+          signingDigest32: args.signingDigest32,
+          presignatureId: presignature.presignatureId,
+        });
+      }
+      if (!signInit.ok) {
+        return {
+          ok: false,
+          code: signInit.code || 'sign_init_failed',
+          message: signInit.message || 'threshold-ecdsa sign/init failed',
+        };
+      }
+
+      const signingSessionId = String(signInit.signingSessionId || '').trim();
+      const relayerRound1 = signInit.relayerRound1 || {};
+      const entropyB64u = String(relayerRound1.entropyB64u || '').trim();
+      if (!signingSessionId || !entropyB64u) {
+        return { ok: false, code: 'internal', message: 'threshold-ecdsa sign/init returned incomplete round-1 payload' };
+      }
+      const relayerBigRB64u = String(relayerRound1.bigRB64u || '').trim();
+      if (relayerBigRB64u && relayerBigRB64u !== presignature.bigRB64u) {
+        return {
+          ok: false,
+          code: 'presign_mismatch',
+          message: 'Relayer selected a different presignature than the client pool item (bigR mismatch)',
+        };
+      }
+
+      const bigR33 = base64UrlDecode(presignature.bigRB64u);
+      const kShare32 = base64UrlDecode(presignature.kShareB64u);
+      const sigmaShare32 = base64UrlDecode(presignature.sigmaShareB64u);
+      const entropy32 = base64UrlDecode(entropyB64u);
+      if (bigR33.length !== 33) return { ok: false, code: 'internal', message: 'presign bigR must decode to 33 bytes' };
+      if (kShare32.length !== 32) return { ok: false, code: 'internal', message: 'presign kShare must decode to 32 bytes' };
+      if (sigmaShare32.length !== 32) return { ok: false, code: 'internal', message: 'presign sigmaShare must decode to 32 bytes' };
+      if (entropy32.length !== 32) return { ok: false, code: 'internal', message: 'relayer entropy must decode to 32 bytes' };
+
+      const clientSignatureShare32 = await thresholdEcdsaComputeSignatureShareWasm({
+        participantIds,
+        clientParticipantId,
+        groupPublicKey33,
+        presignBigR33: bigR33,
+        presignKShare32: kShare32,
+        presignSigmaShare32: sigmaShare32,
+        digest32: args.signingDigest32,
+        entropy32,
+        workerCtx: args.workerCtx,
+      });
+      if (clientSignatureShare32.length !== 32) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: `Invalid client signature share length (expected 32, got ${clientSignatureShare32.length})`,
+        };
+      }
+
+      const finalized = await ecdsaSignFinalize({
+        relayerUrl,
+        signingSessionId,
+        clientSignatureShare32,
+      });
+      if (!finalized.ok) {
+        return {
+          ok: false,
+          code: finalized.code || 'sign_finalize_failed',
+          message: finalized.message || 'threshold-ecdsa sign/finalize failed',
+        };
+      }
+
+      const signature65B64u = String(finalized.relayerRound2?.signature65B64u || '').trim();
+      if (!signature65B64u) {
+        return { ok: false, code: 'internal', message: 'threshold-ecdsa sign/finalize returned empty signature65B64u' };
+      }
+      const signature65 = base64UrlDecode(signature65B64u);
+      if (signature65.length !== 65) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: `threshold-ecdsa sign/finalize returned invalid signature length (expected 65, got ${signature65.length})`,
+        };
+      }
+
       return {
-        ok: false,
-        code: signInit.code || 'sign_init_failed',
-        message: signInit.message || 'threshold-ecdsa sign/init failed',
+        ok: true,
+        signature65,
+        signature65B64u,
+        rB64u: String(finalized.relayerRound2?.rB64u || '').trim(),
+        sB64u: String(finalized.relayerRound2?.sB64u || '').trim(),
+        recId: Number(finalized.relayerRound2?.recId ?? signature65[64]),
       };
+    } finally {
+      finishForegroundSign(poolKey);
     }
-
-    const signingSessionId = String(signInit.signingSessionId || '').trim();
-    const relayerRound1 = signInit.relayerRound1 || {};
-    const entropyB64u = String(relayerRound1.entropyB64u || '').trim();
-    if (!signingSessionId || !entropyB64u) {
-      return { ok: false, code: 'internal', message: 'threshold-ecdsa sign/init returned incomplete round-1 payload' };
-    }
-    const relayerBigRB64u = String(relayerRound1.bigRB64u || '').trim();
-    if (relayerBigRB64u && relayerBigRB64u !== presignature.bigRB64u) {
-      return {
-        ok: false,
-        code: 'presign_mismatch',
-        message: 'Relayer selected a different presignature than the client pool item (bigR mismatch)',
-      };
-    }
-
-    const bigR33 = base64UrlDecode(presignature.bigRB64u);
-    const kShare32 = base64UrlDecode(presignature.kShareB64u);
-    const sigmaShare32 = base64UrlDecode(presignature.sigmaShareB64u);
-    const entropy32 = base64UrlDecode(entropyB64u);
-    if (bigR33.length !== 33) return { ok: false, code: 'internal', message: 'presign bigR must decode to 33 bytes' };
-    if (kShare32.length !== 32) return { ok: false, code: 'internal', message: 'presign kShare must decode to 32 bytes' };
-    if (sigmaShare32.length !== 32) return { ok: false, code: 'internal', message: 'presign sigmaShare must decode to 32 bytes' };
-    if (entropy32.length !== 32) return { ok: false, code: 'internal', message: 'relayer entropy must decode to 32 bytes' };
-
-    const clientSignatureShare32 = await thresholdEcdsaComputeSignatureShareWasm({
-      participantIds,
-      clientParticipantId,
-      groupPublicKey33,
-      presignBigR33: bigR33,
-      presignKShare32: kShare32,
-      presignSigmaShare32: sigmaShare32,
-      digest32: args.signingDigest32,
-      entropy32,
-      workerCtx: args.workerCtx,
-    });
-    if (clientSignatureShare32.length !== 32) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: `Invalid client signature share length (expected 32, got ${clientSignatureShare32.length})`,
-      };
-    }
-
-    const finalized = await ecdsaSignFinalize({
-      relayerUrl,
-      signingSessionId,
-      clientSignatureShare32,
-    });
-    if (!finalized.ok) {
-      return {
-        ok: false,
-        code: finalized.code || 'sign_finalize_failed',
-        message: finalized.message || 'threshold-ecdsa sign/finalize failed',
-      };
-    }
-
-    const signature65B64u = String(finalized.relayerRound2?.signature65B64u || '').trim();
-    if (!signature65B64u) {
-      return { ok: false, code: 'internal', message: 'threshold-ecdsa sign/finalize returned empty signature65B64u' };
-    }
-    const signature65 = base64UrlDecode(signature65B64u);
-    if (signature65.length !== 65) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: `threshold-ecdsa sign/finalize returned invalid signature length (expected 65, got ${signature65.length})`,
-      };
-    }
-
-    return {
-      ok: true,
-      signature65,
-      signature65B64u,
-      rB64u: String(finalized.relayerRound2?.rB64u || '').trim(),
-      sB64u: String(finalized.relayerRound2?.sB64u || '').trim(),
-      recId: Number(finalized.relayerRound2?.recId ?? signature65[64]),
-    };
   } catch (e: unknown) {
     const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'threshold-ecdsa coordinator failed');
     return { ok: false, code: 'internal', message: msg };

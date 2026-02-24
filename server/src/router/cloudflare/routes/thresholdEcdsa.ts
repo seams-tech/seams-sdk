@@ -17,6 +17,74 @@ import { validateThresholdEcdsaAuthorizeInputs, validateThresholdEcdsaSessionInp
 
 const NOT_IMPLEMENTED = { ok: false, code: 'not_implemented', message: 'threshold-ecdsa is not implemented' } as const;
 
+type PresignTrafficClass = 'foreground' | 'background';
+
+type PresignPriorityTicket = {
+  release: () => void;
+};
+
+class PresignPriorityGate {
+  private foregroundInFlight = 0;
+  private backgroundInFlight = 0;
+  private readonly backgroundQueue: Array<{
+    resolve: (ticket: PresignPriorityTicket) => void;
+  }> = [];
+
+  async acquire(trafficClass: PresignTrafficClass): Promise<PresignPriorityTicket> {
+    if (trafficClass === 'foreground') {
+      this.foregroundInFlight += 1;
+      return this.createTicket('foreground');
+    }
+    if (this.canRunBackgroundNow()) {
+      this.backgroundInFlight += 1;
+      return this.createTicket('background');
+    }
+    return await new Promise((resolve) => {
+      this.backgroundQueue.push({ resolve });
+    });
+  }
+
+  private createTicket(trafficClass: PresignTrafficClass): PresignPriorityTicket {
+    let released = false;
+    return {
+      release: () => {
+        if (released) return;
+        released = true;
+        if (trafficClass === 'foreground') {
+          this.foregroundInFlight = Math.max(0, this.foregroundInFlight - 1);
+        } else {
+          this.backgroundInFlight = Math.max(0, this.backgroundInFlight - 1);
+        }
+        this.drainBackgroundQueue();
+      },
+    };
+  }
+
+  private canRunBackgroundNow(): boolean {
+    return this.foregroundInFlight === 0 && this.backgroundInFlight === 0;
+  }
+
+  private drainBackgroundQueue(): void {
+    if (!this.canRunBackgroundNow()) return;
+    const next = this.backgroundQueue.shift();
+    if (!next) return;
+    this.backgroundInFlight += 1;
+    next.resolve(this.createTicket('background'));
+  }
+}
+
+function parsePresignRequestTag(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined;
+  const tag = String((body as { requestTag?: unknown }).requestTag || '').trim();
+  return tag || undefined;
+}
+
+function resolvePresignTrafficClass(requestTag: string | undefined): PresignTrafficClass {
+  return requestTag === 'background_presign_pool_refill' ? 'background' : 'foreground';
+}
+
+const presignPriorityGate = new PresignPriorityGate();
+
 export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise<Response | null> {
   if (ctx.method === 'GET' && ctx.pathname === '/threshold-ecdsa/healthz') {
     const resolved = resolveThresholdScheme(ctx.opts.threshold, THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID, {
@@ -123,26 +191,38 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     return json(result, { status: thresholdEcdsaStatusCode(result) });
   }
   if (pathname === '/threshold-ecdsa/presign/init') {
+    const reqBody = (body || {}) as ThresholdEcdsaPresignInitRequest;
+    const requestTag = parsePresignRequestTag(reqBody);
+    const gateTicket = await presignPriorityGate.acquire(resolvePresignTrafficClass(requestTag));
     const validated = await validateThresholdEcdsaSessionInputs({
       body,
       headers: Object.fromEntries(ctx.request.headers.entries()),
       session: ctx.opts.session,
     });
-    if (!validated.ok) return json(validated, { status: thresholdEcdsaStatusCode(validated) });
-    const reqBody = (body || {}) as ThresholdEcdsaPresignInitRequest;
-    const result = await scheme.presign.init({ claims: validated.claims, request: reqBody });
-    return json(result, { status: thresholdEcdsaStatusCode(result) });
+    try {
+      if (!validated.ok) return json(validated, { status: thresholdEcdsaStatusCode(validated) });
+      const result = await scheme.presign.init({ claims: validated.claims, request: reqBody });
+      return json(result, { status: thresholdEcdsaStatusCode(result) });
+    } finally {
+      gateTicket.release();
+    }
   }
   if (pathname === '/threshold-ecdsa/presign/step') {
+    const reqBody = (body || {}) as ThresholdEcdsaPresignStepRequest;
+    const requestTag = parsePresignRequestTag(reqBody);
+    const gateTicket = await presignPriorityGate.acquire(resolvePresignTrafficClass(requestTag));
     const validated = await validateThresholdEcdsaSessionInputs({
       body,
       headers: Object.fromEntries(ctx.request.headers.entries()),
       session: ctx.opts.session,
     });
-    if (!validated.ok) return json(validated, { status: thresholdEcdsaStatusCode(validated) });
-    const reqBody = (body || {}) as ThresholdEcdsaPresignStepRequest;
-    const result = await scheme.presign.step({ claims: validated.claims, request: reqBody });
-    return json(result, { status: thresholdEcdsaStatusCode(result) });
+    try {
+      if (!validated.ok) return json(validated, { status: thresholdEcdsaStatusCode(validated) });
+      const result = await scheme.presign.step({ claims: validated.claims, request: reqBody });
+      return json(result, { status: thresholdEcdsaStatusCode(result) });
+    } finally {
+      gateTicket.release();
+    }
   }
   if (pathname === '/threshold-ecdsa/sign/init') {
     const reqBody = (body || {}) as ThresholdEcdsaSignInitRequest;

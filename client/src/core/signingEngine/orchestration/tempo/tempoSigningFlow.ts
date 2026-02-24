@@ -1,6 +1,7 @@
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type {
   TouchConfirmSigningPort,
+  TouchConfirmSecureConfirmationPort,
   TouchConfirmContext,
   ThresholdPrfFirstCachePeekPort,
 } from '@/core/signingEngine/touchConfirm';
@@ -25,7 +26,10 @@ import {
 
 export async function signTempoWithTouchConfirm(args: {
   ctx: TouchConfirmContext;
-  touchConfirm: TouchConfirmSigningPort & ThresholdPrfFirstCachePeekPort;
+  touchConfirm:
+    & TouchConfirmSigningPort
+    & TouchConfirmSecureConfirmationPort
+    & ThresholdPrfFirstCachePeekPort;
   nearAccountId: string;
   request: TempoSigningRequest;
   engines: SignerMap<SignRequest, KeyRef, SignatureBytes>;
@@ -91,7 +95,7 @@ export async function signTempoWithTouchConfirm(args: {
     message: 'Awaiting transaction confirmation',
   });
   const confirmation = await args.touchConfirm.orchestrateSigningConfirmation({
-    ctx: args.ctx,
+    ctx: { touchConfirm: args.touchConfirm },
     sessionId,
     chain: 'tempo',
     kind: 'intentDigest',

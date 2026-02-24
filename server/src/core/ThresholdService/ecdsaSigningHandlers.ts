@@ -363,11 +363,17 @@ type ReplayedPresignSession = {
 
 type LivePresignSessionCacheEntry = {
   session: ThresholdEcdsaPresignSession;
-  stage: 'triples' | 'triples_done' | 'presign' | 'done';
-  version: number;
-  expiresAtMs: number;
+  record: ThresholdEcdsaPresignSessionRecord;
+  state: SerializedPresignSessionState;
   sessionSeed32: Uint8Array;
   rngCounter: bigint;
+};
+
+type LivePresignSessionResolve = {
+  entry: LivePresignSessionCacheEntry;
+  source: 'cache_hit' | 'replay_restore';
+  fallbackReason?: string;
+  replayRestoreMs?: number;
 };
 
 function freePresignSession(session: ThresholdEcdsaPresignSession): void {
@@ -513,12 +519,14 @@ export class ThresholdEcdsaSigningHandlers {
     state: SerializedPresignSessionState;
     sessionSeed32: Uint8Array;
     reason: string;
-  }): ParseResult<LivePresignSessionCacheEntry> {
+  }): ParseResult<LivePresignSessionResolve> {
+    const restoreStartedAtMs = Date.now();
     const restored = withDeterministicCryptoRandomFromCounter({
       seed32: input.sessionSeed32,
       startCounter: 0n,
       fn: () => reconstructPresignSessionFromState({ record: input.record, state: input.state }),
     });
+    const replayRestoreMs = Math.max(0, Date.now() - restoreStartedAtMs);
     const replayed = restored.value;
     if (!replayed) {
       this.logger.error('[threshold-ecdsa] presign live-session fallback replay failed', {
@@ -526,6 +534,7 @@ export class ThresholdEcdsaSigningHandlers {
         reason: input.reason,
         recordVersion: input.record.version,
         recordStage: input.record.stage,
+        replayRestoreMs,
       });
       return { ok: false, code: 'internal', message: 'Failed to restore presign session state' };
     }
@@ -537,6 +546,7 @@ export class ThresholdEcdsaSigningHandlers {
         recordVersion: input.record.version,
         recordStage: input.record.stage,
         replayedStage: replayed.stage,
+        replayRestoreMs,
       });
       return { ok: false, code: 'internal', message: 'presign session stage mismatch' };
     }
@@ -546,18 +556,26 @@ export class ThresholdEcdsaSigningHandlers {
       reason: input.reason,
       recordVersion: input.record.version,
       recordStage: input.record.stage,
+      replayRestoreMs,
     });
 
     const entry: LivePresignSessionCacheEntry = {
       session: replayed.session,
-      stage: replayed.stage,
-      version: input.record.version,
-      expiresAtMs: input.record.expiresAtMs,
+      record: input.record,
+      state: input.state,
       sessionSeed32: input.sessionSeed32.slice(),
       rngCounter: restored.nextCounter,
     };
     this.putLivePresignSession(input.presignSessionId, entry);
-    return { ok: true, value: entry };
+    return {
+      ok: true,
+      value: {
+        entry,
+        source: 'replay_restore',
+        fallbackReason: input.reason,
+        replayRestoreMs,
+      },
+    };
   }
 
   private getOrRestoreLivePresignSession(input: {
@@ -565,25 +583,25 @@ export class ThresholdEcdsaSigningHandlers {
     record: ThresholdEcdsaPresignSessionRecord;
     state: SerializedPresignSessionState;
     sessionSeed32: Uint8Array;
-  }): ParseResult<LivePresignSessionCacheEntry> {
+  }): ParseResult<LivePresignSessionResolve> {
     const nowMs = Date.now();
     const cached = this.livePresignSessionById.get(input.presignSessionId);
     if (cached) {
-      if (nowMs > cached.expiresAtMs) {
+      if (nowMs > cached.record.expiresAtMs) {
         this.evictLivePresignSession(input.presignSessionId);
         return this.restoreLivePresignSessionWithReplay({
           ...input,
           reason: 'cache_expired',
         });
       }
-      if (cached.version !== input.record.version) {
+      if (cached.record.version !== input.record.version) {
         this.evictLivePresignSession(input.presignSessionId);
         return this.restoreLivePresignSessionWithReplay({
           ...input,
           reason: 'cache_version_mismatch',
         });
       }
-      if (cached.stage !== input.record.stage) {
+      if (cached.record.stage !== input.record.stage) {
         this.evictLivePresignSession(input.presignSessionId);
         return this.restoreLivePresignSessionWithReplay({
           ...input,
@@ -597,7 +615,7 @@ export class ThresholdEcdsaSigningHandlers {
           reason: 'cache_seed_mismatch',
         });
       }
-      return { ok: true, value: cached };
+      return { ok: true, value: { entry: cached, source: 'cache_hit' } };
     }
 
     return this.restoreLivePresignSessionWithReplay({
@@ -764,9 +782,8 @@ export class ThresholdEcdsaSigningHandlers {
 
       this.putLivePresignSession(presignSessionId, {
         session: wasmSession,
-        stage: polled.stage,
-        version: record.version,
-        expiresAtMs: record.expiresAtMs,
+        record,
+        state: storedState,
         sessionSeed32: sessionSeed32.slice(),
         rngCounter: initialized.nextCounter,
       });
@@ -800,20 +817,75 @@ export class ThresholdEcdsaSigningHandlers {
     const parsedRequest = parseThresholdEcdsaPresignStepRequest(input.request);
     if (!parsedRequest.ok) return parsedRequest;
     const { presignSessionId, stage: requestedStage, outgoingMessagesB64u } = parsedRequest.value;
+    const stepStartedAtMs = Date.now();
+    const perf: {
+      storeGetSessionMs?: number;
+      liveResolveMs?: number;
+      liveResolveSource?: 'cache_hit' | 'replay_restore';
+      liveCacheStatus?: 'hit' | 'miss';
+      replayRestoreMs?: number;
+      replayFallbackReason?: string;
+      replayFallbackUsed?: boolean;
+      wasmStepMs?: number;
+      storeCasMs?: number;
+      casCode?: string;
+      resultCode?: string;
+    } = {};
     if (this.presignSessionStepInFlight.has(presignSessionId)) {
       return { ok: false, code: 'stale_session_state', message: 'Presign session step already in progress; retry step' };
     }
     this.presignSessionStepInFlight.add(presignSessionId);
     try {
+      const storeGetStartedAtMs = Date.now();
       const record = await this.presignSessionStore.getSession(presignSessionId);
+      perf.storeGetSessionMs = Math.max(0, Date.now() - storeGetStartedAtMs);
       if (!record) {
         this.evictLivePresignSession(presignSessionId);
+        perf.resultCode = 'unauthorized';
         return { ok: false, code: 'unauthorized', message: 'presignSessionId expired or invalid' };
       }
       if (Date.now() > record.expiresAtMs) {
         await this.presignSessionStore.deleteSession(presignSessionId);
         this.evictLivePresignSession(presignSessionId);
+        perf.resultCode = 'unauthorized';
         return { ok: false, code: 'unauthorized', message: 'presignSessionId expired' };
+      }
+
+      let state: SerializedPresignSessionState;
+      let sessionSeed32: Uint8Array;
+      let liveEntry: LivePresignSessionCacheEntry | null = null;
+      const cached = this.livePresignSessionById.get(presignSessionId);
+      if (
+        cached
+        && Date.now() <= cached.record.expiresAtMs
+        && cached.record.version === record.version
+        && cached.record.stage === record.stage
+      ) {
+        state = cached.state;
+        sessionSeed32 = cached.sessionSeed32;
+        liveEntry = cached;
+        perf.liveResolveMs = 0;
+        perf.liveResolveSource = 'cache_hit';
+        perf.liveCacheStatus = 'hit';
+      } else {
+        if (cached) this.evictLivePresignSession(presignSessionId);
+        const parsedState = parseSerializedPresignSessionState(record.wasmSessionStateB64u);
+        if (!parsedState) {
+          await this.presignSessionStore.deleteSession(presignSessionId);
+          this.evictLivePresignSession(presignSessionId);
+          perf.resultCode = 'internal';
+          return { ok: false, code: 'internal', message: 'Corrupt presign session state' };
+        }
+        const decodedSessionSeed32 = decodeSessionSeed32(parsedState.sessionSeedB64u);
+        if (!decodedSessionSeed32) {
+          await this.presignSessionStore.deleteSession(presignSessionId);
+          this.evictLivePresignSession(presignSessionId);
+          perf.resultCode = 'internal';
+          return { ok: false, code: 'internal', message: 'Corrupt presign session seed' };
+        }
+        state = parsedState;
+        sessionSeed32 = decodedSessionSeed32;
+        perf.liveCacheStatus = 'miss';
       }
 
       const claims = input.claims;
@@ -823,6 +895,7 @@ export class ThresholdEcdsaSigningHandlers {
       if (!tokenUserId || !tokenRpId || !tokenParticipantIds) {
         await this.presignSessionStore.deleteSession(presignSessionId);
         this.evictLivePresignSession(presignSessionId);
+        perf.resultCode = 'unauthorized';
         return { ok: false, code: 'unauthorized', message: 'Invalid threshold session token claims' };
       }
       if (
@@ -832,44 +905,45 @@ export class ThresholdEcdsaSigningHandlers {
       ) {
         await this.presignSessionStore.deleteSession(presignSessionId);
         this.evictLivePresignSession(presignSessionId);
+        perf.resultCode = 'unauthorized';
         return { ok: false, code: 'unauthorized', message: 'presignSessionId does not match threshold session scope' };
       }
       if (toOptionalTrimmedString(claims?.relayerKeyId) !== record.relayerKeyId) {
         await this.presignSessionStore.deleteSession(presignSessionId);
         this.evictLivePresignSession(presignSessionId);
+        perf.resultCode = 'unauthorized';
         return { ok: false, code: 'unauthorized', message: 'presignSessionId does not match threshold session scope' };
       }
       if (Date.now() > claims.thresholdExpiresAtMs) {
         await this.presignSessionStore.deleteSession(presignSessionId);
         this.evictLivePresignSession(presignSessionId);
+        perf.resultCode = 'unauthorized';
         return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
       }
 
-      const state = parseSerializedPresignSessionState(record.wasmSessionStateB64u);
-      if (!state) {
-        await this.presignSessionStore.deleteSession(presignSessionId);
-        this.evictLivePresignSession(presignSessionId);
-        return { ok: false, code: 'internal', message: 'Corrupt presign session state' };
+      if (!liveEntry) {
+        const liveResolveStartedAtMs = Date.now();
+        const liveSession = this.getOrRestoreLivePresignSession({
+          presignSessionId,
+          record,
+          state,
+          sessionSeed32,
+        });
+        perf.liveResolveMs = Math.max(0, Date.now() - liveResolveStartedAtMs);
+        if (!liveSession.ok) {
+          await this.presignSessionStore.deleteSession(presignSessionId);
+          this.evictLivePresignSession(presignSessionId);
+          perf.resultCode = liveSession.code;
+          return liveSession;
+        }
+        liveEntry = liveSession.value.entry;
+        perf.liveResolveSource = liveSession.value.source;
+        if (liveSession.value.source === 'replay_restore') {
+          perf.replayRestoreMs = liveSession.value.replayRestoreMs;
+          perf.replayFallbackReason = liveSession.value.fallbackReason;
+          perf.replayFallbackUsed = true;
+        }
       }
-      const sessionSeed32 = decodeSessionSeed32(state.sessionSeedB64u);
-      if (!sessionSeed32) {
-        await this.presignSessionStore.deleteSession(presignSessionId);
-        this.evictLivePresignSession(presignSessionId);
-        return { ok: false, code: 'internal', message: 'Corrupt presign session seed' };
-      }
-
-      const liveSession = this.getOrRestoreLivePresignSession({
-        presignSessionId,
-        record,
-        state,
-        sessionSeed32,
-      });
-      if (!liveSession.ok) {
-        await this.presignSessionStore.deleteSession(presignSessionId);
-        this.evictLivePresignSession(presignSessionId);
-        return liveSession;
-      }
-      const liveEntry = liveSession.value;
 
       type PreparedPresignStepValue =
         | {
@@ -889,6 +963,7 @@ export class ThresholdEcdsaSigningHandlers {
           mode: 'advance';
           polled: WasmPresignPoll;
           nextRecord: ThresholdEcdsaPresignSessionRecord;
+          nextState: SerializedPresignSessionState;
           presignDone: {
             presignatureId: string;
             bigRB64u: string;
@@ -897,6 +972,7 @@ export class ThresholdEcdsaSigningHandlers {
           } | null;
         };
 
+      const wasmStepStartedAtMs = Date.now();
       const preparedRuntime = withDeterministicCryptoRandomFromCounter({
         seed32: sessionSeed32,
         startCounter: liveEntry.rngCounter,
@@ -992,25 +1068,28 @@ export class ThresholdEcdsaSigningHandlers {
               mode: 'advance' as const,
               polled,
               nextRecord,
+              nextState,
               presignDone,
             },
           };
         },
       });
+      perf.wasmStepMs = Math.max(0, Date.now() - wasmStepStartedAtMs);
       const prepared = preparedRuntime.value;
       if (!prepared.ok) {
         this.evictLivePresignSession(presignSessionId);
         if (prepared.code === 'internal') {
           await this.presignSessionStore.deleteSession(presignSessionId);
         }
+        perf.resultCode = prepared.code;
         return prepared;
       }
 
       if (prepared.value.mode === 'immediate') {
         liveEntry.rngCounter = preparedRuntime.nextCounter;
-        liveEntry.stage = record.stage;
-        liveEntry.version = record.version;
-        liveEntry.expiresAtMs = record.expiresAtMs;
+        liveEntry.record = record;
+        liveEntry.state = state;
+        perf.resultCode = 'ok';
         return prepared.value.response;
       }
 
@@ -1025,6 +1104,7 @@ export class ThresholdEcdsaSigningHandlers {
         });
         await this.presignSessionStore.deleteSession(presignSessionId);
         this.evictLivePresignSession(presignSessionId);
+        perf.resultCode = 'ok';
         return {
           ok: true,
           stage: 'done',
@@ -1035,20 +1115,23 @@ export class ThresholdEcdsaSigningHandlers {
         };
       }
 
-      const { polled, nextRecord, presignDone } = prepared.value;
+      const { polled, nextRecord, nextState, presignDone } = prepared.value;
       const ttlMs = nextRecord.expiresAtMs - Date.now();
       if (ttlMs <= 0) {
         await this.presignSessionStore.deleteSession(presignSessionId);
         this.evictLivePresignSession(presignSessionId);
+        perf.resultCode = 'unauthorized';
         return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
       }
 
+      const storeCasStartedAtMs = Date.now();
       const cas = await this.presignSessionStore.advanceSessionCas({
         id: presignSessionId,
         expectedVersion: record.version,
         nextRecord,
         ttlMs,
       });
+      perf.storeCasMs = Math.max(0, Date.now() - storeCasStartedAtMs);
       if (!cas.ok) {
         this.evictLivePresignSession(presignSessionId);
         this.logger.warn('[threshold-ecdsa] presign live-session CAS conflict', {
@@ -1057,21 +1140,29 @@ export class ThresholdEcdsaSigningHandlers {
           nextVersion: nextRecord.version,
           code: cas.code,
         });
-        if (cas.code === 'expired') return { ok: false, code: 'unauthorized', message: 'presignSessionId expired' };
-        if (cas.code === 'not_found') return { ok: false, code: 'unauthorized', message: 'presignSessionId expired or invalid' };
+        perf.casCode = cas.code;
+        if (cas.code === 'expired') {
+          perf.resultCode = 'unauthorized';
+          return { ok: false, code: 'unauthorized', message: 'presignSessionId expired' };
+        }
+        if (cas.code === 'not_found') {
+          perf.resultCode = 'unauthorized';
+          return { ok: false, code: 'unauthorized', message: 'presignSessionId expired or invalid' };
+        }
+        perf.resultCode = 'stale_session_state';
         return { ok: false, code: 'stale_session_state', message: 'Presign session updated concurrently; retry step' };
       }
 
       liveEntry.rngCounter = preparedRuntime.nextCounter;
-      liveEntry.stage = cas.record.stage;
-      liveEntry.version = cas.record.version;
-      liveEntry.expiresAtMs = cas.record.expiresAtMs;
+      liveEntry.record = cas.record;
+      liveEntry.state = nextState;
       this.putLivePresignSession(presignSessionId, liveEntry);
 
       if (polled.event === 'presign_done') {
         if (!presignDone) {
           await this.presignSessionStore.deleteSession(presignSessionId);
           this.evictLivePresignSession(presignSessionId);
+          perf.resultCode = 'internal';
           return { ok: false, code: 'internal', message: 'presign_done missing presignature material' };
         }
         await this.presignaturePool.put({
@@ -1084,6 +1175,7 @@ export class ThresholdEcdsaSigningHandlers {
         });
         await this.presignSessionStore.deleteSession(presignSessionId);
         this.evictLivePresignSession(presignSessionId);
+        perf.resultCode = 'ok';
         return {
           ok: true,
           stage: 'done',
@@ -1094,6 +1186,7 @@ export class ThresholdEcdsaSigningHandlers {
         };
       }
 
+      perf.resultCode = 'ok';
       return {
         ok: true,
         stage: polled.stage,
@@ -1102,6 +1195,12 @@ export class ThresholdEcdsaSigningHandlers {
       };
     } finally {
       this.presignSessionStepInFlight.delete(presignSessionId);
+      this.logger.info('[threshold-ecdsa] presign/step perf', {
+        presignSessionId,
+        requestedStage,
+        totalMs: Math.max(0, Date.now() - stepStartedAtMs),
+        ...perf,
+      });
     }
   }
 

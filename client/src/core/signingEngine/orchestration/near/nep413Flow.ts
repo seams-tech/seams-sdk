@@ -134,7 +134,7 @@ export async function signNep413Message({
     });
 
     const confirmation = await touchConfirm.orchestrateSigningConfirmation({
-      ctx,
+      ctx: { touchConfirm },
       sessionId,
       chain: 'near',
       kind: 'nep413',
@@ -177,7 +177,7 @@ export async function signNep413Message({
         });
 
         const refreshed = await touchConfirm.orchestrateSigningConfirmation({
-          ctx,
+          ctx: { touchConfirm },
           sessionId,
           chain: 'near',
           kind: 'nep413',
@@ -345,7 +345,7 @@ export async function signNep413Message({
           });
 
           const refreshed = await touchConfirm.orchestrateSigningConfirmation({
-            ctx,
+            ctx: { touchConfirm },
             sessionId,
             chain: 'near',
             kind: 'nep413',

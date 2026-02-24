@@ -170,7 +170,7 @@ export async function signDelegateAction({
   });
 
   const confirmation = await touchConfirm.orchestrateSigningConfirmation({
-    ctx,
+    ctx: { touchConfirm },
     sessionId,
     chain: 'near',
     kind: 'delegate',
@@ -224,7 +224,7 @@ export async function signDelegateAction({
       });
 
       const refreshed = await touchConfirm.orchestrateSigningConfirmation({
-        ctx,
+        ctx: { touchConfirm },
         sessionId,
         chain: 'near',
         kind: 'delegate',
@@ -428,7 +428,7 @@ export async function signDelegateAction({
         });
 
         const refreshed = await touchConfirm.orchestrateSigningConfirmation({
-          ctx,
+          ctx: { touchConfirm },
           sessionId,
           chain: 'near',
           kind: 'delegate',

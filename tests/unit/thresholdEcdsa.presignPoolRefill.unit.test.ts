@@ -5,6 +5,7 @@ import {
   clearAllThresholdEcdsaClientPresignatures,
   getThresholdEcdsaClientPresignaturePoolDepth,
   refillThresholdEcdsaClientPresignaturePool,
+  scheduleThresholdEcdsaClientPresignaturePoolRefill,
   signThresholdEcdsaDigestWithPool,
 } from '@/core/signingEngine/orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import { Secp256k1Engine } from '@/core/signingEngine/signers/algorithms/secp256k1';
@@ -121,6 +122,7 @@ function makeWorkerCtx(args: {
 function installThresholdEcdsaFetchMock(args?: {
   failPresignInitAfter?: number;
   includeAuthorizePolicyHint?: boolean;
+  presignInitDelayMs?: number;
 }): {
   counters: ThresholdFetchCounters;
   restore: () => void;
@@ -135,6 +137,7 @@ function installThresholdEcdsaFetchMock(args?: {
   const originalFetch = globalThis.fetch;
   const failPresignInitAfter = Number(args?.failPresignInitAfter ?? Infinity);
   const includeAuthorizePolicyHint = args?.includeAuthorizePolicyHint === true;
+  const presignInitDelayMs = Number(args?.presignInitDelayMs ?? 0);
 
   (globalThis as { fetch: typeof fetch }).fetch = (async (input, init) => {
     const urlRaw = typeof input === 'string'
@@ -174,6 +177,9 @@ function installThresholdEcdsaFetchMock(args?: {
 
     if (path.endsWith('/threshold-ecdsa/presign/init')) {
       counters.presignInit += 1;
+      if (presignInitDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, presignInitDelayMs));
+      }
       if (counters.presignInit > failPresignInitAfter) {
         return new Response(JSON.stringify({
           ok: false,
@@ -565,6 +571,65 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
 
       await waitForPredicate(() => fetchMock.counters.presignInit >= 2, 1_000);
       expect(fetchMock.counters.presignInit).toBeGreaterThanOrEqual(2);
+      expect(fetchMock.counters.signInit).toBe(1);
+      expect(fetchMock.counters.signFinalize).toBe(1);
+    } finally {
+      fetchMock.restore();
+    }
+  });
+
+  test('foreground sign reuses in-flight refill result instead of starting duplicate presign handshake', async () => {
+    const presignature97 = concatBytes([
+      PRESIGN_BIG_R_33,
+      PRESIGN_K_SHARE_32,
+      PRESIGN_SIGMA_SHARE_32,
+    ]);
+    const workerCtx = makeWorkerCtx({
+      clientSigningShare32: CLIENT_SIGNING_SHARE_32,
+      clientVerifyingShare33: CLIENT_VERIFYING_SHARE_33,
+      presignature97,
+      clientSignatureShare32: CLIENT_SIGNATURE_SHARE_32,
+    });
+    const fetchMock = installThresholdEcdsaFetchMock({
+      presignInitDelayMs: 120,
+    });
+
+    try {
+      const scheduled = scheduleThresholdEcdsaClientPresignaturePoolRefill({
+        relayerUrl: RELAYER_URL,
+        relayerKeyId: RELAYER_KEY_ID,
+        clientVerifyingShareB64u: CLIENT_VERIFYING_SHARE_B64U,
+        participantIds: PARTICIPANT_IDS,
+        clientSigningShare32: CLIENT_SIGNING_SHARE_32,
+        groupPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+        sessionKind: 'cookie',
+        workerCtx,
+        poolPolicy: {
+          enabled: true,
+          targetDepth: 1,
+          lowWatermark: 0,
+          maxRefillInFlight: 1,
+          refillAttemptTimeoutMs: 2_000,
+        },
+      });
+      expect(scheduled.scheduled).toBe(true);
+
+      const signed = await signThresholdEcdsaDigestWithPool({
+        relayerUrl: RELAYER_URL,
+        relayerKeyId: RELAYER_KEY_ID,
+        clientVerifyingShareB64u: CLIENT_VERIFYING_SHARE_B64U,
+        mpcSessionId: 'mpc-foreground-reuse',
+        signingDigest32: DIGEST_32,
+        clientSigningShare32: CLIENT_SIGNING_SHARE_32,
+        participantIds: PARTICIPANT_IDS,
+        groupPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+        sessionKind: 'cookie',
+        workerCtx,
+      });
+
+      expect(signed.ok).toBe(true);
+      expect(fetchMock.counters.presignInit).toBe(1);
+      expect(fetchMock.counters.presignStep).toBe(1);
       expect(fetchMock.counters.signInit).toBe(1);
       expect(fetchMock.counters.signFinalize).toBe(1);
     } finally {

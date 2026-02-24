@@ -40,10 +40,6 @@ export interface TouchConfirmContext {
   getAppearanceTokens?: () => ThemeTokenOverridesInput | undefined;
   rpIdOverride?: string;
   nearExplorerUrl?: string;
-  requestUserConfirmation?: (
-    request: UserConfirmRequest,
-    options?: RequestUserConfirmationOptions,
-  ) => Promise<UserConfirmDecision>;
 }
 
 export type ThresholdPrfCachePeekResult =

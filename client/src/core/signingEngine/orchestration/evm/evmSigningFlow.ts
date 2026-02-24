@@ -1,6 +1,7 @@
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type {
   TouchConfirmSigningPort,
+  TouchConfirmSecureConfirmationPort,
   TouchConfirmContext,
   ThresholdPrfFirstCachePeekPort,
 } from '@/core/signingEngine/touchConfirm';
@@ -28,7 +29,10 @@ import {
 
 export async function signEvmWithTouchConfirm(args: {
   ctx: TouchConfirmContext;
-  touchConfirm: TouchConfirmSigningPort & ThresholdPrfFirstCachePeekPort;
+  touchConfirm:
+    & TouchConfirmSigningPort
+    & TouchConfirmSecureConfirmationPort
+    & ThresholdPrfFirstCachePeekPort;
   nearAccountId: string;
   request: EvmSigningRequest;
   engines: SignerMap<SignRequest, KeyRef, SignatureBytes>;
@@ -88,7 +92,7 @@ export async function signEvmWithTouchConfirm(args: {
     message: 'Awaiting transaction confirmation',
   });
   await args.touchConfirm.orchestrateSigningConfirmation({
-    ctx: args.ctx,
+    ctx: { touchConfirm: args.touchConfirm },
     sessionId,
     chain: 'evm',
     kind: 'intentDigest',
