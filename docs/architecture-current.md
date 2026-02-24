@@ -123,10 +123,15 @@ In current sign flow, client-provided `presignatureId` is used, so server path i
 Default client policy:
 
 - `enabled: true`
-- `targetDepth: 20`
-- `lowWatermark: 5`
-- `maxRefillInFlight: 2`
+- `targetDepth: 3`
+- `lowWatermark: 1`
+- `maxRefillInFlight: 1`
 - `refillAttemptTimeoutMs: 30000`
+
+Scope semantics:
+
+- `targetDepth` and `lowWatermark` apply per pool key (`relayerUrl + relayerKeyId + clientVerifyingShareB64u + participantIds`), which is effectively per account/credential context.
+- `maxRefillInFlight` is a runtime-global cap across pool keys within one client runtime/tab/process.
 
 Resolution order:
 

@@ -1,6 +1,6 @@
 # Threshold ECDSA Presigning Pool and Signing Lifecycle
 
-Last updated: 2026-02-23
+Last updated: 2026-02-24
 
 ## 1. Scope
 
@@ -110,13 +110,19 @@ Current signer behavior:
 2. On sign success: schedules refill again toward target depth.
 3. Refill runs asynchronously and can continue after the user already got the signature.
 
-Current defaults are aggressive for refill depth:
+Current defaults:
 
-- `targetDepth: 20`
-- `lowWatermark: 5`
-- `maxRefillInFlight: 2`
+- `targetDepth: 3`
+- `lowWatermark: 1`
+- `maxRefillInFlight: 1`
 
-With these defaults, post-sign background presign traffic is expected.
+Scope of these settings:
+
+1. `targetDepth` and `lowWatermark` are per presign pool key (effectively per account/credential scope), where pool key = `relayerUrl + relayerKeyId + clientVerifyingShareB64u + participantIds`.
+2. `maxRefillInFlight` is a runtime-global limiter (per client runtime/tab/process), not per account.
+3. Server presignature storage is partitioned by `relayerKeyId`, so the server is not using one undifferentiated global pool for all accounts.
+
+With these defaults, some post-sign background presign traffic is expected, but contention is lower than prior aggressive defaults.
 
 ## 6. Log Labeling for Background Refill
 

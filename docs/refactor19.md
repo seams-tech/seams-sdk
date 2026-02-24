@@ -124,7 +124,7 @@ For no-replay mode:
 
 ## Phase 0: Measure + Guardrails
 
-- [ ] Add detailed timers around current presign step phases:
+- [x] Add detailed timers around current presign step phases:
   - restore/replay
   - protocol step compute
   - store CAS/write
@@ -138,10 +138,10 @@ Suggested files:
 
 ## Phase 1: Introduce Live Session Cache
 
-- [ ] Add internal live presign session cache keyed by `presignSessionId`.
-- [ ] On `/presign/init`, create live session and cache it.
-- [ ] On `/presign/step`, use cached live session first.
-- [ ] Add TTL eviction + cleanup on `done`/error.
+- [x] Add internal live presign session cache keyed by `presignSessionId`.
+- [x] On `/presign/init`, create live session and cache it.
+- [x] On `/presign/step`, use cached live session first.
+- [x] Add TTL eviction + cleanup on `done`/error.
 
 Suggested files:
 
@@ -149,14 +149,15 @@ Suggested files:
 
 ## Phase 2: Hybrid Fallback (Safe Rollout)
 
-- [ ] Keep replay path as fallback while no-replay is being validated.
-- [ ] If cache miss occurs:
-  - in hybrid mode: fallback to existing replay path
-  - in strict no-replay mode: return explicit retriable session error
+- [x] Keep replay path as fallback while no-replay is being validated.
+- [x] If cache miss occurs in hybrid mode, fallback to existing replay path.
+- [ ] In strict no-replay mode, return explicit retriable session error.
 - [ ] Emit structured metrics:
-  - `presign_live_cache_hit`
-  - `presign_live_cache_miss`
-  - `presign_replay_fallback_used`
+  - [x] Structured `/presign/step` perf fields now expose live/fallback behavior (`liveCacheStatus`, `liveResolveSource`, `replayFallbackUsed`, `replayFallbackReason`).
+  - [ ] Dedicated metric names/counters:
+    - `presign_live_cache_hit`
+    - `presign_live_cache_miss`
+    - `presign_replay_fallback_used`
 
 Suggested files:
 
@@ -226,18 +227,21 @@ Mitigation: decision gate + rollout checklist must be signed off before Phase 4.
 
 ## Immediate (Measure + Low-Risk Contention Wins)
 
-- [ ] Task 8: Add micro-timing spans for replay restore, wasm compute, and store CAS/write.
-- [ ] Task 3: Add server-side foreground-priority scheduling over background refill.
-- [ ] Task 4: Lower interactive refill defaults to `targetDepth=2..3`, `lowWatermark=1`, `maxRefillInFlight=1`.
-- [ ] Task 5: Introduce single authority runtime election/locking for refill orchestration per account.
+- [x] Task 8: Add micro-timing spans for replay restore, wasm compute, and store CAS/write.
+- [x] Task 3: Add server-side foreground-priority scheduling over background refill.
+- [x] Task 4: Lower interactive refill defaults to `targetDepth=2..3`, `lowWatermark=1`, `maxRefillInFlight=1`.
+- [x] Task 5: Introduce single authority runtime election/locking for refill orchestration per account.
+- [x] Client contention guard: when a foreground sign is in-flight for a pool key, skip scheduling new refill work for that key; foreground path first waits for any existing refill before starting a new handshake.
+- [x] Regression coverage: add unit test proving foreground sign reuses in-flight refill and avoids duplicate presign handshake for the same pool key.
 
 ## Next (State/Storage Throughput Improvements)
 
-- [ ] Sequence gate: do live-session-first with replay fallback before any full replay removal.
-- [ ] Observability gate: add explicit replay-fallback logs so it is obvious when live-session restore failed and the system had to fallback (or fallback itself failed).
+- [x] Sequence gate: do live-session-first with replay fallback before any full replay removal.
+- [x] Observability gate: add explicit replay-fallback logs so it is obvious when live-session restore failed and the system had to fallback (or fallback itself failed).
+- [x] Observability gate: expose `liveCacheStatus` (`hit`/`miss`) and `replayFallbackUsed` in `/presign/step` perf logs for measurable cache/fallback ratios.
 - [ ] Task 6: Migrate high-churn presign/session hot path to Redis/Upstash and benchmark p95/p99 delta.
-- [ ] Task 2: Add live presign session object cache with TTL/cleanup (cache-first execution).
-- [ ] Task 1: Keep replay only as fallback; validate hit ratio and latency gains in hybrid mode.
+- [x] Task 2: Add live presign session object cache with TTL/cleanup (cache-first execution).
+- [x] Task 1: Keep replay only as fallback; validate hit ratio and latency gains in hybrid mode.
 
 ## Finalize (Security-Sensitive and Architectural Completion)
 

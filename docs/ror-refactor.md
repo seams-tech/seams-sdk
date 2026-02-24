@@ -1,47 +1,44 @@
-# ROR Refactor Plan: Server-Owned Related Origins
+# ROR Refactor Plan: Remove Contract-Coupled Origins
 
-Status: Planned  
-Severity: High (auth compatibility + platform behavior)  
-Last updated: 2026-02-23
+Status: Ready for implementation  
+Severity: High (auth compatibility + breaking config/API)  
+Last updated: 2026-02-24
 
 ## 1. Direct Answer
 
-Yes, we still need `/.well-known/webauthn` when cross-origin apps use a wallet RP ID.
+Yes, we can remove `ROR_CONTRACT_ID` and contract-based ROR lookup.
 
-Example:
+Yes, it is a breaking change.
 
-1. Wallet iframe origin: `wallet.tatchi.xyz` (RP ID domain).
-2. Embedding app: `app1.com`.
-3. If WebAuthn is performed from `app1.com` with RP ID `wallet.tatchi.xyz`, then `https://app1.com` must be in `https://wallet.tatchi.xyz/.well-known/webauthn`.
+`/.well-known/webauthn` must remain. Only the data source changes.
 
-Conclusion: keep the endpoint, but move source-of-truth to relay/server (Postgres-backed), not contract.
+## 2. What Breaks
 
-## 2. Goals
+Removing legacy ROR contract code breaks these surfaces unless migrated in the same PR series:
 
-1. Remove contract-coupled ROR lookup from core auth service.
-2. Keep `/.well-known/webauthn` behavior correct and explicit.
-3. Make ROR origin management server-owned (Postgres + optional static config for local/dev).
-4. Preserve strict sanitization/normalization semantics for allowed origins.
-5. Ship as a clean breaking change with no legacy alias surface.
+1. `AuthService` constructor call sites that still pass `rorContractId`.
+2. Router handlers that call `AuthService.getRorOrigins()` / `getRorContractId()`.
+3. Cloudflare envs using `ROR_CONTRACT_ID` / `ROR_METHOD`.
+4. Tests stubbing `getRorOrigins` on fake `AuthService`.
+5. Dev plugin/docs flow that reads chain via `VITE_ROR_CONTRACT_ID`.
+6. Examples and READMEs describing contract-based `get_allowed_origins`.
 
-## 3. Non-Goals
+If we delete `rorContractId` without router-provider replacement, `/.well-known/webauthn` behavior will regress.
 
-1. No compatibility aliases (`webAuthnContractId`, `WEBAUTHN_CONTRACT_ID`, or contract fallback paths).
-2. No wildcard origin support.
-3. No change to WebAuthn cryptographic verification flow in this refactor.
+## 3. Scope and Decisions
 
-## 4. Current State
+1. Keep `GET /.well-known/webauthn`.
+2. Move ROR source-of-truth to server-owned providers.
+3. Remove all contract-coupled symbols in one cleanup:
+   `ROR_CONTRACT_ID`, `VITE_ROR_CONTRACT_ID`, `ROR_METHOD`, `VITE_ROR_METHOD`,
+   `rorContractId`, `getRorOrigins`, `getRorContractId`.
+4. No compatibility aliases.
+5. No wildcard origins.
+6. Breaking changes are intentional.
 
-1. `/.well-known/webauthn` exists in both express/cloudflare routers.
-2. ROR origin lookup currently depends on `AuthService.getRorOrigins(...)`.
-3. `AuthService` still carries ROR contract concerns (`rorContractId` + NEAR view call path).
-4. ROR config in examples/docs is still presented as contract account ID.
+## 4. Target Architecture
 
-## 5. Target Architecture
-
-## 5.1 Route-Level ROR Provider
-
-Introduce a dedicated provider interface owned by router layer:
+### 4.1 Router-owned ROR provider
 
 ```ts
 export interface RorOriginsProvider {
@@ -49,147 +46,218 @@ export interface RorOriginsProvider {
 }
 ```
 
-Routers call provider directly for `/.well-known/webauthn`; `AuthService` is no longer in this path.
+### 4.2 Router configuration
 
-## 5.2 Provider Implementations
+Routers must resolve RP ID explicitly and query provider directly:
 
-1. `StaticRorOriginsProvider`:
-   - For local/dev/testing.
-   - Configured by code/env; returns normalized set.
-2. `PostgresRorOriginsProvider`:
-   - Canonical production path.
-   - Reads per-RP-ID allowlist from Postgres.
+```ts
+type RelayRouterRorOptions = {
+  provider: RorOriginsProvider;
+  rpId?: string;
+  rpIdByHost?: Record<string, string>;
+};
+```
 
-## 5.3 Data Model (Postgres)
+Rules:
 
-Add table (name suggestion: `webauthn_related_origins`):
+1. Exactly one RP ID strategy must be configured: `rpId` or `rpIdByHost`.
+2. Startup/config validation must fail fast on ambiguous or missing ROR config.
 
-1. `id` (uuid pk)
-2. `rp_id` (text, indexed)
-3. `origin` (text, unique with `rp_id`)
-4. `is_active` (boolean default true)
-5. `created_at` / `updated_at` (timestamptz)
+### 4.3 Provider implementations
+
+1. `StaticRorOriginsProvider` for local/dev/tests.
+2. `PostgresRorOriginsProvider` for production.
+
+### 4.4 Postgres model
+
+Table: `webauthn_related_origins`
+
+1. `id` uuid primary key
+2. `rp_id` text not null
+3. `origin` text not null
+4. `is_active` boolean not null default true
+5. `created_at` timestamptz not null default now()
+6. `updated_at` timestamptz not null default now()
 
 Indexes:
 
-1. `(rp_id, is_active)`
-2. unique `(rp_id, origin)`
+1. `index (rp_id, is_active)`
+2. `unique (rp_id, origin)`
 
-## 5.4 Router Behavior
+## 5. Breaking API/Config Contract
 
-`GET /.well-known/webauthn`:
+### 5.1 Removed
 
-1. Resolve RP ID for the serving host (explicit config mapping, not inferred from contract).
-2. Fetch origins from provider.
-3. Sanitize/dedupe/validate absolute origins.
-4. Return `{ origins }` with short cache headers.
+1. `AuthServiceConfig.rorContractId`
+2. `AuthServiceConfigInput.rorContractId`
+3. `AuthService.getRorOrigins(...)`
+4. `AuthService.getRorContractId()`
+5. Cloudflare router env fields:
+   `ROR_CONTRACT_ID`, `ROR_METHOD`
 
-## 6. Breaking API/Config Changes
+### 5.2 Added
 
-1. Remove ROR contract config from `AuthService`:
-   - Remove `rorContractId` from `AuthServiceConfig` and `AuthServiceConfigInput`.
-   - Remove `getRorContractId()` and `getRorOrigins(...)` from `AuthService`.
-2. Add router-level ROR options:
-   - `rorProvider` (required for well-known route when enabled).
-   - `rpId` or `rpIdByHost` mapping (required to prevent ambiguous host behavior).
-3. Replace env docs/examples from contract ID config to provider-backed config.
+1. Router option block for ROR provider + RP ID mapping.
+2. Provider interfaces and implementations under `server/src/router/ror/*`.
 
-## 7. Implementation Plan
+### 5.3 Runtime expectations
 
-## Phase 0: Contract Surface Freeze
+1. `/.well-known/webauthn` returns sanitized/deduped origins from provider.
+2. Cache policy remains `max-age=60, stale-while-revalidate=600` unless explicitly changed.
 
-- [ ] Confirm no remaining `contractId` / `webAuthnContractId` / `WEBAUTHN_CONTRACT_ID` symbols.
-- [ ] Add CI grep guard to block reintroduction.
+## 6. Implementation Plan
 
-## Phase 1: Provider Abstractions
+### Phase 0: Guardrails
 
-- [ ] Add `RorOriginsProvider` interface + normalization helper module.
+- [ ] Add CI grep guard blocking reintroduction of removed symbols.
+- [ ] Add CI grep guard blocking docs claims that ROR source-of-truth is on-chain.
+
+### Phase 1: Provider primitives
+
+- [ ] Add `RorOriginsProvider` interface.
+- [ ] Add origin normalization/validation helper shared by providers and routes.
 - [ ] Add `StaticRorOriginsProvider`.
 - [ ] Add unit tests for normalization and invalid origin rejection.
 
 Suggested files:
 
 - `server/src/router/ror/provider.ts` (new)
+- `server/src/router/ror/normalize.ts` (new)
 - `server/src/router/ror/staticProvider.ts` (new)
 - `tests/unit/server.rorProvider.unit.test.ts` (new)
 
-## Phase 2: Router Wiring
+### Phase 2: Router wiring
 
-- [ ] Extend express/cloudflare router options with `rorProvider` and RP-ID config.
-- [ ] Update `/.well-known/webauthn` handlers to use provider only.
-- [ ] Keep cache-control behavior unchanged unless explicitly revised.
+- [ ] Extend `RelayRouterOptions` with ROR options.
+- [ ] Wire express and cloudflare `/.well-known/webauthn` to provider path only.
+- [ ] Add RP ID resolution helper (`rpId` vs `rpIdByHost`) with fail-fast validation.
+- [ ] Keep route response format unchanged: `{ origins }`.
 
 Suggested files:
 
 - `server/src/router/relay.ts`
+- `server/src/router/express/createRelayRouter.ts`
+- `server/src/router/cloudflare/createCloudflareRouter.ts`
 - `server/src/router/express/routes/wellKnown.ts`
 - `server/src/router/cloudflare/routes/wellKnown.ts`
 
-## Phase 3: Postgres Provider
+### Phase 3: Postgres provider
 
-- [ ] Add Postgres read-only provider implementation.
-- [ ] Add query + mapping tests (including inactive row filtering).
-- [ ] Wire provider into relay-server example when `POSTGRES_URL` exists.
+- [ ] Implement `PostgresRorOriginsProvider`.
+- [ ] Add query tests (active-only filtering, ordering, dedupe).
+- [ ] Add migration/DDL for `webauthn_related_origins`.
 
 Suggested files:
 
 - `server/src/router/ror/postgresProvider.ts` (new)
-- `server/src/core/storage/postgres/*` (reuse existing DB utilities where possible)
-- `examples/relay-server/src/index.ts`
+- `server/src/core/storage/postgres/*` (reuse existing db utilities)
+- `tests/unit/server.rorPostgresProvider.unit.test.ts` (new)
 
-## Phase 4: Remove AuthService ROR Responsibilities
+### Phase 4: Remove `AuthService` ROR legacy
 
-- [ ] Remove `getRorOrigins(...)` and `getRorContractId()` from `AuthService`.
-- [ ] Remove `rorContractId` from config types and initialization.
-- [ ] Update health payload to no longer expose contract-derived ROR config.
+- [ ] Remove config fields and methods tied to ROR contract lookup.
+- [ ] Remove constructor logging of `rorContractId`.
+- [ ] Remove health payload contract references.
+- [ ] Delete obsolete `tests/relayer/rorOrigins.test.ts`.
 
 Suggested files:
 
-- `server/src/core/AuthService.ts`
 - `server/src/core/types.ts`
 - `server/src/core/config.ts`
+- `server/src/core/AuthService.ts`
 - `server/src/router/express/routes/health.ts`
 - `server/src/router/cloudflare/routes/health.ts`
 
-## Phase 5: Examples, Docs, and Tests
+### Phase 5: Examples and runtime env cleanup
 
-- [ ] Update server/worker examples to configure provider-backed ROR.
-- [ ] Rewrite docs that still describe on-chain WebAuthn contract as ROR source-of-truth.
-- [ ] Update relayer tests to inject mock providers instead of stubbing `AuthService.getRorOrigins`.
+- [ ] Replace `ROR_CONTRACT_ID` in relay examples with provider-backed config.
+- [ ] Replace cloudflare worker env contract fields with provider-backed config.
+- [ ] Update tatchi-site env/vite config to stop forwarding `VITE_ROR_CONTRACT_ID`.
 
-## 8. Testing Plan
+Suggested files:
+
+- `examples/relay-server/env.example`
+- `examples/relay-server/src/index.ts`
+- `examples/relay-cloudflare-worker/src/worker.ts`
+- `examples/relay-cloudflare-worker/wrangler.toml`
+- `examples/tatchi-site/env.example`
+- `examples/tatchi-site/vite.config.ts`
+- `examples/tatchi-site/vite-env.d.ts`
+
+### Phase 6: Tests + docs + plugin cleanup
+
+- [ ] Update router tests to inject a mock ROR provider instead of stubbing `AuthService.getRorOrigins`.
+- [ ] Remove legacy ROR contract references from server/docs/examples.
+- [ ] Remove plugin/docs references to dynamic chain ROR fetch in dev.
+- [ ] Keep docs aligned with server-owned ROR management only.
+
+Candidate files:
+
+- `tests/relayer/helpers.ts`
+- `tests/relayer/health-wellknown.test.ts`
+- `tests/e2e/thresholdEd25519.*.test.ts` (constructor arg cleanup)
+- `server/src/README.md`
+- `client/src/core/signingEngine/signers/webauthn/fallbacks/README.md`
+- `examples/tatchi-docs/src/concepts/passkey-scope.md`
+- `examples/tatchi-site/src/docs/concepts/passkey-scope.md`
+- `examples/tatchi-docs/src/getting-started/installation.md`
+- `examples/tatchi-site/src/docs/getting-started/installation.md`
+
+## 7. Migration Notes (Consumers)
+
+Before:
+
+```ts
+const service = new AuthService({
+  relayerAccount,
+  relayerPrivateKey,
+  rorContractId: process.env.ROR_CONTRACT_ID,
+});
+app.use('/', createRelayRouter(service));
+```
+
+After:
+
+```ts
+const service = new AuthService({
+  relayerAccount,
+  relayerPrivateKey,
+});
+
+app.use('/', createRelayRouter(service, {
+  ror: {
+    provider: new StaticRorOriginsProvider({
+      byRpId: { 'wallet.example.com': ['https://app1.com'] },
+    }),
+    rpIdByHost: { 'wallet.example.com': 'wallet.example.com' },
+  },
+}));
+```
+
+## 8. Test Plan
 
 1. Unit:
-   - Origin normalization and dedupe.
-   - RP-ID/host resolution logic.
-   - Postgres provider query filtering and ordering.
+   origin parser, normalization, dedupe, invalid inputs.
 2. Integration:
-   - Express `/.well-known/webauthn` with static provider.
-   - Cloudflare `/.well-known/webauthn` with static provider.
-   - Postgres-backed happy path.
-3. Regression:
-   - Existing health/ready routes.
-   - ROR endpoint cache header behavior.
+   express/cloudflare `/.well-known/webauthn` with static provider.
+3. Persistence:
+   postgres provider filtering and RP-ID scoping.
+4. Regression:
+   `healthz`, `readyz`, existing auth/session/threshold routes.
+5. Negative:
+   missing `ror` config when route is enabled should fail fast.
 
-## 9. Rollout
+## 9. Acceptance Criteria
 
-1. Land provider abstraction + router wiring first.
-2. Switch examples/tests to provider path.
-3. Remove `AuthService` ROR contract surface in same PR series.
-4. Update migration notes in `sdk/README.md` and `server/src/README.md`.
+1. `/.well-known/webauthn` works without any contract lookup.
+2. No code references removed legacy symbols.
+3. No docs/examples instruct contract-based ROR allowlist management.
+4. CI guard blocks reintroduction.
+5. Router tests pass with provider injection model.
 
-## 10. Risks and Mitigations
+## 10. Rollout
 
-1. Misconfigured RP-ID/host mapping can break passkeys.
-   - Mitigation: fail-fast startup validation for required ROR config.
-2. Origin list drift across environments.
-   - Mitigation: single Postgres source-of-truth + admin workflow.
-3. Overly permissive origin entries.
-   - Mitigation: strict parser, no wildcard support, explicit allowlist review.
-
-## 11. Acceptance Criteria
-
-1. `/.well-known/webauthn` works without contract dependency.
-2. No `AuthService` config or methods reference ROR contract lookup.
-3. All tests for relayer well-known and ROR origin behavior pass.
-4. Docs/examples describe server-owned ROR management only.
+1. Land Phases 0-2 together to keep well-known behavior intact.
+2. Land Phase 3 before production migration.
+3. Land Phases 4-6 in same release train; no legacy aliases.
+4. Publish migration notes in `server/src/README.md` and `sdk/README.md`.
