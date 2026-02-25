@@ -258,6 +258,194 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     expect(fallbackWarnings.length).toBeGreaterThan(0);
   });
 
+  test('strict no-replay returns retriable stale_session_state on cross-instance cache miss', async () => {
+    const userId = 'strict-no-replay-user';
+    const rpId = 'example.localhost';
+    const participantIds = [1, 2];
+    const clientParticipantId = 1;
+    const relayerParticipantId = 2;
+    const thresholdExpiresAtMs = Date.now() + 120_000;
+
+    const clientSigningShare32 = randomSecpSecretKey32();
+    const clientVerifyingShare33 = secp256k1.getPublicKey(clientSigningShare32, true);
+    const clientVerifyingShareB64u = base64UrlEncode(clientVerifyingShare33);
+
+    const relayerKeyIdDigest32 = await sha256BytesUtf8(alphabetizeStringify({
+      version: 'threshold_secp256k1_key_id_v1',
+      schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
+      userId,
+      rpId,
+      clientVerifyingShareB64u,
+    }));
+    const relayerKeyId = `secp-${base64UrlEncode(relayerKeyIdDigest32)}`;
+
+    const sharedPresignSessionStore = new InMemoryThresholdEcdsaPresignSessionStore();
+    const sharedPresignaturePool = new InMemoryThresholdEcdsaPresignaturePool();
+    const sharedSigningSessionStore = new InMemoryThresholdEcdsaSigningSessionStore();
+    const strictNoReplayWarnings: string[] = [];
+
+    const fakeSessionStore = {
+      putMpcSession: async () => {},
+      takeMpcSession: async () => null,
+      putSigningSession: async () => {},
+      takeSigningSession: async () => null,
+      putCoordinatorSigningSession: async () => {},
+      takeCoordinatorSigningSession: async () => null,
+    } as const;
+
+    let presignIdCounter = 0;
+    const makeHandler = () => new ThresholdEcdsaSigningHandlers({
+      logger: {
+        debug: () => {},
+        info: () => {},
+        warn: (msg: unknown) => {
+          if (String(msg).includes('presign strict no-replay cache miss')) {
+            strictNoReplayWarnings.push(String(msg));
+          }
+        },
+        error: () => {},
+      } as any,
+      nodeRole: 'coordinator',
+      participantIds2p: participantIds,
+      clientParticipantId,
+      relayerParticipantId,
+      secp256k1MasterSecretB64u: TEST_MASTER_SECRET_B64U,
+      sessionStore: fakeSessionStore as any,
+      signingSessionStore: sharedSigningSessionStore,
+      presignSessionStore: sharedPresignSessionStore,
+      presignaturePool: sharedPresignaturePool,
+      strictNoReplay: true,
+      ensureReady: async () => {},
+      createSigningSessionId: () => `sign-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      createPresignSessionId: () => `presign-strict-${++presignIdCounter}`,
+    });
+
+    const handlerA = makeHandler();
+    const handlerB = makeHandler();
+    const claims = {
+      sub: userId,
+      rpId,
+      relayerKeyId,
+      participantIds,
+      thresholdExpiresAtMs,
+    };
+
+    const init = await handlerA.ecdsaPresignInit({
+      claims: claims as any,
+      request: { relayerKeyId, clientVerifyingShareB64u, count: 1 },
+    });
+    expect(init.ok, JSON.stringify(init)).toBe(true);
+    const presignSessionId = String(init.presignSessionId || '');
+    expect(presignSessionId).toBeTruthy();
+
+    const step = await handlerB.ecdsaPresignStep({
+      claims: claims as any,
+      request: {
+        presignSessionId,
+        stage: 'triples',
+        outgoingMessagesB64u: [],
+      },
+    });
+    expect(step.ok).toBe(false);
+    expect(step.code).toBe('stale_session_state');
+    expect(String(step.message || '')).toContain('/threshold-ecdsa/presign/init');
+    expect(await sharedPresignSessionStore.getSession(presignSessionId)).toBeNull();
+    expect(strictNoReplayWarnings.length).toBeGreaterThan(0);
+  });
+
+  test('strict no-replay keeps scope validation precedence over cache miss', async () => {
+    const userId = 'strict-scope-user';
+    const rpId = 'example.localhost';
+    const participantIds = [1, 2];
+    const clientParticipantId = 1;
+    const relayerParticipantId = 2;
+    const thresholdExpiresAtMs = Date.now() + 120_000;
+
+    const clientSigningShare32 = randomSecpSecretKey32();
+    const clientVerifyingShare33 = secp256k1.getPublicKey(clientSigningShare32, true);
+    const clientVerifyingShareB64u = base64UrlEncode(clientVerifyingShare33);
+
+    const relayerKeyIdDigest32 = await sha256BytesUtf8(alphabetizeStringify({
+      version: 'threshold_secp256k1_key_id_v1',
+      schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
+      userId,
+      rpId,
+      clientVerifyingShareB64u,
+    }));
+    const relayerKeyId = `secp-${base64UrlEncode(relayerKeyIdDigest32)}`;
+
+    const sharedPresignSessionStore = new InMemoryThresholdEcdsaPresignSessionStore();
+    const sharedPresignaturePool = new InMemoryThresholdEcdsaPresignaturePool();
+    const sharedSigningSessionStore = new InMemoryThresholdEcdsaSigningSessionStore();
+
+    const fakeSessionStore = {
+      putMpcSession: async () => {},
+      takeMpcSession: async () => null,
+      putSigningSession: async () => {},
+      takeSigningSession: async () => null,
+      putCoordinatorSigningSession: async () => {},
+      takeCoordinatorSigningSession: async () => null,
+    } as const;
+
+    let presignIdCounter = 0;
+    const makeHandler = () => new ThresholdEcdsaSigningHandlers({
+      logger: {
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+      } as any,
+      nodeRole: 'coordinator',
+      participantIds2p: participantIds,
+      clientParticipantId,
+      relayerParticipantId,
+      secp256k1MasterSecretB64u: TEST_MASTER_SECRET_B64U,
+      sessionStore: fakeSessionStore as any,
+      signingSessionStore: sharedSigningSessionStore,
+      presignSessionStore: sharedPresignSessionStore,
+      presignaturePool: sharedPresignaturePool,
+      strictNoReplay: true,
+      ensureReady: async () => {},
+      createSigningSessionId: () => `sign-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      createPresignSessionId: () => `presign-strict-scope-${++presignIdCounter}`,
+    });
+
+    const handlerA = makeHandler();
+    const handlerB = makeHandler();
+    const validClaims = {
+      sub: userId,
+      rpId,
+      relayerKeyId,
+      participantIds,
+      thresholdExpiresAtMs,
+    };
+
+    const init = await handlerA.ecdsaPresignInit({
+      claims: validClaims as any,
+      request: { relayerKeyId, clientVerifyingShareB64u, count: 1 },
+    });
+    expect(init.ok, JSON.stringify(init)).toBe(true);
+    const presignSessionId = String(init.presignSessionId || '');
+    expect(presignSessionId).toBeTruthy();
+
+    const wrongScopeClaims = {
+      ...validClaims,
+      sub: 'different-user',
+    };
+    const step = await handlerB.ecdsaPresignStep({
+      claims: wrongScopeClaims as any,
+      request: {
+        presignSessionId,
+        stage: 'triples',
+        outgoingMessagesB64u: [],
+      },
+    });
+    expect(step.ok).toBe(false);
+    expect(step.code).toBe('unauthorized');
+    expect(String(step.message || '')).toContain('does not match threshold session scope');
+    expect(await sharedPresignSessionStore.getSession(presignSessionId)).toBeNull();
+  });
+
   test('sign/init honors client-selected presignature and preserves other pool items', async () => {
     const relayerKeyId = 'secp-test-relayer-key';
     const digest32 = new Uint8Array(32).fill(7);

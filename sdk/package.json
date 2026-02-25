@@ -48,6 +48,11 @@
       "default": "./dist/esm/server/router/cloudflare.js",
       "types": "./dist/types/server/src/router/cloudflare-adaptor.d.ts"
     },
+    "./server/router/ror": {
+      "import": "./dist/esm/server/router/ror.js",
+      "default": "./dist/esm/server/router/ror.js",
+      "types": "./dist/types/server/src/router/ror-adaptor.d.ts"
+    },
     "./server/wasm/signer": {
       "import": "./dist/esm/server/wasm/signer.js",
       "default": "./dist/esm/server/wasm/signer.js",

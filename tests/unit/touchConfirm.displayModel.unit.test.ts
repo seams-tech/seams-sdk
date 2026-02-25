@@ -134,6 +134,11 @@ test.describe('touchConfirm display model fixtures', () => {
     expect(model.operations[0].children[0].children[0].to?.toLowerCase()).toBe(target.toLowerCase());
     expect(model.operations[0].children[0].children[0].value).toBe('7');
     expect(model.operations[0].children[0].children[0].selector).toBe('0xa9059cbb');
+    const nestedCallFields = Array.isArray(model.operations[0].children[0].children[0].fields)
+      ? model.operations[0].children[0].children[0].fields
+      : [];
+    const nestedCallFunction = nestedCallFields.find((field: { label?: string; value?: string }) => field.label === 'Function');
+    expect(nestedCallFunction?.value).toBe('transfer(address,uint256)');
   });
 
   test('decodes executeBatch callData for direct smart-account calls', async ({ page }) => {
@@ -199,6 +204,48 @@ test.describe('touchConfirm display model fixtures', () => {
     expect(model.operations[0].children[1].value).toBe('9');
   });
 
+  test('adds known function signature for direct EIP-1559 contract calls', async ({ page }) => {
+    const tokenContract = `0x${'99'.repeat(20)}` as const;
+    const tokenRecipient = `0x${'77'.repeat(20)}` as const;
+    const erc20TransferData = encodeFunctionData({
+      abi: ERC20_ABI,
+      functionName: 'transfer',
+      args: [tokenRecipient, 123n],
+    });
+
+    const model = await page.evaluate(async ({ paths, tokenContractArg, erc20TransferDataArg }) => {
+      const { buildEvmDisplayModel } = await import(paths.evmBuilder);
+      return buildEvmDisplayModel({
+        request: {
+          chain: 'evm',
+          kind: 'eip1559',
+          senderSignatureAlgorithm: 'secp256k1',
+          tx: {
+            chainId: 11155111n,
+            nonce: 10n,
+            maxPriorityFeePerGas: 1_500_000_000n,
+            maxFeePerGas: 3_000_000_000n,
+            gasLimit: 300_000n,
+            to: tokenContractArg,
+            value: 0n,
+            data: erc20TransferDataArg,
+            accessList: [],
+          },
+        },
+      });
+    }, {
+      paths: IMPORT_PATHS,
+      tokenContractArg: tokenContract,
+      erc20TransferDataArg: erc20TransferData,
+    });
+
+    expect(model.operations[0].kind).toBe('generic.contractCall');
+    expect(model.operations[0].selector).toBe('0xa9059cbb');
+    const fields = Array.isArray(model.operations[0].fields) ? model.operations[0].fields : [];
+    const functionField = fields.find((field: { label?: string; value?: string }) => field.label === 'Function');
+    expect(functionField?.value).toBe('transfer(address,uint256)');
+  });
+
   test('normalizes Tempo typed transaction payloads', async ({ page }) => {
     const model = await page.evaluate(async ({ paths }) => {
       const { buildTempoDisplayModel } = await import(paths.tempoBuilder);
@@ -232,9 +279,10 @@ test.describe('touchConfirm display model fixtures', () => {
     expect(model.chain).toBe('tempo');
     expect(model.operations).toHaveLength(1);
     expect(model.operations[0].kind).toBe('tempo.eip2718');
-    expect(model.operations[0].children).toHaveLength(1);
-    expect(model.operations[0].children[0].kind).toBe('generic.contractCall');
-    expect(model.operations[0].children[0].selector).toBe('0xabcdef12');
+    expect(model.operations[0].children?.length || 0).toBe(0);
+    const fields = Array.isArray(model.operations[0].fields) ? model.operations[0].fields : [];
+    const selectorField = fields.find((field: { label?: string; value?: string }) => field.label === 'Selector');
+    expect(selectorField?.value).toBe('0xabcdef12');
   });
 
   test('falls back safely for partial ERC-4337 decode failures', async ({ page }) => {

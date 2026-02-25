@@ -50,16 +50,32 @@ test.describe('relayer health/ready + well-known', () => {
   });
 
   test('express: GET /.well-known/webauthn sets Cache-Control and returns origins', async () => {
-    const service = makeFakeAuthService({
-      getRorOrigins: async () => ['https://wallet.example.localhost', 'https://example.localhost'],
+    const calls: Array<{ rpId: string; host?: string }> = [];
+    const service = makeFakeAuthService();
+    const router = createRelayRouter(service, {
+      ror: {
+        rpId: 'wallet.example.localhost',
+        provider: {
+          getAllowedOrigins: async (input) => {
+            calls.push(input);
+            return [
+              'https://wallet.example.localhost',
+              'https://wallet.example.localhost',
+              'http://invalid.example.localhost',
+              'https://example.localhost',
+            ];
+          },
+        },
+      },
     });
-    const router = createRelayRouter(service, {});
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/.well-known/webauthn`, { method: 'GET' });
       expect(res.status).toBe(200);
       expect(res.headers.get('cache-control')).toContain('max-age=60');
       expect(res.json?.origins).toEqual(['https://wallet.example.localhost', 'https://example.localhost']);
+      expect(calls.length).toBe(1);
+      expect(calls[0]).toEqual({ rpId: 'wallet.example.localhost', host: '127.0.0.1' });
     } finally {
       await srv.close();
     }
@@ -115,27 +131,34 @@ test.describe('relayer health/ready + well-known', () => {
     expect(res.json?.code).toBe('relayer_unavailable');
   });
 
-  test('cloudflare: GET /.well-known/webauthn supports env overrides and sets Cache-Control', async () => {
-    const calls: any[] = [];
-    const service = makeFakeAuthService({
-      getRorOrigins: async (opts?: any) => {
-        calls.push(opts);
-        return ['https://example.localhost'];
+  test('cloudflare: GET /.well-known/webauthn resolves rpId from host mapping and sets Cache-Control', async () => {
+    const calls: Array<{ rpId: string; host?: string }> = [];
+    const service = makeFakeAuthService();
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      ror: {
+        rpIdByHost: {
+          'relay.test': 'wallet.example.localhost',
+        },
+        provider: {
+          getAllowedOrigins: async (input) => {
+            calls.push(input);
+            return ['https://example.localhost'];
+          },
+        },
       },
     });
-    const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'] });
 
     const res = await callCf(handler, {
       method: 'GET',
       path: '/.well-known/webauthn',
       origin: 'https://example.localhost',
-      env: { ROR_CONTRACT_ID: 'c.testnet', ROR_METHOD: 'm' },
     });
 
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toContain('max-age=60');
     expect(res.json?.origins).toEqual(['https://example.localhost']);
     expect(calls.length).toBe(1);
-    expect(calls[0]).toEqual({ rorContractId: 'c.testnet', method: 'm' });
+    expect(calls[0]).toEqual({ rpId: 'wallet.example.localhost', host: 'relay.test' });
   });
 });

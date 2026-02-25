@@ -158,7 +158,6 @@ export function makeFakeAuthService(overrides: Partial<{
   createWebAuthnLoginOptions: AuthService['createWebAuthnLoginOptions'];
   verifyWebAuthnLogin: AuthService['verifyWebAuthnLogin'];
   createAccountAndRegisterUser: AuthService['createAccountAndRegisterUser'];
-  getRorOrigins: AuthService['getRorOrigins'];
   getOrCreateAppSessionVersion: AuthService['getOrCreateAppSessionVersion'];
   validateAppSessionVersion: AuthService['validateAppSessionVersion'];
   rotateAppSessionVersion: AuthService['rotateAppSessionVersion'];
@@ -179,7 +178,6 @@ export function makeFakeAuthService(overrides: Partial<{
       || (async () => ({ ok: false, verified: false, code: 'not_implemented', message: 'not implemented' })),
     createAccountAndRegisterUser: overrides.createAccountAndRegisterUser
       || (async () => ({ success: false, error: 'not implemented' })),
-    getRorOrigins: overrides.getRorOrigins || (async () => []),
     getOrCreateAppSessionVersion: overrides.getOrCreateAppSessionVersion
       || (async () => ({ ok: true, appSessionVersion: 'v1' })),
     validateAppSessionVersion: overrides.validateAppSessionVersion

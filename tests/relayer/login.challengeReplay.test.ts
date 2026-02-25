@@ -9,7 +9,6 @@ test.describe('relayer login challenge replay', () => {
     const service = new AuthService({
       relayerAccount: 'relayer.testnet',
       relayerPrivateKey: 'ed25519:dummy',
-      rorContractId: DEFAULT_TEST_CONFIG.relayerAccount,
       nearRpcUrl: DEFAULT_TEST_CONFIG.nearRpcUrl,
       networkId: DEFAULT_TEST_CONFIG.nearNetwork,
       accountInitialBalance: '1',

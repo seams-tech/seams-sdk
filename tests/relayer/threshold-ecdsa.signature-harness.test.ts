@@ -23,7 +23,6 @@ function makeAuthServiceForThreshold(
   const service = new AuthService({
     relayerAccount: 'relayer.testnet',
     relayerPrivateKey: 'ed25519:dummy',
-    rorContractId: 'w3a-v1.testnet',
     nearRpcUrl: 'https://rpc.testnet.near.org',
     networkId: 'testnet',
     accountInitialBalance: '1',

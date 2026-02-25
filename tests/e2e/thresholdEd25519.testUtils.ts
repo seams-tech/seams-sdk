@@ -37,7 +37,6 @@ export function makeAuthServiceForThreshold(
   const svc = new AuthService({
     relayerAccount: 'relayer.testnet',
     relayerPrivateKey: 'ed25519:dummy',
-    rorContractId: DEFAULT_TEST_CONFIG.relayerAccount,
     nearRpcUrl: DEFAULT_TEST_CONFIG.nearRpcUrl,
     networkId: DEFAULT_TEST_CONFIG.nearNetwork,
     accountInitialBalance: '1',
