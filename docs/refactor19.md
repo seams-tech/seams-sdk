@@ -129,7 +129,7 @@ For no-replay mode:
   - protocol step compute
   - store CAS/write
 - [x] Record representative baseline timing profile for `/presign/step` in docs (`docs/presigning-pool.md`).
-- [ ] Record baseline p50/p95/p99 for `/presign/step`.
+- [x] Record baseline p50/p95/p99 for `/presign/step` via benchmark report (`docs/benchmarks/threshold-ecdsa-presign.md`, run `20260224-162718Z`).
 - [ ] Add runtime flag to enable no-replay mode in controlled rollout.
 
 Suggested files:
@@ -155,7 +155,7 @@ Suggested files:
 - [ ] In strict no-replay mode, return explicit retriable session error.
 - [ ] Emit structured metrics:
   - [x] Structured `/presign/step` perf fields now expose live/fallback behavior (`liveCacheStatus`, `liveResolveSource`, `replayFallbackUsed`, `replayFallbackReason`).
-  - [ ] Dedicated metric names/counters:
+  - [x] Dedicated metric names/counters:
     - `presign_live_cache_hit`
     - `presign_live_cache_miss`
     - `presign_replay_fallback_used`
@@ -249,7 +249,82 @@ Mitigation: decision gate + rollout checklist must be signed off before Phase 4.
 - [ ] Task 1: Remove replay path only after decision gate is satisfied and hybrid fallback metrics are stable.
 - [ ] Convert matrix assumptions into verified results (before/after timing table + security review signoff).
 
-## 9. Potential (Risky) Improvements (Out of Scope)
+## 9. Benchmarking Program and Config-Tuning Loop
+
+Goal: make presign performance tuning reproducible and data-driven, not anecdotal.
+
+### 9.1 Dedicated benchmark module/folder
+
+- [x] Add a standalone benchmark package under `benchmarks/threshold-ecdsa-presign/`.
+- [x] Keep benchmark code isolated from production runtime logic.
+- [x] Add a single entrypoint command (for local + CI):
+  - `pnpm benchmark:threshold-ecdsa`
+
+Proposed files:
+
+- `benchmarks/threshold-ecdsa-presign/README.md`
+- `benchmarks/threshold-ecdsa-presign/src/runner.mjs`
+- `benchmarks/threshold-ecdsa-presign/src/scenarios.mjs`
+- `benchmarks/threshold-ecdsa-presign/src/collectors.mjs`
+- `benchmarks/threshold-ecdsa-presign/src/report.mjs`
+- `benchmarks/threshold-ecdsa-presign/fixtures/`
+
+### 9.2 Required benchmark scenarios
+
+- [x] `cold_first_sign_no_pool`: empty pool, no warm entries.
+- [x] `warm_sign_pool_hit`: pooled presignature available.
+- [x] `background_refill_contention`: foreground sign under refill traffic.
+- [x] `multi_runtime_contention`: host + iframe/tab-like duplicate runtime pressure.
+- [x] `store_backend_compare`: Postgres vs Redis/Upstash (harness implemented; backend mode is env-driven).
+- [x] `replay_fallback_path`: force live-cache miss and verify fallback behavior/cost.
+
+### 9.3 Metrics to capture
+
+- [x] Route timings:
+  - `/threshold-ecdsa/presign/init`
+  - `/threshold-ecdsa/presign/step`
+  - `/threshold-ecdsa/sign/init`
+  - `/threshold-ecdsa/sign/finalize`
+- [x] Percentiles:
+  - p50, p95, p99
+- [x] Ratios/counters:
+  - `presign_live_cache_hit`
+  - `presign_live_cache_miss`
+  - `presign_replay_fallback_used`
+  - foreground-vs-background queue wait
+- [x] End-to-end UX metrics:
+  - first-sign latency
+  - warm-sign latency
+  - error/retry rate
+
+### 9.4 Benchmark outputs and documentation
+
+- [x] Write raw run artifacts to `benchmarks/threshold-ecdsa-presign/out/*.json`.
+- [x] Generate human-readable report at `docs/benchmarks/threshold-ecdsa-presign.md`.
+- [x] Add a summarized tuning table to `docs/presigning-pool.md`:
+  - recommended `targetDepth`
+  - recommended `lowWatermark`
+  - recommended `maxRefillInFlight`
+  - when to switch from Postgres to Redis/Upstash
+
+### 9.5 Config decision policy driven by benchmarks
+
+- [x] Define explicit SLO gates for interactive signing:
+  - first-sign p95 target
+  - warm-sign p95 target
+  - `/presign/step` p95 and p99 guardrails
+- [x] Enforce benchmark SLO gates in CI (`.github/workflows/ci.yml`, threshold-signing-core job) using `pnpm benchmark:threshold-ecdsa`.
+- [ ] Keep defaults (`targetDepth=3`, `lowWatermark=1`, `maxRefillInFlight=1`) unless benchmark evidence supports a change.
+- [ ] Require benchmark evidence before changing presign pool defaults in `client/src/core/config/defaultConfigs.ts`.
+- [ ] Record each default change decision in `docs/refactor19.md` with before/after data.
+
+### 9.6 Latest benchmark snapshot
+
+- Latest run id: `20260224-164630Z`
+- Report: `docs/benchmarks/threshold-ecdsa-presign.md`
+- Current recommendation: keep `targetDepth=3`, `lowWatermark=1`, `maxRefillInFlight=1`
+
+## 10. Potential (Risky) Improvements (Out of Scope)
 
 The following items are intentionally excluded from the active implementation plan due to security and operational risk:
 

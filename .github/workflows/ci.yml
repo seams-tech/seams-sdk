@@ -182,6 +182,13 @@ jobs:
       - name: Run threshold signing core suites
         run: pnpm test:threshold-core
 
+      - name: Run threshold ECDSA benchmark SLO gates
+        env:
+          # CI VMs have noisier CPU scheduling than local; keep guardrails but avoid flakiness.
+          BENCH_SLO_PRESIGN_STEP_P95_MS: "1400"
+          BENCH_SLO_PRESIGN_STEP_P99_MS: "2000"
+        run: pnpm benchmark:threshold-ecdsa
+
       - name: Upload threshold-core test artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4

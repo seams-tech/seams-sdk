@@ -43,7 +43,9 @@
     "test:relayer": "pnpm -C tests test:relayer",
     "test:threshold-core": "pnpm -C tests test:threshold-core",
     "test:signers:gates": "pnpm -C tests test:signers:gates",
-    "show-report": "pnpm -C tests show-report"
+    "show-report": "pnpm -C tests show-report",
+    "benchmark:threshold-ecdsa": "node ./benchmarks/threshold-ecdsa-presign/src/runner.mjs",
+    "benchmark:threshold-ecdsa:report-only": "node ./benchmarks/threshold-ecdsa-presign/src/runner.mjs --skip-doc-sync"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

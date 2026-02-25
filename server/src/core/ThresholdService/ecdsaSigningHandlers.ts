@@ -819,6 +819,9 @@ export class ThresholdEcdsaSigningHandlers {
     const { presignSessionId, stage: requestedStage, outgoingMessagesB64u } = parsedRequest.value;
     const stepStartedAtMs = Date.now();
     const perf: {
+      presign_live_cache_hit: 0 | 1;
+      presign_live_cache_miss: 0 | 1;
+      presign_replay_fallback_used: 0 | 1;
       storeGetSessionMs?: number;
       liveResolveMs?: number;
       liveResolveSource?: 'cache_hit' | 'replay_restore';
@@ -830,7 +833,11 @@ export class ThresholdEcdsaSigningHandlers {
       storeCasMs?: number;
       casCode?: string;
       resultCode?: string;
-    } = {};
+    } = {
+      presign_live_cache_hit: 0,
+      presign_live_cache_miss: 0,
+      presign_replay_fallback_used: 0,
+    };
     if (this.presignSessionStepInFlight.has(presignSessionId)) {
       return { ok: false, code: 'stale_session_state', message: 'Presign session step already in progress; retry step' };
     }
@@ -864,6 +871,7 @@ export class ThresholdEcdsaSigningHandlers {
         state = cached.state;
         sessionSeed32 = cached.sessionSeed32;
         liveEntry = cached;
+        perf.presign_live_cache_hit = 1;
         perf.liveResolveMs = 0;
         perf.liveResolveSource = 'cache_hit';
         perf.liveCacheStatus = 'hit';
@@ -885,6 +893,7 @@ export class ThresholdEcdsaSigningHandlers {
         }
         state = parsedState;
         sessionSeed32 = decodedSessionSeed32;
+        perf.presign_live_cache_miss = 1;
         perf.liveCacheStatus = 'miss';
       }
 
@@ -941,6 +950,7 @@ export class ThresholdEcdsaSigningHandlers {
         if (liveSession.value.source === 'replay_restore') {
           perf.replayRestoreMs = liveSession.value.replayRestoreMs;
           perf.replayFallbackReason = liveSession.value.fallbackReason;
+          perf.presign_replay_fallback_used = 1;
           perf.replayFallbackUsed = true;
         }
       }
