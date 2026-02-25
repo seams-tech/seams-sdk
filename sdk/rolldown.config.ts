@@ -470,6 +470,20 @@ const configs = [
       alias: aliasConfig,
     },
   },
+  // ROR provider adaptor ESM bundle
+  {
+    input: '../server/src/router/ror-adaptor.ts',
+    output: {
+      dir: BUILD_PATHS.BUILD.ESM,
+      format: 'esm',
+      entryFileNames: 'server/router/ror.js',
+      sourcemap: true,
+    },
+    external,
+    resolve: {
+      alias: aliasConfig,
+    },
+  },
   // WASM signer re-export ESM
   {
     input: '../server/src/wasm/signer.ts',
