@@ -1,7 +1,7 @@
 # Threshold ECDSA Presign Benchmark Report
 
-Generated: 2026-02-25T09:11:05.582Z
-Run ID: `20260225-091017Z`
+Generated: 2026-02-25T12:48:17.515Z
+Run ID: `20260225-124743Z`
 
 ## Scenario Results
 
@@ -13,24 +13,24 @@ Run ID: `20260225-091017Z`
 
 | End-to-End Scenario Total | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
 |---|---:|---:|---:|---:|---:|
-| `cold_first_sign_no_pool` | 2 | 2036 | 2226 | 2226 | 2131.0 |
+| `cold_first_sign_no_pool` | 2 | 1962 | 2108 | 2108 | 2035.0 |
 
 | Route | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
 |---|---:|---:|---:|---:|---:|
-| `/threshold-ecdsa/authorize` | 2 | 0 | 1 | 1 | 0.5 |
-| `/threshold-ecdsa/bootstrap` | 1 | 65 | 65 | 65 | 65.0 |
-| `/threshold-ecdsa/presign/init` | 2 | 16 | 41 | 41 | 28.5 |
-| `/threshold-ecdsa/presign/step` | 12 | 20 | 783 | 783 | 193.3 |
-| `/threshold-ecdsa/sign/finalize` | 2 | 17 | 18 | 18 | 17.5 |
-| `/threshold-ecdsa/sign/init` | 2 | 0 | 0 | 0 | 0.0 |
+| `/threshold-ecdsa/authorize` | 2 | 1 | 1 | 1 | 1.0 |
+| `/threshold-ecdsa/bootstrap` | 1 | 78 | 78 | 78 | 78.0 |
+| `/threshold-ecdsa/presign/init` | 2 | 20 | 38 | 38 | 29.0 |
+| `/threshold-ecdsa/presign/step` | 12 | 18 | 728 | 728 | 183.6 |
+| `/threshold-ecdsa/sign/finalize` | 2 | 11 | 14 | 14 | 12.5 |
+| `/threshold-ecdsa/sign/init` | 2 | 0 | 1 | 1 | 0.5 |
 
 | Presign Perf | Value |
 |---|---:|
 | presign_live_cache_hit | 12 |
 | presign_live_cache_miss | 0 |
-| presign_replay_fallback_used | 0 |
+| presign_stale_session_state | 0 |
 | liveCacheHitRatio | 100.0% |
-| replayFallbackRatio | 0.0% |
+| staleSessionRatio | 0.0% |
 | gateWaitP95ForegroundMs | 0 |
 | gateWaitP95BackgroundMs | n/a |
 | backgroundPresignRequestRatio | 0.0% |
@@ -44,24 +44,24 @@ Run ID: `20260225-091017Z`
 
 | End-to-End Scenario Total | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
 |---|---:|---:|---:|---:|---:|
-| `warm_sign_pool_hit` | 2 | 22 | 24 | 24 | 23.0 |
+| `warm_sign_pool_hit` | 2 | 16 | 26 | 26 | 21.0 |
 
 | Route | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
 |---|---:|---:|---:|---:|---:|
-| `/threshold-ecdsa/authorize` | 2 | 0 | 1 | 1 | 0.5 |
+| `/threshold-ecdsa/authorize` | 2 | 0 | 0 | 0 | 0.0 |
 | `/threshold-ecdsa/bootstrap` | 1 | 61 | 61 | 61 | 61.0 |
-| `/threshold-ecdsa/presign/init` | 2 | 17 | 40 | 40 | 28.5 |
-| `/threshold-ecdsa/presign/step` | 12 | 18 | 770 | 770 | 193.2 |
-| `/threshold-ecdsa/sign/finalize` | 2 | 13 | 17 | 17 | 15.0 |
-| `/threshold-ecdsa/sign/init` | 2 | 0 | 1 | 1 | 0.5 |
+| `/threshold-ecdsa/presign/init` | 2 | 16 | 44 | 44 | 30.0 |
+| `/threshold-ecdsa/presign/step` | 12 | 19 | 735 | 735 | 186.2 |
+| `/threshold-ecdsa/sign/finalize` | 2 | 12 | 18 | 18 | 15.0 |
+| `/threshold-ecdsa/sign/init` | 2 | 0 | 0 | 0 | 0.0 |
 
 | Presign Perf | Value |
 |---|---:|
 | presign_live_cache_hit | 12 |
 | presign_live_cache_miss | 0 |
-| presign_replay_fallback_used | 0 |
+| presign_stale_session_state | 0 |
 | liveCacheHitRatio | 100.0% |
-| replayFallbackRatio | 0.0% |
+| staleSessionRatio | 0.0% |
 | gateWaitP95ForegroundMs | n/a |
 | gateWaitP95BackgroundMs | 0 |
 | backgroundPresignRequestRatio | 100.0% |
@@ -75,26 +75,26 @@ Run ID: `20260225-091017Z`
 
 | End-to-End Scenario Total | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
 |---|---:|---:|---:|---:|---:|
-| `background_refill_contention` | 2 | 4017 | 4205 | 4205 | 4111.0 |
+| `background_refill_contention` | 2 | 3994 | 4129 | 4129 | 4061.5 |
 
 | Route | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
 |---|---:|---:|---:|---:|---:|
-| `/threshold-ecdsa/authorize` | 2 | 1 | 1298 | 1298 | 649.5 |
-| `/threshold-ecdsa/bootstrap` | 1 | 60 | 60 | 60 | 60.0 |
+| `/threshold-ecdsa/authorize` | 2 | 1 | 1282 | 1282 | 641.5 |
+| `/threshold-ecdsa/bootstrap` | 1 | 62 | 62 | 62 | 62.0 |
 | `/threshold-ecdsa/presign/init` | 4 | 17 | 41 | 41 | 23.0 |
-| `/threshold-ecdsa/presign/step` | 24 | 20 | 741 | 769 | 189.0 |
-| `/threshold-ecdsa/sign/finalize` | 2 | 12 | 18 | 18 | 15.0 |
+| `/threshold-ecdsa/presign/step` | 24 | 19 | 718 | 757 | 185.6 |
+| `/threshold-ecdsa/sign/finalize` | 2 | 15 | 17 | 17 | 16.0 |
 | `/threshold-ecdsa/sign/init` | 2 | 0 | 0 | 0 | 0.0 |
 
 | Presign Perf | Value |
 |---|---:|
 | presign_live_cache_hit | 24 |
 | presign_live_cache_miss | 0 |
-| presign_replay_fallback_used | 0 |
+| presign_stale_session_state | 0 |
 | liveCacheHitRatio | 100.0% |
-| replayFallbackRatio | 0.0% |
+| staleSessionRatio | 0.0% |
 | gateWaitP95ForegroundMs | 0 |
-| gateWaitP95BackgroundMs | 18 |
+| gateWaitP95BackgroundMs | 17 |
 | backgroundPresignRequestRatio | 50.0% |
 | poolEmptyResponses | 0 |
 
@@ -106,26 +106,26 @@ Run ID: `20260225-091017Z`
 
 | End-to-End Scenario Total | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
 |---|---:|---:|---:|---:|---:|
-| `multi_runtime_contention` | 2 | 6026 | 6267 | 6267 | 6146.5 |
+| `multi_runtime_contention` | 2 | 5923 | 6053 | 6053 | 5988.0 |
 
 | Route | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
 |---|---:|---:|---:|---:|---:|
-| `/threshold-ecdsa/authorize` | 2 | 761 | 815 | 815 | 788.0 |
-| `/threshold-ecdsa/bootstrap` | 1 | 60 | 60 | 60 | 60.0 |
-| `/threshold-ecdsa/presign/init` | 6 | 23 | 213 | 213 | 86.2 |
-| `/threshold-ecdsa/presign/step` | 36 | 19 | 747 | 774 | 188.7 |
-| `/threshold-ecdsa/sign/finalize` | 2 | 16 | 18 | 18 | 17.0 |
+| `/threshold-ecdsa/authorize` | 2 | 738 | 1493 | 1493 | 1115.5 |
+| `/threshold-ecdsa/bootstrap` | 1 | 63 | 63 | 63 | 63.0 |
+| `/threshold-ecdsa/presign/init` | 6 | 20 | 212 | 212 | 82.7 |
+| `/threshold-ecdsa/presign/step` | 36 | 18 | 711 | 736 | 182.7 |
+| `/threshold-ecdsa/sign/finalize` | 2 | 11 | 17 | 17 | 14.0 |
 | `/threshold-ecdsa/sign/init` | 2 | 0 | 0 | 0 | 0.0 |
 
 | Presign Perf | Value |
 |---|---:|
 | presign_live_cache_hit | 36 |
 | presign_live_cache_miss | 0 |
-| presign_replay_fallback_used | 0 |
+| presign_stale_session_state | 0 |
 | liveCacheHitRatio | 100.0% |
-| replayFallbackRatio | 0.0% |
+| staleSessionRatio | 0.0% |
 | gateWaitP95ForegroundMs | 0 |
-| gateWaitP95BackgroundMs | 41 |
+| gateWaitP95BackgroundMs | 37 |
 | backgroundPresignRequestRatio | 66.7% |
 | poolEmptyResponses | 0 |
 
@@ -137,52 +137,52 @@ Run ID: `20260225-091017Z`
 
 | End-to-End Scenario Total | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
 |---|---:|---:|---:|---:|---:|
-| `store_backend_compare` | 2 | 2049 | 2196 | 2196 | 2122.5 |
+| `store_backend_compare` | 2 | 1964 | 2137 | 2137 | 2050.5 |
 
 | Route | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
 |---|---:|---:|---:|---:|---:|
-| `/threshold-ecdsa/authorize` | 2 | 0 | 1 | 1 | 0.5 |
-| `/threshold-ecdsa/bootstrap` | 1 | 62 | 62 | 62 | 62.0 |
-| `/threshold-ecdsa/presign/init` | 2 | 16 | 42 | 42 | 29.0 |
-| `/threshold-ecdsa/presign/step` | 12 | 20 | 764 | 764 | 192.6 |
-| `/threshold-ecdsa/sign/finalize` | 2 | 12 | 18 | 18 | 15.0 |
+| `/threshold-ecdsa/authorize` | 2 | 1 | 1 | 1 | 1.0 |
+| `/threshold-ecdsa/bootstrap` | 1 | 59 | 59 | 59 | 59.0 |
+| `/threshold-ecdsa/presign/init` | 2 | 16 | 40 | 40 | 28.0 |
+| `/threshold-ecdsa/presign/step` | 12 | 17 | 764 | 764 | 186.3 |
+| `/threshold-ecdsa/sign/finalize` | 2 | 13 | 16 | 16 | 14.5 |
 | `/threshold-ecdsa/sign/init` | 2 | 0 | 0 | 0 | 0.0 |
 
 | Presign Perf | Value |
 |---|---:|
 | presign_live_cache_hit | 12 |
 | presign_live_cache_miss | 0 |
-| presign_replay_fallback_used | 0 |
+| presign_stale_session_state | 0 |
 | liveCacheHitRatio | 100.0% |
-| replayFallbackRatio | 0.0% |
+| staleSessionRatio | 0.0% |
 | gateWaitP95ForegroundMs | 0 |
 | gateWaitP95BackgroundMs | n/a |
 | backgroundPresignRequestRatio | 0.0% |
 | poolEmptyResponses | 0 |
 
-### replay_fallback_path
+### live_cache_miss_path
 
-- Description: Force live-cache miss and replay fallback
+- Description: Force live-cache miss and stale-session retry path
 - Status: ok
-- Command: `node ./benchmarks/threshold-ecdsa-presign/src/scenario-harness.mjs --scenario replay_fallback_path --iterations 2`
+- Command: `node ./benchmarks/threshold-ecdsa-presign/src/scenario-harness.mjs --scenario live_cache_miss_path --iterations 2`
 
 | End-to-End Scenario Total | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
 |---|---:|---:|---:|---:|---:|
-| `replay_fallback_path` | 2 | 6811 | 7018 | 7018 | 6914.5 |
+| `live_cache_miss_path` | 2 | 20 | 42 | 42 | 31.0 |
 
 | Route | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
 |---|---:|---:|---:|---:|---:|
-| `/threshold-ecdsa/bootstrap` | 1 | 62 | 62 | 62 | 62.0 |
-| `/threshold-ecdsa/presign/init` | 2 | 19 | 39 | 39 | 29.0 |
-| `/threshold-ecdsa/presign/step` | 12 | 1075 | 1138 | 1138 | 995.0 |
+| `/threshold-ecdsa/bootstrap` | 1 | 61 | 61 | 61 | 61.0 |
+| `/threshold-ecdsa/presign/init` | 2 | 20 | 40 | 40 | 30.0 |
+| `/threshold-ecdsa/presign/step` | 2 | 0 | 0 | 0 | 0.0 |
 
 | Presign Perf | Value |
 |---|---:|
 | presign_live_cache_hit | 0 |
-| presign_live_cache_miss | 12 |
-| presign_replay_fallback_used | 12 |
+| presign_live_cache_miss | 2 |
+| presign_stale_session_state | 2 |
 | liveCacheHitRatio | 0.0% |
-| replayFallbackRatio | 100.0% |
+| staleSessionRatio | 100.0% |
 | gateWaitP95ForegroundMs | n/a |
 | gateWaitP95BackgroundMs | n/a |
 | backgroundPresignRequestRatio | 0.0% |
@@ -197,11 +197,11 @@ Run ID: `20260225-091017Z`
 
 | Gate | Status | Actual | Comparator | Threshold | Reason |
 |---|---|---:|---|---:|---|
-| first_sign_p95_ms | pass | 2226.00 | <= | 4000.00 |  |
-| warm_sign_p95_ms | pass | 24.00 | <= | 1500.00 |  |
-| presign_step_p95_ms | pass | 783.00 | <= | 1400.00 |  |
-| presign_step_p99_ms | pass | 783.00 | <= | 2000.00 |  |
-| replay_fallback_ratio_nonfallback_max | pass | 0.00 | <= | 0.01 |  |
+| first_sign_p95_ms | pass | 2108.00 | <= | 4000.00 |  |
+| warm_sign_p95_ms | pass | 26.00 | <= | 1500.00 |  |
+| presign_step_p95_ms | pass | 764.00 | <= | 900.00 |  |
+| presign_step_p99_ms | pass | 764.00 | <= | 1300.00 |  |
+| stale_session_ratio_nonmiss_max | pass | 0.00 | <= | 0.01 |  |
 
 ## Presign Pool Configuration Recommendation
 
@@ -219,4 +219,27 @@ Rationale:
 
 - Use this report to justify changes in `client/src/core/config/defaultConfigs.ts`.
 - Keep route-level and presign-step perf logs enabled in benchmark runs.
-- Re-run benchmarks after any replay/fallback/store-path change.
+- Re-run benchmarks after any live-cache/store-path change.
+
+## Real Store Backend Compare (Postgres vs Redis)
+
+Run metadata:
+
+1. Harness run directory: `benchmarks/threshold-ecdsa-presign/out/backend-compare-20260225-124327Z`
+2. Parsed summary: `benchmarks/threshold-ecdsa-presign/out/20260225-124611Z/raw-summary.json`
+3. Mode/env:
+   - Postgres: `BENCH_THRESHOLD_STORE_MODE=postgres`, `BENCH_PG_URL=postgres://tatchi:tatchi@127.0.0.1:5432/tatchi`
+   - Redis: `BENCH_THRESHOLD_STORE_MODE=redis`, `BENCH_REDIS_URL=redis://127.0.0.1:6379`
+4. Scenario: `store_backend_compare`, `iterations=6` for each backend
+
+| Backend | E2E p50 (ms) | E2E p95 (ms) | E2E p99 (ms) | `/presign/step` p95 (ms) | `/presign/step` p99 (ms) | `/presign/init` p95 (ms) | `/sign/init` p95 (ms) | `/sign/finalize` p95 (ms) | Stale-session ratio |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Postgres | 1964 | 2106 | 2106 | 687 | 717 | 41 | 6 | 20 | 0.0% |
+| Redis (tcp) | 1953 | 2136 | 2136 | 691 | 735 | 43 | 5 | 19 | 0.0% |
+
+Interpretation:
+
+1. On this local run, Postgres and Redis are effectively tied for this scenario.
+2. Redis is slightly better on `sign/init` p95, while Postgres is slightly better on end-to-end p95 and presign-step tail.
+3. No stale-session behavior was observed on either backend.
+4. Keep current pool defaults unchanged (`targetDepth=3`, `lowWatermark=1`, `maxRefillInFlight=1`); no backend-driven tuning change is warranted from this run alone.

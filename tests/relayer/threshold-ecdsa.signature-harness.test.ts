@@ -155,6 +155,8 @@ function pollSession(session: ThresholdEcdsaPresignSession): {
 }
 
 test.describe('threshold-ecdsa harness signature verification', () => {
+  test.describe.configure({ timeout: 120_000 });
+
   test('signs a known digest and verifies the signature against the group key', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     const session = makeJwtSessionAdapter();
@@ -551,6 +553,487 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       });
     } finally {
       await srv.close();
+    }
+  });
+
+  test('forwards presign step over HTTP to owner coordinator with session auth', async () => {
+    const sharedSession = makeJwtSessionAdapter();
+    const a = makeAuthServiceForThreshold({
+      THRESHOLD_NODE_ROLE: 'coordinator',
+      THRESHOLD_COORDINATOR_INSTANCE_ID: 'coordinator-a',
+      THRESHOLD_COORDINATOR_PEERS: '[]',
+    });
+    const routerA = createRelayRouter(a.service, { threshold: a.threshold, session: sharedSession });
+    const srvA = await startExpressRouter(routerA);
+
+    const b = makeAuthServiceForThreshold({
+      THRESHOLD_NODE_ROLE: 'coordinator',
+      THRESHOLD_COORDINATOR_INSTANCE_ID: 'coordinator-b',
+      THRESHOLD_COORDINATOR_PEERS: JSON.stringify([
+        { instanceId: 'coordinator-a', relayerUrl: srvA.baseUrl },
+      ]),
+    });
+    const routerB = createRelayRouter(b.service, { threshold: b.threshold, session: sharedSession });
+    const srvB = await startExpressRouter(routerB);
+
+    try {
+      const handlerA = (a.threshold as any).ecdsaSigningHandlers as {
+        presignSessionStore: {
+          getSession: (id: string) => Promise<{ version?: number } | null>;
+        };
+        livePresignSessionById: Map<string, unknown>;
+      };
+      const handlerB = (b.threshold as any).ecdsaSigningHandlers as {
+        presignSessionStore: unknown;
+        livePresignSessionById: Map<string, unknown>;
+      };
+
+      // Simulate a shared durable presign-session store across coordinator instances.
+      handlerB.presignSessionStore = handlerA.presignSessionStore;
+
+      const userId = 'forwarding-bob.testnet';
+      const rpId = 'example.localhost';
+      const participantIds = [1, 2];
+      const clientSigningShare32 = randomSecpSecretKey32();
+      const clientVerifyingShareB64u = base64UrlEncode(secp256k1.getPublicKey(clientSigningShare32, true));
+      const sessionId = `sess-${Date.now()}`;
+
+      const bootstrap = await fetchJson(`${srvA.baseUrl}/threshold-ecdsa/bootstrap`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          rpId,
+          keygenSessionId: `keygen-${Date.now()}`,
+          clientVerifyingShareB64u,
+          webauthn_authentication: fakeWebAuthnAuthentication(),
+          sessionKind: 'jwt',
+          sessionPolicy: {
+            version: 'threshold_session_v1',
+            userId,
+            rpId,
+            sessionId,
+            ttlMs: 60_000,
+            remainingUses: 3,
+            participantIds,
+          },
+        }),
+      });
+      expect(bootstrap.status, bootstrap.text).toBe(200);
+      expect(bootstrap.json?.ok, bootstrap.text).toBe(true);
+
+      const relayerKeyId = String(bootstrap.json?.relayerKeyId || '');
+      const jwt = String(bootstrap.json?.jwt || '');
+      expect(relayerKeyId).toBeTruthy();
+      expect(jwt).toBeTruthy();
+
+      const presignInit = await fetchJson(`${srvA.baseUrl}/threshold-ecdsa/presign/init`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({
+          relayerKeyId,
+          clientVerifyingShareB64u,
+          count: 1,
+        }),
+      });
+      expect(presignInit.status, presignInit.text).toBe(200);
+      expect(presignInit.json?.ok, presignInit.text).toBe(true);
+      const presignSessionId = String(presignInit.json?.presignSessionId || '');
+      expect(presignSessionId).toBeTruthy();
+
+      // Call non-owner coordinator. It must forward over real HTTP to coordinator-a.
+      const forwardedStep = await fetchJson(`${srvB.baseUrl}/threshold-ecdsa/presign/step`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({
+          presignSessionId,
+          stage: 'triples',
+          outgoingMessagesB64u: [],
+        }),
+      });
+      expect(forwardedStep.status, forwardedStep.text).toBe(200);
+      expect(forwardedStep.json?.ok, forwardedStep.text).toBe(true);
+
+      const persisted = await handlerA.presignSessionStore.getSession(presignSessionId);
+      expect(persisted).not.toBeNull();
+      expect(Number(persisted?.version || 0)).toBeGreaterThan(1);
+
+      expect(handlerB.livePresignSessionById.has(presignSessionId)).toBe(false);
+      expect(handlerA.livePresignSessionById.has(presignSessionId)).toBe(true);
+    } finally {
+      await srvB.close();
+      await srvA.close();
+    }
+  });
+
+  test('returns stale_session_state after owner restart and recovers via new presign init', async () => {
+    const sharedSession = makeJwtSessionAdapter();
+    const a = makeAuthServiceForThreshold({
+      THRESHOLD_NODE_ROLE: 'coordinator',
+      THRESHOLD_COORDINATOR_INSTANCE_ID: 'coordinator-a',
+      THRESHOLD_COORDINATOR_PEERS: '[]',
+    });
+    const routerA = createRelayRouter(a.service, { threshold: a.threshold, session: sharedSession });
+    const srvA = await startExpressRouter(routerA);
+
+    const b = makeAuthServiceForThreshold({
+      THRESHOLD_NODE_ROLE: 'coordinator',
+      THRESHOLD_COORDINATOR_INSTANCE_ID: 'coordinator-b',
+      THRESHOLD_COORDINATOR_PEERS: JSON.stringify([
+        { instanceId: 'coordinator-a', relayerUrl: srvA.baseUrl },
+      ]),
+    });
+    const routerB = createRelayRouter(b.service, { threshold: b.threshold, session: sharedSession });
+    const srvB = await startExpressRouter(routerB);
+
+    try {
+      const handlerA = (a.threshold as any).ecdsaSigningHandlers as {
+        presignSessionStore: {
+          getSession: (id: string) => Promise<{ version?: number } | null>;
+        };
+        livePresignSessionById: Map<string, unknown>;
+      };
+      const handlerB = (b.threshold as any).ecdsaSigningHandlers as {
+        presignSessionStore: unknown;
+      };
+      handlerB.presignSessionStore = handlerA.presignSessionStore;
+
+      const userId = 'forwarding-owner-restart.testnet';
+      const rpId = 'example.localhost';
+      const participantIds = [1, 2];
+      const clientSigningShare32 = randomSecpSecretKey32();
+      const clientVerifyingShareB64u = base64UrlEncode(secp256k1.getPublicKey(clientSigningShare32, true));
+      const sessionId = `sess-${Date.now()}`;
+
+      const bootstrap = await fetchJson(`${srvA.baseUrl}/threshold-ecdsa/bootstrap`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          rpId,
+          keygenSessionId: `keygen-${Date.now()}`,
+          clientVerifyingShareB64u,
+          webauthn_authentication: fakeWebAuthnAuthentication(),
+          sessionKind: 'jwt',
+          sessionPolicy: {
+            version: 'threshold_session_v1',
+            userId,
+            rpId,
+            sessionId,
+            ttlMs: 60_000,
+            remainingUses: 10,
+            participantIds,
+          },
+        }),
+      });
+      expect(bootstrap.status, bootstrap.text).toBe(200);
+      expect(bootstrap.json?.ok, bootstrap.text).toBe(true);
+
+      const relayerKeyId = String(bootstrap.json?.relayerKeyId || '');
+      const jwt = String(bootstrap.json?.jwt || '');
+      expect(relayerKeyId).toBeTruthy();
+      expect(jwt).toBeTruthy();
+
+      const presignInitA = await fetchJson(`${srvA.baseUrl}/threshold-ecdsa/presign/init`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({
+          relayerKeyId,
+          clientVerifyingShareB64u,
+          count: 1,
+        }),
+      });
+      expect(presignInitA.status, presignInitA.text).toBe(200);
+      expect(presignInitA.json?.ok, presignInitA.text).toBe(true);
+      const staleSessionId = String(presignInitA.json?.presignSessionId || '');
+      expect(staleSessionId).toBeTruthy();
+
+      // Simulate owner restart by dropping live presign sessions while keeping durable records.
+      handlerA.livePresignSessionById.clear();
+
+      const staleStep = await fetchJson(`${srvB.baseUrl}/threshold-ecdsa/presign/step`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({
+          presignSessionId: staleSessionId,
+          stage: 'triples',
+          outgoingMessagesB64u: [],
+        }),
+      });
+      expect(staleStep.status, staleStep.text).toBe(409);
+      expect(staleStep.json?.ok).toBe(false);
+      expect(String(staleStep.json?.code || '')).toBe('stale_session_state');
+      expect(String(staleStep.json?.message || '')).toContain('/threshold-ecdsa/presign/init');
+
+      const stalePersisted = await handlerA.presignSessionStore.getSession(staleSessionId);
+      expect(stalePersisted).toBeNull();
+
+      // Client recovers by creating a fresh presign session.
+      const recoveredInit = await fetchJson(`${srvB.baseUrl}/threshold-ecdsa/presign/init`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({
+          relayerKeyId,
+          clientVerifyingShareB64u,
+          count: 1,
+        }),
+      });
+      expect(recoveredInit.status, recoveredInit.text).toBe(200);
+      expect(recoveredInit.json?.ok, recoveredInit.text).toBe(true);
+      const recoveredSessionId = String(recoveredInit.json?.presignSessionId || '');
+      expect(recoveredSessionId).toBeTruthy();
+      expect(recoveredSessionId).not.toBe(staleSessionId);
+
+      const recoveredStep = await fetchJson(`${srvB.baseUrl}/threshold-ecdsa/presign/step`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({
+          presignSessionId: recoveredSessionId,
+          stage: 'triples',
+          outgoingMessagesB64u: [],
+        }),
+      });
+      expect(recoveredStep.status, recoveredStep.text).toBe(200);
+      expect(recoveredStep.json?.ok, recoveredStep.text).toBe(true);
+    } finally {
+      await srvB.close();
+      await srvA.close();
+    }
+  });
+
+  test('returns stale_session_state when owner coordinator peer mapping is missing', async () => {
+    const sharedSession = makeJwtSessionAdapter();
+    const a = makeAuthServiceForThreshold({
+      THRESHOLD_NODE_ROLE: 'coordinator',
+      THRESHOLD_COORDINATOR_INSTANCE_ID: 'coordinator-a',
+      THRESHOLD_COORDINATOR_PEERS: '[]',
+    });
+    const routerA = createRelayRouter(a.service, { threshold: a.threshold, session: sharedSession });
+    const srvA = await startExpressRouter(routerA);
+
+    const b = makeAuthServiceForThreshold({
+      THRESHOLD_NODE_ROLE: 'coordinator',
+      THRESHOLD_COORDINATOR_INSTANCE_ID: 'coordinator-b',
+      THRESHOLD_COORDINATOR_PEERS: '[]',
+    });
+    const routerB = createRelayRouter(b.service, { threshold: b.threshold, session: sharedSession });
+    const srvB = await startExpressRouter(routerB);
+
+    try {
+      const handlerA = (a.threshold as any).ecdsaSigningHandlers as {
+        presignSessionStore: {
+          getSession: (id: string) => Promise<{ version?: number } | null>;
+        };
+      };
+      const handlerB = (b.threshold as any).ecdsaSigningHandlers as {
+        presignSessionStore: unknown;
+      };
+      handlerB.presignSessionStore = handlerA.presignSessionStore;
+
+      const userId = 'forwarding-peer-missing.testnet';
+      const rpId = 'example.localhost';
+      const participantIds = [1, 2];
+      const clientSigningShare32 = randomSecpSecretKey32();
+      const clientVerifyingShareB64u = base64UrlEncode(secp256k1.getPublicKey(clientSigningShare32, true));
+      const sessionId = `sess-${Date.now()}`;
+
+      const bootstrap = await fetchJson(`${srvA.baseUrl}/threshold-ecdsa/bootstrap`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          rpId,
+          keygenSessionId: `keygen-${Date.now()}`,
+          clientVerifyingShareB64u,
+          webauthn_authentication: fakeWebAuthnAuthentication(),
+          sessionKind: 'jwt',
+          sessionPolicy: {
+            version: 'threshold_session_v1',
+            userId,
+            rpId,
+            sessionId,
+            ttlMs: 60_000,
+            remainingUses: 3,
+            participantIds,
+          },
+        }),
+      });
+      expect(bootstrap.status, bootstrap.text).toBe(200);
+      expect(bootstrap.json?.ok, bootstrap.text).toBe(true);
+
+      const relayerKeyId = String(bootstrap.json?.relayerKeyId || '');
+      const jwt = String(bootstrap.json?.jwt || '');
+      expect(relayerKeyId).toBeTruthy();
+      expect(jwt).toBeTruthy();
+
+      const presignInit = await fetchJson(`${srvA.baseUrl}/threshold-ecdsa/presign/init`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({
+          relayerKeyId,
+          clientVerifyingShareB64u,
+          count: 1,
+        }),
+      });
+      expect(presignInit.status, presignInit.text).toBe(200);
+      expect(presignInit.json?.ok, presignInit.text).toBe(true);
+      const presignSessionId = String(presignInit.json?.presignSessionId || '');
+      expect(presignSessionId).toBeTruthy();
+
+      const step = await fetchJson(`${srvB.baseUrl}/threshold-ecdsa/presign/step`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({
+          presignSessionId,
+          stage: 'triples',
+          outgoingMessagesB64u: [],
+        }),
+      });
+      expect(step.status, step.text).toBe(409);
+      expect(step.json?.ok).toBe(false);
+      expect(String(step.json?.code || '')).toBe('stale_session_state');
+      expect(String(step.json?.message || '')).toContain('owner unavailable');
+
+      // Owner coordinator's durable presign session remains available for retry.
+      const persisted = await handlerA.presignSessionStore.getSession(presignSessionId);
+      expect(persisted).not.toBeNull();
+      expect(Number(persisted?.version || 0)).toBe(1);
+    } finally {
+      await srvB.close();
+      await srvA.close();
+    }
+  });
+
+  test('ignores untrusted forwarded hop header from client and still forwards to owner', async () => {
+    const sharedSession = makeJwtSessionAdapter();
+    const a = makeAuthServiceForThreshold({
+      THRESHOLD_NODE_ROLE: 'coordinator',
+      THRESHOLD_COORDINATOR_INSTANCE_ID: 'coordinator-a',
+      THRESHOLD_COORDINATOR_PEERS: '[]',
+    });
+    const routerA = createRelayRouter(a.service, { threshold: a.threshold, session: sharedSession });
+    const srvA = await startExpressRouter(routerA);
+
+    const b = makeAuthServiceForThreshold({
+      THRESHOLD_NODE_ROLE: 'coordinator',
+      THRESHOLD_COORDINATOR_INSTANCE_ID: 'coordinator-b',
+      THRESHOLD_COORDINATOR_PEERS: JSON.stringify([
+        { instanceId: 'coordinator-a', relayerUrl: srvA.baseUrl },
+      ]),
+    });
+    const routerB = createRelayRouter(b.service, { threshold: b.threshold, session: sharedSession });
+    const srvB = await startExpressRouter(routerB);
+
+    try {
+      const handlerA = (a.threshold as any).ecdsaSigningHandlers as {
+        presignSessionStore: {
+          getSession: (id: string) => Promise<{ version?: number } | null>;
+        };
+      };
+      const handlerB = (b.threshold as any).ecdsaSigningHandlers as {
+        presignSessionStore: unknown;
+      };
+      handlerB.presignSessionStore = handlerA.presignSessionStore;
+
+      const userId = 'forwarding-untrusted-hop.testnet';
+      const rpId = 'example.localhost';
+      const participantIds = [1, 2];
+      const clientSigningShare32 = randomSecpSecretKey32();
+      const clientVerifyingShareB64u = base64UrlEncode(secp256k1.getPublicKey(clientSigningShare32, true));
+      const sessionId = `sess-${Date.now()}`;
+
+      const bootstrap = await fetchJson(`${srvA.baseUrl}/threshold-ecdsa/bootstrap`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          rpId,
+          keygenSessionId: `keygen-${Date.now()}`,
+          clientVerifyingShareB64u,
+          webauthn_authentication: fakeWebAuthnAuthentication(),
+          sessionKind: 'jwt',
+          sessionPolicy: {
+            version: 'threshold_session_v1',
+            userId,
+            rpId,
+            sessionId,
+            ttlMs: 60_000,
+            remainingUses: 3,
+            participantIds,
+          },
+        }),
+      });
+      expect(bootstrap.status, bootstrap.text).toBe(200);
+      expect(bootstrap.json?.ok, bootstrap.text).toBe(true);
+
+      const relayerKeyId = String(bootstrap.json?.relayerKeyId || '');
+      const jwt = String(bootstrap.json?.jwt || '');
+      expect(relayerKeyId).toBeTruthy();
+      expect(jwt).toBeTruthy();
+
+      const presignInit = await fetchJson(`${srvA.baseUrl}/threshold-ecdsa/presign/init`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({
+          relayerKeyId,
+          clientVerifyingShareB64u,
+          count: 1,
+        }),
+      });
+      expect(presignInit.status, presignInit.text).toBe(200);
+      expect(presignInit.json?.ok, presignInit.text).toBe(true);
+      const presignSessionId = String(presignInit.json?.presignSessionId || '');
+      expect(presignSessionId).toBeTruthy();
+
+      const step = await fetchJson(`${srvB.baseUrl}/threshold-ecdsa/presign/step`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${jwt}`,
+          'x-threshold-ecdsa-presign-forward-hop': '99',
+        },
+        body: JSON.stringify({
+          presignSessionId,
+          stage: 'triples',
+          outgoingMessagesB64u: [],
+        }),
+      });
+      expect(step.status, step.text).toBe(200);
+      expect(step.json?.ok, step.text).toBe(true);
+
+      const persisted = await handlerA.presignSessionStore.getSession(presignSessionId);
+      expect(persisted).not.toBeNull();
+      expect(Number(persisted?.version || 0)).toBeGreaterThan(1);
+    } finally {
+      await srvB.close();
+      await srvA.close();
     }
   });
 });

@@ -1,6 +1,6 @@
 # Refactor 19: Remove Per-Step Presign Replay (When Runtime Scope Allows)
 
-Status: In Progress (hybrid live-session-first shipped)  
+Status: In Progress (live-session-only shipped; replay deleted)  
 Severity: High (ECDSA presign latency and CPU overhead)  
 Last updated: 2026-02-25
 
@@ -130,7 +130,7 @@ For no-replay mode:
   - store CAS/write
 - [x] Record representative baseline timing profile for `/presign/step` in docs (`docs/presigning-pool.md`).
 - [x] Record baseline p50/p95/p99 for `/presign/step` via benchmark report (`docs/benchmarks/threshold-ecdsa-presign.md`, run `20260224-162718Z`).
-- [x] Add runtime flag to enable no-replay mode in controlled rollout (`THRESHOLD_ECDSA_PRESIGN_STRICT_NO_REPLAY`).
+- [x] Added runtime flag for controlled rollout (`THRESHOLD_ECDSA_PRESIGN_STRICT_NO_REPLAY`), then removed it after replay deletion.
 
 Suggested files:
 
@@ -148,17 +148,19 @@ Suggested files:
 
 - `server/src/core/ThresholdService/ecdsaSigningHandlers.ts`
 
-## Phase 2: Hybrid Fallback (Safe Rollout)
+## Phase 2: Hybrid Fallback (Safe Rollout, Temporary)
 
 - [x] Keep replay path as fallback while no-replay is being validated.
 - [x] If cache miss occurs in hybrid mode, fallback to existing replay path.
 - [x] In strict no-replay mode, return explicit retriable session error.
-- [ ] Emit structured metrics:
-  - [x] Structured `/presign/step` perf fields now expose live/fallback behavior (`liveCacheStatus`, `liveResolveSource`, `replayFallbackUsed`, `replayFallbackReason`).
+- [x] Emit structured metrics:
+  - [x] Structured `/presign/step` perf fields exposed live/fallback behavior during hybrid rollout (`liveCacheStatus`, `liveResolveSource`, `replayFallbackUsed`, `replayFallbackReason`).
   - [x] Dedicated metric names/counters:
     - `presign_live_cache_hit`
     - `presign_live_cache_miss`
     - `presign_replay_fallback_used`
+
+Note: This phase was completed as a rollout bridge and superseded by Phase 4 replay deletion; fallback-specific fields/counters were removed from the live path.
 
 Suggested files:
 
@@ -177,11 +179,11 @@ Suggested files:
 
 ## Phase 4: Delete Replay Logic (When Proven Unneeded)
 
-- [ ] Remove:
+- [x] Remove:
   - deterministic replay state types/parsers
   - deterministic RNG replay shim for presign reconstruction
   - reconstruct-from-state flow
-- [ ] Simplify presign session record schema to minimal metadata.
+- [x] Simplify presign session record schema to minimal metadata.
 
 Suggested files:
 
@@ -191,16 +193,21 @@ Suggested files:
 
 ## Phase 5: Tests
 
-- [ ] Unit: init->step->done with live cache only.
-- [ ] Unit: cache eviction causes retriable miss behavior (or hybrid fallback).
-- [ ] Unit: stage regression and scope mismatch still rejected.
-- [ ] Integration: full sign flow unchanged correctness.
-- [ ] Update/remove distributed replay-specific tests once architecture decision is final.
+- [x] Unit: init->step->done with live cache only.
+- [x] Unit: cache eviction causes retriable miss behavior (or hybrid fallback).
+- [x] Unit: stage regression and scope mismatch still rejected.
+- [x] Integration: full sign flow unchanged correctness.
+- [x] Integration: multi-instance HTTP forwarding validates `/threshold-ecdsa/presign/step` owner routing + session auth propagation.
+- [x] Integration: owner-restart continuity test returns retriable `stale_session_state` and validates recovery via fresh `/threshold-ecdsa/presign/init`.
+- [x] Integration: owner-peer-missing path returns retriable `stale_session_state` without deleting owner-owned session.
+- [x] Integration: untrusted client `x-threshold-ecdsa-presign-forward-hop` header is ignored (trusted only with known forwarded-by peer).
+- [x] Update/remove distributed replay-specific tests once architecture decision is final.
 
 Suggested tests:
 
 - `tests/unit/thresholdEcdsa.presignDistributed.unit.test.ts` (split into replay-mode and no-replay-mode coverage)
 - Add: `tests/unit/thresholdEcdsa.presignLiveCache.unit.test.ts`
+- `tests/relayer/threshold-ecdsa.signature-harness.test.ts` (HTTP multi-instance forwarding + auth propagation + trust hardening)
 
 ## 6. Risks and Mitigations
 
@@ -208,7 +215,7 @@ Suggested tests:
 Mitigation: client retry path; short presign session TTL; clear error code.
 
 2. Multi-instance load balancing breaks session continuity.  
-Mitigation: require sticky routing for presign session id or keep hybrid fallback.
+Mitigation: require sticky routing for presign session id or handle retriable `stale_session_state` by re-running `/presign/init`.
 
 3. Hidden dependency on replay semantics in tests/ops tooling.  
 Mitigation: staged rollout with dual-mode metrics and explicit kill switch.
@@ -218,17 +225,17 @@ Mitigation: decision gate + rollout checklist must be signed off before Phase 4.
 
 ## 7. Done Criteria
 
-- [x] `/presign/step` cold-path latency reduced materially by eliminating duplicate foreground/background presign contention and using live-session-first hybrid flow.
+- [x] `/presign/step` cold-path latency reduced materially by eliminating duplicate foreground/background presign contention and replay overhead.
 - [x] Foreground sign latency improvement is measurable and stable in current testing (first sign ~3s, subsequent sign ~0.5-1s with warm pool).
-- [x] No correctness regressions in signature outputs for current hybrid rollout path.
-- [ ] Replay path removed only after runtime constraints are explicitly accepted.
-- [x] Documentation updated to reflect current hybrid behavior, replay fallback, and presign pool lifecycle/timings.
+- [x] No correctness regressions in signature outputs for current live-session-only path.
+- [x] Replay path removed after runtime constraints were explicitly accepted.
+- [x] Documentation updated to reflect current live-session behavior and presign pool lifecycle/timings.
 
 ## 8. Phased TODO List (Active Tasks)
 
 ## Immediate (Measure + Low-Risk Contention Wins)
 
-- [x] Task 8: Add micro-timing spans for replay restore, wasm compute, and store CAS/write.
+- [x] Task 8: Add micro-timing spans for live cache resolve, wasm compute, and store CAS/write.
 - [x] Task 3: Add server-side foreground-priority scheduling over background refill.
 - [x] Task 4: Lower interactive refill defaults to `targetDepth=2..3`, `lowWatermark=1`, `maxRefillInFlight=1`.
 - [x] Task 5: Introduce single authority runtime election/locking for refill orchestration per account.
@@ -238,16 +245,35 @@ Mitigation: decision gate + rollout checklist must be signed off before Phase 4.
 ## Next (State/Storage Throughput Improvements)
 
 - [x] Sequence gate: do live-session-first with replay fallback before any full replay removal.
-- [x] Observability gate: add explicit replay-fallback logs so it is obvious when live-session restore failed and the system had to fallback (or fallback itself failed).
-- [x] Observability gate: expose `liveCacheStatus` (`hit`/`miss`) and `replayFallbackUsed` in `/presign/step` perf logs for measurable cache/fallback ratios.
+- [x] Observability gate (temporary): add explicit replay-fallback logs during hybrid rollout.
+- [x] Observability gate: expose `liveCacheStatus` (`hit`/`miss`) in `/presign/step` perf logs for measurable cache/miss ratios.
 - [ ] Task 6: Migrate high-churn presign/session hot path to Redis/Upstash and benchmark p95/p99 delta.
 - [x] Task 2: Add live presign session object cache with TTL/cleanup (cache-first execution).
-- [x] Task 1: Keep replay only as fallback; validate hit ratio and latency gains in hybrid mode.
+- [x] Task 1: Keep replay only as fallback; validate hit ratio and latency gains in hybrid mode, then delete replay.
 
 ## Finalize (Security-Sensitive and Architectural Completion)
 
-- [ ] Task 1: Remove replay path only after decision gate is satisfied and hybrid fallback metrics are stable.
-- [ ] Convert matrix assumptions into verified results (before/after timing table + security review signoff).
+- [x] Task 1: Remove replay path after decision gate was satisfied and hybrid fallback metrics stabilized.
+- [x] Security hardening: ignore client-supplied forwarded-hop values unless accompanied by a known peer `forwarded-by` instance id.
+- [x] Integration coverage: HTTP owner-forward success, owner-peer-missing fallback, and untrusted-hop behavior.
+- [x] Convert matrix assumptions into verified results (before/after timing table + security review signoff).
+
+### Verified Results (2026-02-25)
+
+| Area | Before (field logs) | After (field logs + benchmark) | Verification |
+|---|---|---|---|
+| First sign latency | ~10-15s | ~3s (field), 2108ms p95 (`cold_first_sign_no_pool`) | User field traces + benchmark run `20260225-124743Z` |
+| Subsequent sign latency | ~3-4s | ~0.5-1s (field), 26ms p95 (`warm_sign_pool_hit`) | User field traces + benchmark run `20260225-124743Z` |
+| Presign step tail | 700-2200ms observed under duplicate/contended flow | 764ms p95 / 764ms p99 in benchmark gate | `docs/benchmarks/threshold-ecdsa-presign.md` |
+| Session continuity failure behavior | replay-dependent and expensive | explicit retriable `stale_session_state` on cache miss/owner-unavailable paths | unit + relayer integration coverage |
+
+Security review summary (current architecture):
+
+1. Presign/session scope checks remain strict (`userId`, `rpId`, `participantIds`, `relayerKeyId`, expiry) and are enforced before step execution.
+2. Client-supplied forwarded-hop is ignored unless accompanied by trusted peer provenance (`forwarded-by` in configured peer set).
+3. One-time presignature reserve/consume semantics are unchanged (no reuse shortcut introduced).
+4. No persistent client presign cache was introduced; sensitive client presign shares remain out of persistent client storage in this plan.
+5. Replay removal changed availability semantics (retriable init on continuity loss) but did not reduce cryptographic validation coverage.
 
 ## 9. Benchmarking Program and Config-Tuning Loop
 
@@ -276,7 +302,7 @@ Proposed files:
 - [x] `background_refill_contention`: foreground sign under refill traffic.
 - [x] `multi_runtime_contention`: host + iframe/tab-like duplicate runtime pressure.
 - [x] `store_backend_compare`: Postgres vs Redis/Upstash (harness implemented; backend mode is env-driven).
-- [x] `replay_fallback_path`: force live-cache miss and verify fallback behavior/cost.
+- [x] `live_cache_miss_path`: force live-cache miss and verify retriable stale-session behavior/cost.
 
 ### 9.3 Metrics to capture
 
@@ -290,7 +316,7 @@ Proposed files:
 - [x] Ratios/counters:
   - `presign_live_cache_hit`
   - `presign_live_cache_miss`
-  - `presign_replay_fallback_used`
+  - `presign_stale_session_state`
   - foreground-vs-background queue wait
 - [x] End-to-end UX metrics:
   - first-sign latency
@@ -314,27 +340,65 @@ Proposed files:
   - warm-sign p95 target
   - `/presign/step` p95 and p99 guardrails
 - [x] Enforce benchmark SLO gates in CI (`.github/workflows/ci.yml`, threshold-signing-core job) using `pnpm benchmark:threshold-ecdsa`.
-- [ ] Keep defaults (`targetDepth=3`, `lowWatermark=1`, `maxRefillInFlight=1`) unless benchmark evidence supports a change.
-- [ ] Require benchmark evidence before changing presign pool defaults in `client/src/core/config/defaultConfigs.ts`.
-- [ ] Record each default change decision in `docs/refactor19.md` with before/after data.
+- [x] Keep defaults (`targetDepth=3`, `lowWatermark=1`, `maxRefillInFlight=1`) unless benchmark evidence supports a change.
+- [x] Require benchmark evidence before changing presign pool defaults in `client/src/core/config/defaultConfigs.ts`.
+- [x] Record each default change decision in `docs/refactor19.md` with before/after data.
 
 ### 9.6 Latest benchmark snapshot
 
-- Latest run id: `20260224-164630Z`
+- Latest run id: `20260225-124743Z`
 - Report: `docs/benchmarks/threshold-ecdsa-presign.md`
 - Current recommendation: keep `targetDepth=3`, `lowWatermark=1`, `maxRefillInFlight=1`
 
 ### 9.7 Next Execution Steps (Ordered)
 
 - [ ] Run full GitHub CI for commit `c08f2f2` and confirm benchmark SLO gate stability on hosted runners.
-- [ ] Run `store_backend_compare` with real Postgres and Redis/Upstash backends; append backend comparison table (p50/p95/p99 + error rate) to `docs/benchmarks/threshold-ecdsa-presign.md`.
+- [x] Run `store_backend_compare` with real Postgres and Redis/Upstash backends; append backend comparison table (p50/p95/p99 + error rate) to `docs/benchmarks/threshold-ecdsa-presign.md`.
+- [ ] Run multi-coordinator staging validation with real shared backend and rolling restarts; record first-sign/warm-sign latency and stale-session retry rate.
+- [ ] Configure alerting for owner-forward outcomes (`ownerForwardReason`) and untrusted forward-header attempts (`forwardedByTrustedPeer=0`).
 - [x] Add a runtime flag for strict no-replay mode and wire rollout control in server config.
 - [x] Implement strict no-replay cache-miss behavior returning explicit retriable session error (no replay fallback in strict mode).
-- [ ] Add/adjust tests for strict mode:
+- [x] Add/adjust tests for strict mode:
   - [x] cache miss retriable behavior
   - [x] stage/scope validation parity
-  - full sign correctness unchanged
-- [ ] Record decision-gate evidence for replay removal (availability/distributed-correctness + security review) before any Phase 4 deletion.
+  - [x] full sign correctness unchanged
+- [x] Record decision-gate evidence for replay removal (availability/distributed-correctness + security review) before any Phase 4 deletion.
+
+### 9.8 Presign Pool Default Change Record
+
+| Date | Run ID | Decision | Before | After | Reason |
+|---|---|---|---|---|---|
+| 2026-02-25 | `20260225-124743Z` | Keep defaults | `targetDepth=3`, `lowWatermark=1`, `maxRefillInFlight=1` | unchanged | SLO gates passed; no benchmark evidence to increase refill pressure |
+
+Policy: any future change to `client/src/core/config/defaultConfigs.ts` presign defaults must include a benchmark run ID and before/after p50/p95/p99 deltas in this table.
+
+### 9.8.1 Real Store Backend Compare Evidence
+
+1. Harness logs: `benchmarks/threshold-ecdsa-presign/out/backend-compare-20260225-124327Z`
+2. Parsed run summary: `benchmarks/threshold-ecdsa-presign/out/20260225-124611Z/raw-summary.json`
+3. Doc table: `docs/benchmarks/threshold-ecdsa-presign.md` (`Real Store Backend Compare` section)
+4. Result: Postgres and Redis were effectively tied in local runs for `store_backend_compare`; no default pool-policy change recommended.
+
+### 9.8.2 Local Multi-Coordinator Restart Validation (Pre-Staging)
+
+1. Test: `tests/relayer/threshold-ecdsa.signature-harness.test.ts` (`returns stale_session_state after owner restart and recovers via new presign init`)
+2. Coverage: real HTTP owner-forward path, simulated owner live-session loss, retriable stale-session response, and fresh-session recovery flow.
+3. Status: local integration validation complete; full staging with rolling restarts remains pending.
+
+### 9.9 Replay Removal Decision-Gate Evidence
+
+Availability/distributed-correctness evidence:
+
+1. Owner-forward continuity implemented and validated over real HTTP routes (success path + owner-peer-missing retriable fallback).
+2. Missing auth on forward path is explicitly rejected (`stale_session_state`) without deleting owner-owned session.
+3. Untrusted forwarded-hop header is ignored unless trusted peer provenance is present.
+4. Cache miss behavior is explicit/retriable (`stale_session_state`), allowing deterministic client recovery via `/threshold-ecdsa/presign/init`.
+
+Security evidence:
+
+1. Scope checks and expiry checks run before step processing.
+2. Forwarding does not trust client-controlled hop metadata without peer attestation.
+3. Sign flow correctness remains covered by relayer integration harness (known-digest verify + end-to-end sign).
 
 ## 10. Potential (Risky) Improvements (Out of Scope)
 
