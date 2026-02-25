@@ -5,7 +5,7 @@ import { toPublicKeyStringFromSecretKey } from './nearKeys';
 import { createAuthServiceConfig } from './config';
 import { formatGasToTGas, formatYoctoToNear } from './utils';
 import { parseContractExecutionError } from './errors';
-import { isValidAccountId, toOptionalTrimmedString, toRorOriginOrNull } from '@shared/utils/validation';
+import { isValidAccountId, toOptionalTrimmedString } from '@shared/utils/validation';
 import { coerceThresholdEd25519ShareMode, coerceThresholdNodeRole } from './ThresholdService/config';
 import type { ThresholdSigningService as ThresholdSigningServiceType } from './ThresholdService';
 import type { ThresholdEd25519RegistrationKeygenResult } from './ThresholdService';
@@ -256,7 +256,6 @@ export class AuthService {
     • networkId: ${this.config.networkId}
     • nearRpcUrl: ${this.config.nearRpcUrl}
     • relayerAccount: ${this.config.relayerAccount}
-    • rorContractId: ${this.config.rorContractId}
     • accountInitialBalance: ${this.config.accountInitialBalance} (${formatYoctoToNear(this.config.accountInitialBalance)} NEAR)
     • createAccountAndRegisterGas: ${this.config.createAccountAndRegisterGas} (${formatGasToTGas(this.config.createAccountAndRegisterGas)})
     • ${summarizeThresholdEd25519Config(this.config.thresholdEd25519KeyStore)}
@@ -336,10 +335,6 @@ export class AuthService {
       isNode: this.isNodeEnvironment(),
     });
     return this.thresholdSigningService;
-  }
-
-  getRorContractId(): string {
-    return this.config.rorContractId;
   }
 
   private getWebAuthnAuthenticatorStore(): WebAuthnAuthenticatorStore {
@@ -2537,37 +2532,6 @@ export class AuthService {
       };
     } catch (e: unknown) {
       return { ok: false, code: 'internal', message: errorMessage(e) || 'Email recovery preparation failed' };
-    }
-  }
-
-  /**
-   * Fetch Related Origin Requests (ROR) allowed origins from a NEAR view method.
-   * Defaults: rorContractId = configured `rorContractId`, method = 'get_allowed_origins', args = {}.
-   * Returns a sanitized, deduplicated list of absolute origins.
-   */
-  public async getRorOrigins(opts?: { rorContractId?: string; method?: string; args?: unknown }): Promise<string[]> {
-    const rorContractId = toOptionalTrimmedString(opts?.rorContractId) || this.config.rorContractId.trim();
-    const method = toOptionalTrimmedString(opts?.method) || 'get_allowed_origins';
-    const args = opts?.args ?? {};
-    if (!rorContractId) return [];
-
-    try {
-      const result = await this.nearClient.view<unknown, unknown>({ account: rorContractId, method, args });
-      let list: unknown[] = [];
-      if (Array.isArray(result)) {
-        list = result;
-      } else if (isObject(result) && Array.isArray(result.origins)) {
-        list = result.origins;
-      }
-      const out = new Set<string>();
-      for (const item of list) {
-        const norm = toRorOriginOrNull(item);
-        if (norm) out.add(norm);
-      }
-      return Array.from(out);
-    } catch (e) {
-      this.logger.warn('[AuthService] getRorOrigins failed:', e);
-      return [];
     }
   }
 

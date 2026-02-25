@@ -1,6 +1,6 @@
 # Threshold ECDSA Signing
 
-Last updated: 2026-02-24
+Last updated: 2026-02-25
 
 ## 1. Non-Negotiable Invariants
 
@@ -74,6 +74,19 @@ Implication: after refresh/new tab/new process, presign pool depth resets to `0`
 - Historically, first-sign latency spikes came from concurrent foreground sign and background refill starting duplicate presign handshakes for the same pool key.
 - Current mitigations: foreground sign waits for and reuses in-flight refill; refill skips while foreground sign is active; commit-start refill skips on true cold start (depth `0`); server presign routing prioritizes foreground over background.
 - Observed result after mitigation: first sign reduced to around `~3s` in recent tests, with subsequent signs often around `~0.5-1s` when the pool is warm.
+
+### 5.1 Latest Benchmark Gate Snapshot (2026-02-25)
+
+- Run ID: `20260225-091017Z`
+- Artifact path: `benchmarks/threshold-ecdsa-presign/out/20260225-091017Z`
+- Full report: `docs/benchmarks/threshold-ecdsa-presign.md`
+- SLO gate outcome: `5/5 passed`
+- Key measurements:
+  - `cold_first_sign_no_pool` p95: `2226ms`
+  - `warm_sign_pool_hit` p95: `24ms`
+  - `/threshold-ecdsa/presign/step` p95: `783ms`
+  - `/threshold-ecdsa/presign/step` p99: `783ms`
+  - Non-fallback replay ratio: `0.00` (gate max `0.01`)
 
 ## 6. Perf Ops and Observability
 

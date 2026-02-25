@@ -2,6 +2,7 @@ import type { DelegateActionPolicy } from '../delegateAction';
 import type { RouterLogger } from './logger';
 import type { ThresholdAnySchemeModule } from '../core/ThresholdService/schemes/types';
 import type { ThresholdSchemeId } from '../core/ThresholdService/schemes/schemeIds';
+import type { RelayRouterRorOptions } from './ror/provider';
 
 // Minimal session adapter interface expected by the routers.
 export type SessionClaims = Record<string, unknown>;
@@ -106,6 +107,11 @@ export interface RelayRouterOptions {
    * yet run an explicit deploy pipeline.
    */
   smartAccountDeploy?: ((request: SmartAccountDeployRequest) => Promise<SmartAccountDeployResult> | SmartAccountDeployResult) | null;
+  /**
+   * Optional ROR configuration for `GET /.well-known/webauthn`.
+   * When omitted, the endpoint responds with an empty allowlist.
+   */
+  ror?: RelayRouterRorOptions;
   // Optional logger; defaults to silent.
   logger?: RouterLogger | null;
 }

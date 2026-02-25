@@ -58,6 +58,7 @@ export function createThresholdSigningService(input: {
       THRESHOLD_ECDSA_PRESIGN_POOL_HINT_LOW_WATERMARK: env.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_LOW_WATERMARK,
       THRESHOLD_ECDSA_PRESIGN_POOL_HINT_MAX_REFILL_IN_FLIGHT: env.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_MAX_REFILL_IN_FLIGHT,
       THRESHOLD_ECDSA_PRESIGN_POOL_HINT_REFILL_ATTEMPT_TIMEOUT_MS: env.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_REFILL_ATTEMPT_TIMEOUT_MS,
+      THRESHOLD_ECDSA_PRESIGN_STRICT_NO_REPLAY: env.THRESHOLD_ECDSA_PRESIGN_STRICT_NO_REPLAY,
     }
     : null;
 
@@ -79,6 +80,7 @@ export function createThresholdSigningService(input: {
     const nodeRole = (config as { THRESHOLD_NODE_ROLE?: unknown })?.THRESHOLD_NODE_ROLE;
     const cosignerId = (config as { THRESHOLD_ED25519_RELAYER_COSIGNER_ID?: unknown })?.THRESHOLD_ED25519_RELAYER_COSIGNER_ID;
     const cosignerT = (config as { THRESHOLD_ED25519_RELAYER_COSIGNER_T?: unknown })?.THRESHOLD_ED25519_RELAYER_COSIGNER_T;
+    const strictNoReplay = (config as { THRESHOLD_ECDSA_PRESIGN_STRICT_NO_REPLAY?: unknown })?.THRESHOLD_ECDSA_PRESIGN_STRICT_NO_REPLAY;
     const hasMasterSecret = Boolean(
       typeof (config as { THRESHOLD_ED25519_MASTER_SECRET_B64U?: unknown })?.THRESHOLD_ED25519_MASTER_SECRET_B64U === 'string'
       && (config as { THRESHOLD_ED25519_MASTER_SECRET_B64U?: string })?.THRESHOLD_ED25519_MASTER_SECRET_B64U?.trim(),
@@ -92,6 +94,7 @@ export function createThresholdSigningService(input: {
       cosignerId: typeof cosignerId === 'string' ? cosignerId : null,
       cosignerT: typeof cosignerT === 'string' ? cosignerT : null,
       cosignerCount,
+      ecdsaPresignStrictNoReplay: typeof strictNoReplay === 'string' ? strictNoReplay : null,
     });
   } catch {
     // Ignore logging issues; never block service creation.

@@ -2,7 +2,7 @@
 
 Status: In Progress (hybrid live-session-first shipped)  
 Severity: High (ECDSA presign latency and CPU overhead)  
-Last updated: 2026-02-24
+Last updated: 2026-02-25
 
 ## 1. Why Replay Exists Today
 
@@ -130,7 +130,7 @@ For no-replay mode:
   - store CAS/write
 - [x] Record representative baseline timing profile for `/presign/step` in docs (`docs/presigning-pool.md`).
 - [x] Record baseline p50/p95/p99 for `/presign/step` via benchmark report (`docs/benchmarks/threshold-ecdsa-presign.md`, run `20260224-162718Z`).
-- [ ] Add runtime flag to enable no-replay mode in controlled rollout.
+- [x] Add runtime flag to enable no-replay mode in controlled rollout (`THRESHOLD_ECDSA_PRESIGN_STRICT_NO_REPLAY`).
 
 Suggested files:
 
@@ -152,7 +152,7 @@ Suggested files:
 
 - [x] Keep replay path as fallback while no-replay is being validated.
 - [x] If cache miss occurs in hybrid mode, fallback to existing replay path.
-- [ ] In strict no-replay mode, return explicit retriable session error.
+- [x] In strict no-replay mode, return explicit retriable session error.
 - [ ] Emit structured metrics:
   - [x] Structured `/presign/step` perf fields now expose live/fallback behavior (`liveCacheStatus`, `liveResolveSource`, `replayFallbackUsed`, `replayFallbackReason`).
   - [x] Dedicated metric names/counters:
@@ -166,9 +166,9 @@ Suggested files:
 
 ## Phase 3: Remove Replay State Writes
 
-- [ ] Stop appending `appliedSteps` when no-replay mode is enabled.
-- [ ] Stop serializing `wasmSessionStateB64u` for no-replay sessions.
-- [ ] Keep schema backward compatibility during rollout window.
+- [x] Stop appending `appliedSteps` when no-replay mode is enabled.
+- [x] Stop serializing `wasmSessionStateB64u` for no-replay sessions.
+- [x] Keep schema backward compatibility during rollout window.
 
 Suggested files:
 
@@ -323,6 +323,18 @@ Proposed files:
 - Latest run id: `20260224-164630Z`
 - Report: `docs/benchmarks/threshold-ecdsa-presign.md`
 - Current recommendation: keep `targetDepth=3`, `lowWatermark=1`, `maxRefillInFlight=1`
+
+### 9.7 Next Execution Steps (Ordered)
+
+- [ ] Run full GitHub CI for commit `c08f2f2` and confirm benchmark SLO gate stability on hosted runners.
+- [ ] Run `store_backend_compare` with real Postgres and Redis/Upstash backends; append backend comparison table (p50/p95/p99 + error rate) to `docs/benchmarks/threshold-ecdsa-presign.md`.
+- [x] Add a runtime flag for strict no-replay mode and wire rollout control in server config.
+- [x] Implement strict no-replay cache-miss behavior returning explicit retriable session error (no replay fallback in strict mode).
+- [ ] Add/adjust tests for strict mode:
+  - [x] cache miss retriable behavior
+  - [x] stage/scope validation parity
+  - full sign correctness unchanged
+- [ ] Record decision-gate evidence for replay removal (availability/distributed-correctness + security review) before any Phase 4 deletion.
 
 ## 10. Potential (Risky) Improvements (Out of Scope)
 

@@ -16,6 +16,8 @@ export function thresholdStatusCode(result: ThresholdRouteResult): number {
       return 503;
     case 'pool_empty':
       return 503;
+    case 'stale_session_state':
+      return 409;
     case 'internal':
       return 500;
     case 'unauthorized':

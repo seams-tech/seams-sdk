@@ -14,10 +14,12 @@ import jwt from 'jsonwebtoken';
 const service = new AuthService({
   relayerAccount: process.env.RELAYER_ACCOUNT_ID!,
   relayerPrivateKey: process.env.RELAYER_PRIVATE_KEY!,
-  rorContractId: process.env.ROR_CONTRACT_ID || 'w3a-v1.testnet',
   nearRpcUrl: process.env.NEAR_RPC_URL || 'https://rpc.testnet.near.org',
   networkId: process.env.NETWORK_ID || 'testnet'
 });
+
+const rorRpId = process.env.ROR_RP_ID || 'wallet.example.localhost';
+const rorOrigins = [process.env.EXPECTED_ORIGIN!, process.env.EXPECTED_WALLET_ORIGIN!].filter(Boolean);
 
 const session = new SessionService({
   jwt: {
@@ -43,7 +45,17 @@ const session = new SessionService({
 const app = express();
 app.use(express.json());
 app.use(cors({ origin: [process.env.EXPECTED_ORIGIN!, process.env.EXPECTED_WALLET_ORIGIN!].filter(Boolean), credentials: true }));
-app.use('/', createRelayRouter(service, { healthz: true, readyz: true, session }));
+app.use('/', createRelayRouter(service, {
+  healthz: true,
+  readyz: true,
+  session,
+  ror: {
+    rpId: rorRpId,
+    provider: {
+      getAllowedOrigins: async (input) => (input.rpId === rorRpId ? rorOrigins : []),
+    },
+  },
+}));
 app.listen(3000);
 ```
 
@@ -58,7 +70,6 @@ import jwt from 'jsonwebtoken';
 const service = new AuthService({
   relayerAccount: env.RELAYER_ACCOUNT_ID,
   relayerPrivateKey: env.RELAYER_PRIVATE_KEY,
-  rorContractId: env.ROR_CONTRACT_ID,
   nearRpcUrl: env.NEAR_RPC_URL,
   networkId: env.NETWORK_ID || 'testnet',
   signerWasm: { moduleOrPath: signerWasm }
@@ -74,7 +85,20 @@ const session = new SessionService({
 
 export default {
   async fetch(request: Request, env: any, ctx: any) {
-    const router = createCloudflareRouter(service, { healthz: true, readyz: true, corsOrigins: [env.EXPECTED_ORIGIN, env.EXPECTED_WALLET_ORIGIN].filter(Boolean), session });
+    const rorRpId = env.ROR_RP_ID || new URL(env.EXPECTED_WALLET_ORIGIN).hostname;
+    const rorOrigins = [env.EXPECTED_ORIGIN, env.EXPECTED_WALLET_ORIGIN].filter(Boolean);
+    const router = createCloudflareRouter(service, {
+      healthz: true,
+      readyz: true,
+      corsOrigins: [env.EXPECTED_ORIGIN, env.EXPECTED_WALLET_ORIGIN].filter(Boolean),
+      session,
+      ror: {
+        rpId: rorRpId,
+        provider: {
+          getAllowedOrigins: async (input) => (input.rpId === rorRpId ? rorOrigins : []),
+        },
+      },
+    });
     return router(request, env, ctx);
   }
 }
@@ -171,7 +195,7 @@ Cloudflare CORS note
 ```bash
 RELAYER_ACCOUNT_ID=relayer.testnet
 RELAYER_PRIVATE_KEY=ed25519:...
-ROR_CONTRACT_ID=w3a-v1.testnet
+ROR_RP_ID=wallet.example.localhost
 NEAR_RPC_URL=https://rpc.testnet.near.org
 NETWORK_ID=testnet
 ```

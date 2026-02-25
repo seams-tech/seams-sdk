@@ -114,9 +114,9 @@ Indexes:
 
 ### Phase 1: Provider primitives
 
-- [ ] Add `RorOriginsProvider` interface.
-- [ ] Add origin normalization/validation helper shared by providers and routes.
-- [ ] Add `StaticRorOriginsProvider`.
+- [x] Add `RorOriginsProvider` interface.
+- [x] Add origin normalization/validation helper shared by providers and routes.
+- [x] Add `StaticRorOriginsProvider`.
 - [ ] Add unit tests for normalization and invalid origin rejection.
 
 Suggested files:
@@ -128,10 +128,10 @@ Suggested files:
 
 ### Phase 2: Router wiring
 
-- [ ] Extend `RelayRouterOptions` with ROR options.
-- [ ] Wire express and cloudflare `/.well-known/webauthn` to provider path only.
-- [ ] Add RP ID resolution helper (`rpId` vs `rpIdByHost`) with fail-fast validation.
-- [ ] Keep route response format unchanged: `{ origins }`.
+- [x] Extend `RelayRouterOptions` with ROR options.
+- [x] Wire express and cloudflare `/.well-known/webauthn` to provider path only.
+- [x] Add RP ID resolution helper (`rpId` vs `rpIdByHost`) with fail-fast validation.
+- [x] Keep route response format unchanged: `{ origins }`.
 
 Suggested files:
 
@@ -155,10 +155,10 @@ Suggested files:
 
 ### Phase 4: Remove `AuthService` ROR legacy
 
-- [ ] Remove config fields and methods tied to ROR contract lookup.
-- [ ] Remove constructor logging of `rorContractId`.
-- [ ] Remove health payload contract references.
-- [ ] Delete obsolete `tests/relayer/rorOrigins.test.ts`.
+- [x] Remove config fields and methods tied to ROR contract lookup.
+- [x] Remove constructor logging of `rorContractId`.
+- [x] Remove health payload contract references.
+- [x] Delete obsolete `tests/relayer/rorOrigins.test.ts`.
 
 Suggested files:
 
@@ -170,9 +170,9 @@ Suggested files:
 
 ### Phase 5: Examples and runtime env cleanup
 
-- [ ] Replace `ROR_CONTRACT_ID` in relay examples with provider-backed config.
-- [ ] Replace cloudflare worker env contract fields with provider-backed config.
-- [ ] Update tatchi-site env/vite config to stop forwarding `VITE_ROR_CONTRACT_ID`.
+- [x] Replace `ROR_CONTRACT_ID` in relay examples with provider-backed config.
+- [x] Replace cloudflare worker env contract fields with provider-backed config.
+- [x] Update tatchi-site env/vite config to stop forwarding `VITE_ROR_CONTRACT_ID`.
 
 Suggested files:
 
@@ -186,10 +186,10 @@ Suggested files:
 
 ### Phase 6: Tests + docs + plugin cleanup
 
-- [ ] Update router tests to inject a mock ROR provider instead of stubbing `AuthService.getRorOrigins`.
-- [ ] Remove legacy ROR contract references from server/docs/examples.
-- [ ] Remove plugin/docs references to dynamic chain ROR fetch in dev.
-- [ ] Keep docs aligned with server-owned ROR management only.
+- [x] Update router tests to inject a mock ROR provider instead of stubbing `AuthService.getRorOrigins`.
+- [x] Remove legacy ROR contract references from server/docs/examples.
+- [x] Remove plugin/docs references to dynamic chain ROR fetch in dev.
+- [x] Keep docs aligned with server-owned ROR management only.
 
 Candidate files:
 

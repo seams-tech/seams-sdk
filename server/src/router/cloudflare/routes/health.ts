@@ -13,7 +13,6 @@ export async function handleHealth(ctx: CloudflareRelayContext): Promise<Respons
   return json({
     ok: true,
     relayerAccount: ctx.service.getConfiguredRelayerAccount?.() ?? null,
-    rorContractId: ctx.service.getRorContractId?.() ?? null,
     thresholdEd25519: { configured: thresholdConfigured },
     cors: { allowedOrigins: corsAllowed },
   }, { status: 200 });

@@ -22,6 +22,7 @@ import { handleNearPublicKeys } from './routes/nearPublicKeys';
 import { handleWellKnown } from './routes/wellKnown';
 import { handleSmartAccountDeploy } from './routes/smartAccountDeploy';
 import { resolveThresholdOption } from '../routerOptions';
+import { validateRelayRouterRorOptions } from '../ror/provider';
 
 export interface CloudflareRelayContext {
   request: Request;
@@ -46,6 +47,9 @@ export function createCloudflareRouter(service: AuthService, opts: RelayRouterOp
 
   const threshold = resolveThresholdOption(service, opts);
   const effectiveOpts: RelayRouterOptions = { ...opts, threshold };
+  if (effectiveOpts.ror) {
+    validateRelayRouterRorOptions(effectiveOpts.ror);
+  }
 
   const mePath = effectiveOpts.sessionRoutes?.auth || '/session/auth';
   const logoutPath = effectiveOpts.sessionRoutes?.logout || '/session/logout';

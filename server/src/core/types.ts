@@ -189,6 +189,11 @@ export type ThresholdEd25519KeyStoreEnvInput = {
   THRESHOLD_ECDSA_PRESIGN_POOL_HINT_LOW_WATERMARK?: string;
   THRESHOLD_ECDSA_PRESIGN_POOL_HINT_MAX_REFILL_IN_FLIGHT?: string;
   THRESHOLD_ECDSA_PRESIGN_POOL_HINT_REFILL_ATTEMPT_TIMEOUT_MS?: string;
+  /**
+   * When enabled, `/threshold-ecdsa/presign/step` requires a live in-memory session and does not
+   * replay stored step history on cache miss. Cache misses return retriable `stale_session_state`.
+   */
+  THRESHOLD_ECDSA_PRESIGN_STRICT_NO_REPLAY?: string;
 };
 
 /**
@@ -206,7 +211,6 @@ export type ThresholdEd25519KeyStoreConfigInput =
 export interface AuthServiceConfig {
   relayerAccount: string;
   relayerPrivateKey: string;
-  rorContractId: string;
   nearRpcUrl: string;
   networkId: string;
   accountInitialBalance: string;
@@ -253,15 +257,13 @@ export type GoogleOidcConfigInput = GoogleOidcConfig | GoogleOidcConfigEnvInput;
  */
 export type AuthServiceConfigInput = Omit<
   AuthServiceConfig,
-  'rorContractId'
-  | 'nearRpcUrl'
+  'nearRpcUrl'
   | 'networkId'
   | 'accountInitialBalance'
   | 'createAccountAndRegisterGas'
   | 'thresholdEd25519KeyStore'
   | 'googleOidc'
 > & {
-  rorContractId?: string;
   nearRpcUrl?: string;
   networkId?: string;
   accountInitialBalance?: string;

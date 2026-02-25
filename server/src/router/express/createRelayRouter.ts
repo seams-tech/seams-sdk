@@ -23,6 +23,7 @@ import { registerNearPublicKeysRoutes } from './routes/nearPublicKeys';
 import { registerWellKnownRoutes } from './routes/wellKnown';
 import { registerSmartAccountDeployRoute } from './routes/smartAccountDeploy';
 import { resolveThresholdOption } from '../routerOptions';
+import { validateRelayRouterRorOptions } from '../ror/provider';
 
 export interface ExpressRelayContext {
   service: AuthService;
@@ -39,6 +40,9 @@ export function createRelayRouter(service: AuthService, opts: RelayRouterOptions
 
   const threshold = resolveThresholdOption(service, opts);
   const effectiveOpts: RelayRouterOptions = { ...opts, threshold };
+  if (effectiveOpts.ror) {
+    validateRelayRouterRorOptions(effectiveOpts.ror);
+  }
 
   const mePath = effectiveOpts.sessionRoutes?.auth || '/session/auth';
   const logoutPath = effectiveOpts.sessionRoutes?.logout || '/session/logout';

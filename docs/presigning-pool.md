@@ -1,6 +1,6 @@
 # Threshold ECDSA Presigning Pool and Signing Lifecycle
 
-Last updated: 2026-02-24
+Last updated: 2026-02-25
 
 ## 1. Scope
 
@@ -99,6 +99,59 @@ Cold foreground sign usually includes one full presign handshake:
 - then `sign/init` + `sign/finalize`
 
 So cold path is usually dominated by presign steps (often several seconds).
+
+### 4.1 Benchmark Snapshot (CI SLO Gate)
+
+Run metadata:
+
+1. Date: 2026-02-25
+2. Run ID: `20260225-091017Z`
+3. Raw artifacts: `benchmarks/threshold-ecdsa-presign/out/20260225-091017Z`
+4. Generated report: `docs/benchmarks/threshold-ecdsa-presign.md`
+
+Key latency results from that run:
+
+| Scenario | p95 end-to-end (ms) | Notes |
+|---|---:|---|
+| `cold_first_sign_no_pool` | 2226 | Cold first sign with empty pool |
+| `warm_sign_pool_hit` | 24 | Warm sign with available presignature |
+| `background_refill_contention` | 4205 | Foreground sign while refill is active |
+| `multi_runtime_contention` | 6267 | Duplicate runtime pressure |
+| `replay_fallback_path` | 7018 | Forced fallback path (availability safety path) |
+
+Key presign-step and gate metrics:
+
+| Metric | Value |
+|---|---:|
+| `/threshold-ecdsa/presign/step` p95 | 783ms |
+| `/threshold-ecdsa/presign/step` p99 | 783ms |
+| Non-fallback `liveCacheHitRatio` | 100% |
+| Non-fallback `replayFallbackRatio` | 0% |
+| Replay-fallback scenario `replayFallbackRatio` | 100% |
+
+CI benchmark SLO gate thresholds and result:
+
+| Gate | Threshold | Actual | Result |
+|---|---:|---:|---|
+| `first_sign_p95_ms` | <= 4000 | 2226 | pass |
+| `warm_sign_p95_ms` | <= 1500 | 24 | pass |
+| `presign_step_p95_ms` | <= 1400 | 783 | pass |
+| `presign_step_p99_ms` | <= 2000 | 783 | pass |
+| `replay_fallback_ratio_nonfallback_max` | <= 0.01 | 0.00 | pass |
+
+### 4.2 Full CI Mirror Status (Same Validation Session)
+
+This benchmark run passed its gate, but the full local CI mirror was not fully green in the same session.
+
+| Command | Result | Notes |
+|---|---|---|
+| `pnpm check` | fail | Existing lint issues in current workspace |
+| `pnpm build:sdk-prod` | pass | SDK prod build completed |
+| `pnpm -C sdk smoke:eth-signer:runtimes` | pass | Runtime smoke tests passed |
+| `pnpm test:threshold-core` | fail | Failing assertion at `tests/relayer/threshold-ecdsa.signature-harness.test.ts:396` |
+| `pnpm test:signers:gates` | pass | Signer gate suite passed |
+
+Interpretation: benchmark stability and CI SLO gating are confirmed for threshold ECDSA presign, while separate non-benchmark failures remain for full CI closure.
 
 ## 5. Why Logs Continue After Signature Is Returned
 
@@ -222,3 +275,33 @@ Server:
    - `server/src/core/ThresholdService/ecdsaSigningHandlers.ts`
 2. Express route logging (`durationMs`, request metadata):
    - `server/src/router/express/routes/thresholdEcdsa.ts`
+
+## 12. Benchmark-Driven Presign Config Loop
+
+Use the benchmark report at:
+
+- `docs/benchmarks/threshold-ecdsa-presign.md`
+
+And raw artifacts at:
+
+- `benchmarks/threshold-ecdsa-presign/out/<timestamp>/raw-summary.json`
+
+to drive pool policy changes in:
+
+- `client/src/core/config/defaultConfigs.ts`
+
+### 12.1 Decision Table
+
+| Condition from benchmark report | Suggested action |
+|---|---|
+| `pool_empty` events observed in interactive flows | Increase `targetDepth` by `+1` and `lowWatermark` by `+1` (cap conservatively) |
+| `/presign/step` p95 > 1500ms | Keep `maxRefillInFlight=1`; do not increase depth until backend/store bottleneck is reduced |
+| High background refill ratio during sign + elevated p95 | Lower refill pressure (`targetDepth<=3`, `lowWatermark=1`, `maxRefillInFlight=1`) |
+| Warm-sign fast, no `pool_empty`, stable p95 | Keep current defaults (`targetDepth=3`, `lowWatermark=1`, `maxRefillInFlight=1`) |
+| Tail latency high only under Postgres store | Prioritize Redis/Upstash migration for presign/session hot path before tuning depth up |
+
+### 12.2 Change Control
+
+1. Every presign policy change must cite a benchmark run ID.
+2. Record before/after p50/p95/p99 in `docs/refactor19.md`.
+3. Re-run at least cold, warm, and contention scenarios after each policy change.

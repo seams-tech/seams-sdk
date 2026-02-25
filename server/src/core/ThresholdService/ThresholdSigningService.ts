@@ -632,6 +632,7 @@ export class ThresholdSigningService {
     this.ecdsaPresignaturePool = input.ecdsaPresignaturePool;
     const cfg = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
     this.ecdsaPresignPoolPolicyHint = parseThresholdEcdsaPresignPoolPolicyHint(cfg);
+    const ecdsaPresignStrictNoReplay = parseOptionalBoolean(cfg.THRESHOLD_ECDSA_PRESIGN_STRICT_NO_REPLAY) === true;
 
     const nodeRole = coerceThresholdNodeRole(cfg.THRESHOLD_NODE_ROLE);
     const coordinatorSharedSecretBytes =
@@ -703,6 +704,7 @@ export class ThresholdSigningService {
       signingSessionStore: this.ecdsaSigningSessionStore,
       presignSessionStore: this.ecdsaPresignSessionStore,
       presignaturePool: this.ecdsaPresignaturePool,
+      strictNoReplay: ecdsaPresignStrictNoReplay,
       ensureReady: this.ensureReady,
       createSigningSessionId: () => this.createThresholdEcdsaSigningSessionId(),
       createPresignSessionId: () => this.createThresholdEcdsaPresignSessionId(),
