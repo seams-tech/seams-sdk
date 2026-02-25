@@ -16,7 +16,8 @@ import {
   buildExportViewerHtml,
   applyCoepCorpIfNeeded,
   echoCorsFromRequest,
-  fetchRorOriginsFromNear,
+  logRorConfig,
+  sanitizeOrigins,
   toBasePath,
   resolveCoepMode,
   resolveSdkDistRoot,
@@ -306,12 +307,14 @@ export function tatchiHeaders(opts: DevHeadersOptions = {}): VitePlugin {
   // Build headers via shared helpers to avoid drift.
   const permissionsPolicy = buildPermissionsPolicy(walletOrigin)
 
-  // Dev convenience: dynamic ROR from NEAR RPC (no relay dependency)
-  // The dev server will fetch the allowlist from chain on demand when a contract id is provided.
-  const rorContractId = (process.env.VITE_ROR_CONTRACT_ID || '').toString().trim()
-  const rorMethod = (process.env.VITE_ROR_METHOD || 'get_allowed_origins').toString().trim()
-  const nearRpcUrl = (process.env.VITE_NEAR_RPC_URL || 'https://test.rpc.fastnear.com').toString().trim()
-  // Caching is handled inside fetchRorOriginsFromNear via TTL
+  const rorOrigins = sanitizeOrigins([
+    ...String(process.env.VITE_ROR_ALLOWED_ORIGINS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    String(process.env.VITE_DOCS_ORIGIN || '').trim(),
+  ])
+  logRorConfig(rorOrigins)
 
   return {
     name: 'tatchi:dev-headers',
@@ -323,8 +326,7 @@ export function tatchiHeaders(opts: DevHeadersOptions = {}): VitePlugin {
         walletServicePath,
         sdkBasePath,
         coepMode,
-        rorContractId: rorContractId || '(none)',
-        nearRpcUrl
+        rorOriginsCount: rorOrigins.length
       })
 
       server.middlewares.use((req: any, res: any, next: any) => {
@@ -345,38 +347,13 @@ export function tatchiHeaders(opts: DevHeadersOptions = {}): VitePlugin {
         // Resource hints: help parent pages preconnect to the wallet origin early in dev
         addPreconnectLink(res, walletOrigin)
 
-        // Serve /.well-known/webauthn for ROR using chain state in dev
+        // Serve /.well-known/webauthn for ROR from server-owned configuration in dev.
         const isWellKnown = url === '/.well-known/webauthn' || url === '/.well-known/webauthn/'
         if (isWellKnown) {
-          // Direct fetch from NEAR RPC (no relay). Caching handled inside helper.
-          // Requires contract id; RPC URL falls back to a reliable public endpoint.
-          if (rorContractId) {
-            ;(async () => {
-              try {
-                const origins = await fetchRorOriginsFromNear({
-                  rpcUrl: nearRpcUrl,
-                  rorContractId: rorContractId,
-                  method: rorMethod,
-                })
-                res.statusCode = 200
-                res.setHeader('Content-Type', 'application/json; charset=utf-8')
-                res.setHeader('Cache-Control', 'max-age=60, stale-while-revalidate=600')
-                res.end(JSON.stringify({ origins }))
-              } catch (e) {
-                console.warn('[tatchi] ROR dynamic fetch failed:', e)
-                res.statusCode = 200
-                res.setHeader('Content-Type', 'application/json; charset=utf-8')
-                res.setHeader('Cache-Control', 'max-age=60, stale-while-revalidate=600')
-                res.end(JSON.stringify({ origins: [] }))
-              }
-            })()
-            return
-          }
-          // No configuration; respond with empty allowlist to avoid hard 404 in dev
           res.statusCode = 200
           res.setHeader('Content-Type', 'application/json; charset=utf-8')
           res.setHeader('Cache-Control', 'max-age=60, stale-while-revalidate=600')
-          res.end(JSON.stringify({ origins: [] }))
+          res.end(JSON.stringify({ origins: rorOrigins }))
           return
         }
 

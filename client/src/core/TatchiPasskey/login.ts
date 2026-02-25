@@ -141,7 +141,7 @@ export async function loginAndCreateSession(
         step: 2,
         phase: LoginPhase.STEP_2_WEBAUTHN_ASSERTION,
         status: LoginStatus.PROGRESS,
-        message: 'Preparing a warm Tempo/EVM signing session...',
+        message: 'Preparing a threshold signing session...',
       });
 
       const bootstrap = await signingEngine.bootstrapEcdsaSession({
