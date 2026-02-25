@@ -159,6 +159,7 @@ export type ThresholdSecp256k1Ecdsa2pSchemeModule = ThresholdSchemeModule<
         authorizationHeader?: string;
         cookieHeader?: string;
         forwardedHop?: number;
+        forwardedByInstanceId?: string;
       };
     }): Promise<ThresholdEcdsaPresignStepResponse>;
   };

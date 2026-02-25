@@ -235,6 +235,7 @@ type ThresholdEcdsaPresignStepTransport = {
   authorizationHeader?: string;
   cookieHeader?: string;
   forwardedHop?: number;
+  forwardedByInstanceId?: string;
 };
 
 function freePresignSession(session: ThresholdEcdsaPresignSession): void {
@@ -585,8 +586,22 @@ export class ThresholdEcdsaSigningHandlers {
     const transport = input.transport || {};
     const authorizationHeader = toOptionalTrimmedString(transport.authorizationHeader);
     const cookieHeader = toOptionalTrimmedString(transport.cookieHeader);
+    const forwardedByInstanceId = toOptionalTrimmedString(transport.forwardedByInstanceId);
+    const forwardedByTrustedPeer = Boolean(
+      forwardedByInstanceId && this.coordinatorPeerUrlByInstanceId.has(forwardedByInstanceId),
+    );
     const forwardedHopRaw = Math.floor(Number(transport.forwardedHop ?? 0));
     const forwardedHop = Number.isFinite(forwardedHopRaw) && forwardedHopRaw >= 0 ? forwardedHopRaw : 0;
+    const trustedForwardedHop = (forwardedHop > 0 && forwardedByTrustedPeer)
+      ? forwardedHop
+      : 0;
+    if (forwardedHop > 0 && trustedForwardedHop === 0) {
+      this.logger.warn('[threshold-ecdsa] ignoring untrusted forwarded hop', {
+        requestedForwardedHop: forwardedHop,
+        forwardedByInstanceId: forwardedByInstanceId || null,
+        localInstanceId: this.coordinatorInstanceId,
+      });
+    }
     const { presignSessionId, stage: requestedStage, outgoingMessagesB64u } = parsedRequest.value;
     const stepStartedAtMs = Date.now();
     const perf: {
@@ -594,6 +609,10 @@ export class ThresholdEcdsaSigningHandlers {
       presign_live_cache_miss: 0 | 1;
       presign_stale_session_state: 0 | 1;
       presign_owner_forwarded: 0 | 1;
+      forwardedHopRequested: number;
+      forwardedHopTrusted: number;
+      forwardedByInstanceId?: string;
+      forwardedByTrustedPeer: 0 | 1;
       ownerInstanceId?: string;
       ownerForwardReason?: string;
       storeGetSessionMs?: number;
@@ -609,6 +628,10 @@ export class ThresholdEcdsaSigningHandlers {
       presign_live_cache_miss: 0,
       presign_stale_session_state: 0,
       presign_owner_forwarded: 0,
+      forwardedHopRequested: forwardedHop,
+      forwardedHopTrusted: trustedForwardedHop,
+      ...(forwardedByInstanceId ? { forwardedByInstanceId } : {}),
+      forwardedByTrustedPeer: forwardedByTrustedPeer ? 1 : 0,
     };
     if (this.presignSessionStepInFlight.has(presignSessionId)) {
       return { ok: false, code: 'stale_session_state', message: 'Presign session step already in progress; retry step' };
@@ -671,14 +694,14 @@ export class ThresholdEcdsaSigningHandlers {
       }
       if (!ownedLocally && ownerInstanceId) {
         this.evictLivePresignSession(presignSessionId);
-        if (forwardedHop >= this.maxPresignForwardHops) {
+        if (trustedForwardedHop >= this.maxPresignForwardHops) {
           perf.presign_stale_session_state = 1;
           perf.ownerForwardReason = 'hop_limit_exceeded';
           perf.resultCode = 'stale_session_state';
           this.logger.warn('[threshold-ecdsa] owner-forward blocked by hop limit', {
             presignSessionId,
             ownerInstanceId,
-            forwardedHop,
+            forwardedHop: trustedForwardedHop,
             maxPresignForwardHops: this.maxPresignForwardHops,
           });
           return {
@@ -725,7 +748,7 @@ export class ThresholdEcdsaSigningHandlers {
           request: input.request,
           authorizationHeader: authorizationHeader || undefined,
           cookieHeader: cookieHeader || undefined,
-          forwardedHop,
+          forwardedHop: trustedForwardedHop,
           presignSessionId,
         });
         if (forwardedResponse) {
@@ -738,7 +761,7 @@ export class ThresholdEcdsaSigningHandlers {
             presignSessionId,
             ownerInstanceId,
             ownerRelayerUrl,
-            forwardedHop,
+            forwardedHop: trustedForwardedHop,
             ok: forwardedResponse.ok,
             code: forwardedResponse.ok ? undefined : forwardedResponse.code,
           });

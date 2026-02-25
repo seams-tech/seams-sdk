@@ -26,6 +26,7 @@ type PresignPriorityTicket = {
 };
 
 const PRESIGN_FORWARD_HOP_HEADER = 'x-threshold-ecdsa-presign-forward-hop';
+const PRESIGN_FORWARDED_BY_HEADER = 'x-threshold-ecdsa-presign-forwarded-by';
 
 class PresignPriorityGate {
   private foregroundInFlight = 0;
@@ -337,6 +338,9 @@ export function registerThresholdEcdsaRoutes(router: ExpressRouter, ctx: Express
         const forwardedHop = parseForwardHop(
           toOptionalHeaderString(headers[PRESIGN_FORWARD_HOP_HEADER]),
         );
+        const forwardedByInstanceId = toOptionalHeaderString(
+          headers[PRESIGN_FORWARDED_BY_HEADER],
+        );
         return scheme.presign.step({
           claims: validated.claims,
           request: body,
@@ -344,6 +348,7 @@ export function registerThresholdEcdsaRoutes(router: ExpressRouter, ctx: Express
             ...(authorizationHeader ? { authorizationHeader } : {}),
             ...(cookieHeader ? { cookieHeader } : {}),
             ...(forwardedHop > 0 ? { forwardedHop } : {}),
+            ...(forwardedByInstanceId ? { forwardedByInstanceId } : {}),
           },
         });
       });
