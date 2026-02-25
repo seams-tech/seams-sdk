@@ -393,14 +393,17 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       const signature64 = signature65.slice(0, 64);
       const recId = signature65[64]!;
 
-      const verified = secp256k1.verify(signature64, digest32, groupPublicKey33, { lowS: true });
-      expect(verified).toBe(true);
+      const verified = secp256k1.verify(signature64, digest32, groupPublicKey33, {
+        lowS: true,
+        prehash: false,
+      });
 
       const recovered = recoverSecpPublicKeyCompressed({
         signature64,
         recoveryId: recId,
         digest32,
       });
+      expect(verified).toBe(true);
       expect(base64UrlEncode(recovered)).toBe(groupPublicKeyB64u);
     } finally {
       await srv.close();
