@@ -32,6 +32,11 @@ export type ThresholdRelayerCosignerPeer = {
   relayerUrl: string;
 };
 
+export type ThresholdCoordinatorPeer = {
+  instanceId: string;
+  relayerUrl: string;
+};
+
 export function parseThresholdRelayerCosigners(input: unknown): ThresholdRelayerCosignerPeer[] | null {
   const asJson = (raw: string): unknown => {
     try {
@@ -59,6 +64,36 @@ export function parseThresholdRelayerCosigners(input: unknown): ThresholdRelayer
   }
 
   out.sort((a, b) => (a.cosignerId - b.cosignerId) || a.relayerUrl.localeCompare(b.relayerUrl));
+  return out.length ? out : null;
+}
+
+export function parseThresholdCoordinatorPeers(input: unknown): ThresholdCoordinatorPeer[] | null {
+  const asJson = (raw: string): unknown => {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  };
+
+  const raw = typeof input === 'string' ? asJson(input) : input;
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+
+  const out: ThresholdCoordinatorPeer[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+    const rec = item as Record<string, unknown>;
+    const instanceId = toOptionalTrimmedString(rec.instanceId);
+    const relayerUrl = toOptionalTrimmedString(rec.relayerUrl)?.replace(/\/+$/, '');
+    if (!instanceId || !relayerUrl) return null;
+    const key = `${instanceId}:${relayerUrl}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ instanceId, relayerUrl });
+  }
+
+  out.sort((a, b) => a.instanceId.localeCompare(b.instanceId) || a.relayerUrl.localeCompare(b.relayerUrl));
   return out.length ? out : null;
 }
 

@@ -87,7 +87,7 @@ function pollSession(session: ThresholdEcdsaPresignSession): {
 }
 
 test.describe('threshold-ecdsa presign distributed session store', () => {
-  test('progresses one presign session across two coordinator instances', async () => {
+  test('completes one presign session on a single coordinator instance', async () => {
     const userId = 'distributed-user';
     const rpId = 'example.localhost';
     const participantIds = [1, 2];
@@ -121,7 +121,6 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const sharedPresignSessionStore = new InMemoryThresholdEcdsaPresignSessionStore();
     const sharedPresignaturePool = new InMemoryThresholdEcdsaPresignaturePool();
     const sharedSigningSessionStore = new InMemoryThresholdEcdsaSigningSessionStore();
-    const fallbackWarnings: Array<{ msg: string; meta: unknown }> = [];
 
     const fakeSessionStore = {
       putMpcSession: async () => {},
@@ -136,12 +135,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const makeLogger = () => ({
       debug: () => {},
       info: () => {},
-      warn: (...args: unknown[]) => {
-        const [msg, meta] = args;
-        if (String(msg).includes('presign live-session fallback to replay')) {
-          fallbackWarnings.push({ msg: String(msg), meta });
-        }
-      },
+      warn: () => {},
       error: () => {},
     });
     const makeHandler = () => new ThresholdEcdsaSigningHandlers({
@@ -161,7 +155,6 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     });
 
     const handlerA = makeHandler();
-    const handlerB = makeHandler();
 
     const claims = {
       sub: userId,
@@ -220,8 +213,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       }
 
       if (!serverDone) {
-        const activeHandler = i % 2 === 0 ? handlerB : handlerA;
-        const step = await activeHandler.ecdsaPresignStep({
+        const step = await handlerA.ecdsaPresignStep({
           claims: claims as any,
           request: {
             presignSessionId,
@@ -255,10 +247,9 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const reserved = await sharedPresignaturePool.reserve(relayerKeyId);
     expect(reserved?.presignatureId).toBe(serverPresignatureId);
     expect(reserved?.bigRB64u).toBe(serverBigRB64u);
-    expect(fallbackWarnings.length).toBeGreaterThan(0);
   });
 
-  test('strict no-replay returns retriable stale_session_state on cross-instance cache miss', async () => {
+  test('returns retriable stale_session_state on cross-instance cache miss', async () => {
     const userId = 'strict-no-replay-user';
     const rpId = 'example.localhost';
     const participantIds = [1, 2];
@@ -282,7 +273,6 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const sharedPresignSessionStore = new InMemoryThresholdEcdsaPresignSessionStore();
     const sharedPresignaturePool = new InMemoryThresholdEcdsaPresignaturePool();
     const sharedSigningSessionStore = new InMemoryThresholdEcdsaSigningSessionStore();
-    const strictNoReplayWarnings: string[] = [];
 
     const fakeSessionStore = {
       putMpcSession: async () => {},
@@ -298,11 +288,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       logger: {
         debug: () => {},
         info: () => {},
-        warn: (msg: unknown) => {
-          if (String(msg).includes('presign strict no-replay cache miss')) {
-            strictNoReplayWarnings.push(String(msg));
-          }
-        },
+        warn: () => {},
         error: () => {},
       } as any,
       nodeRole: 'coordinator',
@@ -314,10 +300,9 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       signingSessionStore: sharedSigningSessionStore,
       presignSessionStore: sharedPresignSessionStore,
       presignaturePool: sharedPresignaturePool,
-      strictNoReplay: true,
       ensureReady: async () => {},
       createSigningSessionId: () => `sign-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      createPresignSessionId: () => `presign-strict-${++presignIdCounter}`,
+      createPresignSessionId: () => `presign-cache-miss-${++presignIdCounter}`,
     });
 
     const handlerA = makeHandler();
@@ -350,10 +335,130 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     expect(step.code).toBe('stale_session_state');
     expect(String(step.message || '')).toContain('/threshold-ecdsa/presign/init');
     expect(await sharedPresignSessionStore.getSession(presignSessionId)).toBeNull();
-    expect(strictNoReplayWarnings.length).toBeGreaterThan(0);
   });
 
-  test('strict no-replay keeps scope validation precedence over cache miss', async () => {
+  test('forwards cross-instance presign step to owner coordinator', async () => {
+    const userId = 'owner-forward-user';
+    const rpId = 'example.localhost';
+    const participantIds = [1, 2];
+    const clientParticipantId = 1;
+    const relayerParticipantId = 2;
+    const thresholdExpiresAtMs = Date.now() + 120_000;
+
+    const clientSigningShare32 = randomSecpSecretKey32();
+    const clientVerifyingShare33 = secp256k1.getPublicKey(clientSigningShare32, true);
+    const clientVerifyingShareB64u = base64UrlEncode(clientVerifyingShare33);
+
+    const relayerKeyIdDigest32 = await sha256BytesUtf8(alphabetizeStringify({
+      version: 'threshold_secp256k1_key_id_v1',
+      schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
+      userId,
+      rpId,
+      clientVerifyingShareB64u,
+    }));
+    const relayerKeyId = `secp-${base64UrlEncode(relayerKeyIdDigest32)}`;
+
+    const sharedPresignSessionStore = new InMemoryThresholdEcdsaPresignSessionStore();
+    const sharedPresignaturePool = new InMemoryThresholdEcdsaPresignaturePool();
+    const sharedSigningSessionStore = new InMemoryThresholdEcdsaSigningSessionStore();
+
+    const fakeSessionStore = {
+      putMpcSession: async () => {},
+      takeMpcSession: async () => null,
+      putSigningSession: async () => {},
+      takeSigningSession: async () => null,
+      putCoordinatorSigningSession: async () => {},
+      takeCoordinatorSigningSession: async () => null,
+    } as const;
+
+    let presignIdCounter = 0;
+    const makeHandler = (input: { instanceId: string; peers?: Array<{ instanceId: string; relayerUrl: string }> }) => new ThresholdEcdsaSigningHandlers({
+      logger: {
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+      } as any,
+      nodeRole: 'coordinator',
+      participantIds2p: participantIds,
+      clientParticipantId,
+      relayerParticipantId,
+      secp256k1MasterSecretB64u: TEST_MASTER_SECRET_B64U,
+      coordinatorInstanceId: input.instanceId,
+      coordinatorPeers: input.peers,
+      sessionStore: fakeSessionStore as any,
+      signingSessionStore: sharedSigningSessionStore,
+      presignSessionStore: sharedPresignSessionStore,
+      presignaturePool: sharedPresignaturePool,
+      ensureReady: async () => {},
+      createSigningSessionId: () => `sign-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      createPresignSessionId: () => `presign-forward-${++presignIdCounter}`,
+    });
+
+    const handlerA = makeHandler({ instanceId: 'coordinator-a' });
+    const handlerB = makeHandler({
+      instanceId: 'coordinator-b',
+      peers: [{ instanceId: 'coordinator-a', relayerUrl: 'https://relay-a.internal' }],
+    });
+    const claims = {
+      sub: userId,
+      rpId,
+      relayerKeyId,
+      participantIds,
+      thresholdExpiresAtMs,
+    };
+
+    const init = await handlerA.ecdsaPresignInit({
+      claims: claims as any,
+      request: { relayerKeyId, clientVerifyingShareB64u, count: 1 },
+    });
+    expect(init.ok, JSON.stringify(init)).toBe(true);
+    const presignSessionId = String(init.presignSessionId || '');
+    expect(presignSessionId).toBeTruthy();
+
+    const originalFetch = globalThis.fetch;
+    let forwardedCount = 0;
+    globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      forwardedCount += 1;
+      expect(String(url)).toBe('https://relay-a.internal/threshold-ecdsa/presign/step');
+      const headers = new Headers(init?.headers);
+      const payload = JSON.parse(String(init?.body || '{}'));
+      const result = await handlerA.ecdsaPresignStep({
+        claims: claims as any,
+        request: payload,
+        transport: {
+          authorizationHeader: headers.get('authorization') || undefined,
+          cookieHeader: headers.get('cookie') || undefined,
+          forwardedHop: Number(headers.get('x-threshold-ecdsa-presign-forward-hop') || 0),
+        },
+      });
+      return new Response(JSON.stringify(result), {
+        status: result.ok ? 200 : 409,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    try {
+      const step = await handlerB.ecdsaPresignStep({
+        claims: claims as any,
+        request: {
+          presignSessionId,
+          stage: 'triples',
+          outgoingMessagesB64u: [],
+        },
+        transport: {
+          authorizationHeader: 'Bearer session-token',
+        },
+      });
+      expect(step.ok, JSON.stringify(step)).toBe(true);
+      expect(forwardedCount).toBe(1);
+      expect(await sharedPresignSessionStore.getSession(presignSessionId)).not.toBeNull();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('keeps scope validation precedence over cache miss', async () => {
     const userId = 'strict-scope-user';
     const rpId = 'example.localhost';
     const participantIds = [1, 2];
@@ -404,10 +509,9 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       signingSessionStore: sharedSigningSessionStore,
       presignSessionStore: sharedPresignSessionStore,
       presignaturePool: sharedPresignaturePool,
-      strictNoReplay: true,
       ensureReady: async () => {},
       createSigningSessionId: () => `sign-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      createPresignSessionId: () => `presign-strict-scope-${++presignIdCounter}`,
+      createPresignSessionId: () => `presign-scope-${++presignIdCounter}`,
     });
 
     const handlerA = makeHandler();

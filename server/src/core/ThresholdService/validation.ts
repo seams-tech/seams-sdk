@@ -409,12 +409,12 @@ export type ParsedThresholdEcdsaPresignSessionRecord = {
   userId: string;
   rpId: string;
   relayerKeyId: string;
+  ownerInstanceId?: string;
   participantIds: number[];
   clientParticipantId: number;
   relayerParticipantId: number;
   stage: ParsedThresholdEcdsaPresignSessionStage;
   version: number;
-  wasmSessionStateB64u: string;
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -427,6 +427,7 @@ export function parseThresholdEcdsaPresignSessionRecord(
   const userId = toOptionalString(raw.userId);
   const rpId = toOptionalString(raw.rpId);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
+  const ownerInstanceId = toOptionalString(raw.ownerInstanceId);
   const participantIds =
     normalizeThresholdEd25519ParticipantIds(raw.participantIds)
     || [...THRESHOLD_ED25519_2P_PARTICIPANT_IDS];
@@ -434,7 +435,6 @@ export function parseThresholdEcdsaPresignSessionRecord(
   const relayerParticipantId = raw.relayerParticipantId;
   const stageRaw = toOptionalString(raw.stage);
   const version = raw.version;
-  const wasmSessionStateB64u = toOptionalString(raw.wasmSessionStateB64u);
   const createdAtMs = raw.createdAtMs;
   const updatedAtMs = raw.updatedAtMs;
 
@@ -457,7 +457,6 @@ export function parseThresholdEcdsaPresignSessionRecord(
     !rpId ||
     !relayerKeyId ||
     !stage ||
-    !wasmSessionStateB64u ||
     !isValidNumber(clientParticipantId) ||
     !isValidNumber(relayerParticipantId) ||
     !isValidNumber(version)
@@ -477,12 +476,12 @@ export function parseThresholdEcdsaPresignSessionRecord(
     userId,
     rpId,
     relayerKeyId,
+    ...(ownerInstanceId ? { ownerInstanceId } : {}),
     participantIds,
     clientParticipantId: clientParticipantIdInt,
     relayerParticipantId: relayerParticipantIdInt,
     stage,
     version: versionInt,
-    wasmSessionStateB64u,
     createdAtMs,
     updatedAtMs,
   };

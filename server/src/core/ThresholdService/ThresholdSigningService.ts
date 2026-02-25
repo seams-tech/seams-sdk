@@ -80,6 +80,7 @@ import type { ThresholdEd25519ShareMode } from './config';
 import {
   coerceThresholdEd25519ShareMode,
   coerceThresholdNodeRole,
+  parseThresholdCoordinatorPeers,
   parseThresholdCoordinatorSharedSecretBytes,
   parseThresholdEd25519ParticipantIds2p,
   parseThresholdRelayerCosignerThreshold,
@@ -632,11 +633,12 @@ export class ThresholdSigningService {
     this.ecdsaPresignaturePool = input.ecdsaPresignaturePool;
     const cfg = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
     this.ecdsaPresignPoolPolicyHint = parseThresholdEcdsaPresignPoolPolicyHint(cfg);
-    const ecdsaPresignStrictNoReplay = parseOptionalBoolean(cfg.THRESHOLD_ECDSA_PRESIGN_STRICT_NO_REPLAY) === true;
 
     const nodeRole = coerceThresholdNodeRole(cfg.THRESHOLD_NODE_ROLE);
     const coordinatorSharedSecretBytes =
       parseThresholdCoordinatorSharedSecretBytes(cfg.THRESHOLD_COORDINATOR_SHARED_SECRET_B64U);
+    const coordinatorInstanceId = toOptionalTrimmedString(cfg.THRESHOLD_COORDINATOR_INSTANCE_ID);
+    const coordinatorPeers = parseThresholdCoordinatorPeers(cfg.THRESHOLD_COORDINATOR_PEERS) || [];
     const relayerCosigners = parseThresholdRelayerCosigners(cfg.THRESHOLD_ED25519_RELAYER_COSIGNERS) || [];
     const relayerCosignerThreshold = parseThresholdRelayerCosignerThreshold(cfg.THRESHOLD_ED25519_RELAYER_COSIGNER_T);
     const relayerCosignerIdRaw = cfg.THRESHOLD_ED25519_RELAYER_COSIGNER_ID;
@@ -700,11 +702,12 @@ export class ThresholdSigningService {
       clientParticipantId: this.clientParticipantId,
       relayerParticipantId: this.relayerParticipantId,
       secp256k1MasterSecretB64u: this.secp256k1MasterSecretB64u,
+      coordinatorInstanceId: coordinatorInstanceId || null,
+      coordinatorPeers,
       sessionStore: this.ecdsaSessionStore,
       signingSessionStore: this.ecdsaSigningSessionStore,
       presignSessionStore: this.ecdsaPresignSessionStore,
       presignaturePool: this.ecdsaPresignaturePool,
-      strictNoReplay: ecdsaPresignStrictNoReplay,
       ensureReady: this.ensureReady,
       createSigningSessionId: () => this.createThresholdEcdsaSigningSessionId(),
       createPresignSessionId: () => this.createThresholdEcdsaPresignSessionId(),

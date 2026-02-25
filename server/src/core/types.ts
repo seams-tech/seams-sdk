@@ -160,6 +160,20 @@ export type ThresholdEd25519KeyStoreEnvInput = {
    */
   THRESHOLD_COORDINATOR_SHARED_SECRET_B64U?: string;
   /**
+   * Stable identifier for this coordinator instance.
+   *
+   * Used to pin `/threshold-ecdsa/presign/*` sessions to the instance that
+   * created the live in-memory WASM session object.
+   */
+  THRESHOLD_COORDINATOR_INSTANCE_ID?: string;
+  /**
+   * Optional coordinator peer list (JSON) for cross-instance presign-step forwarding.
+   *
+   * Example:
+   * `THRESHOLD_COORDINATOR_PEERS=[{"instanceId":"coordinator-a","relayerUrl":"https://relay-a.internal"},{"instanceId":"coordinator-b","relayerUrl":"https://relay-b.internal"}]`
+   */
+  THRESHOLD_COORDINATOR_PEERS?: string;
+  /**
    * Optional relayer-fleet cosigner list (JSON) for internal t-of-n cosigning.
    *
    * When configured on a coordinator node, the coordinator can fan out to relayer cosigners
@@ -189,11 +203,6 @@ export type ThresholdEd25519KeyStoreEnvInput = {
   THRESHOLD_ECDSA_PRESIGN_POOL_HINT_LOW_WATERMARK?: string;
   THRESHOLD_ECDSA_PRESIGN_POOL_HINT_MAX_REFILL_IN_FLIGHT?: string;
   THRESHOLD_ECDSA_PRESIGN_POOL_HINT_REFILL_ATTEMPT_TIMEOUT_MS?: string;
-  /**
-   * When enabled, `/threshold-ecdsa/presign/step` requires a live in-memory session and does not
-   * replay stored step history on cache miss. Cache misses return retriable `stale_session_state`.
-   */
-  THRESHOLD_ECDSA_PRESIGN_STRICT_NO_REPLAY?: string;
 };
 
 /**

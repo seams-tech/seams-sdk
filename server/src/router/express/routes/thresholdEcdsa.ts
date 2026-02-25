@@ -25,6 +25,8 @@ type PresignPriorityTicket = {
   release: () => void;
 };
 
+const PRESIGN_FORWARD_HOP_HEADER = 'x-threshold-ecdsa-presign-forward-hop';
+
 class PresignPriorityGate {
   private foregroundInFlight = 0;
   private backgroundInFlight = 0;
@@ -102,6 +104,24 @@ function resolvePresignLogLabel(requestTag: string | undefined): string | undefi
 
 function resolvePresignTrafficClass(requestTag: string | undefined): PresignTrafficClass {
   return requestTag === 'background_presign_pool_refill' ? 'background' : 'foreground';
+}
+
+function toOptionalHeaderString(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const trimmed = String(entry || '').trim();
+      if (trimmed) return trimmed;
+    }
+    return undefined;
+  }
+  const trimmed = String(value || '').trim();
+  return trimmed || undefined;
+}
+
+function parseForwardHop(value: string | undefined): number {
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return n;
 }
 
 const presignPriorityGate = new PresignPriorityGate();
@@ -311,7 +331,21 @@ export function registerThresholdEcdsaRoutes(router: ExpressRouter, ctx: Express
         });
         if (!validated.ok) return validated;
 
-        return scheme.presign.step({ claims: validated.claims, request: body });
+        const headers = req.headers || {};
+        const authorizationHeader = toOptionalHeaderString(headers.authorization);
+        const cookieHeader = toOptionalHeaderString(headers.cookie);
+        const forwardedHop = parseForwardHop(
+          toOptionalHeaderString(headers[PRESIGN_FORWARD_HOP_HEADER]),
+        );
+        return scheme.presign.step({
+          claims: validated.claims,
+          request: body,
+          transport: {
+            ...(authorizationHeader ? { authorizationHeader } : {}),
+            ...(cookieHeader ? { cookieHeader } : {}),
+            ...(forwardedHop > 0 ? { forwardedHop } : {}),
+          },
+        });
       });
     } finally {
       gateTicket.release();

@@ -12,7 +12,7 @@ import type {
   ThresholdEcdsaSignInitResponse,
 } from '../types';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import type { ThresholdNodeRole } from './config';
+import type { ThresholdCoordinatorPeer, ThresholdNodeRole } from './config';
 import type { ThresholdEd25519SessionStore } from './stores/SessionStore';
 import type {
   ThresholdEcdsaPresignSessionRecord,
@@ -41,6 +41,9 @@ import {
 type ParseOk<T> = { ok: true; value: T };
 type ParseErr = { ok: false; code: string; message: string };
 type ParseResult<T> = ParseOk<T> | ParseErr;
+
+const PRESIGN_FORWARD_HOP_HEADER = 'x-threshold-ecdsa-presign-forward-hop';
+const PRESIGN_FORWARDED_BY_HEADER = 'x-threshold-ecdsa-presign-forwarded-by';
 
 function errorMessage(error: unknown): string {
   return String(
@@ -164,146 +167,11 @@ function sameParticipantIds(a: number[], b: number[]): boolean {
   return true;
 }
 
-type PresignReplayStep = {
-  stage: 'triples' | 'presign';
-  incomingMessagesB64u: string[];
-};
-
-type SerializedPresignSessionState = {
-  kind: 'replay_v1';
-  sessionSeedB64u: string;
-  relayerThresholdShareB64u: string;
-  groupPublicKeyB64u: string;
-  appliedSteps: PresignReplayStep[];
-};
-
-const STRICT_NO_REPLAY_WASM_SESSION_STATE = 'strict_no_replay_v1';
-
 type WasmPresignPoll = {
   stage: 'triples' | 'triples_done' | 'presign' | 'done';
   event: 'none' | 'triples_done' | 'presign_done';
   outgoingMessagesB64u: string[];
 };
-
-function serializePresignSessionState(state: SerializedPresignSessionState): string {
-  return base64UrlEncode(new TextEncoder().encode(JSON.stringify(state)));
-}
-
-function parsePresignReplayStep(raw: unknown): PresignReplayStep | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const rec = raw as Record<string, unknown>;
-  const stageRaw = toOptionalTrimmedString(rec.stage);
-  if (stageRaw !== 'triples' && stageRaw !== 'presign') return null;
-  const incomingRaw = rec.incomingMessagesB64u;
-  if (!Array.isArray(incomingRaw)) return null;
-  const incomingMessagesB64u: string[] = [];
-  for (const msg of incomingRaw) {
-    const v = toOptionalTrimmedString(msg);
-    if (!v) return null;
-    incomingMessagesB64u.push(v);
-  }
-  return { stage: stageRaw, incomingMessagesB64u };
-}
-
-function parseSerializedPresignSessionState(stateB64u: string): SerializedPresignSessionState | null {
-  let decoded: Uint8Array;
-  try {
-    decoded = base64UrlDecode(stateB64u);
-  } catch {
-    return null;
-  }
-  let raw: unknown;
-  try {
-    raw = JSON.parse(new TextDecoder().decode(decoded));
-  } catch {
-    return null;
-  }
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const rec = raw as Record<string, unknown>;
-  const kind = toOptionalTrimmedString(rec.kind);
-  if (kind !== 'replay_v1') return null;
-  const sessionSeedB64u = toOptionalTrimmedString(rec.sessionSeedB64u);
-  const relayerThresholdShareB64u = toOptionalTrimmedString(rec.relayerThresholdShareB64u);
-  const groupPublicKeyB64u = toOptionalTrimmedString(rec.groupPublicKeyB64u);
-  if (!sessionSeedB64u || !relayerThresholdShareB64u || !groupPublicKeyB64u) return null;
-  const appliedRaw = rec.appliedSteps;
-  const appliedSteps: PresignReplayStep[] = [];
-  if (Array.isArray(appliedRaw)) {
-    for (const entry of appliedRaw) {
-      const parsed = parsePresignReplayStep(entry);
-      if (!parsed) return null;
-      appliedSteps.push(parsed);
-    }
-  } else if (appliedRaw !== undefined) {
-    return null;
-  }
-  return { kind, sessionSeedB64u, relayerThresholdShareB64u, groupPublicKeyB64u, appliedSteps };
-}
-
-function decodeSessionSeed32(seedB64u: string): Uint8Array | null {
-  try {
-    const decoded = base64UrlDecode(seedB64u);
-    return decoded.length === 32 ? decoded : null;
-  } catch {
-    return null;
-  }
-}
-
-function deterministicRandomBlock(seed32: Uint8Array, counter: bigint): Uint8Array {
-  const blockInput = new Uint8Array(40);
-  blockInput.set(seed32, 0);
-  const dv = new DataView(blockInput.buffer);
-  dv.setUint32(32, Number((counter >> 32n) & 0xffffffffn), false);
-  dv.setUint32(36, Number(counter & 0xffffffffn), false);
-  return sha256BytesSync(blockInput);
-}
-
-function withDeterministicCryptoRandomFromCounter<T>(input: {
-  seed32: Uint8Array;
-  startCounter: bigint;
-  fn: () => T;
-}): { value: T; nextCounter: bigint } {
-  const cryptoObj = (globalThis as unknown as {
-    crypto?: { getRandomValues?: (array: ArrayBufferView) => ArrayBufferView };
-  }).crypto;
-  if (!cryptoObj || typeof cryptoObj.getRandomValues !== 'function') {
-    return {
-      value: input.fn(),
-      nextCounter: input.startCounter,
-    };
-  }
-  const original = cryptoObj.getRandomValues.bind(cryptoObj);
-  let counter = input.startCounter;
-  const deterministicGetRandomValues = (array: ArrayBufferView): ArrayBufferView => {
-    const out = new Uint8Array(array.buffer, array.byteOffset, array.byteLength);
-    let offset = 0;
-    while (offset < out.length) {
-      const block = deterministicRandomBlock(input.seed32, counter);
-      counter += 1n;
-      const len = Math.min(block.length, out.length - offset);
-      out.set(block.slice(0, len), offset);
-      offset += len;
-    }
-    return array;
-  };
-  try {
-    cryptoObj.getRandomValues = deterministicGetRandomValues;
-    return {
-      value: input.fn(),
-      nextCounter: counter,
-    };
-  } finally {
-    cryptoObj.getRandomValues = original;
-  }
-}
-
-function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
 
 function normalizeWasmPresignStage(rawStage: string): 'triples' | 'triples_done' | 'presign' | 'done' {
   if (rawStage === 'triples_done') return 'triples_done';
@@ -358,24 +226,15 @@ function takePresignatureFromSession(session: ThresholdEcdsaPresignSession): Par
   };
 }
 
-type ReplayedPresignSession = {
-  session: ThresholdEcdsaPresignSession;
-  stage: 'triples' | 'triples_done' | 'presign' | 'done';
-};
-
 type LivePresignSessionCacheEntry = {
   session: ThresholdEcdsaPresignSession;
   record: ThresholdEcdsaPresignSessionRecord;
-  state: SerializedPresignSessionState;
-  sessionSeed32: Uint8Array;
-  rngCounter: bigint;
 };
 
-type LivePresignSessionResolve = {
-  entry: LivePresignSessionCacheEntry;
-  source: 'cache_hit' | 'replay_restore';
-  fallbackReason?: string;
-  replayRestoreMs?: number;
+type ThresholdEcdsaPresignStepTransport = {
+  authorizationHeader?: string;
+  cookieHeader?: string;
+  forwardedHop?: number;
 };
 
 function freePresignSession(session: ThresholdEcdsaPresignSession): void {
@@ -384,73 +243,6 @@ function freePresignSession(session: ThresholdEcdsaPresignSession): void {
   } catch {
     // Best-effort cleanup only.
   }
-}
-
-function reconstructPresignSessionFromState(input: {
-  record: ThresholdEcdsaPresignSessionRecord;
-  state: SerializedPresignSessionState;
-}): ReplayedPresignSession | null {
-  let relayerThresholdShare32: Uint8Array;
-  let groupPublicKey33: Uint8Array;
-  try {
-    relayerThresholdShare32 = base64UrlDecode(input.state.relayerThresholdShareB64u);
-    groupPublicKey33 = base64UrlDecode(input.state.groupPublicKeyB64u);
-  } catch {
-    return null;
-  }
-  if (relayerThresholdShare32.length !== 32 || groupPublicKey33.length !== 33) return null;
-
-  const session = new ThresholdEcdsaPresignSession(
-    new Uint32Array(input.record.participantIds),
-    input.record.relayerParticipantId,
-    2,
-    relayerThresholdShare32,
-    groupPublicKey33,
-  );
-
-  // Presign init calls `poll()` once and returns those outgoing messages.
-  // Replay that initial poll so reconstructed state matches a post-init session.
-  pollWasmPresignSession(session);
-
-  for (const step of input.state.appliedSteps) {
-    const currentStage = normalizeWasmPresignStage(session.stage());
-    if (step.stage === 'triples') {
-      if (currentStage !== 'triples') return null;
-    } else if (step.stage === 'presign') {
-      if (currentStage === 'triples_done') {
-        try {
-          session.start_presign();
-        } catch {
-          return null;
-        }
-      } else if (currentStage === 'triples') {
-        return null;
-      } else if (currentStage === 'done') {
-        return null;
-      }
-    }
-
-    for (const msgB64u of step.incomingMessagesB64u) {
-      let decoded: Uint8Array;
-      try {
-        decoded = base64UrlDecode(msgB64u);
-      } catch {
-        return null;
-      }
-      try {
-        session.message(input.record.clientParticipantId, decoded);
-      } catch {
-        return null;
-      }
-    }
-
-    pollWasmPresignSession(session);
-  }
-
-  return {
-    session,
-    stage: normalizeWasmPresignStage(session.stage()),
-  };
 }
 
 export class ThresholdEcdsaSigningHandlers {
@@ -464,10 +256,12 @@ export class ThresholdEcdsaSigningHandlers {
   private readonly signingSessionStore: ThresholdEcdsaSigningSessionStore;
   private readonly presignSessionStore: ThresholdEcdsaPresignSessionStore;
   private readonly presignaturePool: ThresholdEcdsaPresignaturePool;
-  private readonly strictNoReplay: boolean;
   private readonly ensureReady: () => Promise<void>;
   private readonly createSigningSessionId: () => string;
   private readonly createPresignSessionId: () => string;
+  private readonly coordinatorInstanceId: string | null;
+  private readonly coordinatorPeerUrlByInstanceId: Map<string, string>;
+  private readonly maxPresignForwardHops: number;
   private readonly livePresignSessionById = new Map<string, LivePresignSessionCacheEntry>();
   private readonly presignSessionStepInFlight = new Set<string>();
 
@@ -478,14 +272,16 @@ export class ThresholdEcdsaSigningHandlers {
     clientParticipantId: number;
     relayerParticipantId: number;
     secp256k1MasterSecretB64u: string | null;
+    coordinatorInstanceId?: string | null;
+    coordinatorPeers?: ThresholdCoordinatorPeer[];
     sessionStore: ThresholdEd25519SessionStore;
     signingSessionStore: ThresholdEcdsaSigningSessionStore;
     presignSessionStore: ThresholdEcdsaPresignSessionStore;
     presignaturePool: ThresholdEcdsaPresignaturePool;
-    strictNoReplay?: boolean;
     ensureReady: () => Promise<void>;
     createSigningSessionId: () => string;
     createPresignSessionId: () => string;
+    maxPresignForwardHops?: number;
   }) {
     this.logger = input.logger;
     this.nodeRole = input.nodeRole;
@@ -493,11 +289,25 @@ export class ThresholdEcdsaSigningHandlers {
     this.clientParticipantId = input.clientParticipantId;
     this.relayerParticipantId = input.relayerParticipantId;
     this.secp256k1MasterSecretB64u = input.secp256k1MasterSecretB64u;
+    this.coordinatorInstanceId = toOptionalTrimmedString(input.coordinatorInstanceId);
+    this.coordinatorPeerUrlByInstanceId = new Map<string, string>();
+    for (const peer of input.coordinatorPeers || []) {
+      const instanceId = toOptionalTrimmedString(peer?.instanceId);
+      const relayerUrl = toOptionalTrimmedString(peer?.relayerUrl)?.replace(/\/+$/, '');
+      if (!instanceId || !relayerUrl) continue;
+      if (this.coordinatorInstanceId && instanceId === this.coordinatorInstanceId) continue;
+      if (!this.coordinatorPeerUrlByInstanceId.has(instanceId)) {
+        this.coordinatorPeerUrlByInstanceId.set(instanceId, relayerUrl);
+      }
+    }
+    const maxPresignForwardHops = Math.floor(Number(input.maxPresignForwardHops ?? 1));
+    this.maxPresignForwardHops = Number.isFinite(maxPresignForwardHops) && maxPresignForwardHops >= 0
+      ? maxPresignForwardHops
+      : 1;
     this.sessionStore = input.sessionStore;
     this.signingSessionStore = input.signingSessionStore;
     this.presignSessionStore = input.presignSessionStore;
     this.presignaturePool = input.presignaturePool;
-    this.strictNoReplay = input.strictNoReplay === true;
     this.ensureReady = input.ensureReady;
     this.createSigningSessionId = input.createSigningSessionId;
     this.createPresignSessionId = input.createPresignSessionId;
@@ -518,115 +328,87 @@ export class ThresholdEcdsaSigningHandlers {
     this.livePresignSessionById.set(presignSessionId, entry);
   }
 
-  private restoreLivePresignSessionWithReplay(input: {
-    presignSessionId: string;
-    record: ThresholdEcdsaPresignSessionRecord;
-    state: SerializedPresignSessionState;
-    sessionSeed32: Uint8Array;
-    reason: string;
-  }): ParseResult<LivePresignSessionResolve> {
-    const restoreStartedAtMs = Date.now();
-    const restored = withDeterministicCryptoRandomFromCounter({
-      seed32: input.sessionSeed32,
-      startCounter: 0n,
-      fn: () => reconstructPresignSessionFromState({ record: input.record, state: input.state }),
-    });
-    const replayRestoreMs = Math.max(0, Date.now() - restoreStartedAtMs);
-    const replayed = restored.value;
-    if (!replayed) {
-      this.logger.error('[threshold-ecdsa] presign live-session fallback replay failed', {
-        presignSessionId: input.presignSessionId,
-        reason: input.reason,
-        recordVersion: input.record.version,
-        recordStage: input.record.stage,
-        replayRestoreMs,
-      });
-      return { ok: false, code: 'internal', message: 'Failed to restore presign session state' };
-    }
-    if (replayed.stage !== input.record.stage) {
-      freePresignSession(replayed.session);
-      this.logger.error('[threshold-ecdsa] presign live-session fallback replay stage mismatch', {
-        presignSessionId: input.presignSessionId,
-        reason: input.reason,
-        recordVersion: input.record.version,
-        recordStage: input.record.stage,
-        replayedStage: replayed.stage,
-        replayRestoreMs,
-      });
-      return { ok: false, code: 'internal', message: 'presign session stage mismatch' };
-    }
-
-    this.logger.warn('[threshold-ecdsa] presign live-session fallback to replay', {
-      presignSessionId: input.presignSessionId,
-      reason: input.reason,
-      recordVersion: input.record.version,
-      recordStage: input.record.stage,
-      replayRestoreMs,
-    });
-
-    const entry: LivePresignSessionCacheEntry = {
-      session: replayed.session,
-      record: input.record,
-      state: input.state,
-      sessionSeed32: input.sessionSeed32.slice(),
-      rngCounter: restored.nextCounter,
-    };
-    this.putLivePresignSession(input.presignSessionId, entry);
-    return {
-      ok: true,
-      value: {
-        entry,
-        source: 'replay_restore',
-        fallbackReason: input.reason,
-        replayRestoreMs,
-      },
-    };
+  private isPresignSessionOwnedLocally(record: ThresholdEcdsaPresignSessionRecord): boolean {
+    const ownerInstanceId = toOptionalTrimmedString(record.ownerInstanceId);
+    if (!ownerInstanceId) return true;
+    if (!this.coordinatorInstanceId) return false;
+    return ownerInstanceId === this.coordinatorInstanceId;
   }
 
-  private getOrRestoreLivePresignSession(input: {
+  private resolvePresignSessionOwnerPeerUrl(record: ThresholdEcdsaPresignSessionRecord): string | null {
+    const ownerInstanceId = toOptionalTrimmedString(record.ownerInstanceId);
+    if (!ownerInstanceId) return null;
+    if (this.coordinatorInstanceId && ownerInstanceId === this.coordinatorInstanceId) return null;
+    return this.coordinatorPeerUrlByInstanceId.get(ownerInstanceId) || null;
+  }
+
+  private async forwardPresignStepToOwner(input: {
+    ownerInstanceId: string;
+    ownerRelayerUrl: string;
+    request: ThresholdEcdsaPresignStepRequest;
+    authorizationHeader?: string;
+    cookieHeader?: string;
+    forwardedHop: number;
     presignSessionId: string;
-    record: ThresholdEcdsaPresignSessionRecord;
-    state: SerializedPresignSessionState;
-    sessionSeed32: Uint8Array;
-  }): ParseResult<LivePresignSessionResolve> {
-    const nowMs = Date.now();
-    const cached = this.livePresignSessionById.get(input.presignSessionId);
-    if (cached) {
-      if (nowMs > cached.record.expiresAtMs) {
-        this.evictLivePresignSession(input.presignSessionId);
-        return this.restoreLivePresignSessionWithReplay({
-          ...input,
-          reason: 'cache_expired',
-        });
-      }
-      if (cached.record.version !== input.record.version) {
-        this.evictLivePresignSession(input.presignSessionId);
-        return this.restoreLivePresignSessionWithReplay({
-          ...input,
-          reason: 'cache_version_mismatch',
-        });
-      }
-      if (cached.record.stage !== input.record.stage) {
-        this.evictLivePresignSession(input.presignSessionId);
-        return this.restoreLivePresignSessionWithReplay({
-          ...input,
-          reason: 'cache_stage_mismatch',
-        });
-      }
-      if (!equalBytes(cached.sessionSeed32, input.sessionSeed32)) {
-        this.evictLivePresignSession(input.presignSessionId);
-        return this.restoreLivePresignSessionWithReplay({
-          ...input,
-          reason: 'cache_seed_mismatch',
-        });
-      }
-      return { ok: true, value: { entry: cached, source: 'cache_hit' } };
+  }): Promise<ThresholdEcdsaPresignStepResponse | null> {
+    if (typeof fetch !== 'function') {
+      this.logger.warn('[threshold-ecdsa] owner-forward skipped: fetch unavailable', {
+        presignSessionId: input.presignSessionId,
+        ownerInstanceId: input.ownerInstanceId,
+      });
+      return null;
     }
 
-    return this.restoreLivePresignSessionWithReplay({
-      ...input,
-      reason: 'cache_miss',
-    });
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      [PRESIGN_FORWARD_HOP_HEADER]: String(input.forwardedHop + 1),
+    };
+    if (this.coordinatorInstanceId) headers[PRESIGN_FORWARDED_BY_HEADER] = this.coordinatorInstanceId;
+    const authorizationHeader = toOptionalTrimmedString(input.authorizationHeader);
+    if (authorizationHeader) headers.authorization = authorizationHeader;
+    const cookieHeader = toOptionalTrimmedString(input.cookieHeader);
+    if (cookieHeader) headers.cookie = cookieHeader;
+
+    let response: Response;
+    try {
+      response = await fetch(`${input.ownerRelayerUrl}/threshold-ecdsa/presign/step`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(input.request),
+      });
+    } catch (error: unknown) {
+      this.logger.warn('[threshold-ecdsa] owner-forward request failed', {
+        presignSessionId: input.presignSessionId,
+        ownerInstanceId: input.ownerInstanceId,
+        ownerRelayerUrl: input.ownerRelayerUrl,
+        error: errorMessage(error),
+      });
+      return null;
+    }
+
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      this.logger.warn('[threshold-ecdsa] owner-forward response decode failed', {
+        presignSessionId: input.presignSessionId,
+        ownerInstanceId: input.ownerInstanceId,
+        ownerRelayerUrl: input.ownerRelayerUrl,
+        status: response.status,
+      });
+      return null;
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      this.logger.warn('[threshold-ecdsa] owner-forward response shape invalid', {
+        presignSessionId: input.presignSessionId,
+        ownerInstanceId: input.ownerInstanceId,
+        ownerRelayerUrl: input.ownerRelayerUrl,
+        status: response.status,
+      });
+      return null;
+    }
+
+    return body as ThresholdEcdsaPresignStepResponse;
   }
 
   async ecdsaPresignInit(input: {
@@ -731,33 +513,14 @@ export class ThresholdEcdsaSigningHandlers {
 
     for (let attempt = 0; attempt < 4; attempt += 1) {
       const presignSessionId = this.createPresignSessionId();
-      const sessionSeed32 = crypto.getRandomValues(new Uint8Array(32));
-      const initialized = withDeterministicCryptoRandomFromCounter({
-        seed32: sessionSeed32,
-        startCounter: 0n,
-        fn: () => {
-          const wasmSession = new ThresholdEcdsaPresignSession(
-            new Uint32Array(participantIds),
-            this.relayerParticipantId,
-            2,
-            relayerThresholdShare32,
-            groupPublicKeyBytes,
-          );
-          return {
-            wasmSession,
-            polled: pollWasmPresignSession(wasmSession),
-          };
-        },
-      });
-      const { wasmSession, polled } = initialized.value;
-
-      const storedState: SerializedPresignSessionState = {
-        kind: 'replay_v1',
-        sessionSeedB64u: base64UrlEncode(sessionSeed32),
-        relayerThresholdShareB64u: base64UrlEncode(relayerThresholdShare32),
-        groupPublicKeyB64u: base64UrlEncode(groupPublicKeyBytes),
-        appliedSteps: [],
-      };
+      const wasmSession = new ThresholdEcdsaPresignSession(
+        new Uint32Array(participantIds),
+        this.relayerParticipantId,
+        2,
+        relayerThresholdShare32,
+        groupPublicKeyBytes,
+      );
+      const polled = pollWasmPresignSession(wasmSession);
 
       const createdAtMs = Date.now();
       const record: ThresholdEcdsaPresignSessionRecord = {
@@ -765,14 +528,12 @@ export class ThresholdEcdsaSigningHandlers {
         userId,
         rpId: tokenRpId,
         relayerKeyId,
+        ...(this.coordinatorInstanceId ? { ownerInstanceId: this.coordinatorInstanceId } : {}),
         participantIds,
         clientParticipantId: this.clientParticipantId,
         relayerParticipantId: this.relayerParticipantId,
         stage: polled.stage,
         version: 1,
-        wasmSessionStateB64u: this.strictNoReplay
-          ? STRICT_NO_REPLAY_WASM_SESSION_STATE
-          : serializePresignSessionState(storedState),
         createdAtMs,
         updatedAtMs: createdAtMs,
       };
@@ -790,9 +551,6 @@ export class ThresholdEcdsaSigningHandlers {
       this.putLivePresignSession(presignSessionId, {
         session: wasmSession,
         record,
-        state: storedState,
-        sessionSeed32: sessionSeed32.slice(),
-        rngCounter: initialized.nextCounter,
       });
 
       return {
@@ -809,6 +567,7 @@ export class ThresholdEcdsaSigningHandlers {
   async ecdsaPresignStep(input: {
     claims: ThresholdEcdsaSessionClaims;
     request: ThresholdEcdsaPresignStepRequest;
+    transport?: ThresholdEcdsaPresignStepTransport;
   }): Promise<ThresholdEcdsaPresignStepResponse> {
     if (this.nodeRole !== 'coordinator') {
       return {
@@ -823,19 +582,24 @@ export class ThresholdEcdsaSigningHandlers {
 
     const parsedRequest = parseThresholdEcdsaPresignStepRequest(input.request);
     if (!parsedRequest.ok) return parsedRequest;
+    const transport = input.transport || {};
+    const authorizationHeader = toOptionalTrimmedString(transport.authorizationHeader);
+    const cookieHeader = toOptionalTrimmedString(transport.cookieHeader);
+    const forwardedHopRaw = Math.floor(Number(transport.forwardedHop ?? 0));
+    const forwardedHop = Number.isFinite(forwardedHopRaw) && forwardedHopRaw >= 0 ? forwardedHopRaw : 0;
     const { presignSessionId, stage: requestedStage, outgoingMessagesB64u } = parsedRequest.value;
     const stepStartedAtMs = Date.now();
     const perf: {
       presign_live_cache_hit: 0 | 1;
       presign_live_cache_miss: 0 | 1;
-      presign_replay_fallback_used: 0 | 1;
+      presign_stale_session_state: 0 | 1;
+      presign_owner_forwarded: 0 | 1;
+      ownerInstanceId?: string;
+      ownerForwardReason?: string;
       storeGetSessionMs?: number;
       liveResolveMs?: number;
-      liveResolveSource?: 'cache_hit' | 'replay_restore';
       liveCacheStatus?: 'hit' | 'miss';
-      replayRestoreMs?: number;
-      replayFallbackReason?: string;
-      replayFallbackUsed?: boolean;
+      liveCacheMissReason?: string;
       wasmStepMs?: number;
       storeCasMs?: number;
       casCode?: string;
@@ -843,7 +607,8 @@ export class ThresholdEcdsaSigningHandlers {
     } = {
       presign_live_cache_hit: 0,
       presign_live_cache_miss: 0,
-      presign_replay_fallback_used: 0,
+      presign_stale_session_state: 0,
+      presign_owner_forwarded: 0,
     };
     if (this.presignSessionStepInFlight.has(presignSessionId)) {
       return { ok: false, code: 'stale_session_state', message: 'Presign session step already in progress; retry step' };
@@ -864,57 +629,20 @@ export class ThresholdEcdsaSigningHandlers {
         perf.resultCode = 'unauthorized';
         return { ok: false, code: 'unauthorized', message: 'presignSessionId expired' };
       }
-
-      let state: SerializedPresignSessionState | null = null;
-      let sessionSeed32: Uint8Array | null = null;
-      let strictNoReplayCacheMiss = false;
-      let liveEntry: LivePresignSessionCacheEntry | null = null;
-      const cached = this.livePresignSessionById.get(presignSessionId);
-      if (
-        cached
-        && Date.now() <= cached.record.expiresAtMs
-        && cached.record.version === record.version
-        && cached.record.stage === record.stage
-      ) {
-        state = cached.state;
-        sessionSeed32 = cached.sessionSeed32;
-        liveEntry = cached;
-        perf.presign_live_cache_hit = 1;
-        perf.liveResolveMs = 0;
-        perf.liveResolveSource = 'cache_hit';
-        perf.liveCacheStatus = 'hit';
-      } else {
-        if (cached) this.evictLivePresignSession(presignSessionId);
-        perf.presign_live_cache_miss = 1;
-        perf.liveCacheStatus = 'miss';
-        if (this.strictNoReplay) {
-          strictNoReplayCacheMiss = true;
-        } else {
-          const parsedState = parseSerializedPresignSessionState(record.wasmSessionStateB64u);
-          if (!parsedState) {
-            await this.presignSessionStore.deleteSession(presignSessionId);
-            this.evictLivePresignSession(presignSessionId);
-            perf.resultCode = 'internal';
-            return { ok: false, code: 'internal', message: 'Corrupt presign session state' };
-          }
-          const decodedSessionSeed32 = decodeSessionSeed32(parsedState.sessionSeedB64u);
-          if (!decodedSessionSeed32) {
-            await this.presignSessionStore.deleteSession(presignSessionId);
-            this.evictLivePresignSession(presignSessionId);
-            perf.resultCode = 'internal';
-            return { ok: false, code: 'internal', message: 'Corrupt presign session seed' };
-          }
-          state = parsedState;
-          sessionSeed32 = decodedSessionSeed32;
-        }
-      }
+      const ownerInstanceId = toOptionalTrimmedString(record.ownerInstanceId);
+      if (ownerInstanceId) perf.ownerInstanceId = ownerInstanceId;
+      const ownedLocally = this.isPresignSessionOwnedLocally(record);
+      const maybeDeleteOwnedSession = async (): Promise<void> => {
+        if (!ownedLocally) return;
+        await this.presignSessionStore.deleteSession(presignSessionId);
+      };
 
       const claims = input.claims;
       const tokenUserId = toOptionalTrimmedString(claims?.sub);
       const tokenRpId = toOptionalTrimmedString(claims?.rpId);
       const tokenParticipantIds = normalizeThresholdEd25519ParticipantIds(claims?.participantIds);
       if (!tokenUserId || !tokenRpId || !tokenParticipantIds) {
-        await this.presignSessionStore.deleteSession(presignSessionId);
+        await maybeDeleteOwnedSession();
         this.evictLivePresignSession(presignSessionId);
         perf.resultCode = 'unauthorized';
         return { ok: false, code: 'unauthorized', message: 'Invalid threshold session token claims' };
@@ -924,30 +652,140 @@ export class ThresholdEcdsaSigningHandlers {
         || tokenRpId !== record.rpId
         || !sameParticipantIds(tokenParticipantIds, record.participantIds)
       ) {
-        await this.presignSessionStore.deleteSession(presignSessionId);
+        await maybeDeleteOwnedSession();
         this.evictLivePresignSession(presignSessionId);
         perf.resultCode = 'unauthorized';
         return { ok: false, code: 'unauthorized', message: 'presignSessionId does not match threshold session scope' };
       }
       if (toOptionalTrimmedString(claims?.relayerKeyId) !== record.relayerKeyId) {
-        await this.presignSessionStore.deleteSession(presignSessionId);
+        await maybeDeleteOwnedSession();
         this.evictLivePresignSession(presignSessionId);
         perf.resultCode = 'unauthorized';
         return { ok: false, code: 'unauthorized', message: 'presignSessionId does not match threshold session scope' };
       }
       if (Date.now() > claims.thresholdExpiresAtMs) {
-        await this.presignSessionStore.deleteSession(presignSessionId);
+        await maybeDeleteOwnedSession();
         this.evictLivePresignSession(presignSessionId);
         perf.resultCode = 'unauthorized';
         return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
       }
-      if (strictNoReplayCacheMiss) {
-        this.logger.warn('[threshold-ecdsa] presign strict no-replay cache miss', {
+      if (!ownedLocally && ownerInstanceId) {
+        this.evictLivePresignSession(presignSessionId);
+        if (forwardedHop >= this.maxPresignForwardHops) {
+          perf.presign_stale_session_state = 1;
+          perf.ownerForwardReason = 'hop_limit_exceeded';
+          perf.resultCode = 'stale_session_state';
+          this.logger.warn('[threshold-ecdsa] owner-forward blocked by hop limit', {
+            presignSessionId,
+            ownerInstanceId,
+            forwardedHop,
+            maxPresignForwardHops: this.maxPresignForwardHops,
+          });
+          return {
+            ok: false,
+            code: 'stale_session_state',
+            message: 'Presign owner forwarding limit exceeded; retry /threshold-ecdsa/presign/init',
+          };
+        }
+
+        const ownerRelayerUrl = this.resolvePresignSessionOwnerPeerUrl(record);
+        if (!ownerRelayerUrl) {
+          perf.presign_stale_session_state = 1;
+          perf.ownerForwardReason = 'owner_peer_unavailable';
+          perf.resultCode = 'stale_session_state';
+          this.logger.warn('[threshold-ecdsa] owner-forward peer missing', {
+            presignSessionId,
+            ownerInstanceId,
+            localInstanceId: this.coordinatorInstanceId,
+          });
+          return {
+            ok: false,
+            code: 'stale_session_state',
+            message: 'Presign owner unavailable on this coordinator; retry /threshold-ecdsa/presign/init',
+          };
+        }
+        if (!authorizationHeader && !cookieHeader) {
+          perf.presign_stale_session_state = 1;
+          perf.ownerForwardReason = 'missing_session_auth';
+          perf.resultCode = 'stale_session_state';
+          this.logger.warn('[threshold-ecdsa] owner-forward missing session auth headers', {
+            presignSessionId,
+            ownerInstanceId,
+          });
+          return {
+            ok: false,
+            code: 'stale_session_state',
+            message: 'Presign owner forwarding missing session auth; retry /threshold-ecdsa/presign/init',
+          };
+        }
+
+        const forwardedResponse = await this.forwardPresignStepToOwner({
+          ownerInstanceId,
+          ownerRelayerUrl,
+          request: input.request,
+          authorizationHeader: authorizationHeader || undefined,
+          cookieHeader: cookieHeader || undefined,
+          forwardedHop,
+          presignSessionId,
+        });
+        if (forwardedResponse) {
+          perf.presign_owner_forwarded = 1;
+          perf.ownerForwardReason = 'forwarded';
+          perf.resultCode = forwardedResponse.ok
+            ? 'ok'
+            : toOptionalTrimmedString(forwardedResponse.code) || 'forwarded_error';
+          this.logger.info('[threshold-ecdsa] owner-forward success', {
+            presignSessionId,
+            ownerInstanceId,
+            ownerRelayerUrl,
+            forwardedHop,
+            ok: forwardedResponse.ok,
+            code: forwardedResponse.ok ? undefined : forwardedResponse.code,
+          });
+          return forwardedResponse;
+        }
+
+        perf.presign_stale_session_state = 1;
+        perf.ownerForwardReason = 'forward_failed';
+        perf.resultCode = 'stale_session_state';
+        return {
+          ok: false,
+          code: 'stale_session_state',
+          message: 'Presign owner forward failed; retry /threshold-ecdsa/presign/init',
+        };
+      }
+
+      const liveResolveStartedAtMs = Date.now();
+      const cached = this.livePresignSessionById.get(presignSessionId);
+      let liveEntry: LivePresignSessionCacheEntry | null = null;
+      let liveCacheMissReason: string | null = null;
+      if (!cached) {
+        liveCacheMissReason = 'cache_miss';
+      } else if (Date.now() > cached.record.expiresAtMs) {
+        liveCacheMissReason = 'cache_expired';
+      } else if (cached.record.version !== record.version) {
+        liveCacheMissReason = 'cache_version_mismatch';
+      } else if (cached.record.stage !== record.stage) {
+        liveCacheMissReason = 'cache_stage_mismatch';
+      } else {
+        liveEntry = cached;
+      }
+      perf.liveResolveMs = Math.max(0, Date.now() - liveResolveStartedAtMs);
+      if (!liveEntry) {
+        perf.presign_live_cache_miss = 1;
+        perf.liveCacheStatus = 'miss';
+        perf.liveCacheMissReason = liveCacheMissReason || 'unknown';
+        if (cached) this.evictLivePresignSession(presignSessionId);
+        this.logger.warn('[threshold-ecdsa] presign live-session cache miss', {
           presignSessionId,
           recordVersion: record.version,
           recordStage: record.stage,
+          reason: liveCacheMissReason || 'unknown',
         });
-        await this.presignSessionStore.deleteSession(presignSessionId);
+        if (ownedLocally) {
+          await this.presignSessionStore.deleteSession(presignSessionId);
+        }
+        perf.presign_stale_session_state = 1;
         perf.resultCode = 'stale_session_state';
         return {
           ok: false,
@@ -955,43 +793,8 @@ export class ThresholdEcdsaSigningHandlers {
           message: 'Presign live session unavailable; retry /threshold-ecdsa/presign/init',
         };
       }
-
-      if (!liveEntry) {
-        if (!state || !sessionSeed32) {
-          await this.presignSessionStore.deleteSession(presignSessionId);
-          this.evictLivePresignSession(presignSessionId);
-          perf.resultCode = 'internal';
-          return { ok: false, code: 'internal', message: 'Missing presign replay state for fallback restore' };
-        }
-        const liveResolveStartedAtMs = Date.now();
-        const liveSession = this.getOrRestoreLivePresignSession({
-          presignSessionId,
-          record,
-          state,
-          sessionSeed32,
-        });
-        perf.liveResolveMs = Math.max(0, Date.now() - liveResolveStartedAtMs);
-        if (!liveSession.ok) {
-          await this.presignSessionStore.deleteSession(presignSessionId);
-          this.evictLivePresignSession(presignSessionId);
-          perf.resultCode = liveSession.code;
-          return liveSession;
-        }
-        liveEntry = liveSession.value.entry;
-        perf.liveResolveSource = liveSession.value.source;
-        if (liveSession.value.source === 'replay_restore') {
-          perf.replayRestoreMs = liveSession.value.replayRestoreMs;
-          perf.replayFallbackReason = liveSession.value.fallbackReason;
-          perf.presign_replay_fallback_used = 1;
-          perf.replayFallbackUsed = true;
-        }
-      }
-      if (!state || !sessionSeed32) {
-        await this.presignSessionStore.deleteSession(presignSessionId);
-        this.evictLivePresignSession(presignSessionId);
-        perf.resultCode = 'internal';
-        return { ok: false, code: 'internal', message: 'Presign session state unavailable' };
-      }
+      perf.presign_live_cache_hit = 1;
+      perf.liveCacheStatus = 'hit';
 
       type PreparedPresignStepValue =
         | {
@@ -1011,7 +814,6 @@ export class ThresholdEcdsaSigningHandlers {
           mode: 'advance';
           polled: WasmPresignPoll;
           nextRecord: ThresholdEcdsaPresignSessionRecord;
-          nextState: SerializedPresignSessionState;
           presignDone: {
             presignatureId: string;
             bigRB64u: string;
@@ -1021,113 +823,98 @@ export class ThresholdEcdsaSigningHandlers {
         };
 
       const wasmStepStartedAtMs = Date.now();
-      const preparedRuntime = withDeterministicCryptoRandomFromCounter({
-        seed32: sessionSeed32,
-        startCounter: liveEntry.rngCounter,
-        fn: (): ParseResult<PreparedPresignStepValue> => {
-          const wasmSession = liveEntry.session;
-          const currentStage = normalizeWasmPresignStage(wasmSession.stage());
-          if (currentStage !== record.stage) {
-            return { ok: false, code: 'internal', message: 'presign session stage mismatch' } as ParseErr;
-          }
+      const prepared: ParseResult<PreparedPresignStepValue> = (() => {
+        const wasmSession = liveEntry.session;
+        const currentStage = normalizeWasmPresignStage(wasmSession.stage());
+        if (currentStage !== record.stage) {
+          return { ok: false, code: 'internal', message: 'presign session stage mismatch' } as ParseErr;
+        }
 
-          if (currentStage === 'done') {
-            const terminal = takePresignatureFromSession(wasmSession);
-            if (!terminal.ok) return terminal;
-            return {
-              ok: true,
-              value: {
-                mode: 'terminal' as const,
-                presignDone: terminal.value,
-              },
-            };
-          }
-
-          if (currentStage === 'triples_done' && requestedStage === 'triples') {
-            return {
-              ok: true,
-              value: {
-                mode: 'immediate' as const,
-                response: { ok: true, stage: 'triples_done' as const, event: 'triples_done' as const, outgoingMessagesB64u: [] },
-              },
-            };
-          }
-          if (requestedStage === 'presign' && currentStage === 'triples_done') {
-            try {
-              wasmSession.start_presign();
-            } catch {
-              return { ok: false, code: 'invalid_body', message: 'server is not ready for presign' } as ParseErr;
-            }
-          } else if (requestedStage === 'presign' && currentStage === 'triples') {
-            return {
-              ok: false,
-              code: 'invalid_body',
-              message: 'server is not ready for presign (triples still running)',
-            } as ParseErr;
-          } else if (requestedStage === 'triples' && currentStage !== 'triples') {
-            return { ok: false, code: 'invalid_body', message: 'stage regression is not allowed' } as ParseErr;
-          }
-
-          const decodedIncoming = decodePresignIncomingMessages(outgoingMessagesB64u);
-          if (!decodedIncoming.ok) return decodedIncoming;
-
-          for (const decoded of decodedIncoming.value) {
-            try {
-              wasmSession.message(record.clientParticipantId, decoded);
-            } catch (e: unknown) {
-              return {
-                ok: false,
-                code: 'invalid_body',
-                message: `Protocol rejected message: ${String(e || 'error')}`,
-              } as ParseErr;
-            }
-          }
-
-          const polled = pollWasmPresignSession(wasmSession);
-          const nextExpiresAtMs = Math.min(record.expiresAtMs, claims.thresholdExpiresAtMs);
-          const nextState: SerializedPresignSessionState = this.strictNoReplay
-            ? state
-            : {
-              ...state,
-              appliedSteps: [...state.appliedSteps, { stage: requestedStage, incomingMessagesB64u: outgoingMessagesB64u }],
-            };
-          const nextRecord: ThresholdEcdsaPresignSessionRecord = {
-            ...record,
-            stage: polled.stage,
-            version: record.version + 1,
-            wasmSessionStateB64u: this.strictNoReplay
-              ? record.wasmSessionStateB64u
-              : serializePresignSessionState(nextState),
-            expiresAtMs: nextExpiresAtMs,
-            updatedAtMs: Date.now(),
-          };
-
-          let presignDone: {
-            presignatureId: string;
-            bigRB64u: string;
-            kShareB64u: string;
-            sigmaShareB64u: string;
-          } | null = null;
-          if (polled.event === 'presign_done') {
-            const done = takePresignatureFromSession(wasmSession);
-            if (!done.ok) return done;
-            presignDone = done.value;
-          }
-
+        if (currentStage === 'done') {
+          const terminal = takePresignatureFromSession(wasmSession);
+          if (!terminal.ok) return terminal;
           return {
             ok: true,
             value: {
-              mode: 'advance' as const,
-              polled,
-              nextRecord,
-              nextState,
-              presignDone,
+              mode: 'terminal' as const,
+              presignDone: terminal.value,
             },
           };
-        },
-      });
+        }
+
+        if (currentStage === 'triples_done' && requestedStage === 'triples') {
+          return {
+            ok: true,
+            value: {
+              mode: 'immediate' as const,
+              response: { ok: true, stage: 'triples_done' as const, event: 'triples_done' as const, outgoingMessagesB64u: [] },
+            },
+          };
+        }
+        if (requestedStage === 'presign' && currentStage === 'triples_done') {
+          try {
+            wasmSession.start_presign();
+          } catch {
+            return { ok: false, code: 'invalid_body', message: 'server is not ready for presign' } as ParseErr;
+          }
+        } else if (requestedStage === 'presign' && currentStage === 'triples') {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'server is not ready for presign (triples still running)',
+          } as ParseErr;
+        } else if (requestedStage === 'triples' && currentStage !== 'triples') {
+          return { ok: false, code: 'invalid_body', message: 'stage regression is not allowed' } as ParseErr;
+        }
+
+        const decodedIncoming = decodePresignIncomingMessages(outgoingMessagesB64u);
+        if (!decodedIncoming.ok) return decodedIncoming;
+
+        for (const decoded of decodedIncoming.value) {
+          try {
+            wasmSession.message(record.clientParticipantId, decoded);
+          } catch (e: unknown) {
+            return {
+              ok: false,
+              code: 'invalid_body',
+              message: `Protocol rejected message: ${String(e || 'error')}`,
+            } as ParseErr;
+          }
+        }
+
+        const polled = pollWasmPresignSession(wasmSession);
+        const nextExpiresAtMs = Math.min(record.expiresAtMs, claims.thresholdExpiresAtMs);
+        const nextRecord: ThresholdEcdsaPresignSessionRecord = {
+          ...record,
+          stage: polled.stage,
+          version: record.version + 1,
+          expiresAtMs: nextExpiresAtMs,
+          updatedAtMs: Date.now(),
+        };
+
+        let presignDone: {
+          presignatureId: string;
+          bigRB64u: string;
+          kShareB64u: string;
+          sigmaShareB64u: string;
+        } | null = null;
+        if (polled.event === 'presign_done') {
+          const done = takePresignatureFromSession(wasmSession);
+          if (!done.ok) return done;
+          presignDone = done.value;
+        }
+
+        return {
+          ok: true,
+          value: {
+            mode: 'advance' as const,
+            polled,
+            nextRecord,
+            presignDone,
+          },
+        };
+      })();
       perf.wasmStepMs = Math.max(0, Date.now() - wasmStepStartedAtMs);
-      const prepared = preparedRuntime.value;
       if (!prepared.ok) {
         this.evictLivePresignSession(presignSessionId);
         if (prepared.code === 'internal') {
@@ -1138,9 +925,7 @@ export class ThresholdEcdsaSigningHandlers {
       }
 
       if (prepared.value.mode === 'immediate') {
-        liveEntry.rngCounter = preparedRuntime.nextCounter;
         liveEntry.record = record;
-        liveEntry.state = state;
         perf.resultCode = 'ok';
         return prepared.value.response;
       }
@@ -1167,7 +952,7 @@ export class ThresholdEcdsaSigningHandlers {
         };
       }
 
-      const { polled, nextRecord, nextState, presignDone } = prepared.value;
+      const { polled, nextRecord, presignDone } = prepared.value;
       const ttlMs = nextRecord.expiresAtMs - Date.now();
       if (ttlMs <= 0) {
         await this.presignSessionStore.deleteSession(presignSessionId);
@@ -1201,13 +986,12 @@ export class ThresholdEcdsaSigningHandlers {
           perf.resultCode = 'unauthorized';
           return { ok: false, code: 'unauthorized', message: 'presignSessionId expired or invalid' };
         }
+        perf.presign_stale_session_state = 1;
         perf.resultCode = 'stale_session_state';
         return { ok: false, code: 'stale_session_state', message: 'Presign session updated concurrently; retry step' };
       }
 
-      liveEntry.rngCounter = preparedRuntime.nextCounter;
       liveEntry.record = cas.record;
-      liveEntry.state = nextState;
       this.putLivePresignSession(presignSessionId, liveEntry);
 
       if (polled.event === 'presign_done') {

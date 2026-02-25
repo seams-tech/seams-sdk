@@ -152,7 +152,15 @@ export type ThresholdSecp256k1Ecdsa2pSchemeModule = ThresholdSchemeModule<
   bootstrap?: (request: ThresholdEcdsaBootstrapRequest) => Promise<ThresholdEcdsaBootstrapResponse>;
   presign: {
     init(input: { claims: ThresholdEcdsaSessionClaims; request: ThresholdEcdsaPresignInitRequest }): Promise<ThresholdEcdsaPresignInitResponse>;
-    step(input: { claims: ThresholdEcdsaSessionClaims; request: ThresholdEcdsaPresignStepRequest }): Promise<ThresholdEcdsaPresignStepResponse>;
+    step(input: {
+      claims: ThresholdEcdsaSessionClaims;
+      request: ThresholdEcdsaPresignStepRequest;
+      transport?: {
+        authorizationHeader?: string;
+        cookieHeader?: string;
+        forwardedHop?: number;
+      };
+    }): Promise<ThresholdEcdsaPresignStepResponse>;
   };
 };
 

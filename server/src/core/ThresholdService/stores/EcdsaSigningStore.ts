@@ -46,12 +46,12 @@ export type ThresholdEcdsaPresignSessionRecord = {
   userId: string;
   rpId: string;
   relayerKeyId: string;
+  ownerInstanceId?: string;
   participantIds: number[];
   clientParticipantId: number;
   relayerParticipantId: number;
   stage: ThresholdEcdsaPresignSessionStage;
   version: number;
-  wasmSessionStateB64u: string;
   createdAtMs: number;
   updatedAtMs: number;
 };
