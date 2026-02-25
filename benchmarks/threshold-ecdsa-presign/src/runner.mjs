@@ -28,7 +28,7 @@ function buildSloConfig(env = process.env) {
     warmSignP95Ms: readFiniteEnvNumber('BENCH_SLO_WARM_SIGN_P95_MS', 1500, 1, 120_000, env),
     presignStepP95Ms: readFiniteEnvNumber('BENCH_SLO_PRESIGN_STEP_P95_MS', 900, 1, 60_000, env),
     presignStepP99Ms: readFiniteEnvNumber('BENCH_SLO_PRESIGN_STEP_P99_MS', 1300, 1, 60_000, env),
-    replayFallbackRatioMax: readFiniteEnvNumber('BENCH_SLO_REPLAY_FALLBACK_RATIO_MAX', 0.01, 0, 1, env),
+    staleSessionRatioMax: readFiniteEnvNumber('BENCH_SLO_STALE_SESSION_RATIO_MAX', 0.01, 0, 1, env),
   };
 }
 
@@ -99,10 +99,10 @@ function evaluateSlo(results, config) {
     failReason: 'Warm-sign p95 exceeded threshold',
   });
 
-  const nonFallbackScenarios = okResults.filter((entry) => entry.id !== 'replay_fallback_path');
+  const nonMissScenarios = okResults.filter((entry) => entry.id !== 'live_cache_miss_path');
   pushCheck({
     name: 'presign_step_p95_ms',
-    actual: maxFinite(nonFallbackScenarios.map((entry) => entry.metrics?.routeDurations?.['/threshold-ecdsa/presign/step']?.p95)),
+    actual: maxFinite(nonMissScenarios.map((entry) => entry.metrics?.routeDurations?.['/threshold-ecdsa/presign/step']?.p95)),
     threshold: config.presignStepP95Ms,
     comparator: '<=',
     missingReason: 'No `/threshold-ecdsa/presign/step` p95 values were collected',
@@ -111,7 +111,7 @@ function evaluateSlo(results, config) {
 
   pushCheck({
     name: 'presign_step_p99_ms',
-    actual: maxFinite(nonFallbackScenarios.map((entry) => entry.metrics?.routeDurations?.['/threshold-ecdsa/presign/step']?.p99)),
+    actual: maxFinite(nonMissScenarios.map((entry) => entry.metrics?.routeDurations?.['/threshold-ecdsa/presign/step']?.p99)),
     threshold: config.presignStepP99Ms,
     comparator: '<=',
     missingReason: 'No `/threshold-ecdsa/presign/step` p99 values were collected',
@@ -119,12 +119,12 @@ function evaluateSlo(results, config) {
   });
 
   pushCheck({
-    name: 'replay_fallback_ratio_nonfallback_max',
-    actual: maxFinite(nonFallbackScenarios.map((entry) => entry.metrics?.presignStepPerf?.replayFallbackRatio)),
-    threshold: config.replayFallbackRatioMax,
+    name: 'stale_session_ratio_nonmiss_max',
+    actual: maxFinite(nonMissScenarios.map((entry) => entry.metrics?.presignStepPerf?.staleSessionRatio)),
+    threshold: config.staleSessionRatioMax,
     comparator: '<=',
-    missingReason: 'No replay fallback ratios were collected',
-    failReason: 'Replay fallback ratio appeared in non-fallback scenarios',
+    missingReason: 'No stale session ratios were collected',
+    failReason: 'Stale-session ratio appeared in non-miss scenarios',
   });
 
   const failedCount = checks.filter((entry) => entry.status === 'fail').length;

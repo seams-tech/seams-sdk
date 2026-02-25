@@ -89,16 +89,16 @@ function summarizePresignStepPerf(perfEvents) {
   const storeCasMs = summarizeSeries(perfEvents.map((entry) => entry.storeCasMs).filter((v) => Number.isFinite(v)));
   const counterLiveHits = perfEvents.reduce((acc, entry) => acc + (entry.presign_live_cache_hit === 1 ? 1 : 0), 0);
   const counterLiveMisses = perfEvents.reduce((acc, entry) => acc + (entry.presign_live_cache_miss === 1 ? 1 : 0), 0);
-  const counterReplayFallbacks = perfEvents.reduce((acc, entry) => acc + (entry.presign_replay_fallback_used === 1 ? 1 : 0), 0);
+  const counterStaleSessions = perfEvents.reduce((acc, entry) => acc + (entry.presign_stale_session_state === 1 ? 1 : 0), 0);
   const liveHits = (counterLiveHits + counterLiveMisses) > 0
     ? counterLiveHits
     : perfEvents.filter((entry) => entry.liveCacheStatus === 'hit').length;
   const liveMisses = (counterLiveHits + counterLiveMisses) > 0
     ? counterLiveMisses
     : perfEvents.filter((entry) => entry.liveCacheStatus === 'miss').length;
-  const replayFallbacks = counterReplayFallbacks > 0
-    ? counterReplayFallbacks
-    : perfEvents.filter((entry) => entry.replayFallbackUsed === true).length;
+  const staleSessions = counterStaleSessions > 0
+    ? counterStaleSessions
+    : perfEvents.filter((entry) => entry.resultCode === 'stale_session_state').length;
   const total = perfEvents.length;
   return {
     count: total,
@@ -108,14 +108,14 @@ function summarizePresignStepPerf(perfEvents) {
     storeCasMs,
     liveHits,
     liveMisses,
-    replayFallbacks,
+    staleSessions,
     counters: {
       presign_live_cache_hit: liveHits,
       presign_live_cache_miss: liveMisses,
-      presign_replay_fallback_used: replayFallbacks,
+      presign_stale_session_state: staleSessions,
     },
     liveHitRatio: total > 0 ? liveHits / total : null,
-    replayFallbackRatio: total > 0 ? replayFallbacks / total : null,
+    staleSessionRatio: total > 0 ? staleSessions / total : null,
   };
 }
 
@@ -200,11 +200,9 @@ export function collectMetricsFromLog(logText) {
     storeCasMs: extractNumberField(block, 'storeCasMs'),
     presign_live_cache_hit: extractNumberField(block, 'presign_live_cache_hit'),
     presign_live_cache_miss: extractNumberField(block, 'presign_live_cache_miss'),
-    presign_replay_fallback_used: extractNumberField(block, 'presign_replay_fallback_used'),
-    replayRestoreMs: extractNumberField(block, 'replayRestoreMs'),
+    presign_stale_session_state: extractNumberField(block, 'presign_stale_session_state'),
     liveCacheStatus: extractStringField(block, 'liveCacheStatus'),
-    replayFallbackUsed: extractBooleanField(block, 'replayFallbackUsed'),
-    replayFallbackReason: extractStringField(block, 'replayFallbackReason'),
+    liveCacheMissReason: extractStringField(block, 'liveCacheMissReason'),
     casCode: extractStringField(block, 'casCode'),
     resultCode: extractStringField(block, 'resultCode'),
   }));

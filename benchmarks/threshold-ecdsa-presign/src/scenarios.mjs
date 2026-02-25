@@ -30,10 +30,10 @@ export const SCENARIOS = [
     defaultCommand: 'node ./benchmarks/threshold-ecdsa-presign/src/scenario-harness.mjs --scenario store_backend_compare --iterations 2',
   },
   {
-    id: 'replay_fallback_path',
-    description: 'Force live-cache miss and replay fallback',
-    commandEnv: 'BENCH_CMD_REPLAY_FALLBACK_PATH',
-    defaultCommand: 'node ./benchmarks/threshold-ecdsa-presign/src/scenario-harness.mjs --scenario replay_fallback_path --iterations 2',
+    id: 'live_cache_miss_path',
+    description: 'Force live-cache miss and stale-session retry path',
+    commandEnv: 'BENCH_CMD_LIVE_CACHE_MISS_PATH',
+    defaultCommand: 'node ./benchmarks/threshold-ecdsa-presign/src/scenario-harness.mjs --scenario live_cache_miss_path --iterations 2',
   },
 ];
 

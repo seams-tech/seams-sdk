@@ -21,7 +21,7 @@ If unset, the benchmark runner uses the built-in scenario harness command.
 - `BENCH_CMD_BACKGROUND_REFILL_CONTENTION`
 - `BENCH_CMD_MULTI_RUNTIME_CONTENTION`
 - `BENCH_CMD_STORE_BACKEND_COMPARE`
-- `BENCH_CMD_REPLAY_FALLBACK_PATH`
+- `BENCH_CMD_LIVE_CACHE_MISS_PATH`
 
 Example:
 
@@ -38,9 +38,9 @@ Default gates:
 
 - `first_sign_p95_ms <= 4000` (`cold_first_sign_no_pool`)
 - `warm_sign_p95_ms <= 1500` (`warm_sign_pool_hit`)
-- `presign_step_p95_ms <= 900` (max across non-fallback scenarios)
-- `presign_step_p99_ms <= 1300` (max across non-fallback scenarios)
-- `replay_fallback_ratio_nonfallback_max <= 0.01`
+- `presign_step_p95_ms <= 900` (max across non-miss scenarios)
+- `presign_step_p99_ms <= 1300` (max across non-miss scenarios)
+- `stale_session_ratio_nonmiss_max <= 0.01`
 
 Optional overrides:
 
@@ -49,7 +49,7 @@ Optional overrides:
 - `BENCH_SLO_WARM_SIGN_P95_MS`
 - `BENCH_SLO_PRESIGN_STEP_P95_MS`
 - `BENCH_SLO_PRESIGN_STEP_P99_MS`
-- `BENCH_SLO_REPLAY_FALLBACK_RATIO_MAX`
+- `BENCH_SLO_STALE_SESSION_RATIO_MAX`
 
 CI profile (current):
 

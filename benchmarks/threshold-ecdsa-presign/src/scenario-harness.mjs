@@ -152,9 +152,7 @@ async function invokeHandlerWithRouteLog(input) {
   return result;
 }
 
-function createReplayFallbackHandlers(input) {
-  let fallbackCount = 0;
-
+function createCacheMissHandlers(input) {
   const baseLogger = input.logger || {
     debug(msg, meta) {
       if (meta && typeof meta === 'object') console.log(msg, meta);
@@ -176,10 +174,7 @@ function createReplayFallbackHandlers(input) {
   const logger = {
     debug: (...args) => baseLogger.debug(...args),
     info: (...args) => baseLogger.info(...args),
-    warn: (...args) => {
-      if (String(args?.[0] || '').includes('presign live-session fallback to replay')) fallbackCount += 1;
-      baseLogger.warn(...args);
-    },
+    warn: (...args) => baseLogger.warn(...args),
     error: (...args) => baseLogger.error(...args),
   };
   const signingStores = createThresholdEcdsaSigningStores({
@@ -217,7 +212,6 @@ function createReplayFallbackHandlers(input) {
   return {
     handlerA: makeHandler(),
     handlerB: makeHandler(),
-    getFallbackCount: () => fallbackCount,
   };
 }
 
@@ -652,17 +646,13 @@ async function runSingleFlow(args) {
   return true;
 }
 
-async function runReplayFallbackHandshake(base) {
-  const userId = 'bench-replay-fallback.testnet';
+async function runLiveCacheMissHandshake(base) {
+  const userId = 'bench-live-cache-miss.testnet';
   const rpId = 'example.localhost';
   const relayerKeyId = await deriveRelayerKeyId({
     userId,
     rpId,
     clientVerifyingShareB64u: base.clientVerifyingShareB64u,
-  });
-  const groupPublicKey33 = await deriveGroupPublicKey33({
-    relayerKeyId,
-    clientVerifyingShare33: base64UrlDecode(base.clientVerifyingShareB64u),
   });
 
   const claims = {
@@ -673,7 +663,7 @@ async function runReplayFallbackHandshake(base) {
     thresholdExpiresAtMs: Date.now() + 120_000,
   };
 
-  const handlers = createReplayFallbackHandlers({
+  const handlers = createCacheMissHandlers({
     participantIds: base.participantIds,
     clientParticipantId: base.clientParticipantId,
     relayerParticipantId: base.relayerParticipantId,
@@ -696,109 +686,35 @@ async function runReplayFallbackHandshake(base) {
     }),
   });
   if (!init.ok) {
-    throw new Error(`distributed replay-fallback init failed: ${init.message || init.code || 'unknown'}`);
+    throw new Error(`live-cache-miss init failed: ${init.message || init.code || 'unknown'}`);
   }
 
   const presignSessionId = String(init.presignSessionId || '').trim();
-  if (!presignSessionId) throw new Error('distributed replay-fallback init missing presignSessionId');
+  if (!presignSessionId) throw new Error('live-cache-miss init missing presignSessionId');
 
-  const clientThresholdSigningShare32 = map_additive_share_to_threshold_signatures_share_2p(
-    base.clientSigningShare32,
-    base.clientParticipantId,
-  );
-  const localSession = new ThresholdEcdsaPresignSession(
-    new Uint32Array(base.participantIds),
-    base.clientParticipantId,
-    2,
-    clientThresholdSigningShare32,
-    groupPublicKey33,
-  );
-
-  let localDonePresignature97 = null;
-  let serverDone = false;
-  let stageForServer = 'triples';
-  let pendingClientOutgoing = [...pollSession(localSession).outgoingMessages];
-  let pendingServerOutgoing = fromB64uMessages(init.outgoingMessagesB64u);
-
-  try {
-    for (let i = 0; i < MAX_HANDSHAKE_STEPS; i += 1) {
-      if (pendingServerOutgoing.length > 0 && !localDonePresignature97) {
-        if (stageForServer === 'presign' && localSession.stage() === 'triples_done') {
-          localSession.start_presign();
-        }
-        for (const msg of pendingServerOutgoing) {
-          localSession.message(base.relayerParticipantId, msg);
-        }
-        pendingServerOutgoing = [];
-        const localPolled = pollSession(localSession);
-        pendingClientOutgoing.push(...localPolled.outgoingMessages);
-        if (localPolled.stage === 'triples_done' || localPolled.stage === 'presign' || localPolled.stage === 'done') {
-          stageForServer = 'presign';
-        }
-        if (localPolled.event === 'presign_done') {
-          localDonePresignature97 = localSession.take_presignature_97();
-        }
-      }
-
-      if (!serverDone) {
-        const activeHandler = i % 2 === 0 ? handlers.handlerB : handlers.handlerA;
-        const step = await invokeHandlerWithRouteLog({
-          route: '/threshold-ecdsa/presign/step',
-          requestMeta: {
-            presignSessionId,
-            stage: stageForServer,
-            outgoingMessagesB64u_len: pendingClientOutgoing.length,
-          },
-          fn: () => activeHandler.ecdsaPresignStep({
-            claims,
-            request: {
-              presignSessionId,
-              stage: stageForServer,
-              outgoingMessagesB64u: toB64uMessages(pendingClientOutgoing),
-            },
-          }),
-        });
-        if (!step.ok) {
-          throw new Error(`distributed replay-fallback step failed: ${step.message || step.code || 'unknown'}`);
-        }
-        pendingClientOutgoing = [];
-        pendingServerOutgoing = fromB64uMessages(step.outgoingMessagesB64u);
-        if (step.event === 'triples_done' || step.stage === 'presign') {
-          stageForServer = 'presign';
-        }
-        if (step.event === 'presign_done') {
-          serverDone = true;
-        }
-      }
-
-      if (localDonePresignature97 && serverDone) break;
-
-      if (!pendingServerOutgoing.length && !pendingClientOutgoing.length && !localDonePresignature97) {
-        if (stageForServer === 'presign' && localSession.stage() === 'triples_done') {
-          localSession.start_presign();
-        }
-        const localPolled = pollSession(localSession);
-        pendingClientOutgoing.push(...localPolled.outgoingMessages);
-        if (localPolled.stage === 'triples_done' || localPolled.stage === 'presign' || localPolled.stage === 'done') {
-          stageForServer = 'presign';
-        }
-        if (localPolled.event === 'presign_done') {
-          localDonePresignature97 = localSession.take_presignature_97();
-        }
-      }
-    }
-
-    if (!localDonePresignature97) throw new Error('distributed replay-fallback local presign session did not finish');
-    if (!serverDone) throw new Error('distributed replay-fallback server presign session did not finish');
-    if (handlers.getFallbackCount() < 1) {
-      throw new Error('distributed replay-fallback did not trigger replay restore');
-    }
-    return { replayFallbackCount: handlers.getFallbackCount() };
-  } finally {
-    try {
-      localSession.free();
-    } catch {}
+  const step = await invokeHandlerWithRouteLog({
+    route: '/threshold-ecdsa/presign/step',
+    requestMeta: {
+      presignSessionId,
+      stage: 'triples',
+      outgoingMessagesB64u_len: 0,
+    },
+    fn: () => handlers.handlerB.ecdsaPresignStep({
+      claims,
+      request: {
+        presignSessionId,
+        stage: 'triples',
+        outgoingMessagesB64u: [],
+      },
+    }),
+  });
+  if (step.ok) {
+    throw new Error('live-cache-miss step unexpectedly succeeded on non-owning handler');
   }
+  if (step.code !== 'stale_session_state') {
+    throw new Error(`live-cache-miss expected stale_session_state, got ${step.code || 'unknown'}`);
+  }
+  return { staleSessionCount: 1 };
 }
 
 async function runScenario(base, scenario) {
@@ -872,13 +788,13 @@ async function runScenario(base, scenario) {
     };
   }
 
-  if (scenario === 'replay_fallback_path') {
+  if (scenario === 'live_cache_miss_path') {
     const startedAtMs = Date.now();
-    const replay = await runReplayFallbackHandshake(base);
+    const miss = await runLiveCacheMissHandshake(base);
     return {
       scenario,
       totalMs: Date.now() - startedAtMs,
-      replayFallbackCount: replay.replayFallbackCount,
+      staleSessionCount: miss.staleSessionCount,
     };
   }
 

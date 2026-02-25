@@ -109,9 +109,9 @@ export function buildMarkdownReport(input) {
       lines.push('|---|---:|');
       lines.push(`| presign_live_cache_hit | ${fmtNum(result.metrics.presignStepPerf?.counters?.presign_live_cache_hit)} |`);
       lines.push(`| presign_live_cache_miss | ${fmtNum(result.metrics.presignStepPerf?.counters?.presign_live_cache_miss)} |`);
-      lines.push(`| presign_replay_fallback_used | ${fmtNum(result.metrics.presignStepPerf?.counters?.presign_replay_fallback_used)} |`);
+      lines.push(`| presign_stale_session_state | ${fmtNum(result.metrics.presignStepPerf?.counters?.presign_stale_session_state)} |`);
       lines.push(`| liveCacheHitRatio | ${fmtPct(result.metrics.presignStepPerf?.liveHitRatio)} |`);
-      lines.push(`| replayFallbackRatio | ${fmtPct(result.metrics.presignStepPerf?.replayFallbackRatio)} |`);
+      lines.push(`| staleSessionRatio | ${fmtPct(result.metrics.presignStepPerf?.staleSessionRatio)} |`);
       lines.push(`| gateWaitP95ForegroundMs | ${fmtNum(result.metrics.presignGateWait?.foreground?.p95)} |`);
       lines.push(`| gateWaitP95BackgroundMs | ${fmtNum(result.metrics.presignGateWait?.background?.p95)} |`);
       lines.push(`| backgroundPresignRequestRatio | ${fmtPct(result.metrics.backgroundPresignTraffic?.ratio)} |`);
@@ -158,7 +158,7 @@ export function buildMarkdownReport(input) {
   lines.push('');
   lines.push('- Use this report to justify changes in `client/src/core/config/defaultConfigs.ts`.');
   lines.push('- Keep route-level and presign-step perf logs enabled in benchmark runs.');
-  lines.push('- Re-run benchmarks after any replay/fallback/store-path change.');
+  lines.push('- Re-run benchmarks after any live-cache/store-path change.');
 
   return lines.join('\n');
 }
