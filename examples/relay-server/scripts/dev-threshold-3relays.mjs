@@ -37,6 +37,9 @@ const relayerCosignersJson = JSON.stringify([
   { cosignerId: 2, relayerUrl: 'http://127.0.0.1:3001' },
   { cosignerId: 3, relayerUrl: 'http://127.0.0.1:3002' },
 ]);
+const coordinatorPeersJson = JSON.stringify([
+  { instanceId: 'coordinator-a', relayerUrl: 'https://relay-server.localhost' },
+]);
 
 const commonEnv = {
   ...process.env,
@@ -50,6 +53,8 @@ const coordinator = run('node', ['--watch', 'dist/index.js'], {
     ...commonEnv,
     PORT: '3000',
     THRESHOLD_NODE_ROLE: 'coordinator',
+    THRESHOLD_COORDINATOR_INSTANCE_ID: 'coordinator-a',
+    THRESHOLD_COORDINATOR_PEERS: coordinatorPeersJson,
     THRESHOLD_ED25519_SHARE_MODE: 'derived',
     THRESHOLD_ED25519_MASTER_SECRET_B64U: masterSecretB64u,
     THRESHOLD_ED25519_RELAYER_COSIGNER_ID: '1',
@@ -61,6 +66,8 @@ const cosigner2 = run('node', ['--watch', 'dist/index.js'], {
     ...commonEnv,
     PORT: '3001',
     THRESHOLD_NODE_ROLE: 'cosigner',
+    THRESHOLD_COORDINATOR_INSTANCE_ID: '',
+    THRESHOLD_COORDINATOR_PEERS: '',
     THRESHOLD_ED25519_RELAYER_COSIGNER_ID: '2',
     THRESHOLD_ED25519_SHARE_MODE: '',
     THRESHOLD_ED25519_MASTER_SECRET_B64U: '',
@@ -72,6 +79,8 @@ const cosigner3 = run('node', ['--watch', 'dist/index.js'], {
     ...commonEnv,
     PORT: '3002',
     THRESHOLD_NODE_ROLE: 'cosigner',
+    THRESHOLD_COORDINATOR_INSTANCE_ID: '',
+    THRESHOLD_COORDINATOR_PEERS: '',
     THRESHOLD_ED25519_RELAYER_COSIGNER_ID: '3',
     THRESHOLD_ED25519_SHARE_MODE: '',
     THRESHOLD_ED25519_MASTER_SECRET_B64U: '',

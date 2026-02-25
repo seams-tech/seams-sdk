@@ -111,6 +111,46 @@ For production/serverless, prefer Upstash REST:
 - `UPSTASH_REDIS_REST_URL`
 - `UPSTASH_REDIS_REST_TOKEN`
 
+### Coordinator Continuity Config (ECDSA Presign Sessions)
+
+For multi-coordinator deployments behind a load balancer, configure each coordinator with:
+
+1. a unique `THRESHOLD_COORDINATOR_INSTANCE_ID`
+2. the same full `THRESHOLD_COORDINATOR_PEERS` map (all coordinators + URLs)
+
+Example for 3 coordinators:
+
+```bash
+# coordinator-a env
+THRESHOLD_COORDINATOR_INSTANCE_ID=coordinator-a
+THRESHOLD_COORDINATOR_PEERS='[{"instanceId":"coordinator-a","relayerUrl":"https://relay-server.localhost"},{"instanceId":"coordinator-b","relayerUrl":"https://relay-server2.localhost"},{"instanceId":"coordinator-c","relayerUrl":"https://relay-server3.localhost"}]'
+```
+
+```bash
+# coordinator-b env
+THRESHOLD_COORDINATOR_INSTANCE_ID=coordinator-b
+THRESHOLD_COORDINATOR_PEERS='[{"instanceId":"coordinator-a","relayerUrl":"https://relay-server.localhost"},{"instanceId":"coordinator-b","relayerUrl":"https://relay-server2.localhost"},{"instanceId":"coordinator-c","relayerUrl":"https://relay-server3.localhost"}]'
+```
+
+```bash
+# coordinator-c env
+THRESHOLD_COORDINATOR_INSTANCE_ID=coordinator-c
+THRESHOLD_COORDINATOR_PEERS='[{"instanceId":"coordinator-a","relayerUrl":"https://relay-server.localhost"},{"instanceId":"coordinator-b","relayerUrl":"https://relay-server2.localhost"},{"instanceId":"coordinator-c","relayerUrl":"https://relay-server3.localhost"}]'
+```
+
+Without this config, cross-instance `/threshold-ecdsa/presign/step` requests cannot be forwarded to the owning coordinator and fall back to retriable `stale_session_state`.
+
+Forwarding behavior for `/threshold-ecdsa/presign/step`:
+
+1. Client hits any coordinator behind LB.
+2. If that coordinator owns the session, it handles the step directly.
+3. If not, it forwards the request to the owner coordinator and relays the response back to client.
+4. Forwarding uses:
+   - `x-threshold-ecdsa-presign-forward-hop` (hop depth / loop protection)
+   - `x-threshold-ecdsa-presign-forwarded-by` (forwarding coordinator instance id)
+5. Hop depth is trusted only when `forwarded-by` is a known configured peer; untrusted client-supplied hop values are ignored.
+6. If owner is unavailable or continuity is lost, the route returns retriable `stale_session_state` and client should call `/threshold-ecdsa/presign/init` again.
+
 ### Run the Server
 
 ```bash
