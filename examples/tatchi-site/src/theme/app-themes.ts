@@ -42,7 +42,9 @@ const ROSE_PINE_DARK_COLORS: Record<string, string> = {
   gradientSecondary: 'linear-gradient(120deg, #191724 0%, #31748f 100%)',
   gradientTertiary: 'linear-gradient(120deg, #191724 0%, #26233a 100%)',
 
-  highlightReceiverId: '#9ccfd8',
+  highlightPrimary: '#c4a7e7',
+  highlightHalo: '#e2d1f5',
+  highlightReceiver: '#9ccfd8',
   highlightMethodName: '#c4a7e7',
   highlightAmount: '#f6c177',
 };
@@ -85,7 +87,10 @@ const ROSE_PINE_LIGHT_COLORS: Record<string, string> = {
   gradientSecondary: 'linear-gradient(120deg, #faf4ed 0%, #907aa9 100%)',
   gradientTertiary: 'linear-gradient(120deg, #faf4ed 0%, #fffaf3 100%)',
 
-  highlightReceiverId: '#56949f',
+  highlightPrimary: '#907aa9',
+  // Lighter Rose Pine iris for halo ring in light mode.
+  highlightHalo: '#d7b9ea',
+  highlightReceiver: '#56949f',
   highlightMethodName: '#907aa9',
   highlightAmount: '#ea9d34',
 };

@@ -1,9 +1,9 @@
 import type { TempoCall, TempoSigningRequest } from '@/core/signingEngine/chainAdaptors/tempo/types';
+import { resolveFunctionSignature, selectorFromHexData } from './functionSelectors';
 import type {
   TxDisplayField,
   TxDisplayModel,
   TempoTypedOperation,
-  GenericContractCallOperation,
   TxDisplayOperation,
 } from '@/core/signingEngine/touchConfirm/shared/displayModel';
 
@@ -37,33 +37,20 @@ function makeField(label: string, value: string | undefined, copyValue?: string)
   };
 }
 
-function selectorFromHexData(data: string | undefined): string | undefined {
-  const normalized = String(data || '').trim();
-  if (!normalized.startsWith('0x') || normalized.length < 10) return undefined;
-  return normalized.slice(0, 10);
-}
-
-function buildCallOperation(call: TempoCall, callIndex: number): GenericContractCallOperation {
+function buildCallFields(call: TempoCall, callIndex: number, callCount: number): TxDisplayField[] {
   const to = String(call.to || '').trim();
   const input = String(call.input || '0x');
   const selector = selectorFromHexData(input);
+  const functionSignature = resolveFunctionSignature(selector);
+  const prefix = callCount > 1 ? `Call ${callIndex + 1} ` : '';
 
-  const fields: TxDisplayField[] = [
-    makeField('To', to, to),
-    makeField('Value (wei)', call.value.toString()),
-    makeField('Input', input, input),
-    makeField('Selector', selector, selector),
+  return [
+    makeField(`${prefix}To`, to, to),
+    makeField(`${prefix}Value (wei)`, call.value.toString()),
+    makeField(`${prefix}Input`, input, input),
+    makeField(`${prefix}Function`, functionSignature),
+    makeField(`${prefix}Selector`, selector, selector),
   ].filter(Boolean) as TxDisplayField[];
-
-  return {
-    id: `tempo.call.${callIndex}`,
-    kind: 'generic.contractCall',
-    label: `Call ${callIndex + 1}`,
-    to,
-    value: call.value.toString(),
-    selector,
-    fields,
-  };
 }
 
 function buildTempoOperation(request: TempoSigningRequest): TxDisplayOperation {
@@ -88,17 +75,12 @@ function buildTempoOperation(request: TempoSigningRequest): TxDisplayOperation {
   }
 
   const fields: TxDisplayField[] = [
-    makeField('Kind', 'Tempo Transaction (0x76)'),
-    makeField('Chain ID', tx.chainId.toString()),
     makeField('Nonce', tx.nonce.toString()),
-    makeField('Nonce Key', tx.nonceKey.toString()),
     makeField('Gas Limit', tx.gasLimit.toString()),
-    makeField('Max Fee Per Gas', tx.maxFeePerGas.toString()),
-    makeField('Max Priority Fee Per Gas', tx.maxPriorityFeePerGas.toString()),
-    makeField('Call Count', String(calls.length)),
     makeField('Valid Before', tx.validBefore == null ? undefined : tx.validBefore.toString()),
     makeField('Valid After', tx.validAfter == null ? undefined : tx.validAfter.toString()),
     makeField('Fee Token', tx.feeToken == null ? undefined : String(tx.feeToken), tx.feeToken == null ? undefined : String(tx.feeToken)),
+    ...calls.flatMap((call, index) => buildCallFields(call, index, calls.length)),
   ].filter(Boolean) as TxDisplayField[];
 
   const operation: TempoTypedOperation = {
@@ -108,7 +90,6 @@ function buildTempoOperation(request: TempoSigningRequest): TxDisplayOperation {
     txTypeHex: '0x76',
     txTypeName: 'TempoTransaction',
     fields,
-    children: calls.map((call, index) => buildCallOperation(call, index)),
   };
 
   return operation;
@@ -126,6 +107,7 @@ export function buildTempoDisplayModel(args: BuildTempoDisplayModelArgs): TxDisp
 
   return {
     chain: 'tempo',
+    chainId: args.request.kind === 'tempoTransaction' ? args.request.tx.chainId.toString() : undefined,
     intentDigest: args.intentDigest,
     signerAccount: args.signerAccount,
     title: args.title || 'Tempo Transaction',

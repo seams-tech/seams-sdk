@@ -23,7 +23,7 @@ Notes
 - TxTree maps `txTreeStyles` onto CSS custom properties on the host.
 - Variable naming: `--w3a-tree__<section>__<property>` (both section and property are kebab-cased).
 - Example mapping: `{ fileContent: { background: '#f8fafc' } }` → `--w3a-tree__file-content__background`.
-- Common sections: `root`, `details`, `summary`, `summaryRow`, `row`, `indent`, `label`, `chevron`, `fileContent`, `folderChildren`, `highlightReceiverId`, `highlightMethodName`.
+- Common sections: `root`, `details`, `summary`, `summaryRow`, `row`, `indent`, `label`, `chevron`, `fileContent`, `folderChildren`, `highlightReceiver`, `highlightMethodName`.
 - Highlight classes applied to labels: `highlight-receiverId`, `highlight-methodName`; controlled by vars like `--w3a-tree__highlight-receiver-id__color`.
 
 ## Transaction data → Tree mapping

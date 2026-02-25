@@ -6,7 +6,7 @@ import type {
 } from '@/index';
 import { useQRCamera, QRScanMode } from '../hooks/useQRCamera';
 import { useDeviceLinking } from '../hooks/useDeviceLinking';
-import { Theme } from './theme';
+import { Theme, useTheme } from './theme';
 
 /**
  * QR Code Scanner Component for Device Linking
@@ -61,6 +61,11 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   style,
   showCamera = true,
 }) => {
+  const { theme, tokens } = useTheme();
+  const scopedTokens = React.useMemo(
+    () => (theme === 'dark' ? { dark: tokens } : { light: tokens }),
+    [theme, tokens],
+  );
 
   const { linkDevice } = useDeviceLinking({
     onDeviceLinked,
@@ -155,7 +160,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
 
   if (qrCamera.error) {
     return (
-      <Theme>
+      <Theme theme={theme} tokens={scopedTokens}>
         <div className="qr-scanner-error-container">
           <div className="qr-scanner-error-message">
             <p>{qrCamera.error}</p>
@@ -178,7 +183,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   }
 
   return (
-    <Theme>
+    <Theme theme={theme} tokens={scopedTokens}>
       <div
         className={`qr-scanner-modal ${className || ''}`}
         style={style}

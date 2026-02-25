@@ -70,7 +70,7 @@ export async function signTempoWithTouchConfirm(args: {
   const firstDigest = inferDigest32FromSignRequest(firstSignRequest);
   const challengeB64u = base64UrlEncode(firstDigest);
   const intentDigestHex = bytesToHex(firstDigest);
-  const title = 'Sign TempoTransaction (0x76)';
+  const title = 'Sign Tempo Transaction';
   const body = 'Review and approve signing the Tempo sender hash.';
   const displayModel = buildTempoDisplayModel({
     request: args.request,

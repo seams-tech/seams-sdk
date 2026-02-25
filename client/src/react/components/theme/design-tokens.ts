@@ -119,7 +119,9 @@ export interface DesignTokens {
     slate900: string;
 
     // Highlights
-    highlightReceiverId: string;
+    highlightPrimary: string;
+    highlightHalo: string;
+    highlightReceiver: string;
     highlightMethodName: string;
     highlightAmount: string;
   };
@@ -245,7 +247,9 @@ export const LIGHT_TOKENS: DesignTokens = {
     slate900: LIGHT_THEME.slate900,
 
     // Highlights
-    highlightReceiverId: LIGHT_THEME.highlightReceiverId,
+    highlightPrimary: LIGHT_THEME.highlightPrimary,
+    highlightHalo: LIGHT_THEME.highlightHalo,
+    highlightReceiver: LIGHT_THEME.highlightReceiver,
     highlightMethodName: LIGHT_THEME.highlightMethodName,
     highlightAmount: LIGHT_THEME.highlightAmount,
   },
@@ -359,7 +363,9 @@ export const DARK_TOKENS: DesignTokens = {
     slate900: DARK_THEME.slate900,
 
     // Highlights
-    highlightReceiverId: DARK_THEME.highlightReceiverId,
+    highlightPrimary: DARK_THEME.highlightPrimary,
+    highlightHalo: DARK_THEME.highlightHalo,
+    highlightReceiver: DARK_THEME.highlightReceiver,
     highlightMethodName: DARK_THEME.highlightMethodName,
     highlightAmount: DARK_THEME.highlightAmount,
   },

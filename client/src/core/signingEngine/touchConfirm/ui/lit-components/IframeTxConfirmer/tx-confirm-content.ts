@@ -62,9 +62,6 @@ export class TxConfirmContentElement extends LitElementWithProps {
   private _treeNode: unknown | null = null;
   // Keep essential custom elements from being tree-shaken
   private _ensureTreeDefinition = TxTree;
-  // Tree width now sourced from a single CSS var so host can control it.
-  // Falls back to the embedded tooltip width, and then to 360px.
-  private _txTreeWidth: string | number = 'var(--tooltip-width, 100%)';
 
   // No static styles: structural styles are provided by tx-confirmer.css
 
@@ -226,7 +223,6 @@ export class TxConfirmContentElement extends LitElementWithProps {
                     light-dom
                     .node=${this._treeNode}
                     .theme=${treeTheme}
-                    .width=${this._txTreeWidth}
                     .nearExplorerUrl=${explorerBase}
                     .showShadow=${this.showShadow}
                   ></w3a-tx-tree>

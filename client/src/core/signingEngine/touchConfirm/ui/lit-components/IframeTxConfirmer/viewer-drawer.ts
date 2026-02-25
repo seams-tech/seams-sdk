@@ -97,6 +97,26 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     }
   };
 
+  private _chainLabelForModel(): string {
+    switch (this.model?.chain) {
+      case 'tempo':
+        return 'Tempo';
+      case 'evm':
+        return 'EVM';
+      case 'near':
+        return 'NEAR';
+      default:
+        return 'Unknown';
+    }
+  }
+
+  private _securityDetailsText(): string {
+    const chainId = String(this.model?.chainId || '').trim();
+    if (chainId) return `${this._chainLabelForModel()} | ChainID: ${chainId}`;
+    const blockHeight = String(this.securityContext?.blockHeight || '').trim();
+    return blockHeight ? `block ${blockHeight}` : '';
+  }
+
   constructor() {
     super();
     this.nearAccountId = '';
@@ -227,6 +247,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   }
 
   render() {
+    const securityDetailsText = this._securityDetailsText();
     return html`
       <w3a-drawer
         .open=${this._open}
@@ -264,24 +285,25 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
                     ? html`<span class="domain-text">${this.securityContext.rpId}</span>`
                     : ''}
                 </div>
-                <span class="security-details">
-                  <svg xmlns="http://www.w3.org/2000/svg"
-                    class="block-height-icon"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>
-                    <path d="m3.3 7 8.7 5 8.7-5"/>
-                    <path d="M12 22V12"/>
-                  </svg>
-                  ${this.securityContext?.blockHeight
-                    ? html`block ${this.securityContext.blockHeight}`
-                    : ''}
-                </span>
+                ${securityDetailsText
+                  ? html`
+                    <span class="security-details">
+                      <svg xmlns="http://www.w3.org/2000/svg"
+                        class="block-height-icon"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>
+                        <path d="m3.3 7 8.7 5 8.7-5"/>
+                        <path d="M12 22V12"/>
+                      </svg>
+                      ${securityDetailsText}
+                    </span>`
+                  : ''}
               </div>
             </div>
             ${

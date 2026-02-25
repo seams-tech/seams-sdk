@@ -29,7 +29,7 @@ export interface TxTreeStyles extends ComponentStyles {
   connector?: Record<string, string>;
 
   // Highlighting styles for transaction details
-  highlightReceiverId?: Record<string, string>;
+  highlightReceiver?: Record<string, string>;
   highlightMethodName?: Record<string, string>;
 
   // Mobile responsive
@@ -133,16 +133,16 @@ export const TX_TREE_THEMES: Record<TxTreeTheme, TxTreeStyles> = {
     },
 
     // Highlighting - using unified color scheme from base colors
-    highlightReceiverId: {
-      color: DARK_THEME.highlightReceiverId,
+    highlightReceiver: {
+      color: 'var(--w3a-colors-highlightReceiver, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info)))',
       fontWeight: '600',
     },
     highlightMethodName: {
-      color: DARK_THEME.highlightMethodName,
+      color: 'var(--w3a-colors-highlightMethodName)',
       fontWeight: '600',
     },
     highlightAmount: {
-      color: DARK_THEME.highlightAmount,
+      color: 'var(--w3a-colors-highlightAmount)',
       fontWeight: '600',
     },
 
@@ -258,16 +258,16 @@ export const TX_TREE_THEMES: Record<TxTreeTheme, TxTreeStyles> = {
     },
 
     // Highlighting - using unified color scheme from base colors
-    highlightReceiverId: {
-      color: LIGHT_THEME.highlightReceiverId,
+    highlightReceiver: {
+      color: 'var(--w3a-colors-highlightReceiver, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info)))',
       fontWeight: '600',
     },
     highlightMethodName: {
-      color: LIGHT_THEME.highlightMethodName,
+      color: 'var(--w3a-colors-highlightMethodName)',
       fontWeight: '600',
     },
     highlightAmount: {
-      color: LIGHT_THEME.highlightAmount,
+      color: 'var(--w3a-colors-highlightAmount)',
       fontWeight: '600',
     },
 

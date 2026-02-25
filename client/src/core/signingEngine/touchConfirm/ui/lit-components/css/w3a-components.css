@@ -19,7 +19,7 @@ w3a-export-key-viewer {
   --w3a-tree__file-content__scrollbar-thumb__background: rgba(255,255,255,0.22);
 
   /* Neutral defaults for PasskeyHaloLoading (baseline outside confirmer context) */
-  --w3a-modal__passkey-halo-loading__ring-background: transparent 0%, var(--w3a-blue500) 10%, var(--w3a-blue500) 25%, transparent 35%;
+  --w3a-modal__passkey-halo-loading__ring-background: transparent 0%, var(--w3a-colors-highlightHalo) 10%, var(--w3a-colors-highlightHalo) 25%, transparent 35%;
   --w3a-modal__passkey-halo-loading__inner-background: transparent;
   --w3a-modal__passkey-halo-loading__inner-padding: 3px;
   --w3a-modal__passkey-halo-loading-icon-container__background-color: var(--w3a-colors-surface);
@@ -51,13 +51,15 @@ w3a-export-key-viewer {
   --w3a-colors-warning: oklch(0.74 0.176 95);
   --w3a-colors-error: oklch(0.74 0.166 19);
   --w3a-colors-info: oklch(0.74 0.166 255);
+  --w3a-colors-highlightPrimary: oklch(0.74 0.166 255);
+  --w3a-colors-highlightHalo: oklch(0.74 0.166 255);
   --w3a-colors-borderPrimary: oklch(0.35 0.018 240);
   --w3a-colors-borderSecondary: oklch(0.35 0.0225 240);
   --w3a-colors-borderHover: oklch(0.4 0.02 240);
   --w3a-colors-gradientPrimary: linear-gradient(45deg, oklch(0.82 0.130 255) 0%, oklch(0.66 0.180 255) 50%);
   --w3a-colors-gradientSecondary: linear-gradient(90deg, hsla(213, 62%, 45%, 1) 0%, hsla(203, 89%, 71%, 1) 50%, hsla(0, 0%, 96%, 1) 100%);
   --w3a-colors-gradientTertiary: linear-gradient(45deg, oklch(0.53 0.03 240) 0%, oklch(0.2 0.015 240) 50%);
-  --w3a-colors-highlightReceiverId: oklch(0.74 0.166 255);
+  --w3a-colors-highlightReceiver: oklch(0.74 0.166 255);
   --w3a-colors-highlightMethodName: oklch(0.74 0.166 255);
   --w3a-colors-highlightAmount: oklch(0.74 0.166 255);
 }
@@ -92,14 +94,16 @@ w3a-export-key-viewer {
   --w3a-colors-success: oklch(0.66 0.180 255);
   --w3a-colors-warning: oklch(0.66 0.188 95);
   --w3a-colors-error: oklch(0.66 0.180 19);
-  --w3a-colors-info: oklch(0.66 0.180 255);
+  --w3a-colors-info: oklch(0.74 0.166 255);
+  --w3a-colors-highlightPrimary: oklch(0.82 0.130 255);
+  --w3a-colors-highlightHalo: oklch(0.78 0.150 255);
   --w3a-colors-borderPrimary: oklch(0.8 0.02 240);
   --w3a-colors-borderSecondary: oklch(0.82 0.014 240);
   --w3a-colors-borderHover: oklch(0.725 0.0225 240);
   --w3a-colors-gradientPrimary: linear-gradient(45deg, oklch(0.82 0.130 255) 0%, oklch(0.66 0.180 255) 50%);
   --w3a-colors-gradientSecondary: linear-gradient(90deg, hsla(213, 62%, 45%, 1) 0%, hsla(203, 89%, 71%, 1) 50%, hsla(0, 0%, 96%, 1) 100%);
   --w3a-colors-gradientTertiary: linear-gradient(45deg, oklch(0.53 0.03 240) 0%, oklch(0.2 0.015 240) 50%);
-  --w3a-colors-highlightReceiverId: oklch(0.66 0.180 255);
+  --w3a-colors-highlightReceiver: oklch(0.66 0.180 255);
   --w3a-colors-highlightMethodName: oklch(0.66 0.180 255);
   --w3a-colors-highlightAmount: oklch(0.66 0.180 255);
 }

@@ -75,7 +75,9 @@ export function createThemeTokens(palette) {
     gradientTertiary: GRADIENTS.black,
 
     // Highlights
-    highlightReceiverId: CHROMA_COLORS.blue400,
+    highlightPrimary: CHROMA_COLORS.blue400,
+    highlightHalo: CHROMA_COLORS.blue400,
+    highlightReceiver: CHROMA_COLORS.blue400,
     highlightMethodName: CHROMA_COLORS.blue400,
     highlightAmount: CHROMA_COLORS.blue400,
   };
@@ -117,7 +119,7 @@ export function createThemeTokens(palette) {
     success: CHROMA_COLORS.blue500,
     warning: (palette.yellow || {})['500'],
     error: CHROMA_COLORS.red500,
-    info: CHROMA_COLORS.blue500,
+    info: CHROMA_COLORS.blue400,
 
     // Borders
     borderPrimary: GREY_COLORS.slate300,
@@ -130,7 +132,9 @@ export function createThemeTokens(palette) {
     gradientTertiary: GRADIENTS.black,
 
     // Highlights
-    highlightReceiverId: CHROMA_COLORS.blue500,
+    highlightPrimary: CHROMA_COLORS.blue300,
+    highlightHalo: CHROMA_COLORS.blue350,
+    highlightReceiver: CHROMA_COLORS.blue500,
     highlightMethodName: CHROMA_COLORS.blue500,
     highlightAmount: CHROMA_COLORS.blue500,
   };

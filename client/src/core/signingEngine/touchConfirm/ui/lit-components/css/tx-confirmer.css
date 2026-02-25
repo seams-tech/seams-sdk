@@ -15,7 +15,7 @@ w3a-tx-confirm-content,
 /* Declare at document root for global availability across the iframe */
 :root {
   /* Passkey halo loading defaults (dark) */
-  --w3a-modal__passkey-halo-loading__ring-background: transparent 0%, #4DAFFE 10%, #4DAFFE 25%, transparent 35%;
+  --w3a-modal__passkey-halo-loading__ring-background: transparent 0%, var(--w3a-colors-highlightHalo, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, #4DAFFE))) 10%, var(--w3a-colors-highlightHalo, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, #4DAFFE))) 25%, transparent 35%;
   --w3a-modal__passkey-halo-loading__inner-background: transparent;
   --w3a-modal__passkey-halo-loading__inner-padding: 3px;
   --w3a-modal__passkey-halo-loading-icon-container__background-color: var(--w3a-colors-surface);
@@ -32,6 +32,8 @@ w3a-modal-tx-confirmer {
   --w3a-modal__rpid__flex-direction: column;
   /* Keep registration/confirm modal from collapsing too narrow on desktop */
   --w3a-modal__container-min-width: 25rem; /* 400px */
+  /* Keep modal width deterministic during tx-tree expand/collapse */
+  --w3a-modal__container-max-width: 25rem; /* 400px */
 }
 
 w3a-drawer-tx-confirmer {
@@ -98,15 +100,18 @@ w3a-tx-confirm-content {
   touch-action: auto;
   /* Fill the modal card so action buttons can span full width (not intrinsic content width). */
   width: 100%;
-  /* Responsive tooltip width that adapts to viewport and zoom */
-  --tooltip-margin: 1.5rem;
-  --tooltip-width: min(360px, calc(100vw - var(--tooltip-margin)));
-}
-@supports (width: 1dvw) {
-  .txc-root { --tooltip-width: min(360px, calc(100dvw - var(--tooltip-margin))); }
+  /* Default tx-tree wrapper width fills the available card width. */
+  --tooltip-width: 100%;
 }
 .section { margin: 0.5rem 0; }
-.tooltip-width { width: var(--tooltip-width, 100%); }
+.tooltip-width {
+  width: min(100%, var(--tooltip-width, 100%));
+  max-width: 100%;
+}
+.tooltip-width > :is(w3a-tx-tree, tx-tree) {
+  width: 100%;
+  max-width: 100%;
+}
 .summary-row > * { min-width: 0; }
 .label { font-size: 0.75rem; color: var(--w3a-colors-textMuted, rgba(255,255,255,0.7)); }
 .value {
@@ -218,6 +223,7 @@ w3a-modal-tx-confirmer {
   inset: 0;
   display: grid;
   place-items: center;
+  padding-inline: 1rem;
   z-index: 2147483648; /* Above backdrop */
   pointer-events: none;
 }
@@ -254,7 +260,9 @@ w3a-modal-tx-confirmer {
 .modal-container-root {
   display: grid;
   gap: 0.5rem;
-  min-inline-size: min(var(--w3a-modal__container-min-width, 25rem), calc(100vw - 2rem));
+  inline-size: min(var(--w3a-modal__container-max-width, 26rem), 100%);
+  min-inline-size: min(var(--w3a-modal__container-min-width, 25rem), 100%);
+  max-inline-size: 100%;
   position: relative;
   border: 1px solid var(--w3a-colors-borderPrimary);
   border-radius: 2rem;
@@ -267,10 +275,10 @@ w3a-modal-tx-confirmer {
   animation: fadeIn 32ms ease-in;
   will-change: opacity, transform;
 }
-@supports (width: 1dvw) {
-  .modal-container-root {
-    min-inline-size: min(var(--w3a-modal__container-min-width, 25rem), calc(100dvw - 2rem));
-  }
+
+.modal-container-root > .responsive-card {
+  inline-size: 100%;
+  max-inline-size: 100%;
 }
 
 /* Softer elevation in light theme */
@@ -499,7 +507,7 @@ w3a-drawer-tx-confirmer[theme="light"] .modal-container-root {
 .method-name {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
   font-weight: 600;
-  color: var(--w3a-blue400);
+  color: var(--w3a-colors-highlightMethodName, var(--w3a-colors-info, var(--w3a-blue400)));
 }
 
 /* Button styles */
@@ -612,10 +620,7 @@ w3a-drawer-tx-confirmer[theme="light"] .modal-container-root {
 
 @media (max-width: 375px) {
   /* Ensure full-bleed width on mobile */
-  .modal-container-root { width: 100vw; }
-  @supports (width: 1dvw) {
-    .modal-container-root { width: 100dvw; }
-  }
+  .modal-container-root { width: 100%; }
   /* remove backdrop on mobile becasue of Safari 26 address bar bugs */
   .modal-backdrop-blur {
     opacity: 0;
@@ -633,11 +638,6 @@ w3a-drawer-tx-confirmer[theme="light"] .modal-container-root {
     .responsive-card {
       max-width: calc(100dvw - 2rem);
     }
-  }
-
-  /* Keep inner content (TxTree) in sync to avoid overflow */
-  .responsive-card w3a-tx-confirm-content {
-    --tooltip-margin: 2rem;
   }
 
   .summary-row {
@@ -827,7 +827,7 @@ w3a-drawer {
   height: 1em;
   margin-inline-end: 0.5em;
   flex: none;
-  color: var(--w3a-blue600);
+  color: var(--w3a-colors-info, var(--w3a-blue600));
 }
 
 .security-details {
@@ -842,7 +842,7 @@ w3a-drawer {
   height: 1em;
   margin-inline-end: 0.5em;
   flex: none;
-  color: var(--w3a-blue600);
+  color: var(--w3a-colors-info, var(--w3a-blue600));
 }
 .divider {
   width: 1px; height: 12px;

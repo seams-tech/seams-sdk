@@ -133,7 +133,7 @@ ${hostSelectors} {
   --w3a-tree__file-content__scrollbar-thumb__background: rgba(255,255,255,0.22);
 
   /* Neutral defaults for PasskeyHaloLoading (baseline outside confirmer context) */
-  --w3a-modal__passkey-halo-loading__ring-background: transparent 0%, var(--w3a-blue500) 10%, var(--w3a-blue500) 25%, transparent 35%;
+  --w3a-modal__passkey-halo-loading__ring-background: transparent 0%, var(--w3a-colors-highlightHalo) 10%, var(--w3a-colors-highlightHalo) 25%, transparent 35%;
   --w3a-modal__passkey-halo-loading__inner-background: transparent;
   --w3a-modal__passkey-halo-loading__inner-padding: 3px;
   --w3a-modal__passkey-halo-loading-icon-container__background-color: var(--w3a-colors-surface);
@@ -174,13 +174,15 @@ function emitAliasBlock(vars) {
     `  --w3a-colors-warning: ${vars.warning};`,
     `  --w3a-colors-error: ${vars.error};`,
     `  --w3a-colors-info: ${vars.info};`,
+    `  --w3a-colors-highlightPrimary: ${vars.highlightPrimary};`,
+    `  --w3a-colors-highlightHalo: ${vars.highlightHalo};`,
     `  --w3a-colors-borderPrimary: ${vars.borderPrimary};`,
     `  --w3a-colors-borderSecondary: ${vars.borderSecondary};`,
     `  --w3a-colors-borderHover: ${vars.borderHover};`,
     `  --w3a-colors-gradientPrimary: ${vars.gradientPrimary};`,
     `  --w3a-colors-gradientSecondary: ${vars.gradientSecondary};`,
     `  --w3a-colors-gradientTertiary: ${vars.gradientTertiary};`,
-    `  --w3a-colors-highlightReceiverId: ${vars.highlightReceiverId};`,
+    `  --w3a-colors-highlightReceiver: ${vars.highlightReceiver};`,
     `  --w3a-colors-highlightMethodName: ${vars.highlightMethodName};`,
     `  --w3a-colors-highlightAmount: ${vars.highlightAmount};`,
   ].join('\n');

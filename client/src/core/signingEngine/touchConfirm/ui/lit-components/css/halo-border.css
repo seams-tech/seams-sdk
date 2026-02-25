@@ -22,7 +22,7 @@
   --ring-border-radius: 2rem;
   --inner-padding: 2rem;
   --inner-background: var(--w3a-grey650, transparent);
-  --ring-stops: transparent 0%, #4DAFFE 10%, #4DAFFE 25%, transparent 35%;
+  --ring-stops: transparent 0%, var(--w3a-colors-highlightHalo, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, #4DAFFE))) 10%, var(--w3a-colors-highlightHalo, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, #4DAFFE))) 25%, transparent 35%;
   --halo-duration: 1.15s;
 }
 

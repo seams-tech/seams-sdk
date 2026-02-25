@@ -79,6 +79,11 @@ The following CSS variables are generated from `tokens.colors.*` with the defaul
 --w3a-colors-warning
 --w3a-colors-error
 --w3a-colors-info
+--w3a-colors-highlightPrimary
+--w3a-colors-highlightHalo
+--w3a-colors-highlightReceiver
+--w3a-colors-highlightMethodName
+--w3a-colors-highlightAmount
 --w3a-colors-borderPrimary
 --w3a-colors-borderSecondary
 --w3a-colors-borderHover

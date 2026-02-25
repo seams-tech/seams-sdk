@@ -1,5 +1,6 @@
 import type { EvmSigningRequest } from '@/core/signingEngine/chainAdaptors/evm/types';
 import { bytesToHex, hexToBytes } from '@/core/signingEngine/chainAdaptors/evm/bytes';
+import { resolveFunctionSignature, selectorFromHexData } from './functionSelectors';
 import type {
   TxDisplayField,
   TxDisplayModel,
@@ -92,12 +93,6 @@ function makeField(label: string, value: string | undefined, copyValue?: string)
     value: normalized,
     ...(typeof copyValue === 'string' && copyValue.trim() ? { copyValue } : {}),
   };
-}
-
-function selectorFromHexData(data: string | undefined): string | undefined {
-  const normalized = String(data || '').trim();
-  if (!normalized.startsWith('0x') || normalized.length < 10) return undefined;
-  return normalized.slice(0, 10).toLowerCase();
 }
 
 function normalizeHex(input: string | undefined): string {
@@ -420,10 +415,12 @@ function buildCallOperation(args: {
   call: DecodedContractCall;
 }): GenericContractCallOperation {
   const { call } = args;
+  const functionSignature = resolveFunctionSignature(call.selector);
   const fields: TxDisplayField[] = [
     makeField('To', call.to, call.to),
     makeField('Value (wei)', call.valueWei),
     makeField('Data', call.dataHex, call.dataHex),
+    makeField('Function', functionSignature),
     makeField('Selector', call.selector, call.selector),
     makeField('Decoded Args', call.decodedArgs),
   ].filter(Boolean) as TxDisplayField[];
@@ -489,6 +486,7 @@ function buildErc4337OperationFromHandleOps(args: {
       makeField('Smart Account', userOp.sender, userOp.sender),
       makeField('Nonce', userOp.nonce),
       makeField('Call Type', callTypeLabel(userOp.decodedCall.callType)),
+      makeField('CallData Function', resolveFunctionSignature(userOp.decodedCall.selector)),
       makeField('CallData Selector', userOp.decodedCall.selector, userOp.decodedCall.selector),
       makeField('CallData', userOp.callDataHex, userOp.callDataHex),
       makeField('Decoded Call Count', String(callChildren.length)),
@@ -517,6 +515,7 @@ function buildErc4337OperationFromHandleOps(args: {
     makeField('EntryPoint', args.to, args.to),
     makeField('Beneficiary', decoded.beneficiary, decoded.beneficiary),
     makeField('UserOperation Count', String(decoded.userOperations.length)),
+    makeField('Function', resolveFunctionSignature(decoded.selector)),
     makeField('Selector', decoded.selector, decoded.selector),
   ].filter(Boolean) as TxDisplayField[];
 
@@ -572,6 +571,7 @@ function buildErc4337OperationFromDirectSmartAccountCall(args: {
     makeField('Kind', 'ERC-4337 Smart Account Call'),
     makeField('Smart Account', args.to, args.to),
     makeField('Call Type', callTypeLabel(decodedCall.callType)),
+    makeField('Function', resolveFunctionSignature(decodedCall.selector)),
     makeField('Selector', decodedCall.selector, decodedCall.selector),
     makeField('Decoded Call Count', String(callChildren.length)),
   ].filter(Boolean) as TxDisplayField[];
@@ -598,16 +598,16 @@ function buildDefaultContractCallOperation(args: {
   dataHex: string;
   selector?: string;
 }): GenericContractCallOperation {
+  const functionSignature = resolveFunctionSignature(args.selector);
   const fields: TxDisplayField[] = [
     makeField('Kind', 'EIP-1559 (0x02)'),
     makeField('To', args.to, args.to),
     makeField('Value (wei)', args.valueWei),
     makeField('Nonce', args.tx.nonce.toString()),
     makeField('Gas Limit', args.tx.gasLimit.toString()),
-    makeField('Max Fee Per Gas', args.tx.maxFeePerGas.toString()),
-    makeField('Max Priority Fee Per Gas', args.tx.maxPriorityFeePerGas.toString()),
     makeField('Chain ID', args.tx.chainId.toString()),
     makeField('Data', args.dataHex, args.dataHex),
+    makeField('Function', functionSignature),
     makeField('Selector', args.selector, args.selector),
   ].filter(Boolean) as TxDisplayField[];
 
@@ -668,6 +668,7 @@ export function buildEvmDisplayModel(args: BuildEvmDisplayModelArgs): TxDisplayM
 
   return {
     chain: 'evm',
+    chainId: tx.chainId.toString(),
     intentDigest: args.intentDigest,
     signerAccount: args.signerAccount,
     title: args.title || 'EVM Transaction',

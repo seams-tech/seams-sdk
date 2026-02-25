@@ -68,7 +68,7 @@ export async function signEvmWithTouchConfirm(args: {
   const firstDigest = inferDigest32FromSignRequest(firstSignRequest);
   const challengeB64u = base64UrlEncode(firstDigest);
   const intentDigestHex = bytesToHex(firstDigest);
-  const title = 'Sign EIP-1559 (0x02)';
+  const title = 'Sign EVM Transaction';
   const body = 'Review and approve signing the transaction hash.';
   const displayModel = buildEvmDisplayModel({
     request: args.request,

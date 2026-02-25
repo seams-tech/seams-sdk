@@ -39,7 +39,9 @@ type ThemeAliases = {
   gradientPrimary: string;
   gradientSecondary: string;
   gradientTertiary: string;
-  highlightReceiverId: string;
+  highlightPrimary: string;
+  highlightHalo: string;
+  highlightReceiver: string;
   highlightMethodName: string;
   highlightAmount: string;
 } & Record<string, string>;

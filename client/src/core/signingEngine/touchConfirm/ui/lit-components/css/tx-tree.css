@@ -97,11 +97,11 @@
   --w3a-tree__row-mobile__padding: 0.5rem;
   --w3a-tree__file-content-mobile__font-size: 0.7rem;
   --w3a-tree__file-content-mobile__max-height: 150px;
-  --w3a-tree__highlight-receiver-id__color: var(--w3a-blue400);
+  --w3a-tree__highlight-receiver-id__color: var(--w3a-colors-highlightReceiver, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, var(--w3a-blue400))));
   --w3a-tree__highlight-receiver-id__font-weight: 600;
-  --w3a-tree__highlight-method-name__color: var(--w3a-blue400);
+  --w3a-tree__highlight-method-name__color: var(--w3a-colors-highlightMethodName);
   --w3a-tree__highlight-method-name__font-weight: 600;
-  --w3a-tree__highlight-amount__color: var(--w3a-blue400);
+  --w3a-tree__highlight-amount__color: var(--w3a-colors-highlightAmount);
   --w3a-tree__highlight-amount__font-weight: 600;
   --w3a-tree__connector__color: var(--w3a-colors-borderPrimary, oklch(0.8 0.02 240));
   --w3a-tree__connector__thickness: 2px;
@@ -161,11 +161,11 @@
   --w3a-tree__row-mobile__padding: 0.5rem;
   --w3a-tree__file-content-mobile__font-size: 0.7rem;
   --w3a-tree__file-content-mobile__max-height: 150px;
-  --w3a-tree__highlight-receiver-id__color: var(--w3a-blue500);
+  --w3a-tree__highlight-receiver-id__color: var(--w3a-colors-highlightReceiver, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, var(--w3a-blue500))));
   --w3a-tree__highlight-receiver-id__font-weight: 600;
-  --w3a-tree__highlight-method-name__color: var(--w3a-blue500);
+  --w3a-tree__highlight-method-name__color: var(--w3a-colors-highlightMethodName);
   --w3a-tree__highlight-method-name__font-weight: 600;
-  --w3a-tree__highlight-amount__color: var(--w3a-blue500);
+  --w3a-tree__highlight-amount__color: var(--w3a-colors-highlightAmount);
   --w3a-tree__highlight-amount__font-weight: 600;
   --w3a-tree__connector__color: var(--w3a-colors-borderPrimary, oklch(0.8 0.02 240));
   --w3a-tree__connector__thickness: 2px;
@@ -417,6 +417,8 @@
 :is(w3a-tx-tree, tx-tree) .folder-children .row[data-no-elbow="true"] .indent::after { content: none; }
 :is(w3a-tx-tree, tx-tree) .folder-children > details:last-child > summary .indent::before { height: calc(50% + 0px); }
 :is(w3a-tx-tree, tx-tree) .folder-children > details.file:last-child > summary .indent::before { height: calc(100% + 0px); }
+:is(w3a-tx-tree, tx-tree) .folder-children > .row.file-row:last-child .indent::before { height: calc(50% + 0px); }
+:is(w3a-tx-tree, tx-tree) .folder-children > .row.file-row:last-child:not([data-no-elbow="true"]) .indent::after { content: ''; }
 :is(w3a-tx-tree, tx-tree) .tooltip-tree-children > details > .folder-children > details:last-child .folder-children .row .indent::before,
 :is(w3a-tx-tree, tx-tree) .tooltip-tree-children > details > .folder-children > details:last-child .folder-children .row .indent::after { content: none; }
 
@@ -461,7 +463,7 @@
 }
 
 :is(w3a-tx-tree, tx-tree) .highlight-receiver-id {
-  color: var(--w3a-tree__highlight-receiver-id__color, #ff6b6b);
+  color: var(--w3a-tree__highlight-receiver-id__color, var(--w3a-colors-highlightReceiver, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, #ff6b6b))));
   background: transparent;
   -webkit-background-clip: none;
   -webkit-text-fill-color: none;
@@ -482,7 +484,7 @@
 }
 
 :is(w3a-tx-tree, tx-tree) .highlight-method-name {
-  color: var(--w3a-tree__highlight-method-name__color, #4ecdc4);
+  color: var(--w3a-tree__highlight-method-name__color, var(--w3a-colors-highlightMethodName, #4ecdc4));
   background: transparent;
   -webkit-background-clip: none;
   -webkit-text-fill-color: none;
@@ -495,7 +497,7 @@
 }
 
 :is(w3a-tx-tree, tx-tree) .highlight-amount {
-  color: var(--w3a-tree__highlight-amount__color, #4ecdc4);
+  color: var(--w3a-tree__highlight-amount__color, var(--w3a-colors-highlightAmount, #4ecdc4));
   background: transparent;
   -webkit-background-clip: none;
   -webkit-text-fill-color: none;
