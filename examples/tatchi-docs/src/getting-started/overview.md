@@ -53,7 +53,7 @@ yarn add @tatchi-xyz/sdk
 
 
 ### Minimal Centralization:
-  - Wallet origin is swappable, and Related Origin Requests (ROR) allowlists are on‑chain and DAO‑governable for fast failover without app redeploys.
+  - Wallet origin is swappable, and Related Origin Requests (ROR) allowlists are served from your wallet/relay server so failover does not require app redeploys.
   - One passkey can work across many apps without an identity silo per app.
 
 

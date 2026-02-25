@@ -31,6 +31,31 @@ function shutdown(signal: string) {
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
+function hostnameFromOrigin(origin: string): string {
+  try {
+    return new URL(origin).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function sanitizeOrigins(values: string[]): string[] {
+  const out = new Set<string>();
+  for (const raw of values) {
+    try {
+      const u = new URL(String(raw || '').trim());
+      const scheme = u.protocol;
+      const host = u.hostname.toLowerCase();
+      if (!host) continue;
+      if (scheme !== 'https:' && !(scheme === 'http:' && host === 'localhost')) continue;
+      if ((u.pathname && u.pathname !== '/') || u.search || u.hash) continue;
+      const port = u.port ? `:${u.port}` : '';
+      out.add(`${scheme}//${host}${port}`);
+    } catch {}
+  }
+  return Array.from(out);
+}
+
 async function main() {
   const env = process.env;
   const redisUrl = typeof env.REDIS_URL === 'string' ? env.REDIS_URL.trim() : '';
@@ -55,6 +80,15 @@ async function main() {
     expectedOrigin: env.EXPECTED_ORIGIN || 'https://example.localhost', // Frontend origin
     expectedWalletOrigin: env.EXPECTED_WALLET_ORIGIN || 'https://wallet.example.localhost', // Wallet origin (optional)
   };
+  const rorRpId = String(env.ROR_RP_ID || hostnameFromOrigin(config.expectedWalletOrigin)).trim().toLowerCase();
+  const rorOrigins = sanitizeOrigins([
+    config.expectedOrigin,
+    config.expectedWalletOrigin,
+    ...String(env.ROR_ALLOWED_ORIGINS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  ]);
 
   const thresholdEd25519KeyStore = {
     // Share mode + deterministic relayer share derivation (optional)
@@ -77,10 +111,8 @@ async function main() {
 
   const authService = new AuthService({
     // new accounts with be created with this account: e.g. bob.{relayer-account-id}.near
-    // you can make it the same account as the ROR contract id.
     relayerAccount: requireEnvVar(env, 'RELAYER_ACCOUNT_ID'),
     relayerPrivateKey: requireEnvVar(env, 'RELAYER_PRIVATE_KEY'),
-    rorContractId: env.ROR_CONTRACT_ID || 'w3a-v1.testnet',
     // Optional overrides (SDK provides defaults when omitted)
     nearRpcUrl: env.NEAR_RPC_URL,
     networkId: env.NETWORK_ID,
@@ -118,6 +150,18 @@ async function main() {
     healthz: true,
     readyz: true,
     corsOrigins: [config.expectedOrigin, config.expectedWalletOrigin],
+    ...(rorRpId
+      ? {
+          ror: {
+            rpId: rorRpId,
+            provider: {
+              getAllowedOrigins: async (input: { rpId: string; host?: string }) => (
+                input.rpId === rorRpId ? rorOrigins : []
+              ),
+            },
+          },
+        }
+      : {}),
     signedDelegate: { route: '/signed-delegate' },
     session: jwtSession,
     threshold,
@@ -128,6 +172,10 @@ async function main() {
     const listenHost = config.host || 'localhost';
     console.log(`Server listening on http://${listenHost}:${config.port}`);
     console.log(`Expected Frontend Origin: ${config.expectedOrigin}`);
+    if (rorRpId) {
+      console.log(`ROR RP ID: ${rorRpId}`);
+      console.log(`ROR Origins: ${rorOrigins.join(', ') || '(none)'}`);
+    }
     authService.getRelayerAccount()
       .then(relayer => console.log(`AuthService started with relayer account: ${relayer.accountId}`))
       .catch((err: Error) => console.error('AuthService initial check failed:', err));

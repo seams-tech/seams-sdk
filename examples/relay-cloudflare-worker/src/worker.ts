@@ -8,7 +8,7 @@ import type {
   CfEmailMessage,
   CfScheduledEvent,
   CfExecutionContext as Ctx,
-  RelayCloudflareWorkerEnv as Env,
+  RelayCloudflareWorkerEnv,
 } from '@tatchi-xyz/sdk/server/router/cloudflare';
 import signerWasmModule from '@tatchi-xyz/sdk/server/wasm/signer';
 import shamirWasmModule from '@tatchi-xyz/sdk/server/wasm/signer';
@@ -16,13 +16,14 @@ import jwtSession from './jwtSession';
 
 export { ThresholdEd25519StoreDurableObject } from '@tatchi-xyz/sdk/server/router/cloudflare';
 
-type Env = {
+type Env = RelayCloudflareWorkerEnv & {
   // base env vars
   RELAYER_ACCOUNT_ID: string;
   RELAYER_PRIVATE_KEY: string;
   NEAR_RPC_URL?: string;
   NETWORK_ID?: string;
-  ROR_CONTRACT_ID: string;
+  ROR_RP_ID?: string;
+  ROR_ALLOWED_ORIGINS?: string;
   ACCOUNT_INITIAL_BALANCE?: string;
   CREATE_ACCOUNT_AND_REGISTER_GAS?: string;
   SHAMIR_P_B64U: string;
@@ -48,11 +49,35 @@ type Env = {
   };
 };
 
+function hostnameFromOrigin(origin: string): string {
+  try {
+    return new URL(origin).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function sanitizeOrigins(values: string[]): string[] {
+  const out = new Set<string>();
+  for (const raw of values) {
+    try {
+      const u = new URL(String(raw || '').trim());
+      const scheme = u.protocol;
+      const host = u.hostname.toLowerCase();
+      if (!host) continue;
+      if (scheme !== 'https:' && !(scheme === 'http:' && host === 'localhost')) continue;
+      if ((u.pathname && u.pathname !== '/') || u.search || u.hash) continue;
+      const port = u.port ? `:${u.port}` : '';
+      out.add(`${scheme}//${host}${port}`);
+    } catch {}
+  }
+  return Array.from(out);
+}
+
 function createAuthService(env: Env): AuthService {
   return new AuthService({
     relayerAccount: env.RELAYER_ACCOUNT_ID,
     relayerPrivateKey: env.RELAYER_PRIVATE_KEY,
-    rorContractId: env.ROR_CONTRACT_ID,
     nearRpcUrl: env.NEAR_RPC_URL,
     networkId: env.NETWORK_ID,
     accountInitialBalance: env.ACCOUNT_INITIAL_BALANCE,
@@ -84,18 +109,41 @@ function createAuthService(env: Env): AuthService {
 }
 
 export default {
-	  /**
-	   * HTTP entrypoint
-	   * - Handles REST API routes (/registration/bootstrap, /recover-email, sessions, etc.)
-	   * - Creates an AuthService per request/event (avoid cross-request I/O errors).
-	   */
-	  async fetch(request: Request, env: Env, ctx: Ctx): Promise<Response> {
+  /**
+   * HTTP entrypoint
+   * - Handles REST API routes (/registration/bootstrap, /recover-email, sessions, etc.)
+   * - Creates an AuthService per request/event (avoid cross-request I/O errors).
+   */
+  async fetch(request: Request, env: Env, ctx: Ctx): Promise<Response> {
     const authService = createAuthService(env);
+    const expectedOrigin = String(env.EXPECTED_ORIGIN || '').trim();
+    const expectedWalletOrigin = String(env.EXPECTED_WALLET_ORIGIN || '').trim();
+    const rorRpId = String(env.ROR_RP_ID || hostnameFromOrigin(expectedWalletOrigin)).trim().toLowerCase();
+    const rorOrigins = sanitizeOrigins([
+      expectedOrigin,
+      expectedWalletOrigin,
+      ...String(env.ROR_ALLOWED_ORIGINS || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    ]);
     const router = createCloudflareRouter(authService, {
       healthz: true,
       readyz: true,
       // Pass raw env strings; router normalizes CSV/duplicates internally
       corsOrigins: [env.EXPECTED_ORIGIN, env.EXPECTED_WALLET_ORIGIN],
+      ...(rorRpId
+        ? {
+            ror: {
+              rpId: rorRpId,
+              provider: {
+                getAllowedOrigins: async (input: { rpId: string; host?: string }) => (
+                  input.rpId === rorRpId ? rorOrigins : []
+                ),
+              },
+            },
+          }
+        : {}),
       signedDelegate: { route: '/signed-delegate' },
       session: jwtSession,
     });

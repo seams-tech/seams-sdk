@@ -43,8 +43,10 @@ extra requirements and limitations compared to the Express example.
   - CORS allowlist (recommended to set explicitly if you use cookies):
     - `EXPECTED_ORIGIN` (e.g. docs/app origin)
     - `EXPECTED_WALLET_ORIGIN` (e.g. wallet iframe origin)
-  - Chain/runtime config (see `wrangler.toml` defaults):
-    - `RELAYER_ACCOUNT_ID`, `ROR_CONTRACT_ID`, `NETWORK_ID`, `NEAR_RPC_URL`, etc.
+  - Runtime + ROR config (see `wrangler.toml` defaults):
+    - `RELAYER_ACCOUNT_ID`, `NETWORK_ID`, `NEAR_RPC_URL`, etc.
+    - `ROR_RP_ID` (optional; defaults to `hostname(EXPECTED_WALLET_ORIGIN)`)
+    - `ROR_ALLOWED_ORIGINS` (optional comma-separated extra origins)
 - If you enable Shamir rotation, configure the cron schedule in `[triggers]`
   and set `ENABLE_ROTATION="1"`.
 
