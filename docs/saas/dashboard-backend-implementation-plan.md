@@ -1,6 +1,6 @@
 # Dashboard + Backend Implementation Plan
 
-Date updated: February 19, 2026
+Date updated: February 25, 2026
 
 ## Objective
 
@@ -54,6 +54,22 @@ Backend:
 4. Auditability by default: every mutating admin action writes immutable logs.
 5. Progressive hardening: MVP first, then approvals/anomaly/governance depth.
 
+## Governance Defaults (Locked)
+
+1. Runtime snapshot contract: full versioned per-environment document (`snapshot_id`, `version`, `effective_at`, resolved settings/policy/sponsorship payloads, integrity hash).
+2. Enterprise isolation trigger: manual enterprise/compliance trigger.
+3. Enterprise isolation SLA targets: `99.95%` availability, `RPO 15m`, `RTO 4h`.
+4. Approval defaults:
+   - policy publish: `1 admin`
+   - key export: `2 admin + MFA + reason`
+   - risky security settings: `1 admin + MFA`
+5. Role scope model: hybrid
+   - org-scoped roles: `owner`, `admin`, `security_admin`, `billing_admin`
+   - project-scoped roles: `developer`, `support`, `ops`
+6. Retention defaults:
+   - runtime + webhook: `180d` hot + `2y` archive
+   - billing + payments + audit: `7y`
+
 ## Workstreams
 
 ### A) Dashboard Frontend
@@ -61,7 +77,7 @@ Backend:
 Scope:
 
 - Data-fetching layer and typed API client.
-- Feature pages for wallets, policy, settings, api keys, webhooks, exports.
+- Feature pages for wallets, policy, settings, api keys, webhooks, exports, and billing.
 - Reusable state patterns for loading/empty/error/success.
 
 Key outputs:
@@ -77,6 +93,7 @@ Scope:
 - Authn/authz, org/project/environment scoping.
 - CRUD APIs + validation + business rules.
 - Eventing/outbox + audit log + approval workflows (phased).
+- Billing orchestration for Stripe card payments and stablecoin settlement rails.
 
 Key outputs:
 
@@ -157,6 +174,7 @@ Key outputs:
   - `environment_settings`
 - Jobs:
   - settings snapshot publish to runtime consumers
+  - runtime snapshot publisher writes full versioned per-environment snapshot documents
 
 ### `/dashboard/export-keys`
 
@@ -195,6 +213,36 @@ Key outputs:
   - `webhook_dead_letters`
 - Jobs:
   - delivery worker with retry/backoff and DLQ processor
+
+### `/dashboard/billing`
+
+- APIs:
+  - `GET /console/billing/overview`
+  - `GET /console/billing/invoices`
+  - `GET /console/billing/invoices/:id`
+  - `GET/POST/DELETE /console/billing/payment-methods`
+  - `POST /console/billing/payment-methods/:id/default`
+  - `POST /console/billing/stripe/setup-intent`
+  - `POST /console/billing/stripe/payment-intent`
+  - `GET /console/billing/stablecoins/assets`
+  - `POST /console/billing/stablecoins/quotes`
+  - `POST /console/billing/stablecoins/payment-intents`
+  - `GET /console/billing/stablecoins/payment-intents/:id`
+- Data:
+  - `billing_accounts`
+  - `subscriptions`
+  - `invoices`
+  - `invoice_line_items`
+  - `payments`
+  - `invoice_payment_rail_locks`
+  - `billing_payment_methods`
+  - `stablecoin_payment_quotes`
+  - `stablecoin_payment_intents`
+  - `stablecoin_settlement_events`
+- Jobs:
+  - invoice generation + usage rollup jobs
+  - Stripe webhook reconciler
+  - stablecoin settlement watcher + confirmation reconciler
 
 ## Milestone Plan
 
@@ -271,6 +319,9 @@ Backend:
   - `POST /console/policies/:id/simulate`
   - `GET/PATCH /console/settings/app`
 - Add policy precedence resolution and simulation evaluator.
+- Enforce default approvals:
+  - policy publish: `1 admin`
+  - risky security settings changes: `1 admin + MFA`
 
 Data:
 
@@ -282,12 +333,13 @@ Exit criteria:
 - Policies can be drafted, simulated, published, and audited.
 - App settings are environment-specific and validated.
 
-### Milestone 3: API Keys + Webhooks (2 weeks)
+### Milestone 3: API Keys + Webhooks + Billing Payments (2-3 weeks)
 
 Frontend:
 
 - API key lifecycle flows: create, reveal-once, revoke, rotate.
 - Webhook endpoint management + delivery log views + replay actions.
+- Billing pages for overview, invoices, card payment methods, and stablecoin payment intents.
 
 Backend:
 
@@ -297,17 +349,43 @@ Backend:
   - `GET/POST/PATCH/DELETE /console/webhooks`
   - `GET /console/webhooks/:id/deliveries`
   - `POST /console/webhooks/:id/replay`
+  - `GET /console/billing/overview`
+  - `GET /console/billing/invoices`
+  - `GET/POST/DELETE /console/billing/payment-methods`
+  - `POST /console/billing/payment-methods/:id/default`
+  - `POST /console/billing/stripe/setup-intent`
+  - `POST /console/billing/stripe/payment-intent`
+  - `GET /console/billing/stablecoins/assets`
+  - `POST /console/billing/stablecoins/quotes`
+  - `POST /console/billing/stablecoins/payment-intents`
 - Add webhook signer and retry worker.
+- Add Stripe integration (setup intents, payment intents, webhook verification).
+- Add stablecoin quote/payment-intent lifecycle and on-chain settlement reconciliation for `USDC` and `USDT`.
+- Enforce `USDC`/`USDT` funding support across all currently supported chains: `Ethereum`, `Base`, `Tempo`, `Arc Circle`, and `NEAR`.
+- Enforce chain finality defaults for stablecoin settlement:
+  - `Ethereum`: `12` confirmations, `360` minute confirmation timeout, `24` hour reorg-risk window.
+  - `Base`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
+  - `Tempo`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
+  - `Arc Circle`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
+  - `NEAR`: `10` confirmations, `60` minute confirmation timeout, `6` hour reorg-risk window.
+- Enforce single-rail invoice settlement: `Stripe/card` or `stablecoin`; mixed-rail payment application is rejected.
+- Enforce billing RBAC: only `admin` can call `POST/DELETE /console/billing/payment-methods`.
+- Enforce billing RBAC: only `admin` can call `POST /console/billing/payment-methods/:id/default`.
 
 Data:
 
 - Add key and webhook tables including delivery attempts/dead-letter records.
 - Add usage timestamps and basic anomaly flags.
+- Add billing/payment tables for Stripe payment methods and stablecoin settlement tracking.
 
 Exit criteria:
 
 - API key secrets are never retrievable after creation.
 - Failed webhooks retry with backoff and support replay.
+- Billing accepts card payments via Stripe and stablecoin settlement via `USDC` and `USDT`.
+- Invoice settlement is single-rail only (no card + stablecoin mixing on the same invoice).
+- Non-admin attempts to add/remove card payment methods are denied.
+- Non-admin attempts to set default card payment method are denied.
 
 ### Milestone 4: Export Keys + Gas Sponsorship + Smart Wallet Controls (2-3 weeks)
 
@@ -325,6 +403,7 @@ Backend:
   - `GET/POST/PATCH /console/gas-sponsorship`
   - `GET/POST/PATCH /console/smart-wallets`
 - Add step-up and approval guardrails for export actions.
+- Enforce default key-export approval: `2 admin + MFA + reason`.
 
 Data:
 
@@ -336,26 +415,22 @@ Exit criteria:
 - Sensitive export changes require policy-defined approvals.
 - Sponsorship and smart wallet controls affect runtime config snapshots.
 
-### Milestone 5: Billing + Governance Hardening (2-4 weeks)
+### Milestone 5: Governance Hardening (2-4 weeks)
 
 Frontend:
 
-- Billing overview pages: plan, usage, credits, invoices.
 - Team/role management and audit investigation views.
 
 Backend:
 
-- Implement billing accounts, usage ingestion, invoicing workflows.
 - Add advanced RBAC, support-access controls, and approval workflows.
 
 Data:
 
-- Add subscriptions, usage rollups, credit ledger, invoice tables.
 - Add retention policies and compliance export jobs.
 
 Exit criteria:
 
-- Org billing supports monthly + active-wallet + credits model.
 - Governance actions are fully auditable.
 
 ## API Contract Plan
@@ -382,7 +457,71 @@ Define event envelopes for:
 - api key lifecycle events,
 - webhook delivery status,
 - key export approvals,
-- billing usage and invoice generation.
+- billing usage and invoice generation,
+- Stripe payment and invoice status changes,
+- stablecoin payment intent and settlement status changes.
+
+### Runtime snapshot contract
+
+Runtime consumers read full versioned environment snapshots:
+
+- Envelope fields:
+  - `snapshot_id`
+  - `version`
+  - `effective_at`
+  - `org_id`, `project_id`, `environment_id`
+  - `checksum`
+- Payload includes resolved runtime config:
+  - effective policy assignment + limits
+  - app security settings
+  - gas sponsorship + smart-wallet controls
+
+### Payment lifecycle contract
+
+Define one shared payment attempt lifecycle across Stripe and stablecoin rails:
+
+- States:
+  - `CREATED`
+  - `ACTION_REQUIRED`
+  - `PENDING`
+  - `CONFIRMING`
+  - `SETTLED`
+  - `PARTIALLY_SETTLED`
+  - `OVERPAID`
+  - `FAILED`
+  - `CANCELED`
+  - `EXPIRED`
+  - `REFUNDED`
+  - `DISPUTED`
+- Allowed transitions:
+  - `CREATED` -> `ACTION_REQUIRED` | `PENDING` | `FAILED` | `CANCELED`
+  - `ACTION_REQUIRED` -> `PENDING` | `FAILED` | `CANCELED` | `EXPIRED`
+  - `PENDING` -> `CONFIRMING` | `SETTLED` | `PARTIALLY_SETTLED` | `OVERPAID` | `FAILED` | `CANCELED` | `EXPIRED`
+  - `CONFIRMING` -> `SETTLED` | `PARTIALLY_SETTLED` | `OVERPAID` | `FAILED`
+  - `SETTLED` -> `REFUNDED` | `DISPUTED`
+  - `DISPUTED` -> `SETTLED` | `REFUNDED`
+- Contract rule:
+  - illegal transitions are rejected at API and persistence layers, and emitted as auditable validation failures.
+  - each invoice has one locked settlement rail (`CARD` or `STABLECOIN`) and payment events from other rails are rejected.
+  - `CONFIRMING` -> `SETTLED` requires chain-specific confirmation threshold; timeout breaches transition to `FAILED` with reason `CONFIRMATION_TIMEOUT`.
+- Chain finality defaults (stablecoin payments):
+  - `Ethereum`: `12` confirmations, `360` minute confirmation timeout, `24` hour reorg-risk window.
+  - `Base`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
+  - `Tempo`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
+  - `Arc Circle`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
+  - `NEAR`: `10` confirmations, `60` minute confirmation timeout, `6` hour reorg-risk window.
+
+### MAW billing metric contract
+
+Use `Monthly Active Wallets (MAW)` as canonical wallet usage metric:
+
+- Window: calendar month in `UTC`.
+- Unit: distinct `wallet_id` per organization per month.
+- Billable actions: successful `transfer`, `swap`, `approve`, `contract_call`.
+- Exclusions: wallet creation-only activity, simulations, failed transactions, internal retries.
+- Output:
+  - `billable_active_wallet_count`
+  - deterministic evidence rows linking each counted wallet to at least one qualifying action event.
 
 ## Dashboard Integration Plan
 
@@ -413,6 +552,9 @@ Compliance:
 - Immutable audit logs for admin actions.
 - Evidence export endpoint for policy and billing history.
 - Retention and legal-hold controls.
+- Retention defaults:
+  - runtime + webhook: `180d` hot + `2y` archive
+  - billing + payments + audit: `7y`
 
 ## Testing Strategy
 
@@ -427,18 +569,38 @@ Compliance:
    - critical dashboard workflows.
 5. Performance tests:
    - wallets list/search at target scale.
+6. Billing tests:
+   - Stripe card lifecycle + webhook reconciliation,
+   - stablecoin quote expiry + settlement confirmation paths.
+7. Payment-state tests:
+   - valid transitions accepted,
+   - invalid transitions rejected,
+   - terminal state immutability enforced except listed post-settlement transitions.
+8. Split-payment policy tests:
+   - mixed card + stablecoin settlement attempts are rejected,
+   - invoice rail lock remains immutable while invoice is open.
+9. Billing RBAC tests:
+   - only `admin` can add/remove card payment methods,
+   - non-admin receives authorization denial for `POST/DELETE /console/billing/payment-methods`.
+   - only `admin` can set default card payment method (`POST /console/billing/payment-methods/:id/default`).
+10. Chain-finality tests:
+   - settlement blocked before threshold and allowed once threshold is met,
+   - confirmation timeout transitions to `FAILED` with `CONFIRMATION_TIMEOUT`,
+   - post-settlement risk-window flags are emitted per chain policy.
+11. MAW billing tests:
+   - distinct-wallet counting per org/month is correct,
+   - only successful billable actions contribute,
+   - excluded action categories never affect MAW totals.
 
 ## Immediate Next Steps (Execution Checklist)
 
-1. Lock API contract skeleton for Milestones 0-2.
+1. Lock API contract skeleton for Milestones 0-3 (including billing + payments).
 2. Create backend service scaffold and migration pipeline.
 3. Implement org/project/environment read APIs first.
 4. Wire dashboard wallets list route to live API behind feature flag.
 5. Land RLS test harness and cross-tenant denial tests in CI.
+6. Define payment provider adapter boundaries (Stripe + stablecoin watcher) before endpoint implementation.
 
 ## Open Decisions
 
-1. Final runtime-config snapshot format consumed by relay/runtime services.
-2. Canonical active-wallet billing definition.
-3. Enterprise isolation trigger policy (when shared DB is not sufficient).
-4. Approval policy defaults by operation type (policy publish, key export, settings).
+- None currently blocking implementation sequencing.

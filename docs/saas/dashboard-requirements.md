@@ -5,7 +5,7 @@ Related implementation plan:
 - `docs/saas/dashboard-backend-implementation-plan.md`
 
 ## Objective
-Build a console dashboard at `/dashboard` for teams running embedded threshold wallets, with operational controls for wallet lifecycle, authorization policy, app security, and integrations.
+Build a console dashboard at `/dashboard` for teams running embedded threshold wallets, with operational controls for wallet lifecycle, authorization policy, app security, integrations, and billing/payments.
 
 ## API Namespace Convention
 - `/console/*` for SaaS/admin APIs used by dashboard features.
@@ -15,6 +15,7 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - Product admin: configures wallet behavior and app-level settings.
 - Security admin: owns policy, key export controls, and approvals.
 - Developer/platform engineer: manages API keys, webhooks, and environments.
+- Billing admin: manages invoices and card payment method administration.
 - Support/ops: inspects wallet state, transactions, and delivery failures.
 
 ## Information architecture
@@ -22,19 +23,20 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - User management
 - Security and policy
 - Integrations and automation
+- Billing and payments
 - Environment settings (Dev, Staging, Prod)
 
 ## Functional requirements
 
 ### 1) User wallets list
-- Paginated wallets table with columns: wallet ID, address, chain type, owner/user, policy, balance, status, created/updated timestamps.
+- Paginated wallets table with columns: wallet ID, address, chain type, environment, owner/user, policy, balance, status, created/updated timestamps.
 - Summary KPI cards: total assets, total wallets, funded wallets, activity in last 24h/7d.
 - Row actions: view details, view activity, assign policy, freeze/unfreeze (if supported).
 - Empty/loading/error states with retry.
 
 ### 2) Search for user wallets
 - Search by wallet address, wallet ID, user ID, and external reference ID.
-- Filter by chain, policy, key quorum, wallet type (EOA/smart), status, and date range.
+- Filter by chain, environment, policy, key quorum, wallet type (EOA/smart), status, and date range.
 - Sort by balance, last activity, and creation time.
 - URL-synced filter state for shareable views.
 
@@ -48,6 +50,7 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - Policy simulation mode to evaluate a proposed action without execution.
 - Policy versioning, staged rollout, and rollback.
 - Full audit trail for policy create/update/publish/assign events.
+- Default approval for policy publish: `1 admin` approval.
 
 ### 4) Gas sponsorship and smart wallets
 - Toggle gas sponsorship at org, environment, policy, and wallet segment levels.
@@ -60,8 +63,9 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
   - Allowed origins/domains with strict validation.
   - Cookie mode (including `HttpOnly`, `Secure`, `SameSite`).
   - JWT settings: issuer, audience, key IDs, token TTL/refresh TTL.
-- Change guardrails for risky settings (warnings, confirmation, optional approval).
+- Change guardrails for risky settings (warnings, confirmation, and approval workflow).
 - Optional IP allowlist and SSO metadata fields.
+- Default approval for risky security settings changes: `1 admin + MFA`.
 
 ### 6) Export keys settings
 - Export policy modes:
@@ -70,6 +74,7 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
   - Allowed with scoped constraints
 - Constraints by role, chain, wallet type, and environment.
 - Step-up requirements (MFA + reason) for export actions.
+- Default approval for export actions: `2 admin` approvals + `MFA` + reason.
 - Immutable export log: who, what, when, why, approval chain.
 
 ### 7) API key management
@@ -84,12 +89,74 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - Retry strategy with backoff and dead-letter queue handling.
 - Delivery logs with request/response metadata and replay action.
 
+### 9) Billing and payments
+- Billing overview with current plan, active-wallet usage, credit balance, invoice status, and upcoming charge estimate.
+- Canonical usage metric is `Monthly Active Wallets (MAW)`:
+  - Count distinct wallet IDs per organization per calendar month (`UTC`) with at least one successful billable action.
+  - Billable actions: `transfer`, `swap`, `approve`, `contract_call`.
+  - Exclusions: wallet creation-only activity, simulations, failed transactions, and internal retries.
+- Card billing via Stripe:
+  - Attach/update/remove card payment method.
+  - RBAC: only `admin` can add/remove card payment methods.
+  - Mark default payment method per organization billing account.
+  - RBAC: only `admin` can set default card payment method.
+  - Handle SCA-required flows and failed-payment recovery states.
+- Stablecoin payment support for `USDC` and `USDT`:
+  - `USDC` and `USDT` can be funded from any supported chain. Current supported chains: `Ethereum`, `Base`, `Tempo`, `Arc Circle`, `NEAR`.
+  - Create payment quote and payment intent for an invoice.
+  - Issue asset/network-specific destination details and quote expiry.
+  - Track confirmations and settlement status through completion.
+  - Finality thresholds and risk windows (v1 defaults):
+    - `Ethereum`: `12` confirmations, `360` minute confirmation timeout, `24` hour post-settlement reorg-risk window.
+    - `Base`: `20` confirmations, `120` minute confirmation timeout, `12` hour post-settlement reorg-risk window.
+    - `Tempo`: `20` confirmations, `120` minute confirmation timeout, `12` hour post-settlement reorg-risk window.
+    - `Arc Circle`: `20` confirmations, `120` minute confirmation timeout, `12` hour post-settlement reorg-risk window.
+    - `NEAR`: `10` confirmations, `60` minute confirmation timeout, `6` hour post-settlement reorg-risk window.
+- Reconciliation and controls:
+  - Invoices are single-rail: fully paid by `Stripe/card` or `stablecoin` rail; mixed-rail settlement is rejected.
+  - Payment rail lock is set on first payment intent for an invoice and cannot change while invoice is open.
+  - Detect underpayment/overpayment and apply rules (credit, partial balance due, or manual review).
+  - Immutable payment ledger tying invoices, payment attempts, and settlement evidence.
+  - Webhook events for invoice status changes and payment settlement.
+- Payment state machine (SaaS billing payment attempts):
+  - `CREATED`: payment attempt created with immutable expected amount snapshot.
+  - `ACTION_REQUIRED`: customer interaction required (for example Stripe SCA).
+  - `PENDING`: payment submitted, waiting provider callback or on-chain detection.
+  - `CONFIRMING`: on-chain transaction detected, waiting chain finality threshold.
+  - `SETTLED`: expected amount fully satisfied.
+  - `PARTIALLY_SETTLED`: payment received but below expected amount; shortfall remains on invoice.
+  - `OVERPAID`: payment received above expected amount; excess becomes credit.
+  - `FAILED`: terminal provider or validation failure.
+  - `CANCELED`: terminal user/system cancellation before settlement.
+  - `EXPIRED`: terminal timeout of quote/intent/action window.
+  - `REFUNDED`: settled payment fully or partially refunded.
+  - `DISPUTED`: settled payment under dispute/chargeback.
+- Allowed transitions:
+  - `CREATED` -> `ACTION_REQUIRED` | `PENDING` | `FAILED` | `CANCELED`
+  - `ACTION_REQUIRED` -> `PENDING` | `FAILED` | `CANCELED` | `EXPIRED`
+  - `PENDING` -> `CONFIRMING` | `SETTLED` | `PARTIALLY_SETTLED` | `OVERPAID` | `FAILED` | `CANCELED` | `EXPIRED`
+  - `CONFIRMING` -> `SETTLED` | `PARTIALLY_SETTLED` | `OVERPAID` | `FAILED`
+  - `SETTLED` -> `REFUNDED` | `DISPUTED`
+  - `DISPUTED` -> `SETTLED` | `REFUNDED`
+- Finality transition rules:
+  - `CONFIRMING` -> `SETTLED` is allowed only when per-chain confirmation threshold is met.
+  - If confirmation timeout elapses before threshold is met, transition to `FAILED` with reason `CONFIRMATION_TIMEOUT`.
+
 ## Non-functional requirements
 - Security: least-privilege RBAC, immutable audit logs, encryption at rest/in transit.
 - Reliability: p95 list/search latency < 500ms at target org scale.
 - Compliance readiness: evidence-friendly logs and deterministic change history.
 - Accessibility: keyboard navigation and semantic labels for key controls.
 - Responsive behavior: desktop-first with functional mobile fallback.
+- Financial correctness: invoice balances, credits, and payment settlement states remain consistent and auditable.
+- Runtime snapshot contract for relay/runtime consumers uses full versioned per-environment snapshots.
+- Enterprise isolation is supported via manual enterprise/compliance trigger with target SLO `99.95%`, `RPO 15m`, `RTO 4h`.
+- Role scope model is hybrid:
+  - org-scoped roles: `owner`, `admin`, `security_admin`, `billing_admin`
+  - project-scoped roles: `developer`, `support`, `ops`
+- Data retention defaults:
+  - Runtime + webhook data: `180` days hot retention + `2` years archive.
+  - Billing + payments + audit data: `7` years retention.
 
 ## Suggested API surfaces
 - `GET /console/wallets`, `GET /console/wallets/:id`
@@ -100,11 +167,16 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - `GET/POST /console/key-exports`, `POST /console/key-exports/:id/approve`
 - `GET/POST/DELETE /console/api-keys`, `POST /console/api-keys/:id/rotate`
 - `GET/POST/PATCH/DELETE /console/webhooks`, `GET /console/webhooks/:id/deliveries`, `POST /console/webhooks/:id/replay`
+- `GET /console/billing/overview`, `GET /console/billing/invoices`, `GET /console/billing/invoices/:id`
+- `GET/POST/DELETE /console/billing/payment-methods`, `POST /console/billing/payment-methods/:id/default`
+- `POST /console/billing/stripe/setup-intent`, `POST /console/billing/stripe/payment-intent`
+- `GET /console/billing/stablecoins/assets`, `POST /console/billing/stablecoins/quotes`, `POST /console/billing/stablecoins/payment-intents`
+- `GET /console/billing/stablecoins/payment-intents/:id`, `POST /console/billing/stablecoins/payment-intents/:id/cancel`
 
 ## Delivery plan
-- Phase 1 (MVP): wallets list/search, baseline policy controls, app settings core, API keys, webhooks basics.
-- Phase 2: policy simulation/versioning, gas sponsorship budgets, smart wallet controls, key export approvals.
-- Phase 3: advanced governance (RBAC refinements, staged rollouts, SSO, anomaly detection, deeper observability).
+- Phase 1 (MVP): wallets list/search, baseline policy controls, app settings core, API keys, webhooks basics, billing overview + invoices read APIs.
+- Phase 2: policy simulation/versioning, gas sponsorship budgets, smart wallet controls, key export approvals, Stripe card payment flows.
+- Phase 3: advanced governance (RBAC refinements, staged rollouts, SSO, anomaly detection, deeper observability) and stablecoin payment flows (`USDC`, `USDT`).
 
 ## Acceptance criteria
 - Pricing CTAs route users into `/dashboard`.
@@ -113,3 +185,15 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - Gas sponsorship and smart wallet toggles affect runtime behavior and telemetry.
 - Security settings (origins/cookies/JWT) are environment-specific and validated.
 - Key export, API key, and webhook features include audit-friendly logs.
+- Billing supports card payments through Stripe and stablecoin invoice settlement via `USDC` and `USDT`.
+- `USDC`/`USDT` settlement accepts payments from all currently supported chains: `Ethereum`, `Base`, `Tempo`, `Arc Circle`, and `NEAR`.
+- Billing payment attempts enforce the defined payment state machine and allow only listed transitions.
+- Invoice settlement never mixes rails: each invoice is fully settled by card rail or stablecoin rail.
+- Only `admin` can add/remove card payment methods.
+- Only `admin` can set default card payment method.
+- Settlement enforces chain-specific finality thresholds and risk windows for `Ethereum`, `Base`, `Tempo`, `Arc Circle`, and `NEAR`.
+- Billing usage is computed from `Monthly Active Wallets (MAW)` as the canonical wallet activity metric.
+- Policy publish requires `1 admin` approval by default.
+- Key export requires `2 admin` approvals + `MFA` + reason by default.
+- Risky security settings changes require `1 admin + MFA` by default.
+- Runtime consumers receive full versioned per-environment snapshots of effective config.

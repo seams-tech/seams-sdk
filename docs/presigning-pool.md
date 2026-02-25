@@ -117,7 +117,7 @@ Key latency results from that run:
 | `warm_sign_pool_hit` | 24 | Warm sign with available presignature |
 | `background_refill_contention` | 4205 | Foreground sign while refill is active |
 | `multi_runtime_contention` | 6267 | Duplicate runtime pressure |
-| `replay_fallback_path` | 7018 | Forced fallback path (availability safety path) |
+| `live_cache_miss_path` | 7018 | Forced live-cache miss retriable path |
 
 Key presign-step and gate metrics:
 
@@ -126,8 +126,8 @@ Key presign-step and gate metrics:
 | `/threshold-ecdsa/presign/step` p95 | 783ms |
 | `/threshold-ecdsa/presign/step` p99 | 783ms |
 | Non-fallback `liveCacheHitRatio` | 100% |
-| Non-fallback `replayFallbackRatio` | 0% |
-| Replay-fallback scenario `replayFallbackRatio` | 100% |
+| Non-miss `staleSessionRatio` | 0% |
+| Live-cache-miss scenario `staleSessionRatio` | 100% |
 
 CI benchmark SLO gate thresholds and result:
 
@@ -137,7 +137,7 @@ CI benchmark SLO gate thresholds and result:
 | `warm_sign_p95_ms` | <= 1500 | 24 | pass |
 | `presign_step_p95_ms` | <= 1400 | 783 | pass |
 | `presign_step_p99_ms` | <= 2000 | 783 | pass |
-| `replay_fallback_ratio_nonfallback_max` | <= 0.01 | 0.00 | pass |
+| `stale_session_ratio_nonmiss_max` | <= 0.01 | 0.00 | pass |
 
 ### 4.2 Full CI Mirror Status (Same Validation Session)
 
@@ -277,6 +277,67 @@ Server:
    - `server/src/router/express/routes/thresholdEcdsa.ts`
 
 ## 12. Benchmark-Driven Presign Config Loop
+
+## 12.1 Multi-Coordinator `presign/step` Routing Flow
+
+When multiple coordinator instances are behind a load balancer, `/threshold-ecdsa/presign/step` behaves as:
+
+1. Client sends `/threshold-ecdsa/presign/step` to whichever coordinator it reaches first.
+2. If that coordinator owns the `presignSessionId`, it executes the step locally.
+3. If another coordinator owns the session, the first coordinator forwards the same request to the owner coordinator.
+4. Owner coordinator executes the step and returns the response through the first coordinator back to client.
+
+Forwarding controls:
+
+1. `x-threshold-ecdsa-presign-forward-hop` tracks internal forward depth and is used for loop/hop-limit protection.
+2. `x-threshold-ecdsa-presign-forwarded-by` identifies the forwarding coordinator instance.
+3. Forward-hop is trusted only when `forwarded-by` matches a configured coordinator peer; untrusted client-supplied hop values are ignored.
+
+Recovery behavior:
+
+1. If owner cannot be reached, mapping is missing, or owner live session is unavailable, response is retriable `stale_session_state`.
+2. Client recovers by starting a fresh `/threshold-ecdsa/presign/init` and continuing the sign flow.
+
+## 13. Multi-Coordinator Rollout Checklist
+
+Use this checklist before enabling multi-coordinator traffic for interactive sign paths.
+
+### 13.1 Required config
+
+1. Every coordinator has a unique `THRESHOLD_COORDINATOR_INSTANCE_ID`.
+2. Every coordinator has the same full `THRESHOLD_COORDINATOR_PEERS` map (all coordinator ids + URLs).
+3. All coordinators share the same presign/session durable backend namespace (no split-brain prefixes).
+
+### 13.2 Functional checks
+
+1. Owner-forward success:
+   call `/threshold-ecdsa/presign/step` on a non-owner coordinator; request succeeds (`200`) and owner session version increments.
+2. Owner-peer-missing safety:
+   with peer map intentionally missing, response is retriable `stale_session_state` (`409`) and owner session remains intact.
+3. Auth propagation:
+   forwarded path works with bearer/cookie session auth; missing auth does not forward and returns retriable `stale_session_state`.
+4. Untrusted header handling:
+   client-supplied `x-threshold-ecdsa-presign-forward-hop` without trusted forwarded-by peer is ignored.
+
+### 13.3 Observability/alerts
+
+Track and alert on:
+
+1. `presign_owner_forwarded` rate (should be >0 in distributed traffic but not dominate steady-state with stickiness).
+2. `ownerForwardReason` distribution:
+   - `forwarded`
+   - `owner_peer_unavailable`
+   - `missing_session_auth`
+   - `hop_limit_exceeded`
+   - `forward_failed`
+3. `presign_stale_session_state` non-miss baseline (unexpected spikes indicate routing/store issues).
+4. `forwardedByTrustedPeer` ratio (untrusted forwarded-hop attempts should remain near zero).
+
+### 13.4 Performance acceptance gates
+
+1. First-sign p95 remains within current SLO (`<= 4000ms` in benchmark gate).
+2. Warm-sign p95 remains within current SLO (`<= 1500ms` in benchmark gate).
+3. `/threshold-ecdsa/presign/step` p95/p99 remain within configured SLO guardrails.
 
 Use the benchmark report at:
 

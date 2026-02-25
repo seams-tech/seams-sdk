@@ -1,6 +1,6 @@
 # SaaS DB Schema Plan
 
-Date updated: February 19, 2026
+Date updated: February 25, 2026
 
 Related implementation plan:
 
@@ -16,7 +16,7 @@ This plan covers:
 - Project and environment modeling.
 - Wallet/user data isolation strategy.
 - Policy engine configuration and versioning.
-- Billing for monthly plans, active-wallet usage, and credits.
+- Billing for monthly plans, active-wallet usage, credits, and payment rails.
 - Additional platform concerns needed for secure multi-tenant operation.
 
 ## Scope Boundary
@@ -45,6 +45,11 @@ Use one shared Postgres database with tenant-aware tables and strict RLS:
 
 Support dedicated database (or dedicated schema) per organization for high-compliance enterprise customers.
 
+Trigger and SLO defaults:
+
+- Trigger: manual enterprise/compliance request.
+- Isolation SLO targets: `99.95%` availability, `RPO 15m`, `RTO 4h`.
+
 ### Decision on schema-per-project
 
 Do not use schema-per-project by default.
@@ -62,7 +67,7 @@ Reason:
 3. `Environment` belongs to `Project`; scopes runtime settings and secrets.
 4. `Wallet/User runtime data` is project-scoped and tenant-enforced.
 5. `Policy engine` is versioned and assigned at org/project/wallet-segment levels.
-6. `Billing` rolls up usage events into invoices and applies credits from an immutable ledger.
+6. `Billing` rolls up usage events into invoices, applies credits from an immutable ledger, and settles through Stripe cards or supported stablecoin assets.
 
 ## Schema Plan by Domain
 
@@ -82,8 +87,11 @@ Tables:
 Notes:
 
 - Membership is the source of truth for org-level access.
-- Roles can be org-level and project-level.
+- Hybrid role scope model:
+  - org-scoped roles: `owner`, `admin`, `security_admin`, `billing_admin`
+  - project-scoped roles: `developer`, `support`, `ops`
 - Support account states: invited, active, suspended, removed.
+- Billing permissions include explicit actions such as `billing.payment_methods.write` and map `add/remove card` to `admin` only.
 
 ### 2) Projects and Environments
 
@@ -115,7 +123,7 @@ Tables:
 Notes:
 
 - Keep runtime-heavy tables partitioned by time where needed.
-- All runtime tables include `org_id`, `project_id`, and optionally `environment_id`.
+- All runtime tables include `org_id`, `project_id`, and mandatory `environment_id`.
 
 ### 4) Policy Engine
 
@@ -146,17 +154,77 @@ Tables:
 - `credit_ledger` (append-only, immutable adjustments)
 - `invoices`
 - `invoice_line_items`
+- `invoice_payment_rail_locks`
 - `payments`
+- `billing_payment_methods`
+- `stripe_customers`
+- `stripe_events`
+- `stablecoin_payment_quotes`
+- `stablecoin_payment_intents`
+- `stablecoin_settlement_events`
+- `stablecoin_deposit_addresses`
+- `chain_finality_policies`
 
 Billing support:
 
 - Monthly org subscription: from `subscriptions`.
-- Active-wallet usage: meter event definition + monthly rollup.
+- Active-wallet usage: `Monthly Active Wallets (MAW)` definition + monthly rollup.
+  - `MAW` is the count of distinct `wallet_id` per organization per calendar month (`UTC`) with at least one successful billable action.
+  - Billable actions: `transfer`, `swap`, `approve`, `contract_call`.
+  - Exclusions: wallet creation-only activity, simulations, failed transactions, internal retries.
 - Credits billing: consume credits through ledger debits before final charge.
+- Card payments via Stripe:
+  - map organization billing account to Stripe customer,
+  - store external payment method references and default method per billing account,
+  - reconcile invoice/payment status from verified Stripe webhook events.
+  - authorization rule: only `admin` role can create/delete card payment method records and set the default card payment method.
+- Stablecoin settlement for `USDC` and `USDT`:
+  - `USDC` and `USDT` accept funding from any currently supported chain: `Ethereum`, `Base`, `Tempo`, `Arc Circle`, `NEAR`.
+  - lock quote terms (asset, amount, network, expiry) per invoice payment intent,
+  - allocate destination details per payment intent,
+  - track on-chain confirmations and settlement outcomes.
+  - v1 finality policy defaults:
+    - `Ethereum`: `12` confirmations, `360` minute confirmation timeout, `24` hour reorg-risk window.
+    - `Base`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
+    - `Tempo`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
+    - `Arc Circle`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
+    - `NEAR`: `10` confirmations, `60` minute confirmation timeout, `6` hour reorg-risk window.
+- Split-payment policy:
+  - invoices must settle fully on one rail: `CARD` or `STABLECOIN`.
+  - no mixed card + stablecoin settlement for a single invoice.
+  - rail is locked on first payment intent and remains immutable while invoice is open.
+- Payment lifecycle model:
+  - `payments.state` enum values:
+    - `CREATED`
+    - `ACTION_REQUIRED`
+    - `PENDING`
+    - `CONFIRMING`
+    - `SETTLED`
+    - `PARTIALLY_SETTLED`
+    - `OVERPAID`
+    - `FAILED`
+    - `CANCELED`
+    - `EXPIRED`
+    - `REFUNDED`
+    - `DISPUTED`
+  - append-only `payment_state_transitions` audit table:
+    - `payment_id`, `from_state`, `to_state`, `changed_at`, `actor_type`, `source_event_id`, `reason`
+  - enforce allowed transitions with DB trigger + application guardrails:
+    - `CREATED` -> `ACTION_REQUIRED` | `PENDING` | `FAILED` | `CANCELED`
+    - `ACTION_REQUIRED` -> `PENDING` | `FAILED` | `CANCELED` | `EXPIRED`
+    - `PENDING` -> `CONFIRMING` | `SETTLED` | `PARTIALLY_SETTLED` | `OVERPAID` | `FAILED` | `CANCELED` | `EXPIRED`
+    - `CONFIRMING` -> `SETTLED` | `PARTIALLY_SETTLED` | `OVERPAID` | `FAILED`
+    - `SETTLED` -> `REFUNDED` | `DISPUTED`
+    - `DISPUTED` -> `SETTLED` | `REFUNDED`
+  - `CONFIRMING` -> `SETTLED` requires `observed_confirmations >= chain_finality_policies.required_confirmations`.
+  - if `chain_finality_policies.confirmation_timeout_minutes` is exceeded before threshold, transition to `FAILED` with `failure_reason = CONFIRMATION_TIMEOUT`.
 
 Critical rule:
 
-- Define one canonical "active wallet" metric (for example: at least one successful signed action in billing month) and version it.
+- Canonical active-wallet metric is `MAW` (Monthly Active Wallets) and must be versioned (`maw_v1`) in metering logic.
+- Stablecoin over/underpayment handling must be deterministic and auditable (credit, remaining balance due, or manual review).
+- Payment transition history must be immutable and complete for dispute/compliance evidence.
+- Invoice settlement remains open until full amount is covered by the locked rail; cross-rail top-ups are disallowed.
 
 ### 6) Integrations and Automation
 
@@ -207,6 +275,10 @@ Notes:
 - Secrets never stored plaintext.
 - Immutable log strategy for policy, key export, billing, and admin actions.
 - Data retention windows and deletion workflows (including legal hold support).
+- Retention defaults:
+  - runtime + webhook: `180d` hot + `2y` archive
+  - billing + payments + audit: `7y`
+- Payment-provider webhook payloads are stored with signature-verification metadata for audit and dispute support.
 
 ## Suggested Physical Layout
 
@@ -234,14 +306,19 @@ Optional at scale:
 - Add policy tables with versioning and assignments.
 - Add API key and webhook tables.
 - Add app/environment settings tables.
-- Add basic billing account + subscription records.
+- Add billing account + subscription records.
+- Add Stripe customer linkage + card payment method references.
 
 ### Phase 2: Usage and Billing
 
 - Add `usage_meter_events` ingestion.
 - Build daily/monthly rollup jobs.
 - Add invoice generation and credit ledger consumption.
-- Add active-wallet billing metric computation.
+- Add `MAW` billing metric computation (`maw_v1`) and evidence exports.
+- Add Stripe webhook reconciliation and payment status projection.
+- Add stablecoin quote/intents and on-chain settlement tracking for `USDC` and `USDT`, with funding accepted from `Ethereum`, `Base`, `Tempo`, `Arc Circle`, and `NEAR`.
+- Seed `chain_finality_policies` with v1 defaults for `Ethereum`, `Base`, `Tempo`, `Arc Circle`, and `NEAR`.
+- Add invoice rail-lock persistence and mixed-rail rejection constraints.
 
 ### Phase 3: Hardening and Enterprise
 
@@ -252,11 +329,7 @@ Optional at scale:
 
 ## Open Decisions to Finalize Before Migration
 
-1. Canonical definition of "active wallet" for billing.
-2. Whether environment is mandatory for every runtime wallet row.
-3. Which roles are global vs project-scoped.
-4. Enterprise tenant isolation SLA and trigger threshold.
-5. Retention periods by table class (runtime, billing, audit, webhook logs).
+- None currently blocking migration design.
 
 ## Deliverables from This Plan
 
