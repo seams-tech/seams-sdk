@@ -1,7 +1,7 @@
+import { FRONTEND_CONFIG } from './config';
 
-export const NEAR_EXPLORER_BASE_URL = 'https://testnet.nearblocks.io';
-const env = import.meta.env as { VITE_DEMO_CONTRACT_ID?: string };
-export const DEMO_CONTRACT_ID = env.VITE_DEMO_CONTRACT_ID || 'w3a-v1.testnet';
+export const NEAR_EXPLORER_BASE_URL = FRONTEND_CONFIG.nearExplorerUrl;
+export const DEMO_CONTRACT_ID = FRONTEND_CONFIG.demoContractId;
 
 // Types for server responses (simplified, ensure they match your backend)
 export interface ServerRegistrationOptions {

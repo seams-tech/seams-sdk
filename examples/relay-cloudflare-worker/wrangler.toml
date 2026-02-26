@@ -93,6 +93,13 @@ class_name = "ThresholdEd25519StoreDurableObject"
 # Optional: explicitly enable cron and rotation (defaults to disabled)
 # ENABLE_ROTATION = "0"
 
+# Optional: console billing monthly finalization cron (requires console billing Postgres schema).
+# BILLING_FINALIZATION_ENABLED = "1"
+# BILLING_POSTGRES_URL = "postgres://user:pass@host:5432/db"
+# BILLING_NAMESPACE = "console-default"
+# Optional override; when unset the cron finalizes the previous UTC month.
+# BILLING_FINALIZATION_PERIOD_MONTH_UTC = "2026-01"
+
 # Optional: Threshold signing (2-party FROST).
 #
 # This Worker example enables threshold signing only when the master secret is provided:

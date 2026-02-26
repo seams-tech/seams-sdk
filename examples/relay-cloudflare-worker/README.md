@@ -49,6 +49,11 @@ extra requirements and limitations compared to the Express example.
     - `ROR_ALLOWED_ORIGINS` (optional comma-separated extra origins)
 - If you enable Shamir rotation, configure the cron schedule in `[triggers]`
   and set `ENABLE_ROTATION="1"`.
+- Optional billing monthly finalization (SaaS console):
+  - `BILLING_FINALIZATION_ENABLED="1"`
+  - `BILLING_POSTGRES_URL=<postgres url>`
+  - `BILLING_NAMESPACE=<namespace>` (optional; defaults to `console-default`)
+  - `BILLING_FINALIZATION_PERIOD_MONTH_UTC=YYYY-MM` (optional manual override)
 
 ### Threshold signing (optional)
 

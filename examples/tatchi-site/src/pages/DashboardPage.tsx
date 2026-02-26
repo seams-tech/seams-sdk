@@ -11,13 +11,14 @@ import {
 import type { DashboardRoute } from '../components/dashboard/types'
 import { useDashboardUiPreferences } from '../components/dashboard/useDashboardUiPreferences'
 import { useSiteRouter } from '../hooks/useSiteRouter'
+import { FRONTEND_CONFIG } from '../config'
 
 type DashboardPageProps = {
   pathname?: string
 }
 
 export function DashboardPage({ pathname = '/dashboard' }: DashboardPageProps): React.JSX.Element {
-  const docsOrigin = import.meta.env.VITE_DOCS_ORIGIN || 'https://docs.example.localhost'
+  const docsOrigin = FRONTEND_CONFIG.docsOrigin
   const { go, linkProps } = useSiteRouter()
   const homeProps = linkProps('/')
 

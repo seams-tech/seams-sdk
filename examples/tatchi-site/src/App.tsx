@@ -15,6 +15,7 @@ import { useBodyLoginStateBridge } from './hooks/useBodyLoginStateBridge';
 import { useExportKeyCancelToast } from './hooks/useExportKeyCancelToast';
 import { normalizePathname } from './utils/siteRouting';
 import { SITE_APPEARANCE, SITE_THEME_TOKEN_OVERRIDES } from './theme/siteThemeOverrides';
+import { FRONTEND_CONFIG } from './config';
 
 function tokensToCssVars(tokens: DesignTokens): Record<string, string> {
   const vars: Record<string, string> = {};
@@ -70,13 +71,6 @@ function usePathname(): string {
 }
 
 export const App: React.FC = () => {
-  const env = import.meta.env;
-  const signingSessionTtlMs = Number.isFinite(Number(env.VITE_SIGNING_SESSION_TTL_MS))
-    ? Math.max(0, Math.floor(Number(env.VITE_SIGNING_SESSION_TTL_MS)))
-    : 24 * 60 * 60 * 1000;
-  const signingSessionRemainingUses = Number.isFinite(Number(env.VITE_SIGNING_SESSION_REMAINING_USES))
-    ? Math.max(0, Math.floor(Number(env.VITE_SIGNING_SESSION_REMAINING_USES)))
-    : 10_000;
   const { theme, setTheme } = useSiteTheme();
   const pathname = usePathname();
 
@@ -110,10 +104,10 @@ export const App: React.FC = () => {
       config={{
         appearance: SITE_APPEARANCE,
         iframeWallet: {
-          walletOrigin: env.VITE_WALLET_ORIGIN,
-          walletServicePath: env.VITE_WALLET_SERVICE_PATH,
-          rpIdOverride: env.VITE_RP_ID_BASE,
-          sdkBasePath: env.VITE_SDK_BASE_PATH,
+          walletOrigin: FRONTEND_CONFIG.walletOrigin,
+          walletServicePath: FRONTEND_CONFIG.walletServicePath,
+          rpIdOverride: FRONTEND_CONFIG.rpIdBase,
+          sdkBasePath: FRONTEND_CONFIG.sdkBasePath,
         },
         // Demo default: require threshold signing for NEAR actions in docs flows
         signerMode: {
@@ -121,12 +115,15 @@ export const App: React.FC = () => {
           behavior: 'strict',
         },
         signingSessionDefaults: {
-          ttlMs: signingSessionTtlMs,
-          remainingUses: signingSessionRemainingUses,
+          ttlMs: FRONTEND_CONFIG.signingSessionDefaults.ttlMs,
+          remainingUses: FRONTEND_CONFIG.signingSessionDefaults.remainingUses,
         },
-        nearRpcUrl: env.VITE_NEAR_RPC_URL || 'https://test.rpc.fastnear.com',
+        nearRpcUrl: FRONTEND_CONFIG.nearRpcUrl,
+        nearExplorerUrl: FRONTEND_CONFIG.nearExplorerUrl,
+        tempoExplorerUrl: FRONTEND_CONFIG.tempoExplorerUrl,
+        evmExplorerUrl: FRONTEND_CONFIG.arcExplorerUrl,
         relayer: {
-          url: env.VITE_RELAYER_URL!,
+          url: FRONTEND_CONFIG.relayerUrl!,
         },
       }}
     >

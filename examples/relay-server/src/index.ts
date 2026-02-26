@@ -1,10 +1,25 @@
 import express, { Express } from 'express';
 import {
   AuthService,
+  createEcdsaAuthSessionStore,
+  createPrfSessionSealPolicyFromEcdsaAuthSessionStore,
+  createPrfSessionSealRoutesOptions,
+  createPrfSessionSealShamir3PassCipherAdapter,
+  resolvePrfSessionSealRateLimitFromEnv,
   requireEnvVar,
   createThresholdSigningService,
 } from '@tatchi-xyz/sdk/server';
-import { createRelayRouter } from '@tatchi-xyz/sdk/server/router/express';
+import {
+  createConsoleRouter,
+  createInMemoryConsoleBillingService,
+  createInMemoryConsoleWebhookService,
+  createPostgresConsoleBillingService,
+  createPostgresConsoleWebhookService,
+  createRelayRouter,
+  type ConsoleBillingService,
+  type ConsoleAuthAdapter,
+  type ConsoleWebhookService,
+} from '@tatchi-xyz/sdk/server/router/express';
 
 import dotenv from 'dotenv';
 import jwtSession from './jwtSession.js';
@@ -54,6 +69,27 @@ function sanitizeOrigins(values: string[]): string[] {
     } catch {}
   }
   return Array.from(out);
+}
+
+function parseOptionalPositiveInteger(value: unknown): number | undefined {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  const integer = Math.floor(parsed);
+  return integer > 0 ? integer : undefined;
+}
+
+function parseBooleanFlag(value: unknown): boolean {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function parsePrfSealLimiterKind(
+  value: unknown,
+): 'in-memory' | 'upstash-redis-rest' | 'redis-tcp' {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'upstash-redis-rest') return 'upstash-redis-rest';
+  if (normalized === 'redis-tcp') return 'redis-tcp';
+  return 'in-memory';
 }
 
 async function main() {
@@ -137,7 +173,125 @@ async function main() {
     logger: console,
   });
 
+  const prfSessionSealEnabled = parseBooleanFlag(env.PRF_SESSION_SEAL_ENABLED);
+  const prfSessionSeal = (() => {
+    if (!prfSessionSealEnabled) return null;
+
+    const shamirPrimeB64u = requireEnvVar(env, 'SHAMIR_P_B64U');
+    const serverEncryptExponentB64u = requireEnvVar(env, 'SHAMIR_E_S_B64U');
+    const serverDecryptExponentB64u = requireEnvVar(env, 'SHAMIR_D_S_B64U');
+    const keyVersion = String(env.PRF_SESSION_SEAL_KEY_VERSION || 'kek-s-2026-02').trim();
+    if (!keyVersion) {
+      throw new Error('PRF_SESSION_SEAL_KEY_VERSION must be a non-empty string when PRF_SESSION_SEAL_ENABLED=1');
+    }
+
+    const ecdsaAuthSessionStore = createEcdsaAuthSessionStore({
+      config: thresholdEd25519KeyStore,
+      logger: console,
+      isNode: true,
+    });
+
+    const limiterKind = parsePrfSealLimiterKind(env.PRF_SESSION_SEAL_RATE_LIMIT_KIND);
+    const rateLimit = resolvePrfSessionSealRateLimitFromEnv({
+      limiterKind,
+      upstashUrl: env.UPSTASH_REDIS_REST_URL,
+      upstashToken: env.UPSTASH_REDIS_REST_TOKEN,
+      redisUrl: thresholdRedisUrl || redisUrl,
+      keyPrefix: String(env.PRF_SESSION_SEAL_RATE_LIMIT_KEY_PREFIX || 'threshold:prf-seal:rate:').trim(),
+      limit: parseOptionalPositiveInteger(env.PRF_SESSION_SEAL_RATE_LIMIT) || 30,
+      windowMs: parseOptionalPositiveInteger(env.PRF_SESSION_SEAL_RATE_LIMIT_WINDOW_MS) || 60_000,
+    });
+
+    return createPrfSessionSealRoutesOptions({
+      sessionPolicy: createPrfSessionSealPolicyFromEcdsaAuthSessionStore(ecdsaAuthSessionStore),
+      cipher: createPrfSessionSealShamir3PassCipherAdapter({
+        currentKeyVersion: keyVersion,
+        keys: [{
+          keyVersion,
+          shamirPrimeB64u,
+          serverEncryptExponentB64u,
+          serverDecryptExponentB64u,
+        }],
+      }),
+      rateLimit,
+      logger: console,
+    });
+  })();
+
   const app: Express = express();
+  const consoleDevToken = String(env.CONSOLE_DEV_TOKEN || 'dev-console-token').trim();
+  const rawConsoleBillingBackend = String(env.CONSOLE_BILLING_BACKEND || (postgresUrl ? 'postgres' : 'memory'))
+    .trim()
+    .toLowerCase();
+  if (rawConsoleBillingBackend !== 'postgres' && rawConsoleBillingBackend !== 'memory') {
+    throw new Error(`Invalid CONSOLE_BILLING_BACKEND="${rawConsoleBillingBackend}". Expected "postgres" or "memory".`);
+  }
+  const consoleBillingBackend: 'postgres' | 'memory' = rawConsoleBillingBackend;
+  const consoleBillingNamespace = String(env.CONSOLE_BILLING_NAMESPACE || 'relay-console').trim();
+  const rawConsoleWebhooksBackend = String(env.CONSOLE_WEBHOOKS_BACKEND || (postgresUrl ? 'postgres' : 'memory'))
+    .trim()
+    .toLowerCase();
+  if (rawConsoleWebhooksBackend !== 'postgres' && rawConsoleWebhooksBackend !== 'memory') {
+    throw new Error(`Invalid CONSOLE_WEBHOOKS_BACKEND="${rawConsoleWebhooksBackend}". Expected "postgres" or "memory".`);
+  }
+  const consoleWebhooksBackend: 'postgres' | 'memory' = rawConsoleWebhooksBackend;
+  const consoleWebhooksNamespace = String(env.CONSOLE_WEBHOOKS_NAMESPACE || 'relay-console').trim();
+  const consoleAuth: ConsoleAuthAdapter = {
+    authenticate: async (headers) => {
+      const authHeader = String(headers.authorization || headers.Authorization || '').trim();
+      const bearerPrefix = 'Bearer ';
+      const token = authHeader.startsWith(bearerPrefix) ? authHeader.slice(bearerPrefix.length).trim() : '';
+      if (!token || token !== consoleDevToken) {
+        return { ok: false, code: 'unauthorized', message: 'Missing or invalid console bearer token', status: 401 };
+      }
+
+      const rawOrgId = String(headers['x-console-org-id'] || '').trim();
+      const rawUserId = String(headers['x-console-user-id'] || '').trim();
+      const rawRoles = String(headers['x-console-roles'] || 'admin').trim();
+      const roles = rawRoles
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+
+      return {
+        ok: true,
+        claims: {
+          orgId: rawOrgId || 'org-dev',
+          userId: rawUserId || 'console-admin',
+          roles: roles.length ? roles : ['admin'],
+        },
+      };
+    },
+  };
+  let consoleBilling: ConsoleBillingService;
+  let consoleWebhooks: ConsoleWebhookService;
+  if (consoleBillingBackend === 'postgres') {
+    if (!postgresUrl) {
+      throw new Error('CONSOLE_BILLING_BACKEND=postgres requires POSTGRES_URL');
+    }
+    consoleBilling = await createPostgresConsoleBillingService({
+      postgresUrl,
+      namespace: consoleBillingNamespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+  } else {
+    consoleBilling = createInMemoryConsoleBillingService();
+  }
+
+  if (consoleWebhooksBackend === 'postgres') {
+    if (!postgresUrl) {
+      throw new Error('CONSOLE_WEBHOOKS_BACKEND=postgres requires POSTGRES_URL');
+    }
+    consoleWebhooks = await createPostgresConsoleWebhookService({
+      postgresUrl,
+      namespace: consoleWebhooksNamespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+  } else {
+    consoleWebhooks = createInMemoryConsoleWebhookService();
+  }
 
   app.use((_req, res, next) => {
     res.setHeader('referrer-policy', 'no-referrer');
@@ -167,6 +321,18 @@ async function main() {
     signedDelegate: { route: '/signed-delegate' },
     session: jwtSession,
     threshold,
+    prfSessionSeal,
+    logger: console,
+  }));
+
+  // Mount console/admin router on /console/*
+  app.use('/', createConsoleRouter({
+    healthz: true,
+    readyz: true,
+    corsOrigins: [config.expectedOrigin, config.expectedWalletOrigin],
+    auth: consoleAuth,
+    billing: consoleBilling,
+    webhooks: consoleWebhooks,
     logger: console,
   }));
 
@@ -177,6 +343,17 @@ async function main() {
     if (rorRpId) {
       console.log(`ROR RP ID: ${rorRpId}`);
       console.log(`ROR Origins: ${rorOrigins.join(', ') || '(none)'}`);
+    }
+    console.log(`PRF session seal routes: ${prfSessionSealEnabled ? 'enabled' : 'disabled'}`);
+    console.log(`Console dev token: ${consoleDevToken}`);
+    console.log('Console routes mounted at /console/*');
+    console.log(`Console billing backend: ${consoleBillingBackend}`);
+    if (consoleBillingBackend === 'postgres') {
+      console.log(`Console billing namespace: ${consoleBillingNamespace}`);
+    }
+    console.log(`Console webhooks backend: ${consoleWebhooksBackend}`);
+    if (consoleWebhooksBackend === 'postgres') {
+      console.log(`Console webhooks namespace: ${consoleWebhooksNamespace}`);
     }
     authService.getRelayerAccount()
       .then(relayer => console.log(`AuthService started with relayer account: ${relayer.accountId}`))

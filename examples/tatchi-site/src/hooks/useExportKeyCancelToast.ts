@@ -1,5 +1,6 @@
 import React from 'react'
 import { toast } from 'sonner'
+import { FRONTEND_CONFIG } from '../config'
 
 /**
  * Listen for export-key cancellation messages from the wallet iframe host
@@ -13,7 +14,7 @@ export function useExportKeyCancelToast() {
   React.useEffect(() => {
     if (typeof window === 'undefined') return
 
-    const walletOrigin = (import.meta as any)?.env?.VITE_WALLET_ORIGIN as string | undefined
+    const walletOrigin = FRONTEND_CONFIG.walletOrigin
 
     const handler = (event: MessageEvent) => {
       try {
@@ -36,4 +37,3 @@ export function useExportKeyCancelToast() {
     return () => window.removeEventListener('message', handler)
   }, [])
 }
-

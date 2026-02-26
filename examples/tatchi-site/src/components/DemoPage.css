@@ -181,15 +181,52 @@
   gap: 0.4rem;
 }
 
-.funding-instructions code {
-  display: block;
+.funding-address-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   width: 100%;
-  padding: 0.7rem 0.95rem;
-  border-radius: var(--fe-radius-lg);
+  min-height: 0em;
+  padding: 0.25rem 0.5rem 0.25rem 1rem;
+  border-radius: 999px;
   background: var(--w3a-colors-surface2);
-  border: 1px solid var(--fe-border);
+}
+
+.funding-address-text {
+  flex: 1;
   color: var(--fe-text);
-  word-break: break-all;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.8rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.funding-address-copy.install-copy {
+  flex: 0 0 auto;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fe-text-secondary);
+  padding: 0;
+}
+
+.funding-address-copy.install-copy:hover {
+  background: var(--fe-bg-secondary);
+  color: var(--fe-text);
+}
+
+.funding-address-copy.install-copy.is-copied {
+  color: var(--fe-text);
+}
+
+.funding-address-copy-placeholder {
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 auto;
 }
 
 .demo-divider {

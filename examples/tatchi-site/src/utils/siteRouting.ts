@@ -1,5 +1,6 @@
+import { FRONTEND_CONFIG } from '../config'
+
 const DOCS_PREFIX = '/docs'
-const DEFAULT_DOCS_ORIGIN = 'https://docs.example.localhost'
 
 function stripTrailingSlash(path: string): string {
   if (path.length <= 1) return path
@@ -7,13 +8,12 @@ function stripTrailingSlash(path: string): string {
 }
 
 export function getSiteBase(): string {
-  const base = ((import.meta as any)?.env?.BASE_URL || '/') as string
+  const base = FRONTEND_CONFIG.baseUrl
   return stripTrailingSlash(base) || '/'
 }
 
 export function getDocsOrigin(): string {
-  const configured = String((import.meta as any)?.env?.VITE_DOCS_ORIGIN || '').trim()
-  return stripTrailingSlash(configured) || DEFAULT_DOCS_ORIGIN
+  return stripTrailingSlash(FRONTEND_CONFIG.docsOrigin)
 }
 
 export function isHttpUrl(value: string): boolean {
@@ -51,4 +51,3 @@ export function normalizePathname(pathname: string): string {
   const normalized = clean.startsWith('/') ? clean : `/${clean}`
   return stripTrailingSlash(normalized) || '/'
 }
-

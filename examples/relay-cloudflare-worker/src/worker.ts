@@ -32,6 +32,10 @@ type Env = RelayCloudflareWorkerEnv & {
   EXPECTED_ORIGIN?: string;
   EXPECTED_WALLET_ORIGIN?: string;
   ENABLE_ROTATION?: string;
+  BILLING_FINALIZATION_ENABLED?: string;
+  BILLING_POSTGRES_URL?: string;
+  BILLING_NAMESPACE?: string;
+  BILLING_FINALIZATION_PERIOD_MONTH_UTC?: string;
   RECOVER_EMAIL_RECIPIENT?: string;
   GOOGLE_OIDC_CLIENT_ID?: string;
   GOOGLE_OIDC_CLIENT_IDS?: string;
@@ -158,9 +162,18 @@ export default {
   async scheduled(event: CfScheduledEvent, env: Env, ctx: Ctx) {
     const authService = createAuthService(env);
     const enabled = env.ENABLE_ROTATION === '1';
+    const billingFinalizationEnabled = env.BILLING_FINALIZATION_ENABLED === '1';
     const cron = createCloudflareCron(authService, {
       enabled,
       rotate: enabled,
+      billingMonthlyFinalization: billingFinalizationEnabled
+        ? {
+            enabled: true,
+            postgresUrl: env.BILLING_POSTGRES_URL,
+            namespace: env.BILLING_NAMESPACE,
+            periodMonthUtc: env.BILLING_FINALIZATION_PERIOD_MONTH_UTC,
+          }
+        : undefined,
     });
     await cron(event, env, ctx);
   },

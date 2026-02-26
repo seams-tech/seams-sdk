@@ -8,6 +8,7 @@ NEAR relay server that creates accounts on behalf of users, where the relayer pa
 - **Custom Funding**: Configurable initial balance for new accounts
 - **Transaction Queuing**: Prevents nonce conflicts
 - **Simple JSON API**: Easy integration
+- **Console/Admin APIs**: Optional `/console/*` routes with billing and webhook endpoints
 
 ## API
 
@@ -43,6 +44,24 @@ Notes
   The example config enables CORS with `origin: [EXPECTED_ORIGIN, EXPECTED_WALLET_ORIGIN]` and `credentials: true`.
   Your frontend must use `credentials: 'include'` with fetch.
 
+### PRF session seal routes (`POST /threshold-ecdsa/prf-seal/*`) (optional)
+
+When enabled, this example mounts:
+- `POST /threshold-ecdsa/prf-seal/apply-server-seal`
+- `POST /threshold-ecdsa/prf-seal/remove-server-seal`
+
+Enable with `PRF_SESSION_SEAL_ENABLED=1` and provide:
+- `PRF_SESSION_SEAL_KEY_VERSION`
+- `SHAMIR_P_B64U`
+- `SHAMIR_E_S_B64U`
+- `SHAMIR_D_S_B64U`
+
+Optional limiter config:
+- `PRF_SESSION_SEAL_RATE_LIMIT_KIND` (`in-memory` | `upstash-redis-rest` | `redis-tcp`)
+- `PRF_SESSION_SEAL_RATE_LIMIT`
+- `PRF_SESSION_SEAL_RATE_LIMIT_WINDOW_MS`
+- `PRF_SESSION_SEAL_RATE_LIMIT_KEY_PREFIX`
+
 ### `POST /recover-email` (email recovery)
 
 Receives a JSON `ForwardableEmailPayload` (including `raw` containing the full RFC822 message) and forwards it into `EmailRecoveryService.requestEmailRecovery`.
@@ -64,10 +83,40 @@ EXPECTED_ORIGIN=http://localhost:3000
 # If you serve from multiple origins, set EXPECTED_WALLET_ORIGIN as well
 # EXPECTED_WALLET_ORIGIN=http://localhost:4173
 
+# Console/admin auth (dev adapter)
+CONSOLE_DEV_TOKEN=dev-console-token
+
+# Console billing backend:
+# - postgres (persists data to Postgres)
+# - memory (ephemeral dev-only in-memory store)
+# Defaults to postgres when POSTGRES_URL is set, otherwise memory.
+# CONSOLE_BILLING_BACKEND=postgres
+# Optional namespace for Postgres billing tables
+# CONSOLE_BILLING_NAMESPACE=relay-console
+
+# Console webhooks backend:
+# - postgres (persists webhook endpoints/deliveries/attempts/dead-letters)
+# - memory (ephemeral dev-only in-memory store)
+# Defaults to postgres when POSTGRES_URL is set, otherwise memory.
+# CONSOLE_WEBHOOKS_BACKEND=postgres
+# Optional namespace for Postgres webhook tables
+# CONSOLE_WEBHOOKS_NAMESPACE=relay-console
+
 # Threshold secrets (base64url-encoded 32-byte values)
 # THRESHOLD_ED25519_MASTER_SECRET_B64U=<32-byte-base64url>
 # Required: relay startup fails if missing.
 # THRESHOLD_SECP256K1_MASTER_SECRET_B64U=<32-byte-base64url>
+
+# Optional PRF seal/unseal routes for refresh rehydrate.
+# PRF_SESSION_SEAL_ENABLED=1
+# PRF_SESSION_SEAL_KEY_VERSION=kek-s-2026-02
+# SHAMIR_P_B64U=...
+# SHAMIR_E_S_B64U=...
+# SHAMIR_D_S_B64U=...
+# PRF_SESSION_SEAL_RATE_LIMIT_KIND=in-memory
+# PRF_SESSION_SEAL_RATE_LIMIT=30
+# PRF_SESSION_SEAL_RATE_LIMIT_WINDOW_MS=60000
+# PRF_SESSION_SEAL_RATE_LIMIT_KEY_PREFIX=threshold:prf-seal:rate:
 ```
 
 ## Development
@@ -110,6 +159,29 @@ If both `POSTGRES_URL` and `REDIS_URL` are set, this example server prefers Post
 For production/serverless, prefer Upstash REST:
 - `UPSTASH_REDIS_REST_URL`
 - `UPSTASH_REDIS_REST_TOKEN`
+
+### Console/Admin Billing + Webhooks APIs
+
+This example server also mounts console/admin routes at `/console/*`.
+
+- Auth: send `Authorization: Bearer <CONSOLE_DEV_TOKEN>`.
+- Optional dev claim overrides:
+  - `x-console-org-id`
+  - `x-console-user-id`
+  - `x-console-roles` (comma-separated, defaults to `admin`)
+- Billing backend is selected with `CONSOLE_BILLING_BACKEND`:
+  - `postgres`: durable billing data via `POSTGRES_URL`
+  - `memory`: ephemeral in-memory billing data for local dev
+- Webhooks backend is selected with `CONSOLE_WEBHOOKS_BACKEND`:
+  - `postgres`: durable webhook endpoint/delivery/attempt/dead-letter data via `POSTGRES_URL`
+  - `memory`: ephemeral in-memory webhook data for local dev
+
+Example:
+
+```bash
+curl -s http://localhost:3001/console/billing/overview \
+  -H "Authorization: Bearer dev-console-token"
+```
 
 ### Coordinator Continuity Config (ECDSA Presign Sessions)
 

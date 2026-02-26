@@ -9,6 +9,10 @@ interface ImportMetaEnv {
   readonly VITE_NEAR_NETWORK?: 'testnet' | 'mainnet';
   readonly VITE_NEAR_RPC_URL?: string;
   readonly VITE_NEAR_EXPLORER?: string;
+  readonly VITE_TEMPO_RPC_URL?: string;
+  readonly VITE_ARC_RPC_URL?: string;
+  readonly VITE_SIGNING_SESSION_TTL_MS?: string;
+  readonly VITE_SIGNING_SESSION_REMAINING_USES?: string;
   readonly VITE_ROR_ALLOWED_ORIGINS?: string;
   readonly VITE_DEMO_CONTRACT_ID?: string;
 

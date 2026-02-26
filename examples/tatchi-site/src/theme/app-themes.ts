@@ -43,6 +43,8 @@ const ROSE_PINE_DARK_COLORS: Record<string, string> = {
   gradientTertiary: 'linear-gradient(120deg, #191724 0%, #26233a 100%)',
 
   highlightPrimary: '#c4a7e7',
+  // Dark-mode tx row highlight: use a deeper Rose Pine purple shade.
+  highlightRow: '#403d52',
   highlightHalo: '#e2d1f5',
   highlightReceiver: '#9ccfd8',
   highlightMethodName: '#c4a7e7',
@@ -88,6 +90,8 @@ const ROSE_PINE_LIGHT_COLORS: Record<string, string> = {
   gradientTertiary: 'linear-gradient(120deg, #faf4ed 0%, #fffaf3 100%)',
 
   highlightPrimary: '#907aa9',
+  // Light-mode tx row highlight: use a soft Rose Pine purple tint.
+  highlightRow: 'rgba(144, 122, 169, 0.24)',
   // Lighter Rose Pine iris for halo ring in light mode.
   highlightHalo: '#d7b9ea',
   highlightReceiver: '#56949f',
