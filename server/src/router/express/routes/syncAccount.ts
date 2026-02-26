@@ -5,7 +5,9 @@ export function registerSyncAccountRoutes(router: ExpressRouter, ctx: ExpressRel
   router.post('/sync-account/options', async (req: any, res: any) => {
     try {
       if (!req?.body) {
-        res.status(400).json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
         return;
       }
       const result = await ctx.service.createWebAuthnSyncAccountOptions(req.body);
@@ -15,24 +17,34 @@ export function registerSyncAccountRoutes(router: ExpressRouter, ctx: ExpressRel
       }
       res.status(200).json(result);
     } catch (e: any) {
-      res.status(500).json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+      res
+        .status(500)
+        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
     }
   });
 
   router.post('/sync-account/verify', async (req: any, res: any) => {
     try {
       if (!req?.body) {
-        res.status(400).json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
         return;
       }
       const body = req.body;
       const challengeId = String(body.challengeId ?? body.challenge_id ?? '').trim();
       if (!challengeId) {
-        res.status(400).json({ ok: false, code: 'invalid_body', message: 'challengeId is required' });
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_body', message: 'challengeId is required' });
         return;
       }
       if (!body.webauthn_authentication || typeof body.webauthn_authentication !== 'object') {
-        res.status(400).json({ ok: false, code: 'invalid_body', message: 'webauthn_authentication is required' });
+        res.status(400).json({
+          ok: false,
+          code: 'invalid_body',
+          message: 'webauthn_authentication is required',
+        });
         return;
       }
 
@@ -48,8 +60,9 @@ export function registerSyncAccountRoutes(router: ExpressRouter, ctx: ExpressRel
       }
       res.status(200).json(result);
     } catch (e: any) {
-      res.status(500).json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+      res
+        .status(500)
+        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
     }
   });
 }
-

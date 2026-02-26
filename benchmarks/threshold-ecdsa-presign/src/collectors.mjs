@@ -83,22 +83,42 @@ function summarizeByRoute(responseEvents) {
 }
 
 function summarizePresignStepPerf(perfEvents) {
-  const totalMs = summarizeSeries(perfEvents.map((entry) => entry.totalMs).filter((v) => Number.isFinite(v)));
-  const wasmStepMs = summarizeSeries(perfEvents.map((entry) => entry.wasmStepMs).filter((v) => Number.isFinite(v)));
-  const liveResolveMs = summarizeSeries(perfEvents.map((entry) => entry.liveResolveMs).filter((v) => Number.isFinite(v)));
-  const storeCasMs = summarizeSeries(perfEvents.map((entry) => entry.storeCasMs).filter((v) => Number.isFinite(v)));
-  const counterLiveHits = perfEvents.reduce((acc, entry) => acc + (entry.presign_live_cache_hit === 1 ? 1 : 0), 0);
-  const counterLiveMisses = perfEvents.reduce((acc, entry) => acc + (entry.presign_live_cache_miss === 1 ? 1 : 0), 0);
-  const counterStaleSessions = perfEvents.reduce((acc, entry) => acc + (entry.presign_stale_session_state === 1 ? 1 : 0), 0);
-  const liveHits = (counterLiveHits + counterLiveMisses) > 0
-    ? counterLiveHits
-    : perfEvents.filter((entry) => entry.liveCacheStatus === 'hit').length;
-  const liveMisses = (counterLiveHits + counterLiveMisses) > 0
-    ? counterLiveMisses
-    : perfEvents.filter((entry) => entry.liveCacheStatus === 'miss').length;
-  const staleSessions = counterStaleSessions > 0
-    ? counterStaleSessions
-    : perfEvents.filter((entry) => entry.resultCode === 'stale_session_state').length;
+  const totalMs = summarizeSeries(
+    perfEvents.map((entry) => entry.totalMs).filter((v) => Number.isFinite(v)),
+  );
+  const wasmStepMs = summarizeSeries(
+    perfEvents.map((entry) => entry.wasmStepMs).filter((v) => Number.isFinite(v)),
+  );
+  const liveResolveMs = summarizeSeries(
+    perfEvents.map((entry) => entry.liveResolveMs).filter((v) => Number.isFinite(v)),
+  );
+  const storeCasMs = summarizeSeries(
+    perfEvents.map((entry) => entry.storeCasMs).filter((v) => Number.isFinite(v)),
+  );
+  const counterLiveHits = perfEvents.reduce(
+    (acc, entry) => acc + (entry.presign_live_cache_hit === 1 ? 1 : 0),
+    0,
+  );
+  const counterLiveMisses = perfEvents.reduce(
+    (acc, entry) => acc + (entry.presign_live_cache_miss === 1 ? 1 : 0),
+    0,
+  );
+  const counterStaleSessions = perfEvents.reduce(
+    (acc, entry) => acc + (entry.presign_stale_session_state === 1 ? 1 : 0),
+    0,
+  );
+  const liveHits =
+    counterLiveHits + counterLiveMisses > 0
+      ? counterLiveHits
+      : perfEvents.filter((entry) => entry.liveCacheStatus === 'hit').length;
+  const liveMisses =
+    counterLiveHits + counterLiveMisses > 0
+      ? counterLiveMisses
+      : perfEvents.filter((entry) => entry.liveCacheStatus === 'miss').length;
+  const staleSessions =
+    counterStaleSessions > 0
+      ? counterStaleSessions
+      : perfEvents.filter((entry) => entry.resultCode === 'stale_session_state').length;
   const total = perfEvents.length;
   return {
     count: total,
@@ -124,14 +144,17 @@ function countPoolEmptyResponses(responseEvents) {
 }
 
 function summarizeBackgroundPresignTraffic(requestEvents) {
-  const presignStepRequests = requestEvents.filter((event) => event.route === '/threshold-ecdsa/presign/step');
+  const presignStepRequests = requestEvents.filter(
+    (event) => event.route === '/threshold-ecdsa/presign/step',
+  );
   if (presignStepRequests.length === 0) {
     return { total: 0, background: 0, ratio: null };
   }
-  const background = presignStepRequests.filter((event) =>
-    event.requestTag === 'background_presign_pool_refill'
-    || event.label === 'background presign pool refill'
-    || event.presignTrafficClass === 'background'
+  const background = presignStepRequests.filter(
+    (event) =>
+      event.requestTag === 'background_presign_pool_refill' ||
+      event.label === 'background presign pool refill' ||
+      event.presignTrafficClass === 'background',
   ).length;
   return {
     total: presignStepRequests.length,
@@ -141,11 +164,14 @@ function summarizeBackgroundPresignTraffic(requestEvents) {
 }
 
 function summarizePresignGateWait(requestEvents) {
-  const presignRequests = requestEvents.filter((event) =>
-    event.route === '/threshold-ecdsa/presign/init'
-    || event.route === '/threshold-ecdsa/presign/step'
+  const presignRequests = requestEvents.filter(
+    (event) =>
+      event.route === '/threshold-ecdsa/presign/init' ||
+      event.route === '/threshold-ecdsa/presign/step',
   );
-  const allGateWait = presignRequests.map((event) => event.gateWaitMs).filter((v) => Number.isFinite(v));
+  const allGateWait = presignRequests
+    .map((event) => event.gateWaitMs)
+    .filter((v) => Number.isFinite(v));
   const foregroundGateWait = presignRequests
     .filter((event) => event.presignTrafficClass === 'foreground')
     .map((event) => event.gateWaitMs)
@@ -164,16 +190,18 @@ function summarizePresignGateWait(requestEvents) {
 export function collectMetricsFromLog(logText) {
   const requestBlocks = extractBlocks(logText, /\[threshold-ecdsa\]\s+request\s*\{([\s\S]*?)\}/g);
   const responseBlocks = extractBlocks(logText, /\[threshold-ecdsa\]\s+response\s*\{([\s\S]*?)\}/g);
-  const perfBlocks = extractBlocks(logText, /\[threshold-ecdsa\]\s+presign\/step perf\s*\{([\s\S]*?)\}/g);
+  const perfBlocks = extractBlocks(
+    logText,
+    /\[threshold-ecdsa\]\s+presign\/step perf\s*\{([\s\S]*?)\}/g,
+  );
   const scenarioSummaryEntries = extractJsonLineEntries(logText, '[benchmark-scenario-json]');
-  const scenarioSummary = scenarioSummaryEntries.length > 0
-    ? scenarioSummaryEntries[scenarioSummaryEntries.length - 1]
-    : null;
+  const scenarioSummary =
+    scenarioSummaryEntries.length > 0
+      ? scenarioSummaryEntries[scenarioSummaryEntries.length - 1]
+      : null;
   const scenarioRuns = Array.isArray(scenarioSummary?.runs) ? scenarioSummary.runs : [];
   const scenarioTotalMs = summarizeSeries(
-    scenarioRuns
-      .map((entry) => Number(entry?.totalMs))
-      .filter((value) => Number.isFinite(value)),
+    scenarioRuns.map((entry) => Number(entry?.totalMs)).filter((value) => Number.isFinite(value)),
   );
 
   const requestEvents = requestBlocks.map((block) => ({

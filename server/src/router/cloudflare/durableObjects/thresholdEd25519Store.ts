@@ -26,12 +26,30 @@ type DoReq =
   | { op: 'authConsumeUseCount'; key: string }
   | { op: 'ecdsaPresignPut'; listKey: string; value: unknown }
   | { op: 'ecdsaPresignReserve'; listKey: string; reservedKeyPrefix: string; ttlMs?: number }
-  | { op: 'ecdsaPresignReserveById'; listKey: string; reservedKeyPrefix: string; presignatureId: string; ttlMs?: number }
+  | {
+      op: 'ecdsaPresignReserveById';
+      listKey: string;
+      reservedKeyPrefix: string;
+      presignatureId: string;
+      ttlMs?: number;
+    }
   | { op: 'ecdsaPresignSessionCreate'; key: string; value: unknown; ttlMs?: number }
-  | { op: 'ecdsaPresignSessionAdvanceCas'; key: string; expectedVersion: number; value: unknown; ttlMs?: number };
+  | {
+      op: 'ecdsaPresignSessionAdvanceCas';
+      key: string;
+      expectedVersion: number;
+      value: unknown;
+      ttlMs?: number;
+    };
 
 type AuthEntry = {
-  record: { expiresAtMs: number; relayerKeyId: string; userId: string; rpId: string; participantIds: number[] };
+  record: {
+    expiresAtMs: number;
+    relayerKeyId: string;
+    userId: string;
+    rpId: string;
+    participantIds: number[];
+  };
   remainingUses: number;
   expiresAtMs: number;
 };
@@ -85,7 +103,12 @@ function parseAuthEntry(raw: unknown): AuthEntry | null {
   if (typeof expiresAtMs !== 'number' || !Number.isFinite(expiresAtMs)) return null;
   // Minimal record shape check (full validation happens on the service layer).
   const rec = record as Record<string, unknown>;
-  if (typeof rec.userId !== 'string' || typeof rec.rpId !== 'string' || typeof rec.relayerKeyId !== 'string') return null;
+  if (
+    typeof rec.userId !== 'string' ||
+    typeof rec.rpId !== 'string' ||
+    typeof rec.relayerKeyId !== 'string'
+  )
+    return null;
   if (typeof rec.expiresAtMs !== 'number' || !Number.isFinite(rec.expiresAtMs)) return null;
   if (!Array.isArray(rec.participantIds)) return null;
   return raw as AuthEntry;
@@ -100,7 +123,10 @@ function parsePresignSessionRecord(raw: unknown): PresignSessionRecord | null {
   return { expiresAtMs, version };
 }
 
-async function withTxn<T>(state: DurableObjectStateLike, fn: (store: DurableObjectStorageLike) => Promise<T>): Promise<T> {
+async function withTxn<T>(
+  state: DurableObjectStateLike,
+  fn: (store: DurableObjectStorageLike) => Promise<T>,
+): Promise<T> {
   if (typeof state.storage.transaction === 'function') {
     return await state.storage.transaction(fn);
   }
@@ -142,7 +168,11 @@ export class ThresholdEd25519StoreDurableObject {
       const key = toKey((req as { key?: unknown }).key);
       if (!key) return json(err('invalid_body', 'Missing key'));
       const ttl = toTtlSeconds((req as { ttlMs?: unknown }).ttlMs);
-      await this.state.storage.put(key, (req as { value?: unknown }).value, ttl ? { expirationTtl: ttl } : undefined);
+      await this.state.storage.put(
+        key,
+        (req as { value?: unknown }).value,
+        ttl ? { expirationTtl: ttl } : undefined,
+      );
       return json(ok(true));
     }
     if (op === 'del') {
@@ -177,7 +207,10 @@ export class ThresholdEd25519StoreDurableObject {
         if (entry.remainingUses <= 0) return err('unauthorized', 'threshold session exhausted');
 
         entry.remainingUses -= 1;
-        const ttlSeconds = Math.max(1, Math.ceil(Math.max(0, entry.expiresAtMs - Date.now()) / 1000));
+        const ttlSeconds = Math.max(
+          1,
+          Math.ceil(Math.max(0, entry.expiresAtMs - Date.now()) / 1000),
+        );
         await store.put(key, entry, { expirationTtl: ttlSeconds });
 
         return ok({ remainingUses: entry.remainingUses });
@@ -213,9 +246,13 @@ export class ThresholdEd25519StoreDurableObject {
         const item = list.shift();
         await store.put(listKey, list);
 
-        const presignatureId = isObject(item) ? toKey((item as { presignatureId?: unknown }).presignatureId) : '';
+        const presignatureId = isObject(item)
+          ? toKey((item as { presignatureId?: unknown }).presignatureId)
+          : '';
         if (presignatureId) {
-          await store.put(`${reservedKeyPrefix}${presignatureId}`, item, { expirationTtl: ttlSeconds });
+          await store.put(`${reservedKeyPrefix}${presignatureId}`, item, {
+            expirationTtl: ttlSeconds,
+          });
         }
         return item ?? null;
       });
@@ -239,7 +276,9 @@ export class ThresholdEd25519StoreDurableObject {
         let pickedIndex = -1;
         for (let i = 0; i < list.length; i += 1) {
           const item = list[i];
-          const itemPresignatureId = isObject(item) ? toKey((item as { presignatureId?: unknown }).presignatureId) : '';
+          const itemPresignatureId = isObject(item)
+            ? toKey((item as { presignatureId?: unknown }).presignatureId)
+            : '';
           if (itemPresignatureId === presignatureId) {
             pickedIndex = i;
             break;
@@ -248,7 +287,9 @@ export class ThresholdEd25519StoreDurableObject {
         if (pickedIndex < 0) return null;
         const [item] = list.splice(pickedIndex, 1);
         await store.put(listKey, list);
-        await store.put(`${reservedKeyPrefix}${presignatureId}`, item, { expirationTtl: ttlSeconds });
+        await store.put(`${reservedKeyPrefix}${presignatureId}`, item, {
+          expirationTtl: ttlSeconds,
+        });
         return item ?? null;
       });
 
@@ -260,7 +301,8 @@ export class ThresholdEd25519StoreDurableObject {
       const value = (req as { value?: unknown }).value;
       const ttlSeconds = toTtlSeconds((req as { ttlMs?: unknown }).ttlMs);
       if (!key) return json(err('invalid_body', 'Missing key'));
-      if (!parsePresignSessionRecord(value)) return json(err('invalid_body', 'Invalid presign session record'));
+      if (!parsePresignSessionRecord(value))
+        return json(err('invalid_body', 'Invalid presign session record'));
 
       const result = await withTxn(this.state, async (store) => {
         const nowMs = Date.now();

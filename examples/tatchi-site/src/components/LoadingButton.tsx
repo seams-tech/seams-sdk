@@ -37,7 +37,9 @@ export const LoadingButton: React.FC<LoadingButtonProps> = ({
     `button--${size}`,
     loading ? 'button--loading' : '',
     className,
-  ].filter(Boolean).join(' ');
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   const displayText = loading && loadingText ? loadingText : children;
 
@@ -74,7 +76,9 @@ export const LoadingButton: React.FC<LoadingButtonProps> = ({
           />
         </svg>
       )}
-      <span className="button__text" style={textStyles}>{displayText}</span>
+      <span className="button__text" style={textStyles}>
+        {displayText}
+      </span>
     </button>
   );
 };

@@ -6,10 +6,7 @@ import type {
   ThresholdEcdsaSessionBootstrapResult,
 } from '../../orchestration/thresholdActivation';
 
-export type ThresholdEcdsaSessionStoreSource =
-  | 'login'
-  | 'registration'
-  | 'manual-bootstrap';
+export type ThresholdEcdsaSessionStoreSource = 'login' | 'registration' | 'manual-bootstrap';
 
 export type ThresholdEcdsaSessionRecord = {
   nearAccountId: AccountId;
@@ -66,9 +63,7 @@ function readStorageIndex(storage: SessionStoragePort): string[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((value) => String(value || '').trim())
-      .filter(Boolean);
+    return parsed.map((value) => String(value || '').trim()).filter(Boolean);
   } catch {
     return [];
   }
@@ -110,10 +105,7 @@ function readStoredRecord(
   }
 }
 
-function writeStoredRecord(
-  storage: SessionStoragePort,
-  record: ThresholdEcdsaSessionRecord,
-): void {
+function writeStoredRecord(storage: SessionStoragePort, record: ThresholdEcdsaSessionRecord): void {
   try {
     const payload: ThresholdEcdsaSessionStoreValue = {
       v: 1,
@@ -154,10 +146,8 @@ function normalizeOptionalNumber(value: unknown): number | undefined {
   return Math.floor(n);
 }
 
-function normalizeThresholdEcdsaSessionRecord(
-  value: unknown,
-): ThresholdEcdsaSessionRecord {
-  const obj = (value && typeof value === 'object') ? value as Record<string, unknown> : {};
+function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSessionRecord {
+  const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   const nearAccountId = toAccountId(String(obj.nearAccountId || '').trim());
   const chainRaw = String(obj.chain || '').trim();
   const chain: ThresholdEcdsaActivationChain = chainRaw === 'evm' ? 'evm' : 'tempo';
@@ -166,7 +156,9 @@ function normalizeThresholdEcdsaSessionRecord(
   const clientVerifyingShareB64u = String(obj.clientVerifyingShareB64u || '').trim();
   const participantIds = normalizeThresholdEd25519ParticipantIds(obj.participantIds);
   const thresholdSessionKind =
-    String(obj.thresholdSessionKind || '').trim().toLowerCase() === 'cookie'
+    String(obj.thresholdSessionKind || '')
+      .trim()
+      .toLowerCase() === 'cookie'
       ? 'cookie'
       : 'jwt';
   const thresholdSessionId = String(obj.thresholdSessionId || '').trim();
@@ -178,7 +170,13 @@ function normalizeThresholdEcdsaSessionRecord(
       : 'manual-bootstrap';
   const updatedAtMs = normalizeOptionalNumber(obj.updatedAtMs) || Date.now();
 
-  if (!relayerUrl || !relayerKeyId || !clientVerifyingShareB64u || !participantIds || !thresholdSessionId) {
+  if (
+    !relayerUrl ||
+    !relayerKeyId ||
+    !clientVerifyingShareB64u ||
+    !participantIds ||
+    !thresholdSessionId
+  ) {
     throw new Error('Invalid threshold ECDSA canonical session record');
   }
   if (thresholdSessionKind === 'jwt' && !thresholdSessionJwt) {
@@ -225,19 +223,25 @@ function buildRecordFromBootstrap(args: {
   if (!participantIds) {
     throw new Error('[SigningEngine] threshold ECDSA bootstrap did not provide participantIds');
   }
-  const thresholdSessionId = String(keyRef.thresholdSessionId || args.bootstrap.session.sessionId || '').trim();
+  const thresholdSessionId = String(
+    keyRef.thresholdSessionId || args.bootstrap.session.sessionId || '',
+  ).trim();
   if (!thresholdSessionId) {
     throw new Error('[SigningEngine] threshold ECDSA bootstrap did not provide thresholdSessionId');
   }
   const thresholdSessionKind =
-    String(keyRef.thresholdSessionKind || 'jwt').trim().toLowerCase() === 'cookie'
+    String(keyRef.thresholdSessionKind || 'jwt')
+      .trim()
+      .toLowerCase() === 'cookie'
       ? 'cookie'
       : 'jwt';
   const thresholdSessionJwt = normalizeOptionalString(
     keyRef.thresholdSessionJwt || args.bootstrap.session.jwt,
   );
   if (thresholdSessionKind === 'jwt' && !thresholdSessionJwt) {
-    throw new Error('[SigningEngine] threshold ECDSA bootstrap did not provide thresholdSessionJwt');
+    throw new Error(
+      '[SigningEngine] threshold ECDSA bootstrap did not provide thresholdSessionJwt',
+    );
   }
 
   return normalizeThresholdEcdsaSessionRecord({
@@ -347,9 +351,7 @@ export function clearThresholdEcdsaSessionRecordForAccount(
   }
 }
 
-export function clearAllThresholdEcdsaSessionRecords(
-  deps: ThresholdEcdsaSessionStoreDeps,
-): void {
+export function clearAllThresholdEcdsaSessionRecords(deps: ThresholdEcdsaSessionStoreDeps): void {
   deps.recordsByAccount.clear();
   const storage = getSessionStorageSafe();
   if (storage) {

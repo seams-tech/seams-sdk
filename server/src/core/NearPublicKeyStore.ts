@@ -51,7 +51,8 @@ function parseNearPublicKeyRecord(raw: unknown): NearPublicKeyRecord | null {
   if (!Number.isFinite(updatedAtMs) || updatedAtMs <= 0) return null;
 
   const deviceNumberRaw = (raw as any).deviceNumber;
-  const deviceNumber = typeof deviceNumberRaw === 'number' ? deviceNumberRaw : Number(deviceNumberRaw);
+  const deviceNumber =
+    typeof deviceNumberRaw === 'number' ? deviceNumberRaw : Number(deviceNumberRaw);
   const credentialIdB64u = toOptionalTrimmedString((raw as any).credentialIdB64u);
   const rpId = toOptionalTrimmedString((raw as any).rpId);
   const addedTxHash = toOptionalTrimmedString((raw as any).addedTxHash);
@@ -63,13 +64,17 @@ function parseNearPublicKeyRecord(raw: unknown): NearPublicKeyRecord | null {
     userId,
     publicKey,
     kind,
-    ...(Number.isFinite(deviceNumber) && deviceNumber >= 1 ? { deviceNumber: Math.floor(deviceNumber) } : {}),
+    ...(Number.isFinite(deviceNumber) && deviceNumber >= 1
+      ? { deviceNumber: Math.floor(deviceNumber) }
+      : {}),
     ...(credentialIdB64u ? { credentialIdB64u } : {}),
     ...(rpId ? { rpId } : {}),
     createdAtMs: Math.floor(createdAtMs),
     updatedAtMs: Math.floor(updatedAtMs),
     ...(addedTxHash ? { addedTxHash } : {}),
-    ...(Number.isFinite(removedAtMs) && removedAtMs > 0 ? { removedAtMs: Math.floor(removedAtMs) } : {}),
+    ...(Number.isFinite(removedAtMs) && removedAtMs > 0
+      ? { removedAtMs: Math.floor(removedAtMs) }
+      : {}),
   };
 }
 
@@ -90,7 +95,9 @@ class InMemoryNearPublicKeyStore implements NearPublicKeyStore {
     if (!uid) return [];
     const bucket = this.byUser.get(uid);
     if (!bucket) return [];
-    const out = Array.from(bucket.values()).map((r) => parseNearPublicKeyRecord(r)).filter(Boolean) as NearPublicKeyRecord[];
+    const out = Array.from(bucket.values())
+      .map((r) => parseNearPublicKeyRecord(r))
+      .filter(Boolean) as NearPublicKeyRecord[];
     out.sort((a, b) => (a.deviceNumber || 0) - (b.deviceNumber || 0));
     return out;
   }
@@ -118,7 +125,14 @@ class PostgresNearPublicKeyStore implements NearPublicKeyStore {
           record_json = EXCLUDED.record_json,
           updated_at_ms = EXCLUDED.updated_at_ms
       `,
-      [this.namespace, parsed.userId, parsed.publicKey, parsed, parsed.createdAtMs, parsed.updatedAtMs],
+      [
+        this.namespace,
+        parsed.userId,
+        parsed.publicKey,
+        parsed,
+        parsed.createdAtMs,
+        parsed.updatedAtMs,
+      ],
     );
   }
 
@@ -151,13 +165,16 @@ export function createNearPublicKeyStore(input: {
 }): NearPublicKeyStore {
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
   const postgresUrl = getPostgresUrlFromConfig(config);
-  const namespace = toOptionalTrimmedString(config.NEAR_PUBLIC_KEY_NAMESPACE)
-    || toOptionalTrimmedString(config.THRESHOLD_PREFIX)
-    || '';
+  const namespace =
+    toOptionalTrimmedString(config.NEAR_PUBLIC_KEY_NAMESPACE) ||
+    toOptionalTrimmedString(config.THRESHOLD_PREFIX) ||
+    '';
 
   if (postgresUrl) {
     if (!input.isNode) {
-      throw new Error('[near-public-keys] POSTGRES_URL is set but Postgres is not supported in this runtime');
+      throw new Error(
+        '[near-public-keys] POSTGRES_URL is set but Postgres is not supported in this runtime',
+      );
     }
     input.logger.info('[near-public-keys] Using Postgres store for NEAR public key metadata');
     return new PostgresNearPublicKeyStore({ postgresUrl, namespace });

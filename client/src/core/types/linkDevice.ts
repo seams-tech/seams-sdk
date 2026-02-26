@@ -49,7 +49,7 @@ export class DeviceLinkingError extends Error {
   constructor(
     message: string,
     public code: DeviceLinkingErrorCode,
-    public phase: 'generation' | 'authorization' | 'registration'
+    public phase: 'generation' | 'authorization' | 'registration',
   ) {
     super(message);
   }
@@ -61,7 +61,7 @@ export enum DeviceLinkingErrorCode {
   AUTHORIZATION_TIMEOUT = 'AUTHORIZATION_TIMEOUT',
   INSUFFICIENT_BALANCE = 'INSUFFICIENT_BALANCE',
   REGISTRATION_FAILED = 'REGISTRATION_FAILED',
-  SESSION_EXPIRED = 'SESSION_EXPIRED'
+  SESSION_EXPIRED = 'SESSION_EXPIRED',
 }
 
 export type StartDevice2LinkingFlowArgs = {

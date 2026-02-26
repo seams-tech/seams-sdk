@@ -1,5 +1,8 @@
 import type { SignerMode, ThresholdBehavior } from '@/core/types/signer-worker';
-import { DEFAULT_THRESHOLD_BEHAVIOR, getThresholdBehaviorFromSignerMode } from '@/core/types/signer-worker';
+import {
+  DEFAULT_THRESHOLD_BEHAVIOR,
+  getThresholdBehaviorFromSignerMode,
+} from '@/core/types/signer-worker';
 import { stripTrailingSlashes, toTrimmedString } from '@shared/utils/validation';
 
 export type Ed25519HealthzResponse =
@@ -75,7 +78,11 @@ function pruneWarned(nowMs: number): void {
   }
 }
 
-function warnOnce(key: string, message: string, opts?: { warnTtlMs?: number; warnings?: string[] }): void {
+function warnOnce(
+  key: string,
+  message: string,
+  opts?: { warnTtlMs?: number; warnings?: string[] },
+): void {
   const nowMs = Date.now();
   const ttlMs = Math.max(0, Math.floor(opts?.warnTtlMs ?? DEFAULT_WARN_TTL_MS));
   if (ttlMs === 0) return;
@@ -103,7 +110,8 @@ export async function fallbackToLocalSignerIfRelayerUnsupported(args: {
   const configured = await isRelayerEd25519ConfiguredBase(base, { cacheTtlMs: args.cacheTtlMs });
   if (configured) return requested;
 
-  const msg = '[SigningEngine] signerMode=threshold-signer requested but the relayer does not support threshold signing';
+  const msg =
+    '[SigningEngine] signerMode=threshold-signer requested but the relayer does not support threshold signing';
   if (behavior === 'fallback') {
     warnOnce(`${args.nearAccountId}|${base}`, `${msg}; falling back to local-signer`, {
       warnTtlMs: args.warnTtlMs,
@@ -111,7 +119,9 @@ export async function fallbackToLocalSignerIfRelayerUnsupported(args: {
     });
     return 'local-signer';
   }
-  throw new Error(`${msg}; set signerMode={ mode: 'threshold-signer', behavior: 'fallback' } to allow local-signer fallback`);
+  throw new Error(
+    `${msg}; set signerMode={ mode: 'threshold-signer', behavior: 'fallback' } to allow local-signer fallback`,
+  );
 }
 
 export async function resolveSignerModeForThresholdSigning(args: {
@@ -129,15 +139,22 @@ export async function resolveSignerModeForThresholdSigning(args: {
   const behavior = coerceThresholdBehavior(getThresholdBehaviorFromSignerMode(args.signerMode));
 
   if (!args.hasThresholdKeyMaterial) {
-    const msg = '[SigningEngine] signerMode=threshold-signer requested but threshold key material is unavailable';
+    const msg =
+      '[SigningEngine] signerMode=threshold-signer requested but threshold key material is unavailable';
     if (behavior === 'fallback') {
-      warnOnce(`${args.nearAccountId}|threshold-key-material-missing`, `${msg}; falling back to local-signer`, {
-        warnTtlMs: args.warnTtlMs,
-        warnings: args.warnings,
-      });
+      warnOnce(
+        `${args.nearAccountId}|threshold-key-material-missing`,
+        `${msg}; falling back to local-signer`,
+        {
+          warnTtlMs: args.warnTtlMs,
+          warnings: args.warnings,
+        },
+      );
       return 'local-signer';
     }
-    throw new Error(`${msg}; set signerMode={ mode: 'threshold-signer', behavior: 'fallback' } to allow local-signer fallback`);
+    throw new Error(
+      `${msg}; set signerMode={ mode: 'threshold-signer', behavior: 'fallback' } to allow local-signer fallback`,
+    );
   }
 
   return fallbackToLocalSignerIfRelayerUnsupported({

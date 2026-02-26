@@ -41,10 +41,15 @@ function computeRecommendation(results) {
   const reasons = [];
 
   const presignStepP95 = Math.max(
-    ...results.map((entry) => entry.metrics?.routeDurations?.['/threshold-ecdsa/presign/step']?.p95 || 0),
+    ...results.map(
+      (entry) => entry.metrics?.routeDurations?.['/threshold-ecdsa/presign/step']?.p95 || 0,
+    ),
     0,
   );
-  const poolEmptyTotal = results.reduce((acc, entry) => acc + (entry.metrics?.poolEmptyResponses || 0), 0);
+  const poolEmptyTotal = results.reduce(
+    (acc, entry) => acc + (entry.metrics?.poolEmptyResponses || 0),
+    0,
+  );
   const backgroundRatioMax = Math.max(
     ...results.map((entry) => entry.metrics?.backgroundPresignTraffic?.ratio || 0),
     0,
@@ -53,24 +58,32 @@ function computeRecommendation(results) {
   if (poolEmptyTotal > 0) {
     recommended.targetDepth = 4;
     recommended.lowWatermark = 2;
-    reasons.push(`Observed ${poolEmptyTotal} pool_empty responses; raise depth to reduce cold misses.`);
+    reasons.push(
+      `Observed ${poolEmptyTotal} pool_empty responses; raise depth to reduce cold misses.`,
+    );
   }
 
   if (presignStepP95 > 1500) {
     recommended.maxRefillInFlight = 1;
     recommended.targetDepth = Math.min(recommended.targetDepth, 3);
     recommended.lowWatermark = Math.min(recommended.lowWatermark, 1);
-    reasons.push(`p95(/presign/step)=${fmtNum(presignStepP95)}ms; keep refill conservative and prioritize foreground.`);
+    reasons.push(
+      `p95(/presign/step)=${fmtNum(presignStepP95)}ms; keep refill conservative and prioritize foreground.`,
+    );
   }
 
   if (backgroundRatioMax > 0.4 && presignStepP95 > 1200) {
     recommended.targetDepth = Math.min(recommended.targetDepth, 3);
     recommended.maxRefillInFlight = 1;
-    reasons.push(`High background presign ratio (${fmtPct(backgroundRatioMax)}) under elevated step latency; avoid aggressive refill.`);
+    reasons.push(
+      `High background presign ratio (${fmtPct(backgroundRatioMax)}) under elevated step latency; avoid aggressive refill.`,
+    );
   }
 
   if (reasons.length === 0) {
-    reasons.push('Current data supports keeping defaults (targetDepth=3, lowWatermark=1, maxRefillInFlight=1).');
+    reasons.push(
+      'Current data supports keeping defaults (targetDepth=3, lowWatermark=1, maxRefillInFlight=1).',
+    );
   }
 
   return { recommended, reasons };
@@ -96,7 +109,9 @@ export function buildMarkdownReport(input) {
     lines.push('');
     if (result.status === 'ok') {
       if (result.metrics.scenarioTotalMs) {
-        lines.push('| End-to-End Scenario Total | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |');
+        lines.push(
+          '| End-to-End Scenario Total | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |',
+        );
         lines.push('|---|---:|---:|---:|---:|---:|');
         lines.push(
           `| \`${result.id}\` | ${fmtNum(result.metrics.scenarioTotalMs?.count)} | ${fmtNum(result.metrics.scenarioTotalMs?.p50)} | ${fmtNum(result.metrics.scenarioTotalMs?.p95)} | ${fmtNum(result.metrics.scenarioTotalMs?.p99)} | ${fmtNum(result.metrics.scenarioTotalMs?.mean, 1)} |`,
@@ -107,14 +122,28 @@ export function buildMarkdownReport(input) {
       lines.push('');
       lines.push('| Presign Perf | Value |');
       lines.push('|---|---:|');
-      lines.push(`| presign_live_cache_hit | ${fmtNum(result.metrics.presignStepPerf?.counters?.presign_live_cache_hit)} |`);
-      lines.push(`| presign_live_cache_miss | ${fmtNum(result.metrics.presignStepPerf?.counters?.presign_live_cache_miss)} |`);
-      lines.push(`| presign_stale_session_state | ${fmtNum(result.metrics.presignStepPerf?.counters?.presign_stale_session_state)} |`);
+      lines.push(
+        `| presign_live_cache_hit | ${fmtNum(result.metrics.presignStepPerf?.counters?.presign_live_cache_hit)} |`,
+      );
+      lines.push(
+        `| presign_live_cache_miss | ${fmtNum(result.metrics.presignStepPerf?.counters?.presign_live_cache_miss)} |`,
+      );
+      lines.push(
+        `| presign_stale_session_state | ${fmtNum(result.metrics.presignStepPerf?.counters?.presign_stale_session_state)} |`,
+      );
       lines.push(`| liveCacheHitRatio | ${fmtPct(result.metrics.presignStepPerf?.liveHitRatio)} |`);
-      lines.push(`| staleSessionRatio | ${fmtPct(result.metrics.presignStepPerf?.staleSessionRatio)} |`);
-      lines.push(`| gateWaitP95ForegroundMs | ${fmtNum(result.metrics.presignGateWait?.foreground?.p95)} |`);
-      lines.push(`| gateWaitP95BackgroundMs | ${fmtNum(result.metrics.presignGateWait?.background?.p95)} |`);
-      lines.push(`| backgroundPresignRequestRatio | ${fmtPct(result.metrics.backgroundPresignTraffic?.ratio)} |`);
+      lines.push(
+        `| staleSessionRatio | ${fmtPct(result.metrics.presignStepPerf?.staleSessionRatio)} |`,
+      );
+      lines.push(
+        `| gateWaitP95ForegroundMs | ${fmtNum(result.metrics.presignGateWait?.foreground?.p95)} |`,
+      );
+      lines.push(
+        `| gateWaitP95BackgroundMs | ${fmtNum(result.metrics.presignGateWait?.background?.p95)} |`,
+      );
+      lines.push(
+        `| backgroundPresignRequestRatio | ${fmtPct(result.metrics.backgroundPresignTraffic?.ratio)} |`,
+      );
       lines.push(`| poolEmptyResponses | ${fmtNum(result.metrics.poolEmptyResponses)} |`);
       lines.push('');
     }
@@ -138,7 +167,9 @@ export function buildMarkdownReport(input) {
     lines.push('');
   }
 
-  const recommendation = computeRecommendation(input.results.filter((entry) => entry.status === 'ok'));
+  const recommendation = computeRecommendation(
+    input.results.filter((entry) => entry.status === 'ok'),
+  );
   lines.push('## Presign Pool Configuration Recommendation');
   lines.push('');
   lines.push('| Setting | Recommended |');

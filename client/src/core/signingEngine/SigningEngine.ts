@@ -5,14 +5,9 @@ import type { NonceManager } from '../rpcClients/near/nonceManager';
 import { toAccountId, type AccountId } from '../types/accountIds';
 import type { ActionArgsWasm } from '../types/actions';
 import type { AuthenticatorOptions } from '../types/authenticatorOptions';
-import type {
-  ConfirmationConfig,
-} from '../types/signer-worker';
+import type { ConfirmationConfig } from '../types/signer-worker';
 import type { SigningSessionStatus, TatchiConfigsReadonly, ThemeName } from '../types/tatchi';
-import type {
-  WebAuthnAuthenticationCredential,
-  WebAuthnRegistrationCredential,
-} from '../types';
+import type { WebAuthnAuthenticationCredential, WebAuthnRegistrationCredential } from '../types';
 import type { UserPreferencesManager } from './api/userPreferences';
 import type { ThresholdEcdsaSecp256k1KeyRef } from './interfaces/signing';
 import type {
@@ -66,7 +61,11 @@ import {
   type NearSignIntentResult,
   type SignTransactionsWithActionsInput,
 } from './api/nearSigning';
-import { signTempo as signTempoValue } from './api/tempoSigning';
+import {
+  reportTempoBroadcastResult as reportTempoBroadcastResultValue,
+  signTempo as signTempoValue,
+  type ReportTempoBroadcastResultArgs,
+} from './api/tempoSigning';
 import {
   clearSigningSessionPrfFirstBestEffort as clearSigningSessionPrfFirstBestEffortValue,
   clearActiveSigningSessionId as clearActiveSigningSessionIdValue,
@@ -114,8 +113,10 @@ export type { ThresholdEcdsaLoginPrefillResult } from './api/thresholdLifecycle/
 function hasThresholdPrfFirstCacheClearAllPort(
   value: unknown,
 ): value is ThresholdPrfFirstCacheClearAllPort {
-  return typeof (value as { clearAllPrfFirstForThresholdSessions?: unknown })
-    ?.clearAllPrfFirstForThresholdSessions === 'function';
+  return (
+    typeof (value as { clearAllPrfFirstForThresholdSessions?: unknown })
+      ?.clearAllPrfFirstForThresholdSessions === 'function'
+  );
 }
 
 /**
@@ -166,6 +167,7 @@ export class SigningEngine {
       touchIdPrompt: this.touchIdPrompt,
       userPreferencesManager: this.userPreferencesManager,
       nonceManager: this.nonceManager,
+      evmNonceManager: assembly.evmNonceManager,
       touchConfirm: this.touchConfirm,
       signerWorkerManager: this.signerWorkerManager,
       getWorkerBaseOrigin: () => this.workerBaseOrigin,
@@ -185,12 +187,9 @@ export class SigningEngine {
         this.persistThresholdEcdsaBootstrapChainAccount(args),
       upsertThresholdEcdsaSessionFromBootstrap: (args) =>
         this.upsertThresholdEcdsaSessionFromBootstrap(args),
-      getThresholdEcdsaKeyRefForSigning: (args) =>
-        this.getThresholdEcdsaKeyRefForSigning(args),
-      bootstrapThresholdEcdsaSession: (args) =>
-        this.bootstrapEcdsaSession(args),
-      withThresholdEcdsaCommitQueue: (queueArgs) =>
-        this.withThresholdEcdsaCommitQueue(queueArgs),
+      getThresholdEcdsaKeyRefForSigning: (args) => this.getThresholdEcdsaKeyRefForSigning(args),
+      bootstrapThresholdEcdsaSession: (args) => this.bootstrapEcdsaSession(args),
+      withThresholdEcdsaCommitQueue: (queueArgs) => this.withThresholdEcdsaCommitQueue(queueArgs),
     });
 
     initializeRuntimeBootstrap({
@@ -210,7 +209,8 @@ export class SigningEngine {
     task: () => Promise<T>,
   ): Promise<T> {
     const accountKey = String(toAccountId(String(nearAccountId || '').trim()));
-    const previous = this.thresholdEcdsaBootstrapQueueByAccount.get(accountKey) || Promise.resolve();
+    const previous =
+      this.thresholdEcdsaBootstrapQueueByAccount.get(accountKey) || Promise.resolve();
     const waitForPrevious = previous.catch(() => undefined);
 
     let release!: () => void;
@@ -236,9 +236,7 @@ export class SigningEngine {
   }
 
   async warmCriticalResources(nearAccountId?: string): Promise<void> {
-    await this.orchestrationDeps
-      .getManagerConvenienceDeps()
-      .warmCriticalResources(nearAccountId);
+    await this.orchestrationDeps.getManagerConvenienceDeps().warmCriticalResources(nearAccountId);
   }
 
   getRpId(): string {
@@ -284,6 +282,10 @@ export class SigningEngine {
     return await signTempoValue(this.orchestrationDeps.tempoSigningDeps, args);
   }
 
+  async reportTempoBroadcastResult(args: ReportTempoBroadcastResultArgs): Promise<void> {
+    await reportTempoBroadcastResultValue(this.orchestrationDeps.tempoSigningDeps, args);
+  }
+
   storeUserData(userData: StoreUserDataInput): Promise<void> {
     return storeUserDataValue(this.orchestrationDeps.registrationAccountLifecycleDeps, userData);
   }
@@ -293,7 +295,10 @@ export class SigningEngine {
   }
 
   getUserByDevice(nearAccountId: AccountId, deviceNumber: number): Promise<ClientUserData | null> {
-    return this.orchestrationDeps.indexedDB.clientDB.getNearAccountProjection(nearAccountId, deviceNumber);
+    return this.orchestrationDeps.indexedDB.clientDB.getNearAccountProjection(
+      nearAccountId,
+      deviceNumber,
+    );
   }
 
   getLastUser(): Promise<ClientUserData | null> {
@@ -323,15 +328,24 @@ export class SigningEngine {
   }
 
   storeAuthenticator(authenticatorData: StoreAuthenticatorInput): Promise<void> {
-    return storeAuthenticatorValue(this.orchestrationDeps.registrationAccountLifecycleDeps, authenticatorData);
+    return storeAuthenticatorValue(
+      this.orchestrationDeps.registrationAccountLifecycleDeps,
+      authenticatorData,
+    );
   }
 
   rollbackUserRegistration(nearAccountId: AccountId): Promise<void> {
-    return rollbackUserRegistrationValue(this.orchestrationDeps.registrationAccountLifecycleDeps, nearAccountId);
+    return rollbackUserRegistrationValue(
+      this.orchestrationDeps.registrationAccountLifecycleDeps,
+      nearAccountId,
+    );
   }
 
   hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean> {
-    return hasPasskeyCredentialValue(this.orchestrationDeps.registrationAccountLifecycleDeps, nearAccountId);
+    return hasPasskeyCredentialValue(
+      this.orchestrationDeps.registrationAccountLifecycleDeps,
+      nearAccountId,
+    );
   }
 
   atomicStoreRegistrationData(args: {
@@ -339,7 +353,10 @@ export class SigningEngine {
     credential: WebAuthnRegistrationCredential;
     publicKey: string;
   }): Promise<void> {
-    return atomicStoreRegistrationDataValue(this.orchestrationDeps.registrationAccountLifecycleDeps, args);
+    return atomicStoreRegistrationDataValue(
+      this.orchestrationDeps.registrationAccountLifecycleDeps,
+      args,
+    );
   }
 
   requestRegistrationCredentialConfirmation(params: {
@@ -348,7 +365,10 @@ export class SigningEngine {
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
   }): Promise<RegistrationCredentialConfirmationPayload> {
-    return requestRegistrationCredentialConfirmationValue(this.orchestrationDeps.registrationSessionDeps, params);
+    return requestRegistrationCredentialConfirmationValue(
+      this.orchestrationDeps.registrationSessionDeps,
+      params,
+    );
   }
 
   getAuthenticationCredentialsSerialized(args: {
@@ -357,7 +377,10 @@ export class SigningEngine {
     allowCredentials: WebAuthnAllowCredential[];
     includeSecondPrfOutput?: boolean;
   }): Promise<WebAuthnAuthenticationCredential> {
-    return getAuthenticationCredentialsSerializedValue(this.orchestrationDeps.registrationSessionDeps, args);
+    return getAuthenticationCredentialsSerializedValue(
+      this.orchestrationDeps.registrationSessionDeps,
+      args,
+    );
   }
 
   deriveNearKeypairAndEncryptFromSerialized(args: {
@@ -377,19 +400,26 @@ export class SigningEngine {
     encryptedSk?: string;
     error?: string;
   }> {
-    return deriveNearKeypairAndEncryptFromSerializedValue(this.orchestrationDeps.nearKeyDerivationDeps, args);
+    return deriveNearKeypairAndEncryptFromSerializedValue(
+      this.orchestrationDeps.nearKeyDerivationDeps,
+      args,
+    );
   }
 
   deriveNearKeypairFromCredentialViaWorker(args: {
     credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
     nearAccountId: AccountId;
   }): Promise<{ publicKey: string; privateKey: string }> {
-    return deriveNearKeypairFromCredentialViaWorkerValue(this.orchestrationDeps.nearKeyDerivationDeps, args);
+    return deriveNearKeypairFromCredentialViaWorkerValue(
+      this.orchestrationDeps.nearKeyDerivationDeps,
+      args,
+    );
   }
 
   extractCosePublicKey(attestationObjectBase64url: string): Promise<Uint8Array> {
-    return this.orchestrationDeps.nearKeyOpsDeps.signingKeyOps
-      .extractCosePublicKey(attestationObjectBase64url);
+    return this.orchestrationDeps.nearKeyOpsDeps.signingKeyOps.extractCosePublicKey(
+      attestationObjectBase64url,
+    );
   }
 
   exportKeypairWithUI(
@@ -437,10 +467,7 @@ export class SigningEngine {
   connectEd25519Session(
     args: Parameters<typeof connectEd25519SessionValue>[1],
   ): ReturnType<typeof connectEd25519SessionValue> {
-    return connectEd25519SessionValue(
-      this.orchestrationDeps.thresholdSessionActivationDeps,
-      args,
-    );
+    return connectEd25519SessionValue(this.orchestrationDeps.thresholdSessionActivationDeps, args);
   }
 
   async bootstrapEcdsaSession(
@@ -542,12 +569,16 @@ export class SigningEngine {
     return await scheduleThresholdEcdsaLoginPresignPrefillValue(
       {
         getWarmSigningSessionStatus: (nearAccountId: AccountId | string) =>
-          getWarmSigningSessionStatusValue(this.orchestrationDeps.signingSessionStateDeps, nearAccountId),
+          getWarmSigningSessionStatusValue(
+            this.orchestrationDeps.signingSessionStateDeps,
+            nearAccountId,
+          ),
         dispensePrfFirstForThresholdSession: (payload) =>
           this.touchConfirm.dispensePrfFirstForThresholdSession(payload),
         getSignerWorkerContext: () =>
           this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
-        thresholdEcdsaPresignPoolPolicy: this.tatchiPasskeyConfigs.signing.thresholdEcdsa.presignPool,
+        thresholdEcdsaPresignPoolPolicy:
+          this.tatchiPasskeyConfigs.signing.thresholdEcdsa.presignPool,
       },
       args,
     );
@@ -565,15 +596,16 @@ export class SigningEngine {
   }
 
   async clearWarmSigningSessions(nearAccountId?: AccountId | string): Promise<void> {
-    const sessionIds = nearAccountId != null
-      ? (() => {
-          const active = clearActiveSigningSessionIdValue(
-            this.orchestrationDeps.signingSessionStateDeps,
-            nearAccountId,
-          );
-          return active ? [active] : [];
-        })()
-      : clearAllActiveSigningSessionIdsValue(this.orchestrationDeps.signingSessionStateDeps);
+    const sessionIds =
+      nearAccountId != null
+        ? (() => {
+            const active = clearActiveSigningSessionIdValue(
+              this.orchestrationDeps.signingSessionStateDeps,
+              nearAccountId,
+            );
+            return active ? [active] : [];
+          })()
+        : clearAllActiveSigningSessionIdsValue(this.orchestrationDeps.signingSessionStateDeps);
 
     if (nearAccountId == null && hasThresholdPrfFirstCacheClearAllPort(this.touchConfirm)) {
       await this.touchConfirm.clearAllPrfFirstForThresholdSessions().catch(() => undefined);
@@ -629,9 +661,12 @@ export class SigningEngine {
     try {
       const prfFirstB64u = String(getPrfResultsFromCredential(args.credential).first || '').trim();
       if (!prfFirstB64u) {
-        throw new Error('Missing PRF.first output from credential (requires a PRF-enabled passkey)');
+        throw new Error(
+          'Missing PRF.first output from credential (requires a PRF-enabled passkey)',
+        );
       }
-      const workerCtx = this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext();
+      const workerCtx =
+        this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext();
       const derived = await deriveThresholdSecp256k1ClientShareWasm({
         prfFirstB64u,
         userId: nearAccountId,
@@ -674,7 +709,10 @@ export class SigningEngine {
   enrollThresholdEd25519Key(
     args: Parameters<typeof enrollThresholdEd25519KeyValue>[1],
   ): ReturnType<typeof enrollThresholdEd25519KeyValue> {
-    return enrollThresholdEd25519KeyValue(this.orchestrationDeps.thresholdEd25519LifecycleDeps, args);
+    return enrollThresholdEd25519KeyValue(
+      this.orchestrationDeps.thresholdEd25519LifecycleDeps,
+      args,
+    );
   }
 
   destroy(): void {
@@ -700,6 +738,7 @@ export type SigningEnginePublic = Pick<
   | 'warmCriticalResources'
   | 'signNear'
   | 'signTempo'
+  | 'reportTempoBroadcastResult'
   | 'storeUserData'
   | 'getAllUsers'
   | 'getUserByDevice'

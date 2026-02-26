@@ -3,7 +3,10 @@ import type {
   CloudflareDurableObjectNamespaceLike,
   ThresholdEd25519KeyStoreConfigInput,
 } from './types';
-import { THRESHOLD_PREFIX_DEFAULT, THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT } from './defaultConfigsServer';
+import {
+  THRESHOLD_PREFIX_DEFAULT,
+  THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT,
+} from './defaultConfigsServer';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { isObject as isObjectLoose } from '@shared/utils/validation';
 import {
@@ -61,8 +64,10 @@ function parseWebAuthnAuthenticatorRecord(raw: unknown): WebAuthnAuthenticatorRe
   const credentialIdB64u = toOptionalTrimmedString(raw.credentialIdB64u);
   const credentialPublicKeyB64u = toOptionalTrimmedString(raw.credentialPublicKeyB64u);
   const counter = typeof raw.counter === 'number' ? raw.counter : Number(raw.counter);
-  const createdAtMs = typeof raw.createdAtMs === 'number' ? raw.createdAtMs : Number(raw.createdAtMs);
-  const updatedAtMs = typeof raw.updatedAtMs === 'number' ? raw.updatedAtMs : Number(raw.updatedAtMs);
+  const createdAtMs =
+    typeof raw.createdAtMs === 'number' ? raw.createdAtMs : Number(raw.createdAtMs);
+  const updatedAtMs =
+    typeof raw.updatedAtMs === 'number' ? raw.updatedAtMs : Number(raw.updatedAtMs);
   if (version !== 'webauthn_authenticator_v1') return null;
   if (!credentialIdB64u || !credentialPublicKeyB64u) return null;
   if (!Number.isFinite(counter) || counter < 0) return null;
@@ -210,27 +215,29 @@ type DoResp<T> = DoOk<T> | DoErr;
 type DoGetRequest = { op: 'get'; key: string };
 type DoSetRequest = { op: 'set'; key: string; value: unknown; ttlMs?: number };
 type DoDelRequest = { op: 'del'; key: string };
-type DoRequest =
-  | DoGetRequest
-  | DoSetRequest
-  | DoDelRequest;
+type DoRequest = DoGetRequest | DoSetRequest | DoDelRequest;
 
 function isDurableObjectNamespaceLike(v: unknown): v is CloudflareDurableObjectNamespaceLike {
-  return Boolean(v)
-    && typeof v === 'object'
-    && !Array.isArray(v)
-    && typeof (v as CloudflareDurableObjectNamespaceLike).idFromName === 'function'
-    && typeof (v as CloudflareDurableObjectNamespaceLike).get === 'function';
+  return (
+    Boolean(v) &&
+    typeof v === 'object' &&
+    !Array.isArray(v) &&
+    typeof (v as CloudflareDurableObjectNamespaceLike).idFromName === 'function' &&
+    typeof (v as CloudflareDurableObjectNamespaceLike).get === 'function'
+  );
 }
 
-function resolveDoNamespaceFromConfig(config: Record<string, unknown>): CloudflareDurableObjectNamespaceLike | null {
+function resolveDoNamespaceFromConfig(
+  config: Record<string, unknown>,
+): CloudflareDurableObjectNamespaceLike | null {
   const direct = (config as { namespace?: unknown }).namespace;
   if (isDurableObjectNamespaceLike(direct)) return direct;
 
   const alt = (config as { durableObjectNamespace?: unknown }).durableObjectNamespace;
   if (isDurableObjectNamespaceLike(alt)) return alt;
 
-  const envStyle = (config as { THRESHOLD_ED25519_DO_NAMESPACE?: unknown }).THRESHOLD_ED25519_DO_NAMESPACE;
+  const envStyle = (config as { THRESHOLD_ED25519_DO_NAMESPACE?: unknown })
+    .THRESHOLD_ED25519_DO_NAMESPACE;
   if (isDurableObjectNamespaceLike(envStyle)) return envStyle;
 
   return null;
@@ -274,7 +281,11 @@ class CloudflareDurableObjectWebAuthnAuthenticatorStore implements WebAuthnAuthe
   private readonly stub: DurableObjectStubLike;
   private readonly prefix: string;
 
-  constructor(input: { namespace: CloudflareDurableObjectNamespaceLike; objectName: string; prefix: string }) {
+  constructor(input: {
+    namespace: CloudflareDurableObjectNamespaceLike;
+    objectName: string;
+    prefix: string;
+  }) {
     this.stub = resolveDoStub({ namespace: input.namespace, objectName: input.objectName });
     this.prefix = input.prefix;
   }
@@ -297,7 +308,11 @@ class CloudflareDurableObjectWebAuthnAuthenticatorStore implements WebAuthnAuthe
     if (!uid) throw new Error('Missing userId');
     const parsed = parseWebAuthnAuthenticatorRecord(record);
     if (!parsed) throw new Error('Invalid authenticator record');
-    const resp = await callDo<void>(this.stub, { op: 'set', key: this.key(uid, parsed.credentialIdB64u), value: parsed });
+    const resp = await callDo<void>(this.stub, {
+      op: 'set',
+      key: this.key(uid, parsed.credentialIdB64u),
+      value: parsed,
+    });
     if (!resp.ok) throw new Error(resp.message);
   }
 
@@ -340,8 +355,10 @@ class PostgresWebAuthnAuthenticatorStore implements WebAuthnAuthenticatorStore {
       credentialIdB64u: cid,
       credentialPublicKeyB64u: String(row.credential_public_key_b64u ?? ''),
       counter: typeof row.counter === 'number' ? row.counter : Number(row.counter),
-      createdAtMs: typeof row.created_at_ms === 'number' ? row.created_at_ms : Number(row.created_at_ms),
-      updatedAtMs: typeof row.updated_at_ms === 'number' ? row.updated_at_ms : Number(row.updated_at_ms),
+      createdAtMs:
+        typeof row.created_at_ms === 'number' ? row.created_at_ms : Number(row.created_at_ms),
+      updatedAtMs:
+        typeof row.updated_at_ms === 'number' ? row.updated_at_ms : Number(row.updated_at_ms),
     };
     return parseWebAuthnAuthenticatorRecord(record);
   }
@@ -408,8 +425,10 @@ class PostgresWebAuthnAuthenticatorStore implements WebAuthnAuthenticatorStore {
         credentialIdB64u: String(row?.credential_id_b64u ?? ''),
         credentialPublicKeyB64u: String(row?.credential_public_key_b64u ?? ''),
         counter: typeof row?.counter === 'number' ? row.counter : Number(row?.counter),
-        createdAtMs: typeof row?.created_at_ms === 'number' ? row.created_at_ms : Number(row?.created_at_ms),
-        updatedAtMs: typeof row?.updated_at_ms === 'number' ? row.updated_at_ms : Number(row?.updated_at_ms),
+        createdAtMs:
+          typeof row?.created_at_ms === 'number' ? row.created_at_ms : Number(row?.created_at_ms),
+        updatedAtMs:
+          typeof row?.updated_at_ms === 'number' ? row.updated_at_ms : Number(row?.updated_at_ms),
       });
       if (record) out.push(record);
     }
@@ -429,12 +448,17 @@ export function createWebAuthnAuthenticatorStore(input: {
   if (kind === 'cloudflare-do') {
     const namespace = resolveDoNamespaceFromConfig(config);
     if (!namespace) {
-      throw new Error('cloudflare-do webauthn store selected but no Durable Object namespace was provided (expected config.namespace)');
+      throw new Error(
+        'cloudflare-do webauthn store selected but no Durable Object namespace was provided (expected config.namespace)',
+      );
     }
-    const objectName = toOptionalTrimmedString((config as { objectName?: unknown }).objectName)
-      || toOptionalTrimmedString((config as { name?: unknown }).name)
-      || THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT;
-    input.logger.info('[webauthn] Using Cloudflare Durable Object store for authenticator persistence');
+    const objectName =
+      toOptionalTrimmedString((config as { objectName?: unknown }).objectName) ||
+      toOptionalTrimmedString((config as { name?: unknown }).name) ||
+      THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT;
+    input.logger.info(
+      '[webauthn] Using Cloudflare Durable Object store for authenticator persistence',
+    );
     return new CloudflareDurableObjectWebAuthnAuthenticatorStore({ namespace, objectName, prefix });
   }
 
@@ -444,8 +468,11 @@ export function createWebAuthnAuthenticatorStore(input: {
   }
 
   if (kind === 'upstash-redis-rest') {
-    const url = toOptionalTrimmedString(config.url) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
-    const token = toOptionalTrimmedString(config.token) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
+    const url =
+      toOptionalTrimmedString(config.url) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
+    const token =
+      toOptionalTrimmedString(config.token) ||
+      toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
     if (!url || !token) {
       throw new Error('Upstash webauthn store enabled but url/token are not both set');
     }
@@ -455,10 +482,13 @@ export function createWebAuthnAuthenticatorStore(input: {
 
   if (kind === 'redis-tcp') {
     if (!input.isNode) {
-      input.logger.warn('[webauthn] redis-tcp authenticator store is not supported in this runtime; falling back to in-memory');
+      input.logger.warn(
+        '[webauthn] redis-tcp authenticator store is not supported in this runtime; falling back to in-memory',
+      );
       return new InMemoryWebAuthnAuthenticatorStore(prefix);
     }
-    const redisUrl = toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL);
+    const redisUrl =
+      toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL);
     if (!redisUrl) {
       throw new Error('redis-tcp webauthn store enabled but redisUrl is not set');
     }
@@ -471,7 +501,10 @@ export function createWebAuthnAuthenticatorStore(input: {
       throw new Error('[webauthn] postgres authenticator store is not supported in this runtime');
     }
     const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl) throw new Error('[webauthn] postgres authenticator store enabled but POSTGRES_URL is not set');
+    if (!postgresUrl)
+      throw new Error(
+        '[webauthn] postgres authenticator store enabled but POSTGRES_URL is not set',
+      );
     input.logger.info('[webauthn] Using Postgres authenticator store');
     return new PostgresWebAuthnAuthenticatorStore({ postgresUrl, namespace: prefix });
   }
@@ -479,7 +512,9 @@ export function createWebAuthnAuthenticatorStore(input: {
   const postgresUrl = getPostgresUrlFromConfig(config);
   if (postgresUrl) {
     if (!input.isNode) {
-      throw new Error('[webauthn] POSTGRES_URL is set but Postgres is not supported in this runtime');
+      throw new Error(
+        '[webauthn] POSTGRES_URL is set but Postgres is not supported in this runtime',
+      );
     }
     input.logger.info('[webauthn] Using Postgres authenticator store');
     return new PostgresWebAuthnAuthenticatorStore({ postgresUrl, namespace: prefix });
@@ -489,16 +524,24 @@ export function createWebAuthnAuthenticatorStore(input: {
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
   if (upstashUrl || upstashToken) {
     if (!upstashUrl || !upstashToken) {
-      throw new Error('Upstash webauthn store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set');
+      throw new Error(
+        'Upstash webauthn store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set',
+      );
     }
     input.logger.info('[webauthn] Using Upstash REST authenticator store');
-    return new UpstashRedisRestWebAuthnAuthenticatorStore({ url: upstashUrl, token: upstashToken, prefix });
+    return new UpstashRedisRestWebAuthnAuthenticatorStore({
+      url: upstashUrl,
+      token: upstashToken,
+      prefix,
+    });
   }
 
   const redisUrl = toOptionalTrimmedString(config.REDIS_URL);
   if (redisUrl) {
     if (!input.isNode) {
-      input.logger.warn('[webauthn] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory');
+      input.logger.warn(
+        '[webauthn] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory',
+      );
       return new InMemoryWebAuthnAuthenticatorStore(prefix);
     }
     input.logger.info('[webauthn] Using redis-tcp authenticator store');

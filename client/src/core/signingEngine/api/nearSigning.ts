@@ -87,19 +87,23 @@ export type NearSignIntentResultByKind = {
   nep413: SignNep413MessageResult;
 };
 
-export type NearSignIntentResult<TRequest extends NearSignIntentRequest> =
-  TRequest extends { kind: infer TKind }
-    ? TKind extends keyof NearSignIntentResultByKind
-      ? NearSignIntentResultByKind[TKind]
-      : never
-    : never;
+export type NearSignIntentResult<TRequest extends NearSignIntentRequest> = TRequest extends {
+  kind: infer TKind;
+}
+  ? TKind extends keyof NearSignIntentResultByKind
+    ? NearSignIntentResultByKind[TKind]
+    : never
+  : never;
 
 export async function signNear<TRequest extends NearSignIntentRequest>(
   deps: NearSigningApiDeps,
   request: TRequest,
 ): Promise<NearSignIntentResult<TRequest>> {
   if (request.kind === 'transactionsWithActions') {
-    return (await signTransactionsWithActions(deps, request.args)) as NearSignIntentResult<TRequest>;
+    return (await signTransactionsWithActions(
+      deps,
+      request.args,
+    )) as NearSignIntentResult<TRequest>;
   }
   if (request.kind === 'delegateAction') {
     return (await signDelegateAction(deps, request.args)) as NearSignIntentResult<TRequest>;
@@ -107,7 +111,9 @@ export async function signNear<TRequest extends NearSignIntentRequest>(
   if (request.kind === 'nep413') {
     return (await signNEP413Message(deps, request.args)) as NearSignIntentResult<TRequest>;
   }
-  throw new Error(`[SigningEngine] unsupported near signing intent: ${String((request as { kind?: unknown }).kind || '')}`);
+  throw new Error(
+    `[SigningEngine] unsupported near signing intent: ${String((request as { kind?: unknown }).kind || '')}`,
+  );
 }
 
 export type NearSigningApiDeps = {
@@ -147,7 +153,7 @@ export async function signTransactionsWithActions(
     signerMode: args.signerMode,
   });
   const ctx = deps.getSignerWorkerContext();
-  return await signNearWithTouchConfirm({
+  return (await signNearWithTouchConfirm({
     chain: 'near',
     kind: 'transactionsWithActions',
     payload: {
@@ -162,7 +168,7 @@ export async function signTransactionsWithActions(
       onEvent: args.onEvent,
       sessionId: resolvedSessionId,
     },
-  }) as unknown as SignTransactionResult[];
+  })) as unknown as SignTransactionResult[];
 }
 
 export async function signDelegateAction(
@@ -183,7 +189,7 @@ export async function signDelegateAction(
     });
     console.debug('[SigningEngine][delegate] session created', { sessionId: activeSessionId });
     const ctx = deps.getSignerWorkerContext();
-    return await signNearWithTouchConfirm({
+    return (await signNearWithTouchConfirm({
       chain: 'near',
       kind: 'delegateAction',
       payload: {
@@ -198,7 +204,7 @@ export async function signDelegateAction(
         onEvent: args.onEvent,
         sessionId: activeSessionId,
       },
-    }) as unknown as SignDelegateActionResult;
+    })) as unknown as SignDelegateActionResult;
   } catch (err) {
     console.error('[SigningEngine][delegate] failed', err);
     throw err;
@@ -217,7 +223,7 @@ export async function signNEP413Message(
       signerMode: payload.signerMode,
     });
     const ctx = deps.getSignerWorkerContext();
-    const result = await signNearWithTouchConfirm({
+    const result = (await signNearWithTouchConfirm({
       chain: 'near',
       kind: 'nep413',
       payload: {
@@ -227,7 +233,7 @@ export async function signNEP413Message(
           sessionId: activeSessionId,
         },
       },
-    }) as unknown as SignNep413MessageResult;
+    })) as unknown as SignNep413MessageResult;
     if (result.success) {
       return result;
     }

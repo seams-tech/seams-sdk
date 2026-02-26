@@ -44,14 +44,14 @@ export const IframeMessage = {
 } as const;
 
 export interface IframeTransportOptions {
-  walletOrigin: string;     // e.g., https://wallet.example.com
-  servicePath?: string;      // default '/wallet-service'
+  walletOrigin: string; // e.g., https://wallet.example.com
+  servicePath?: string; // default '/wallet-service'
   connectTimeoutMs?: number; // total budget for handshake retries
-  debug?: boolean;           // enable verbose transport logging
-  signal?: AbortSignal;      // optional cancellation signal for connect()
+  debug?: boolean; // enable verbose transport logging
+  signal?: AbortSignal; // optional cancellation signal for connect()
   testOptions?: {
-    routerId?: string;         // identity tag for the iframe element
-    ownerTag?: string;         // e.g., 'app' | 'tests'
+    routerId?: string; // identity tag for the iframe element
+    ownerTag?: string; // e.g., 'app' | 'tests'
   };
 }
 
@@ -94,7 +94,11 @@ export class IframeTransport {
       return;
     }
     if (type === WebAuthnBridgeMessage.Create || type === WebAuthnBridgeMessage.Get) {
-      handleWebAuthnBridgeMessage(type as typeof WebAuthnBridgeMessage.Create | typeof WebAuthnBridgeMessage.Get, data, e);
+      handleWebAuthnBridgeMessage(
+        type as typeof WebAuthnBridgeMessage.Create | typeof WebAuthnBridgeMessage.Get,
+        data,
+        e,
+      );
     }
   };
 
@@ -109,7 +113,9 @@ export class IframeTransport {
     try {
       this.walletServiceUrl = new URL(this.opts.servicePath, this.opts.walletOrigin);
     } catch (err) {
-      throw new Error(`[IframeTransport] Invalid wallet origin (${options.walletOrigin}) or servicePath (${options.servicePath || '/wallet-service'})`);
+      throw new Error(
+        `[IframeTransport] Invalid wallet origin (${options.walletOrigin}) or servicePath (${options.servicePath || '/wallet-service'})`,
+      );
     }
     this.walletOrigin = this.walletServiceUrl.origin;
     this.testOptions = {
@@ -126,7 +132,9 @@ export class IframeTransport {
   }
 
   /** Returns the underlying iframe element if it exists. */
-  getIframeEl(): HTMLIFrameElement | null { return this.iframeEl; }
+  getIframeEl(): HTMLIFrameElement | null {
+    return this.iframeEl;
+  }
 
   /** Remove global listeners created by this transport instance. */
   dispose(): void {

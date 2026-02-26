@@ -1,4 +1,3 @@
-
 /**
  * Type-safe account ID system for NEAR account operations
  *

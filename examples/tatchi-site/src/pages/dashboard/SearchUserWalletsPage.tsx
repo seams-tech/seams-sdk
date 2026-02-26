@@ -1,9 +1,9 @@
-import React from 'react'
+import React from 'react';
 import {
   SEARCH_USER_WALLETS_FILTER_CONTROLS,
   SEARCH_USER_WALLETS_MODEL,
   SEARCH_USER_WALLETS_PLACEHOLDER,
-} from '../../components/dashboard/dashboardContent'
+} from '../../components/dashboard/dashboardContent';
 
 export function SearchUserWalletsPage(): React.JSX.Element {
   return (
@@ -11,10 +11,14 @@ export function SearchUserWalletsPage(): React.JSX.Element {
       <section className="dashboard-filters" aria-label="Wallet search controls">
         <label className="dashboard-search-control">
           <span className="dashboard-search-icon" aria-hidden="true" />
-          <input type="search" placeholder={SEARCH_USER_WALLETS_PLACEHOLDER} aria-label="Search wallets" />
+          <input
+            type="search"
+            placeholder={SEARCH_USER_WALLETS_PLACEHOLDER}
+            aria-label="Search wallets"
+          />
         </label>
 
-        {SEARCH_USER_WALLETS_FILTER_CONTROLS.map((control) => (
+        {SEARCH_USER_WALLETS_FILTER_CONTROLS.map((control) =>
           control.kind === 'select' ? (
             <button type="button" className="dashboard-select-control" key={control.value}>
               <span className="dashboard-select-control__value">{control.value}</span>
@@ -25,8 +29,8 @@ export function SearchUserWalletsPage(): React.JSX.Element {
               <span className="dashboard-columns-icon" aria-hidden="true" />
               <span>{control.value}</span>
             </button>
-          )
-        ))}
+          ),
+        )}
       </section>
 
       <section className="dashboard-view__section">
@@ -38,7 +42,7 @@ export function SearchUserWalletsPage(): React.JSX.Element {
         </ul>
       </section>
     </div>
-  )
+  );
 }
 
-export default SearchUserWalletsPage
+export default SearchUserWalletsPage;

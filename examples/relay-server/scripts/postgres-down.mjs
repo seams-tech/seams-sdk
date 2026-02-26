@@ -24,4 +24,3 @@ main().catch((err) => {
   console.error('[postgres-down] fatal:', err);
   process.exit(1);
 });
-

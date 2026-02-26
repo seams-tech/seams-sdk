@@ -70,7 +70,7 @@ When you configure the SDK, it mounts a hidden iframe from the wallet origin. Th
 </TatchiPasskeyProvider>
 ```
 
-Your app code can *ask* the wallet to sign something, but it cannot silently extract keys. If an attacker attempts to inject code into your app, they're blocked by the browser's same-origin policy.
+Your app code can _ask_ the wallet to sign something, but it cannot silently extract keys. If an attacker attempts to inject code into your app, they're blocked by the browser's same-origin policy.
 
 If app origin is compromised, the wallet remains protected.
 
@@ -81,7 +81,6 @@ WebAuthn credentials are bound to an `rpId` - choose **wallet-scoped** (`rpId = 
 Safari's iframe restrictions require ROR configuration for wallet-scoped credentials. Once chosen, `rpId` is difficult to change without migration.
 
 For detailed strategies, configuration examples, and migration guides, see [Passkey Scope](/concepts/passkey-scope).
-
 
 ## 2. Workers for secrets
 
@@ -94,7 +93,7 @@ Even inside the isolated wallet origin, we minimize what the UI main thread ever
 
 All cryptographic operations that touch key‑unwrapping power run in Web Workers (WASM):
 
-- **SecureConfirm worker (stateful, long‑lived)** – coordinates WebAuthn confirmation, verifies SecureConfirm/WebAuthn freshness (optionally via contract RPC), reconstructs/unlocks the SecureConfirm keypair (`secureconfirm_sk`) and derives `WrapKeySeed`. It can cache short‑lived *SecureConfirm sessions* (TTL + remaining uses) and dispense session keys to signers.
+- **SecureConfirm worker (stateful, long‑lived)** – coordinates WebAuthn confirmation, verifies SecureConfirm/WebAuthn freshness (optionally via contract RPC), reconstructs/unlocks the SecureConfirm keypair (`secureconfirm_sk`) and derives `WrapKeySeed`. It can cache short‑lived _SecureConfirm sessions_ (TTL + remaining uses) and dispense session keys to signers.
 - **Signer worker (one‑shot, pooled)** – receives only `WrapKeySeed + wrapKeySalt` over a dedicated `MessagePort`, derives the KEK, decrypts `near_sk`, signs, and then terminates (a new worker is used for the next request).
 - **1 SecureConfirm worker → N signer workers** – a single SecureConfirm worker can serve many disposable signer workers over time. Each signing attempt uses a fresh `MessageChannel` for worker‑to‑worker secret transfer.
 
@@ -115,7 +114,6 @@ Security consequence:
 - A compromise of only one side (client or relayer) is insufficient for signature forgery.
 - A relayer cannot unilaterally sign user transactions.
 - A client-side attacker without successful WebAuthn verification cannot complete signing.
-
 
 ## 4. Security headers and cross-origin isolation
 
@@ -171,17 +169,15 @@ Permissions-Policy:
 The iframe is created with matching `allow` attributes:
 
 ```html
-<iframe allow="publickey-credentials-get; publickey-credentials-create" ...>
+<iframe allow="publickey-credentials-get; publickey-credentials-create" ...></iframe>
 ```
 
 The SDK's Vite plugin automatically configures the Permissions-Policy header and iframe `allow` attribute:
 
 ```ts
-import { tatchiBuildHeaders } from '@tatchi-xyz/sdk/plugins/vite'
+import { tatchiBuildHeaders } from '@tatchi-xyz/sdk/plugins/vite';
 
-plugins: [
-  tatchiBuildHeaders({ walletOrigin: process.env.VITE_WALLET_ORIGIN })
-]
+plugins: [tatchiBuildHeaders({ walletOrigin: process.env.VITE_WALLET_ORIGIN })];
 ```
 
 **Result:** Only the wallet iframe can run WebAuthn ceremonies. Your app cannot accidentally (or maliciously) call WebAuthn directly.
@@ -195,7 +191,6 @@ The transaction confirmation modal runs inside a cross-origin isolated iframe co
 - The app origin cannot script or replace wallet-origin confirmation controls.
 
 **Key takeaway:** CSP + Permissions Policy + COEP/CORP make the signing and confirmation boundary auditable and enforceable at the browser policy layer.
-
 
 ## 5. User verification guarantees
 
@@ -213,7 +208,7 @@ The wallet owns the final confirmation UI from its origin. Your app can:
 - Display progress indicators
 - Show transaction previews
 
-But the *real* confirm button lives inside the wallet origin, where your app cannot manipulate it.
+But the _real_ confirm button lives inside the wallet origin, where your app cannot manipulate it.
 
 During flows that require user presence:
 
@@ -225,20 +220,22 @@ During flows that require user presence:
 Your app receives progress events but cannot bypass or fake the confirmation:
 
 ```ts
-import { ActionPhase } from '@tatchi-xyz/sdk/react'
+import { ActionPhase } from '@tatchi-xyz/sdk/react';
 
 await tatchi.near.executeAction({
   nearAccountId: 'alice.testnet',
   receiverId: 'contract.testnet',
-  actionArgs: [/* ... */],
+  actionArgs: [
+    /* ... */
+  ],
   options: {
     onEvent: (event) => {
       if (event.phase === ActionPhase.STEP_2_USER_CONFIRMATION) {
-        console.log('Waiting for user to click Confirm in wallet UI')
+        console.log('Waiting for user to click Confirm in wallet UI');
       }
     },
   },
-})
+});
 ```
 
 In high-assurance signing flows, WebAuthn should require `userVerification` so approvals are bound to an explicit biometric/PIN gate, not only a passive "touch" signal.
@@ -262,6 +259,7 @@ During a SecureConfirm‑backed signing flow, the wallet:
 ### KEK derivation (two‑factor unwrapping)
 
 The signer’s KEK is derived from a `WrapKeySeed` that requires both:
+
 - a fresh `PRF.first_auth` (TouchID/WebAuthn), and
 - the SecureConfirm secret key bytes (`secureconfirm_sk_bytes`) held only in the SecureConfirm worker (unlocked via the wallet’s SecureConfirm unlock flow, e.g. Shamir 3‑pass or explicit recovery).
 
@@ -305,9 +303,9 @@ Invariant:
 This is the core WYSIWYS guarantee: what the user confirms is exactly what is authorized and signed.
 
 **Primary vs backup**
+
 - **Primary:** Shamir 3-pass (relay + device) runs on every session unlock for 2-of-2 security.
 - **Backup:** PRF.second-based recovery is available for registration, device linking, and explicit Recovery Mode; it is zeroized immediately and not used for routine signing.
-
 
 ## Next steps
 

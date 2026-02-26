@@ -73,7 +73,7 @@ export function parseAccountIdFromSubject(raw: string | undefined | null): strin
   if (!subjectText) return null;
 
   const match = subjectText.match(
-    /^recover-([A-Za-z0-9]{6})\s+([^\s]+)(?:\s+ed25519:[^\s]+)?\s*$/i
+    /^recover-([A-Za-z0-9]{6})\s+([^\s]+)(?:\s+ed25519:[^\s]+)?\s*$/i,
   );
   if (match?.[2]) {
     return match[2];
@@ -98,11 +98,18 @@ export function parseRecoverEmailRequest(body: unknown): RecoverEmailParseResult
 
   const subjectHeader = emailHeaders['subject'];
   const parsedAccountId = parseAccountIdFromSubject(subjectHeader || emailBlob);
-  const headerAccountId = String(emailHeaders['x-near-account-id'] || emailHeaders['x-account-id'] || '').trim();
+  const headerAccountId = String(
+    emailHeaders['x-near-account-id'] || emailHeaders['x-account-id'] || '',
+  ).trim();
   const accountId = (parsedAccountId || headerAccountId || '').trim();
 
   if (!accountId) {
-    return { ok: false, status: 400, code: 'missing_account', message: 'x-near-account-id header is required' };
+    return {
+      ok: false,
+      status: 400,
+      code: 'missing_account',
+      message: 'x-near-account-id header is required',
+    };
   }
   if (!emailBlob) {
     return { ok: false, status: 400, code: 'missing_email', message: 'raw email blob is required' };
@@ -111,8 +118,7 @@ export function parseRecoverEmailRequest(body: unknown): RecoverEmailParseResult
   return { ok: true, accountId, emailBlob };
 }
 
-const EMAIL_ADDRESS_REGEX =
-  /([a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*)/;
+const EMAIL_ADDRESS_REGEX = /([a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*)/;
 
 export function canonicalizeEmail(input: string): string {
   const raw = String(input || '').trim();
@@ -124,10 +130,9 @@ export function canonicalizeEmail(input: string): string {
   // Prefer the common "Name <email@domain>" format when present, but still
   // validate/extract the actual address via regex.
   const angleMatch = withoutHeaderName.match(/<([^>]+)>/);
-  const candidates = [
-    angleMatch?.[1],
-    withoutHeaderName,
-  ].filter((v): v is string => typeof v === 'string' && v.length > 0);
+  const candidates = [angleMatch?.[1], withoutHeaderName].filter(
+    (v): v is string => typeof v === 'string' && v.length > 0,
+  );
 
   for (const candidate of candidates) {
     const cleaned = candidate.replace(/^mailto:\s*/i, '');
@@ -177,7 +182,7 @@ export function parseHeaderValue(rawEmail: string, name: string): string | undef
 }
 
 export function parseRecoverSubjectBindings(
-  rawEmail: string
+  rawEmail: string,
 ): { requestId: string; accountId: string; newPublicKey: string } | null {
   // Accept either a full RFC822 email or a bare Subject value.
   let subjectText = (parseHeaderValue(rawEmail, 'subject') || String(rawEmail || '')).trim();
@@ -189,9 +194,7 @@ export function parseRecoverSubjectBindings(
 
   // Strict format:
   //   "recover-<request_id> <accountId> ed25519:<pk>"
-  const match = subjectText.match(
-    /^recover-([A-Za-z0-9]{6})\s+([^\s]+)\s+ed25519:([^\s]+)\s*$/i
-  );
+  const match = subjectText.match(/^recover-([A-Za-z0-9]{6})\s+([^\s]+)\s+ed25519:([^\s]+)\s*$/i);
   if (!match) return null;
 
   const [, requestId, accountId, newPublicKey] = match;

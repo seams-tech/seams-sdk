@@ -6,7 +6,8 @@ export type HandshakeScheduler = {
   sleep?: (ms: number) => Promise<void>;
 };
 
-const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 function createAbortError(): Error {
   return new Error('Wallet iframe connect aborted');
@@ -26,7 +27,11 @@ function createAbortPromise(signal?: AbortSignal): Promise<never> | null {
   });
 }
 
-export async function waitForLoad(iframe: HTMLIFrameElement, debug: boolean, signal?: AbortSignal): Promise<void> {
+export async function waitForLoad(
+  iframe: HTMLIFrameElement,
+  debug: boolean,
+  signal?: AbortSignal,
+): Promise<void> {
   if (isIframeLoaded(iframe)) return;
   trackIframeLoad(iframe);
   await new Promise<void>((resolve, reject) => {
@@ -50,14 +55,20 @@ export async function waitForLoad(iframe: HTMLIFrameElement, debug: boolean, sig
     };
     const timeout = window.setTimeout(() => {
       if (!done && debug) {
-        console.debug('[IframeTransport] waitForLoad did not observe load event within 150ms; continuing');
+        console.debug(
+          '[IframeTransport] waitForLoad did not observe load event within 150ms; continuing',
+        );
       }
       finish();
     }, 150);
-    iframe.addEventListener('load', () => {
-      clearTimeout(timeout);
-      finish();
-    }, { once: true });
+    iframe.addEventListener(
+      'load',
+      () => {
+        clearTimeout(timeout);
+        finish();
+      },
+      { once: true },
+    );
     if (signal) {
       abortListener = () => {
         clearTimeout(timeout);
@@ -82,7 +93,7 @@ export async function waitForBootHint(
   const now = scheduler?.now ?? Date.now;
   const sleep = scheduler?.sleep ?? defaultSleep;
   const start = now();
-  while (!isBooted() && (now() - start) < timeoutMs) {
+  while (!isBooted() && now() - start < timeoutMs) {
     throwIfAborted(signal);
     await sleep(50);
   }
@@ -150,7 +161,9 @@ export async function performHandshake(opts: HandshakeOptions): Promise<MessageP
     };
 
     // Ensure the receiving side is actively listening before we post the CONNECT
-    try { port1.start?.(); } catch {}
+    try {
+      port1.start?.();
+    } catch {}
 
     const cw = opts.iframe.contentWindow;
     if (!cw) {
@@ -168,7 +181,7 @@ export async function performHandshake(opts: HandshakeOptions): Promise<MessageP
       warnedNullOrigin,
       elapsed,
       attempt,
-      opts.walletServiceUrl
+      opts.walletServiceUrl,
     );
 
     const interval = attempt < 10 ? 200 : attempt < 20 ? 400 : 800;
@@ -196,20 +209,29 @@ function postConnectMessage(
   warnedNullOrigin: boolean,
   elapsed: number,
   attempt: number,
-  walletServiceUrl: URL
+  walletServiceUrl: URL,
 ): boolean {
   try {
     cw.postMessage(data, targetOrigin, [port2]);
     return warnedNullOrigin;
   } catch (e) {
-    const message = e instanceof Error ? e.message ?? String(e) : String(e);
+    const message = e instanceof Error ? (e.message ?? String(e)) : String(e);
     if (!warnedNullOrigin && message.includes("'null'")) {
       warnedNullOrigin = true;
-      console.warn('[IframeTransport] CONNECT blocked; iframe origin appears to be null. Check that %s is reachable and responds with Cross-Origin-Resource-Policy: cross-origin.', walletServiceUrl.toString());
+      console.warn(
+        '[IframeTransport] CONNECT blocked; iframe origin appears to be null. Check that %s is reachable and responds with Cross-Origin-Resource-Policy: cross-origin.',
+        walletServiceUrl.toString(),
+      );
     }
     // Attempt wildcard fallback and continue retries
-    try { cw.postMessage(data, '*', [port2]); } catch {}
-    console.debug('[IframeTransport] CONNECT attempt %d threw after %d ms; retrying.', attempt, elapsed);
+    try {
+      cw.postMessage(data, '*', [port2]);
+    } catch {}
+    console.debug(
+      '[IframeTransport] CONNECT attempt %d threw after %d ms; retrying.',
+      attempt,
+      elapsed,
+    );
     return warnedNullOrigin;
   }
 }

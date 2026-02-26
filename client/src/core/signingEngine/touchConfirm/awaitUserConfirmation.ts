@@ -54,10 +54,9 @@ type ConfirmResponseEnvelope = {
  */
 export function awaitUserConfirmationV2(
   requestInput: UserConfirmRequest,
-  opts: { timeoutMs?: number; signal?: AbortSignal } = {}
+  opts: { timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<WorkerConfirmationResponse> {
   return new Promise((resolve, reject) => {
-
     // 1) Validate request object coming from the UserConfirm worker runtime.
     // Rust passes a plain JS object (serde_wasm_bindgen), so we validate defensively here
     // to avoid propagating malformed requests to the main thread.
@@ -98,7 +97,7 @@ export function awaitUserConfirmationV2(
         confirmed: env.data.confirmed,
         credential: env.data.credential,
         transaction_context: env.data.transactionContext,
-        error: env.data.error
+        error: env.data.error,
       };
       return resolve(response);
     };
@@ -184,7 +183,9 @@ function normalizeChannelToken(token: unknown): string {
   return token.trim();
 }
 
-function resolveEnvelopeRequestId(env: ConfirmResponseEnvelope | UserConfirmResponseEnvelope): string {
+function resolveEnvelopeRequestId(
+  env: ConfirmResponseEnvelope | UserConfirmResponseEnvelope,
+): string {
   const topLevelRequestId = isString((env as { requestId?: unknown }).requestId)
     ? String((env as { requestId?: string }).requestId).trim()
     : '';
@@ -198,7 +199,9 @@ function isMatchingChannelToken(
   env: ConfirmResponseEnvelope | UserConfirmResponseEnvelope,
   expectedChannelToken: string,
 ): boolean {
-  return normalizeChannelToken((env as { channelToken?: unknown }).channelToken) === expectedChannelToken;
+  return (
+    normalizeChannelToken((env as { channelToken?: unknown }).channelToken) === expectedChannelToken
+  );
 }
 
 function isValidUserConfirmOrigin(messageEvent: MessageEvent): boolean {

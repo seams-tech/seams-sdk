@@ -8,12 +8,18 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
     try {
       const session = ctx.opts.session;
       if (!session) {
-        res.status(501).json({ authenticated: false, code: 'sessions_disabled', message: 'Sessions are not configured' });
+        res.status(501).json({
+          authenticated: false,
+          code: 'sessions_disabled',
+          message: 'Sessions are not configured',
+        });
         return;
       }
       const parsed = await session.parse(req.headers || {});
       if (!parsed.ok) {
-        res.status(401).json({ authenticated: false, code: 'unauthorized', message: 'No valid session' });
+        res
+          .status(401)
+          .json({ authenticated: false, code: 'unauthorized', message: 'No valid session' });
         return;
       }
       const claims: any = (parsed as any).claims || {};
@@ -21,23 +27,32 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       const kind = typeof kindRaw === 'string' ? kindRaw.trim() : '';
       // Only treat app sessions as authenticated for session/* endpoints.
       if (kind !== 'app_session_v1') {
-        res.status(401).json({ authenticated: false, code: 'unauthorized', message: 'No valid app session' });
+        res
+          .status(401)
+          .json({ authenticated: false, code: 'unauthorized', message: 'No valid app session' });
         return;
       }
       const userId = String(claims.sub || '').trim();
-      const appSessionVersion = typeof claims.appSessionVersion === 'string' ? claims.appSessionVersion.trim() : '';
+      const appSessionVersion =
+        typeof claims.appSessionVersion === 'string' ? claims.appSessionVersion.trim() : '';
       if (!userId || !appSessionVersion) {
-        res.status(401).json({ authenticated: false, code: 'unauthorized', message: 'Invalid app session' });
+        res
+          .status(401)
+          .json({ authenticated: false, code: 'unauthorized', message: 'Invalid app session' });
         return;
       }
       const validated = await ctx.service.validateAppSessionVersion({ userId, appSessionVersion });
       if (!validated.ok) {
-        res.status(validated.code === 'internal' ? 500 : 401).json({ authenticated: false, code: validated.code, message: validated.message });
+        res
+          .status(validated.code === 'internal' ? 500 : 401)
+          .json({ authenticated: false, code: validated.code, message: validated.message });
         return;
       }
       res.status(200).json({ authenticated: true, claims: parsed.claims });
     } catch (e: any) {
-      res.status(500).json({ authenticated: false, code: 'internal', message: e?.message || 'Internal error' });
+      res
+        .status(500)
+        .json({ authenticated: false, code: 'internal', message: e?.message || 'Internal error' });
     }
   });
 
@@ -74,14 +89,17 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         return;
       }
       const userId = String(claims.sub || '').trim();
-      const appSessionVersion = typeof claims.appSessionVersion === 'string' ? claims.appSessionVersion.trim() : '';
+      const appSessionVersion =
+        typeof claims.appSessionVersion === 'string' ? claims.appSessionVersion.trim() : '';
       if (!userId || !appSessionVersion) {
         res.status(401).json({ code: 'unauthorized', message: 'Invalid app session' });
         return;
       }
       const validated = await ctx.service.validateAppSessionVersion({ userId, appSessionVersion });
       if (!validated.ok) {
-        res.status(validated.code === 'internal' ? 500 : 401).json({ code: validated.code, message: validated.message });
+        res
+          .status(validated.code === 'internal' ? 500 : 401)
+          .json({ code: validated.code, message: validated.message });
         return;
       }
       const out = await session.refresh(req.headers || {});

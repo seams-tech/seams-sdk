@@ -6,11 +6,7 @@ import { hasAccessKey } from '@/core/rpcClients/near/rpcCalls';
 import { ActionType, type ActionArgsWasm, type TransactionInputWasm } from '@/core/types/actions';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { DEFAULT_WAIT_STATUS } from '@/core/types/rpc';
-import type {
-  ConfirmationConfig,
-  RpcCallPayload,
-  SignerMode,
-} from '@/core/types/signer-worker';
+import type { ConfirmationConfig, RpcCallPayload, SignerMode } from '@/core/types/signer-worker';
 import type { SignTransactionResult } from '@/core/types/tatchi';
 import type {
   WebAuthnAuthenticationCredential,
@@ -44,7 +40,10 @@ type SignTransactionsWithActionsInput = {
 
 export type ThresholdEd25519LifecycleDeps = {
   indexedDB: UnifiedIndexedDBManager;
-  touchIdPrompt: Pick<TouchIdPrompt, 'getRpId' | 'getAuthenticationCredentialsSerializedForChallengeB64u'>;
+  touchIdPrompt: Pick<
+    TouchIdPrompt,
+    'getRpId' | 'getAuthenticationCredentialsSerializedForChallengeB64u'
+  >;
   signingKeyOps: Pick<NearSigningKeyOps, 'deriveThresholdEd25519ClientVerifyingShare'>;
   getSignerWorkerRequestOperation: () => SignerWorkerManagerContext['requestWorkerOperation'];
   createSessionId: (prefix: string) => string;

@@ -139,8 +139,9 @@ export class UpstashRedisRestClient {
   async eval(script: string, keys: string[], args: string[]): Promise<unknown | null> {
     const keyList = Array.isArray(keys) ? keys : [];
     const argList = Array.isArray(args) ? args : [];
-    const segments = ['eval', script, String(keyList.length), ...keyList, ...argList]
-      .map((part) => encodeURIComponent(String(part)));
+    const segments = ['eval', script, String(keyList.length), ...keyList, ...argList].map((part) =>
+      encodeURIComponent(String(part)),
+    );
     const json = await this.call(`/${segments.join('/')}`, 'POST');
     if (isObject(json) && typeof (json as Record<string, unknown>).error === 'string') {
       throw new Error(`Upstash EVAL error: ${(json as Record<string, unknown>).error as string}`);
@@ -193,21 +194,28 @@ function parseOneResp(buf: Uint8Array): { value: RedisResp; rest: Uint8Array } |
   if (!head) return null;
   const { line, next } = head;
 
-  if (prefix === 43) { // '+'
+  if (prefix === 43) {
+    // '+'
     return { value: { type: 'simple', value: line }, rest: buf.slice(next) };
   }
-  if (prefix === 45) { // '-'
+  if (prefix === 45) {
+    // '-'
     return { value: { type: 'error', value: line }, rest: buf.slice(next) };
   }
-  if (prefix === 58) { // ':'
+  if (prefix === 58) {
+    // ':'
     const n = Number(line);
     return { value: { type: 'integer', value: Number.isFinite(n) ? n : 0 }, rest: buf.slice(next) };
   }
-  if (prefix === 36) { // '$'
+  if (prefix === 36) {
+    // '$'
     const len = Number(line);
     if (len === -1) return { value: { type: 'bulk', value: null }, rest: buf.slice(next) };
     if (!Number.isFinite(len) || len < 0) {
-      return { value: { type: 'error', value: `Invalid bulk length: ${line}` }, rest: buf.slice(next) };
+      return {
+        value: { type: 'error', value: `Invalid bulk length: ${line}` },
+        rest: buf.slice(next),
+      };
     }
     const end = next + len;
     if (buf.length < end + 2) return null;
@@ -215,7 +223,10 @@ function parseOneResp(buf: Uint8Array): { value: RedisResp; rest: Uint8Array } |
     return { value: { type: 'bulk', value: data }, rest: buf.slice(end + 2) };
   }
 
-  return { value: { type: 'error', value: `Unsupported RESP prefix ${prefix}` }, rest: new Uint8Array(0) };
+  return {
+    value: { type: 'error', value: `Unsupported RESP prefix ${prefix}` },
+    rest: new Uint8Array(0),
+  };
 }
 
 type RedisSocket = import('node:net').Socket | import('node:tls').TLSSocket;
@@ -348,7 +359,10 @@ export async function redisSetJson(
   if (resp.type === 'error') throw new Error(`Redis SET error: ${resp.value}`);
 }
 
-export async function redisGetdelJson(client: RedisTcpClient, key: string): Promise<unknown | null> {
+export async function redisGetdelJson(
+  client: RedisTcpClient,
+  key: string,
+): Promise<unknown | null> {
   const resp = await client.send(['GETDEL', key]);
   if (resp.type === 'bulk') {
     if (!resp.value) return null;

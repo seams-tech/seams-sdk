@@ -1,7 +1,4 @@
-export type {
-  RorOriginsProvider,
-  RelayRouterRorOptions,
-} from './ror';
+export type { RorOriginsProvider, RelayRouterRorOptions } from './ror';
 
 export {
   validateRelayRouterRorOptions,

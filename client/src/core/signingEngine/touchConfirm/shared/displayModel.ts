@@ -4,7 +4,7 @@ export type DisplaySeverity = 'info' | 'warning' | 'critical';
 
 export interface TxDisplayModel {
   chain: DisplayChain;
-  chainId?: string;
+  chainId?: number;
   intentDigest?: string;
   signerAccount?: string;
   title?: string;

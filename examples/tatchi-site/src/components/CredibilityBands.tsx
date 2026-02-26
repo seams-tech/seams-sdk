@@ -1,7 +1,7 @@
 type CredibilityLogo = {
-  label: string
-  tone?: 'ink' | 'slate'
-}
+  label: string;
+  tone?: 'ink' | 'slate';
+};
 
 const trustedLogos: CredibilityLogo[] = [
   { label: 'Ethereum', tone: 'ink' },
@@ -12,15 +12,15 @@ const trustedLogos: CredibilityLogo[] = [
   { label: 'Hyperliquid', tone: 'ink' },
   { label: 'Solana', tone: 'ink' },
   { label: 'Polygon', tone: 'slate' },
-]
+];
 
 function renderLogo(logo: CredibilityLogo): React.JSX.Element {
-  const tone = logo.tone ?? 'ink'
+  const tone = logo.tone ?? 'ink';
   return (
     <li key={logo.label} className={`credibility-logo credibility-logo--${tone}`}>
       {logo.label}
     </li>
-  )
+  );
 }
 
 export function CredibilityBands(): React.JSX.Element {
@@ -33,7 +33,7 @@ export function CredibilityBands(): React.JSX.Element {
         {trustedLogos.map(renderLogo)}
       </ul>
     </section>
-  )
+  );
 }
 
-export default CredibilityBands
+export default CredibilityBands;

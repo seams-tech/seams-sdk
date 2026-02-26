@@ -1,6 +1,6 @@
-import React from 'react'
-import { Footer } from '../components/Footer'
-import NavbarStatic from '../components/Navbar/NavbarStatic'
+import React from 'react';
+import { Footer } from '../components/Footer';
+import NavbarStatic from '../components/Navbar/NavbarStatic';
 
 export function ContactPage(): React.JSX.Element {
   return (
@@ -11,8 +11,8 @@ export function ContactPage(): React.JSX.Element {
           <header className="contact-page__intro">
             <h1 id="contact-page-title">Talk to us.</h1>
             <p>
-              Tell us what you&apos;re building. We&apos;ll show you how to bring it
-              onchain with secure, compliant wallet infrastructure.
+              Tell us what you&apos;re building. We&apos;ll show you how to bring it onchain with
+              secure, compliant wallet infrastructure.
             </p>
           </header>
 
@@ -23,29 +23,51 @@ export function ContactPage(): React.JSX.Element {
           >
             <div className="contact-form__row contact-form__row--two">
               <label className="contact-form__field">
-                <span className="contact-form__label">First Name<span className="contact-form__required" aria-hidden>*</span></span>
+                <span className="contact-form__label">
+                  First Name
+                  <span className="contact-form__required" aria-hidden>
+                    *
+                  </span>
+                </span>
                 <input type="text" name="firstName" required />
               </label>
               <label className="contact-form__field">
-                <span className="contact-form__label">Last Name<span className="contact-form__required" aria-hidden>*</span></span>
+                <span className="contact-form__label">
+                  Last Name
+                  <span className="contact-form__required" aria-hidden>
+                    *
+                  </span>
+                </span>
                 <input type="text" name="lastName" required />
               </label>
             </div>
 
             <label className="contact-form__field">
-              <span className="contact-form__label">Email<span className="contact-form__required" aria-hidden>*</span></span>
+              <span className="contact-form__label">
+                Email
+                <span className="contact-form__required" aria-hidden>
+                  *
+                </span>
+              </span>
               <input type="email" name="email" required />
             </label>
 
             <label className="contact-form__field">
-              <span className="contact-form__label">Company name<span className="contact-form__required" aria-hidden>*</span></span>
+              <span className="contact-form__label">
+                Company name
+                <span className="contact-form__required" aria-hidden>
+                  *
+                </span>
+              </span>
               <input type="text" name="company" required />
             </label>
 
             <label className="contact-form__field">
               <span className="contact-form__label">
                 Company website (or link to account on X or LinkedIn)
-                <span className="contact-form__required" aria-hidden>*</span>
+                <span className="contact-form__required" aria-hidden>
+                  *
+                </span>
               </span>
               <input type="url" name="website" required />
             </label>
@@ -53,11 +75,15 @@ export function ContactPage(): React.JSX.Element {
             <label className="contact-form__field">
               <span className="contact-form__label">
                 What best describes the industry your company is in?
-                <span className="contact-form__required" aria-hidden>*</span>
+                <span className="contact-form__required" aria-hidden>
+                  *
+                </span>
               </span>
               <span className="contact-form__select-wrap">
                 <select name="industry" required defaultValue="">
-                  <option value="" disabled>Select an industry</option>
+                  <option value="" disabled>
+                    Select an industry
+                  </option>
                   <option value="defi">DeFi</option>
                   <option value="payments">Payments</option>
                   <option value="consumer">Consumer app</option>
@@ -70,7 +96,9 @@ export function ContactPage(): React.JSX.Element {
             <label className="contact-form__field">
               <span className="contact-form__label">
                 Tell us what you&apos;d like to discuss.
-                <span className="contact-form__required" aria-hidden>*</span>
+                <span className="contact-form__required" aria-hidden>
+                  *
+                </span>
               </span>
               <textarea
                 name="details"
@@ -83,11 +111,15 @@ export function ContactPage(): React.JSX.Element {
             <label className="contact-form__field">
               <span className="contact-form__label">
                 Where did you first hear about Tatchi?
-                <span className="contact-form__required" aria-hidden>*</span>
+                <span className="contact-form__required" aria-hidden>
+                  *
+                </span>
               </span>
               <span className="contact-form__select-wrap">
                 <select name="source" required defaultValue="">
-                  <option value="" disabled>Select where you heard about Tatchi</option>
+                  <option value="" disabled>
+                    Select where you heard about Tatchi
+                  </option>
                   <option value="x">X / Twitter</option>
                   <option value="linkedin">LinkedIn</option>
                   <option value="search">Search</option>
@@ -102,13 +134,15 @@ export function ContactPage(): React.JSX.Element {
               <small>Privacy - Terms</small>
             </div>
 
-            <button type="submit" className="contact-form__submit">Submit</button>
+            <button type="submit" className="contact-form__submit">
+              Submit
+            </button>
           </form>
         </section>
       </main>
       <Footer />
     </>
-  )
+  );
 }
 
-export default ContactPage
+export default ContactPage;

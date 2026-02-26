@@ -46,9 +46,5 @@ function deriveFromModuleUrl(): string | undefined {
 }
 
 export function resolveEmbeddedBase(): string {
-  return (
-    readGlobalEmbeddedBase() ||
-    deriveFromModuleUrl() ||
-    '/sdk/'
-  );
+  return readGlobalEmbeddedBase() || deriveFromModuleUrl() || '/sdk/';
 }

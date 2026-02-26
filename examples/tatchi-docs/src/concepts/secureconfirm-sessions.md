@@ -6,7 +6,7 @@ title: SecureConfirm Sessions
 
 SecureConfirm sessions turn the SecureConfirm‑WebAuthn unlock into a short‑lived **session capability**: the user approves once (TouchID/WebAuthn), then the wallet can sign multiple actions for a limited window without re‑prompting.
 
-Instead of keeping decrypted keys around, the wallet caches only the *minimum capability* needed to unwrap the vault inside workers:
+Instead of keeping decrypted keys around, the wallet caches only the _minimum capability_ needed to unwrap the vault inside workers:
 
 - **SecureConfirm worker (WASM)** keeps `{WrapKeySeed, wrapKeySalt}` + policy (`ttl_ms`, `remaining_uses`) in memory.
 - **Signer workers (WASM)** remain **one‑shot**; each request gets key material over a fresh `MessageChannel`, signs, then terminates.
@@ -29,15 +29,16 @@ Running a full SecureConfirm challenge + WebAuthn assertion for every local sign
 ## Two layers of “session”
 
 **1) SecureConfirm‑owned session (capability)**
+
 - Stored in the SecureConfirm worker’s memory and keyed by `sessionId`.
 - Contains `WrapKeySeed` bytes and `wrapKeySalt` plus TTL/usage budget.
 - Enforced in the SecureConfirm worker (expire/exhaust → refuse to dispense).
 
 **2) Per‑request signing handshake**
+
 - For each signing request, the wallet creates a fresh `MessageChannel`.
 - One port is transferred to the SecureConfirm worker and one port to a new signer worker.
-- SecureConfirm sends `{WrapKeySeed, wrapKeySalt}` *only over that port*; it is never put into a main‑thread JS payload.
-
+- SecureConfirm sends `{WrapKeySeed, wrapKeySalt}` _only over that port_; it is never put into a main‑thread JS payload.
 
 ## Flow (cold vs warm)
 
@@ -97,7 +98,6 @@ const login = await tatchi.auth.login('alice.testnet');
 console.log(login.signingSession); // { status: 'active' | 'expired' | ... }
 ```
 
-
 ## Session handshake diagram
 
 ```mermaid
@@ -136,12 +136,12 @@ sequenceDiagram
     UI-->>App: return signed result(s)
 ```
 
-
 ::: info Security properties
+
 - `WrapKeySeed` never enters main‑thread JS; it is transferred worker‑to‑worker over a `MessagePort`.
 - The signer worker is one‑shot and holds no cross‑request state; session enforcement lives in the SecureConfirm worker.
 - Warm signing is only possible if the SecureConfirm worker has a valid (unexpired, unexhausted) session capability.
-:::
+  :::
 
 ## Operational invariants
 

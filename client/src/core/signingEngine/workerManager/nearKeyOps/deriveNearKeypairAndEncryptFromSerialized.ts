@@ -1,10 +1,9 @@
-
 import type { AuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import {
   WorkerRequestType,
   isDeriveNearKeypairAndEncryptSuccess,
 } from '@/core/types/signer-worker';
-import { AccountId, toAccountId } from "@/core/types/accountIds";
+import { AccountId, toAccountId } from '@/core/types/accountIds';
 import { getLastLoggedInDeviceNumber } from '@/core/signingEngine/signers/webauthn/device/getDeviceNumber';
 import { SignerWorkerManagerContext } from '..';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
@@ -24,9 +23,9 @@ export async function deriveNearKeypairAndEncryptFromSerialized({
   options,
   sessionId,
 }: {
-  ctx: SignerWorkerManagerContext,
+  ctx: SignerWorkerManagerContext;
   credential: WebAuthnRegistrationCredential;
-  nearAccountId: AccountId,
+  nearAccountId: AccountId;
   options?: {
     authenticatorOptions?: AuthenticatorOptions;
     deviceNumber?: number;
@@ -69,10 +68,14 @@ export async function deriveNearKeypairAndEncryptFromSerialized({
         payload: withSessionId(sessionId, {
           nearAccountId: nearAccountId,
           credential,
-          authenticatorOptions: options?.authenticatorOptions ? {
-            userVerification: toEnumUserVerificationPolicy(options.authenticatorOptions.userVerification),
-            originPolicy: options.authenticatorOptions.originPolicy,
-          } : undefined,
+          authenticatorOptions: options?.authenticatorOptions
+            ? {
+                userVerification: toEnumUserVerificationPolicy(
+                  options.authenticatorOptions.userVerification,
+                ),
+                originPolicy: options.authenticatorOptions.originPolicy,
+              }
+            : undefined,
           prfFirstB64u,
           wrapKeySalt,
           prfSecondB64u,
@@ -100,9 +103,10 @@ export async function deriveNearKeypairAndEncryptFromSerialized({
     const shouldPersistToDb = options?.persistToDb !== false;
     if (shouldPersistToDb) {
       // Prefer explicitly provided deviceNumber, else derive from IndexedDB state
-      const deviceNumber = (typeof options?.deviceNumber === 'number')
-        ? options!.deviceNumber!
-        : await getLastLoggedInDeviceNumber(nearAccountId, ctx.indexedDB.clientDB);
+      const deviceNumber =
+        typeof options?.deviceNumber === 'number'
+          ? options!.deviceNumber!
+          : await getLastLoggedInDeviceNumber(nearAccountId, ctx.indexedDB.clientDB);
       await ctx.indexedDB.storeNearLocalKeyMaterial({
         nearAccountId,
         deviceNumber,
@@ -130,7 +134,7 @@ export async function deriveNearKeypairAndEncryptFromSerialized({
       success: false,
       nearAccountId,
       publicKey: '',
-      error: message
+      error: message,
     };
   }
 }

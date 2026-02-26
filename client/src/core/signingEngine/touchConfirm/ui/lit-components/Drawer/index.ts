@@ -9,12 +9,14 @@ export type DrawerTheme = 'dark' | 'light';
 const SHEET_HEIGHT_VH = 100; // Tall sheet to allow reveal/overpull
 const DEFAULT_VISIBLE_VH = 50; // Fallback visible height when not provided
 const FLICK_UP_CLOSE_THRESHOLD = -0.6; // px/ms (~600 px/s upward)
-const FLICK_DOWN_CLOSE_THRESHOLD = 0.7;  // px/ms (~700 px/s downward)
+const FLICK_DOWN_CLOSE_THRESHOLD = 0.7; // px/ms (~700 px/s downward)
 const NEAR_CLOSED_PX = 50; // Close when within 50px of bottom
-const OVERPULL_SHEET_FACTOR = 0.5;    // Allow at least 50% of sheet height
+const OVERPULL_SHEET_FACTOR = 0.5; // Allow at least 50% of sheet height
 const OVERPULL_VIEWPORT_FACTOR = 0.5; // Or 50% of viewport height
 
-function clamp(n: number, min: number, max: number): number { return Math.max(min, Math.min(max, n)); }
+function clamp(n: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, n));
+}
 
 export class DrawerElement extends LitElementWithProps {
   static properties = {
@@ -83,9 +85,13 @@ export class DrawerElement extends LitElementWithProps {
     // - Composition: sharing CSS variables across LitElements is simpler in light DOM; Shadow DOM would
     //   require pushing CSS vars into every component boundary. We therefore expose a stable `contentRoot`
     //   and use a slot-like adoption helper instead of <slot> in Shadow DOM.
-    const root = (this as unknown) as HTMLElement;
+    const root = this as unknown as HTMLElement;
     // Ensure drawer structural styles are available on the host/document
-    const p = ensureExternalStyles(root as ShadowRoot | DocumentFragment | HTMLElement, 'drawer.css', 'data-w3a-drawer-css');
+    const p = ensureExternalStyles(
+      root as ShadowRoot | DocumentFragment | HTMLElement,
+      'drawer.css',
+      'data-w3a-drawer-css',
+    );
     this._stylePromises.push(p);
     p.catch(() => {});
     return root;
@@ -102,7 +108,9 @@ export class DrawerElement extends LitElementWithProps {
     this.overpullPx = 120;
   }
 
-  protected getComponentPrefix(): string { return 'modal'; }
+  protected getComponentPrefix(): string {
+    return 'modal';
+  }
 
   // Capture initial light-DOM children so they can be projected into the template
   private _initialChildren: Node[] | null = null;
@@ -123,9 +131,14 @@ export class DrawerElement extends LitElementWithProps {
   protected shouldUpdate(_changed: Map<string | number | symbol, unknown>): boolean {
     if (this._stylesReady) return true;
     if (!this._stylesAwaiting) {
-      const settle = Promise.all(this._stylePromises)
-        .then(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
-      this._stylesAwaiting = settle.then(() => { this._stylesReady = true; this.requestUpdate(); });
+      const settle = Promise.all(this._stylePromises).then(
+        () =>
+          new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+      );
+      this._stylesAwaiting = settle.then(() => {
+        this._stylesReady = true;
+        this.requestUpdate();
+      });
     }
     return false;
   }
@@ -133,12 +146,24 @@ export class DrawerElement extends LitElementWithProps {
   disconnectedCallback() {
     super.disconnectedCallback();
     this.removeDragListeners();
-    this.drawerElement?.removeEventListener('transitionend', this.handleTransitionEnd as EventListener);
+    this.drawerElement?.removeEventListener(
+      'transitionend',
+      this.handleTransitionEnd as EventListener,
+    );
     this.aboveFoldResizeObserver?.disconnect();
     this.drawerResizeObserver?.disconnect();
-    if (this.detachViewportSync) { this.detachViewportSync(); this.detachViewportSync = undefined; }
-    if (this.detachContentAnimSync) { this.detachContentAnimSync(); this.detachContentAnimSync = undefined; }
-    if (this._childObserver) { this._childObserver.disconnect(); this._childObserver = null; }
+    if (this.detachViewportSync) {
+      this.detachViewportSync();
+      this.detachViewportSync = undefined;
+    }
+    if (this.detachContentAnimSync) {
+      this.detachContentAnimSync();
+      this.detachContentAnimSync = undefined;
+    }
+    if (this._childObserver) {
+      this._childObserver.disconnect();
+      this._childObserver = null;
+    }
   }
 
   // Ensure visual state resets immediately when `open` attribute flips
@@ -146,7 +171,9 @@ export class DrawerElement extends LitElementWithProps {
     super.attributeChangedCallback?.(name, oldVal, newVal);
     if (name === 'open' && newVal !== oldVal) {
       // When opening, rely on CSS; avoid inline style writes for CSP
-      if (newVal !== null) { this.isClosing = false; }
+      if (newVal !== null) {
+        this.isClosing = false;
+      }
     }
   }
 
@@ -159,13 +186,18 @@ export class DrawerElement extends LitElementWithProps {
     // Seed a safe default for drag translate so if a drag starts before
     // we have published a pixel value, it falls back to the current open
     // translate instead of 0px. This prevents any momentary jump to the top.
-    try { this.setCssVars({ '--w3a-drawer__drag-translate': 'var(--w3a-drawer__open-translate)' }); } catch {}
+    try {
+      this.setCssVars({ '--w3a-drawer__drag-translate': 'var(--w3a-drawer__open-translate)' });
+    } catch {}
     // Ensure no transition on first measurement; enable after a frame
     requestAnimationFrame(() => {
       this._initialMount = false;
       this.requestUpdate();
     });
-    this.drawerElement?.addEventListener('transitionend', this.handleTransitionEnd as EventListener);
+    this.drawerElement?.addEventListener(
+      'transitionend',
+      this.handleTransitionEnd as EventListener,
+    );
     // Encapsulated: follow inner height transitions so the drawer animates with content
     this.setupAnimateWithContentSync();
     // Recalculate when slot content changes or viewport resizes
@@ -203,9 +235,13 @@ export class DrawerElement extends LitElementWithProps {
         this.isClosing = false;
         // No first-open transition suppression; double rAF in the viewer handles settle.
         this._firstOpen = false;
-        this.dispatchEvent(new CustomEvent('w3a:drawer-open-start', { bubbles: true, composed: true }));
+        this.dispatchEvent(
+          new CustomEvent('w3a:drawer-open-start', { bubbles: true, composed: true }),
+        );
       } else {
-        this.dispatchEvent(new CustomEvent('w3a:drawer-close-start', { bubbles: true, composed: true }));
+        this.dispatchEvent(
+          new CustomEvent('w3a:drawer-close-start', { bubbles: true, composed: true }),
+        );
       }
     }
 
@@ -295,7 +331,8 @@ export class DrawerElement extends LitElementWithProps {
     }
 
     // Default: auto-fit to content height (.above-fold)
-    const unit = (typeof CSS !== 'undefined' && CSS.supports && CSS.supports('height', '1dvh')) ? 'dvh' : 'vh';
+    const unit =
+      typeof CSS !== 'undefined' && CSS.supports && CSS.supports('height', '1dvh') ? 'dvh' : 'vh';
     this.setCssVars({ '--w3a-drawer__sheet-height': `${SHEET_HEIGHT_VH}${unit}` });
 
     // Measure above-fold bottom relative to drawer top to fit content exactly above the fold
@@ -305,7 +342,8 @@ export class DrawerElement extends LitElementWithProps {
     const drawerRect = drawer.getBoundingClientRect();
     const aboveRect = above.getBoundingClientRect();
     const contentBottomPx = Math.max(0, Math.round(aboveRect.bottom - drawerRect.top));
-    const sheetPx = drawer.offsetHeight || (typeof window !== 'undefined' ? window.innerHeight : contentBottomPx);
+    const sheetPx =
+      drawer.offsetHeight || (typeof window !== 'undefined' ? window.innerHeight : contentBottomPx);
     // Compute desired open translate from content.
     // For auto height (no explicit `height` provided), fully follow the
     // measured content height so the drawer can both open further (expand)
@@ -363,21 +401,27 @@ export class DrawerElement extends LitElementWithProps {
     };
 
     const stopLoop = () => {
-      if (this._contentAnimRAF != null) { cancelAnimationFrame(this._contentAnimRAF); this._contentAnimRAF = null; }
+      if (this._contentAnimRAF != null) {
+        cancelAnimationFrame(this._contentAnimRAF);
+        this._contentAnimRAF = null;
+      }
       this.syncCssVarsForOpenTranslate();
     };
 
     const syncTimingFromElement = (el: Element) => {
       const cs = getComputedStyle(el);
-      const props = (cs.transitionProperty || '').split(',').map(s => s.trim());
-      const durations = (cs.transitionDuration || '').split(',').map(s => s.trim());
-      const easings = (cs.transitionTimingFunction || '').split(',').map(s => s.trim());
-      let idx = props.findIndex(p => p === 'height');
-      if (idx < 0) idx = props.findIndex(p => p === 'all');
+      const props = (cs.transitionProperty || '').split(',').map((s) => s.trim());
+      const durations = (cs.transitionDuration || '').split(',').map((s) => s.trim());
+      const easings = (cs.transitionTimingFunction || '').split(',').map((s) => s.trim());
+      let idx = props.findIndex((p) => p === 'height');
+      if (idx < 0) idx = props.findIndex((p) => p === 'all');
       if (idx < 0) idx = 0;
       const dur = durations[Math.min(idx, durations.length - 1)] || '100ms';
       const ease = easings[Math.min(idx, easings.length - 1)] || 'cubic-bezier(0.2, 0.6, 0.2, 1)';
-      this.setCssVars({ '--w3a-drawer__transition-duration': dur, '--w3a-drawer__transition-easing': ease });
+      this.setCssVars({
+        '--w3a-drawer__transition-duration': dur,
+        '--w3a-drawer__transition-easing': ease,
+      });
     };
 
     const onRun = (ev: Event) => {
@@ -412,7 +456,10 @@ export class DrawerElement extends LitElementWithProps {
       host.removeEventListener('transitionrun', onRun, true);
       host.removeEventListener('transitionstart', onStart, true);
       host.removeEventListener('transitionend', onEnd, true);
-      if (this._contentAnimRAF != null) { cancelAnimationFrame(this._contentAnimRAF); this._contentAnimRAF = null; }
+      if (this._contentAnimRAF != null) {
+        cancelAnimationFrame(this._contentAnimRAF);
+        this._contentAnimRAF = null;
+      }
       this._activeHeightTransitions = 0;
     };
   }
@@ -436,17 +483,26 @@ export class DrawerElement extends LitElementWithProps {
       const supportsPointer = typeof window !== 'undefined' && 'PointerEvent' in window;
       if (supportsPointer) {
         // Prefer Pointer Events for unified handling
-        drawerElement.addEventListener('pointerdown', this.handlePointerDown as EventListener, { capture: true } as AddEventListenerOptions);
+        drawerElement.addEventListener(
+          'pointerdown',
+          this.handlePointerDown as EventListener,
+          { capture: true } as AddEventListenerOptions,
+        );
         document.addEventListener('pointermove', this.handlePointerMove as EventListener);
         document.addEventListener('pointerup', this.handlePointerUp as EventListener);
         document.addEventListener('pointercancel', this.handlePointerCancel as EventListener);
       } else {
         // Fallback: mouse + touch
-        drawerElement.addEventListener('mousedown', this.handleMouseDown, { capture: true } as AddEventListenerOptions);
+        drawerElement.addEventListener('mousedown', this.handleMouseDown, {
+          capture: true,
+        } as AddEventListenerOptions);
         document.addEventListener('mousemove', this.handleMouseMove);
         document.addEventListener('mouseup', this.handleMouseUp);
 
-        drawerElement.addEventListener('touchstart', this.handleTouchStart, { passive: false, capture: true });
+        drawerElement.addEventListener('touchstart', this.handleTouchStart, {
+          passive: false,
+          capture: true,
+        });
         document.addEventListener('touchmove', this.handleTouchMove, { passive: false });
         document.addEventListener('touchend', this.handleTouchEnd, { passive: false });
       }
@@ -457,11 +513,13 @@ export class DrawerElement extends LitElementWithProps {
     const root = this.renderRoot as unknown as ParentNode;
     const drawerElement = root.querySelector('.drawer') as HTMLElement | null;
     if (!drawerElement) return;
-    const vv = (typeof window !== 'undefined') ? window.visualViewport : undefined;
+    const vv = typeof window !== 'undefined' ? window.visualViewport : undefined;
     const schedule = () => this.suppressTransitionForViewportTick();
 
     window.addEventListener('resize', schedule, { passive: true } as AddEventListenerOptions);
-    window.addEventListener('orientationchange', schedule, { passive: true } as AddEventListenerOptions);
+    window.addEventListener('orientationchange', schedule, {
+      passive: true,
+    } as AddEventListenerOptions);
     vv && vv.addEventListener && vv.addEventListener('resize', schedule);
     vv && vv.addEventListener && vv.addEventListener('scroll', schedule);
 
@@ -538,7 +596,9 @@ export class DrawerElement extends LitElementWithProps {
   };
 
   private handlePointerUp = (e: PointerEvent) => {
-    if (this.pendingDrag) { this.pendingDrag = false; }
+    if (this.pendingDrag) {
+      this.pendingDrag = false;
+    }
     if (this.isDragging) {
       this.endDrag();
       e.preventDefault();
@@ -662,7 +722,9 @@ export class DrawerElement extends LitElementWithProps {
       // the next style recalculation that includes the `.dragging` selector.
       // Without this, some engines may briefly resolve the var() fallback (0px)
       // for one frame, causing a jump to the top when starting an upward drag.
-      try { void this.drawerElement.offsetHeight; } catch {}
+      try {
+        void this.drawerElement.offsetHeight;
+      } catch {}
       this.drawerElement.classList.add('dragging');
     }
   }
@@ -683,10 +745,15 @@ export class DrawerElement extends LitElementWithProps {
 
     // Elastic overdrag only when crossing above the fully-open rest position
     // Allow at least 50% of sheet or viewport height, or the configured minimum
-    const viewportHalf = (typeof window !== 'undefined' && window.innerHeight)
-      ? window.innerHeight * OVERPULL_VIEWPORT_FACTOR
-      : 0;
-    const maxOverdragUpPx = Math.max(this.drawerHeight * OVERPULL_SHEET_FACTOR, viewportHalf, this.overpullPx);
+    const viewportHalf =
+      typeof window !== 'undefined' && window.innerHeight
+        ? window.innerHeight * OVERPULL_VIEWPORT_FACTOR
+        : 0;
+    const maxOverdragUpPx = Math.max(
+      this.drawerHeight * OVERPULL_SHEET_FACTOR,
+      viewportHalf,
+      this.overpullPx,
+    );
 
     const rawTargetTranslateY = this.startTranslateYPx + this.dragDistance;
     let targetTranslateY = rawTargetTranslateY;
@@ -713,7 +780,9 @@ export class DrawerElement extends LitElementWithProps {
 
     const drawerHeight = this.drawerHeight || this.drawerElement.offsetHeight;
     // Preserve 0 as a valid rest position; only fall back if NaN
-    const openRestPx = Number.isFinite(this.openRestTranslateYPx) ? this.openRestTranslateYPx : drawerHeight * 0.20;
+    const openRestPx = Number.isFinite(this.openRestTranslateYPx)
+      ? this.openRestTranslateYPx
+      : drawerHeight * 0.2;
 
     // Compute effective velocities (instantaneous and average over gesture)
     const now = Date.now();
@@ -740,7 +809,9 @@ export class DrawerElement extends LitElementWithProps {
 
     // Evaluate current position for near-closed detection
     const currentTransformTy = this.parseTranslateY(getComputedStyle(this.drawerElement).transform);
-    const currentTranslatePx = Number.isFinite(currentTransformTy) ? currentTransformTy : openRestPx;
+    const currentTranslatePx = Number.isFinite(currentTransformTy)
+      ? currentTransformTy
+      : openRestPx;
 
     // If near fully closed (bottom within threshold), close
     if (currentTranslatePx >= drawerHeight - NEAR_CLOSED_PX) {
@@ -763,12 +834,18 @@ export class DrawerElement extends LitElementWithProps {
     if (!transform || transform === 'none') return NaN;
     // matrix(a, b, c, d, tx, ty)
     if (transform.startsWith('matrix(')) {
-      const values = transform.slice(7, -1).split(',').map(v => parseFloat(v.trim()));
+      const values = transform
+        .slice(7, -1)
+        .split(',')
+        .map((v) => parseFloat(v.trim()));
       return values.length === 6 ? values[5] : NaN;
     }
     // matrix3d(a1..a16) -> ty is value 14 (index 13)
     if (transform.startsWith('matrix3d(')) {
-      const values = transform.slice(9, -1).split(',').map(v => parseFloat(v.trim()));
+      const values = transform
+        .slice(9, -1)
+        .split(',')
+        .map((v) => parseFloat(v.trim()));
       return values.length === 16 ? values[13] : NaN;
     }
     // translateY(XXpx/%)
@@ -781,25 +858,33 @@ export class DrawerElement extends LitElementWithProps {
     if (this.isClosing) return;
     this.isClosing = true;
     // Let CSS drive close; avoid inline style writes
-    if (this.drawerElement) { this.drawerElement.classList.remove('dragging'); }
+    if (this.drawerElement) {
+      this.drawerElement.classList.remove('dragging');
+    }
     // Flip the `open` property so CSS applies the closed transform and overlay state
     this.open = false;
     // Notify host after state change
     dispatchLitCancel(this);
     // Reset closing guard after a short delay to avoid duplicate cancels
-    setTimeout(() => { this.isClosing = false; }, 300);
+    setTimeout(() => {
+      this.isClosing = false;
+    }, 300);
   }
 
   private onClose = () => {
     if (this.loading) return;
     if (this.isClosing) return;
 
-    if (this.drawerElement) { this.drawerElement.classList.remove('dragging'); }
+    if (this.drawerElement) {
+      this.drawerElement.classList.remove('dragging');
+    }
     // Flip open then notify host (use lit-cancel for host listeners)
     this.open = false;
     dispatchLitCancel(this);
     this.isClosing = true;
-    setTimeout(() => { this.isClosing = false; }, 300);
+    setTimeout(() => {
+      this.isClosing = false;
+    }, 300);
   };
 
   // Click/tap on the handle toggles open/close
@@ -813,12 +898,16 @@ export class DrawerElement extends LitElementWithProps {
 
   // Imperative API (uncontrolled usage)
   public show() {
-    if (this.drawerElement) { this.drawerElement.classList.remove('dragging'); }
+    if (this.drawerElement) {
+      this.drawerElement.classList.remove('dragging');
+    }
     this.open = true;
   }
 
   public hide(reason: string = 'programmatic') {
-    if (this.drawerElement) { this.drawerElement.classList.remove('dragging'); }
+    if (this.drawerElement) {
+      this.drawerElement.classList.remove('dragging');
+    }
     this.open = false;
     // Dispatch lit-cancel so host listeners can react
     dispatchLitCancel(this, { reason });
@@ -826,12 +915,17 @@ export class DrawerElement extends LitElementWithProps {
 
   public toggle(force?: boolean) {
     const target = typeof force === 'boolean' ? force : !this.open;
-    if (target) this.show(); else this.hide('toggle');
+    if (target) this.show();
+    else this.hide('toggle');
   }
 
   // Public helpers for explicit open/close control
-  public handleOpen() { this.show(); }
-  public handleClose() { this.hide('handleClose'); }
+  public handleOpen() {
+    this.show();
+  }
+  public handleClose() {
+    this.hide('handleClose');
+  }
 
   render() {
     return html`
@@ -839,7 +933,17 @@ export class DrawerElement extends LitElementWithProps {
       <section class="drawer ${this._initialMount ? 'init' : ''}" role="dialog" aria-modal="true">
         <div class="relative">
           <div class="handle" @click=${this.onHandleClick}></div>
-          ${this.showCloseButton ? html`<button aria-label="Close" title="Close" class="close-btn" @click=${this.onClose} @touchend=${this.onClose}>×</button>` : null}
+          ${this.showCloseButton
+            ? html`<button
+                aria-label="Close"
+                title="Close"
+                class="close-btn"
+                @click=${this.onClose}
+                @touchend=${this.onClose}
+              >
+                ×
+              </button>`
+            : null}
         </div>
         <div class="body">
           ${this.errorMessage ? html`<div class="error">${this.errorMessage}</div>` : null}

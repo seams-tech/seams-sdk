@@ -35,9 +35,10 @@ export async function warmCriticalResources(
   // Best-effort: open IndexedDB and warm key data for the account.
   if (nearAccountId) {
     const accountId = toAccountId(nearAccountId);
-    const deviceNumber = await getLastLoggedInDeviceNumber(accountId, deps.indexedDB.clientDB).catch(
-      () => 1,
-    );
+    const deviceNumber = await getLastLoggedInDeviceNumber(
+      accountId,
+      deps.indexedDB.clientDB,
+    ).catch(() => 1);
     await Promise.all([
       deps.indexedDB.getNearLocalKeyMaterial(accountId, deviceNumber),
       deps.indexedDB.getNearThresholdKeyMaterial(accountId, deviceNumber),

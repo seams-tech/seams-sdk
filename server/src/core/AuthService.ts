@@ -1,15 +1,25 @@
 import { ActionType, type ActionArgsWasm, validateActionArgsWasm } from '@/core/types/actions';
-import { MinimalNearClient, SignedTransaction, type AccessKeyList } from '@/core/rpcClients/near/NearClient';
+import {
+  MinimalNearClient,
+  SignedTransaction,
+  type AccessKeyList,
+} from '@/core/rpcClients/near/NearClient';
 import type { FinalExecutionOutcome } from '@near-js/types';
 import { toPublicKeyStringFromSecretKey } from './nearKeys';
 import { createAuthServiceConfig } from './config';
 import { formatGasToTGas, formatYoctoToNear } from './utils';
 import { parseContractExecutionError } from './errors';
 import { isValidAccountId, toOptionalTrimmedString } from '@shared/utils/validation';
-import { coerceThresholdEd25519ShareMode, coerceThresholdNodeRole } from './ThresholdService/config';
+import {
+  coerceThresholdEd25519ShareMode,
+  coerceThresholdNodeRole,
+} from './ThresholdService/config';
 import type { ThresholdSigningService as ThresholdSigningServiceType } from './ThresholdService';
 import type { ThresholdEd25519RegistrationKeygenResult } from './ThresholdService';
-import { createThresholdSigningService, THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from './ThresholdService';
+import {
+  createThresholdSigningService,
+  THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
+} from './ThresholdService';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 import initSignerWasm, {
   handle_signer_message,
@@ -47,13 +57,19 @@ import {
   type WebAuthnAuthenticatorRecord,
   type WebAuthnAuthenticatorStore,
 } from './WebAuthnAuthenticatorStore';
-import { createWebAuthnLoginChallengeStore, type WebAuthnLoginChallengeStore } from './WebAuthnLoginChallengeStore';
+import {
+  createWebAuthnLoginChallengeStore,
+  type WebAuthnLoginChallengeStore,
+} from './WebAuthnLoginChallengeStore';
 import {
   createWebAuthnCredentialBindingStore,
   type WebAuthnCredentialBindingRecord,
   type WebAuthnCredentialBindingStore,
 } from './WebAuthnCredentialBindingStore';
-import { createWebAuthnSyncChallengeStore, type WebAuthnSyncChallengeStore } from './WebAuthnSyncChallengeStore';
+import {
+  createWebAuthnSyncChallengeStore,
+  type WebAuthnSyncChallengeStore,
+} from './WebAuthnSyncChallengeStore';
 import {
   createDeviceLinkingSessionStore,
   type DeviceLinkingSessionRecord,
@@ -66,7 +82,12 @@ import {
   type NearPublicKeyStore,
 } from './NearPublicKeyStore';
 import { ensurePostgresSchema, getPostgresUrlFromConfig } from '../storage/postgres';
-import { createIdentityStore, type IdentityStore, type LinkIdentityResult, type UnlinkIdentityResult } from './IdentityStore';
+import {
+  createIdentityStore,
+  type IdentityStore,
+  type LinkIdentityResult,
+  type UnlinkIdentityResult,
+} from './IdentityStore';
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v);
@@ -79,13 +100,22 @@ function decodeBase64UrlOrBase64(input: string, fieldName: string): Uint8Array {
     try {
       return base64Decode(input);
     } catch (err) {
-      throw new Error(`Invalid ${fieldName}: expected base64url/base64 string (${errorMessage(err) || 'decode failed'})`);
+      throw new Error(
+        `Invalid ${fieldName}: expected base64url/base64 string (${errorMessage(err) || 'decode failed'})`,
+      );
     }
   }
 }
 
-function parseClientDataJsonBase64url(clientDataJSONB64u: string): { challenge: string; origin: string; type: string } {
-  const bytes = decodeBase64UrlOrBase64(clientDataJSONB64u, 'webauthn_authentication.response.clientDataJSON');
+function parseClientDataJsonBase64url(clientDataJSONB64u: string): {
+  challenge: string;
+  origin: string;
+  type: string;
+} {
+  const bytes = decodeBase64UrlOrBase64(
+    clientDataJSONB64u,
+    'webauthn_authentication.response.clientDataJSON',
+  );
   const json = new TextDecoder().decode(bytes);
   const obj = JSON.parse(json) as unknown;
   if (!isObject(obj)) throw new Error('Invalid clientDataJSON: expected object');
@@ -156,13 +186,17 @@ function getSignerWasmUrls(logger: NormalizedLogger): URL[] {
   }
 
   if (!resolved.length) {
-    throw new Error('Unable to resolve signer WASM location from import.meta.url. Provide AuthServiceConfig.signerWasm.moduleOrPath in this runtime.');
+    throw new Error(
+      'Unable to resolve signer WASM location from import.meta.url. Provide AuthServiceConfig.signerWasm.moduleOrPath in this runtime.',
+    );
   }
 
   return resolved;
 }
 
-function summarizeThresholdEd25519Config(cfg: AuthServiceConfig['thresholdEd25519KeyStore']): string {
+function summarizeThresholdEd25519Config(
+  cfg: AuthServiceConfig['thresholdEd25519KeyStore'],
+): string {
   if (!cfg) return 'thresholdEd25519: not configured';
 
   const nodeRole = coerceThresholdNodeRole(cfg.THRESHOLD_NODE_ROLE);
@@ -185,10 +219,15 @@ function summarizeThresholdEd25519Config(cfg: AuthServiceConfig['thresholdEd2551
     const redisUrl = toOptionalTrimmedString(cfg.REDIS_URL);
     const postgresUrl = toOptionalTrimmedString(cfg.POSTGRES_URL);
     if (postgresUrl) return 'postgres';
-    return (upstashUrl || upstashToken) ? 'upstash' : (redisUrl ? 'redis' : 'in-memory');
+    return upstashUrl || upstashToken ? 'upstash' : redisUrl ? 'redis' : 'in-memory';
   })();
 
-  const parts = [`thresholdEd25519: configured`, `nodeRole=${nodeRole}`, `shareMode=${shareMode}`, `store=${store}`];
+  const parts = [
+    `thresholdEd25519: configured`,
+    `nodeRole=${nodeRole}`,
+    `shareMode=${shareMode}`,
+    `store=${store}`,
+  ];
   if (masterSecretSet) parts.push('masterSecret=set');
   return parts.join(' ');
 }
@@ -221,8 +260,12 @@ export class AuthService {
   private identityStoreInitialized = false;
   private identityStore: IdentityStore | null = null;
   private storageInitPromise: Promise<void> | null = null;
-  private googleJwksCache: { keysByKid: Map<string, JsonWebKey>; expiresAtMs: number } | null = null;
-  private googleJwksFetchPromise: Promise<{ keysByKid: Map<string, JsonWebKey>; expiresAtMs: number }> | null = null;
+  private googleJwksCache: { keysByKid: Map<string, JsonWebKey>; expiresAtMs: number } | null =
+    null;
+  private googleJwksFetchPromise: Promise<{
+    keysByKid: Map<string, JsonWebKey>;
+    expiresAtMs: number;
+  }> | null = null;
 
   // Transaction queue to prevent nonce conflicts
   private transactionQueue: Promise<any> = Promise.resolve();
@@ -243,8 +286,10 @@ export class AuthService {
       nearClient: this.nearClient,
       logger: this.config.logger,
       ensureSignerAndRelayerAccount: () => this._ensureSignerAndRelayerAccount(),
-      queueTransaction: <T>(fn: () => Promise<T>, label: string) => this.queueTransaction(fn, label),
-      fetchTxContext: (accountId: string, publicKey: string) => this.fetchTxContext(accountId, publicKey),
+      queueTransaction: <T>(fn: () => Promise<T>, label: string) =>
+        this.queueTransaction(fn, label),
+      fetchTxContext: (accountId: string, publicKey: string) =>
+        this.fetchTxContext(accountId, publicKey),
       signWithPrivateKey: (input) => this.signWithPrivateKey(input),
       getRelayerPublicKey: () => this.relayerPublicKey,
     });
@@ -259,10 +304,11 @@ export class AuthService {
     • accountInitialBalance: ${this.config.accountInitialBalance} (${formatYoctoToNear(this.config.accountInitialBalance)} NEAR)
     • createAccountAndRegisterGas: ${this.config.createAccountAndRegisterGas} (${formatGasToTGas(this.config.createAccountAndRegisterGas)})
     • ${summarizeThresholdEd25519Config(this.config.thresholdEd25519KeyStore)}
-    ${this.config.googleOidc?.clientIds?.length
+    ${
+      this.config.googleOidc?.clientIds?.length
         ? `• googleOidc: ${this.config.googleOidc.clientIds.length} clientId(s)`
         : `• googleOidc: not configured`
-      }
+    }
     `);
   }
 
@@ -294,7 +340,7 @@ export class AuthService {
     await this._ensureSignerAndRelayerAccount();
     return {
       accountId: this.config.relayerAccount,
-      publicKey: this.relayerPublicKey
+      publicKey: this.relayerPublicKey,
     };
   }
 
@@ -451,7 +497,9 @@ export class AuthService {
     return this.identityStore;
   }
 
-  async listIdentities(input: { userId: string }): Promise<{ ok: boolean; subjects?: string[]; code?: string; message?: string }> {
+  async listIdentities(input: {
+    userId: string;
+  }): Promise<{ ok: boolean; subjects?: string[]; code?: string; message?: string }> {
     try {
       const userId = toOptionalTrimmedString(input.userId);
       if (!userId) return { ok: false, code: 'invalid_args', message: 'Missing userId' };
@@ -459,11 +507,19 @@ export class AuthService {
       const subjects = await store.listSubjectsByUserId(userId);
       return { ok: true, subjects };
     } catch (e: unknown) {
-      return { ok: false, code: 'internal', message: errorMessage(e) || 'Failed to list identities' };
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to list identities',
+      };
     }
   }
 
-  async linkIdentity(input: { userId: string; subject: string; allowMoveIfSoleIdentity?: boolean }): Promise<LinkIdentityResult> {
+  async linkIdentity(input: {
+    userId: string;
+    subject: string;
+    allowMoveIfSoleIdentity?: boolean;
+  }): Promise<LinkIdentityResult> {
     try {
       const store = this.getIdentityStore();
       return await store.linkSubjectToUserId({
@@ -481,11 +537,17 @@ export class AuthService {
       const store = this.getIdentityStore();
       return await store.unlinkSubjectFromUserId({ userId: input.userId, subject: input.subject });
     } catch (e: unknown) {
-      return { ok: false, code: 'internal', message: errorMessage(e) || 'Failed to unlink identity' };
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to unlink identity',
+      };
     }
   }
 
-  async getOrCreateAppSessionVersion(input: { userId: string }): Promise<
+  async getOrCreateAppSessionVersion(input: {
+    userId: string;
+  }): Promise<
     | { ok: true; appSessionVersion: string }
     | { ok: false; code: 'invalid_args' | 'internal'; message: string }
   > {
@@ -496,11 +558,17 @@ export class AuthService {
       const appSessionVersion = await store.ensureAppSessionVersionByUserId(userId);
       return { ok: true, appSessionVersion };
     } catch (e: unknown) {
-      return { ok: false, code: 'internal', message: errorMessage(e) || 'Failed to ensure app session version' };
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to ensure app session version',
+      };
     }
   }
 
-  async rotateAppSessionVersion(input: { userId: string }): Promise<
+  async rotateAppSessionVersion(input: {
+    userId: string;
+  }): Promise<
     | { ok: true; appSessionVersion: string }
     | { ok: false; code: 'invalid_args' | 'internal'; message: string }
   > {
@@ -511,14 +579,18 @@ export class AuthService {
       const appSessionVersion = await store.rotateAppSessionVersionByUserId(userId);
       return { ok: true, appSessionVersion };
     } catch (e: unknown) {
-      return { ok: false, code: 'internal', message: errorMessage(e) || 'Failed to rotate app session version' };
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to rotate app session version',
+      };
     }
   }
 
-  async validateAppSessionVersion(input: { userId: string; appSessionVersion: string }): Promise<
-    | { ok: true }
-    | { ok: false; code: 'unauthorized' | 'internal'; message: string }
-  > {
+  async validateAppSessionVersion(input: {
+    userId: string;
+    appSessionVersion: string;
+  }): Promise<{ ok: true } | { ok: false; code: 'unauthorized' | 'internal'; message: string }> {
     try {
       const userId = toOptionalTrimmedString(input.userId);
       const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
@@ -532,7 +604,11 @@ export class AuthService {
       }
       return { ok: true };
     } catch (e: unknown) {
-      return { ok: false, code: 'internal', message: errorMessage(e) || 'Failed to validate app session version' };
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to validate app session version',
+      };
     }
   }
 
@@ -595,7 +671,9 @@ export class AuthService {
     try {
       this.relayerPublicKey = toPublicKeyStringFromSecretKey(this.config.relayerPrivateKey);
     } catch (e) {
-      this.logger.warn('Failed to derive public key from relayerPrivateKey; ensure it is in ed25519:<base58> format');
+      this.logger.warn(
+        'Failed to derive public key from relayerPrivateKey; ensure it is in ed25519:<base58> format',
+      );
       this.relayerPublicKey = '';
     }
 
@@ -642,7 +720,9 @@ export class AuthService {
           return;
         } catch (err) {
           lastError = err;
-          this.logger.warn(`Failed to initialize signer WASM from ${candidate.toString()}, trying next candidate...`);
+          this.logger.warn(
+            `Failed to initialize signer WASM from ${candidate.toString()}, trying next candidate...`,
+          );
         }
       }
 
@@ -655,20 +735,23 @@ export class AuthService {
 
   private isNodeEnvironment(): boolean {
     // Detect true Node.js, not Cloudflare Workers with nodejs_compat polyfills.
-    const processObj = (globalThis as unknown as { process?: { versions?: { node?: string } } }).process;
+    const processObj = (globalThis as unknown as { process?: { versions?: { node?: string } } })
+      .process;
     const isNode = Boolean(processObj?.versions?.node);
     // Cloudflare Workers expose WebSocketPair and may polyfill process.
     const webSocketPair = (globalThis as unknown as { WebSocketPair?: unknown }).WebSocketPair;
     const nav = (globalThis as unknown as { navigator?: { userAgent?: unknown } }).navigator;
-    const isCloudflareWorker = typeof webSocketPair !== 'undefined'
-      || (typeof nav?.userAgent === 'string' && nav.userAgent.includes('Cloudflare-Workers'));
+    const isCloudflareWorker =
+      typeof webSocketPair !== 'undefined' ||
+      (typeof nav?.userAgent === 'string' && nav.userAgent.includes('Cloudflare-Workers'));
     return isNode && !isCloudflareWorker;
   }
 
   private async resolveSignerWasmOverride(override: SignerWasmModuleSupplier): Promise<InitInput> {
-    const candidate = typeof override === 'function'
-      ? await (override as () => InitInput | Promise<InitInput>)()
-      : await override;
+    const candidate =
+      typeof override === 'function'
+        ? await (override as () => InitInput | Promise<InitInput>)()
+        : await override;
 
     if (!candidate) {
       throw new Error('Signer WASM override resolved to an empty value');
@@ -696,7 +779,7 @@ export class AuthService {
         const module = await WebAssembly.compile(ab);
         await initSignerWasm({ module_or_path: module });
         return;
-      } catch { } // throw at end of function
+      } catch {} // throw at end of function
     }
 
     // 2) Fallback: pass file path directly (supported in some environments)
@@ -705,7 +788,7 @@ export class AuthService {
         const filePath = fileURLToPath(url);
         await initSignerWasm({ module_or_path: filePath as unknown as InitInput });
         return;
-      } catch { } // throw at end of function
+      } catch {} // throw at end of function
     }
 
     throw new Error('[AuthService] Failed to initialize signer WASM from filesystem candidates');
@@ -734,7 +817,9 @@ export class AuthService {
         this.logger.info(`Checking if account ${request.accountId} already exists...`);
         const accountExists = await this.checkAccountExists(request.accountId);
         if (accountExists) {
-          throw new Error(`Account ${request.accountId} already exists. Cannot create duplicate account.`);
+          throw new Error(
+            `Account ${request.accountId} already exists. Cannot create duplicate account.`,
+          );
         }
         this.logger.info(`Account ${request.accountId} is available for creation`);
 
@@ -754,13 +839,16 @@ export class AuthService {
               nonce: 0,
               permission: { FullAccess: {} },
             }),
-          }
+          },
         ];
 
         actions.forEach(validateActionArgsWasm);
 
         // Fetch nonce and block hash for relayer
-        const { nextNonce, blockHash } = await this.fetchTxContext(this.config.relayerAccount, this.relayerPublicKey);
+        const { nextNonce, blockHash } = await this.fetchTxContext(
+          this.config.relayerAccount,
+          this.relayerPublicKey,
+        );
 
         // Sign with relayer private key using WASM
         const signed = await this.signWithPrivateKey({
@@ -769,7 +857,7 @@ export class AuthService {
           receiverId: request.accountId,
           nonce: nextNonce,
           blockHash: blockHash,
-          actions
+          actions,
         });
 
         // Broadcast transaction via MinimalNearClient using a strongly typed SignedTransaction
@@ -781,16 +869,15 @@ export class AuthService {
           success: true,
           transactionHash: result.transaction.hash,
           accountId: request.accountId,
-          message: `Account ${request.accountId} created with ${nearAmount} NEAR initial balance`
+          message: `Account ${request.accountId} created with ${nearAmount} NEAR initial balance`,
         };
-
       } catch (error: any) {
         this.logger.error(`Account creation failed for ${request.accountId}:`, error);
         const msg = errorMessage(error) || 'Unknown account creation error';
         return {
           success: false,
           error: msg,
-          message: `Failed to create account ${request.accountId}: ${msg}`
+          message: `Failed to create account ${request.accountId}: ${msg}`,
         };
       }
     }, `create account ${request.accountId}`);
@@ -803,18 +890,23 @@ export class AuthService {
    * - WebAuthn-only: the registration challenge is derived deterministically from `{ accountId, device_number }`.
    * - Contract-free: no on-chain WebAuthn verifier is used.
    */
-  async createAccountAndRegisterUser(request: CreateAccountAndRegisterRequest): Promise<CreateAccountAndRegisterResult> {
+  async createAccountAndRegisterUser(
+    request: CreateAccountAndRegisterRequest,
+  ): Promise<CreateAccountAndRegisterResult> {
     await this._ensureSignerAndRelayerAccount();
 
     return this.queueTransaction(async () => {
       try {
         const accountId = String(request?.new_account_id || '').trim();
-        if (!isValidAccountId(accountId)) throw new Error(`Invalid account ID format: ${accountId}`);
+        if (!isValidAccountId(accountId))
+          throw new Error(`Invalid account ID format: ${accountId}`);
 
         const relayerAccount = String(this.config.relayerAccount || '').trim();
         const expectedSuffix = relayerAccount ? `.${relayerAccount}` : '';
         if (!relayerAccount || !expectedSuffix || !accountId.endsWith(expectedSuffix)) {
-          throw new Error(`new_account_id must be a subaccount of relayerAccount (${relayerAccount})`);
+          throw new Error(
+            `new_account_id must be a subaccount of relayerAccount (${relayerAccount})`,
+          );
         }
 
         // Account creation key:
@@ -822,22 +914,35 @@ export class AuthService {
         // - Threshold-signer flows SHOULD provide a "backup"/local key as well (Option B),
         //   but we keep compatibility with older clients that omit it (Option A).
         let newPublicKey = String(request?.new_public_key || '').trim();
-        const thresholdClientVerifyingShareB64u = String((request as any)?.threshold_ed25519?.client_verifying_share_b64u || '').trim();
-        const thresholdEcdsaClientVerifyingShareB64u = String((request as any)?.threshold_ecdsa?.client_verifying_share_b64u || '').trim();
+        const thresholdClientVerifyingShareB64u = String(
+          (request as any)?.threshold_ed25519?.client_verifying_share_b64u || '',
+        ).trim();
+        const thresholdEcdsaClientVerifyingShareB64u = String(
+          (request as any)?.threshold_ecdsa?.client_verifying_share_b64u || '',
+        ).trim();
         const thresholdEd25519SessionPolicy = (request as any)?.threshold_ed25519?.session_policy;
         const thresholdEcdsaSessionPolicy = (request as any)?.threshold_ecdsa?.session_policy;
-        const thresholdEd25519SessionKind = String((request as any)?.threshold_ed25519?.session_kind || '').trim().toLowerCase();
-        const thresholdEcdsaSessionKind = String((request as any)?.threshold_ecdsa?.session_kind || '').trim().toLowerCase();
-        let thresholdKeygen:
-          | Extract<ThresholdEd25519RegistrationKeygenResult, { ok: true }>
-          | null = null;
+        const thresholdEd25519SessionKind = String(
+          (request as any)?.threshold_ed25519?.session_kind || '',
+        )
+          .trim()
+          .toLowerCase();
+        const thresholdEcdsaSessionKind = String(
+          (request as any)?.threshold_ecdsa?.session_kind || '',
+        )
+          .trim()
+          .toLowerCase();
+        let thresholdKeygen: Extract<
+          ThresholdEd25519RegistrationKeygenResult,
+          { ok: true }
+        > | null = null;
         let thresholdEcdsaKeygen: {
           relayerKeyId: string;
           groupPublicKeyB64u: string;
           ethereumAddress: string;
           relayerVerifyingShareB64u: string;
           participantIds?: number[];
-          } | null = null;
+        } | null = null;
         let thresholdEd25519Session: {
           sessionKind: 'jwt' | 'cookie';
           sessionId: string;
@@ -856,9 +961,9 @@ export class AuthService {
         } | null = null;
 
         const rpId = String(
-          (request as unknown as { rp_id?: unknown; rpId?: unknown })?.rp_id
-          ?? (request as unknown as { rpId?: unknown })?.rpId
-          ?? '',
+          (request as unknown as { rp_id?: unknown; rpId?: unknown })?.rp_id ??
+            (request as unknown as { rpId?: unknown })?.rpId ??
+            '',
         ).trim();
         if (!rpId) throw new Error('Missing rp_id');
 
@@ -880,14 +985,21 @@ export class AuthService {
         }
 
         const thresholdService = this.getThresholdSigningService();
-        if ((thresholdClientVerifyingShareB64u || thresholdEcdsaClientVerifyingShareB64u) && !thresholdService) {
+        if (
+          (thresholdClientVerifyingShareB64u || thresholdEcdsaClientVerifyingShareB64u) &&
+          !thresholdService
+        ) {
           throw new Error('threshold signing is not configured on this server');
         }
 
         if (thresholdClientVerifyingShareB64u) {
-          const schemeAny = thresholdService!.getSchemeModule(THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID);
+          const schemeAny = thresholdService!.getSchemeModule(
+            THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
+          );
           if (!schemeAny || schemeAny.schemeId !== THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID) {
-            throw new Error(`threshold scheme ${THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID} is not enabled on this server`);
+            throw new Error(
+              `threshold scheme ${THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID} is not enabled on this server`,
+            );
           }
           const out = await schemeAny.registration.keygenFromClientVerifyingShare({
             nearAccountId: accountId,
@@ -914,7 +1026,12 @@ export class AuthService {
           const groupPublicKeyB64u = String(out.groupPublicKeyB64u || '').trim();
           const ethereumAddress = String(out.ethereumAddress || '').trim();
           const relayerVerifyingShareB64u = String(out.relayerVerifyingShareB64u || '').trim();
-          if (!relayerKeyId || !groupPublicKeyB64u || !ethereumAddress || !relayerVerifyingShareB64u) {
+          if (
+            !relayerKeyId ||
+            !groupPublicKeyB64u ||
+            !ethereumAddress ||
+            !relayerVerifyingShareB64u
+          ) {
             throw new Error('threshold-ecdsa registration keygen returned incomplete key material');
           }
           thresholdEcdsaKeygen = {
@@ -936,17 +1053,20 @@ export class AuthService {
         if (!newPublicKey) throw new Error('Missing new_public_key');
 
         const deviceNumber = (() => {
-          const raw = (request as unknown as { device_number?: unknown; deviceNumber?: unknown })?.device_number
-            ?? (request as unknown as { deviceNumber?: unknown })?.deviceNumber
-            ?? 1;
+          const raw =
+            (request as unknown as { device_number?: unknown; deviceNumber?: unknown })
+              ?.device_number ??
+            (request as unknown as { deviceNumber?: unknown })?.deviceNumber ??
+            1;
           const n = typeof raw === 'number' ? raw : Number(raw);
           return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
         })();
 
         const expectedOrigin = String(
-          (request as unknown as { expected_origin?: unknown; expectedOrigin?: unknown })?.expected_origin
-          ?? (request as unknown as { expectedOrigin?: unknown })?.expectedOrigin
-          ?? '',
+          (request as unknown as { expected_origin?: unknown; expectedOrigin?: unknown })
+            ?.expected_origin ??
+            (request as unknown as { expectedOrigin?: unknown })?.expectedOrigin ??
+            '',
         ).trim();
 
         const cred = request.webauthn_registration as any;
@@ -956,9 +1076,13 @@ export class AuthService {
         const expectedIntent = `register:${accountId}:${deviceNumber}`;
         const expectedChallenge = base64UrlEncode(await sha256BytesUtf8(expectedIntent));
 
-        const clientData = parseClientDataJsonBase64url(String(cred.response?.clientDataJSON || ''));
+        const clientData = parseClientDataJsonBase64url(
+          String(cred.response?.clientDataJSON || ''),
+        );
         if (clientData.type !== 'webauthn.create') {
-          throw new Error('Invalid webauthn_registration.clientDataJSON.type (expected webauthn.create)');
+          throw new Error(
+            'Invalid webauthn_registration.clientDataJSON.type (expected webauthn.create)',
+          );
         }
         if (clientData.challenge !== expectedChallenge) {
           throw new Error('Registration challenge mismatch');
@@ -969,7 +1093,9 @@ export class AuthService {
         }
 
         const mod = await import('@simplewebauthn/server');
-        const verifyRegistrationResponse = (mod as any).verifyRegistrationResponse as undefined | ((args: any) => Promise<any>);
+        const verifyRegistrationResponse = (mod as any).verifyRegistrationResponse as
+          | undefined
+          | ((args: any) => Promise<any>);
         if (typeof verifyRegistrationResponse !== 'function') {
           throw new Error('WebAuthn registration verifier is unavailable in this runtime');
         }
@@ -1013,7 +1139,10 @@ export class AuthService {
         ];
         actions.forEach(validateActionArgsWasm);
 
-        const { nextNonce, blockHash } = await this.fetchTxContext(relayerAccount, this.relayerPublicKey);
+        const { nextNonce, blockHash } = await this.fetchTxContext(
+          relayerAccount,
+          this.relayerPublicKey,
+        );
         const signed = await this.signWithPrivateKey({
           nearPrivateKey: this.config.relayerPrivateKey,
           signerAccountId: relayerAccount,
@@ -1027,12 +1156,18 @@ export class AuthService {
         const result = await this.nearClient.sendTransaction(signed, 'FINAL');
 
         // 3) Persist the authenticator privately on the relay.
-        const credentialIdB64u = String(verification?.registrationInfo?.credential?.id || '').trim();
-        const credentialPublicKey = verification?.registrationInfo?.credential?.publicKey as Uint8Array | undefined;
+        const credentialIdB64u = String(
+          verification?.registrationInfo?.credential?.id || '',
+        ).trim();
+        const credentialPublicKey = verification?.registrationInfo?.credential?.publicKey as
+          | Uint8Array
+          | undefined;
         const counter = verification?.registrationInfo?.credential?.counter as number | undefined;
 
         if (!credentialIdB64u || !credentialPublicKey) {
-          throw new Error('Registration verification did not return credential public key material');
+          throw new Error(
+            'Registration verification did not return credential public key material',
+          );
         }
 
         const store = this.getWebAuthnAuthenticatorStore();
@@ -1060,9 +1195,13 @@ export class AuthService {
           publicKey: thresholdKeygen ? thresholdKeygen.publicKey : newPublicKey,
           ...(thresholdKeygen ? { relayerKeyId: thresholdKeygen.relayerKeyId } : {}),
           ...(thresholdKeygen ? { clientParticipantId: thresholdKeygen.clientParticipantId } : {}),
-          ...(thresholdKeygen ? { relayerParticipantId: thresholdKeygen.relayerParticipantId } : {}),
+          ...(thresholdKeygen
+            ? { relayerParticipantId: thresholdKeygen.relayerParticipantId }
+            : {}),
           ...(thresholdKeygen ? { participantIds: thresholdKeygen.participantIds } : {}),
-          ...(thresholdKeygen ? { relayerVerifyingShareB64u: thresholdKeygen.relayerVerifyingShareB64u } : {}),
+          ...(thresholdKeygen
+            ? { relayerVerifyingShareB64u: thresholdKeygen.relayerVerifyingShareB64u }
+            : {}),
           createdAtMs: now,
           updatedAtMs: now,
         };
@@ -1073,8 +1212,8 @@ export class AuthService {
             (thresholdEd25519SessionPolicy as Record<string, unknown>)?.relayerKeyId || '',
           ).trim();
           if (
-            requestedThresholdEd25519PolicyRelayerKeyId
-            && requestedThresholdEd25519PolicyRelayerKeyId !== thresholdKeygen.relayerKeyId
+            requestedThresholdEd25519PolicyRelayerKeyId &&
+            requestedThresholdEd25519PolicyRelayerKeyId !== thresholdKeygen.relayerKeyId
           ) {
             throw new Error('threshold_ed25519.session_policy.relayerKeyId mismatch');
           }
@@ -1090,14 +1229,20 @@ export class AuthService {
             sessionPolicy: thresholdEd25519PolicyWithRelayerKeyId,
           });
           if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
-            throw new Error(session.message || session.code || 'threshold-ed25519 registration session bootstrap failed');
+            throw new Error(
+              session.message ||
+                session.code ||
+                'threshold-ed25519 registration session bootstrap failed',
+            );
           }
           thresholdEd25519Session = {
             sessionKind: 'jwt',
             sessionId: session.sessionId,
             expiresAtMs: Number(session.expiresAtMs),
             ...(session.expiresAt ? { expiresAt: session.expiresAt } : {}),
-            ...(Array.isArray(session.participantIds) ? { participantIds: session.participantIds } : {}),
+            ...(Array.isArray(session.participantIds)
+              ? { participantIds: session.participantIds }
+              : {}),
             ...(Number.isFinite(Number(session.remainingUses))
               ? { remainingUses: Number(session.remainingUses) }
               : {}),
@@ -1109,8 +1254,8 @@ export class AuthService {
             (thresholdEcdsaSessionPolicy as Record<string, unknown>)?.relayerKeyId || '',
           ).trim();
           if (
-            requestedThresholdEcdsaPolicyRelayerKeyId
-            && requestedThresholdEcdsaPolicyRelayerKeyId !== thresholdEcdsaKeygen.relayerKeyId
+            requestedThresholdEcdsaPolicyRelayerKeyId &&
+            requestedThresholdEcdsaPolicyRelayerKeyId !== thresholdEcdsaKeygen.relayerKeyId
           ) {
             throw new Error('threshold_ecdsa.session_policy.relayerKeyId mismatch');
           }
@@ -1126,14 +1271,20 @@ export class AuthService {
             sessionPolicy: thresholdEcdsaPolicyWithRelayerKeyId,
           });
           if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
-            throw new Error(session.message || session.code || 'threshold-ecdsa registration session bootstrap failed');
+            throw new Error(
+              session.message ||
+                session.code ||
+                'threshold-ecdsa registration session bootstrap failed',
+            );
           }
           thresholdEcdsaSession = {
             sessionKind: 'jwt',
             sessionId: session.sessionId,
             expiresAtMs: Number(session.expiresAtMs),
             ...(session.expiresAt ? { expiresAt: session.expiresAt } : {}),
-            ...(Array.isArray(session.participantIds) ? { participantIds: session.participantIds } : {}),
+            ...(Array.isArray(session.participantIds)
+              ? { participantIds: session.participantIds }
+              : {}),
             ...(Number.isFinite(Number(session.remainingUses))
               ? { remainingUses: Number(session.remainingUses) }
               : {}),
@@ -1173,7 +1324,9 @@ export class AuthService {
               credentialIdB64u,
               createdAtMs: now,
               updatedAtMs: now,
-              ...(result?.transaction?.hash ? { addedTxHash: String(result.transaction.hash) } : {}),
+              ...(result?.transaction?.hash
+                ? { addedTxHash: String(result.transaction.hash) }
+                : {}),
             };
             await pkStore.put(creationRecord);
           }
@@ -1206,14 +1359,13 @@ export class AuthService {
             : {}),
           message: `Account ${accountId} created and registered successfully`,
         };
-
       } catch (error: any) {
         this.logger.error(`Atomic registration failed for ${request.new_account_id}:`, error);
         const msg = errorMessage(error) || 'Unknown atomic registration error';
         return {
           success: false,
           error: msg,
-          message: `Failed to create and register account ${request.new_account_id}: ${msg}`
+          message: `Failed to create and register account ${request.new_account_id}: ${msg}`,
         };
       }
     }, `atomic create and register ${request.new_account_id}`);
@@ -1248,10 +1400,29 @@ export class AuthService {
       const expectedOriginOverride = toOptionalTrimmedString(input.expected_origin);
       const cred = input.webauthn_authentication as any;
 
-      if (!nearAccountId) return { success: false, verified: false, code: 'invalid_body', message: 'Missing nearAccountId' };
-      if (!rpId) return { success: false, verified: false, code: 'invalid_body', message: 'Missing rpId' };
-      if (!expectedChallenge) return { success: false, verified: false, code: 'invalid_body', message: 'Missing expectedChallenge' };
-      if (!cred || typeof cred !== 'object') return { success: false, verified: false, code: 'invalid_body', message: 'Missing webauthn_authentication' };
+      if (!nearAccountId)
+        return {
+          success: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'Missing nearAccountId',
+        };
+      if (!rpId)
+        return { success: false, verified: false, code: 'invalid_body', message: 'Missing rpId' };
+      if (!expectedChallenge)
+        return {
+          success: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'Missing expectedChallenge',
+        };
+      if (!cred || typeof cred !== 'object')
+        return {
+          success: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'Missing webauthn_authentication',
+        };
 
       let clientData: { challenge: string; origin: string; type: string };
       try {
@@ -1266,35 +1437,62 @@ export class AuthService {
       }
       const originHost = originHostnameOrEmpty(clientData.origin);
       if (!isHostWithinRpId(originHost, rpId)) {
-        return { success: false, verified: false, code: 'invalid_origin', message: 'WebAuthn origin is not within rpId' };
+        return {
+          success: false,
+          verified: false,
+          code: 'invalid_origin',
+          message: 'WebAuthn origin is not within rpId',
+        };
       }
 
       const credentialId = String(cred.id || '').trim();
       const rawId = String(cred.rawId || '').trim();
       const chosen = rawId || credentialId;
       if (!chosen) {
-        return { success: false, verified: false, code: 'invalid_body', message: 'Missing webauthn_authentication.id/rawId' };
+        return {
+          success: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'Missing webauthn_authentication.id/rawId',
+        };
       }
 
       let credentialIDBytes: Uint8Array;
       try {
         credentialIDBytes = decodeBase64UrlOrBase64(chosen, 'webauthn_authentication.rawId');
       } catch (e: unknown) {
-        return { success: false, verified: false, code: 'invalid_body', message: errorMessage(e) || 'Invalid credential rawId' };
+        return {
+          success: false,
+          verified: false,
+          code: 'invalid_body',
+          message: errorMessage(e) || 'Invalid credential rawId',
+        };
       }
       const credentialIdB64u = base64UrlEncode(credentialIDBytes);
 
       const store = this.getWebAuthnAuthenticatorStore();
       const matched = await store.get(nearAccountId, credentialIdB64u);
       if (!matched) {
-        return { success: false, verified: false, code: 'unknown_credential', message: 'Credential is not registered for user' };
+        return {
+          success: false,
+          verified: false,
+          code: 'unknown_credential',
+          message: 'Credential is not registered for user',
+        };
       }
 
       // Lazy import to avoid forcing Node-only deps into non-Node runtimes unless used.
       const mod = await import('@simplewebauthn/server');
-      const verifyAuthenticationResponse = (mod as any).verifyAuthenticationResponse as undefined | ((args: any) => Promise<any>);
+      const verifyAuthenticationResponse = (mod as any).verifyAuthenticationResponse as
+        | undefined
+        | ((args: any) => Promise<any>);
       if (typeof verifyAuthenticationResponse !== 'function') {
-        return { success: false, verified: false, code: 'unsupported', message: 'WebAuthn verifier is unavailable in this runtime' };
+        return {
+          success: false,
+          verified: false,
+          code: 'unsupported',
+          message: 'WebAuthn verifier is unavailable in this runtime',
+        };
       }
 
       let credentialPublicKeyBytes: Uint8Array;
@@ -1314,7 +1512,10 @@ export class AuthService {
 
       const credential = {
         id: credentialIdB64u,
-        publicKey: (typeof Buffer !== 'undefined' ? Buffer.from(credentialPublicKeyBytes) : credentialPublicKeyBytes),
+        publicKey:
+          typeof Buffer !== 'undefined'
+            ? Buffer.from(credentialPublicKeyBytes)
+            : credentialPublicKeyBytes,
         counter: matched.counter,
       };
 
@@ -1338,11 +1539,17 @@ export class AuthService {
       }
 
       if (!verification?.verified) {
-        return { success: false, verified: false, code: 'not_verified', message: 'Authentication verification failed' };
+        return {
+          success: false,
+          verified: false,
+          code: 'not_verified',
+          message: 'Authentication verification failed',
+        };
       }
 
       const newCounter = (() => {
-        const v = (verification as { authenticationInfo?: { newCounter?: unknown } })?.authenticationInfo?.newCounter;
+        const v = (verification as { authenticationInfo?: { newCounter?: unknown } })
+          ?.authenticationInfo?.newCounter;
         const n = typeof v === 'number' ? v : Number(v);
         return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
       })();
@@ -1388,10 +1595,7 @@ export class AuthService {
    * This is relay-private state (no on-chain authenticator registry).
    * Intended for UI surfaces like "Linked Devices" in the SDK.
    */
-  async listWebAuthnAuthenticatorsForUser(input: {
-    userId: string;
-    rpId?: string;
-  }): Promise<{
+  async listWebAuthnAuthenticatorsForUser(input: { userId: string; rpId?: string }): Promise<{
     ok: boolean;
     code?: string;
     message?: string;
@@ -1412,10 +1616,18 @@ export class AuthService {
       const bindingStore = this.getWebAuthnCredentialBindingStore();
 
       if (typeof authStore.list !== 'function') {
-        return { ok: false, code: 'not_supported', message: 'Authenticator listing is not supported by this store' };
+        return {
+          ok: false,
+          code: 'not_supported',
+          message: 'Authenticator listing is not supported by this store',
+        };
       }
       if (typeof bindingStore.listByUserId !== 'function') {
-        return { ok: false, code: 'not_supported', message: 'Credential binding listing is not supported by this store' };
+        return {
+          ok: false,
+          code: 'not_supported',
+          message: 'Credential binding listing is not supported by this store',
+        };
       }
 
       const [authenticators, bindings] = await Promise.all([
@@ -1440,17 +1652,21 @@ export class AuthService {
         };
       });
 
-      merged.sort((x, y) => (Number(x.deviceNumber || 0) || 0) - (Number(y.deviceNumber || 0) || 0));
+      merged.sort(
+        (x, y) => (Number(x.deviceNumber || 0) || 0) - (Number(y.deviceNumber || 0) || 0),
+      );
 
       return { ok: true, authenticators: merged };
     } catch (e: unknown) {
-      return { ok: false, code: 'internal', message: errorMessage(e) || 'Failed to list authenticators' };
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to list authenticators',
+      };
     }
   }
 
-  async listNearPublicKeysForUser(input: {
-    userId: string;
-  }): Promise<{
+  async listNearPublicKeysForUser(input: { userId: string }): Promise<{
     ok: boolean;
     code?: string;
     message?: string;
@@ -1470,7 +1686,11 @@ export class AuthService {
 
       const store = this.getNearPublicKeyStore();
       if (typeof store.listByUserId !== 'function') {
-        return { ok: false, code: 'not_supported', message: 'Key listing is not supported by this store' };
+        return {
+          ok: false,
+          code: 'not_supported',
+          message: 'Key listing is not supported by this store',
+        };
       }
 
       const records = await store.listByUserId(userId);
@@ -1506,7 +1726,8 @@ export class AuthService {
       const userId = String(request?.user_id || '').trim();
       const rpId = String(request?.rp_id || '').trim();
       if (!userId) return { ok: false, code: 'invalid_body', message: 'Missing user_id' };
-      if (!isValidAccountId(userId)) return { ok: false, code: 'invalid_body', message: 'Invalid user_id' };
+      if (!isValidAccountId(userId))
+        return { ok: false, code: 'invalid_body', message: 'Invalid user_id' };
       if (!rpId) return { ok: false, code: 'invalid_body', message: 'Missing rp_id' };
 
       const ttlMsRaw = request?.ttlMs ?? request?.ttl_ms;
@@ -1518,7 +1739,11 @@ export class AuthService {
       const ttlMsClamped = Math.min(Math.max(ttlMs, 10_000), 10 * 60_000);
 
       if (typeof crypto === 'undefined' || typeof crypto.getRandomValues !== 'function') {
-        return { ok: false, code: 'unsupported', message: 'crypto.getRandomValues is unavailable in this runtime' };
+        return {
+          ok: false,
+          code: 'unsupported',
+          message: 'crypto.getRandomValues is unavailable in this runtime',
+        };
       }
 
       const createdAtMs = Date.now();
@@ -1539,7 +1764,11 @@ export class AuthService {
 
       return { ok: true, challengeId, challengeB64u, expiresAtMs };
     } catch (e: unknown) {
-      return { ok: false, code: 'internal', message: errorMessage(e) || 'Failed to create login options' };
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to create login options',
+      };
     }
   }
 
@@ -1563,7 +1792,12 @@ export class AuthService {
       const store = this.getWebAuthnLoginChallengeStore();
       const record = await store.consume(challengeId);
       if (!record) {
-        return { ok: false, verified: false, code: 'challenge_expired_or_invalid', message: 'Login challenge expired or invalid' };
+        return {
+          ok: false,
+          verified: false,
+          code: 'challenge_expired_or_invalid',
+          message: 'Login challenge expired or invalid',
+        };
       }
 
       const verification = await this.verifyWebAuthnAuthenticationLite({
@@ -1587,16 +1821,27 @@ export class AuthService {
       // This enables provider linking flows to treat `near:{accountId}` as a stable identity.
       try {
         const identity = this.getIdentityStore();
-        await identity.linkSubjectToUserId({ userId: record.userId, subject: `near:${record.userId}` });
+        await identity.linkSubjectToUserId({
+          userId: record.userId,
+          subject: `near:${record.userId}`,
+        });
       } catch {}
 
       return { ok: true, verified: true, userId: record.userId, rpId: record.rpId };
     } catch (e: unknown) {
-      return { ok: false, verified: false, code: 'internal', message: errorMessage(e) || 'Login verification failed' };
+      return {
+        ok: false,
+        verified: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Login verification failed',
+      };
     }
   }
 
-  private async getGoogleJwks(): Promise<{ keysByKid: Map<string, JsonWebKey>; expiresAtMs: number }> {
+  private async getGoogleJwks(): Promise<{
+    keysByKid: Map<string, JsonWebKey>;
+    expiresAtMs: number;
+  }> {
     const now = Date.now();
     if (this.googleJwksCache && now < this.googleJwksCache.expiresAtMs) {
       return this.googleJwksCache;
@@ -1607,7 +1852,9 @@ export class AuthService {
       const resp = await fetch('https://www.googleapis.com/oauth2/v3/certs');
       const text = await resp.text();
       if (!resp.ok) {
-        throw new Error(`Google OIDC certs fetch failed (HTTP ${resp.status}): ${text.slice(0, 200)}`);
+        throw new Error(
+          `Google OIDC certs fetch failed (HTTP ${resp.status}): ${text.slice(0, 200)}`,
+        );
       }
       let json: unknown;
       try {
@@ -1639,7 +1886,7 @@ export class AuthService {
       }
 
       const maxAgeSec = parseCacheControlMaxAgeSec(resp.headers.get('cache-control')) || 60 * 60;
-      const expiresAtMs = now + (maxAgeSec * 1000);
+      const expiresAtMs = now + maxAgeSec * 1000;
       const value = { keysByKid, expiresAtMs };
       this.googleJwksCache = value;
       return value;
@@ -1667,19 +1914,40 @@ export class AuthService {
     try {
       const googleCfg = this.config.googleOidc;
       if (!googleCfg?.clientIds?.length) {
-        return { ok: false, verified: false, code: 'not_configured', message: 'Google OIDC is not configured on this server' };
+        return {
+          ok: false,
+          verified: false,
+          code: 'not_configured',
+          message: 'Google OIDC is not configured on this server',
+        };
       }
 
       const idToken = toOptionalTrimmedString(request.idToken ?? request.id_token);
-      if (!idToken) return { ok: false, verified: false, code: 'invalid_body', message: 'id_token is required' };
+      if (!idToken)
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'id_token is required',
+        };
 
       if (typeof crypto === 'undefined' || !crypto.subtle) {
-        return { ok: false, verified: false, code: 'unsupported', message: 'WebCrypto (crypto.subtle) is unavailable in this runtime' };
+        return {
+          ok: false,
+          verified: false,
+          code: 'unsupported',
+          message: 'WebCrypto (crypto.subtle) is unavailable in this runtime',
+        };
       }
 
       const parts = idToken.split('.');
       if (parts.length !== 3) {
-        return { ok: false, verified: false, code: 'invalid_body', message: 'id_token must be a JWT (3 segments)' };
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'id_token must be a JWT (3 segments)',
+        };
       }
       const [headerB64u, payloadB64u, signatureB64u] = parts;
 
@@ -1688,30 +1956,62 @@ export class AuthService {
       try {
         header = JSON.parse(new TextDecoder().decode(base64UrlDecode(headerB64u)));
       } catch {
-        return { ok: false, verified: false, code: 'invalid_body', message: 'Invalid id_token header encoding' };
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'Invalid id_token header encoding',
+        };
       }
       try {
         payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(payloadB64u)));
       } catch {
-        return { ok: false, verified: false, code: 'invalid_body', message: 'Invalid id_token payload encoding' };
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'Invalid id_token payload encoding',
+        };
       }
 
       const kid = toOptionalTrimmedString(header?.kid);
       const alg = toOptionalTrimmedString(header?.alg);
-      if (!kid) return { ok: false, verified: false, code: 'invalid_body', message: 'id_token header.kid is required' };
-      if (alg !== 'RS256') return { ok: false, verified: false, code: 'invalid_body', message: 'id_token header.alg must be RS256' };
+      if (!kid)
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'id_token header.kid is required',
+        };
+      if (alg !== 'RS256')
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'id_token header.alg must be RS256',
+        };
 
       const jwks = await this.getGoogleJwks();
       const jwk = jwks.keysByKid.get(kid);
       if (!jwk) {
-        return { ok: false, verified: false, code: 'unknown_kid', message: 'Unknown Google key id (kid)' };
+        return {
+          ok: false,
+          verified: false,
+          code: 'unknown_kid',
+          message: 'Unknown Google key id (kid)',
+        };
       }
 
       let signatureBytes: Uint8Array;
       try {
         signatureBytes = base64UrlDecode(signatureB64u);
       } catch {
-        return { ok: false, verified: false, code: 'invalid_body', message: 'Invalid id_token signature encoding' };
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'Invalid id_token signature encoding',
+        };
       }
 
       const dataBytes = new TextEncoder().encode(`${headerB64u}.${payloadB64u}`);
@@ -1722,33 +2022,68 @@ export class AuthService {
         false,
         ['verify'],
       );
-      const verified = await crypto.subtle.verify({ name: 'RSASSA-PKCS1-v1_5' }, key, signatureBytes, dataBytes);
+      const verified = await crypto.subtle.verify(
+        { name: 'RSASSA-PKCS1-v1_5' },
+        key,
+        signatureBytes,
+        dataBytes,
+      );
       if (!verified) {
-        return { ok: false, verified: false, code: 'invalid_signature', message: 'Invalid Google id_token signature' };
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_signature',
+          message: 'Invalid Google id_token signature',
+        };
       }
 
       const iss = toOptionalTrimmedString(payload?.iss);
       if (iss !== 'https://accounts.google.com' && iss !== 'accounts.google.com') {
-        return { ok: false, verified: false, code: 'invalid_issuer', message: 'Invalid Google id_token issuer' };
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_issuer',
+          message: 'Invalid Google id_token issuer',
+        };
       }
 
       const nowSec = Math.floor(Date.now() / 1000);
       const expRaw = payload?.exp;
       const exp = typeof expRaw === 'number' ? expRaw : Number(expRaw);
       if (!Number.isFinite(exp) || exp <= 0) {
-        return { ok: false, verified: false, code: 'invalid_claims', message: 'Invalid Google id_token exp' };
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_claims',
+          message: 'Invalid Google id_token exp',
+        };
       }
       if (nowSec >= exp) {
-        return { ok: false, verified: false, code: 'expired', message: 'Google id_token is expired' };
+        return {
+          ok: false,
+          verified: false,
+          code: 'expired',
+          message: 'Google id_token is expired',
+        };
       }
       const nbfRaw = payload?.nbf;
       if (nbfRaw !== undefined) {
         const nbf = typeof nbfRaw === 'number' ? nbfRaw : Number(nbfRaw);
         if (!Number.isFinite(nbf)) {
-          return { ok: false, verified: false, code: 'invalid_claims', message: 'Invalid Google id_token nbf' };
+          return {
+            ok: false,
+            verified: false,
+            code: 'invalid_claims',
+            message: 'Invalid Google id_token nbf',
+          };
         }
         if (nowSec < nbf) {
-          return { ok: false, verified: false, code: 'not_yet_valid', message: 'Google id_token is not yet valid' };
+          return {
+            ok: false,
+            verified: false,
+            code: 'not_yet_valid',
+            message: 'Google id_token is not yet valid',
+          };
         }
       }
 
@@ -1757,30 +2092,54 @@ export class AuthService {
         ? audRaw.map((v) => (typeof v === 'string' ? v.trim() : '')).filter(Boolean)
         : [toOptionalTrimmedString(audRaw) || ''].filter(Boolean);
       if (!aud.length) {
-        return { ok: false, verified: false, code: 'invalid_claims', message: 'Missing Google id_token aud' };
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_claims',
+          message: 'Missing Google id_token aud',
+        };
       }
       const allowedAudSet = new Set(googleCfg.clientIds);
       const audOk = aud.some((a) => allowedAudSet.has(a));
       if (!audOk) {
-        return { ok: false, verified: false, code: 'invalid_audience', message: 'Google id_token audience mismatch' };
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_audience',
+          message: 'Google id_token audience mismatch',
+        };
       }
 
       const sub = toOptionalTrimmedString(payload?.sub);
-      if (!sub) return { ok: false, verified: false, code: 'invalid_claims', message: 'Missing Google id_token sub' };
+      if (!sub)
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_claims',
+          message: 'Missing Google id_token sub',
+        };
 
       const hostedDomain = toOptionalTrimmedString(payload?.hd);
       if (googleCfg.hostedDomains?.length) {
         const allowHd = new Set((googleCfg.hostedDomains || []).map((d) => d.toLowerCase()));
         if (!hostedDomain || !allowHd.has(hostedDomain.toLowerCase())) {
-          return { ok: false, verified: false, code: 'invalid_hosted_domain', message: 'Google hosted domain is not allowed' };
+          return {
+            ok: false,
+            verified: false,
+            code: 'invalid_hosted_domain',
+            message: 'Google hosted domain is not allowed',
+          };
         }
       }
 
       const email = toOptionalTrimmedString(payload?.email);
       const emailVerifiedRaw = payload?.email_verified;
-      const emailVerified = typeof emailVerifiedRaw === 'boolean'
-        ? emailVerifiedRaw
-        : (typeof emailVerifiedRaw === 'string' ? emailVerifiedRaw.trim().toLowerCase() === 'true' : undefined);
+      const emailVerified =
+        typeof emailVerifiedRaw === 'boolean'
+          ? emailVerifiedRaw
+          : typeof emailVerifiedRaw === 'string'
+            ? emailVerifiedRaw.trim().toLowerCase() === 'true'
+            : undefined;
 
       const providerSubject = `google:${sub}`;
       let userId = providerSubject;
@@ -1788,7 +2147,11 @@ export class AuthService {
         const identity = this.getIdentityStore();
         const linked = await identity.getUserIdBySubject(providerSubject);
         if (linked) userId = linked;
-        await identity.linkSubjectToUserId({ userId, subject: providerSubject, allowMoveIfSoleIdentity: false });
+        await identity.linkSubjectToUserId({
+          userId,
+          subject: providerSubject,
+          allowMoveIfSoleIdentity: false,
+        });
       } catch {}
 
       return {
@@ -1802,7 +2165,12 @@ export class AuthService {
         ...(hostedDomain ? { hostedDomain } : {}),
       };
     } catch (e: unknown) {
-      return { ok: false, verified: false, code: 'internal', message: errorMessage(e) || 'Google OIDC verification failed' };
+      return {
+        ok: false,
+        verified: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Google OIDC verification failed',
+      };
     }
   }
 
@@ -1831,7 +2199,11 @@ export class AuthService {
       const ttlMsClamped = Math.min(Math.max(ttlMs, 10_000), 10 * 60_000);
 
       if (typeof crypto === 'undefined' || typeof crypto.getRandomValues !== 'function') {
-        return { ok: false, code: 'unsupported', message: 'crypto.getRandomValues is unavailable in this runtime' };
+        return {
+          ok: false,
+          code: 'unsupported',
+          message: 'crypto.getRandomValues is unavailable in this runtime',
+        };
       }
 
       const createdAtMs = Date.now();
@@ -1851,7 +2223,11 @@ export class AuthService {
 
       return { ok: true, challengeId, challengeB64u, expiresAtMs };
     } catch (e: unknown) {
-      return { ok: false, code: 'internal', message: errorMessage(e) || 'Failed to create sync account options' };
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to create sync account options',
+      };
     }
   }
 
@@ -1888,7 +2264,12 @@ export class AuthService {
       const store = this.getWebAuthnSyncChallengeStore();
       const challenge = await store.consume(challengeId);
       if (!challenge) {
-        return { ok: false, verified: false, code: 'challenge_expired_or_invalid', message: 'Sync challenge expired or invalid' };
+        return {
+          ok: false,
+          verified: false,
+          code: 'challenge_expired_or_invalid',
+          message: 'Sync challenge expired or invalid',
+        };
       }
 
       const cred = request?.webauthn_authentication as any;
@@ -1896,7 +2277,12 @@ export class AuthService {
       const rawId = String(cred?.rawId || '').trim();
       const chosen = rawId || credentialId;
       if (!chosen) {
-        return { ok: false, verified: false, code: 'invalid_body', message: 'Missing webauthn_authentication.id/rawId' };
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'Missing webauthn_authentication.id/rawId',
+        };
       }
 
       const credentialIDBytes = decodeBase64UrlOrBase64(chosen, 'webauthn_authentication.rawId');
@@ -1905,7 +2291,12 @@ export class AuthService {
       const bindingStore = this.getWebAuthnCredentialBindingStore();
       const binding = await bindingStore.get(challenge.rpId, credentialIdB64u);
       if (!binding) {
-        return { ok: false, verified: false, code: 'unknown_credential', message: 'Credential is not registered on this relay' };
+        return {
+          ok: false,
+          verified: false,
+          code: 'unknown_credential',
+          message: 'Credential is not registered on this relay',
+        };
       }
 
       const verification = await this.verifyWebAuthnAuthenticationLite({
@@ -1928,17 +2319,30 @@ export class AuthService {
       const authStore = this.getWebAuthnAuthenticatorStore();
       const auth = await authStore.get(binding.userId, credentialIdB64u);
       if (!auth) {
-        return { ok: false, verified: false, code: 'unknown_credential', message: 'Credential is not registered for user' };
+        return {
+          ok: false,
+          verified: false,
+          code: 'unknown_credential',
+          message: 'Credential is not registered for user',
+        };
       }
 
       const thresholdEd25519 = binding.relayerKeyId
         ? {
             relayerKeyId: binding.relayerKeyId,
             publicKey: binding.publicKey,
-            ...(binding.relayerVerifyingShareB64u ? { relayerVerifyingShareB64u: binding.relayerVerifyingShareB64u } : {}),
-            ...(typeof binding.clientParticipantId === 'number' ? { clientParticipantId: binding.clientParticipantId } : {}),
-            ...(typeof binding.relayerParticipantId === 'number' ? { relayerParticipantId: binding.relayerParticipantId } : {}),
-            ...(Array.isArray(binding.participantIds) ? { participantIds: binding.participantIds } : {}),
+            ...(binding.relayerVerifyingShareB64u
+              ? { relayerVerifyingShareB64u: binding.relayerVerifyingShareB64u }
+              : {}),
+            ...(typeof binding.clientParticipantId === 'number'
+              ? { clientParticipantId: binding.clientParticipantId }
+              : {}),
+            ...(typeof binding.relayerParticipantId === 'number'
+              ? { relayerParticipantId: binding.relayerParticipantId }
+              : {}),
+            ...(Array.isArray(binding.participantIds)
+              ? { participantIds: binding.participantIds }
+              : {}),
           }
         : undefined;
 
@@ -1955,7 +2359,12 @@ export class AuthService {
         ...(thresholdEd25519 ? { thresholdEd25519 } : {}),
       };
     } catch (e: unknown) {
-      return { ok: false, verified: false, code: 'internal', message: errorMessage(e) || 'Sync verification failed' };
+      return {
+        ok: false,
+        verified: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Sync verification failed',
+      };
     }
   }
 
@@ -1963,8 +2372,7 @@ export class AuthService {
     session_id?: unknown;
     sessionId?: unknown;
   }): Promise<
-    | { ok: true; session: DeviceLinkingSessionRecord }
-    | { ok: false; code: string; message: string }
+    { ok: true; session: DeviceLinkingSessionRecord } | { ok: false; code: string; message: string }
   > {
     try {
       const sessionId = String(request?.session_id ?? request?.sessionId ?? '').trim();
@@ -1974,10 +2382,15 @@ export class AuthService {
 
       const store = this.getDeviceLinkingSessionStore();
       const session = await store.get(sessionId);
-      if (!session) return { ok: false, code: 'not_found', message: 'Unknown or expired link-device session' };
+      if (!session)
+        return { ok: false, code: 'not_found', message: 'Unknown or expired link-device session' };
       return { ok: true, session };
     } catch (e: unknown) {
-      return { ok: false, code: 'internal', message: errorMessage(e) || 'Failed to load link-device session' };
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to load link-device session',
+      };
     }
   }
 
@@ -1989,8 +2402,7 @@ export class AuthService {
     expires_at_ms?: unknown;
     expiresAtMs?: unknown;
   }): Promise<
-    | { ok: true; session: DeviceLinkingSessionRecord }
-    | { ok: false; code: string; message: string }
+    { ok: true; session: DeviceLinkingSessionRecord } | { ok: false; code: string; message: string }
   > {
     try {
       const sessionId = String(request?.session_id ?? request?.sessionId ?? '').trim();
@@ -1998,22 +2410,28 @@ export class AuthService {
         return { ok: false, code: 'invalid_body', message: 'Invalid sessionId' };
       }
 
-      const device2PublicKey = String(request?.device2_public_key ?? request?.device2PublicKey ?? '').trim();
+      const device2PublicKey = String(
+        request?.device2_public_key ?? request?.device2PublicKey ?? '',
+      ).trim();
       if (!device2PublicKey || !device2PublicKey.startsWith('ed25519:')) {
-        return { ok: false, code: 'invalid_body', message: 'Invalid device2PublicKey (expected ed25519:...)' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Invalid device2PublicKey (expected ed25519:...)',
+        };
       }
 
       const now = Date.now();
       const requestedExpiresRaw = request?.expires_at_ms ?? request?.expiresAtMs;
-      const requestedExpires = typeof requestedExpiresRaw === 'number'
-        ? requestedExpiresRaw
-        : Number(requestedExpiresRaw);
+      const requestedExpires =
+        typeof requestedExpiresRaw === 'number' ? requestedExpiresRaw : Number(requestedExpiresRaw);
       const ttlMs = 15 * 60_000;
       const maxTtlMs = 60 * 60_000;
       const baseExpires = now + ttlMs;
-      const expiresAtMs = Number.isFinite(requestedExpires) && requestedExpires > now
-        ? Math.min(Math.floor(requestedExpires), now + maxTtlMs)
-        : baseExpires;
+      const expiresAtMs =
+        Number.isFinite(requestedExpires) && requestedExpires > now
+          ? Math.min(Math.floor(requestedExpires), now + maxTtlMs)
+          : baseExpires;
 
       const store = this.getDeviceLinkingSessionStore();
       const existing = await store.get(sessionId);
@@ -2043,7 +2461,11 @@ export class AuthService {
       });
       return { ok: true, session };
     } catch (e: unknown) {
-      return { ok: false, code: 'internal', message: errorMessage(e) || 'Failed to register link-device session' };
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to register link-device session',
+      };
     }
   }
 
@@ -2059,8 +2481,7 @@ export class AuthService {
     add_key_tx_hash?: unknown;
     addKeyTxHash?: unknown;
   }): Promise<
-    | { ok: true; session: DeviceLinkingSessionRecord }
-    | { ok: false; code: string; message: string }
+    { ok: true; session: DeviceLinkingSessionRecord } | { ok: false; code: string; message: string }
   > {
     try {
       await this._ensureSignerAndRelayerAccount();
@@ -2075,33 +2496,50 @@ export class AuthService {
         return { ok: false, code: 'invalid_body', message: 'Invalid accountId' };
       }
 
-      const device2PublicKey = String(request?.device2_public_key ?? request?.device2PublicKey ?? '').trim();
+      const device2PublicKey = String(
+        request?.device2_public_key ?? request?.device2PublicKey ?? '',
+      ).trim();
       if (!device2PublicKey || !device2PublicKey.startsWith('ed25519:')) {
-        return { ok: false, code: 'invalid_body', message: 'Invalid device2PublicKey (expected ed25519:...)' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Invalid device2PublicKey (expected ed25519:...)',
+        };
       }
 
-      const addKeyTxHash = String(request?.add_key_tx_hash ?? request?.addKeyTxHash ?? '').trim() || undefined;
+      const addKeyTxHash =
+        String(request?.add_key_tx_hash ?? request?.addKeyTxHash ?? '').trim() || undefined;
 
       const keys = await this.nearClient.viewAccessKeyList(accountId);
-      const hasKey = Array.isArray(keys?.keys) && keys.keys.some((k: any) => String(k?.public_key || '').trim() === device2PublicKey);
+      const hasKey =
+        Array.isArray(keys?.keys) &&
+        keys.keys.some((k: any) => String(k?.public_key || '').trim() === device2PublicKey);
       if (!hasKey) {
         return {
           ok: false,
           code: 'missing_access_key',
-          message: 'device2 public key is not present on account (ensure AddKey has been submitted and propagated)',
+          message:
+            'device2 public key is not present on account (ensure AddKey has been submitted and propagated)',
         };
       }
 
       const store = this.getDeviceLinkingSessionStore();
       const existing = await store.get(sessionId);
       if (existing?.accountId && existing.accountId !== accountId) {
-        return { ok: false, code: 'conflict', message: 'Session is already claimed by a different accountId' };
+        return {
+          ok: false,
+          code: 'conflict',
+          message: 'Session is already claimed by a different accountId',
+        };
       }
       if (existing?.device2PublicKey && existing.device2PublicKey !== device2PublicKey) {
         return { ok: false, code: 'conflict', message: 'Session public key mismatch' };
       }
 
-      const fallbackDeviceNumber = coerceDeviceNumber(request?.device_number ?? request?.deviceNumber ?? existing?.deviceNumber ?? 2, 2);
+      const fallbackDeviceNumber = coerceDeviceNumber(
+        request?.device_number ?? request?.deviceNumber ?? existing?.deviceNumber ?? 2,
+        2,
+      );
       let deviceNumber = fallbackDeviceNumber;
       try {
         const bindingStore = this.getWebAuthnCredentialBindingStore();
@@ -2160,7 +2598,11 @@ export class AuthService {
       });
       return { ok: true, session };
     } catch (e: unknown) {
-      return { ok: false, code: 'internal', message: errorMessage(e) || 'Failed to claim link-device session' };
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to claim link-device session',
+      };
     }
   }
 
@@ -2209,18 +2651,30 @@ export class AuthService {
         return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 2;
       })();
 
-      const localPublicKey = String(request?.local_public_key ?? request?.localPublicKey ?? '').trim() || '';
+      const localPublicKey =
+        String(request?.local_public_key ?? request?.localPublicKey ?? '').trim() || '';
       if (localPublicKey && !localPublicKey.startsWith('ed25519:')) {
-        return { ok: false, code: 'invalid_body', message: 'Invalid localPublicKey (expected ed25519:...)' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Invalid localPublicKey (expected ed25519:...)',
+        };
       }
 
-      const thresholdClientVerifyingShareB64u = String((request as any)?.threshold_ed25519?.client_verifying_share_b64u || '').trim();
+      const thresholdClientVerifyingShareB64u = String(
+        (request as any)?.threshold_ed25519?.client_verifying_share_b64u || '',
+      ).trim();
       if (!thresholdClientVerifyingShareB64u) {
-        return { ok: false, code: 'invalid_body', message: 'Missing threshold_ed25519.client_verifying_share_b64u' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Missing threshold_ed25519.client_verifying_share_b64u',
+        };
       }
 
       const cred = request.webauthn_registration as any;
-      if (!cred || typeof cred !== 'object') return { ok: false, code: 'invalid_body', message: 'Missing webauthn_registration' };
+      if (!cred || typeof cred !== 'object')
+        return { ok: false, code: 'invalid_body', message: 'Missing webauthn_registration' };
 
       // NOTE: We reuse the same deterministic registration intent schema as account creation:
       // `sha256("register:<accountId>:<deviceNumber>")`. This keeps client-side plumbing simple
@@ -2230,10 +2684,18 @@ export class AuthService {
 
       const clientData = parseClientDataJsonBase64url(String(cred.response?.clientDataJSON || ''));
       if (clientData.type !== 'webauthn.create') {
-        return { ok: false, code: 'invalid_body', message: 'Invalid webauthn_registration.clientDataJSON.type (expected webauthn.create)' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Invalid webauthn_registration.clientDataJSON.type (expected webauthn.create)',
+        };
       }
       if (clientData.challenge !== expectedChallenge) {
-        return { ok: false, code: 'challenge_mismatch', message: 'Registration challenge mismatch' };
+        return {
+          ok: false,
+          code: 'challenge_mismatch',
+          message: 'Registration challenge mismatch',
+        };
       }
       const originHost = originHostnameOrEmpty(clientData.origin);
       if (!isHostWithinRpId(originHost, rpId)) {
@@ -2241,9 +2703,15 @@ export class AuthService {
       }
 
       const mod = await import('@simplewebauthn/server');
-      const verifyRegistrationResponse = (mod as any).verifyRegistrationResponse as undefined | ((args: any) => Promise<any>);
+      const verifyRegistrationResponse = (mod as any).verifyRegistrationResponse as
+        | undefined
+        | ((args: any) => Promise<any>);
       if (typeof verifyRegistrationResponse !== 'function') {
-        return { ok: false, code: 'unsupported', message: 'WebAuthn registration verifier is unavailable in this runtime' };
+        return {
+          ok: false,
+          code: 'unsupported',
+          message: 'WebAuthn registration verifier is unavailable in this runtime',
+        };
       }
 
       const expectedOriginStrict = request.expected_origin || clientData.origin;
@@ -2260,7 +2728,11 @@ export class AuthService {
 
       const threshold = this.getThresholdSigningService();
       if (!threshold) {
-        return { ok: false, code: 'not_configured', message: 'Threshold signing is not configured on this server' };
+        return {
+          ok: false,
+          code: 'not_configured',
+          message: 'Threshold signing is not configured on this server',
+        };
       }
       const schemeAny = threshold.getSchemeModule(THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID);
       if (!schemeAny || schemeAny.schemeId !== THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID) {
@@ -2278,11 +2750,17 @@ export class AuthService {
       if (!keygen.ok) return { ok: false, code: keygen.code, message: keygen.message };
 
       const credentialIdB64u = String(registration?.registrationInfo?.credential?.id || '').trim();
-      const credentialPublicKey = registration?.registrationInfo?.credential?.publicKey as Uint8Array | undefined;
+      const credentialPublicKey = registration?.registrationInfo?.credential?.publicKey as
+        | Uint8Array
+        | undefined;
       const counter = registration?.registrationInfo?.credential?.counter as number | undefined;
 
       if (!credentialIdB64u || !credentialPublicKey) {
-        return { ok: false, code: 'internal', message: 'Registration verification did not return credential public key material' };
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'Registration verification did not return credential public key material',
+        };
       }
 
       const now = Date.now();
@@ -2360,7 +2838,11 @@ export class AuthService {
         },
       };
     } catch (e: unknown) {
-      return { ok: false, code: 'internal', message: errorMessage(e) || 'Link device preparation failed' };
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Link device preparation failed',
+      };
     }
   }
 
@@ -2415,13 +2897,20 @@ export class AuthService {
         return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
       })();
 
-      const thresholdClientVerifyingShareB64u = String((request as any)?.threshold_ed25519?.client_verifying_share_b64u || '').trim();
+      const thresholdClientVerifyingShareB64u = String(
+        (request as any)?.threshold_ed25519?.client_verifying_share_b64u || '',
+      ).trim();
       if (!thresholdClientVerifyingShareB64u) {
-        return { ok: false, code: 'invalid_body', message: 'Missing threshold_ed25519.client_verifying_share_b64u' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Missing threshold_ed25519.client_verifying_share_b64u',
+        };
       }
 
       const cred = request.webauthn_registration as any;
-      if (!cred || typeof cred !== 'object') return { ok: false, code: 'invalid_body', message: 'Missing webauthn_registration' };
+      if (!cred || typeof cred !== 'object')
+        return { ok: false, code: 'invalid_body', message: 'Missing webauthn_registration' };
 
       // Reuse the canonical deterministic registration challenge schema.
       // Email recovery authorization happens out-of-band (DKIM/TEE), so we don't
@@ -2431,10 +2920,18 @@ export class AuthService {
 
       const clientData = parseClientDataJsonBase64url(String(cred.response?.clientDataJSON || ''));
       if (clientData.type !== 'webauthn.create') {
-        return { ok: false, code: 'invalid_body', message: 'Invalid webauthn_registration.clientDataJSON.type (expected webauthn.create)' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Invalid webauthn_registration.clientDataJSON.type (expected webauthn.create)',
+        };
       }
       if (clientData.challenge !== expectedChallenge) {
-        return { ok: false, code: 'challenge_mismatch', message: 'Registration challenge mismatch' };
+        return {
+          ok: false,
+          code: 'challenge_mismatch',
+          message: 'Registration challenge mismatch',
+        };
       }
       const originHost = originHostnameOrEmpty(clientData.origin);
       if (!isHostWithinRpId(originHost, rpId)) {
@@ -2442,9 +2939,15 @@ export class AuthService {
       }
 
       const mod = await import('@simplewebauthn/server');
-      const verifyRegistrationResponse = (mod as any).verifyRegistrationResponse as undefined | ((args: any) => Promise<any>);
+      const verifyRegistrationResponse = (mod as any).verifyRegistrationResponse as
+        | undefined
+        | ((args: any) => Promise<any>);
       if (typeof verifyRegistrationResponse !== 'function') {
-        return { ok: false, code: 'unsupported', message: 'WebAuthn registration verifier is unavailable in this runtime' };
+        return {
+          ok: false,
+          code: 'unsupported',
+          message: 'WebAuthn registration verifier is unavailable in this runtime',
+        };
       }
 
       const expectedOriginStrict = request.expected_origin || clientData.origin;
@@ -2461,7 +2964,11 @@ export class AuthService {
 
       const threshold = this.getThresholdSigningService();
       if (!threshold) {
-        return { ok: false, code: 'not_configured', message: 'Threshold signing is not configured on this server' };
+        return {
+          ok: false,
+          code: 'not_configured',
+          message: 'Threshold signing is not configured on this server',
+        };
       }
       const schemeAny = threshold.getSchemeModule(THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID);
       if (!schemeAny || schemeAny.schemeId !== THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID) {
@@ -2479,11 +2986,17 @@ export class AuthService {
       if (!keygen.ok) return { ok: false, code: keygen.code, message: keygen.message };
 
       const credentialIdB64u = String(registration?.registrationInfo?.credential?.id || '').trim();
-      const credentialPublicKey = registration?.registrationInfo?.credential?.publicKey as Uint8Array | undefined;
+      const credentialPublicKey = registration?.registrationInfo?.credential?.publicKey as
+        | Uint8Array
+        | undefined;
       const counter = registration?.registrationInfo?.credential?.counter as number | undefined;
 
       if (!credentialIdB64u || !credentialPublicKey) {
-        return { ok: false, code: 'internal', message: 'Registration verification did not return credential public key material' };
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'Registration verification did not return credential public key material',
+        };
       }
 
       const now = Date.now();
@@ -2531,7 +3044,11 @@ export class AuthService {
         },
       };
     } catch (e: unknown) {
-      return { ok: false, code: 'internal', message: errorMessage(e) || 'Email recovery preparation failed' };
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Email recovery preparation failed',
+      };
     }
   }
 
@@ -2541,7 +3058,10 @@ export class AuthService {
   async checkAccountExists(accountId: string): Promise<boolean> {
     await this._ensureSignerAndRelayerAccount();
     const isNotFound = (m: string) => /does not exist|UNKNOWN_ACCOUNT|unknown\s+account/i.test(m);
-    const isRetryable = (m: string) => /server error|internal|temporar|timeout|too many requests|429|empty response|rpc request failed/i.test(m);
+    const isRetryable = (m: string) =>
+      /server error|internal|temporar|timeout|too many requests|429|empty response|rpc request failed/i.test(
+        m,
+      );
     const attempts = 3;
     let lastErr: Error | null = null;
     for (let i = 1; i <= attempts; i++) {
@@ -2570,7 +3090,10 @@ export class AuthService {
         }
         // As a safety valve for flaky RPCs, treat persistent retryable errors as not-found
         if (isRetryable(msg)) {
-          this.logger.warn(`[AuthService] Assuming account '${accountId}' not found after retryable RPC errors:`, msg);
+          this.logger.warn(
+            `[AuthService] Assuming account '${accountId}' not found after retryable RPC errors:`,
+            msg,
+          );
           return false;
         }
         this.logger.error(`Error checking account existence for ${accountId}:`, err);
@@ -2616,21 +3139,25 @@ export class AuthService {
     const senderId = input.signedDelegate?.delegateAction?.senderId ?? 'unknown-sender';
 
     return this.queueTransaction(
-      () => executeSignedDelegateWithRelayer({
-        nearClient: this.nearClient,
-        relayerAccount: this.config.relayerAccount,
-        relayerPublicKey: this.relayerPublicKey,
-        relayerPrivateKey: this.config.relayerPrivateKey,
-        hash: input.hash,
-        signedDelegate: input.signedDelegate,
-        signWithPrivateKey: (args) => this.signWithPrivateKey(args),
-      }),
+      () =>
+        executeSignedDelegateWithRelayer({
+          nearClient: this.nearClient,
+          relayerAccount: this.config.relayerAccount,
+          relayerPublicKey: this.relayerPublicKey,
+          relayerPrivateKey: this.config.relayerPrivateKey,
+          hash: input.hash,
+          signedDelegate: input.signedDelegate,
+          signWithPrivateKey: (args) => this.signWithPrivateKey(args),
+        }),
       `execute signed delegate for ${senderId}`,
     );
   }
 
   // === Internal helpers for signing & RPC ===
-  private async fetchTxContext(accountId: string, publicKey: string): Promise<{ nextNonce: string; blockHash: string }> {
+  private async fetchTxContext(
+    accountId: string,
+    publicKey: string,
+  ): Promise<{ nextNonce: string; blockHash: string }> {
     // Access key (if missing, assume nonce=0)
     let nonce = 0n;
     try {
@@ -2663,8 +3190,8 @@ export class AuthService {
         receiverId: input.receiverId,
         nonce: input.nonce,
         blockHash: input.blockHash,
-        actions: input.actions
-      }
+        actions: input.actions,
+      },
     };
     // uses wasm signer worker's SignTransactionWithKeyPair action (no WebAuthn/PRF session required)
     let response: unknown;
@@ -2676,8 +3203,8 @@ export class AuthService {
       this.logger.error('Signer WASM rejected message:', {
         error: msg,
         payload: JSON.stringify(message, (key, value) =>
-          key === 'nearPrivateKey' ? '[REDACTED]' : value
-        )
+          key === 'nearPrivateKey' ? '[REDACTED]' : value,
+        ),
       });
 
       // This specific error is intentionally redacted inside the WASM worker.
@@ -2688,13 +3215,10 @@ export class AuthService {
           `Signer WASM rejected SIGN_TRANSACTION_WITH_KEYPAIR payload: ${msg}. Rebuild + redeploy the relayer so the bundled \`wasm_signer_worker.js\` and \`wasm_signer_worker_bg.wasm\` come from the same build.`,
         );
       }
-      throw (e instanceof Error ? e : new Error(msg || 'Signing failed'));
+      throw e instanceof Error ? e : new Error(msg || 'Signing failed');
     }
-    const {
-      transaction,
-      signature,
-      borshBytes
-    } = extractFirstSignedTransactionFromWorkerResponse(response);
+    const { transaction, signature, borshBytes } =
+      extractFirstSignedTransactionFromWorkerResponse(response);
 
     return new SignedTransaction({
       transaction: transaction,
@@ -2708,7 +3232,9 @@ export class AuthService {
    */
   private async queueTransaction<T>(operation: () => Promise<T>, description: string): Promise<T> {
     this.queueStats.pending++;
-    this.logger.debug(`[AuthService] Queueing: ${description} (pending: ${this.queueStats.pending})`);
+    this.logger.debug(
+      `[AuthService] Queueing: ${description} (pending: ${this.queueStats.pending})`,
+    );
 
     this.transactionQueue = this.transactionQueue
       .then(async () => {
@@ -2717,7 +3243,9 @@ export class AuthService {
           const result = await operation();
           this.queueStats.completed++;
           this.queueStats.pending--;
-          this.logger.debug(`[AuthService] Completed: ${description} (pending: ${this.queueStats.pending})`);
+          this.logger.debug(
+            `[AuthService] Completed: ${description} (pending: ${this.queueStats.pending})`,
+          );
           return result;
         } catch (error: any) {
           this.queueStats.failed++;
@@ -2749,10 +3277,12 @@ function extractFirstSignedTransactionFromWorkerResponse(response: any): {
   signature: WasmSignature;
   borshBytes: number[];
 } {
-  const res = (typeof response === 'string' ? JSON.parse(response) : response) as {
-    type?: WorkerResponseType;
-    payload?: { signedTransactions?: WorkerSignedTransactionPayload[]; error?: string };
-  } | undefined;
+  const res = (typeof response === 'string' ? JSON.parse(response) : response) as
+    | {
+        type?: WorkerResponseType;
+        payload?: { signedTransactions?: WorkerSignedTransactionPayload[]; error?: string };
+      }
+    | undefined;
 
   if (res?.type !== WorkerResponseType.SignTransactionWithKeyPairSuccess) {
     const errMsg = res?.payload?.error || 'Signing failed';

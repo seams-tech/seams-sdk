@@ -52,22 +52,22 @@ const DocumentThemeTokenBridge: React.FC = () => {
 
 function usePathname(): string {
   const read = React.useCallback(() => {
-    if (typeof window === 'undefined') return '/'
-    return normalizePathname(window.location.pathname)
-  }, [])
-  const [pathname, setPathname] = React.useState<string>(read)
+    if (typeof window === 'undefined') return '/';
+    return normalizePathname(window.location.pathname);
+  }, []);
+  const [pathname, setPathname] = React.useState<string>(read);
 
   React.useEffect(() => {
-    const onChange = () => setPathname(read())
-    window.addEventListener('popstate', onChange)
-    window.addEventListener('site:navigate', onChange as EventListener)
+    const onChange = () => setPathname(read());
+    window.addEventListener('popstate', onChange);
+    window.addEventListener('site:navigate', onChange as EventListener);
     return () => {
-      window.removeEventListener('popstate', onChange)
-      window.removeEventListener('site:navigate', onChange as EventListener)
-    }
-  }, [read])
+      window.removeEventListener('popstate', onChange);
+      window.removeEventListener('site:navigate', onChange as EventListener);
+    };
+  }, [read]);
 
-  return pathname
+  return pathname;
 }
 
 export const App: React.FC = () => {
@@ -83,20 +83,20 @@ export const App: React.FC = () => {
   const page = React.useMemo(() => {
     switch (pathname) {
       case '/':
-        return <HomePage />
+        return <HomePage />;
       case '/pricing':
-        return <PricingPage />
+        return <PricingPage />;
       case '/company':
-        return <CompanyPage />
+        return <CompanyPage />;
       case '/contact':
-        return <ContactPage />
+        return <ContactPage />;
       default:
         if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) {
-          return <DashboardPage pathname={pathname} />
+          return <DashboardPage pathname={pathname} />;
         }
-        return <NotFoundPage />
+        return <NotFoundPage />;
     }
-  }, [pathname])
+  }, [pathname]);
 
   return (
     <TatchiPasskeyProvider

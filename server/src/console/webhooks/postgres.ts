@@ -123,13 +123,15 @@ function parseSubscriptions(raw: unknown): ConsoleWebhookSubscription[] {
   const values: ConsoleWebhookSubscription[] = [];
   const seen = new Set<string>();
   for (const item of parsed) {
-    const value = String(item || '').trim().toLowerCase();
+    const value = String(item || '')
+      .trim()
+      .toLowerCase();
     if (
-      value !== 'wallet'
-      && value !== 'policy'
-      && value !== 'auth'
-      && value !== 'tx'
-      && value !== 'billing'
+      value !== 'wallet' &&
+      value !== 'policy' &&
+      value !== 'auth' &&
+      value !== 'tx' &&
+      value !== 'billing'
     ) {
       continue;
     }
@@ -314,14 +316,12 @@ async function withTx<T>(pool: PgPool, fn: (q: Queryable) => Promise<T>): Promis
   }
 }
 
-async function dispatchDelivery(
-  input: {
-    endpoint: StoredWebhookEndpoint;
-    delivery: StoredWebhookDelivery;
-    dispatcher: WebhookDispatchAdapter;
-    now: Date;
-  },
-): Promise<DeliveryAttemptResult> {
+async function dispatchDelivery(input: {
+  endpoint: StoredWebhookEndpoint;
+  delivery: StoredWebhookDelivery;
+  dispatcher: WebhookDispatchAdapter;
+  now: Date;
+}): Promise<DeliveryAttemptResult> {
   const timestamp = String(Math.floor(input.now.getTime() / 1000));
   const eventPayload = {
     id: input.delivery.eventId,
@@ -349,11 +349,14 @@ async function dispatchDelivery(
 
   return {
     status: dispatchResult.ok ? 'SUCCEEDED' : 'FAILED',
-    responseStatus: Number.isInteger(dispatchResult.statusCode) && dispatchResult.statusCode > 0
-      ? dispatchResult.statusCode
-      : null,
+    responseStatus:
+      Number.isInteger(dispatchResult.statusCode) && dispatchResult.statusCode > 0
+        ? dispatchResult.statusCode
+        : null,
     responseBody: truncateResponseBody(dispatchResult.responseBody),
-    errorMessage: dispatchResult.ok ? null : (dispatchResult.errorMessage || `HTTP ${dispatchResult.statusCode || 0}`),
+    errorMessage: dispatchResult.ok
+      ? null
+      : dispatchResult.errorMessage || `HTTP ${dispatchResult.statusCode || 0}`,
     attemptedAtMs: nowMs(input.now),
   };
 }
@@ -459,11 +462,7 @@ async function persistDeliveryAttempt(
       `UPDATE console_webhook_dead_letters
           SET resolved_at_ms = $3
         WHERE namespace = $1 AND delivery_id = $2 AND resolved_at_ms IS NULL`,
-      [
-        input.namespace,
-        input.delivery.id,
-        input.attemptResult.attemptedAtMs,
-      ],
+      [input.namespace, input.delivery.id, input.attemptResult.attemptedAtMs],
     );
   }
 
@@ -745,9 +744,8 @@ export async function createPostgresConsoleWebhookService(
 
       const now = nowFn();
       const nextUrl = request.url !== undefined ? request.url : current.url;
-      const nextSubscriptions = request.subscriptions !== undefined
-        ? request.subscriptions
-        : current.subscriptions;
+      const nextSubscriptions =
+        request.subscriptions !== undefined ? request.subscriptions : current.subscriptions;
       const nextStatus = request.status !== undefined ? request.status : current.status;
 
       const row = await queryOne(
@@ -823,7 +821,10 @@ export async function createPostgresConsoleWebhookService(
       const hasMore = rows.length > limit;
       const pageItems = hasMore ? rows.slice(0, limit) : rows;
       const nextCursor = hasMore
-        ? encodePaginationCursor(Date.parse(pageItems[pageItems.length - 1].createdAt), pageItems[pageItems.length - 1].id)
+        ? encodePaginationCursor(
+            Date.parse(pageItems[pageItems.length - 1].createdAt),
+            pageItems[pageItems.length - 1].id,
+          )
         : undefined;
       return {
         items: pageItems.map(toPublicDelivery),
@@ -888,7 +889,10 @@ export async function createPostgresConsoleWebhookService(
       const hasMore = rows.length > limit;
       const pageItems = hasMore ? rows.slice(0, limit) : rows;
       const nextCursor = hasMore
-        ? encodePaginationCursor(pageItems[pageItems.length - 1].attemptedAtMs, pageItems[pageItems.length - 1].id)
+        ? encodePaginationCursor(
+            pageItems[pageItems.length - 1].attemptedAtMs,
+            pageItems[pageItems.length - 1].id,
+          )
         : undefined;
       return {
         items: pageItems.map(toPublicAttempt),
@@ -955,7 +959,10 @@ export async function createPostgresConsoleWebhookService(
       const hasMore = rows.length > limit;
       const pageItems = hasMore ? rows.slice(0, limit) : rows;
       const nextCursor = hasMore
-        ? encodePaginationCursor(pageItems[pageItems.length - 1].movedToDlqAtMs, pageItems[pageItems.length - 1].id)
+        ? encodePaginationCursor(
+            pageItems[pageItems.length - 1].movedToDlqAtMs,
+            pageItems[pageItems.length - 1].id,
+          )
         : undefined;
       return {
         items: pageItems.map(toPublicDeadLetter),
@@ -1003,14 +1010,16 @@ export async function createPostgresConsoleWebhookService(
         dispatcher,
         now,
       });
-      const updated = await withTx(pool, async (q) => persistDeliveryAttempt(q, {
-        namespace,
-        delivery: target,
-        endpoint,
-        isReplay: true,
-        now,
-        attemptResult,
-      }));
+      const updated = await withTx(pool, async (q) =>
+        persistDeliveryAttempt(q, {
+          namespace,
+          delivery: target,
+          endpoint,
+          isReplay: true,
+          now,
+          attemptResult,
+        }),
+      );
 
       return {
         replayed: true,
@@ -1026,7 +1035,11 @@ export async function createPostgresConsoleWebhookService(
       if (!eventType) {
         throw new ConsoleWebhookError('invalid_event_type', 400, 'eventType is required');
       }
-      if (!request.payload || typeof request.payload !== 'object' || Array.isArray(request.payload)) {
+      if (
+        !request.payload ||
+        typeof request.payload !== 'object' ||
+        Array.isArray(request.payload)
+      ) {
         throw new ConsoleWebhookError('invalid_payload', 400, 'payload must be a JSON object');
       }
 
@@ -1090,14 +1103,16 @@ export async function createPostgresConsoleWebhookService(
           now: attemptNow,
         });
 
-        const updated = await withTx(pool, async (q) => persistDeliveryAttempt(q, {
-          namespace,
-          delivery,
-          endpoint,
-          isReplay: false,
-          now: attemptNow,
-          attemptResult,
-        }));
+        const updated = await withTx(pool, async (q) =>
+          persistDeliveryAttempt(q, {
+            namespace,
+            delivery,
+            endpoint,
+            isReplay: false,
+            now: attemptNow,
+            attemptResult,
+          }),
+        );
         if (updated.status === 'SUCCEEDED') delivered += 1;
         else failed += 1;
       }

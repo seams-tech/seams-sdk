@@ -1,7 +1,11 @@
 import { buildCorsOrigins } from '../../core/SessionService';
 import type { RelayRouterOptions } from '../relay';
 
-export function json(body: unknown, init?: ResponseInit, extraHeaders?: Record<string, string>): Response {
+export function json(
+  body: unknown,
+  init?: ResponseInit,
+  extraHeaders?: Record<string, string>,
+): Response {
   const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8' });
 
   // Merge init.headers into our base headers (ResponseInit headers are otherwise overwritten).
@@ -9,7 +13,7 @@ export function json(body: unknown, init?: ResponseInit, extraHeaders?: Record<s
   if (initHeaders) {
     try {
       new Headers(initHeaders).forEach((v, k) => headers.set(k, v));
-    } catch { }
+    } catch {}
   }
 
   if (extraHeaders) {
@@ -56,7 +60,11 @@ export function withCors(headers: Headers, opts?: RelayRouterOptions, request?: 
   }
 }
 
-export function toResponse(out: { status: number; headers: Record<string, string>; body: string }): Response {
+export function toResponse(out: {
+  status: number;
+  headers: Record<string, string>;
+  body: string;
+}): Response {
   return new Response(out.body, { status: out.status, headers: out.headers });
 }
 
@@ -74,6 +82,8 @@ export async function readJson(request: Request): Promise<unknown> {
 
 export function headersToRecord(headers: Headers): Record<string, string> {
   const out: Record<string, string> = {};
-  headers.forEach((v, k) => { out[k] = v; });
+  headers.forEach((v, k) => {
+    out[k] = v;
+  });
   return out;
 }

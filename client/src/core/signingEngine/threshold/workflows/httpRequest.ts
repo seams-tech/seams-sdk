@@ -8,16 +8,13 @@ function resolveRequestTimeoutMs(timeoutMs: number | undefined): number {
 
 function toErrorMessage(error: unknown): string {
   return String(
-    (error && typeof error === 'object' && 'message' in error)
+    error && typeof error === 'object' && 'message' in error
       ? (error as { message?: unknown }).message
-      : (error || ''),
+      : error || '',
   );
 }
 
-function createThresholdEcdsaTimeoutError(args: {
-  operation: string;
-  timeoutMs: number;
-}): Error {
+function createThresholdEcdsaTimeoutError(args: { operation: string; timeoutMs: number }): Error {
   return new Error(
     `[threshold-ecdsa] ${args.operation} request timed out after ${args.timeoutMs}ms`,
   );
@@ -76,9 +73,7 @@ export async function fetchThresholdEcdsaJson<TData = unknown>(args: {
       throw createThresholdEcdsaTimeoutError({ operation: args.operation, timeoutMs });
     }
     const message = toErrorMessage(error);
-    throw new Error(
-      message || `[threshold-ecdsa] ${args.operation} request failed`,
-    );
+    throw new Error(message || `[threshold-ecdsa] ${args.operation} request failed`);
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
     abortCleanup?.();

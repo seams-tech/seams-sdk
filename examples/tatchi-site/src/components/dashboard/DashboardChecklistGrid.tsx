@@ -1,9 +1,9 @@
-import React from 'react'
-import type { DashboardChecklistCard } from './dashboardContent'
+import React from 'react';
+import type { DashboardChecklistCard } from './dashboardContent';
 
 type DashboardChecklistGridProps = {
-  cards: readonly DashboardChecklistCard[]
-}
+  cards: readonly DashboardChecklistCard[];
+};
 
 export function DashboardChecklistGrid({ cards }: DashboardChecklistGridProps): React.JSX.Element {
   return (
@@ -19,8 +19,7 @@ export function DashboardChecklistGrid({ cards }: DashboardChecklistGridProps): 
         </article>
       ))}
     </section>
-  )
+  );
 }
 
-export default DashboardChecklistGrid
-
+export default DashboardChecklistGrid;

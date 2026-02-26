@@ -18,12 +18,12 @@ export async function requestRegistrationCredentialConfirmation({
   nearRpcUrl,
   confirmationConfig,
 }: {
-  touchConfirm: Pick<TouchConfirmSecureConfirmationPort, 'requestUserConfirmation'>,
-  nearAccountId: string,
-  deviceNumber: number,
+  touchConfirm: Pick<TouchConfirmSecureConfirmationPort, 'requestUserConfirmation'>;
+  nearAccountId: string;
+  deviceNumber: number;
   confirmerText?: { title?: string; body?: string };
-  nearRpcUrl: string,
-  confirmationConfig?: Partial<ConfirmationConfig>,
+  nearRpcUrl: string;
+  confirmationConfig?: Partial<ConfirmationConfig>;
 }): Promise<RegistrationCredentialConfirmationPayload> {
   if (typeof touchConfirm.requestUserConfirmation !== 'function') {
     throw new Error('UserConfirm manager request bridge is unavailable');
@@ -33,17 +33,21 @@ export async function requestRegistrationCredentialConfirmation({
     throw new Error('nearRpcUrl is required for registration confirmation');
   }
 
-  const requestId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-    ? crypto.randomUUID()
-    : `register-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const requestId =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `register-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
   const title = confirmerText?.title;
   const body = confirmerText?.body;
-  const request: UserConfirmRequest<{
-    nearAccountId: string;
-    deviceNumber: number;
-    rpcCall: { nearRpcUrl: string; nearAccountId: string };
-  }, RegistrationSummary> = {
+  const request: UserConfirmRequest<
+    {
+      nearAccountId: string;
+      deviceNumber: number;
+      rpcCall: { nearRpcUrl: string; nearAccountId: string };
+    },
+    RegistrationSummary
+  > = {
     requestId,
     type: UserConfirmationType.REGISTER_ACCOUNT,
     summary: {

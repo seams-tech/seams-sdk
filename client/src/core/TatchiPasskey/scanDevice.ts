@@ -19,7 +19,7 @@ import { errorMessage } from '@shared/utils/errors';
 export async function linkDeviceWithScannedQRData(
   context: PasskeyManagerContext,
   qrData: DeviceLinkingQRData,
-  options: ScanAndLinkDeviceOptionsDevice1
+  options: ScanAndLinkDeviceOptionsDevice1,
 ): Promise<LinkDeviceResult> {
   const { onEvent, onError } = options || {};
 
@@ -28,7 +28,7 @@ export async function linkDeviceWithScannedQRData(
       step: 2,
       phase: DeviceLinkingPhase.STEP_2_SCANNING,
       status: DeviceLinkingStatus.PROGRESS,
-      message: 'Validating QR data...'
+      message: 'Validating QR data...',
     });
 
     // Validate QR data
@@ -56,20 +56,18 @@ export async function linkDeviceWithScannedQRData(
       step: 3,
       phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION,
       status: DeviceLinkingStatus.PROGRESS,
-      message: `Performing TouchID authentication for device linking...`
+      message: `Performing TouchID authentication for device linking...`,
     });
 
     onEvent?.({
       step: 6,
       phase: DeviceLinkingPhase.STEP_6_REGISTRATION,
       status: DeviceLinkingStatus.PROGRESS,
-      message: 'TouchID successful! Signing AddKey transaction...'
+      message: 'TouchID successful! Signing AddKey transaction...',
     });
 
     // Execute device linking transactions using the centralized RPC function
-    const {
-      addKeyTxResult,
-    } = await executeDeviceLinkingContractCalls({
+    const { addKeyTxResult } = await executeDeviceLinkingContractCalls({
       context,
       device1AccountId,
       device2PublicKey,
@@ -96,9 +94,10 @@ export async function linkDeviceWithScannedQRData(
           }),
         });
         const json: unknown = await resp.json().catch(() => ({}));
-        const response = (json && typeof json === 'object') ? json as Record<string, unknown> : {};
+        const response = json && typeof json === 'object' ? (json as Record<string, unknown>) : {};
         if (!resp.ok || response.ok !== true) {
-          const message = typeof response.message === 'string' ? response.message : `HTTP ${resp.status}`;
+          const message =
+            typeof response.message === 'string' ? response.message : `HTTP ${resp.status}`;
           console.warn('[link-device] relay claim failed:', message);
         }
       } catch (err) {
@@ -118,11 +117,10 @@ export async function linkDeviceWithScannedQRData(
       step: 6,
       phase: DeviceLinkingPhase.STEP_6_REGISTRATION,
       status: DeviceLinkingStatus.SUCCESS,
-      message: `Device2's key added to ${device1AccountId} successfully!`
+      message: `Device2's key added to ${device1AccountId} successfully!`,
     });
 
     return result;
-
   } catch (error: unknown) {
     console.error('LinkDeviceFlow: linkDeviceWithQRData caught error:', error);
 
@@ -132,7 +130,7 @@ export async function linkDeviceWithScannedQRData(
     throw new DeviceLinkingError(
       message,
       DeviceLinkingErrorCode.AUTHORIZATION_TIMEOUT,
-      'authorization'
+      'authorization',
     );
   }
 }
@@ -144,7 +142,7 @@ export function validateDeviceLinkingQRData(qrData: DeviceLinkingQRData): void {
       throw new DeviceLinkingError(
         'Invalid sessionId',
         DeviceLinkingErrorCode.INVALID_QR_DATA,
-        'authorization'
+        'authorization',
       );
     }
   }
@@ -154,7 +152,7 @@ export function validateDeviceLinkingQRData(qrData: DeviceLinkingQRData): void {
     throw new DeviceLinkingError(
       'Missing device public key',
       DeviceLinkingErrorCode.INVALID_QR_DATA,
-      'authorization'
+      'authorization',
     );
   }
   const normalized = ensureEd25519Prefix(publicKey);
@@ -162,7 +160,7 @@ export function validateDeviceLinkingQRData(qrData: DeviceLinkingQRData): void {
     throw new DeviceLinkingError(
       'Invalid device public key format',
       DeviceLinkingErrorCode.INVALID_QR_DATA,
-      'authorization'
+      'authorization',
     );
   }
 
@@ -170,7 +168,7 @@ export function validateDeviceLinkingQRData(qrData: DeviceLinkingQRData): void {
     throw new DeviceLinkingError(
       'Missing timestamp',
       DeviceLinkingErrorCode.INVALID_QR_DATA,
-      'authorization'
+      'authorization',
     );
   }
 
@@ -180,7 +178,7 @@ export function validateDeviceLinkingQRData(qrData: DeviceLinkingQRData): void {
     throw new DeviceLinkingError(
       'QR code expired',
       DeviceLinkingErrorCode.SESSION_EXPIRED,
-      'authorization'
+      'authorization',
     );
   }
 

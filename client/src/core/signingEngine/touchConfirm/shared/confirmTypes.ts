@@ -2,7 +2,10 @@ import { TransactionInputWasm } from '@/core/types';
 import { ConfirmationConfig } from '@/core/types';
 import { TransactionContext } from '@/core/types/rpc';
 import { RpcCallPayload } from '@/core/types/signer-worker';
-import { WebAuthnAuthenticationCredential, WebAuthnRegistrationCredential } from '@/core/types/webauthn';
+import {
+  WebAuthnAuthenticationCredential,
+  WebAuthnRegistrationCredential,
+} from '@/core/types/webauthn';
 import type { TxDisplayModel } from '@/core/signingEngine/touchConfirm/shared/displayModel';
 import { isObject, isString } from '@shared/utils/validation';
 
@@ -112,7 +115,11 @@ export enum UserConfirmationType {
 export type SigningAuthMode = 'webauthn' | 'warmSession';
 
 // V2 summaries (render-oriented / UI hints)
-export interface TxSummary { totalAmount?: string; method?: string; receiverId?: string }
+export interface TxSummary {
+  totalAmount?: string;
+  method?: string;
+  receiverId?: string;
+}
 export interface RegistrationSummary {
   nearAccountId: string;
   deviceNumber?: number;
@@ -120,8 +127,18 @@ export interface RegistrationSummary {
   body?: string;
 }
 export type ExportOperation = 'Export Private Key' | 'Decrypt Private Key';
-export interface ExportSummary { operation: ExportOperation; accountId: string; publicKey: string; warning: string }
-export interface Nep413Summary { operation: 'Sign NEP-413 Message'; message: string; recipient: string; accountId: string }
+export interface ExportSummary {
+  operation: ExportOperation;
+  accountId: string;
+  publicKey: string;
+  warning: string;
+}
+export interface Nep413Summary {
+  operation: 'Sign NEP-413 Message';
+  message: string;
+  recipient: string;
+  accountId: string;
+}
 
 // V2 request envelope
 export type UserConfirmPayloadByType = {
@@ -238,19 +255,25 @@ export interface SignIntentDigestPayload {
 
 // Type guards
 export function isUserConfirmRequestV2(x: unknown): x is UserConfirmRequest {
-  return isObject(x)
-    && isString((x as { type?: unknown }).type)
-    && isString((x as { requestId?: unknown }).requestId)
-    && (x as { summary?: unknown }).summary != null
-    && (x as { payload?: unknown }).payload != null;
+  return (
+    isObject(x) &&
+    isString((x as { type?: unknown }).type) &&
+    isString((x as { requestId?: unknown }).requestId) &&
+    (x as { summary?: unknown }).summary != null &&
+    (x as { payload?: unknown }).payload != null
+  );
 }
 
 // Serialized WebAuthn credential (authentication or registration)
-export type SerializableCredential = WebAuthnAuthenticationCredential | WebAuthnRegistrationCredential;
+export type SerializableCredential =
+  | WebAuthnAuthenticationCredential
+  | WebAuthnRegistrationCredential;
 
 // Discriminated unions to bind `type` to payload shape
-export type UserConfirmRequestByType<TType extends UserConfirmationType> =
-  UserConfirmRequest<UserConfirmPayloadByType[TType], UserConfirmSummaryByType[TType]> & { type: TType };
+export type UserConfirmRequestByType<TType extends UserConfirmationType> = UserConfirmRequest<
+  UserConfirmPayloadByType[TType],
+  UserConfirmSummaryByType[TType]
+> & { type: TType };
 
 export type LocalOnlyUserConfirmRequest =
   | UserConfirmRequestByType<UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF>

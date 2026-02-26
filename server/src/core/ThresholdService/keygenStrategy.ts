@@ -29,7 +29,12 @@ export interface ThresholdEd25519KeygenStrategy {
     clientVerifyingShareB64u: string;
     expectedRelayerKeyId: string;
   }): Promise<
-    | { ok: true; publicKey: string; relayerSigningShareB64u: string; relayerVerifyingShareB64u: string }
+    | {
+        ok: true;
+        publicKey: string;
+        relayerSigningShareB64u: string;
+        relayerVerifyingShareB64u: string;
+      }
     | { ok: false; code: string; message: string }
   >;
 }
@@ -43,7 +48,11 @@ type ThresholdEd25519KeygenWasmOutput = {
 
 function expectThresholdEd25519KeygenWasmOutput(out: unknown): ThresholdEd25519KeygenWasmOutput {
   const parsed = out as ThresholdEd25519KeygenWasmOutput;
-  if (!parsed?.relayerSigningShareB64u || !parsed?.relayerVerifyingShareB64u || !parsed?.publicKey) {
+  if (
+    !parsed?.relayerSigningShareB64u ||
+    !parsed?.relayerVerifyingShareB64u ||
+    !parsed?.publicKey
+  ) {
     throw new Error('threshold-ed25519 keygen returned incomplete output');
   }
   return parsed;
@@ -83,10 +92,12 @@ export class ThresholdEd25519KeygenStrategyV1 implements ThresholdEd25519KeygenS
     | { ok: false; code: string; message: string }
   > {
     const nearAccountId = toOptionalTrimmedString(input.nearAccountId);
-    if (!nearAccountId) return { ok: false, code: 'invalid_body', message: 'nearAccountId is required' };
+    if (!nearAccountId)
+      return { ok: false, code: 'invalid_body', message: 'nearAccountId is required' };
     const rpId = toOptionalTrimmedString(input.rpId);
     const clientVerifyingShareB64u = toOptionalTrimmedString(input.clientVerifyingShareB64u);
-    if (!clientVerifyingShareB64u) return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is required' };
+    if (!clientVerifyingShareB64u)
+      return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is required' };
 
     await this.ensureSignerWasm();
 
@@ -142,11 +153,20 @@ export class ThresholdEd25519KeygenStrategyV1 implements ThresholdEd25519KeygenS
     clientVerifyingShareB64u: string;
     expectedRelayerKeyId: string;
   }): Promise<
-    | { ok: true; publicKey: string; relayerSigningShareB64u: string; relayerVerifyingShareB64u: string }
+    | {
+        ok: true;
+        publicKey: string;
+        relayerSigningShareB64u: string;
+        relayerVerifyingShareB64u: string;
+      }
     | { ok: false; code: string; message: string }
   > {
     if (!this.useDerivedShares) {
-      return { ok: false, code: 'missing_config', message: 'Derived relayer shares are not enabled' };
+      return {
+        ok: false,
+        code: 'missing_config',
+        message: 'Derived relayer shares are not enabled',
+      };
     }
 
     const expectedRelayerKeyId = toOptionalTrimmedString(input.expectedRelayerKeyId);

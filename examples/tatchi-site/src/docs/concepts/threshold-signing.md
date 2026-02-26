@@ -9,7 +9,7 @@ Tatchi supports **2-of-2 threshold Ed25519 signing** (client + relayer) using a 
 - **Client share**: derived deterministically inside the signer worker from `WrapKeySeed` (from WebAuthn PRF) + `nearAccountId`.
 - **Relayer share**: held by the relay (either persisted in a key store, or derived on-demand from a 32‑byte master secret).
 
-The NEAR account adds the **threshold group public key** as an access key. From that point on, any transaction signed with this key requires *both* the client and the relayer to participate.
+The NEAR account adds the **threshold group public key** as an access key. From that point on, any transaction signed with this key requires _both_ the client and the relayer to participate.
 
 ## Key Material
 
@@ -27,7 +27,7 @@ The relay can operate in one of two modes:
 
 ## Enrollment Flow
 
-Threshold enrollment is intended to run *after* the passkey is registered on-chain. It does two things:
+Threshold enrollment is intended to run _after_ the passkey is registered on-chain. It does two things:
 
 1. Registers the relayer as the co-signer for this account/device (`/threshold-ed25519/keygen`).
 2. Activates the returned group public key on-chain via `AddKey(groupPk)` (signed locally).
@@ -107,27 +107,30 @@ sequenceDiagram
 The signing APIs and transcript types are already keyed by **participant id** (`commitmentsById`, `relayerVerifyingSharesById`, `relayerSignatureSharesById`). This means adding more relayer participants does not require changing the client-facing endpoints.
 
 In a multi-relayer setup:
+
 - The wallet always talks to a **single coordinator relayer** (`THRESHOLD_NODE_ROLE=coordinator`) for `/threshold-ed25519/sign/*`.
 - The coordinator fans out to **cosigner relayers** (`THRESHOLD_NODE_ROLE=cosigner`) via internal endpoints (`/threshold-ed25519/internal/cosign/*`) authenticated by a per-signature coordinator grant (`THRESHOLD_COORDINATOR_SHARED_SECRET_B64U`).
 - Moving to true 3+ party signing also requires a multi-party key setup (e.g. DKG/dealer-split) and on-chain rotation to the new group public key.
 
 ## Protocol Math
 
-This section describes the *math* behind the 2-of-2 FROST-style Ed25519 scheme implemented in the signer worker (client) and relayer (server).
+This section describes the _math_ behind the 2-of-2 FROST-style Ed25519 scheme implemented in the signer worker (client) and relayer (server).
 
 Notation:
+
 - Scalars live in the Ed25519 scalar field `𝔽_ℓ` (mod the curve order `ℓ`).
 - `G` is the Ed25519 basepoint.
 - Participant identifiers are configurable; the defaults are `x₁ = 1` (client) and `x₂ = 2` (relayer). The worked example below assumes `{1,2}`.
 
 ### Keygen Math
 
-The system uses a “scaffolding” keygen (not a full DKG): each party has a long-lived scalar share, and the *group secret* is the Lagrange interpolation at `x=0` of the 2-point polynomial through those shares.
+The system uses a “scaffolding” keygen (not a full DKG): each party has a long-lived scalar share, and the _group secret_ is the Lagrange interpolation at `x=0` of the 2-point polynomial through those shares.
 
 1. Client derives its signing share scalar `s₁` deterministically from `WrapKeySeed` and `nearAccountId` via HKDF, then computes its verifying share `V₁ = s₁·G`.
 2. Relayer chooses/derives its signing share scalar `s₂`, then computes its verifying share `V₂ = s₂·G`.
 
 Given the signer set `{1,2}` (default ids), the Lagrange coefficients at `x=0` are:
+
 - `λ₁ = 2`
 - `λ₂ = −1`
 
@@ -141,7 +144,6 @@ And the on-chain public key is:
 
 (For non-default participant ids, the Lagrange coefficients change; the implementation computes them from the configured participant ids.)
 
-
 ### Signing Math (Two-Round FROST)
 
 Threshold signing produces a standard 64-byte Ed25519 signature `(R, z)` that verifies with:
@@ -153,6 +155,7 @@ where `c = H(R, Y, m)` and `m` is the 32-byte signing digest (the SDK always sig
 **Round 1 (commitments):**
 
 Each party samples two fresh random nonces `(dᵢ, eᵢ)` and publishes two nonce commitments:
+
 - `Dᵢ = dᵢ·G` (hiding)
 - `Eᵢ = eᵢ·G` (binding)
 
@@ -172,7 +175,6 @@ Finally the coordinator aggregates:
 
 and returns `(R, z)`.
 
-
 ## Threshold Sessions
 
 To avoid running `/authorize` with WebAuthn+SecureConfirm on every signature, the SDK can mint a short-lived, limited-use threshold session:
@@ -181,4 +183,4 @@ To avoid running `/authorize` with WebAuthn+SecureConfirm on every signature, th
 - The relayer stores the session server-side and returns a JWT (or sets an HttpOnly cookie).
 - Subsequent `/authorize` calls can use the session token instead of a fresh WebAuthn assertion.
 
-The session policy is validated server-side (TTL caps + use count caps) and is *cryptographically bound* into the SecureConfirm challenge to prevent policy tampering.
+The session policy is validated server-side (TTL caps + use count caps) and is _cryptographically bound_ into the SecureConfirm challenge to prevent policy tampering.

@@ -1,10 +1,10 @@
-import { Fingerprint, ShieldCheck, Wallet } from 'lucide-react'
+import { Fingerprint, ShieldCheck, Wallet } from 'lucide-react';
 
 type TrustItem = {
-  title: string
-  description: string
-  icon: React.ComponentType<{ className?: string; size?: number; 'aria-hidden'?: boolean }>
-}
+  title: string;
+  description: string;
+  icon: React.ComponentType<{ className?: string; size?: number; 'aria-hidden'?: boolean }>;
+};
 
 const trustItems: TrustItem[] = [
   {
@@ -22,14 +22,16 @@ const trustItems: TrustItem[] = [
     description: 'Developer-first integration path with quickstart docs and examples.',
     icon: Wallet,
   },
-]
+];
 
 export function TrustBar(): React.JSX.Element {
   return (
     <section className="trust-strip" aria-labelledby="trust-strip-title">
       <header className="trust-strip__header">
         <p className="trust-strip__eyebrow">Why teams choose Tatchi</p>
-        <h2 id="trust-strip-title" className="trust-strip__title">Built for product velocity and signing integrity</h2>
+        <h2 id="trust-strip-title" className="trust-strip__title">
+          Built for product velocity and signing integrity
+        </h2>
       </header>
       <div className="trust-strip__grid">
         {trustItems.map((item) => (
@@ -41,7 +43,7 @@ export function TrustBar(): React.JSX.Element {
         ))}
       </div>
     </section>
-  )
+  );
 }
 
-export default TrustBar
+export default TrustBar;

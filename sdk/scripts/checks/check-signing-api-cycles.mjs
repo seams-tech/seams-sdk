@@ -13,7 +13,8 @@ function main() {
 
   const result = findSigningApiCrossLayerCycles(repoRoot);
   const signerBoundaryResult = findForbiddenSignerToAdapterImports(repoRoot);
-  const orchestrationBoundaryResult = findForbiddenOrchestrationImportsOutsideSigningEngine(repoRoot);
+  const orchestrationBoundaryResult =
+    findForbiddenOrchestrationImportsOutsideSigningEngine(repoRoot);
   if (result.error) {
     console.error(result.error);
     process.exit(1);

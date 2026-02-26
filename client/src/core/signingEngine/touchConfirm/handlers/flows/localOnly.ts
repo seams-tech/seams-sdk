@@ -12,14 +12,8 @@ import { addLitCancelListener } from '../../ui/lit-events';
 import { ensureDefined, W3A_EXPORT_VIEWER_IFRAME_ID } from '../../ui/registry';
 import { __isWalletIframeHostMode } from '@/core/WalletIframe/host-mode';
 import type { ExportViewerIframeElement } from '../../ui/lit-components/ExportPrivateKey/iframe-host';
-import {
-  isUserCancelledUserConfirm,
-  ERROR_MESSAGES,
-} from '../../shared/confirmCommon';
-import {
-  getNearAccountId,
-  getIntentDigest,
-} from './adapters/request';
+import { isUserCancelledUserConfirm, ERROR_MESSAGES } from '../../shared/confirmCommon';
+import { getNearAccountId, getIntentDigest } from './adapters/request';
 import { errorMessage } from '@shared/utils/errors';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { createConfirmSession, createConfirmTxFlowAdapters } from './adapters/adapters';
@@ -39,11 +33,14 @@ function toStringRecord(value: unknown): Record<string, string> {
   return out;
 }
 
-function sanitizeThemeTokens(tokens: ThemeTokenOverridesInput | undefined): ThemeTokenOverridesInput | undefined {
+function sanitizeThemeTokens(
+  tokens: ThemeTokenOverridesInput | undefined,
+): ThemeTokenOverridesInput | undefined {
   if (!tokens) return undefined;
   const lightColors = toStringRecord(tokens.light?.colors);
   const darkColors = toStringRecord(tokens.dark?.colors);
-  if (Object.keys(lightColors).length === 0 && Object.keys(darkColors).length === 0) return undefined;
+  if (Object.keys(lightColors).length === 0 && Object.keys(darkColors).length === 0)
+    return undefined;
   return {
     light: Object.keys(lightColors).length > 0 ? { colors: lightColors } : undefined,
     dark: Object.keys(darkColors).length > 0 ? { colors: darkColors } : undefined,
@@ -56,34 +53,46 @@ async function mountExportViewer(
   confirmationConfig: ConfirmationConfig,
   theme: ThemeName,
 ): Promise<void> {
-  await ensureDefined(W3A_EXPORT_VIEWER_IFRAME_ID, () => import('../../ui/lit-components/ExportPrivateKey/iframe-host'));
+  await ensureDefined(
+    W3A_EXPORT_VIEWER_IFRAME_ID,
+    () => import('../../ui/lit-components/ExportPrivateKey/iframe-host'),
+  );
   const host = document.createElement(W3A_EXPORT_VIEWER_IFRAME_ID) as ExportViewerIframeElement;
   host.theme = payload.theme || theme || 'dark';
-  host.variant = payload.variant || ((confirmationConfig.uiMode === 'drawer') ? 'drawer' : 'modal');
+  host.variant = payload.variant || (confirmationConfig.uiMode === 'drawer' ? 'drawer' : 'modal');
   host.accountId = payload.nearAccountId;
   host.publicKey = payload.publicKey;
   host.privateKey = payload.privateKey;
-  host.keys = Array.isArray(payload.keys) ? payload.keys as ExportPrivateKeyDisplayEntry[] : undefined;
+  host.keys = Array.isArray(payload.keys)
+    ? (payload.keys as ExportPrivateKeyDisplayEntry[])
+    : undefined;
   host.tokens = sanitizeThemeTokens(ctx.getAppearanceTokens?.());
   host.loading = false;
 
   window.parent?.postMessage({ type: 'WALLET_UI_OPENED' }, '*');
   document.body.appendChild(host);
 
-  const removeCancelListener = addLitCancelListener(host, () => {
-    window.parent?.postMessage({ type: 'WALLET_UI_CLOSED' }, '*');
-    removeCancelListener?.();
-    host.remove();
-  }, { once: true });
+  const removeCancelListener = addLitCancelListener(
+    host,
+    () => {
+      window.parent?.postMessage({ type: 'WALLET_UI_CLOSED' }, '*');
+      removeCancelListener?.();
+      host.remove();
+    },
+    { once: true },
+  );
 }
 
 export async function handleLocalOnlyFlow(
   ctx: TouchConfirmContext,
   request: LocalOnlyUserConfirmRequest,
   worker: Worker,
-  opts: { confirmationConfig: ConfirmationConfig; transactionSummary: TransactionSummary; theme: ThemeName },
+  opts: {
+    confirmationConfig: ConfirmationConfig;
+    transactionSummary: TransactionSummary;
+    theme: ThemeName;
+  },
 ): Promise<void> {
-
   const { confirmationConfig, transactionSummary, theme } = opts;
   const adapters = createConfirmTxFlowAdapters(ctx);
   const session = createConfirmSession({
@@ -99,7 +108,12 @@ export async function handleLocalOnlyFlow(
   // SHOW_SECURE_PRIVATE_KEY_UI: purely visual; keep UI open and return confirmed immediately
   if (request.type === UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI) {
     try {
-      await mountExportViewer(ctx, request.payload as ShowSecurePrivateKeyUiPayload, confirmationConfig, theme);
+      await mountExportViewer(
+        ctx,
+        request.payload as ShowSecurePrivateKeyUiPayload,
+        confirmationConfig,
+        theme,
+      );
       // Keep viewer open; do not close here.
       session.confirmAndCloseModal({
         requestId: request.requestId,
@@ -140,7 +154,7 @@ export async function handleLocalOnlyFlow(
         if (!transactionSummary.body) {
           transactionSummary.body = warning || 'Confirm to authenticate with your passkey.';
         }
-      } catch { }
+      } catch {}
 
       const securityContext: Partial<UserConfirmSecurityContext> = (() => {
         try {
@@ -176,7 +190,6 @@ export async function handleLocalOnlyFlow(
         confirmed: true,
         credential,
       });
-
     } catch (err: unknown) {
       const cancelled = isUserCancelledUserConfirm(err);
       if (cancelled) {
@@ -186,7 +199,9 @@ export async function handleLocalOnlyFlow(
         requestId: request.requestId,
         intentDigest: getIntentDigest(request),
         confirmed: false,
-        error: cancelled ? ERROR_MESSAGES.cancelled : (errorMessage(err) || ERROR_MESSAGES.collectCredentialsFailed),
+        error: cancelled
+          ? ERROR_MESSAGES.cancelled
+          : errorMessage(err) || ERROR_MESSAGES.collectCredentialsFailed,
       });
     }
   }

@@ -4,9 +4,9 @@ This document explains how app‑provided `onEvent` callbacks are bridged across
 
 ## How It Works
 
-1) Parent → Child (RPC without functions)
-- Parent sends `PM_*` envelope; functions in `options` are stripped. Only serializable fields (e.g., `sticky`) are posted.
+1. Parent → Child (RPC without functions)
 
+- Parent sends `PM_*` envelope; functions in `options` are stripped. Only serializable fields (e.g., `sticky`) are posted.
 
 ```ts
 // Parent app code
@@ -15,24 +15,27 @@ await walletRouter.registerPasskey({
   options: {
     onEvent: (ev) => {
       // ev is RegistrationSSEEvent
-    }
-  }
-})
+    },
+  },
+});
 ```
 
-2) Child emits PROGRESS from its `onEvent`
+2. Child emits PROGRESS from its `onEvent`
+
 - The wallet host wraps `TatchiPasskey` calls and translates `onEvent(ev)` into:
   `post({ type: 'PROGRESS', requestId, payload: ev })`.
 - Payloads reuse existing event shapes: `RegistrationSSEEvent | LoginSSEvent | ActionSSEEvent | DeviceLinkingSSEEvent | SyncAccountSSEEvent`.
 
-3) Parent bridges PROGRESS → onEvent
+3. Parent bridges PROGRESS → onEvent
+
 - For each request, the client registers an `onProgress` handler created via `wrapOnEvent(onEvent, isXxxSSEEvent)`.
 - When a `PROGRESS` message arrives, the client:
   - correlates by `requestId`
   - routes through a small `OnEventsProgressBus`
   - invokes the stored `onProgress`, which safely narrows and forwards to your `onEvent`.
 
-4) Completion
+4. Completion
+
 - Child posts `PM_RESULT` (success) or `ERROR` (failure). The pending entry resolves/rejects and, unless `sticky` is set, progress delivery is unregistered.
 
 ## Message Shapes (child → parent)

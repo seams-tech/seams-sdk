@@ -11,11 +11,9 @@ export async function executeSigningIntent<
   engines: SignerMap<SignRequestType, ResolvedSignInput['keyRef'], Signed>;
   resolveSignInput: (req: PendingRequest) => Promise<ResolvedSignInput>;
 }): Promise<Result> {
-
   const signatures: Signed[] = [];
 
   for (const pendingReq of args.intent.signRequests) {
-
     const { signReq, keyRef } = await args.resolveSignInput(pendingReq);
     const algorithm = signReq.algorithm as SignRequestType['algorithm'] & string;
     const engine = args.engines[algorithm];

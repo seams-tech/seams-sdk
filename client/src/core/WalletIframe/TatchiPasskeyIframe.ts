@@ -77,6 +77,7 @@ import type {
   EvmSignerCapability,
   KeyExportCapability,
   NearSignerCapability,
+  ReportTempoBroadcastResultArgs,
   SignTempoArgs,
   TempoSignerCapability,
 } from '../TatchiPasskey';
@@ -184,6 +185,7 @@ export class TatchiPasskeyIframe {
     };
     this.tempo = {
       signTempo: async (args) => await this.signTempoDomain(args),
+      reportBroadcastResult: async (args) => await this.reportTempoBroadcastResultDomain(args),
       bootstrapEcdsaSession: async (args) =>
         await this.bootstrapEcdsaSessionDomain({
           nearAccountId: args.nearAccountId,
@@ -683,6 +685,50 @@ export class TatchiPasskeyIframe {
       request: args.request,
       options: {
         confirmationConfig: args.options?.confirmationConfig,
+        onEvent: args.options?.onEvent,
+      },
+    });
+  }
+
+  private async reportTempoBroadcastResultDomain(
+    args: ReportTempoBroadcastResultArgs,
+  ): Promise<void> {
+    await this.requireRouterReady();
+    await this.router.reportTempoBroadcastResult({
+      nearAccountId: args.nearAccountId,
+      signedResult: args.signedResult,
+      status: args.status,
+      ...(args.txHash ? { txHash: args.txHash } : {}),
+      ...(args.error == null
+        ? {}
+        : {
+            error: (() => {
+              if (typeof args.error === 'string') return { message: args.error };
+              if (args.error instanceof Error) {
+                const code = String((args.error as { code?: unknown }).code || '').trim();
+                return {
+                  ...(code ? { code } : {}),
+                  message: String(args.error.message || ''),
+                };
+              }
+              if (typeof args.error === 'object') {
+                const value = args.error as {
+                  code?: unknown;
+                  message?: unknown;
+                  details?: unknown;
+                };
+                const code = String(value.code || '').trim();
+                const message = String(value.message || '').trim();
+                return {
+                  ...(code ? { code } : {}),
+                  ...(message ? { message } : {}),
+                  ...(value.details !== undefined ? { details: value.details } : {}),
+                };
+              }
+              return { message: String(args.error) };
+            })(),
+          }),
+      options: {
         onEvent: args.options?.onEvent,
       },
     });

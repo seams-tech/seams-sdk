@@ -1,19 +1,24 @@
-import React from 'react'
-import type { DashboardRoute, ExpandedSidebarGroupsState, SidebarGroup, SidebarGroupKey } from './types'
+import React from 'react';
+import type {
+  DashboardRoute,
+  ExpandedSidebarGroupsState,
+  SidebarGroup,
+  SidebarGroupKey,
+} from './types';
 
 type LinkPropsFactory = (to: string) => {
-  href: string
-  onClick: (event: React.MouseEvent<HTMLAnchorElement>) => void
-}
+  href: string;
+  onClick: (event: React.MouseEvent<HTMLAnchorElement>) => void;
+};
 
 type DashboardSidebarProps = {
-  groups: SidebarGroup[]
-  isSidebarExpanded: boolean
-  expandedGroups: ExpandedSidebarGroupsState
-  activeRoute: DashboardRoute
-  onToggleGroup: (group: SidebarGroupKey) => void
-  linkProps: LinkPropsFactory
-}
+  groups: SidebarGroup[];
+  isSidebarExpanded: boolean;
+  expandedGroups: ExpandedSidebarGroupsState;
+  activeRoute: DashboardRoute;
+  onToggleGroup: (group: SidebarGroupKey) => void;
+  linkProps: LinkPropsFactory;
+};
 
 export function DashboardSidebar({
   groups,
@@ -34,14 +39,17 @@ export function DashboardSidebar({
             aria-expanded={expandedGroups[group.key]}
           >
             <span className="dashboard-sidebar-group__title">{group.label}</span>
-            <span className={`dashboard-nav-caret${expandedGroups[group.key] ? ' dashboard-nav-caret--open' : ''}`} aria-hidden="true" />
+            <span
+              className={`dashboard-nav-caret${expandedGroups[group.key] ? ' dashboard-nav-caret--open' : ''}`}
+              aria-hidden="true"
+            />
           </button>
 
           {expandedGroups[group.key] || !isSidebarExpanded ? (
             <ul className="dashboard-nav-list">
               {group.items.map((item) => {
-                const navProps = linkProps(item.path)
-                const isActive = item.path === activeRoute
+                const navProps = linkProps(item.path);
+                const isActive = item.path === activeRoute;
                 return (
                   <li key={item.key}>
                     <a
@@ -54,14 +62,14 @@ export function DashboardSidebar({
                       <span className="dashboard-nav-label">{item.label}</span>
                     </a>
                   </li>
-                )
+                );
               })}
             </ul>
           ) : null}
         </section>
       ))}
     </aside>
-  )
+  );
 }
 
-export default DashboardSidebar
+export default DashboardSidebar;

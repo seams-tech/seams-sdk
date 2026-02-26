@@ -65,23 +65,25 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   private _ownsThemeAttr = false;
 
   private _onWindowMessage = (ev: MessageEvent) => {
-    const data = (ev && ev.data && typeof ev.data === 'object')
-      ? (ev.data as { type?: unknown; payload?: unknown })
-      : undefined;
+    const data =
+      ev && ev.data && typeof ev.data === 'object'
+        ? (ev.data as { type?: unknown; payload?: unknown })
+        : undefined;
     if (!data || typeof data.type !== 'string') return;
     if (data.type === 'MODAL_TIMEOUT') {
-      const msg = typeof data.payload === 'string' && data.payload
-        ? data.payload
-        : 'Operation timed out';
+      const msg =
+        typeof data.payload === 'string' && data.payload ? data.payload : 'Operation timed out';
       this.loading = false;
       this.errorMessage = msg;
       // Best-effort close and emit cancel so host resolves and cleans up
       this._drawerEl?.handleClose?.();
-      this.dispatchEvent(new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
-        bubbles: true,
-        composed: true,
-        detail: { confirmed: false }
-      }));
+      this.dispatchEvent(
+        new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
+          bubbles: true,
+          composed: true,
+          detail: { confirmed: false },
+        }),
+      );
     }
   };
 
@@ -91,11 +93,13 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
       e.preventDefault();
       this._drawerEl?.handleClose();
       if (!this._drawerEl) {
-        this.dispatchEvent(new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
-          bubbles: true,
-          composed: true,
-          detail: { confirmed: false }
-        }));
+        this.dispatchEvent(
+          new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
+            bubbles: true,
+            composed: true,
+            detail: { confirmed: false },
+          }),
+        );
       }
       // Rely on drawer's `cancel` event -> onDrawerCancel to emit w3a:modal-cancel
     }
@@ -142,11 +146,13 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     this.deferClose = false;
   }
 
-  protected getComponentPrefix(): string { return 'drawer-tx'; }
+  protected getComponentPrefix(): string {
+    return 'drawer-tx';
+  }
 
   protected createRenderRoot(): HTMLElement | DocumentFragment {
     // Light DOM root so tokens cascade without Shadow DOM boundaries
-    const root = (this as unknown) as HTMLElement;
+    const root = this as unknown as HTMLElement;
     // Preload tokens + styles on host
     ensureExternalStyles(root, 'w3a-components.css', 'data-w3a-components-css').catch(() => {});
     ensureExternalStyles(root, 'tx-tree.css', 'data-w3a-tx-tree-css').catch(() => {});
@@ -170,7 +176,10 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     // Also ensure tokens CSS on document root for host-scoped variables
     try {
       const docEl = this.ownerDocument?.documentElement as HTMLElement | undefined;
-      if (docEl) ensureExternalStyles(docEl, 'w3a-components.css', 'data-w3a-components-css').catch(() => {});
+      if (docEl)
+        ensureExternalStyles(docEl, 'w3a-components.css', 'data-w3a-components-css').catch(
+          () => {},
+        );
     } catch {}
     window.addEventListener('keydown', this._onKeyDown);
     window.addEventListener('message', this._onWindowMessage as EventListener);
@@ -180,13 +189,17 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
       hostEl.tabIndex = -1;
     }
     hostEl.focus({ preventScroll: true } as FocusOptions);
-    if (typeof window.focus === 'function') { window.focus(); }
+    if (typeof window.focus === 'function') {
+      window.focus();
+    }
   }
 
   async firstUpdated(): Promise<void> {
-    this._drawerEl = (this as unknown as HTMLElement).querySelector(W3A_DRAWER_ID) as InstanceType<typeof DrawerElement> | null;
+    this._drawerEl = (this as unknown as HTMLElement).querySelector(W3A_DRAWER_ID) as InstanceType<
+      typeof DrawerElement
+    > | null;
     // Ensure external styles are ready before opening (await Promise-based loader)
-    const root = (this.renderRoot as unknown) as ShadowRoot | DocumentFragment | HTMLElement;
+    const root = this.renderRoot as unknown as ShadowRoot | DocumentFragment | HTMLElement;
     await Promise.all([
       ensureExternalStyles(root, 'w3a-components.css', 'data-w3a-components-css'),
       ensureExternalStyles(root, 'tx-tree.css', 'data-w3a-tx-tree-css'),
@@ -222,11 +235,13 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     // Close drawer locally to ensure animation
     this._open = false;
     this.requestUpdate();
-    this.dispatchEvent(new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
-      bubbles: true,
-      composed: true,
-      detail: { confirmed: false }
-    }));
+    this.dispatchEvent(
+      new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
+        bubbles: true,
+        composed: true,
+        detail: { confirmed: false },
+      }),
+    );
   };
 
   private onContentConfirm = () => {
@@ -234,22 +249,27 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     this.loading = true;
     this.requestUpdate();
     // Bridge semantic event to canonical event
-    this.dispatchEvent(new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CONFIRM, {
-      bubbles: true,
-      composed: true,
-      detail: { confirmed: true }
-    }));
+    this.dispatchEvent(
+      new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CONFIRM, {
+        bubbles: true,
+        composed: true,
+        detail: { confirmed: true },
+      }),
+    );
   };
 
   private onContentCancel = () => {
     if (this.loading) return;
     this._drawerEl?.handleClose();
-    this._open = false; this.requestUpdate();
-    this.dispatchEvent(new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
-      bubbles: true,
-      composed: true,
-      detail: { confirmed: false }
-    }));
+    this._open = false;
+    this.requestUpdate();
+    this.dispatchEvent(
+      new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
+        bubbles: true,
+        composed: true,
+        detail: { confirmed: false },
+      }),
+    );
   };
 
   // Public method for two‑phase close from host/bootstrap
@@ -298,15 +318,19 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
                     : ''}
                 </div>
                 ${securityDetailsText || securityDetailsLoading
-                  ? html`
-                    <span class="security-details">
+                  ? html` <span class="security-details">
                       ${securityDetailsLoading
                         ? html`
-                            <span class="loading-indicator security-loading-indicator" role="progressbar" aria-label="Loading block height"></span>
+                            <span
+                              class="loading-indicator security-loading-indicator"
+                              role="progressbar"
+                              aria-label="Loading block height"
+                            ></span>
                             <span>Loading block...</span>
                           `
                         : html`
-                            <svg xmlns="http://www.w3.org/2000/svg"
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
                               class="block-height-icon"
                               viewBox="0 0 24 24"
                               fill="none"
@@ -315,9 +339,11 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
                               stroke-linecap="round"
                               stroke-linejoin="round"
                             >
-                              <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>
-                              <path d="m3.3 7 8.7 5 8.7-5"/>
-                              <path d="M12 22V12"/>
+                              <path
+                                d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"
+                              />
+                              <path d="m3.3 7 8.7 5 8.7-5" />
+                              <path d="M12 22V12" />
                             </svg>
                             ${securityDetailsText}
                           `}
@@ -325,11 +351,9 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
                   : ''}
               </div>
             </div>
-            ${
-              this.body && this.body.trim()
+            ${this.body && this.body.trim()
               ? html`<div class="confirmation-body">${this.body}</div>`
-              : ''
-            }
+              : ''}
           </div>
           <div class="section responsive-card responsive-card-center">
             <w3a-tx-confirm-content
@@ -352,7 +376,6 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
               @lit-cancel=${this.onContentCancel}
             ></w3a-tx-confirm-content>
           </div>
-
         </div>
       </w3a-drawer>
     `;

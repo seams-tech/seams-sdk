@@ -23,7 +23,9 @@ export function validateRelayRouterRorOptions(ror: RelayRouterRorOptions): void 
   const hasStaticRpId = Boolean(staticRpId);
 
   const hostMap = ror.rpIdByHost;
-  const hasHostMap = Boolean(hostMap && typeof hostMap === 'object' && Object.keys(hostMap).length > 0);
+  const hasHostMap = Boolean(
+    hostMap && typeof hostMap === 'object' && Object.keys(hostMap).length > 0,
+  );
 
   if (hasStaticRpId === hasHostMap) {
     throw new Error('[router.ror] Configure exactly one RP ID strategy: `rpId` or `rpIdByHost`');
@@ -34,7 +36,9 @@ export function validateRelayRouterRorOptions(ror: RelayRouterRorOptions): void 
       const host = normalizeRorHost(rawHost);
       const rpId = toOptionalTrimmedString(rawRpId).toLowerCase();
       if (!host || !rpId) {
-        throw new Error('[router.ror] Invalid `rpIdByHost` entry: host and rpId must be non-empty strings');
+        throw new Error(
+          '[router.ror] Invalid `rpIdByHost` entry: host and rpId must be non-empty strings',
+        );
       }
     }
   }

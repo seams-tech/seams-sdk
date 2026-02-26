@@ -24,4 +24,3 @@ export function useIsMobile(query: string = '(max-width: 768px)'): boolean {
 
   return isMobile;
 }
-

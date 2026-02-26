@@ -19,7 +19,8 @@ export const useProfileMenuControl = (): ProfileMenuControlValue => {
 
 export function ProfileMenuControlProvider({ children }: { children: React.ReactNode }) {
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
-  const [highlightedMenuItem, setHighlightedMenuItem] = React.useState<HighlightedProfileMenuItem | null>(null);
+  const [highlightedMenuItem, setHighlightedMenuItem] =
+    React.useState<HighlightedProfileMenuItem | null>(null);
 
   const handleSetMenuOpen = React.useCallback((open: boolean) => {
     setIsMenuOpen(open);
@@ -40,13 +41,16 @@ export function ProfileMenuControlProvider({ children }: { children: React.React
     setHighlightedMenuItem(null);
   }, []);
 
-  const value = React.useMemo<ProfileMenuControlValue>(() => ({
-    isMenuOpen,
-    highlightedMenuItem,
-    setMenuOpen: handleSetMenuOpen,
-    requestHighlight,
-    clearHighlight,
-  }), [clearHighlight, handleSetMenuOpen, highlightedMenuItem, isMenuOpen, requestHighlight]);
+  const value = React.useMemo<ProfileMenuControlValue>(
+    () => ({
+      isMenuOpen,
+      highlightedMenuItem,
+      setMenuOpen: handleSetMenuOpen,
+      requestHighlight,
+      clearHighlight,
+    }),
+    [clearHighlight, handleSetMenuOpen, highlightedMenuItem, isMenuOpen, requestHighlight],
+  );
 
   return (
     <ProfileMenuControlContext.Provider value={value}>

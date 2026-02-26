@@ -62,7 +62,7 @@ export const EmailRecoveryFields: React.FC<EmailRecoveryFieldsProps> = ({
             type="email"
             value={email}
             disabled={disabled}
-            onChange={e => handleChange(idx, e.target.value)}
+            onChange={(e) => handleChange(idx, e.target.value)}
             placeholder="recovery@example.com"
             className="email-recovery-fields__input"
           />

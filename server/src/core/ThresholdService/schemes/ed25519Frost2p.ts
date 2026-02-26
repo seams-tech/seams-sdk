@@ -18,7 +18,7 @@ export type ThresholdEd25519Frost2pSchemeModuleDeps = {
   healthz?: () => Promise<{ ok: boolean; code?: string; message?: string }>;
   keygen(request: ThresholdEd25519KeygenRequest): Promise<ThresholdEd25519KeygenResponse>;
   registrationKeygenFromClientVerifyingShare(
-    request: ThresholdEd25519RegistrationKeygenRequest
+    request: ThresholdEd25519RegistrationKeygenRequest,
   ): Promise<ThresholdEd25519RegistrationKeygenResult>;
   session(request: ThresholdEd25519SessionRequest): Promise<ThresholdEd25519SessionResponse>;
   authorize(input: {
@@ -29,7 +29,7 @@ export type ThresholdEd25519Frost2pSchemeModuleDeps = {
 };
 
 export function createThresholdEd25519Frost2pSchemeModule(
-  deps: ThresholdEd25519Frost2pSchemeModuleDeps
+  deps: ThresholdEd25519Frost2pSchemeModuleDeps,
 ): ThresholdEd25519Frost2pSchemeModule {
   return {
     schemeId: THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,

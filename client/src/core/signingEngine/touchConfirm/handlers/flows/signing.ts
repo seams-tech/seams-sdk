@@ -25,6 +25,10 @@ import {
 import { toError } from '@shared/utils/errors';
 import { createConfirmSession, createConfirmTxFlowAdapters } from './adapters/adapters';
 import { computeUiIntentDigestFromNep413 } from '@/utils/intentDigest';
+import {
+  clearIntentDigestPreparation,
+  consumeIntentDigestPreparation,
+} from '@/core/signingEngine/touchConfirm/intentDigestPreparationRegistry';
 
 function getTransactionSigningAuthMode(request: SigningUserConfirmRequest): SigningAuthMode {
   if (request.type === UserConfirmationType.SIGN_TRANSACTION) {
@@ -40,7 +44,11 @@ export async function handleTransactionSigningFlow(
   ctx: TouchConfirmContext,
   request: SigningUserConfirmRequest,
   worker: Worker,
-  opts: { confirmationConfig: ConfirmationConfig; transactionSummary: TransactionSummary; theme: ThemeName },
+  opts: {
+    confirmationConfig: ConfirmationConfig;
+    transactionSummary: TransactionSummary;
+    theme: ThemeName;
+  },
 ): Promise<void> {
   const { confirmationConfig, transactionSummary, theme } = opts;
   const adapters = createConfirmTxFlowAdapters(ctx);
@@ -56,15 +64,16 @@ export async function handleTransactionSigningFlow(
   try {
     const signingAuthMode = getTransactionSigningAuthMode(request);
     const usesNeeded = getTxCount(request);
-    const intentDigestB64u = request.type === UserConfirmationType.SIGN_TRANSACTION
-      ? getIntentDigest(request)
-      : request.type === UserConfirmationType.SIGN_NEP413_MESSAGE
-        ? await computeUiIntentDigestFromNep413({
-          nearAccountId,
-          recipient: request.payload.recipient,
-          message: request.payload.message,
-        })
-        : undefined;
+    const intentDigestB64u =
+      request.type === UserConfirmationType.SIGN_TRANSACTION
+        ? getIntentDigest(request)
+        : request.type === UserConfirmationType.SIGN_NEP413_MESSAGE
+          ? await computeUiIntentDigestFromNep413({
+              nearAccountId,
+              recipient: request.payload.recipient,
+              message: request.payload.message,
+            })
+          : undefined;
     const sessionPolicyDigest32 = request.payload.sessionPolicyDigest32;
 
     // 1) Start NEAR context fetch + nonce reservation immediately.
@@ -77,7 +86,9 @@ export async function handleTransactionSigningFlow(
 
     // 2) Mount confirmer immediately (non-blocking) while NEAR context fetch is in flight.
     const rpId = adapters.security.getRpId();
-    const baseSecurityContext: Partial<UserConfirmSecurityContext> | undefined = rpId ? { rpId } : undefined;
+    const baseSecurityContext: Partial<UserConfirmSecurityContext> | undefined = rpId
+      ? { rpId }
+      : undefined;
     let resolvePromptReady: (() => void) | undefined;
     const promptReady = new Promise<void>((resolve) => {
       resolvePromptReady = resolve;
@@ -100,12 +111,17 @@ export async function handleTransactionSigningFlow(
 
     const nearRpc = await nearContextPromise;
     if (!nearRpc.transactionContext) {
-      console.error('[SigningFlow] fetchNearContext failed', { error: nearRpc.error, details: nearRpc.details });
+      console.error('[SigningFlow] fetchNearContext failed', {
+        error: nearRpc.error,
+        details: nearRpc.details,
+      });
       session.confirmAndCloseModal({
         requestId: request.requestId,
         intentDigest: getIntentDigest(request),
         confirmed: false,
-        error: nearRpc.details ? `${ERROR_MESSAGES.nearRpcFailed}: ${nearRpc.details}` : ERROR_MESSAGES.nearRpcFailed,
+        error: nearRpc.details
+          ? `${ERROR_MESSAGES.nearRpcFailed}: ${nearRpc.details}`
+          : ERROR_MESSAGES.nearRpcFailed,
       });
       await promptDecisionPromise.catch(() => undefined);
       return;
@@ -171,7 +187,7 @@ export async function handleTransactionSigningFlow(
   } catch (err: unknown) {
     // Treat TouchID/FaceID cancellation and related errors as a negative decision
     const cancelled = isUserCancelledUserConfirm(err);
-    const msg = String((toError(err))?.message || err || '');
+    const msg = String(toError(err)?.message || err || '');
     if (cancelled) {
       window.parent?.postMessage({ type: 'WALLET_UI_CLOSED' }, '*');
     }
@@ -182,7 +198,9 @@ export async function handleTransactionSigningFlow(
       confirmed: false,
       error: cancelled
         ? ERROR_MESSAGES.cancelled
-        : (isWrongPasskeyError ? msg : (msg || ERROR_MESSAGES.collectCredentialsFailed)),
+        : isWrongPasskeyError
+          ? msg
+          : msg || ERROR_MESSAGES.collectCredentialsFailed,
     });
   }
 }
@@ -195,7 +213,11 @@ export async function handleIntentDigestSigningFlow(
   ctx: TouchConfirmContext,
   request: IntentDigestUserConfirmRequest,
   worker: Worker,
-  opts: { confirmationConfig: ConfirmationConfig; transactionSummary: TransactionSummary; theme: ThemeName },
+  opts: {
+    confirmationConfig: ConfirmationConfig;
+    transactionSummary: TransactionSummary;
+    theme: ThemeName;
+  },
 ): Promise<void> {
   const { confirmationConfig, transactionSummary, theme } = opts;
   const adapters = createConfirmTxFlowAdapters(ctx);
@@ -209,14 +231,18 @@ export async function handleIntentDigestSigningFlow(
   });
 
   const nearAccountId = getNearAccountId(request);
+  const intentPreparation = consumeIntentDigestPreparation(request.requestId);
 
   try {
     const signingAuthMode = getIntentDigestSigningAuthMode(request);
+    let resolvedIntentDigest = String(getIntentDigest(request) || '').trim() || undefined;
+    let resolvedChallengeB64u = String(request.payload.challengeB64u || '').trim();
     const requiresExplicitConfirmClick =
-      confirmationConfig.uiMode !== 'none'
-      && confirmationConfig.behavior === 'requireClick';
+      confirmationConfig.uiMode !== 'none' && confirmationConfig.behavior === 'requireClick';
     const rpId = adapters.security.getRpId();
-    const securityContext: Partial<UserConfirmSecurityContext> | undefined = rpId ? { rpId } : undefined;
+    const securityContext: Partial<UserConfirmSecurityContext> | undefined = rpId
+      ? { rpId }
+      : undefined;
 
     if (requiresExplicitConfirmClick) {
       sendConfirmProgress(worker, {
@@ -228,7 +254,38 @@ export async function handleIntentDigestSigningFlow(
       });
     }
 
-    const { confirmed, error: uiError } = await session.promptUser({ securityContext });
+    let resolvePromptReady: (() => void) | undefined;
+    const promptReady = new Promise<void>((resolve) => {
+      resolvePromptReady = resolve;
+    });
+    const markPromptReady = () => {
+      resolvePromptReady?.();
+      resolvePromptReady = undefined;
+    };
+    const promptDecisionPromise = session.promptUser({
+      securityContext,
+      loading: !!intentPreparation,
+      onMounted: () => {
+        markPromptReady();
+      },
+    });
+    void promptDecisionPromise.finally(markPromptReady);
+
+    if (intentPreparation) {
+      // Ensure UI is mounted before applying updates.
+      await promptReady;
+      const prepared = await intentPreparation;
+      resolvedIntentDigest = String(prepared.intentDigest || '').trim() || resolvedIntentDigest;
+      resolvedChallengeB64u = String(prepared.challengeB64u || '').trim() || resolvedChallengeB64u;
+      session.updateUI({
+        ...(prepared.displayModel ? { model: prepared.displayModel } : {}),
+        ...(prepared.title ? { title: prepared.title } : {}),
+        ...(prepared.body ? { body: prepared.body } : {}),
+        loading: false,
+      });
+    }
+
+    const { confirmed, error: uiError } = await promptDecisionPromise;
     if (!confirmed) {
       if (requiresExplicitConfirmClick) {
         sendConfirmProgress(worker, {
@@ -241,7 +298,7 @@ export async function handleIntentDigestSigningFlow(
       }
       return session.confirmAndCloseModal({
         requestId: request.requestId,
-        intentDigest: getIntentDigest(request),
+        intentDigest: resolvedIntentDigest,
         confirmed: false,
         error: uiError,
       });
@@ -259,12 +316,12 @@ export async function handleIntentDigestSigningFlow(
       }
       return session.confirmAndCloseModal({
         requestId: request.requestId,
-        intentDigest: getIntentDigest(request),
+        intentDigest: resolvedIntentDigest,
         confirmed: true,
       });
     }
 
-    const challengeB64u = String(request.payload.challengeB64u || '').trim();
+    const challengeB64u = String(resolvedChallengeB64u || '').trim();
     if (!challengeB64u) {
       throw new Error('Missing WebAuthn challenge digest for intent signing flow');
     }
@@ -294,28 +351,29 @@ export async function handleIntentDigestSigningFlow(
 
     return session.confirmAndCloseModal({
       requestId: request.requestId,
-      intentDigest: getIntentDigest(request),
+      intentDigest: resolvedIntentDigest,
       confirmed: true,
       credential: serializedCredential,
     });
   } catch (err: unknown) {
+    clearIntentDigestPreparation(request.requestId);
     sendConfirmProgress(worker, {
       requestId: request.requestId,
       step: 4,
       phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE,
       status: 'error',
-      message: String((toError(err))?.message || err || ERROR_MESSAGES.collectCredentialsFailed),
+      message: String(toError(err)?.message || err || ERROR_MESSAGES.collectCredentialsFailed),
     });
     const cancelled = isUserCancelledUserConfirm(err);
-    const msg = String((toError(err))?.message || err || '');
+    const msg = String(toError(err)?.message || err || '');
     if (cancelled) {
       window.parent?.postMessage({ type: 'WALLET_UI_CLOSED' }, '*');
     }
     return session.confirmAndCloseModal({
       requestId: request.requestId,
-      intentDigest: getIntentDigest(request),
+      intentDigest: String(getIntentDigest(request) || '').trim() || undefined,
       confirmed: false,
-      error: cancelled ? ERROR_MESSAGES.cancelled : (msg || ERROR_MESSAGES.collectCredentialsFailed),
+      error: cancelled ? ERROR_MESSAGES.cancelled : msg || ERROR_MESSAGES.collectCredentialsFailed,
     });
   }
 }

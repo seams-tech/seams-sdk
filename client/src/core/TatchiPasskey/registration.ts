@@ -1,15 +1,10 @@
 import type { NearClient } from '../rpcClients/near/NearClient';
 import { ensureEd25519Prefix, validateNearAccountId } from '@shared/utils/validation';
-import type {
-  RegistrationHooksOptions,
-  RegistrationSSEEvent,
-} from '../types/sdkSentEvents';
+import type { RegistrationHooksOptions, RegistrationSSEEvent } from '../types/sdkSentEvents';
 import type { RegistrationResult, TatchiConfigsReadonly } from '../types/tatchi';
 import type { AuthenticatorOptions } from '../types/authenticatorOptions';
 import { RegistrationPhase, RegistrationStatus } from '../types/sdkSentEvents';
-import {
-  createAccountAndRegisterWithRelayServer
-} from './faucets/createAccountRelayServer';
+import { createAccountAndRegisterWithRelayServer } from './faucets/createAccountRelayServer';
 import { PasskeyManagerContext } from './index';
 import type {
   SigningEnginePublic,
@@ -68,31 +63,21 @@ function coercePositiveInt(value: unknown, fallback: number): number {
   return Math.floor(n);
 }
 
-function toSmartAccountCaipChainId(
-  chain: ThresholdEcdsaActivationChain,
-  chainId: number,
-): string {
-  return `${chain === 'evm' ? 'eip155' : 'tempo'}:${String(chainId)}`;
-}
-
 function toSmartAccountBootstrapInput(
   chain: ThresholdEcdsaActivationChain,
   smartAccount: RegistrationThresholdEcdsaSignerOptions['smartAccount'] | undefined,
 ):
   | {
-      chainId: string;
+      chainId: number;
       factory?: string;
       entryPoint?: string;
       salt?: string;
       counterfactualAddress?: string;
     }
   | undefined {
+  void chain;
   if (!smartAccount) return undefined;
-  const { chainId, ...rest } = smartAccount;
-  return {
-    ...rest,
-    chainId: toSmartAccountCaipChainId(chain, chainId),
-  };
+  return { ...smartAccount };
 }
 
 /**
@@ -109,9 +94,8 @@ export async function registerPasskeyInternal(
   nearAccountId: AccountId,
   options: RegistrationHooksOptions,
   authenticatorOptions: AuthenticatorOptions,
-  confirmationConfigOverride?: Partial<ConfirmationConfig>
+  confirmationConfigOverride?: Partial<ConfirmationConfig>,
 ): Promise<RegistrationResult> {
-
   const { onEvent, onError, afterCall } = options;
   const { signingEngine, configs } = context;
 
@@ -128,18 +112,17 @@ export async function registerPasskeyInternal(
     step: 1,
     phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
     status: RegistrationStatus.PROGRESS,
-    message: `Starting registration for ${nearAccountId}`
+    message: `Starting registration for ${nearAccountId}`,
   } as RegistrationSSEEvent);
 
   try {
-
     await validateRegistrationInputs(context, nearAccountId, onEvent, onError);
 
     onEvent?.({
       step: 1,
       phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
       status: RegistrationStatus.PROGRESS,
-      message: 'Generating passkey credential...'
+      message: 'Generating passkey credential...',
     });
 
     const confirmationConfig: Partial<ConfirmationConfig> = {
@@ -148,12 +131,13 @@ export async function registerPasskeyInternal(
       ...(confirmationConfigOverride ?? options?.confirmationConfig ?? {}),
     };
 
-    const registrationSession = await context.signingEngine.requestRegistrationCredentialConfirmation({
-      nearAccountId: String(nearAccountId),
-      deviceNumber: 1,
-      confirmerText: options?.confirmerText,
-      confirmationConfigOverride: confirmationConfig,
-    });
+    const registrationSession =
+      await context.signingEngine.requestRegistrationCredentialConfirmation({
+        nearAccountId: String(nearAccountId),
+        deviceNumber: 1,
+        confirmerText: options?.confirmerText,
+        confirmationConfigOverride: confirmationConfig,
+      });
 
     const credential = registrationSession.credential;
 
@@ -161,23 +145,24 @@ export async function registerPasskeyInternal(
       step: 1,
       phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
       status: RegistrationStatus.SUCCESS,
-      message: 'WebAuthn ceremony successful'
+      message: 'WebAuthn ceremony successful',
     });
 
     const baseSignerMode = signingEngine.getUserPreferences().getSignerMode();
     // Registration defaults to threshold mode even when global/user defaults are local-signer.
     // Explicit per-call overrides can still force local mode for account-key registration.
-    const registrationDefaultSignerMode = baseSignerMode.mode === 'threshold-signer'
-      ? baseSignerMode
-      : { mode: 'threshold-signer' as const };
+    const registrationDefaultSignerMode =
+      baseSignerMode.mode === 'threshold-signer'
+        ? baseSignerMode
+        : { mode: 'threshold-signer' as const };
     const requestedSignerMode = mergeSignerMode(registrationDefaultSignerMode, options?.signerMode);
     const requestedSignerModeStr = requestedSignerMode.mode;
-    const deriveLocalBackupKey = requestedSignerModeStr === 'threshold-signer'
-      ? options?.backupLocalKey !== false
-      : true;
-    const registrationSignerOptions = requestedSignerModeStr === 'threshold-signer'
-      ? (options?.signerOptions || configs.signing.registrationDefaults)
-      : null;
+    const deriveLocalBackupKey =
+      requestedSignerModeStr === 'threshold-signer' ? options?.backupLocalKey !== false : true;
+    const registrationSignerOptions =
+      requestedSignerModeStr === 'threshold-signer'
+        ? options?.signerOptions || configs.signing.registrationDefaults
+        : null;
     const thresholdEcdsaProvisionTargets = registrationSignerOptions
       ? listThresholdEcdsaProvisionTargets(registrationSignerOptions)
       : [];
@@ -230,17 +215,23 @@ export async function registerPasskeyInternal(
         throw new Error(derived.error || 'Failed to derive threshold client verifying share');
       }
       thresholdClientVerifyingShareB64u = derived.clientVerifyingShareB64u;
-      const derivedEcdsa = await signingEngine.deriveThresholdEcdsaClientVerifyingShareFromCredential({
-        credential,
-        nearAccountId,
-      });
+      const derivedEcdsa =
+        await signingEngine.deriveThresholdEcdsaClientVerifyingShareFromCredential({
+          credential,
+          nearAccountId,
+        });
       if (!derivedEcdsa.success || !derivedEcdsa.clientVerifyingShareB64u) {
-        throw new Error(derivedEcdsa.error || 'Failed to derive threshold secp256k1 client verifying share');
+        throw new Error(
+          derivedEcdsa.error || 'Failed to derive threshold secp256k1 client verifying share',
+        );
       }
       thresholdEcdsaClientVerifyingShareB64u = derivedEcdsa.clientVerifyingShareB64u;
-      thresholdPrfFirstB64u = String(getPrfResultsFromCredential(credential).first || '').trim() || null;
+      thresholdPrfFirstB64u =
+        String(getPrfResultsFromCredential(credential).first || '').trim() || null;
       if (!thresholdPrfFirstB64u) {
-        throw new Error('Missing PRF.first output from registration credential (requires a PRF-enabled passkey)');
+        throw new Error(
+          'Missing PRF.first output from registration credential (requires a PRF-enabled passkey)',
+        );
       }
 
       if (deriveLocalBackupKey) {
@@ -306,13 +297,12 @@ export async function registerPasskeyInternal(
       step: 2,
       phase: RegistrationPhase.STEP_2_KEY_GENERATION,
       status: RegistrationStatus.SUCCESS,
-      message: requestedSignerModeStr === 'threshold-signer'
-        ? (
-          deriveLocalBackupKey
+      message:
+        requestedSignerModeStr === 'threshold-signer'
+          ? deriveLocalBackupKey
             ? 'Derived threshold client share and local backup key from passkey'
             : 'Derived threshold client share from passkey'
-        )
-        : 'Wallet derived successfully from passkey',
+          : 'Wallet derived successfully from passkey',
       verified: true,
       nearAccountId: nearAccountId,
       nearPublicKey: accountNearPublicKey || null,
@@ -336,12 +326,13 @@ export async function registerPasskeyInternal(
     }
 
     if (
-      requestedSignerModeStr === 'threshold-signer'
-      && thresholdEcdsaClientVerifyingShareB64u
-      && thresholdEcdsaPrimaryProvisionTarget
+      requestedSignerModeStr === 'threshold-signer' &&
+      thresholdEcdsaClientVerifyingShareB64u &&
+      thresholdEcdsaPrimaryProvisionTarget
     ) {
       thresholdEcdsaSessionIdForRegistration = generateThresholdSessionId();
-      thresholdEcdsaSessionKindForRegistration = thresholdEcdsaPrimaryProvisionTarget.options.sessionKind;
+      thresholdEcdsaSessionKindForRegistration =
+        thresholdEcdsaPrimaryProvisionTarget.options.sessionKind;
       if (thresholdEcdsaSessionKindForRegistration !== 'jwt') {
         throw new Error('Threshold ECDSA registration bootstrap requires sessionKind=jwt');
       }
@@ -365,33 +356,35 @@ export async function registerPasskeyInternal(
     const accountAndRegistrationResult = await createAccountAndRegisterWithRelayServer(
       context,
       nearAccountId,
-      requestedSignerModeStr === 'threshold-signer'
-        ? undefined
-        : accountNearPublicKey || undefined,
+      requestedSignerModeStr === 'threshold-signer' ? undefined : accountNearPublicKey || undefined,
       credential,
       rpId,
       authenticatorOptions,
       onEvent,
       {
-        thresholdEd25519: thresholdClientVerifyingShareB64u && thresholdEd25519SessionPolicyForRegistration
-          ? {
-              clientVerifyingShareB64u: thresholdClientVerifyingShareB64u,
-              sessionPolicy: thresholdEd25519SessionPolicyForRegistration,
-              sessionKind: 'jwt',
-            }
-          : undefined,
-        thresholdEcdsa: thresholdEcdsaClientVerifyingShareB64u && thresholdEcdsaSessionPolicyForRegistration
-          ? {
-              clientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u,
-              sessionPolicy: thresholdEcdsaSessionPolicyForRegistration,
-              sessionKind: thresholdEcdsaSessionKindForRegistration,
-            }
-          : undefined,
+        thresholdEd25519:
+          thresholdClientVerifyingShareB64u && thresholdEd25519SessionPolicyForRegistration
+            ? {
+                clientVerifyingShareB64u: thresholdClientVerifyingShareB64u,
+                sessionPolicy: thresholdEd25519SessionPolicyForRegistration,
+                sessionKind: 'jwt',
+              }
+            : undefined,
+        thresholdEcdsa:
+          thresholdEcdsaClientVerifyingShareB64u && thresholdEcdsaSessionPolicyForRegistration
+            ? {
+                clientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u,
+                sessionPolicy: thresholdEcdsaSessionPolicyForRegistration,
+                sessionKind: thresholdEcdsaSessionKindForRegistration,
+              }
+            : undefined,
       },
     );
 
     if (!accountAndRegistrationResult.success) {
-      throw new Error(accountAndRegistrationResult.error || 'Account creation and registration failed');
+      throw new Error(
+        accountAndRegistrationResult.error || 'Account creation and registration failed',
+      );
     }
 
     // Update registration state based on results
@@ -404,25 +397,47 @@ export async function registerPasskeyInternal(
       step: 6,
       phase: RegistrationPhase.STEP_6_ACCOUNT_VERIFICATION,
       status: RegistrationStatus.PROGRESS,
-      message: 'Verifying on-chain access key matches expected public key...'
+      message: 'Verifying on-chain access key matches expected public key...',
     });
 
-    const thresholdPublicKey = String(accountAndRegistrationResult?.thresholdEd25519?.publicKey || '').trim();
-    const relayerKeyId = String(accountAndRegistrationResult?.thresholdEd25519?.relayerKeyId || '').trim();
-    const relayerVerifyingShareB64u = String(accountAndRegistrationResult?.thresholdEd25519?.relayerVerifyingShareB64u || '').trim();
-    const thresholdEcdsaRelayerKeyId = String(accountAndRegistrationResult?.thresholdEcdsa?.relayerKeyId || '').trim();
-    const thresholdEcdsaGroupPublicKeyB64u = String(accountAndRegistrationResult?.thresholdEcdsa?.groupPublicKeyB64u || '').trim();
-    const thresholdEcdsaRelayerVerifyingShareB64u = String(accountAndRegistrationResult?.thresholdEcdsa?.relayerVerifyingShareB64u || '').trim();
+    const thresholdPublicKey = String(
+      accountAndRegistrationResult?.thresholdEd25519?.publicKey || '',
+    ).trim();
+    const relayerKeyId = String(
+      accountAndRegistrationResult?.thresholdEd25519?.relayerKeyId || '',
+    ).trim();
+    const relayerVerifyingShareB64u = String(
+      accountAndRegistrationResult?.thresholdEd25519?.relayerVerifyingShareB64u || '',
+    ).trim();
+    const thresholdEcdsaRelayerKeyId = String(
+      accountAndRegistrationResult?.thresholdEcdsa?.relayerKeyId || '',
+    ).trim();
+    const thresholdEcdsaGroupPublicKeyB64u = String(
+      accountAndRegistrationResult?.thresholdEcdsa?.groupPublicKeyB64u || '',
+    ).trim();
+    const thresholdEcdsaRelayerVerifyingShareB64u = String(
+      accountAndRegistrationResult?.thresholdEcdsa?.relayerVerifyingShareB64u || '',
+    ).trim();
     const thresholdEd25519Session = accountAndRegistrationResult?.thresholdEd25519?.session;
     const thresholdEcdsaSession = accountAndRegistrationResult?.thresholdEcdsa?.session;
-    const thresholdEcdsaEthereumAddress = String(accountAndRegistrationResult?.thresholdEcdsa?.ethereumAddress || '').trim();
+    const thresholdEcdsaEthereumAddress = String(
+      accountAndRegistrationResult?.thresholdEcdsa?.ethereumAddress || '',
+    ).trim();
 
     if (thresholdEd25519SessionPolicyForRegistration) {
-      const sessionKind = String(thresholdEd25519Session?.sessionKind || '').trim().toLowerCase();
+      const sessionKind = String(thresholdEd25519Session?.sessionKind || '')
+        .trim()
+        .toLowerCase();
       const sessionId = String(thresholdEd25519Session?.sessionId || '').trim();
       const sessionJwt = String(thresholdEd25519Session?.jwt || '').trim();
       const expiresAtMs = Number(thresholdEd25519Session?.expiresAtMs);
-      if (sessionKind !== 'jwt' || !sessionId || !sessionJwt || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
+      if (
+        sessionKind !== 'jwt' ||
+        !sessionId ||
+        !sessionJwt ||
+        !Number.isFinite(expiresAtMs) ||
+        expiresAtMs <= 0
+      ) {
         throw new Error('Registration did not return a valid threshold-ed25519 bootstrap session');
       }
       if (sessionId !== thresholdEd25519SessionPolicyForRegistration.sessionId) {
@@ -431,11 +446,19 @@ export async function registerPasskeyInternal(
     }
 
     if (thresholdEcdsaSessionPolicyForRegistration) {
-      const sessionKind = String(thresholdEcdsaSession?.sessionKind || '').trim().toLowerCase();
+      const sessionKind = String(thresholdEcdsaSession?.sessionKind || '')
+        .trim()
+        .toLowerCase();
       const sessionId = String(thresholdEcdsaSession?.sessionId || '').trim();
       const sessionJwt = String(thresholdEcdsaSession?.jwt || '').trim();
       const expiresAtMs = Number(thresholdEcdsaSession?.expiresAtMs);
-      if (sessionKind !== 'jwt' || !sessionId || !sessionJwt || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
+      if (
+        sessionKind !== 'jwt' ||
+        !sessionId ||
+        !sessionJwt ||
+        !Number.isFinite(expiresAtMs) ||
+        expiresAtMs <= 0
+      ) {
         throw new Error('Registration did not return a valid threshold-ecdsa bootstrap session');
       }
       if (sessionId !== thresholdEcdsaSessionPolicyForRegistration.sessionId) {
@@ -443,16 +466,21 @@ export async function registerPasskeyInternal(
       }
     }
     if (
-      requestedSignerModeStr === 'threshold-signer'
-      && thresholdEcdsaClientVerifyingShareB64u
-      && thresholdEcdsaSessionPolicyForRegistration
-      && (!thresholdEcdsaRelayerKeyId || !thresholdEcdsaGroupPublicKeyB64u || !thresholdEcdsaRelayerVerifyingShareB64u)
+      requestedSignerModeStr === 'threshold-signer' &&
+      thresholdEcdsaClientVerifyingShareB64u &&
+      thresholdEcdsaSessionPolicyForRegistration &&
+      (!thresholdEcdsaRelayerKeyId ||
+        !thresholdEcdsaGroupPublicKeyB64u ||
+        !thresholdEcdsaRelayerVerifyingShareB64u)
     ) {
-      console.warn('[Registration] threshold ECDSA keygen result missing key material; canonical threshold session record cannot be built');
+      console.warn(
+        '[Registration] threshold ECDSA keygen result missing key material; canonical threshold session record cannot be built',
+      );
     }
-    const accountCreationPublicKey = requestedSignerModeStr === 'threshold-signer'
-      ? thresholdPublicKey
-      : String(accountNearPublicKey || '').trim();
+    const accountCreationPublicKey =
+      requestedSignerModeStr === 'threshold-signer'
+        ? thresholdPublicKey
+        : String(accountNearPublicKey || '').trim();
     if (!accountCreationPublicKey) {
       throw new Error('Missing account public key after registration');
     }
@@ -466,26 +494,33 @@ export async function registerPasskeyInternal(
     );
 
     if (!accessKeyVerified) {
-      console.warn('[Registration] Access key not yet visible after atomic registration; continuing optimistically');
+      console.warn(
+        '[Registration] Access key not yet visible after atomic registration; continuing optimistically',
+      );
       onEvent?.({
         step: 6,
         phase: RegistrationPhase.STEP_6_ACCOUNT_VERIFICATION,
         status: RegistrationStatus.SUCCESS,
-        message: 'Access key verification pending (optimistic); continuing...'
+        message: 'Access key verification pending (optimistic); continuing...',
       });
     } else {
       onEvent?.({
         step: 6,
         phase: RegistrationPhase.STEP_6_ACCOUNT_VERIFICATION,
         status: RegistrationStatus.SUCCESS,
-        message: 'Access key verified on-chain'
+        message: 'Access key verified on-chain',
       });
     }
 
     // For threshold-signer registrations, the account is created directly with the threshold key.
     // Confirm threshold key availability and continue.
     if (requestedSignerModeStr === 'threshold-signer') {
-      if (!thresholdPublicKey || !relayerKeyId || !thresholdClientVerifyingShareB64u || !relayerVerifyingShareB64u) {
+      if (
+        !thresholdPublicKey ||
+        !relayerKeyId ||
+        !thresholdClientVerifyingShareB64u ||
+        !relayerVerifyingShareB64u
+      ) {
         throw new Error('Threshold registration did not return required key material');
       }
 
@@ -501,22 +536,26 @@ export async function registerPasskeyInternal(
       });
 
       const thresholdConfirmed =
-        accessKeyVerified
-        || await verifyAccountAccessKeysPresent(
+        accessKeyVerified ||
+        (await verifyAccountAccessKeysPresent(
           context.nearClient,
           String(nearAccountId),
           [thresholdPublicKey],
           { attempts: 10, delayMs: 250, finality: 'optimistic' },
-        );
+        ));
       if (!thresholdConfirmed) {
-        console.warn('[Registration] Threshold key not yet visible after atomic registration; continuing optimistically');
+        console.warn(
+          '[Registration] Threshold key not yet visible after atomic registration; continuing optimistically',
+        );
       }
 
       onEvent?.({
         step: 7,
         phase: RegistrationPhase.STEP_7_THRESHOLD_KEY_ENROLLMENT,
         status: RegistrationStatus.SUCCESS,
-        message: thresholdConfirmed ? 'Threshold key ready' : 'Threshold key verification pending (optimistic)',
+        message: thresholdConfirmed
+          ? 'Threshold key ready'
+          : 'Threshold key verification pending (optimistic)',
         thresholdKeyReady: thresholdConfirmed,
         thresholdPublicKey,
         relayerKeyId,
@@ -524,52 +563,54 @@ export async function registerPasskeyInternal(
       });
     }
 
-    const thresholdEcdsaKeyRef = (
-      requestedSignerModeStr === 'threshold-signer'
-      && thresholdEcdsaClientVerifyingShareB64u
-      && thresholdEcdsaRelayerKeyId
-      && context.configs.network.relayer.url
-    )
-      ? {
-          type: 'threshold-ecdsa-secp256k1' as const,
-          userId: String(nearAccountId),
-          relayerUrl: context.configs.network.relayer.url,
-          relayerKeyId: thresholdEcdsaRelayerKeyId,
-          clientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u,
-          ...(Array.isArray(thresholdEcdsaSession?.participantIds)
-            ? { participantIds: thresholdEcdsaSession.participantIds }
-            : Array.isArray(accountAndRegistrationResult?.thresholdEcdsa?.participantIds)
-              ? { participantIds: accountAndRegistrationResult.thresholdEcdsa?.participantIds }
+    const thresholdEcdsaKeyRef =
+      requestedSignerModeStr === 'threshold-signer' &&
+      thresholdEcdsaClientVerifyingShareB64u &&
+      thresholdEcdsaRelayerKeyId &&
+      context.configs.network.relayer.url
+        ? {
+            type: 'threshold-ecdsa-secp256k1' as const,
+            userId: String(nearAccountId),
+            relayerUrl: context.configs.network.relayer.url,
+            relayerKeyId: thresholdEcdsaRelayerKeyId,
+            clientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u,
+            ...(Array.isArray(thresholdEcdsaSession?.participantIds)
+              ? { participantIds: thresholdEcdsaSession.participantIds }
+              : Array.isArray(accountAndRegistrationResult?.thresholdEcdsa?.participantIds)
+                ? { participantIds: accountAndRegistrationResult.thresholdEcdsa?.participantIds }
+                : {}),
+            ...(String(thresholdEcdsaSession?.sessionKind || '')
+              .trim()
+              .toLowerCase() === 'jwt'
+              ? { thresholdSessionKind: 'jwt' as const }
               : {}),
-          ...(String(thresholdEcdsaSession?.sessionKind || '').trim().toLowerCase() === 'jwt'
-            ? { thresholdSessionKind: 'jwt' as const }
-            : {}),
-          ...(String(thresholdEcdsaSession?.sessionId || '').trim()
-            ? { thresholdSessionId: String(thresholdEcdsaSession?.sessionId || '').trim() }
-            : {}),
-          ...(String(thresholdEcdsaSession?.jwt || '').trim()
-            ? { thresholdSessionJwt: String(thresholdEcdsaSession?.jwt || '').trim() }
-            : {}),
-          ...(thresholdEcdsaGroupPublicKeyB64u
-            ? { groupPublicKeyB64u: thresholdEcdsaGroupPublicKeyB64u }
-            : {}),
-          ...(thresholdEcdsaRelayerVerifyingShareB64u
-            ? { relayerVerifyingShareB64u: thresholdEcdsaRelayerVerifyingShareB64u }
-            : {}),
-        }
-      : undefined;
+            ...(String(thresholdEcdsaSession?.sessionId || '').trim()
+              ? { thresholdSessionId: String(thresholdEcdsaSession?.sessionId || '').trim() }
+              : {}),
+            ...(String(thresholdEcdsaSession?.jwt || '').trim()
+              ? { thresholdSessionJwt: String(thresholdEcdsaSession?.jwt || '').trim() }
+              : {}),
+            ...(thresholdEcdsaGroupPublicKeyB64u
+              ? { groupPublicKeyB64u: thresholdEcdsaGroupPublicKeyB64u }
+              : {}),
+            ...(thresholdEcdsaRelayerVerifyingShareB64u
+              ? { relayerVerifyingShareB64u: thresholdEcdsaRelayerVerifyingShareB64u }
+              : {}),
+          }
+        : undefined;
 
     // Step 8: Store user data + authenticator locally
     onEvent?.({
       step: 8,
       phase: RegistrationPhase.STEP_8_DATABASE_STORAGE,
       status: RegistrationStatus.PROGRESS,
-      message: 'Storing passkey wallet metadata...'
+      message: 'Storing passkey wallet metadata...',
     });
 
-    const clientNearPublicKey = requestedSignerModeStr === 'threshold-signer'
-      ? String(thresholdPublicKey || '').trim()
-      : accountCreationPublicKey;
+    const clientNearPublicKey =
+      requestedSignerModeStr === 'threshold-signer'
+        ? String(thresholdPublicKey || '').trim()
+        : accountCreationPublicKey;
 
     await signingEngine.atomicStoreRegistrationData({
       nearAccountId,
@@ -602,7 +643,8 @@ export async function registerPasskeyInternal(
         clientShareDerivation: 'prf_first_v1',
         participants: buildThresholdEd25519Participants2pV1({
           clientParticipantId: accountAndRegistrationResult?.thresholdEd25519?.clientParticipantId,
-          relayerParticipantId: accountAndRegistrationResult?.thresholdEd25519?.relayerParticipantId,
+          relayerParticipantId:
+            accountAndRegistrationResult?.thresholdEd25519?.relayerParticipantId,
           relayerKeyId,
           relayerUrl: context.configs?.network.relayer?.url,
           clientVerifyingShareB64u: thresholdClientVerifyingShareB64u,
@@ -617,15 +659,11 @@ export async function registerPasskeyInternal(
       step: 8,
       phase: RegistrationPhase.STEP_8_DATABASE_STORAGE,
       status: RegistrationStatus.SUCCESS,
-      message: 'Registration metadata stored successfully'
+      message: 'Registration metadata stored successfully',
     });
 
     if (requestedSignerModeStr === 'threshold-signer' && thresholdPrfFirstB64u) {
-      if (
-        thresholdEd25519SessionPolicyForRegistration
-        && thresholdEd25519Session
-        && relayerKeyId
-      ) {
+      if (thresholdEd25519SessionPolicyForRegistration && thresholdEd25519Session && relayerKeyId) {
         const edSessionId = String(thresholdEd25519Session.sessionId || '').trim();
         const edSessionJwt = String(thresholdEd25519Session.jwt || '').trim();
         const edExpiresAtMs = Number(thresholdEd25519Session.expiresAtMs);
@@ -737,13 +775,12 @@ export async function registerPasskeyInternal(
           expiresAtMs: ecdsaExpiresAtMs,
         });
 
-        const primarySmartAccountBootstrap =
-          thresholdEcdsaPrimaryProvisionTarget
-            ? toSmartAccountBootstrapInput(
+        const primarySmartAccountBootstrap = thresholdEcdsaPrimaryProvisionTarget
+          ? toSmartAccountBootstrapInput(
               thresholdEcdsaPrimaryProvisionTarget.chain,
               thresholdEcdsaPrimaryProvisionTarget.options.smartAccount,
             )
-            : undefined;
+          : undefined;
 
         const bootstrapProjection: ThresholdEcdsaSessionBootstrapResult = {
           thresholdEcdsaKeyRef,
@@ -794,10 +831,7 @@ export async function registerPasskeyInternal(
             nearAccountId,
             chain: target.chain,
             bootstrap: bootstrapProjection,
-            smartAccount: toSmartAccountBootstrapInput(
-              target.chain,
-              target.options.smartAccount,
-            ),
+            smartAccount: toSmartAccountBootstrapInput(target.chain, target.options.smartAccount),
           });
         }
       }
@@ -814,7 +848,7 @@ export async function registerPasskeyInternal(
       step: 9,
       phase: RegistrationPhase.STEP_9_REGISTRATION_COMPLETE,
       status: RegistrationStatus.SUCCESS,
-      message: 'Registration completed!'
+      message: 'Registration completed!',
     });
 
     const successResult = {
@@ -828,23 +862,19 @@ export async function registerPasskeyInternal(
 
     afterCall?.(true, successResult);
     return successResult;
-
   } catch (error: unknown) {
-    const message = (error && typeof error === 'object' && 'message' in error)
-      ? String((error as { message?: unknown }).message || '')
-      : String(error || '');
-    const stack = (error && typeof error === 'object' && 'stack' in error)
-      ? String((error as { stack?: unknown }).stack || '')
-      : '';
+    const message =
+      error && typeof error === 'object' && 'message' in error
+        ? String((error as { message?: unknown }).message || '')
+        : String(error || '');
+    const stack =
+      error && typeof error === 'object' && 'stack' in error
+        ? String((error as { stack?: unknown }).stack || '')
+        : '';
     console.error('Registration failed:', message, stack);
 
     // Perform rollback based on registration state
-    await performRegistrationRollback(
-      registrationState,
-      nearAccountId,
-      signingEngine,
-      onEvent
-    );
+    await performRegistrationRollback(registrationState, nearAccountId, signingEngine, onEvent);
 
     // Use centralized error handling
     const errorMessage = getUserFriendlyErrorMessage(error, 'registration', nearAccountId);
@@ -857,7 +887,7 @@ export async function registerPasskeyInternal(
       phase: RegistrationPhase.REGISTRATION_ERROR,
       status: RegistrationStatus.ERROR,
       message: errorMessage,
-      error: errorMessage
+      error: errorMessage,
     } as RegistrationSSEEvent);
 
     const result = { success: false, error: errorMessage };
@@ -871,7 +901,7 @@ export async function registerPasskey(
   context: PasskeyManagerContext,
   nearAccountId: AccountId,
   options: RegistrationHooksOptions,
-  authenticatorOptions: AuthenticatorOptions
+  authenticatorOptions: AuthenticatorOptions,
 ): Promise<RegistrationResult> {
   return registerPasskeyInternal(context, nearAccountId, options, authenticatorOptions, undefined);
 }
@@ -888,20 +918,19 @@ export async function registerPasskey(
  */
 const validateRegistrationInputs = async (
   context: {
-    configs: TatchiConfigsReadonly,
-    signingEngine: SigningEnginePublic,
-    nearClient: NearClient,
+    configs: TatchiConfigsReadonly;
+    signingEngine: SigningEnginePublic;
+    nearClient: NearClient;
   },
   nearAccountId: AccountId,
   onEvent?: (event: RegistrationSSEEvent) => void,
   onError?: (error: Error) => void,
 ) => {
-
   onEvent?.({
     step: 1,
     phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
     status: RegistrationStatus.PROGRESS,
-    message: 'Validating registration inputs...'
+    message: 'Validating registration inputs...',
   } as RegistrationSSEEvent);
 
   // Validation
@@ -929,10 +958,13 @@ const validateRegistrationInputs = async (
     step: 1,
     phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
     status: RegistrationStatus.PROGRESS,
-    message: `Checking if ${nearAccountId} already exists...`
+    message: `Checking if ${nearAccountId} already exists...`,
   } as RegistrationSSEEvent);
 
-  const accountExists = await checkNearAccountExistsBestEffort(context.nearClient, String(nearAccountId));
+  const accountExists = await checkNearAccountExistsBestEffort(
+    context.nearClient,
+    String(nearAccountId),
+  );
   if (accountExists) {
     const error = new Error(`Account ${nearAccountId} already exists. Please log in instead.`);
     onError?.(error);
@@ -943,10 +975,10 @@ const validateRegistrationInputs = async (
     step: 1,
     phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
     status: RegistrationStatus.PROGRESS,
-    message: `Account format validated, preparing confirmation`
+    message: `Account format validated, preparing confirmation`,
   } as RegistrationSSEEvent);
   return;
-}
+};
 
 /**
  * Rollback registration data in case of errors
@@ -960,7 +992,7 @@ async function performRegistrationRollback(
   },
   nearAccountId: AccountId,
   signingEngine: SigningEnginePublic,
-  onEvent?: (event: RegistrationSSEEvent) => void
+  onEvent?: (event: RegistrationSSEEvent) => void,
 ): Promise<void> {
   console.debug('Starting registration rollback...', registrationState);
 
@@ -974,7 +1006,7 @@ async function performRegistrationRollback(
         phase: RegistrationPhase.REGISTRATION_ERROR,
         status: RegistrationStatus.ERROR,
         message: 'Rolling back database storage...',
-        error: 'Registration failed - rolling back database storage'
+        error: 'Registration failed - rolling back database storage',
       } as RegistrationSSEEvent);
 
       await signingEngine.rollbackUserRegistration(nearAccountId);
@@ -990,11 +1022,10 @@ async function performRegistrationRollback(
         phase: RegistrationPhase.REGISTRATION_ERROR,
         status: RegistrationStatus.ERROR,
         message: `Registration transaction (tx: ${registrationState.contractTransactionId}) cannot be rolled back`,
-        error: 'Registration failed - on-chain state is immutable'
+        error: 'Registration failed - on-chain state is immutable',
       } as RegistrationSSEEvent);
     }
     console.debug('Registration rollback completed');
-
   } catch (rollbackError: unknown) {
     console.error('Rollback failed:', rollbackError);
     onEvent?.({
@@ -1002,11 +1033,11 @@ async function performRegistrationRollback(
       phase: RegistrationPhase.REGISTRATION_ERROR,
       status: RegistrationStatus.ERROR,
       message: `Rollback failed: ${
-        (rollbackError && typeof rollbackError === 'object' && 'message' in rollbackError)
+        rollbackError && typeof rollbackError === 'object' && 'message' in rollbackError
           ? String((rollbackError as { message?: unknown }).message || '')
           : String(rollbackError || '')
       }`,
-      error: 'Both registration and rollback failed'
+      error: 'Both registration and rollback failed',
     } as RegistrationSSEEvent);
   }
 }
@@ -1028,10 +1059,7 @@ async function verifyAccountAccessKeysPresent(
 
   for (let i = 0; i < attempts; i++) {
     try {
-      const accessKeyList = await nearClient.viewAccessKeyList(
-        nearAccountId,
-        { finality },
-      );
+      const accessKeyList = await nearClient.viewAccessKeyList(nearAccountId, { finality });
       const keys = accessKeyList.keys.map((k) => ensureEd25519Prefix(k.public_key)).filter(Boolean);
       const allPresent = unique.every((expected) => keys.includes(expected));
       if (allPresent) return true;

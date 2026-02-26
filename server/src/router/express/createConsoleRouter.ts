@@ -33,15 +33,8 @@ import {
   parseUpdateConsoleWebhookEndpointRequest,
   type ConsoleWebhookService,
 } from '../../console/webhooks';
-import type {
-  ConsoleAuthClaims,
-  ConsoleAuthResult,
-  ConsoleRouterOptions,
-} from '../console';
-import {
-  authenticateConsoleRequest,
-  hasConsoleRole,
-} from '../console';
+import type { ConsoleAuthClaims, ConsoleAuthResult, ConsoleRouterOptions } from '../console';
+import { authenticateConsoleRequest, hasConsoleRole } from '../console';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 
@@ -71,7 +64,10 @@ function withConsoleCors(res: Response, opts?: ConsoleRouterOptions, req?: Reque
   }
 
   res.set('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Console-Stripe-Webhook-Secret');
+  res.set(
+    'Access-Control-Allow-Headers',
+    'Content-Type,Authorization,X-Console-Stripe-Webhook-Secret',
+  );
   if (allowedOrigin && allowedOrigin !== '*') {
     res.set('Access-Control-Allow-Credentials', 'true');
   }
@@ -151,8 +147,15 @@ function sendWebhookError(res: Response, error: unknown): void {
   });
 }
 
-async function requireConsoleAuth(req: Request, res: Response, ctx: ExpressConsoleContext): Promise<ConsoleAuthClaims | null> {
-  const auth = await authenticateConsoleRequest(req.headers as Record<string, string | string[] | undefined>, ctx.opts.auth);
+async function requireConsoleAuth(
+  req: Request,
+  res: Response,
+  ctx: ExpressConsoleContext,
+): Promise<ConsoleAuthClaims | null> {
+  const auth = await authenticateConsoleRequest(
+    req.headers as Record<string, string | string[] | undefined>,
+    ctx.opts.auth,
+  );
   if (!auth.ok) {
     sendAuthFailure(res, auth);
     return null;
@@ -160,7 +163,10 @@ async function requireConsoleAuth(req: Request, res: Response, ctx: ExpressConso
   return auth.claims;
 }
 
-function requireBillingService(res: Response, ctx: ExpressConsoleContext): ConsoleBillingService | null {
+function requireBillingService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsoleBillingService | null {
   if (ctx.billing) return ctx.billing;
   res.status(501).json({
     ok: false,
@@ -170,7 +176,10 @@ function requireBillingService(res: Response, ctx: ExpressConsoleContext): Conso
   return null;
 }
 
-function requireApiKeyService(res: Response, ctx: ExpressConsoleContext): ConsoleApiKeyService | null {
+function requireApiKeyService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsoleApiKeyService | null {
   if (ctx.apiKeys) return ctx.apiKeys;
   res.status(501).json({
     ok: false,
@@ -180,7 +189,10 @@ function requireApiKeyService(res: Response, ctx: ExpressConsoleContext): Consol
   return null;
 }
 
-function requireWebhookService(res: Response, ctx: ExpressConsoleContext): ConsoleWebhookService | null {
+function requireWebhookService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsoleWebhookService | null {
   if (ctx.webhooks) return ctx.webhooks;
   res.status(501).json({
     ok: false,
@@ -190,7 +202,11 @@ function requireWebhookService(res: Response, ctx: ExpressConsoleContext): Conso
   return null;
 }
 
-function requireStripeWebhookSecret(req: Request, res: Response, ctx: ExpressConsoleContext): boolean {
+function requireStripeWebhookSecret(
+  req: Request,
+  res: Response,
+  ctx: ExpressConsoleContext,
+): boolean {
   const configured = String(ctx.opts.billingStripeWebhookSecret || '').trim();
   if (!configured) {
     res.status(501).json({
@@ -259,11 +275,7 @@ function requireInvoiceGenerationRole(claims: ConsoleAuthClaims, res: Response):
   return false;
 }
 
-const BILLING_TERMINAL_SETTLEMENT_STATES = new Set([
-  'SETTLED',
-  'PARTIALLY_SETTLED',
-  'OVERPAID',
-]);
+const BILLING_TERMINAL_SETTLEMENT_STATES = new Set(['SETTLED', 'PARTIALLY_SETTLED', 'OVERPAID']);
 
 async function emitBillingWebhookEvent(
   ctx: ExpressConsoleContext,
@@ -511,7 +523,9 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
     if (!webhooks) return;
     const endpointId = readPathParam(req, 'id');
     if (!endpointId) {
-      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing webhook endpoint id' });
+      res
+        .status(400)
+        .json({ ok: false, code: 'invalid_path', message: 'Missing webhook endpoint id' });
       return;
     }
     try {
@@ -538,7 +552,9 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
     if (!webhooks) return;
     const endpointId = readPathParam(req, 'id');
     if (!endpointId) {
-      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing webhook endpoint id' });
+      res
+        .status(400)
+        .json({ ok: false, code: 'invalid_path', message: 'Missing webhook endpoint id' });
       return;
     }
     try {
@@ -564,7 +580,9 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
     if (!webhooks) return;
     const endpointId = readPathParam(req, 'id');
     if (!endpointId) {
-      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing webhook endpoint id' });
+      res
+        .status(400)
+        .json({ ok: false, code: 'invalid_path', message: 'Missing webhook endpoint id' });
       return;
     }
     try {
@@ -587,7 +605,9 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
     if (!webhooks) return;
     const endpointId = readPathParam(req, 'id');
     if (!endpointId) {
-      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing webhook endpoint id' });
+      res
+        .status(400)
+        .json({ ok: false, code: 'invalid_path', message: 'Missing webhook endpoint id' });
       return;
     }
     try {
@@ -610,7 +630,9 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
     if (!webhooks) return;
     const endpointId = readPathParam(req, 'id');
     if (!endpointId) {
-      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing webhook endpoint id' });
+      res
+        .status(400)
+        .json({ ok: false, code: 'invalid_path', message: 'Missing webhook endpoint id' });
       return;
     }
     try {
@@ -633,7 +655,9 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
     if (!webhooks) return;
     const endpointId = readPathParam(req, 'id');
     if (!endpointId) {
-      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing webhook endpoint id' });
+      res
+        .status(400)
+        .json({ ok: false, code: 'invalid_path', message: 'Missing webhook endpoint id' });
       return;
     }
     try {
@@ -713,20 +737,23 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     }
   });
 
-  router.get('/console/billing/usage/monthly-active-wallets', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
-    const billing = requireBillingService(res, ctx);
-    if (!billing) return;
-    const monthUtcRaw = String((req as any)?.query?.monthUtc || '').trim();
-    const monthUtc = monthUtcRaw || undefined;
-    try {
-      const usage = await billing.getMonthlyActiveWallets(toBillingContext(claims), monthUtc);
-      res.status(200).json({ ok: true, usage });
-    } catch (error: unknown) {
-      sendBillingError(res, error);
-    }
-  });
+  router.get(
+    '/console/billing/usage/monthly-active-wallets',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      const billing = requireBillingService(res, ctx);
+      if (!billing) return;
+      const monthUtcRaw = String((req as any)?.query?.monthUtc || '').trim();
+      const monthUtc = monthUtcRaw || undefined;
+      try {
+        const usage = await billing.getMonthlyActiveWallets(toBillingContext(claims), monthUtc);
+        res.status(200).json({ ok: true, usage });
+      } catch (error: unknown) {
+        sendBillingError(res, error);
+      }
+    },
+  );
 
   router.post('/console/billing/usage/events', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
@@ -795,7 +822,11 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     try {
       const invoice = await billing.getInvoice(toBillingContext(claims), invoiceId);
       if (!invoice) {
-        res.status(404).json({ ok: false, code: 'invoice_not_found', message: `Invoice ${invoiceId} was not found` });
+        res.status(404).json({
+          ok: false,
+          code: 'invoice_not_found',
+          message: `Invoice ${invoiceId} was not found`,
+        });
         return;
       }
       res.status(200).json({ ok: true, invoice });
@@ -817,7 +848,11 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     try {
       const invoice = await billing.getInvoice(toBillingContext(claims), invoiceId);
       if (!invoice) {
-        res.status(404).json({ ok: false, code: 'invoice_not_found', message: `Invoice ${invoiceId} was not found` });
+        res.status(404).json({
+          ok: false,
+          code: 'invoice_not_found',
+          message: `Invoice ${invoiceId} was not found`,
+        });
         return;
       }
       const lineItems = await billing.listInvoiceLineItems(toBillingContext(claims), invoiceId);
@@ -861,13 +896,19 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     if (!billing) return;
     const paymentMethodId = readPathParam(req, 'id');
     if (!paymentMethodId) {
-      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing payment method id' });
+      res
+        .status(400)
+        .json({ ok: false, code: 'invalid_path', message: 'Missing payment method id' });
       return;
     }
     try {
       const out = await billing.removeCardPaymentMethod(toBillingContext(claims), paymentMethodId);
       if (!out.removed) {
-        res.status(404).json({ ok: false, code: 'payment_method_not_found', message: `Payment method ${paymentMethodId} was not found` });
+        res.status(404).json({
+          ok: false,
+          code: 'payment_method_not_found',
+          message: `Payment method ${paymentMethodId} was not found`,
+        });
         return;
       }
       res.status(200).json({ ok: true, removed: true });
@@ -876,27 +917,39 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     }
   });
 
-  router.post('/console/billing/payment-methods/:id/default', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireAdminRoleForCardActions(claims, res)) return;
-    const billing = requireBillingService(res, ctx);
-    if (!billing) return;
-    const paymentMethodId = readPathParam(req, 'id');
-    if (!paymentMethodId) {
-      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing payment method id' });
-      return;
-    }
-    try {
-      const paymentMethod = await billing.setDefaultCardPaymentMethod(toBillingContext(claims), paymentMethodId);
-      if (!paymentMethod) {
-        res.status(404).json({ ok: false, code: 'payment_method_not_found', message: `Payment method ${paymentMethodId} was not found` });
+  router.post(
+    '/console/billing/payment-methods/:id/default',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims || !requireAdminRoleForCardActions(claims, res)) return;
+      const billing = requireBillingService(res, ctx);
+      if (!billing) return;
+      const paymentMethodId = readPathParam(req, 'id');
+      if (!paymentMethodId) {
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_path', message: 'Missing payment method id' });
         return;
       }
-      res.status(200).json({ ok: true, paymentMethod });
-    } catch (error: unknown) {
-      sendBillingError(res, error);
-    }
-  });
+      try {
+        const paymentMethod = await billing.setDefaultCardPaymentMethod(
+          toBillingContext(claims),
+          paymentMethodId,
+        );
+        if (!paymentMethod) {
+          res.status(404).json({
+            ok: false,
+            code: 'payment_method_not_found',
+            message: `Payment method ${paymentMethodId} was not found`,
+          });
+          return;
+        }
+        res.status(200).json({ ok: true, paymentMethod });
+      } catch (error: unknown) {
+        sendBillingError(res, error);
+      }
+    },
+  );
 
   router.post('/console/billing/stripe/setup-intent', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
@@ -919,7 +972,10 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     if (!billing) return;
     try {
       const request = parseStripePaymentIntentRequest((req as any).body);
-      const paymentIntent = await billing.createStripePaymentIntent(toBillingContext(claims), request);
+      const paymentIntent = await billing.createStripePaymentIntent(
+        toBillingContext(claims),
+        request,
+      );
       await emitBillingWebhookEvent(ctx, {
         orgId: claims.orgId,
         actorUserId: claims.userId,
@@ -938,59 +994,64 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     }
   });
 
-  router.post('/console/billing/stripe/payment-intents/:id/reconcile', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requirePaymentReconcileRole(claims, res)) return;
-    const billing = requireBillingService(res, ctx);
-    if (!billing) return;
-    const paymentIntentId = readPathParam(req, 'id');
-    if (!paymentIntentId) {
-      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing payment intent id' });
-      return;
-    }
-    try {
-      const request = parseStripePaymentIntentReconcileRequest((req as any).body);
-      const paymentIntent = await billing.reconcileStripePaymentIntent(
-        toBillingContext(claims),
-        paymentIntentId,
-        request,
-      );
-      if (!paymentIntent) {
-        res.status(404).json({
-          ok: false,
-          code: 'payment_intent_not_found',
-          message: `Stripe payment intent ${paymentIntentId} was not found`,
-        });
+  router.post(
+    '/console/billing/stripe/payment-intents/:id/reconcile',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims || !requirePaymentReconcileRole(claims, res)) return;
+      const billing = requireBillingService(res, ctx);
+      if (!billing) return;
+      const paymentIntentId = readPathParam(req, 'id');
+      if (!paymentIntentId) {
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_path', message: 'Missing payment intent id' });
         return;
       }
-      await emitBillingWebhookEvent(ctx, {
-        orgId: claims.orgId,
-        actorUserId: claims.userId,
-        eventType: 'billing.payment_intent.updated',
-        payload: {
-          paymentIntentId: paymentIntent.id,
-          invoiceId: paymentIntent.invoiceId,
-          providerRef: paymentIntent.providerRef,
-          state: paymentIntent.state,
-          rail: paymentIntent.rail,
-          source: 'manual_reconcile',
-        },
-      });
-      if (BILLING_TERMINAL_SETTLEMENT_STATES.has(paymentIntent.state)) {
-        await emitInvoicePaidWebhookIfApplicable(ctx, billing, {
+      try {
+        const request = parseStripePaymentIntentReconcileRequest((req as any).body);
+        const paymentIntent = await billing.reconcileStripePaymentIntent(
+          toBillingContext(claims),
+          paymentIntentId,
+          request,
+        );
+        if (!paymentIntent) {
+          res.status(404).json({
+            ok: false,
+            code: 'payment_intent_not_found',
+            message: `Stripe payment intent ${paymentIntentId} was not found`,
+          });
+          return;
+        }
+        await emitBillingWebhookEvent(ctx, {
           orgId: claims.orgId,
           actorUserId: claims.userId,
-          roles: claims.roles,
-          invoiceId: paymentIntent.invoiceId,
-          paymentIntentId: paymentIntent.id,
-          rail: 'CARD',
+          eventType: 'billing.payment_intent.updated',
+          payload: {
+            paymentIntentId: paymentIntent.id,
+            invoiceId: paymentIntent.invoiceId,
+            providerRef: paymentIntent.providerRef,
+            state: paymentIntent.state,
+            rail: paymentIntent.rail,
+            source: 'manual_reconcile',
+          },
         });
+        if (BILLING_TERMINAL_SETTLEMENT_STATES.has(paymentIntent.state)) {
+          await emitInvoicePaidWebhookIfApplicable(ctx, billing, {
+            orgId: claims.orgId,
+            actorUserId: claims.userId,
+            roles: claims.roles,
+            invoiceId: paymentIntent.invoiceId,
+            paymentIntentId: paymentIntent.id,
+            rail: 'CARD',
+          });
+        }
+        res.status(200).json({ ok: true, paymentIntent });
+      } catch (error: unknown) {
+        sendBillingError(res, error);
       }
-      res.status(200).json({ ok: true, paymentIntent });
-    } catch (error: unknown) {
-      sendBillingError(res, error);
-    }
-  });
+    },
+  );
 
   router.get('/console/billing/stablecoins/assets', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
@@ -1016,140 +1077,167 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     }
   });
 
-  router.post('/console/billing/stablecoins/payment-intents', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
-    const billing = requireBillingService(res, ctx);
-    if (!billing) return;
-    try {
-      const request = parseStablecoinPaymentIntentRequest((req as any).body);
-      const paymentIntent = await billing.createStablecoinPaymentIntent(toBillingContext(claims), request);
-      await emitBillingWebhookEvent(ctx, {
-        orgId: claims.orgId,
-        actorUserId: claims.userId,
-        eventType: 'billing.payment_intent.created',
-        payload: {
-          paymentIntentId: paymentIntent.id,
-          invoiceId: paymentIntent.invoiceId,
-          rail: paymentIntent.rail,
-          state: paymentIntent.state,
-          expectedAmountMinor: paymentIntent.expectedAmountMinor,
-          asset: paymentIntent.asset,
-          chain: paymentIntent.chain,
-        },
-      });
-      res.status(201).json({ ok: true, paymentIntent });
-    } catch (error: unknown) {
-      sendBillingError(res, error);
-    }
-  });
-
-  router.get('/console/billing/stablecoins/payment-intents/:id', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
-    const billing = requireBillingService(res, ctx);
-    if (!billing) return;
-    const paymentIntentId = readPathParam(req, 'id');
-    if (!paymentIntentId) {
-      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing payment intent id' });
-      return;
-    }
-    try {
-      const paymentIntent = await billing.getStablecoinPaymentIntent(toBillingContext(claims), paymentIntentId);
-      if (!paymentIntent) {
-        res.status(404).json({
-          ok: false,
-          code: 'payment_intent_not_found',
-          message: `Stablecoin payment intent ${paymentIntentId} was not found`,
-        });
-        return;
-      }
-      res.status(200).json({ ok: true, paymentIntent });
-    } catch (error: unknown) {
-      sendBillingError(res, error);
-    }
-  });
-
-  router.post('/console/billing/stablecoins/payment-intents/:id/cancel', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
-    const billing = requireBillingService(res, ctx);
-    if (!billing) return;
-    const paymentIntentId = readPathParam(req, 'id');
-    if (!paymentIntentId) {
-      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing payment intent id' });
-      return;
-    }
-    try {
-      const paymentIntent = await billing.cancelStablecoinPaymentIntent(toBillingContext(claims), paymentIntentId);
-      if (!paymentIntent) {
-        res.status(404).json({
-          ok: false,
-          code: 'payment_intent_not_found',
-          message: `Stablecoin payment intent ${paymentIntentId} was not found`,
-        });
-        return;
-      }
-      res.status(200).json({ ok: true, paymentIntent });
-    } catch (error: unknown) {
-      sendBillingError(res, error);
-    }
-  });
-
-  router.post('/console/billing/stablecoins/payment-intents/:id/reconcile', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requirePaymentReconcileRole(claims, res)) return;
-    const billing = requireBillingService(res, ctx);
-    if (!billing) return;
-    const paymentIntentId = readPathParam(req, 'id');
-    if (!paymentIntentId) {
-      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing payment intent id' });
-      return;
-    }
-    try {
-      const request = parseStablecoinPaymentIntentReconcileRequest((req as any).body);
-      const paymentIntent = await billing.reconcileStablecoinPaymentIntent(
-        toBillingContext(claims),
-        paymentIntentId,
-        request,
-      );
-      if (!paymentIntent) {
-        res.status(404).json({
-          ok: false,
-          code: 'payment_intent_not_found',
-          message: `Stablecoin payment intent ${paymentIntentId} was not found`,
-        });
-        return;
-      }
-      await emitBillingWebhookEvent(ctx, {
-        orgId: claims.orgId,
-        actorUserId: claims.userId,
-        eventType: 'billing.payment_intent.updated',
-        payload: {
-          paymentIntentId: paymentIntent.id,
-          invoiceId: paymentIntent.invoiceId,
-          state: paymentIntent.state,
-          rail: paymentIntent.rail,
-          asset: paymentIntent.asset,
-          chain: paymentIntent.chain,
-          source: 'manual_reconcile',
-        },
-      });
-      if (BILLING_TERMINAL_SETTLEMENT_STATES.has(paymentIntent.state)) {
-        await emitInvoicePaidWebhookIfApplicable(ctx, billing, {
+  router.post(
+    '/console/billing/stablecoins/payment-intents',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      const billing = requireBillingService(res, ctx);
+      if (!billing) return;
+      try {
+        const request = parseStablecoinPaymentIntentRequest((req as any).body);
+        const paymentIntent = await billing.createStablecoinPaymentIntent(
+          toBillingContext(claims),
+          request,
+        );
+        await emitBillingWebhookEvent(ctx, {
           orgId: claims.orgId,
           actorUserId: claims.userId,
-          roles: claims.roles,
-          invoiceId: paymentIntent.invoiceId,
-          paymentIntentId: paymentIntent.id,
-          rail: 'STABLECOIN',
+          eventType: 'billing.payment_intent.created',
+          payload: {
+            paymentIntentId: paymentIntent.id,
+            invoiceId: paymentIntent.invoiceId,
+            rail: paymentIntent.rail,
+            state: paymentIntent.state,
+            expectedAmountMinor: paymentIntent.expectedAmountMinor,
+            asset: paymentIntent.asset,
+            chain: paymentIntent.chain,
+          },
         });
+        res.status(201).json({ ok: true, paymentIntent });
+      } catch (error: unknown) {
+        sendBillingError(res, error);
       }
-      res.status(200).json({ ok: true, paymentIntent });
-    } catch (error: unknown) {
-      sendBillingError(res, error);
-    }
-  });
+    },
+  );
+
+  router.get(
+    '/console/billing/stablecoins/payment-intents/:id',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      const billing = requireBillingService(res, ctx);
+      if (!billing) return;
+      const paymentIntentId = readPathParam(req, 'id');
+      if (!paymentIntentId) {
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_path', message: 'Missing payment intent id' });
+        return;
+      }
+      try {
+        const paymentIntent = await billing.getStablecoinPaymentIntent(
+          toBillingContext(claims),
+          paymentIntentId,
+        );
+        if (!paymentIntent) {
+          res.status(404).json({
+            ok: false,
+            code: 'payment_intent_not_found',
+            message: `Stablecoin payment intent ${paymentIntentId} was not found`,
+          });
+          return;
+        }
+        res.status(200).json({ ok: true, paymentIntent });
+      } catch (error: unknown) {
+        sendBillingError(res, error);
+      }
+    },
+  );
+
+  router.post(
+    '/console/billing/stablecoins/payment-intents/:id/cancel',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      const billing = requireBillingService(res, ctx);
+      if (!billing) return;
+      const paymentIntentId = readPathParam(req, 'id');
+      if (!paymentIntentId) {
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_path', message: 'Missing payment intent id' });
+        return;
+      }
+      try {
+        const paymentIntent = await billing.cancelStablecoinPaymentIntent(
+          toBillingContext(claims),
+          paymentIntentId,
+        );
+        if (!paymentIntent) {
+          res.status(404).json({
+            ok: false,
+            code: 'payment_intent_not_found',
+            message: `Stablecoin payment intent ${paymentIntentId} was not found`,
+          });
+          return;
+        }
+        res.status(200).json({ ok: true, paymentIntent });
+      } catch (error: unknown) {
+        sendBillingError(res, error);
+      }
+    },
+  );
+
+  router.post(
+    '/console/billing/stablecoins/payment-intents/:id/reconcile',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims || !requirePaymentReconcileRole(claims, res)) return;
+      const billing = requireBillingService(res, ctx);
+      if (!billing) return;
+      const paymentIntentId = readPathParam(req, 'id');
+      if (!paymentIntentId) {
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_path', message: 'Missing payment intent id' });
+        return;
+      }
+      try {
+        const request = parseStablecoinPaymentIntentReconcileRequest((req as any).body);
+        const paymentIntent = await billing.reconcileStablecoinPaymentIntent(
+          toBillingContext(claims),
+          paymentIntentId,
+          request,
+        );
+        if (!paymentIntent) {
+          res.status(404).json({
+            ok: false,
+            code: 'payment_intent_not_found',
+            message: `Stablecoin payment intent ${paymentIntentId} was not found`,
+          });
+          return;
+        }
+        await emitBillingWebhookEvent(ctx, {
+          orgId: claims.orgId,
+          actorUserId: claims.userId,
+          eventType: 'billing.payment_intent.updated',
+          payload: {
+            paymentIntentId: paymentIntent.id,
+            invoiceId: paymentIntent.invoiceId,
+            state: paymentIntent.state,
+            rail: paymentIntent.rail,
+            asset: paymentIntent.asset,
+            chain: paymentIntent.chain,
+            source: 'manual_reconcile',
+          },
+        });
+        if (BILLING_TERMINAL_SETTLEMENT_STATES.has(paymentIntent.state)) {
+          await emitInvoicePaidWebhookIfApplicable(ctx, billing, {
+            orgId: claims.orgId,
+            actorUserId: claims.userId,
+            roles: claims.roles,
+            invoiceId: paymentIntent.invoiceId,
+            paymentIntentId: paymentIntent.id,
+            rail: 'STABLECOIN',
+          });
+        }
+        res.status(200).json({ ok: true, paymentIntent });
+      } catch (error: unknown) {
+        sendBillingError(res, error);
+      }
+    },
+  );
 }
 
 export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRouter {

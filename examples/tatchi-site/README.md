@@ -22,6 +22,7 @@ pnpm -C examples/vite-secure dev
 - Ensure Caddy is running so the custom host is available. If you are running the main example app (`examples/vite`), its `run_caddy.sh` already proxies `wallet.example.localhost` to `127.0.0.1:5174`.
 
 Open:
+
 - `https://wallet.example.localhost/wallet-service` – the iframe service page
 - `https://wallet.example.localhost` – splash page with links
 - `https://example.localhost/docs` – Vocs docs site

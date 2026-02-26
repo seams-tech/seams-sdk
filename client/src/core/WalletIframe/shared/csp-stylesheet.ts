@@ -48,7 +48,8 @@ export function createCspStylesheetManager(opts: {
 
   const supportsConstructable = (): boolean => {
     if (state.supportConstructable != null) return state.supportConstructable;
-    state.supportConstructable = (typeof CSSStyleSheet !== 'undefined') && ('adoptedStyleSheets' in doc);
+    state.supportConstructable =
+      typeof CSSStyleSheet !== 'undefined' && 'adoptedStyleSheets' in doc;
     return state.supportConstructable;
   };
 
@@ -70,10 +71,14 @@ export function createCspStylesheetManager(opts: {
     const el = doc.createElement('style');
     const resolvedNonce = resolveNonce();
     if (resolvedNonce) {
-      try { el.setAttribute('nonce', resolvedNonce); } catch {}
+      try {
+        el.setAttribute('nonce', resolvedNonce);
+      } catch {}
     }
     if (dataAttr) {
-      try { el.setAttribute(dataAttr, ''); } catch {}
+      try {
+        el.setAttribute(dataAttr, '');
+      } catch {}
     }
     if (cssText != null) {
       el.textContent = cssText;

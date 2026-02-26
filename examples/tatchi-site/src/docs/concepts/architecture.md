@@ -26,6 +26,7 @@ The wallet mounts a hidden iframe at its own origin. Inside that iframe, two WAS
 Normal sessions are **2-of-2** (device + relay via Shamir 3-pass) and always require fresh WebAuthn for `PRF.first`. A high-friction **PRF.second recovery** path exists only for registration, device linking, or explicit recovery.
 
 The transaction signing flow follows this lifecycle:
+
 1. **Mount**: SDK creates hidden iframe pointing at wallet origin.
 2. **Request**: App calls methods like `registerPasskey()` or `signTransactionsWithActions()` by sending typed messages.
 3. **User Confirmation**: Wallet routes requests to workers, triggers a TouchID/WebAuthn prompt, and shows intent UI from the wallet origin.
@@ -37,6 +38,7 @@ The transaction signing flow follows this lifecycle:
 # Transaction Lifecycle
 
 This section outlines the core stages of the transaction lifecycle for:
+
 1. registration flows,
 2. login flows, and
 3. transaction signing flows (WebAuthn authentication).
@@ -72,18 +74,19 @@ sequenceDiagram
 ```
 
 ::: tip **Steps:**
+
 1. **WebAuthn registration** – SecureConfirm worker collects the credential (PRF.first + PRF.second) from the wallet-origin UI.
 2. **Derive deterministic keys** – SecureConfirm worker derives deterministic SecureConfirm/NEAR keys, `WrapKeySeed`, and `wrapKeySalt`; only the seed + salt cross to the signer via `MessageChannel`.
 3. **Sign and register** – Signer worker seals the deterministic NEAR key with the KEK and signs the registration tx.
 4. **Store vault** – Encrypted deterministic keys, salts, and authenticator metadata live in the wallet’s IndexedDB; plaintext never leaves workers.
-:::
+   :::
 
 **Key cryptographic properties:**
+
 - **Origin-bound PRF** – WebAuthn PRF binds all derived keys to the wallet origin.
 - **Challenge binding** – Bootstrap SecureConfirm ties fresh NEAR block data to the WebAuthn challenge for replay resistance.
 - **Atomic verification** – Contract verifies SecureConfirm proof + WebAuthn registration together.
 - **Isolation** – Only `WrapKeySeed + wrapKeySalt` cross the worker boundary; PRF outputs and `secureconfirm_sk` stay SecureConfirm-side.
-
 
 ## Login Flow
 
@@ -110,11 +113,12 @@ sequenceDiagram
 ```
 
 ::: tip **Steps**:
+
 1. Trigger WebAuthn PRF for `PRF.first_auth` (TouchID).
 2. SecureConfirm worker derives shareA and runs Shamir 3-pass with the relay to reconstruct `secureconfirm_sk`.
 3. Derive `WrapKeySeed` from `PRF.first_auth || secureconfirm_sk`; keep it inside the SecureConfirm worker.
 4. Session is ready to derive KEKs for signing. No secrets leave workers; main thread never sees PRF/`secureconfirm_sk`.
-:::
+   :::
 
 ### Path B: Explicit PRF.second Recovery
 
@@ -134,12 +138,12 @@ sequenceDiagram
 ```
 
 ::: tip **Steps**:
+
 1. User opts into Recovery Mode; wallet requests `PRF.second` in addition to `PRF.first`.
 2. SecureConfirm worker re-derives `secureconfirm_sk` deterministically (no relay needed).
 3. Derive `WrapKeySeed` and proceed with signing/unwrapping.
 4. PRF.second is zeroized immediately; this path is high-friction and logged.
-:::
-
+   :::
 
 ### Optional: JWT Session Token
 
@@ -162,12 +166,12 @@ sequenceDiagram
 ```
 
 ::: info **Security properties:**
+
 - **SecureConfirm stays in worker**: Never exposed to main thread
 - **Session-scoped**: SecureConfirm keypair is reconstructed per session with fresh WebAuthn
 - **Primary 2-of-2**: Shamir 3-pass uses relay + device
 - **PRF.second backup**: Only in Recovery Mode; zeroized immediately
-:::
-
+  :::
 
 ## Transaction Flow
 
@@ -207,6 +211,7 @@ sequenceDiagram
 ```
 
 ::: tip **Steps:**
+
 1. **Preparation** – Validate inputs and fetch nonce/block hash; compute canonical intent digest in the SecureConfirm worker.
 2. **ConfirmTxFlow** – Single TouchID prompt; SecureConfirm worker runs Shamir 3-pass (or explicit Recovery Mode), derives `WrapKeySeed`, and produces the SecureConfirm proof; only the seed + salt cross to the signer.
 3. **Signing** – Signer worker derives/decrypts the deterministic NEAR key with the KEK and signs the transaction(s).
@@ -214,8 +219,6 @@ sequenceDiagram
 
 **Single biometric prompt** per transaction.
 :::
-
-
 
 ## Next Steps
 

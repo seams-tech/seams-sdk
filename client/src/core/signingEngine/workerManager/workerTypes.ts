@@ -186,12 +186,11 @@ export type NearWorkerOperationResult<T extends NearWorkerOperationType> =
 
 export type SignerWorkerKind = 'nearSigner' | MultichainWorkerKind;
 
-export type SignerWorkerOperationType<K extends SignerWorkerKind> =
-  K extends 'nearSigner'
-    ? NearWorkerOperationType
-    : K extends MultichainWorkerKind
-      ? MultichainOperationType<K>
-      : never;
+export type SignerWorkerOperationType<K extends SignerWorkerKind> = K extends 'nearSigner'
+  ? NearWorkerOperationType
+  : K extends MultichainWorkerKind
+    ? MultichainOperationType<K>
+    : never;
 
 export type SignerWorkerOperationRequest<
   K extends SignerWorkerKind,
@@ -214,10 +213,7 @@ export type SignerWorkerOperationResult<
 export interface SignerWorkerTransportProtocol {
   setWorkerBaseOrigin(origin: string | undefined): void;
   prewarmWorkers(): Promise<void>;
-  requestOperation<
-    K extends SignerWorkerKind,
-    T extends SignerWorkerOperationType<K>,
-  >(args: {
+  requestOperation<K extends SignerWorkerKind, T extends SignerWorkerOperationType<K>>(args: {
     kind: K;
     request: SignerWorkerOperationRequest<K, T>;
   }): Promise<SignerWorkerOperationResult<K, T>>;

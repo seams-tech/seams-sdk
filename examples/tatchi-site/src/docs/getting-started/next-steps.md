@@ -19,23 +19,23 @@ In this setup:
 - Tempo + EVM threshold sessions are explicit (`registerPasskey` provisioning or `bootstrapEcdsaSession`).
 
 ```tsx
-import { useState } from 'react'
-import { useTatchi } from '@tatchi-xyz/sdk/react'
+import { useState } from 'react';
+import { useTatchi } from '@tatchi-xyz/sdk/react';
 
 export function RegisterAndProvision() {
-  const { registerPasskey, tatchi } = useTatchi()
-  const [accountId, setAccountId] = useState<string | null>(null)
+  const { registerPasskey, tatchi } = useTatchi();
+  const [accountId, setAccountId] = useState<string | null>(null);
 
   async function onRegister(): Promise<void> {
-    const id = Date.now()
-    const nextAccountId = `tatchi-test-${id}.${tatchi.configs.relayerAccount}`
+    const id = Date.now();
+    const nextAccountId = `tatchi-test-${id}.${tatchi.configs.relayerAccount}`;
 
     const result = await registerPasskey(nextAccountId, {
       onEvent: (event) => console.log('registration event:', event),
-    })
-    if (!result.success || !result.nearAccountId) return
+    });
+    if (!result.success || !result.nearAccountId) return;
 
-    setAccountId(result.nearAccountId)
+    setAccountId(result.nearAccountId);
   }
 
   return (
@@ -44,7 +44,7 @@ export function RegisterAndProvision() {
       {accountId ? <p>account: {accountId}</p> : null}
       <p>tempo+evm signer session: bootstrap if missing</p>
     </div>
-  )
+  );
 }
 ```
 
@@ -68,17 +68,17 @@ await registerPasskey(nextAccountId, {
       remainingUses: 12,
     },
   },
-})
+});
 // disable per signer by setting `enabled: false` on tempo/evm
 ```
 
 ## 2. Login and Create a Warm Signing Session
 
 ```tsx
-import { useTatchi } from '@tatchi-xyz/sdk/react'
+import { useTatchi } from '@tatchi-xyz/sdk/react';
 
 export function LoginButton(props: { nearAccountId: string }) {
-  const { loginAndCreateSession } = useTatchi()
+  const { loginAndCreateSession } = useTatchi();
 
   async function onLogin(): Promise<void> {
     await loginAndCreateSession(props.nearAccountId, {
@@ -86,39 +86,39 @@ export function LoginButton(props: { nearAccountId: string }) {
         ttlMs: 5 * 60 * 1000,
         remainingUses: 5,
       },
-    })
+    });
   }
 
-  return <button onClick={onLogin}>Log In</button>
+  return <button onClick={onLogin}>Log In</button>;
 }
 ```
 
 ## 3. Bootstrap Tempo/EVM Threshold Session (if needed)
 
 ```tsx
-import { useTatchi } from '@tatchi-xyz/sdk/react'
+import { useTatchi } from '@tatchi-xyz/sdk/react';
 
 export function BootstrapTempoEvmSession(props: { nearAccountId: string }) {
-  const { tatchi } = useTatchi()
+  const { tatchi } = useTatchi();
 
   async function onBootstrap(): Promise<void> {
     await tatchi.tempo.bootstrapEcdsaSession({
       nearAccountId: props.nearAccountId,
       options: { chain: 'tempo' },
-    })
+    });
   }
 
-  return <button onClick={onBootstrap}>Bootstrap Tempo/EVM Session</button>
+  return <button onClick={onBootstrap}>Bootstrap Tempo/EVM Session</button>;
 }
 ```
 
 ## 4. Sign a NEAR Transaction (Threshold Ed25519)
 
 ```tsx
-import { ActionType, useTatchi } from '@tatchi-xyz/sdk/react'
+import { ActionType, useTatchi } from '@tatchi-xyz/sdk/react';
 
 export function SignNear(props: { nearAccountId: string }) {
-  const { tatchi } = useTatchi()
+  const { tatchi } = useTatchi();
 
   async function onSignNear(): Promise<void> {
     const signed = await tatchi.near.signTransactionsWithActions({
@@ -137,42 +137,44 @@ export function SignNear(props: { nearAccountId: string }) {
           ],
         },
       ],
-    })
-    console.log('near signed tx:', signed)
+    });
+    console.log('near signed tx:', signed);
   }
 
-  return <button onClick={onSignNear}>Sign NEAR Tx</button>
+  return <button onClick={onSignNear}>Sign NEAR Tx</button>;
 }
 ```
 
 ## 5. Sign a Tempo Transaction (Threshold secp256k1)
 
-```tsx
-import { useTatchi } from '@tatchi-xyz/sdk/react'
+Nonce management is engine-owned for default Tempo/EVM signing flows. Do not fetch nonces in app code.
 
-const TEMPO_GREETING_CONTRACT = '0x96cFE92241481954AdA6410409a86AcB6E76a00e'
-const SET_GREETING_SELECTOR = '0xa4136862'
+```tsx
+import { useTatchi } from '@tatchi-xyz/sdk/react';
+
+const TEMPO_GREETING_CONTRACT = '0x96cFE92241481954AdA6410409a86AcB6E76a00e';
+const SET_GREETING_SELECTOR = '0xa4136862';
 
 function utf8ToHex(value: string): string {
   return Array.from(new TextEncoder().encode(value), (byte) =>
     byte.toString(16).padStart(2, '0'),
-  ).join('')
+  ).join('');
 }
 
 function encodeSetGreetingInput(greeting: string): `0x${string}` {
-  const messageHex = utf8ToHex(greeting)
-  const bytesLength = messageHex.length / 2
-  const offsetHex = (32).toString(16).padStart(64, '0')
-  const lengthHex = bytesLength.toString(16).padStart(64, '0')
-  const paddedDataHex = messageHex.padEnd(Math.ceil(bytesLength / 32) * 64, '0')
-  return `0x${SET_GREETING_SELECTOR.slice(2)}${offsetHex}${lengthHex}${paddedDataHex}`
+  const messageHex = utf8ToHex(greeting);
+  const bytesLength = messageHex.length / 2;
+  const offsetHex = (32).toString(16).padStart(64, '0');
+  const lengthHex = bytesLength.toString(16).padStart(64, '0');
+  const paddedDataHex = messageHex.padEnd(Math.ceil(bytesLength / 32) * 64, '0');
+  return `0x${SET_GREETING_SELECTOR.slice(2)}${offsetHex}${lengthHex}${paddedDataHex}`;
 }
 
 export function SignTempo(props: { nearAccountId: string }) {
-  const { tatchi } = useTatchi()
+  const { tatchi } = useTatchi();
 
   async function onSignTempo(): Promise<void> {
-    const setGreetingInput = encodeSetGreetingInput('hello from tempo')
+    const setGreetingInput = encodeSetGreetingInput('hello from tempo');
 
     const signed = await tatchi.tempo.signTempo({
       nearAccountId: props.nearAccountId,
@@ -181,57 +183,90 @@ export function SignTempo(props: { nearAccountId: string }) {
         kind: 'tempoTransaction',
         senderSignatureAlgorithm: 'secp256k1',
         tx: {
-          chainId: 42431n,
+          chainId: 42431,
           maxPriorityFeePerGas: 1n,
           maxFeePerGas: 2n,
           gasLimit: 200_000n,
           calls: [{ to: TEMPO_GREETING_CONTRACT, value: 0n, input: setGreetingInput }],
           accessList: [],
           nonceKey: 0n,
-          nonce: 1n,
           validBefore: null,
           validAfter: null,
           feePayerSignature: { kind: 'none' },
           aaAuthorizationList: [],
         },
       },
-    })
-    console.log('tempo signed tx:', signed)
+    });
+    console.log('tempo signed tx:', signed);
   }
 
-  return <button onClick={onSignTempo}>Sign Tempo Tx</button>
+  return <button onClick={onSignTempo}>Sign Tempo Tx</button>;
+}
+```
+
+### Configure Tempo Preferred Fee Token
+
+Tempo fee token preference is configured by calling `setUserToken(address token)` on the
+Fee Manager predeploy (`0xfeec000000000000000000000000000000000000`).
+
+```tsx
+import { useTatchi } from '@tatchi-xyz/sdk/react';
+import { buildTempoSetUserTokenCall, TEMPO_FEE_MANAGER_CONTRACT } from '@tatchi-xyz/sdk';
+
+const ALPHA_USD_TOKEN = '0x20c0000000000000000000000000000000000001' as const;
+
+export function SetTempoFeeToken(props: { nearAccountId: string }) {
+  const { tatchi } = useTatchi();
+
+  async function onSetTempoFeeToken(): Promise<void> {
+    const setUserTokenCall = buildTempoSetUserTokenCall({
+      token: ALPHA_USD_TOKEN,
+      feeManager: TEMPO_FEE_MANAGER_CONTRACT,
+    });
+
+    const signed = await tatchi.tempo.signTempo({
+      nearAccountId: props.nearAccountId,
+      request: {
+        chain: 'tempo',
+        kind: 'tempoTransaction',
+        senderSignatureAlgorithm: 'secp256k1',
+        tx: {
+          chainId: 42431,
+          maxPriorityFeePerGas: 1n,
+          maxFeePerGas: 2n,
+          gasLimit: 1_000_000n,
+          calls: [setUserTokenCall],
+          accessList: [],
+          nonceKey: 0n,
+          validBefore: null,
+          validAfter: null,
+          feePayerSignature: { kind: 'none' },
+          aaAuthorizationList: [],
+        },
+      },
+    });
+
+    console.log('tempo setUserToken signed tx:', signed);
+  }
+
+  return <button onClick={onSetTempoFeeToken}>Set Tempo Fee Token</button>;
 }
 ```
 
 ## 6. Sign an EVM EIP-1559 Transaction (Threshold secp256k1)
 
+For standard flows, nonce reservation is handled by the signing engine. Manual nonce injection is advanced-only.
+This example uses Ethereum Sepolia to make the EVM family/network split explicit.
+
 ```tsx
-import { useTatchi } from '@tatchi-xyz/sdk/react'
+import { useTatchi } from '@tatchi-xyz/sdk/react';
 
-const ARC_TESTNET_GREETING_CONTRACT = '0xeB7aB5A6F761072C96147A54B8a15F012e836691'
-const SET_GREETING_SELECTOR = '0xa4136862'
-
-function utf8ToHex(value: string): string {
-  return Array.from(new TextEncoder().encode(value), (byte) =>
-    byte.toString(16).padStart(2, '0'),
-  ).join('')
-}
-
-function encodeSetGreetingInput(greeting: string): `0x${string}` {
-  const messageHex = utf8ToHex(greeting)
-  const bytesLength = messageHex.length / 2
-  const offsetHex = (32).toString(16).padStart(64, '0')
-  const lengthHex = bytesLength.toString(16).padStart(64, '0')
-  const paddedDataHex = messageHex.padEnd(Math.ceil(bytesLength / 32) * 64, '0')
-  return `0x${SET_GREETING_SELECTOR.slice(2)}${offsetHex}${lengthHex}${paddedDataHex}`
-}
+const ETHEREUM_SEPOLIA_RECIPIENT = '0x000000000000000000000000000000000000dEaD';
 
 export function SignEvm(props: { nearAccountId: string }) {
-  const { tatchi } = useTatchi()
+  const { tatchi } = useTatchi();
 
   async function onSignEvm(): Promise<void> {
-    const setGreetingData = encodeSetGreetingInput('hello from arc')
-
     const signed = await tatchi.tempo.signTempo({
       nearAccountId: props.nearAccountId,
       request: {
@@ -239,22 +274,21 @@ export function SignEvm(props: { nearAccountId: string }) {
         kind: 'eip1559',
         senderSignatureAlgorithm: 'secp256k1',
         tx: {
-          chainId: 5042002n,
-          nonce: 7n,
-          maxPriorityFeePerGas: 1_500_000_000n,
-          maxFeePerGas: 3_000_000_000n,
-          gasLimit: 200_000n,
-          to: ARC_TESTNET_GREETING_CONTRACT,
-          value: 0n,
-          data: setGreetingData,
+          chainId: 11155111,
+          maxPriorityFeePerGas: 2_000_000_000n,
+          maxFeePerGas: 25_000_000_000n,
+          gasLimit: 21_000n,
+          to: ETHEREUM_SEPOLIA_RECIPIENT,
+          value: 1n,
+          data: '0x',
           accessList: [],
         },
       },
-    })
-    console.log('evm signed tx:', signed)
+    });
+    console.log('evm signed tx:', signed);
   }
 
-  return <button onClick={onSignEvm}>Sign EVM Tx</button>
+  return <button onClick={onSignEvm}>Sign EVM Tx</button>;
 }
 ```
 

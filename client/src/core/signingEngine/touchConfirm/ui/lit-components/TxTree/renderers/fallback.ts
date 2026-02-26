@@ -18,7 +18,9 @@ export const renderFallbackDisplayOperation: RenderDisplayOperation = ({
   })();
   const description = String(operation.description || '').trim();
   const childOps = Array.isArray(operation.children)
-    ? operation.children.map((child, childIndex) => renderChild(child, depth + 1, `${path}.${childIndex}`))
+    ? operation.children.map((child, childIndex) =>
+        renderChild(child, depth + 1, `${path}.${childIndex}`),
+      )
     : [];
   const fieldNodes = buildFieldNodes(opId, operation.fields);
   const metadataNodes: RenderTreeNode[] = description

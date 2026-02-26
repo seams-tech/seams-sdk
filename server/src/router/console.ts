@@ -67,7 +67,11 @@ export type ConsoleAuthResult =
 function normalizeRoles(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
-    .map((item) => String(item || '').trim().toLowerCase())
+    .map((item) =>
+      String(item || '')
+        .trim()
+        .toLowerCase(),
+    )
     .filter(Boolean);
 }
 
@@ -106,7 +110,9 @@ export async function authenticateConsoleRequest(
 }
 
 export function hasConsoleRole(claims: ConsoleAuthClaims, role: ConsoleRole | string): boolean {
-  const normalizedRole = String(role || '').trim().toLowerCase();
+  const normalizedRole = String(role || '')
+    .trim()
+    .toLowerCase();
   if (!normalizedRole) return false;
   return normalizeRoles(claims.roles).includes(normalizedRole);
 }

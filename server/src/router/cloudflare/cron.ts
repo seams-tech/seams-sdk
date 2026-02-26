@@ -15,9 +15,10 @@ type BillingMonthlyFinalizationRunner = (
   options: PostgresConsoleBillingMonthlyFinalizationOptions,
 ) => Promise<PostgresConsoleBillingMonthlyFinalizationResult>;
 
-type BillingMonthlyFinalizationLockProvider = (
-  input: { postgresUrl: string; lockId: number },
-) => Promise<{ acquired: boolean; release: () => Promise<void> }>;
+type BillingMonthlyFinalizationLockProvider = (input: {
+  postgresUrl: string;
+  lockId: number;
+}) => Promise<{ acquired: boolean; release: () => Promise<void> }>;
 
 export interface CloudflareBillingMonthlyFinalizationCronOptions {
   /**
@@ -106,7 +107,10 @@ async function defaultBillingLockProvider(input: {
   };
 }
 
-export function createCloudflareCron(_service: AuthService, opts: CloudflareCronOptions = {}): ScheduledHandler {
+export function createCloudflareCron(
+  _service: AuthService,
+  opts: CloudflareCronOptions = {},
+): ScheduledHandler {
   const enabled = opts.enabled !== false;
   const rotate = Boolean(opts.rotate);
   const verbose = Boolean(opts.verbose);
@@ -139,7 +143,9 @@ export function createCloudflareCron(_service: AuthService, opts: CloudflareCron
         const runner = billingFinalization?.runner || runPostgresConsoleBillingMonthlyFinalization;
         const lock = await lockProvider({ postgresUrl, lockId });
         if (!lock.acquired) {
-          logger.info('[cron][billing-finalization] skipped: advisory lock not acquired', { lockId });
+          logger.info('[cron][billing-finalization] skipped: advisory lock not acquired', {
+            lockId,
+          });
         } else {
           try {
             const result = await runner({

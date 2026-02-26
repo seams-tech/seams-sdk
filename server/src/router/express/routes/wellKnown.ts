@@ -12,16 +12,19 @@ export function registerWellKnownRoutes(router: ExpressRouter, ctx: ExpressRelay
         const headers = req.headers || {};
         const forwardedHostHeader = headers['x-forwarded-host'];
         const hostHeader = headers.host;
-        const forwardedHostRaw = String(Array.isArray(forwardedHostHeader) ? forwardedHostHeader[0] : forwardedHostHeader || '').trim();
+        const forwardedHostRaw = String(
+          Array.isArray(forwardedHostHeader) ? forwardedHostHeader[0] : forwardedHostHeader || '',
+        ).trim();
         const hostFromForwarded = forwardedHostRaw ? forwardedHostRaw.split(',')[0].trim() : '';
         const hostRaw = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
         const host = normalizeRorHost(hostFromForwarded || hostRaw || '');
         const rpId = resolveRorRpId({ ror: ctx.opts.ror, host: host || undefined });
-        const origins = (
+        const origins =
           rpId && ctx.opts.ror
-            ? sanitizeRorOrigins(await ctx.opts.ror.provider.getAllowedOrigins({ rpId, ...(host ? { host } : {}) }))
-            : []
-        );
+            ? sanitizeRorOrigins(
+                await ctx.opts.ror.provider.getAllowedOrigins({ rpId, ...(host ? { host } : {}) }),
+              )
+            : [];
         res.set('Content-Type', 'application/json; charset=utf-8');
         // Short TTL + SWR so updates propagate while staying cache-friendly
         res.set('Cache-Control', 'max-age=60, stale-while-revalidate=600');

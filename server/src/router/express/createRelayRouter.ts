@@ -36,7 +36,10 @@ export interface ExpressRelayContext {
   signedDelegatePolicy?: DelegateActionPolicy;
 }
 
-export function createRelayRouter(service: AuthService, opts: RelayRouterOptions = {}): ExpressRouter {
+export function createRelayRouter(
+  service: AuthService,
+  opts: RelayRouterOptions = {},
+): ExpressRouter {
   const router = express.Router();
 
   const threshold = resolveThresholdOption(service, opts);
@@ -50,7 +53,8 @@ export function createRelayRouter(service: AuthService, opts: RelayRouterOptions
   const logger = coerceRouterLogger(effectiveOpts.logger);
   let signedDelegatePath = '';
   if (effectiveOpts.signedDelegate) {
-    signedDelegatePath = ensureLeadingSlash(effectiveOpts.signedDelegate.route) || '/signed-delegate';
+    signedDelegatePath =
+      ensureLeadingSlash(effectiveOpts.signedDelegate.route) || '/signed-delegate';
   }
   const signedDelegatePolicy = effectiveOpts.signedDelegate?.policy;
 

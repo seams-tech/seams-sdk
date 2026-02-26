@@ -1,15 +1,7 @@
-import {
-  canTransitionPaymentState,
-  type PaymentState,
-} from './paymentStateMachine';
+import { canTransitionPaymentState, type PaymentState } from './paymentStateMachine';
 import { ConsoleBillingError } from './errors';
-import {
-  getChainFinalityPolicy,
-} from './stablecoinAssets';
-import {
-  resolveBillingProviderAdapters,
-  type BillingProviderAdapters,
-} from './providers';
+import { getChainFinalityPolicy } from './stablecoinAssets';
+import { resolveBillingProviderAdapters, type BillingProviderAdapters } from './providers';
 import type {
   AddCardPaymentMethodRequest,
   BillingInvoice,
@@ -46,23 +38,47 @@ export interface ConsoleBillingContext {
 
 export interface ConsoleBillingService {
   getOverview(ctx: ConsoleBillingContext): Promise<BillingOverview>;
-  getMonthlyActiveWallets(ctx: ConsoleBillingContext, monthUtc?: string): Promise<BillingMonthlyActiveWallets>;
-  recordUsageEvent(ctx: ConsoleBillingContext, request: BillingUsageEventRequest): Promise<BillingUsageEventResult>;
+  getMonthlyActiveWallets(
+    ctx: ConsoleBillingContext,
+    monthUtc?: string,
+  ): Promise<BillingMonthlyActiveWallets>;
+  recordUsageEvent(
+    ctx: ConsoleBillingContext,
+    request: BillingUsageEventRequest,
+  ): Promise<BillingUsageEventResult>;
   listInvoices(ctx: ConsoleBillingContext): Promise<BillingInvoice[]>;
   getInvoice(ctx: ConsoleBillingContext, invoiceId: string): Promise<BillingInvoice | null>;
-  listInvoiceLineItems(ctx: ConsoleBillingContext, invoiceId: string): Promise<BillingInvoiceLineItem[]>;
+  listInvoiceLineItems(
+    ctx: ConsoleBillingContext,
+    invoiceId: string,
+  ): Promise<BillingInvoiceLineItem[]>;
   generateMonthlyInvoice(
     ctx: ConsoleBillingContext,
     request: GenerateMonthlyInvoiceRequest,
   ): Promise<GenerateMonthlyInvoiceResult>;
 
   listPaymentMethods(ctx: ConsoleBillingContext): Promise<BillingPaymentMethod[]>;
-  addCardPaymentMethod(ctx: ConsoleBillingContext, request: AddCardPaymentMethodRequest): Promise<BillingPaymentMethod>;
-  removeCardPaymentMethod(ctx: ConsoleBillingContext, paymentMethodId: string): Promise<{ removed: boolean }>;
-  setDefaultCardPaymentMethod(ctx: ConsoleBillingContext, paymentMethodId: string): Promise<BillingPaymentMethod | null>;
+  addCardPaymentMethod(
+    ctx: ConsoleBillingContext,
+    request: AddCardPaymentMethodRequest,
+  ): Promise<BillingPaymentMethod>;
+  removeCardPaymentMethod(
+    ctx: ConsoleBillingContext,
+    paymentMethodId: string,
+  ): Promise<{ removed: boolean }>;
+  setDefaultCardPaymentMethod(
+    ctx: ConsoleBillingContext,
+    paymentMethodId: string,
+  ): Promise<BillingPaymentMethod | null>;
 
-  createStripeSetupIntent(ctx: ConsoleBillingContext, request: StripeSetupIntentRequest): Promise<StripeSetupIntent>;
-  createStripePaymentIntent(ctx: ConsoleBillingContext, request: StripePaymentIntentRequest): Promise<StripePaymentIntent>;
+  createStripeSetupIntent(
+    ctx: ConsoleBillingContext,
+    request: StripeSetupIntentRequest,
+  ): Promise<StripeSetupIntent>;
+  createStripePaymentIntent(
+    ctx: ConsoleBillingContext,
+    request: StripePaymentIntentRequest,
+  ): Promise<StripePaymentIntent>;
   reconcileStripePaymentIntent(
     ctx: ConsoleBillingContext,
     paymentIntentId: string,
@@ -70,13 +86,22 @@ export interface ConsoleBillingService {
   ): Promise<StripePaymentIntent | null>;
   processStripeWebhookEvent(request: StripeWebhookEventRequest): Promise<StripeWebhookEventResult>;
 
-  createStablecoinQuote(ctx: ConsoleBillingContext, request: StablecoinQuoteRequest): Promise<StablecoinPaymentQuote>;
+  createStablecoinQuote(
+    ctx: ConsoleBillingContext,
+    request: StablecoinQuoteRequest,
+  ): Promise<StablecoinPaymentQuote>;
   createStablecoinPaymentIntent(
     ctx: ConsoleBillingContext,
     request: StablecoinPaymentIntentRequest,
   ): Promise<StablecoinPaymentIntent>;
-  getStablecoinPaymentIntent(ctx: ConsoleBillingContext, paymentIntentId: string): Promise<StablecoinPaymentIntent | null>;
-  cancelStablecoinPaymentIntent(ctx: ConsoleBillingContext, paymentIntentId: string): Promise<StablecoinPaymentIntent | null>;
+  getStablecoinPaymentIntent(
+    ctx: ConsoleBillingContext,
+    paymentIntentId: string,
+  ): Promise<StablecoinPaymentIntent | null>;
+  cancelStablecoinPaymentIntent(
+    ctx: ConsoleBillingContext,
+    paymentIntentId: string,
+  ): Promise<StablecoinPaymentIntent | null>;
   reconcileStablecoinPaymentIntent(
     ctx: ConsoleBillingContext,
     paymentIntentId: string,
@@ -96,14 +121,17 @@ interface OrgBillingStore {
   stripeWebhookEventIds: Set<string>;
   stablecoinQuotes: Map<string, StablecoinPaymentQuote>;
   stablecoinPaymentIntents: Map<string, StablecoinPaymentIntent>;
-  paymentStateTransitions: Map<string, Array<{
-    fromState: PaymentState | null;
-    toState: PaymentState;
-    changedAt: string;
-    actorType: 'USER' | 'SYSTEM' | 'PROVIDER';
-    actorUserId: string | null;
-    reason: string | null;
-  }>>;
+  paymentStateTransitions: Map<
+    string,
+    Array<{
+      fromState: PaymentState | null;
+      toState: PaymentState;
+      changedAt: string;
+      actorType: 'USER' | 'SYSTEM' | 'PROVIDER';
+      actorUserId: string | null;
+      reason: string | null;
+    }>
+  >;
   usageEventSourceIds: Set<string>;
   monthlyActiveWalletsByMonth: Map<string, Set<string>>;
 }
@@ -152,7 +180,11 @@ function parseMonthUtcOrThrow(input: string): string {
   }
   const month = Number(value.slice(5, 7));
   if (month < 1 || month > 12) {
-    throw new ConsoleBillingError('invalid_month_utc', 400, 'monthUtc month must be between 01 and 12');
+    throw new ConsoleBillingError(
+      'invalid_month_utc',
+      400,
+      'monthUtc month must be between 01 and 12',
+    );
   }
   return value;
 }
@@ -182,22 +214,20 @@ function makeMonthlyInvoice(orgId: string, monthUtc: string, now: Date): Billing
     railLock: null,
     periodMonthUtc: monthUtc,
     createdAt: coerceIsoDate(now),
-    dueAt: coerceIsoDate(new Date(now.getTime() + (14 * 24 * 60 * 60 * 1000))),
+    dueAt: coerceIsoDate(new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000)),
   };
 }
 
-function makeInvoiceLineItem(
-  input: {
-    orgId: string;
-    invoiceId: string;
-    periodMonthUtc: string;
-    itemType: BillingInvoiceLineItemType;
-    description: string;
-    quantity: number;
-    unitAmountMinor: number;
-    createdAt: string;
-  },
-): BillingInvoiceLineItem {
+function makeInvoiceLineItem(input: {
+  orgId: string;
+  invoiceId: string;
+  periodMonthUtc: string;
+  itemType: BillingInvoiceLineItemType;
+  description: string;
+  quantity: number;
+  unitAmountMinor: number;
+  createdAt: string;
+}): BillingInvoiceLineItem {
   return {
     id: `ili_${input.invoiceId}_${input.itemType.toLowerCase()}`,
     orgId: input.orgId,
@@ -212,15 +242,13 @@ function makeInvoiceLineItem(
   };
 }
 
-function buildInvoiceLineItems(
-  input: {
-    orgId: string;
-    invoiceId: string;
-    periodMonthUtc: string;
-    monthlyActiveWallets: number;
-    createdAt: string;
-  },
-): BillingInvoiceLineItem[] {
+function buildInvoiceLineItems(input: {
+  orgId: string;
+  invoiceId: string;
+  periodMonthUtc: string;
+  monthlyActiveWallets: number;
+  createdAt: string;
+}): BillingInvoiceLineItem[] {
   return [
     makeInvoiceLineItem({
       orgId: input.orgId,
@@ -274,7 +302,12 @@ function outstandingAmountMinor(invoice: BillingInvoice): number {
 }
 
 function hasAdminRole(roles: string[]): boolean {
-  return roles.some((role) => String(role || '').trim().toLowerCase() === 'admin');
+  return roles.some(
+    (role) =>
+      String(role || '')
+        .trim()
+        .toLowerCase() === 'admin',
+  );
 }
 
 function requireAdminForCardActions(ctx: ConsoleBillingContext): void {
@@ -301,13 +334,10 @@ function computeStablecoinReorgRiskWindowEndsAt(
   if (!settledAt) return null;
   const settledAtMs = Date.parse(settledAt);
   if (!Number.isFinite(settledAtMs)) return null;
-  return coerceIsoDate(new Date(settledAtMs + (reorgRiskWindowHours * 60 * 60 * 1000)));
+  return coerceIsoDate(new Date(settledAtMs + reorgRiskWindowHours * 60 * 60 * 1000));
 }
 
-function refreshStablecoinRiskWindowState(
-  intent: StablecoinPaymentIntent,
-  now: Date,
-): void {
+function refreshStablecoinRiskWindowState(intent: StablecoinPaymentIntent, now: Date): void {
   intent.reorgRiskWindowEndsAt = computeStablecoinReorgRiskWindowEndsAt(
     intent.settledAt,
     intent.reorgRiskWindowHours,
@@ -317,7 +347,8 @@ function refreshStablecoinRiskWindowState(
     return;
   }
   const riskWindowEndsAtMs = Date.parse(intent.reorgRiskWindowEndsAt);
-  intent.withinReorgRiskWindow = Number.isFinite(riskWindowEndsAtMs) && now.getTime() < riskWindowEndsAtMs;
+  intent.withinReorgRiskWindow =
+    Number.isFinite(riskWindowEndsAtMs) && now.getTime() < riskWindowEndsAtMs;
 }
 
 function decideStablecoinReconcileTransition(input: {
@@ -395,7 +426,9 @@ export function createInMemoryConsoleBillingService(
 
   function ensureCurrentPeriodInvoice(store: OrgBillingStore, orgId: string, now: Date): void {
     const periodMonthUtc = formatCurrentMonthUtc(now);
-    const exists = Array.from(store.invoices.values()).some((invoice) => invoice.periodMonthUtc === periodMonthUtc);
+    const exists = Array.from(store.invoices.values()).some(
+      (invoice) => invoice.periodMonthUtc === periodMonthUtc,
+    );
     if (exists) return;
     const invoice = makeMonthlyInvoice(orgId, periodMonthUtc, now);
     store.invoices.set(invoice.id, invoice);
@@ -445,7 +478,11 @@ export function createInMemoryConsoleBillingService(
       throw new ConsoleBillingError('invoice_not_open', 409, `Invoice ${invoice.id} is not open`);
     }
     if (outstandingAmountMinor(invoice) <= 0) {
-      throw new ConsoleBillingError('invoice_already_paid', 409, `Invoice ${invoice.id} is already fully paid`);
+      throw new ConsoleBillingError(
+        'invoice_already_paid',
+        409,
+        `Invoice ${invoice.id} is already fully paid`,
+      );
     }
   }
 
@@ -510,8 +547,13 @@ export function createInMemoryConsoleBillingService(
       const store = ensureOrgStore(ctx.orgId);
       const currentMonthUtc = formatCurrentMonthUtc(now);
       store.monthlyActiveWallets = getMonthlyActiveWalletCount(store, currentMonthUtc);
-      const openInvoices = Array.from(store.invoices.values()).filter((inv) => inv.status === 'OPEN');
-      const upcomingChargeEstimateMinor = openInvoices.reduce((acc, inv) => acc + outstandingAmountMinor(inv), 0);
+      const openInvoices = Array.from(store.invoices.values()).filter(
+        (inv) => inv.status === 'OPEN',
+      );
+      const upcomingChargeEstimateMinor = openInvoices.reduce(
+        (acc, inv) => acc + outstandingAmountMinor(inv),
+        0,
+      );
 
       return {
         planId: store.planId,
@@ -566,12 +608,11 @@ export function createInMemoryConsoleBillingService(
         throw new ConsoleBillingError('invalid_usage_event', 400, 'Invalid occurredAt value');
       }
       const monthUtc = monthUtcFromEpochMs(occurredAtMs);
-      const counted = (
-        BILLABLE_USAGE_ACTIONS.has(request.action)
-        && request.succeeded
-        && !request.isSimulation
-        && !request.isInternalRetry
-      );
+      const counted =
+        BILLABLE_USAGE_ACTIONS.has(request.action) &&
+        request.succeeded &&
+        !request.isSimulation &&
+        !request.isInternalRetry;
       if (request.sourceEventId) {
         store.usageEventSourceIds.add(request.sourceEventId);
       }
@@ -593,15 +634,23 @@ export function createInMemoryConsoleBillingService(
 
     async listInvoices(ctx: ConsoleBillingContext): Promise<BillingInvoice[]> {
       const store = ensureOrgStore(ctx.orgId);
-      return Array.from(store.invoices.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      return Array.from(store.invoices.values()).sort((a, b) =>
+        b.createdAt.localeCompare(a.createdAt),
+      );
     },
 
-    async getInvoice(ctx: ConsoleBillingContext, invoiceId: string): Promise<BillingInvoice | null> {
+    async getInvoice(
+      ctx: ConsoleBillingContext,
+      invoiceId: string,
+    ): Promise<BillingInvoice | null> {
       const store = ensureOrgStore(ctx.orgId);
       return store.invoices.get(invoiceId) || null;
     },
 
-    async listInvoiceLineItems(ctx: ConsoleBillingContext, invoiceId: string): Promise<BillingInvoiceLineItem[]> {
+    async listInvoiceLineItems(
+      ctx: ConsoleBillingContext,
+      invoiceId: string,
+    ): Promise<BillingInvoiceLineItem[]> {
       const store = ensureOrgStore(ctx.orgId);
       const invoice = store.invoices.get(invoiceId);
       if (!invoice) return [];
@@ -618,7 +667,10 @@ export function createInMemoryConsoleBillingService(
       const periodMonthUtc = parseMonthUtcOrThrow(request.periodMonthUtc);
       const monthlyActiveWallets = getMonthlyActiveWalletCount(store, periodMonthUtc);
 
-      let invoice = Array.from(store.invoices.values()).find((item) => item.periodMonthUtc === periodMonthUtc) || null;
+      let invoice =
+        Array.from(store.invoices.values()).find(
+          (item) => item.periodMonthUtc === periodMonthUtc,
+        ) || null;
       const created = !invoice;
       if (!invoice) {
         invoice = makeMonthlyInvoice(ctx.orgId, periodMonthUtc, now);
@@ -641,11 +693,10 @@ export function createInMemoryConsoleBillingService(
       const previousLineItems = store.invoiceLineItems.get(invoice.id) || [];
       const nextAmountDueMinor = sumLineItemAmounts(nextLineItems);
 
-      const unchanged = (
-        !created
-        && invoice.amountDueMinor === nextAmountDueMinor
-        && lineItemsEquivalent(previousLineItems, nextLineItems)
-      );
+      const unchanged =
+        !created &&
+        invoice.amountDueMinor === nextAmountDueMinor &&
+        lineItemsEquivalent(previousLineItems, nextLineItems);
 
       invoice.amountDueMinor = nextAmountDueMinor;
       invoice.status = invoice.amountPaidMinor >= invoice.amountDueMinor ? 'PAID' : 'OPEN';
@@ -666,7 +717,9 @@ export function createInMemoryConsoleBillingService(
 
     async listPaymentMethods(ctx: ConsoleBillingContext): Promise<BillingPaymentMethod[]> {
       const store = ensureOrgStore(ctx.orgId);
-      return Array.from(store.paymentMethods.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      return Array.from(store.paymentMethods.values()).sort((a, b) =>
+        b.createdAt.localeCompare(a.createdAt),
+      );
     },
 
     async addCardPaymentMethod(
@@ -676,7 +729,9 @@ export function createInMemoryConsoleBillingService(
       requireAdminForCardActions(ctx);
       const now = nowFn();
       const store = ensureOrgStore(ctx.orgId);
-      const isDefault = Array.from(store.paymentMethods.values()).every((method) => !method.isDefault);
+      const isDefault = Array.from(store.paymentMethods.values()).every(
+        (method) => !method.isDefault,
+      );
       const paymentMethod: BillingPaymentMethod = {
         id: makeId('pm', now),
         orgId: ctx.orgId,
@@ -694,7 +749,10 @@ export function createInMemoryConsoleBillingService(
       return paymentMethod;
     },
 
-    async removeCardPaymentMethod(ctx: ConsoleBillingContext, paymentMethodId: string): Promise<{ removed: boolean }> {
+    async removeCardPaymentMethod(
+      ctx: ConsoleBillingContext,
+      paymentMethodId: string,
+    ): Promise<{ removed: boolean }> {
       requireAdminForCardActions(ctx);
       const store = ensureOrgStore(ctx.orgId);
       const current = store.paymentMethods.get(paymentMethodId);
@@ -712,7 +770,10 @@ export function createInMemoryConsoleBillingService(
       return { removed: true };
     },
 
-    async setDefaultCardPaymentMethod(ctx: ConsoleBillingContext, paymentMethodId: string): Promise<BillingPaymentMethod | null> {
+    async setDefaultCardPaymentMethod(
+      ctx: ConsoleBillingContext,
+      paymentMethodId: string,
+    ): Promise<BillingPaymentMethod | null> {
       requireAdminForCardActions(ctx);
       const store = ensureOrgStore(ctx.orgId);
       const target = store.paymentMethods.get(paymentMethodId);
@@ -742,7 +803,11 @@ export function createInMemoryConsoleBillingService(
       const customerRef = String(providerSetupIntent.customerRef || '').trim();
       const expiresAt = String(providerSetupIntent.expiresAt || '').trim();
       if (!id || !clientSecret || !customerRef || !expiresAt) {
-        throw new ConsoleBillingError('payment_provider_error', 500, 'Stripe setup-intent provider returned invalid payload');
+        throw new ConsoleBillingError(
+          'payment_provider_error',
+          500,
+          'Stripe setup-intent provider returned invalid payload',
+        );
       }
       return {
         id,
@@ -760,13 +825,18 @@ export function createInMemoryConsoleBillingService(
       const store = ensureOrgStore(ctx.orgId);
       const invoice = store.invoices.get(request.invoiceId);
       if (!invoice) {
-        throw new ConsoleBillingError('invoice_not_found', 404, `Invoice ${request.invoiceId} was not found`);
+        throw new ConsoleBillingError(
+          'invoice_not_found',
+          404,
+          `Invoice ${request.invoiceId} was not found`,
+        );
       }
 
       ensureInvoiceOpen(invoice);
       lockInvoiceRail(invoice, 'CARD');
-      const activeIntent = Array.from(store.stripePaymentIntents.values())
-        .find((intent) => intent.invoiceId === invoice.id && isActivePaymentState(intent.state));
+      const activeIntent = Array.from(store.stripePaymentIntents.values()).find(
+        (intent) => intent.invoiceId === invoice.id && isActivePaymentState(intent.state),
+      );
       if (activeIntent) {
         throw new ConsoleBillingError(
           'active_payment_intent_exists',
@@ -777,11 +847,14 @@ export function createInMemoryConsoleBillingService(
 
       const paymentMethod = request.paymentMethodId
         ? store.paymentMethods.get(request.paymentMethodId)
-        : Array.from(store.paymentMethods.values()).find((method) => method.isDefault)
-          || null;
+        : Array.from(store.paymentMethods.values()).find((method) => method.isDefault) || null;
 
       if (request.paymentMethodId && !paymentMethod) {
-        throw new ConsoleBillingError('payment_method_not_found', 404, `Payment method ${request.paymentMethodId} was not found`);
+        throw new ConsoleBillingError(
+          'payment_method_not_found',
+          404,
+          `Payment method ${request.paymentMethodId} was not found`,
+        );
       }
 
       const id = makeId('pi', now);
@@ -797,7 +870,11 @@ export function createInMemoryConsoleBillingService(
       const providerRef = String(providerPaymentIntent.providerRef || '').trim();
       const clientSecret = String(providerPaymentIntent.clientSecret || '').trim();
       if (!providerRef || !clientSecret) {
-        throw new ConsoleBillingError('payment_provider_error', 500, 'Stripe payment-intent provider returned invalid payload');
+        throw new ConsoleBillingError(
+          'payment_provider_error',
+          500,
+          'Stripe payment-intent provider returned invalid payload',
+        );
       }
       const intent: StripePaymentIntent = {
         id,
@@ -836,7 +913,11 @@ export function createInMemoryConsoleBillingService(
 
       const settledAmountMinor = request.settledAmountMinor ?? intent.amountMinor;
       if (settledAmountMinor < 0) {
-        throw new ConsoleBillingError('invalid_reconciliation_request', 400, 'settledAmountMinor must be >= 0');
+        throw new ConsoleBillingError(
+          'invalid_reconciliation_request',
+          400,
+          'settledAmountMinor must be >= 0',
+        );
       }
 
       const decision = decideStripeReconcileTransition({
@@ -848,10 +929,7 @@ export function createInMemoryConsoleBillingService(
       if (!decision.targetState) return intent;
 
       let effectiveFromState = intent.state;
-      if (
-        effectiveFromState === 'CREATED'
-        && SETTLEMENT_OUTCOME_STATES.has(decision.targetState)
-      ) {
+      if (effectiveFromState === 'CREATED' && SETTLEMENT_OUTCOME_STATES.has(decision.targetState)) {
         const toPending = canTransitionPaymentState({
           from: effectiveFromState,
           to: 'PENDING',
@@ -920,8 +998,9 @@ export function createInMemoryConsoleBillingService(
       let matchedIntent: StripePaymentIntent | null = null;
 
       for (const [orgId, store] of Array.from(orgStores.entries())) {
-        const candidate = Array.from(store.stripePaymentIntents.values())
-          .find((intent) => intent.providerRef === request.providerRef);
+        const candidate = Array.from(store.stripePaymentIntents.values()).find(
+          (intent) => intent.providerRef === request.providerRef,
+        );
         if (!candidate) continue;
         if (matchedIntent) {
           throw new ConsoleBillingError(
@@ -980,7 +1059,11 @@ export function createInMemoryConsoleBillingService(
       const store = ensureOrgStore(ctx.orgId);
       const invoice = store.invoices.get(request.invoiceId);
       if (!invoice) {
-        throw new ConsoleBillingError('invoice_not_found', 404, `Invoice ${request.invoiceId} was not found`);
+        throw new ConsoleBillingError(
+          'invoice_not_found',
+          404,
+          `Invoice ${request.invoiceId} was not found`,
+        );
       }
       ensureInvoiceOpen(invoice);
 
@@ -992,7 +1075,7 @@ export function createInMemoryConsoleBillingService(
         chain: request.chain,
         amountMinor: outstandingAmountMinor(invoice),
         createdAt: coerceIsoDate(now),
-        expiresAt: coerceIsoDate(new Date(now.getTime() + (15 * 60 * 1000))),
+        expiresAt: coerceIsoDate(new Date(now.getTime() + 15 * 60 * 1000)),
         state: 'OPEN',
       };
       store.stablecoinQuotes.set(quote.id, quote);
@@ -1007,16 +1090,28 @@ export function createInMemoryConsoleBillingService(
       const store = ensureOrgStore(ctx.orgId);
       const invoice = store.invoices.get(request.invoiceId);
       if (!invoice) {
-        throw new ConsoleBillingError('invoice_not_found', 404, `Invoice ${request.invoiceId} was not found`);
+        throw new ConsoleBillingError(
+          'invoice_not_found',
+          404,
+          `Invoice ${request.invoiceId} was not found`,
+        );
       }
       ensureInvoiceOpen(invoice);
 
       const quote = store.stablecoinQuotes.get(request.quoteId);
       if (!quote || quote.orgId !== ctx.orgId) {
-        throw new ConsoleBillingError('quote_not_found', 404, `Stablecoin quote ${request.quoteId} was not found`);
+        throw new ConsoleBillingError(
+          'quote_not_found',
+          404,
+          `Stablecoin quote ${request.quoteId} was not found`,
+        );
       }
       if (quote.invoiceId !== invoice.id) {
-        throw new ConsoleBillingError('quote_invoice_mismatch', 409, 'Quote does not belong to the specified invoice');
+        throw new ConsoleBillingError(
+          'quote_invoice_mismatch',
+          409,
+          'Quote does not belong to the specified invoice',
+        );
       }
 
       for (const existingIntent of Array.from(store.stablecoinPaymentIntents.values())) {
@@ -1025,8 +1120,9 @@ export function createInMemoryConsoleBillingService(
         refreshStablecoinRiskWindowState(existingIntent, now);
         store.stablecoinPaymentIntents.set(existingIntent.id, existingIntent);
       }
-      const activeIntent = Array.from(store.stablecoinPaymentIntents.values())
-        .find((intent) => intent.invoiceId === invoice.id && isActivePaymentState(intent.state));
+      const activeIntent = Array.from(store.stablecoinPaymentIntents.values()).find(
+        (intent) => intent.invoiceId === invoice.id && isActivePaymentState(intent.state),
+      );
       if (activeIntent) {
         throw new ConsoleBillingError(
           'active_payment_intent_exists',
@@ -1034,8 +1130,9 @@ export function createInMemoryConsoleBillingService(
           `Invoice ${invoice.id} already has an active stablecoin payment intent (${activeIntent.id})`,
         );
       }
-      const consumedIntent = Array.from(store.stablecoinPaymentIntents.values())
-        .find((intent) => intent.quoteId === quote.id);
+      const consumedIntent = Array.from(store.stablecoinPaymentIntents.values()).find(
+        (intent) => intent.quoteId === quote.id,
+      );
       if (consumedIntent) {
         throw new ConsoleBillingError(
           'quote_already_consumed',
@@ -1048,7 +1145,11 @@ export function createInMemoryConsoleBillingService(
       if (!Number.isFinite(quoteExpires) || now.getTime() > quoteExpires) {
         quote.state = 'EXPIRED';
         store.stablecoinQuotes.set(quote.id, quote);
-        throw new ConsoleBillingError('quote_expired', 409, `Stablecoin quote ${quote.id} has expired`);
+        throw new ConsoleBillingError(
+          'quote_expired',
+          409,
+          `Stablecoin quote ${quote.id} has expired`,
+        );
       }
       const outstandingMinor = outstandingAmountMinor(invoice);
       if (quote.amountMinor !== outstandingMinor) {
@@ -1067,7 +1168,11 @@ export function createInMemoryConsoleBillingService(
 
       const policy = getChainFinalityPolicy(quote.chain);
       if (!policy) {
-        throw new ConsoleBillingError('unsupported_chain', 400, `Unsupported stablecoin settlement chain: ${quote.chain}`);
+        throw new ConsoleBillingError(
+          'unsupported_chain',
+          400,
+          `Unsupported stablecoin settlement chain: ${quote.chain}`,
+        );
       }
 
       const intent: StablecoinPaymentIntent = {
@@ -1098,7 +1203,11 @@ export function createInMemoryConsoleBillingService(
       });
       intent.destinationAddress = String(destination.destinationAddress || '').trim();
       if (!intent.destinationAddress) {
-        throw new ConsoleBillingError('payment_provider_error', 500, 'Stablecoin destination provider returned invalid payload');
+        throw new ConsoleBillingError(
+          'payment_provider_error',
+          500,
+          'Stablecoin destination provider returned invalid payload',
+        );
       }
 
       store.stablecoinPaymentIntents.set(intent.id, intent);
@@ -1176,7 +1285,11 @@ export function createInMemoryConsoleBillingService(
       request: StablecoinPaymentIntentReconcileRequest,
     ): Promise<StablecoinPaymentIntent | null> {
       if (request.observedAmountMinor < 0 || request.observedConfirmations < 0) {
-        throw new ConsoleBillingError('invalid_reconciliation_request', 400, 'Observed amount and confirmations must be non-negative');
+        throw new ConsoleBillingError(
+          'invalid_reconciliation_request',
+          400,
+          'Observed amount and confirmations must be non-negative',
+        );
       }
       const store = ensureOrgStore(ctx.orgId);
       const intent = store.stablecoinPaymentIntents.get(paymentIntentId);
@@ -1202,8 +1315,8 @@ export function createInMemoryConsoleBillingService(
       if (!decision.targetState) return intent;
 
       if (
-        SETTLEMENT_OUTCOME_STATES.has(decision.targetState)
-        && request.observedConfirmations < intent.requiredConfirmations
+        SETTLEMENT_OUTCOME_STATES.has(decision.targetState) &&
+        request.observedConfirmations < intent.requiredConfirmations
       ) {
         throw new ConsoleBillingError(
           'invalid_payment_state',

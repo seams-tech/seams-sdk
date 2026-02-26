@@ -1,4 +1,7 @@
-import type { TxDisplayField, TxDisplayOperation } from '@/core/signingEngine/touchConfirm/shared/displayModel';
+import type {
+  TxDisplayField,
+  TxDisplayOperation,
+} from '@/core/signingEngine/touchConfirm/shared/displayModel';
 
 export type RenderTreeNodeType = 'folder' | 'file';
 
@@ -43,23 +46,27 @@ export function buildFieldNodes(parentId: string, fields?: TxDisplayField[]): Re
     const renderAs = field.renderAs || 'inline';
     if (isZeroWeiDisplayField(label, value)) return [];
     if (renderAs === 'file-content') {
-      return [{
+      return [
+        {
+          id: `${parentId}-field-${fieldIndex}`,
+          label: label ? `${label}:` : '',
+          type: 'file',
+          open: false,
+          content: value,
+          copyValue: typeof field.copyValue === 'string' ? field.copyValue : undefined,
+          hideLabel: Boolean(field.hideLabel),
+          hideChevron: typeof field.hideChevron === 'boolean' ? field.hideChevron : true,
+        },
+      ];
+    }
+    return [
+      {
         id: `${parentId}-field-${fieldIndex}`,
-        label: label ? `${label}:` : '',
+        label: label ? `${label}: ${value}` : value,
         type: 'file',
         open: false,
-        content: value,
         copyValue: typeof field.copyValue === 'string' ? field.copyValue : undefined,
-        hideLabel: Boolean(field.hideLabel),
-        hideChevron: typeof field.hideChevron === 'boolean' ? field.hideChevron : true,
-      }];
-    }
-    return [{
-      id: `${parentId}-field-${fieldIndex}`,
-      label: label ? `${label}: ${value}` : value,
-      type: 'file',
-      open: false,
-      copyValue: typeof field.copyValue === 'string' ? field.copyValue : undefined,
-    }];
+      },
+    ];
   });
 }

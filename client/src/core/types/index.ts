@@ -16,18 +16,18 @@ export type StripFree<T> = T extends object
   : T;
 
 // Export all types
-export * from './actions'
-export * from './rpc'
-export * from './signer-worker'
-export * from './secure-confirm'
-export * from './secure-confirm-worker'
-export * from './webauthn'
-export * from './linkDevice'
-export * from './emailRecovery'
-export * from './errors'
-export * from './accountIds'
-export * from './sdkSentEvents'
-export * from './tatchi'
-export * from './delegate'
+export * from './actions';
+export * from './rpc';
+export * from './signer-worker';
+export * from './secure-confirm';
+export * from './secure-confirm-worker';
+export * from './webauthn';
+export * from './linkDevice';
+export * from './emailRecovery';
+export * from './errors';
+export * from './accountIds';
+export * from './sdkSentEvents';
+export * from './tatchi';
+export * from './delegate';
 
 export type { ClientUserData } from '../indexedDB/passkeyClientDB.types';

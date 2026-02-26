@@ -15,10 +15,7 @@ export type WorkerOperationContext = {
   }) => Promise<SignerWorkerOperationResult<K, T>>;
 };
 
-type WorkerOperationArgs<
-  K extends SignerWorkerKind,
-  T extends SignerWorkerOperationType<K>,
-> = {
+type WorkerOperationArgs<K extends SignerWorkerKind, T extends SignerWorkerOperationType<K>> = {
   kind: K;
   request: SignerWorkerOperationRequest<K, T>;
   ctx: WorkerOperationContext;

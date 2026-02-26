@@ -9,6 +9,7 @@ Install the SDK and configure the wallet iframe (origin, service path, headers) 
 ## 1. Install the SDK
 
 ::: code-group
+
 ```bash [pnpm]
 pnpm add @tatchi-xyz/sdk
 ```
@@ -20,14 +21,15 @@ npm i @tatchi-xyz/sdk
 ```bash [yarn]
 yarn add @tatchi-xyz/sdk
 ```
-:::
 
+:::
 
 ## 2. Configure Vite
 
 Install framework packages. We'll be using Vite.
 
 ::: code-group
+
 ```bash [pnpm]
 pnpm add react react-dom
 pnpm add -D vite @vitejs/plugin-react
@@ -42,24 +44,22 @@ npm add -D vite @vitejs/plugin-react
 yarn add react react-dom
 yarn add -D vite @vitejs/plugin-react
 ```
+
 :::
 
 Then add the following Tatchi plugins to your `vite.config.ts` file:
+
 ```typescript
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import { tatchiAppServer, tatchiBuildHeaders } from '@tatchi-xyz/sdk/plugins/vite'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { tatchiAppServer, tatchiBuildHeaders } from '@tatchi-xyz/sdk/plugins/vite';
 
 export default defineConfig(({ mode }) => {
-  const walletOrigin = 'https://wallet.web3authn.org'
+  const walletOrigin = 'https://wallet.web3authn.org';
   return {
-    plugins: [
-      react(),
-      tatchiAppServer({ walletOrigin }),
-      tatchiBuildHeaders({ walletOrigin }),
-    ],
-  }
-})
+    plugins: [react(), tatchiAppServer({ walletOrigin }), tatchiBuildHeaders({ walletOrigin })],
+  };
+});
 ```
 
 These plugins add the right headers that allow your app to access
@@ -67,16 +67,17 @@ the wallet origin which serves the wallet SDK from a secure iframe.
 
 You may also choose to self-host the wallet SDK (advanced).
 
-
 ## 3. Enable HTTPS (Caddy setup)
 
 Passkeys require a secure context (HTTPS). You can use [Caddy](https://caddyserver.com/docs/install) for local development:
+
 ```bash
 brew install caddy           # macOS (see caddyserver.com for other OSes)
 caddy trust                  # trust local CA so browsers accept TLS
 ```
 
 Add a `Caddyfile` in the root directory:
+
 ```caddy
 example.localhost {
   tls internal
@@ -85,35 +86,36 @@ example.localhost {
 }
 ```
 
-
 ## 4. React Setup
 
 Setup the React provider:
+
 ```tsx
-import React from 'react'
-import ReactDOM from 'react-dom/client'
-import App from './App.jsx'
-import { TatchiPasskeyProvider } from '@tatchi-xyz/sdk/react/provider'
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App.jsx';
+import { TatchiPasskeyProvider } from '@tatchi-xyz/sdk/react/provider';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <TatchiPasskeyProvider
       config={{
         iframeWallet: {
-          walletOrigin: "https://wallet.web3authn.org",
+          walletOrigin: 'https://wallet.web3authn.org',
         },
         relayer: {
-          url: "https://relay.tatchi.xyz",
+          url: 'https://relay.tatchi.xyz',
         },
       }}
     >
       <App />
     </TatchiPasskeyProvider>
   </React.StrictMode>,
-)
+);
 ```
 
 Then in your `App.tsx`:
+
 ```tsx
 import { useTatchi } from '@tatchi-xyz/sdk/react';
 
@@ -123,48 +125,50 @@ function App() {
   return (
     <main>
       <h1>Tatchi Example</h1>
-      <button onClick={() => {
-        const id = Date.now();
-        tatchi.registration.registerPasskey(`tatchi-test-${id}.${configs.relayerAccount}`, {
-          onEvent: (event) => console.log('registration event: ', event)
-        });
-      }}>
+      <button
+        onClick={() => {
+          const id = Date.now();
+          tatchi.registration.registerPasskey(`tatchi-test-${id}.${configs.relayerAccount}`, {
+            onEvent: (event) => console.log('registration event: ', event),
+          });
+        }}
+      >
         Register Tatchi Account
       </button>
     </main>
-  )
+  );
 }
 
-export default App
+export default App;
 ```
-
 
 ## 5. Your first run
 
 Open two separate tabs and run the Caddy and Vite servers:
 
 Caddy:
+
 ```bash
 caddy run --config Caddyfile --adapter caddyfile
 ```
 
 Vite:
+
 ```bash
 pnpm dev
 ```
 
 Then navigate to:
+
 ```
 https://example.localhost
 ```
 
 You should see a registration button, which registers passkey derived wallets onchain.
 
-
 ### Next Steps
 
 After you've got the SDK installed, we will walk through login, and sending your first transaction in [next Steps](./next-steps).
-
 
 ### Troubleshooting (new users)
 

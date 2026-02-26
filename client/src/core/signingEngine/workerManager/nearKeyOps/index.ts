@@ -10,9 +10,7 @@ import {
   signTransactionWithKeyPairWasm,
 } from '@/core/signingEngine/signers/wasm/nearSignerWasm';
 
-export function createNearKeyOps(
-  getContext: () => SignerWorkerManagerContext,
-): NearSigningKeyOps {
+export function createNearKeyOps(getContext: () => SignerWorkerManagerContext): NearSigningKeyOps {
   return {
     async deriveNearKeypairAndEncryptFromSerialized(args) {
       return deriveNearKeypairAndEncryptFromSerialized({

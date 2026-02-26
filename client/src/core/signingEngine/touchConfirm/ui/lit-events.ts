@@ -25,7 +25,8 @@ export interface LitComponentEventDetailMap {
 export type LitConfirmDetail = LitComponentEventDetailMap[(typeof LitComponentEvents)['CONFIRM']];
 export type LitCancelDetail = LitComponentEventDetailMap[(typeof LitComponentEvents)['CANCEL']];
 export type LitCopyDetail = LitComponentEventDetailMap[(typeof LitComponentEvents)['COPY']];
-export type LitTreeToggledDetail = LitComponentEventDetailMap[(typeof LitComponentEvents)['TREE_TOGGLED']];
+export type LitTreeToggledDetail =
+  LitComponentEventDetailMap[(typeof LitComponentEvents)['TREE_TOGGLED']];
 export type TxReviewToggleNodeDetail =
   LitComponentEventDetailMap[(typeof LitComponentEvents)['TX_REVIEW_TOGGLE_NODE']];
 export type TxReviewCopyDetail =
@@ -35,12 +36,14 @@ export type TxReviewOpenLinkDetail =
 
 export type LitComponentEventDetail<T extends LitComponentEvent> = LitComponentEventDetailMap[T];
 
-export type LitComponentEventListener<T extends LitComponentEvent> = (event: CustomEvent<LitComponentEventDetail<T>>) => void;
+export type LitComponentEventListener<T extends LitComponentEvent> = (
+  event: CustomEvent<LitComponentEventDetail<T>>,
+) => void;
 
 export function dispatchLitEvent<T extends LitComponentEvent>(
   target: EventTarget,
   type: T,
-  detail?: LitComponentEventDetail<T>
+  detail?: LitComponentEventDetail<T>,
 ): boolean {
   const event = new CustomEvent(type, {
     bubbles: true,
@@ -54,7 +57,7 @@ export function addLitEventListener<T extends LitComponentEvent>(
   target: EventTarget,
   type: T,
   listener: LitComponentEventListener<T>,
-  options?: boolean | AddEventListenerOptions
+  options?: boolean | AddEventListenerOptions,
 ): () => void {
   const handler = listener as EventListener;
   target.addEventListener(type, handler, options);
@@ -87,5 +90,5 @@ export const dispatchTxReviewOpenLink = (target: EventTarget, detail: TxReviewOp
 export const addLitCancelListener = (
   target: EventTarget,
   listener: LitComponentEventListener<(typeof LitComponentEvents)['CANCEL']>,
-  options?: boolean | AddEventListenerOptions
+  options?: boolean | AddEventListenerOptions,
 ) => addLitEventListener(target, LitComponentEvents.CANCEL, listener, options);

@@ -1,8 +1,5 @@
 import { ConsoleBillingError } from './errors';
-import {
-  isStablecoinAssetSymbol,
-  isStablecoinSettlementChain,
-} from './stablecoinAssets';
+import { isStablecoinAssetSymbol, isStablecoinSettlementChain } from './stablecoinAssets';
 import type {
   AddCardPaymentMethodRequest,
   BillingUsageEventRequest,
@@ -90,29 +87,34 @@ export function parseStripePaymentIntentRequest(body: unknown): StripePaymentInt
   };
 }
 
-export function parseStripePaymentIntentReconcileRequest(body: unknown): StripePaymentIntentReconcileRequest {
+export function parseStripePaymentIntentReconcileRequest(
+  body: unknown,
+): StripePaymentIntentReconcileRequest {
   const obj = requireObject(body);
   const providerStatus = readRequiredString(obj, 'providerStatus').toUpperCase();
   const settledAmountMinorRaw = obj.settledAmountMinor;
   const sourceEventId = readOptionalString(obj, 'sourceEventId');
-  const validStatuses = new Set([
-    'ACTION_REQUIRED',
-    'PENDING',
-    'SUCCEEDED',
-    'FAILED',
-    'CANCELED',
-  ]);
+  const validStatuses = new Set(['ACTION_REQUIRED', 'PENDING', 'SUCCEEDED', 'FAILED', 'CANCELED']);
   if (!validStatuses.has(providerStatus)) {
-    throw new ConsoleBillingError('invalid_body', 400, `Unsupported providerStatus: ${providerStatus}`);
+    throw new ConsoleBillingError(
+      'invalid_body',
+      400,
+      `Unsupported providerStatus: ${providerStatus}`,
+    );
   }
 
   let settledAmountMinor: number | undefined;
   if (settledAmountMinorRaw !== undefined && settledAmountMinorRaw !== null) {
-    settledAmountMinor = typeof settledAmountMinorRaw === 'number'
-      ? settledAmountMinorRaw
-      : Number(settledAmountMinorRaw);
+    settledAmountMinor =
+      typeof settledAmountMinorRaw === 'number'
+        ? settledAmountMinorRaw
+        : Number(settledAmountMinorRaw);
     if (!Number.isInteger(settledAmountMinor) || settledAmountMinor < 0) {
-      throw new ConsoleBillingError('invalid_body', 400, 'Field settledAmountMinor must be an integer >= 0');
+      throw new ConsoleBillingError(
+        'invalid_body',
+        400,
+        'Field settledAmountMinor must be an integer >= 0',
+      );
     }
   }
 
@@ -129,24 +131,27 @@ export function parseStripeWebhookEventRequest(body: unknown): StripeWebhookEven
   const providerRef = readRequiredString(obj, 'providerRef');
   const providerStatus = readRequiredString(obj, 'providerStatus').toUpperCase();
   const settledAmountMinorRaw = obj.settledAmountMinor;
-  const validStatuses = new Set([
-    'ACTION_REQUIRED',
-    'PENDING',
-    'SUCCEEDED',
-    'FAILED',
-    'CANCELED',
-  ]);
+  const validStatuses = new Set(['ACTION_REQUIRED', 'PENDING', 'SUCCEEDED', 'FAILED', 'CANCELED']);
   if (!validStatuses.has(providerStatus)) {
-    throw new ConsoleBillingError('invalid_body', 400, `Unsupported providerStatus: ${providerStatus}`);
+    throw new ConsoleBillingError(
+      'invalid_body',
+      400,
+      `Unsupported providerStatus: ${providerStatus}`,
+    );
   }
 
   let settledAmountMinor: number | undefined;
   if (settledAmountMinorRaw !== undefined && settledAmountMinorRaw !== null) {
-    settledAmountMinor = typeof settledAmountMinorRaw === 'number'
-      ? settledAmountMinorRaw
-      : Number(settledAmountMinorRaw);
+    settledAmountMinor =
+      typeof settledAmountMinorRaw === 'number'
+        ? settledAmountMinorRaw
+        : Number(settledAmountMinorRaw);
     if (!Number.isInteger(settledAmountMinor) || settledAmountMinor < 0) {
-      throw new ConsoleBillingError('invalid_body', 400, 'Field settledAmountMinor must be an integer >= 0');
+      throw new ConsoleBillingError(
+        'invalid_body',
+        400,
+        'Field settledAmountMinor must be an integer >= 0',
+      );
     }
   }
 
@@ -186,7 +191,9 @@ export function parseStablecoinPaymentIntentRequest(body: unknown): StablecoinPa
   };
 }
 
-export function parseStablecoinPaymentIntentReconcileRequest(body: unknown): StablecoinPaymentIntentReconcileRequest {
+export function parseStablecoinPaymentIntentReconcileRequest(
+  body: unknown,
+): StablecoinPaymentIntentReconcileRequest {
   const obj = requireObject(body);
   const observedAmountMinor = readRequiredInteger(obj, 'observedAmountMinor');
   const observedConfirmations = readRequiredInteger(obj, 'observedConfirmations');
@@ -199,11 +206,12 @@ export function parseStablecoinPaymentIntentReconcileRequest(body: unknown): Sta
   if (observedConfirmations < 0) {
     throw new ConsoleBillingError('invalid_body', 400, 'Field observedConfirmations must be >= 0');
   }
-  if (
-    confirmationTimedOutRaw !== undefined
-    && typeof confirmationTimedOutRaw !== 'boolean'
-  ) {
-    throw new ConsoleBillingError('invalid_body', 400, 'Field confirmationTimedOut must be a boolean when provided');
+  if (confirmationTimedOutRaw !== undefined && typeof confirmationTimedOutRaw !== 'boolean') {
+    throw new ConsoleBillingError(
+      'invalid_body',
+      400,
+      'Field confirmationTimedOut must be a boolean when provided',
+    );
   }
 
   return {
@@ -232,15 +240,27 @@ export function parseBillingUsageEventRequest(body: unknown): BillingUsageEventR
     throw new ConsoleBillingError('invalid_body', 400, 'Field succeeded must be a boolean');
   }
   if (isSimulationRaw !== undefined && typeof isSimulationRaw !== 'boolean') {
-    throw new ConsoleBillingError('invalid_body', 400, 'Field isSimulation must be a boolean when provided');
+    throw new ConsoleBillingError(
+      'invalid_body',
+      400,
+      'Field isSimulation must be a boolean when provided',
+    );
   }
   if (isInternalRetryRaw !== undefined && typeof isInternalRetryRaw !== 'boolean') {
-    throw new ConsoleBillingError('invalid_body', 400, 'Field isInternalRetry must be a boolean when provided');
+    throw new ConsoleBillingError(
+      'invalid_body',
+      400,
+      'Field isInternalRetry must be a boolean when provided',
+    );
   }
   if (occurredAt !== undefined) {
     const parsed = Date.parse(occurredAt);
     if (!Number.isFinite(parsed)) {
-      throw new ConsoleBillingError('invalid_body', 400, 'Field occurredAt must be a valid ISO-8601 datetime');
+      throw new ConsoleBillingError(
+        'invalid_body',
+        400,
+        'Field occurredAt must be a valid ISO-8601 datetime',
+      );
     }
   }
 
@@ -259,11 +279,19 @@ export function parseGenerateMonthlyInvoiceRequest(body: unknown): GenerateMonth
   const obj = requireObject(body);
   const periodMonthUtc = readRequiredString(obj, 'periodMonthUtc');
   if (!/^\d{4}-\d{2}$/.test(periodMonthUtc)) {
-    throw new ConsoleBillingError('invalid_body', 400, 'Field periodMonthUtc must be in YYYY-MM format');
+    throw new ConsoleBillingError(
+      'invalid_body',
+      400,
+      'Field periodMonthUtc must be in YYYY-MM format',
+    );
   }
   const month = Number(periodMonthUtc.slice(5, 7));
   if (month < 1 || month > 12) {
-    throw new ConsoleBillingError('invalid_body', 400, 'Field periodMonthUtc month must be between 01 and 12');
+    throw new ConsoleBillingError(
+      'invalid_body',
+      400,
+      'Field periodMonthUtc month must be between 01 and 12',
+    );
   }
   return { periodMonthUtc };
 }

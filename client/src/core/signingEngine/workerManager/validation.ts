@@ -1,11 +1,7 @@
 import { normalizeRegistrationCredential } from '@/core/signingEngine/signers/webauthn/credentials/helpers';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import type { TransactionContext } from '@/core/types/rpc';
-import {
-  isObject,
-  assertString,
-  ensureEd25519Prefix,
-} from '@shared/utils/validation';
+import { isObject, assertString, ensureEd25519Prefix } from '@shared/utils/validation';
 import { DelegateActionInput } from '@/core/types/delegate';
 import { base58Encode } from '@shared/utils/base58';
 export { ensureEd25519Prefix };
@@ -33,13 +29,7 @@ function validateTransactionContextMaybe(input: unknown): TransactionContext | u
     throw new Error('Invalid transactionContext: expected object');
   }
 
-  const {
-    nearPublicKeyStr,
-    nextNonce,
-    txBlockHeight,
-    txBlockHash,
-    accessKeyInfo,
-  } = input as {
+  const { nearPublicKeyStr, nextNonce, txBlockHeight, txBlockHash, accessKeyInfo } = input as {
     nearPublicKeyStr?: unknown;
     nextNonce?: unknown;
     txBlockHeight?: unknown;
@@ -53,10 +43,7 @@ function validateTransactionContextMaybe(input: unknown): TransactionContext | u
     'transactionContext.nearPublicKeyStr',
   );
   const normalizedNextNonce = assertString(nextNonce, 'transactionContext.nextNonce');
-  const normalizedTxBlockHeight = assertString(
-    txBlockHeight,
-    'transactionContext.txBlockHeight',
-  );
+  const normalizedTxBlockHeight = assertString(txBlockHeight, 'transactionContext.txBlockHeight');
   const normalizedTxBlockHash = assertString(txBlockHash, 'transactionContext.txBlockHash');
 
   let normalizedAccessKeyInfo = accessKeyInfo as TransactionContext['accessKeyInfo'] | undefined;
@@ -100,11 +87,7 @@ function validateCredentialMaybe(input: unknown): WebAuthnRegistrationCredential
     throw new Error('Invalid credential.response: expected object');
   }
 
-  const {
-    clientDataJSON,
-    attestationObject,
-    transports,
-  } = response as {
+  const { clientDataJSON, attestationObject, transports } = response as {
     clientDataJSON?: unknown;
     attestationObject?: unknown;
     transports?: unknown;
@@ -136,19 +119,11 @@ function validateCredentialMaybe(input: unknown): WebAuthnRegistrationCredential
 export function parseAndValidateRegistrationCredentialConfirmationPayload(
   payload: unknown,
 ): RegistrationCredentialConfirmationPayload {
-
   if (!isObject(payload)) {
     throw new Error('Invalid response payload: expected object');
   }
 
-  const {
-    confirmed,
-    requestId,
-    intentDigest,
-    credential,
-    transactionContext,
-    error,
-  } = payload as {
+  const { confirmed, requestId, intentDigest, credential, transactionContext, error } = payload as {
     confirmed?: unknown;
     requestId?: unknown;
     intentDigest?: unknown;
@@ -163,8 +138,7 @@ export function parseAndValidateRegistrationCredentialConfirmationPayload(
   const normalizedIntentDigest =
     intentDigest == null ? '' : assertString(intentDigest, 'intentDigest');
 
-  const normalizedCredential =
-    credential != null ? validateCredentialMaybe(credential) : undefined;
+  const normalizedCredential = credential != null ? validateCredentialMaybe(credential) : undefined;
 
   if (!normalizedCredential) {
     throw new Error('Missing registration credential');
@@ -173,8 +147,7 @@ export function parseAndValidateRegistrationCredentialConfirmationPayload(
   const normalizedTransactionContext =
     transactionContext != null ? validateTransactionContextMaybe(transactionContext) : undefined;
 
-  const normalizedError =
-    error == null ? undefined : assertString(error, 'error');
+  const normalizedError = error == null ? undefined : assertString(error, 'error');
 
   return {
     confirmed: !!confirmed,

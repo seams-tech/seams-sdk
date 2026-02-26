@@ -25,12 +25,14 @@ let ethSignerWasmInitPromise: Promise<void> | null = null;
 let ethSignerWasmReady = false;
 
 function isNodeEnvironment(): boolean {
-  const processObj = (globalThis as unknown as { process?: { versions?: { node?: string } } }).process;
+  const processObj = (globalThis as unknown as { process?: { versions?: { node?: string } } })
+    .process;
   const isNode = Boolean(processObj?.versions?.node);
   const webSocketPair = (globalThis as unknown as { WebSocketPair?: unknown }).WebSocketPair;
   const nav = (globalThis as unknown as { navigator?: { userAgent?: unknown } }).navigator;
-  const isCloudflareWorker = typeof webSocketPair !== 'undefined'
-    || (typeof nav?.userAgent === 'string' && nav.userAgent.includes('Cloudflare-Workers'));
+  const isCloudflareWorker =
+    typeof webSocketPair !== 'undefined' ||
+    (typeof nav?.userAgent === 'string' && nav.userAgent.includes('Cloudflare-Workers'));
   return isNode && !isCloudflareWorker;
 }
 
@@ -86,7 +88,9 @@ export async function ensureEthSignerWasm(): Promise<void> {
         lastErr = e;
       }
     }
-    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr || 'Failed to initialize eth_signer WASM'));
+    throw lastErr instanceof Error
+      ? lastErr
+      : new Error(String(lastErr || 'Failed to initialize eth_signer WASM'));
   })();
   return ethSignerWasmInitPromise;
 }
@@ -153,7 +157,9 @@ export async function deriveThresholdSecp256k1RelayerShare(input: {
   const masterSecret = base64UrlDecode(masterSecretB64u);
   const out = derive_threshold_secp256k1_relayer_share(masterSecret, relayerKeyId) as Uint8Array;
   if (out.length !== 65) {
-    throw new Error(`derive_threshold_secp256k1_relayer_share output must be 65 bytes (got ${out.length})`);
+    throw new Error(
+      `derive_threshold_secp256k1_relayer_share output must be 65 bytes (got ${out.length})`,
+    );
   }
   return {
     relayerSigningShare32: out.slice(0, 32),
@@ -161,9 +167,13 @@ export async function deriveThresholdSecp256k1RelayerShare(input: {
   };
 }
 
-export async function secp256k1PublicKey33ToEthereumAddress(publicKey33: Uint8Array): Promise<string> {
+export async function secp256k1PublicKey33ToEthereumAddress(
+  publicKey33: Uint8Array,
+): Promise<string> {
   await ensureEthSignerWasm();
   const out = secp256k1_public_key_33_to_ethereum_address_20(publicKey33) as Uint8Array;
   const address20 = checkedBytes('secp256k1_public_key_33_to_ethereum_address_20 output', out, 20);
-  return `0x${Array.from(address20).map((b) => b.toString(16).padStart(2, '0')).join('')}`;
+  return `0x${Array.from(address20)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')}`;
 }

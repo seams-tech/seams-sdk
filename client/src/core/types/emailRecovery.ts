@@ -1,4 +1,3 @@
-
 import type { AccountId } from './accountIds';
 import type { ConfirmationConfig } from './signer-worker';
 import type { EmailRecoverySSEEvent, EventCallback, AfterCall } from './sdkSentEvents';

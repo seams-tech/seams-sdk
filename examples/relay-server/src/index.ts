@@ -79,14 +79,16 @@ function parseOptionalPositiveInteger(value: unknown): number | undefined {
 }
 
 function parseBooleanFlag(value: unknown): boolean {
-  const normalized = String(value || '').trim().toLowerCase();
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
-function parsePrfSealLimiterKind(
-  value: unknown,
-): 'in-memory' | 'upstash-redis-rest' | 'redis-tcp' {
-  const normalized = String(value || '').trim().toLowerCase();
+function parsePrfSealLimiterKind(value: unknown): 'in-memory' | 'upstash-redis-rest' | 'redis-tcp' {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
   if (normalized === 'upstash-redis-rest') return 'upstash-redis-rest';
   if (normalized === 'redis-tcp') return 'redis-tcp';
   return 'in-memory';
@@ -96,27 +98,31 @@ async function main() {
   const env = process.env;
   const redisUrl = typeof env.REDIS_URL === 'string' ? env.REDIS_URL.trim() : '';
   const postgresUrl = typeof env.POSTGRES_URL === 'string' ? env.POSTGRES_URL.trim() : '';
-  const ed25519MasterSecretB64u = typeof env.THRESHOLD_ED25519_MASTER_SECRET_B64U === 'string'
-    ? env.THRESHOLD_ED25519_MASTER_SECRET_B64U.trim()
-    : '';
+  const ed25519MasterSecretB64u =
+    typeof env.THRESHOLD_ED25519_MASTER_SECRET_B64U === 'string'
+      ? env.THRESHOLD_ED25519_MASTER_SECRET_B64U.trim()
+      : '';
   const secp256k1MasterSecretB64u = requireEnvVar(env, 'THRESHOLD_SECP256K1_MASTER_SECRET_B64U');
   const usePostgresForThreshold = Boolean(postgresUrl);
   const thresholdRedisUrl = usePostgresForThreshold ? '' : redisUrl;
 
   if (usePostgresForThreshold && redisUrl) {
-    console.warn('[threshold] POSTGRES_URL and REDIS_URL are both set; using Postgres for threshold stores and ignoring REDIS_URL.');
+    console.warn(
+      '[threshold] POSTGRES_URL and REDIS_URL are both set; using Postgres for threshold stores and ignoring REDIS_URL.',
+    );
   }
 
-  const host = typeof env.HOST === 'string' && env.HOST.trim().length > 0
-    ? env.HOST.trim()
-    : undefined;
+  const host =
+    typeof env.HOST === 'string' && env.HOST.trim().length > 0 ? env.HOST.trim() : undefined;
   const config = {
     port: Number(env.PORT || 3000),
     host,
     expectedOrigin: env.EXPECTED_ORIGIN || 'https://example.localhost', // Frontend origin
     expectedWalletOrigin: env.EXPECTED_WALLET_ORIGIN || 'https://wallet.example.localhost', // Wallet origin (optional)
   };
-  const rorRpId = String(env.ROR_RP_ID || hostnameFromOrigin(config.expectedWalletOrigin)).trim().toLowerCase();
+  const rorRpId = String(env.ROR_RP_ID || hostnameFromOrigin(config.expectedWalletOrigin))
+    .trim()
+    .toLowerCase();
   const rorOrigins = sanitizeOrigins([
     config.expectedOrigin,
     config.expectedWalletOrigin,
@@ -182,7 +188,9 @@ async function main() {
     const serverDecryptExponentB64u = requireEnvVar(env, 'SHAMIR_D_S_B64U');
     const keyVersion = String(env.PRF_SESSION_SEAL_KEY_VERSION || 'kek-s-2026-02').trim();
     if (!keyVersion) {
-      throw new Error('PRF_SESSION_SEAL_KEY_VERSION must be a non-empty string when PRF_SESSION_SEAL_ENABLED=1');
+      throw new Error(
+        'PRF_SESSION_SEAL_KEY_VERSION must be a non-empty string when PRF_SESSION_SEAL_ENABLED=1',
+      );
     }
 
     const ecdsaAuthSessionStore = createEcdsaAuthSessionStore({
@@ -197,7 +205,9 @@ async function main() {
       upstashUrl: env.UPSTASH_REDIS_REST_URL,
       upstashToken: env.UPSTASH_REDIS_REST_TOKEN,
       redisUrl: thresholdRedisUrl || redisUrl,
-      keyPrefix: String(env.PRF_SESSION_SEAL_RATE_LIMIT_KEY_PREFIX || 'threshold:prf-seal:rate:').trim(),
+      keyPrefix: String(
+        env.PRF_SESSION_SEAL_RATE_LIMIT_KEY_PREFIX || 'threshold:prf-seal:rate:',
+      ).trim(),
       limit: parseOptionalPositiveInteger(env.PRF_SESSION_SEAL_RATE_LIMIT) || 30,
       windowMs: parseOptionalPositiveInteger(env.PRF_SESSION_SEAL_RATE_LIMIT_WINDOW_MS) || 60_000,
     });
@@ -206,12 +216,14 @@ async function main() {
       sessionPolicy: createPrfSessionSealPolicyFromEcdsaAuthSessionStore(ecdsaAuthSessionStore),
       cipher: createPrfSessionSealShamir3PassCipherAdapter({
         currentKeyVersion: keyVersion,
-        keys: [{
-          keyVersion,
-          shamirPrimeB64u,
-          serverEncryptExponentB64u,
-          serverDecryptExponentB64u,
-        }],
+        keys: [
+          {
+            keyVersion,
+            shamirPrimeB64u,
+            serverEncryptExponentB64u,
+            serverDecryptExponentB64u,
+          },
+        ],
       }),
       rateLimit,
       logger: console,
@@ -220,19 +232,27 @@ async function main() {
 
   const app: Express = express();
   const consoleDevToken = String(env.CONSOLE_DEV_TOKEN || 'dev-console-token').trim();
-  const rawConsoleBillingBackend = String(env.CONSOLE_BILLING_BACKEND || (postgresUrl ? 'postgres' : 'memory'))
+  const rawConsoleBillingBackend = String(
+    env.CONSOLE_BILLING_BACKEND || (postgresUrl ? 'postgres' : 'memory'),
+  )
     .trim()
     .toLowerCase();
   if (rawConsoleBillingBackend !== 'postgres' && rawConsoleBillingBackend !== 'memory') {
-    throw new Error(`Invalid CONSOLE_BILLING_BACKEND="${rawConsoleBillingBackend}". Expected "postgres" or "memory".`);
+    throw new Error(
+      `Invalid CONSOLE_BILLING_BACKEND="${rawConsoleBillingBackend}". Expected "postgres" or "memory".`,
+    );
   }
   const consoleBillingBackend: 'postgres' | 'memory' = rawConsoleBillingBackend;
   const consoleBillingNamespace = String(env.CONSOLE_BILLING_NAMESPACE || 'relay-console').trim();
-  const rawConsoleWebhooksBackend = String(env.CONSOLE_WEBHOOKS_BACKEND || (postgresUrl ? 'postgres' : 'memory'))
+  const rawConsoleWebhooksBackend = String(
+    env.CONSOLE_WEBHOOKS_BACKEND || (postgresUrl ? 'postgres' : 'memory'),
+  )
     .trim()
     .toLowerCase();
   if (rawConsoleWebhooksBackend !== 'postgres' && rawConsoleWebhooksBackend !== 'memory') {
-    throw new Error(`Invalid CONSOLE_WEBHOOKS_BACKEND="${rawConsoleWebhooksBackend}". Expected "postgres" or "memory".`);
+    throw new Error(
+      `Invalid CONSOLE_WEBHOOKS_BACKEND="${rawConsoleWebhooksBackend}". Expected "postgres" or "memory".`,
+    );
   }
   const consoleWebhooksBackend: 'postgres' | 'memory' = rawConsoleWebhooksBackend;
   const consoleWebhooksNamespace = String(env.CONSOLE_WEBHOOKS_NAMESPACE || 'relay-console').trim();
@@ -240,9 +260,16 @@ async function main() {
     authenticate: async (headers) => {
       const authHeader = String(headers.authorization || headers.Authorization || '').trim();
       const bearerPrefix = 'Bearer ';
-      const token = authHeader.startsWith(bearerPrefix) ? authHeader.slice(bearerPrefix.length).trim() : '';
+      const token = authHeader.startsWith(bearerPrefix)
+        ? authHeader.slice(bearerPrefix.length).trim()
+        : '';
       if (!token || token !== consoleDevToken) {
-        return { ok: false, code: 'unauthorized', message: 'Missing or invalid console bearer token', status: 401 };
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'Missing or invalid console bearer token',
+          status: 401,
+        };
       }
 
       const rawOrgId = String(headers['x-console-org-id'] || '').trim();
@@ -302,39 +329,44 @@ async function main() {
   app.use(express.json({ limit: '1mb' }));
 
   // Mount router built from AuthService
-  app.use('/', createRelayRouter(authService, {
-    healthz: true,
-    readyz: true,
-    corsOrigins: [config.expectedOrigin, config.expectedWalletOrigin],
-    ...(rorRpId
-      ? {
-          ror: {
-            rpId: rorRpId,
-            provider: {
-              getAllowedOrigins: async (input: { rpId: string; host?: string }) => (
-                input.rpId === rorRpId ? rorOrigins : []
-              ),
+  app.use(
+    '/',
+    createRelayRouter(authService, {
+      healthz: true,
+      readyz: true,
+      corsOrigins: [config.expectedOrigin, config.expectedWalletOrigin],
+      ...(rorRpId
+        ? {
+            ror: {
+              rpId: rorRpId,
+              provider: {
+                getAllowedOrigins: async (input: { rpId: string; host?: string }) =>
+                  input.rpId === rorRpId ? rorOrigins : [],
+              },
             },
-          },
-        }
-      : {}),
-    signedDelegate: { route: '/signed-delegate' },
-    session: jwtSession,
-    threshold,
-    prfSessionSeal,
-    logger: console,
-  }));
+          }
+        : {}),
+      signedDelegate: { route: '/signed-delegate' },
+      session: jwtSession,
+      threshold,
+      prfSessionSeal,
+      logger: console,
+    }),
+  );
 
   // Mount console/admin router on /console/*
-  app.use('/', createConsoleRouter({
-    healthz: true,
-    readyz: true,
-    corsOrigins: [config.expectedOrigin, config.expectedWalletOrigin],
-    auth: consoleAuth,
-    billing: consoleBilling,
-    webhooks: consoleWebhooks,
-    logger: console,
-  }));
+  app.use(
+    '/',
+    createConsoleRouter({
+      healthz: true,
+      readyz: true,
+      corsOrigins: [config.expectedOrigin, config.expectedWalletOrigin],
+      auth: consoleAuth,
+      billing: consoleBilling,
+      webhooks: consoleWebhooks,
+      logger: console,
+    }),
+  );
 
   const onListening = () => {
     const listenHost = config.host || 'localhost';
@@ -355,8 +387,11 @@ async function main() {
     if (consoleWebhooksBackend === 'postgres') {
       console.log(`Console webhooks namespace: ${consoleWebhooksNamespace}`);
     }
-    authService.getRelayerAccount()
-      .then(relayer => console.log(`AuthService started with relayer account: ${relayer.accountId}`))
+    authService
+      .getRelayerAccount()
+      .then((relayer) =>
+        console.log(`AuthService started with relayer account: ${relayer.accountId}`),
+      )
       .catch((err: Error) => console.error('AuthService initial check failed:', err));
   };
 

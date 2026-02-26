@@ -2,7 +2,10 @@ import type {
   ThresholdEd25519AuthorizeWithSessionRequest,
   ThresholdEcdsaAuthorizeWithSessionRequest,
 } from '../core/types';
-import { parseThresholdEd25519SessionClaims, parseThresholdEcdsaSessionClaims } from '../core/ThresholdService/validation';
+import {
+  parseThresholdEd25519SessionClaims,
+  parseThresholdEcdsaSessionClaims,
+} from '../core/ThresholdService/validation';
 import type { SessionAdapter } from './relay';
 
 type PlainObject = Record<string, unknown>;
@@ -27,12 +30,20 @@ export async function validateThresholdEd25519AuthorizeInputs(input: {
 }): Promise<ThresholdEd25519AuthorizeInputs> {
   const session = input.session;
   if (!session) {
-    return { ok: false, code: 'sessions_disabled', message: 'Sessions are not configured on this server' };
+    return {
+      ok: false,
+      code: 'sessions_disabled',
+      message: 'Sessions are not configured on this server',
+    };
   }
 
   const parsed = await session.parse(input.headers);
   if (!parsed.ok) {
-    return { ok: false, code: 'unauthorized', message: 'Missing or invalid threshold session token' };
+    return {
+      ok: false,
+      code: 'unauthorized',
+      message: 'Missing or invalid threshold session token',
+    };
   }
 
   const claims = parseThresholdEd25519SessionClaims(parsed.claims);
@@ -71,12 +82,20 @@ export async function validateThresholdEcdsaSessionInputs(input: {
 }): Promise<ThresholdEcdsaSessionInputs> {
   const session = input.session;
   if (!session) {
-    return { ok: false, code: 'sessions_disabled', message: 'Sessions are not configured on this server' };
+    return {
+      ok: false,
+      code: 'sessions_disabled',
+      message: 'Sessions are not configured on this server',
+    };
   }
 
   const parsed = await session.parse(input.headers);
   if (!parsed.ok) {
-    return { ok: false, code: 'unauthorized', message: 'Missing or invalid threshold session token' };
+    return {
+      ok: false,
+      code: 'unauthorized',
+      message: 'Missing or invalid threshold session token',
+    };
   }
 
   const claims = parseThresholdEcdsaSessionClaims(parsed.claims);
@@ -95,12 +114,20 @@ export async function validateThresholdEcdsaAuthorizeInputs(input: {
 }): Promise<ThresholdEcdsaAuthorizeInputs> {
   const session = input.session;
   if (!session) {
-    return { ok: false, code: 'sessions_disabled', message: 'Sessions are not configured on this server' };
+    return {
+      ok: false,
+      code: 'sessions_disabled',
+      message: 'Sessions are not configured on this server',
+    };
   }
 
   const parsed = await session.parse(input.headers);
   if (!parsed.ok) {
-    return { ok: false, code: 'unauthorized', message: 'Missing or invalid threshold session token' };
+    return {
+      ok: false,
+      code: 'unauthorized',
+      message: 'Missing or invalid threshold session token',
+    };
   }
 
   const claims = parseThresholdEcdsaSessionClaims(parsed.claims);

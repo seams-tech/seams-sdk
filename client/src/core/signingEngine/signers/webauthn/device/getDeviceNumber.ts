@@ -1,10 +1,7 @@
 import type { PasskeyClientDBManager } from '@/core/indexedDB';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 
-export function parseDeviceNumber(
-  value: unknown,
-  options: { min?: number } = {},
-): number | null {
+export function parseDeviceNumber(value: unknown, options: { min?: number } = {}): number | null {
   const deviceNumber = Number(value);
   const min = options.min ?? 1;
   if (!Number.isSafeInteger(deviceNumber) || deviceNumber < min) {

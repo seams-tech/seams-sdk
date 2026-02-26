@@ -9,4 +9,3 @@ if (res.error || res.status !== 0) {
   console.error('Then restart your shell and run: pnpm -C examples/relay-server dev\n');
   process.exit(1);
 }
-

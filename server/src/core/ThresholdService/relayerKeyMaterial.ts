@@ -22,17 +22,27 @@ export async function resolveThresholdEd25519RelayerKeyMaterial(input: {
   keyStore: ThresholdEd25519KeyStore;
   keygenStrategy: ThresholdEd25519KeygenStrategy;
 }): Promise<
-  | { ok: true; publicKey: string; relayerSigningShareB64u: string; relayerVerifyingShareB64u: string }
+  | {
+      ok: true;
+      publicKey: string;
+      relayerSigningShareB64u: string;
+      relayerVerifyingShareB64u: string;
+    }
   | { ok: false; code: string; message: string }
 > {
   const relayerKeyId = toOptionalTrimmedString(input.relayerKeyId);
-  if (!relayerKeyId) return { ok: false, code: 'invalid_body', message: 'relayerKeyId is required' };
+  if (!relayerKeyId)
+    return { ok: false, code: 'invalid_body', message: 'relayerKeyId is required' };
 
   if (input.shareMode !== 'derived') {
     const existing = await input.keyStore.get(relayerKeyId);
     if (existing) return { ok: true, ...existing };
     if (input.shareMode === 'kv') {
-      return { ok: false, code: 'missing_key', message: 'Unknown relayerKeyId; call /threshold-ed25519/keygen first' };
+      return {
+        ok: false,
+        code: 'missing_key',
+        message: 'Unknown relayerKeyId; call /threshold-ed25519/keygen first',
+      };
     }
   }
 
@@ -41,7 +51,11 @@ export async function resolveThresholdEd25519RelayerKeyMaterial(input: {
     relayerMasterSecretB64u: input.relayerMasterSecretB64u,
   });
   if (!useDerived) {
-    return { ok: false, code: 'missing_key', message: 'Unknown relayerKeyId; call /threshold-ed25519/keygen first' };
+    return {
+      ok: false,
+      code: 'missing_key',
+      message: 'Unknown relayerKeyId; call /threshold-ed25519/keygen first',
+    };
   }
 
   const clientVerifyingShareB64u = toOptionalTrimmedString(input.clientVerifyingShareB64u);
@@ -49,7 +63,8 @@ export async function resolveThresholdEd25519RelayerKeyMaterial(input: {
     return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is required' };
   }
   const nearAccountId = toOptionalTrimmedString(input.nearAccountId);
-  if (!nearAccountId) return { ok: false, code: 'invalid_body', message: 'nearAccountId is required' };
+  if (!nearAccountId)
+    return { ok: false, code: 'invalid_body', message: 'nearAccountId is required' };
   const rpId = toOptionalTrimmedString(input.rpId);
   if (!rpId) return { ok: false, code: 'invalid_body', message: 'rpId is required' };
 

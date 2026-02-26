@@ -2,13 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "sdk/scripts/check-site-css-colors.mjs",
   "files": {
-    "examples/tatchi-site/src/app.css": [
-      "#12161d",
-      "#171b22",
-      "#2a2f38",
-      "#f3f5f8",
-      "#fff"
-    ],
+    "examples/tatchi-site/src/app.css": ["#12161d", "#171b22", "#2a2f38", "#f3f5f8", "#fff"],
     "examples/tatchi-site/src/components/ActionSection.css": [],
     "examples/tatchi-site/src/components/ArrowRightAnim.css": [],
     "examples/tatchi-site/src/components/Carousel/CarouselStyles.css": [],
@@ -70,9 +64,7 @@
       "rgba(0,0,0,0.35)"
     ],
     "examples/tatchi-site/src/components/SyncAccount.css": [],
-    "examples/tatchi-site/src/components/Toaster.css": [
-      "#fff"
-    ],
+    "examples/tatchi-site/src/components/Toaster.css": ["#fff"],
     "examples/tatchi-site/src/layout.css": [
       "#000",
       "#1f2d3a",
@@ -204,11 +196,7 @@
       "#ffffff",
       "rgba(15, 23, 42, 0.3)"
     ],
-    "examples/tatchi-site/src/styles/security-diagrams.css": [
-      "#000",
-      "#8ea8c6",
-      "#b18897"
-    ],
+    "examples/tatchi-site/src/styles/security-diagrams.css": ["#000", "#8ea8c6", "#b18897"],
     "examples/tatchi-site/src/styles/site-pages.css": []
   }
 }

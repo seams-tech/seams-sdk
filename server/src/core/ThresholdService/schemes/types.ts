@@ -45,7 +45,7 @@ export interface ThresholdProtocolDriver<
   CosignInitReq = never,
   CosignInitRes = never,
   CosignFinalizeReq = never,
-  CosignFinalizeRes = never
+  CosignFinalizeRes = never,
 > {
   signInit(request: SignInitReq): Promise<SignInitRes>;
   signFinalize(request: SignFinalizeReq): Promise<SignFinalizeRes>;
@@ -69,7 +69,7 @@ export interface ThresholdSchemeModule<
   CosignInitReq = never,
   CosignInitRes = never,
   CosignFinalizeReq = never,
-  CosignFinalizeRes = never
+  CosignFinalizeRes = never,
 > {
   schemeId: SchemeId;
   protocol: ThresholdProtocolDriver<
@@ -127,7 +127,9 @@ export type ThresholdEd25519Frost2pSchemeModule = ThresholdSchemeModule<
   ThresholdEd25519CosignFinalizeResponse
 > & {
   registration: {
-    keygenFromClientVerifyingShare(request: ThresholdEd25519RegistrationKeygenRequest): Promise<ThresholdEd25519RegistrationKeygenResult>;
+    keygenFromClientVerifyingShare(
+      request: ThresholdEd25519RegistrationKeygenRequest,
+    ): Promise<ThresholdEd25519RegistrationKeygenResult>;
   };
 };
 
@@ -151,7 +153,10 @@ export type ThresholdSecp256k1Ecdsa2pSchemeModule = ThresholdSchemeModule<
 > & {
   bootstrap?: (request: ThresholdEcdsaBootstrapRequest) => Promise<ThresholdEcdsaBootstrapResponse>;
   presign: {
-    init(input: { claims: ThresholdEcdsaSessionClaims; request: ThresholdEcdsaPresignInitRequest }): Promise<ThresholdEcdsaPresignInitResponse>;
+    init(input: {
+      claims: ThresholdEcdsaSessionClaims;
+      request: ThresholdEcdsaPresignInitRequest;
+    }): Promise<ThresholdEcdsaPresignInitResponse>;
     step(input: {
       claims: ThresholdEcdsaSessionClaims;
       request: ThresholdEcdsaPresignStepRequest;

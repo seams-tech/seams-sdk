@@ -56,9 +56,10 @@ export function createThresholdEcdsaCommitQueueCancelledError(
   reason: 'cancelled' | 'queue_cleared' = 'cancelled',
 ): ThresholdEcdsaCommitQueueError {
   const accountId = String(toAccountId(nearAccountId));
-  const message = reason === 'queue_cleared'
-    ? `[SigningEngine] threshold ECDSA queued commit cancelled for ${accountId} (queue_cleared)`
-    : `[SigningEngine] threshold ECDSA queued commit cancelled for ${accountId}`;
+  const message =
+    reason === 'queue_cleared'
+      ? `[SigningEngine] threshold ECDSA queued commit cancelled for ${accountId} (queue_cleared)`
+      : `[SigningEngine] threshold ECDSA queued commit cancelled for ${accountId}`;
   const err = new Error(message) as ThresholdEcdsaCommitQueueError;
   err.code = 'cancelled';
   return err;
@@ -170,21 +171,26 @@ export async function withThresholdEcdsaCommitQueue<T>(args: {
   }
 
   return await new Promise<T>((resolve, reject) => {
-    let item!: ThresholdEcdsaCommitQueueItem;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
     let settled = false;
+    const clearTimeoutHandle = (): void => {
+      if (!timeoutHandle) return;
+      clearTimeout(timeoutHandle);
+      timeoutHandle = null;
+    };
     const rejectOnce = (error: unknown): void => {
       if (settled) return;
       settled = true;
-      clearQueueItemTimeout(item);
+      clearTimeoutHandle();
       reject(error);
     };
     const resolveOnce = (value: T): void => {
       if (settled) return;
       settled = true;
-      clearQueueItemTimeout(item);
+      clearTimeoutHandle();
       resolve(value);
     };
-    item = {
+    const item: ThresholdEcdsaCommitQueueItem = {
       enqueuedAtMs: Date.now(),
       timeoutMs: queueTimeoutMs,
       shouldAbort: args.shouldAbort,
@@ -199,17 +205,22 @@ export async function withThresholdEcdsaCommitQueue<T>(args: {
         resolveOnce(result);
       },
     };
-    item.timeoutHandle = setTimeout(() => {
+    timeoutHandle = setTimeout(() => {
       if (item.isSettled()) return;
       const idx = state.items.indexOf(item);
       if (idx >= 0) {
         state.items.splice(idx, 1);
       }
       rejectOnce(createThresholdEcdsaCommitQueueTimeoutError(accountKey, queueTimeoutMs));
-      if (!state.running && state.items.length === 0 && args.queueByAccount.get(accountKey) === state) {
+      if (
+        !state.running &&
+        state.items.length === 0 &&
+        args.queueByAccount.get(accountKey) === state
+      ) {
         args.queueByAccount.delete(accountKey);
       }
     }, queueTimeoutMs);
+    item.timeoutHandle = timeoutHandle;
     state.items.push(item);
     scheduleQueueDrain(args.queueByAccount, accountKey);
   });

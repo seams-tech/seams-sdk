@@ -18,18 +18,21 @@ import type {
   SignTransactionHooksOptions,
   SyncAccountHooksOptions,
 } from '../../types/sdkSentEvents';
-import type {
-  LoginSession,
-  RegistrationResult,
-} from '../../types/tatchi';
+import type { LoginSession, RegistrationResult } from '../../types/tatchi';
 import type { ConfirmationConfig } from '../../types/signer-worker';
 import { toAccountId } from '../../types/accountIds';
 import { SignedTransaction } from '../../rpcClients/near/NearClient';
-import { isPlainSignedTransactionLike, extractBorshBytesFromPlainSignedTx, PlainSignedTransactionLike } from '@shared/utils/validation';
+import {
+  isPlainSignedTransactionLike,
+  extractBorshBytesFromPlainSignedTx,
+  PlainSignedTransactionLike,
+} from '@shared/utils/validation';
 import type { ActionArgs } from '../../types';
 
 type Req<T extends ParentToChildType> = Extract<ParentToChildEnvelope, { type: T }>;
-type HandlerMap = Partial<{ [K in ParentToChildType]: (req: Extract<ParentToChildEnvelope, { type: K }>) => Promise<void> }>;
+type HandlerMap = Partial<{
+  [K in ParentToChildType]: (req: Extract<ParentToChildEnvelope, { type: K }>) => Promise<void>;
+}>;
 
 export interface HandlerDeps {
   getTatchiPasskey(): TatchiPasskey;
@@ -41,14 +44,8 @@ export interface HandlerDeps {
 }
 
 export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
-  const {
-    getTatchiPasskey,
-    post,
-    postProgress,
-    postToParent,
-    isCancelled,
-    respondIfCancelled,
-  } = deps;
+  const { getTatchiPasskey, post, postProgress, postToParent, isCancelled, respondIfCancelled } =
+    deps;
 
   const respondOk = (requestId: string | undefined): void => {
     post({ type: 'PM_RESULT', requestId, payload: { ok: true } });
@@ -69,7 +66,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
   };
 
   const normalizeSignedTransaction = (
-    candidate: SignedTransaction | PlainSignedTransactionLike | undefined
+    candidate: SignedTransaction | PlainSignedTransactionLike | undefined,
   ): SignedTransaction | PlainSignedTransactionLike | undefined => {
     if (candidate && isPlainSignedTransactionLike(candidate)) {
       try {
@@ -120,8 +117,11 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
       const result: RegistrationResult = !confirmationConfig
         ? await pm.registration.registerPasskey(nearAccountId, hooksOptions)
-        : await pm.registration.registerPasskeyInternal(nearAccountId, hooksOptions,
-            confirmationConfig as unknown as ConfirmationConfig);
+        : await pm.registration.registerPasskeyInternal(
+            nearAccountId,
+            hooksOptions,
+            confirmationConfig as unknown as ConfirmationConfig,
+          );
 
       if (respondIfCancelled(req.requestId)) return;
       respondOkResult(req.requestId, result);
@@ -147,15 +147,16 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOkResult(req.requestId, result);
     },
 
-    PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION: async (req: Req<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'>) => {
+    PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION: async (
+      req: Req<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'>,
+    ) => {
       const pm = getTatchiPasskey();
       const { nearAccountId, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
 
       const chain = options?.chain;
-      let result: Awaited<ReturnType<typeof pm.tempo.bootstrapEcdsaSession>>;
-      try {
-        result = chain === 'evm'
+      const result =
+        chain === 'evm'
           ? await pm.evm.bootstrapEcdsaSession({
               nearAccountId,
               options: options || {},
@@ -164,9 +165,6 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
               nearAccountId,
               options: options || {},
             });
-      } catch (error: unknown) {
-        throw error;
-      }
       if (respondIfCancelled(req.requestId)) return;
       respondOkResult(req.requestId, result);
     },
@@ -220,7 +218,8 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_EXECUTE_ACTION: async (req: Req<'PM_EXECUTE_ACTION'>) => {
       const pm = getTatchiPasskey();
-      const { nearAccountId, receiverId, actionArgs, options } = (req.payload || ({} as Partial<PMExecuteActionPayload>));
+      const { nearAccountId, receiverId, actionArgs, options } =
+        req.payload || ({} as Partial<PMExecuteActionPayload>);
       const result = await pm.near.executeAction({
         nearAccountId: nearAccountId as string,
         receiverId: receiverId as string,
@@ -265,24 +264,39 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = getTatchiPasskey();
       const { nearAccountId, request, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
-      let result: Awaited<ReturnType<typeof pm.tempo.signTempo>>;
-      try {
-        result = await pm.tempo.signTempo({
-          nearAccountId,
-          request,
-          options: {
-            confirmationConfig: options?.confirmationConfig,
-            shouldAbort: () => isCancelled(req.requestId),
-            onEvent: (ev) => {
-              postProgress(req.requestId, ev as unknown as ProgressPayload);
-            },
+      const result = await pm.tempo.signTempo({
+        nearAccountId,
+        request,
+        options: {
+          confirmationConfig: options?.confirmationConfig,
+          shouldAbort: () => isCancelled(req.requestId),
+          onEvent: (ev) => {
+            postProgress(req.requestId, ev as unknown as ProgressPayload);
           },
-        });
-      } catch (error: unknown) {
-        throw error;
-      }
+        },
+      });
       if (respondIfCancelled(req.requestId)) return;
       respondOkResult(req.requestId, result);
+    },
+
+    PM_REPORT_TEMPO_BROADCAST_RESULT: async (req: Req<'PM_REPORT_TEMPO_BROADCAST_RESULT'>) => {
+      const pm = getTatchiPasskey();
+      const { nearAccountId, signedResult, status, txHash, error } = req.payload!;
+      if (respondIfCancelled(req.requestId)) return;
+      await pm.tempo.reportBroadcastResult({
+        nearAccountId,
+        signedResult,
+        status,
+        ...(txHash ? { txHash } : {}),
+        ...(error ? { error } : {}),
+        options: {
+          onEvent: (ev) => {
+            postProgress(req.requestId, ev as unknown as ProgressPayload);
+          },
+        },
+      });
+      if (respondIfCancelled(req.requestId)) return;
+      respondOk(req.requestId);
     },
 
     PM_EXPORT_KEYPAIR_UI: async (req: Req<'PM_EXPORT_KEYPAIR_UI'>) => {
@@ -425,7 +439,8 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_START_DEVICE2_LINKING_FLOW: async (req: Req<'PM_START_DEVICE2_LINKING_FLOW'>) => {
       const pm = getTatchiPasskey();
-      const { ui, cameraId, accountId, deviceNumber, localSignerEnabled, options } = req.payload || {};
+      const { ui, cameraId, accountId, deviceNumber, localSignerEnabled, options } =
+        req.payload || {};
       const accountIdValue = accountId ? toAccountId(accountId) : undefined;
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.recovery.startDevice2LinkingFlow({
@@ -450,7 +465,9 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOk(req.requestId);
     },
 
-    PM_LINK_DEVICE_WITH_SCANNED_QR_DATA: async (req: Req<'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA'>) => {
+    PM_LINK_DEVICE_WITH_SCANNED_QR_DATA: async (
+      req: Req<'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA'>,
+    ) => {
       const pm = getTatchiPasskey();
       const { qrData, fundingAmount, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
@@ -471,13 +488,17 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_SET_CONFIRMATION_CONFIG: async (req: Req<'PM_SET_CONFIRMATION_CONFIG'>) => {
       const pm = getTatchiPasskey();
-      const { nearAccountId } = (req.payload || {});
+      const { nearAccountId } = req.payload || {};
       const incoming = (req.payload?.config || {}) as Record<string, unknown>;
       let patch: Record<string, unknown> = { ...incoming };
       if (nearAccountId) {
-        await pm.auth.getSession(nearAccountId)
+        await pm.auth
+          .getSession(nearAccountId)
           .then(({ login }) => {
-            const existing = (login?.userData?.preferences?.confirmationConfig || {}) as Record<string, unknown>;
+            const existing = (login?.userData?.preferences?.confirmationConfig || {}) as Record<
+              string,
+              unknown
+            >;
             patch = { ...existing, ...incoming };
           })
           .catch(() => undefined);
@@ -511,7 +532,9 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_SET_THEME: async (req: Req<'PM_SET_THEME'>) => {
       const pm = getTatchiPasskey();
       const { theme } = req.payload!;
-      try { pm.setTheme(theme); } catch {}
+      try {
+        pm.setTheme(theme);
+      } catch {}
       try {
         if (theme === 'light' || theme === 'dark') {
           document.documentElement.setAttribute('data-w3a-theme', theme);
@@ -550,7 +573,6 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       if (respondIfCancelled(req.requestId)) return;
       respondOkResult(req.requestId, result);
     },
-
   } satisfies HandlerMap;
 
   return handlers;

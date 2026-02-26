@@ -74,9 +74,7 @@ export interface WebhookDispatchResult {
 }
 
 export interface WebhookDispatchAdapter {
-  dispatch(
-    input: WebhookDispatchRequest,
-  ): Promise<WebhookDispatchResult> | WebhookDispatchResult;
+  dispatch(input: WebhookDispatchRequest): Promise<WebhookDispatchResult> | WebhookDispatchResult;
 }
 
 export interface InMemoryConsoleWebhookServiceOptions {
@@ -196,7 +194,9 @@ function sortDeliveriesByNewest(items: StoredWebhookDelivery[]): StoredWebhookDe
   return [...items].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-function sortAttemptsByNewest(items: StoredWebhookDeliveryAttempt[]): StoredWebhookDeliveryAttempt[] {
+function sortAttemptsByNewest(
+  items: StoredWebhookDeliveryAttempt[],
+): StoredWebhookDeliveryAttempt[] {
   return [...items].sort((a, b) => {
     if (b.attemptedAtMs !== a.attemptedAtMs) return b.attemptedAtMs - a.attemptedAtMs;
     return b.attemptNo - a.attemptNo;
@@ -238,10 +238,7 @@ export function createInMemoryConsoleWebhookService(
     return store.endpoints.get(endpointId);
   }
 
-  function getEndpointOrThrow(
-    store: OrgWebhookStore,
-    endpointId: string,
-  ): StoredWebhookEndpoint {
+  function getEndpointOrThrow(store: OrgWebhookStore, endpointId: string): StoredWebhookEndpoint {
     const endpoint = getEndpoint(store, endpointId);
     if (endpoint) return endpoint;
     throw new ConsoleWebhookError(
@@ -281,10 +278,7 @@ export function createInMemoryConsoleWebhookService(
     return getEndpointDeliveries(store, endpointId).find((entry) => entry.id === deliveryId);
   }
 
-  function shouldDeliverToEndpoint(
-    endpoint: StoredWebhookEndpoint,
-    eventType: string,
-  ): boolean {
+  function shouldDeliverToEndpoint(endpoint: StoredWebhookEndpoint, eventType: string): boolean {
     if (endpoint.status !== 'ACTIVE') return false;
     const category = normalizeEventCategory(eventType);
     if (!category) return false;
@@ -326,11 +320,10 @@ export function createInMemoryConsoleWebhookService(
 
     const attemptedAt = coerceIsoDate(current);
     const nextAttemptNo = delivery.attemptCount + 1;
-    const responseStatus = Number.isInteger(result.statusCode) && result.statusCode > 0
-      ? result.statusCode
-      : null;
+    const responseStatus =
+      Number.isInteger(result.statusCode) && result.statusCode > 0 ? result.statusCode : null;
     const responseBody = truncateResponseBody(result.responseBody);
-    const errorMessage = result.ok ? null : (result.errorMessage || `HTTP ${result.statusCode || 0}`);
+    const errorMessage = result.ok ? null : result.errorMessage || `HTTP ${result.statusCode || 0}`;
     const attempt: StoredWebhookDeliveryAttempt = {
       id: makeId('whatt', current),
       orgId: delivery.orgId,
@@ -505,8 +498,9 @@ export function createInMemoryConsoleWebhookService(
         };
       }
 
-      const attempts = getEndpointDeliveries(store, endpointId)
-        .flatMap((delivery) => getDeliveryAttempts(store, delivery.id));
+      const attempts = getEndpointDeliveries(store, endpointId).flatMap((delivery) =>
+        getDeliveryAttempts(store, delivery.id),
+      );
       const page = paginateByCursor({
         items: sortAttemptsByNewest(attempts),
         limit: request.limit,
@@ -596,12 +590,18 @@ export function createInMemoryConsoleWebhookService(
       if (!eventType) {
         throw new ConsoleWebhookError('invalid_event_type', 400, 'eventType is required');
       }
-      if (!request.payload || typeof request.payload !== 'object' || Array.isArray(request.payload)) {
+      if (
+        !request.payload ||
+        typeof request.payload !== 'object' ||
+        Array.isArray(request.payload)
+      ) {
         throw new ConsoleWebhookError('invalid_payload', 400, 'payload must be a JSON object');
       }
 
       const eventId = String(request.eventId || '').trim() || makeId('wevt', now());
-      const targets = [...store.endpoints.values()].filter((endpoint) => shouldDeliverToEndpoint(endpoint, eventType));
+      const targets = [...store.endpoints.values()].filter((endpoint) =>
+        shouldDeliverToEndpoint(endpoint, eventType),
+      );
       let delivered = 0;
       let failed = 0;
 

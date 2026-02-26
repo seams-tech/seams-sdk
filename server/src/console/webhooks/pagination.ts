@@ -77,12 +77,12 @@ export function paginateByCursor<T>(input: CursorPaginateInput<T>): CursorPagina
 
   const filtered = cursor
     ? input.items.filter((item) => {
-      const sortMs = input.getSortMs(item);
-      const id = input.getId(item);
-      if (sortMs < cursor.sortMs) return true;
-      if (sortMs > cursor.sortMs) return false;
-      return id < cursor.id;
-    })
+        const sortMs = input.getSortMs(item);
+        const id = input.getId(item);
+        if (sortMs < cursor.sortMs) return true;
+        if (sortMs > cursor.sortMs) return false;
+        return id < cursor.id;
+      })
     : input.items;
 
   const page = filtered.slice(0, limit);

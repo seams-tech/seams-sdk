@@ -4,12 +4,12 @@ import { DelegateAction, Signature } from './delegate';
 
 export interface TransactionInput {
   receiverId: string;
-  actions: ActionArgs[],
+  actions: ActionArgs[];
 }
 
 export interface TransactionInputWasm {
   receiverId: string;
-  actions: ActionArgsWasm[],
+  actions: ActionArgsWasm[];
   nonce?: string; // Optional - computed in confirmation flow if not provided
 }
 
@@ -17,17 +17,17 @@ export interface TransactionInputWasm {
  * Enum for all supported NEAR action types
  */
 export enum ActionType {
-  CreateAccount = "CreateAccount",
-  DeployContract = "DeployContract",
-  FunctionCall = "FunctionCall",
-  Transfer = "Transfer",
-  Stake = "Stake",
-  AddKey = "AddKey",
-  DeleteKey = "DeleteKey",
-  DeleteAccount = "DeleteAccount",
-  SignedDelegate = "SignedDelegate",
-  DeployGlobalContract = "DeployGlobalContract",
-  UseGlobalContract = "UseGlobalContract",
+  CreateAccount = 'CreateAccount',
+  DeployContract = 'DeployContract',
+  FunctionCall = 'FunctionCall',
+  Transfer = 'Transfer',
+  Stake = 'Stake',
+  AddKey = 'AddKey',
+  DeleteKey = 'DeleteKey',
+  DeleteAccount = 'DeleteAccount',
+  SignedDelegate = 'SignedDelegate',
+  DeployGlobalContract = 'DeployGlobalContract',
+  UseGlobalContract = 'UseGlobalContract',
 }
 
 export enum TxExecutionStatus {
@@ -36,7 +36,7 @@ export enum TxExecutionStatus {
   INCLUDED_FINAL = 'INCLUDED_FINAL',
   EXECUTED = 'EXECUTED',
   FINAL = 'FINAL',
-  EXECUTED_OPTIMISTIC = 'EXECUTED_OPTIMISTIC'
+  EXECUTED_OPTIMISTIC = 'EXECUTED_OPTIMISTIC',
 }
 
 // === ACTION INTERFACES (camelCase for JS) ===
@@ -102,17 +102,19 @@ export interface AddKeyAction {
     /** Starting nonce for the key */
     nonce?: number;
     /** Permission level for the key */
-    permission: 'FullAccess' | {
-      /** Function call permissions */
-      FunctionCall: {
-        /** Maximum allowance in yoctoNEAR (optional for unlimited) */
-        allowance?: string;
-        /** Contract that can be called (default: same as receiverId) */
-        receiverId?: string;
-        /** Method names that can be called (empty array = all methods) */
-        methodNames?: string[];
-      };
-    };
+    permission:
+      | 'FullAccess'
+      | {
+          /** Function call permissions */
+          FunctionCall: {
+            /** Maximum allowance in yoctoNEAR (optional for unlimited) */
+            allowance?: string;
+            /** Contract that can be called (default: same as receiverId) */
+            receiverId?: string;
+            /** Method names that can be called (empty array = all methods) */
+            methodNames?: string[];
+          };
+        };
   };
 }
 
@@ -152,24 +154,28 @@ export type ActionArgsWasm =
   | { action_type: ActionType.CreateAccount }
   | { action_type: ActionType.DeployContract; code: number[] }
   | {
-    action_type: ActionType.FunctionCall;
-    method_name: string;
-    args: string; // JSON string
-    gas: string;
-    deposit: string;
-  }
+      action_type: ActionType.FunctionCall;
+      method_name: string;
+      args: string; // JSON string
+      gas: string;
+      deposit: string;
+    }
   | { action_type: ActionType.Transfer; deposit: string }
   | { action_type: ActionType.Stake; stake: string; public_key: string }
   | { action_type: ActionType.AddKey; public_key: string; access_key: string }
   | { action_type: ActionType.DeleteKey; public_key: string }
   | { action_type: ActionType.DeleteAccount; beneficiary_id: string }
   | {
-    action_type: ActionType.SignedDelegate;
-    delegate_action: DelegateAction;
-    signature: Signature;
-  }
-  | { action_type: ActionType.DeployGlobalContract; code: number[]; deploy_mode: 'CodeHash' | 'AccountId' }
-  | { action_type: ActionType.UseGlobalContract; account_id?: string; code_hash?: string }
+      action_type: ActionType.SignedDelegate;
+      delegate_action: DelegateAction;
+      signature: Signature;
+    }
+  | {
+      action_type: ActionType.DeployGlobalContract;
+      code: number[];
+      deploy_mode: 'CodeHash' | 'AccountId';
+    }
+  | { action_type: ActionType.UseGlobalContract; account_id?: string; code_hash?: string };
 
 export function isActionArgsWasm(a?: any): a is ActionArgsWasm {
   return isObject(a) && 'action_type' in a;
@@ -180,7 +186,7 @@ export function toActionArgsWasm(action: ActionArgs): ActionArgsWasm {
     case ActionType.Transfer:
       return {
         action_type: ActionType.Transfer,
-        deposit: action.amount
+        deposit: action.amount,
       };
 
     case ActionType.FunctionCall:
@@ -188,19 +194,17 @@ export function toActionArgsWasm(action: ActionArgs): ActionArgsWasm {
         action_type: ActionType.FunctionCall,
         method_name: action.methodName,
         args: JSON.stringify(action.args),
-        gas: action.gas || "30000000000000",
-        deposit: action.deposit || "0"
+        gas: action.gas || '30000000000000',
+        deposit: action.deposit || '0',
       };
 
-    case ActionType.AddKey:
+    case ActionType.AddKey: {
       // Ensure access key has proper format with nonce and permission object.
       // For FullAccess we emit the NEAR-style `{ FullAccess: {} }` shape to
       // match near-api-js and RPC JSON; FunctionCall permissions are passed
       // through as-is.
       const rawPermission = action.accessKey.permission;
-      const permission = rawPermission === 'FullAccess'
-          ? { FullAccess: {} }
-          : rawPermission;
+      const permission = rawPermission === 'FullAccess' ? { FullAccess: {} } : rawPermission;
       const accessKey = {
         nonce: action.accessKey.nonce || 0,
         permission,
@@ -208,40 +212,43 @@ export function toActionArgsWasm(action: ActionArgs): ActionArgsWasm {
       return {
         action_type: ActionType.AddKey,
         public_key: action.publicKey,
-        access_key: JSON.stringify(accessKey)
+        access_key: JSON.stringify(accessKey),
       };
+    }
 
     case ActionType.DeleteKey:
       return {
         action_type: ActionType.DeleteKey,
-        public_key: action.publicKey
+        public_key: action.publicKey,
       };
 
     case ActionType.CreateAccount:
       return {
-        action_type: ActionType.CreateAccount
+        action_type: ActionType.CreateAccount,
       };
 
     case ActionType.DeleteAccount:
       return {
         action_type: ActionType.DeleteAccount,
-        beneficiary_id: action.beneficiaryId
+        beneficiary_id: action.beneficiaryId,
       };
 
     case ActionType.DeployContract:
       return {
         action_type: ActionType.DeployContract,
-        code: typeof action.code === 'string'
-          ? Array.from(new TextEncoder().encode(action.code))
-          : Array.from(action.code)
+        code:
+          typeof action.code === 'string'
+            ? Array.from(new TextEncoder().encode(action.code))
+            : Array.from(action.code),
       };
 
     case ActionType.DeployGlobalContract:
       return {
         action_type: ActionType.DeployGlobalContract,
-        code: typeof action.code === 'string'
-          ? Array.from(new TextEncoder().encode(action.code))
-          : Array.from(action.code),
+        code:
+          typeof action.code === 'string'
+            ? Array.from(new TextEncoder().encode(action.code))
+            : Array.from(action.code),
         deploy_mode: action.deployMode,
       };
 
@@ -256,7 +263,7 @@ export function toActionArgsWasm(action: ActionArgs): ActionArgsWasm {
       return {
         action_type: ActionType.Stake,
         stake: action.stake,
-        public_key: action.publicKey
+        public_key: action.publicKey,
       };
 
     default:
@@ -359,7 +366,10 @@ export function validateActionArgsWasm(actionArgsWasm: ActionArgsWasm): void {
       if (!actionArgsWasm.code || actionArgsWasm.code.length === 0) {
         throw new Error('code required for DeployGlobalContract');
       }
-      if (!actionArgsWasm.deploy_mode || (actionArgsWasm.deploy_mode !== 'CodeHash' && actionArgsWasm.deploy_mode !== 'AccountId')) {
+      if (
+        !actionArgsWasm.deploy_mode ||
+        (actionArgsWasm.deploy_mode !== 'CodeHash' && actionArgsWasm.deploy_mode !== 'AccountId')
+      ) {
         throw new Error('deploy_mode must be CodeHash or AccountId for DeployGlobalContract');
       }
       break;
@@ -408,24 +418,24 @@ export function fromActionArgsWasm(a: ActionArgsWasm): ActionArgs {
         methodName: a.method_name,
         args: parsedArgs,
         gas: a.gas,
-        deposit: a.deposit
+        deposit: a.deposit,
       };
     }
     case ActionType.Transfer:
       return {
         type: ActionType.Transfer,
-        amount: a.deposit
+        amount: a.deposit,
       };
     case ActionType.CreateAccount:
       return {
-        type: ActionType.CreateAccount
+        type: ActionType.CreateAccount,
       };
     case ActionType.DeployContract: {
       // Represent code as Uint8Array for consistency
       const codeBytes = Array.isArray(a.code) ? new Uint8Array(a.code) : new Uint8Array();
       return {
         type: ActionType.DeployContract,
-        code: codeBytes
+        code: codeBytes,
       };
     }
     case ActionType.DeployGlobalContract: {
@@ -440,11 +450,11 @@ export function fromActionArgsWasm(a: ActionArgsWasm): ActionArgs {
       return {
         type: ActionType.Stake,
         stake: a.stake,
-        publicKey: a.public_key
+        publicKey: a.public_key,
       };
     case ActionType.AddKey: {
       // access_key is a JSON string of { nonce, permission: ... }
-      let accessKey: { nonce: bigint; permission: 'FullAccess' | FunctionCallPermissionView; }
+      let accessKey: { nonce: bigint; permission: 'FullAccess' | FunctionCallPermissionView };
       try {
         accessKey = JSON.parse(a.access_key);
       } catch {
@@ -463,8 +473,8 @@ export function fromActionArgsWasm(a: ActionArgsWasm): ActionArgs {
             FunctionCall: {
               allowance: fc.allowance,
               receiver_id: fc.receiver_id,
-              method_names: fc.method_names
-            }
+              method_names: fc.method_names,
+            },
           };
         }
       }
@@ -473,19 +483,19 @@ export function fromActionArgsWasm(a: ActionArgsWasm): ActionArgs {
         publicKey: a.public_key,
         accessKey: {
           nonce: typeof accessKey?.nonce === 'number' ? accessKey.nonce : 0,
-          permission: normalizedPermission
-        }
+          permission: normalizedPermission,
+        },
       };
     }
     case ActionType.DeleteKey:
       return {
         type: ActionType.DeleteKey,
-        publicKey: a.public_key
+        publicKey: a.public_key,
       };
     case ActionType.DeleteAccount:
       return {
         type: ActionType.DeleteAccount,
-        beneficiaryId: a.beneficiary_id
+        beneficiaryId: a.beneficiary_id,
       };
     case ActionType.UseGlobalContract:
       return {
@@ -503,7 +513,7 @@ export function fromActionArgsWasm(a: ActionArgsWasm): ActionArgs {
 export function fromTransactionInputWasm(tx: TransactionInputWasm): TransactionInput {
   return {
     receiverId: tx.receiverId,
-    actions: tx.actions.map(fromActionArgsWasm)
+    actions: tx.actions.map(fromActionArgsWasm),
   };
 }
 

@@ -16,7 +16,8 @@ import {
 export { getPrfFirstB64uFromCredential, redactCredentialExtensionOutputs };
 
 export type ThresholdAuthenticatorRecord = ProfileAuthenticatorRecord & WebAuthnAuthenticatorRecord;
-export type ThresholdIndexedDbClientPort = WebAuthnIndexedDbClientPort<ThresholdAuthenticatorRecord>;
+export type ThresholdIndexedDbClientPort =
+  WebAuthnIndexedDbClientPort<ThresholdAuthenticatorRecord>;
 export type ThresholdIndexedDbPort = WebAuthnIndexedDbPort<ThresholdAuthenticatorRecord>;
 export type ThresholdWebAuthnPromptPort = WebAuthnPromptPort;
 
@@ -46,7 +47,10 @@ export type ThresholdSigningKeyOpsPort = ThresholdEd25519ClientShareDeriverPort;
 
 export async function collectAuthenticationCredentialForChallengeB64u(args: {
   indexedDB: ThresholdIndexedDbPort;
-  touchIdPrompt: Pick<ThresholdWebAuthnPromptPort, 'getAuthenticationCredentialsSerializedForChallengeB64u'>;
+  touchIdPrompt: Pick<
+    ThresholdWebAuthnPromptPort,
+    'getAuthenticationCredentialsSerializedForChallengeB64u'
+  >;
   nearAccountId: AccountId | string;
   challengeB64u: string;
   includeSecondPrfOutput?: boolean;

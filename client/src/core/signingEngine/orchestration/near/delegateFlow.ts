@@ -172,14 +172,13 @@ export async function signDelegateAction({
     body,
   });
 
-  let intentDigest = confirmation.intentDigest;
-  let transactionContext = confirmation.transactionContext;
+  const intentDigest = confirmation.intentDigest;
+  const transactionContext = confirmation.transactionContext;
 
-  let credentialWithPrf: WebAuthnAuthenticationCredential | undefined = confirmation.credential as
-    | WebAuthnAuthenticationCredential
-    | undefined;
+  const credentialWithPrf: WebAuthnAuthenticationCredential | undefined =
+    confirmation.credential as WebAuthnAuthenticationCredential | undefined;
 
-  let credentialForRelayJson = toCredentialForRelayJson(credentialWithPrf);
+  const credentialForRelayJson = toCredentialForRelayJson(credentialWithPrf);
 
   const prfFirstB64u = signingContext.threshold
     ? await (async () => {

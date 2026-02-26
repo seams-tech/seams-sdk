@@ -11,7 +11,7 @@ export * from './router';
 export * from './env';
 
 export async function initWalletIframeClient(
-  options: WalletIframeRouterOptions
+  options: WalletIframeRouterOptions,
 ): Promise<WalletIframeRouter> {
   const router = new WalletIframeRouter(options);
   await router.init();

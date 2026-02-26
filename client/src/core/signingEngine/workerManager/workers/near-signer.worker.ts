@@ -33,10 +33,7 @@
  * - WorkerProgressMessage: Complete message structure
  */
 
-import {
-  type SignerWorkerRequestType,
-  WasmRequestPayload,
-} from '@/core/types/signer-worker';
+import { type SignerWorkerRequestType, WasmRequestPayload } from '@/core/types/signer-worker';
 // Import WASM binary directly
 import init, {
   handle_signer_message,
@@ -84,24 +81,25 @@ function sendProgressMessage(
   stepName: string,
   message: string,
   data: unknown,
-  logs?: unknown
+  logs?: unknown,
 ): void {
   try {
     // Parse structured data and logs using helper if they are strings
-    const parsedData = (typeof data === 'string') ? safeJsonParse(data, {}) : (data || {});
-    const parsedLogs = (typeof logs === 'string') ? safeJsonParse(logs || '', []) : (logs || []);
+    const parsedData = typeof data === 'string' ? safeJsonParse(data, {}) : data || {};
+    const parsedLogs = typeof logs === 'string' ? safeJsonParse(logs || '', []) : logs || [];
 
     // Create onProgressEvents-compatible payload
     const progressPayload = {
       step: step,
       phase: stepName,
-      status: (
+      status:
         messageTypeName === 'REGISTRATION_COMPLETE' ||
         messageTypeName === 'EXECUTE_ACTIONS_COMPLETE'
-      ) ? 'success' : 'progress',
+          ? 'success'
+          : 'progress',
       message: message,
       data: parsedData,
-      logs: parsedLogs
+      logs: parsedLogs,
     };
 
     if (!activeRequestId) {
@@ -114,7 +112,6 @@ function sendProgressMessage(
       progress: true,
       payload: progressPayload,
     });
-
   } catch (error: unknown) {
     console.error('[signer-worker]: Failed to send progress message:', error);
     if (!activeRequestId) return;
@@ -132,7 +129,6 @@ type NearSignerWorkerGlobal = typeof globalThis & {
   sendProgressMessage?: typeof sendProgressMessage;
 };
 (globalThis as NearSignerWorkerGlobal).sendProgressMessage = sendProgressMessage;
-
 
 /**
  * Initialize WASM module
@@ -216,25 +212,16 @@ self.onmessage = async (event: MessageEvent<SignerWorkerRpcRequest>): Promise<vo
 
   // Serialize worker operations to keep WASM state predictable and to avoid
   // overlapping accesses to PRF-derived material and relayer state.
-  messageQueue = messageQueue
-    .catch(() => undefined)
-    .then(() => processWorkerMessage(event));
+  messageQueue = messageQueue.catch(() => undefined).then(() => processWorkerMessage(event));
   await messageQueue;
 };
 
 function assertNoPrfSecretsInSignerPayload(data: unknown): void {
-  const payload = (data && typeof data === 'object')
-    ? (data as { payload?: unknown }).payload
-    : undefined;
+  const payload =
+    data && typeof data === 'object' ? (data as { payload?: unknown }).payload : undefined;
   if (!payload || typeof payload !== 'object') return;
   const payloadRecord = payload as Record<string, unknown>;
-  const forbiddenKeys = [
-    'prfOutput',
-    'prf_output',
-    'prfFirst',
-    'prf_first',
-    'prf',
-  ];
+  const forbiddenKeys = ['prfOutput', 'prf_output', 'prfFirst', 'prf_first', 'prf'];
   for (const key of forbiddenKeys) {
     if (payloadRecord[key] !== undefined) {
       throw new Error(`Forbidden secret field in signer payload: ${key}`);
@@ -248,7 +235,7 @@ self.onerror = (message, filename, lineno, colno, error) => {
     filename: filename || 'unknown',
     lineno: lineno || 0,
     colno: colno || 0,
-    error: error
+    error: error,
   });
 };
 

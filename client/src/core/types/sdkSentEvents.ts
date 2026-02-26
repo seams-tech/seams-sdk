@@ -115,7 +115,7 @@ export enum EmailRecoveryPhase {
   STEP_2_TOUCH_ID_REGISTRATION = 'email-recovery-touch-id-registration',
   STEP_3_AWAIT_EMAIL = 'email-recovery-await-email',
   STEP_4_POLLING_ADD_KEY = 'email-recovery-polling-add-key',
-  STEP_4_POLLING_VERIFICATION_RESULT = 'email-recovery-polling-add-key',
+  STEP_4_POLLING_VERIFICATION_RESULT = 'email-recovery-polling-verification-result',
   STEP_5_FINALIZING_REGISTRATION = 'email-recovery-finalizing-registration',
   STEP_6_COMPLETE = 'email-recovery-complete',
   ERROR = 'email-recovery-error',

@@ -37,7 +37,9 @@ export type ThresholdCoordinatorPeer = {
   relayerUrl: string;
 };
 
-export function parseThresholdRelayerCosigners(input: unknown): ThresholdRelayerCosignerPeer[] | null {
+export function parseThresholdRelayerCosigners(
+  input: unknown,
+): ThresholdRelayerCosignerPeer[] | null {
   const asJson = (raw: string): unknown => {
     try {
       return JSON.parse(raw);
@@ -63,7 +65,7 @@ export function parseThresholdRelayerCosigners(input: unknown): ThresholdRelayer
     out.push({ cosignerId, relayerUrl });
   }
 
-  out.sort((a, b) => (a.cosignerId - b.cosignerId) || a.relayerUrl.localeCompare(b.relayerUrl));
+  out.sort((a, b) => a.cosignerId - b.cosignerId || a.relayerUrl.localeCompare(b.relayerUrl));
   return out.length ? out : null;
 }
 
@@ -93,7 +95,9 @@ export function parseThresholdCoordinatorPeers(input: unknown): ThresholdCoordin
     out.push({ instanceId, relayerUrl });
   }
 
-  out.sort((a, b) => a.instanceId.localeCompare(b.instanceId) || a.relayerUrl.localeCompare(b.relayerUrl));
+  out.sort(
+    (a, b) => a.instanceId.localeCompare(b.instanceId) || a.relayerUrl.localeCompare(b.relayerUrl),
+  );
   return out.length ? out : null;
 }
 
@@ -118,7 +122,9 @@ export function parseThresholdCoordinatorSharedSecretBytes(input: unknown): Uint
     throw new Error('THRESHOLD_COORDINATOR_SHARED_SECRET_B64U must be valid base64url');
   }
   if (decoded.length !== 32) {
-    throw new Error(`THRESHOLD_COORDINATOR_SHARED_SECRET_B64U must decode to 32 bytes, got ${decoded.length}`);
+    throw new Error(
+      `THRESHOLD_COORDINATOR_SHARED_SECRET_B64U must decode to 32 bytes, got ${decoded.length}`,
+    );
   }
   return decoded;
 }
@@ -128,7 +134,9 @@ export function validateThresholdEd25519MasterSecretB64u(input: unknown): string
   if (!masterSecretB64u) return null;
   const decoded = base64UrlDecode(masterSecretB64u);
   if (decoded.length !== 32) {
-    throw new Error(`THRESHOLD_ED25519_MASTER_SECRET_B64U must decode to 32 bytes, got ${decoded.length}`);
+    throw new Error(
+      `THRESHOLD_ED25519_MASTER_SECRET_B64U must decode to 32 bytes, got ${decoded.length}`,
+    );
   }
   return masterSecretB64u;
 }
@@ -145,7 +153,9 @@ export function validateThresholdSecp256k1MasterSecretB64u(input: unknown): stri
   }
 
   if (decoded.length !== 32) {
-    throw new Error(`THRESHOLD_SECP256K1_MASTER_SECRET_B64U must decode to 32 bytes, got ${decoded.length}`);
+    throw new Error(
+      `THRESHOLD_SECP256K1_MASTER_SECRET_B64U must decode to 32 bytes, got ${decoded.length}`,
+    );
   }
   return masterSecretB64u;
 }
@@ -156,11 +166,13 @@ export function parseThresholdEd25519ParticipantIds2p(input: {
 }): { clientParticipantId: number; relayerParticipantId: number; participantIds2p: number[] } {
   const clientIdRaw = input.THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID;
   const relayerIdRaw = input.THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID;
-  const clientId = clientIdRaw === undefined ? null : normalizeThresholdEd25519ParticipantId(clientIdRaw);
+  const clientId =
+    clientIdRaw === undefined ? null : normalizeThresholdEd25519ParticipantId(clientIdRaw);
   if (clientIdRaw !== undefined && !clientId) {
     throw new Error('THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID must be an integer in [1,65535]');
   }
-  const relayerId = relayerIdRaw === undefined ? null : normalizeThresholdEd25519ParticipantId(relayerIdRaw);
+  const relayerId =
+    relayerIdRaw === undefined ? null : normalizeThresholdEd25519ParticipantId(relayerIdRaw);
   if (relayerIdRaw !== undefined && !relayerId) {
     throw new Error('THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID must be an integer in [1,65535]');
   }
@@ -168,12 +180,15 @@ export function parseThresholdEd25519ParticipantIds2p(input: {
   const clientParticipantId = clientId ?? THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID;
   const relayerParticipantId = relayerId ?? THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID;
   if (clientParticipantId === relayerParticipantId) {
-    throw new Error('THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID must differ from THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID');
+    throw new Error(
+      'THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID must differ from THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID',
+    );
   }
 
-  const participantIds2p =
-    normalizeThresholdEd25519ParticipantIds([clientParticipantId, relayerParticipantId])
-    || [...THRESHOLD_ED25519_2P_PARTICIPANT_IDS];
+  const participantIds2p = normalizeThresholdEd25519ParticipantIds([
+    clientParticipantId,
+    relayerParticipantId,
+  ]) || [...THRESHOLD_ED25519_2P_PARTICIPANT_IDS];
 
   return { clientParticipantId, relayerParticipantId, participantIds2p };
 }

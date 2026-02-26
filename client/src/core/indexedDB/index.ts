@@ -12,7 +12,7 @@ export type {
   LastProfileState,
   RecoveryEmailRecord,
   ProfileId,
-  ChainId,
+  ChainIdKey,
   AccountAddress,
   SignerId,
   AccountRef,
@@ -39,11 +39,11 @@ export type {
   ThresholdEd25519_2p_V1Material,
   PasskeyNearKeyMaterialKind,
   ClientShareDerivation,
-  PasskeyChainKeyMaterial,
-  PasskeyChainKeyKind,
-  PasskeyChainKeyAlgorithm,
-  PasskeyChainKeyPayloadEnvelope,
-  PasskeyChainKeyPayloadEnvelopeAAD,
+  PasskeyChainIdKeyMaterial,
+  PasskeyChainIdKeyKind,
+  PasskeyChainIdKeyAlgorithm,
+  PasskeyChainIdKeyPayloadEnvelope,
+  PasskeyChainIdKeyPayloadEnvelopeAAD,
 } from './passkeyNearKeysDB.types';
 
 import { UnifiedIndexedDBManager } from './unifiedIndexedDBManager';
@@ -51,7 +51,10 @@ import { passkeyClientDB, passkeyNearKeysDB } from './singletons';
 
 export type IndexedDBMode = 'app' | 'wallet' | 'disabled';
 
-const DB_CONFIG_BY_MODE: Record<IndexedDBMode, { clientDbName: string; nearKeysDbName: string; disabled: boolean }> = {
+const DB_CONFIG_BY_MODE: Record<
+  IndexedDBMode,
+  { clientDbName: string; nearKeysDbName: string; disabled: boolean }
+> = {
   app: { clientDbName: 'PasskeyClientDB', nearKeysDbName: 'PasskeyNearKeys', disabled: false },
   wallet: { clientDbName: 'PasskeyClientDB', nearKeysDbName: 'PasskeyNearKeys', disabled: false },
   // When running the SDK on the app origin with a wallet iframe configured, we disable IndexedDB entirely
@@ -59,7 +62,12 @@ const DB_CONFIG_BY_MODE: Record<IndexedDBMode, { clientDbName: string; nearKeysD
   disabled: { clientDbName: 'PasskeyClientDB', nearKeysDbName: 'PasskeyNearKeys', disabled: true },
 };
 
-let configured: { mode: IndexedDBMode; clientDbName: string; nearKeysDbName: string; disabled: boolean } | null = null;
+let configured: {
+  mode: IndexedDBMode;
+  clientDbName: string;
+  nearKeysDbName: string;
+  disabled: boolean;
+} | null = null;
 
 /**
  * Configure IndexedDB database names for the current runtime.
@@ -69,7 +77,10 @@ let configured: { mode: IndexedDBMode; clientDbName: string; nearKeysDbName: str
  * - App origin should use `mode: 'disabled'` when wallet-iframe mode is enabled.
  * - Non-iframe apps should use `mode: 'app'`.
  */
-export function configureIndexedDB(args: { mode: IndexedDBMode }): { clientDbName: string; nearKeysDbName: string } {
+export function configureIndexedDB(args: { mode: IndexedDBMode }): {
+  clientDbName: string;
+  nearKeysDbName: string;
+} {
   const mode = args?.mode;
   const next = DB_CONFIG_BY_MODE[mode];
   if (!next) {
@@ -78,14 +89,17 @@ export function configureIndexedDB(args: { mode: IndexedDBMode }): { clientDbNam
 
   if (configured) {
     const isSame =
-      configured.clientDbName === next.clientDbName
-      && configured.nearKeysDbName === next.nearKeysDbName
-      && configured.disabled === next.disabled;
+      configured.clientDbName === next.clientDbName &&
+      configured.nearKeysDbName === next.nearKeysDbName &&
+      configured.disabled === next.disabled;
     if (!isSame) {
-      console.warn('[IndexedDBManager] configureIndexedDB called multiple times; ignoring subsequent configuration', {
-        configured,
-        requested: next,
-      });
+      console.warn(
+        '[IndexedDBManager] configureIndexedDB called multiple times; ignoring subsequent configuration',
+        {
+          configured,
+          requested: next,
+        },
+      );
     }
     return { clientDbName: configured.clientDbName, nearKeysDbName: configured.nearKeysDbName };
   }
@@ -99,10 +113,12 @@ export function configureIndexedDB(args: { mode: IndexedDBMode }): { clientDbNam
 }
 
 export function getIndexedDBNames(): { clientDbName: string; nearKeysDbName: string } {
-  return configured || {
-    clientDbName: passkeyClientDB.getDbName(),
-    nearKeysDbName: passkeyNearKeysDB.getDbName(),
-  };
+  return (
+    configured || {
+      clientDbName: passkeyClientDB.getDbName(),
+      nearKeysDbName: passkeyNearKeysDB.getDbName(),
+    }
+  );
 }
 
 // Export singleton instance of unified manager

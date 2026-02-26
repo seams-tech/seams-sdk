@@ -130,15 +130,18 @@ type WorkerErrorPayload = {
 
 function asWorkerErrorPayload(err: unknown): WorkerErrorPayload {
   if (err && typeof err === 'object') {
-    const message = typeof (err as { message?: unknown }).message === 'string'
-      ? String((err as { message?: string }).message).trim()
-      : '';
-    const code = typeof (err as { code?: unknown }).code === 'string'
-      ? String((err as { code?: string }).code).trim()
-      : '';
-    const coreCode = typeof (err as { coreCode?: unknown }).coreCode === 'string'
-      ? String((err as { coreCode?: string }).coreCode).trim()
-      : '';
+    const message =
+      typeof (err as { message?: unknown }).message === 'string'
+        ? String((err as { message?: string }).message).trim()
+        : '';
+    const code =
+      typeof (err as { code?: unknown }).code === 'string'
+        ? String((err as { code?: string }).code).trim()
+        : '';
+    const coreCode =
+      typeof (err as { coreCode?: unknown }).coreCode === 'string'
+        ? String((err as { coreCode?: string }).coreCode).trim()
+        : '';
     return {
       message: message || errorMessage(err),
       ...(code ? { code } : {}),
@@ -208,9 +211,7 @@ function parsePresignPollResult(raw: unknown): {
 } {
   const obj = (raw || {}) as { stage?: unknown; event?: unknown; outgoing?: unknown };
   const outgoingRaw = obj.outgoing;
-  const outgoing = Array.isArray(outgoingRaw)
-    ? outgoingRaw.map((entry) => toU8(entry))
-    : [];
+  const outgoing = Array.isArray(outgoingRaw) ? outgoingRaw.map((entry) => toU8(entry)) : [];
   return {
     stage: normalizePresignStage(obj.stage),
     event: normalizePresignEvent(obj.event),
@@ -224,10 +225,13 @@ function freePresignSession(sessionId: string): void {
   thresholdEcdsaPresignSessions.delete(sessionId);
   try {
     existing.free();
-  } catch { }
+  } catch {}
 }
 
-function pollPresignSession(sessionId: string, session: ThresholdEcdsaPresignSession): PresignProgressResult {
+function pollPresignSession(
+  sessionId: string,
+  session: ThresholdEcdsaPresignSession,
+): PresignProgressResult {
   const parsed = parsePresignPollResult(session.poll());
   const outgoingMessages = parsed.outgoing.map((msg) => msg.slice().buffer);
   if (parsed.event !== 'presign_done') {
@@ -311,7 +315,9 @@ self.addEventListener('message', async (event: MessageEvent) => {
           derivationPath,
         ) as Uint8Array;
         if (out.length !== 65) {
-          throw new Error(`derive_threshold_secp256k1_client_share must return 65 bytes (got ${out.length})`);
+          throw new Error(
+            `derive_threshold_secp256k1_client_share must return 65 bytes (got ${out.length})`,
+          );
         }
         const signingShare32 = out.slice(0, 32).buffer;
         const verifyingShare33 = out.slice(32, 65).buffer;
@@ -336,7 +342,9 @@ self.addEventListener('message', async (event: MessageEvent) => {
           nearAccountId,
         ) as Uint8Array;
         if (out.length !== 85) {
-          throw new Error(`derive_secp256k1_keypair_from_prf_second must return 85 bytes (got ${out.length})`);
+          throw new Error(
+            `derive_secp256k1_keypair_from_prf_second must return 85 bytes (got ${out.length})`,
+          );
         }
         const privateKey32 = out.slice(0, 32).buffer;
         const publicKey33 = out.slice(32, 65).buffer;
@@ -363,7 +371,9 @@ self.addEventListener('message', async (event: MessageEvent) => {
           participantId,
         ) as Uint8Array;
         if (out.length !== 32) {
-          throw new Error(`map_additive_share_to_threshold_signatures_share_2p must return 32 bytes (got ${out.length})`);
+          throw new Error(
+            `map_additive_share_to_threshold_signatures_share_2p must return 32 bytes (got ${out.length})`,
+          );
         }
         const ab = out.slice().buffer;
         postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
@@ -373,7 +383,9 @@ self.addEventListener('message', async (event: MessageEvent) => {
         const publicKey33 = toU8(msg.payload.publicKey33);
         const out = validate_secp256k1_public_key_33(publicKey33) as Uint8Array;
         if (out.length !== 33) {
-          throw new Error(`validate_secp256k1_public_key_33 must return 33 bytes (got ${out.length})`);
+          throw new Error(
+            `validate_secp256k1_public_key_33 must return 33 bytes (got ${out.length})`,
+          );
         }
         const ab = out.slice().buffer;
         postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
@@ -480,7 +492,11 @@ self.addEventListener('message', async (event: MessageEvent) => {
       }
       case 'thresholdEcdsaComputeSignatureShare': {
         const out = threshold_ecdsa_compute_signature_share(
-          new Uint32Array((Array.isArray(msg.payload.participantIds) ? msg.payload.participantIds : []).map((v) => Number(v))),
+          new Uint32Array(
+            (Array.isArray(msg.payload.participantIds) ? msg.payload.participantIds : []).map((v) =>
+              Number(v),
+            ),
+          ),
           Number(msg.payload.clientParticipantId),
           toU8(msg.payload.groupPublicKey33),
           toU8(msg.payload.presignBigR33),
@@ -494,12 +510,19 @@ self.addEventListener('message', async (event: MessageEvent) => {
         return;
       }
       default: {
-        throw new Error(`Unsupported ethSigner worker operation type: ${String((msg as { type?: unknown }).type)}`);
+        throw new Error(
+          `Unsupported ethSigner worker operation type: ${String((msg as { type?: unknown }).type)}`,
+        );
       }
     }
   } catch (e) {
-    if (msg?.type === 'thresholdEcdsaPresignSessionInit' || msg?.type === 'thresholdEcdsaPresignSessionStep') {
-      const sessionId = String((msg as { payload?: { sessionId?: unknown } })?.payload?.sessionId || '').trim();
+    if (
+      msg?.type === 'thresholdEcdsaPresignSessionInit' ||
+      msg?.type === 'thresholdEcdsaPresignSessionStep'
+    ) {
+      const sessionId = String(
+        (msg as { payload?: { sessionId?: unknown } })?.payload?.sessionId || '',
+      ).trim();
       if (sessionId) freePresignSession(sessionId);
     }
     const err = asWorkerErrorPayload(e);

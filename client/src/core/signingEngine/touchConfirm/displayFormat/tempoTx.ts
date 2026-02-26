@@ -1,6 +1,10 @@
-import type { TempoCall, TempoSigningRequest } from '@/core/signingEngine/chainAdaptors/tempo/types';
+import type {
+  TempoCall,
+  TempoSigningRequest,
+} from '@/core/signingEngine/chainAdaptors/tempo/types';
 import {
   resolveFunctionDisplayName,
+  resolveFunctionSignature,
   selectorFromHexData,
 } from './functionSelectors';
 import { formatCalldataForDisplay } from './calldata';
@@ -33,7 +37,11 @@ function toSafeJson(value: unknown): string {
   }
 }
 
-function makeField(label: string, value: string | undefined, copyValue?: string): TxDisplayField | undefined {
+function makeField(
+  label: string,
+  value: string | undefined,
+  copyValue?: string,
+): TxDisplayField | undefined {
   const normalized = String(value ?? '').trim();
   if (!normalized) return undefined;
   return {
@@ -67,6 +75,7 @@ function buildTempoCallDetailsOperation(args: {
 
   const selector = selectorFromHexData(input);
   const functionLabel = resolveFunctionDisplayName(selector, to) || 'contract function';
+  const functionSignature = resolveFunctionSignature(selector, to);
   const formattedGasLimit = formatCompactGas(tx.gasLimit);
   const inputField = makeField('Data', formatCalldataForDisplay(input), input);
   if (inputField) {
@@ -76,6 +85,8 @@ function buildTempoCallDetailsOperation(args: {
   }
   const fields: TxDisplayField[] = [
     inputField,
+    makeField('Function', functionSignature),
+    makeField('Selector', selector, selector),
     makeField('Value (wei)', call.value.toString()),
     makeField('Valid Before', tx.validBefore == null ? undefined : tx.validBefore.toString()),
     makeField('Valid After', tx.validAfter == null ? undefined : tx.validAfter.toString()),
@@ -101,7 +112,8 @@ function buildTempoCallOperation(args: {
   const { call, callIndex, callCount, tx } = args;
   const id = `tempo.tx.${callIndex}`;
   const to = String(call.to || '').trim();
-  const prefix = callCount > 1 ? `Transaction ${callIndex + 1} to contract ` : 'Transaction to contract ';
+  const prefix =
+    callCount > 1 ? `Transaction ${callIndex + 1} to contract ` : 'Transaction to contract ';
   const rowLabel = `${prefix}${shortenHexAddress(to) || 'unknown contract'}`;
   const child = buildTempoCallDetailsOperation({ rootId: id, call, tx });
   return {
@@ -113,27 +125,31 @@ function buildTempoCallOperation(args: {
     to,
     selector: selectorFromHexData(normalizeHexData(String(call.input || '0x'))),
     ...(child ? { children: [child] } : {}),
-  }
+  };
 }
 
 function buildTempoOperations(request: TempoSigningRequest): TxDisplayOperation[] {
   if (request.kind !== 'tempoTransaction') {
-    return [{
-      id: 'tempo.raw',
-      kind: 'raw.fallback',
-      label: 'Unsupported Tempo Payload',
-      raw: toSafeJson(request),
-    }];
+    return [
+      {
+        id: 'tempo.raw',
+        kind: 'raw.fallback',
+        label: 'Unsupported Tempo Payload',
+        raw: toSafeJson(request),
+      },
+    ];
   }
 
   const calls = Array.isArray(request.tx.calls) ? request.tx.calls : [];
   if (!calls.length) {
-    return [{
-      id: 'tempo.raw',
-      kind: 'raw.fallback',
-      label: 'Tempo Payload Missing Calls',
-      raw: toSafeJson(request),
-    }];
+    return [
+      {
+        id: 'tempo.raw',
+        kind: 'raw.fallback',
+        label: 'Tempo Payload Missing Calls',
+        raw: toSafeJson(request),
+      },
+    ];
   }
 
   return calls.map((call, callIndex) =>
@@ -142,7 +158,7 @@ function buildTempoOperations(request: TempoSigningRequest): TxDisplayOperation[
       callIndex,
       callCount: calls.length,
       tx: request.tx,
-    })
+    }),
   );
 }
 
@@ -158,7 +174,7 @@ export function buildTempoDisplayModel(args: BuildTempoDisplayModelArgs): TxDisp
 
   return {
     chain: 'tempo',
-    chainId: args.request.kind === 'tempoTransaction' ? args.request.tx.chainId.toString() : undefined,
+    chainId: args.request.kind === 'tempoTransaction' ? args.request.tx.chainId : undefined,
     intentDigest: args.intentDigest,
     signerAccount: args.signerAccount,
     title: args.title || 'Tempo Transaction',

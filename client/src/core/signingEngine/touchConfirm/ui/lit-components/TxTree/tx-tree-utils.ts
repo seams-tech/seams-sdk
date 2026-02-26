@@ -252,9 +252,7 @@ function buildActionNode(action: ActionArgs, idx: number): TreeNode {
       let permissions = '';
       try {
         const accessKeyObj = isString(ak) ? JSON.parse(ak) : ak;
-        permissions = accessKeyObj.permission === 'FullAccess'
-          ? 'Full Access'
-          : 'Function Call';
+        permissions = accessKeyObj.permission === 'FullAccess' ? 'Full Access' : 'Function Call';
       } catch {
         permissions = 'Unknown';
       }
@@ -301,7 +299,11 @@ function buildActionNode(action: ActionArgs, idx: number): TreeNode {
 
     default: {
       let raw = '';
-      try { raw = JSON.stringify(action, null, 2); } catch { raw = String(action); }
+      try {
+        raw = JSON.stringify(action, null, 2);
+      } catch {
+        raw = String(action);
+      }
       actionNodes = [
         {
           id: `a${idx}-action`,
@@ -339,7 +341,7 @@ export function buildTransactionNode(
   totalTransactions: number,
 ): TreeNode {
   const actionFolders: TreeNode[] = tx.actions.map((action: ActionArgs, idx: number) =>
-    buildActionNode(action, idx)
+    buildActionNode(action, idx),
   );
 
   return {
@@ -355,12 +357,10 @@ export function buildTransactionNode(
   };
 }
 
-export function buildDisplayTreeFromTxPayloads(
-  txSigningRequests: TransactionInput[],
-): TreeNode {
+export function buildDisplayTreeFromTxPayloads(txSigningRequests: TransactionInput[]): TreeNode {
   const totalTransactions = txSigningRequests.length;
   const txFolders: TreeNode[] = txSigningRequests.map((tx: TransactionInput, tIdx: number) =>
-    buildTransactionNode(tx, tIdx, totalTransactions)
+    buildTransactionNode(tx, tIdx, totalTransactions),
   );
 
   return {

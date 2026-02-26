@@ -89,10 +89,10 @@
 }
 
 /* Success / error accents */
-.w3a-toast[data-type="success"] {
+.w3a-toast[data-type='success'] {
   border-color: color-mix(in srgb, var(--w3a-colors-success), transparent 65%);
 }
-.w3a-toast[data-type="error"] {
+.w3a-toast[data-type='error'] {
   border-color: color-mix(in srgb, var(--w3a-colors-error), transparent 65%);
 }
 
@@ -118,7 +118,11 @@
 }
 
 [data-sonner-toaster][data-theme] [data-sonner-toast] [data-close-button]:hover {
-  background: color-mix(in srgb, var(--w3a-colors-surface3) 76%, var(--w3a-colors-primary) 24%) !important;
+  background: color-mix(
+    in srgb,
+    var(--w3a-colors-surface3) 76%,
+    var(--w3a-colors-primary) 24%
+  ) !important;
   color: var(--w3a-colors-textPrimary) !important;
 }
 

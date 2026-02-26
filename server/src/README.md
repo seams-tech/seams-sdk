@@ -15,17 +15,20 @@ const service = new AuthService({
   relayerAccount: process.env.RELAYER_ACCOUNT_ID!,
   relayerPrivateKey: process.env.RELAYER_PRIVATE_KEY!,
   nearRpcUrl: process.env.NEAR_RPC_URL || 'https://rpc.testnet.near.org',
-  networkId: process.env.NETWORK_ID || 'testnet'
+  networkId: process.env.NETWORK_ID || 'testnet',
 });
 
 const rorRpId = process.env.ROR_RP_ID || 'wallet.example.localhost';
-const rorOrigins = [process.env.EXPECTED_ORIGIN!, process.env.EXPECTED_WALLET_ORIGIN!].filter(Boolean);
+const rorOrigins = [process.env.EXPECTED_ORIGIN!, process.env.EXPECTED_WALLET_ORIGIN!].filter(
+  Boolean,
+);
 
 const session = new SessionService({
   jwt: {
     signToken: ({ payload }) => {
       // If payload.exp is supplied (e.g., threshold session tokens), do not override it with `expiresIn`.
-      const hasExp = typeof (payload as any).exp === 'number' && Number.isFinite((payload as any).exp);
+      const hasExp =
+        typeof (payload as any).exp === 'number' && Number.isFinite((payload as any).exp);
       return jwt.sign(payload as any, process.env.JWT_SECRET || 'dev-insecure', {
         algorithm: 'HS256',
         issuer: process.env.JWT_ISSUER || 'relay',
@@ -34,28 +37,40 @@ const session = new SessionService({
       });
     },
     verifyToken: async (token: string) => {
-      try { const payload = jwt.verify(token, process.env.JWT_SECRET || 'dev-insecure') as any; return { valid: true, payload }; }
-      catch { return { valid: false }; }
-    }
+      try {
+        const payload = jwt.verify(token, process.env.JWT_SECRET || 'dev-insecure') as any;
+        return { valid: true, payload };
+      } catch {
+        return { valid: false };
+      }
+    },
   },
   // Minimal cookie config (defaults to HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=24h)
-  cookie: { name: 'w3a_session' }
+  cookie: { name: 'w3a_session' },
 });
 
 const app = express();
 app.use(express.json());
-app.use(cors({ origin: [process.env.EXPECTED_ORIGIN!, process.env.EXPECTED_WALLET_ORIGIN!].filter(Boolean), credentials: true }));
-app.use('/', createRelayRouter(service, {
-  healthz: true,
-  readyz: true,
-  session,
-  ror: {
-    rpId: rorRpId,
-    provider: {
-      getAllowedOrigins: async (input) => (input.rpId === rorRpId ? rorOrigins : []),
+app.use(
+  cors({
+    origin: [process.env.EXPECTED_ORIGIN!, process.env.EXPECTED_WALLET_ORIGIN!].filter(Boolean),
+    credentials: true,
+  }),
+);
+app.use(
+  '/',
+  createRelayRouter(service, {
+    healthz: true,
+    readyz: true,
+    session,
+    ror: {
+      rpId: rorRpId,
+      provider: {
+        getAllowedOrigins: async (input) => (input.rpId === rorRpId ? rorOrigins : []),
+      },
     },
-  },
-}));
+  }),
+);
 app.listen(3000);
 ```
 
@@ -72,15 +87,22 @@ const service = new AuthService({
   relayerPrivateKey: env.RELAYER_PRIVATE_KEY,
   nearRpcUrl: env.NEAR_RPC_URL,
   networkId: env.NETWORK_ID || 'testnet',
-  signerWasm: { moduleOrPath: signerWasm }
+  signerWasm: { moduleOrPath: signerWasm },
 });
 
 const session = new SessionService({
   jwt: {
-    signToken: ({ payload }) => jwt.sign(payload as any, env.JWT_SECRET || 'dev-insecure', { algorithm: 'HS256' }),
-    verifyToken: async (token: string) => { try { return { valid: true, payload: jwt.verify(token, env.JWT_SECRET || 'dev-insecure') }; } catch { return { valid: false }; } }
+    signToken: ({ payload }) =>
+      jwt.sign(payload as any, env.JWT_SECRET || 'dev-insecure', { algorithm: 'HS256' }),
+    verifyToken: async (token: string) => {
+      try {
+        return { valid: true, payload: jwt.verify(token, env.JWT_SECRET || 'dev-insecure') };
+      } catch {
+        return { valid: false };
+      }
+    },
   },
-  cookie: { name: 'w3a_session' }
+  cookie: { name: 'w3a_session' },
 });
 
 export default {
@@ -100,8 +122,8 @@ export default {
       },
     });
     return router(request, env, ctx);
-  }
-}
+  },
+};
 ```
 
 ## Routes exposed by the routers
@@ -133,36 +155,42 @@ export default {
 
 You have two integration styles:
 
-1) Provide a SessionService (hook‑first) or compatible adapter
+1. Provide a SessionService (hook‑first) or compatible adapter
+
 - Supply `signToken` and `verifyToken` using your preferred JWT library (e.g., jsonwebtoken).
 - Optionally provide cookie hooks to customize headers if using cookie mode.
 
 Cookie hooks (optional)
+
 ```ts
 const session = new SessionService({
-  jwt: { /* signToken/verifyToken as above */ },
+  jwt: {
+    /* signToken/verifyToken as above */
+  },
   cookie: {
     name: 'w3a_session',
     // Customize Set-Cookie attributes (e.g., cross-site):
-    buildSetHeader: (token) => [
-      `w3a_session=${token}`,
-      'Path=/',
-      'HttpOnly',
-      'Secure',
-      'SameSite=None',
-      'Domain=.example.localhost',
-      'Max-Age=86400'
-    ].join('; '),
-    buildClearHeader: () => [
-      'w3a_session=',
-      'Path=/',
-      'HttpOnly',
-      'Secure',
-      'SameSite=None',
-      'Domain=.example.localhost',
-      'Max-Age=0',
-      'Expires=Thu, 01 Jan 1970 00:00:00 GMT'
-    ].join('; '),
+    buildSetHeader: (token) =>
+      [
+        `w3a_session=${token}`,
+        'Path=/',
+        'HttpOnly',
+        'Secure',
+        'SameSite=None',
+        'Domain=.example.localhost',
+        'Max-Age=86400',
+      ].join('; '),
+    buildClearHeader: () =>
+      [
+        'w3a_session=',
+        'Path=/',
+        'HttpOnly',
+        'Secure',
+        'SameSite=None',
+        'Domain=.example.localhost',
+        'Max-Age=0',
+        'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+      ].join('; '),
     // Optional: custom extraction from headers (Bearer or Cookie)
     extractToken: (headers, cookieName) => {
       const auth = (headers['authorization'] || headers['Authorization']) as string | undefined;
@@ -174,22 +202,25 @@ const session = new SessionService({
         if (k && k.trim() === cookieName) return (v || '').trim();
       }
       return null;
-    }
-  }
+    },
+  },
 });
 ```
 
 For cookies, configure CORS with explicit origins and `credentials: true`.
 
 Default behavior
+
 - No session is minted by default. The client must opt‑in by calling `loginAndCreateSession(..., { session: { kind: 'jwt' | 'cookie', relayUrl?, route? }})`.
 - On the server, sessions are only active if you provide a SessionService (or compatible adapter) to the router options.
 
 Configurable session endpoints
+
 - Express adaptor: `createRelayRouter(service, { session, sessionRoutes })` (defaults to `/session/auth` and `/session/logout`).
 - Cloudflare adaptor: `createCloudflareRouter(service, { session, sessionRoutes, corsOrigins })` (same defaults).
 
 Cloudflare CORS note
+
 - The Cloudflare router will only set `Access-Control-Allow-Credentials: true` when echoing a specific Origin. If `corsOrigins` is `'*'`, credentials are not advertised (as required by Fetch/CORS rules). Use explicit origins when using cookie sessions.
 
 ## PRF Session Seal Module (optional)
@@ -237,6 +268,7 @@ app.use('/', createRelayRouter(service, {
 ```
 
 Notes:
+
 - `createPrfSessionSealShamir3PassCipherAdapter(...)` supports pluggable runtimes; wire your `shamir-3-pass-rs` runtime in production.
 - Do not log raw ciphertexts; audit helpers intentionally avoid ciphertext fields.
 - Use `resolvePrfSessionSealRateLimitFromEnv(...)` to wire in-memory, Upstash REST, or Redis TCP rate limiting without changing route code.

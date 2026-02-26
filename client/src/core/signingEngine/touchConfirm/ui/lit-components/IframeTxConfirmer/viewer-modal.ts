@@ -104,14 +104,14 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
     }
   };
   private _onWindowMessage = (ev: MessageEvent) => {
-    const data = (ev && ev.data && typeof ev.data === 'object')
-      ? (ev.data as { type?: unknown; payload?: unknown })
-      : undefined;
+    const data =
+      ev && ev.data && typeof ev.data === 'object'
+        ? (ev.data as { type?: unknown; payload?: unknown })
+        : undefined;
     if (!data || typeof data.type !== 'string') return;
     if (data.type === 'MODAL_TIMEOUT') {
-      const msg = typeof data.payload === 'string' && data.payload
-        ? data.payload
-        : 'Operation timed out';
+      const msg =
+        typeof data.payload === 'string' && data.payload ? data.payload : 'Operation timed out';
       this.loading = false;
       this.errorMessage = msg;
       // Emit cancel so the host resolves and removes this element via two‑phase close
@@ -188,14 +188,20 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   }
 
   protected createRenderRoot(): HTMLElement | DocumentFragment {
-    const root = (this as unknown) as HTMLElement;
+    const root = this as unknown as HTMLElement;
     // tx-tree.css for nested TxTree visuals inside the modal
     this._stylePromises.push(ensureExternalStyles(root, 'tx-tree.css', 'data-w3a-tx-tree-css'));
     // tx-confirmer.css for modal layout + tokens
-    this._stylePromises.push(ensureExternalStyles(root, 'tx-confirmer.css', 'data-w3a-tx-confirmer-css'));
+    this._stylePromises.push(
+      ensureExternalStyles(root, 'tx-confirmer.css', 'data-w3a-tx-confirmer-css'),
+    );
     // Ensure nested loader/halo styles are present before first paint to avoid FOUC
-    this._stylePromises.push(ensureExternalStyles(root, 'halo-border.css', 'data-w3a-halo-border-css'));
-    this._stylePromises.push(ensureExternalStyles(root, 'passkey-halo-loading.css', 'data-w3a-passkey-halo-loading-css'));
+    this._stylePromises.push(
+      ensureExternalStyles(root, 'halo-border.css', 'data-w3a-halo-border-css'),
+    );
+    this._stylePromises.push(
+      ensureExternalStyles(root, 'passkey-halo-loading.css', 'data-w3a-passkey-halo-loading-css'),
+    );
     return root;
   }
 
@@ -222,7 +228,9 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
       }
     } catch {}
     // Arm backdrop after the current event loop to avoid capturing the mounting click
-    setTimeout(() => { this._backdropArmed = true; }, 0);
+    setTimeout(() => {
+      this._backdropArmed = true;
+    }, 0);
     // Listen globally so Escape works regardless of focus target
     window.addEventListener('keydown', this._onKeyDown);
     // Listen for global timeout notification (posted by SignerWorkerManager on operation timeout)
@@ -242,9 +250,13 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
     if (this._stylesReady) return true;
     if (!this._stylesAwaiting) {
       const p = Promise.all(this._stylePromises).then(
-        () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+        () =>
+          new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
       );
-      this._stylesAwaiting = p.then(() => { this._stylesReady = true; this.requestUpdate(); });
+      this._stylesAwaiting = p.then(() => {
+        this._stylesReady = true;
+        this.requestUpdate();
+      });
     }
     return false;
   }
@@ -258,7 +270,6 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
       <!-- Modal content layer -->
       <div class="modal-backdrop" @click=${this._handleContentClick}>
         <div class="modal-container-root">
-
           <div class="responsive-card">
             <div class="hero">
               <w3a-passkey-halo-loading
@@ -280,7 +291,9 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
                     ? this.model.operations.length
                     : 0;
                   const isRegistration = operationCount === 0;
-                  const fallback = isRegistration ? 'Register with Passkey' : 'Confirm with Passkey';
+                  const fallback = isRegistration
+                    ? 'Register with Passkey'
+                    : 'Confirm with Passkey';
                   const titleText = (this.title || '').trim();
                   const heading = titleText || fallback;
                   return html`<h2 class="hero-heading">${heading}</h2>`;
@@ -292,7 +305,8 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
                 <div class="rpid-wrapper">
                   <div class="rpid">
                     <div class="secure-indicator">
-                      <svg xmlns="http://www.w3.org/2000/svg"
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
                         class="padlock-icon"
                         viewBox="0 0 24 24"
                         fill="none"
@@ -301,23 +315,27 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
                         stroke-linecap="round"
                         stroke-linejoin="round"
                       >
-                        <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
-                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                       </svg>
                       ${this.securityContext?.rpId
                         ? html`<span class="domain-text">${this.securityContext.rpId}</span>`
                         : ''}
                     </div>
                     ${securityDetailsText || securityDetailsLoading
-                      ? html`
-                        <span class="security-details">
+                      ? html` <span class="security-details">
                           ${securityDetailsLoading
                             ? html`
-                                <span class="loading-indicator security-loading-indicator" role="progressbar" aria-label="Loading block height"></span>
+                                <span
+                                  class="loading-indicator security-loading-indicator"
+                                  role="progressbar"
+                                  aria-label="Loading block height"
+                                ></span>
                                 <span>Loading block...</span>
                               `
                             : html`
-                                <svg xmlns="http://www.w3.org/2000/svg"
+                                <svg
+                                  xmlns="http://www.w3.org/2000/svg"
                                   class="block-height-icon"
                                   viewBox="0 0 24 24"
                                   fill="none"
@@ -326,9 +344,11 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
                                   stroke-linecap="round"
                                   stroke-linejoin="round"
                                 >
-                                  <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A 2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>
-                                  <path d="m3.3 7 8.7 5 8.7-5"/>
-                                  <path d="M12 22V12"/>
+                                  <path
+                                    d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A 2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"
+                                  />
+                                  <path d="m3.3 7 8.7 5 8.7-5" />
+                                  <path d="M12 22V12" />
                                 </svg>
                                 ${securityDetailsText}
                               `}
@@ -338,11 +358,9 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
                 </div>
               </div>
             </div>
-            ${
-              this.body && this.body.trim()
+            ${this.body && this.body.trim()
               ? html`<div class="confirmation-body">${this.body}</div>`
-              : ''
-            }
+              : ''}
           </div>
 
           <div class="responsive-card">
@@ -374,11 +392,13 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   private _handleCancel() {
     if (this.loading) return;
     // Canonical event (include a consistent detail payload)
-    this.dispatchEvent(new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
-      bubbles: true,
-      composed: true,
-      detail: { confirmed: false }
-    }));
+    this.dispatchEvent(
+      new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
+        bubbles: true,
+        composed: true,
+        detail: { confirmed: false },
+      }),
+    );
     if (!this.deferClose) {
       this._resolveAndCleanup(false);
     }
@@ -389,11 +409,13 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
     this.loading = true;
     this.requestUpdate();
     // Canonical event (include a consistent detail payload)
-    this.dispatchEvent(new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CONFIRM, {
-      bubbles: true,
-      composed: true,
-      detail: { confirmed: true }
-    }));
+    this.dispatchEvent(
+      new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CONFIRM, {
+        bubbles: true,
+        composed: true,
+        detail: { confirmed: true },
+      }),
+    );
     if (!this.deferClose) {
       this._resolveAndCleanup(true);
     }
@@ -417,7 +439,6 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   close(confirmed: boolean) {
     this._resolveAndCleanup(confirmed);
   }
-
 }
 
 // Register the custom element

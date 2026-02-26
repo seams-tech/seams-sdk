@@ -31,7 +31,7 @@ export async function signNearWithTouchConfirm<TRequest extends NearSigningReque
     ed25519: new NearEd25519Engine(handlers),
   };
 
-  return await executeSigningIntent({
+  return (await executeSigningIntent({
     intent,
     engines,
     resolveSignInput: async (
@@ -40,5 +40,5 @@ export async function signNearWithTouchConfirm<TRequest extends NearSigningReque
       signReq,
       keyRef: NEAR_ED25519_KEY_REF,
     }),
-  }) as NearIntentResult<TRequest>;
+  })) as NearIntentResult<TRequest>;
 }

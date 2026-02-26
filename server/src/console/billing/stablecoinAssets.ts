@@ -25,7 +25,10 @@ export const SUPPORTED_STABLECOIN_SETTLEMENT_CHAINS: StablecoinSettlementChain[]
 
 export const SUPPORTED_STABLECOIN_ASSETS: StablecoinAssetSymbol[] = ['USDC', 'USDT'];
 
-const CHAIN_FINALITY_POLICIES_V1: Record<StablecoinSettlementChain, Omit<ChainFinalityPolicy, 'chain'>> = {
+const CHAIN_FINALITY_POLICIES_V1: Record<
+  StablecoinSettlementChain,
+  Omit<ChainFinalityPolicy, 'chain'>
+> = {
   Ethereum: {
     requiredConfirmations: 12,
     confirmationTimeoutMinutes: 360,
@@ -76,7 +79,9 @@ export function isStablecoinSettlementChain(value: string): value is StablecoinS
   return SUPPORTED_STABLECOIN_SETTLEMENT_CHAINS.includes(value as StablecoinSettlementChain);
 }
 
-export function getChainFinalityPolicy(chain: StablecoinSettlementChain): ChainFinalityPolicy | null {
+export function getChainFinalityPolicy(
+  chain: StablecoinSettlementChain,
+): ChainFinalityPolicy | null {
   const policy = CHAIN_FINALITY_POLICIES_V1[chain];
   if (!policy) return null;
   return {

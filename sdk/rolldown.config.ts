@@ -201,10 +201,7 @@ const buildW3AComponentsCss = async (sdkRoot: string): Promise<string> => {
   const baseStylesPath = path.join(sdkRoot, '../client/src/theme/base-styles.js');
   const base = await import(pathToFileURL(baseStylesPath).href);
   const { createThemeTokens } = base as any;
-  const {
-    DARK_THEME: darkVars,
-    LIGHT_THEME: lightVars,
-  } = createThemeTokens(palette);
+  const { DARK_THEME: darkVars, LIGHT_THEME: lightVars } = createThemeTokens(palette);
 
   const hostSelector = W3A_COMPONENT_HOSTS.join(',\n');
   const lines: string[] = [];
@@ -292,19 +289,31 @@ const emitWalletServiceStaticAssets = async (sdkRoot = process.cwd()): Promise<v
   }
 
   copyIfMissing(
-    path.join(sdkRoot, '../client/src/core/signingEngine/touchConfirm/ui/lit-components/css/tx-tree.css'),
+    path.join(
+      sdkRoot,
+      '../client/src/core/signingEngine/touchConfirm/ui/lit-components/css/tx-tree.css',
+    ),
     path.join(sdkDir, 'tx-tree.css'),
   );
   copyIfMissing(
-    path.join(sdkRoot, '../client/src/core/signingEngine/touchConfirm/ui/lit-components/css/tx-confirmer.css'),
+    path.join(
+      sdkRoot,
+      '../client/src/core/signingEngine/touchConfirm/ui/lit-components/css/tx-confirmer.css',
+    ),
     path.join(sdkDir, 'tx-confirmer.css'),
   );
   copyIfMissing(
-    path.join(sdkRoot, '../client/src/core/signingEngine/touchConfirm/ui/lit-components/css/drawer.css'),
+    path.join(
+      sdkRoot,
+      '../client/src/core/signingEngine/touchConfirm/ui/lit-components/css/drawer.css',
+    ),
     path.join(sdkDir, 'drawer.css'),
   );
   copyIfMissing(
-    path.join(sdkRoot, '../client/src/core/signingEngine/touchConfirm/ui/lit-components/css/halo-border.css'),
+    path.join(
+      sdkRoot,
+      '../client/src/core/signingEngine/touchConfirm/ui/lit-components/css/halo-border.css',
+    ),
     path.join(sdkDir, 'halo-border.css'),
   );
   copyIfMissing(
@@ -315,15 +324,24 @@ const emitWalletServiceStaticAssets = async (sdkRoot = process.cwd()): Promise<v
     path.join(sdkDir, 'passkey-halo-loading.css'),
   );
   copyIfMissing(
-    path.join(sdkRoot, '../client/src/core/signingEngine/touchConfirm/ui/lit-components/css/padlock-icon.css'),
+    path.join(
+      sdkRoot,
+      '../client/src/core/signingEngine/touchConfirm/ui/lit-components/css/padlock-icon.css',
+    ),
     path.join(sdkDir, 'padlock-icon.css'),
   );
   copyIfMissing(
-    path.join(sdkRoot, '../client/src/core/signingEngine/touchConfirm/ui/lit-components/css/export-viewer.css'),
+    path.join(
+      sdkRoot,
+      '../client/src/core/signingEngine/touchConfirm/ui/lit-components/css/export-viewer.css',
+    ),
     path.join(sdkDir, 'export-viewer.css'),
   );
   copyIfMissing(
-    path.join(sdkRoot, '../client/src/core/signingEngine/touchConfirm/ui/lit-components/css/export-iframe.css'),
+    path.join(
+      sdkRoot,
+      '../client/src/core/signingEngine/touchConfirm/ui/lit-components/css/export-iframe.css',
+    ),
     path.join(sdkDir, 'export-iframe.css'),
   );
   copyIfMissing(
@@ -635,7 +653,8 @@ const configs = [
   },
   // Export Private Key viewer bundle (Lit element rendered inside iframe)
   {
-    input: '../client/src/core/signingEngine/touchConfirm/ui/lit-components/ExportPrivateKey/viewer.ts',
+    input:
+      '../client/src/core/signingEngine/touchConfirm/ui/lit-components/ExportPrivateKey/viewer.ts',
     output: {
       dir: BUILD_PATHS.BUILD.ESM,
       format: 'esm',
@@ -652,7 +671,8 @@ const configs = [
   // Standalone bundles for HaloBorder + PasskeyHaloLoading (for iframe/embedded usage)
   {
     input: {
-      'halo-border': '../client/src/core/signingEngine/touchConfirm/ui/lit-components/HaloBorder/index.ts',
+      'halo-border':
+        '../client/src/core/signingEngine/touchConfirm/ui/lit-components/HaloBorder/index.ts',
       'passkey-halo-loading':
         '../client/src/core/signingEngine/touchConfirm/ui/lit-components/PasskeyHaloLoading/index.ts',
     },

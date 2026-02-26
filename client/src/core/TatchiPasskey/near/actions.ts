@@ -8,11 +8,20 @@ import type {
 import type { ActionResult, SignTransactionResult } from '../../types/tatchi';
 import type { TxExecutionStatus } from '@near-js/types';
 import type { ActionArgs, TransactionInput, TransactionInputWasm } from '../../types/actions';
-import { type ConfirmationConfig, type SignerMode, mergeSignerMode } from '../../types/signer-worker';
+import {
+  type ConfirmationConfig,
+  type SignerMode,
+  mergeSignerMode,
+} from '../../types/signer-worker';
 import type { PasskeyManagerContext } from '../index';
 import type { SignedTransaction } from '../../rpcClients/near/NearClient';
 import type { AccountId } from '../../types/accountIds';
-import { ActionPhase, ActionStatus, type ActionSSEEvent, type onProgressEvents } from '../../types/sdkSentEvents';
+import {
+  ActionPhase,
+  ActionStatus,
+  type ActionSSEEvent,
+  type onProgressEvents,
+} from '../../types/sdkSentEvents';
 import { toError, getNearShortErrorMessage } from '@shared/utils/errors';
 import { resolvePrimaryNearRpcUrl } from '../../config/chains';
 
@@ -28,11 +37,11 @@ import { resolvePrimaryNearRpcUrl } from '../../config/chains';
  * @returns Promise resolving to the action result
  */
 export async function executeAction(args: {
-  context: PasskeyManagerContext,
-  nearAccountId: AccountId,
-  receiverId: AccountId,
-  actionArgs: ActionArgs | ActionArgs[],
-  options: ActionHooksOptions,
+  context: PasskeyManagerContext;
+  nearAccountId: AccountId;
+  receiverId: AccountId;
+  actionArgs: ActionArgs | ActionArgs[];
+  options: ActionHooksOptions;
 }): Promise<ActionResult> {
   try {
     const signerMode = mergeSignerMode(getBaseSignerMode(args.context), args.options?.signerMode);
@@ -45,7 +54,7 @@ export async function executeAction(args: {
       actionArgs: args.actionArgs,
       signerMode,
       options: args.options,
-      confirmationConfigOverride: args.options.confirmationConfig
+      confirmationConfigOverride: args.options.confirmationConfig,
     });
   } catch (error: unknown) {
     throw toError(error);
@@ -54,7 +63,9 @@ export async function executeAction(args: {
 
 // Execution plan types for broadcasting multiple transactions
 // Helper: parse executionWait (only sequential for now)
-function parseExecutionWait(options?: SignAndSendTransactionHooksOptions): { waitUntil?: TxExecutionStatus } {
+function parseExecutionWait(options?: SignAndSendTransactionHooksOptions): {
+  waitUntil?: TxExecutionStatus;
+} {
   return { waitUntil: options?.waitUntil };
 }
 
@@ -68,10 +79,10 @@ function parseExecutionWait(options?: SignAndSendTransactionHooksOptions): { wai
  * @returns Promise resolving to the action result
  */
 export async function signAndSendTransactions(args: {
-  context: PasskeyManagerContext,
-  nearAccountId: AccountId,
-  transactionInputs: TransactionInput[],
-  options: SignAndSendTransactionHooksOptions,
+  context: PasskeyManagerContext;
+  nearAccountId: AccountId;
+  transactionInputs: TransactionInput[];
+  options: SignAndSendTransactionHooksOptions;
 }): Promise<ActionResult[]> {
   const signerMode = mergeSignerMode(getBaseSignerMode(args.context), args.options?.signerMode);
   return signAndSendTransactionsInternal({
@@ -80,7 +91,7 @@ export async function signAndSendTransactions(args: {
     transactionInputs: args.transactionInputs,
     signerMode,
     options: args.options,
-    confirmationConfigOverride: args.options.confirmationConfig
+    confirmationConfigOverride: args.options.confirmationConfig,
   });
 }
 
@@ -94,10 +105,10 @@ export async function signAndSendTransactions(args: {
  * @returns Promise resolving to the action result
  */
 export async function signTransactionsWithActions(args: {
-  context: PasskeyManagerContext,
-  nearAccountId: AccountId,
-  transactionInputs: TransactionInput[],
-  options: SignTransactionHooksOptions,
+  context: PasskeyManagerContext;
+  nearAccountId: AccountId;
+  transactionInputs: TransactionInput[];
+  options: SignTransactionHooksOptions;
 }): Promise<SignTransactionResult[]> {
   try {
     const signerMode = mergeSignerMode(getBaseSignerMode(args.context), args.options?.signerMode);
@@ -107,7 +118,7 @@ export async function signTransactionsWithActions(args: {
       transactionInputs: args.transactionInputs,
       signerMode,
       options: args.options,
-      confirmationConfigOverride: args.options.confirmationConfig
+      confirmationConfigOverride: args.options.confirmationConfig,
       // Public API always uses undefined override (respects user settings)
     });
   } catch (error: unknown) {
@@ -158,16 +169,15 @@ export async function sendTransaction({
   signedTransaction,
   options,
 }: {
-  context: PasskeyManagerContext,
-  signedTransaction: SignedTransaction,
-  options?: SendTransactionHooksOptions,
+  context: PasskeyManagerContext;
+  signedTransaction: SignedTransaction;
+  options?: SendTransactionHooksOptions;
 }): Promise<ActionResult> {
-
   options?.onEvent?.({
     step: 7,
     phase: ActionPhase.STEP_7_BROADCASTING,
     status: ActionStatus.PROGRESS,
-    message: `Broadcasting transaction...`
+    message: `Broadcasting transaction...`,
   });
 
   let transactionResult;
@@ -176,7 +186,7 @@ export async function sendTransaction({
     // Debug snapshot of the signed transaction shape to aid integration debugging.
     try {
       const st: unknown = signedTransaction;
-      const stObj = (st && typeof st === 'object') ? (st as Record<string, unknown>) : null;
+      const stObj = st && typeof st === 'object' ? (st as Record<string, unknown>) : null;
       const snapshot = {
         type: typeof st,
         keys: stObj ? Object.keys(stObj) : null,
@@ -192,31 +202,31 @@ export async function sendTransaction({
 
     transactionResult = await context.nearClient.sendTransaction(
       signedTransaction,
-      options?.waitUntil
+      options?.waitUntil,
     );
     txId = transactionResult.transaction?.hash || transactionResult.transaction?.id;
 
     // Update nonce from blockchain after successful transaction broadcast asynchronously
     const nonce = signedTransaction.transaction.nonce;
-    context.signingEngine.getNonceManager().updateNonceFromBlockchain(
-      context.nearClient,
-      nonce.toString()
-    ).catch((error) => {
-      console.warn('[sendTransaction] Failed to update nonce from blockchain:', error);
-      // don't fail transaction if nonce update fails
-    });
+    context.signingEngine
+      .getNonceManager()
+      .updateNonceFromBlockchain(context.nearClient, nonce.toString())
+      .catch((error) => {
+        console.warn('[sendTransaction] Failed to update nonce from blockchain:', error);
+        // don't fail transaction if nonce update fails
+      });
 
     options?.onEvent?.({
       step: 7,
       phase: ActionPhase.STEP_7_BROADCASTING,
       status: ActionStatus.SUCCESS,
-      message: `Transaction ${txId} sent successfully`
+      message: `Transaction ${txId} sent successfully`,
     });
     options?.onEvent?.({
       step: 8,
       phase: ActionPhase.STEP_8_ACTION_COMPLETE,
       status: ActionStatus.SUCCESS,
-      message: `Transaction ${txId} completed `
+      message: `Transaction ${txId} completed `,
     });
   } catch (error: unknown) {
     const e = toError(error);
@@ -239,7 +249,7 @@ export async function sendTransaction({
   return {
     success: true,
     transactionId: txId,
-    result: transactionResult
+    result: transactionResult,
   };
 }
 
@@ -266,16 +276,15 @@ export async function executeActionInternal({
   options,
   confirmationConfigOverride,
 }: {
-  context: PasskeyManagerContext,
-  nearAccountId: AccountId,
-  receiverId: AccountId,
-  actionArgs: ActionArgs | ActionArgs[],
-  signerMode: SignerMode,
-  options?: ActionHooksOptions,
+  context: PasskeyManagerContext;
+  nearAccountId: AccountId;
+  receiverId: AccountId;
+  actionArgs: ActionArgs | ActionArgs[];
+  signerMode: SignerMode;
+  options?: ActionHooksOptions;
   // Accept partial override and merge later in confirm flow
-  confirmationConfigOverride?: Partial<ConfirmationConfig> | undefined,
+  confirmationConfigOverride?: Partial<ConfirmationConfig> | undefined;
 }): Promise<ActionResult> {
-
   const { onEvent, onError, afterCall, waitUntil } = options || {};
   const confirmerText = options?.confirmerText;
   const actions = Array.isArray(actionArgs) ? actionArgs : [actionArgs];
@@ -294,23 +303,24 @@ export async function executeActionInternal({
     const signedTxs = await signTransactionsWithActionsInternal({
       context,
       nearAccountId,
-      transactionInputs: [{
-        receiverId: receiverId,
-        actions: actions,
-      }],
+      transactionInputs: [
+        {
+          receiverId: receiverId,
+          actions: actions,
+        },
+      ],
       signerMode,
       options: { onEvent, onError, waitUntil, confirmerText },
-      confirmationConfigOverride
+      confirmationConfigOverride,
     });
 
     const txResult = await sendTransaction({
       context,
       signedTransaction: signedTxs[0].signedTransaction,
-      options: { onEvent, onError, waitUntil }
+      options: { onEvent, onError, waitUntil },
     });
     afterCall?.(true, txResult);
     return txResult;
-
   } catch (error: unknown) {
     console.error('[executeAction] Error during execution:', error);
     const e = toError(error);
@@ -322,7 +332,7 @@ export async function executeActionInternal({
       phase: ActionPhase.ACTION_ERROR,
       status: ActionStatus.ERROR,
       message: `Action failed: ${short || e.message}`,
-      error: short || e.message
+      error: short || e.message,
     });
     const result: ActionResult = {
       success: false,
@@ -344,14 +354,13 @@ export async function signAndSendTransactionsInternal({
   options,
   confirmationConfigOverride,
 }: {
-  context: PasskeyManagerContext,
-  nearAccountId: AccountId,
-  transactionInputs: TransactionInput[],
-  signerMode: SignerMode,
-  options?: SignAndSendTransactionHooksOptions,
-  confirmationConfigOverride?: Partial<ConfirmationConfig> | undefined,
+  context: PasskeyManagerContext;
+  nearAccountId: AccountId;
+  transactionInputs: TransactionInput[];
+  signerMode: SignerMode;
+  options?: SignAndSendTransactionHooksOptions;
+  confirmationConfigOverride?: Partial<ConfirmationConfig> | undefined;
 }): Promise<ActionResult[]> {
-
   try {
     const signedTxs = await signTransactionsWithActionsInternal({
       context,
@@ -359,7 +368,7 @@ export async function signAndSendTransactionsInternal({
       transactionInputs,
       signerMode,
       options,
-      confirmationConfigOverride
+      confirmationConfigOverride,
     });
 
     const plan = parseExecutionWait(options);
@@ -372,7 +381,7 @@ export async function signAndSendTransactionsInternal({
         options: {
           onEvent: options?.onEvent,
           waitUntil: plan.waitUntil ?? options?.waitUntil,
-        }
+        },
       });
       txResults.push(txResult);
     }
@@ -387,7 +396,7 @@ export async function signAndSendTransactionsInternal({
       phase: ActionPhase.ACTION_ERROR,
       status: ActionStatus.ERROR,
       message: `Action failed: ${short}`,
-      error: short
+      error: short,
     });
     options?.onError?.(e);
     throw e;
@@ -412,14 +421,13 @@ export async function signTransactionsWithActionsInternal({
   options,
   confirmationConfigOverride,
 }: {
-  context: PasskeyManagerContext,
-  nearAccountId: AccountId,
-  transactionInputs: TransactionInput[],
-  signerMode: SignerMode,
-  options?: Omit<ActionHooksOptions, 'afterCall'>,
-  confirmationConfigOverride?: Partial<ConfirmationConfig> | undefined,
+  context: PasskeyManagerContext;
+  nearAccountId: AccountId;
+  transactionInputs: TransactionInput[];
+  signerMode: SignerMode;
+  options?: Omit<ActionHooksOptions, 'afterCall'>;
+  confirmationConfigOverride?: Partial<ConfirmationConfig> | undefined;
 }): Promise<SignTransactionResult[]> {
-
   const { onEvent, onError, waitUntil, confirmerText, deviceNumber } = options || {};
 
   try {
@@ -428,9 +436,10 @@ export async function signTransactionsWithActionsInternal({
       step: 1,
       phase: ActionPhase.STEP_1_PREPARATION,
       status: ActionStatus.PROGRESS,
-      message: transactionInputs.length > 1
-        ? `Starting batched transaction with ${transactionInputs.length} actions`
-        : `Starting ${transactionInputs[0].actions[0].type} action`
+      message:
+        transactionInputs.length > 1
+          ? `Starting batched transaction with ${transactionInputs.length} actions`
+          : `Starting ${transactionInputs[0].actions[0].type} action`,
     });
 
     // 1. Basic validation (NEAR data fetching moved to confirmation flow)
@@ -441,15 +450,15 @@ export async function signTransactionsWithActionsInternal({
       step: 2,
       phase: ActionPhase.STEP_2_USER_CONFIRMATION,
       status: ActionStatus.PROGRESS,
-      message: 'Requesting user confirmation...'
+      message: 'Requesting user confirmation...',
     });
 
     // Convert all actions to ActionArgsWasm format for batched transaction
-    const transactionInputsWasm: TransactionInputWasm[] = transactionInputs.map(tx => {
+    const transactionInputsWasm: TransactionInputWasm[] = transactionInputs.map((tx) => {
       return {
         receiverId: tx.receiverId,
-        actions: tx.actions.map(action => toActionArgsWasm(action)),
-      }
+        actions: tx.actions.map((action) => toActionArgsWasm(action)),
+      };
     });
 
     // WebAuthn challenge digest and NEAR data are computed in the confirmation flow
@@ -470,45 +479,46 @@ export async function signTransactionsWithActionsInternal({
         title: confirmerText?.title,
         body: confirmerText?.body,
         // Pass through the onEvent callback for progress updates
-        onEvent: onEvent ? (progressEvent: onProgressEvents) => {
-          if (progressEvent.phase === ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION) {
-            onEvent?.({
-              step: 3,
-              phase: ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION,
-              status: ActionStatus.PROGRESS,
-              message: 'Authenticating with passkey...',
-            });
-          }
-          if (progressEvent.phase === ActionPhase.STEP_4_AUTHENTICATION_COMPLETE) {
-            onEvent?.({
-              step: 4,
-              phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE,
-              status: ActionStatus.SUCCESS,
-              message: 'WebAuthn verification complete',
-            });
-          }
-          if (progressEvent.phase === ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS) {
-            onEvent?.({
-              step: 5,
-              phase: ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS,
-              status: ActionStatus.PROGRESS,
-              message: 'Signing transaction...',
-            });
-          }
-          if (progressEvent.phase === ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE) {
-            onEvent?.({
-              step: 6,
-              phase: ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE,
-              status: ActionStatus.SUCCESS,
-              message: 'Transaction signed successfully',
-            });
-          }
-          // Bridge worker onProgressEvents (generic) to ActionSSEEvent expected by public hooks
-          onEvent(progressEvent as ActionSSEEvent);
-        } : undefined,
+        onEvent: onEvent
+          ? (progressEvent: onProgressEvents) => {
+              if (progressEvent.phase === ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION) {
+                onEvent?.({
+                  step: 3,
+                  phase: ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION,
+                  status: ActionStatus.PROGRESS,
+                  message: 'Authenticating with passkey...',
+                });
+              }
+              if (progressEvent.phase === ActionPhase.STEP_4_AUTHENTICATION_COMPLETE) {
+                onEvent?.({
+                  step: 4,
+                  phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE,
+                  status: ActionStatus.SUCCESS,
+                  message: 'WebAuthn verification complete',
+                });
+              }
+              if (progressEvent.phase === ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS) {
+                onEvent?.({
+                  step: 5,
+                  phase: ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS,
+                  status: ActionStatus.PROGRESS,
+                  message: 'Signing transaction...',
+                });
+              }
+              if (progressEvent.phase === ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE) {
+                onEvent?.({
+                  step: 6,
+                  phase: ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE,
+                  status: ActionStatus.SUCCESS,
+                  message: 'Transaction signed successfully',
+                });
+              }
+              // Bridge worker onProgressEvents (generic) to ActionSSEEvent expected by public hooks
+              onEvent(progressEvent as ActionSSEEvent);
+            }
+          : undefined,
       },
     });
-
   } catch (error: unknown) {
     console.error('[signTransactionsWithActions] Error during execution:', error);
     const e = toError(error);
@@ -519,7 +529,7 @@ export async function signTransactionsWithActionsInternal({
       phase: ActionPhase.ACTION_ERROR,
       status: ActionStatus.ERROR,
       message: `Action failed: ${short}`,
-      error: short
+      error: short,
     });
     throw e;
   }
@@ -541,7 +551,7 @@ async function validateInputsOnly(
     step: 1,
     phase: ActionPhase.STEP_1_PREPARATION,
     status: ActionStatus.PROGRESS,
-    message: 'Validating inputs...'
+    message: 'Validating inputs...',
   });
 
   if (transactionInputs.length === 0) {
@@ -553,7 +563,10 @@ async function validateInputsOnly(
       throw new Error('Missing required parameter: receiverId');
     }
     for (const action of transactionInput.actions) {
-      if (action.type === ActionType.FunctionCall && (!action.methodName || action.args === undefined)) {
+      if (
+        action.type === ActionType.FunctionCall &&
+        (!action.methodName || action.args === undefined)
+      ) {
         throw new Error('Missing required parameters for function call: methodName or args');
       }
       if (action.type === ActionType.Transfer && !action.amount) {

@@ -1,10 +1,10 @@
-import React from 'react'
-import { useSiteRouter } from '../hooks/useSiteRouter'
-import { SitePageFrame } from './SitePageFrame'
+import React from 'react';
+import { useSiteRouter } from '../hooks/useSiteRouter';
+import { SitePageFrame } from './SitePageFrame';
 
 export function NotFoundPage(): React.JSX.Element {
-  const { linkProps } = useSiteRouter()
-  const homeProps = linkProps('/')
+  const { linkProps } = useSiteRouter();
+  const homeProps = linkProps('/');
 
   return (
     <SitePageFrame
@@ -13,11 +13,14 @@ export function NotFoundPage(): React.JSX.Element {
     >
       <article className="site-card">
         <p>Try returning to the homepage or navigating with the top menu.</p>
-        <p><a href={homeProps.href} onClick={homeProps.onClick}>Go to Home</a></p>
+        <p>
+          <a href={homeProps.href} onClick={homeProps.onClick}>
+            Go to Home
+          </a>
+        </p>
       </article>
     </SitePageFrame>
-  )
+  );
 }
 
-export default NotFoundPage
-
+export default NotFoundPage;

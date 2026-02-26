@@ -10,16 +10,11 @@ interface GlassBorderProps {
 export const GlassBorder: React.FC<GlassBorderProps> = ({
   children,
   className = '',
-  style = {}
+  style = {},
 }) => {
   return (
-    <div
-      className={`glass-border-root ${className}`}
-      style={style}
-    >
-      <div className={`glass-border-inner`}>
-        {children}
-      </div>
+    <div className={`glass-border-root ${className}`} style={style}>
+      <div className={`glass-border-inner`}>{children}</div>
     </div>
   );
 };

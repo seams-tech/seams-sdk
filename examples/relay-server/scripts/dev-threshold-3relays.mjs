@@ -24,8 +24,8 @@ function requireEnv(name) {
 
 const masterSecretB64u = requireEnv('THRESHOLD_ED25519_MASTER_SECRET_B64U');
 const coordinatorSharedSecretB64u =
-  String(process.env.THRESHOLD_COORDINATOR_SHARED_SECRET_B64U || '').trim()
-  || crypto.randomBytes(32).toString('base64url');
+  String(process.env.THRESHOLD_COORDINATOR_SHARED_SECRET_B64U || '').trim() ||
+  crypto.randomBytes(32).toString('base64url');
 
 // Run TypeScript compiler in watch mode once.
 const tsc = run('pnpm', ['run', 'build:watch']);
@@ -89,10 +89,18 @@ const cosigner3 = run('node', ['--watch', 'dist/index.js'], {
 
 function shutdown(signal) {
   console.log(`[shutdown] received ${signal}, closing relay fleet...`);
-  try { tsc.kill(); } catch {}
-  try { coordinator.kill(); } catch {}
-  try { cosigner2.kill(); } catch {}
-  try { cosigner3.kill(); } catch {}
+  try {
+    tsc.kill();
+  } catch {}
+  try {
+    coordinator.kill();
+  } catch {}
+  try {
+    cosigner2.kill();
+  } catch {}
+  try {
+    cosigner3.kill();
+  } catch {}
   process.exit(0);
 }
 

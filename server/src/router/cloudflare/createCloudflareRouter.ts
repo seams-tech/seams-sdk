@@ -43,7 +43,10 @@ export interface CloudflareRelayContext {
   signedDelegatePolicy?: DelegateActionPolicy;
 }
 
-export function createCloudflareRouter(service: AuthService, opts: RelayRouterOptions = {}): FetchHandler {
+export function createCloudflareRouter(
+  service: AuthService,
+  opts: RelayRouterOptions = {},
+): FetchHandler {
   const notFound = () => new Response('Not Found', { status: 404 });
 
   const threshold = resolveThresholdOption(service, opts);
@@ -57,7 +60,8 @@ export function createCloudflareRouter(service: AuthService, opts: RelayRouterOp
   const logger = coerceRouterLogger(effectiveOpts.logger);
   let signedDelegatePath = '';
   if (effectiveOpts.signedDelegate) {
-    signedDelegatePath = ensureLeadingSlash(effectiveOpts.signedDelegate.route) || '/signed-delegate';
+    signedDelegatePath =
+      ensureLeadingSlash(effectiveOpts.signedDelegate.route) || '/signed-delegate';
   }
   const signedDelegatePolicy = effectiveOpts.signedDelegate?.policy;
 
@@ -91,7 +95,11 @@ export function createCloudflareRouter(service: AuthService, opts: RelayRouterOp
     handleReady,
   ];
 
-  return async function handler(request: Request, env?: CfEnv, cfCtx?: CfExecutionContext): Promise<Response> {
+  return async function handler(
+    request: Request,
+    env?: CfEnv,
+    cfCtx?: CfExecutionContext,
+  ): Promise<Response> {
     const url = new URL(request.url);
     const { pathname } = url;
     const method = request.method.toUpperCase();
@@ -134,7 +142,10 @@ export function createCloudflareRouter(service: AuthService, opts: RelayRouterOp
 
       return notFound();
     } catch (e: unknown) {
-      const res = json({ code: 'internal', message: e instanceof Error ? e.message : String(e) }, { status: 500 });
+      const res = json(
+        { code: 'internal', message: e instanceof Error ? e.message : String(e) },
+        { status: 500 },
+      );
       withCors(res.headers, effectiveOpts, request);
       return res;
     }

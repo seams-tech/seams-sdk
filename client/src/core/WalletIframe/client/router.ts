@@ -193,6 +193,7 @@ const CANONICAL_SIGNER_BOUNDARY_MESSAGES: Record<string, string> = {
     'Threshold signing session is not ready. Reconnect threshold session via bootstrapEcdsaSession and retry.',
   deployment_in_progress: 'Smart-account deployment is already in progress.',
   deployment_failed: 'Smart-account deployment failed before signing.',
+  nonce_conflict_retryable: 'Nonce conflict detected. Refresh nonce state and retry the request.',
   cancelled: 'Request cancelled.',
 };
 
@@ -978,6 +979,35 @@ export class WalletIframeRouter {
     return res.result;
   }
 
+  async reportTempoBroadcastResult(payload: {
+    nearAccountId: string;
+    signedResult: TempoSignedResult | EvmSignedResult;
+    status: 'success' | 'failure';
+    txHash?: `0x${string}`;
+    error?: { code?: string; message?: string; details?: unknown };
+    options?: {
+      onEvent?: (ev: {
+        step: number;
+        phase: string;
+        status: 'progress' | 'success' | 'error';
+        message?: string;
+        data?: unknown;
+      }) => void;
+    };
+  }): Promise<void> {
+    await this.post<void>({
+      type: 'PM_REPORT_TEMPO_BROADCAST_RESULT',
+      payload: {
+        nearAccountId: payload.nearAccountId,
+        signedResult: payload.signedResult,
+        status: payload.status,
+        ...(payload.txHash ? { txHash: payload.txHash } : {}),
+        ...(payload.error ? { error: payload.error } : {}),
+      },
+      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isActionSSEEvent) },
+    });
+  }
+
   async signTransactionWithKeyPair(payload: {
     signedTransaction: SignedTransaction;
     options?: {
@@ -1027,7 +1057,7 @@ export class WalletIframeRouter {
   }
 
   async setConfirmBehavior(behavior: 'requireClick' | 'skipClick'): Promise<void> {
-    let { nearAccountId } = (await this.getLoginSession()).login;
+    const { nearAccountId } = (await this.getLoginSession()).login;
     await this.post<void>({
       type: 'PM_SET_CONFIRM_BEHAVIOR',
       payload: { behavior, nearAccountId },
@@ -1035,7 +1065,7 @@ export class WalletIframeRouter {
   }
 
   async setConfirmationConfig(config: ConfirmationConfig): Promise<void> {
-    let { nearAccountId } = (await this.getLoginSession()).login;
+    const { nearAccountId } = (await this.getLoginSession()).login;
     await this.post<void>({
       type: 'PM_SET_CONFIRMATION_CONFIG',
       payload: { config, nearAccountId },

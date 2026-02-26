@@ -7,25 +7,33 @@ import type { HostContext } from './context';
 import { passkeyClientDB } from '../../indexedDB';
 
 export function post(ctx: HostContext, msg: ChildToParentEnvelope): void {
-  try { ctx.port?.postMessage(msg); } catch {}
+  try {
+    ctx.port?.postMessage(msg);
+  } catch {}
 }
 
 export function postToParent(ctx: HostContext, message: unknown): void {
   const parentWindow = window.parent;
   if (!parentWindow) return;
   const target = ctx.parentOrigin && ctx.parentOrigin !== 'null' ? ctx.parentOrigin : '*';
-  try { parentWindow.postMessage(message, target); } catch {}
+  try {
+    parentWindow.postMessage(message, target);
+  } catch {}
 }
 
 export function adoptPort(
   ctx: HostContext,
   p: MessagePort,
   onPortMessage: (ev: MessageEvent<ParentToChildEnvelope>) => void,
-  protocolVersion: ReadyPayload['protocolVersion']
+  protocolVersion: ReadyPayload['protocolVersion'],
 ): void {
   ctx.port = p;
-  try { ctx.port.onmessage = (ev) => onPortMessage(ev as MessageEvent<ParentToChildEnvelope>); } catch {}
-  try { ctx.port.start?.(); } catch {}
+  try {
+    ctx.port.onmessage = (ev) => onPortMessage(ev as MessageEvent<ParentToChildEnvelope>);
+  } catch {}
+  try {
+    ctx.port.start?.();
+  } catch {}
   post(ctx, { type: 'READY', payload: { protocolVersion } });
 }
 
@@ -49,7 +57,7 @@ export function onWindowMessage(
   ctx: HostContext,
   e: MessageEvent,
   onPortMessage: (ev: MessageEvent<ParentToChildEnvelope>) => void,
-  protocolVersion: ReadyPayload['protocolVersion']
+  protocolVersion: ReadyPayload['protocolVersion'],
 ): void {
   const { data, ports } = e as MessageEvent & { ports?: MessagePort[] };
   if (!data || typeof data !== 'object') return;
@@ -57,7 +65,9 @@ export function onWindowMessage(
     if (!shouldAcceptConnectEvent(e, !!ctx.port)) return;
     if (typeof e.origin === 'string' && e.origin.length && e.origin !== 'null') {
       ctx.parentOrigin = e.origin;
-      try { passkeyClientDB.setLastUserScope(e.origin); } catch {}
+      try {
+        passkeyClientDB.setLastUserScope(e.origin);
+      } catch {}
     }
     adoptPort(ctx, ports[0], onPortMessage, protocolVersion);
   }
@@ -66,7 +76,7 @@ export function onWindowMessage(
 export function addHostListeners(
   ctx: HostContext,
   onPortMessage: (ev: MessageEvent<ParentToChildEnvelope>) => void,
-  protocolVersion: ReadyPayload['protocolVersion']
+  protocolVersion: ReadyPayload['protocolVersion'],
 ): void {
   const bound = (e: MessageEvent) => onWindowMessage(ctx, e, onPortMessage, protocolVersion);
   ctx.onWindowMessage = bound;

@@ -9,4 +9,3 @@ export interface UserConfirmSecurityContext {
   blockHeight?: string;
   blockHash?: string;
 }
-

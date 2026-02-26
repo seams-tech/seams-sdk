@@ -69,10 +69,7 @@ export type {
   StablecoinBillingProviderAdapter,
   BillingProviderAdapters,
 } from './providers';
-export {
-  createDefaultBillingProviderAdapters,
-  resolveBillingProviderAdapters,
-} from './providers';
+export { createDefaultBillingProviderAdapters, resolveBillingProviderAdapters } from './providers';
 
 export type {
   ConsoleBillingContext,

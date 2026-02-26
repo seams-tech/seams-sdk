@@ -1,10 +1,10 @@
-import { useSiteRouter } from '../hooks/useSiteRouter'
+import { useSiteRouter } from '../hooks/useSiteRouter';
 
 type SolutionCard = {
-  title: string
-  description: string
-  to: string
-}
+  title: string;
+  description: string;
+  to: string;
+};
 
 const solutionCards: SolutionCard[] = [
   {
@@ -22,30 +22,37 @@ const solutionCards: SolutionCard[] = [
     description: 'Use policy-based approvals for internal transfers and disbursements.',
     to: '/solutions/#treasury-and-payouts',
   },
-]
+];
 
 export function SolutionCards(): React.JSX.Element {
-  const { linkProps } = useSiteRouter()
+  const { linkProps } = useSiteRouter();
 
   return (
     <section className="solution-cards" aria-labelledby="solution-cards-title">
       <header className="solution-cards__header">
         <p className="solution-cards__eyebrow">Solutions</p>
-        <h2 id="solution-cards-title" className="solution-cards__title">Designed for teams shipping security-sensitive flows</h2>
+        <h2 id="solution-cards-title" className="solution-cards__title">
+          Designed for teams shipping security-sensitive flows
+        </h2>
       </header>
       <div className="solution-cards__grid">
         {solutionCards.map((solution) => {
-          const props = linkProps(solution.to)
+          const props = linkProps(solution.to);
           return (
-            <a key={solution.title} className="solution-cards__item" href={props.href} onClick={props.onClick}>
+            <a
+              key={solution.title}
+              className="solution-cards__item"
+              href={props.href}
+              onClick={props.onClick}
+            >
               <h3>{solution.title}</h3>
               <p>{solution.description}</p>
             </a>
-          )
+          );
         })}
       </div>
     </section>
-  )
+  );
 }
 
-export default SolutionCards
+export default SolutionCards;

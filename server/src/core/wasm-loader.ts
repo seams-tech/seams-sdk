@@ -46,15 +46,15 @@ export function resolveStringPath(path: string, baseUrl: string): URL {
   if (isCloudflareWorkers()) {
     throw new Error(
       'WASM module paths cannot be resolved from strings in Cloudflare Workers. ' +
-      'import.meta.url does not work reliably. ' +
-      'Please provide a WebAssembly.Module via the moduleOrPath config option.'
+        'import.meta.url does not work reliably. ' +
+        'Please provide a WebAssembly.Module via the moduleOrPath config option.',
     );
   }
 
   if (!isNodeEnvironment()) {
     throw new Error(
       'WASM module string paths require Node.js environment. ' +
-      'In browsers, pass the WASM module directly as WebAssembly.Module or Response.'
+        'In browsers, pass the WASM module directly as WebAssembly.Module or Response.',
     );
   }
 
@@ -83,7 +83,7 @@ export async function loadWasmFromFilesystem(url: URL): Promise<WebAssembly.Modu
 }
 
 export type WasmModuleSupplier<T = any> =
-  | T  // Direct module (WebAssembly.Module, Response, ArrayBuffer, etc.)
+  | T // Direct module (WebAssembly.Module, Response, ArrayBuffer, etc.)
   | Promise<T>
   | (() => T | Promise<T>);
 
@@ -91,9 +91,8 @@ export type WasmModuleSupplier<T = any> =
  * Unwrap function suppliers to get the actual module/path
  */
 export async function unwrapSupplier<T>(supplier: WasmModuleSupplier<T>): Promise<T> {
-  const candidate = typeof supplier === 'function'
-    ? (supplier as () => T | Promise<T>)()
-    : supplier;
+  const candidate =
+    typeof supplier === 'function' ? (supplier as () => T | Promise<T>)() : supplier;
 
   return await candidate;
 }
@@ -125,7 +124,7 @@ export interface WasmResolverOptions {
  */
 export async function resolveWasmModule<T = any>(
   supplier: WasmModuleSupplier<T>,
-  options: WasmResolverOptions = {}
+  options: WasmResolverOptions = {},
 ): Promise<T> {
   const { baseUrl = '', log = () => {} } = options;
 
@@ -159,7 +158,7 @@ export async function resolveWasmModule<T = any>(
 export async function initWasmFromFilesystem<InitFn extends (input: any) => Promise<any>>(
   initFn: InitFn,
   candidates: URL[],
-  options: { log?: (msg: string) => void } = {}
+  options: { log?: (msg: string) => void } = {},
 ): Promise<boolean> {
   const { log = () => {} } = options;
 
@@ -193,7 +192,7 @@ export async function initWasmFromFilesystem<InitFn extends (input: any) => Prom
 export async function initWasmFromUrls<InitFn extends (input: any) => Promise<any>>(
   initFn: InitFn,
   candidates: URL[],
-  options: { log?: (msg: string) => void } = {}
+  options: { log?: (msg: string) => void } = {},
 ): Promise<void> {
   const { log = () => {} } = options;
 
@@ -228,7 +227,7 @@ export function createWasmLoader<InitFn extends (input: any) => Promise<any>>(
     logPrefix?: string;
     baseUrl?: string;
     fallbackUrls?: URL[];
-  } = {}
+  } = {},
 ) {
   const { logPrefix = 'WasmLoader', baseUrl = '', fallbackUrls = [] } = options;
   const log = createWasmLogger(logPrefix);
@@ -253,7 +252,7 @@ export function createWasmLoader<InitFn extends (input: any) => Promise<any>>(
         if (isCloudflareWorkers()) {
           throw new Error(
             `WASM override failed in Cloudflare Workers: ${errMsg}. ` +
-            `URL-based fallback is not available. Please ensure moduleOrPath is correctly configured.`
+              `URL-based fallback is not available. Please ensure moduleOrPath is correctly configured.`,
           );
         }
 
@@ -306,7 +305,7 @@ export function createWasmLoader<InitFn extends (input: any) => Promise<any>>(
       if (isCloudflareWorkers() && !override) {
         log(
           `WARNING: No WASM override in Cloudflare Workers. ` +
-          `This will likely fail. Configure moduleOrPath in your service config.`
+            `This will likely fail. Configure moduleOrPath in your service config.`,
         );
       }
 
@@ -315,4 +314,3 @@ export function createWasmLoader<InitFn extends (input: any) => Promise<any>>(
     },
   };
 }
-

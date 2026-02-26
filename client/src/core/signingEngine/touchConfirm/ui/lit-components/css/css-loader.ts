@@ -1,6 +1,7 @@
 import { resolveEmbeddedBase } from '../asset-base';
 
-const supportsConstructable = typeof ShadowRoot !== 'undefined' && 'adoptedStyleSheets' in ShadowRoot.prototype;
+const supportsConstructable =
+  typeof ShadowRoot !== 'undefined' && 'adoptedStyleSheets' in ShadowRoot.prototype;
 const sheetCache: Map<string, Promise<CSSStyleSheet | null>> = new Map();
 
 let warnedRelativeBaseOnce = false;
@@ -16,12 +17,16 @@ function resolveStylesheetUrl(assetName: string): string {
   // In this case, relative URLs will resolve against the host app origin,
   // which likely does not serve SDK assets under `/sdk/*`.
   try {
-    if (!warnedRelativeBaseOnce && typeof document !== 'undefined' && document.URL === 'about:srcdoc') {
+    if (
+      !warnedRelativeBaseOnce &&
+      typeof document !== 'undefined' &&
+      document.URL === 'about:srcdoc'
+    ) {
       warnedRelativeBaseOnce = true;
       console.warn(
         `[W3A][css-loader] Embedded SDK base is relative: "${base}". ` +
-        `In production, configure an absolute base so iframe assets resolve: ` +
-        `set TatchiPasskeyProvider config { iframeWallet: { walletOrigin: "https://wallet.example.com", sdkBasePath: "/sdk" } }, `
+          `In production, configure an absolute base so iframe assets resolve: ` +
+          `set TatchiPasskeyProvider config { iframeWallet: { walletOrigin: "https://wallet.example.com", sdkBasePath: "/sdk" } }, `,
       );
     }
   } catch {}
@@ -46,16 +51,26 @@ function getDoc(root: ShadowRoot | DocumentFragment | HTMLElement): Document | n
 function waitForStylesheet(link: HTMLLinkElement): Promise<void> {
   const statefulLink = link as HTMLLinkElement & { _w3aLoaded?: boolean };
   return new Promise<void>((resolve) => {
-    const done = () => { statefulLink._w3aLoaded = true; resolve(); };
+    const done = () => {
+      statefulLink._w3aLoaded = true;
+      resolve();
+    };
     if (statefulLink._w3aLoaded || link.sheet) return done();
     link.addEventListener('load', done, { once: true } as AddEventListenerOptions);
     link.addEventListener('error', done, { once: true } as AddEventListenerOptions);
   });
 }
 
-async function ensureDocumentLink(doc: Document, assetName: string, markerAttr: string): Promise<void> {
+async function ensureDocumentLink(
+  doc: Document,
+  assetName: string,
+  markerAttr: string,
+): Promise<void> {
   const existing = doc.head?.querySelector(`link[${markerAttr}]`) as HTMLLinkElement | null;
-  if (existing) { await waitForStylesheet(existing); return; }
+  if (existing) {
+    await waitForStylesheet(existing);
+    return;
+  }
   const link = doc.createElement('link');
   link.rel = 'stylesheet';
   link.href = resolveStylesheetUrl(assetName);
@@ -67,19 +82,21 @@ async function ensureDocumentLink(doc: Document, assetName: string, markerAttr: 
 async function adoptConstructable(root: ShadowRoot, assetName: string): Promise<boolean> {
   if (!supportsConstructable) return false;
   const cached = sheetCache.get(assetName);
-  const load = cached ?? (async () => {
-    if (typeof fetch !== 'function') return null;
-    try {
-      const res = await fetch(resolveStylesheetUrl(assetName), { mode: 'cors' });
-      if (!res.ok) return null;
-      const cssText = await res.text();
-      const sheet = new CSSStyleSheet();
-      sheet.replaceSync(cssText);
-      return sheet;
-    } catch {
-      return null;
-    }
-  })();
+  const load =
+    cached ??
+    (async () => {
+      if (typeof fetch !== 'function') return null;
+      try {
+        const res = await fetch(resolveStylesheetUrl(assetName), { mode: 'cors' });
+        if (!res.ok) return null;
+        const cssText = await res.text();
+        const sheet = new CSSStyleSheet();
+        sheet.replaceSync(cssText);
+        return sheet;
+      } catch {
+        return null;
+      }
+    })();
   if (!cached) sheetCache.set(assetName, load);
   const sheet = await load;
   if (!sheet) return false;
@@ -101,18 +118,21 @@ async function adoptConstructable(root: ShadowRoot, assetName: string): Promise<
 export async function ensureExternalStyles(
   root: ShadowRoot | DocumentFragment | HTMLElement | null | undefined,
   assetName: string,
-  markerAttr: string
+  markerAttr: string,
 ): Promise<void> {
   if (!root) return;
 
   try {
     const doc = getDoc(root);
-    const isShadow = typeof ShadowRoot !== 'undefined' && (root instanceof ShadowRoot);
+    const isShadow = typeof ShadowRoot !== 'undefined' && root instanceof ShadowRoot;
 
     // Document-level short‑circuit for non‑shadow roots if link already exists
     if (!isShadow && doc) {
       const preexisting = doc.head?.querySelector(`link[${markerAttr}]`) as HTMLLinkElement | null;
-      if (preexisting) { await waitForStylesheet(preexisting); return; }
+      if (preexisting) {
+        await waitForStylesheet(preexisting);
+        return;
+      }
     }
 
     if (isShadow) {
@@ -121,7 +141,9 @@ export async function ensureExternalStyles(
       // 2) Strict‑CSP compatible fallback: never inject inline <style>.
       //    Use a document‑level <link rel="stylesheet"> so style-src 'self' and
       //    style-src-attr 'none' policies are respected, even inside about:srcdoc.
-      if (doc) { await ensureDocumentLink(doc, assetName, markerAttr); }
+      if (doc) {
+        await ensureDocumentLink(doc, assetName, markerAttr);
+      }
       return;
     }
 

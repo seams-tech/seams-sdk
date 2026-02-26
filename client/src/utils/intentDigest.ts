@@ -64,7 +64,9 @@ export async function computeLoginIntentDigest(args: {
 // - Only the *keys inside each object* are alphabetically sorted to produce a stable JSON encoding.
 //   The arrays themselves are not reordered.
 // - Do NOT include nonce or other per-tx fields in the digest input, or INTENT_DIGEST_MISMATCH errors will occur.
-export async function computeUiIntentDigestFromTxs(txInputs: TransactionInputWasm[]): Promise<string> {
+export async function computeUiIntentDigestFromTxs(
+  txInputs: TransactionInputWasm[],
+): Promise<string> {
   // Preserve array order; only object keys are sorted for stable encoding.
   // This must match the relayer/server-side recomputation used for intent binding.
   const json = alphabetizeStringify(txInputs);
@@ -74,7 +76,13 @@ export async function computeUiIntentDigestFromTxs(txInputs: TransactionInputWas
 export function orderActionForDigest(a: ActionArgsWasm): ActionArgsWasm {
   switch (a.action_type) {
     case ActionType.FunctionCall:
-      return { action_type: a.action_type, args: a.args, deposit: a.deposit, gas: a.gas, method_name: a.method_name };
+      return {
+        action_type: a.action_type,
+        args: a.args,
+        deposit: a.deposit,
+        gas: a.gas,
+        method_name: a.method_name,
+      };
     case ActionType.Transfer:
       return { action_type: a.action_type, deposit: a.deposit };
     case ActionType.Stake:
@@ -88,7 +96,11 @@ export function orderActionForDigest(a: ActionArgsWasm): ActionArgsWasm {
     case ActionType.DeployContract:
       return { action_type: a.action_type, code: a.code };
     case ActionType.SignedDelegate:
-      return { action_type: a.action_type, delegate_action: a.delegate_action, signature: a.signature };
+      return {
+        action_type: a.action_type,
+        delegate_action: a.delegate_action,
+        signature: a.signature,
+      };
     case ActionType.DeployGlobalContract:
       return { action_type: a.action_type, code: a.code, deploy_mode: a.deploy_mode };
     case ActionType.UseGlobalContract:

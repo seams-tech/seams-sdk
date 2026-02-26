@@ -34,7 +34,9 @@ function isOverlayForOrigin(el: HTMLIFrameElement, walletOrigin: string): boolea
 
 export function removeExistingOverlaysForOrigin(walletOrigin: string): void {
   if (typeof document === 'undefined') return;
-  const existing = Array.from(document.querySelectorAll('iframe.w3a-wallet-overlay')) as HTMLIFrameElement[];
+  const existing = Array.from(
+    document.querySelectorAll('iframe.w3a-wallet-overlay'),
+  ) as HTMLIFrameElement[];
   const matches = existing.filter((el) => isOverlayForOrigin(el, walletOrigin));
   if (!matches.length) return;
 
@@ -44,12 +46,14 @@ export function removeExistingOverlaysForOrigin(walletOrigin: string): void {
       .filter((v): v is string => typeof v === 'string' && v.length > 0);
     console.warn(
       `[IframeTransport] Found existing wallet overlay iframe(s) for ${walletOrigin}. This usually indicates multiple SDK instances. Removing old iframe(s) to avoid duplicates.`,
-      { count: matches.length, routerIds }
+      { count: matches.length, routerIds },
     );
   }
 
   for (const el of matches) {
-    try { el.remove(); } catch {}
+    try {
+      el.remove();
+    } catch {}
   }
 }
 
@@ -63,7 +67,9 @@ export function createWalletIframe(opts: {
   iframe.classList.add('w3a-wallet-overlay', 'is-hidden');
   // Ensure the base overlay stylesheet is installed early so computed styles
   // (opacity/pointer-events) reflect the hidden state immediately after mount.
-  try { ensureOverlayBase(iframe); } catch {}
+  try {
+    ensureOverlayBase(iframe);
+  } catch {}
   // Ensure no initial footprint even before stylesheet attaches
   iframe.setAttribute('width', '0');
   iframe.setAttribute('height', '0');
@@ -81,7 +87,10 @@ export function createWalletIframe(opts: {
   try {
     iframe.setAttribute('allow', buildAllowAttr(opts.walletOrigin));
   } catch {
-    iframe.setAttribute('allow', "publickey-credentials-get 'self'; publickey-credentials-create 'self'; clipboard-read; clipboard-write");
+    iframe.setAttribute(
+      'allow',
+      "publickey-credentials-get 'self'; publickey-credentials-create 'self'; clipboard-read; clipboard-write",
+    );
   }
 
   // Track load state to guard against races where we post before content is listening

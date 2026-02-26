@@ -7,7 +7,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const sdkRoot = path.resolve(path.join(__dirname, '../..'));
 
-const wasmPkgJsAbs = path.join(sdkRoot, 'dist', 'esm', 'server', 'wasm', 'eth_signer', 'pkg', 'eth_signer.js');
+const wasmPkgJsAbs = path.join(
+  sdkRoot,
+  'dist',
+  'esm',
+  'server',
+  'wasm',
+  'eth_signer',
+  'pkg',
+  'eth_signer.js',
+);
 const workerWasmAbs = path.join(sdkRoot, 'dist', 'workers', 'eth_signer.wasm');
 
 function fail(msg) {
@@ -33,14 +42,16 @@ if (!(await fileExists(workerWasmAbs))) {
 
 const mod = await import(pathToFileURL(wasmPkgJsAbs).href);
 const initWasm = mod.default || mod.__wbg_init;
-if (typeof initWasm !== 'function') fail('eth_signer init export is missing (expected default or __wbg_init)');
+if (typeof initWasm !== 'function')
+  fail('eth_signer init export is missing (expected default or __wbg_init)');
 if (typeof mod.init_eth_signer !== 'function') fail('eth_signer init_eth_signer export is missing');
 if (typeof mod.threshold_ecdsa_finalize_signature !== 'function') {
   fail('eth_signer threshold_ecdsa_finalize_signature export is missing');
 }
 
 const originalFetch = globalThis.fetch;
-if (typeof originalFetch !== 'function') fail('global fetch is required for workers-runtime smoke check');
+if (typeof originalFetch !== 'function')
+  fail('global fetch is required for workers-runtime smoke check');
 
 globalThis.fetch = async (input, init) => {
   const urlString = (() => {

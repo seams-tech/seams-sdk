@@ -8,7 +8,11 @@ import {
 } from '../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 
 function errorMessage(e: unknown): string {
-  return String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'unknown error');
+  return String(
+    e && typeof e === 'object' && 'message' in e
+      ? (e as { message?: unknown }).message
+      : e || 'unknown error',
+  );
 }
 
 function mapWasmError(message: string): { code: string; message: string } {
@@ -17,11 +21,11 @@ function mapWasmError(message: string): { code: string; message: string } {
     return { code: 'internal', message };
   }
   if (
-    lower.includes('invalid')
-    || lower.includes('must ')
-    || lower.includes('required')
-    || lower.includes('include')
-    || lower.includes('empty')
+    lower.includes('invalid') ||
+    lower.includes('must ') ||
+    lower.includes('required') ||
+    lower.includes('include') ||
+    lower.includes('empty')
   ) {
     return { code: 'invalid_body', message };
   }
@@ -61,14 +65,16 @@ export function deriveRelayerCosignerSharesFromRelayerSigningShare(input: {
   relayerSigningShareB64u: string;
   cosignerIds: number[];
   cosignerThreshold: number;
-}): {
-  ok: true;
-  sharesByCosignerId: Record<string, string>;
-} | {
-  ok: false;
-  code: string;
-  message: string;
-} {
+}):
+  | {
+      ok: true;
+      sharesByCosignerId: Record<string, string>;
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    } {
   const relayerSigningShareB64u = toOptionalTrimmedString(input.relayerSigningShareB64u);
   if (!relayerSigningShareB64u) {
     return { ok: false, code: 'invalid_body', message: 'relayerSigningShareB64u is required' };
@@ -78,23 +84,43 @@ export function deriveRelayerCosignerSharesFromRelayerSigningShare(input: {
   try {
     relayerSigningShareBytes = base64UrlDecode(relayerSigningShareB64u);
   } catch (e: unknown) {
-    return { ok: false, code: 'invalid_body', message: `Invalid relayerSigningShareB64u: ${String(e || 'decode failed')}` };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: `Invalid relayerSigningShareB64u: ${String(e || 'decode failed')}`,
+    };
   }
   if (relayerSigningShareBytes.length !== 32) {
-    return { ok: false, code: 'invalid_body', message: `relayerSigningShareB64u must be 32 bytes, got ${relayerSigningShareBytes.length}` };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: `relayerSigningShareB64u must be 32 bytes, got ${relayerSigningShareBytes.length}`,
+    };
   }
 
   const cosignerIds = normalizeCosignerIds(input.cosignerIds);
   if (!cosignerIds) {
-    return { ok: false, code: 'invalid_body', message: 'cosignerIds must be a non-empty list of u16 ids' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'cosignerIds must be a non-empty list of u16 ids',
+    };
   }
 
   const t = Math.floor(Number(input.cosignerThreshold) || 0);
   if (!Number.isFinite(t) || t < 1) {
-    return { ok: false, code: 'invalid_body', message: 'cosignerThreshold must be an integer >= 1' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'cosignerThreshold must be an integer >= 1',
+    };
   }
   if (t > cosignerIds.length) {
-    return { ok: false, code: 'invalid_body', message: `cosignerThreshold must be <= cosignerIds.length (got t=${t}, n=${cosignerIds.length})` };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: `cosignerThreshold must be <= cosignerIds.length (got t=${t}, n=${cosignerIds.length})`,
+    };
   }
 
   try {
@@ -129,12 +155,20 @@ export function lagrangeCoefficientAtZeroForCosigner(input: {
 }): { ok: true; lambda: Uint8Array } | { ok: false; code: string; message: string } {
   const cosignerIds = normalizeCosignerIds(input.cosignerIds);
   if (!cosignerIds) {
-    return { ok: false, code: 'invalid_body', message: 'cosignerIds must be a non-empty list of u16 ids' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'cosignerIds must be a non-empty list of u16 ids',
+    };
   }
 
   const cosignerId = Math.floor(Number(input.cosignerId) || 0);
   if (!Number.isFinite(cosignerId) || cosignerId <= 0 || cosignerId > 65535) {
-    return { ok: false, code: 'invalid_body', message: 'cosignerId must be an integer in [1,65535]' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'cosignerId must be an integer in [1,65535]',
+    };
   }
   if (!cosignerIds.includes(cosignerId)) {
     return { ok: false, code: 'invalid_body', message: 'cosignerIds must include cosignerId' };
@@ -172,15 +206,27 @@ export function multiplyEd25519ScalarB64uByScalarBytesLE32(input: {
   try {
     scalarBytes = base64UrlDecode(scalarB64u);
   } catch (e: unknown) {
-    return { ok: false, code: 'invalid_body', message: `Invalid scalarB64u: ${String(e || 'decode failed')}` };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: `Invalid scalarB64u: ${String(e || 'decode failed')}`,
+    };
   }
   if (scalarBytes.length !== 32) {
-    return { ok: false, code: 'invalid_body', message: `scalarB64u must be 32 bytes, got ${scalarBytes.length}` };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: `scalarB64u must be 32 bytes, got ${scalarBytes.length}`,
+    };
   }
 
   const factorBytes = input.factorBytesLE32;
   if (!(factorBytes instanceof Uint8Array) || factorBytes.length !== 32) {
-    return { ok: false, code: 'invalid_body', message: 'factorBytesLE32 must be a 32-byte Uint8Array' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'factorBytesLE32 must be a 32-byte Uint8Array',
+    };
   }
 
   try {
@@ -208,15 +254,24 @@ export function addEd25519ScalarsB64u(input: {
 
   for (const item of input.scalarsB64u) {
     const raw = toOptionalTrimmedString(item);
-    if (!raw) return { ok: false, code: 'invalid_body', message: 'scalarsB64u contains an empty item' };
+    if (!raw)
+      return { ok: false, code: 'invalid_body', message: 'scalarsB64u contains an empty item' };
     let bytes: Uint8Array;
     try {
       bytes = base64UrlDecode(raw);
     } catch (e: unknown) {
-      return { ok: false, code: 'invalid_body', message: `Invalid scalar encoding: ${String(e || 'decode failed')}` };
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: `Invalid scalar encoding: ${String(e || 'decode failed')}`,
+      };
     }
     if (bytes.length !== 32) {
-      return { ok: false, code: 'invalid_body', message: `scalar must be 32 bytes, got ${bytes.length}` };
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: `scalar must be 32 bytes, got ${bytes.length}`,
+      };
     }
   }
   try {

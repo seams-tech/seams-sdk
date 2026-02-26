@@ -93,21 +93,32 @@ export class IframeExportHost extends LitElementWithProps {
 
   protected createRenderRoot(): HTMLElement | DocumentFragment {
     const root = super.createRenderRoot();
-    const p = ensureExternalStyles(root as ShadowRoot | DocumentFragment | HTMLElement, 'export-iframe.css', 'data-w3a-export-iframe-css');
+    const p = ensureExternalStyles(
+      root as ShadowRoot | DocumentFragment | HTMLElement,
+      'export-iframe.css',
+      'data-w3a-export-iframe-css',
+    );
     this._stylePromises.push(p);
     p.catch(() => {});
     return root;
   }
 
-  protected getComponentPrefix(): string { return 'export-iframe'; }
+  protected getComponentPrefix(): string {
+    return 'export-iframe';
+  }
 
   // Avoid FOUC: block first paint until external styles are applied
   protected shouldUpdate(_changed: Map<string | number | symbol, unknown>): boolean {
     if (this._stylesReady) return true;
     if (!this._stylesAwaiting) {
-      const settle = Promise.all(this._stylePromises)
-        .then(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
-      this._stylesAwaiting = settle.then(() => { this._stylesReady = true; this.requestUpdate(); });
+      const settle = Promise.all(this._stylePromises).then(
+        () =>
+          new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+      );
+      this._stylesAwaiting = settle.then(() => {
+        this._stylesReady = true;
+        this.requestUpdate();
+      });
     }
     return false;
   }
@@ -155,8 +166,8 @@ export class IframeExportHost extends LitElementWithProps {
       try {
         console.warn(
           '[W3A][IframeExportHost] Embedded SDK base is not absolute. Skipping CSS preloads. ' +
-          'Configure an absolute base so assets resolve: React → set TatchiPasskeyProvider config ' +
-          '{ iframeWallet: { walletOrigin: "https://wallet.example.com", sdkBasePath: "/sdk" } }, '
+            'Configure an absolute base so assets resolve: React → set TatchiPasskeyProvider config ' +
+            '{ iframeWallet: { walletOrigin: "https://wallet.example.com", sdkBasePath: "/sdk" } }, ',
         );
       } catch {}
     }
@@ -219,7 +230,8 @@ export class IframeExportHost extends LitElementWithProps {
           });
           this.postToIframe('SET_LOADING', !!this.loading);
           if (this.errorMessage) this.postToIframe('SET_ERROR', this.errorMessage);
-          if (this.privateKey) this.postToIframe('SET_PRIVATE_KEY', { privateKey: this.privateKey });
+          if (this.privateKey)
+            this.postToIframe('SET_PRIVATE_KEY', { privateKey: this.privateKey });
           return;
         }
         case 'IFRAME_ERROR':
@@ -245,10 +257,17 @@ export class IframeExportHost extends LitElementWithProps {
         case 'COPY': {
           if (isObject(payload)) {
             const { type, value } = payload as Partial<{ type: unknown; value: unknown }>;
-            if (isString(type) && (type === 'publicKey' || type === 'privateKey') && isString(value)) {
+            if (
+              isString(type) &&
+              (type === 'publicKey' || type === 'privateKey') &&
+              isString(value)
+            ) {
               dispatchLitCopy(this, { type, value });
             } else {
-              console.warn('[IframeExportHost] Ignoring COPY message with invalid payload', payload);
+              console.warn(
+                '[IframeExportHost] Ignoring COPY message with invalid payload',
+                payload,
+              );
             }
           }
           return;
@@ -283,10 +302,11 @@ export class IframeExportHost extends LitElementWithProps {
             preloads drawer + export-viewer CSS, and imports the viewer +
             bootstrap modules; no inline scripts/styles to satisfy strict CSP.
         -->
-        <iframe ${ref(this.iframeRef)}
+        <iframe
+          ${ref(this.iframeRef)}
           sandbox="allow-scripts allow-same-origin"
           allow="clipboard-read; clipboard-write"
-          ></iframe>
+        ></iframe>
       </div>
     `;
   }

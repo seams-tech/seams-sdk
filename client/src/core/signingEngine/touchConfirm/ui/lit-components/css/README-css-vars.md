@@ -48,6 +48,7 @@ We avoid inline `<style>` text for strict CSP environments and prefer external a
     - Otherwise, add a document‑level `<link rel="stylesheet">` once marked with `markerAttr`.
 
 Where we ensure the tokens are present:
+
 - `w3a-modal-tx-confirmer` (viewer-modal.ts): ensures `w3a-components.css` at document level.
 - `w3a-tx-confirm-content` (tx-confirm-content.ts): pre‑ensures `w3a-components.css` at document level.
 - `ExportPrivateKey` viewer also ensures tokens.
@@ -83,7 +84,7 @@ Note: `@import` inside constructable stylesheets is ignored by browsers. Do not 
 - Ensure `w3a-components.css` is loaded once by your host app if you use components outside the provided containers. In frameworks, a single `<link>` is usually sufficient:
 
 ```html
-<link rel="stylesheet" href="/path/to/w3a-components.css" data-w3a-components-css>
+<link rel="stylesheet" href="/path/to/w3a-components.css" data-w3a-components-css />
 ```
 
 - Switch themes by toggling `data-w3a-theme` on `document.documentElement`.
@@ -96,5 +97,6 @@ Note: `@import` inside constructable stylesheets is ignored by browsers. Do not 
 ---
 
 If anything here drifts from the implementation:
+
 - Check `sdk/scripts/codegen/generate-w3a-components-css.mjs` and `client/src/theme/base-styles.js` for the current mapping and output shape.
 - Search for `ensureExternalStyles(…, 'w3a-components.css' …)` to see which entrypoints ensure tokens.

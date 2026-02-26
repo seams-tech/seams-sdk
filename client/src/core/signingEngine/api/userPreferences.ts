@@ -9,9 +9,7 @@ import {
 import type { AccountId } from '../../types/accountIds';
 import { IndexedDBManager, type IndexedDBEvent } from '../../indexedDB';
 
-
 export class UserPreferencesManager {
-
   private confirmationConfigChangeListeners: Set<(config: ConfirmationConfig) => void> = new Set();
   private signerModeChangeListeners: Set<(mode: SignerMode) => void> = new Set();
   private currentUserChangeListeners: Set<(nearAccountId: AccountId | null) => void> = new Set();
@@ -48,7 +46,9 @@ export class UserPreferencesManager {
    * (not the app origin). This configures a best-effort writer used by `setSignerMode(...)` when
    * IndexedDB is disabled.
    */
-  configureWalletIframeSignerModeWriter(writer: ((signerMode: SignerMode) => Promise<void>) | null): void {
+  configureWalletIframeSignerModeWriter(
+    writer: ((signerMode: SignerMode) => Promise<void>) | null,
+  ): void {
     this.walletIframeSignerModeWriter = writer;
   }
 
@@ -102,12 +102,14 @@ export class UserPreferencesManager {
   private notifyCurrentUserChange(nearAccountId: AccountId | null): void {
     if (this.currentUserChangeListeners.size === 0) return;
     for (const listener of this.currentUserChangeListeners) {
-      try { listener(nearAccountId); } catch {}
+      try {
+        listener(nearAccountId);
+      } catch {}
     }
   }
 
   private sanitizeConfirmationConfig(
-    config?: Partial<ConfirmationConfig> | null
+    config?: Partial<ConfirmationConfig> | null,
   ): Partial<ConfirmationConfig> {
     if (!config) return {};
     const { uiMode, behavior, autoProceedDelay } = config as ConfirmationConfig;
@@ -120,7 +122,7 @@ export class UserPreferencesManager {
 
   private mergeConfirmationConfig(
     base: Partial<ConfirmationConfig>,
-    patch: Partial<ConfirmationConfig>
+    patch: Partial<ConfirmationConfig>,
   ): ConfirmationConfig {
     const merged = { ...base, ...patch } as Partial<ConfirmationConfig>;
     return {
@@ -204,7 +206,9 @@ export class UserPreferencesManager {
 
   getCurrentUserAccountId(): AccountId {
     if (!this.currentUserAccountId) {
-      console.debug('[UserPreferencesManager]: getCurrentUserAccountId called with no current user; returning empty id');
+      console.debug(
+        '[UserPreferencesManager]: getCurrentUserAccountId called with no current user; returning empty id',
+      );
       // Return an empty string to keep callers defensive; most consumers
       // already treat falsy accountIds as "no-op"/logged‑out.
       return '' as AccountId;
@@ -224,10 +228,14 @@ export class UserPreferencesManager {
    * Apply an authoritative confirmation config snapshot from the wallet-iframe host.
    * This updates in-memory state only; persistence remains owned by the wallet origin.
    */
-  applyWalletHostConfirmationConfig(args: {
-    nearAccountId?: AccountId | null;
-    confirmationConfig: ConfirmationConfig;
-  } | undefined): void {
+  applyWalletHostConfirmationConfig(
+    args:
+      | {
+          nearAccountId?: AccountId | null;
+          confirmationConfig: ConfirmationConfig;
+        }
+      | undefined,
+  ): void {
     const nearAccountId = args?.nearAccountId;
     const confirmationConfig = args?.confirmationConfig ?? DEFAULT_CONFIRMATION_CONFIG;
     const sanitized = this.sanitizeConfirmationConfig(confirmationConfig);
@@ -249,10 +257,14 @@ export class UserPreferencesManager {
    * Apply an authoritative signer mode snapshot from the wallet-iframe host.
    * This updates in-memory state only; persistence remains owned by the wallet origin.
    */
-  applyWalletHostSignerMode(args: {
-    nearAccountId?: AccountId | null;
-    signerMode: SignerMode;
-  } | undefined): void {
+  applyWalletHostSignerMode(
+    args:
+      | {
+          nearAccountId?: AccountId | null;
+          signerMode: SignerMode;
+        }
+      | undefined,
+  ): void {
     const nearAccountId = args?.nearAccountId;
     const signerMode = args?.signerMode;
     if (nearAccountId) {
@@ -281,10 +293,14 @@ export class UserPreferencesManager {
   }
 
   private applyStoredPreferences(
-    preferences: { confirmationConfig?: ConfirmationConfig; signerMode?: SignerMode | SignerMode['mode'] } | undefined,
+    preferences:
+      | { confirmationConfig?: ConfirmationConfig; signerMode?: SignerMode | SignerMode['mode'] }
+      | undefined,
   ): void {
     if (preferences?.confirmationConfig) {
-      const sanitized = this.sanitizeConfirmationConfig(preferences.confirmationConfig as ConfirmationConfig);
+      const sanitized = this.sanitizeConfirmationConfig(
+        preferences.confirmationConfig as ConfirmationConfig,
+      );
       this.confirmationConfig = this.mergeConfirmationConfig(this.confirmationConfig, sanitized);
       this.notifyConfirmationConfigChange(this.confirmationConfig);
     }
@@ -300,7 +316,9 @@ export class UserPreferencesManager {
    */
   private async loadSettingsForUser(nearAccountId: AccountId): Promise<void> {
     if (IndexedDBManager.clientDB.isDisabled()) return;
-    const context = await IndexedDBManager.clientDB.resolveNearAccountContext(nearAccountId).catch(() => null);
+    const context = await IndexedDBManager.clientDB
+      .resolveNearAccountContext(nearAccountId)
+      .catch(() => null);
     if (!context?.profileId) return;
     const profile = await IndexedDBManager.clientDB.getProfile(context.profileId).catch(() => null);
     if (!profile) return;
@@ -361,7 +379,9 @@ export class UserPreferencesManager {
     try {
       const accountId: AccountId | undefined = this.currentUserAccountId ?? undefined;
       if (!accountId) {
-        console.warn('[UserPreferences]: No current user set; keeping confirmation config in memory only');
+        console.warn(
+          '[UserPreferences]: No current user set; keeping confirmation config in memory only',
+        );
         return;
       }
 
@@ -393,7 +413,10 @@ export class UserPreferencesManager {
     return (a.behavior ?? null) === (b.behavior ?? null);
   }
 
-  private setSignerModeInternal(next: SignerMode, opts: { persist: boolean; notify: boolean }): void {
+  private setSignerModeInternal(
+    next: SignerMode,
+    opts: { persist: boolean; notify: boolean },
+  ): void {
     const prev = this.signerMode;
     this.signerMode = next;
     if (opts.notify && !this.isSignerModeEqual(prev, next)) {
@@ -403,7 +426,9 @@ export class UserPreferencesManager {
       // Best-effort persistence: only write when we have a current user context.
       const id = this.currentUserAccountId;
       if (!id || IndexedDBManager.clientDB.isDisabled()) return;
-      void IndexedDBManager.clientDB.updatePreferences(id, { signerMode: next }).catch(() => undefined);
+      void IndexedDBManager.clientDB
+        .updatePreferences(id, { signerMode: next })
+        .catch(() => undefined);
     }
   }
 }

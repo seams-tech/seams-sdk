@@ -77,10 +77,7 @@ export async function loginAndCreateSessionDomain(
   );
   if (result?.success) {
     // Promote authenticated account to current-user state only after login succeeds.
-    await deps.signingEngine.initializeCurrentUser(
-      toAccountId(nearAccountId),
-      deps.nearClient,
-    );
+    await deps.signingEngine.initializeCurrentUser(toAccountId(nearAccountId), deps.nearClient);
   }
   // Best-effort warm-up after successful login (non-blocking).
   try {
@@ -90,9 +87,7 @@ export async function loginAndCreateSessionDomain(
   return result;
 }
 
-export async function logoutAndClearSessionDomain(
-  deps: AuthSessionDomainDeps,
-): Promise<void> {
+export async function logoutAndClearSessionDomain(deps: AuthSessionDomainDeps): Promise<void> {
   await logoutAndClearSessionCore(deps.getContext());
   if (!deps.walletIframe.shouldUseWalletIframe()) return;
   try {

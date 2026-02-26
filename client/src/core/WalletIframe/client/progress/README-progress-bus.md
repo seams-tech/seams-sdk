@@ -5,7 +5,6 @@ This document explains how progress events drive the invisible wallet‑iframe o
 - (ii) SecureSignTxButton (click happens inside the wallet iframe)
 - (i) Direct `executeAction` calls from the SDK (no Lit component)
 
-
 ## Overview
 
 The wallet iframe mounts as a hidden 0×0 element in the parent document. When a signing flow reaches phases that need user activation (e.g., TouchID / WebAuthn), we temporarily expand the wallet iframe to a full‑screen, invisible overlay so the WebAuthn call occurs in the wallet document (the correct browsing context). As soon as activation completes, we hide the iframe again to avoid blocking the app.
@@ -17,7 +16,6 @@ The wallet iframe mounts as a hidden 0×0 element in the parent document. When a
   - `client/src/core/TatchiPasskey/near/actions.ts`
   - `client/src/core/signingEngine/touchConfirm/handlers/*`
   - `client/src/core/signingEngine/touchConfirm/handlers/flows/*`
-
 
 ## Progress → Overlay behavior
 
@@ -52,7 +50,6 @@ Key points:
 - For action signing flows, overlay expansion is tied to `STEP_3_WEBAUTHN_AUTHENTICATION` (actual TouchID/WebAuthn window), then collapsed on `STEP_4_AUTHENTICATION_COMPLETE`.
 - This keeps the blocking fullscreen iframe visible only for the minimum activation interval.
 
-
 ## What `showFrameForActivation()` actually does
 
 File: `client/src/core/WalletIframe/client/router.ts`
@@ -72,7 +69,6 @@ This minimizes any interaction blocking of the parent app and keeps the iframe i
 
 See: `client/src/core/WalletIframe/client/overlay/overlay-controller.ts` for the single source of truth that applies these CSS mutations and manages sticky mode.
 
-
 ## Concurrency: multiple in‑flight requests
 
 The overlay must not close while any request still needs user activation. ProgressBus maintains a per‑request demand map and applies aggregated visibility:
@@ -86,12 +82,11 @@ API surface:
 
 - `OnEventsProgressBus.wantsVisible(): boolean` — returns true if any in‑flight request currently demands `show`. The router uses this to avoid premature hides.
 
-
 ## Iframe permissions policy
 
 The wallet service iframe and the nested modal iframe must be allowed to use WebAuthn APIs. We set the permissions policy explicitly via the `allow` attribute.
 
-1) Wallet service iframe (created by `IframeTransport`)
+1. Wallet service iframe (created by `IframeTransport`)
 
 - File: `client/src/core/WalletIframe/client/transport/IframeTransport.ts`
 - Cross‑origin wallet host:
@@ -102,7 +97,7 @@ The wallet service iframe and the nested modal iframe must be allowed to use Web
   - Only applied for same‑origin srcdoc: `sandbox="allow-scripts allow-same-origin"`
   - Cross‑origin page is not sandboxed to avoid inconsistent MessagePort behavior across browsers.
 
-2) Modal host iframe (full‑screen UI for confirm in wallet origin)
+2. Modal host iframe (full‑screen UI for confirm in wallet origin)
 
 - File: `client/src/core/signingEngine/touchConfirm/ui/lit-components/IframeTxConfirmer/tx-confirmer-wrapper.ts`
 - Uses: `allow="publickey-credentials-get; publickey-credentials-create"`
@@ -111,7 +106,6 @@ The wallet service iframe and the nested modal iframe must be allowed to use Web
 Notes:
 
 - These policies ensure `navigator.credentials.get()` / `create()` calls initiated by the wallet iframe (or its modal host) satisfy the browser’s origin/user‑activation requirements.
-
 
 ## How both flows meet user activation
 
@@ -125,16 +119,16 @@ Notes:
 
 Even when you call `tatchi.near.executeAction(...)` directly from your app (not from a Lit component), the flow still meets activation without an extra modal click by combining:
 
-1) Overlay activation at the right phases
+1. Overlay activation at the right phases
    - On `STEP_3_WEBAUTHN_AUTHENTICATION`, the `ProgressBus` instructs the router to expand the wallet iframe overlay, so the credential call happens in the wallet document.
 
-2) Default confirmation config: “modal + requireClick”
+2. Default confirmation config: “modal + requireClick”
    - `DEFAULT_CONFIRMATION_CONFIG` is `uiMode: 'modal', behavior: 'requireClick', autoProceedDelay: 0`.
    - Source: `client/src/core/types/signer-worker.ts`
    - In `handlePromptFromWorker.ts`, the `modal + skipClick` branch mounts the modal with `loading: true`, waits `autoProceedDelay`, and proceeds without requiring a user click.
      - Source: `client/src/core/signingEngine/touchConfirm/handlers/handlePromptFromWorker.ts`
 
-3) Proper iframe permissions
+3. Proper iframe permissions
    - As described above, the wallet iframe (and nested modal host) have the correct `allow` attributes to use WebAuthn.
 
 Put together, when you trigger `executeAction` in response to any user gesture in your app (e.g., a button click), the SDK:
@@ -155,7 +149,6 @@ Before merging changes to the progress bus or overlay logic, verify:
 - In iframe mode, a manual test with `setConfirmBehavior('requireClick')` shows the modal and allows clicking Confirm.
 - In skipClick mode, modal appears briefly with loading then proceeds without extra clicks.
 
-
 ## When an extra click is required (and for registrations)
 
 - If you run `executeAction` without a recent user gesture (e.g., on page load, or after a long async chain with no new click), browsers may reject WebAuthn with `NotAllowedError` due to missing activation. In such cases:
@@ -165,7 +158,6 @@ Before merging changes to the progress bus or overlay logic, verify:
 - For registration/link‑device in the wallet‑iframe host context, we enforce explicit click (no auto‑proceed) to guarantee a clean activation for `create()`:
   - See: `client/src/core/signingEngine/touchConfirm/handlers/determineConfirmationConfig.ts` (forces `{ uiMode: 'modal', behavior: 'requireClick' }` in that runtime).
 
-
 ## Developer tips
 
 - Pre‑warm to reduce perceived latency before the overlay appears:
@@ -174,14 +166,13 @@ Before merging changes to the progress bus or overlay logic, verify:
 
 - Overlay is intentionally invisible but intercepts clicks while active. Keep the overlay up for the minimum time by limiting “show” to the phases that truly need activation (as implemented in `progress/on-events-progress-bus.ts`).
 
-
 ## Rough timeline: direct `executeAction`
 
-1) App calls `executeAction` (typically from a click handler).
-2) Wallet host mounts modal and prepares the WebAuthn challenge digest + tx context.
-3) SDK emits `STEP_3_WEBAUTHN_AUTHENTICATION` → overlay expands.
-4) WebAuthn prompt (`navigator.credentials.get`) runs in the wallet document.
-5) `STEP_4_AUTHENTICATION_COMPLETE` → overlay hides; signing continues.
-6) Transaction is signed and broadcast; final progress events emitted; modal closed.
+1. App calls `executeAction` (typically from a click handler).
+2. Wallet host mounts modal and prepares the WebAuthn challenge digest + tx context.
+3. SDK emits `STEP_3_WEBAUTHN_AUTHENTICATION` → overlay expands.
+4. WebAuthn prompt (`navigator.credentials.get`) runs in the wallet document.
+5. `STEP_4_AUTHENTICATION_COMPLETE` → overlay hides; signing continues.
+6. Transaction is signed and broadcast; final progress events emitted; modal closed.
 
 This is how we preserve “no popups,” satisfy WebAuthn activation, and avoid extra clicks for signing flows by default.

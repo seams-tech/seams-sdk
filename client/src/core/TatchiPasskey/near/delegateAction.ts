@@ -20,7 +20,6 @@ export interface RelayDelegateRequest {
   signedDelegate: SignedDelegate | WasmSignedDelegate;
 }
 
-
 export async function signDelegateAction(args: {
   context: PasskeyManagerContext;
   nearAccountId: AccountId;
@@ -214,11 +213,14 @@ export async function sendDelegateActionViaRelayer(args: {
 
   const response: DelegateRelayResult = {
     ok: Boolean(json.ok ?? true),
-    relayerTxHash: typeof json.relayerTxHash === 'string'
-      ? json.relayerTxHash
-      : (typeof json.transactionId === 'string'
-        ? json.transactionId
-        : (typeof json.txHash === 'string' ? json.txHash : undefined)),
+    relayerTxHash:
+      typeof json.relayerTxHash === 'string'
+        ? json.relayerTxHash
+        : typeof json.transactionId === 'string'
+          ? json.transactionId
+          : typeof json.txHash === 'string'
+            ? json.txHash
+            : undefined,
     status: typeof json.status === 'string' ? json.status : undefined,
     outcome: json.outcome,
     error: typeof json.error === 'string' ? json.error : undefined,

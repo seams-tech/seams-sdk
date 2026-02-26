@@ -64,5 +64,7 @@ export async function deleteProfileData(args: {
     });
   } catch {}
 
-  try { await db.delete(stores.profilesStore, normalizedProfileId); } catch {}
+  try {
+    await db.delete(stores.profilesStore, normalizedProfileId);
+  } catch {}
 }

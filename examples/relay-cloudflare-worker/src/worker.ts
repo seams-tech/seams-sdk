@@ -122,7 +122,9 @@ export default {
     const authService = createAuthService(env);
     const expectedOrigin = String(env.EXPECTED_ORIGIN || '').trim();
     const expectedWalletOrigin = String(env.EXPECTED_WALLET_ORIGIN || '').trim();
-    const rorRpId = String(env.ROR_RP_ID || hostnameFromOrigin(expectedWalletOrigin)).trim().toLowerCase();
+    const rorRpId = String(env.ROR_RP_ID || hostnameFromOrigin(expectedWalletOrigin))
+      .trim()
+      .toLowerCase();
     const rorOrigins = sanitizeOrigins([
       expectedOrigin,
       expectedWalletOrigin,
@@ -141,9 +143,8 @@ export default {
             ror: {
               rpId: rorRpId,
               provider: {
-                getAllowedOrigins: async (input: { rpId: string; host?: string }) => (
-                  input.rpId === rorRpId ? rorOrigins : []
-                ),
+                getAllowedOrigins: async (input: { rpId: string; host?: string }) =>
+                  input.rpId === rorRpId ? rorOrigins : [],
               },
             },
           }
@@ -192,5 +193,5 @@ export default {
       logger: console,
     });
     await handler(message, env, ctx);
-  }
+  },
 };

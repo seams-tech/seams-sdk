@@ -112,11 +112,10 @@ export class LitElementWithProps extends LitElement {
 
     if (properties) {
       // Handle both object syntax and Map syntax
-      const propertyNames = properties instanceof Map
-        ? Array.from(properties.keys())
-        : Object.keys(properties);
+      const propertyNames =
+        properties instanceof Map ? Array.from(properties.keys()) : Object.keys(properties);
 
-      propertyNames.forEach(prop => this.upgradeProperty(prop));
+      propertyNames.forEach((prop) => this.upgradeProperty(prop));
     }
   }
 
@@ -157,7 +156,8 @@ export class LitElementWithProps extends LitElement {
         for (const tag of req) {
           try {
             if (typeof tag === 'string' && tag.includes('-') && !customElements.get(tag)) {
-              const msg = `[W3A] Required child custom element not defined: <${tag}>. ` +
+              const msg =
+                `[W3A] Required child custom element not defined: <${tag}>. ` +
                 'Import the module that defines it and keep a reference via `static keepDefinitions` ' +
                 'or a private field to avoid tree-shaking. See LitComponents/README.md (tree-shake checklist).';
               if (strictChildDefinitions) {
@@ -169,7 +169,9 @@ export class LitElementWithProps extends LitElement {
             }
           } catch (err) {
             // In strict mode, surface the failure to developers immediately
-            if (strictChildDefinitions) { throw err; }
+            if (strictChildDefinitions) {
+              throw err;
+            }
           }
         }
       }
@@ -213,7 +215,9 @@ export class LitElementWithProps extends LitElement {
 
     const prefix = componentPrefix || this.getComponentPrefix();
     const vars: Record<string, string> = {};
-    const setVar = (name: string, val: string) => { vars[name] = val; };
+    const setVar = (name: string, val: string) => {
+      vars[name] = val;
+    };
     const toKebab = (s: string) => this.camelToKebab(s);
 
     // Prefer dynamic viewport units on capable browsers to avoid Safari 100vh/100vw issues
@@ -269,10 +273,16 @@ export class LitElementWithProps extends LitElement {
       }
 
       const r = key.match(radiusMatcher);
-      if (r) { setVar(`--w3a-border-radius-${r[1].toLowerCase()}`, maybeTransformed); return; }
+      if (r) {
+        setVar(`--w3a-border-radius-${r[1].toLowerCase()}`, maybeTransformed);
+        return;
+      }
 
       const s = key.match(shadowMatcher);
-      if (s) { setVar(`--w3a-shadows-${s[1].toLowerCase()}`, maybeTransformed); return; }
+      if (s) {
+        setVar(`--w3a-shadows-${s[1].toLowerCase()}`, maybeTransformed);
+        return;
+      }
 
       // No legacy gap variables; rely on spacing tokens only.
       setVar(`--w3a-${toKebab(key)}`, maybeTransformed);
@@ -317,12 +327,18 @@ export class LitElementWithProps extends LitElement {
       const canUseConstructable = supportsConstructableStylesheets();
 
       // 1) Preferred: ShadowRoot adopted stylesheets
-      if (this.renderRoot instanceof ShadowRoot && canUseConstructable && hasAdoptedStyleSheets(this.renderRoot)) {
+      if (
+        this.renderRoot instanceof ShadowRoot &&
+        canUseConstructable &&
+        hasAdoptedStyleSheets(this.renderRoot)
+      ) {
         if (!this._varsSheet) this._varsSheet = new CSSStyleSheet();
-        try { this._varsSheet.replaceSync(cssTextShadow); } catch {}
+        try {
+          this._varsSheet.replaceSync(cssTextShadow);
+        } catch {}
         const sheets = this.renderRoot.adoptedStyleSheets ?? [];
         // Ensure the vars sheet is last so its :host var declarations override defaults
-        const without = sheets.filter(sheet => sheet !== this._varsSheet);
+        const without = sheets.filter((sheet) => sheet !== this._varsSheet);
         this.renderRoot.adoptedStyleSheets = [...without, this._varsSheet];
         return;
       }
@@ -333,14 +349,18 @@ export class LitElementWithProps extends LitElement {
       const cssTextScoped = () => {
         if (!this._varsClassName) {
           this._varsClassName = `w3a-vars-${Math.random().toString(36).slice(2)}`;
-          try { this.classList.add(this._varsClassName); } catch {}
+          try {
+            this.classList.add(this._varsClassName);
+          } catch {}
         }
         return `.${this._varsClassName}{ ${decls} }`;
       };
       // Try attaching a constructable sheet to the nearest ShadowRoot when present
       if (rootNode && canUseConstructable && hasAdoptedStyleSheets(rootNode)) {
         if (!this._varsDocSheet) this._varsDocSheet = new CSSStyleSheet();
-        try { this._varsDocSheet.replaceSync(cssTextScoped()); } catch {}
+        try {
+          this._varsDocSheet.replaceSync(cssTextScoped());
+        } catch {}
         const srSheets = rootNode.adoptedStyleSheets ?? [];
         if (!srSheets.includes(this._varsDocSheet)) {
           rootNode.adoptedStyleSheets = [...srSheets, this._varsDocSheet];
@@ -351,7 +371,9 @@ export class LitElementWithProps extends LitElement {
       const docSupportsConstructable = canUseConstructable && hasAdoptedStyleSheets(doc);
       if (docSupportsConstructable) {
         if (!this._varsDocSheet) this._varsDocSheet = new CSSStyleSheet();
-        try { this._varsDocSheet.replaceSync(cssTextScoped()); } catch {}
+        try {
+          this._varsDocSheet.replaceSync(cssTextScoped());
+        } catch {}
         const current = doc.adoptedStyleSheets ?? [];
         if (!current.includes(this._varsDocSheet)) {
           doc.adoptedStyleSheets = [...current, this._varsDocSheet];
@@ -367,7 +389,7 @@ export class LitElementWithProps extends LitElement {
 /**
  * Generic styles interface for component styling
  */
-export interface ComponentStyles extends CSSProperties{
+export interface ComponentStyles extends CSSProperties {
   // Base design system variables
   fontFamily?: string;
   fontSize?: string;

@@ -2,7 +2,7 @@
 import {
   AuthenticatorOptions,
   UserVerificationPolicy,
-  OriginPolicyInput
+  OriginPolicyInput,
 } from '@/core/types/authenticatorOptions';
 import type { InitInput } from '../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import type { Logger } from './logger';
@@ -48,7 +48,11 @@ export interface SignerWasmConfig {
 // Threshold Ed25519 key persistence
 // ================================
 
-export type ThresholdEd25519KeyStoreKind = 'in-memory' | 'upstash-redis-rest' | 'redis-tcp' | 'cloudflare-do';
+export type ThresholdEd25519KeyStoreKind =
+  | 'in-memory'
+  | 'upstash-redis-rest'
+  | 'redis-tcp'
+  | 'cloudflare-do';
 
 // Structural types so Workers can pass Durable Object bindings without depending on CF type packages.
 export interface CloudflareDurableObjectStubLike {
@@ -266,7 +270,7 @@ export type GoogleOidcConfigInput = GoogleOidcConfig | GoogleOidcConfigEnvInput;
  */
 export type AuthServiceConfigInput = Omit<
   AuthServiceConfig,
-  'nearRpcUrl'
+  | 'nearRpcUrl'
   | 'networkId'
   | 'accountInitialBalance'
   | 'createAccountAndRegisterGas'
@@ -782,7 +786,7 @@ export interface ThresholdEcdsaBootstrapResponse {
   /** Base64url-encoded compressed secp256k1 relayer verifying share (33 bytes). */
   relayerVerifyingShareB64u?: string;
   participantIds?: number[];
-  chainId?: string;
+  chainId?: number;
   factory?: string;
   entryPoint?: string;
   salt?: string;

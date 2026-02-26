@@ -15,7 +15,7 @@ export type DOMRectLike = {
   top: number;
   left: number;
   width: number;
-  height: number
+  height: number;
 };
 
 const CLASS_BASE = 'w3a-wallet-overlay';
@@ -49,13 +49,17 @@ let overlayIdCounter = 0;
 function asId(el: HTMLElement): string {
   if (el.id && el.id.startsWith('w3a-overlay-')) return el.id;
   const id = `w3a-overlay-${++overlayIdCounter}`;
-  try { el.id = id; } catch {}
+  try {
+    el.id = id;
+  } catch {}
   return id;
 }
 
 export function ensureOverlayBase(el: HTMLElement): void {
   getStyleManager().ensureBase();
-  try { el.classList.add(CLASS_BASE); } catch {}
+  try {
+    el.classList.add(CLASS_BASE);
+  } catch {}
 }
 
 export function setHidden(el: HTMLElement): void {

@@ -18,6 +18,7 @@ NEAR relay server that creates accounts on behalf of users, where the relayer pa
 - `GET /readyz` — readiness check
 
 ### `POST /registration/bootstrap`
+
 Atomically create a NEAR account and register a WebAuthn authenticator in relay storage (contract-free).
 
 - Request body (abridged): `{ new_account_id, new_public_key, device_number?, rp_id, webauthn_registration, authenticator_options? }`
@@ -39,6 +40,7 @@ Verifies a standard WebAuthn assertion (contract-free; relay-stored authenticato
   - When `sessionKind` is `cookie`: sets `Set-Cookie: w3a_session=<jwt>; HttpOnly; Secure; SameSite=Lax; Path=/` and omits `jwt` in body.
 
 Notes
+
 - The sample server mounts this route via the SDK router (`createRelayRouter(authService)`).
 - For cookie sessions, CORS must allow credentials and specify explicit origins.
   The example config enables CORS with `origin: [EXPECTED_ORIGIN, EXPECTED_WALLET_ORIGIN]` and `credentials: true`.
@@ -47,16 +49,19 @@ Notes
 ### PRF session seal routes (`POST /threshold-ecdsa/prf-seal/*`) (optional)
 
 When enabled, this example mounts:
+
 - `POST /threshold-ecdsa/prf-seal/apply-server-seal`
 - `POST /threshold-ecdsa/prf-seal/remove-server-seal`
 
 Enable with `PRF_SESSION_SEAL_ENABLED=1` and provide:
+
 - `PRF_SESSION_SEAL_KEY_VERSION`
 - `SHAMIR_P_B64U`
 - `SHAMIR_E_S_B64U`
 - `SHAMIR_D_S_B64U`
 
 Optional limiter config:
+
 - `PRF_SESSION_SEAL_RATE_LIMIT_KIND` (`in-memory` | `upstash-redis-rest` | `redis-tcp`)
 - `PRF_SESSION_SEAL_RATE_LIMIT`
 - `PRF_SESSION_SEAL_RATE_LIMIT_WINDOW_MS`
@@ -67,12 +72,14 @@ Optional limiter config:
 Receives a JSON `ForwardableEmailPayload` (including `raw` containing the full RFC822 message) and forwards it into `EmailRecoveryService.requestEmailRecovery`.
 
 Production notes:
+
 - This server is the HTTP sink; you still need an email ingress (inbound email provider/webhook or your own MTA pipeline) to receive SMTP and then `POST` here.
 - Emails can be large; this example uses `express.json({ limit: '5mb' })`.
 
 ## Configuration
 
 Create `.env` file:
+
 ```bash
 RELAYER_ACCOUNT_ID=relayer.testnet
 RELAYER_PRIVATE_KEY=ed25519:...
@@ -124,6 +131,7 @@ CONSOLE_DEV_TOKEN=dev-console-token
 ### Persistence (Postgres / Redis / Upstash)
 
 The relay stores WebAuthn authenticators (credential public keys + counters) and credential bindings privately (no on-chain verifier). By default the example relay uses **in-memory** stores, which means:
+
 - credentials are lost on restart
 - multi-instance deployments will intermittently fail (“Credential is not registered for user”)
 
@@ -157,6 +165,7 @@ REDIS_URL=redis://127.0.0.1:6379
 If both `POSTGRES_URL` and `REDIS_URL` are set, this example server prefers Postgres for threshold stores.
 
 For production/serverless, prefer Upstash REST:
+
 - `UPSTASH_REDIS_REST_URL`
 - `UPSTASH_REDIS_REST_TOKEN`
 

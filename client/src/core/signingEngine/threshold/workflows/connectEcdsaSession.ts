@@ -63,7 +63,11 @@ export async function connectEcdsaSession(args: {
 
   const relayerKeyId = String(bootstrap.relayerKeyId || '').trim();
   if (!relayerKeyId) {
-    return { ok: false, code: 'internal', message: 'Threshold bootstrap response missing relayerKeyId' };
+    return {
+      ok: false,
+      code: 'internal',
+      message: 'Threshold bootstrap response missing relayerKeyId',
+    };
   }
   if (relayerKeyId !== requestedRelayerKeyId) {
     return {
@@ -74,7 +78,11 @@ export async function connectEcdsaSession(args: {
   }
   const sessionId = String(bootstrap.sessionId || '').trim();
   if (!sessionId) {
-    return { ok: false, code: 'internal', message: 'Threshold bootstrap response missing sessionId' };
+    return {
+      ok: false,
+      code: 'internal',
+      message: 'Threshold bootstrap response missing sessionId',
+    };
   }
   return {
     ok: true,

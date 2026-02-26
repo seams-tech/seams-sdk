@@ -10,7 +10,7 @@ export type EvmAccessListItem = {
 
 export type Eip1559UnsignedTx = {
   chainId: number;
-  nonce: bigint;
+  nonce?: bigint;
   maxPriorityFeePerGas: bigint;
   maxFeePerGas: bigint;
   gasLimit: bigint;

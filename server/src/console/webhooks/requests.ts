@@ -53,7 +53,10 @@ function readOptionalQueryString(query: Record<string, unknown>, key: string): s
   return value || undefined;
 }
 
-function readOptionalQueryBoolean(query: Record<string, unknown>, key: string): boolean | undefined {
+function readOptionalQueryBoolean(
+  query: Record<string, unknown>,
+  key: string,
+): boolean | undefined {
   const raw = query[key];
   if (raw === undefined || raw === null) return undefined;
   const first = Array.isArray(raw) ? raw[0] : raw;
@@ -66,21 +69,26 @@ function readOptionalQueryBoolean(query: Record<string, unknown>, key: string): 
   throw new ConsoleWebhookError('invalid_query', 400, `Query parameter ${key} must be true/false`);
 }
 
-function readOptionalQueryInteger(
-  query: Record<string, unknown>,
-  key: string,
-): number | undefined {
+function readOptionalQueryInteger(query: Record<string, unknown>, key: string): number | undefined {
   const raw = query[key];
   if (raw === undefined || raw === null) return undefined;
   const first = Array.isArray(raw) ? raw[0] : raw;
   const text = String(first).trim();
   if (!text) return undefined;
   if (!/^\d+$/.test(text)) {
-    throw new ConsoleWebhookError('invalid_query', 400, `Query parameter ${key} must be a positive integer`);
+    throw new ConsoleWebhookError(
+      'invalid_query',
+      400,
+      `Query parameter ${key} must be a positive integer`,
+    );
   }
   const value = Number.parseInt(text, 10);
   if (!Number.isFinite(value) || value <= 0) {
-    throw new ConsoleWebhookError('invalid_query', 400, `Query parameter ${key} must be a positive integer`);
+    throw new ConsoleWebhookError(
+      'invalid_query',
+      400,
+      `Query parameter ${key} must be a positive integer`,
+    );
   }
   return value;
 }
@@ -98,22 +106,36 @@ function normalizeWebhookUrlOrThrow(value: string, fieldName: string): string {
   try {
     parsed = new URL(value);
   } catch {
-    throw new ConsoleWebhookError('invalid_body', 400, `Field ${fieldName} must be a valid absolute URL`);
+    throw new ConsoleWebhookError(
+      'invalid_body',
+      400,
+      `Field ${fieldName} must be a valid absolute URL`,
+    );
   }
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    throw new ConsoleWebhookError('invalid_body', 400, `Field ${fieldName} must use https:// or http://`);
+    throw new ConsoleWebhookError(
+      'invalid_body',
+      400,
+      `Field ${fieldName} must use https:// or http://`,
+    );
   }
   return parsed.toString();
 }
 
 function parseWebhookSubscriptionsOrThrow(raw: unknown): ConsoleWebhookSubscription[] {
   if (!Array.isArray(raw) || raw.length === 0) {
-    throw new ConsoleWebhookError('invalid_body', 400, 'Field subscriptions must be a non-empty array');
+    throw new ConsoleWebhookError(
+      'invalid_body',
+      400,
+      'Field subscriptions must be a non-empty array',
+    );
   }
   const out: ConsoleWebhookSubscription[] = [];
   const seen = new Set<string>();
   for (const item of raw) {
-    const value = String(item || '').trim().toLowerCase();
+    const value = String(item || '')
+      .trim()
+      .toLowerCase();
     if (!WEBHOOK_SUBSCRIPTIONS.has(value as ConsoleWebhookSubscription)) {
       throw new ConsoleWebhookError('invalid_body', 400, `Unsupported subscription: ${value}`);
     }
@@ -125,20 +147,28 @@ function parseWebhookSubscriptionsOrThrow(raw: unknown): ConsoleWebhookSubscript
   return out;
 }
 
-function parseWebhookStatusOrThrow(value: unknown, fieldName: string): ConsoleWebhookEndpointStatus {
-  const normalized = String(value || '').trim().toUpperCase();
+function parseWebhookStatusOrThrow(
+  value: unknown,
+  fieldName: string,
+): ConsoleWebhookEndpointStatus {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase();
   if (!WEBHOOK_ENDPOINT_STATUSES.has(normalized as ConsoleWebhookEndpointStatus)) {
     throw new ConsoleWebhookError('invalid_body', 400, `Unsupported ${fieldName}: ${normalized}`);
   }
   return normalized as ConsoleWebhookEndpointStatus;
 }
 
-export function parseCreateConsoleWebhookEndpointRequest(body: unknown): CreateConsoleWebhookEndpointRequest {
+export function parseCreateConsoleWebhookEndpointRequest(
+  body: unknown,
+): CreateConsoleWebhookEndpointRequest {
   const obj = requireObject(body);
   const url = normalizeWebhookUrlOrThrow(readRequiredString(obj, 'url'), 'url');
   const subscriptions = parseWebhookSubscriptionsOrThrow(obj.subscriptions);
   const statusRaw = obj.status;
-  const status = statusRaw === undefined ? undefined : parseWebhookStatusOrThrow(statusRaw, 'status');
+  const status =
+    statusRaw === undefined ? undefined : parseWebhookStatusOrThrow(statusRaw, 'status');
   return {
     url,
     subscriptions,
@@ -146,7 +176,9 @@ export function parseCreateConsoleWebhookEndpointRequest(body: unknown): CreateC
   };
 }
 
-export function parseUpdateConsoleWebhookEndpointRequest(body: unknown): UpdateConsoleWebhookEndpointRequest {
+export function parseUpdateConsoleWebhookEndpointRequest(
+  body: unknown,
+): UpdateConsoleWebhookEndpointRequest {
   const obj = requireObject(body);
   const urlRaw = readOptionalString(obj, 'url');
   const statusRaw = obj.status;
@@ -172,7 +204,9 @@ export function parseUpdateConsoleWebhookEndpointRequest(body: unknown): UpdateC
   return out;
 }
 
-export function parseReplayConsoleWebhookDeliveryRequest(body: unknown): ReplayConsoleWebhookDeliveryRequest {
+export function parseReplayConsoleWebhookDeliveryRequest(
+  body: unknown,
+): ReplayConsoleWebhookDeliveryRequest {
   if (body === undefined || body === null) return {};
   const obj = requireObject(body);
   return {

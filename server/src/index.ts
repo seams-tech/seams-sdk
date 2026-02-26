@@ -2,9 +2,7 @@
 export * from './core/types';
 export * from './core/config';
 export * from './core/defaultConfigsServer';
-export {
-  AuthService
-} from './core/AuthService';
+export { AuthService } from './core/AuthService';
 export { SessionService, parseCsvList, buildCorsOrigins } from './core/SessionService';
 export type { SessionConfig } from './core/SessionService';
 export {

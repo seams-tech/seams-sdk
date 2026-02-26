@@ -3,18 +3,13 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { AccessKeyList } from '@/core/rpcClients/near/NearClient';
 import type { ThresholdEd25519KeyStore } from './stores/KeyStore';
-import type {
-  ThresholdEd25519SessionStore,
-} from './stores/SessionStore';
+import type { ThresholdEd25519SessionStore } from './stores/SessionStore';
 import type {
   ThresholdEcdsaPresignSessionStore,
   ThresholdEcdsaPresignaturePool,
   ThresholdEcdsaSigningSessionStore,
 } from './stores/EcdsaSigningStore';
-import type {
-  Ed25519AuthSessionStore,
-  Ed25519AuthSessionRecord,
-} from './stores/AuthSessionStore';
+import type { Ed25519AuthSessionStore, Ed25519AuthSessionRecord } from './stores/AuthSessionStore';
 import type { ThresholdEd25519KeygenStrategy } from './keygenStrategy';
 import { ThresholdEd25519KeygenStrategyV1 } from './keygenStrategy';
 import type {
@@ -90,7 +85,10 @@ import {
 } from './config';
 import { ThresholdEcdsaSigningHandlers } from './ecdsaSigningHandlers';
 import { ThresholdEd25519SigningHandlers } from './signingHandlers';
-import { resolveThresholdEd25519RelayerKeyMaterial, shouldUseDerivedRelayerShares } from './relayerKeyMaterial';
+import {
+  resolveThresholdEd25519RelayerKeyMaterial,
+  shouldUseDerivedRelayerShares,
+} from './relayerKeyMaterial';
 import type {
   ThresholdAnySchemeModule,
   ThresholdEd25519RegistrationKeygenRequest,
@@ -110,17 +108,19 @@ type ParseResult<T> = ParseOk<T> | ParseErr;
 
 function errorMessage(error: unknown): string {
   return String(
-    (error && typeof error === 'object' && 'message' in error)
+    error && typeof error === 'object' && 'message' in error
       ? (error as { message?: unknown }).message
-      : (error || ''),
+      : error || '',
   );
 }
 
 function isEthSignerWasmRuntimeError(messageRaw: string): boolean {
   const message = String(messageRaw || '').toLowerCase();
-  return message.includes('eth_signer wasm')
-    || message.includes('initialize eth_signer wasm')
-    || message.includes('not initialized');
+  return (
+    message.includes('eth_signer wasm') ||
+    message.includes('initialize eth_signer wasm') ||
+    message.includes('not initialized')
+  );
 }
 
 function parseOptionalBoolean(value: unknown): boolean | undefined {
@@ -153,32 +153,67 @@ function parseThresholdEcdsaPresignPoolPolicyHint(
     ...(parseOptionalBoolean(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_ENABLED) !== undefined
       ? { enabled: parseOptionalBoolean(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_ENABLED) }
       : {}),
-    ...(parseOptionalIntInRange(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_TARGET_DEPTH, 1, 64) !== undefined
-      ? { targetDepth: parseOptionalIntInRange(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_TARGET_DEPTH, 1, 64) }
+    ...(parseOptionalIntInRange(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_TARGET_DEPTH, 1, 64) !==
+    undefined
+      ? {
+          targetDepth: parseOptionalIntInRange(
+            config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_TARGET_DEPTH,
+            1,
+            64,
+          ),
+        }
       : {}),
-    ...(parseOptionalIntInRange(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_LOW_WATERMARK, 0, 64) !== undefined
-      ? { lowWatermark: parseOptionalIntInRange(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_LOW_WATERMARK, 0, 64) }
+    ...(parseOptionalIntInRange(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_LOW_WATERMARK, 0, 64) !==
+    undefined
+      ? {
+          lowWatermark: parseOptionalIntInRange(
+            config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_LOW_WATERMARK,
+            0,
+            64,
+          ),
+        }
       : {}),
-    ...(parseOptionalIntInRange(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_MAX_REFILL_IN_FLIGHT, 1, 8) !== undefined
-      ? { maxRefillInFlight: parseOptionalIntInRange(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_MAX_REFILL_IN_FLIGHT, 1, 8) }
+    ...(parseOptionalIntInRange(
+      config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_MAX_REFILL_IN_FLIGHT,
+      1,
+      8,
+    ) !== undefined
+      ? {
+          maxRefillInFlight: parseOptionalIntInRange(
+            config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_MAX_REFILL_IN_FLIGHT,
+            1,
+            8,
+          ),
+        }
       : {}),
-    ...(parseOptionalIntInRange(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_REFILL_ATTEMPT_TIMEOUT_MS, 5_000, 120_000) !== undefined
-      ? { refillAttemptTimeoutMs: parseOptionalIntInRange(config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_REFILL_ATTEMPT_TIMEOUT_MS, 5_000, 120_000) }
+    ...(parseOptionalIntInRange(
+      config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_REFILL_ATTEMPT_TIMEOUT_MS,
+      5_000,
+      120_000,
+    ) !== undefined
+      ? {
+          refillAttemptTimeoutMs: parseOptionalIntInRange(
+            config.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_REFILL_ATTEMPT_TIMEOUT_MS,
+            5_000,
+            120_000,
+          ),
+        }
       : {}),
   };
   return Object.keys(hint).length ? hint : undefined;
 }
 
-type ParsedThresholdEd25519KeygenRequest =
-  {
-    kind: 'webauthn';
-    nearAccountId: string;
-    clientVerifyingShareB64u: string;
-    rpId: string;
-    keygenSessionId: string;
-  };
+type ParsedThresholdEd25519KeygenRequest = {
+  kind: 'webauthn';
+  nearAccountId: string;
+  clientVerifyingShareB64u: string;
+  rpId: string;
+  keygenSessionId: string;
+};
 
-function parseThresholdEd25519KeygenRequest(request: ThresholdEd25519KeygenRequest): ParseResult<ParsedThresholdEd25519KeygenRequest> {
+function parseThresholdEd25519KeygenRequest(
+  request: ThresholdEd25519KeygenRequest,
+): ParseResult<ParsedThresholdEd25519KeygenRequest> {
   const rec = (request || {}) as unknown as Record<string, unknown>;
   const nearAccountId = toOptionalTrimmedString(rec.nearAccountId);
   if (!nearAccountId) {
@@ -190,8 +225,8 @@ function parseThresholdEd25519KeygenRequest(request: ThresholdEd25519KeygenReque
   }
 
   const rpId =
-    toOptionalTrimmedString(rec.rpId)
-    || toOptionalTrimmedString((rec as unknown as { rp_id?: unknown }).rp_id);
+    toOptionalTrimmedString(rec.rpId) ||
+    toOptionalTrimmedString((rec as unknown as { rp_id?: unknown }).rp_id);
   if (!rpId) {
     return { ok: false, code: 'invalid_body', message: 'rpId is required' };
   }
@@ -201,7 +236,10 @@ function parseThresholdEd25519KeygenRequest(request: ThresholdEd25519KeygenReque
     return { ok: false, code: 'invalid_body', message: 'keygenSessionId is required' };
   }
 
-  return { ok: true, value: { kind: 'webauthn', nearAccountId, clientVerifyingShareB64u, rpId, keygenSessionId } };
+  return {
+    ok: true,
+    value: { kind: 'webauthn', nearAccountId, clientVerifyingShareB64u, rpId, keygenSessionId },
+  };
 }
 
 function parseThresholdEcdsaRegistrationKeygenRequest(request: {
@@ -223,8 +261,8 @@ function parseThresholdEcdsaRegistrationKeygenRequest(request: {
     return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is required' };
   }
   const rpId =
-    toOptionalTrimmedString(rec.rpId)
-    || toOptionalTrimmedString((rec as unknown as { rp_id?: unknown }).rp_id);
+    toOptionalTrimmedString(rec.rpId) ||
+    toOptionalTrimmedString((rec as unknown as { rp_id?: unknown }).rp_id);
   if (!rpId) {
     return { ok: false, code: 'invalid_body', message: 'rpId is required' };
   }
@@ -247,8 +285,8 @@ function parseThresholdEcdsaKeygenRequest(request: ThresholdEcdsaKeygenRequest):
     return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is required' };
   }
   const rpId =
-    toOptionalTrimmedString(rec.rpId)
-    || toOptionalTrimmedString((rec as unknown as { rp_id?: unknown }).rp_id);
+    toOptionalTrimmedString(rec.rpId) ||
+    toOptionalTrimmedString((rec as unknown as { rp_id?: unknown }).rp_id);
   if (!rpId) {
     return { ok: false, code: 'invalid_body', message: 'rpId is required' };
   }
@@ -259,7 +297,9 @@ function parseThresholdEcdsaKeygenRequest(request: ThresholdEcdsaKeygenRequest):
   return { ok: true, value: { userId, clientVerifyingShareB64u, rpId, keygenSessionId } };
 }
 
-function parseThresholdEd25519AuthorizeWithSessionRequest(request: ThresholdEd25519AuthorizeWithSessionRequest): ParseResult<{
+function parseThresholdEd25519AuthorizeWithSessionRequest(
+  request: ThresholdEd25519AuthorizeWithSessionRequest,
+): ParseResult<{
   relayerKeyId: string;
   clientVerifyingShareB64u: string;
   purpose: string;
@@ -268,7 +308,8 @@ function parseThresholdEd25519AuthorizeWithSessionRequest(request: ThresholdEd25
 }> {
   const rec = (request || {}) as unknown as Record<string, unknown>;
   const relayerKeyId = toOptionalTrimmedString(rec.relayerKeyId);
-  if (!relayerKeyId) return { ok: false, code: 'invalid_body', message: 'relayerKeyId is required' };
+  if (!relayerKeyId)
+    return { ok: false, code: 'invalid_body', message: 'relayerKeyId is required' };
   const clientVerifyingShareB64u = toOptionalTrimmedString(rec.clientVerifyingShareB64u);
   if (!clientVerifyingShareB64u) {
     return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is required' };
@@ -277,9 +318,22 @@ function parseThresholdEd25519AuthorizeWithSessionRequest(request: ThresholdEd25
   if (!purpose) return { ok: false, code: 'invalid_body', message: 'purpose is required' };
   const signingDigest32 = normalizeByteArray32(rec.signing_digest_32);
   if (!signingDigest32) {
-    return { ok: false, code: 'invalid_body', message: 'signing_digest_32 (32 bytes) is required for threshold authorization' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'signing_digest_32 (32 bytes) is required for threshold authorization',
+    };
   }
-  return { ok: true, value: { relayerKeyId, clientVerifyingShareB64u, purpose, signingDigest32, signingPayload: rec.signingPayload } };
+  return {
+    ok: true,
+    value: {
+      relayerKeyId,
+      clientVerifyingShareB64u,
+      purpose,
+      signingDigest32,
+      signingPayload: rec.signingPayload,
+    },
+  };
 }
 
 function parseThresholdEd25519SessionRequest(
@@ -311,42 +365,80 @@ function parseThresholdEd25519SessionRequest(
   }
   const version = toOptionalTrimmedString((policyRaw as Record<string, unknown>).version);
   if (version !== 'threshold_session_v1') {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy.version must be threshold_session_v1' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'sessionPolicy.version must be threshold_session_v1',
+    };
   }
-  const nearAccountId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).nearAccountId);
+  const nearAccountId = toOptionalTrimmedString(
+    (policyRaw as Record<string, unknown>).nearAccountId,
+  );
   const rpId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).rpId);
   const sessionId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).sessionId);
-  const policyRelayerKeyId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).relayerKeyId);
+  const policyRelayerKeyId = toOptionalTrimmedString(
+    (policyRaw as Record<string, unknown>).relayerKeyId,
+  );
   const ttlMsRaw = Number((policyRaw as Record<string, unknown>).ttlMs);
   const remainingUsesRaw = Number((policyRaw as Record<string, unknown>).remainingUses);
   if (!nearAccountId || !rpId || !sessionId || !policyRelayerKeyId) {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy{nearAccountId,rpId,relayerKeyId,sessionId} are required' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'sessionPolicy{nearAccountId,rpId,relayerKeyId,sessionId} are required',
+    };
   }
   if (policyRelayerKeyId !== relayerKeyId) {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy.relayerKeyId must match relayerKeyId' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'sessionPolicy.relayerKeyId must match relayerKeyId',
+    };
   }
 
   const policyHasParticipantIds = Object.prototype.hasOwnProperty.call(policyRaw, 'participantIds');
-  const policyParticipantIds = normalizeThresholdEd25519ParticipantIds((policyRaw as Record<string, unknown>).participantIds);
+  const policyParticipantIds = normalizeThresholdEd25519ParticipantIds(
+    (policyRaw as Record<string, unknown>).participantIds,
+  );
   if (policyHasParticipantIds && !policyParticipantIds) {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy.participantIds must be a non-empty array of positive integers' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'sessionPolicy.participantIds must be a non-empty array of positive integers',
+    };
   }
   if (policyParticipantIds) {
     if (policyParticipantIds.length < 2) {
-      return { ok: false, code: 'invalid_body', message: 'sessionPolicy.participantIds must contain at least 2 participant ids' };
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'sessionPolicy.participantIds must contain at least 2 participant ids',
+      };
     }
     for (const id of participantIds2p) {
       if (!policyParticipantIds.includes(id)) {
-        return { ok: false, code: 'unauthorized', message: `sessionPolicy.participantIds must include server signer set (expected to include participantIds=[${participantIds2p.join(',')}])` };
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: `sessionPolicy.participantIds must include server signer set (expected to include participantIds=[${participantIds2p.join(',')}])`,
+        };
       }
     }
   }
 
   if (!Number.isFinite(ttlMsRaw) || ttlMsRaw <= 0) {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy.ttlMs must be a positive number' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'sessionPolicy.ttlMs must be a positive number',
+    };
   }
   if (!Number.isFinite(remainingUsesRaw) || remainingUsesRaw <= 0) {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy.remainingUses must be a positive number' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'sessionPolicy.remainingUses must be a positive number',
+    };
   }
 
   return {
@@ -364,7 +456,9 @@ function parseThresholdEd25519SessionRequest(
   };
 }
 
-function parseThresholdEcdsaAuthorizeWithSessionRequest(request: ThresholdEcdsaAuthorizeWithSessionRequest): ParseResult<{
+function parseThresholdEcdsaAuthorizeWithSessionRequest(
+  request: ThresholdEcdsaAuthorizeWithSessionRequest,
+): ParseResult<{
   relayerKeyId: string;
   clientVerifyingShareB64u: string;
   purpose: string;
@@ -373,7 +467,8 @@ function parseThresholdEcdsaAuthorizeWithSessionRequest(request: ThresholdEcdsaA
 }> {
   const rec = (request || {}) as unknown as Record<string, unknown>;
   const relayerKeyId = toOptionalTrimmedString(rec.relayerKeyId);
-  if (!relayerKeyId) return { ok: false, code: 'invalid_body', message: 'relayerKeyId is required' };
+  if (!relayerKeyId)
+    return { ok: false, code: 'invalid_body', message: 'relayerKeyId is required' };
   const clientVerifyingShareB64u = toOptionalTrimmedString(rec.clientVerifyingShareB64u);
   if (!clientVerifyingShareB64u) {
     return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is required' };
@@ -382,9 +477,22 @@ function parseThresholdEcdsaAuthorizeWithSessionRequest(request: ThresholdEcdsaA
   if (!purpose) return { ok: false, code: 'invalid_body', message: 'purpose is required' };
   const signingDigest32 = normalizeByteArray32(rec.signing_digest_32);
   if (!signingDigest32) {
-    return { ok: false, code: 'invalid_body', message: 'signing_digest_32 (32 bytes) is required for threshold authorization' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'signing_digest_32 (32 bytes) is required for threshold authorization',
+    };
   }
-  return { ok: true, value: { relayerKeyId, clientVerifyingShareB64u, purpose, signingDigest32, signingPayload: rec.signingPayload } };
+  return {
+    ok: true,
+    value: {
+      relayerKeyId,
+      clientVerifyingShareB64u,
+      purpose,
+      signingDigest32,
+      signingPayload: rec.signingPayload,
+    },
+  };
 }
 
 function parseThresholdEcdsaSessionRequest(
@@ -416,42 +524,78 @@ function parseThresholdEcdsaSessionRequest(
   }
   const version = toOptionalTrimmedString((policyRaw as Record<string, unknown>).version);
   if (version !== 'threshold_session_v1') {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy.version must be threshold_session_v1' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'sessionPolicy.version must be threshold_session_v1',
+    };
   }
   const userId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).userId);
   const rpId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).rpId);
   const sessionId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).sessionId);
-  const policyRelayerKeyId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).relayerKeyId);
+  const policyRelayerKeyId = toOptionalTrimmedString(
+    (policyRaw as Record<string, unknown>).relayerKeyId,
+  );
   const ttlMsRaw = Number((policyRaw as Record<string, unknown>).ttlMs);
   const remainingUsesRaw = Number((policyRaw as Record<string, unknown>).remainingUses);
   if (!userId || !rpId || !sessionId || !policyRelayerKeyId) {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy{userId,rpId,relayerKeyId,sessionId} are required' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'sessionPolicy{userId,rpId,relayerKeyId,sessionId} are required',
+    };
   }
   if (policyRelayerKeyId !== relayerKeyId) {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy.relayerKeyId must match relayerKeyId' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'sessionPolicy.relayerKeyId must match relayerKeyId',
+    };
   }
 
   const policyHasParticipantIds = Object.prototype.hasOwnProperty.call(policyRaw, 'participantIds');
-  const policyParticipantIds = normalizeThresholdEd25519ParticipantIds((policyRaw as Record<string, unknown>).participantIds);
+  const policyParticipantIds = normalizeThresholdEd25519ParticipantIds(
+    (policyRaw as Record<string, unknown>).participantIds,
+  );
   if (policyHasParticipantIds && !policyParticipantIds) {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy.participantIds must be a non-empty array of positive integers' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'sessionPolicy.participantIds must be a non-empty array of positive integers',
+    };
   }
   if (policyParticipantIds) {
     if (policyParticipantIds.length < 2) {
-      return { ok: false, code: 'invalid_body', message: 'sessionPolicy.participantIds must contain at least 2 participant ids' };
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'sessionPolicy.participantIds must contain at least 2 participant ids',
+      };
     }
     for (const id of participantIds2p) {
       if (!policyParticipantIds.includes(id)) {
-        return { ok: false, code: 'unauthorized', message: `sessionPolicy.participantIds must include server signer set (expected to include participantIds=[${participantIds2p.join(',')}])` };
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: `sessionPolicy.participantIds must include server signer set (expected to include participantIds=[${participantIds2p.join(',')}])`,
+        };
       }
     }
   }
 
   if (!Number.isFinite(ttlMsRaw) || ttlMsRaw <= 0) {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy.ttlMs must be a positive number' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'sessionPolicy.ttlMs must be a positive number',
+    };
   }
   if (!Number.isFinite(remainingUsesRaw) || remainingUsesRaw <= 0) {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy.remainingUses must be a positive number' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'sessionPolicy.remainingUses must be a positive number',
+    };
   }
 
   return {
@@ -488,8 +632,8 @@ function parseThresholdEcdsaBootstrapRequest(
     return { ok: false, code: 'invalid_body', message: 'userId is required' };
   }
   const rpId =
-    toOptionalTrimmedString(rec.rpId)
-    || toOptionalTrimmedString((rec as unknown as { rp_id?: unknown }).rp_id);
+    toOptionalTrimmedString(rec.rpId) ||
+    toOptionalTrimmedString((rec as unknown as { rp_id?: unknown }).rp_id);
   if (!rpId) {
     return { ok: false, code: 'invalid_body', message: 'rpId is required' };
   }
@@ -508,7 +652,11 @@ function parseThresholdEcdsaBootstrapRequest(
   }
   const version = toOptionalTrimmedString((policyRaw as Record<string, unknown>).version);
   if (version !== 'threshold_session_v1') {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy.version must be threshold_session_v1' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'sessionPolicy.version must be threshold_session_v1',
+    };
   }
 
   const policyUserId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).userId);
@@ -517,7 +665,11 @@ function parseThresholdEcdsaBootstrapRequest(
   const ttlMsRaw = Number((policyRaw as Record<string, unknown>).ttlMs);
   const remainingUsesRaw = Number((policyRaw as Record<string, unknown>).remainingUses);
   if (!policyUserId || !policyRpId || !sessionId) {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy{userId,rpId,sessionId} are required' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'sessionPolicy{userId,rpId,sessionId} are required',
+    };
   }
   if (policyUserId !== userId) {
     return { ok: false, code: 'invalid_body', message: 'sessionPolicy.userId must match userId' };
@@ -527,26 +679,48 @@ function parseThresholdEcdsaBootstrapRequest(
   }
 
   const policyHasParticipantIds = Object.prototype.hasOwnProperty.call(policyRaw, 'participantIds');
-  const policyParticipantIds = normalizeThresholdEd25519ParticipantIds((policyRaw as Record<string, unknown>).participantIds);
+  const policyParticipantIds = normalizeThresholdEd25519ParticipantIds(
+    (policyRaw as Record<string, unknown>).participantIds,
+  );
   if (policyHasParticipantIds && !policyParticipantIds) {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy.participantIds must be a non-empty array of positive integers' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'sessionPolicy.participantIds must be a non-empty array of positive integers',
+    };
   }
   if (policyParticipantIds) {
     if (policyParticipantIds.length < 2) {
-      return { ok: false, code: 'invalid_body', message: 'sessionPolicy.participantIds must contain at least 2 participant ids' };
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'sessionPolicy.participantIds must contain at least 2 participant ids',
+      };
     }
     for (const id of participantIds2p) {
       if (!policyParticipantIds.includes(id)) {
-        return { ok: false, code: 'unauthorized', message: `sessionPolicy.participantIds must include server signer set (expected to include participantIds=[${participantIds2p.join(',')}])` };
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: `sessionPolicy.participantIds must include server signer set (expected to include participantIds=[${participantIds2p.join(',')}])`,
+        };
       }
     }
   }
 
   if (!Number.isFinite(ttlMsRaw) || ttlMsRaw <= 0) {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy.ttlMs must be a positive number' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'sessionPolicy.ttlMs must be a positive number',
+    };
   }
   if (!Number.isFinite(remainingUsesRaw) || remainingUsesRaw <= 0) {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy.remainingUses must be a positive number' };
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'sessionPolicy.remainingUses must be a positive number',
+    };
   }
 
   return {
@@ -588,16 +762,17 @@ export class ThresholdSigningService {
   private readonly ecdsaSigningHandlers: ThresholdEcdsaSigningHandlers;
   private readonly ensureReady: () => Promise<void>;
   private readonly ensureSignerWasm: () => Promise<void>;
-  private readonly verifyWebAuthnAuthenticationLite: ((
-    request: {
-      nearAccountId: string;
-      rpId: string;
-      expectedChallenge: string;
-      webauthn_authentication: WebAuthnAuthenticationCredential;
-    }
-  ) => Promise<VerifyAuthenticationResponse>) | null;
+  private readonly verifyWebAuthnAuthenticationLite:
+    | ((request: {
+        nearAccountId: string;
+        rpId: string;
+        expectedChallenge: string;
+        webauthn_authentication: WebAuthnAuthenticationCredential;
+      }) => Promise<VerifyAuthenticationResponse>)
+    | null;
   private readonly viewAccessKeyList: (accountId: string) => Promise<AccessKeyList>;
-  private cachedSchemeModules: Partial<Record<ThresholdSchemeId, ThresholdAnySchemeModule>> | null = null;
+  private cachedSchemeModules: Partial<Record<ThresholdSchemeId, ThresholdAnySchemeModule>> | null =
+    null;
 
   constructor(input: {
     logger: NormalizedLogger;
@@ -635,17 +810,25 @@ export class ThresholdSigningService {
     this.ecdsaPresignPoolPolicyHint = parseThresholdEcdsaPresignPoolPolicyHint(cfg);
 
     const nodeRole = coerceThresholdNodeRole(cfg.THRESHOLD_NODE_ROLE);
-    const coordinatorSharedSecretBytes =
-      parseThresholdCoordinatorSharedSecretBytes(cfg.THRESHOLD_COORDINATOR_SHARED_SECRET_B64U);
+    const coordinatorSharedSecretBytes = parseThresholdCoordinatorSharedSecretBytes(
+      cfg.THRESHOLD_COORDINATOR_SHARED_SECRET_B64U,
+    );
     const coordinatorInstanceId = toOptionalTrimmedString(cfg.THRESHOLD_COORDINATOR_INSTANCE_ID);
     const coordinatorPeers = parseThresholdCoordinatorPeers(cfg.THRESHOLD_COORDINATOR_PEERS) || [];
-    const relayerCosigners = parseThresholdRelayerCosigners(cfg.THRESHOLD_ED25519_RELAYER_COSIGNERS) || [];
-    const relayerCosignerThreshold = parseThresholdRelayerCosignerThreshold(cfg.THRESHOLD_ED25519_RELAYER_COSIGNER_T);
+    const relayerCosigners =
+      parseThresholdRelayerCosigners(cfg.THRESHOLD_ED25519_RELAYER_COSIGNERS) || [];
+    const relayerCosignerThreshold = parseThresholdRelayerCosignerThreshold(
+      cfg.THRESHOLD_ED25519_RELAYER_COSIGNER_T,
+    );
     const relayerCosignerIdRaw = cfg.THRESHOLD_ED25519_RELAYER_COSIGNER_ID;
     const relayerCosignerId =
-      relayerCosignerIdRaw === undefined ? null : normalizeThresholdEd25519ParticipantId(relayerCosignerIdRaw);
+      relayerCosignerIdRaw === undefined
+        ? null
+        : normalizeThresholdEd25519ParticipantId(relayerCosignerIdRaw);
     if (nodeRole === 'cosigner' && !relayerCosignerId) {
-      throw new Error('THRESHOLD_ED25519_RELAYER_COSIGNER_ID is required when THRESHOLD_NODE_ROLE=cosigner');
+      throw new Error(
+        'THRESHOLD_ED25519_RELAYER_COSIGNER_ID is required when THRESHOLD_NODE_ROLE=cosigner',
+      );
     }
 
     const ids = parseThresholdEd25519ParticipantIds2p({
@@ -657,16 +840,21 @@ export class ThresholdSigningService {
     this.participantIds2p = ids.participantIds2p;
 
     this.shareMode = coerceThresholdEd25519ShareMode(cfg.THRESHOLD_ED25519_SHARE_MODE);
-    this.relayerMasterSecretB64u = validateThresholdEd25519MasterSecretB64u(cfg.THRESHOLD_ED25519_MASTER_SECRET_B64U);
+    this.relayerMasterSecretB64u = validateThresholdEd25519MasterSecretB64u(
+      cfg.THRESHOLD_ED25519_MASTER_SECRET_B64U,
+    );
     if (this.shareMode === 'derived' && !this.relayerMasterSecretB64u) {
-      throw new Error('threshold-ed25519 derived share mode requires THRESHOLD_ED25519_MASTER_SECRET_B64U');
+      throw new Error(
+        'threshold-ed25519 derived share mode requires THRESHOLD_ED25519_MASTER_SECRET_B64U',
+      );
     }
     this.useDerivedRelayerShares = shouldUseDerivedRelayerShares({
       shareMode: this.shareMode,
       relayerMasterSecretB64u: this.relayerMasterSecretB64u,
     });
-    this.secp256k1MasterSecretB64u =
-      validateThresholdSecp256k1MasterSecretB64u(cfg.THRESHOLD_SECP256K1_MASTER_SECRET_B64U);
+    this.secp256k1MasterSecretB64u = validateThresholdSecp256k1MasterSecretB64u(
+      cfg.THRESHOLD_SECP256K1_MASTER_SECRET_B64U,
+    );
     this.ensureReady = input.ensureReady;
     this.ensureSignerWasm = input.ensureSignerWasm;
     this.verifyWebAuthnAuthenticationLite = input.verifyWebAuthnAuthenticationLite || null;
@@ -730,8 +918,10 @@ export class ThresholdSigningService {
           protocol: {
             signInit: (request) => this.signingHandlers.thresholdEd25519SignInit(request),
             signFinalize: (request) => this.signingHandlers.thresholdEd25519SignFinalize(request),
-            internalCosignInit: (request) => this.signingHandlers.thresholdEd25519CosignInit(request),
-            internalCosignFinalize: (request) => this.signingHandlers.thresholdEd25519CosignFinalize(request),
+            internalCosignInit: (request) =>
+              this.signingHandlers.thresholdEd25519CosignInit(request),
+            internalCosignFinalize: (request) =>
+              this.signingHandlers.thresholdEd25519CosignFinalize(request),
           },
         });
       }
@@ -746,9 +936,13 @@ export class ThresholdSigningService {
             step: (input) => this.ecdsaSigningHandlers.ecdsaPresignStep(input),
           },
           protocol: {
-            signInit: (request: ThresholdEcdsaSignInitRequest): Promise<ThresholdEcdsaSignInitResponse> =>
+            signInit: (
+              request: ThresholdEcdsaSignInitRequest,
+            ): Promise<ThresholdEcdsaSignInitResponse> =>
               this.ecdsaSigningHandlers.ecdsaSignInit(request),
-            signFinalize: (request: ThresholdEcdsaSignFinalizeRequest): Promise<ThresholdEcdsaSignFinalizeResponse> =>
+            signFinalize: (
+              request: ThresholdEcdsaSignFinalizeRequest,
+            ): Promise<ThresholdEcdsaSignFinalizeResponse> =>
               this.ecdsaSigningHandlers.ecdsaSignFinalize(request),
           },
         });
@@ -761,25 +955,33 @@ export class ThresholdSigningService {
     return created;
   }
 
-	  private async resolveRelayerKeyMaterial(input: {
-	    relayerKeyId: string;
-	    nearAccountId: string;
-	    rpId: string;
-	    clientVerifyingShareB64u: string;
+  private async resolveRelayerKeyMaterial(input: {
+    relayerKeyId: string;
+    nearAccountId: string;
+    rpId: string;
+    clientVerifyingShareB64u: string;
   }): Promise<
-	    | { ok: true; publicKey: string; relayerSigningShareB64u: string; relayerVerifyingShareB64u: string }
-	    | { ok: false; code: string; message: string }
-	  > {
-	    return await resolveThresholdEd25519RelayerKeyMaterial({
-	      ...input,
-	      shareMode: this.shareMode,
-	      relayerMasterSecretB64u: this.relayerMasterSecretB64u,
-	      keyStore: this.keyStore,
-	      keygenStrategy: this.keygenStrategy,
-	    });
-	  }
+    | {
+        ok: true;
+        publicKey: string;
+        relayerSigningShareB64u: string;
+        relayerVerifyingShareB64u: string;
+      }
+    | { ok: false; code: string; message: string }
+  > {
+    return await resolveThresholdEd25519RelayerKeyMaterial({
+      ...input,
+      shareMode: this.shareMode,
+      relayerMasterSecretB64u: this.relayerMasterSecretB64u,
+      keyStore: this.keyStore,
+      keygenStrategy: this.keygenStrategy,
+    });
+  }
 
-  private clampSessionPolicy(input: { ttlMs: number; remainingUses: number }): { ttlMs: number; remainingUses: number } {
+  private clampSessionPolicy(input: { ttlMs: number; remainingUses: number }): {
+    ttlMs: number;
+    remainingUses: number;
+  } {
     const ttlMs = Math.max(0, Math.floor(Number(input.ttlMs) || 0));
     const remainingUses = Math.max(0, Math.floor(Number(input.remainingUses) || 0));
     // Hard caps (server-side). Must stay aligned with client-side policy clamping
@@ -811,42 +1013,47 @@ export class ThresholdSigningService {
   }
 
   private createThresholdEd25519MpcSessionId(): string {
-    const id = typeof globalThis.crypto?.randomUUID === 'function'
-      ? globalThis.crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const id =
+      typeof globalThis.crypto?.randomUUID === 'function'
+        ? globalThis.crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     return `mpc-${id}`;
   }
 
   private createThresholdEcdsaMpcSessionId(): string {
-    const id = typeof globalThis.crypto?.randomUUID === 'function'
-      ? globalThis.crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const id =
+      typeof globalThis.crypto?.randomUUID === 'function'
+        ? globalThis.crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     return `ecdsa-mpc-${id}`;
   }
 
   private createThresholdEcdsaSigningSessionId(): string {
-    const id = typeof globalThis.crypto?.randomUUID === 'function'
-      ? globalThis.crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const id =
+      typeof globalThis.crypto?.randomUUID === 'function'
+        ? globalThis.crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     return `ecdsa-sign-${id}`;
   }
 
   private createThresholdEcdsaPresignSessionId(): string {
-    const id = typeof globalThis.crypto?.randomUUID === 'function'
-      ? globalThis.crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const id =
+      typeof globalThis.crypto?.randomUUID === 'function'
+        ? globalThis.crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     return `ecdsa-presign-${id}`;
   }
 
   private createThresholdEd25519SigningSessionId(): string {
-    const id = typeof globalThis.crypto?.randomUUID === 'function'
-      ? globalThis.crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const id =
+      typeof globalThis.crypto?.randomUUID === 'function'
+        ? globalThis.crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     return `sign-${id}`;
   }
 
   private async ed25519RegistrationKeygenFromClientVerifyingShare(
-    input: ThresholdEd25519RegistrationKeygenRequest
+    input: ThresholdEd25519RegistrationKeygenRequest,
   ): Promise<ThresholdEd25519RegistrationKeygenResult> {
     try {
       await this.ensureReady();
@@ -889,23 +1096,35 @@ export class ThresholdSigningService {
         relayerVerifyingShareB64u: keyMaterial.relayerVerifyingShareB64u,
       };
     } catch (e: unknown) {
-      const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'Internal error');
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Internal error',
+      );
       return { ok: false, code: 'internal', message: msg };
     }
   }
 
-  private async ed25519Keygen(request: ThresholdEd25519KeygenRequest): Promise<ThresholdEd25519KeygenResponse> {
+  private async ed25519Keygen(
+    request: ThresholdEd25519KeygenRequest,
+  ): Promise<ThresholdEd25519KeygenResponse> {
     try {
       const parsedRequest = parseThresholdEd25519KeygenRequest(request);
       if (!parsedRequest.ok) return parsedRequest;
 
       await this.ensureReady();
 
-      const { nearAccountId, clientVerifyingShareB64u, rpId, keygenSessionId } = parsedRequest.value;
-      const webauthnAuthentication = (request as unknown as { webauthn_authentication?: unknown }).webauthn_authentication;
+      const { nearAccountId, clientVerifyingShareB64u, rpId, keygenSessionId } =
+        parsedRequest.value;
+      const webauthnAuthentication = (request as unknown as { webauthn_authentication?: unknown })
+        .webauthn_authentication;
 
       if (!this.verifyWebAuthnAuthenticationLite) {
-        return { ok: false, code: 'not_configured', message: 'Lite WebAuthn verification is not configured on this server' };
+        return {
+          ok: false,
+          code: 'not_configured',
+          message: 'Lite WebAuthn verification is not configured on this server',
+        };
       }
 
       const expectedIntentJson = alphabetizeStringify({
@@ -961,12 +1180,18 @@ export class ThresholdSigningService {
       };
     } catch (e: unknown) {
       this.logger?.error?.('thresholdEd25519Keygen failed:', e);
-      const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'Internal error');
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Internal error',
+      );
       return { ok: false, code: 'internal', message: msg };
     }
   }
 
-  private async ecdsaKeygen(request: ThresholdEcdsaKeygenRequest): Promise<ThresholdEcdsaKeygenResponse> {
+  private async ecdsaKeygen(
+    request: ThresholdEcdsaKeygenRequest,
+  ): Promise<ThresholdEcdsaKeygenResponse> {
     try {
       const parsedRequest = parseThresholdEcdsaKeygenRequest(request);
       if (!parsedRequest.ok) return parsedRequest;
@@ -974,10 +1199,15 @@ export class ThresholdSigningService {
       await this.ensureReady();
 
       const { userId, clientVerifyingShareB64u, rpId, keygenSessionId } = parsedRequest.value;
-      const webauthnAuthentication = (request as unknown as { webauthn_authentication?: unknown }).webauthn_authentication;
+      const webauthnAuthentication = (request as unknown as { webauthn_authentication?: unknown })
+        .webauthn_authentication;
 
       if (!this.verifyWebAuthnAuthenticationLite) {
-        return { ok: false, code: 'not_configured', message: 'Lite WebAuthn verification is not configured on this server' };
+        return {
+          ok: false,
+          code: 'not_configured',
+          message: 'Lite WebAuthn verification is not configured on this server',
+        };
       }
 
       const expectedIntentJson = alphabetizeStringify({
@@ -1013,7 +1243,11 @@ export class ThresholdSigningService {
       });
     } catch (e: unknown) {
       this.logger?.error?.('thresholdEcdsaKeygen failed:', e);
-      const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'Internal error');
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Internal error',
+      );
       return { ok: false, code: 'internal', message: msg };
     }
   }
@@ -1031,7 +1265,11 @@ export class ThresholdSigningService {
       return await this.ecdsaKeygenFromClientVerifyingShare(parsed.value);
     } catch (e: unknown) {
       this.logger?.error?.('thresholdEcdsaRegistrationKeygen failed:', e);
-      const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'Internal error');
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Internal error',
+      );
       return { ok: false, code: 'internal', message: msg };
     }
   }
@@ -1051,26 +1289,50 @@ export class ThresholdSigningService {
       const relayerKeyId = toOptionalTrimmedString(input.relayerKeyId);
       const clientVerifyingShareB64u = toOptionalTrimmedString(input.clientVerifyingShareB64u);
       if (!nearAccountId || !rpId || !relayerKeyId || !clientVerifyingShareB64u) {
-        return { ok: false, code: 'invalid_body', message: 'Missing required ed25519 session bootstrap inputs' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Missing required ed25519 session bootstrap inputs',
+        };
       }
 
       const policy = (input.sessionPolicy || {}) as Ed25519SessionPolicy;
       if (String(policy.version || '').trim() !== 'threshold_session_v1') {
-        return { ok: false, code: 'invalid_body', message: 'threshold_ed25519.session_policy.version must be threshold_session_v1' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ed25519.session_policy.version must be threshold_session_v1',
+        };
       }
       if (String(policy.nearAccountId || '').trim() !== nearAccountId) {
-        return { ok: false, code: 'invalid_body', message: 'threshold_ed25519.session_policy.nearAccountId mismatch' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ed25519.session_policy.nearAccountId mismatch',
+        };
       }
       if (String(policy.rpId || '').trim() !== rpId) {
-        return { ok: false, code: 'invalid_body', message: 'threshold_ed25519.session_policy.rpId mismatch' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ed25519.session_policy.rpId mismatch',
+        };
       }
       if (String(policy.relayerKeyId || '').trim() !== relayerKeyId) {
-        return { ok: false, code: 'invalid_body', message: 'threshold_ed25519.session_policy.relayerKeyId mismatch' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ed25519.session_policy.relayerKeyId mismatch',
+        };
       }
 
       const sessionId = String(policy.sessionId || '').trim();
       if (!sessionId) {
-        return { ok: false, code: 'invalid_body', message: 'threshold_ed25519.session_policy.sessionId is required' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ed25519.session_policy.sessionId is required',
+        };
       }
 
       const { ttlMs, remainingUses } = this.clampSessionPolicy({
@@ -1078,12 +1340,22 @@ export class ThresholdSigningService {
         remainingUses: Number(policy.remainingUses),
       });
       if (ttlMs <= 0 || remainingUses <= 0) {
-        return { ok: false, code: 'invalid_body', message: 'threshold_ed25519.session_policy ttlMs/remainingUses must be positive' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ed25519.session_policy ttlMs/remainingUses must be positive',
+        };
       }
 
-      const participantIds = normalizeThresholdEd25519ParticipantIds(policy.participantIds) || [...this.participantIds2p];
+      const participantIds = normalizeThresholdEd25519ParticipantIds(policy.participantIds) || [
+        ...this.participantIds2p,
+      ];
       if (participantIds.length < 2) {
-        return { ok: false, code: 'invalid_body', message: 'threshold_ed25519.session_policy.participantIds must contain at least 2 ids' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ed25519.session_policy.participantIds must contain at least 2 ids',
+        };
       }
       for (const id of this.participantIds2p) {
         if (!participantIds.includes(id)) {
@@ -1108,18 +1380,35 @@ export class ThresholdSigningService {
       const existingSession = await this.authSessionStore.getSession(sessionId);
       if (existingSession) {
         if (existingSession.userId !== nearAccountId) {
-          return { ok: false, code: 'unauthorized', message: 'threshold sessionId already exists for a different user' };
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'threshold sessionId already exists for a different user',
+          };
         }
         if (existingSession.relayerKeyId !== relayerKeyId) {
-          return { ok: false, code: 'unauthorized', message: 'threshold sessionId already exists for a different relayerKeyId' };
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'threshold sessionId already exists for a different relayerKeyId',
+          };
         }
         if (existingSession.rpId !== rpId) {
-          return { ok: false, code: 'unauthorized', message: 'threshold sessionId already exists for a different rpId' };
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'threshold sessionId already exists for a different rpId',
+          };
         }
-        const sameParticipantIds = existingSession.participantIds.length === participantIds.length
-          && existingSession.participantIds.every((id, i) => id === participantIds[i]);
+        const sameParticipantIds =
+          existingSession.participantIds.length === participantIds.length &&
+          existingSession.participantIds.every((id, i) => id === participantIds[i]);
         if (!sameParticipantIds) {
-          return { ok: false, code: 'unauthorized', message: 'threshold sessionId already exists for a different participant set' };
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'threshold sessionId already exists for a different participant set',
+          };
         }
         return {
           ok: true,
@@ -1165,7 +1454,11 @@ export class ThresholdSigningService {
         remainingUses,
       };
     } catch (e: unknown) {
-      const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'Internal error');
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Internal error',
+      );
       return { ok: false, code: 'internal', message: msg };
     }
   }
@@ -1182,28 +1475,53 @@ export class ThresholdSigningService {
     const relayerKeyId = String(input.relayerKeyId || '').trim();
     const clientVerifyingShareB64u = String(input.clientVerifyingShareB64u || '').trim();
     if (!userId || !rpId || !relayerKeyId || !clientVerifyingShareB64u) {
-      return { ok: false, code: 'invalid_body', message: 'Missing required ecdsa session bootstrap inputs' };
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Missing required ecdsa session bootstrap inputs',
+      };
     }
 
     const policy = (input.sessionPolicy || {}) as EcdsaSessionPolicy;
     if (String(policy.version || '').trim() !== 'threshold_session_v1') {
-      return { ok: false, code: 'invalid_body', message: 'threshold_ecdsa.session_policy.version must be threshold_session_v1' };
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'threshold_ecdsa.session_policy.version must be threshold_session_v1',
+      };
     }
     if (String(policy.userId || '').trim() !== userId) {
-      return { ok: false, code: 'invalid_body', message: 'threshold_ecdsa.session_policy.userId mismatch' };
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'threshold_ecdsa.session_policy.userId mismatch',
+      };
     }
     if (String(policy.rpId || '').trim() !== rpId) {
-      return { ok: false, code: 'invalid_body', message: 'threshold_ecdsa.session_policy.rpId mismatch' };
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'threshold_ecdsa.session_policy.rpId mismatch',
+      };
     }
     if (String(policy.relayerKeyId || '').trim() !== relayerKeyId) {
-      return { ok: false, code: 'invalid_body', message: 'threshold_ecdsa.session_policy.relayerKeyId mismatch' };
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'threshold_ecdsa.session_policy.relayerKeyId mismatch',
+      };
     }
     const sessionId = String(policy.sessionId || '').trim();
     if (!sessionId) {
-      return { ok: false, code: 'invalid_body', message: 'threshold_ecdsa.session_policy.sessionId is required' };
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'threshold_ecdsa.session_policy.sessionId is required',
+      };
     }
 
-    const policyParticipantIds = normalizeThresholdEd25519ParticipantIds(policy.participantIds) || null;
+    const policyParticipantIds =
+      normalizeThresholdEd25519ParticipantIds(policy.participantIds) || null;
 
     return await this.ecdsaMintSessionWithoutWebAuthn({
       relayerKeyId,
@@ -1243,10 +1561,18 @@ export class ThresholdSigningService {
     try {
       clientVerifyingShareBytes = base64UrlDecode(clientVerifyingShareB64u);
     } catch {
-      return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u must be valid base64url' };
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'clientVerifyingShareB64u must be valid base64url',
+      };
     }
     if (clientVerifyingShareBytes.length !== 33) {
-      return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u must decode to 33 bytes (compressed secp256k1 pubkey)' };
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'clientVerifyingShareB64u must decode to 33 bytes (compressed secp256k1 pubkey)',
+      };
     }
 
     let validatedClientPublicKey33: Uint8Array;
@@ -1255,11 +1581,16 @@ export class ThresholdSigningService {
     } catch (e: unknown) {
       const runtimeMessage = errorMessage(e);
       if (isEthSignerWasmRuntimeError(runtimeMessage)) {
-        return { ok: false, code: 'internal', message: runtimeMessage || 'eth_signer WASM runtime error' };
+        return {
+          ok: false,
+          code: 'internal',
+          message: runtimeMessage || 'eth_signer WASM runtime error',
+        };
       }
-      const prefixHex = clientVerifyingShareBytes.length > 0
-        ? clientVerifyingShareBytes[0]!.toString(16).padStart(2, '0')
-        : '??';
+      const prefixHex =
+        clientVerifyingShareBytes.length > 0
+          ? clientVerifyingShareBytes[0]!.toString(16).padStart(2, '0')
+          : '??';
       return {
         ok: false,
         code: 'invalid_body',
@@ -1267,13 +1598,15 @@ export class ThresholdSigningService {
       };
     }
 
-    const relayerKeyIdDigest32 = await sha256BytesUtf8(alphabetizeStringify({
-      version: 'threshold_secp256k1_key_id_v1',
-      schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-      userId,
-      rpId,
-      clientVerifyingShareB64u,
-    }));
+    const relayerKeyIdDigest32 = await sha256BytesUtf8(
+      alphabetizeStringify({
+        version: 'threshold_secp256k1_key_id_v1',
+        schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
+        userId,
+        rpId,
+        clientVerifyingShareB64u,
+      }),
+    );
     const relayerKeyId = `secp-${base64UrlEncode(relayerKeyIdDigest32)}`;
 
     const { relayerVerifyingShare33 } = await deriveThresholdSecp256k1RelayerShare({
@@ -1322,58 +1655,104 @@ export class ThresholdSigningService {
     } = input;
 
     if (!this.secp256k1MasterSecretB64u) {
-      return { ok: false, code: 'not_configured', message: 'threshold-ecdsa requires THRESHOLD_SECP256K1_MASTER_SECRET_B64U' };
+      return {
+        ok: false,
+        code: 'not_configured',
+        message: 'threshold-ecdsa requires THRESHOLD_SECP256K1_MASTER_SECRET_B64U',
+      };
     }
 
     let clientVerifyingShareBytes: Uint8Array;
     try {
       clientVerifyingShareBytes = base64UrlDecode(clientVerifyingShareB64u);
     } catch {
-      return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u must be valid base64url' };
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'clientVerifyingShareB64u must be valid base64url',
+      };
     }
     if (clientVerifyingShareBytes.length !== 33) {
-      return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u must decode to 33 bytes (compressed secp256k1 pubkey)' };
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'clientVerifyingShareB64u must decode to 33 bytes (compressed secp256k1 pubkey)',
+      };
     }
     try {
       await validateSecp256k1PublicKey33(clientVerifyingShareBytes);
     } catch (e: unknown) {
       const runtimeMessage = errorMessage(e);
       if (isEthSignerWasmRuntimeError(runtimeMessage)) {
-        return { ok: false, code: 'internal', message: runtimeMessage || 'eth_signer WASM runtime error' };
+        return {
+          ok: false,
+          code: 'internal',
+          message: runtimeMessage || 'eth_signer WASM runtime error',
+        };
       }
-      return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is not a valid secp256k1 public key' };
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'clientVerifyingShareB64u is not a valid secp256k1 public key',
+      };
     }
 
-    const expectedRelayerKeyIdDigest32 = await sha256BytesUtf8(alphabetizeStringify({
-      version: 'threshold_secp256k1_key_id_v1',
-      schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-      userId,
-      rpId,
-      clientVerifyingShareB64u,
-    }));
+    const expectedRelayerKeyIdDigest32 = await sha256BytesUtf8(
+      alphabetizeStringify({
+        version: 'threshold_secp256k1_key_id_v1',
+        schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
+        userId,
+        rpId,
+        clientVerifyingShareB64u,
+      }),
+    );
     const expectedRelayerKeyId = `secp-${base64UrlEncode(expectedRelayerKeyIdDigest32)}`;
     if (relayerKeyId !== expectedRelayerKeyId) {
-      return { ok: false, code: 'unauthorized', message: 'relayerKeyId does not match clientVerifyingShareB64u binding' };
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'relayerKeyId does not match clientVerifyingShareB64u binding',
+      };
     }
 
-    const { ttlMs, remainingUses } = this.clampSessionPolicy({ ttlMs: ttlMsRaw, remainingUses: remainingUsesRaw });
+    const { ttlMs, remainingUses } = this.clampSessionPolicy({
+      ttlMs: ttlMsRaw,
+      remainingUses: remainingUsesRaw,
+    });
     const participantIds = policyParticipantIds || [...this.participantIds2p];
 
     const existingSession = await this.ecdsaAuthSessionStore.getSession(sessionId);
     if (existingSession) {
       if (existingSession.userId !== userId) {
-        return { ok: false, code: 'unauthorized', message: 'threshold sessionId already exists for a different user' };
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'threshold sessionId already exists for a different user',
+        };
       }
       if (existingSession.relayerKeyId !== relayerKeyId) {
-        return { ok: false, code: 'unauthorized', message: 'threshold sessionId already exists for a different relayerKeyId' };
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'threshold sessionId already exists for a different relayerKeyId',
+        };
       }
       if (existingSession.rpId !== rpId) {
-        return { ok: false, code: 'unauthorized', message: 'threshold sessionId already exists for a different rpId' };
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'threshold sessionId already exists for a different rpId',
+        };
       }
-      const sameParticipantIds = existingSession.participantIds.length === participantIds.length
-        && existingSession.participantIds.every((id, i) => id === participantIds[i]);
+      const sameParticipantIds =
+        existingSession.participantIds.length === participantIds.length &&
+        existingSession.participantIds.every((id, i) => id === participantIds[i]);
       if (!sameParticipantIds) {
-        return { ok: false, code: 'unauthorized', message: 'threshold sessionId already exists for a different participant set' };
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'threshold sessionId already exists for a different participant set',
+        };
       }
       return {
         ok: true,
@@ -1409,7 +1788,9 @@ export class ThresholdSigningService {
     };
   }
 
-  private async ecdsaBootstrap(request: ThresholdEcdsaBootstrapRequest): Promise<ThresholdEcdsaBootstrapResponse> {
+  private async ecdsaBootstrap(
+    request: ThresholdEcdsaBootstrapRequest,
+  ): Promise<ThresholdEcdsaBootstrapResponse> {
     let context: Record<string, unknown> | null = null;
     try {
       const parsedRequest = parseThresholdEcdsaBootstrapRequest(request, this.participantIds2p);
@@ -1437,7 +1818,11 @@ export class ThresholdSigningService {
 
       const relayerKeyId = toOptionalTrimmedString(keygen.relayerKeyId);
       if (!relayerKeyId) {
-        return { ok: false, code: 'internal', message: 'threshold-ecdsa keygen returned empty relayerKeyId' };
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'threshold-ecdsa keygen returned empty relayerKeyId',
+        };
       }
 
       const session = await this.ecdsaMintSessionWithoutWebAuthn({
@@ -1465,13 +1850,22 @@ export class ThresholdSigningService {
         remainingUses: session.remainingUses,
       };
     } catch (e: unknown) {
-      const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'Internal error');
-      this.logger?.error?.('[threshold-ecdsa] bootstrap failed', { message: msg, ...(context || {}) });
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Internal error',
+      );
+      this.logger?.error?.('[threshold-ecdsa] bootstrap failed', {
+        message: msg,
+        ...(context || {}),
+      });
       return { ok: false, code: 'internal', message: msg };
     }
   }
 
-  private async ecdsaSession(request: ThresholdEcdsaSessionRequest): Promise<ThresholdEcdsaSessionResponse> {
+  private async ecdsaSession(
+    request: ThresholdEcdsaSessionRequest,
+  ): Promise<ThresholdEcdsaSessionResponse> {
     let context: Record<string, unknown> | null = null;
     try {
       const parsedRequest = parseThresholdEcdsaSessionRequest(request, this.participantIds2p);
@@ -1491,11 +1885,19 @@ export class ThresholdSigningService {
       await this.ensureReady();
 
       if (!this.verifyWebAuthnAuthenticationLite) {
-        return { ok: false, code: 'not_configured', message: 'Lite WebAuthn verification is not configured on this server' };
+        return {
+          ok: false,
+          code: 'not_configured',
+          message: 'Lite WebAuthn verification is not configured on this server',
+        };
       }
 
       if (!this.secp256k1MasterSecretB64u) {
-        return { ok: false, code: 'not_configured', message: 'threshold-ecdsa requires THRESHOLD_SECP256K1_MASTER_SECRET_B64U' };
+        return {
+          ok: false,
+          code: 'not_configured',
+          message: 'threshold-ecdsa requires THRESHOLD_SECP256K1_MASTER_SECRET_B64U',
+        };
       }
 
       // Validate the client verifying share and bind relayerKeyId to it.
@@ -1503,34 +1905,59 @@ export class ThresholdSigningService {
       try {
         clientVerifyingShareBytes = base64UrlDecode(clientVerifyingShareB64u);
       } catch {
-        return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u must be valid base64url' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'clientVerifyingShareB64u must be valid base64url',
+        };
       }
       if (clientVerifyingShareBytes.length !== 33) {
-        return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u must decode to 33 bytes (compressed secp256k1 pubkey)' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'clientVerifyingShareB64u must decode to 33 bytes (compressed secp256k1 pubkey)',
+        };
       }
       try {
         await validateSecp256k1PublicKey33(clientVerifyingShareBytes);
       } catch (e: unknown) {
         const runtimeMessage = errorMessage(e);
         if (isEthSignerWasmRuntimeError(runtimeMessage)) {
-          return { ok: false, code: 'internal', message: runtimeMessage || 'eth_signer WASM runtime error' };
+          return {
+            ok: false,
+            code: 'internal',
+            message: runtimeMessage || 'eth_signer WASM runtime error',
+          };
         }
-        return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is not a valid secp256k1 public key' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'clientVerifyingShareB64u is not a valid secp256k1 public key',
+        };
       }
 
-      const expectedRelayerKeyIdDigest32 = await sha256BytesUtf8(alphabetizeStringify({
-        version: 'threshold_secp256k1_key_id_v1',
-        schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-        userId,
-        rpId,
-        clientVerifyingShareB64u,
-      }));
+      const expectedRelayerKeyIdDigest32 = await sha256BytesUtf8(
+        alphabetizeStringify({
+          version: 'threshold_secp256k1_key_id_v1',
+          schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
+          userId,
+          rpId,
+          clientVerifyingShareB64u,
+        }),
+      );
       const expectedRelayerKeyId = `secp-${base64UrlEncode(expectedRelayerKeyIdDigest32)}`;
       if (relayerKeyId !== expectedRelayerKeyId) {
-        return { ok: false, code: 'unauthorized', message: 'relayerKeyId does not match clientVerifyingShareB64u binding' };
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'relayerKeyId does not match clientVerifyingShareB64u binding',
+        };
       }
 
-      const { ttlMs, remainingUses } = this.clampSessionPolicy({ ttlMs: ttlMsRaw, remainingUses: remainingUsesRaw });
+      const { ttlMs, remainingUses } = this.clampSessionPolicy({
+        ttlMs: ttlMsRaw,
+        remainingUses: remainingUsesRaw,
+      });
       const participantIds = policyParticipantIds || [...this.participantIds2p];
       const normalizedPolicy = {
         version: 'threshold_session_v1',
@@ -1548,18 +1975,35 @@ export class ThresholdSigningService {
       const existingSession = await this.ecdsaAuthSessionStore.getSession(sessionId);
       if (existingSession) {
         if (existingSession.userId !== userId) {
-          return { ok: false, code: 'unauthorized', message: 'threshold sessionId already exists for a different user' };
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'threshold sessionId already exists for a different user',
+          };
         }
         if (existingSession.relayerKeyId !== relayerKeyId) {
-          return { ok: false, code: 'unauthorized', message: 'threshold sessionId already exists for a different relayerKeyId' };
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'threshold sessionId already exists for a different relayerKeyId',
+          };
         }
         if (existingSession.rpId !== rpId) {
-          return { ok: false, code: 'unauthorized', message: 'threshold sessionId already exists for a different rpId' };
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'threshold sessionId already exists for a different rpId',
+          };
         }
-        const sameParticipantIds = existingSession.participantIds.length === participantIds.length
-          && existingSession.participantIds.every((id, i) => id === participantIds[i]);
+        const sameParticipantIds =
+          existingSession.participantIds.length === participantIds.length &&
+          existingSession.participantIds.every((id, i) => id === participantIds[i]);
         if (!sameParticipantIds) {
-          return { ok: false, code: 'unauthorized', message: 'threshold sessionId already exists for a different participant set' };
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'threshold sessionId already exists for a different participant set',
+          };
         }
         return {
           ok: true,
@@ -1584,20 +2028,20 @@ export class ThresholdSigningService {
         };
       }
 
-	      const expiresAtMs = Date.now() + ttlMs;
-	      await this.putAuthSessionRecord({
-	        store: this.ecdsaAuthSessionStore,
-	        sessionId,
-	        record: {
-	          expiresAtMs,
-	          relayerKeyId,
-	          userId,
-	          rpId,
-	          participantIds,
-	        },
-	        ttlMs,
-	        remainingUses,
-	      });
+      const expiresAtMs = Date.now() + ttlMs;
+      await this.putAuthSessionRecord({
+        store: this.ecdsaAuthSessionStore,
+        sessionId,
+        record: {
+          expiresAtMs,
+          relayerKeyId,
+          userId,
+          rpId,
+          participantIds,
+        },
+        ttlMs,
+        remainingUses,
+      });
 
       return {
         ok: true,
@@ -1608,8 +2052,15 @@ export class ThresholdSigningService {
         remainingUses,
       };
     } catch (e: unknown) {
-      const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'Internal error');
-      this.logger?.error?.('[threshold-ecdsa] session mint failed', { message: msg, ...(context || {}) });
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Internal error',
+      );
+      this.logger?.error?.('[threshold-ecdsa] session mint failed', {
+        message: msg,
+        ...(context || {}),
+      });
       return { ok: false, code: 'internal', message: msg };
     }
   }
@@ -1621,28 +2072,42 @@ export class ThresholdSigningService {
     try {
       const claims = input.claims;
       const sessionId = toOptionalTrimmedString(claims?.sessionId);
-      if (!sessionId) return { ok: false, code: 'unauthorized', message: 'Missing threshold sessionId' };
+      if (!sessionId)
+        return { ok: false, code: 'unauthorized', message: 'Missing threshold sessionId' };
       const userId = toOptionalTrimmedString(claims?.sub);
       if (!userId) return { ok: false, code: 'unauthorized', message: 'Missing threshold userId' };
 
       const tokenRelayerKeyId = toOptionalTrimmedString(claims?.relayerKeyId);
       const tokenRpId = toOptionalTrimmedString(claims?.rpId);
       if (!tokenRelayerKeyId || !tokenRpId) {
-        return { ok: false, code: 'unauthorized', message: 'Invalid threshold session token claims' };
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'Invalid threshold session token claims',
+        };
       }
 
       const parsedRequest = parseThresholdEcdsaAuthorizeWithSessionRequest(input.request);
       if (!parsedRequest.ok) return parsedRequest;
-      const { relayerKeyId, clientVerifyingShareB64u, purpose, signingDigest32 } = parsedRequest.value;
+      const { relayerKeyId, clientVerifyingShareB64u, purpose, signingDigest32 } =
+        parsedRequest.value;
 
       await this.ensureReady();
 
       if (!this.secp256k1MasterSecretB64u) {
-        return { ok: false, code: 'not_configured', message: 'threshold-ecdsa requires THRESHOLD_SECP256K1_MASTER_SECRET_B64U' };
+        return {
+          ok: false,
+          code: 'not_configured',
+          message: 'threshold-ecdsa requires THRESHOLD_SECP256K1_MASTER_SECRET_B64U',
+        };
       }
 
       if (relayerKeyId !== tokenRelayerKeyId) {
-        return { ok: false, code: 'unauthorized', message: 'relayerKeyId does not match threshold session scope' };
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'relayerKeyId does not match threshold session scope',
+        };
       }
 
       const thresholdExpiresAtMs = claims.thresholdExpiresAtMs;
@@ -1671,54 +2136,82 @@ export class ThresholdSigningService {
       try {
         clientVerifyingShareBytes = base64UrlDecode(clientVerifyingShareB64u);
       } catch {
-        return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u must be valid base64url' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'clientVerifyingShareB64u must be valid base64url',
+        };
       }
       if (clientVerifyingShareBytes.length !== 33) {
-        return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u must decode to 33 bytes (compressed secp256k1 pubkey)' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'clientVerifyingShareB64u must decode to 33 bytes (compressed secp256k1 pubkey)',
+        };
       }
       try {
         await validateSecp256k1PublicKey33(clientVerifyingShareBytes);
       } catch (e: unknown) {
         const runtimeMessage = errorMessage(e);
         if (isEthSignerWasmRuntimeError(runtimeMessage)) {
-          return { ok: false, code: 'internal', message: runtimeMessage || 'eth_signer WASM runtime error' };
+          return {
+            ok: false,
+            code: 'internal',
+            message: runtimeMessage || 'eth_signer WASM runtime error',
+          };
         }
-        return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is not a valid secp256k1 public key' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'clientVerifyingShareB64u is not a valid secp256k1 public key',
+        };
       }
 
-      const expectedRelayerKeyIdDigest32 = await sha256BytesUtf8(alphabetizeStringify({
-        version: 'threshold_secp256k1_key_id_v1',
-        schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-        userId,
-        rpId: tokenRpId,
-        clientVerifyingShareB64u,
-      }));
+      const expectedRelayerKeyIdDigest32 = await sha256BytesUtf8(
+        alphabetizeStringify({
+          version: 'threshold_secp256k1_key_id_v1',
+          schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
+          userId,
+          rpId: tokenRpId,
+          clientVerifyingShareB64u,
+        }),
+      );
       const expectedRelayerKeyId = `secp-${base64UrlEncode(expectedRelayerKeyIdDigest32)}`;
       if (relayerKeyId !== expectedRelayerKeyId) {
-        return { ok: false, code: 'unauthorized', message: 'relayerKeyId does not match clientVerifyingShareB64u binding' };
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'relayerKeyId does not match clientVerifyingShareB64u binding',
+        };
       }
 
       const signingDigestB64u = base64UrlEncode(signingDigest32);
-      const intentDigest32 = await sha256BytesUtf8(alphabetizeStringify({
-        version: 'threshold_ecdsa_authorize_intent_v1',
-        purpose,
-        signingDigestB64u,
-      }));
+      const intentDigest32 = await sha256BytesUtf8(
+        alphabetizeStringify({
+          version: 'threshold_ecdsa_authorize_intent_v1',
+          purpose,
+          signingDigestB64u,
+        }),
+      );
 
       const ttlMs = 60_000;
       const expiresAtMs = Date.now() + ttlMs;
       const mpcSessionId = this.createThresholdEcdsaMpcSessionId();
-      await this.ecdsaSessionStore.putMpcSession(mpcSessionId, {
-        expiresAtMs,
-        relayerKeyId,
-        purpose,
-        intentDigestB64u: base64UrlEncode(intentDigest32),
-        signingDigestB64u,
-        userId,
-        rpId: tokenRpId,
-        clientVerifyingShareB64u,
-        participantIds: [...participantIds],
-      }, ttlMs);
+      await this.ecdsaSessionStore.putMpcSession(
+        mpcSessionId,
+        {
+          expiresAtMs,
+          relayerKeyId,
+          purpose,
+          intentDigestB64u: base64UrlEncode(intentDigest32),
+          signingDigestB64u,
+          userId,
+          rpId: tokenRpId,
+          clientVerifyingShareB64u,
+          participantIds: [...participantIds],
+        },
+        ttlMs,
+      );
 
       return {
         ok: true,
@@ -1729,12 +2222,18 @@ export class ThresholdSigningService {
           : {}),
       };
     } catch (e: unknown) {
-      const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'Internal error');
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Internal error',
+      );
       return { ok: false, code: 'internal', message: msg };
     }
   }
 
-  private async ed25519Session(request: ThresholdEd25519SessionRequest): Promise<ThresholdEd25519SessionResponse> {
+  private async ed25519Session(
+    request: ThresholdEd25519SessionRequest,
+  ): Promise<ThresholdEd25519SessionResponse> {
     let context: Record<string, unknown> | null = null;
     try {
       const parsedRequest = parseThresholdEd25519SessionRequest(request, this.participantIds2p);
@@ -1754,7 +2253,11 @@ export class ThresholdSigningService {
       await this.ensureReady();
 
       if (!this.verifyWebAuthnAuthenticationLite) {
-        return { ok: false, code: 'not_configured', message: 'Lite WebAuthn verification is not configured on this server' };
+        return {
+          ok: false,
+          code: 'not_configured',
+          message: 'Lite WebAuthn verification is not configured on this server',
+        };
       }
 
       const relayerKey = await this.resolveRelayerKeyMaterial({
@@ -1767,7 +2270,10 @@ export class ThresholdSigningService {
         return { ok: false, code: relayerKey.code, message: relayerKey.message };
       }
 
-      const { ttlMs, remainingUses } = this.clampSessionPolicy({ ttlMs: ttlMsRaw, remainingUses: remainingUsesRaw });
+      const { ttlMs, remainingUses } = this.clampSessionPolicy({
+        ttlMs: ttlMsRaw,
+        remainingUses: remainingUsesRaw,
+      });
       const participantIds = policyParticipantIds || [...this.participantIds2p];
       const normalizedPolicy = {
         version: 'threshold_session_v1',
@@ -1785,18 +2291,35 @@ export class ThresholdSigningService {
       const existingSession = await this.authSessionStore.getSession(sessionId);
       if (existingSession) {
         if (existingSession.userId !== nearAccountId) {
-          return { ok: false, code: 'unauthorized', message: 'threshold sessionId already exists for a different user' };
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'threshold sessionId already exists for a different user',
+          };
         }
         if (existingSession.relayerKeyId !== relayerKeyId) {
-          return { ok: false, code: 'unauthorized', message: 'threshold sessionId already exists for a different relayerKeyId' };
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'threshold sessionId already exists for a different relayerKeyId',
+          };
         }
         if (existingSession.rpId !== rpId) {
-          return { ok: false, code: 'unauthorized', message: 'threshold sessionId already exists for a different rpId' };
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'threshold sessionId already exists for a different rpId',
+          };
         }
-        const sameParticipantIds = existingSession.participantIds.length === participantIds.length
-          && existingSession.participantIds.every((id, i) => id === participantIds[i]);
+        const sameParticipantIds =
+          existingSession.participantIds.length === participantIds.length &&
+          existingSession.participantIds.every((id, i) => id === participantIds[i]);
         if (!sameParticipantIds) {
-          return { ok: false, code: 'unauthorized', message: 'threshold sessionId already exists for a different participant set' };
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'threshold sessionId already exists for a different participant set',
+          };
         }
       }
 
@@ -1826,42 +2349,49 @@ export class ThresholdSigningService {
         return { ok: false, code: scope.code, message: scope.message };
       }
 
-	      if (existingSession) {
-	        return {
-	          ok: true,
-	          sessionId,
-	          expiresAtMs: existingSession.expiresAtMs,
-	          expiresAt: new Date(existingSession.expiresAtMs).toISOString(),
-	          participantIds: existingSession.participantIds,
-	        };
-	      }
+      if (existingSession) {
+        return {
+          ok: true,
+          sessionId,
+          expiresAtMs: existingSession.expiresAtMs,
+          expiresAt: new Date(existingSession.expiresAtMs).toISOString(),
+          participantIds: existingSession.participantIds,
+        };
+      }
 
-	      const expiresAtMs = Date.now() + ttlMs;
-	      await this.putAuthSessionRecord({
-	        store: this.authSessionStore,
-	        sessionId,
-	        record: {
-	          expiresAtMs,
-	          relayerKeyId,
-	          userId: nearAccountId,
-	          rpId,
-	          participantIds,
-	        },
-	        ttlMs,
-	        remainingUses,
-	      });
+      const expiresAtMs = Date.now() + ttlMs;
+      await this.putAuthSessionRecord({
+        store: this.authSessionStore,
+        sessionId,
+        record: {
+          expiresAtMs,
+          relayerKeyId,
+          userId: nearAccountId,
+          rpId,
+          participantIds,
+        },
+        ttlMs,
+        remainingUses,
+      });
 
-	      return {
-	        ok: true,
-	        sessionId,
-	        expiresAtMs,
-	        expiresAt: new Date(expiresAtMs).toISOString(),
-	        participantIds,
-	        remainingUses,
-	      };
+      return {
+        ok: true,
+        sessionId,
+        expiresAtMs,
+        expiresAt: new Date(expiresAtMs).toISOString(),
+        participantIds,
+        remainingUses,
+      };
     } catch (e: unknown) {
-      const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'Internal error');
-      this.logger?.error?.('[threshold-ed25519] session mint failed', { message: msg, ...(context || {}) });
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Internal error',
+      );
+      this.logger?.error?.('[threshold-ed25519] session mint failed', {
+        message: msg,
+        ...(context || {}),
+      });
       return { ok: false, code: 'internal', message: msg };
     }
   }
@@ -1873,25 +2403,35 @@ export class ThresholdSigningService {
     try {
       const claims = input.claims;
       const sessionId = toOptionalTrimmedString(claims?.sessionId);
-      if (!sessionId) return { ok: false, code: 'unauthorized', message: 'Missing threshold sessionId' };
+      if (!sessionId)
+        return { ok: false, code: 'unauthorized', message: 'Missing threshold sessionId' };
       const userId = toOptionalTrimmedString(claims?.sub);
       if (!userId) return { ok: false, code: 'unauthorized', message: 'Missing threshold userId' };
 
       const tokenRelayerKeyId = toOptionalTrimmedString(claims?.relayerKeyId);
       const tokenRpId = toOptionalTrimmedString(claims?.rpId);
       if (!tokenRelayerKeyId || !tokenRpId) {
-        return { ok: false, code: 'unauthorized', message: 'Invalid threshold session token claims' };
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'Invalid threshold session token claims',
+        };
       }
 
       const parsedRequest = parseThresholdEd25519AuthorizeWithSessionRequest(input.request);
       if (!parsedRequest.ok) return parsedRequest;
-      const { relayerKeyId, clientVerifyingShareB64u, purpose, signingDigest32, signingPayload } = parsedRequest.value;
+      const { relayerKeyId, clientVerifyingShareB64u, purpose, signingDigest32, signingPayload } =
+        parsedRequest.value;
 
       await this.ensureReady();
 
       // Always validate relayerKeyId from the signed token claims before consuming a use.
       if (relayerKeyId !== tokenRelayerKeyId) {
-        return { ok: false, code: 'unauthorized', message: 'relayerKeyId does not match threshold session scope' };
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'relayerKeyId does not match threshold session scope',
+        };
       }
 
       const thresholdExpiresAtMs = claims.thresholdExpiresAtMs;
@@ -1953,17 +2493,21 @@ export class ThresholdSigningService {
       const ttlMs = 60_000;
       const expiresAtMs = Date.now() + ttlMs;
       const mpcSessionId = this.createThresholdEd25519MpcSessionId();
-      await this.sessionStore.putMpcSession(mpcSessionId, {
-        expiresAtMs,
-        relayerKeyId,
-        purpose,
-        intentDigestB64u: base64UrlEncode(verifyPayload.intentDigest32),
-        signingDigestB64u: base64UrlEncode(signingDigest32),
-        userId,
-        rpId: tokenRpId,
-        clientVerifyingShareB64u,
-        participantIds: [...participantIds],
-      }, ttlMs);
+      await this.sessionStore.putMpcSession(
+        mpcSessionId,
+        {
+          expiresAtMs,
+          relayerKeyId,
+          purpose,
+          intentDigestB64u: base64UrlEncode(verifyPayload.intentDigest32),
+          signingDigestB64u: base64UrlEncode(signingDigest32),
+          userId,
+          rpId: tokenRpId,
+          clientVerifyingShareB64u,
+          participantIds: [...participantIds],
+        },
+        ttlMs,
+      );
 
       return {
         ok: true,
@@ -1971,7 +2515,11 @@ export class ThresholdSigningService {
         expiresAt: new Date(expiresAtMs).toISOString(),
       };
     } catch (e: unknown) {
-      const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'Internal error');
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Internal error',
+      );
       return { ok: false, code: 'internal', message: msg };
     }
   }

@@ -1,46 +1,52 @@
 // Small shared helpers for Vite/Next plugins
-import * as path from 'node:path'
-import * as fs from 'node:fs'
-import { createRequire } from 'node:module'
+import * as path from 'node:path';
+import * as fs from 'node:fs';
+import { createRequire } from 'node:module';
 
 export function addPreconnectLink(res: any, origin?: string) {
-  if (!origin) return
+  if (!origin) return;
   try {
-    const link = `<${origin}>; rel=preconnect; crossorigin`
-    const existing = res.getHeader?.('Link')
+    const link = `<${origin}>; rel=preconnect; crossorigin`;
+    const existing = res.getHeader?.('Link');
     if (!existing) {
-      res.setHeader?.('Link', link)
-      return
+      res.setHeader?.('Link', link);
+      return;
     }
     if (typeof existing === 'string') {
-      if (!existing.includes(link)) res.setHeader?.('Link', existing + ', ' + link)
-      return
+      if (!existing.includes(link)) res.setHeader?.('Link', existing + ', ' + link);
+      return;
     }
     if (Array.isArray(existing)) {
-      if (!existing.includes(link)) res.setHeader?.('Link', [...existing, link])
+      if (!existing.includes(link)) res.setHeader?.('Link', [...existing, link]);
     }
   } catch {}
 }
 
 function withAssetVersion(url: string, assetVersion?: string): string {
-  const version = String(assetVersion || '').trim()
-  if (!version) return url
-  const sep = url.includes('?') ? '&' : '?'
-  return `${url}${sep}v=${encodeURIComponent(version)}`
+  const version = String(assetVersion || '').trim();
+  if (!version) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}v=${encodeURIComponent(version)}`;
 }
 
 // Builds wallet service HTML that links only external CSS/JS (no inline),
 // so strict CSP (style-src 'self'; style-src-attr 'none') works in dev/prod.
 export function buildWalletServiceHtml(sdkBasePath: string, assetVersion?: string): string {
-  const walletServiceCss = withAssetVersion(`${sdkBasePath}/wallet-service.css`, assetVersion)
-  const drawerCss = withAssetVersion(`${sdkBasePath}/drawer.css`, assetVersion)
-  const txTreeCss = withAssetVersion(`${sdkBasePath}/tx-tree.css`, assetVersion)
-  const haloBorderCss = withAssetVersion(`${sdkBasePath}/halo-border.css`, assetVersion)
-  const passkeyHaloLoadingCss = withAssetVersion(`${sdkBasePath}/passkey-halo-loading.css`, assetVersion)
-  const componentsCss = withAssetVersion(`${sdkBasePath}/w3a-components.css`, assetVersion)
-  const txConfirmerCss = withAssetVersion(`${sdkBasePath}/tx-confirmer.css`, assetVersion)
-  const walletShimsJs = withAssetVersion(`${sdkBasePath}/wallet-shims.js`, assetVersion)
-  const walletHostRuntime = withAssetVersion(`${sdkBasePath}/wallet-iframe-host-runtime.js`, assetVersion)
+  const walletServiceCss = withAssetVersion(`${sdkBasePath}/wallet-service.css`, assetVersion);
+  const drawerCss = withAssetVersion(`${sdkBasePath}/drawer.css`, assetVersion);
+  const txTreeCss = withAssetVersion(`${sdkBasePath}/tx-tree.css`, assetVersion);
+  const haloBorderCss = withAssetVersion(`${sdkBasePath}/halo-border.css`, assetVersion);
+  const passkeyHaloLoadingCss = withAssetVersion(
+    `${sdkBasePath}/passkey-halo-loading.css`,
+    assetVersion,
+  );
+  const componentsCss = withAssetVersion(`${sdkBasePath}/w3a-components.css`, assetVersion);
+  const txConfirmerCss = withAssetVersion(`${sdkBasePath}/tx-confirmer.css`, assetVersion);
+  const walletShimsJs = withAssetVersion(`${sdkBasePath}/wallet-shims.js`, assetVersion);
+  const walletHostRuntime = withAssetVersion(
+    `${sdkBasePath}/wallet-iframe-host-runtime.js`,
+    assetVersion,
+  );
 
   return `<!doctype html>
 <html lang="en">
@@ -69,7 +75,7 @@ export function buildWalletServiceHtml(sdkBasePath: string, assetVersion?: strin
     <!-- sdkBasePath points to the SDK root (e.g. '/sdk'). Load the host directly. -->
     <script type="module" src="${walletHostRuntime}"></script>
   </body>
-</html>`
+</html>`;
 }
 
 // Export viewer HTML is also fully externalized (no inline) to keep CSP strict.
@@ -93,61 +99,64 @@ export function buildExportViewerHtml(sdkBasePath: string): string {
     <script type="module" src="${sdkBasePath}/export-private-key-viewer.js" crossorigin></script>
     <script type="module" src="${sdkBasePath}/iframe-export-bootstrap.js" crossorigin></script>
   </body>
-</html>`
+</html>`;
 }
 
 export function resolveCoepMode(explicit?: 'strict' | 'off'): 'strict' | 'off' {
-  if (explicit === 'strict' || explicit === 'off') return explicit
-  const raw = String((globalThis as any)?.process?.env?.VITE_COEP_MODE || '').trim().toLowerCase()
-  if (raw === 'strict' || raw === 'on' || raw === '1' || raw === 'require-corp') return 'strict'
-  if (raw === 'off' || raw === '0' || raw === 'false') return 'off'
-  return 'off'
+  if (explicit === 'strict' || explicit === 'off') return explicit;
+  const raw = String((globalThis as any)?.process?.env?.VITE_COEP_MODE || '')
+    .trim()
+    .toLowerCase();
+  if (raw === 'strict' || raw === 'on' || raw === '1' || raw === 'require-corp') return 'strict';
+  if (raw === 'off' || raw === '0' || raw === 'false') return 'off';
+  return 'off';
 }
 
 export function applyCoepCorp(res: any) {
-  res.setHeader?.('Cross-Origin-Embedder-Policy', 'require-corp')
-  res.setHeader?.('Cross-Origin-Resource-Policy', 'cross-origin')
+  res.setHeader?.('Cross-Origin-Embedder-Policy', 'require-corp');
+  res.setHeader?.('Cross-Origin-Resource-Policy', 'cross-origin');
 }
 
 export function applyCoepCorpIfNeeded(res: any, coepMode?: 'strict' | 'off') {
-  if (resolveCoepMode(coepMode) !== 'off') applyCoepCorp(res)
+  if (resolveCoepMode(coepMode) !== 'off') applyCoepCorp(res);
 }
 
 export function echoCorsFromRequest(
   res: any,
   req: any,
   opts: {
-    honorExistingAcaOrigin?: boolean
-    allowCredentialsWhenExplicit?: boolean
-    methods?: string
-    headers?: string
-    handlePreflight?: boolean
-  } = {}
+    honorExistingAcaOrigin?: boolean;
+    allowCredentialsWhenExplicit?: boolean;
+    methods?: string;
+    headers?: string;
+    handlePreflight?: boolean;
+  } = {},
 ) {
-  const honorExisting = opts.honorExistingAcaOrigin === true
-  const allowCreds = opts.allowCredentialsWhenExplicit !== false
-  const methods = opts.methods || 'GET,OPTIONS'
-  const headers = opts.headers || 'Content-Type,Authorization'
-  const handlePreflight = opts.handlePreflight === true
+  const honorExisting = opts.honorExistingAcaOrigin === true;
+  const allowCreds = opts.allowCredentialsWhenExplicit !== false;
+  const methods = opts.methods || 'GET,OPTIONS';
+  const headers = opts.headers || 'Content-Type,Authorization';
+  const handlePreflight = opts.handlePreflight === true;
 
-  const origin = (req?.headers && (req.headers.origin as string)) || '*'
-  const hasExisting = typeof res.getHeader === 'function' && !!res.getHeader('Access-Control-Allow-Origin')
+  const origin = (req?.headers && (req.headers.origin as string)) || '*';
+  const hasExisting =
+    typeof res.getHeader === 'function' && !!res.getHeader('Access-Control-Allow-Origin');
   if (!honorExisting || !hasExisting) {
-    res.setHeader?.('Access-Control-Allow-Origin', origin)
+    res.setHeader?.('Access-Control-Allow-Origin', origin);
   }
-  res.setHeader?.('Vary', 'Origin')
-  res.setHeader?.('Access-Control-Allow-Methods', methods)
-  res.setHeader?.('Access-Control-Allow-Headers', headers)
-  if (origin !== '*' && allowCreds) res.setHeader?.('Access-Control-Allow-Credentials', 'true')
+  res.setHeader?.('Vary', 'Origin');
+  res.setHeader?.('Access-Control-Allow-Methods', methods);
+  res.setHeader?.('Access-Control-Allow-Headers', headers);
+  if (origin !== '*' && allowCreds) res.setHeader?.('Access-Control-Allow-Credentials', 'true');
   if (handlePreflight) {
-    const method = req?.method && String(req.method).toUpperCase()
+    const method = req?.method && String(req.method).toUpperCase();
     if (method === 'OPTIONS') {
-      res.statusCode = 204
-      res.end?.()
-      return true
+      res.statusCode = 204;
+      res.end?.();
+      return true;
     }
   }
-  return false
+  return false;
 }
 
 /**
@@ -156,47 +165,47 @@ export function echoCorsFromRequest(
  * - Warns if any origins are not absolute (e.g., missing protocol/hostname).
  */
 export function logRorConfig(origins: string[], endpoint = '/.well-known/webauthn') {
-  if (!Array.isArray(origins) || origins.length === 0) return
-  const invalid: string[] = []
+  if (!Array.isArray(origins) || origins.length === 0) return;
+  const invalid: string[] = [];
   for (const o of origins) {
     try {
-      const u = new URL(o)
-      if (!u.protocol || !u.hostname) invalid.push(o)
+      const u = new URL(o);
+      if (!u.protocol || !u.hostname) invalid.push(o);
     } catch {
-      invalid.push(o)
+      invalid.push(o);
     }
   }
-  const msg = `[tatchi] ROR enabled: GET ${endpoint} -> { origins: [${origins.join(', ')}] }`
-  console.log(msg)
+  const msg = `[tatchi] ROR enabled: GET ${endpoint} -> { origins: [${origins.join(', ')}] }`;
+  console.log(msg);
   if (invalid.length > 0) {
     console.warn(
       `[tatchi] ROR warning: invalid origins: ${invalid.join(
-        ', '
-      )} (expected absolute origins like https://app.example.com)`
-    )
+        ', ',
+      )} (expected absolute origins like https://app.example.com)`,
+    );
   }
 }
 
 // Sanitize a dynamic allowlist into a normalized set of absolute origins.
 export function sanitizeOrigins(values: unknown): string[] {
-  const out = new Set<string>()
+  const out = new Set<string>();
   if (Array.isArray(values)) {
     for (const v of values) {
-      if (typeof v !== 'string') continue
+      if (typeof v !== 'string') continue;
       try {
-        const u = new URL(v.trim())
-        const scheme = u.protocol
-        const host = u.hostname.toLowerCase()
-        const port = u.port ? `:${u.port}` : ''
-        const isHttps = scheme === 'https:'
-        const isLocalhostHttp = scheme === 'http:' && host === 'localhost'
-        if (!isHttps && !isLocalhostHttp) continue
-        if ((u.pathname && u.pathname !== '/') || u.search || u.hash) continue
-        out.add(`${scheme}//${host}${port}`)
+        const u = new URL(v.trim());
+        const scheme = u.protocol;
+        const host = u.hostname.toLowerCase();
+        const port = u.port ? `:${u.port}` : '';
+        const isHttps = scheme === 'https:';
+        const isLocalhostHttp = scheme === 'http:' && host === 'localhost';
+        if (!isHttps && !isLocalhostHttp) continue;
+        if ((u.pathname && u.pathname !== '/') || u.search || u.hash) continue;
+        out.add(`${scheme}//${host}${port}`);
       } catch {}
     }
   }
-  return Array.from(out)
+  return Array.from(out);
 }
 
 /**
@@ -204,45 +213,45 @@ export function sanitizeOrigins(values: unknown): string[] {
  * Shared by both app and wallet-iframe dev servers.
  */
 export function setContentType(res: any, filePath: string) {
-  const ext = path.extname(filePath)
+  const ext = path.extname(filePath);
   switch (ext) {
     case '.js':
-      res.setHeader('Content-Type', 'application/javascript; charset=utf-8')
-      break
+      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+      break;
     case '.css':
-      res.setHeader('Content-Type', 'text/css; charset=utf-8')
-      break
+      res.setHeader('Content-Type', 'text/css; charset=utf-8');
+      break;
     case '.map':
     case '.json':
-      res.setHeader('Content-Type', 'application/json; charset=utf-8')
-      break
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      break;
     case '.wasm':
-      res.setHeader('Content-Type', 'application/wasm')
-      break
+      res.setHeader('Content-Type', 'application/wasm');
+      break;
     case '.html':
-      res.setHeader('Content-Type', 'text/html; charset=utf-8')
-      break
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      break;
     default:
-      res.setHeader('Content-Type', 'application/octet-stream')
+      res.setHeader('Content-Type', 'application/octet-stream');
   }
 }
 
 // === Shared path helpers across Vite/Next plugins ===
 
-export { toBasePath } from '@shared/utils/validation'
+export { toBasePath } from '@shared/utils/validation';
 
-const requireCjs = createRequire(import.meta.url)
+const requireCjs = createRequire(import.meta.url);
 
 export function resolveSdkDistRoot(explicit?: string): string {
-  if (explicit) return path.resolve(explicit)
-  const pkgPath = requireCjs.resolve('@tatchi-xyz/sdk/package.json')
-  const pkgDir = path.dirname(pkgPath)
+  if (explicit) return path.resolve(explicit);
+  const pkgPath = requireCjs.resolve('@tatchi-xyz/sdk/package.json');
+  const pkgDir = path.dirname(pkgPath);
   try {
-    const pkgJson = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { module?: string }
-    const esmEntry = pkgJson.module || 'dist/esm/index.js'
-    const esmAbs = path.resolve(pkgDir, esmEntry)
-    return path.resolve(path.dirname(esmAbs), '..')
+    const pkgJson = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { module?: string };
+    const esmEntry = pkgJson.module || 'dist/esm/index.js';
+    const esmAbs = path.resolve(pkgDir, esmEntry);
+    return path.resolve(path.dirname(esmAbs), '..');
   } catch {
-    return path.join(pkgDir, 'dist')
+    return path.join(pkgDir, 'dist');
   }
 }

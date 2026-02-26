@@ -7,7 +7,10 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
 }
 
-export function getPrfResultsFromCredential(credential: unknown): { first?: string; second?: string } {
+export function getPrfResultsFromCredential(credential: unknown): {
+  first?: string;
+  second?: string;
+} {
   try {
     const credentialRecord = asRecord(credential);
     const clientExtensionResults = asRecord(credentialRecord?.clientExtensionResults);

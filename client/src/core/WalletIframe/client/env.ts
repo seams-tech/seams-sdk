@@ -36,7 +36,7 @@ function pickFirst(envs: PublicEnv[], keys: string[]): string | undefined {
 export interface WalletEnvConfig {
   walletOrigin?: string;
   walletServicePath?: string; // default '/wallet-service'
-  sdkBasePath?: string;       // default '/sdk'
+  sdkBasePath?: string; // default '/sdk'
 }
 
 export function readWalletConfigFromEnv(): WalletEnvConfig {
@@ -50,13 +50,9 @@ export function readWalletConfigFromEnv(): WalletEnvConfig {
     'WALLET_ORIGIN',
   ]);
 
-  const walletServicePath = pickFirst(envs, [
-    'VITE_WALLET_SERVICE_PATH',
-  ]) || '/wallet-service';
+  const walletServicePath = pickFirst(envs, ['VITE_WALLET_SERVICE_PATH']) || '/wallet-service';
 
-  const sdkBasePath = pickFirst(envs, [
-    'VITE_SDK_BASE_PATH',
-  ]) || '/sdk';
+  const sdkBasePath = pickFirst(envs, ['VITE_SDK_BASE_PATH']) || '/sdk';
 
   return { walletOrigin, walletServicePath, sdkBasePath };
 }

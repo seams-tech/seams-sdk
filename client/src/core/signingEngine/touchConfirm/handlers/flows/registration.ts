@@ -1,21 +1,11 @@
 import type { TouchConfirmContext } from '../../';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
-import {
-  TransactionSummary,
-  RegistrationUserConfirmRequest,
-} from '../../shared/confirmTypes';
+import { TransactionSummary, RegistrationUserConfirmRequest } from '../../shared/confirmTypes';
 import type { UserConfirmSecurityContext, TransactionContext } from '@/core/types';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import { sha256Base64UrlUtf8 } from '@/utils/intentDigest';
-import {
-  isUserCancelledUserConfirm,
-  ERROR_MESSAGES,
-} from '../../shared/confirmCommon';
-import {
-  getNearAccountId,
-  getIntentDigest,
-  getRegisterAccountPayload,
-} from './adapters/request';
+import { isUserCancelledUserConfirm, ERROR_MESSAGES } from '../../shared/confirmCommon';
+import { getNearAccountId, getIntentDigest, getRegisterAccountPayload } from './adapters/request';
 import {
   isSerializedRegistrationCredential,
   serializeRegistrationCredentialWithPRF,
@@ -28,9 +18,12 @@ export async function handleRegistrationFlow(
   ctx: TouchConfirmContext,
   request: RegistrationUserConfirmRequest,
   worker: Worker,
-  opts: { confirmationConfig: ConfirmationConfig; transactionSummary: TransactionSummary; theme: ThemeName },
+  opts: {
+    confirmationConfig: ConfirmationConfig;
+    transactionSummary: TransactionSummary;
+    theme: ThemeName;
+  },
 ): Promise<void> {
-
   const { confirmationConfig, transactionSummary, theme } = opts;
   const adapters = createConfirmTxFlowAdapters(ctx);
   const session = createConfirmSession({
@@ -107,39 +100,46 @@ export async function handleRegistrationFlow(
     try {
       credential = await tryCreate(deviceNumber);
     } catch (e: unknown) {
-
       const err = toError(e);
       const name = String(err?.name || '');
       const msg = String(err?.message || '');
-      const isDuplicate = name === 'InvalidStateError' || /excluded|already\s*registered/i.test(msg);
+      const isDuplicate =
+        name === 'InvalidStateError' || /excluded|already\s*registered/i.test(msg);
 
       if (isDuplicate) {
-        const nextDeviceNumber = (deviceNumber !== undefined && Number.isFinite(deviceNumber)) ? (deviceNumber + 1) : 2;
+        const nextDeviceNumber =
+          deviceNumber !== undefined && Number.isFinite(deviceNumber) ? deviceNumber + 1 : 2;
         // Keep request payload and intentDigest in sync with the deviceNumber retry.
         deviceNumber = nextDeviceNumber;
         getRegisterAccountPayload(request).deviceNumber = nextDeviceNumber;
-        request.intentDigest = request.type === 'registerAccount'
-          ? `register:${nearAccountId}:${nextDeviceNumber}`
-          : `device2-register:${nearAccountId}:${nextDeviceNumber}`;
+        request.intentDigest =
+          request.type === 'registerAccount'
+            ? `register:${nearAccountId}:${nextDeviceNumber}`
+            : `device2-register:${nearAccountId}:${nextDeviceNumber}`;
 
         challengeB64u = await computeBoundIntentDigestB64u();
 
         credential = await tryCreate(nextDeviceNumber);
       } else {
-        console.error('[RegistrationFlow] credentials.create failed (non-duplicate)', { name, msg });
+        console.error('[RegistrationFlow] credentials.create failed (non-duplicate)', {
+          name,
+          msg,
+        });
         throw err;
       }
     }
 
     // We require registration credentials to include dual PRF outputs (first + second)
     // so wallet-origin code can pass PRF outputs directly to signer workers when deriving keys.
-    const serialized: WebAuthnRegistrationCredential = isSerializedRegistrationCredential(credential)
+    const serialized: WebAuthnRegistrationCredential = isSerializedRegistrationCredential(
+      credential,
+    )
       ? (credential as unknown as WebAuthnRegistrationCredential)
       : serializeRegistrationCredentialWithPRF({
           credential: credential! as PublicKeyCredential,
           firstPrfOutput: true,
           secondPrfOutput: true,
-      });
+        });
 
     // 5) Respond + close
     session.confirmAndCloseModal({
@@ -150,17 +150,16 @@ export async function handleRegistrationFlow(
       transactionContext,
     });
   } catch (err: unknown) {
-
     const cancelled = isUserCancelledUserConfirm(err);
-    const msg = String((toError(err))?.message || err || '');
+    const msg = String(toError(err)?.message || err || '');
     if (cancelled) {
       window.parent?.postMessage({ type: 'WALLET_UI_CLOSED' }, '*');
     }
 
     const isPrfBrowserUnsupported =
-      /WebAuthn PRF output is missing from navigator\.credentials\.create\(\)/i.test(msg)
-      || /does not fully support the WebAuthn PRF extension during registration/i.test(msg)
-      || /roaming hardware authenticators .* not supported in this flow/i.test(msg);
+      /WebAuthn PRF output is missing from navigator\.credentials\.create\(\)/i.test(msg) ||
+      /does not fully support the WebAuthn PRF extension during registration/i.test(msg) ||
+      /roaming hardware authenticators .* not supported in this flow/i.test(msg);
 
     return session.confirmAndCloseModal({
       requestId: request.requestId,
@@ -168,7 +167,9 @@ export async function handleRegistrationFlow(
       confirmed: false,
       error: cancelled
         ? ERROR_MESSAGES.cancelled
-        : (isPrfBrowserUnsupported ? msg : (msg || ERROR_MESSAGES.collectCredentialsFailed)),
+        : isPrfBrowserUnsupported
+          ? msg
+          : msg || ERROR_MESSAGES.collectCredentialsFailed,
     });
   }
 }

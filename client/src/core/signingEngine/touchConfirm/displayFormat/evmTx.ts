@@ -91,7 +91,11 @@ function toSafeJson(value: unknown): string {
   }
 }
 
-function makeField(label: string, value: string | undefined, copyValue?: string): TxDisplayField | undefined {
+function makeField(
+  label: string,
+  value: string | undefined,
+  copyValue?: string,
+): TxDisplayField | undefined {
   const normalized = String(value ?? '').trim();
   if (!normalized) return undefined;
   return {
@@ -146,7 +150,11 @@ function readWordAddress(bytes: Uint8Array, byteOffset: number): string | undefi
   return bytesToHex(word.slice(12)).toLowerCase();
 }
 
-function readDynamicBytes(bytes: Uint8Array, baseOffset: number, relativeOffset: number): Uint8Array | undefined {
+function readDynamicBytes(
+  bytes: Uint8Array,
+  baseOffset: number,
+  relativeOffset: number,
+): Uint8Array | undefined {
   if (!Number.isInteger(baseOffset) || baseOffset < 0) return undefined;
   if (!Number.isInteger(relativeOffset) || relativeOffset < 0) return undefined;
 
@@ -160,7 +168,11 @@ function readDynamicBytes(bytes: Uint8Array, baseOffset: number, relativeOffset:
   return bytes.slice(valueStart, valueEnd);
 }
 
-function readAddressArray(bytes: Uint8Array, baseOffset: number, relativeOffset: number): string[] | undefined {
+function readAddressArray(
+  bytes: Uint8Array,
+  baseOffset: number,
+  relativeOffset: number,
+): string[] | undefined {
   const arrayHeadOffset = baseOffset + relativeOffset;
   const length = readWordNumber(bytes, arrayHeadOffset);
   if (length == null) return undefined;
@@ -175,7 +187,11 @@ function readAddressArray(bytes: Uint8Array, baseOffset: number, relativeOffset:
   return out;
 }
 
-function readBigIntArray(bytes: Uint8Array, baseOffset: number, relativeOffset: number): bigint[] | undefined {
+function readBigIntArray(
+  bytes: Uint8Array,
+  baseOffset: number,
+  relativeOffset: number,
+): bigint[] | undefined {
   const arrayHeadOffset = baseOffset + relativeOffset;
   const length = readWordNumber(bytes, arrayHeadOffset);
   if (length == null) return undefined;
@@ -190,7 +206,11 @@ function readBigIntArray(bytes: Uint8Array, baseOffset: number, relativeOffset: 
   return out;
 }
 
-function readBytesArray(bytes: Uint8Array, baseOffset: number, relativeOffset: number): Uint8Array[] | undefined {
+function readBytesArray(
+  bytes: Uint8Array,
+  baseOffset: number,
+  relativeOffset: number,
+): Uint8Array[] | undefined {
   const arrayHeadOffset = baseOffset + relativeOffset;
   const length = readWordNumber(bytes, arrayHeadOffset);
   if (length == null) return undefined;
@@ -213,10 +233,12 @@ function decodeExecuteCallData(callDataHex: string): DecodedSmartAccountCall {
     return {
       callType: 'execute',
       selector: EXECUTE_SELECTOR,
-      calls: [{
-        dataHex: normalizeHex(callDataHex),
-        selector: EXECUTE_SELECTOR,
-      }],
+      calls: [
+        {
+          dataHex: normalizeHex(callDataHex),
+          selector: EXECUTE_SELECTOR,
+        },
+      ],
       warning: 'Failed to decode execute(address,uint256,bytes) calldata',
     };
   }
@@ -225,16 +247,19 @@ function decodeExecuteCallData(callDataHex: string): DecodedSmartAccountCall {
   const to = readWordAddress(bytes, paramsOffset);
   const valueWei = readWordBigInt(bytes, paramsOffset + 32);
   const dataOffset = readWordNumber(bytes, paramsOffset + 64);
-  const dataBytes = dataOffset == null ? undefined : readDynamicBytes(bytes, paramsOffset, dataOffset);
+  const dataBytes =
+    dataOffset == null ? undefined : readDynamicBytes(bytes, paramsOffset, dataOffset);
 
   if (!to || valueWei == null || !dataBytes) {
     return {
       callType: 'execute',
       selector: EXECUTE_SELECTOR,
-      calls: [{
-        dataHex: normalizeHex(callDataHex),
-        selector: EXECUTE_SELECTOR,
-      }],
+      calls: [
+        {
+          dataHex: normalizeHex(callDataHex),
+          selector: EXECUTE_SELECTOR,
+        },
+      ],
       warning: 'Failed to decode execute(address,uint256,bytes) arguments',
     };
   }
@@ -243,13 +268,15 @@ function decodeExecuteCallData(callDataHex: string): DecodedSmartAccountCall {
   return {
     callType: 'execute',
     selector: EXECUTE_SELECTOR,
-    calls: [{
-      to,
-      valueWei: valueWei.toString(),
-      dataHex: nestedCallDataHex,
-      selector: selectorFromHexData(nestedCallDataHex),
-      decodedArgs: 'execute(address to, uint256 value, bytes data)',
-    }],
+    calls: [
+      {
+        to,
+        valueWei: valueWei.toString(),
+        dataHex: nestedCallDataHex,
+        selector: selectorFromHexData(nestedCallDataHex),
+        decodedArgs: 'execute(address to, uint256 value, bytes data)',
+      },
+    ],
   };
 }
 
@@ -259,10 +286,12 @@ function decodeExecuteBatchCallData(callDataHex: string): DecodedSmartAccountCal
     return {
       callType: 'executeBatch',
       selector: EXECUTE_BATCH_SELECTOR,
-      calls: [{
-        dataHex: normalizeHex(callDataHex),
-        selector: EXECUTE_BATCH_SELECTOR,
-      }],
+      calls: [
+        {
+          dataHex: normalizeHex(callDataHex),
+          selector: EXECUTE_BATCH_SELECTOR,
+        },
+      ],
       warning: 'Failed to decode executeBatch(address[],uint256[],bytes[]) calldata',
     };
   }
@@ -276,10 +305,12 @@ function decodeExecuteBatchCallData(callDataHex: string): DecodedSmartAccountCal
     return {
       callType: 'executeBatch',
       selector: EXECUTE_BATCH_SELECTOR,
-      calls: [{
-        dataHex: normalizeHex(callDataHex),
-        selector: EXECUTE_BATCH_SELECTOR,
-      }],
+      calls: [
+        {
+          dataHex: normalizeHex(callDataHex),
+          selector: EXECUTE_BATCH_SELECTOR,
+        },
+      ],
       warning: 'Failed to decode executeBatch(address[],uint256[],bytes[]) offsets',
     };
   }
@@ -288,14 +319,22 @@ function decodeExecuteBatchCallData(callDataHex: string): DecodedSmartAccountCal
   const values = readBigIntArray(bytes, paramsOffset, valueOffset);
   const payloads = readBytesArray(bytes, paramsOffset, dataOffset);
 
-  if (!targets || !values || !payloads || targets.length !== values.length || values.length !== payloads.length) {
+  if (
+    !targets ||
+    !values ||
+    !payloads ||
+    targets.length !== values.length ||
+    values.length !== payloads.length
+  ) {
     return {
       callType: 'executeBatch',
       selector: EXECUTE_BATCH_SELECTOR,
-      calls: [{
-        dataHex: normalizeHex(callDataHex),
-        selector: EXECUTE_BATCH_SELECTOR,
-      }],
+      calls: [
+        {
+          dataHex: normalizeHex(callDataHex),
+          selector: EXECUTE_BATCH_SELECTOR,
+        },
+      ],
       warning: 'Failed to decode executeBatch(address[],uint256[],bytes[]) arguments',
     };
   }
@@ -324,10 +363,12 @@ function decodeSmartAccountCallData(callDataHex: string): DecodedSmartAccountCal
   return {
     callType: 'custom',
     selector,
-    calls: [{
-      dataHex: normalizedCallDataHex,
-      selector,
-    }],
+    calls: [
+      {
+        dataHex: normalizedCallDataHex,
+        selector,
+      },
+    ],
   };
 }
 
@@ -384,9 +425,10 @@ function decodeHandleOpsCallData(callDataHex: string): DecodedHandleOps | undefi
     const sender = readWordAddress(bytes, userOpHeadOffset);
     const nonce = readWordBigInt(bytes, userOpHeadOffset + 32);
     const callDataOffset = readWordNumber(bytes, userOpHeadOffset + 3 * 32);
-    const callDataBytes = callDataOffset == null
-      ? undefined
-      : readDynamicBytes(bytes, userOpHeadOffset, callDataOffset);
+    const callDataBytes =
+      callDataOffset == null
+        ? undefined
+        : readDynamicBytes(bytes, userOpHeadOffset, callDataOffset);
 
     const callDataHex = callDataBytes ? bytesToHex(callDataBytes) : '0x';
     const decodedCall = decodeSmartAccountCallData(callDataHex);
@@ -475,7 +517,7 @@ function buildErc4337OperationFromHandleOps(args: {
         id: `evm.erc4337.userop.${userOpIndex}.call.${callIndex}`,
         label: calls.length > 1 ? `Call ${callIndex + 1}` : 'Call',
         call,
-      })
+      }),
     );
 
     for (const call of calls) {
@@ -498,7 +540,10 @@ function buildErc4337OperationFromHandleOps(args: {
       makeField('Smart Account', userOp.sender, userOp.sender),
       makeField('Nonce', userOp.nonce),
       makeField('Call Type', callTypeLabel(userOp.decodedCall.callType)),
-      makeField('CallData Function', resolveFunctionSignature(userOp.decodedCall.selector, userOp.sender)),
+      makeField(
+        'CallData Function',
+        resolveFunctionSignature(userOp.decodedCall.selector, userOp.sender),
+      ),
       makeField('CallData Selector', userOp.decodedCall.selector, userOp.decodedCall.selector),
       makeField('CallData', userOp.callDataHex, userOp.callDataHex),
       makeField('Decoded Call Count', String(callChildren.length)),
@@ -518,9 +563,10 @@ function buildErc4337OperationFromHandleOps(args: {
   }
 
   const distinctCallTypes = new Set(decoded.userOperations.map((op) => op.decodedCall.callType));
-  const callType = distinctCallTypes.size === 1
-    ? decoded.userOperations[0]?.decodedCall.callType || 'custom'
-    : 'custom';
+  const callType =
+    distinctCallTypes.size === 1
+      ? decoded.userOperations[0]?.decodedCall.callType || 'custom'
+      : 'custom';
 
   const rootFields: TxDisplayField[] = [
     makeField('Kind', 'ERC-4337 UserOperation'),
@@ -568,7 +614,7 @@ function buildErc4337OperationFromDirectSmartAccountCall(args: {
       id: `evm.erc4337.call.${callIndex}`,
       label: decodedCall.calls.length > 1 ? `Call ${callIndex + 1}` : 'Call',
       call,
-    })
+    }),
   );
 
   let callValueTotalWei = 0n;
@@ -622,22 +668,27 @@ function buildDefaultContractCallOperation(args: {
     dataField.hideLabel = true;
     dataField.hideChevron = true;
   }
+  const functionSignature = resolveFunctionSignature(args.selector, args.to);
 
   const callFields: TxDisplayField[] = [
     dataField,
+    makeField('Function', functionSignature),
+    makeField('Selector', args.selector, args.selector),
     makeField('Value (wei)', args.valueWei),
   ].filter(Boolean) as TxDisplayField[];
 
   const children = hasCallData
-    ? [{
-      id: 'evm.eip1559.call',
-      kind: 'generic.contractCall' as const,
-      label: `Calling ${functionLabel || 'contract function'} using ${formattedGasLimit} gas`,
-      to: args.to,
-      value: args.valueWei,
-      selector: args.selector,
-      fields: callFields,
-    }]
+    ? [
+        {
+          id: 'evm.eip1559.call',
+          kind: 'generic.contractCall' as const,
+          label: `Calling ${functionLabel || 'contract function'} using ${formattedGasLimit} gas`,
+          to: args.to,
+          value: args.valueWei,
+          selector: args.selector,
+          fields: callFields,
+        },
+      ]
     : undefined;
 
   return {
@@ -660,12 +711,14 @@ export function buildEvmDisplayModel(args: BuildEvmDisplayModelArgs): TxDisplayM
       signerAccount: args.signerAccount,
       title: args.title || 'EVM Transaction',
       subtitle: args.subtitle,
-      operations: [{
-        id: 'evm.raw',
-        kind: 'raw.fallback',
-        label: 'Unsupported EVM Payload',
-        raw: toSafeJson(request),
-      }],
+      operations: [
+        {
+          id: 'evm.raw',
+          kind: 'raw.fallback',
+          label: 'Unsupported EVM Payload',
+          raw: toSafeJson(request),
+        },
+      ],
       raw: {
         format: 'json',
         value: toSafeJson(request),
@@ -680,11 +733,12 @@ export function buildEvmDisplayModel(args: BuildEvmDisplayModelArgs): TxDisplayM
   const selector = selectorFromHexData(dataHex);
 
   const erc4337Operation =
-    buildErc4337OperationFromHandleOps({ to, dataHex })
-    || buildErc4337OperationFromDirectSmartAccountCall({ to, dataHex });
+    buildErc4337OperationFromHandleOps({ to, dataHex }) ||
+    buildErc4337OperationFromDirectSmartAccountCall({ to, dataHex });
 
-  const operation = erc4337Operation?.operation
-    || buildDefaultContractCallOperation({
+  const operation =
+    erc4337Operation?.operation ||
+    buildDefaultContractCallOperation({
       to,
       valueWei,
       tx,
@@ -693,11 +747,12 @@ export function buildEvmDisplayModel(args: BuildEvmDisplayModelArgs): TxDisplayM
     });
 
   const warnings = erc4337Operation?.warnings || [];
-  const totalValueWei = erc4337Operation?.callValueTotalWei ?? (tx.value > 0n ? tx.value : undefined);
+  const totalValueWei =
+    erc4337Operation?.callValueTotalWei ?? (tx.value > 0n ? tx.value : undefined);
 
   return {
     chain: 'evm',
-    chainId: tx.chainId.toString(),
+    chainId: tx.chainId,
     intentDigest: args.intentDigest,
     signerAccount: args.signerAccount,
     title: args.title || 'EVM Transaction',

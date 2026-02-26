@@ -111,7 +111,11 @@ export class OnEventsProgressBus {
   // latest intent is 'show', we keep the overlay visible.
   private overlayDemands = new Map<string, 'show' | 'hide' | 'none'>();
 
-  constructor(overlay: OverlayToggler, heuristic: PhaseHeuristics, logger?: (msg: string, data?: Record<string, unknown>) => void) {
+  constructor(
+    overlay: OverlayToggler,
+    heuristic: PhaseHeuristics,
+    logger?: (msg: string, data?: Record<string, unknown>) => void,
+  ) {
     this.overlay = overlay;
     this.heuristic = heuristic;
     this.logger = logger;
@@ -121,17 +125,22 @@ export class OnEventsProgressBus {
    * Register a subscriber for a requestId.
    * Initializes demand tracking to 'none' (neutral) until phases arrive.
    */
-  register({ requestId, onProgress, sticky = false, initialDemand = 'none' }: {
-    requestId: string,
-    sticky: boolean,
-    onProgress?: (p: ProgressPayload) => void,
-    initialDemand?: 'show' | 'hide' | 'none',
+  register({
+    requestId,
+    onProgress,
+    sticky = false,
+    initialDemand = 'none',
+  }: {
+    requestId: string;
+    sticky: boolean;
+    onProgress?: (p: ProgressPayload) => void;
+    initialDemand?: 'show' | 'hide' | 'none';
   }): void {
-    const demand = (initialDemand === 'show' || initialDemand === 'hide') ? initialDemand : 'none';
+    const demand = initialDemand === 'show' || initialDemand === 'hide' ? initialDemand : 'none';
     this.subs.set(requestId, {
       onProgress,
       sticky,
-      stats: { count: 0, lastPhase: null, lastAt: null }
+      stats: { count: 0, lastPhase: null, lastAt: null },
     });
     // Initialize demand tracking for this request (used to prevent racey hides).
     this.overlayDemands.set(requestId, demand);
@@ -148,7 +157,9 @@ export class OnEventsProgressBus {
     this.overlayDemands.delete(requestId);
     // If no remaining requests demand 'show', we can safely hide
     if (!this.wantsVisible()) {
-      try { this.overlay.hide(); } catch {}
+      try {
+        this.overlay.hide();
+      } catch {}
     }
   }
 
@@ -181,11 +192,7 @@ export class OnEventsProgressBus {
    * Dispatch a progress payload to a request's subscriber and update
    * the aggregate overlay demand based on the phase heuristic.
    */
-  dispatch({ requestId, payload }: {
-    requestId: string,
-    payload: ProgressPayload
-  }): boolean {
-
+  dispatch({ requestId, payload }: { requestId: string; payload: ProgressPayload }): boolean {
     const phase = String((payload || {}).phase || '');
     const action = this.heuristic(payload);
 
@@ -200,17 +207,23 @@ export class OnEventsProgressBus {
     // - If any request currently demands 'show', ensure overlay is visible
     // - Only hide when no outstanding 'show' demands remain
     if (action === 'show') {
-      try { this.overlay.show(); } catch {}
+      try {
+        this.overlay.show();
+      } catch {}
     } else if (action === 'hide') {
       if (!this.wantsVisible()) {
-        try { this.overlay.hide(); } catch {}
+        try {
+          this.overlay.hide();
+        } catch {}
       }
     }
 
     const sub = this.subs.get(requestId);
     if (sub) {
       this.bumpStats(sub, phase);
-      try { sub.onProgress?.(payload); } catch {}
+      try {
+        sub.onProgress?.(payload);
+      } catch {}
       this.log('dispatch', { requestId, phase, sticky: sub.sticky });
       return true;
     }
@@ -219,7 +232,9 @@ export class OnEventsProgressBus {
     const sticky = this.findSticky(requestId);
     if (sticky) {
       this.bumpStats(sticky, phase);
-      try { sticky.onProgress?.(payload); } catch {}
+      try {
+        sticky.onProgress?.(payload);
+      } catch {}
       this.log('dispatch-sticky', { requestId, phase });
       return true;
     }
@@ -230,7 +245,7 @@ export class OnEventsProgressBus {
   getStats(requestId: string): {
     count: number;
     lastPhase: string | null;
-    lastAt: number | null
+    lastAt: number | null;
   } | null {
     const sub = this.subs.get(requestId);
     return sub ? sub.stats : null;
@@ -261,7 +276,9 @@ export class OnEventsProgressBus {
   }
 
   private log(msg: string, data?: Record<string, unknown>) {
-    try { this.logger?.(msg, data); } catch {}
+    try {
+      this.logger?.(msg, data);
+    } catch {}
   }
 }
 
@@ -308,5 +325,7 @@ export const defaultPhaseHeuristics: PhaseHeuristics = (payload: ProgressPayload
 
     // Step 5: Default to no change for unknown phases
     return 'none';
-  } catch { return 'none'; }
+  } catch {
+    return 'none';
+  }
 };

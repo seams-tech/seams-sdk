@@ -55,4 +55,3 @@ main().catch((err) => {
   console.error('[postgres-up] fatal:', err);
   process.exit(1);
 });
-

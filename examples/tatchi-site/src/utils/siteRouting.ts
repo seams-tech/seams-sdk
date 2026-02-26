@@ -1,53 +1,53 @@
-import { FRONTEND_CONFIG } from '../config'
+import { FRONTEND_CONFIG } from '../config';
 
-const DOCS_PREFIX = '/docs'
+const DOCS_PREFIX = '/docs';
 
 function stripTrailingSlash(path: string): string {
-  if (path.length <= 1) return path
-  return path.endsWith('/') ? path.slice(0, -1) : path
+  if (path.length <= 1) return path;
+  return path.endsWith('/') ? path.slice(0, -1) : path;
 }
 
 export function getSiteBase(): string {
-  const base = FRONTEND_CONFIG.baseUrl
-  return stripTrailingSlash(base) || '/'
+  const base = FRONTEND_CONFIG.baseUrl;
+  return stripTrailingSlash(base) || '/';
 }
 
 export function getDocsOrigin(): string {
-  return stripTrailingSlash(FRONTEND_CONFIG.docsOrigin)
+  return stripTrailingSlash(FRONTEND_CONFIG.docsOrigin);
 }
 
 export function isHttpUrl(value: string): boolean {
-  return /^https?:\/\//.test(value)
+  return /^https?:\/\//.test(value);
 }
 
 function toSiteAbsolutePath(pathOrHash: string): string {
-  if (!pathOrHash) return '/'
-  if (pathOrHash.startsWith('#')) return `${window.location.pathname}${pathOrHash}`
-  const normalized = pathOrHash.startsWith('/') ? pathOrHash : `/${pathOrHash}`
-  const base = getSiteBase()
-  if (base === '/') return normalized
-  return `${base}${normalized}`
+  if (!pathOrHash) return '/';
+  if (pathOrHash.startsWith('#')) return `${window.location.pathname}${pathOrHash}`;
+  const normalized = pathOrHash.startsWith('/') ? pathOrHash : `/${pathOrHash}`;
+  const base = getSiteBase();
+  if (base === '/') return normalized;
+  return `${base}${normalized}`;
 }
 
 export function maybeDocsHref(target: string): string | null {
-  if (!target.startsWith(DOCS_PREFIX)) return null
-  const docsOrigin = getDocsOrigin()
-  const suffix = target === DOCS_PREFIX ? '/' : target.slice(DOCS_PREFIX.length)
-  return `${docsOrigin}${suffix.startsWith('/') ? suffix : `/${suffix}`}`
+  if (!target.startsWith(DOCS_PREFIX)) return null;
+  const docsOrigin = getDocsOrigin();
+  const suffix = target === DOCS_PREFIX ? '/' : target.slice(DOCS_PREFIX.length);
+  return `${docsOrigin}${suffix.startsWith('/') ? suffix : `/${suffix}`}`;
 }
 
 export function resolveHref(target: string): string {
-  if (isHttpUrl(target)) return target
+  if (isHttpUrl(target)) return target;
 
-  const docsHref = maybeDocsHref(target)
-  if (docsHref) return docsHref
+  const docsHref = maybeDocsHref(target);
+  if (docsHref) return docsHref;
 
-  return toSiteAbsolutePath(target)
+  return toSiteAbsolutePath(target);
 }
 
 export function normalizePathname(pathname: string): string {
-  if (!pathname) return '/'
-  const clean = pathname.split('?')[0].split('#')[0]
-  const normalized = clean.startsWith('/') ? clean : `/${clean}`
-  return stripTrailingSlash(normalized) || '/'
+  if (!pathname) return '/';
+  const clean = pathname.split('?')[0].split('#')[0];
+  const normalized = clean.startsWith('/') ? clean : `/${clean}`;
+  return stripTrailingSlash(normalized) || '/';
 }

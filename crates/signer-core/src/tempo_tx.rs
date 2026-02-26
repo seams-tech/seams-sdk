@@ -45,7 +45,7 @@ pub enum TempoRlpValue {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TempoTx {
-    pub chain_id: String,
+    pub chain_id: u64,
     pub max_priority_fee_per_gas: String,
     pub max_fee_per_gas: String,
     pub gas_limit: String,
@@ -203,8 +203,9 @@ pub fn compute_tempo_sender_hash(tx: &TempoTx) -> CoreResult<Vec<u8>> {
         vec![]
     };
 
+    let chain_id = tx.chain_id.to_string();
     let fields = vec![
-        rlp_encode_bytes(&u256_bytes_be_from_dec(&tx.chain_id)?),
+        rlp_encode_bytes(&u256_bytes_be_from_dec(&chain_id)?),
         rlp_encode_bytes(&u256_bytes_be_from_dec(&tx.max_priority_fee_per_gas)?),
         rlp_encode_bytes(&u256_bytes_be_from_dec(&tx.max_fee_per_gas)?),
         rlp_encode_bytes(&u256_bytes_be_from_dec(&tx.gas_limit)?),
@@ -238,8 +239,9 @@ pub fn encode_tempo_signed_tx(tx: &TempoTx, sender_signature: &[u8]) -> CoreResu
     // MVP: AA list is always empty.
     let aa_list_enc = rlp_encode_list(&[]);
 
+    let chain_id = tx.chain_id.to_string();
     let fields = vec![
-        rlp_encode_bytes(&u256_bytes_be_from_dec(&tx.chain_id)?),
+        rlp_encode_bytes(&u256_bytes_be_from_dec(&chain_id)?),
         rlp_encode_bytes(&u256_bytes_be_from_dec(&tx.max_priority_fee_per_gas)?),
         rlp_encode_bytes(&u256_bytes_be_from_dec(&tx.max_fee_per_gas)?),
         rlp_encode_bytes(&u256_bytes_be_from_dec(&tx.gas_limit)?),
@@ -277,7 +279,7 @@ mod tests {
 
     fn test_tx(fee_token: &str, fee_payer_signature: Option<FeePayerSignature>) -> TempoTx {
         TempoTx {
-            chain_id: "42431".to_string(),
+            chain_id: 42431,
             max_priority_fee_per_gas: "1".to_string(),
             max_fee_per_gas: "2".to_string(),
             gas_limit: "21000".to_string(),

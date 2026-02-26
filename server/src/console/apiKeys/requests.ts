@@ -1,8 +1,5 @@
 import { ConsoleApiKeyError } from './errors';
-import type {
-  CreateConsoleApiKeyRequest,
-  RotateConsoleApiKeyRequest,
-} from './types';
+import type { CreateConsoleApiKeyRequest, RotateConsoleApiKeyRequest } from './types';
 
 function requireObject(body: unknown): Record<string, unknown> {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -36,7 +33,11 @@ function parseScopesOrThrow(raw: unknown): string[] {
   for (const valueRaw of raw) {
     const value = String(valueRaw || '').trim();
     if (!value) {
-      throw new ConsoleApiKeyError('invalid_body', 400, 'Field scopes must contain non-empty strings');
+      throw new ConsoleApiKeyError(
+        'invalid_body',
+        400,
+        'Field scopes must contain non-empty strings',
+      );
     }
     const key = value.toLowerCase();
     if (seen.has(key)) continue;
@@ -56,7 +57,11 @@ function parseIpAllowlistOrThrow(raw: unknown): string[] | undefined {
   for (const item of raw) {
     const value = String(item || '').trim();
     if (!value) {
-      throw new ConsoleApiKeyError('invalid_body', 400, 'Field ipAllowlist must contain non-empty values');
+      throw new ConsoleApiKeyError(
+        'invalid_body',
+        400,
+        'Field ipAllowlist must contain non-empty values',
+      );
     }
     if (!/^[0-9a-fA-F.:/]+$/.test(value)) {
       throw new ConsoleApiKeyError('invalid_body', 400, `Invalid IP/CIDR value: ${value}`);

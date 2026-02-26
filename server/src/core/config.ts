@@ -1,8 +1,4 @@
-import type {
-  AuthServiceConfig,
-  AuthServiceConfigInput,
-  GoogleOidcConfigEnvInput,
-} from './types';
+import type { AuthServiceConfig, AuthServiceConfigInput, GoogleOidcConfigEnvInput } from './types';
 import {
   THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT,
   THRESHOLD_ED25519_SHARE_MODE_DEFAULT,
@@ -23,7 +19,9 @@ export const AUTH_SERVICE_CONFIG_DEFAULTS = {
 } as const;
 
 function defaultNearRpcUrl(networkId: string): string {
-  const net = String(networkId || '').trim().toLowerCase();
+  const net = String(networkId || '')
+    .trim()
+    .toLowerCase();
   if (net === 'mainnet') return AUTH_SERVICE_CONFIG_DEFAULTS.nearRpcUrlMainnet;
   return AUTH_SERVICE_CONFIG_DEFAULTS.nearRpcUrlTestnet;
 }
@@ -41,11 +39,29 @@ function normalizeGoogleOidcConfig(
   if (!input) return undefined;
 
   // Full options object
-  if (typeof input === 'object' && !Array.isArray(input) && Array.isArray((input as any).clientIds)) {
-    const clientIds = Array.from(new Set(((input as any).clientIds as unknown[]).map((v) => String(v || '').trim()).filter(Boolean)));
+  if (
+    typeof input === 'object' &&
+    !Array.isArray(input) &&
+    Array.isArray((input as any).clientIds)
+  ) {
+    const clientIds = Array.from(
+      new Set(
+        ((input as any).clientIds as unknown[]).map((v) => String(v || '').trim()).filter(Boolean),
+      ),
+    );
     if (!clientIds.length) return undefined;
     const hostedDomains = Array.isArray((input as any).hostedDomains)
-      ? Array.from(new Set(((input as any).hostedDomains as unknown[]).map((v) => String(v || '').trim().toLowerCase()).filter(Boolean)))
+      ? Array.from(
+          new Set(
+            ((input as any).hostedDomains as unknown[])
+              .map((v) =>
+                String(v || '')
+                  .trim()
+                  .toLowerCase(),
+              )
+              .filter(Boolean),
+          ),
+        )
       : [];
     return {
       clientIds,
@@ -86,34 +102,34 @@ function normalizeThresholdEd25519KeyStoreConfig(
   const c = input as Record<string, unknown>;
   const anyProvided = Boolean(
     // Minimal (env-shaped)
-    toOptionalTrimmedString(c.THRESHOLD_ED25519_SHARE_MODE)
-    || toOptionalTrimmedString(c.THRESHOLD_ED25519_MASTER_SECRET_B64U)
-    || toOptionalTrimmedString(c.THRESHOLD_SECP256K1_MASTER_SECRET_B64U)
-    || toOptionalTrimmedString(c.THRESHOLD_NODE_ROLE)
-    || toOptionalTrimmedString(c.THRESHOLD_COORDINATOR_SHARED_SECRET_B64U)
-    || toOptionalTrimmedString(c.THRESHOLD_ED25519_RELAYER_COSIGNERS)
-    || toOptionalTrimmedString(c.THRESHOLD_ED25519_RELAYER_COSIGNER_ID)
-    || toOptionalTrimmedString(c.THRESHOLD_ED25519_RELAYER_COSIGNER_T)
-    || toOptionalTrimmedString(c.THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID)
-    || toOptionalTrimmedString(c.THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID)
-    || toOptionalTrimmedString(c.THRESHOLD_PREFIX)
-    || toOptionalTrimmedString(c.THRESHOLD_ED25519_AUTH_PREFIX)
-    || toOptionalTrimmedString(c.THRESHOLD_ED25519_SESSION_PREFIX)
-    || toOptionalTrimmedString(c.THRESHOLD_ED25519_KEYSTORE_PREFIX)
-    || toOptionalTrimmedString(c.THRESHOLD_ECDSA_AUTH_PREFIX)
-    || toOptionalTrimmedString(c.THRESHOLD_ECDSA_SESSION_PREFIX)
-    || toOptionalTrimmedString(c.THRESHOLD_ECDSA_KEYSTORE_PREFIX)
+    toOptionalTrimmedString(c.THRESHOLD_ED25519_SHARE_MODE) ||
+    toOptionalTrimmedString(c.THRESHOLD_ED25519_MASTER_SECRET_B64U) ||
+    toOptionalTrimmedString(c.THRESHOLD_SECP256K1_MASTER_SECRET_B64U) ||
+    toOptionalTrimmedString(c.THRESHOLD_NODE_ROLE) ||
+    toOptionalTrimmedString(c.THRESHOLD_COORDINATOR_SHARED_SECRET_B64U) ||
+    toOptionalTrimmedString(c.THRESHOLD_ED25519_RELAYER_COSIGNERS) ||
+    toOptionalTrimmedString(c.THRESHOLD_ED25519_RELAYER_COSIGNER_ID) ||
+    toOptionalTrimmedString(c.THRESHOLD_ED25519_RELAYER_COSIGNER_T) ||
+    toOptionalTrimmedString(c.THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID) ||
+    toOptionalTrimmedString(c.THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID) ||
+    toOptionalTrimmedString(c.THRESHOLD_PREFIX) ||
+    toOptionalTrimmedString(c.THRESHOLD_ED25519_AUTH_PREFIX) ||
+    toOptionalTrimmedString(c.THRESHOLD_ED25519_SESSION_PREFIX) ||
+    toOptionalTrimmedString(c.THRESHOLD_ED25519_KEYSTORE_PREFIX) ||
+    toOptionalTrimmedString(c.THRESHOLD_ECDSA_AUTH_PREFIX) ||
+    toOptionalTrimmedString(c.THRESHOLD_ECDSA_SESSION_PREFIX) ||
+    toOptionalTrimmedString(c.THRESHOLD_ECDSA_KEYSTORE_PREFIX) ||
     // Explicit store config (kind-shaped)
-    || toOptionalTrimmedString(c.kind)
-    || toOptionalTrimmedString(c.url)
-    || toOptionalTrimmedString(c.token)
-    || toOptionalTrimmedString(c.redisUrl)
-    || toOptionalTrimmedString(c.postgresUrl)
+    toOptionalTrimmedString(c.kind) ||
+    toOptionalTrimmedString(c.url) ||
+    toOptionalTrimmedString(c.token) ||
+    toOptionalTrimmedString(c.redisUrl) ||
+    toOptionalTrimmedString(c.postgresUrl) ||
     // Env-shaped store toggles
-    || toOptionalTrimmedString(c.UPSTASH_REDIS_REST_URL)
-    || toOptionalTrimmedString(c.UPSTASH_REDIS_REST_TOKEN)
-    || toOptionalTrimmedString(c.REDIS_URL)
-    || toOptionalTrimmedString(c.POSTGRES_URL),
+    toOptionalTrimmedString(c.UPSTASH_REDIS_REST_URL) ||
+    toOptionalTrimmedString(c.UPSTASH_REDIS_REST_TOKEN) ||
+    toOptionalTrimmedString(c.REDIS_URL) ||
+    toOptionalTrimmedString(c.POSTGRES_URL),
   );
   if (!anyProvided) return undefined;
 
@@ -128,9 +144,9 @@ function normalizeThresholdEd25519KeyStoreConfig(
 
     const thresholdPrefix = toOptionalTrimmedString(normalized.THRESHOLD_PREFIX);
     const anySpecificPrefix = Boolean(
-      toOptionalTrimmedString(normalized.THRESHOLD_ED25519_AUTH_PREFIX)
-      || toOptionalTrimmedString(normalized.THRESHOLD_ED25519_SESSION_PREFIX)
-      || toOptionalTrimmedString(normalized.THRESHOLD_ED25519_KEYSTORE_PREFIX),
+      toOptionalTrimmedString(normalized.THRESHOLD_ED25519_AUTH_PREFIX) ||
+      toOptionalTrimmedString(normalized.THRESHOLD_ED25519_SESSION_PREFIX) ||
+      toOptionalTrimmedString(normalized.THRESHOLD_ED25519_KEYSTORE_PREFIX),
     );
     if (!thresholdPrefix && !anySpecificPrefix) {
       normalized.THRESHOLD_PREFIX = THRESHOLD_PREFIX_DEFAULT;
@@ -150,12 +166,16 @@ export function createAuthServiceConfig(input: AuthServiceConfigInput): AuthServ
     relayerPrivateKey: toTrimmedString(input.relayerPrivateKey),
     nearRpcUrl: toTrimmedString(input.nearRpcUrl) || defaultNearRpcUrl(networkId),
     networkId: networkId,
-    accountInitialBalance: toTrimmedString(input.accountInitialBalance)
-      || AUTH_SERVICE_CONFIG_DEFAULTS.accountInitialBalance,
-    createAccountAndRegisterGas: toTrimmedString(input.createAccountAndRegisterGas)
-      || AUTH_SERVICE_CONFIG_DEFAULTS.createAccountAndRegisterGas,
+    accountInitialBalance:
+      toTrimmedString(input.accountInitialBalance) ||
+      AUTH_SERVICE_CONFIG_DEFAULTS.accountInitialBalance,
+    createAccountAndRegisterGas:
+      toTrimmedString(input.createAccountAndRegisterGas) ||
+      AUTH_SERVICE_CONFIG_DEFAULTS.createAccountAndRegisterGas,
     signerWasm: input.signerWasm,
-    thresholdEd25519KeyStore: normalizeThresholdEd25519KeyStoreConfig(input.thresholdEd25519KeyStore),
+    thresholdEd25519KeyStore: normalizeThresholdEd25519KeyStoreConfig(
+      input.thresholdEd25519KeyStore,
+    ),
     logger: input.logger,
     googleOidc: normalizeGoogleOidcConfig(input.googleOidc),
   };
@@ -165,8 +185,7 @@ export function createAuthServiceConfig(input: AuthServiceConfigInput): AuthServ
 }
 
 export function validateConfigs(config: AuthServiceConfig): void {
-
-  const requiredTop = ['relayerAccount','relayerPrivateKey'] as const;
+  const requiredTop = ['relayerAccount', 'relayerPrivateKey'] as const;
   for (const key of requiredTop) {
     if (!(config as any)[key]) throw new Error(`Missing required config variable: ${key}`);
   }
@@ -178,11 +197,16 @@ export function validateConfigs(config: AuthServiceConfig): void {
 }
 
 export function parseBool(v: unknown): boolean {
-  const s = String(v ?? '').trim().toLowerCase();
+  const s = String(v ?? '')
+    .trim()
+    .toLowerCase();
   return s === '1' || s === 'true' || s === 'yes' || s === 'on';
 }
 
-export function requireEnvVar<T extends object, K extends keyof T & string>(env: T, name: K): string {
+export function requireEnvVar<T extends object, K extends keyof T & string>(
+  env: T,
+  name: K,
+): string {
   const raw = (env as any)?.[name] as unknown;
   if (typeof raw !== 'string') throw new Error(`Missing required env var: ${name}`);
   const v = raw.trim();

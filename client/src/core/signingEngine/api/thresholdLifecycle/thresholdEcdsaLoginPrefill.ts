@@ -74,7 +74,11 @@ export type ThresholdEcdsaLoginPrefillDeps = {
 };
 
 function normalizeSessionKind(value: unknown): EcdsaSessionKind {
-  return String(value || '').trim().toLowerCase() === 'cookie' ? 'cookie' : 'jwt';
+  return String(value || '')
+    .trim()
+    .toLowerCase() === 'cookie'
+    ? 'cookie'
+    : 'jwt';
 }
 
 function normalizeRemainingUses(value: unknown): number | null {
@@ -87,9 +91,7 @@ function isWarmSessionActive(
   status: SigningSessionStatus | null,
 ): status is SigningSessionStatus & { status: 'active'; remainingUses: number } {
   return Boolean(
-    status
-      && status.status === 'active'
-      && Number.isFinite(Number(status.remainingUses)),
+    status && status.status === 'active' && Number.isFinite(Number(status.remainingUses)),
   );
 }
 
@@ -112,7 +114,9 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
       };
     }
 
-    const relayerUrl = String(keyRef.relayerUrl || '').trim().replace(/\/+$/g, '');
+    const relayerUrl = String(keyRef.relayerUrl || '')
+      .trim()
+      .replace(/\/+$/g, '');
     const relayerKeyId = String(keyRef.relayerKeyId || '').trim();
     const clientVerifyingShareB64u = String(keyRef.clientVerifyingShareB64u || '').trim();
     const participantIds = normalizeThresholdEd25519ParticipantIds(keyRef.participantIds);
@@ -141,9 +145,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
       };
     }
 
-    const policy = resolveThresholdEcdsaPresignPoolPolicy(
-      deps.thresholdEcdsaPresignPoolPolicy,
-    );
+    const policy = resolveThresholdEcdsaPresignPoolPolicy(deps.thresholdEcdsaPresignPoolPolicy);
     if (!policy.enabled) {
       return {
         status: 'skipped',

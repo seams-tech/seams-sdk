@@ -4,7 +4,7 @@ import type { NonceManager } from '../../rpcClients/near/nonceManager';
 import type { TouchConfirmSigningSessionPort } from '../touchConfirm';
 import type { TouchIdPrompt } from '../signers/webauthn/prompt/touchIdPrompt';
 import type { UserPreferencesManager } from '../api/userPreferences';
-import type { ThemeName } from '../../types/tatchi';
+import type { ThemeName, TatchiChainConfig } from '../../types/tatchi';
 import type {
   SignerWorkerKind,
   SignerWorkerOperationRequest,
@@ -22,6 +22,7 @@ export interface SigningRuntimeDeps {
   indexedDB: UnifiedIndexedDBManager;
   userPreferencesManager: UserPreferencesManager;
   nonceManager: NonceManager;
+  chains?: readonly TatchiChainConfig[];
   getTheme?: () => ThemeName;
   rpIdOverride?: string;
   nearExplorerUrl?: string;

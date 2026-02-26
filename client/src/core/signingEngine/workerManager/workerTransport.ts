@@ -29,10 +29,7 @@ import type {
   SignerWorkerOperationType,
   SignerWorkerTransportProtocol,
 } from './workerTypes';
-import {
-  SignerWorkerOperationError,
-  WorkerControlMessage,
-} from './workerTypes';
+import { SignerWorkerOperationError, WorkerControlMessage } from './workerTypes';
 
 type RpcOk<T = unknown> = { id: string; ok: true; result: T };
 type RpcErr = { id: string; ok: false; error: string; code?: string; coreCode?: string };
@@ -83,11 +80,7 @@ type AnyWorkerOperationArgs =
       [K in MultichainWorkerKind]: MultichainWorkerOperationArgs<K, MultichainOperationType<K>>;
     }[MultichainWorkerKind];
 
-const SIGNER_WORKER_KINDS: readonly SignerWorkerKind[] = [
-  'nearSigner',
-  'ethSigner',
-  'tempoSigner',
-];
+const SIGNER_WORKER_KINDS: readonly SignerWorkerKind[] = ['nearSigner', 'ethSigner', 'tempoSigner'];
 const MULTICHAIN_WORKER_DEFAULT_TIMEOUT_MS = 20_000;
 
 function makeId(prefix: string): string {
@@ -97,47 +90,59 @@ function makeId(prefix: string): string {
 }
 
 function isReadyFrame(value: unknown): boolean {
-  return (value as { type?: unknown })?.type === WorkerControlMessage.WORKER_READY
-    || (value as { ready?: unknown })?.ready === true;
+  return (
+    (value as { type?: unknown })?.type === WorkerControlMessage.WORKER_READY ||
+    (value as { ready?: unknown })?.ready === true
+  );
 }
 
 function isNearRpcProgressFrame(value: unknown): value is NearRpcProgressFrame {
-  return !!value
-    && typeof value === 'object'
-    && typeof (value as { id?: unknown }).id === 'string'
-    && (value as { progress?: unknown }).progress === true;
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    typeof (value as { id?: unknown }).id === 'string' &&
+    (value as { progress?: unknown }).progress === true
+  );
 }
 
 function isNearRpcSuccessFrame(value: unknown): value is NearRpcSuccessFrame {
-  return !!value
-    && typeof value === 'object'
-    && typeof (value as { id?: unknown }).id === 'string'
-    && (value as { ok?: unknown }).ok === true
-    && 'result' in (value as object);
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    typeof (value as { id?: unknown }).id === 'string' &&
+    (value as { ok?: unknown }).ok === true &&
+    'result' in (value as object)
+  );
 }
 
 function isNearRpcErrorFrame(value: unknown): value is NearRpcErrorFrame {
-  return !!value
-    && typeof value === 'object'
-    && typeof (value as { id?: unknown }).id === 'string'
-    && (value as { ok?: unknown }).ok === false
-    && typeof (value as { error?: unknown }).error === 'string';
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    typeof (value as { id?: unknown }).id === 'string' &&
+    (value as { ok?: unknown }).ok === false &&
+    typeof (value as { error?: unknown }).error === 'string'
+  );
 }
 
 function isRpcSuccessFrame(value: unknown): value is RpcOk {
-  return !!value
-    && typeof value === 'object'
-    && typeof (value as { id?: unknown }).id === 'string'
-    && (value as { ok?: unknown }).ok === true
-    && 'result' in (value as object);
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    typeof (value as { id?: unknown }).id === 'string' &&
+    (value as { ok?: unknown }).ok === true &&
+    'result' in (value as object)
+  );
 }
 
 function isRpcErrorFrame(value: unknown): value is RpcErr {
-  return !!value
-    && typeof value === 'object'
-    && typeof (value as { id?: unknown }).id === 'string'
-    && (value as { ok?: unknown }).ok === false
-    && typeof (value as { error?: unknown }).error === 'string';
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    typeof (value as { id?: unknown }).id === 'string' &&
+    (value as { ok?: unknown }).ok === false &&
+    typeof (value as { error?: unknown }).error === 'string'
+  );
 }
 
 export class WorkerTransport implements SignerWorkerTransportProtocol {
@@ -161,10 +166,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     }
   }
 
-  requestOperation<
-    K extends SignerWorkerKind,
-    T extends SignerWorkerOperationType<K>,
-  >(args: {
+  requestOperation<K extends SignerWorkerKind, T extends SignerWorkerOperationType<K>>(args: {
     kind: K;
     request: SignerWorkerOperationRequest<K, T>;
   }): Promise<SignerWorkerOperationResult<K, T>>;
@@ -172,10 +174,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     kind: 'nearSigner';
     request: NearWorkerOperationRequest<T>;
   }): Promise<NearWorkerOperationResult<T>>;
-  requestOperation<
-    K extends MultichainWorkerKind,
-    T extends MultichainOperationType<K>,
-  >(args: {
+  requestOperation<K extends MultichainWorkerKind, T extends MultichainOperationType<K>>(args: {
     kind: K;
     request: MultichainWorkerOperationRequest<K, T>;
   }): Promise<MultichainWorkerOperationResult<K, T>>;
@@ -214,9 +213,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
 
     const effectiveSessionId =
       sessionId || (typeof payloadSessionId === 'string' ? payloadSessionId : undefined);
-    const finalPayload = effectiveSessionId
-      ? withSessionId(effectiveSessionId, payload)
-      : payload;
+    const finalPayload = effectiveSessionId ? withSessionId(effectiveSessionId, payload) : payload;
 
     const worker = this.getOrCreateWorker('nearSigner');
     const requestId = makeId('nearSigner');
@@ -250,10 +247,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       });
 
       try {
-        worker.postMessage(
-          { id: requestId, type, payload: finalPayload },
-          transfer || [],
-        );
+        worker.postMessage({ id: requestId, type, payload: finalPayload }, transfer || []);
       } catch (error) {
         this.rejectRequest(
           'nearSigner',
@@ -278,9 +272,10 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     const worker = this.getOrCreateWorker(kind);
     const requestId = makeId(kind);
     const parsedTimeoutMs = Math.floor(Number(request.timeoutMs));
-    const timeoutMs = Number.isFinite(parsedTimeoutMs) && parsedTimeoutMs > 0
-      ? parsedTimeoutMs
-      : MULTICHAIN_WORKER_DEFAULT_TIMEOUT_MS;
+    const timeoutMs =
+      Number.isFinite(parsedTimeoutMs) && parsedTimeoutMs > 0
+        ? parsedTimeoutMs
+        : MULTICHAIN_WORKER_DEFAULT_TIMEOUT_MS;
 
     return await new Promise<MultichainWorkerOperationResult<K, T>>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
@@ -393,9 +388,10 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       return;
     }
 
-    const requestId = isObject(data) && typeof (data as { id?: unknown }).id === 'string'
-      ? (data as { id: string }).id
-      : undefined;
+    const requestId =
+      isObject(data) && typeof (data as { id?: unknown }).id === 'string'
+        ? (data as { id: string }).id
+        : undefined;
     if (requestId && this.getPendingMap(kind).has(requestId)) {
       this.rejectRequest(
         kind,
@@ -448,9 +444,10 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       return;
     }
 
-    const requestId = isObject(data) && typeof (data as { id?: unknown }).id === 'string'
-      ? (data as { id: string }).id
-      : undefined;
+    const requestId =
+      isObject(data) && typeof (data as { id?: unknown }).id === 'string'
+        ? (data as { id: string }).id
+        : undefined;
     if (requestId && this.getPendingMap('nearSigner').has(requestId)) {
       this.rejectRequest(
         'nearSigner',

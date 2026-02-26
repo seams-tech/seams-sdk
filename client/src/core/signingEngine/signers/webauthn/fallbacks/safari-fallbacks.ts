@@ -14,17 +14,20 @@ export const WebAuthnBridgeMessage = {
 } as const;
 
 export type BridgeKind = typeof WebAuthnBridgeMessage.Create | typeof WebAuthnBridgeMessage.Get;
-export type BridgeResultKind = typeof WebAuthnBridgeMessage.CreateResult | typeof WebAuthnBridgeMessage.GetResult;
+export type BridgeResultKind =
+  | typeof WebAuthnBridgeMessage.CreateResult
+  | typeof WebAuthnBridgeMessage.GetResult;
 
-type ResultTypeFor<K extends BridgeKind> =
-  K extends typeof WebAuthnBridgeMessage.Get
-    ? typeof WebAuthnBridgeMessage.GetResult
-    : typeof WebAuthnBridgeMessage.CreateResult;
+type ResultTypeFor<K extends BridgeKind> = K extends typeof WebAuthnBridgeMessage.Get
+  ? typeof WebAuthnBridgeMessage.GetResult
+  : typeof WebAuthnBridgeMessage.CreateResult;
 
 function getResultTypeFor<K extends BridgeKind>(kind: K): ResultTypeFor<K> {
-  return (kind === WebAuthnBridgeMessage.Get
-    ? WebAuthnBridgeMessage.GetResult
-    : WebAuthnBridgeMessage.CreateResult) as ResultTypeFor<K>;
+  return (
+    kind === WebAuthnBridgeMessage.Get
+      ? WebAuthnBridgeMessage.GetResult
+      : WebAuthnBridgeMessage.CreateResult
+  ) as ResultTypeFor<K>;
 }
 
 type BridgeOk = { ok: true; credential: unknown };
@@ -72,24 +75,20 @@ export async function executeWebAuthnWithParentFallbacksSafari(
   publicKey: PublicKeyCredentialCreationOptions | PublicKeyCredentialRequestOptions,
   deps: OrchestratorDeps,
 ): Promise<PublicKeyCredential | unknown> {
-
-  const {
-    inIframe,
-    timeoutMs = 60000,
-    permitGetBridgeOnAncestorError = true
-  } = deps;
+  const { inIframe, timeoutMs = 60000, permitGetBridgeOnAncestorError = true } = deps;
   const bridgeClient = deps.bridgeClient || new WindowParentDomainWebAuthnClient();
 
   const isTestForceNativeFail = (): boolean => {
     const g = globalThis as typeof globalThis & { __W3A_TEST_FORCE_NATIVE_FAIL?: unknown };
-    const w = (typeof window !== 'undefined')
-      ? (window as Window & { __W3A_TEST_FORCE_NATIVE_FAIL?: unknown })
-      : undefined;
+    const w =
+      typeof window !== 'undefined'
+        ? (window as Window & { __W3A_TEST_FORCE_NATIVE_FAIL?: unknown })
+        : undefined;
     return !!g.__W3A_TEST_FORCE_NATIVE_FAIL || !!w?.__W3A_TEST_FORCE_NATIVE_FAIL;
   };
   const bumpCounter = (key: string) => {
     const g = globalThis as Record<string, unknown>;
-    const current = typeof g[key] === 'number' ? g[key] as number : 0;
+    const current = typeof g[key] === 'number' ? (g[key] as number) : 0;
     g[key] = current + 1;
   };
 
@@ -148,10 +147,17 @@ export async function executeWebAuthnWithParentFallbacksSafari(
         throw e;
       }
       try {
-        const bridgedCredentials = await requestParentDomainWebAuthn(kind, publicKey, bridgeClient, timeoutMs);
+        const bridgedCredentials = await requestParentDomainWebAuthn(
+          kind,
+          publicKey,
+          bridgeClient,
+          timeoutMs,
+        );
         if (bridgedCredentials?.ok) return bridgedCredentials.credential;
         if (bridgedCredentials && !bridgedCredentials.timeout) {
-          throw notAllowedError(bridgedCredentials.error || 'WebAuthn get cancelled or failed (bridge)');
+          throw notAllowedError(
+            bridgedCredentials.error || 'WebAuthn get cancelled or failed (bridge)',
+          );
         }
       } catch (be: unknown) {
         throw notAllowedError(safeMessage(be) || 'WebAuthn bridge failed');
@@ -162,14 +168,23 @@ export async function executeWebAuthnWithParentFallbacksSafari(
     if (isDocumentNotFocusedError(e)) {
       const focused = await attemptRefocus();
       if (focused) {
-        try { return await tryNative(); } catch {}
+        try {
+          return await tryNative();
+        } catch {}
       }
       if (inIframe) {
         try {
-          const bridgedCredentials = await requestParentDomainWebAuthn(kind, publicKey, bridgeClient, timeoutMs);
+          const bridgedCredentials = await requestParentDomainWebAuthn(
+            kind,
+            publicKey,
+            bridgeClient,
+            timeoutMs,
+          );
           if (bridgedCredentials?.ok) return bridgedCredentials.credential;
           if (bridgedCredentials && !bridgedCredentials.timeout) {
-            throw notAllowedError(bridgedCredentials.error || 'WebAuthn get cancelled or failed (bridge)');
+            throw notAllowedError(
+              bridgedCredentials.error || 'WebAuthn get cancelled or failed (bridge)',
+            );
           }
         } catch (be: unknown) {
           throw notAllowedError(safeMessage(be) || 'WebAuthn bridge failed');
@@ -180,17 +195,24 @@ export async function executeWebAuthnWithParentFallbacksSafari(
     // Step 4: generic last-resort bridge path for constrained iframe contexts
     if (inIframe) {
       try {
-        const bridgedCredentials = await requestParentDomainWebAuthn(kind, publicKey, bridgeClient, timeoutMs);
+        const bridgedCredentials = await requestParentDomainWebAuthn(
+          kind,
+          publicKey,
+          bridgeClient,
+          timeoutMs,
+        );
         if (bridgedCredentials?.ok) return bridgedCredentials.credential;
-      if (bridgedCredentials && !bridgedCredentials.timeout) {
-        throw notAllowedError(bridgedCredentials.error || 'WebAuthn cancelled or failed (bridge)');
+        if (bridgedCredentials && !bridgedCredentials.timeout) {
+          throw notAllowedError(
+            bridgedCredentials.error || 'WebAuthn cancelled or failed (bridge)',
+          );
+        }
+        // Timeout: surface an explicit error without re‑trying native again
+        throw new Error('WebAuthn bridge timeout');
+      } catch (be: unknown) {
+        throw notAllowedError(safeMessage(be) || 'WebAuthn bridge failed');
       }
-      // Timeout: surface an explicit error without re‑trying native again
-      throw new Error('WebAuthn bridge timeout');
-    } catch (be: unknown) {
-      throw notAllowedError(safeMessage(be) || 'WebAuthn bridge failed');
     }
-  }
 
     // Step 5: not an iframe or no recognized fallback – rethrow original error
     throw e;
@@ -205,9 +227,17 @@ export async function requestParentDomainWebAuthn(
   timeoutMs: number,
 ): Promise<BridgeResponse> {
   if (kind === 'create') {
-    return client.request(WebAuthnBridgeMessage.Create, publicKey as PublicKeyCredentialCreationOptions, timeoutMs);
+    return client.request(
+      WebAuthnBridgeMessage.Create,
+      publicKey as PublicKeyCredentialCreationOptions,
+      timeoutMs,
+    );
   }
-  return client.request(WebAuthnBridgeMessage.Get, publicKey as PublicKeyCredentialRequestOptions, timeoutMs);
+  return client.request(
+    WebAuthnBridgeMessage.Get,
+    publicKey as PublicKeyCredentialRequestOptions,
+    timeoutMs,
+  );
 }
 
 // Default bridge client using window.parent postMessage protocol
@@ -222,7 +252,12 @@ export class WindowParentDomainWebAuthnClient implements ParentDomainWebAuthnCli
 
     return new Promise((resolve) => {
       let settled = false;
-      const finish = (val: BridgeResponse) => { if (!settled) { settled = true; resolve(val); } };
+      const finish = (val: BridgeResponse) => {
+        if (!settled) {
+          settled = true;
+          resolve(val);
+        }
+      };
 
       const onMessage = (ev: MessageEvent) => {
         const payload = ev?.data as unknown;
@@ -245,7 +280,10 @@ export class WindowParentDomainWebAuthnClient implements ParentDomainWebAuthnCli
         publicKey: PublicKeyCredentialCreationOptions | PublicKeyCredentialRequestOptions;
       } = { type: kind, requestId, publicKey };
       window.parent?.postMessage(envelope, '*');
-      setTimeout(() => { window.removeEventListener('message', onMessage); finish({ ok: false, timeout: true }); }, timeoutMs);
+      setTimeout(() => {
+        window.removeEventListener('message', onMessage);
+        finish({ ok: false, timeout: true });
+      }, timeoutMs);
     });
   }
 }
@@ -286,7 +324,7 @@ async function attemptRefocus(maxRetries = 2, delays: number[] = [50, 120]): Pro
     document.body.focus?.();
   }
 
-  const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const total = Math.max(0, maxRetries);
   for (let i = 0; i <= total; i++) {
     const d = delays[i] ?? delays[delays.length - 1] ?? 80;

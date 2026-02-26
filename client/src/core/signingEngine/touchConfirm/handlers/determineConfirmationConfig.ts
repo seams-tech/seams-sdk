@@ -28,14 +28,13 @@ export function determineConfirmationConfig(
   ctx: TouchConfirmContext,
   request: UserConfirmRequest | undefined,
 ): ConfirmationConfig {
-
   // Merge request‑level override over user preferences
   // Important: drop undefined/null fields from the override so they don't clobber
   // persisted preferences (e.g., behavior) with an undefined value.
   const configBase = ctx.userPreferencesManager.getConfirmationConfig();
   const rawOverride = (request?.confirmationConfig || {}) as Partial<ConfirmationConfig>;
   const cleanedOverride = Object.fromEntries(
-    Object.entries(rawOverride).filter(([, v]) => v !== undefined && v !== null)
+    Object.entries(rawOverride).filter(([, v]) => v !== undefined && v !== null),
   ) as Partial<ConfirmationConfig>;
   let cfg: ConfirmationConfig = { ...configBase, ...cleanedOverride } as ConfirmationConfig;
 
@@ -60,7 +59,7 @@ export function determineConfirmationConfig(
   // - If behavior is 'skipClick', upgrade to 'requireClick'
   // Use shared heuristic to decide if explicit activation is necessary
   if (needsExplicitActivation()) {
-    const newUiMode: ConfirmationConfig['uiMode'] = (cfg.uiMode === 'none') ? 'drawer' : cfg.uiMode;
+    const newUiMode: ConfirmationConfig['uiMode'] = cfg.uiMode === 'none' ? 'drawer' : cfg.uiMode;
     cfg = {
       ...cfg,
       uiMode: newUiMode,
@@ -73,7 +72,8 @@ export function determineConfirmationConfig(
   if (
     inIframe &&
     request?.type &&
-    (request.type === UserConfirmationType.REGISTER_ACCOUNT || request.type === UserConfirmationType.LINK_DEVICE)
+    (request.type === UserConfirmationType.REGISTER_ACCOUNT ||
+      request.type === UserConfirmationType.LINK_DEVICE)
   ) {
     // Cross‑origin registration/link flows: always require a visible, clickable confirmation
     // so the click lands inside the wallet iframe and satisfies WebAuthn activation.

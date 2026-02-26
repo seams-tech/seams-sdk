@@ -18,7 +18,9 @@ export const SetupEmailRecovery: React.FC = () => {
   const [recoveryEmails, setRecoveryEmails] = React.useState<string[]>(['']);
   const [onChainHashes, setOnChainHashes] = React.useState<string[]>([]);
   const nearNetwork = (() => {
-    const nearChain = tatchi?.configs.chains.find((chain) => String(chain.network).startsWith('near-'));
+    const nearChain = tatchi?.configs.chains.find((chain) =>
+      String(chain.network).startsWith('near-'),
+    );
     return nearChain?.network === 'near-mainnet' ? 'mainnet' : 'testnet';
   })();
 
@@ -30,7 +32,7 @@ export const SetupEmailRecovery: React.FC = () => {
 
     try {
       const records = await tatchi.recovery.getRecoveryEmails(nearAccountId);
-      const labels = (records || []).map(rec => rec.email);
+      const labels = (records || []).map((rec) => rec.email);
       setOnChainHashes(labels);
     } catch (err) {
       // eslint-disable-next-line no-console
@@ -115,8 +117,8 @@ export const SetupEmailRecovery: React.FC = () => {
     <>
       <h2 className="demo-subtitle">Email Recovery (beta)</h2>
       <div className="action-text">
-        Set up recovery emails so if you lose your passkey later, you can send an encrypted email on-chain
-        to a contract that verifies your email signature and recovers your account.
+        Set up recovery emails so if you lose your passkey later, you can send an encrypted email
+        on-chain to a contract that verifies your email signature and recovers your account.
       </div>
       <div style={{ marginTop: '0.75rem', maxWidth: 480 }}>
         <EmailRecoveryFields
@@ -125,21 +127,21 @@ export const SetupEmailRecovery: React.FC = () => {
           disabled={isBusy}
           onChainHashes={onChainHashes}
         />
-	        <div style={{ marginTop: '0.5rem' }}>
-	          <LoadingButton
-	            onClick={handleSetRecoveryEmails}
-	            loading={isBusy}
-	            loadingText="Saving..."
-	            variant="secondary"
-	            size="small"
-	            style={{ width: 200 }}
-	          >
-	            Set Recovery Emails
-	          </LoadingButton>
-	        </div>
-	      </div>
-	    </>
-	  );
-	};
+        <div style={{ marginTop: '0.5rem' }}>
+          <LoadingButton
+            onClick={handleSetRecoveryEmails}
+            loading={isBusy}
+            loadingText="Saving..."
+            variant="secondary"
+            size="small"
+            style={{ width: 200 }}
+          >
+            Set Recovery Emails
+          </LoadingButton>
+        </div>
+      </div>
+    </>
+  );
+};
 
 export default SetupEmailRecovery;

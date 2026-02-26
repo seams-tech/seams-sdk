@@ -1,15 +1,9 @@
 import type { NormalizedLogger } from '../../core/logger';
 import { getPostgresPool } from '../../storage/postgres';
-import {
-  canTransitionPaymentState,
-  type PaymentState,
-} from './paymentStateMachine';
+import { canTransitionPaymentState, type PaymentState } from './paymentStateMachine';
 import { ConsoleBillingError } from './errors';
 import { getChainFinalityPolicy } from './stablecoinAssets';
-import {
-  resolveBillingProviderAdapters,
-  type BillingProviderAdapters,
-} from './providers';
+import { resolveBillingProviderAdapters, type BillingProviderAdapters } from './providers';
 import type {
   AddCardPaymentMethodRequest,
   BillingInvoice,
@@ -37,10 +31,7 @@ import type {
   StripeSetupIntent,
   StripeSetupIntentRequest,
 } from './types';
-import type {
-  ConsoleBillingContext,
-  ConsoleBillingService,
-} from './service';
+import type { ConsoleBillingContext, ConsoleBillingService } from './service';
 
 type PgPool = Awaited<ReturnType<typeof getPostgresPool>>;
 type Queryable = Pick<PgPool, 'query'>;
@@ -100,7 +91,11 @@ function parseMonthUtcOrThrow(input: string): string {
   }
   const month = Number(value.slice(5, 7));
   if (month < 1 || month > 12) {
-    throw new ConsoleBillingError('invalid_month_utc', 400, 'monthUtc month must be between 01 and 12');
+    throw new ConsoleBillingError(
+      'invalid_month_utc',
+      400,
+      'monthUtc month must be between 01 and 12',
+    );
   }
   return value;
 }
@@ -122,7 +117,11 @@ function stableHash32(input: string): number {
 
 function makeBootstrapInvoiceId(orgId: string, periodMonthUtc: string): string {
   const monthPart = periodMonthUtc.replace('-', '');
-  const orgPrefix = orgId.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || 'org';
+  const orgPrefix =
+    orgId
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '')
+      .slice(0, 8) || 'org';
   const orgHashPart = stableHash32(orgId).toString(36);
   return `inv_${monthPart}_${orgPrefix}_${orgHashPart}`;
 }
@@ -220,24 +219,23 @@ function parseStablecoinQuoteRow(row: PgRow): StablecoinPaymentQuote {
   };
 }
 
-function parseStablecoinIntentRow(row: PgRow, referenceNowMs = Date.now()): StablecoinPaymentIntent {
+function parseStablecoinIntentRow(
+  row: PgRow,
+  referenceNowMs = Date.now(),
+): StablecoinPaymentIntent {
   const settledAtMs = toOptionalFiniteNumber(row.settled_at_ms);
   const reorgRiskWindowHours = toNumber(row.reorg_risk_window_hours);
   const storedRiskWindowEndsAtMs = toOptionalFiniteNumber(row.reorg_risk_window_ends_at_ms);
-  const resolvedRiskWindowEndsAtMs = storedRiskWindowEndsAtMs ?? (
-    settledAtMs == null
-      ? null
-      : settledAtMs + (reorgRiskWindowHours * 60 * 60 * 1000)
-  );
+  const resolvedRiskWindowEndsAtMs =
+    storedRiskWindowEndsAtMs ??
+    (settledAtMs == null ? null : settledAtMs + reorgRiskWindowHours * 60 * 60 * 1000);
   const settledAt = settledAtMs == null ? null : toIso(settledAtMs);
-  const reorgRiskWindowEndsAt = resolvedRiskWindowEndsAtMs == null
-    ? null
-    : toIso(resolvedRiskWindowEndsAtMs);
-  const withinReorgRiskWindow = (
-    resolvedRiskWindowEndsAtMs != null
-    && Number.isFinite(resolvedRiskWindowEndsAtMs)
-    && referenceNowMs < resolvedRiskWindowEndsAtMs
-  );
+  const reorgRiskWindowEndsAt =
+    resolvedRiskWindowEndsAtMs == null ? null : toIso(resolvedRiskWindowEndsAtMs);
+  const withinReorgRiskWindow =
+    resolvedRiskWindowEndsAtMs != null &&
+    Number.isFinite(resolvedRiskWindowEndsAtMs) &&
+    referenceNowMs < resolvedRiskWindowEndsAtMs;
   return {
     id: String(row.id || ''),
     orgId: String(row.org_id || ''),
@@ -261,7 +259,12 @@ function parseStablecoinIntentRow(row: PgRow, referenceNowMs = Date.now()): Stab
 }
 
 function hasAdminRole(roles: string[]): boolean {
-  return roles.some((role) => String(role || '').trim().toLowerCase() === 'admin');
+  return roles.some(
+    (role) =>
+      String(role || '')
+        .trim()
+        .toLowerCase() === 'admin',
+  );
 }
 
 function requireAdminForCardActions(ctx: ConsoleBillingContext): void {
@@ -445,7 +448,7 @@ async function withTx<T>(pool: PgPool, fn: (q: Queryable) => Promise<T>): Promis
   } catch (error: unknown) {
     try {
       await pool.query('ROLLBACK');
-    } catch { }
+    } catch {}
     throw error;
   }
 }
@@ -481,7 +484,7 @@ async function ensureOrgBootstrap(input: {
 
   if (periodInvoice) return;
 
-  const dueAtMs = createdAtMs + (14 * 24 * 60 * 60 * 1000);
+  const dueAtMs = createdAtMs + 14 * 24 * 60 * 60 * 1000;
   const invoiceId = makeBootstrapInvoiceId(orgId, periodMonth);
 
   await pool.query(
@@ -525,7 +528,11 @@ async function lockInvoiceForPayment(
   }
   const outstanding = Math.max(invoice.amountDueMinor - invoice.amountPaidMinor, 0);
   if (outstanding <= 0) {
-    throw new ConsoleBillingError('invoice_already_paid', 409, `Invoice ${invoice.id} is already fully paid`);
+    throw new ConsoleBillingError(
+      'invoice_already_paid',
+      409,
+      `Invoice ${invoice.id} is already fully paid`,
+    );
   }
   return invoice;
 }
@@ -595,28 +602,20 @@ async function upsertMonthlyActiveWalletRollup(
      DO UPDATE SET
        monthly_active_wallets = EXCLUDED.monthly_active_wallets,
        updated_at_ms = EXCLUDED.updated_at_ms`,
-    [
-      input.namespace,
-      input.orgId,
-      input.monthUtc,
-      input.monthlyActiveWallets,
-      input.updatedAtMs,
-    ],
+    [input.namespace, input.orgId, input.monthUtc, input.monthlyActiveWallets, input.updatedAtMs],
   );
 }
 
-function makeInvoiceLineItem(
-  input: {
-    orgId: string;
-    invoiceId: string;
-    periodMonthUtc: string;
-    itemType: BillingInvoiceLineItemType;
-    description: string;
-    quantity: number;
-    unitAmountMinor: number;
-    createdAtMs: number;
-  },
-): BillingInvoiceLineItem {
+function makeInvoiceLineItem(input: {
+  orgId: string;
+  invoiceId: string;
+  periodMonthUtc: string;
+  itemType: BillingInvoiceLineItemType;
+  description: string;
+  quantity: number;
+  unitAmountMinor: number;
+  createdAtMs: number;
+}): BillingInvoiceLineItem {
   return {
     id: `ili_${input.invoiceId}_${input.itemType.toLowerCase()}`,
     orgId: input.orgId,
@@ -631,15 +630,13 @@ function makeInvoiceLineItem(
   };
 }
 
-function buildInvoiceLineItems(
-  input: {
-    orgId: string;
-    invoiceId: string;
-    periodMonthUtc: string;
-    monthlyActiveWallets: number;
-    createdAtMs: number;
-  },
-): BillingInvoiceLineItem[] {
+function buildInvoiceLineItems(input: {
+  orgId: string;
+  invoiceId: string;
+  periodMonthUtc: string;
+  monthlyActiveWallets: number;
+  createdAtMs: number;
+}): BillingInvoiceLineItem[] {
   return [
     makeInvoiceLineItem({
       orgId: input.orgId,
@@ -1045,7 +1042,7 @@ export async function ensureConsoleBillingPostgresSchema(
   } finally {
     try {
       await pool.query('SELECT pg_advisory_unlock($1)', [CONSOLE_BILLING_MIGRATION_LOCK_ID]);
-    } catch { }
+    } catch {}
   }
   options.logger.info('[console-billing][postgres] Schema ready');
 }
@@ -1113,7 +1110,11 @@ export async function createPostgresConsoleBillingService(
         [namespace, ctx.orgId],
       );
       if (!account) {
-        throw new ConsoleBillingError('billing_account_not_found', 404, `Billing account for org ${ctx.orgId} was not found`);
+        throw new ConsoleBillingError(
+          'billing_account_not_found',
+          404,
+          `Billing account for org ${ctx.orgId} was not found`,
+        );
       }
 
       const openStats = await queryOne(
@@ -1126,7 +1127,12 @@ export async function createPostgresConsoleBillingService(
         [namespace, ctx.orgId],
       );
 
-      const monthlyActiveWallets = await countMonthlyActiveWallets(pool, namespace, ctx.orgId, currentMonthUtc);
+      const monthlyActiveWallets = await countMonthlyActiveWallets(
+        pool,
+        namespace,
+        ctx.orgId,
+        currentMonthUtc,
+      );
       await upsertMonthlyActiveWalletRollup(pool, {
         namespace,
         orgId: ctx.orgId,
@@ -1161,7 +1167,12 @@ export async function createPostgresConsoleBillingService(
       const now = nowFn();
       await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
       const resolvedMonthUtc = monthUtcInput ? parseMonthUtcOrThrow(monthUtcInput) : monthUtc(now);
-      const monthlyActiveWallets = await countMonthlyActiveWallets(pool, namespace, ctx.orgId, resolvedMonthUtc);
+      const monthlyActiveWallets = await countMonthlyActiveWallets(
+        pool,
+        namespace,
+        ctx.orgId,
+        resolvedMonthUtc,
+      );
       await upsertMonthlyActiveWalletRollup(pool, {
         namespace,
         orgId: ctx.orgId,
@@ -1197,12 +1208,11 @@ export async function createPostgresConsoleBillingService(
         throw new ConsoleBillingError('invalid_usage_event', 400, 'Invalid occurredAt value');
       }
       const eventMonthUtc = monthUtc(new Date(occurredAtMs));
-      const counted = (
-        BILLABLE_USAGE_ACTIONS.has(request.action)
-        && request.succeeded
-        && !request.isSimulation
-        && !request.isInternalRetry
-      );
+      const counted =
+        BILLABLE_USAGE_ACTIONS.has(request.action) &&
+        request.succeeded &&
+        !request.isSimulation &&
+        !request.isInternalRetry;
 
       return withTx(pool, async (q) => {
         const eventId = makeId('ume', now);
@@ -1229,7 +1239,12 @@ export async function createPostgresConsoleBillingService(
           ],
         );
 
-        const monthlyActiveWallets = await countMonthlyActiveWallets(q, namespace, ctx.orgId, eventMonthUtc);
+        const monthlyActiveWallets = await countMonthlyActiveWallets(
+          q,
+          namespace,
+          ctx.orgId,
+          eventMonthUtc,
+        );
         await upsertMonthlyActiveWalletRollup(q, {
           namespace,
           orgId: ctx.orgId,
@@ -1270,7 +1285,10 @@ export async function createPostgresConsoleBillingService(
       return out.rows.map((row) => parseInvoiceRow(row as PgRow));
     },
 
-    async getInvoice(ctx: ConsoleBillingContext, invoiceId: string): Promise<BillingInvoice | null> {
+    async getInvoice(
+      ctx: ConsoleBillingContext,
+      invoiceId: string,
+    ): Promise<BillingInvoice | null> {
       const now = nowFn();
       await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
       const row = await queryOne(
@@ -1283,7 +1301,10 @@ export async function createPostgresConsoleBillingService(
       return row ? parseInvoiceRow(row) : null;
     },
 
-    async listInvoiceLineItems(ctx: ConsoleBillingContext, invoiceId: string): Promise<BillingInvoiceLineItem[]> {
+    async listInvoiceLineItems(
+      ctx: ConsoleBillingContext,
+      invoiceId: string,
+    ): Promise<BillingInvoiceLineItem[]> {
       const now = nowFn();
       await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
       const invoice = await queryOne(
@@ -1305,7 +1326,12 @@ export async function createPostgresConsoleBillingService(
       await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
       const periodMonthUtc = parseMonthUtcOrThrow(request.periodMonthUtc);
       return withTx(pool, async (q) => {
-        const monthlyActiveWallets = await countMonthlyActiveWallets(q, namespace, ctx.orgId, periodMonthUtc);
+        const monthlyActiveWallets = await countMonthlyActiveWallets(
+          q,
+          namespace,
+          ctx.orgId,
+          periodMonthUtc,
+        );
         await upsertMonthlyActiveWalletRollup(q, {
           namespace,
           orgId: ctx.orgId,
@@ -1327,7 +1353,7 @@ export async function createPostgresConsoleBillingService(
         if (!invoiceRow) {
           created = true;
           const invoiceId = makeBootstrapInvoiceId(ctx.orgId, periodMonthUtc);
-          const dueAtMs = nowMs(now) + (14 * 24 * 60 * 60 * 1000);
+          const dueAtMs = nowMs(now) + 14 * 24 * 60 * 60 * 1000;
           await q.query(
             `INSERT INTO console_invoices
               (namespace, id, org_id, status, currency, amount_due_minor, amount_paid_minor, rail_lock, period_month_utc, created_at_ms, due_at_ms)
@@ -1355,7 +1381,11 @@ export async function createPostgresConsoleBillingService(
         }
 
         if (!invoiceRow) {
-          throw new ConsoleBillingError('invoice_generate_failed', 500, 'Failed to load invoice for generation');
+          throw new ConsoleBillingError(
+            'invoice_generate_failed',
+            500,
+            'Failed to load invoice for generation',
+          );
         }
         const currentInvoice = parseInvoiceRow(invoiceRow);
         if (currentInvoice.status === 'VOID' || currentInvoice.status === 'UNCOLLECTIBLE') {
@@ -1366,7 +1396,12 @@ export async function createPostgresConsoleBillingService(
           );
         }
 
-        const previousLineItems = await listInvoiceLineItemsByInvoice(q, namespace, ctx.orgId, currentInvoice.id);
+        const previousLineItems = await listInvoiceLineItemsByInvoice(
+          q,
+          namespace,
+          ctx.orgId,
+          currentInvoice.id,
+        );
         const nextLineItems = buildInvoiceLineItems({
           orgId: ctx.orgId,
           invoiceId: currentInvoice.id,
@@ -1419,16 +1454,24 @@ export async function createPostgresConsoleBillingService(
           [namespace, ctx.orgId, currentInvoice.id, nextAmountDueMinor],
         );
         if (!updatedInvoiceRow) {
-          throw new ConsoleBillingError('invoice_generate_failed', 500, 'Failed to update invoice amount');
+          throw new ConsoleBillingError(
+            'invoice_generate_failed',
+            500,
+            'Failed to update invoice amount',
+          );
         }
 
         const updatedInvoice = parseInvoiceRow(updatedInvoiceRow);
-        const updatedLineItems = await listInvoiceLineItemsByInvoice(q, namespace, ctx.orgId, currentInvoice.id);
-        const generated = (
-          created
-          || currentInvoice.amountDueMinor !== nextAmountDueMinor
-          || !lineItemsEquivalent(previousLineItems, nextLineItems)
+        const updatedLineItems = await listInvoiceLineItemsByInvoice(
+          q,
+          namespace,
+          ctx.orgId,
+          currentInvoice.id,
         );
+        const generated =
+          created ||
+          currentInvoice.amountDueMinor !== nextAmountDueMinor ||
+          !lineItemsEquivalent(previousLineItems, nextLineItems);
 
         return {
           generated,
@@ -1497,12 +1540,19 @@ export async function createPostgresConsoleBillingService(
         ],
       );
       if (!inserted) {
-        throw new ConsoleBillingError('payment_method_create_failed', 500, 'Failed to create card payment method');
+        throw new ConsoleBillingError(
+          'payment_method_create_failed',
+          500,
+          'Failed to create card payment method',
+        );
       }
       return parsePaymentMethodRow(inserted);
     },
 
-    async removeCardPaymentMethod(ctx: ConsoleBillingContext, paymentMethodId: string): Promise<{ removed: boolean }> {
+    async removeCardPaymentMethod(
+      ctx: ConsoleBillingContext,
+      paymentMethodId: string,
+    ): Promise<{ removed: boolean }> {
       requireAdminForCardActions(ctx);
       const now = nowFn();
       await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
@@ -1516,7 +1566,7 @@ export async function createPostgresConsoleBillingService(
         );
         if (!removed) return { removed: false };
 
-        if (Boolean(removed.is_default)) {
+        if (removed.is_default === true) {
           const fallback = await queryOne(
             q,
             `SELECT id
@@ -1539,7 +1589,10 @@ export async function createPostgresConsoleBillingService(
       });
     },
 
-    async setDefaultCardPaymentMethod(ctx: ConsoleBillingContext, paymentMethodId: string): Promise<BillingPaymentMethod | null> {
+    async setDefaultCardPaymentMethod(
+      ctx: ConsoleBillingContext,
+      paymentMethodId: string,
+    ): Promise<BillingPaymentMethod | null> {
       requireAdminForCardActions(ctx);
       const now = nowFn();
       await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
@@ -1588,7 +1641,11 @@ export async function createPostgresConsoleBillingService(
       const customerRef = String(providerSetupIntent.customerRef || '').trim();
       const expiresAt = String(providerSetupIntent.expiresAt || '').trim();
       if (!id || !clientSecret || !customerRef || !expiresAt) {
-        throw new ConsoleBillingError('payment_provider_error', 500, 'Stripe setup-intent provider returned invalid payload');
+        throw new ConsoleBillingError(
+          'payment_provider_error',
+          500,
+          'Stripe setup-intent provider returned invalid payload',
+        );
       }
       return {
         id,
@@ -1642,7 +1699,11 @@ export async function createPostgresConsoleBillingService(
             [namespace, ctx.orgId, request.paymentMethodId],
           );
           if (!requested) {
-            throw new ConsoleBillingError('payment_method_not_found', 404, `Payment method ${request.paymentMethodId} was not found`);
+            throw new ConsoleBillingError(
+              'payment_method_not_found',
+              404,
+              `Payment method ${request.paymentMethodId} was not found`,
+            );
           }
           paymentMethodId = String(requested.id);
           paymentMethodProviderRef = String(requested.provider_ref || '').trim() || null;
@@ -1673,7 +1734,11 @@ export async function createPostgresConsoleBillingService(
         const providerRef = String(providerPaymentIntent.providerRef || '').trim();
         const clientSecret = String(providerPaymentIntent.clientSecret || '').trim();
         if (!providerRef || !clientSecret) {
-          throw new ConsoleBillingError('payment_provider_error', 500, 'Stripe payment-intent provider returned invalid payload');
+          throw new ConsoleBillingError(
+            'payment_provider_error',
+            500,
+            'Stripe payment-intent provider returned invalid payload',
+          );
         }
         const intentId = makeId('pi', now);
         const row = await queryOne(
@@ -1696,7 +1761,11 @@ export async function createPostgresConsoleBillingService(
           ],
         );
         if (!row) {
-          throw new ConsoleBillingError('payment_intent_create_failed', 500, 'Failed to create Stripe payment intent');
+          throw new ConsoleBillingError(
+            'payment_intent_create_failed',
+            500,
+            'Failed to create Stripe payment intent',
+          );
         }
         await appendPaymentStateTransition(q, {
           namespace,
@@ -1720,7 +1789,11 @@ export async function createPostgresConsoleBillingService(
       const now = nowFn();
       await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
       if (request.settledAmountMinor !== undefined && request.settledAmountMinor < 0) {
-        throw new ConsoleBillingError('invalid_reconciliation_request', 400, 'settledAmountMinor must be >= 0');
+        throw new ConsoleBillingError(
+          'invalid_reconciliation_request',
+          400,
+          'settledAmountMinor must be >= 0',
+        );
       }
 
       return withTx(pool, async (q) => {
@@ -1747,8 +1820,8 @@ export async function createPostgresConsoleBillingService(
 
         let effectiveFromState = current.state;
         if (
-          effectiveFromState === 'CREATED'
-          && SETTLEMENT_OUTCOME_STATES.has(decision.targetState)
+          effectiveFromState === 'CREATED' &&
+          SETTLEMENT_OUTCOME_STATES.has(decision.targetState)
         ) {
           const toPending = canTransitionPaymentState({
             from: effectiveFromState,
@@ -1833,7 +1906,11 @@ export async function createPostgresConsoleBillingService(
     ): Promise<StripeWebhookEventResult> {
       const now = nowFn();
       if (request.settledAmountMinor !== undefined && request.settledAmountMinor < 0) {
-        throw new ConsoleBillingError('invalid_reconciliation_request', 400, 'settledAmountMinor must be >= 0');
+        throw new ConsoleBillingError(
+          'invalid_reconciliation_request',
+          400,
+          'settledAmountMinor must be >= 0',
+        );
       }
 
       return withTx(pool, async (q) => {
@@ -1866,10 +1943,14 @@ export async function createPostgresConsoleBillingService(
               WHERE namespace = $1 AND id = $2`,
             [namespace, existingPaymentIntentId],
           );
-          const existingOrgId = existingIntentRow ? String(existingIntentRow.org_id || '').trim() : '';
+          const existingOrgId = existingIntentRow
+            ? String(existingIntentRow.org_id || '').trim()
+            : '';
           return {
             accepted: false,
-            paymentIntent: existingIntentRow ? parseStripePaymentIntentRow(existingIntentRow) : null,
+            paymentIntent: existingIntentRow
+              ? parseStripePaymentIntentRow(existingIntentRow)
+              : null,
             orgId: existingOrgId || null,
           };
         }
@@ -1913,8 +1994,8 @@ export async function createPostgresConsoleBillingService(
           if (decision.targetState) {
             let effectiveFromState = current.state;
             if (
-              effectiveFromState === 'CREATED'
-              && SETTLEMENT_OUTCOME_STATES.has(decision.targetState)
+              effectiveFromState === 'CREATED' &&
+              SETTLEMENT_OUTCOME_STATES.has(decision.targetState)
             ) {
               const toPending = canTransitionPaymentState({
                 from: effectiveFromState,
@@ -1965,7 +2046,11 @@ export async function createPostgresConsoleBillingService(
               [namespace, currentOrgId, current.id, decision.targetState],
             );
             if (!updated) {
-              throw new ConsoleBillingError('payment_intent_not_found', 404, `Stripe payment intent ${current.id} was not found`);
+              throw new ConsoleBillingError(
+                'payment_intent_not_found',
+                404,
+                `Stripe payment intent ${current.id} was not found`,
+              );
             }
             next = parseStripePaymentIntentRow(updated);
 
@@ -2025,7 +2110,11 @@ export async function createPostgresConsoleBillingService(
         [namespace, ctx.orgId, request.invoiceId],
       );
       if (!invoiceRow) {
-        throw new ConsoleBillingError('invoice_not_found', 404, `Invoice ${request.invoiceId} was not found`);
+        throw new ConsoleBillingError(
+          'invoice_not_found',
+          404,
+          `Invoice ${request.invoiceId} was not found`,
+        );
       }
       const invoice = parseInvoiceRow(invoiceRow);
       if (invoice.status !== 'OPEN') {
@@ -2033,7 +2122,11 @@ export async function createPostgresConsoleBillingService(
       }
       const amountMinor = Math.max(invoice.amountDueMinor - invoice.amountPaidMinor, 0);
       if (amountMinor <= 0) {
-        throw new ConsoleBillingError('invoice_already_paid', 409, `Invoice ${invoice.id} is already fully paid`);
+        throw new ConsoleBillingError(
+          'invoice_already_paid',
+          409,
+          `Invoice ${invoice.id} is already fully paid`,
+        );
       }
 
       const quoteId = makeId('scq', now);
@@ -2053,11 +2146,15 @@ export async function createPostgresConsoleBillingService(
           request.chain,
           amountMinor,
           nowMs(now),
-          nowMs(now) + (15 * 60 * 1000),
+          nowMs(now) + 15 * 60 * 1000,
         ],
       );
       if (!row) {
-        throw new ConsoleBillingError('quote_create_failed', 500, 'Failed to create stablecoin quote');
+        throw new ConsoleBillingError(
+          'quote_create_failed',
+          500,
+          'Failed to create stablecoin quote',
+        );
       }
       return parseStablecoinQuoteRow(row);
     },
@@ -2109,11 +2206,19 @@ export async function createPostgresConsoleBillingService(
           [namespace, ctx.orgId, request.quoteId],
         );
         if (!quoteRow) {
-          throw new ConsoleBillingError('quote_not_found', 404, `Stablecoin quote ${request.quoteId} was not found`);
+          throw new ConsoleBillingError(
+            'quote_not_found',
+            404,
+            `Stablecoin quote ${request.quoteId} was not found`,
+          );
         }
         const quote = parseStablecoinQuoteRow(quoteRow);
         if (quote.invoiceId !== invoice.id) {
-          throw new ConsoleBillingError('quote_invoice_mismatch', 409, 'Quote does not belong to the specified invoice');
+          throw new ConsoleBillingError(
+            'quote_invoice_mismatch',
+            409,
+            'Quote does not belong to the specified invoice',
+          );
         }
         const consumedQuote = await queryOne(
           q,
@@ -2138,7 +2243,11 @@ export async function createPostgresConsoleBillingService(
               WHERE namespace = $1 AND id = $2`,
             [namespace, quote.id],
           );
-          throw new ConsoleBillingError('quote_expired', 409, `Stablecoin quote ${quote.id} has expired`);
+          throw new ConsoleBillingError(
+            'quote_expired',
+            409,
+            `Stablecoin quote ${quote.id} has expired`,
+          );
         }
         const outstandingMinor = Math.max(invoice.amountDueMinor - invoice.amountPaidMinor, 0);
         if (quote.amountMinor !== outstandingMinor) {
@@ -2159,7 +2268,11 @@ export async function createPostgresConsoleBillingService(
 
         const policy = getChainFinalityPolicy(quote.chain);
         if (!policy) {
-          throw new ConsoleBillingError('unsupported_chain', 400, `Unsupported stablecoin settlement chain: ${quote.chain}`);
+          throw new ConsoleBillingError(
+            'unsupported_chain',
+            400,
+            `Unsupported stablecoin settlement chain: ${quote.chain}`,
+          );
         }
 
         const intentId = makeId('scpi', now);
@@ -2171,7 +2284,11 @@ export async function createPostgresConsoleBillingService(
         });
         const destinationAddress = String(destination.destinationAddress || '').trim();
         if (!destinationAddress) {
-          throw new ConsoleBillingError('payment_provider_error', 500, 'Stablecoin destination provider returned invalid payload');
+          throw new ConsoleBillingError(
+            'payment_provider_error',
+            500,
+            'Stablecoin destination provider returned invalid payload',
+          );
         }
         const row = await queryOne(
           q,
@@ -2199,7 +2316,11 @@ export async function createPostgresConsoleBillingService(
           ],
         );
         if (!row) {
-          throw new ConsoleBillingError('payment_intent_create_failed', 500, 'Failed to create stablecoin payment intent');
+          throw new ConsoleBillingError(
+            'payment_intent_create_failed',
+            500,
+            'Failed to create stablecoin payment intent',
+          );
         }
         await appendPaymentStateTransition(q, {
           namespace,
@@ -2310,7 +2431,11 @@ export async function createPostgresConsoleBillingService(
       const now = nowFn();
       await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
       if (request.observedAmountMinor < 0 || request.observedConfirmations < 0) {
-        throw new ConsoleBillingError('invalid_reconciliation_request', 400, 'Observed amount and confirmations must be non-negative');
+        throw new ConsoleBillingError(
+          'invalid_reconciliation_request',
+          400,
+          'Observed amount and confirmations must be non-negative',
+        );
       }
 
       return withTx(pool, async (q) => {
@@ -2344,8 +2469,8 @@ export async function createPostgresConsoleBillingService(
         if (!decision.targetState) return current;
 
         if (
-          SETTLEMENT_OUTCOME_STATES.has(decision.targetState)
-          && request.observedConfirmations < current.requiredConfirmations
+          SETTLEMENT_OUTCOME_STATES.has(decision.targetState) &&
+          request.observedConfirmations < current.requiredConfirmations
         ) {
           throw new ConsoleBillingError(
             'invalid_payment_state',
@@ -2372,12 +2497,9 @@ export async function createPostgresConsoleBillingService(
           });
         }
 
-        const settledAtMs = SETTLEMENT_OUTCOME_STATES.has(decision.targetState)
-          ? nowMs(now)
-          : null;
-        const reorgRiskWindowEndsAtMs = settledAtMs == null
-          ? null
-          : settledAtMs + (current.reorgRiskWindowHours * 60 * 60 * 1000);
+        const settledAtMs = SETTLEMENT_OUTCOME_STATES.has(decision.targetState) ? nowMs(now) : null;
+        const reorgRiskWindowEndsAtMs =
+          settledAtMs == null ? null : settledAtMs + current.reorgRiskWindowHours * 60 * 60 * 1000;
 
         const updated = await queryOne(
           q,
@@ -2432,7 +2554,8 @@ export async function runPostgresConsoleBillingMonthlyFinalization(
   options: PostgresConsoleBillingMonthlyFinalizationOptions,
 ): Promise<PostgresConsoleBillingMonthlyFinalizationResult> {
   const postgresUrl = String(options.postgresUrl || '').trim();
-  if (!postgresUrl) throw new Error('Missing POSTGRES_URL for Postgres console billing monthly finalization');
+  if (!postgresUrl)
+    throw new Error('Missing POSTGRES_URL for Postgres console billing monthly finalization');
   const namespace = ensureNamespace(options.namespace);
   const logger = options.logger || console;
   const nowFn = options.now || (() => new Date());

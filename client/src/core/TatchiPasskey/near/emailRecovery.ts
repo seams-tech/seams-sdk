@@ -119,9 +119,7 @@ export class EmailRecoveryDomain {
         accountId: String(accountId),
         onEvent: args.options?.onEvent,
         options: {
-          ...(args.options?.confirmerText
-            ? { confirmerText: args.options.confirmerText }
-            : {}),
+          ...(args.options?.confirmerText ? { confirmerText: args.options.confirmerText } : {}),
           ...(args.options?.confirmationConfig
             ? { confirmationConfig: args.options.confirmationConfig }
             : {}),
@@ -156,17 +154,12 @@ export class EmailRecoveryDomain {
     });
   }
 
-  async cancelEmailRecovery(args?: {
-    accountId?: string;
-    nearPublicKey?: string;
-  }): Promise<void> {
+  async cancelEmailRecovery(args?: { accountId?: string; nearPublicKey?: string }): Promise<void> {
     if (this.walletIframe.shouldUseWalletIframe()) {
       const router = await this.walletIframe.requireRouter(args?.accountId);
       await router.stopEmailRecovery({
         ...(args?.accountId ? { accountId: String(args.accountId) } : {}),
-        ...(args?.nearPublicKey
-          ? { nearPublicKey: String(args.nearPublicKey) }
-          : {}),
+        ...(args?.nearPublicKey ? { nearPublicKey: String(args.nearPublicKey) } : {}),
       });
       return;
     }
@@ -176,10 +169,13 @@ export class EmailRecoveryDomain {
 
   private getPendingEmailRecoveryStore(): EmailRecoveryFlowOptions['pendingStore'] {
     const context = this.getContext();
-    return this.emailRecoveryOptions?.pendingStore
-      || new EmailRecoveryPendingStore({
-        getPendingTtlMs: () => Number(context.configs?.network.relayer?.emailRecovery?.pendingTtlMs || 30 * 60_000),
-      });
+    return (
+      this.emailRecoveryOptions?.pendingStore ||
+      new EmailRecoveryPendingStore({
+        getPendingTtlMs: () =>
+          Number(context.configs?.network?.relayer?.emailRecovery?.pendingTtlMs || 30 * 60_000),
+      })
+    );
   }
 
   private emitEmailRecoveryEvent(ev: EmailRecoveryEventPayload): void {
@@ -193,9 +189,13 @@ export class EmailRecoveryDomain {
     nearPublicKey?: string;
   }): Promise<string> {
     const accountId = toAccountId(args.accountId);
-    const nearPublicKey = String(args.nearPublicKey || this.pendingEmailRecovery?.nearPublicKey || '').trim();
+    const nearPublicKey = String(
+      args.nearPublicKey || this.pendingEmailRecovery?.nearPublicKey || '',
+    ).trim();
     const requestId = String(this.pendingEmailRecovery?.requestId || '').trim();
-    const mailtoAddress = String(this.getContext().configs?.network.relayer?.emailRecovery?.mailtoAddress || '').trim();
+    const mailtoAddress = String(
+      this.getContext().configs?.network?.relayer?.emailRecovery?.mailtoAddress || '',
+    ).trim();
     if (!mailtoAddress) return 'mailto:';
     if (!nearPublicKey || !requestId) return `mailto:${mailtoAddress}`;
 
@@ -210,7 +210,7 @@ export class EmailRecoveryDomain {
     try {
       const context = this.getContext();
       const nearAccountId = toAccountId(args.accountId);
-      const relayerUrl = String(context.configs?.network.relayer?.url || '').trim();
+      const relayerUrl = String(context.configs?.network?.relayer?.url || '').trim();
       if (!relayerUrl) throw new Error('Missing relayer url (configs.network.relayer.url)');
 
       const rpId = context.signingEngine.getRpId();
@@ -235,12 +235,13 @@ export class EmailRecoveryDomain {
         message: 'Creating passkey for recovery...',
       });
 
-      const registrationSession = await context.signingEngine.requestRegistrationCredentialConfirmation({
-        nearAccountId: String(nearAccountId),
-        deviceNumber: initialDeviceNumber,
-        confirmerText: this.emailRecoveryOptions?.confirmerText,
-        confirmationConfigOverride: this.emailRecoveryOptions?.confirmationConfig,
-      });
+      const registrationSession =
+        await context.signingEngine.requestRegistrationCredentialConfirmation({
+          nearAccountId: String(nearAccountId),
+          deviceNumber: initialDeviceNumber,
+          confirmerText: this.emailRecoveryOptions?.confirmerText,
+          confirmationConfigOverride: this.emailRecoveryOptions?.confirmationConfig,
+        });
 
       const credential = registrationSession.credential;
       const intentDigest = String(registrationSession.intentDigest || '').trim();
@@ -251,15 +252,18 @@ export class EmailRecoveryDomain {
         return Number.isFinite(n) && n >= 1 ? Math.floor(n) : initialDeviceNumber;
       })();
 
-      const derived = await context.signingEngine.deriveThresholdEd25519ClientVerifyingShareFromCredential({
-        credential,
-        nearAccountId,
-      });
+      const derived =
+        await context.signingEngine.deriveThresholdEd25519ClientVerifyingShareFromCredential({
+          credential,
+          nearAccountId,
+        });
       if (!derived.success || !derived.clientVerifyingShareB64u) {
         throw new Error(derived.error || 'Failed to derive threshold client verifying share');
       }
 
-      const credentialForRelay = redactCredentialExtensionOutputs(normalizeRegistrationCredential(credential));
+      const credentialForRelay = redactCredentialExtensionOutputs(
+        normalizeRegistrationCredential(credential),
+      );
       const prepareResp = await fetch(`${relayerUrl}/email-recovery/prepare`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -278,13 +282,21 @@ export class EmailRecoveryDomain {
       const prepareMessage = typeof prepareObj.message === 'string' ? prepareObj.message : '';
       const prepareError = typeof prepareObj.error === 'string' ? prepareObj.error : '';
       if (!prepareResp.ok || !prepareOk) {
-        throw new Error(prepareMessage || prepareError || `email-recovery/prepare failed (HTTP ${prepareResp.status})`);
+        throw new Error(
+          prepareMessage ||
+            prepareError ||
+            `email-recovery/prepare failed (HTTP ${prepareResp.status})`,
+        );
       }
 
-      const thresholdSection = isObject(prepareObj.thresholdEd25519) ? prepareObj.thresholdEd25519 : {};
+      const thresholdSection = isObject(prepareObj.thresholdEd25519)
+        ? prepareObj.thresholdEd25519
+        : {};
       const thresholdPublicKey = String(thresholdSection.publicKey || '').trim();
       const relayerKeyId = String(thresholdSection.relayerKeyId || '').trim();
-      const relayerVerifyingShareB64u = String(thresholdSection.relayerVerifyingShareB64u || '').trim();
+      const relayerVerifyingShareB64u = String(
+        thresholdSection.relayerVerifyingShareB64u || '',
+      ).trim();
       if (!thresholdPublicKey || !relayerKeyId || !relayerVerifyingShareB64u) {
         throw new Error('email-recovery/prepare returned incomplete threshold key material');
       }
@@ -294,7 +306,8 @@ export class EmailRecoveryDomain {
       if (!credentialId || !attestationObject) {
         throw new Error('Missing WebAuthn registration attestation in credential');
       }
-      const credentialPublicKey = await context.signingEngine.extractCosePublicKey(attestationObject);
+      const credentialPublicKey =
+        await context.signingEngine.extractCosePublicKey(attestationObject);
       const clientParticipantId = Number(thresholdSection.clientParticipantId);
       const relayerParticipantId = Number(thresholdSection.relayerParticipantId);
       await context.signingEngine.storeUserData({
@@ -312,7 +325,9 @@ export class EmailRecoveryDomain {
         nearAccountId,
         credentialId,
         credentialPublicKey,
-        transports: Array.isArray(credential.response?.transports) ? credential.response.transports : [],
+        transports: Array.isArray(credential.response?.transports)
+          ? credential.response.transports
+          : [],
         name: `Passkey for ${String(nearAccountId)}`,
         registered: new Date().toISOString(),
         syncedAt: new Date().toISOString(),
@@ -326,8 +341,12 @@ export class EmailRecoveryDomain {
         relayerKeyId,
         clientShareDerivation: 'prf_first_v1',
         participants: buildThresholdEd25519Participants2pV1({
-          clientParticipantId: Number.isFinite(clientParticipantId) ? Math.floor(clientParticipantId) : null,
-          relayerParticipantId: Number.isFinite(relayerParticipantId) ? Math.floor(relayerParticipantId) : null,
+          clientParticipantId: Number.isFinite(clientParticipantId)
+            ? Math.floor(clientParticipantId)
+            : null,
+          relayerParticipantId: Number.isFinite(relayerParticipantId)
+            ? Math.floor(relayerParticipantId)
+            : null,
           relayerKeyId,
           relayerUrl,
           clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
@@ -401,8 +420,12 @@ export class EmailRecoveryDomain {
         message: 'Waiting for AddKey on-chain...',
       });
 
-      const pollEveryMs = Number(context.configs?.network.relayer?.emailRecovery?.pollingIntervalMs || 4000);
-      const maxMs = Number(context.configs?.network.relayer?.emailRecovery?.maxPollingDurationMs || 30 * 60_000);
+      const pollEveryMs = Number(
+        context.configs?.network?.relayer?.emailRecovery?.pollingIntervalMs || 4000,
+      );
+      const maxMs = Number(
+        context.configs?.network?.relayer?.emailRecovery?.maxPollingDurationMs || 30 * 60_000,
+      );
       const startedAt = Date.now();
       let found = false;
 

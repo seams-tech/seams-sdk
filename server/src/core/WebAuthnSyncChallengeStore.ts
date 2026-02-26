@@ -1,6 +1,12 @@
 import type { NormalizedLogger } from './logger';
-import type { CloudflareDurableObjectNamespaceLike, ThresholdEd25519KeyStoreConfigInput } from './types';
-import { THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT, THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
+import type {
+  CloudflareDurableObjectNamespaceLike,
+  ThresholdEd25519KeyStoreConfigInput,
+} from './types';
+import {
+  THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT,
+  THRESHOLD_PREFIX_DEFAULT,
+} from './defaultConfigsServer';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   RedisTcpClient,
@@ -226,10 +232,10 @@ class PostgresWebAuthnSyncChallengeStore implements WebAuthnSyncChallengeStore {
     const id = toOptionalTrimmedString(challengeId);
     if (!id) return;
     const pool = await this.poolPromise;
-    await pool.query(
-      'DELETE FROM webauthn_challenges WHERE namespace = $1 AND challenge_id = $2',
-      [this.namespace, id],
-    );
+    await pool.query('DELETE FROM webauthn_challenges WHERE namespace = $1 AND challenge_id = $2', [
+      this.namespace,
+      id,
+    ]);
   }
 }
 
@@ -245,27 +251,35 @@ type DoRequest =
   | { op: 'getdel'; key: string };
 
 function isDurableObjectNamespaceLike(v: unknown): v is CloudflareDurableObjectNamespaceLike {
-  return Boolean(v)
-    && typeof v === 'object'
-    && !Array.isArray(v)
-    && typeof (v as CloudflareDurableObjectNamespaceLike).idFromName === 'function'
-    && typeof (v as CloudflareDurableObjectNamespaceLike).get === 'function';
+  return (
+    Boolean(v) &&
+    typeof v === 'object' &&
+    !Array.isArray(v) &&
+    typeof (v as CloudflareDurableObjectNamespaceLike).idFromName === 'function' &&
+    typeof (v as CloudflareDurableObjectNamespaceLike).get === 'function'
+  );
 }
 
-function resolveDoNamespaceFromConfig(config: Record<string, unknown>): CloudflareDurableObjectNamespaceLike | null {
+function resolveDoNamespaceFromConfig(
+  config: Record<string, unknown>,
+): CloudflareDurableObjectNamespaceLike | null {
   const direct = (config as { namespace?: unknown }).namespace;
   if (isDurableObjectNamespaceLike(direct)) return direct;
 
   const alt = (config as { durableObjectNamespace?: unknown }).durableObjectNamespace;
   if (isDurableObjectNamespaceLike(alt)) return alt;
 
-  const envStyle = (config as { THRESHOLD_ED25519_DO_NAMESPACE?: unknown }).THRESHOLD_ED25519_DO_NAMESPACE;
+  const envStyle = (config as { THRESHOLD_ED25519_DO_NAMESPACE?: unknown })
+    .THRESHOLD_ED25519_DO_NAMESPACE;
   if (isDurableObjectNamespaceLike(envStyle)) return envStyle;
 
   return null;
 }
 
-function resolveDoStub(input: { namespace: CloudflareDurableObjectNamespaceLike; objectName: string }): DurableObjectStubLike {
+function resolveDoStub(input: {
+  namespace: CloudflareDurableObjectNamespaceLike;
+  objectName: string;
+}): DurableObjectStubLike {
   const id = input.namespace.idFromName(input.objectName);
   return input.namespace.get(id) as unknown as DurableObjectStubLike;
 }
@@ -300,7 +314,11 @@ class CloudflareDurableObjectWebAuthnSyncChallengeStore implements WebAuthnSyncC
   private readonly stub: DurableObjectStubLike;
   private readonly prefix: string;
 
-  constructor(input: { namespace: CloudflareDurableObjectNamespaceLike; objectName: string; prefix: string }) {
+  constructor(input: {
+    namespace: CloudflareDurableObjectNamespaceLike;
+    objectName: string;
+    prefix: string;
+  }) {
     this.stub = resolveDoStub({ namespace: input.namespace, objectName: input.objectName });
     this.prefix = input.prefix;
   }
@@ -313,7 +331,12 @@ class CloudflareDurableObjectWebAuthnSyncChallengeStore implements WebAuthnSyncC
     const parsed = parseWebAuthnSyncChallengeRecord(record);
     if (!parsed) throw new Error('Invalid sync challenge record');
     const ttlMs = Math.max(1, parsed.expiresAtMs - Date.now());
-    const resp = await callDo<void>(this.stub, { op: 'set', key: this.key(parsed.challengeId), value: parsed, ttlMs });
+    const resp = await callDo<void>(this.stub, {
+      op: 'set',
+      key: this.key(parsed.challengeId),
+      value: parsed,
+      ttlMs,
+    });
     if (!resp.ok) throw new Error(resp.message);
   }
 
@@ -348,11 +371,14 @@ export function createWebAuthnSyncChallengeStore(input: {
   if (kind === 'cloudflare-do') {
     const namespace = resolveDoNamespaceFromConfig(config);
     if (!namespace) {
-      throw new Error('cloudflare-do webauthn store selected but no Durable Object namespace was provided (expected config.namespace)');
+      throw new Error(
+        'cloudflare-do webauthn store selected but no Durable Object namespace was provided (expected config.namespace)',
+      );
     }
-    const objectName = toOptionalTrimmedString((config as { objectName?: unknown }).objectName)
-      || toOptionalTrimmedString((config as { name?: unknown }).name)
-      || THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT;
+    const objectName =
+      toOptionalTrimmedString((config as { objectName?: unknown }).objectName) ||
+      toOptionalTrimmedString((config as { name?: unknown }).name) ||
+      THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT;
     input.logger.info('[webauthn] Using Cloudflare Durable Object store for sync challenges');
     return new CloudflareDurableObjectWebAuthnSyncChallengeStore({ namespace, objectName, prefix });
   }
@@ -363,8 +389,11 @@ export function createWebAuthnSyncChallengeStore(input: {
   }
 
   if (kind === 'upstash-redis-rest') {
-    const url = toOptionalTrimmedString(config.url) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
-    const token = toOptionalTrimmedString(config.token) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
+    const url =
+      toOptionalTrimmedString(config.url) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
+    const token =
+      toOptionalTrimmedString(config.token) ||
+      toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
     if (!url || !token) {
       throw new Error('Upstash webauthn store enabled but url/token are not both set');
     }
@@ -374,10 +403,13 @@ export function createWebAuthnSyncChallengeStore(input: {
 
   if (kind === 'redis-tcp') {
     if (!input.isNode) {
-      input.logger.warn('[webauthn] redis-tcp sync challenge store is not supported in this runtime; falling back to in-memory');
+      input.logger.warn(
+        '[webauthn] redis-tcp sync challenge store is not supported in this runtime; falling back to in-memory',
+      );
       return new InMemoryWebAuthnSyncChallengeStore(prefix);
     }
-    const redisUrl = toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL);
+    const redisUrl =
+      toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL);
     if (!redisUrl) {
       throw new Error('redis-tcp webauthn store enabled but redisUrl is not set');
     }
@@ -390,7 +422,10 @@ export function createWebAuthnSyncChallengeStore(input: {
       throw new Error('[webauthn] postgres sync challenge store is not supported in this runtime');
     }
     const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl) throw new Error('[webauthn] postgres sync challenge store enabled but POSTGRES_URL is not set');
+    if (!postgresUrl)
+      throw new Error(
+        '[webauthn] postgres sync challenge store enabled but POSTGRES_URL is not set',
+      );
     input.logger.info('[webauthn] Using Postgres sync challenge store');
     return new PostgresWebAuthnSyncChallengeStore({ postgresUrl, namespace: prefix });
   }
@@ -400,16 +435,24 @@ export function createWebAuthnSyncChallengeStore(input: {
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
   if (upstashUrl || upstashToken) {
     if (!upstashUrl || !upstashToken) {
-      throw new Error('Upstash webauthn store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set');
+      throw new Error(
+        'Upstash webauthn store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set',
+      );
     }
     input.logger.info('[webauthn] Using Upstash REST sync challenge store');
-    return new UpstashRedisRestWebAuthnSyncChallengeStore({ url: upstashUrl, token: upstashToken, prefix });
+    return new UpstashRedisRestWebAuthnSyncChallengeStore({
+      url: upstashUrl,
+      token: upstashToken,
+      prefix,
+    });
   }
 
   const redisUrl = toOptionalTrimmedString(config.REDIS_URL);
   if (redisUrl) {
     if (!input.isNode) {
-      input.logger.warn('[webauthn] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory');
+      input.logger.warn(
+        '[webauthn] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory',
+      );
       return new InMemoryWebAuthnSyncChallengeStore(prefix);
     }
     input.logger.info('[webauthn] Using redis-tcp sync challenge store');
@@ -419,7 +462,9 @@ export function createWebAuthnSyncChallengeStore(input: {
   const postgresUrl = getPostgresUrlFromConfig(config);
   if (postgresUrl) {
     if (!input.isNode) {
-      throw new Error('[webauthn] POSTGRES_URL is set but Postgres is not supported in this runtime');
+      throw new Error(
+        '[webauthn] POSTGRES_URL is set but Postgres is not supported in this runtime',
+      );
     }
     input.logger.info('[webauthn] Using Postgres sync challenge store');
     return new PostgresWebAuthnSyncChallengeStore({ postgresUrl, namespace: prefix });

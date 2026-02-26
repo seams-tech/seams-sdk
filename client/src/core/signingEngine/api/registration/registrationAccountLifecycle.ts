@@ -1,7 +1,4 @@
-import type {
-  ClientUserData,
-  UnifiedIndexedDBManager,
-} from '@/core/indexedDB';
+import type { ClientUserData, UnifiedIndexedDBManager } from '@/core/indexedDB';
 import type { StoreUserDataInput } from '@/core/indexedDB/passkeyClientDB.types';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { NonceManager } from '@/core/rpcClients/near/nonceManager';
@@ -47,19 +44,20 @@ export async function initializeCurrentUser(
   const accountId = toAccountId(args.nearAccountId);
 
   // Set as last profile/device for future sessions, preferring the existing pointer.
-  let deviceNumberToUse = await getLastLoggedInDeviceNumber(accountId, deps.indexedDB.clientDB).catch(
-    () => null as number | null,
-  );
+  let deviceNumberToUse = await getLastLoggedInDeviceNumber(
+    accountId,
+    deps.indexedDB.clientDB,
+  ).catch(() => null as number | null);
   if (deviceNumberToUse === null) {
-    const context = await deps.indexedDB.clientDB.resolveNearAccountContext(accountId).catch(() => null);
+    const context = await deps.indexedDB.clientDB
+      .resolveNearAccountContext(accountId)
+      .catch(() => null);
     const profile = context?.profileId
       ? await deps.indexedDB.clientDB.getProfile(context.profileId).catch(() => null)
       : null;
     const defaultDevice = Number(profile?.defaultDeviceNumber);
     deviceNumberToUse =
-      Number.isSafeInteger(defaultDevice) && defaultDevice >= 1
-        ? defaultDevice
-        : 1;
+      Number.isSafeInteger(defaultDevice) && defaultDevice >= 1 ? defaultDevice : 1;
   }
   await deps.indexedDB.clientDB.setLastProfileStateForNearAccount(accountId, deviceNumberToUse);
 

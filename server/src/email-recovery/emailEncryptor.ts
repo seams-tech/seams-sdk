@@ -62,7 +62,9 @@ function serializeContextForAad(context: EmailEncryptionContext): string {
   return JSON.stringify(Object.fromEntries(entries));
 }
 
-export async function deriveOutlayerStaticKeyFromSeedHex(seedHex: string): Promise<{ secretKey: Uint8Array; publicKey: Uint8Array }> {
+export async function deriveOutlayerStaticKeyFromSeedHex(
+  seedHex: string,
+): Promise<{ secretKey: Uint8Array; publicKey: Uint8Array }> {
   const cleaned = seedHex.trim();
   if (cleaned.length !== 64) {
     throw new Error('OUTLAYER_WORKER_SK_SEED_HEX32 must be a 64-char hex string');
@@ -85,7 +87,7 @@ export async function deriveOutlayerStaticKeyFromSeedHex(seedHex: string): Promi
 }
 
 export async function encryptEmailForOutlayer(
-  input: EncryptEmailForOutlayerInput
+  input: EncryptEmailForOutlayerInput,
 ): Promise<EncryptEmailForOutlayerResult> {
   const { emailRaw, aeadContext, recipientPk, testOverrides } = input;
 
@@ -99,7 +101,10 @@ export async function encryptEmailForOutlayer(
   let ephemeralSk: Uint8Array;
   let ephemeralPk: Uint8Array;
   if (testOverrides?.ephemeralSecretKey) {
-    if (!(testOverrides.ephemeralSecretKey instanceof Uint8Array) || testOverrides.ephemeralSecretKey.length !== 32) {
+    if (
+      !(testOverrides.ephemeralSecretKey instanceof Uint8Array) ||
+      testOverrides.ephemeralSecretKey.length !== 32
+    ) {
       throw new Error('testOverrides.ephemeralSecretKey must be a 32-byte Uint8Array');
     }
     ephemeralSk = testOverrides.ephemeralSecretKey;
@@ -171,7 +176,10 @@ export async function encryptEmailForOutlayer(
   return { envelope, aeadContext };
 }
 
-export async function hashRecoveryEmailForAccount(args: { recoveryEmail: string; accountId: string }): Promise<number[]> {
+export async function hashRecoveryEmailForAccount(args: {
+  recoveryEmail: string;
+  accountId: string;
+}): Promise<number[]> {
   const salt = (args.accountId || '').trim().toLowerCase();
   const canonical = canonicalizeEmail(String(args.recoveryEmail || ''));
   if (!canonical) {

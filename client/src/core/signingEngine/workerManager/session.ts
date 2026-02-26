@@ -1,9 +1,7 @@
-
 export function withSessionId<T extends object>(
   sessionId: string,
   payload: T,
 ): T & { sessionId: string } {
-
   if (!sessionId) {
     throw new Error('withSessionId: sessionId is required');
   }

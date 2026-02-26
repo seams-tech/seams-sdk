@@ -36,9 +36,11 @@ import type { ThemeName } from '@/core/types/tatchi';
 export async function handlePromptFromWorker(
   ctx: TouchConfirmContext,
   message: UserConfirmPromptEnvelope,
-  worker: Worker
+  worker: Worker,
 ): Promise<void> {
-  const scopedWorker = createUserConfirmScopedWorker(worker, { channelToken: message.channelToken });
+  const scopedWorker = createUserConfirmScopedWorker(worker, {
+    channelToken: message.channelToken,
+  });
 
   // 1. Validate and parse request
   let request: UserConfirmRequest;
@@ -47,7 +49,6 @@ export async function handlePromptFromWorker(
   let theme: ThemeName;
 
   try {
-
     request = validateUserConfirmRequest(message.data);
     assertNoForbiddenMainThreadSigningSecrets(request);
     confirmationConfig = determineConfirmationConfig(ctx, request);
@@ -60,9 +61,7 @@ export async function handlePromptFromWorker(
       ...parsedSummary,
       ...(intentDigest ? { intentDigest } : {}),
     }) as TransactionSummary;
-
   } catch (e: unknown) {
-
     console.error('[UserConfirm][Host] validateAndParseRequest failed', e);
     // Attempt to send a structured error back to the worker to avoid hard failure
     try {
@@ -87,13 +86,20 @@ export async function handlePromptFromWorker(
     sendConfirmResponse(scopedWorker, {
       requestId: request.requestId,
       confirmed: false,
-      error: 'Unsupported secure confirmation type'
+      error: 'Unsupported secure confirmation type',
     });
     return;
   }
 
   try {
-    await handler({ ctx, request, worker: scopedWorker, confirmationConfig, transactionSummary, theme });
+    await handler({
+      ctx,
+      request,
+      worker: scopedWorker,
+      confirmationConfig,
+      transactionSummary,
+      theme,
+    });
   } catch (e: unknown) {
     console.error('[UserConfirm][Host] handler failed', e);
     // Best-effort: always respond to the worker so worker-side requests don't hang indefinitely.
@@ -127,32 +133,130 @@ async function importFlow<T>(label: string, loader: () => Promise<T>): Promise<T
 }
 
 const HANDLERS: Partial<Record<UserConfirmationType, Handler>> = {
-  [UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF]: async ({ ctx, request, worker, confirmationConfig, transactionSummary, theme }) => {
-    const { handleLocalOnlyFlow } = await importFlow('localOnly', () => import('./flows/localOnly'));
-    await handleLocalOnlyFlow(ctx, request as LocalOnlyUserConfirmRequest, worker, { confirmationConfig, transactionSummary, theme });
+  [UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF]: async ({
+    ctx,
+    request,
+    worker,
+    confirmationConfig,
+    transactionSummary,
+    theme,
+  }) => {
+    const { handleLocalOnlyFlow } = await importFlow(
+      'localOnly',
+      () => import('./flows/localOnly'),
+    );
+    await handleLocalOnlyFlow(ctx, request as LocalOnlyUserConfirmRequest, worker, {
+      confirmationConfig,
+      transactionSummary,
+      theme,
+    });
   },
-  [UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI]: async ({ ctx, request, worker, confirmationConfig, transactionSummary, theme }) => {
-    const { handleLocalOnlyFlow } = await importFlow('localOnly', () => import('./flows/localOnly'));
-    await handleLocalOnlyFlow(ctx, request as LocalOnlyUserConfirmRequest, worker, { confirmationConfig, transactionSummary, theme });
+  [UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI]: async ({
+    ctx,
+    request,
+    worker,
+    confirmationConfig,
+    transactionSummary,
+    theme,
+  }) => {
+    const { handleLocalOnlyFlow } = await importFlow(
+      'localOnly',
+      () => import('./flows/localOnly'),
+    );
+    await handleLocalOnlyFlow(ctx, request as LocalOnlyUserConfirmRequest, worker, {
+      confirmationConfig,
+      transactionSummary,
+      theme,
+    });
   },
-  [UserConfirmationType.REGISTER_ACCOUNT]: async ({ ctx, request, worker, confirmationConfig, transactionSummary, theme }) => {
-    const { handleRegistrationFlow } = await importFlow('registration', () => import('./flows/registration'));
-    await handleRegistrationFlow(ctx, request as RegistrationUserConfirmRequest, worker, { confirmationConfig, transactionSummary, theme });
+  [UserConfirmationType.REGISTER_ACCOUNT]: async ({
+    ctx,
+    request,
+    worker,
+    confirmationConfig,
+    transactionSummary,
+    theme,
+  }) => {
+    const { handleRegistrationFlow } = await importFlow(
+      'registration',
+      () => import('./flows/registration'),
+    );
+    await handleRegistrationFlow(ctx, request as RegistrationUserConfirmRequest, worker, {
+      confirmationConfig,
+      transactionSummary,
+      theme,
+    });
   },
-  [UserConfirmationType.LINK_DEVICE]: async ({ ctx, request, worker, confirmationConfig, transactionSummary, theme }) => {
-    const { handleRegistrationFlow } = await importFlow('registration', () => import('./flows/registration'));
-    await handleRegistrationFlow(ctx, request as RegistrationUserConfirmRequest, worker, { confirmationConfig, transactionSummary, theme });
+  [UserConfirmationType.LINK_DEVICE]: async ({
+    ctx,
+    request,
+    worker,
+    confirmationConfig,
+    transactionSummary,
+    theme,
+  }) => {
+    const { handleRegistrationFlow } = await importFlow(
+      'registration',
+      () => import('./flows/registration'),
+    );
+    await handleRegistrationFlow(ctx, request as RegistrationUserConfirmRequest, worker, {
+      confirmationConfig,
+      transactionSummary,
+      theme,
+    });
   },
-  [UserConfirmationType.SIGN_TRANSACTION]: async ({ ctx, request, worker, confirmationConfig, transactionSummary, theme }) => {
-    const { handleTransactionSigningFlow } = await importFlow('signing', () => import('./flows/signing'));
-    await handleTransactionSigningFlow(ctx, request as SigningUserConfirmRequest, worker, { confirmationConfig, transactionSummary, theme });
+  [UserConfirmationType.SIGN_TRANSACTION]: async ({
+    ctx,
+    request,
+    worker,
+    confirmationConfig,
+    transactionSummary,
+    theme,
+  }) => {
+    const { handleTransactionSigningFlow } = await importFlow(
+      'signing',
+      () => import('./flows/signing'),
+    );
+    await handleTransactionSigningFlow(ctx, request as SigningUserConfirmRequest, worker, {
+      confirmationConfig,
+      transactionSummary,
+      theme,
+    });
   },
-  [UserConfirmationType.SIGN_NEP413_MESSAGE]: async ({ ctx, request, worker, confirmationConfig, transactionSummary, theme }) => {
-    const { handleTransactionSigningFlow } = await importFlow('signing', () => import('./flows/signing'));
-    await handleTransactionSigningFlow(ctx, request as SigningUserConfirmRequest, worker, { confirmationConfig, transactionSummary, theme });
+  [UserConfirmationType.SIGN_NEP413_MESSAGE]: async ({
+    ctx,
+    request,
+    worker,
+    confirmationConfig,
+    transactionSummary,
+    theme,
+  }) => {
+    const { handleTransactionSigningFlow } = await importFlow(
+      'signing',
+      () => import('./flows/signing'),
+    );
+    await handleTransactionSigningFlow(ctx, request as SigningUserConfirmRequest, worker, {
+      confirmationConfig,
+      transactionSummary,
+      theme,
+    });
   },
-  [UserConfirmationType.SIGN_INTENT_DIGEST]: async ({ ctx, request, worker, confirmationConfig, transactionSummary, theme }) => {
-    const { handleIntentDigestSigningFlow } = await importFlow('signing', () => import('./flows/signing'));
-    await handleIntentDigestSigningFlow(ctx, request as IntentDigestUserConfirmRequest, worker, { confirmationConfig, transactionSummary, theme });
+  [UserConfirmationType.SIGN_INTENT_DIGEST]: async ({
+    ctx,
+    request,
+    worker,
+    confirmationConfig,
+    transactionSummary,
+    theme,
+  }) => {
+    const { handleIntentDigestSigningFlow } = await importFlow(
+      'signing',
+      () => import('./flows/signing'),
+    );
+    await handleIntentDigestSigningFlow(ctx, request as IntentDigestUserConfirmRequest, worker, {
+      confirmationConfig,
+      transactionSummary,
+      theme,
+    });
   },
 };

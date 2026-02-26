@@ -22,7 +22,7 @@ use crate::tempo_tx::{
 #[cfg(feature = "tx-finalization")]
 fn eip1559_vector_tx() -> Eip1559Tx {
     Eip1559Tx {
-        chain_id: "11155111".to_string(),
+        chain_id: 11155111,
         nonce: "7".to_string(),
         max_priority_fee_per_gas: "1500000000".to_string(),
         max_fee_per_gas: "3000000000".to_string(),
@@ -37,7 +37,7 @@ fn eip1559_vector_tx() -> Eip1559Tx {
 #[cfg(feature = "tx-finalization")]
 fn tempo_invalid_vector_tx() -> TempoTx {
     TempoTx {
-        chain_id: TEMPO_VECTOR_CHAIN_ID.to_string(),
+        chain_id: TEMPO_VECTOR_CHAIN_ID,
         max_priority_fee_per_gas: TEMPO_VECTOR_MAX_PRIORITY_FEE_PER_GAS.to_string(),
         max_fee_per_gas: TEMPO_VECTOR_MAX_FEE_PER_GAS.to_string(),
         gas_limit: TEMPO_VECTOR_GAS_LIMIT.to_string(),

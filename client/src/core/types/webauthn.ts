@@ -1,4 +1,3 @@
-
 // === WEBAUTHN CREDENTIAL TYPES ===
 
 /** Stored authenticator information, normalized for client-side use */
@@ -45,9 +44,9 @@ export interface WebAuthnRegistrationCredential {
   type: string;
   authenticatorAttachment: string | undefined;
   response: {
-    clientDataJSON: string,
-    attestationObject: string,
-    transports: string[],
+    clientDataJSON: string;
+    attestationObject: string;
+    transports: string[];
   };
   // Dual PRF outputs extracted in main thread just before transferring to worker
   clientExtensionResults: AuthenticationExtensionsClientOutputs;

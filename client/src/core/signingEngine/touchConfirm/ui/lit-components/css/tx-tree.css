@@ -24,7 +24,14 @@
 :is(w3a-tx-tree, tx-tree) {
   display: block;
   box-sizing: border-box;
-  font-family: var(--w3a-tree__host__font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+  font-family: var(
+    --w3a-tree__host__font-family,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif
+  );
   font-size: var(--w3a-tree__host__font-size, 1rem);
   color: var(--w3a-tree__host__color, #1e293b);
   background: transparent;
@@ -45,8 +52,8 @@
   );
 }
 
-:is(w3a-tx-tree, tx-tree)[theme="dark"] {
-  --w3a-tree__host__font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+:is(w3a-tx-tree, tx-tree)[theme='dark'] {
+  --w3a-tree__host__font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --w3a-tree__host__font-size: 1rem;
   --w3a-tree__host__color: var(--w3a-grey75);
   --w3a-tree__host__background-color: var(--w3a-grey800);
@@ -86,7 +93,9 @@
   --w3a-tree__file-content__background: var(--w3a-colors-surface2);
   --w3a-tree__file-content__color: var(--w3a-grey500);
   --w3a-tree__file-content__border: 1px solid none;
-  --w3a-tree__file-content__font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --w3a-tree__file-content__font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
   --w3a-tree__file-content__border-radius: 0.5rem;
   --w3a-tree__file-content__padding: 0.5rem;
   --w3a-tree__file-content__scrollbar-track__background: var(--w3a-slate700);
@@ -100,7 +109,10 @@
   --w3a-tree__row-mobile__padding: 0.5rem;
   --w3a-tree__file-content-mobile__font-size: 0.7rem;
   --w3a-tree__file-content-mobile__max-height: 150px;
-  --w3a-tree__highlight-receiver-id__color: var(--w3a-colors-highlightReceiver, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, var(--w3a-blue400))));
+  --w3a-tree__highlight-receiver-id__color: var(
+    --w3a-colors-highlightReceiver,
+    var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, var(--w3a-blue400)))
+  );
   --w3a-tree__highlight-receiver-id__font-weight: 600;
   --w3a-tree__highlight-method-name__color: var(--w3a-colors-highlightMethodName);
   --w3a-tree__highlight-method-name__font-weight: 600;
@@ -111,8 +123,8 @@
   --w3a-tree__connector__elbow-length: 10px;
 }
 
-:is(w3a-tx-tree, tx-tree)[theme="light"] {
-  --w3a-tree__host__font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+:is(w3a-tx-tree, tx-tree)[theme='light'] {
+  --w3a-tree__host__font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --w3a-tree__host__font-size: 1rem;
   --w3a-tree__host__color: var(--w3a-grey975);
   --w3a-tree__host__background-color: var(--w3a-grey50);
@@ -153,7 +165,9 @@
   --w3a-tree__file-content__background: var(--w3a-colors-surface);
   --w3a-tree__file-content__color: var(--w3a-grey500);
   --w3a-tree__file-content__border: 1px solid var(--w3a-slate300);
-  --w3a-tree__file-content__font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --w3a-tree__file-content__font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
   --w3a-tree__file-content__border-radius: 0.5rem;
   --w3a-tree__file-content__padding: 0.5rem;
   --w3a-tree__file-content__scrollbar-track__background: var(--w3a-slate100);
@@ -167,7 +181,10 @@
   --w3a-tree__row-mobile__padding: 0.5rem;
   --w3a-tree__file-content-mobile__font-size: 0.7rem;
   --w3a-tree__file-content-mobile__max-height: 150px;
-  --w3a-tree__highlight-receiver-id__color: var(--w3a-colors-highlightReceiver, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, var(--w3a-blue500))));
+  --w3a-tree__highlight-receiver-id__color: var(
+    --w3a-colors-highlightReceiver,
+    var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, var(--w3a-blue500)))
+  );
   --w3a-tree__highlight-receiver-id__font-weight: 600;
   --w3a-tree__highlight-method-name__color: var(--w3a-colors-highlightMethodName);
   --w3a-tree__highlight-method-name__font-weight: 600;
@@ -179,25 +196,54 @@
 }
 
 /* Contextual custom properties (indent/connectors) moved near top for clarity */
-:is(w3a-tx-tree, tx-tree) .depth-0 { --indent: 0; }
-:is(w3a-tx-tree, tx-tree) .depth-1 { --indent: calc(var(--indent-step) * 1); }
-:is(w3a-tx-tree, tx-tree) .depth-2 { --indent: calc(var(--indent-step) * 2); }
-:is(w3a-tx-tree, tx-tree) .depth-3 { --indent: calc(var(--indent-step) * 3); }
-:is(w3a-tx-tree, tx-tree) .depth-4 { --indent: calc(var(--indent-step) * 4); }
-:is(w3a-tx-tree, tx-tree) .depth-5 { --indent: calc(var(--indent-step) * 5); }
-:is(w3a-tx-tree, tx-tree) .depth-6 { --indent: calc(var(--indent-step) * 6); }
-:is(w3a-tx-tree, tx-tree) .depth-7 { --indent: calc(var(--indent-step) * 7); }
-:is(w3a-tx-tree, tx-tree) .depth-8 { --indent: calc(var(--indent-step) * 8); }
-:is(w3a-tx-tree, tx-tree) .depth-9 { --indent: calc(var(--indent-step) * 9); }
-:is(w3a-tx-tree, tx-tree) .depth-10 { --indent: calc(var(--indent-step) * 10); }
-:is(w3a-tx-tree, tx-tree) .depth-11 { --indent: calc(var(--indent-step) * 11); }
-:is(w3a-tx-tree, tx-tree) .depth-12 { --indent: calc(var(--indent-step) * 12); }
+:is(w3a-tx-tree, tx-tree) .depth-0 {
+  --indent: 0;
+}
+:is(w3a-tx-tree, tx-tree) .depth-1 {
+  --indent: calc(var(--indent-step) * 1);
+}
+:is(w3a-tx-tree, tx-tree) .depth-2 {
+  --indent: calc(var(--indent-step) * 2);
+}
+:is(w3a-tx-tree, tx-tree) .depth-3 {
+  --indent: calc(var(--indent-step) * 3);
+}
+:is(w3a-tx-tree, tx-tree) .depth-4 {
+  --indent: calc(var(--indent-step) * 4);
+}
+:is(w3a-tx-tree, tx-tree) .depth-5 {
+  --indent: calc(var(--indent-step) * 5);
+}
+:is(w3a-tx-tree, tx-tree) .depth-6 {
+  --indent: calc(var(--indent-step) * 6);
+}
+:is(w3a-tx-tree, tx-tree) .depth-7 {
+  --indent: calc(var(--indent-step) * 7);
+}
+:is(w3a-tx-tree, tx-tree) .depth-8 {
+  --indent: calc(var(--indent-step) * 8);
+}
+:is(w3a-tx-tree, tx-tree) .depth-9 {
+  --indent: calc(var(--indent-step) * 9);
+}
+:is(w3a-tx-tree, tx-tree) .depth-10 {
+  --indent: calc(var(--indent-step) * 10);
+}
+:is(w3a-tx-tree, tx-tree) .depth-11 {
+  --indent: calc(var(--indent-step) * 11);
+}
+:is(w3a-tx-tree, tx-tree) .depth-12 {
+  --indent: calc(var(--indent-step) * 12);
+}
 
 /* Default elbow start for connector lines inside folder children */
-:is(w3a-tx-tree, tx-tree) .folder-children .row { --connector-indent: calc(var(--indent, 0)); }
+:is(w3a-tx-tree, tx-tree) .folder-children .row {
+  --connector-indent: calc(var(--indent, 0));
+}
 
-
-:is(w3a-tx-tree, tx-tree) [hidden] { display: none !important; }
+:is(w3a-tx-tree, tx-tree) [hidden] {
+  display: none !important;
+}
 
 :is(w3a-tx-tree, tx-tree) .tooltip-border-outer {
   width: 100%;
@@ -233,7 +279,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :is(w3a-tx-tree, tx-tree) .tooltip-tree-root { transition: none; }
+  :is(w3a-tx-tree, tx-tree) .tooltip-tree-root {
+    transition: none;
+  }
 }
 
 :is(w3a-tx-tree, tx-tree) .tooltip-tree-children {
@@ -249,8 +297,12 @@
   background: transparent;
 }
 
-:is(w3a-tx-tree, tx-tree) summary::-webkit-details-marker { display: none; }
-:is(w3a-tx-tree, tx-tree) summary { list-style: none; }
+:is(w3a-tx-tree, tx-tree) summary::-webkit-details-marker {
+  display: none;
+}
+:is(w3a-tx-tree, tx-tree) summary {
+  list-style: none;
+}
 
 :is(w3a-tx-tree, tx-tree) .row {
   display: grid;
@@ -356,17 +408,19 @@
   padding: 2px 6px;
   cursor: pointer;
   user-select: none;
-  transition: color 100ms ease, background 100ms ease;
+  transition:
+    color 100ms ease,
+    background 100ms ease;
 }
 
 :is(w3a-tx-tree, tx-tree) .copy-badge:hover {
-  background: rgba(255,255,255,0.06);
+  background: rgba(255, 255, 255, 0.06);
   color: var(--w3a-color-primary);
 }
 
-:is(w3a-tx-tree, tx-tree) .copy-badge[data-copied="true"] {
+:is(w3a-tx-tree, tx-tree) .copy-badge[data-copied='true'] {
   color: var(--w3a-color-text);
-  background: rgba(255,255,255,0.06);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 :is(w3a-tx-tree, tx-tree) .chevron {
@@ -417,31 +471,61 @@
   top: 50%;
   height: var(--w3a-tree__connector__thickness);
   width: calc(
-    (var(--indent, 0) - var(--connector-indent, var(--indent, 0)))
-    + var(--w3a-tree__connector__elbow-length)
-    + var(--w3a-tree__connector__elbow-delta)
+    (var(--indent, 0) - var(--connector-indent, var(--indent, 0))) +
+      var(--w3a-tree__connector__elbow-length) + var(--w3a-tree__connector__elbow-delta)
   );
   left: var(--connector-indent, var(--indent, 0));
   background: var(--w3a-tree__connector__color);
   transition: opacity 0ms ease;
 }
 
-:is(w3a-tx-tree, tx-tree) .folder-children .row.file-row .indent::after { content: none; }
-:is(w3a-tx-tree, tx-tree) .folder-children .row[data-no-elbow="true"] .indent::after { content: none; }
+:is(w3a-tx-tree, tx-tree) .folder-children .row.file-row .indent::after {
+  content: none;
+}
+:is(w3a-tx-tree, tx-tree) .folder-children .row[data-no-elbow='true'] .indent::after {
+  content: none;
+}
 /* Content-only rows (no label/elbow) should continue from the parent connector column. */
-:is(w3a-tx-tree, tx-tree) .folder-children .row[data-no-elbow="true"] .indent::before {
+:is(w3a-tx-tree, tx-tree) .folder-children .row[data-no-elbow='true'] .indent::before {
   left: max(calc(var(--indent, 0) - var(--indent-step)), 0px);
 }
 :is(w3a-tx-tree, tx-tree) .folder-children .row:has(> .label:hover) .indent::after,
 :is(w3a-tx-tree, tx-tree) .folder-children .row:has(> .label:focus-visible) .indent::after {
   opacity: 0;
 }
-:is(w3a-tx-tree, tx-tree) .folder-children > details:last-child > summary .indent::before { height: calc(50% + 0px); }
-:is(w3a-tx-tree, tx-tree) .folder-children > details.file:last-child > summary .indent::before { height: calc(100% + 0px); }
-:is(w3a-tx-tree, tx-tree) .folder-children > .row.file-row:last-child .indent::before { height: calc(50% + 0px); }
-:is(w3a-tx-tree, tx-tree) .folder-children > .row.file-row:last-child:not([data-no-elbow="true"]) .indent::after { content: ''; }
-:is(w3a-tx-tree, tx-tree) .tooltip-tree-children > details > .folder-children > details:last-child .folder-children .row .indent::before,
-:is(w3a-tx-tree, tx-tree) .tooltip-tree-children > details > .folder-children > details:last-child .folder-children .row .indent::after { content: none; }
+:is(w3a-tx-tree, tx-tree) .folder-children > details:last-child > summary .indent::before {
+  height: calc(50% + 0px);
+}
+:is(w3a-tx-tree, tx-tree) .folder-children > details.file:last-child > summary .indent::before {
+  height: calc(100% + 0px);
+}
+:is(w3a-tx-tree, tx-tree) .folder-children > .row.file-row:last-child .indent::before {
+  height: calc(50% + 0px);
+}
+:is(w3a-tx-tree, tx-tree)
+  .folder-children
+  > .row.file-row:last-child:not([data-no-elbow='true'])
+  .indent::after {
+  content: '';
+}
+:is(w3a-tx-tree, tx-tree)
+  .tooltip-tree-children
+  > details
+  > .folder-children
+  > details:last-child
+  .folder-children
+  .row
+  .indent::before,
+:is(w3a-tx-tree, tx-tree)
+  .tooltip-tree-children
+  > details
+  > .folder-children
+  > details:last-child
+  .folder-children
+  .row
+  .indent::after {
+  content: none;
+}
 
 :is(w3a-tx-tree, tx-tree) .file-content {
   box-sizing: border-box;
@@ -455,7 +539,17 @@
   width: 100%;
   overflow: auto;
   color: var(--w3a-tree__file-content__color, #e2e8f0);
-  font-family: var(--w3a-tree__file-content__font-family, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
+  font-family: var(
+    --w3a-tree__file-content__font-family,
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    'Liberation Mono',
+    'Courier New',
+    monospace
+  );
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.3;
@@ -470,12 +564,18 @@
 }
 
 :is(w3a-tx-tree, tx-tree) .file-content::-webkit-scrollbar-track {
-  background: var(--w3a-tree__file-content__scrollbar-track__background, var(--w3a-colors-surface, #f8fafc));
+  background: var(
+    --w3a-tree__file-content__scrollbar-track__background,
+    var(--w3a-colors-surface, #f8fafc)
+  );
   border-radius: 2px;
 }
 
 :is(w3a-tx-tree, tx-tree) .file-content::-webkit-scrollbar-thumb {
-  background: var(--w3a-tree__file-content__scrollbar-thumb__background, var(--w3a-color-border, #e2e8f0));
+  background: var(
+    --w3a-tree__file-content__scrollbar-thumb__background,
+    var(--w3a-color-border, #e2e8f0)
+  );
   border-radius: 2px;
 }
 
@@ -484,7 +584,13 @@
 }
 
 :is(w3a-tx-tree, tx-tree) .highlight-receiver-id {
-  color: var(--w3a-tree__highlight-receiver-id__color, var(--w3a-colors-highlightReceiver, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, #ff6b6b))));
+  color: var(
+    --w3a-tree__highlight-receiver-id__color,
+    var(
+      --w3a-colors-highlightReceiver,
+      var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, #ff6b6b))
+    )
+  );
   background: transparent;
   -webkit-background-clip: none;
   -webkit-text-fill-color: none;
@@ -505,7 +611,10 @@
 }
 
 :is(w3a-tx-tree, tx-tree) .highlight-method-name {
-  color: var(--w3a-tree__highlight-method-name__color, var(--w3a-colors-highlightMethodName, #4ecdc4));
+  color: var(
+    --w3a-tree__highlight-method-name__color,
+    var(--w3a-colors-highlightMethodName, #4ecdc4)
+  );
   background: transparent;
   -webkit-background-clip: none;
   -webkit-text-fill-color: none;

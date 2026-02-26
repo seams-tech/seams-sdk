@@ -17,7 +17,7 @@ pub struct Eip1559AccessListItem {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Eip1559Tx {
-    pub chain_id: String,
+    pub chain_id: u64,
     pub nonce: String,
     pub max_priority_fee_per_gas: String,
     pub max_fee_per_gas: String,
@@ -68,9 +68,10 @@ fn base_fields(tx: &Eip1559Tx) -> CoreResult<Vec<Vec<u8>>> {
     let data_bytes = hex_to_bytes(tx.data.as_deref().unwrap_or("0x"))?;
     let access_list = tx.access_list.as_deref().unwrap_or(&[]);
     let access_list_enc = encode_access_list(access_list)?;
+    let chain_id = tx.chain_id.to_string();
 
     Ok(vec![
-        rlp_encode_bytes(&u256_bytes_be_from_dec(&tx.chain_id)?),
+        rlp_encode_bytes(&u256_bytes_be_from_dec(&chain_id)?),
         rlp_encode_bytes(&u256_bytes_be_from_dec(&tx.nonce)?),
         rlp_encode_bytes(&u256_bytes_be_from_dec(&tx.max_priority_fee_per_gas)?),
         rlp_encode_bytes(&u256_bytes_be_from_dec(&tx.max_fee_per_gas)?),
@@ -149,7 +150,7 @@ mod tests {
 
     fn test_tx() -> Eip1559Tx {
         Eip1559Tx {
-            chain_id: "11155111".to_string(),
+            chain_id: 11155111,
             nonce: "7".to_string(),
             max_priority_fee_per_gas: "1500000000".to_string(),
             max_fee_per_gas: "3000000000".to_string(),

@@ -22,7 +22,10 @@ export function registerRecoverEmailRoute(router: ExpressRouter, ctx: ExpressRel
       const { accountId, emailBlob } = parsed;
 
       if (!ctx.service.emailRecovery) {
-        res.status(503).json({ code: 'email_recovery_unavailable', message: 'EmailRecoveryService is not configured on this server' });
+        res.status(503).json({
+          code: 'email_recovery_unavailable',
+          message: 'EmailRecoveryService is not configured on this server',
+        });
         return;
       }
 

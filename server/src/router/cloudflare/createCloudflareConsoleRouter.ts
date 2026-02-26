@@ -31,15 +31,8 @@ import {
   parseUpdateConsoleWebhookEndpointRequest,
   type ConsoleWebhookService,
 } from '../../console/webhooks';
-import type {
-  ConsoleAuthClaims,
-  ConsoleAuthResult,
-  ConsoleRouterOptions,
-} from '../console';
-import {
-  authenticateConsoleRequest,
-  hasConsoleRole,
-} from '../console';
+import type { ConsoleAuthClaims, ConsoleAuthResult, ConsoleRouterOptions } from '../console';
+import { authenticateConsoleRequest, hasConsoleRole } from '../console';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 import type { CfEnv, CfExecutionContext, FetchHandler } from './types';
@@ -78,75 +71,102 @@ function withConsoleCors(headers: Headers, opts?: ConsoleRouterOptions, request?
   }
 
   headers.set('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
-  headers.set('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Console-Stripe-Webhook-Secret');
+  headers.set(
+    'Access-Control-Allow-Headers',
+    'Content-Type,Authorization,X-Console-Stripe-Webhook-Secret',
+  );
   if (allowedOrigin && allowedOrigin !== '*') {
     headers.set('Access-Control-Allow-Credentials', 'true');
   }
 }
 
 function sendAuthFailure(auth: Extract<ConsoleAuthResult, { ok: false }>): Response {
-  return json({
-    ok: false,
-    code: auth.code,
-    message: auth.message,
-  }, { status: auth.status });
+  return json(
+    {
+      ok: false,
+      code: auth.code,
+      message: auth.message,
+    },
+    { status: auth.status },
+  );
 }
 
 function sendBillingError(error: unknown): Response {
   if (isConsoleBillingError(error)) {
-    return json({
-      ok: false,
-      code: error.code,
-      message: error.message,
-      ...(error.details ? { details: error.details } : {}),
-    }, { status: error.status });
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+      { status: error.status },
+    );
   }
 
-  return json({
-    ok: false,
-    code: 'internal',
-    message: error instanceof Error ? error.message : String(error),
-  }, { status: 500 });
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
 }
 
 function sendApiKeyError(error: unknown): Response {
   if (isConsoleApiKeyError(error)) {
-    return json({
-      ok: false,
-      code: error.code,
-      message: error.message,
-      ...(error.details ? { details: error.details } : {}),
-    }, { status: error.status });
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+      { status: error.status },
+    );
   }
 
-  return json({
-    ok: false,
-    code: 'internal',
-    message: error instanceof Error ? error.message : String(error),
-  }, { status: 500 });
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
 }
 
 function sendWebhookError(error: unknown): Response {
   if (isConsoleWebhookError(error)) {
-    return json({
-      ok: false,
-      code: error.code,
-      message: error.message,
-      ...(error.details ? { details: error.details } : {}),
-    }, { status: error.status });
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+      { status: error.status },
+    );
   }
 
-  return json({
-    ok: false,
-    code: 'internal',
-    message: error instanceof Error ? error.message : String(error),
-  }, { status: 500 });
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
 }
 
 async function requireConsoleAuth(
   ctx: CloudflareConsoleContext,
 ): Promise<{ ok: true; claims: ConsoleAuthClaims } | { ok: false; response: Response }> {
-  const auth = await authenticateConsoleRequest(headersToRecord(ctx.request.headers), ctx.opts.auth);
+  const auth = await authenticateConsoleRequest(
+    headersToRecord(ctx.request.headers),
+    ctx.opts.auth,
+  );
   if (!auth.ok) {
     return { ok: false, response: sendAuthFailure(auth) };
   }
@@ -155,47 +175,62 @@ async function requireConsoleAuth(
 
 function requireBillingService(ctx: CloudflareConsoleContext): ConsoleBillingService | Response {
   if (ctx.billing) return ctx.billing;
-  return json({
-    ok: false,
-    code: 'billing_not_configured',
-    message: 'Billing service is not configured on this server',
-  }, { status: 501 });
+  return json(
+    {
+      ok: false,
+      code: 'billing_not_configured',
+      message: 'Billing service is not configured on this server',
+    },
+    { status: 501 },
+  );
 }
 
 function requireApiKeyService(ctx: CloudflareConsoleContext): ConsoleApiKeyService | Response {
   if (ctx.apiKeys) return ctx.apiKeys;
-  return json({
-    ok: false,
-    code: 'api_keys_not_configured',
-    message: 'API key service is not configured on this server',
-  }, { status: 501 });
+  return json(
+    {
+      ok: false,
+      code: 'api_keys_not_configured',
+      message: 'API key service is not configured on this server',
+    },
+    { status: 501 },
+  );
 }
 
 function requireWebhookService(ctx: CloudflareConsoleContext): ConsoleWebhookService | Response {
   if (ctx.webhooks) return ctx.webhooks;
-  return json({
-    ok: false,
-    code: 'webhooks_not_configured',
-    message: 'Webhook service is not configured on this server',
-  }, { status: 501 });
+  return json(
+    {
+      ok: false,
+      code: 'webhooks_not_configured',
+      message: 'Webhook service is not configured on this server',
+    },
+    { status: 501 },
+  );
 }
 
 function requireStripeWebhookSecret(ctx: CloudflareConsoleContext): Response | null {
   const configured = String(ctx.opts.billingStripeWebhookSecret || '').trim();
   if (!configured) {
-    return json({
-      ok: false,
-      code: 'stripe_webhook_not_configured',
-      message: 'Stripe webhook secret is not configured on this server',
-    }, { status: 501 });
+    return json(
+      {
+        ok: false,
+        code: 'stripe_webhook_not_configured',
+        message: 'Stripe webhook secret is not configured on this server',
+      },
+      { status: 501 },
+    );
   }
   const provided = String(ctx.request.headers.get('x-console-stripe-webhook-secret') || '').trim();
   if (!provided || provided !== configured) {
-    return json({
-      ok: false,
-      code: 'unauthorized',
-      message: 'Invalid Stripe webhook secret',
-    }, { status: 401 });
+    return json(
+      {
+        ok: false,
+        code: 'unauthorized',
+        message: 'Invalid Stripe webhook secret',
+      },
+      { status: 401 },
+    );
   }
   return null;
 }
@@ -214,36 +249,41 @@ function toBillingContext(claims: ConsoleAuthClaims): {
 
 function requireAdminRoleForCardActions(claims: ConsoleAuthClaims): Response | null {
   if (hasConsoleRole(claims, 'admin')) return null;
-  return json({
-    ok: false,
-    code: 'forbidden',
-    message: 'Only admin can add, remove, or set default card payment methods',
-  }, { status: 403 });
+  return json(
+    {
+      ok: false,
+      code: 'forbidden',
+      message: 'Only admin can add, remove, or set default card payment methods',
+    },
+    { status: 403 },
+  );
 }
 
 function requirePaymentReconcileRole(claims: ConsoleAuthClaims): Response | null {
   if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'ops')) return null;
-  return json({
-    ok: false,
-    code: 'forbidden',
-    message: 'Only admin or ops can reconcile payment intents',
-  }, { status: 403 });
+  return json(
+    {
+      ok: false,
+      code: 'forbidden',
+      message: 'Only admin or ops can reconcile payment intents',
+    },
+    { status: 403 },
+  );
 }
 
 function requireInvoiceGenerationRole(claims: ConsoleAuthClaims): Response | null {
   if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'ops')) return null;
-  return json({
-    ok: false,
-    code: 'forbidden',
-    message: 'Only admin or ops can generate monthly invoices',
-  }, { status: 403 });
+  return json(
+    {
+      ok: false,
+      code: 'forbidden',
+      message: 'Only admin or ops can generate monthly invoices',
+    },
+    { status: 403 },
+  );
 }
 
-const BILLING_TERMINAL_SETTLEMENT_STATES = new Set([
-  'SETTLED',
-  'PARTIALLY_SETTLED',
-  'OVERPAID',
-]);
+const BILLING_TERMINAL_SETTLEMENT_STATES = new Set(['SETTLED', 'PARTIALLY_SETTLED', 'OVERPAID']);
 
 async function emitBillingWebhookEvent(
   ctx: CloudflareConsoleContext,
@@ -335,10 +375,13 @@ function decodePathPart(part: string): string {
 async function handleConsoleHealth(ctx: CloudflareConsoleContext): Promise<Response | null> {
   if (!ctx.opts.healthz || ctx.method !== 'GET' || ctx.pathname !== '/console/healthz') return null;
 
-  return json({
-    ok: true,
-    service: 'console',
-  }, { status: 200 });
+  return json(
+    {
+      ok: true,
+      service: 'console',
+    },
+    { status: 200 },
+  );
 }
 
 async function handleConsoleReady(ctx: CloudflareConsoleContext): Promise<Response | null> {
@@ -347,16 +390,22 @@ async function handleConsoleReady(ctx: CloudflareConsoleContext): Promise<Respon
     if (ctx.opts.readyCheck) {
       await ctx.opts.readyCheck();
     }
-    return json({
-      ok: true,
-      service: 'console',
-    }, { status: 200 });
+    return json(
+      {
+        ok: true,
+        service: 'console',
+      },
+      { status: 200 },
+    );
   } catch (error: unknown) {
-    return json({
-      ok: false,
-      code: 'console_not_ready',
-      message: error instanceof Error ? error.message : String(error),
-    }, { status: 503 });
+    return json(
+      {
+        ok: false,
+        code: 'console_not_ready',
+        message: error instanceof Error ? error.message : String(error),
+      },
+      { status: 503 },
+    );
   }
 }
 
@@ -366,10 +415,13 @@ async function handleConsoleSession(ctx: CloudflareConsoleContext): Promise<Resp
   const auth = await requireConsoleAuth(ctx);
   if (!auth.ok) return auth.response;
 
-  return json({
-    ok: true,
-    claims: auth.claims,
-  }, { status: 200 });
+  return json(
+    {
+      ok: true,
+      claims: auth.claims,
+    },
+    { status: 200 },
+  );
 }
 
 function isConsoleBillingPath(pathname: string): boolean {
@@ -407,28 +459,37 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
     if (ctx.method === 'POST' && ctx.pathname === '/console/api-keys') {
       const request = parseCreateConsoleApiKeyRequest(await readJson(ctx.request));
       const created = await apiKeys.createApiKey(apiKeyCtx, request);
-      return json({
-        ok: true,
-        apiKey: created.apiKey,
-        secret: created.secret,
-      }, { status: 201 });
+      return json(
+        {
+          ok: true,
+          apiKey: created.apiKey,
+          secret: created.secret,
+        },
+        { status: 201 },
+      );
     }
 
     if (ctx.method === 'DELETE' && apiKeyPathMatch) {
       const apiKeyId = decodePathPart(apiKeyPathMatch[1]);
       const revoked = await apiKeys.revokeApiKey(apiKeyCtx, apiKeyId);
       if (!revoked.revoked || !revoked.apiKey) {
-        return json({
-          ok: false,
-          code: 'api_key_not_found',
-          message: `API key ${apiKeyId} was not found`,
-        }, { status: 404 });
+        return json(
+          {
+            ok: false,
+            code: 'api_key_not_found',
+            message: `API key ${apiKeyId} was not found`,
+          },
+          { status: 404 },
+        );
       }
-      return json({
-        ok: true,
-        revoked: true,
-        apiKey: revoked.apiKey,
-      }, { status: 200 });
+      return json(
+        {
+          ok: true,
+          revoked: true,
+          apiKey: revoked.apiKey,
+        },
+        { status: 200 },
+      );
     }
 
     if (ctx.method === 'POST' && apiKeyRotatePathMatch) {
@@ -436,17 +497,23 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
       const request = parseRotateConsoleApiKeyRequest(await readJson(ctx.request));
       const rotated = await apiKeys.rotateApiKey(apiKeyCtx, apiKeyId, request);
       if (!rotated) {
-        return json({
-          ok: false,
-          code: 'api_key_not_found',
-          message: `API key ${apiKeyId} was not found`,
-        }, { status: 404 });
+        return json(
+          {
+            ok: false,
+            code: 'api_key_not_found',
+            message: `API key ${apiKeyId} was not found`,
+          },
+          { status: 404 },
+        );
       }
-      return json({
-        ok: true,
-        apiKey: rotated.apiKey,
-        secret: rotated.secret,
-      }, { status: 200 });
+      return json(
+        {
+          ok: true,
+          apiKey: rotated.apiKey,
+          secret: rotated.secret,
+        },
+        { status: 200 },
+      );
     }
   } catch (error: unknown) {
     return sendApiKeyError(error);
@@ -489,11 +556,14 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
       const request = parseUpdateConsoleWebhookEndpointRequest(await readJson(ctx.request));
       const endpoint = await webhooks.updateEndpoint(webhookCtx, endpointId, request);
       if (!endpoint) {
-        return json({
-          ok: false,
-          code: 'webhook_not_found',
-          message: `Webhook endpoint ${endpointId} was not found`,
-        }, { status: 404 });
+        return json(
+          {
+            ok: false,
+            code: 'webhook_not_found',
+            message: `Webhook endpoint ${endpointId} was not found`,
+          },
+          { status: 404 },
+        );
       }
       return json({ ok: true, endpoint }, { status: 200 });
     }
@@ -502,11 +572,14 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
       const endpointId = decodePathPart(endpointMatch[1]);
       const out = await webhooks.deleteEndpoint(webhookCtx, endpointId);
       if (!out.removed) {
-        return json({
-          ok: false,
-          code: 'webhook_not_found',
-          message: `Webhook endpoint ${endpointId} was not found`,
-        }, { status: 404 });
+        return json(
+          {
+            ok: false,
+            code: 'webhook_not_found',
+            message: `Webhook endpoint ${endpointId} was not found`,
+          },
+          { status: 404 },
+        );
       }
       return json({ ok: true, removed: true }, { status: 200 });
     }
@@ -518,11 +591,14 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
         cursor: ctx.url.searchParams.get('cursor') || undefined,
       });
       const page = await webhooks.listDeliveries(webhookCtx, endpointId, request);
-      return json({
-        ok: true,
-        deliveries: page.items,
-        ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
-      }, { status: 200 });
+      return json(
+        {
+          ok: true,
+          deliveries: page.items,
+          ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+        },
+        { status: 200 },
+      );
     }
 
     if (ctx.method === 'GET' && attemptsMatch) {
@@ -533,11 +609,14 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
         cursor: ctx.url.searchParams.get('cursor') || undefined,
       });
       const page = await webhooks.listAttempts(webhookCtx, endpointId, request);
-      return json({
-        ok: true,
-        attempts: page.items,
-        ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
-      }, { status: 200 });
+      return json(
+        {
+          ok: true,
+          attempts: page.items,
+          ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+        },
+        { status: 200 },
+      );
     }
 
     if (ctx.method === 'GET' && deadLettersMatch) {
@@ -550,11 +629,14 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
         cursor: ctx.url.searchParams.get('cursor') || undefined,
       });
       const page = await webhooks.listDeadLetters(webhookCtx, endpointId, request);
-      return json({
-        ok: true,
-        deadLetters: page.items,
-        ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
-      }, { status: 200 });
+      return json(
+        {
+          ok: true,
+          deadLetters: page.items,
+          ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+        },
+        { status: 200 },
+      );
     }
 
     if (ctx.method === 'POST' && replayMatch) {
@@ -563,24 +645,33 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
       const replay = await webhooks.replayDelivery(webhookCtx, endpointId, request);
       if (!replay.replayed) {
         if (replay.reason === 'endpoint_not_found') {
-          return json({
-            ok: false,
-            code: 'webhook_not_found',
-            message: `Webhook endpoint ${endpointId} was not found`,
-          }, { status: 404 });
+          return json(
+            {
+              ok: false,
+              code: 'webhook_not_found',
+              message: `Webhook endpoint ${endpointId} was not found`,
+            },
+            { status: 404 },
+          );
         }
         if (replay.reason === 'delivery_not_found') {
-          return json({
-            ok: false,
-            code: 'delivery_not_found',
-            message: `Webhook delivery ${request.deliveryId} was not found`,
-          }, { status: 404 });
+          return json(
+            {
+              ok: false,
+              code: 'delivery_not_found',
+              message: `Webhook delivery ${request.deliveryId} was not found`,
+            },
+            { status: 404 },
+          );
         }
-        return json({
-          ok: false,
-          code: 'no_replayable_delivery',
-          message: 'No replayable delivery exists for this endpoint',
-        }, { status: 409 });
+        return json(
+          {
+            ok: false,
+            code: 'no_replayable_delivery',
+            message: 'No replayable delivery exists for this endpoint',
+          },
+          { status: 409 },
+        );
       }
       return json({ ok: true, replay }, { status: 200 });
     }
@@ -628,21 +719,36 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
   if (!auth.ok) return auth.response;
 
   const invoiceMatch = ctx.pathname.match(/^\/console\/billing\/invoices\/([^/]+)$/);
-  const invoiceLineItemsMatch = ctx.pathname.match(/^\/console\/billing\/invoices\/([^/]+)\/line-items$/);
+  const invoiceLineItemsMatch = ctx.pathname.match(
+    /^\/console\/billing\/invoices\/([^/]+)\/line-items$/,
+  );
   const paymentMethodMatch = ctx.pathname.match(/^\/console\/billing\/payment-methods\/([^/]+)$/);
-  const paymentMethodDefaultMatch = ctx.pathname.match(/^\/console\/billing\/payment-methods\/([^/]+)\/default$/);
-  const stripeIntentReconcileMatch = ctx.pathname.match(/^\/console\/billing\/stripe\/payment-intents\/([^/]+)\/reconcile$/);
-  const stablecoinIntentMatch = ctx.pathname.match(/^\/console\/billing\/stablecoins\/payment-intents\/([^/]+)$/);
-  const stablecoinIntentCancelMatch = ctx.pathname.match(/^\/console\/billing\/stablecoins\/payment-intents\/([^/]+)\/cancel$/);
-  const stablecoinIntentReconcileMatch = ctx.pathname.match(/^\/console\/billing\/stablecoins\/payment-intents\/([^/]+)\/reconcile$/);
+  const paymentMethodDefaultMatch = ctx.pathname.match(
+    /^\/console\/billing\/payment-methods\/([^/]+)\/default$/,
+  );
+  const stripeIntentReconcileMatch = ctx.pathname.match(
+    /^\/console\/billing\/stripe\/payment-intents\/([^/]+)\/reconcile$/,
+  );
+  const stablecoinIntentMatch = ctx.pathname.match(
+    /^\/console\/billing\/stablecoins\/payment-intents\/([^/]+)$/,
+  );
+  const stablecoinIntentCancelMatch = ctx.pathname.match(
+    /^\/console\/billing\/stablecoins\/payment-intents\/([^/]+)\/cancel$/,
+  );
+  const stablecoinIntentReconcileMatch = ctx.pathname.match(
+    /^\/console\/billing\/stablecoins\/payment-intents\/([^/]+)\/reconcile$/,
+  );
 
   try {
     if (ctx.method === 'GET' && ctx.pathname === '/console/billing/stablecoins/assets') {
-      return json({
-        ok: true,
-        version: CHAIN_FINALITY_POLICY_VERSION,
-        assets: listStablecoinAssetSupport(),
-      }, { status: 200 });
+      return json(
+        {
+          ok: true,
+          version: CHAIN_FINALITY_POLICY_VERSION,
+          assets: listStablecoinAssetSupport(),
+        },
+        { status: 200 },
+      );
     }
 
     const billingOrResponse = requireBillingService(ctx);
@@ -698,11 +804,14 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       const invoiceId = decodePathPart(invoiceMatch[1]);
       const invoice = await billing.getInvoice(billingCtx, invoiceId);
       if (!invoice) {
-        return json({
-          ok: false,
-          code: 'invoice_not_found',
-          message: `Invoice ${invoiceId} was not found`,
-        }, { status: 404 });
+        return json(
+          {
+            ok: false,
+            code: 'invoice_not_found',
+            message: `Invoice ${invoiceId} was not found`,
+          },
+          { status: 404 },
+        );
       }
       return json({ ok: true, invoice }, { status: 200 });
     }
@@ -711,11 +820,14 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       const invoiceId = decodePathPart(invoiceLineItemsMatch[1]);
       const invoice = await billing.getInvoice(billingCtx, invoiceId);
       if (!invoice) {
-        return json({
-          ok: false,
-          code: 'invoice_not_found',
-          message: `Invoice ${invoiceId} was not found`,
-        }, { status: 404 });
+        return json(
+          {
+            ok: false,
+            code: 'invoice_not_found',
+            message: `Invoice ${invoiceId} was not found`,
+          },
+          { status: 404 },
+        );
       }
       const lineItems = await billing.listInvoiceLineItems(billingCtx, invoiceId);
       return json({ ok: true, lineItems }, { status: 200 });
@@ -740,11 +852,14 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       const paymentMethodId = decodePathPart(paymentMethodMatch[1]);
       const out = await billing.removeCardPaymentMethod(billingCtx, paymentMethodId);
       if (!out.removed) {
-        return json({
-          ok: false,
-          code: 'payment_method_not_found',
-          message: `Payment method ${paymentMethodId} was not found`,
-        }, { status: 404 });
+        return json(
+          {
+            ok: false,
+            code: 'payment_method_not_found',
+            message: `Payment method ${paymentMethodId} was not found`,
+          },
+          { status: 404 },
+        );
       }
       return json({ ok: true, removed: true }, { status: 200 });
     }
@@ -755,11 +870,14 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       const paymentMethodId = decodePathPart(paymentMethodDefaultMatch[1]);
       const paymentMethod = await billing.setDefaultCardPaymentMethod(billingCtx, paymentMethodId);
       if (!paymentMethod) {
-        return json({
-          ok: false,
-          code: 'payment_method_not_found',
-          message: `Payment method ${paymentMethodId} was not found`,
-        }, { status: 404 });
+        return json(
+          {
+            ok: false,
+            code: 'payment_method_not_found',
+            message: `Payment method ${paymentMethodId} was not found`,
+          },
+          { status: 404 },
+        );
       }
       return json({ ok: true, paymentMethod }, { status: 200 });
     }
@@ -793,13 +911,20 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       if (roleRequired) return roleRequired;
       const paymentIntentId = decodePathPart(stripeIntentReconcileMatch[1]);
       const request = parseStripePaymentIntentReconcileRequest(await readJson(ctx.request));
-      const paymentIntent = await billing.reconcileStripePaymentIntent(billingCtx, paymentIntentId, request);
+      const paymentIntent = await billing.reconcileStripePaymentIntent(
+        billingCtx,
+        paymentIntentId,
+        request,
+      );
       if (!paymentIntent) {
-        return json({
-          ok: false,
-          code: 'payment_intent_not_found',
-          message: `Stripe payment intent ${paymentIntentId} was not found`,
-        }, { status: 404 });
+        return json(
+          {
+            ok: false,
+            code: 'payment_intent_not_found',
+            message: `Stripe payment intent ${paymentIntentId} was not found`,
+          },
+          { status: 404 },
+        );
       }
       await emitBillingWebhookEvent(ctx, {
         orgId: auth.claims.orgId,
@@ -857,24 +982,33 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       const paymentIntentId = decodePathPart(stablecoinIntentMatch[1]);
       const paymentIntent = await billing.getStablecoinPaymentIntent(billingCtx, paymentIntentId);
       if (!paymentIntent) {
-        return json({
-          ok: false,
-          code: 'payment_intent_not_found',
-          message: `Stablecoin payment intent ${paymentIntentId} was not found`,
-        }, { status: 404 });
+        return json(
+          {
+            ok: false,
+            code: 'payment_intent_not_found',
+            message: `Stablecoin payment intent ${paymentIntentId} was not found`,
+          },
+          { status: 404 },
+        );
       }
       return json({ ok: true, paymentIntent }, { status: 200 });
     }
 
     if (ctx.method === 'POST' && stablecoinIntentCancelMatch) {
       const paymentIntentId = decodePathPart(stablecoinIntentCancelMatch[1]);
-      const paymentIntent = await billing.cancelStablecoinPaymentIntent(billingCtx, paymentIntentId);
+      const paymentIntent = await billing.cancelStablecoinPaymentIntent(
+        billingCtx,
+        paymentIntentId,
+      );
       if (!paymentIntent) {
-        return json({
-          ok: false,
-          code: 'payment_intent_not_found',
-          message: `Stablecoin payment intent ${paymentIntentId} was not found`,
-        }, { status: 404 });
+        return json(
+          {
+            ok: false,
+            code: 'payment_intent_not_found',
+            message: `Stablecoin payment intent ${paymentIntentId} was not found`,
+          },
+          { status: 404 },
+        );
       }
       return json({ ok: true, paymentIntent }, { status: 200 });
     }
@@ -884,13 +1018,20 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       if (roleRequired) return roleRequired;
       const paymentIntentId = decodePathPart(stablecoinIntentReconcileMatch[1]);
       const request = parseStablecoinPaymentIntentReconcileRequest(await readJson(ctx.request));
-      const paymentIntent = await billing.reconcileStablecoinPaymentIntent(billingCtx, paymentIntentId, request);
+      const paymentIntent = await billing.reconcileStablecoinPaymentIntent(
+        billingCtx,
+        paymentIntentId,
+        request,
+      );
       if (!paymentIntent) {
-        return json({
-          ok: false,
-          code: 'payment_intent_not_found',
-          message: `Stablecoin payment intent ${paymentIntentId} was not found`,
-        }, { status: 404 });
+        return json(
+          {
+            ok: false,
+            code: 'payment_intent_not_found',
+            message: `Stablecoin payment intent ${paymentIntentId} was not found`,
+          },
+          { status: 404 },
+        );
       }
       await emitBillingWebhookEvent(ctx, {
         orgId: auth.claims.orgId,
@@ -941,7 +1082,11 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
     handleConsoleBilling,
   ];
 
-  return async function handler(request: Request, env?: CfEnv, cfCtx?: CfExecutionContext): Promise<Response> {
+  return async function handler(
+    request: Request,
+    env?: CfEnv,
+    cfCtx?: CfExecutionContext,
+  ): Promise<Response> {
     const url = new URL(request.url);
     const pathname = url.pathname;
     const method = request.method.toUpperCase();
@@ -976,7 +1121,10 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
       }
       return notFound();
     } catch (e: unknown) {
-      const res = json({ code: 'internal', message: e instanceof Error ? e.message : String(e) }, { status: 500 });
+      const res = json(
+        { code: 'internal', message: e instanceof Error ? e.message : String(e) },
+        { status: 500 },
+      );
       withConsoleCors(res.headers, opts, request);
       return res;
     }

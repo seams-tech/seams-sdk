@@ -1,10 +1,10 @@
-import React from 'react'
+import React from 'react';
 
 export type SidebarGroupKey =
   | 'walletInfrastructure'
   | 'securityPolicy'
   | 'integrationsAutomation'
-  | 'environmentSettings'
+  | 'environmentSettings';
 
 export type DashboardRoute =
   | '/dashboard/wallets-list'
@@ -14,26 +14,26 @@ export type DashboardRoute =
   | '/dashboard/app-settings'
   | '/dashboard/export-keys'
   | '/dashboard/api-keys'
-  | '/dashboard/webhooks'
+  | '/dashboard/webhooks';
 
-export type TopbarMenuKey = 'organization' | 'project' | 'environment' | 'accountSettings'
+export type TopbarMenuKey = 'organization' | 'project' | 'environment' | 'accountSettings';
 
-export type DashboardViewComponent = () => React.JSX.Element
+export type DashboardViewComponent = () => React.JSX.Element;
 
 export type SidebarItem = {
-  key: string
-  label: string
-  path: DashboardRoute
-  iconClass: string
-  component: DashboardViewComponent
-}
+  key: string;
+  label: string;
+  path: DashboardRoute;
+  iconClass: string;
+  component: DashboardViewComponent;
+};
 
 export type SidebarGroup = {
-  key: SidebarGroupKey
-  label: string
-  items: SidebarItem[]
-}
+  key: SidebarGroupKey;
+  label: string;
+  items: SidebarItem[];
+};
 
-export type TopbarContextState = Record<TopbarMenuKey, string>
+export type TopbarContextState = Record<TopbarMenuKey, string>;
 
-export type ExpandedSidebarGroupsState = Record<SidebarGroupKey, boolean>
+export type ExpandedSidebarGroupsState = Record<SidebarGroupKey, boolean>;

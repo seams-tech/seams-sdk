@@ -23,15 +23,18 @@ type WorkerErrorPayload = {
 
 function asWorkerErrorPayload(err: unknown): WorkerErrorPayload {
   if (err && typeof err === 'object') {
-    const message = typeof (err as { message?: unknown }).message === 'string'
-      ? String((err as { message?: string }).message).trim()
-      : '';
-    const code = typeof (err as { code?: unknown }).code === 'string'
-      ? String((err as { code?: string }).code).trim()
-      : '';
-    const coreCode = typeof (err as { coreCode?: unknown }).coreCode === 'string'
-      ? String((err as { coreCode?: string }).coreCode).trim()
-      : '';
+    const message =
+      typeof (err as { message?: unknown }).message === 'string'
+        ? String((err as { message?: string }).message).trim()
+        : '';
+    const code =
+      typeof (err as { code?: unknown }).code === 'string'
+        ? String((err as { code?: string }).code).trim()
+        : '';
+    const coreCode =
+      typeof (err as { coreCode?: unknown }).coreCode === 'string'
+        ? String((err as { coreCode?: string }).coreCode).trim()
+        : '';
     return {
       message: message || errorMessage(err),
       ...(code ? { code } : {}),
@@ -93,13 +96,18 @@ self.addEventListener('message', async (event: MessageEvent) => {
         return;
       }
       case 'encodeTempoSignedTx': {
-        const out = encode_tempo_signed_tx(msg.payload.tx, toU8(msg.payload.senderSignature)) as Uint8Array;
+        const out = encode_tempo_signed_tx(
+          msg.payload.tx,
+          toU8(msg.payload.senderSignature),
+        ) as Uint8Array;
         const ab = out.slice().buffer;
         postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
         return;
       }
       default: {
-        throw new Error(`Unsupported tempoSigner worker operation type: ${String((msg as { type?: unknown }).type)}`);
+        throw new Error(
+          `Unsupported tempoSigner worker operation type: ${String((msg as { type?: unknown }).type)}`,
+        );
       }
     }
   } catch (e) {

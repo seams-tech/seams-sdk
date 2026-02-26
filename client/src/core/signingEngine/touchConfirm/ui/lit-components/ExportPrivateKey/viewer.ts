@@ -52,27 +52,43 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
     this.showCloseButton = false;
   }
 
-  protected getComponentPrefix(): string { return 'export'; }
+  protected getComponentPrefix(): string {
+    return 'export';
+  }
 
   protected createRenderRoot(): HTMLElement | DocumentFragment {
     // Prefer Shadow DOM to scope styles when constructable stylesheets are supported.
     // Fallback to light DOM for strict-CSP + legacy engines (document-level <link> will style it).
     const supportsConstructable =
-      typeof ShadowRoot !== 'undefined'
-      && 'adoptedStyleSheets' in ShadowRoot.prototype
-      && typeof CSSStyleSheet !== 'undefined'
-      && 'replaceSync' in CSSStyleSheet.prototype;
-    const root = supportsConstructable ? super.createRenderRoot() : (this as unknown as HTMLElement);
+      typeof ShadowRoot !== 'undefined' &&
+      'adoptedStyleSheets' in ShadowRoot.prototype &&
+      typeof CSSStyleSheet !== 'undefined' &&
+      'replaceSync' in CSSStyleSheet.prototype;
+    const root = supportsConstructable
+      ? super.createRenderRoot()
+      : (this as unknown as HTMLElement);
     // Adopt export-viewer.css for structural + visual styles
-    const p1 = ensureExternalStyles(root as ShadowRoot | DocumentFragment | HTMLElement, 'export-viewer.css', 'data-w3a-export-viewer-css');
+    const p1 = ensureExternalStyles(
+      root as ShadowRoot | DocumentFragment | HTMLElement,
+      'export-viewer.css',
+      'data-w3a-export-viewer-css',
+    );
     this._stylePromises.push(p1);
     p1.catch(() => {});
     // Also adopt token sheet so color/background vars are available even without host styles
-    const p2 = ensureExternalStyles(root as ShadowRoot | DocumentFragment | HTMLElement, 'w3a-components.css', 'data-w3a-components-css');
+    const p2 = ensureExternalStyles(
+      root as ShadowRoot | DocumentFragment | HTMLElement,
+      'w3a-components.css',
+      'data-w3a-components-css',
+    );
     this._stylePromises.push(p2);
     p2.catch(() => {});
     // Ensure drawer structural styles are available before first paint to prevent transparent background
-    const p3 = ensureExternalStyles(root as ShadowRoot | DocumentFragment | HTMLElement, 'drawer.css', 'data-w3a-drawer-css');
+    const p3 = ensureExternalStyles(
+      root as ShadowRoot | DocumentFragment | HTMLElement,
+      'drawer.css',
+      'data-w3a-drawer-css',
+    );
     this._stylePromises.push(p3);
     p3.catch(() => {});
     return root;
@@ -82,9 +98,14 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
   protected shouldUpdate(_changed: Map<string | number | symbol, unknown>): boolean {
     if (this._stylesReady) return true;
     if (!this._stylesAwaiting) {
-      const settle = Promise.all(this._stylePromises)
-        .then(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
-      this._stylesAwaiting = settle.then(() => { this._stylesReady = true; this.requestUpdate(); });
+      const settle = Promise.all(this._stylePromises).then(
+        () =>
+          new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+      );
+      this._stylesAwaiting = settle.then(() => {
+        this._stylesReady = true;
+        this.requestUpdate();
+      });
     }
     return false;
   }
@@ -100,7 +121,11 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
     // Prevent drawer drag initiation from content area so text can be selected
     this.addEventListener('pointerdown', this._stopDragStart as EventListener);
     this.addEventListener('mousedown', this._stopDragStart as EventListener);
-    this.addEventListener('touchstart', this._stopDragStart as EventListener, { passive: false } as AddEventListenerOptions);
+    this.addEventListener(
+      'touchstart',
+      this._stopDragStart as EventListener,
+      { passive: false } as AddEventListenerOptions,
+    );
   }
 
   disconnectedCallback(): void {
@@ -216,43 +241,48 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
     }
 
     const masked = 'x'.repeat(middleText.length || 0);
-    return html`<span>${startText}</span><span class="mask-chunk">${masked}</span><span>${endText}</span>`;
+    return html`<span>${startText}</span><span class="mask-chunk">${masked}</span
+      ><span>${endText}</span>`;
   }
 
   private resolveKeyEntries(): ExportPrivateKeyDisplayEntry[] {
-    const provided = Array.isArray(this.keys) ? this.keys.filter((item) => {
-      if (!item || typeof item !== 'object') return false;
-      const publicKey = String((item as ExportPrivateKeyDisplayEntry).publicKey || '').trim();
-      const privateKey = String((item as ExportPrivateKeyDisplayEntry).privateKey || '').trim();
-      return !!publicKey || !!privateKey;
-    }) : [];
+    const provided = Array.isArray(this.keys)
+      ? this.keys.filter((item) => {
+          if (!item || typeof item !== 'object') return false;
+          const publicKey = String((item as ExportPrivateKeyDisplayEntry).publicKey || '').trim();
+          const privateKey = String((item as ExportPrivateKeyDisplayEntry).privateKey || '').trim();
+          return !!publicKey || !!privateKey;
+        })
+      : [];
     if (provided.length > 0) return provided;
 
     const publicKey = String(this.publicKey || '').trim();
     const privateKey = String(this.privateKey || '').trim();
     if (!publicKey && !privateKey) return [];
 
-    return [{
-      scheme: 'ed25519',
-      label: 'NEAR Ed25519',
-      publicKey,
-      privateKey,
-    }];
+    return [
+      {
+        scheme: 'ed25519',
+        label: 'NEAR Ed25519',
+        publicKey,
+        privateKey,
+      },
+    ];
   }
 
   render() {
     const entries = this.resolveKeyEntries();
     return html`
-      ${
-        this.showCloseButton
+      ${this.showCloseButton
         ? html`<button
-          aria-label="Close"
-          title="Close"
-          class="close-btn"
-          @click=${() => dispatchLitCancel(this)}
-          >×</button>`
-        : null
-      }
+            aria-label="Close"
+            title="Close"
+            class="close-btn"
+            @click=${() => dispatchLitCancel(this)}
+          >
+            ×
+          </button>`
+        : null}
       <div class="content">
         <h2 class="title">Exported Keys</h2>
         <div class="fields">
@@ -264,20 +294,19 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
               </span>
             </div>
           </div>
-          ${
-            entries.length
-              ? entries.map((entry, index) => {
-                const label = String(entry.label || '').trim()
-                  || (entry.scheme === 'secp256k1' ? 'EVM secp256k1' : 'NEAR Ed25519');
+          ${entries.length
+            ? entries.map((entry, index) => {
+                const label =
+                  String(entry.label || '').trim() ||
+                  (entry.scheme === 'secp256k1' ? 'EVM secp256k1' : 'NEAR Ed25519');
                 const publicKey = String(entry.publicKey || '').trim();
                 const privateKey = String(entry.privateKey || '').trim();
                 const address = String(entry.address || '').trim();
                 return html`
                   <div class="key-card">
                     <div class="key-title">${label}</div>
-                    ${
-                      address
-                        ? html`
+                    ${address
+                      ? html`
                           <div class="field">
                             <div class="field-label">Address</div>
                             <div class="field-value">
@@ -285,8 +314,7 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
                             </div>
                           </div>
                         `
-                        : null
-                    }
+                      : null}
                     <div class="field">
                       <div class="field-label">Public Key</div>
                       <div class="field-value">
@@ -294,7 +322,9 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
                           ${publicKey ? publicKey : html`<span class="muted">—</span>`}
                         </span>
                         <button
-                          class="btn btn-surface ${this.isCopied(index, 'publicKey') ? 'copied' : ''}"
+                          class="btn btn-surface ${this.isCopied(index, 'publicKey')
+                            ? 'copied'
+                            : ''}"
                           title="Copy"
                           ?disabled=${!publicKey}
                           @click=${() => this.copy('publicKey', publicKey, index)}
@@ -312,7 +342,9 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
                             : this.renderMaskedPrivateKey(privateKey)}
                         </span>
                         <button
-                          class="btn btn-surface ${this.isCopied(index, 'privateKey') ? 'copied' : ''}"
+                          class="btn btn-surface ${this.isCopied(index, 'privateKey')
+                            ? 'copied'
+                            : ''}"
                           title="Copy"
                           ?disabled=${!privateKey || this.loading}
                           @click=${() => this.copy('privateKey', privateKey, index)}
@@ -324,18 +356,17 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
                   </div>
                 `;
               })
-              : html`
+            : html`
                 <div class="field">
                   <div class="field-value">
                     <span class="muted">${this.loading ? 'Decrypting…' : 'No keys available'}</span>
                   </div>
                 </div>
-              `
-          }
+              `}
         </div>
         <div class="warning">
-          Warning: your private keys grant full control of your account and funds.
-          Keep it in a secret place.
+          Warning: your private keys grant full control of your account and funds. Keep it in a
+          secret place.
         </div>
       </div>
     `;

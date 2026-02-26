@@ -1,9 +1,9 @@
-import React from 'react'
+import React from 'react';
 
 export type TatchiLogoProps = React.SVGProps<SVGSVGElement> & {
-  size?: number | string
-  strokeWidth?: number
-}
+  size?: number | string;
+  strokeWidth?: number;
+};
 
 const TatchiLogo: React.FC<TatchiLogoProps> = ({
   size = 24,
@@ -15,7 +15,7 @@ const TatchiLogo: React.FC<TatchiLogoProps> = ({
   // of the orbit icon. Scaling around (12,12) keeps it centered.
   // Slightly larger than the original center circle (r=3)
   // to make the fingerprint more prominent relative to the orbit
-  const scale = 0.6
+  const scale = 0.6;
 
   return (
     <svg
@@ -28,13 +28,7 @@ const TatchiLogo: React.FC<TatchiLogoProps> = ({
       strokeWidth={strokeWidth}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={[
-        'lucide',
-        'lucide-orbit-icon',
-        'lucide-orbit',
-        'tatchi-logo-icon',
-        className,
-      ]
+      className={['lucide', 'lucide-orbit-icon', 'lucide-orbit', 'tatchi-logo-icon', className]
         .filter(Boolean)
         .join(' ')}
       aria-hidden="true"
@@ -60,7 +54,7 @@ const TatchiLogo: React.FC<TatchiLogoProps> = ({
         />
       </g>
     </svg>
-  )
-}
+  );
+};
 
-export default TatchiLogo
+export default TatchiLogo;

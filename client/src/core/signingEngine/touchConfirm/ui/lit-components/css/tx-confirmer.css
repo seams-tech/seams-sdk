@@ -15,7 +15,19 @@ w3a-tx-confirm-content,
 /* Declare at document root for global availability across the iframe */
 :root {
   /* Passkey halo loading defaults (dark) */
-  --w3a-modal__passkey-halo-loading__ring-background: transparent 0%, var(--w3a-colors-highlightHalo, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, #4DAFFE))) 10%, var(--w3a-colors-highlightHalo, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, #4DAFFE))) 25%, transparent 35%;
+  --w3a-modal__passkey-halo-loading__ring-background:
+    transparent 0%,
+    var(
+        --w3a-colors-highlightHalo,
+        var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, #4daffe))
+      )
+      10%,
+    var(
+        --w3a-colors-highlightHalo,
+        var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, #4daffe))
+      )
+      25%,
+    transparent 35%;
   --w3a-modal__passkey-halo-loading__inner-background: transparent;
   --w3a-modal__passkey-halo-loading__inner-padding: 3px;
   --w3a-modal__passkey-halo-loading-icon-container__background-color: var(--w3a-colors-surface);
@@ -43,9 +55,8 @@ w3a-drawer-tx-confirmer {
 
 /* Structural styles for modal confirmer */
 :host {
-
   /* Default style-guide variables (can be overridden by applyStyles) */
-  --w3a-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --w3a-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --w3a-font-size-sm: 0.8rem;
   --w3a-font-size-base: 1rem;
   --w3a-font-size-lg: 1.125rem;
@@ -73,7 +84,7 @@ w3a-drawer-tx-confirmer {
 w3a-modal-tx-confirmer,
 w3a-drawer-tx-confirmer,
 w3a-tx-confirm-content {
-  --w3a-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --w3a-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --w3a-font-size-sm: 0.8rem;
   --w3a-font-size-base: 1rem;
   --w3a-font-size-lg: 1.125rem;
@@ -108,7 +119,9 @@ w3a-tx-confirm-content {
   width: 100%;
   max-width: 100%;
 }
-.section { margin: 0.5rem 0; }
+.section {
+  margin: 0.5rem 0;
+}
 .tooltip-width {
   width: min(100%, var(--tooltip-width, 100%));
   max-width: 100%;
@@ -124,7 +137,7 @@ w3a-tx-confirm-content {
 }
 .label {
   font-size: 0.75rem;
-  color: var(--w3a-colors-textMuted, rgba(255,255,255,0.7));
+  color: var(--w3a-colors-textMuted, rgba(255, 255, 255, 0.7));
 }
 .value {
   font-size: 0.8125rem;
@@ -134,8 +147,15 @@ w3a-tx-confirm-content {
   hyphens: auto;
 }
 .sr-only {
-  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .actions {
   display: grid;
@@ -145,23 +165,37 @@ w3a-tx-confirm-content {
   width: 100%;
   margin-top: 0.75rem;
 }
-.actions > * { min-width: 0; }
+.actions > * {
+  min-width: 0;
+}
 .cancel {
   background: none;
   color: var(--w3a-colors-textPrimary);
   border: 1px solid var(--w3a-colors-borderPrimary);
   border-radius: 2rem;
-  font: inherit; padding: 0.7em 1em; min-height: 2.75em; cursor: pointer;
+  font: inherit;
+  padding: 0.7em 1em;
+  min-height: 2.75em;
+  cursor: pointer;
 }
 .confirm {
   background: var(--w3a-colors-buttonBackground);
   color: var(--w3a-colors-textButton, #fff);
   border: 1px solid transparent;
   border-radius: 2rem;
-  display: inline-flex; align-items: center; justify-content: center; gap: 0.5em;
-  font: inherit; padding: 0.7em 1em; min-height: 2.75em; cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  font: inherit;
+  padding: 0.7em 1em;
+  min-height: 2.75em;
+  cursor: pointer;
 }
-.confirm.loading { cursor: progress; opacity: 0.9; }
+.confirm.loading {
+  cursor: progress;
+  opacity: 0.9;
+}
 .cancel:hover {
   background: var(--w3a-colors-hover);
   border: 1px solid var(--w3a-colors-borderHover);
@@ -170,14 +204,14 @@ w3a-tx-confirm-content {
   background: var(--w3a-colors-buttonHoverBackground);
   border: 1px solid transparent;
 }
-.cancel:focus-visible, .confirm:focus-visible {
+.cancel:focus-visible,
+.confirm:focus-visible {
   outline: 2px solid var(--w3a-colors-focus, var(--w3a-blue400));
   outline-offset: 3px;
 }
 w3a-modal-tx-confirmer {
-
   /* Default style-guide variables (can be overridden by applyStyles) */
-  --w3a-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --w3a-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --w3a-font-size-sm: 0.8rem;
   --w3a-font-size-base: 1rem;
   --w3a-font-size-lg: 1.125rem;
@@ -204,7 +238,9 @@ w3a-modal-tx-confirmer {
 }
 
 /* Reset and base styles */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
@@ -282,7 +318,9 @@ w3a-modal-tx-confirmer {
   padding: 0.75rem;
   height: auto;
   overflow: hidden;
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.12);
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.22),
+    0 2px 8px rgba(0, 0, 0, 0.12);
   background: var(--w3a-colors-colorBackground);
   animation: fadeIn 32ms ease-in;
   will-change: opacity, transform;
@@ -294,11 +332,13 @@ w3a-modal-tx-confirmer {
 }
 
 /* Softer elevation in light theme */
-:root[data-w3a-theme="light"] .modal-container-root,
-w3a-modal-tx-confirmer[theme="light"] .modal-container-root,
-w3a-drawer-tx-confirmer[theme="light"] .modal-container-root {
+:root[data-w3a-theme='light'] .modal-container-root,
+w3a-modal-tx-confirmer[theme='light'] .modal-container-root,
+w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
   border: 1px solid var(--w3a-colors-surface);
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.14),
+    0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 @keyframes fadeIn {
@@ -386,7 +426,9 @@ w3a-drawer-tx-confirmer[theme="light"] .modal-container-root {
   background: transparent;
   border-radius: 0;
 }
-.action-row > * { min-width: 0; }
+.action-row > * {
+  min-width: 0;
+}
 
 .action-row:last-child {
   margin-bottom: 0;
@@ -477,7 +519,9 @@ w3a-drawer-tx-confirmer[theme="light"] .modal-container-root {
   max-width: var(--w3a-modal__code-block__max-width, 100%);
   overflow: auto;
   /* text styles */
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
   font-size: var(--w3a-modal__code-block__font-size, var(--w3a-font-size-sm));
   color: var(--w3a-colors-textSecondary);
   line-height: 1.4;
@@ -491,7 +535,9 @@ w3a-drawer-tx-confirmer[theme="light"] .modal-container-root {
 }
 
 .method-name {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
   font-weight: 600;
   color: var(--w3a-colors-highlightMethodName, var(--w3a-colors-info, var(--w3a-blue400)));
 }
@@ -606,7 +652,9 @@ w3a-drawer-tx-confirmer[theme="light"] .modal-container-root {
 
 @media (max-width: 375px) {
   /* Ensure full-bleed width on mobile */
-  .modal-container-root { width: 100%; }
+  .modal-container-root {
+    width: 100%;
+  }
   /* remove backdrop on mobile becasue of Safari 26 address bar bugs */
   .modal-backdrop-blur {
     opacity: 0;
@@ -670,15 +718,17 @@ w3a-drawer-tx-confirmer[theme="light"] .modal-container-root {
   display: inline-block;
   width: 20px;
   height: 20px;
-  border: 2px solid rgba(255,255,255,0.2);
+  border: 2px solid rgba(255, 255, 255, 0.2);
   border-radius: 50%;
-  border-top-color: rgba(255,255,255,0.95);
+  border-top-color: rgba(255, 255, 255, 0.95);
   animation: spin 1s ease-in-out infinite;
   margin-right: var(--w3a-spacing-sm);
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .btn.loading {
@@ -688,16 +738,30 @@ w3a-drawer-tx-confirmer[theme="light"] .modal-container-root {
 
 /* Fallback support for browsers without backdrop-filter */
 @supports not (backdrop-filter: blur(8px)) {
-  .row { background: transparent; }
-  .action-item { background: transparent; }
-  .action-content { background: var(--w3a-colors-surface2); }
-  .btn { background: var(--w3a-colors-surface); }
-  .btn-confirm { background: var(--w3a-colors-buttonBackground); }
+  .row {
+    background: transparent;
+  }
+  .action-item {
+    background: transparent;
+  }
+  .action-content {
+    background: var(--w3a-colors-surface2);
+  }
+  .btn {
+    background: var(--w3a-colors-surface);
+  }
+  .btn-confirm {
+    background: var(--w3a-colors-buttonBackground);
+  }
 }
 
 /* Drawer variant styles (extracted from viewer-drawer.ts) */
-:host { display: contents; }
-w3a-drawer-tx-confirmer { display: contents; }
+:host {
+  display: contents;
+}
+w3a-drawer-tx-confirmer {
+  display: contents;
+}
 
 /* Narrower sheet for tx confirmer drawer */
 w3a-drawer {
@@ -725,10 +789,13 @@ w3a-drawer {
   line-height: 1.3;
   font-weight: 700;
 }
-.drawer-actions { display: flex; gap: 8px; }
+.drawer-actions {
+  display: flex;
+  gap: 8px;
+}
 .drawer-btn {
-  border: 1px solid var(--w3a-colors-borderPrimary, rgba(255,255,255,0.12));
-  background: var(--w3a-colors-surface, rgba(255,255,255,0.06));
+  border: 1px solid var(--w3a-colors-borderPrimary, rgba(255, 255, 255, 0.12));
+  background: var(--w3a-colors-surface, rgba(255, 255, 255, 0.06));
   color: var(--w3a-colors-textPrimary, #f6f7f8);
   border-radius: 10px;
   padding: 0.6em 0.9em;
@@ -736,8 +803,8 @@ w3a-drawer {
   cursor: pointer;
 }
 .drawer-btn.primary {
-  background: var(--w3a-btn-primary, var(--w3a-colors-buttonBackground, #4DAFFE));
-  color:var(--w3a-colors-textButton, #0b1220);
+  background: var(--w3a-btn-primary, var(--w3a-colors-buttonBackground, #4daffe));
+  color: var(--w3a-colors-textButton, #0b1220);
   border-color: transparent;
 }
 .footer-actions {
@@ -846,7 +913,7 @@ w3a-drawer .above-fold > .drawer-tx-confirmer-root {
   margin-inline-end: 0.5em;
   margin-right: 0.5em;
   border-width: 2px;
-  border-color: var(--w3a-colors-borderPrimary, rgba(255,255,255,0.25));
+  border-color: var(--w3a-colors-borderPrimary, rgba(255, 255, 255, 0.25));
   border-top-color: var(--w3a-colors-info, var(--w3a-blue600));
 }
 .block-height-icon {
@@ -857,8 +924,9 @@ w3a-drawer .above-fold > .drawer-tx-confirmer-root {
   color: var(--w3a-colors-info, var(--w3a-blue600));
 }
 .divider {
-  width: 1px; height: 12px;
-  background: var(--w3a-colors-borderPrimary, rgba(255,255,255,0.18));
+  width: 1px;
+  height: 12px;
+  background: var(--w3a-colors-borderPrimary, rgba(255, 255, 255, 0.18));
   margin: 0 4px;
 }
 

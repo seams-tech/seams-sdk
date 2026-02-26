@@ -123,7 +123,10 @@ export async function orchestrateSigningConfirmation(
   params: OrchestrateIntentDigestSigningConfirmationParams,
 ): Promise<SigningConfirmationResultIntentDigest>;
 export async function orchestrateSigningConfirmation(
-  params: Exclude<OrchestrateSigningConfirmationParams, OrchestrateIntentDigestSigningConfirmationParams>,
+  params: Exclude<
+    OrchestrateSigningConfirmationParams,
+    OrchestrateIntentDigestSigningConfirmationParams
+  >,
 ): Promise<SigningConfirmationResultWithTxContext>;
 export async function orchestrateSigningConfirmation(
   params: OrchestrateSigningConfirmationParams,
@@ -144,7 +147,7 @@ export async function orchestrateSigningConfirmation(
         txSigningRequests.map((tx) => ({
           receiverId: tx.receiverId,
           actions: tx.actions.map(orderActionForDigest),
-        })) as TransactionInputWasm[]
+        })) as TransactionInputWasm[],
       );
 
       const summary: TransactionSummary = {
@@ -172,7 +175,9 @@ export async function orchestrateSigningConfirmation(
           intentDigest,
           displayModel,
           rpcCall: params.rpcCall,
-          ...(params.sessionPolicyDigest32 ? { sessionPolicyDigest32: params.sessionPolicyDigest32 } : {}),
+          ...(params.sessionPolicyDigest32
+            ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
+            : {}),
           ...(params.signingAuthMode ? { signingAuthMode: params.signingAuthMode } : {}),
         },
         confirmationConfig: params.confirmationConfigOverride,
@@ -181,16 +186,18 @@ export async function orchestrateSigningConfirmation(
       break;
     }
     case 'delegate': {
-      const txSigningRequests: TransactionInputWasm[] = [{
-        receiverId: params.delegate.receiverId,
-        actions: params.delegate.actions,
-      }];
+      const txSigningRequests: TransactionInputWasm[] = [
+        {
+          receiverId: params.delegate.receiverId,
+          actions: params.delegate.actions,
+        },
+      ];
 
       intentDigest = await computeUiIntentDigestFromTxs(
         txSigningRequests.map((tx) => ({
           receiverId: tx.receiverId,
           actions: tx.actions.map(orderActionForDigest),
-        }))
+        })),
       );
 
       const summary: TransactionSummary = {
@@ -224,7 +231,9 @@ export async function orchestrateSigningConfirmation(
           intentDigest,
           displayModel,
           rpcCall: params.rpcCall,
-          ...(params.sessionPolicyDigest32 ? { sessionPolicyDigest32: params.sessionPolicyDigest32 } : {}),
+          ...(params.sessionPolicyDigest32
+            ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
+            : {}),
           ...(params.signingAuthMode ? { signingAuthMode: params.signingAuthMode } : {}),
         },
         confirmationConfig: params.confirmationConfigOverride,
@@ -250,7 +259,9 @@ export async function orchestrateSigningConfirmation(
           nearAccountId: params.nearAccountId,
           message: params.message,
           recipient: params.recipient,
-          ...(params.sessionPolicyDigest32 ? { sessionPolicyDigest32: params.sessionPolicyDigest32 } : {}),
+          ...(params.sessionPolicyDigest32
+            ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
+            : {}),
           ...(params.signingAuthMode ? { signingAuthMode: params.signingAuthMode } : {}),
         },
         confirmationConfig: params.confirmationConfigOverride,
@@ -328,7 +339,8 @@ function resolveRequestUserConfirmationBridge(
   if (typeof ctx?.touchConfirm?.requestUserConfirmation !== 'function') {
     throw new Error('UserConfirm manager request bridge is unavailable');
   }
-  return async (request, options) => await ctx.touchConfirm.requestUserConfirmation(request, options);
+  return async (request, options) =>
+    await ctx.touchConfirm.requestUserConfirmation(request, options);
 }
 
 function computeTotalAmountYocto(txSigningRequests: TransactionInputWasm[]): string | undefined {

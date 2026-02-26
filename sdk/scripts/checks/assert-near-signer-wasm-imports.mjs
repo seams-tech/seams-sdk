@@ -87,7 +87,9 @@ for (const absFile of walkJsFiles(distEsmRoot)) {
 }
 
 if (offenders.length) {
-  console.error('[assert-near-signer-wasm-imports] Invalid NEAR wasm import specifiers in dist/esm:');
+  console.error(
+    '[assert-near-signer-wasm-imports] Invalid NEAR wasm import specifiers in dist/esm:',
+  );
   for (const o of offenders.slice(0, 40)) {
     console.error(`  - ${path.relative(sdkRoot, o.file)}: "${o.spec}" (${o.reason})`);
   }

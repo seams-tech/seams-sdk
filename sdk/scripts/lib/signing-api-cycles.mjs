@@ -65,7 +65,8 @@ function resolveImportTarget(fromFile, specifier, fileSet, signingRoot, repoRoot
 function readImports(filePath) {
   const source = fs.readFileSync(filePath, 'utf8');
   const imports = [];
-  const staticImportRegex = /(?:import|export)\s+(?:type\s+)?(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]/g;
+  const staticImportRegex =
+    /(?:import|export)\s+(?:type\s+)?(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]/g;
   const dynamicImportRegex = /import\(\s*['"]([^'"]+)['"]\s*\)/g;
 
   let match;
@@ -149,9 +150,7 @@ function hasSelfLoop(node, graph) {
 }
 
 function describeCycle(component, repoRoot) {
-  return component
-    .map((absPath) => toPosixPath(path.relative(repoRoot, absPath)))
-    .sort();
+  return component.map((absPath) => toPosixPath(path.relative(repoRoot, absPath))).sort();
 }
 
 export function findSigningApiCrossLayerCycles(repoRoot) {

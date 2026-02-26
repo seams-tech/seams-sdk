@@ -1,27 +1,27 @@
-import React from 'react'
-import { TatchiQRSvg } from './tatchiQRSvg'
+import React from 'react';
+import { TatchiQRSvg } from './tatchiQRSvg';
 
 export function BrowserWithQR(props: {
-  width?: number | string
-  height?: number | string
-  className?: string
-  style?: React.CSSProperties
+  width?: number | string;
+  height?: number | string;
+  className?: string;
+  style?: React.CSSProperties;
 }) {
-  const { width = '100%', height = '100%', className, style } = props
+  const { width = '100%', height = '100%', className, style } = props;
   // Default dimensions for viewBox
-  const vbW = 600
-  const vbH = 380
-  const border = '#00000020'
-  const windowFill = 'var(--w3a-colors-surface2)'
-  const barFill = 'var(--w3a-colors-surface, rgba(0,0,0,0.04))'
-  const controlRed = '#FF5F56'
-  const controlYellow = '#FFBD2E'
-  const controlGreen = '#27C93F'
+  const vbW = 600;
+  const vbH = 380;
+  const border = '#00000020';
+  const windowFill = 'var(--w3a-colors-surface2)';
+  const barFill = 'var(--w3a-colors-surface, rgba(0,0,0,0.04))';
+  const controlRed = '#FF5F56';
+  const controlYellow = '#FFBD2E';
+  const controlGreen = '#27C93F';
   // Theme-aware QR colors
   // - Background follows surface token (dark grey in dark mode, light in light mode)
   // - Ink uses textSecondary to be softer in light mode, but still high-contrast in dark
-  const qrBg = 'var(--w3a-colors-surface, #1f2937)'
-  const qrInk = 'var(--w3a-colors-textSecondary, #555)'
+  const qrBg = 'var(--w3a-colors-surface, #1f2937)';
+  const qrInk = 'var(--w3a-colors-textSecondary, #555)';
 
   return (
     <svg
@@ -33,7 +33,15 @@ export function BrowserWithQR(props: {
       aria-label="Desktop browser showing QR code"
     >
       {/* Window background */}
-      <rect x={0.5} y={0.5} width={vbW - 1} height={vbH - 1} rx={16} fill={windowFill} stroke={'none'} />
+      <rect
+        x={0.5}
+        y={0.5}
+        width={vbW - 1}
+        height={vbH - 1}
+        rx={16}
+        fill={windowFill}
+        stroke={'none'}
+      />
       {/* Title / address bar */}
       <rect x={16} y={16} width={vbW - 32} height={44} rx={10} fill={barFill} />
       {/* Window controls */}
@@ -45,14 +53,22 @@ export function BrowserWithQR(props: {
 
       {/* Content area */}
       <g transform="translate(0, 72)">
-        <rect x={16} y={0} width={vbW - 32} height={vbH - 88} rx={12} fill="rgba(0,0,0,0.02)" stroke={'none'} />
+        <rect
+          x={16}
+          y={0}
+          width={vbW - 32}
+          height={vbH - 88}
+          rx={12}
+          fill="rgba(0,0,0,0.02)"
+          stroke={'none'}
+        />
         {/* QR container: re-use TatchiQRSvg scaled to 160px and positioned */}
         <g transform="translate(220, 66)">
           <TatchiQRSvg width={160} height={160} />
         </g>
       </g>
     </svg>
-  )
+  );
 }
 
-export default BrowserWithQR
+export default BrowserWithQR;

@@ -79,7 +79,11 @@ export async function connectEd25519Session(args: {
 
   const prfFirstB64u = getPrfFirstB64uFromCredential(credential);
   if (!prfFirstB64u) {
-    return { ok: false, code: 'unsupported', message: 'Missing PRF.first output from credential (requires a PRF-enabled passkey)' };
+    return {
+      ok: false,
+      code: 'unsupported',
+      message: 'Missing PRF.first output from credential (requires a PRF-enabled passkey)',
+    };
   }
 
   // 2) Derive client verifying share using the signer worker (share stays inside the worker).
@@ -91,7 +95,11 @@ export async function connectEd25519Session(args: {
     wrapKeySalt: DUMMY_WRAP_KEY_SALT_B64U,
   });
   if (!derive.success) {
-    return { ok: false, code: 'internal', message: derive.error || 'Failed to derive client verifying share' };
+    return {
+      ok: false,
+      code: 'internal',
+      message: derive.error || 'Failed to derive client verifying share',
+    };
   }
   const clientVerifyingShareB64u = derive.clientVerifyingShareB64u;
 
@@ -110,7 +118,7 @@ export async function connectEd25519Session(args: {
 
   // Cache PRF.first in-memory for the session TTL/uses window so subsequent signing can
   // dispense the client share seed without prompting again (wallet-origin only).
-  const expiresAtMs = minted.expiresAtMs ?? (Date.now() + policy.ttlMs);
+  const expiresAtMs = minted.expiresAtMs ?? Date.now() + policy.ttlMs;
   const remainingUses = minted.remainingUses ?? policy.remainingUses;
   const prfFirstCache = args.prfFirstCache;
   if (prfFirstCache) {

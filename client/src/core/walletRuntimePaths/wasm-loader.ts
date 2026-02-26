@@ -58,7 +58,11 @@ export interface WasmLoaderOptions {
  * @param customBaseUrl - Optional absolute base URL that takes precedence over env/globals.
  * @returns Absolute URL to the resolved WASM binary.
  */
-export function resolveWasmUrl(wasmFilename: string, workerName: string, customBaseUrl?: string): URL {
+export function resolveWasmUrl(
+  wasmFilename: string,
+  workerName: string,
+  customBaseUrl?: string,
+): URL {
   if (customBaseUrl) {
     return new URL(wasmFilename, customBaseUrl);
   }
@@ -75,14 +79,17 @@ export function resolveWasmUrl(wasmFilename: string, workerName: string, customB
   try {
     let metaUrl: string | null = null;
     try {
-      metaUrl = (typeof import.meta !== 'undefined' && (import.meta as any)?.url)
-        ? (import.meta as any).url as string
-        : null;
-    } catch { metaUrl = null; }
-    const baseUrl = metaUrl || ((self as any)?.location?.href) || '/';
+      metaUrl =
+        typeof import.meta !== 'undefined' && (import.meta as any)?.url
+          ? ((import.meta as any).url as string)
+          : null;
+    } catch {
+      metaUrl = null;
+    }
+    const baseUrl = metaUrl || (self as any)?.location?.href || '/';
     return new URL(`./${wasmFilename}`, baseUrl);
   } catch {
-    return new URL(`/sdk/workers/${wasmFilename}`, ((self as any)?.location?.origin) || '/');
+    return new URL(`/sdk/workers/${wasmFilename}`, (self as any)?.location?.origin || '/');
   }
 }
 
@@ -108,13 +115,13 @@ export async function initializeWasm(options: WasmLoaderOptions): Promise<any> {
     validateFunction,
     testFunction,
     createFallbackModule,
-    timeoutMs = 20000
+    timeoutMs = 20000,
   } = options;
 
   console.debug(`[${workerName}]: Starting WASM initialization...`, {
     wasmUrl: wasmUrl.href,
-    userAgent: (typeof navigator !== 'undefined' ? navigator.userAgent : ''),
-    currentUrl: (typeof self !== 'undefined' ? (self as any).location?.href : '')
+    userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+    currentUrl: typeof self !== 'undefined' ? (self as any).location?.href : '',
   });
 
   const initWithTimeout = async (): Promise<any> => {
@@ -126,13 +133,17 @@ export async function initializeWasm(options: WasmLoaderOptions): Promise<any> {
       console.debug(`[${workerName}]: WASM initialized successfully`);
       return true;
     } catch (bundledError: any) {
-      console.warn(`[${workerName}]: Bundled WASM unavailable, attempting network fallback:`, bundledError?.message);
+      console.warn(
+        `[${workerName}]: Bundled WASM unavailable, attempting network fallback:`,
+        bundledError?.message,
+      );
     }
 
     try {
       console.debug(`[${workerName}]: Fetching WASM from network:`, wasmUrl.href);
       const response = await fetch(wasmUrl.href);
-      if (!response.ok) throw new Error(`Failed to fetch WASM: ${response.status} ${response.statusText}`);
+      if (!response.ok)
+        throw new Error(`Failed to fetch WASM: ${response.status} ${response.statusText}`);
       const arrayBuffer = await response.arrayBuffer();
       const wasmModule = await WebAssembly.compile(arrayBuffer);
       await initFunction({ module_or_path: wasmModule as any });
@@ -142,9 +153,12 @@ export async function initializeWasm(options: WasmLoaderOptions): Promise<any> {
       return true;
     } catch (networkError: any) {
       console.error(`[${workerName}]: All WASM initialization methods failed`);
-      const helpfulMessage = `\n${workerName.toUpperCase()} WASM initialization failed. This may be due to:\n1. Server MIME type configuration (WASM files should be served with 'application/wasm')\n2. Network connectivity issues\n3. CORS policy restrictions\n4. Missing WASM files in deployment\n5. SDK packaging problems\n\nOriginal error: ${networkError?.message}\n`.trim();
+      const helpfulMessage =
+        `\n${workerName.toUpperCase()} WASM initialization failed. This may be due to:\n1. Server MIME type configuration (WASM files should be served with 'application/wasm')\n2. Network connectivity issues\n3. CORS policy restrictions\n4. Missing WASM files in deployment\n5. SDK packaging problems\n\nOriginal error: ${networkError?.message}\n`.trim();
       if (createFallbackModule) {
-        console.warn(`[${workerName}]: Creating fallback module due to WASM initialization failure`);
+        console.warn(
+          `[${workerName}]: Creating fallback module due to WASM initialization failure`,
+        );
         return createFallbackModule(helpfulMessage);
       }
       throw new Error(helpfulMessage);
@@ -156,8 +170,11 @@ export async function initializeWasm(options: WasmLoaderOptions): Promise<any> {
     const result = await Promise.race([
       initWithTimeout(),
       new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error(`WASM initialization timeout after ${timeoutMs}ms`)), timeoutMs);
-      })
+        timeoutId = setTimeout(
+          () => reject(new Error(`WASM initialization timeout after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+      }),
     ]);
     clearTimeout(timeoutId);
     return result;

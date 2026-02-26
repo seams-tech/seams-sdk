@@ -4,16 +4,14 @@ import fs from 'node:fs';
 import expressImport from 'express';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { createRelayRouter } from '../../../sdk/dist/esm/server/router/express.js';
-import {
-  AuthService,
-  createThresholdSigningService,
-} from '../../../sdk/dist/esm/server/index.js';
+import { AuthService, createThresholdSigningService } from '../../../sdk/dist/esm/server/index.js';
 import { ThresholdEcdsaSigningHandlers } from '../../../sdk/dist/esm/server/core/ThresholdService/ecdsaSigningHandlers.js';
-import {
-  createThresholdEcdsaSigningStores,
-} from '../../../sdk/dist/esm/server/core/ThresholdService/stores/EcdsaSigningStore.js';
+import { createThresholdEcdsaSigningStores } from '../../../sdk/dist/esm/server/core/ThresholdService/stores/EcdsaSigningStore.js';
 import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../../sdk/dist/esm/server/core/ThresholdService/schemes/schemeIds.js';
-import { alphabetizeStringify, sha256BytesUtf8 } from '../../../sdk/dist/esm/shared/src/utils/digests.js';
+import {
+  alphabetizeStringify,
+  sha256BytesUtf8,
+} from '../../../sdk/dist/esm/shared/src/utils/digests.js';
 import {
   addSecp256k1PublicKeys33,
   deriveThresholdSecp256k1RelayerShare,
@@ -104,13 +102,15 @@ function fromB64uMessages(messagesB64u) {
 }
 
 async function deriveRelayerKeyId(input) {
-  const digest32 = await sha256BytesUtf8(alphabetizeStringify({
-    version: 'threshold_secp256k1_key_id_v1',
-    schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-    userId: input.userId,
-    rpId: input.rpId,
-    clientVerifyingShareB64u: input.clientVerifyingShareB64u,
-  }));
+  const digest32 = await sha256BytesUtf8(
+    alphabetizeStringify({
+      version: 'threshold_secp256k1_key_id_v1',
+      schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
+      userId: input.userId,
+      rpId: input.rpId,
+      clientVerifyingShareB64u: input.clientVerifyingShareB64u,
+    }),
+  );
   return `secp-${base64UrlEncode(digest32)}`;
 }
 
@@ -193,21 +193,22 @@ function createCacheMissHandlers(input) {
   };
 
   let presignIdCounter = 0;
-  const makeHandler = () => new ThresholdEcdsaSigningHandlers({
-    logger,
-    nodeRole: 'coordinator',
-    participantIds2p: input.participantIds,
-    clientParticipantId: input.clientParticipantId,
-    relayerParticipantId: input.relayerParticipantId,
-    secp256k1MasterSecretB64u: TEST_MASTER_SECRET_B64U,
-    sessionStore: fakeSessionStore,
-    signingSessionStore: signingStores.signingSessionStore,
-    presignSessionStore: signingStores.presignSessionStore,
-    presignaturePool: signingStores.presignaturePool,
-    ensureReady: async () => {},
-    createSigningSessionId: () => randomUuidLike('bench-sign'),
-    createPresignSessionId: () => `bench-presign-${++presignIdCounter}`,
-  });
+  const makeHandler = () =>
+    new ThresholdEcdsaSigningHandlers({
+      logger,
+      nodeRole: 'coordinator',
+      participantIds2p: input.participantIds,
+      clientParticipantId: input.clientParticipantId,
+      relayerParticipantId: input.relayerParticipantId,
+      secp256k1MasterSecretB64u: TEST_MASTER_SECRET_B64U,
+      sessionStore: fakeSessionStore,
+      signingSessionStore: signingStores.signingSessionStore,
+      presignSessionStore: signingStores.presignSessionStore,
+      presignaturePool: signingStores.presignaturePool,
+      ensureReady: async () => {},
+      createSigningSessionId: () => randomUuidLike('bench-sign'),
+      createPresignSessionId: () => `bench-presign-${++presignIdCounter}`,
+    });
 
   return {
     handlerA: makeHandler(),
@@ -217,25 +218,28 @@ function createCacheMissHandlers(input) {
 
 function pollSession(session) {
   const raw = session.poll() || {};
-  const stage = raw.stage === 'triples_done'
-    ? 'triples_done'
-    : raw.stage === 'presign'
-      ? 'presign'
-      : raw.stage === 'done'
-        ? 'done'
-        : 'triples';
-  const event = raw.event === 'triples_done'
-    ? 'triples_done'
-    : raw.event === 'presign_done'
-      ? 'presign_done'
-      : 'none';
+  const stage =
+    raw.stage === 'triples_done'
+      ? 'triples_done'
+      : raw.stage === 'presign'
+        ? 'presign'
+        : raw.stage === 'done'
+          ? 'done'
+          : 'triples';
+  const event =
+    raw.event === 'triples_done'
+      ? 'triples_done'
+      : raw.event === 'presign_done'
+        ? 'presign_done'
+        : 'none';
   const outgoingMessages = Array.isArray(raw.outgoing)
     ? raw.outgoing.map((entry) => {
-      if (entry instanceof Uint8Array) return entry;
-      if (entry instanceof ArrayBuffer) return new Uint8Array(entry);
-      if (ArrayBuffer.isView(entry)) return new Uint8Array(entry.buffer, entry.byteOffset, entry.byteLength);
-      throw new Error('Unexpected presign outgoing message type');
-    })
+        if (entry instanceof Uint8Array) return entry;
+        if (entry instanceof ArrayBuffer) return new Uint8Array(entry);
+        if (ArrayBuffer.isView(entry))
+          return new Uint8Array(entry.buffer, entry.byteOffset, entry.byteLength);
+        throw new Error('Unexpected presign outgoing message type');
+      })
     : [];
   return { stage, event, outgoingMessages };
 }
@@ -266,7 +270,8 @@ async function startExpressRouter(router) {
   if (!address || typeof address === 'string') throw new Error('Failed to bind benchmark server');
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
-    close: () => new Promise((resolve, reject) => server.close((err) => (err ? reject(err) : resolve()))),
+    close: () =>
+      new Promise((resolve, reject) => server.close((err) => (err ? reject(err) : resolve()))),
   };
 }
 
@@ -308,7 +313,9 @@ function fakeWebAuthnAuthentication() {
 }
 
 function parseThresholdStoreConfigFromEnv() {
-  const mode = String(process.env.BENCH_THRESHOLD_STORE_MODE || 'in-memory').trim().toLowerCase();
+  const mode = String(process.env.BENCH_THRESHOLD_STORE_MODE || 'in-memory')
+    .trim()
+    .toLowerCase();
   const base = {
     THRESHOLD_NODE_ROLE: 'coordinator',
     THRESHOLD_SECP256K1_MASTER_SECRET_B64U: TEST_MASTER_SECRET_B64U,
@@ -316,24 +323,41 @@ function parseThresholdStoreConfigFromEnv() {
   if (mode === 'redis') {
     const redisUrl = String(process.env.BENCH_REDIS_URL || process.env.REDIS_URL || '').trim();
     if (!redisUrl) {
-      console.warn('[benchmark] BENCH_THRESHOLD_STORE_MODE=redis but REDIS_URL missing; falling back to in-memory');
+      console.warn(
+        '[benchmark] BENCH_THRESHOLD_STORE_MODE=redis but REDIS_URL missing; falling back to in-memory',
+      );
       return { kind: 'in-memory', ...base };
     }
     return { kind: 'redis-tcp', REDIS_URL: redisUrl, ...base };
   }
   if (mode === 'upstash') {
-    const url = String(process.env.BENCH_UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_REST_URL || '').trim();
-    const token = String(process.env.BENCH_UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim();
+    const url = String(
+      process.env.BENCH_UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_REST_URL || '',
+    ).trim();
+    const token = String(
+      process.env.BENCH_UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '',
+    ).trim();
     if (!url || !token) {
-      console.warn('[benchmark] BENCH_THRESHOLD_STORE_MODE=upstash but Upstash env missing; falling back to in-memory');
+      console.warn(
+        '[benchmark] BENCH_THRESHOLD_STORE_MODE=upstash but Upstash env missing; falling back to in-memory',
+      );
       return { kind: 'in-memory', ...base };
     }
-    return { kind: 'upstash-rest', UPSTASH_REDIS_REST_URL: url, UPSTASH_REDIS_REST_TOKEN: token, ...base };
+    return {
+      kind: 'upstash-rest',
+      UPSTASH_REDIS_REST_URL: url,
+      UPSTASH_REDIS_REST_TOKEN: token,
+      ...base,
+    };
   }
   if (mode === 'postgres') {
-    const pgUrl = String(process.env.BENCH_PG_URL || process.env.POSTGRES_URL || process.env.DATABASE_URL || '').trim();
+    const pgUrl = String(
+      process.env.BENCH_PG_URL || process.env.POSTGRES_URL || process.env.DATABASE_URL || '',
+    ).trim();
     if (!pgUrl) {
-      console.warn('[benchmark] BENCH_THRESHOLD_STORE_MODE=postgres but DB URL missing; falling back to in-memory');
+      console.warn(
+        '[benchmark] BENCH_THRESHOLD_STORE_MODE=postgres but DB URL missing; falling back to in-memory',
+      );
       return { kind: 'in-memory', ...base };
     }
     return { kind: 'postgres', POSTGRES_URL: pgUrl, ...base };
@@ -402,7 +426,14 @@ async function bootstrapContext(baseUrl, userId, rpId, clientVerifyingShareB64u,
   };
 }
 
-async function authorizeMpcSession(baseUrl, jwt, relayerKeyId, clientVerifyingShareB64u, digest32, purpose) {
+async function authorizeMpcSession(
+  baseUrl,
+  jwt,
+  relayerKeyId,
+  clientVerifyingShareB64u,
+  digest32,
+  purpose,
+) {
   const authorized = await fetchJson(`${baseUrl}/threshold-ecdsa/authorize`, {
     method: 'POST',
     headers: {
@@ -478,7 +509,11 @@ async function runPresignHandshake(args) {
         pendingServerOutgoing = [];
         const localPolled = pollSession(localSession);
         pendingClientOutgoing.push(...localPolled.outgoingMessages);
-        if (localPolled.stage === 'triples_done' || localPolled.stage === 'presign' || localPolled.stage === 'done') {
+        if (
+          localPolled.stage === 'triples_done' ||
+          localPolled.stage === 'presign' ||
+          localPolled.stage === 'done'
+        ) {
           stageForServer = 'presign';
         }
         if (localPolled.event === 'presign_done') {
@@ -517,13 +552,21 @@ async function runPresignHandshake(args) {
 
       if (localDonePresignature97 && serverDone && serverPresignatureId && serverBigRB64u) break;
 
-      if (!pendingServerOutgoing.length && !pendingClientOutgoing.length && !localDonePresignature97) {
+      if (
+        !pendingServerOutgoing.length &&
+        !pendingClientOutgoing.length &&
+        !localDonePresignature97
+      ) {
         if (stageForServer === 'presign' && localSession.stage() === 'triples_done') {
           localSession.start_presign();
         }
         const localPolled = pollSession(localSession);
         pendingClientOutgoing.push(...localPolled.outgoingMessages);
-        if (localPolled.stage === 'triples_done' || localPolled.stage === 'presign' || localPolled.stage === 'done') {
+        if (
+          localPolled.stage === 'triples_done' ||
+          localPolled.stage === 'presign' ||
+          localPolled.stage === 'done'
+        ) {
           stageForServer = 'presign';
         }
         if (localPolled.event === 'presign_done') {
@@ -533,7 +576,8 @@ async function runPresignHandshake(args) {
     }
 
     if (!localDonePresignature97) throw new Error('local presign session did not finish');
-    if (!serverPresignatureId || !serverBigRB64u) throw new Error('server presign session did not finish');
+    if (!serverPresignatureId || !serverBigRB64u)
+      throw new Error('server presign session did not finish');
     if (localDonePresignature97.length !== 97) {
       throw new Error(`invalid local presignature length: ${localDonePresignature97.length}`);
     }
@@ -578,7 +622,8 @@ async function signWithPresign(args) {
   const signingSessionId = String(signInit.json.signingSessionId || '').trim();
   const entropyB64u = String(signInit.json?.relayerRound1?.entropyB64u || '').trim();
   const relayerBigRB64u = String(signInit.json?.relayerRound1?.bigRB64u || '').trim();
-  if (!signingSessionId || !entropyB64u) throw new Error(`sign/init missing fields: ${signInit.text}`);
+  if (!signingSessionId || !entropyB64u)
+    throw new Error(`sign/init missing fields: ${signInit.text}`);
   if (relayerBigRB64u && relayerBigRB64u !== args.presignature.bigRB64u) {
     throw new Error('relayer selected different presignature (bigR mismatch)');
   }
@@ -621,18 +666,20 @@ async function runSingleFlow(args) {
     digest32,
     args.purpose,
   );
-  const presignature = args.presignature || await runPresignHandshake({
-    baseUrl: args.baseUrl,
-    jwt: args.jwt,
-    relayerKeyId: args.relayerKeyId,
-    clientVerifyingShareB64u: args.clientVerifyingShareB64u,
-    clientSigningShare32: args.clientSigningShare32,
-    groupPublicKey33: args.groupPublicKey33,
-    participantIds: args.participantIds,
-    clientParticipantId: args.clientParticipantId,
-    relayerParticipantId: args.relayerParticipantId,
-    requestTag: args.requestTag,
-  });
+  const presignature =
+    args.presignature ||
+    (await runPresignHandshake({
+      baseUrl: args.baseUrl,
+      jwt: args.jwt,
+      relayerKeyId: args.relayerKeyId,
+      clientVerifyingShareB64u: args.clientVerifyingShareB64u,
+      clientSigningShare32: args.clientSigningShare32,
+      groupPublicKey33: args.groupPublicKey33,
+      participantIds: args.participantIds,
+      clientParticipantId: args.clientParticipantId,
+      relayerParticipantId: args.relayerParticipantId,
+      requestTag: args.requestTag,
+    }));
   await signWithPresign({
     baseUrl: args.baseUrl,
     mpcSessionId,
@@ -676,14 +723,15 @@ async function runLiveCacheMissHandshake(base) {
       clientVerifyingShareB64u_len: base.clientVerifyingShareB64u.length,
       count: 1,
     },
-    fn: () => handlers.handlerA.ecdsaPresignInit({
-      claims,
-      request: {
-        relayerKeyId,
-        clientVerifyingShareB64u: base.clientVerifyingShareB64u,
-        count: 1,
-      },
-    }),
+    fn: () =>
+      handlers.handlerA.ecdsaPresignInit({
+        claims,
+        request: {
+          relayerKeyId,
+          clientVerifyingShareB64u: base.clientVerifyingShareB64u,
+          count: 1,
+        },
+      }),
   });
   if (!init.ok) {
     throw new Error(`live-cache-miss init failed: ${init.message || init.code || 'unknown'}`);
@@ -699,14 +747,15 @@ async function runLiveCacheMissHandshake(base) {
       stage: 'triples',
       outgoingMessagesB64u_len: 0,
     },
-    fn: () => handlers.handlerB.ecdsaPresignStep({
-      claims,
-      request: {
-        presignSessionId,
-        stage: 'triples',
-        outgoingMessagesB64u: [],
-      },
-    }),
+    fn: () =>
+      handlers.handlerB.ecdsaPresignStep({
+        claims,
+        request: {
+          presignSessionId,
+          stage: 'triples',
+          outgoingMessagesB64u: [],
+        },
+      }),
   });
   if (step.ok) {
     throw new Error('live-cache-miss step unexpectedly succeeded on non-owning handler');
@@ -803,7 +852,9 @@ async function runScenario(base, scenario) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const wasmBytes = fs.readFileSync(new URL('../../../wasm/eth_signer/pkg/eth_signer_bg.wasm', import.meta.url));
+  const wasmBytes = fs.readFileSync(
+    new URL('../../../wasm/eth_signer/pkg/eth_signer_bg.wasm', import.meta.url),
+  );
   initEthSignerWasmSync({ module: wasmBytes });
   const logger = createLogger();
   const { service, threshold } = makeAuthServiceForThreshold(logger);
@@ -818,29 +869,43 @@ async function main() {
     const clientParticipantId = DEFAULT_CLIENT_PARTICIPANT_ID;
     const relayerParticipantId = DEFAULT_RELAYER_PARTICIPANT_ID;
     const clientSigningShare32 = randomSecpSecretKey32();
-    const clientVerifyingShareB64u = base64UrlEncode(secp256k1.getPublicKey(clientSigningShare32, true));
-    const boot = await bootstrapContext(server.baseUrl, userId, rpId, clientVerifyingShareB64u, participantIds);
+    const clientVerifyingShareB64u = base64UrlEncode(
+      secp256k1.getPublicKey(clientSigningShare32, true),
+    );
+    const boot = await bootstrapContext(
+      server.baseUrl,
+      userId,
+      rpId,
+      clientVerifyingShareB64u,
+      participantIds,
+    );
 
     const runs = [];
     for (let i = 0; i < args.iterations; i += 1) {
-      const run = await runScenario({
-        baseUrl: server.baseUrl,
-        jwt: boot.jwt,
-        relayerKeyId: boot.relayerKeyId,
-        groupPublicKey33: boot.groupPublicKey33,
-        participantIds,
-        clientParticipantId,
-        relayerParticipantId,
-        clientSigningShare32,
-        clientVerifyingShareB64u,
-      }, args.scenario);
+      const run = await runScenario(
+        {
+          baseUrl: server.baseUrl,
+          jwt: boot.jwt,
+          relayerKeyId: boot.relayerKeyId,
+          groupPublicKey33: boot.groupPublicKey33,
+          participantIds,
+          clientParticipantId,
+          relayerParticipantId,
+          clientSigningShare32,
+          clientVerifyingShareB64u,
+        },
+        args.scenario,
+      );
       runs.push(run);
     }
 
-    const totalValues = runs.map((entry) => Number(entry.totalMs)).filter((value) => Number.isFinite(value));
-    const meanMs = totalValues.length > 0
-      ? totalValues.reduce((acc, value) => acc + value, 0) / totalValues.length
-      : 0;
+    const totalValues = runs
+      .map((entry) => Number(entry.totalMs))
+      .filter((value) => Number.isFinite(value));
+    const meanMs =
+      totalValues.length > 0
+        ? totalValues.reduce((acc, value) => acc + value, 0) / totalValues.length
+        : 0;
     const summary = {
       scenario: args.scenario,
       iterations: args.iterations,

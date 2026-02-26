@@ -1,4 +1,4 @@
-import NearLogo from './icons/NearLogo'
+import NearLogo from './icons/NearLogo';
 
 /**
  * Semi-translucent NEAR logo background overlay for the right layout column.
@@ -9,7 +9,7 @@ export function NearLogoBg() {
     <div className="near-logo-bg" aria-hidden>
       <NearLogo className="near-logo-bg__svg" aria-hidden />
     </div>
-  )
+  );
 }
 
-export default NearLogoBg
+export default NearLogoBg;

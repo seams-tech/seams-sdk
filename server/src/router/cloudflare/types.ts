@@ -1,9 +1,5 @@
 // Minimal Worker runtime types (avoid adding @cloudflare/workers-types dependency here)
-export interface CfEnv {
-  // Note: Do not add an index signature here. Cloudflare env bindings can include
-  // KV namespaces, Durable Objects, etc., and requiring `[key: string]: string`
-  // makes real-world `Env` types not assignable.
-}
+export type CfEnv = object;
 
 /**
  * Convenience env shape matching the `examples/relay-cloudflare-worker` configuration.
@@ -34,12 +30,12 @@ export interface RelayCloudflareWorkerEnv {
 
 export interface CfExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
-  passThroughOnException(): void
+  passThroughOnException(): void;
 }
 
 export interface CfScheduledEvent {
   scheduledTime?: number;
-  cron?: string
+  cron?: string;
 }
 
 export interface CfEmailMessage {
@@ -52,6 +48,18 @@ export interface CfEmailMessage {
   setReject(reason: string): void;
 }
 
-export type FetchHandler = (request: Request, env?: CfEnv, ctx?: CfExecutionContext) => Promise<Response>;
-export type ScheduledHandler = (event: CfScheduledEvent, env?: CfEnv, ctx?: CfExecutionContext) => Promise<void>;
-export type EmailHandler = (message: CfEmailMessage, env?: CfEnv, ctx?: CfExecutionContext) => Promise<void>;
+export type FetchHandler = (
+  request: Request,
+  env?: CfEnv,
+  ctx?: CfExecutionContext,
+) => Promise<Response>;
+export type ScheduledHandler = (
+  event: CfScheduledEvent,
+  env?: CfEnv,
+  ctx?: CfExecutionContext,
+) => Promise<void>;
+export type EmailHandler = (
+  message: CfEmailMessage,
+  env?: CfEnv,
+  ctx?: CfExecutionContext,
+) => Promise<void>;

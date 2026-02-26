@@ -1,5 +1,7 @@
 function normalizeHex(dataHex: string | undefined): string {
-  const raw = String(dataHex || '').trim().toLowerCase();
+  const raw = String(dataHex || '')
+    .trim()
+    .toLowerCase();
   if (!raw || raw === '0x') return '0x';
   return raw.startsWith('0x') ? raw : `0x${raw}`;
 }

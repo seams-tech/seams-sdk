@@ -18,7 +18,9 @@ export const NEAR_ED25519_KEY_REF: NearEd25519KeyRef = {
 export type NearEd25519OperationHandlers = {
   signTransactionsWithActions: (
     payload: NearTransactionsWithActionsPayload,
-  ) => Promise<Extract<NearEd25519SignOutput, { kind: 'near-transactions-with-actions' }>['result']>;
+  ) => Promise<
+    Extract<NearEd25519SignOutput, { kind: 'near-transactions-with-actions' }>['result']
+  >;
   signDelegateAction: (
     payload: NearDelegateActionPayload,
   ) => Promise<Extract<NearEd25519SignOutput, { kind: 'near-delegate-action' }>['result']>;
@@ -32,7 +34,6 @@ export class NearEd25519Engine implements Signer<
   NearEd25519KeyRef,
   NearEd25519SignOutput
 > {
-
   readonly algorithm = 'ed25519' as const;
 
   constructor(private readonly handlers: NearEd25519OperationHandlers) {}

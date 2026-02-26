@@ -50,7 +50,11 @@ export function markContainer(el: HTMLElement): string {
   return ensureContainerId(el);
 }
 
-export function setContainerAnchored(el: HTMLElement, rect: DOMRectLike, anchorMode: 'iframe' | 'viewport'): void {
+export function setContainerAnchored(
+  el: HTMLElement,
+  rect: DOMRectLike,
+  anchorMode: 'iframe' | 'viewport',
+): void {
   const id = markContainer(el);
   const top = anchorMode === 'iframe' ? 0 : Math.max(0, Math.round(rect.top));
   const left = anchorMode === 'iframe' ? 0 : Math.max(0, Math.round(rect.left));

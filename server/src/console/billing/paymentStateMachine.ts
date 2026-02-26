@@ -25,12 +25,24 @@ export interface PaymentTransitionInput {
 
 export type PaymentTransitionValidationResult =
   | { ok: true }
-  | { ok: false; code: 'transition_not_allowed' | 'confirmation_threshold_not_met' | 'confirmation_timeout'; message: string };
+  | {
+      ok: false;
+      code: 'transition_not_allowed' | 'confirmation_threshold_not_met' | 'confirmation_timeout';
+      message: string;
+    };
 
 const PAYMENT_STATE_TRANSITIONS: Record<PaymentState, ReadonlyArray<PaymentState>> = {
   CREATED: ['ACTION_REQUIRED', 'PENDING', 'FAILED', 'CANCELED'],
   ACTION_REQUIRED: ['PENDING', 'FAILED', 'CANCELED', 'EXPIRED'],
-  PENDING: ['CONFIRMING', 'SETTLED', 'PARTIALLY_SETTLED', 'OVERPAID', 'FAILED', 'CANCELED', 'EXPIRED'],
+  PENDING: [
+    'CONFIRMING',
+    'SETTLED',
+    'PARTIALLY_SETTLED',
+    'OVERPAID',
+    'FAILED',
+    'CANCELED',
+    'EXPIRED',
+  ],
   CONFIRMING: ['SETTLED', 'PARTIALLY_SETTLED', 'OVERPAID', 'FAILED'],
   SETTLED: ['REFUNDED', 'DISPUTED'],
   PARTIALLY_SETTLED: [],
@@ -46,7 +58,9 @@ export function listAllowedPaymentTransitions(state: PaymentState): ReadonlyArra
   return PAYMENT_STATE_TRANSITIONS[state];
 }
 
-export function canTransitionPaymentState(input: PaymentTransitionInput): PaymentTransitionValidationResult {
+export function canTransitionPaymentState(
+  input: PaymentTransitionInput,
+): PaymentTransitionValidationResult {
   const allowed = PAYMENT_STATE_TRANSITIONS[input.from];
   if (!allowed.includes(input.to)) {
     return {

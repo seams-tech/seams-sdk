@@ -13,7 +13,9 @@ function requirePrfB64uFromCredential(
 ): string {
   const value = getPrfResultsFromCredential(credential)[output];
   if (!value) {
-    throw new Error(`Missing PRF.${output} output from credential (requires a PRF-enabled passkey)`);
+    throw new Error(
+      `Missing PRF.${output} output from credential (requires a PRF-enabled passkey)`,
+    );
   }
   return value;
 }
@@ -21,14 +23,18 @@ function requirePrfB64uFromCredential(
 function isWebAuthnRegistrationCredential(
   credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential,
 ): credential is WebAuthnRegistrationCredential {
-  return typeof (credential as WebAuthnRegistrationCredential)?.response?.attestationObject === 'string';
+  return (
+    typeof (credential as WebAuthnRegistrationCredential)?.response?.attestationObject === 'string'
+  );
 }
 
 export type NearKeyDerivationDeps = {
   createSessionId: (prefix: string) => string;
   signingKeyOps: Pick<
     NearSigningKeyOps,
-    'deriveNearKeypairAndEncryptFromSerialized' | 'decryptPrivateKeyWithPrf' | 'recoverKeypairFromPasskey'
+    | 'deriveNearKeypairAndEncryptFromSerialized'
+    | 'decryptPrivateKeyWithPrf'
+    | 'recoverKeypairFromPasskey'
   >;
 };
 
@@ -79,7 +85,9 @@ export async function deriveNearKeypairFromCredentialViaWorker(
       options: { persistToDb: false },
     });
     if (!derived.success || !derived.publicKey || !derived.wrapKeySalt) {
-      throw new Error(derived.error || 'Failed to derive NEAR keypair from registration credential');
+      throw new Error(
+        derived.error || 'Failed to derive NEAR keypair from registration credential',
+      );
     }
     const encryptedSk = String(derived.encryptedSk || '').trim();
     const chacha20NonceB64u = String(derived.chacha20NonceB64u || '').trim();

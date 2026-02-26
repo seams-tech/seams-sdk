@@ -9,26 +9,26 @@ The wallet pairs WebAuthn PRF with **verifiable random function (SecureConfirm)*
 - **Traditional WebAuthn** requires a server to generate challenges, verify signatures, and maintain session state.
 - **In Web3Authn** the SecureConfirm worker generates challenges client-side, binds them to NEAR block data (plus optional intent/session digests), and the contract verifies the SecureConfirm proof + WebAuthn signature before any signing session is released.
 
-
 ## SecureConfirm Challenge Construction
 
 SecureConfirm challenges bind fresh blockchain data to prevent replay attacks. The SecureConfirm worker builds the input from NEAR chain state:
 
-| Field | Purpose | Source |
-|-------|---------|--------|
-| `domain_separator` | Prevents cross-protocol collisions | Fixed constant (`"web3_authn_challenge_v4"`) |
-| `user_id` | Binds challenge to the NEAR account | Client (NEAR account ID) |
-| `relying_party_id` | Binds to the wallet origin | Client config (wallet origin / rpId) |
-| `block_height` | Enforces freshness window | NEAR RPC |
-| `block_hash` | Protects across forks/reorgs | NEAR RPC |
-| `intent_digest_32` (optional) | Binds a canonical intent payload to the challenge | SDK (base64url 32 bytes) |
-| `session_policy_digest_32` (optional) | Binds relayer session policy to the challenge | SDK/relayer (base64url 32 bytes) |
+| Field                                 | Purpose                                           | Source                                       |
+| ------------------------------------- | ------------------------------------------------- | -------------------------------------------- |
+| `domain_separator`                    | Prevents cross-protocol collisions                | Fixed constant (`"web3_authn_challenge_v4"`) |
+| `user_id`                             | Binds challenge to the NEAR account               | Client (NEAR account ID)                     |
+| `relying_party_id`                    | Binds to the wallet origin                        | Client config (wallet origin / rpId)         |
+| `block_height`                        | Enforces freshness window                         | NEAR RPC                                     |
+| `block_hash`                          | Protects across forks/reorgs                      | NEAR RPC                                     |
+| `intent_digest_32` (optional)         | Binds a canonical intent payload to the challenge | SDK (base64url 32 bytes)                     |
+| `session_policy_digest_32` (optional) | Binds relayer session policy to the challenge     | SDK/relayer (base64url 32 bytes)             |
 
 The challenge input is `sha256(domain_separator || user_id || rp_id_lower || block_height_le || block_hash || intent_digest_32? || session_policy_digest_32?)`. `rp_id` is lowercased to match on-chain derivation and `block_height` is encoded as little-endian bytes.
 
 **Intent digest binding:** when present, `intent_digest_32` is the canonical digest of the signing payload (tx/delegate/NEP-413) or threshold keygen intent. For threshold signing, the relayer recomputes this digest from the `signingPayload` and rejects any `signing_digest_32` that does not match the SecureConfirm‑bound intent.
 
 **SecureConfirm security properties:**
+
 - **Unpredictable** - SecureConfirm outputs indistinguishable from random
 - **Verifiable** - Anyone can verify the challenge came from the user's public key
 - **Non-malleable** - Requires private key to generate valid proofs
@@ -40,14 +40,17 @@ The challenge input is `sha256(domain_separator || user_id || rp_id_lower || blo
 Traditional WebAuthn requires a server to mint and track challenges. SecureConfirm challenges meet these requirements via blockchain state and on-chain verification—no server storage needed:
 
 **Challenge Uniqueness**
+
 - Traditional: Server generates cryptographically random nonce for each request
 - SecureConfirm: Combines `domain_separator` + `user_id` + `rp_id` + `block_height` + `block_hash` (+ optional digests); the SecureConfirm output is deterministic for that exact chain state and origin but indistinguishable from random.
 
 **Time-Limited Validity**
+
 - Traditional: Server sets timeout and rejects expired challenges
 - SecureConfirm: the contract enforces a block-height freshness window on-chain. Older challenges are rejected.
 
 **Stateless Verification**
+
 - Traditional: Server validates signed challenge matches the stored one
 - SecureConfirm: Contract recomputes the SecureConfirm input and verifies the proof; no storage required.
 
@@ -56,6 +59,7 @@ Relayer can make a single contract view `verify_authentication_response`; no DB 
 This is why SecureConfirm+contract verification works as a stateless replacement for WebAuthn challenge/response.
 
 **Replay Attack Prevention**
+
 - Traditional: Server marks used challenges to prevent reuse
 - SecureConfirm: Combination of block height freshness and account/origin-bound inputs prevents replay. An attacker cannot reuse a signed challenge because:
   - The block height becomes stale (outside the contract’s freshness window)
@@ -73,8 +77,8 @@ This is why SecureConfirm+contract verification works as a stateless replacement
 3. **Include NEAR nonce in SecureConfirm challenges** - Alternatively we could include the NEAR nonce in the SecureConfirm challenge and make it cryptographically binding, however this requires nonce synchronization and makes it harder to sign concurrent WebAuthn actions with little extra benefit.
 
 ### Summary
-SecureConfirm challenges provide equivalent security to traditional WebAuthn challenge freshness, but verified on-chain without requiring server-side state or challenge storage.
 
+SecureConfirm challenges provide equivalent security to traditional WebAuthn challenge freshness, but verified on-chain without requiring server-side state or challenge storage.
 
 ## WebAuthn Contract Verification
 
@@ -92,7 +96,7 @@ const challengeData = await secureconfirmWorker.generate_secureconfirm_challenge
   blockHash,
   intentDigest, // base64url 32-byte digest
   sessionPolicyDigest32, // optional
-})
+});
 // Returns: { secureconfirmOutput, secureconfirmProof, secureconfirmInput, secureconfirmPublicKey, ... }
 ```
 
@@ -103,10 +107,10 @@ The SecureConfirm output is used as the WebAuthn challenge, binding the SecureCo
 ```ts
 const credential = await navigator.credentials.get({
   publicKey: {
-    challenge: challengeData.secureconfirmOutput,  // SecureConfirm output as challenge
+    challenge: challengeData.secureconfirmOutput, // SecureConfirm output as challenge
     // ... other options
-  }
-})
+  },
+});
 ```
 
 **3. Submit to WebAuthn Contract for verification**
@@ -155,11 +159,11 @@ fn verify_authentication_response(secureconfirm_data, webauthn_authentication) {
 5. **WebAuthn Signature** - Verifies the ECDSA P256 signature against the passkey's public key stored on-chain
 
 **This gives us the following properties:**
+
 - **Atomic verification** - Both SecureConfirm and WebAuthn must pass in a single transaction
 - **Stateless** - No server state required; all verification happens on-chain
 - **Cryptographically bound** - SecureConfirm output links blockchain state to biometric authentication
 - **Replay protection** - Block-bound challenges prevent reuse
-
 
 ## Hybrid session unlock (SecureConfirm + WebAuthn + Shamir)
 
@@ -172,10 +176,10 @@ After verification succeeds, the wallet derives the unwrapping key entirely insi
 5. **Decrypt + sign** – Signer worker decrypts `near_sk` with `KEK`, signs the NEAR transaction(s), and zeroizes secrets after the session.
 
 **Isolation guarantees**
+
 - PRF outputs and `secureconfirm_sk` never leave the SecureConfirm worker.
 - Only `WrapKeySeed + wrapKeySalt` cross the worker boundary; main thread JS never sees `WrapKeySeed` or `near_sk`.
 - PRF.second is reserved for registration/device linking/recovery and is zeroized immediately after use.
-
 
 ## Next steps
 

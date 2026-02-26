@@ -11,16 +11,11 @@ import type {
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
 } from '@/core/types/secure-confirm-worker';
-import {
-  WorkerRequestType,
-  WorkerResponseType,
-} from '@/core/types/signer-worker';
+import { WorkerRequestType, WorkerResponseType } from '@/core/types/signer-worker';
 import { bytesToHex } from '../../chainAdaptors/evm/bytes';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
-import {
-  awaitUserConfirmationV2,
-} from '../../touchConfirm/awaitUserConfirmation';
+import { awaitUserConfirmationV2 } from '../../touchConfirm/awaitUserConfirmation';
 import {
   UserConfirmationType,
   UserConfirmMessageType,
@@ -95,12 +90,14 @@ function toSessionId(prefix: string): string {
 function isCancellationLikeError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || '');
   const lowered = message.toLowerCase();
-  return lowered.includes('notallowederror')
-    || lowered.includes('aborterror')
-    || lowered.includes('user cancelled')
-    || lowered.includes('user canceled')
-    || lowered.includes('user aborted')
-    || lowered.includes('rejected');
+  return (
+    lowered.includes('notallowederror') ||
+    lowered.includes('aborterror') ||
+    lowered.includes('user cancelled') ||
+    lowered.includes('user canceled') ||
+    lowered.includes('user aborted') ||
+    lowered.includes('rejected')
+  );
 }
 
 function coerceTheme(value: unknown): 'dark' | 'light' | undefined {
@@ -184,12 +181,16 @@ function requirePrfB64uFromCredential(
   credential: WebAuthnAuthenticationCredential,
   output: 'first' | 'second',
 ): string {
-  const results = asRecord((credential as unknown as { clientExtensionResults?: unknown }).clientExtensionResults);
+  const results = asRecord(
+    (credential as unknown as { clientExtensionResults?: unknown }).clientExtensionResults,
+  );
   const prf = asRecord(results?.prf);
   const prfResults = asRecord(prf?.results);
   const value = normalizeB64u(prfResults?.[output]);
   if (!value) {
-    throw new Error(`Missing PRF.${output} output from credential (requires a PRF-enabled passkey)`);
+    throw new Error(
+      `Missing PRF.${output} output from credential (requires a PRF-enabled passkey)`,
+    );
   }
   return value;
 }
@@ -263,7 +264,8 @@ async function decryptPrivateKeyWithPrfInWorker(args: {
   }
   const payload = asRecord(response.payload);
   const privateKey = typeof payload?.privateKey === 'string' ? payload.privateKey.trim() : '';
-  const nearAccountId = typeof payload?.nearAccountId === 'string' ? payload.nearAccountId.trim() : '';
+  const nearAccountId =
+    typeof payload?.nearAccountId === 'string' ? payload.nearAccountId.trim() : '';
   if (!privateKey || !nearAccountId) {
     throw new Error('Private key decryption failed: invalid response payload');
   }
@@ -326,7 +328,9 @@ async function deriveSecp256k1FromPrfSecondInWorker(args: {
   try {
     const out = derive_secp256k1_keypair_from_prf_second(prfSecond, args.nearAccountId);
     if (out.length !== 85) {
-      throw new Error(`derive_secp256k1_keypair_from_prf_second must return 85 bytes (got ${out.length})`);
+      throw new Error(
+        `derive_secp256k1_keypair_from_prf_second must return 85 bytes (got ${out.length})`,
+      );
     }
     const privateKey32 = out.slice(0, 32);
     const publicKey33 = out.slice(32, 65);
@@ -353,14 +357,12 @@ async function runExportPrivateKeysWithUi(
 
   const localKeyMaterial = payload.localKeyMaterial;
   if (!localKeyMaterial && !payload.hasThresholdKeyMaterial) {
-    throw new Error(`No key material found for account ${nearAccountId} device ${payload.deviceNumber}`);
+    throw new Error(
+      `No key material found for account ${nearAccountId} device ${payload.deviceNumber}`,
+    );
   }
 
-  const publicKeyHint = String(
-    payload.publicKeyHint
-    || localKeyMaterial?.publicKey
-    || '',
-  ).trim();
+  const publicKeyHint = String(payload.publicKeyHint || localKeyMaterial?.publicKey || '').trim();
   const requestId = toSessionId('export-keys');
   const intentDigest = `export-keys:${nearAccountId}:${payload.deviceNumber}`;
 
@@ -505,7 +507,8 @@ async function runExportPrivateKeysWithUi(
         cancelled: true,
         accountId: nearAccountId,
         exportedSchemes: [],
-        error: error instanceof Error ? error.message : String(error || 'User cancelled export request'),
+        error:
+          error instanceof Error ? error.message : String(error || 'User cancelled export request'),
       };
     }
     throw error;
@@ -520,16 +523,22 @@ async function runExportPrivateKeysWithUi(
 }
 
 function peekPrfFirstEntry(sessionId: string): OkResult | ErrResult {
-  if (!sessionId) return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
+  if (!sessionId)
+    return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
   const entry = prfFirstSessionCache.get(sessionId);
-  if (!entry) return { ok: false, code: 'not_found', message: 'PRF.first not cached for threshold session' };
+  if (!entry)
+    return { ok: false, code: 'not_found', message: 'PRF.first not cached for threshold session' };
   if (nowMs() >= entry.expiresAtMs) {
     prfFirstSessionCache.delete(sessionId);
     return { ok: false, code: 'expired', message: 'PRF.first cache expired for threshold session' };
   }
   if (entry.remainingUses <= 0) {
     prfFirstSessionCache.delete(sessionId);
-    return { ok: false, code: 'exhausted', message: 'PRF.first cache exhausted for threshold session' };
+    return {
+      ok: false,
+      code: 'exhausted',
+      message: 'PRF.first cache exhausted for threshold session',
+    };
   }
   return { ok: true, remainingUses: entry.remainingUses, expiresAtMs: entry.expiresAtMs };
 }
@@ -538,10 +547,15 @@ function dispensePrfFirstEntry(sessionId: string, uses: number): OkDispenseResul
   const peek = peekPrfFirstEntry(sessionId);
   if (!peek.ok) return peek;
   const entry = prfFirstSessionCache.get(sessionId);
-  if (!entry) return { ok: false, code: 'not_found', message: 'PRF.first not cached for threshold session' };
+  if (!entry)
+    return { ok: false, code: 'not_found', message: 'PRF.first not cached for threshold session' };
   const usesNeeded = Math.max(1, Math.floor(Number(uses) || 1));
   if (entry.remainingUses < usesNeeded) {
-    return { ok: false, code: 'exhausted', message: 'PRF.first cache exhausted for threshold session' };
+    return {
+      ok: false,
+      code: 'exhausted',
+      message: 'PRF.first cache exhausted for threshold session',
+    };
   }
   entry.remainingUses -= usesNeeded;
   if (entry.remainingUses <= 0) {
@@ -549,20 +563,32 @@ function dispensePrfFirstEntry(sessionId: string, uses: number): OkDispenseResul
   } else {
     prfFirstSessionCache.set(sessionId, entry);
   }
-  return { ok: true, prfFirstB64u: entry.prfFirstB64u, remainingUses: entry.remainingUses, expiresAtMs: entry.expiresAtMs };
+  return {
+    ok: true,
+    prfFirstB64u: entry.prfFirstB64u,
+    remainingUses: entry.remainingUses,
+    expiresAtMs: entry.expiresAtMs,
+  };
 }
 
-function postUserConfirmWorkerResponse(id: unknown, payload: { success: boolean; data?: unknown; error?: string }): void {
+function postUserConfirmWorkerResponse(
+  id: unknown,
+  payload: { success: boolean; data?: unknown; error?: string },
+): void {
   const response = {
     ...(typeof id === 'string' && id.trim() ? { id: id.trim() } : {}),
     success: !!payload.success,
     ...(payload.data !== undefined ? { data: payload.data } : {}),
     ...(payload.error ? { error: payload.error } : {}),
   };
-  try { self.postMessage(response); } catch {}
+  try {
+    self.postMessage(response);
+  } catch {}
 }
 
-function toDecisionFromWorkerResponse(response: Awaited<ReturnType<typeof awaitUserConfirmationV2>>): UserConfirmDecision {
+function toDecisionFromWorkerResponse(
+  response: Awaited<ReturnType<typeof awaitUserConfirmationV2>>,
+): UserConfirmDecision {
   return {
     requestId: String(response.request_id || '').trim(),
     intentDigest: response.intent_digest,
@@ -642,15 +668,32 @@ self.onmessage = (event: MessageEvent) => {
       const expiresAtMs = Math.floor(Number(payload?.expiresAtMs) || 0);
       const remainingUses = Math.floor(Number(payload?.remainingUses) || 0);
       if (!sessionId || !prfFirstB64u) {
-        postUserConfirmWorkerResponse(id, { success: true, data: { ok: false, code: 'invalid_args', message: 'Missing sessionId or prfFirstB64u' } satisfies ErrResult });
+        postUserConfirmWorkerResponse(id, {
+          success: true,
+          data: {
+            ok: false,
+            code: 'invalid_args',
+            message: 'Missing sessionId or prfFirstB64u',
+          } satisfies ErrResult,
+        });
         return;
       }
       if (expiresAtMs <= nowMs() || remainingUses <= 0) {
-        postUserConfirmWorkerResponse(id, { success: true, data: { ok: false, code: 'invalid_args', message: 'Invalid expiresAtMs or remainingUses' } satisfies ErrResult });
+        postUserConfirmWorkerResponse(id, {
+          success: true,
+          data: {
+            ok: false,
+            code: 'invalid_args',
+            message: 'Invalid expiresAtMs or remainingUses',
+          } satisfies ErrResult,
+        });
         return;
       }
       prfFirstSessionCache.set(sessionId, { prfFirstB64u, expiresAtMs, remainingUses });
-      postUserConfirmWorkerResponse(id, { success: true, data: { ok: true, remainingUses, expiresAtMs } satisfies OkResult });
+      postUserConfirmWorkerResponse(id, {
+        success: true,
+        data: { ok: true, remainingUses, expiresAtMs } satisfies OkResult,
+      });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       postUserConfirmWorkerResponse(id, { success: false, error: msg });
@@ -669,7 +712,10 @@ self.onmessage = (event: MessageEvent) => {
     const payload = asRecord(incoming.payload);
     const sessionId = normalizeSessionId(payload?.sessionId);
     const uses = Math.max(1, Math.floor(Number(payload?.uses) || 1));
-    postUserConfirmWorkerResponse(id, { success: true, data: dispensePrfFirstEntry(sessionId, uses) });
+    postUserConfirmWorkerResponse(id, {
+      success: true,
+      data: dispensePrfFirstEntry(sessionId, uses),
+    });
     return;
   }
 
@@ -689,7 +735,10 @@ self.onmessage = (event: MessageEvent) => {
 
   // Unknown message types: respond with an explicit error (prevents sendMessage timeouts).
   if (typeof id === 'string' && id.trim()) {
-    postUserConfirmWorkerResponse(id, { success: false, error: `Unsupported UserConfirm worker message type: ${String(eventType)}` });
+    postUserConfirmWorkerResponse(id, {
+      success: false,
+      error: `Unsupported UserConfirm worker message type: ${String(eventType)}`,
+    });
   }
 };
 

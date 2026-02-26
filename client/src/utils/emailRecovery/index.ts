@@ -28,7 +28,7 @@ function getTxSuccessValueBase64(outcome: FinalExecutionOutcome): string | null 
 }
 
 export function parseLinkDeviceRegisterUserResponse(
-  outcome: FinalExecutionOutcome
+  outcome: FinalExecutionOutcome,
 ): LinkDeviceRegisterUserResponse | null {
   try {
     const successValueB64 = getTxSuccessValueBase64(outcome);
@@ -54,16 +54,14 @@ export const canonicalizeEmail = (email: string): string => {
   // Handle cases where a full header line is passed in (e.g. "From: ...").
   const withoutHeaderName = raw.replace(/^[a-z0-9-]+\s*:\s*/i, '').trim();
 
-  const emailRegex =
-    /([a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*)/;
+  const emailRegex = /([a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*)/;
 
   // Prefer the common "Name <email@domain>" format when present, but still
   // validate/extract the actual address via regex.
   const angleMatch = withoutHeaderName.match(/<([^>]+)>/);
-  const candidates = [
-    angleMatch?.[1],
-    withoutHeaderName,
-  ].filter((v): v is string => typeof v === 'string' && v.length > 0);
+  const candidates = [angleMatch?.[1], withoutHeaderName].filter(
+    (v): v is string => typeof v === 'string' && v.length > 0,
+  );
 
   for (const candidate of candidates) {
     const cleaned = candidate.replace(/^mailto:\s*/i, '');
@@ -79,16 +77,14 @@ export const canonicalizeEmail = (email: string): string => {
 export const bytesToHex = (bytes: number[] | Uint8Array): string => {
   const arr = bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes);
   return `0x${Array.from(arr)
-    .map(b => b.toString(16).padStart(2, '0'))
+    .map((b) => b.toString(16).padStart(2, '0'))
     .join('')}`;
 };
 
 async function hashRecoveryEmails(emails: string[], accountId: AccountId): Promise<number[][]> {
   const encoder = new TextEncoder();
   const salt = (accountId || '').trim().toLowerCase();
-  const normalized = (emails || [])
-    .map(e => e.trim())
-    .filter(e => e.length > 0);
+  const normalized = (emails || []).map((e) => e.trim()).filter((e) => e.length > 0);
 
   const hashed: number[][] = [];
 
@@ -113,13 +109,16 @@ async function hashRecoveryEmails(emails: string[], accountId: AccountId): Promi
  * Canonicalize and hash recovery emails for an account, and persist the mapping
  * (hashHex → canonical email) in IndexedDB on a best-effort basis.
  */
-export async function prepareRecoveryEmails(nearAccountId: AccountId, recoveryEmails: string[]): Promise<{
+export async function prepareRecoveryEmails(
+  nearAccountId: AccountId,
+  recoveryEmails: string[],
+): Promise<{
   hashes: number[][];
   pairs: RecoveryEmailEntry[];
 }> {
   const accountId = toAccountId(nearAccountId);
 
-  const trimmedEmails = (recoveryEmails || []).map(e => e.trim()).filter(e => e.length > 0);
+  const trimmedEmails = (recoveryEmails || []).map((e) => e.trim()).filter((e) => e.length > 0);
   const canonicalEmails = trimmedEmails.map(canonicalizeEmail);
   const recoveryEmailHashes = await hashRecoveryEmails(recoveryEmails, accountId);
 
@@ -130,7 +129,9 @@ export async function prepareRecoveryEmails(nearAccountId: AccountId, recoveryEm
 
   void (async () => {
     try {
-      const context = await IndexedDBManager.clientDB.resolveNearAccountContext(accountId).catch(() => null);
+      const context = await IndexedDBManager.clientDB
+        .resolveNearAccountContext(accountId)
+        .catch(() => null);
       if (!context?.profileId) return;
       await IndexedDBManager.clientDB.upsertRecoveryEmails(context.profileId, pairs);
     } catch (error) {
@@ -141,9 +142,13 @@ export async function prepareRecoveryEmails(nearAccountId: AccountId, recoveryEm
   return { hashes: recoveryEmailHashes, pairs };
 }
 
-export async function getLocalRecoveryEmails(nearAccountId: AccountId): Promise<RecoveryEmailRecord[]> {
+export async function getLocalRecoveryEmails(
+  nearAccountId: AccountId,
+): Promise<RecoveryEmailRecord[]> {
   const accountId = toAccountId(nearAccountId);
-  const context = await IndexedDBManager.clientDB.resolveNearAccountContext(accountId).catch(() => null);
+  const context = await IndexedDBManager.clientDB
+    .resolveNearAccountContext(accountId)
+    .catch(() => null);
   if (!context?.profileId) return [];
   const rows = await IndexedDBManager.clientDB.listRecoveryEmails(context.profileId);
   return rows.map((row) => ({

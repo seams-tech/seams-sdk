@@ -22,7 +22,7 @@ async function listFilesRecursively(rootDir) {
   for (const entry of entries) {
     const fullPath = path.join(rootDir, entry.name);
     if (entry.isDirectory()) {
-      files.push(...await listFilesRecursively(fullPath));
+      files.push(...(await listFilesRecursively(fullPath)));
     } else if (entry.isFile()) {
       files.push(fullPath);
     }
@@ -34,11 +34,7 @@ async function listFilesRecursively(rootDir) {
 function hasUnsupportedSideEffectsGlobs(sideEffects) {
   if (!Array.isArray(sideEffects)) return false;
   return sideEffects.some((value) => {
-    return (
-      typeof value === 'string' &&
-      value.startsWith('./snippets/') &&
-      value.includes('*')
-    );
+    return typeof value === 'string' && value.startsWith('./snippets/') && value.includes('*');
   });
 }
 
@@ -68,8 +64,8 @@ async function fixPkgDir(pkgDir) {
           if (!relPosix.startsWith('snippets/')) return null;
           return `./${relPosix}`;
         })
-        .filter(Boolean)
-    )
+        .filter(Boolean),
+    ),
   ).sort();
 
   parsed.sideEffects = sideEffectFiles.length > 0 ? sideEffectFiles : false;
@@ -92,4 +88,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-

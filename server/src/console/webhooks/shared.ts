@@ -1,7 +1,4 @@
-import type {
-  WebhookDispatchRequest,
-  WebhookDispatchResult,
-} from './service';
+import type { WebhookDispatchRequest, WebhookDispatchResult } from './service';
 import type { ConsoleWebhookSubscription } from './types';
 
 export const DELIVERY_RESPONSE_BODY_MAX_LEN = 2_048;
@@ -32,16 +29,18 @@ export function makeSigningSecret(now: Date): string {
 }
 
 export function normalizeEventCategory(eventType: string): ConsoleWebhookSubscription | null {
-  const value = String(eventType || '').trim().toLowerCase();
+  const value = String(eventType || '')
+    .trim()
+    .toLowerCase();
   if (!value) return null;
   const idx = value.indexOf('.');
   const category = idx === -1 ? value : value.slice(0, idx);
   if (
-    category !== 'wallet'
-    && category !== 'policy'
-    && category !== 'auth'
-    && category !== 'tx'
-    && category !== 'billing'
+    category !== 'wallet' &&
+    category !== 'policy' &&
+    category !== 'auth' &&
+    category !== 'tx' &&
+    category !== 'billing'
   ) {
     return null;
   }
@@ -66,15 +65,13 @@ export async function signPayload(secret: string, message: string): Promise<stri
   return `v1=${hex}`;
 }
 
-export function toDispatchHeaders(
-  input: {
-    endpointId: string;
-    eventId: string;
-    eventType: string;
-    signature: string;
-    timestamp: string;
-  },
-): Record<string, string> {
+export function toDispatchHeaders(input: {
+  endpointId: string;
+  eventId: string;
+  eventType: string;
+  signature: string;
+  timestamp: string;
+}): Record<string, string> {
   return {
     'Content-Type': 'application/json',
     'X-Console-Webhook-Id': input.endpointId,
@@ -91,12 +88,12 @@ export async function defaultDispatchWebhook(
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
   const timeout = controller
     ? setTimeout(() => {
-      try {
-        controller.abort();
-      } catch {
-        // no-op
-      }
-    }, WEBHOOK_DISPATCH_TIMEOUT_MS)
+        try {
+          controller.abort();
+        } catch {
+          // no-op
+        }
+      }, WEBHOOK_DISPATCH_TIMEOUT_MS)
     : null;
 
   try {

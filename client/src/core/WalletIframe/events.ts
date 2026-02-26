@@ -6,4 +6,5 @@ export const WalletIframeDomEvents = {
   TX_CONFIRMER_CANCEL: 'w3a:tx-confirmer-cancel',
 } as const;
 
-export type WalletIframeDomEvent = (typeof WalletIframeDomEvents)[keyof typeof WalletIframeDomEvents];
+export type WalletIframeDomEvent =
+  (typeof WalletIframeDomEvents)[keyof typeof WalletIframeDomEvents];

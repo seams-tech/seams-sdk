@@ -23,7 +23,9 @@ export class WebAuthnP256Engine implements Signer {
     pubKeyY32: Uint8Array;
   }): Promise<SignatureBytes> {
     if (!this.workerCtx) {
-      throw new Error('[WebAuthnP256Engine] workerCtx is required for wasm-backed WebAuthn signature packing');
+      throw new Error(
+        '[WebAuthnP256Engine] workerCtx is required for wasm-backed WebAuthn signature packing',
+      );
     }
     return await buildWebauthnP256SignatureWasm({
       challenge32: args.challenge32,
@@ -55,16 +57,19 @@ export class WebAuthnP256Engine implements Signer {
     }
 
     const fromSerializedCredential = async (credential: unknown): Promise<SignatureBytes> => {
-      const serialized = (credential && typeof credential === 'object')
-        ? (credential as {
-            rawId?: unknown;
-            response?: {
-              authenticatorData?: unknown;
-              clientDataJSON?: unknown;
-              signature?: unknown;
-            } | undefined;
-          })
-        : {};
+      const serialized =
+        credential && typeof credential === 'object'
+          ? (credential as {
+              rawId?: unknown;
+              response?:
+                | {
+                    authenticatorData?: unknown;
+                    clientDataJSON?: unknown;
+                    signature?: unknown;
+                  }
+                | undefined;
+            })
+          : {};
       const rawIdB64 = String(serialized.rawId || '').trim();
       const rawId = base64Decode(rawIdB64);
       if (!bytesEq(rawId, keyRef.credentialId)) {
@@ -75,8 +80,14 @@ export class WebAuthnP256Engine implements Signer {
       const authenticatorData = base64UrlDecode(String(response?.authenticatorData || ''));
       const clientDataJSON = base64UrlDecode(String(response?.clientDataJSON || ''));
       const signatureDer = base64UrlDecode(String(response?.signature || ''));
-      if (authenticatorData.length === 0 || clientDataJSON.length === 0 || signatureDer.length === 0) {
-        throw new Error('[WebAuthnP256Engine] missing authenticatorData/clientDataJSON/signature in credential');
+      if (
+        authenticatorData.length === 0 ||
+        clientDataJSON.length === 0 ||
+        signatureDer.length === 0
+      ) {
+        throw new Error(
+          '[WebAuthnP256Engine] missing authenticatorData/clientDataJSON/signature in credential',
+        );
       }
       return await this.buildWebauthnSignature({
         challenge32: req.challenge32,
@@ -92,8 +103,14 @@ export class WebAuthnP256Engine implements Signer {
       return await fromSerializedCredential(req.credential);
     }
 
-    if (typeof navigator === 'undefined' || !navigator.credentials || typeof navigator.credentials.get !== 'function') {
-      throw new Error('[WebAuthnP256Engine] WebAuthn not available (must run in a browser context)');
+    if (
+      typeof navigator === 'undefined' ||
+      !navigator.credentials ||
+      typeof navigator.credentials.get !== 'function'
+    ) {
+      throw new Error(
+        '[WebAuthnP256Engine] WebAuthn not available (must run in a browser context)',
+      );
     }
 
     // Ensure browser-facing BufferSource values are ArrayBuffer-backed (not SharedArrayBuffer-backed).

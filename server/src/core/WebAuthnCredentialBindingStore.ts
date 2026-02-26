@@ -3,9 +3,18 @@ import type {
   CloudflareDurableObjectNamespaceLike,
   ThresholdEd25519KeyStoreConfigInput,
 } from './types';
-import { THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT, THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
+import {
+  THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT,
+  THRESHOLD_PREFIX_DEFAULT,
+} from './defaultConfigsServer';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
-import { RedisTcpClient, UpstashRedisRestClient, redisDel, redisGetJson, redisSetJson } from './ThresholdService/kv';
+import {
+  RedisTcpClient,
+  UpstashRedisRestClient,
+  redisDel,
+  redisGetJson,
+  redisSetJson,
+} from './ThresholdService/kv';
 import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
 
 export type WebAuthnCredentialBindingRecord = {
@@ -36,7 +45,10 @@ export interface WebAuthnCredentialBindingStore {
    *
    * Optional because not all backing stores can efficiently enumerate keys.
    */
-  listByUserId?(input: { userId: string; rpId?: string }): Promise<WebAuthnCredentialBindingRecord[]>;
+  listByUserId?(input: {
+    userId: string;
+    rpId?: string;
+  }): Promise<WebAuthnCredentialBindingRecord[]>;
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -58,7 +70,9 @@ function toWebAuthnCredentialBindingPrefix(config: Record<string, unknown>): str
   return `${baseWithColon}webauthn:credential_binding:`;
 }
 
-function parseWebAuthnCredentialBindingRecord(raw: unknown): WebAuthnCredentialBindingRecord | null {
+function parseWebAuthnCredentialBindingRecord(
+  raw: unknown,
+): WebAuthnCredentialBindingRecord | null {
   if (!isObject(raw)) return null;
   const version = toOptionalTrimmedString(raw.version);
   const rpId = toOptionalTrimmedString(raw.rpId);
@@ -66,7 +80,8 @@ function parseWebAuthnCredentialBindingRecord(raw: unknown): WebAuthnCredentialB
   const userId = toOptionalTrimmedString(raw.userId);
   const publicKey = toOptionalTrimmedString(raw.publicKey);
   const deviceNumberRaw = (raw as { deviceNumber?: unknown }).deviceNumber;
-  const deviceNumber = typeof deviceNumberRaw === 'number' ? deviceNumberRaw : Number(deviceNumberRaw);
+  const deviceNumber =
+    typeof deviceNumberRaw === 'number' ? deviceNumberRaw : Number(deviceNumberRaw);
   const createdAtMsRaw = (raw as { createdAtMs?: unknown }).createdAtMs;
   const updatedAtMsRaw = (raw as { updatedAtMs?: unknown }).updatedAtMs;
   const createdAtMs = typeof createdAtMsRaw === 'number' ? createdAtMsRaw : Number(createdAtMsRaw);
@@ -79,11 +94,19 @@ function parseWebAuthnCredentialBindingRecord(raw: unknown): WebAuthnCredentialB
   if (!Number.isFinite(updatedAtMs) || updatedAtMs <= 0) return null;
 
   const relayerKeyId = toOptionalTrimmedString((raw as { relayerKeyId?: unknown }).relayerKeyId);
-  const relayerVerifyingShareB64u = toOptionalTrimmedString((raw as { relayerVerifyingShareB64u?: unknown }).relayerVerifyingShareB64u);
+  const relayerVerifyingShareB64u = toOptionalTrimmedString(
+    (raw as { relayerVerifyingShareB64u?: unknown }).relayerVerifyingShareB64u,
+  );
   const clientParticipantIdRaw = (raw as { clientParticipantId?: unknown }).clientParticipantId;
   const relayerParticipantIdRaw = (raw as { relayerParticipantId?: unknown }).relayerParticipantId;
-  const clientParticipantId = typeof clientParticipantIdRaw === 'number' ? clientParticipantIdRaw : Number(clientParticipantIdRaw);
-  const relayerParticipantId = typeof relayerParticipantIdRaw === 'number' ? relayerParticipantIdRaw : Number(relayerParticipantIdRaw);
+  const clientParticipantId =
+    typeof clientParticipantIdRaw === 'number'
+      ? clientParticipantIdRaw
+      : Number(clientParticipantIdRaw);
+  const relayerParticipantId =
+    typeof relayerParticipantIdRaw === 'number'
+      ? relayerParticipantIdRaw
+      : Number(relayerParticipantIdRaw);
   const participantIdsRaw = (raw as { participantIds?: unknown }).participantIds;
   const participantIds = Array.isArray(participantIdsRaw)
     ? participantIdsRaw
@@ -100,8 +123,12 @@ function parseWebAuthnCredentialBindingRecord(raw: unknown): WebAuthnCredentialB
     deviceNumber: Math.floor(deviceNumber),
     publicKey,
     ...(relayerKeyId ? { relayerKeyId } : {}),
-    ...(Number.isFinite(clientParticipantId) && clientParticipantId >= 1 ? { clientParticipantId: Math.floor(clientParticipantId) } : {}),
-    ...(Number.isFinite(relayerParticipantId) && relayerParticipantId >= 1 ? { relayerParticipantId: Math.floor(relayerParticipantId) } : {}),
+    ...(Number.isFinite(clientParticipantId) && clientParticipantId >= 1
+      ? { clientParticipantId: Math.floor(clientParticipantId) }
+      : {}),
+    ...(Number.isFinite(relayerParticipantId) && relayerParticipantId >= 1
+      ? { relayerParticipantId: Math.floor(relayerParticipantId) }
+      : {}),
     ...(participantIds && participantIds.length ? { participantIds } : {}),
     ...(relayerVerifyingShareB64u ? { relayerVerifyingShareB64u } : {}),
     createdAtMs: Math.floor(createdAtMs),
@@ -121,7 +148,10 @@ class InMemoryWebAuthnCredentialBindingStore implements WebAuthnCredentialBindin
     return `${this.prefix}${rpId}:${credentialIdB64u}`;
   }
 
-  async get(rpId: string, credentialIdB64u: string): Promise<WebAuthnCredentialBindingRecord | null> {
+  async get(
+    rpId: string,
+    credentialIdB64u: string,
+  ): Promise<WebAuthnCredentialBindingRecord | null> {
     const r = toOptionalTrimmedString(rpId);
     const c = toOptionalTrimmedString(credentialIdB64u);
     if (!r || !c) return null;
@@ -141,7 +171,10 @@ class InMemoryWebAuthnCredentialBindingStore implements WebAuthnCredentialBindin
     this.map.delete(this.key(r, c));
   }
 
-  async listByUserId(input: { userId: string; rpId?: string }): Promise<WebAuthnCredentialBindingRecord[]> {
+  async listByUserId(input: {
+    userId: string;
+    rpId?: string;
+  }): Promise<WebAuthnCredentialBindingRecord[]> {
     const uid = toOptionalTrimmedString(input.userId);
     const rpId = toOptionalTrimmedString(input.rpId);
     if (!uid) return [];
@@ -171,7 +204,10 @@ class UpstashRedisRestWebAuthnCredentialBindingStore implements WebAuthnCredenti
     return `${this.prefix}${rpId}:${credentialIdB64u}`;
   }
 
-  async get(rpId: string, credentialIdB64u: string): Promise<WebAuthnCredentialBindingRecord | null> {
+  async get(
+    rpId: string,
+    credentialIdB64u: string,
+  ): Promise<WebAuthnCredentialBindingRecord | null> {
     const r = toOptionalTrimmedString(rpId);
     const c = toOptionalTrimmedString(credentialIdB64u);
     if (!r || !c) return null;
@@ -206,7 +242,10 @@ class RedisTcpWebAuthnCredentialBindingStore implements WebAuthnCredentialBindin
     return `${this.prefix}${rpId}:${credentialIdB64u}`;
   }
 
-  async get(rpId: string, credentialIdB64u: string): Promise<WebAuthnCredentialBindingRecord | null> {
+  async get(
+    rpId: string,
+    credentialIdB64u: string,
+  ): Promise<WebAuthnCredentialBindingRecord | null> {
     const r = toOptionalTrimmedString(rpId);
     const c = toOptionalTrimmedString(credentialIdB64u);
     if (!r || !c) return null;
@@ -237,7 +276,10 @@ class PostgresWebAuthnCredentialBindingStore implements WebAuthnCredentialBindin
     this.namespace = input.namespace;
   }
 
-  async get(rpId: string, credentialIdB64u: string): Promise<WebAuthnCredentialBindingRecord | null> {
+  async get(
+    rpId: string,
+    credentialIdB64u: string,
+  ): Promise<WebAuthnCredentialBindingRecord | null> {
     const r = toOptionalTrimmedString(rpId);
     const c = toOptionalTrimmedString(credentialIdB64u);
     if (!r || !c) return null;
@@ -270,7 +312,14 @@ class PostgresWebAuthnCredentialBindingStore implements WebAuthnCredentialBindin
           created_at_ms = LEAST(webauthn_credential_bindings.created_at_ms, EXCLUDED.created_at_ms),
           updated_at_ms = GREATEST(webauthn_credential_bindings.updated_at_ms, EXCLUDED.updated_at_ms)
       `,
-      [this.namespace, parsed.rpId, parsed.credentialIdB64u, parsed, parsed.createdAtMs, parsed.updatedAtMs],
+      [
+        this.namespace,
+        parsed.rpId,
+        parsed.credentialIdB64u,
+        parsed,
+        parsed.createdAtMs,
+        parsed.updatedAtMs,
+      ],
     );
   }
 
@@ -305,7 +354,10 @@ class PostgresWebAuthnCredentialBindingStore implements WebAuthnCredentialBindin
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
   }
 
-  async listByUserId(input: { userId: string; rpId?: string }): Promise<WebAuthnCredentialBindingRecord[]> {
+  async listByUserId(input: {
+    userId: string;
+    rpId?: string;
+  }): Promise<WebAuthnCredentialBindingRecord[]> {
     const userId = toOptionalTrimmedString(input.userId);
     const rpId = toOptionalTrimmedString(input.rpId);
     if (!userId) return [];
@@ -339,30 +391,41 @@ type DurableObjectStubLike = { fetch(input: RequestInfo, init?: RequestInit): Pr
 type DoOk<T> = { ok: true; value: T };
 type DoErr = { ok: false; code: string; message: string };
 type DoResp<T> = DoOk<T> | DoErr;
-type DoRequest = { op: 'get'; key: string } | { op: 'set'; key: string; value: unknown; ttlMs?: number } | { op: 'del'; key: string };
+type DoRequest =
+  | { op: 'get'; key: string }
+  | { op: 'set'; key: string; value: unknown; ttlMs?: number }
+  | { op: 'del'; key: string };
 
 function isDurableObjectNamespaceLike(v: unknown): v is CloudflareDurableObjectNamespaceLike {
-  return Boolean(v)
-    && typeof v === 'object'
-    && !Array.isArray(v)
-    && typeof (v as CloudflareDurableObjectNamespaceLike).idFromName === 'function'
-    && typeof (v as CloudflareDurableObjectNamespaceLike).get === 'function';
+  return (
+    Boolean(v) &&
+    typeof v === 'object' &&
+    !Array.isArray(v) &&
+    typeof (v as CloudflareDurableObjectNamespaceLike).idFromName === 'function' &&
+    typeof (v as CloudflareDurableObjectNamespaceLike).get === 'function'
+  );
 }
 
-function resolveDoNamespaceFromConfig(config: Record<string, unknown>): CloudflareDurableObjectNamespaceLike | null {
+function resolveDoNamespaceFromConfig(
+  config: Record<string, unknown>,
+): CloudflareDurableObjectNamespaceLike | null {
   const direct = (config as { namespace?: unknown }).namespace;
   if (isDurableObjectNamespaceLike(direct)) return direct;
 
   const alt = (config as { durableObjectNamespace?: unknown }).durableObjectNamespace;
   if (isDurableObjectNamespaceLike(alt)) return alt;
 
-  const envStyle = (config as { THRESHOLD_ED25519_DO_NAMESPACE?: unknown }).THRESHOLD_ED25519_DO_NAMESPACE;
+  const envStyle = (config as { THRESHOLD_ED25519_DO_NAMESPACE?: unknown })
+    .THRESHOLD_ED25519_DO_NAMESPACE;
   if (isDurableObjectNamespaceLike(envStyle)) return envStyle;
 
   return null;
 }
 
-function resolveDoStub(input: { namespace: CloudflareDurableObjectNamespaceLike; objectName: string }): DurableObjectStubLike {
+function resolveDoStub(input: {
+  namespace: CloudflareDurableObjectNamespaceLike;
+  objectName: string;
+}): DurableObjectStubLike {
   const id = input.namespace.idFromName(input.objectName);
   return input.namespace.get(id) as unknown as DurableObjectStubLike;
 }
@@ -397,7 +460,11 @@ class CloudflareDurableObjectWebAuthnCredentialBindingStore implements WebAuthnC
   private readonly stub: DurableObjectStubLike;
   private readonly prefix: string;
 
-  constructor(input: { namespace: CloudflareDurableObjectNamespaceLike; objectName: string; prefix: string }) {
+  constructor(input: {
+    namespace: CloudflareDurableObjectNamespaceLike;
+    objectName: string;
+    prefix: string;
+  }) {
     this.stub = resolveDoStub({ namespace: input.namespace, objectName: input.objectName });
     this.prefix = input.prefix;
   }
@@ -406,7 +473,10 @@ class CloudflareDurableObjectWebAuthnCredentialBindingStore implements WebAuthnC
     return `${this.prefix}${rpId}:${credentialIdB64u}`;
   }
 
-  async get(rpId: string, credentialIdB64u: string): Promise<WebAuthnCredentialBindingRecord | null> {
+  async get(
+    rpId: string,
+    credentialIdB64u: string,
+  ): Promise<WebAuthnCredentialBindingRecord | null> {
     const r = toOptionalTrimmedString(rpId);
     const c = toOptionalTrimmedString(credentialIdB64u);
     if (!r || !c) return null;
@@ -418,7 +488,11 @@ class CloudflareDurableObjectWebAuthnCredentialBindingStore implements WebAuthnC
   async put(record: WebAuthnCredentialBindingRecord): Promise<void> {
     const parsed = parseWebAuthnCredentialBindingRecord(record);
     if (!parsed) throw new Error('Invalid credential binding record');
-    const resp = await callDo<void>(this.stub, { op: 'set', key: this.key(parsed.rpId, parsed.credentialIdB64u), value: parsed });
+    const resp = await callDo<void>(this.stub, {
+      op: 'set',
+      key: this.key(parsed.rpId, parsed.credentialIdB64u),
+      value: parsed,
+    });
     if (!resp.ok) throw new Error(resp.message);
   }
 
@@ -443,13 +517,20 @@ export function createWebAuthnCredentialBindingStore(input: {
   if (kind === 'cloudflare-do') {
     const namespace = resolveDoNamespaceFromConfig(config);
     if (!namespace) {
-      throw new Error('cloudflare-do webauthn store selected but no Durable Object namespace was provided (expected config.namespace)');
+      throw new Error(
+        'cloudflare-do webauthn store selected but no Durable Object namespace was provided (expected config.namespace)',
+      );
     }
-    const objectName = toOptionalTrimmedString((config as { objectName?: unknown }).objectName)
-      || toOptionalTrimmedString((config as { name?: unknown }).name)
-      || THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT;
+    const objectName =
+      toOptionalTrimmedString((config as { objectName?: unknown }).objectName) ||
+      toOptionalTrimmedString((config as { name?: unknown }).name) ||
+      THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT;
     input.logger.info('[webauthn] Using Cloudflare Durable Object store for credential bindings');
-    return new CloudflareDurableObjectWebAuthnCredentialBindingStore({ namespace, objectName, prefix });
+    return new CloudflareDurableObjectWebAuthnCredentialBindingStore({
+      namespace,
+      objectName,
+      prefix,
+    });
   }
 
   if (kind === 'in-memory') {
@@ -458,8 +539,11 @@ export function createWebAuthnCredentialBindingStore(input: {
   }
 
   if (kind === 'upstash-redis-rest') {
-    const url = toOptionalTrimmedString(config.url) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
-    const token = toOptionalTrimmedString(config.token) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
+    const url =
+      toOptionalTrimmedString(config.url) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
+    const token =
+      toOptionalTrimmedString(config.token) ||
+      toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
     if (!url || !token) {
       throw new Error('Upstash webauthn store enabled but url/token are not both set');
     }
@@ -469,10 +553,13 @@ export function createWebAuthnCredentialBindingStore(input: {
 
   if (kind === 'redis-tcp') {
     if (!input.isNode) {
-      input.logger.warn('[webauthn] redis-tcp credential binding store is not supported in this runtime; falling back to in-memory');
+      input.logger.warn(
+        '[webauthn] redis-tcp credential binding store is not supported in this runtime; falling back to in-memory',
+      );
       return new InMemoryWebAuthnCredentialBindingStore(prefix);
     }
-    const redisUrl = toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL);
+    const redisUrl =
+      toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL);
     if (!redisUrl) {
       throw new Error('redis-tcp webauthn store enabled but redisUrl is not set');
     }
@@ -482,10 +569,15 @@ export function createWebAuthnCredentialBindingStore(input: {
 
   if (kind === 'postgres') {
     if (!input.isNode) {
-      throw new Error('[webauthn] postgres credential binding store is not supported in this runtime');
+      throw new Error(
+        '[webauthn] postgres credential binding store is not supported in this runtime',
+      );
     }
     const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl) throw new Error('[webauthn] postgres credential binding store enabled but POSTGRES_URL is not set');
+    if (!postgresUrl)
+      throw new Error(
+        '[webauthn] postgres credential binding store enabled but POSTGRES_URL is not set',
+      );
     input.logger.info('[webauthn] Using Postgres credential binding store');
     return new PostgresWebAuthnCredentialBindingStore({ postgresUrl, namespace: prefix });
   }
@@ -493,7 +585,9 @@ export function createWebAuthnCredentialBindingStore(input: {
   const postgresUrl = getPostgresUrlFromConfig(config);
   if (postgresUrl) {
     if (!input.isNode) {
-      throw new Error('[webauthn] POSTGRES_URL is set but Postgres is not supported in this runtime');
+      throw new Error(
+        '[webauthn] POSTGRES_URL is set but Postgres is not supported in this runtime',
+      );
     }
     input.logger.info('[webauthn] Using Postgres credential binding store');
     return new PostgresWebAuthnCredentialBindingStore({ postgresUrl, namespace: prefix });
@@ -503,22 +597,32 @@ export function createWebAuthnCredentialBindingStore(input: {
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
   if (upstashUrl || upstashToken) {
     if (!upstashUrl || !upstashToken) {
-      throw new Error('Upstash webauthn store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set');
+      throw new Error(
+        'Upstash webauthn store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set',
+      );
     }
     input.logger.info('[webauthn] Using Upstash REST credential binding store');
-    return new UpstashRedisRestWebAuthnCredentialBindingStore({ url: upstashUrl, token: upstashToken, prefix });
+    return new UpstashRedisRestWebAuthnCredentialBindingStore({
+      url: upstashUrl,
+      token: upstashToken,
+      prefix,
+    });
   }
 
   const redisUrl = toOptionalTrimmedString(config.REDIS_URL);
   if (redisUrl) {
     if (!input.isNode) {
-      input.logger.warn('[webauthn] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory');
+      input.logger.warn(
+        '[webauthn] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory',
+      );
       return new InMemoryWebAuthnCredentialBindingStore(prefix);
     }
     input.logger.info('[webauthn] Using redis-tcp credential binding store');
     return new RedisTcpWebAuthnCredentialBindingStore({ redisUrl, prefix });
   }
 
-  input.logger.info('[webauthn] Using in-memory credential binding store (no persistence configured)');
+  input.logger.info(
+    '[webauthn] Using in-memory credential binding store (no persistence configured)',
+  );
   return new InMemoryWebAuthnCredentialBindingStore(prefix);
 }

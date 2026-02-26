@@ -3,7 +3,9 @@ import bs58 from 'bs58';
 import { ensureEd25519Prefix } from '@shared/utils/validation';
 
 function stripEd25519Prefix(value: string): string {
-  return String(value || '').trim().replace(/^ed25519:/i, '');
+  return String(value || '')
+    .trim()
+    .replace(/^ed25519:/i, '');
 }
 
 export function toPublicKeyStringFromSecretKey(secretKey: string): string {

@@ -10,12 +10,15 @@ export async function handleHealth(ctx: CloudflareRelayContext): Promise<Respons
   const corsAllowed = allowed === '*' ? '*' : allowed;
   const thresholdConfigured = Boolean(ctx.opts.threshold);
 
-  return json({
-    ok: true,
-    relayerAccount: ctx.service.getConfiguredRelayerAccount?.() ?? null,
-    thresholdEd25519: { configured: thresholdConfigured },
-    cors: { allowedOrigins: corsAllowed },
-  }, { status: 200 });
+  return json(
+    {
+      ok: true,
+      relayerAccount: ctx.service.getConfiguredRelayerAccount?.() ?? null,
+      thresholdEd25519: { configured: thresholdConfigured },
+      cors: { allowedOrigins: corsAllowed },
+    },
+    { status: 200 },
+  );
 }
 
 export async function handleReady(ctx: CloudflareRelayContext): Promise<Response | null> {
@@ -28,18 +31,24 @@ export async function handleReady(ctx: CloudflareRelayContext): Promise<Response
 
   try {
     await ctx.service.getRelayerAccount();
-    return json({
-      ok: true,
-      thresholdEd25519: { configured: thresholdConfigured },
-      cors: { allowedOrigins: corsAllowed },
-    }, { status: 200 });
+    return json(
+      {
+        ok: true,
+        thresholdEd25519: { configured: thresholdConfigured },
+        cors: { allowedOrigins: corsAllowed },
+      },
+      { status: 200 },
+    );
   } catch (error: unknown) {
-    return json({
-      ok: false,
-      code: 'relayer_unavailable',
-      message: error instanceof Error ? error.message : String(error),
-      thresholdEd25519: { configured: thresholdConfigured },
-      cors: { allowedOrigins: corsAllowed },
-    }, { status: 503 });
+    return json(
+      {
+        ok: false,
+        code: 'relayer_unavailable',
+        message: error instanceof Error ? error.message : String(error),
+        thresholdEd25519: { configured: thresholdConfigured },
+        cors: { allowedOrigins: corsAllowed },
+      },
+      { status: 503 },
+    );
   }
 }

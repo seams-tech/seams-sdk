@@ -18,12 +18,17 @@ function parseThresholdEcdsaPresignPoolPolicyHint(
   const raw = value as Record<string, unknown>;
   const out: ThresholdEcdsaPresignPoolPolicyInput = {};
   if (typeof raw.enabled === 'boolean') out.enabled = raw.enabled;
-  if (typeof raw.targetDepth === 'number' && Number.isFinite(raw.targetDepth)) out.targetDepth = Math.floor(raw.targetDepth);
-  if (typeof raw.lowWatermark === 'number' && Number.isFinite(raw.lowWatermark)) out.lowWatermark = Math.floor(raw.lowWatermark);
+  if (typeof raw.targetDepth === 'number' && Number.isFinite(raw.targetDepth))
+    out.targetDepth = Math.floor(raw.targetDepth);
+  if (typeof raw.lowWatermark === 'number' && Number.isFinite(raw.lowWatermark))
+    out.lowWatermark = Math.floor(raw.lowWatermark);
   if (typeof raw.maxRefillInFlight === 'number' && Number.isFinite(raw.maxRefillInFlight)) {
     out.maxRefillInFlight = Math.floor(raw.maxRefillInFlight);
   }
-  if (typeof raw.refillAttemptTimeoutMs === 'number' && Number.isFinite(raw.refillAttemptTimeoutMs)) {
+  if (
+    typeof raw.refillAttemptTimeoutMs === 'number' &&
+    Number.isFinite(raw.refillAttemptTimeoutMs)
+  ) {
     out.refillAttemptTimeoutMs = Math.floor(raw.refillAttemptTimeoutMs);
   }
   return Object.keys(out).length ? out : undefined;
@@ -50,31 +55,55 @@ export async function authorizeEcdsaWithSession(args: {
 }> {
   const relayerUrl = stripTrailingSlashes(toTrimmedString(args.relayerUrl));
   if (!relayerUrl) {
-    return { ok: false, code: 'invalid_args', message: 'Missing relayerUrl for threshold-ecdsa authorize' };
+    return {
+      ok: false,
+      code: 'invalid_args',
+      message: 'Missing relayerUrl for threshold-ecdsa authorize',
+    };
   }
 
   if (typeof fetch !== 'function') {
-    return { ok: false, code: 'unsupported', message: 'fetch is not available for threshold-ecdsa authorize' };
+    return {
+      ok: false,
+      code: 'unsupported',
+      message: 'fetch is not available for threshold-ecdsa authorize',
+    };
   }
 
   const relayerKeyId = String(args.relayerKeyId || '').trim();
   if (!relayerKeyId) {
-    return { ok: false, code: 'invalid_args', message: 'Missing relayerKeyId for threshold-ecdsa authorize' };
+    return {
+      ok: false,
+      code: 'invalid_args',
+      message: 'Missing relayerKeyId for threshold-ecdsa authorize',
+    };
   }
 
   const clientVerifyingShareB64u = String(args.clientVerifyingShareB64u || '').trim();
   if (!clientVerifyingShareB64u) {
-    return { ok: false, code: 'invalid_args', message: 'Missing clientVerifyingShareB64u for threshold-ecdsa authorize' };
+    return {
+      ok: false,
+      code: 'invalid_args',
+      message: 'Missing clientVerifyingShareB64u for threshold-ecdsa authorize',
+    };
   }
 
   const purpose = String(args.purpose || '').trim();
   if (!purpose) {
-    return { ok: false, code: 'invalid_args', message: 'Missing purpose for threshold-ecdsa authorize' };
+    return {
+      ok: false,
+      code: 'invalid_args',
+      message: 'Missing purpose for threshold-ecdsa authorize',
+    };
   }
 
   const signingDigest32 = toDigest32Bytes(args.signingDigest32);
   if (!signingDigest32) {
-    return { ok: false, code: 'invalid_args', message: 'signingDigest32 must be 32 bytes for threshold-ecdsa authorize' };
+    return {
+      ok: false,
+      code: 'invalid_args',
+      message: 'signingDigest32 must be 32 bytes for threshold-ecdsa authorize',
+    };
   }
 
   const sessionKind: 'jwt' | 'cookie' = args.sessionKind || 'jwt';
@@ -82,7 +111,11 @@ export async function authorizeEcdsaWithSession(args: {
   if (sessionKind === 'jwt') {
     const jwt = String(args.thresholdSessionJwt || '').trim();
     if (!jwt) {
-      return { ok: false, code: 'invalid_args', message: 'Missing thresholdSessionJwt for threshold-ecdsa authorize (jwt sessionKind)' };
+      return {
+        ok: false,
+        code: 'invalid_args',
+        message: 'Missing thresholdSessionJwt for threshold-ecdsa authorize (jwt sessionKind)',
+      };
     }
     headers.Authorization = `Bearer ${jwt}`;
   }
@@ -139,7 +172,11 @@ export async function authorizeEcdsaWithSession(args: {
       ...(data.message ? { message: data.message } : {}),
     };
   } catch (e: unknown) {
-    const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'Failed to authorize threshold-ecdsa');
+    const msg = String(
+      e && typeof e === 'object' && 'message' in e
+        ? (e as { message?: unknown }).message
+        : e || 'Failed to authorize threshold-ecdsa',
+    );
     return { ok: false, code: 'network_error', message: msg };
   }
 }

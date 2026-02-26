@@ -12,17 +12,13 @@ import type {
 } from './workerTypes';
 import { UserPreferencesManager } from '../api/userPreferences';
 import { NonceManager } from '@/core/rpcClients/near/nonceManager';
-import type { ThemeName } from '@/core/types/tatchi';
+import type { ThemeName, TatchiChainConfig } from '@/core/types/tatchi';
 import type {
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
 } from '@/core/types/secure-confirm-worker';
 import type { NearSigningKeyOps } from '../interfaces/nearKeyOps';
-import {
-  WorkerTransport,
-  getWorkerTransport,
-  requestWorkerOperation,
-} from './workerTransport';
+import { WorkerTransport, getWorkerTransport, requestWorkerOperation } from './workerTransport';
 import { createNearKeyOps } from './nearKeyOps';
 
 export interface SignerWorkerManagerContext extends SigningRuntimeDeps {
@@ -48,6 +44,7 @@ export class SignerWorkerManager {
   private userPreferencesManager: UserPreferencesManager;
   private nonceManager: NonceManager;
   private relayerUrl: string;
+  private chains?: readonly TatchiChainConfig[];
   private nearExplorerUrl?: string;
   private tempoExplorerUrl?: string;
   private evmExplorerUrl?: string;
@@ -61,6 +58,7 @@ export class SignerWorkerManager {
     userPreferencesManager: UserPreferencesManager,
     nonceManager: NonceManager,
     relayerUrl: string,
+    chains?: readonly TatchiChainConfig[],
     rpIdOverride?: string,
     enableSafariGetWebauthnRegistrationFallback: boolean = true,
     nearExplorerUrl?: string,
@@ -78,6 +76,7 @@ export class SignerWorkerManager {
     this.userPreferencesManager = userPreferencesManager;
     this.nonceManager = nonceManager;
     this.relayerUrl = relayerUrl;
+    this.chains = chains;
     this.nearExplorerUrl = nearExplorerUrl;
     this.tempoExplorerUrl = tempoExplorerUrl;
     this.evmExplorerUrl = evmExplorerUrl;
@@ -99,6 +98,7 @@ export class SignerWorkerManager {
       nearClient: this.nearClient,
       userPreferencesManager: this.userPreferencesManager,
       nonceManager: this.nonceManager,
+      chains: this.chains,
       getTheme: this.getTheme,
       rpIdOverride: this.touchIdPrompt.getRpId(),
       nearExplorerUrl: this.nearExplorerUrl,
@@ -112,10 +112,7 @@ export class SignerWorkerManager {
     await this.workerTransport.prewarmWorkers();
   }
 
-  requestWorkerOperation<
-    K extends SignerWorkerKind,
-    T extends SignerWorkerOperationType<K>,
-  >(args: {
+  requestWorkerOperation<K extends SignerWorkerKind, T extends SignerWorkerOperationType<K>>(args: {
     kind: K;
     request: SignerWorkerOperationRequest<K, T>;
   }): Promise<SignerWorkerOperationResult<K, T>> {

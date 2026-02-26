@@ -52,7 +52,11 @@ export function getCachedEd25519AuthSession(cacheKey: string): Ed25519AuthSessio
   const entry = authSessionCache.get(cacheKey);
   if (!entry) return null;
 
-  if (typeof entry.expiresAtMs === 'number' && Number.isFinite(entry.expiresAtMs) && Date.now() >= entry.expiresAtMs) {
+  if (
+    typeof entry.expiresAtMs === 'number' &&
+    Number.isFinite(entry.expiresAtMs) &&
+    Date.now() >= entry.expiresAtMs
+  ) {
     authSessionCache.delete(cacheKey);
     clearAuthSessionBySessionId(entry);
     return null;
@@ -91,14 +95,20 @@ export function getCachedEd25519AuthSessionJwt(cacheKey: string): string | undef
   return undefined;
 }
 
-export function getCachedEd25519AuthSessionBySessionId(sessionIdRaw: string): Ed25519AuthSession | null {
+export function getCachedEd25519AuthSessionBySessionId(
+  sessionIdRaw: string,
+): Ed25519AuthSession | null {
   const sessionId = toSessionId(sessionIdRaw);
   if (!sessionId) return null;
 
   const entry = authSessionBySessionId.get(sessionId);
   if (!entry) return null;
 
-  if (typeof entry.expiresAtMs === 'number' && Number.isFinite(entry.expiresAtMs) && Date.now() >= entry.expiresAtMs) {
+  if (
+    typeof entry.expiresAtMs === 'number' &&
+    Number.isFinite(entry.expiresAtMs) &&
+    Date.now() >= entry.expiresAtMs
+  ) {
     authSessionBySessionId.delete(sessionId);
     for (const [cacheKey, candidate] of authSessionCache.entries()) {
       if (candidate === entry) authSessionCache.delete(cacheKey);
@@ -109,7 +119,9 @@ export function getCachedEd25519AuthSessionBySessionId(sessionIdRaw: string): Ed
   return entry;
 }
 
-export function getCachedEd25519AuthSessionJwtBySessionId(sessionIdRaw: string): string | undefined {
+export function getCachedEd25519AuthSessionJwtBySessionId(
+  sessionIdRaw: string,
+): string | undefined {
   const cached = getCachedEd25519AuthSessionBySessionId(sessionIdRaw);
   const jwt = cached?.jwt;
   if (typeof jwt !== 'string') return undefined;
@@ -146,11 +158,19 @@ export async function mintEd25519AuthSession(args: {
 }> {
   const relayerUrl = stripTrailingSlashes(toTrimmedString(args.relayerUrl));
   if (!relayerUrl) {
-    return { ok: false, code: 'invalid_args', message: 'Missing relayerUrl for threshold session mint' };
+    return {
+      ok: false,
+      code: 'invalid_args',
+      message: 'Missing relayerUrl for threshold session mint',
+    };
   }
 
   if (typeof fetch !== 'function') {
-    return { ok: false, code: 'unsupported', message: 'fetch is not available for threshold session mint' };
+    return {
+      ok: false,
+      code: 'unsupported',
+      message: 'fetch is not available for threshold session mint',
+    };
   }
 
   // Never send PRF outputs to the relay.
@@ -181,7 +201,9 @@ export async function mintEd25519AuthSession(args: {
       }),
     });
 
-    const data = (await response.json().catch(() => ({}))) as ThresholdEd25519SessionMintResponseBody;
+    const data = (await response
+      .json()
+      .catch(() => ({}))) as ThresholdEd25519SessionMintResponseBody;
     if (!response.ok) {
       return {
         ok: false,
@@ -205,7 +227,11 @@ export async function mintEd25519AuthSession(args: {
       ...(data.message ? { message: data.message } : {}),
     };
   } catch (e: unknown) {
-    const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'Failed to mint threshold session');
+    const msg = String(
+      e && typeof e === 'object' && 'message' in e
+        ? (e as { message?: unknown }).message
+        : e || 'Failed to mint threshold session',
+    );
     return { ok: false, code: 'network_error', message: msg };
   }
 }

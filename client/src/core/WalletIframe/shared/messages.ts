@@ -7,6 +7,8 @@ import type { DelegateActionInput } from '../../types/delegate';
 import type { ConfirmationConfig } from '../../types/signer-worker';
 import type { SignerMode } from '../../types/signer-worker';
 import type { MultichainSigningRequest } from '../../signingEngine/chainAdaptors/tempo/types';
+import type { EvmSignedResult } from '../../signingEngine/chainAdaptors/evm/evmAdapter';
+import type { TempoSignedResult } from '../../signingEngine/chainAdaptors/tempo/tempoAdapter';
 import type { TatchiConfigsInput } from '../../types/tatchi';
 
 export type WalletProtocolVersion = '1.0.0';
@@ -32,6 +34,7 @@ export type ParentToChildType =
   | 'PM_SIGN_DELEGATE_ACTION'
   | 'PM_SIGN_NEP413'
   | 'PM_SIGN_TEMPO'
+  | 'PM_REPORT_TEMPO_BROADCAST_RESULT'
   | 'PM_EXPORT_KEYPAIR_UI'
   | 'PM_GET_RECENT_LOGINS'
   | 'PM_PREFETCH_BLOCKHEIGHT'
@@ -227,6 +230,18 @@ export interface PMSignTempoPayload {
   };
 }
 
+export interface PMReportTempoBroadcastResultPayload {
+  nearAccountId: string;
+  signedResult: TempoSignedResult | EvmSignedResult;
+  status: 'success' | 'failure';
+  txHash?: `0x${string}`;
+  error?: {
+    code?: string;
+    message?: string;
+    details?: unknown;
+  };
+}
+
 export interface PMExportKeypairUiPayload {
   nearAccountId: string;
   chain: 'near' | 'evm' | 'tempo';
@@ -358,6 +373,7 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_SIGN_DELEGATE_ACTION', PMSignDelegateActionPayload>
   | RpcEnvelope<'PM_SIGN_NEP413', PMSignNep413Payload>
   | RpcEnvelope<'PM_SIGN_TEMPO', PMSignTempoPayload>
+  | RpcEnvelope<'PM_REPORT_TEMPO_BROADCAST_RESULT', PMReportTempoBroadcastResultPayload>
   | RpcEnvelope<'PM_EXPORT_KEYPAIR_UI', PMExportKeypairUiPayload>
   | RpcEnvelope<'PM_GET_RECENT_LOGINS'>
   | RpcEnvelope<'PM_PREFETCH_BLOCKHEIGHT'>

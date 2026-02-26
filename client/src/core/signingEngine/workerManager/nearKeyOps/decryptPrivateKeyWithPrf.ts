@@ -1,10 +1,6 @@
-
 import { ClientAuthenticatorData } from '@/core/indexedDB';
-import {
-  WorkerRequestType,
-  isDecryptPrivateKeyWithPrfSuccess,
-} from '@/core/types/signer-worker';
-import { AccountId, toAccountId } from "@/core/types/accountIds";
+import { WorkerRequestType, isDecryptPrivateKeyWithPrfSuccess } from '@/core/types/signer-worker';
+import { AccountId, toAccountId } from '@/core/types/accountIds';
 
 import { SignerWorkerManagerContext } from '..';
 import { getLastLoggedInDeviceNumber } from '@/core/signingEngine/signers/webauthn/device/getDeviceNumber';
@@ -22,10 +18,10 @@ export async function decryptPrivateKeyWithPrf({
   encryptedPrivateKeyChacha20NonceB64u,
   deviceNumber,
 }: {
-  ctx: SignerWorkerManagerContext,
-  nearAccountId: AccountId,
-  authenticators: ClientAuthenticatorData[],
-  sessionId: string,
+  ctx: SignerWorkerManagerContext;
+  nearAccountId: AccountId;
+  authenticators: ClientAuthenticatorData[];
+  sessionId: string;
   prfFirstB64u?: string;
   wrapKeySalt?: string;
   encryptedPrivateKeyData?: string;
@@ -49,9 +45,10 @@ export async function decryptPrivateKeyWithPrf({
     if (!encryptedSk || !chacha20NonceB64u) {
       // Retrieve encrypted key data from IndexedDB in main thread only when explicit
       // encrypted payload was not provided by caller.
-      const resolvedDeviceNumber = Number.isSafeInteger(deviceNumber) && Number(deviceNumber) >= 1
-        ? Number(deviceNumber)
-        : await getLastLoggedInDeviceNumber(nearAccountId, ctx.indexedDB.clientDB);
+      const resolvedDeviceNumber =
+        Number.isSafeInteger(deviceNumber) && Number(deviceNumber) >= 1
+          ? Number(deviceNumber)
+          : await getLastLoggedInDeviceNumber(nearAccountId, ctx.indexedDB.clientDB);
       const keyMaterial = await ctx.indexedDB.getNearLocalKeyMaterial(
         nearAccountId,
         resolvedDeviceNumber,
@@ -100,14 +97,14 @@ export async function decryptPrivateKeyWithPrf({
         ? (response.payload as { error?: unknown }).error
         : undefined;
       throw new Error(
-        (typeof payloadError === 'string' && payloadError.trim())
+        typeof payloadError === 'string' && payloadError.trim()
           ? payloadError
           : 'Private key decryption failed',
       );
     }
     return {
       decryptedPrivateKey: response.payload.privateKey,
-      nearAccountId: toAccountId(response.payload.nearAccountId)
+      nearAccountId: toAccountId(response.payload.nearAccountId),
     };
   } catch (error: unknown) {
     console.error('SigningEngine: Dual PRF private key decryption error:', error);

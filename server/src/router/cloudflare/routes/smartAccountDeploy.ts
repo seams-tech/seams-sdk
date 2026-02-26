@@ -1,8 +1,13 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
-import { executeSmartAccountDeploy, parseSmartAccountDeployRequest } from '../../smartAccountDeploy';
+import {
+  executeSmartAccountDeploy,
+  parseSmartAccountDeployRequest,
+} from '../../smartAccountDeploy';
 import { json, readJson } from '../http';
 
-export async function handleSmartAccountDeploy(ctx: CloudflareRelayContext): Promise<Response | null> {
+export async function handleSmartAccountDeploy(
+  ctx: CloudflareRelayContext,
+): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/smart-account/deploy') return null;
 
   const body = await readJson(ctx.request);

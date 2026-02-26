@@ -24,9 +24,7 @@ const repoRoot = resolveRepoRoot();
 const palettePath = path.join(repoRoot, 'client', 'src', 'theme', 'palette.json');
 const defaultCssPath = path.join(repoRoot, 'sdk', 'dist', 'esm', 'sdk', 'w3a-components.css');
 
-const cssPath = process.argv[2]
-  ? path.resolve(process.argv[2])
-  : defaultCssPath;
+const cssPath = process.argv[2] ? path.resolve(process.argv[2]) : defaultCssPath;
 
 function fail(msg) {
   console.error(`\n[assert-palette-css] ${msg}`);
@@ -34,13 +32,19 @@ function fail(msg) {
 }
 
 function readJson(p) {
-  try { return JSON.parse(fs.readFileSync(p, 'utf-8')); }
-  catch (e) { fail(`Unable to read JSON at ${p}: ${e?.message || e}`); }
+  try {
+    return JSON.parse(fs.readFileSync(p, 'utf-8'));
+  } catch (e) {
+    fail(`Unable to read JSON at ${p}: ${e?.message || e}`);
+  }
 }
 
 function readText(p) {
-  try { return fs.readFileSync(p, 'utf-8'); }
-  catch (e) { fail(`Unable to read CSS at ${p}: ${e?.message || e}`); }
+  try {
+    return fs.readFileSync(p, 'utf-8');
+  } catch (e) {
+    fail(`Unable to read CSS at ${p}: ${e?.message || e}`);
+  }
 }
 
 if (!fs.existsSync(palettePath)) fail(`Missing palette.json at ${palettePath}`);
@@ -51,7 +55,7 @@ const css = readText(cssPath);
 
 // Collect CSS var names present in the generated file
 const present = new Set();
-const re = /(--w3a-[a-z0-9\-]+)\s*:/gi;
+const re = /(--w3a-[a-z0-9-]+)\s*:/gi;
 let m;
 while ((m = re.exec(css)) !== null) {
   present.add(m[1]);
@@ -81,7 +85,9 @@ for (const name of Object.keys(gradients)) {
 }
 
 // Diff
-const missing = Array.from(expected).filter((v) => !present.has(v)).sort();
+const missing = Array.from(expected)
+  .filter((v) => !present.has(v))
+  .sort();
 
 if (missing.length) {
   console.error('[assert-palette-css] Missing CSS variables from generated w3a-components.css:');

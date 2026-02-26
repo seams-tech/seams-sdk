@@ -28,10 +28,12 @@ See the component index below for file paths and tags.
 ## Editing Components and Styles
 
 These components use a small base helper and a variable‑driven styling approach:
+
 - `LitElementWithProps.ts` handles the Lit upgrade race and exposes `applyStyles()` that maps JS objects to `--w3a-*` CSS variables.
 - Component themes (e.g., tooltip tree, modal) are plain objects applied through `applyStyles` so you can override any section without touching the component internals.
 
 For guidance on editing properties, style sections, and the CSS variable naming convention, see:
+
 - `./lit-element-with-props.md` – how properties are upgraded and how `applyStyles` maps section/key pairs to CSS vars.
 
 ## Styles and CSP
@@ -43,14 +45,17 @@ We no longer inject inline styles or `<style>` tags. All components follow stric
 - First‑paint gating to avoid FOUC while styles load.
 
 Key utilities:
+
 - `css/css-loader.ts` → `ensureExternalStyles(root, assetName, marker)` adopts external CSS (ShadowRoot, srcdoc import, or head `<link>` fallback).
 - `LitElementWithProps#setCssVars(vars)` writes variables via constructable stylesheets (never `element.style`).
 
 Tokens and scoping:
+
 - Theme tokens come from `css/w3a-components.css`.
 - Component variables follow `--w3a-${component}__${section}__${prop}`.
 
 Other notes:
+
 - Base resolution: `asset-base.ts#resolveEmbeddedBase()` prefers `window.__W3A_WALLET_SDK_BASE__`, else `/sdk/`.
 - Shadow vs light DOM: TxTree defaults to light DOM; others use Shadow DOM and adopt styles there.
 
@@ -71,25 +76,24 @@ Examples omitted for brevity; see HaloBorder, PasskeyHaloLoading, and Modal view
 
 - TxTree: `./TxTree/README.md`
 
-
 ## Confirm UI API
 
 - File: `client/src/core/signingEngine/touchConfirm/ui/confirm-ui.ts`
 - Element contract: `client/src/core/signingEngine/touchConfirm/ui/confirm-ui-types.ts`
 
 Confirm UI is container‑agnostic and driven by `uiMode: 'none' | 'modal' | 'drawer'`.
+
 - Element contract: `ConfirmUIElement` supports `deferClose` and `close(confirmed)`.
 - Helpers: `mountConfirmUI()` and `awaitConfirmUIDecision()` mount and coordinate lifecycle.
-
 
 ## Editing Guide (brief)
 
 When adding or refactoring components:
+
 - Expose a single defining module that calls `customElements.define()`.
 - If moving/renaming, update build entries and re‑exports so the defining chunk still emits under `/sdk/*`.
 - In the wallet host, dynamically import the element module before `document.createElement()` (see tree‑shaking section).
 - Ensure required CSS assets exist in `css/` and are adopted via `ensureExternalStyles()`.
-
 
 ## Component Index
 
@@ -114,7 +118,6 @@ When adding or refactoring components:
   - `css/css-loader.ts` — external CSS adoption
   - `registry.ts` — tag names and ensure-defined helpers
 
-
 ## Wallet-Iframe Lit Components: Tree-shaking Gotchas
 
 When adding a new Lit component that must render inside the wallet iframe host (e.g., a new drawer or modal), there are a few integration pitfalls that can make the custom element appear in the DOM but never upgrade (empty UI). This section documents the fixes and a repeatable checklist.
@@ -137,9 +140,11 @@ When adding a new Lit component that must render inside the wallet iframe host (
 - Keep the static import too (for type graphs and when bundlers honor side‑effects), but the dynamic import makes it robust.
 
 Implementation reference:
+
 - `client/src/core/signingEngine/touchConfirm/handlers/handlePromptFromWorker.ts` (SHOW_SECURE_PRIVATE_KEY_UI path) dynamically imports the iframe host module before creating the element.
 
 ### Embedded assets (dev)
+
 - Bundles load from `/sdk/` (viewer + bootstrap) under `dist/esm/sdk/`.
 - Dev plugin serves JS/CSS with correct MIME and COEP/CORP.
 - Sanity: `/sdk/<bundle>.js` returns 200; no “Unknown custom element” warnings.
@@ -161,12 +166,15 @@ Implementation reference:
   ```
 
 Implementation reference:
+
 - `src/core/WalletIframe/client/router.ts` sets `options: { sticky: true }` for the export‑UI call and guards overlay hiding with `isSticky()`.
 
 ### Build entries
+
 - Add both: `iframe-<feature>-bootstrap.js` and `<feature>-viewer.js` (emit under `dist/esm/sdk/`).
 
 ### Hard rules (never break again)
+
 - Always ensure definition at use‑site: before `document.createElement('w3a-*')`, dynamically import the module that calls `customElements.define()` for that tag.
 - Never rely only on side‑effect imports for elements rendered inside the wallet iframe.
 - Centralize tag names in `registry.ts` and prefer a small helper to ensure definition.
@@ -184,21 +192,27 @@ export async function ensureDefined(tag: string, loader: () => Promise<unknown>)
 // Usage (export viewer)
 import { W3A_EXPORT_VIEWER_IFRAME_ID } from '../../registry';
 import { ensureDefined } from '../../registry';
-await ensureDefined(W3A_EXPORT_VIEWER_IFRAME_ID, () => import('../../lit-components/ExportPrivateKey/iframe-host'));
+await ensureDefined(
+  W3A_EXPORT_VIEWER_IFRAME_ID,
+  () => import('../../lit-components/ExportPrivateKey/iframe-host'),
+);
 const host = document.createElement(W3A_EXPORT_VIEWER_IFRAME_ID);
 document.body.appendChild(host);
 ```
 
 Reference in codebase:
+
 - `touchConfirm/handlers/flows/localOnly.ts` dynamically imports `ui/lit-components/ExportPrivateKey/iframe-host` before `createElement('w3a-export-viewer-iframe')`.
 
 ### Dev/Test guardrails
+
 - Unit: keep the SHOW_SECURE_PRIVATE_KEY_UI test that verifies the viewer remains mounted (already present under `tests/unit/confirmTxFlow.defensivePaths.test.ts`).
 - E2E: add a production‑bundle run that triggers export viewer to catch treeshaking differences from dev.
 - Lint/check: optional script that fails CI if a `document.createElement('w3a-…')` call is not preceded by an `ensureDefined(...)` in the same module.
 - Dev observer: optional `MutationObserver` in wallet host that warns if a `w3a-*` element is un‑upgraded for >250ms after insertion.
 
 ### Build config notes
+
 - `package.json#sideEffects` cannot protect intra‑bundle treeshaking across all tools. The reliable fix is dynamic import at use‑site, plus keep‑imports in the wallet host.
 
 ## Importing and Composing (quick checklist)
@@ -209,7 +223,7 @@ Reference in codebase:
 - For iframe bootstraps, set variant flags before element creation.
 - Use two‑phase close (`deferClose`) for animated flows; close after animation.
 - Ensure srcdoc loads viewer + bootstrap from `/sdk/` with `type="module"`.
-- Validate in dev: `/sdk/*.js` 200; element upgrades; READY/SET_* messages flow.
+- Validate in dev: `/sdk/*.js` 200; element upgrades; READY/SET\_\* messages flow.
 
 ## Troubleshooting Styles + FOUC
 

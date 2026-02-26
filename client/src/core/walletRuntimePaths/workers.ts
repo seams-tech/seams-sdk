@@ -9,9 +9,7 @@
  */
 export function resolveWorkerBaseOrigin(): string {
   const currentOrigin =
-    (typeof window !== 'undefined' && window.location?.origin)
-      ? window.location.origin
-      : '';
+    typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '';
 
   // Only allow worker scripts to resolve from the embedded base when it matches
   // the current origin. Cross-origin worker scripts are not reliably loadable
@@ -40,38 +38,46 @@ export function resolveWorkerBaseOrigin(): string {
  *          otherwise against the current window origin.
  */
 export function resolveWorkerScriptUrl(input: string): string {
-  return resolveWorkerUrl(input, { worker: detectWorkerFromPath(input) })
+  return resolveWorkerUrl(input, { worker: detectWorkerFromPath(input) });
 }
 
 export function resolveWorkerUrl(
   input: string | undefined,
-  opts: { worker: 'signer' | 'touchConfirm'; baseOrigin?: string }
+  opts: { worker: 'signer' | 'touchConfirm'; baseOrigin?: string },
 ): string {
-  const worker = opts.worker
-  const baseOrigin = opts.baseOrigin || resolveWorkerBaseOrigin() || (typeof window !== 'undefined' ? window.location.origin : '') || 'https://invalid.local'
+  const worker = opts.worker;
+  const baseOrigin =
+    opts.baseOrigin ||
+    resolveWorkerBaseOrigin() ||
+    (typeof window !== 'undefined' ? window.location.origin : '') ||
+    'https://invalid.local';
   try {
     // Prefer explicit per-worker URL override
-    const ovAny = (typeof window !== 'undefined' ? (window as any) : {}) as any
-    const override = worker === 'signer'
-      ? ovAny.__W3A_SIGNER_WORKER_URL__
-      : ovAny.__W3A_TOUCH_CONFIRM_WORKER_URL__
-    const candidate = (typeof override === 'string' && override) ? override : (input || defaultWorkerPath(worker))
+    const ovAny = (typeof window !== 'undefined' ? (window as any) : {}) as any;
+    const override =
+      worker === 'signer'
+        ? ovAny.__W3A_SIGNER_WORKER_URL__
+        : ovAny.__W3A_TOUCH_CONFIRM_WORKER_URL__;
+    const candidate =
+      typeof override === 'string' && override ? override : input || defaultWorkerPath(worker);
     if (/^https?:\/\//i.test(candidate)) {
-      return new URL(candidate).toString()
+      return new URL(candidate).toString();
     }
-    return new URL(candidate, baseOrigin).toString()
+    return new URL(candidate, baseOrigin).toString();
   } catch {
-    try { return new URL(input || defaultWorkerPath(worker), baseOrigin).toString() } catch {}
-    return input || defaultWorkerPath(worker)
+    try {
+      return new URL(input || defaultWorkerPath(worker), baseOrigin).toString();
+    } catch {}
+    return input || defaultWorkerPath(worker);
   }
 }
 
 function detectWorkerFromPath(p: string): 'signer' | 'touchConfirm' {
-  return /near-signer\.worker\.js(?:$|\?)/.test(p) ? 'signer' : 'touchConfirm'
+  return /near-signer\.worker\.js(?:$|\?)/.test(p) ? 'signer' : 'touchConfirm';
 }
 
 function defaultWorkerPath(worker: 'signer' | 'touchConfirm'): string {
   return worker === 'signer'
     ? '/sdk/workers/near-signer.worker.js'
-    : '/sdk/workers/passkey-confirm.worker.js'
+    : '/sdk/workers/passkey-confirm.worker.js';
 }

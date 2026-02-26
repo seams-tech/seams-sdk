@@ -1,27 +1,30 @@
-import type { DashboardRoute } from './types'
+import type { DashboardRoute } from './types';
 
 export type DashboardChecklistCard = {
-  title: string
-  items: readonly string[]
-}
+  title: string;
+  items: readonly string[];
+};
 
 export type DashboardKpiMetric = {
-  label: string
-  value: string
-  hint: string
-}
+  label: string;
+  value: string;
+  hint: string;
+};
 
 type DashboardSearchFilterControl = {
-  kind: 'select' | 'action'
-  value: string
-}
+  kind: 'select' | 'action';
+  value: string;
+};
 
 type DashboardSearchModel = {
-  title: string
-  items: readonly string[]
-}
+  title: string;
+  items: readonly string[];
+};
 
-type CardDashboardRoute = Exclude<DashboardRoute, '/dashboard/wallets-list' | '/dashboard/wallets-search'>
+type CardDashboardRoute = Exclude<
+  DashboardRoute,
+  '/dashboard/wallets-list' | '/dashboard/wallets-search'
+>;
 
 export const USER_WALLETS_LIST_KPIS = [
   {
@@ -44,7 +47,7 @@ export const USER_WALLETS_LIST_KPIS = [
     value: '18,902 tx',
     hint: '24h and 7d windows available',
   },
-] as const satisfies readonly DashboardKpiMetric[]
+] as const satisfies readonly DashboardKpiMetric[];
 
 export const USER_WALLETS_TABLE_COLUMNS = [
   'Wallet ID',
@@ -55,20 +58,20 @@ export const USER_WALLETS_TABLE_COLUMNS = [
   'Balance',
   'Status',
   'Updated',
-] as const
+] as const;
 
 export const USER_WALLETS_TABLE_NOTE =
-  'Row actions: view details, view activity, assign policy, and freeze/unfreeze where supported.'
+  'Row actions: view details, view activity, assign policy, and freeze/unfreeze where supported.';
 
 export const SEARCH_USER_WALLETS_PLACEHOLDER =
-  'Search by wallet address, wallet ID, user ID, or external reference ID'
+  'Search by wallet address, wallet ID, user ID, or external reference ID';
 
 export const SEARCH_USER_WALLETS_FILTER_CONTROLS = [
   { kind: 'select', value: 'All chains' },
   { kind: 'select', value: 'Any policy' },
   { kind: 'select', value: 'EOA + Smart' },
   { kind: 'action', value: 'Sort' },
-] as const satisfies readonly DashboardSearchFilterControl[]
+] as const satisfies readonly DashboardSearchFilterControl[];
 
 export const SEARCH_USER_WALLETS_MODEL = {
   title: 'Search and filter model',
@@ -78,7 +81,7 @@ export const SEARCH_USER_WALLETS_MODEL = {
     'Persist filter state in URL query params for shareable views.',
     'Return empty/loading/error states with retry actions.',
   ],
-} as const satisfies DashboardSearchModel
+} as const satisfies DashboardSearchModel;
 
 export const DASHBOARD_CARD_PAGE_CONTENT = {
   '/dashboard/policy-engine': [
@@ -123,11 +126,7 @@ export const DASHBOARD_CARD_PAGE_CONTENT = {
   '/dashboard/export-keys': [
     {
       title: 'Export policy modes',
-      items: [
-        'Disabled',
-        'Approval required',
-        'Allowed with scoped constraints',
-      ],
+      items: ['Disabled', 'Approval required', 'Allowed with scoped constraints'],
     },
     {
       title: 'Approval and audit controls',
@@ -192,8 +191,10 @@ export const DASHBOARD_CARD_PAGE_CONTENT = {
       ],
     },
   ],
-} as const satisfies Record<CardDashboardRoute, readonly DashboardChecklistCard[]>
+} as const satisfies Record<CardDashboardRoute, readonly DashboardChecklistCard[]>;
 
-export function getDashboardChecklistCards(route: CardDashboardRoute): readonly DashboardChecklistCard[] {
-  return DASHBOARD_CARD_PAGE_CONTENT[route]
+export function getDashboardChecklistCards(
+  route: CardDashboardRoute,
+): readonly DashboardChecklistCard[] {
+  return DASHBOARD_CARD_PAGE_CONTENT[route];
 }

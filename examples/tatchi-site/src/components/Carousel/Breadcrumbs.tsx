@@ -1,14 +1,14 @@
-import React from 'react'
-import { useCarousel } from './CarouselProvider'
+import React from 'react';
+import { useCarousel } from './CarouselProvider';
 
 export function Breadcrumbs({ style }: { style?: React.CSSProperties }) {
-  const { pages, index, goTo } = useCarousel()
+  const { pages, index, goTo } = useCarousel();
   return (
     <nav className="carousel-breadcrumbs" aria-label="Breadcrumb" style={style}>
       <ol>
         {pages.map((p, i) => {
-          const isActive = i === index
-          const isDisabled = !!p.disabled && !isActive
+          const isActive = i === index;
+          const isDisabled = !!p.disabled && !isActive;
           return (
             <li key={p.key}>
               <button
@@ -17,7 +17,9 @@ export function Breadcrumbs({ style }: { style?: React.CSSProperties }) {
                 aria-current={isActive ? 'page' : undefined}
                 aria-disabled={isDisabled || undefined}
                 disabled={isDisabled}
-                onClick={() => { if (!isDisabled) goTo(i) }}
+                onClick={() => {
+                  if (!isDisabled) goTo(i);
+                }}
               >
                 {p.title}
               </button>
@@ -40,11 +42,11 @@ export function Breadcrumbs({ style }: { style?: React.CSSProperties }) {
                 </span>
               )}
             </li>
-          )
+          );
         })}
       </ol>
     </nav>
-  )
+  );
 }
 
-export default Breadcrumbs
+export default Breadcrumbs;

@@ -1,22 +1,22 @@
-import React from 'react'
-import { CredibilityBands } from '../components/CredibilityBands'
-import { FinalCTA } from '../components/FinalCTA'
-import { Footer } from '../components/Footer'
-import { HomeHero } from '../components/HomeHero'
-import NavbarStatic from '../components/Navbar/NavbarStatic'
-import { ProductCards } from '../components/ProductCards'
-import { SecurityProofStrip } from '../components/SecurityProofStrip'
-import { useRevealOnIdle } from '../hooks/useRevealOnIdle'
+import React from 'react';
+import { CredibilityBands } from '../components/CredibilityBands';
+import { FinalCTA } from '../components/FinalCTA';
+import { Footer } from '../components/Footer';
+import { HomeHero } from '../components/HomeHero';
+import NavbarStatic from '../components/Navbar/NavbarStatic';
+import { ProductCards } from '../components/ProductCards';
+import { SecurityProofStrip } from '../components/SecurityProofStrip';
+import { useRevealOnIdle } from '../hooks/useRevealOnIdle';
 
 // Defer loading the DemoPasskeyColumn until after first paint/idle
-const DemoPasskeyColumnLazy = React.lazy(() => import('../components/DemoPasskeyColumn').then((m) => ({ default: m.DemoPasskeyColumn })))
+const DemoPasskeyColumnLazy = React.lazy(() =>
+  import('../components/DemoPasskeyColumn').then((m) => ({ default: m.DemoPasskeyColumn })),
+);
 
-const SectionPlaceholder: React.FC = () => (
-  <div style={{ minHeight: 360 }} />
-)
+const SectionPlaceholder: React.FC = () => <div style={{ minHeight: 360 }} />;
 
 const LazyPasskeySection: React.FC = () => {
-  const show = useRevealOnIdle()
+  const show = useRevealOnIdle();
   return (
     <div className="layout-column-right">
       <div className="constrained-column">
@@ -29,8 +29,8 @@ const LazyPasskeySection: React.FC = () => {
         )}
       </div>
     </div>
-  )
-}
+  );
+};
 
 export function HomePage(): React.JSX.Element {
   return (
@@ -65,5 +65,5 @@ export function HomePage(): React.JSX.Element {
         </div>
       </div>
     </>
-  )
+  );
 }

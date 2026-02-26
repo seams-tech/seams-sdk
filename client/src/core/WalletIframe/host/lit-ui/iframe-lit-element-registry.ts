@@ -6,8 +6,7 @@
  * be wired to TatchiPasskey actions.
  */
 
-export type PmActionName =
-  | 'signAndSendTransactions';
+export type PmActionName = 'signAndSendTransactions';
 
 export type UIEventBinding = {
   event: string; // e.g. 'w3a-register-click'
@@ -25,8 +24,8 @@ export type UIPropBinding = {
 
 export type UIBridgeProps = {
   successProp?: string; // e.g. 'onSuccess'
-  cancelProp?: string;  // e.g. 'onCancel'
-  messageType: string;  // e.g. 'TX_BUTTON_RESULT'
+  cancelProp?: string; // e.g. 'onCancel'
+  messageType: string; // e.g. 'TX_BUTTON_RESULT'
 };
 
 export type UIComponentDef = {

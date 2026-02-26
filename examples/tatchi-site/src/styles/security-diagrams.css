@@ -14,27 +14,50 @@
       color-mix(in srgb, var(--site-canvas) 90%, #000 10%) 100%
     );
   --security-title: var(--site-text-primary);
-  --security-subtitle: color-mix(in srgb, var(--site-text-secondary) 90%, var(--site-text-primary) 10%);
+  --security-subtitle: color-mix(
+    in srgb,
+    var(--site-text-secondary) 90%,
+    var(--site-text-primary) 10%
+  );
   --security-link-border: color-mix(in srgb, var(--site-border) 66%, transparent);
   --security-link-surface: color-mix(in srgb, var(--site-surface-strong) 68%, transparent);
   --security-link-text: var(--site-text-primary);
   --security-link-border-hover: color-mix(in srgb, var(--site-border-strong) 66%, transparent);
   --security-link-surface-hover: color-mix(in srgb, var(--site-surface-strong) 80%, transparent);
   --security-card-border: color-mix(in srgb, var(--site-border) 62%, transparent);
-  --security-card-surface:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--site-surface-strong) 86%, #000 14%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 90%, #000 10%) 100%
-    );
+  --security-card-surface: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--site-surface-strong) 86%, #000 14%) 0%,
+    color-mix(in srgb, var(--site-surface-muted) 90%, #000 10%) 100%
+  );
   --security-card-title: var(--site-text-primary);
-  --security-card-copy: color-mix(in srgb, var(--site-text-secondary) 90%, var(--site-text-primary) 10%);
+  --security-card-copy: color-mix(
+    in srgb,
+    var(--site-text-secondary) 90%,
+    var(--site-text-primary) 10%
+  );
   --security-diagram-canvas: color-mix(in srgb, #1b2333 72%, var(--site-surface-strong) 28%);
-  --security-diagram-line-muted: color-mix(in srgb, var(--site-text-secondary) 44%, var(--site-surface-muted) 56%);
+  --security-diagram-line-muted: color-mix(
+    in srgb,
+    var(--site-text-secondary) 44%,
+    var(--site-surface-muted) 56%
+  );
   --security-diagram-line: color-mix(in srgb, var(--site-text-primary) 72%, var(--site-brand) 28%);
-  --security-diagram-line-strong: color-mix(in srgb, var(--site-text-primary) 84%, var(--site-brand) 16%);
-  --security-diagram-package: color-mix(in srgb, var(--site-surface-strong) 72%, var(--site-accent) 28%);
-  --security-diagram-package-strong: color-mix(in srgb, var(--site-text-primary) 58%, var(--site-brand) 42%);
+  --security-diagram-line-strong: color-mix(
+    in srgb,
+    var(--site-text-primary) 84%,
+    var(--site-brand) 16%
+  );
+  --security-diagram-package: color-mix(
+    in srgb,
+    var(--site-surface-strong) 72%,
+    var(--site-accent) 28%
+  );
+  --security-diagram-package-strong: color-mix(
+    in srgb,
+    var(--site-text-primary) 58%,
+    var(--site-brand) 42%
+  );
   position: relative;
   overflow: hidden;
   padding: clamp(1.1rem, 2vw, 1.7rem);
@@ -43,36 +66,33 @@
   background: var(--security-surface);
 }
 
-html[data-w3a-theme="light"] .security-diagrams {
+html[data-w3a-theme='light'] .security-diagrams {
   --security-tint-slate-1: #e8eef7;
   --security-tint-slate-2: #dbe4f1;
   --security-tint-slate-3: #c9d5e6;
   --security-tint-blue: #9bb4d2;
   --security-border: color-mix(in srgb, #9fb2c9 36%, var(--site-border) 64%);
-  --security-surface:
-    linear-gradient(
-      154deg,
-      color-mix(in srgb, var(--security-tint-slate-1) 84%, #f5f8fc 16%) 0%,
-      color-mix(in srgb, var(--security-tint-slate-2) 88%, var(--security-tint-blue) 12%) 56%,
-      color-mix(in srgb, var(--security-tint-slate-3) 86%, #b8c8dc 14%) 100%
-    );
+  --security-surface: linear-gradient(
+    154deg,
+    color-mix(in srgb, var(--security-tint-slate-1) 84%, #f5f8fc 16%) 0%,
+    color-mix(in srgb, var(--security-tint-slate-2) 88%, var(--security-tint-blue) 12%) 56%,
+    color-mix(in srgb, var(--security-tint-slate-3) 86%, #b8c8dc 14%) 100%
+  );
   --security-title: color-mix(in srgb, #1f2d3c 92%, #2b3d52 8%);
   --security-subtitle: color-mix(in srgb, #4f647d 90%, #2b3d52 10%);
   --security-link-border: color-mix(in srgb, #9cb0c8 56%, var(--site-border) 44%);
-  --security-link-surface:
-    linear-gradient(
-      146deg,
-      color-mix(in srgb, #ecf2fa 88%, #ffffff 12%) 0%,
-      color-mix(in srgb, #dde7f4 90%, #f1f6fc 10%) 100%
-    );
+  --security-link-surface: linear-gradient(
+    146deg,
+    color-mix(in srgb, #ecf2fa 88%, #ffffff 12%) 0%,
+    color-mix(in srgb, #dde7f4 90%, #f1f6fc 10%) 100%
+  );
   --security-link-text: color-mix(in srgb, #253648 92%, #1f2d3a 8%);
   --security-link-border-hover: color-mix(in srgb, #8ea6c1 62%, var(--site-border) 38%);
-  --security-link-surface-hover:
-    linear-gradient(
-      146deg,
-      color-mix(in srgb, #dfe9f6 90%, #f4f8fd 10%) 0%,
-      color-mix(in srgb, #cfddee 90%, #e7eef8 10%) 100%
-    );
+  --security-link-surface-hover: linear-gradient(
+    146deg,
+    color-mix(in srgb, #dfe9f6 90%, #f4f8fd 10%) 0%,
+    color-mix(in srgb, #cfddee 90%, #e7eef8 10%) 100%
+  );
   --security-card-border: color-mix(in srgb, var(--site-border) 82%, var(--site-brand) 18%);
   --security-card-surface:
     radial-gradient(
@@ -85,8 +105,16 @@ html[data-w3a-theme="light"] .security-diagrams {
       color-mix(in srgb, var(--site-surface) 97%, var(--site-brand) 3%) 0%,
       color-mix(in srgb, var(--site-surface-muted) 94%, var(--site-surface) 6%) 100%
     );
-  --security-card-title: color-mix(in srgb, var(--site-text-primary) 96%, var(--site-text-secondary) 4%);
-  --security-card-copy: color-mix(in srgb, var(--site-text-secondary) 90%, var(--site-text-primary) 10%);
+  --security-card-title: color-mix(
+    in srgb,
+    var(--site-text-primary) 96%,
+    var(--site-text-secondary) 4%
+  );
+  --security-card-copy: color-mix(
+    in srgb,
+    var(--site-text-secondary) 90%,
+    var(--site-text-primary) 10%
+  );
   --security-diagram-canvas: color-mix(in srgb, #d5e0ee 72%, #ebf1f8 28%);
   --security-diagram-line-muted: color-mix(in srgb, #5f7390 62%, #8da2be 38%);
   --security-diagram-line: color-mix(in srgb, #2c4057 66%, #607b9d 34%);
@@ -97,7 +125,7 @@ html[data-w3a-theme="light"] .security-diagrams {
 
 .security-diagrams::before,
 .security-diagrams::after {
-  content: "";
+  content: '';
   position: absolute;
   width: 88px;
   height: 88px;
@@ -222,7 +250,11 @@ html[data-w3a-theme="light"] .security-diagrams {
 }
 
 .security-diagrams__art-wrap--custody {
-  --security-diagram-canvas: color-mix(in srgb, var(--site-surface-strong) 78%, var(--site-canvas) 22%);
+  --security-diagram-canvas: color-mix(
+    in srgb,
+    var(--site-surface-strong) 78%,
+    var(--site-canvas) 22%
+  );
   --security-art-bg:
     radial-gradient(
       140% 164% at 8% -28%,
@@ -242,7 +274,11 @@ html[data-w3a-theme="light"] .security-diagrams {
 }
 
 .security-diagrams__art-wrap--defense {
-  --security-diagram-canvas: color-mix(in srgb, var(--site-surface-strong) 76%, var(--site-canvas) 24%);
+  --security-diagram-canvas: color-mix(
+    in srgb,
+    var(--site-surface-strong) 76%,
+    var(--site-canvas) 24%
+  );
   --security-art-bg:
     radial-gradient(
       132% 144% at 14% -24%,
@@ -262,7 +298,11 @@ html[data-w3a-theme="light"] .security-diagrams {
 }
 
 .security-diagrams__art-wrap--scale {
-  --security-diagram-canvas: color-mix(in srgb, var(--site-surface-strong) 74%, var(--site-canvas) 26%);
+  --security-diagram-canvas: color-mix(
+    in srgb,
+    var(--site-surface-strong) 74%,
+    var(--site-canvas) 26%
+  );
   --security-art-bg:
     radial-gradient(
       124% 140% at 50% -30%,
@@ -282,7 +322,11 @@ html[data-w3a-theme="light"] .security-diagrams {
 }
 
 .security-diagrams__art-wrap--friction {
-  --security-diagram-canvas: color-mix(in srgb, var(--site-surface-strong) 72%, var(--site-canvas) 28%);
+  --security-diagram-canvas: color-mix(
+    in srgb,
+    var(--site-surface-strong) 72%,
+    var(--site-canvas) 28%
+  );
   --security-art-bg:
     radial-gradient(
       132% 150% at 14% -26%,
@@ -317,8 +361,7 @@ img.security-diagrams__art {
   height: 100%;
   display: block;
   object-fit: cover;
-  transform:
-    translate(var(--security-art-shift-x), var(--security-art-shift-y))
+  transform: translate(var(--security-art-shift-x), var(--security-art-shift-y))
     scale(var(--security-art-scale-x), var(--security-art-scale-y));
   transform-origin: 50% 50%;
 }
@@ -364,8 +407,8 @@ img.security-diagrams__art {
   line-height: 1.52;
 }
 
-html[data-w3a-theme="light"] .security-diagrams::before,
-html[data-w3a-theme="light"] .security-diagrams::after {
+html[data-w3a-theme='light'] .security-diagrams::before,
+html[data-w3a-theme='light'] .security-diagrams::after {
   opacity: 0.24;
   background:
     linear-gradient(
@@ -382,12 +425,16 @@ html[data-w3a-theme="light"] .security-diagrams::after {
     );
 }
 
-html[data-w3a-theme="light"] .security-diagrams__art-wrap {
+html[data-w3a-theme='light'] .security-diagrams__art-wrap {
   border-bottom: 1px solid color-mix(in srgb, #bdafc0 56%, transparent);
 }
 
-html[data-w3a-theme="light"] .security-diagrams__art-wrap--custody {
-  --security-diagram-canvas: color-mix(in srgb, var(--site-surface-muted) 84%, var(--site-brand) 16%);
+html[data-w3a-theme='light'] .security-diagrams__art-wrap--custody {
+  --security-diagram-canvas: color-mix(
+    in srgb,
+    var(--site-surface-muted) 84%,
+    var(--site-brand) 16%
+  );
   --security-art-bg:
     radial-gradient(
       132% 142% at 12% -24%,
@@ -407,8 +454,12 @@ html[data-w3a-theme="light"] .security-diagrams__art-wrap--custody {
     );
 }
 
-html[data-w3a-theme="light"] .security-diagrams__art-wrap--defense {
-  --security-diagram-canvas: color-mix(in srgb, var(--site-surface-muted) 82%, var(--site-brand-hover) 18%);
+html[data-w3a-theme='light'] .security-diagrams__art-wrap--defense {
+  --security-diagram-canvas: color-mix(
+    in srgb,
+    var(--site-surface-muted) 82%,
+    var(--site-brand-hover) 18%
+  );
   --security-art-bg:
     radial-gradient(
       120% 132% at 8% -24%,
@@ -428,8 +479,12 @@ html[data-w3a-theme="light"] .security-diagrams__art-wrap--defense {
     );
 }
 
-html[data-w3a-theme="light"] .security-diagrams__art-wrap--scale {
-  --security-diagram-canvas: color-mix(in srgb, var(--site-surface-muted) 80%, var(--site-accent) 20%);
+html[data-w3a-theme='light'] .security-diagrams__art-wrap--scale {
+  --security-diagram-canvas: color-mix(
+    in srgb,
+    var(--site-surface-muted) 80%,
+    var(--site-accent) 20%
+  );
   --security-art-bg:
     radial-gradient(
       122% 130% at 12% -24%,
@@ -449,8 +504,12 @@ html[data-w3a-theme="light"] .security-diagrams__art-wrap--scale {
     );
 }
 
-html[data-w3a-theme="light"] .security-diagrams__art-wrap--friction {
-  --security-diagram-canvas: color-mix(in srgb, var(--site-surface-muted) 78%, var(--site-brand) 22%);
+html[data-w3a-theme='light'] .security-diagrams__art-wrap--friction {
+  --security-diagram-canvas: color-mix(
+    in srgb,
+    var(--site-surface-muted) 78%,
+    var(--site-brand) 22%
+  );
   --security-art-bg:
     radial-gradient(
       118% 132% at 52% -24%,

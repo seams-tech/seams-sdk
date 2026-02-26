@@ -6,12 +6,7 @@
     "noEmit": false,
     "rootDir": ".."
   },
-  "include": [
-    "../client/src/**/*",
-    "../server/src/**/*",
-    "../shared/src/**/*",
-    "build-paths.ts"
-  ],
+  "include": ["../client/src/**/*", "../server/src/**/*", "../shared/src/**/*", "build-paths.ts"],
   "exclude": [
     "../client/src/**/*.test.ts",
     "../client/src/**/*.test.tsx",

@@ -21,7 +21,12 @@ export interface BillingOverview {
   openInvoiceCount: number;
 }
 
-export type BillingUsageAction = 'transfer' | 'swap' | 'approve' | 'contract_call' | 'wallet_created';
+export type BillingUsageAction =
+  | 'transfer'
+  | 'swap'
+  | 'approve'
+  | 'contract_call'
+  | 'wallet_created';
 
 export interface BillingUsageEventRequest {
   walletId: string;

@@ -1,13 +1,19 @@
-import React from 'react'
-import { useTatchi, PROFILE_MENU_ITEM_IDS, SyncAccountPhase, SyncAccountStatus, type SyncAccountSSEEvent } from '@tatchi-xyz/sdk/react'
-import { toast } from 'sonner'
-import { friendlyWebAuthnMessage } from '../utils/strings'
+import React from 'react';
+import {
+  useTatchi,
+  PROFILE_MENU_ITEM_IDS,
+  SyncAccountPhase,
+  SyncAccountStatus,
+  type SyncAccountSSEEvent,
+} from '@tatchi-xyz/sdk/react';
+import { toast } from 'sonner';
+import { friendlyWebAuthnMessage } from '../utils/strings';
 import { LoadingButton } from './LoadingButton';
-import { GlassBorder } from './GlassBorder'
-import { BrowserWithQR } from './icons/BrowserWithQR'
-import { IPhoneQRScanner } from './icons/IPhoneQRScanner'
-import { useProfileMenuControl } from '../contexts/ProfileMenuControl'
-import './SyncAccount.css'
+import { GlassBorder } from './GlassBorder';
+import { BrowserWithQR } from './icons/BrowserWithQR';
+import { IPhoneQRScanner } from './icons/IPhoneQRScanner';
+import { useProfileMenuControl } from '../contexts/ProfileMenuControl';
+import './SyncAccount.css';
 import { SetupEmailRecovery } from './SetupEmailRecovery';
 
 export function SyncAccount() {
@@ -17,63 +23,68 @@ export function SyncAccount() {
     refreshLoginState,
     accountInputState: { targetAccountId },
     tatchi,
-  } = useTatchi()
-  const [busy, setBusy] = React.useState(false)
-  const { requestHighlight: requestProfileHighlight } = useProfileMenuControl()
+  } = useTatchi();
+  const [busy, setBusy] = React.useState(false);
+  const { requestHighlight: requestProfileHighlight } = useProfileMenuControl();
 
   const onSync = async () => {
-    setBusy(true)
+    setBusy(true);
     try {
       if (!targetAccountId) {
-        toast.error('Enter an account ID first (Register/Login tab).')
-        return
+        toast.error('Enter an account ID first (Register/Login tab).');
+        return;
       }
 
-      const toastId = 'sync-account'
-      toast.loading(`Syncing ${targetAccountId}…`, { id: toastId })
+      const toastId = 'sync-account';
+      toast.loading(`Syncing ${targetAccountId}…`, { id: toastId });
 
       // Best-effort: ensure we are logged out before starting recovery flows.
-      try { await logout(); } catch {}
+      try {
+        await logout();
+      } catch {}
 
       const result = await tatchi.recovery.syncAccount({
         accountId: targetAccountId,
         options: {
           onEvent: async (event: SyncAccountSSEEvent) => {
             try {
-              if (event.phase === SyncAccountPhase.STEP_5_SYNC_ACCOUNT_COMPLETE && event.status === SyncAccountStatus.SUCCESS) {
-                await refreshLoginState(targetAccountId)
+              if (
+                event.phase === SyncAccountPhase.STEP_5_SYNC_ACCOUNT_COMPLETE &&
+                event.status === SyncAccountStatus.SUCCESS
+              ) {
+                await refreshLoginState(targetAccountId);
               }
             } catch {}
           },
           onError: (error: Error) => {
-            console.error('Sync error:', error)
+            console.error('Sync error:', error);
           },
         },
-      })
+      });
 
       if (result?.success) {
-        toast.success(`Account ${targetAccountId} synced successfully!`, { id: toastId })
+        toast.success(`Account ${targetAccountId} synced successfully!`, { id: toastId });
       } else {
-        throw new Error(result?.error || 'syncAccount failed')
+        throw new Error(result?.error || 'syncAccount failed');
       }
     } catch (err) {
       // Best-effort UX; show friendly error if anything goes wrong
-      toast.error(friendlyWebAuthnMessage(err))
+      toast.error(friendlyWebAuthnMessage(err));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
-  }
+  };
 
   const onLinkDevice = React.useCallback(() => {
     if (!loginState.isLoggedIn) {
-      toast.error('Log in to link another device')
-      return
+      toast.error('Log in to link another device');
+      return;
     }
     requestProfileHighlight({
       id: PROFILE_MENU_ITEM_IDS.SCAN_LINK_DEVICE,
       focus: true,
-    })
-  }, [loginState.isLoggedIn, requestProfileHighlight])
+    });
+  }, [loginState.isLoggedIn, requestProfileHighlight]);
 
   return (
     <GlassBorder style={{ maxWidth: 480, marginTop: '1rem' }}>
@@ -84,15 +95,17 @@ export function SyncAccount() {
 
         <SetupEmailRecovery />
 
-        <div style={{
-          marginTop: '2rem',
-          paddingTop: '2rem',
-          borderTop: '1px solid var(--fe-border)'
-        }}>
+        <div
+          style={{
+            marginTop: '2rem',
+            paddingTop: '2rem',
+            borderTop: '1px solid var(--fe-border)',
+          }}
+        >
           <h2 className="demo-title">Recover Passkey Account</h2>
           <div className="action-text">
-            Sync accounts on any device where your passkeys are synced,
-            such as iCloud Keychain or Google Password Manager.
+            Sync accounts on any device where your passkeys are synced, such as iCloud Keychain or
+            Google Password Manager.
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
             <LoadingButton
@@ -108,15 +121,17 @@ export function SyncAccount() {
           </div>
         </div>
 
-        <div style={{
-          marginTop: '2rem',
-          paddingTop: '2rem',
-          borderTop: '1px solid var(--fe-border)'
-        }}>
+        <div
+          style={{
+            marginTop: '2rem',
+            paddingTop: '2rem',
+            borderTop: '1px solid var(--fe-border)',
+          }}
+        >
           <h2 className="demo-title">Device Linking</h2>
           <div className="action-text">
-            Use QR codes to scan and link a new device to your account.
-            Backup your wallet on multiple devices without remembering keys, or passphrases.
+            Use QR codes to scan and link a new device to your account. Backup your wallet on
+            multiple devices without remembering keys, or passphrases.
           </div>
           <div className="account-recovery-link-device-button">
             <LoadingButton
@@ -155,7 +170,7 @@ export function SyncAccount() {
         </div>
       </div>
     </GlassBorder>
-  )
+  );
 }
 
-export default SyncAccount
+export default SyncAccount;

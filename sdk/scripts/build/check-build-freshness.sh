@@ -32,7 +32,11 @@ for required in \
     "$BUILD_WORKERS/$WORKER_TEMPO_SIGNER" \
     "$BUILD_WORKERS/$WORKER_WASM_ETH_SIGNER_WASM" \
     "$BUILD_WORKERS/$WORKER_WASM_TEMPO_SIGNER_WASM" \
-    "$BUILD_WORKERS/near_signer.wasm"; do
+    "$BUILD_WORKERS/near_signer.wasm" \
+    "$BUILD_ESM/index.js" \
+    "$BUILD_ESM/core/TatchiPasskey/index.js" \
+    "$BUILD_ESM/react/index.js" \
+    "$BUILD_ESM/react/styles/styles.css"; do
     if [ ! -f "$required" ]; then
         echo -e "${RED}❌ Required build output not found: $required${NC}"
         exit 1
@@ -56,6 +60,9 @@ for built in \
     "$BUILD_WORKERS/$WORKER_WASM_TEMPO_SIGNER_WASM" \
     "$BUILD_WORKERS/near_signer.wasm" \
     "$BUILD_ESM/index.js" \
+    "$BUILD_ESM/core/TatchiPasskey/index.js" \
+    "$BUILD_ESM/react/index.js" \
+    "$BUILD_ESM/react/styles/styles.css" \
     "$BUILD_CJS/index.cjs" \
     "$BUILD_TYPES/client/src/index.d.ts"; do
     if [ -f "$built" ]; then

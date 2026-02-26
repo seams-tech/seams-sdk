@@ -4,6 +4,7 @@ import {
   encodeEip1559SignedTxFromSignature65Wasm,
 } from '../../signers/wasm/ethSignerWasm';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
+import type { ManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceManager';
 import { bytesToHex } from './bytes';
 import type { Eip1559UnsignedTx, EvmSigningRequest } from './types';
 
@@ -12,6 +13,7 @@ export type EvmSignedResult = {
   kind: 'eip1559';
   txHashHex: string;
   rawTxHex: string;
+  managedNonce?: ManagedNonceReservationSnapshot;
 };
 
 export type EvmIntentUiModel = {
@@ -19,7 +21,11 @@ export type EvmIntentUiModel = {
   tx: Eip1559UnsignedTx;
 };
 
-export class EvmAdapter implements ChainAdapter<EvmSigningRequest, EvmIntentUiModel, EvmSignedResult> {
+export class EvmAdapter implements ChainAdapter<
+  EvmSigningRequest,
+  EvmIntentUiModel,
+  EvmSignedResult
+> {
   readonly chain = 'evm' as const;
   private readonly workerCtx: WorkerOperationContext;
 

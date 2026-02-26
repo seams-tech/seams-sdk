@@ -17,10 +17,18 @@ import type { RegistrationSignerOptions } from './registrationSignerOptions';
  * ```ts
  * {
  *   chains?: Array<{
- *     network: 'near-mainnet' | 'near-testnet' | 'tempo-mainnet' | 'tempo-testnet' | 'arc-mainnet' | 'arc-testnet';
+ *     network:
+ *       | 'near-mainnet'
+ *       | 'near-testnet'
+ *       | 'tempo-mainnet'
+ *       | 'tempo-testnet'
+ *       | 'arc-mainnet'
+ *       | 'arc-testnet'
+ *       | 'ethereum-mainnet'
+ *       | 'ethereum-sepolia';
  *     rpcUrl?: string;
  *     explorerUrl?: string;
- *     chainId: number; // required for EVM-style chains (tempo-*, arc-*)
+ *     chainId: number; // required for tempo-* and evm networks (arc-*, ethereum-*)
  *   }>;
  *   appearance?: {
  *     theme?: 'light' | 'dark';
@@ -365,12 +373,16 @@ export interface ThresholdEcdsaPresignPoolPolicy {
 
 export type TatchiNearChainNetwork = 'near-mainnet' | 'near-testnet';
 export type TatchiTempoChainNetwork = 'tempo-mainnet' | 'tempo-testnet';
-export type TatchiArcChainNetwork = 'arc-mainnet' | 'arc-testnet';
+export type TatchiEvmChainNetwork =
+  | 'arc-mainnet'
+  | 'arc-testnet'
+  | 'ethereum-mainnet'
+  | 'ethereum-sepolia';
 export type TatchiChainNetwork =
   | TatchiNearChainNetwork
   | TatchiTempoChainNetwork
-  | TatchiArcChainNetwork;
-export type TatchiChainFamily = 'near' | 'tempo' | 'arc';
+  | TatchiEvmChainNetwork;
+export type TatchiChainFamily = 'near' | 'tempo' | 'evm';
 
 export interface TatchiNearChainConfigInput {
   network: TatchiNearChainNetwork;
@@ -385,8 +397,8 @@ export interface TatchiTempoChainConfigInput {
   chainId: number;
 }
 
-export interface TatchiArcChainConfigInput {
-  network: TatchiArcChainNetwork;
+export interface TatchiEvmChainConfigInput {
+  network: TatchiEvmChainNetwork;
   rpcUrl?: string;
   explorerUrl?: string;
   chainId: number;
@@ -395,7 +407,7 @@ export interface TatchiArcChainConfigInput {
 export type TatchiChainConfigInput =
   | TatchiNearChainConfigInput
   | TatchiTempoChainConfigInput
-  | TatchiArcChainConfigInput;
+  | TatchiEvmChainConfigInput;
 
 export interface TatchiNearChainConfig {
   network: TatchiNearChainNetwork;
@@ -410,8 +422,8 @@ export interface TatchiTempoChainConfig {
   chainId: number;
 }
 
-export interface TatchiArcChainConfig {
-  network: TatchiArcChainNetwork;
+export interface TatchiEvmChainConfig {
+  network: TatchiEvmChainNetwork;
   rpcUrl: string;
   explorerUrl: string;
   chainId: number;
@@ -420,7 +432,7 @@ export interface TatchiArcChainConfig {
 export type TatchiChainConfig =
   | TatchiNearChainConfig
   | TatchiTempoChainConfig
-  | TatchiArcChainConfig;
+  | TatchiEvmChainConfig;
 
 export type ReadonlyDeep<T> = T extends (...args: never[]) => unknown
   ? T

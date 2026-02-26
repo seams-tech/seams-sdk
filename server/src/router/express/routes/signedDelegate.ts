@@ -1,7 +1,10 @@
 import type { Router as ExpressRouter } from 'express';
 import type { ExpressRelayContext } from '../createRelayRouter';
 
-export function registerSignedDelegateRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
+export function registerSignedDelegateRoutes(
+  router: ExpressRouter,
+  ctx: ExpressRelayContext,
+): void {
   if (!ctx.signedDelegatePath) return;
 
   router.options(ctx.signedDelegatePath, (_req: any, res: any) => {
@@ -12,7 +15,9 @@ export function registerSignedDelegateRoutes(router: ExpressRouter, ctx: Express
     try {
       const { hash, signedDelegate } = req.body || {};
       if (typeof hash !== 'string' || !hash || !signedDelegate) {
-        res.status(400).json({ ok: false, code: 'invalid_body', message: 'Expected { hash, signedDelegate }' });
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_body', message: 'Expected { hash, signedDelegate }' });
         return;
       }
 

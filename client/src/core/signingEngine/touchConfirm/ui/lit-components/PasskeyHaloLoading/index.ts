@@ -47,7 +47,11 @@ export class PasskeyHaloLoadingElement extends LitElementWithProps {
 
   protected createRenderRoot(): HTMLElement | DocumentFragment {
     const root = super.createRenderRoot();
-    const p = ensureExternalStyles(root as ShadowRoot | DocumentFragment | HTMLElement, 'passkey-halo-loading.css', 'data-w3a-passkey-halo-loading-css');
+    const p = ensureExternalStyles(
+      root as ShadowRoot | DocumentFragment | HTMLElement,
+      'passkey-halo-loading.css',
+      'data-w3a-passkey-halo-loading-css',
+    );
     this._stylePromises.push(p);
     p.catch(() => {});
     return root;
@@ -57,9 +61,14 @@ export class PasskeyHaloLoadingElement extends LitElementWithProps {
   protected shouldUpdate(_changed: Map<string | number | symbol, unknown>): boolean {
     if (this._stylesReady) return true;
     if (!this._stylesAwaiting) {
-      const settle = Promise.all(this._stylePromises)
-        .then(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
-      this._stylesAwaiting = settle.then(() => { this._stylesReady = true; this.requestUpdate(); });
+      const settle = Promise.all(this._stylePromises).then(
+        () =>
+          new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+      );
+      this._stylesAwaiting = settle.then(() => {
+        this._stylesReady = true;
+        this.requestUpdate();
+      });
     }
     return false;
   }
@@ -68,10 +77,12 @@ export class PasskeyHaloLoadingElement extends LitElementWithProps {
     // Bridge prop overrides into CSS variables to avoid inline styles
     const vars: Record<string, string> = {};
     if (this.iconContainerBackgroundColor) {
-      vars['--w3a-modal__passkey-halo-loading-icon-container__background-color'] = this.iconContainerBackgroundColor;
+      vars['--w3a-modal__passkey-halo-loading-icon-container__background-color'] =
+        this.iconContainerBackgroundColor;
     }
     if (this.iconContainerBorderRadius) {
-      vars['--w3a-modal__passkey-halo-loading-icon-container__border-radius'] = this.iconContainerBorderRadius;
+      vars['--w3a-modal__passkey-halo-loading-icon-container__border-radius'] =
+        this.iconContainerBorderRadius;
     }
     if (Object.keys(vars).length) this.setCssVars(vars);
   }
@@ -112,7 +123,7 @@ export class PasskeyHaloLoadingElement extends LitElementWithProps {
     `;
   }
 
-  private renderTouchIcon({ height, width }: { height: number; width: number; }) {
+  private renderTouchIcon({ height, width }: { height: number; width: number }) {
     const strokeWidth = 'var(--w3a-modal__passkey-halo-loading-touch-icon__stroke-width, 3)';
 
     return html`

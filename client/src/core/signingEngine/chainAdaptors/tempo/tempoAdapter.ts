@@ -1,14 +1,19 @@
 import type { ChainAdapter, SigningIntent, SignatureBytes } from '../../interfaces/signing';
 import { bytesToHex } from '../evm/bytes';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
+import type { ManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceManager';
 import type { TempoSigningRequest, TempoUnsignedTx } from './types';
-import { computeTempoSenderHashWasm, encodeTempoSignedTxWasm } from '../../signers/wasm/tempoSignerWasm';
+import {
+  computeTempoSenderHashWasm,
+  encodeTempoSignedTxWasm,
+} from '../../signers/wasm/tempoSignerWasm';
 
 export type TempoSignedResult = {
   chain: 'tempo';
   kind: 'tempoTransaction';
   senderHashHex: string;
   rawTxHex: string;
+  managedNonce?: ManagedNonceReservationSnapshot;
 };
 
 export type TempoIntentUiModel = {

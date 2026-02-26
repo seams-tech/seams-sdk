@@ -43,8 +43,8 @@ export type ThresholdKeyActivationAdaptersForChain<
   Chain extends ThresholdKeyActivationChain,
   Request,
   Result,
-> = Record<Chain, ThresholdKeyActivationAdapter<Request, Result>>
-  & Partial<
+> = Record<Chain, ThresholdKeyActivationAdapter<Request, Result>> &
+  Partial<
     Record<
       Exclude<ThresholdKeyActivationChain, Chain>,
       ThresholdKeyActivationAdapter<unknown, unknown>
@@ -62,7 +62,9 @@ export async function activateThresholdKeyForChain<
 }): Promise<Result> {
   const adapter = args.adapters[args.chain];
   if (typeof adapter !== 'function') {
-    throw new Error(`[activation] missing threshold-key activation adapter for chain: ${args.chain}`);
+    throw new Error(
+      `[activation] missing threshold-key activation adapter for chain: ${args.chain}`,
+    );
   }
 
   return await (adapter as ThresholdKeyActivationAdapter<Request, Result>)(args.request);
@@ -152,7 +154,7 @@ export async function activateEcdsaSession(
     ethereumAddress: bootstrap.ethereumAddress,
     relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,
     participantIds,
-    ...(typeof bootstrap.chainId === 'string' ? { chainId: bootstrap.chainId } : {}),
+    ...(typeof bootstrap.chainId === 'number' ? { chainId: bootstrap.chainId } : {}),
     ...(typeof bootstrap.factory === 'string' ? { factory: bootstrap.factory } : {}),
     ...(typeof bootstrap.entryPoint === 'string' ? { entryPoint: bootstrap.entryPoint } : {}),
     ...(typeof bootstrap.salt === 'string' ? { salt: bootstrap.salt } : {}),
@@ -253,7 +255,8 @@ export async function activateNearThresholdKeyNoPrompt(
   const nearAccountId = toAccountId(args.nearAccountId);
   const wrapKeySalt = args.wrapKeySalt;
   if (!wrapKeySalt) throw new Error('Missing wrapKeySalt for AddKey(thresholdPublicKey) signing');
-  if (!args.credential) throw new Error('Missing credential for AddKey(thresholdPublicKey) signing');
+  if (!args.credential)
+    throw new Error('Missing credential for AddKey(thresholdPublicKey) signing');
   if (!args.transactionContext) throw new Error('Missing transactionContext for no-prompt signing');
 
   const thresholdPublicKey = ensureEd25519Prefix(args.thresholdPublicKey);

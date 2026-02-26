@@ -40,7 +40,10 @@ export type BootstrapEcdsaSessionArgs = {
 
 export type ThresholdSessionActivationDeps = {
   indexedDB: UnifiedIndexedDBManager;
-  touchIdPrompt: Pick<TouchIdPrompt, 'getRpId' | 'getAuthenticationCredentialsSerializedForChallengeB64u'>;
+  touchIdPrompt: Pick<
+    TouchIdPrompt,
+    'getRpId' | 'getAuthenticationCredentialsSerializedForChallengeB64u'
+  >;
   signingKeyOps: Pick<NearSigningKeyOps, 'deriveThresholdEd25519ClientVerifyingShare'>;
   touchConfirm: ThresholdPrfFirstCachePort;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
@@ -61,7 +64,10 @@ export type ThresholdSessionActivationDeps = {
   }) => void;
 };
 
-function resolveRelayerUrl(relayerUrlOverride: string | undefined, defaultRelayerUrl: string): string {
+function resolveRelayerUrl(
+  relayerUrlOverride: string | undefined,
+  defaultRelayerUrl: string,
+): string {
   const relayerUrl = String(relayerUrlOverride || defaultRelayerUrl || '').trim();
   if (!relayerUrl) {
     throw new Error('Missing relayer url (configs.network.relayer.url)');

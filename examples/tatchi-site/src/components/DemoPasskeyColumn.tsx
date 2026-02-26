@@ -1,106 +1,141 @@
-import React from 'react'
-import NavbarProfileOverlay from './Navbar/NavbarProfileOverlay'
-import { preloadPasskeyAuthMenu, useTatchi } from '@tatchi-xyz/sdk/react'
+import React from 'react';
+import NavbarProfileOverlay from './Navbar/NavbarProfileOverlay';
+import { preloadPasskeyAuthMenu, useTatchi } from '@tatchi-xyz/sdk/react';
 
 import { GlassBorder } from './GlassBorder';
-import { CarouselProvider } from './Carousel/CarouselProvider'
-import { Carousel } from './Carousel/Carousel'
-import { CarouselNextButton } from './Carousel/CarouselNextButton'
-import { CarouselPrevButton } from './Carousel/CarouselPrevButton'
+import { CarouselProvider } from './Carousel/CarouselProvider';
+import { Carousel } from './Carousel/Carousel';
+import { CarouselNextButton } from './Carousel/CarouselNextButton';
+import { CarouselPrevButton } from './Carousel/CarouselPrevButton';
 
 // Lazily load the most common flows to shrink the initial bundle.
-const PasskeyLoginMenu = React.lazy(() => import('./PasskeyLoginMenu').then(m => ({ default: m.PasskeyLoginMenu })))
-const DemoPage = React.lazy(() => import('./DemoPage').then(m => ({ default: m.DemoPage })))
-const SyncAccount = React.lazy(() => import('./SyncAccount').then(m => ({ default: m.SyncAccount })))
-const preloadDemoPage = () => import('./DemoPage').then(() => undefined)
-const preloadSyncAccount = () => import('./SyncAccount').then(() => undefined)
+const PasskeyLoginMenu = React.lazy(() =>
+  import('./PasskeyLoginMenu').then((m) => ({ default: m.PasskeyLoginMenu })),
+);
+const DemoPage = React.lazy(() => import('./DemoPage').then((m) => ({ default: m.DemoPage })));
+const SyncAccount = React.lazy(() =>
+  import('./SyncAccount').then((m) => ({ default: m.SyncAccount })),
+);
+const preloadDemoPage = () => import('./DemoPage').then(() => undefined);
+const preloadSyncAccount = () => import('./SyncAccount').then(() => undefined);
 import { AuthMenuControlProvider } from '../contexts/AuthMenuControl';
 import { ProfileMenuControlProvider } from '../contexts/ProfileMenuControl';
 
-
 export function DemoPasskeyColumn() {
-  const { loginState } = useTatchi()
-  const [currentPage, setCurrentPage] = React.useState(0)
+  const { loginState } = useTatchi();
+  const [currentPage, setCurrentPage] = React.useState(0);
   const prefetchPasskeyMenu = React.useCallback(() => {
-    void preloadPasskeyAuthMenu().catch(() => {})
-  }, [])
+    void preloadPasskeyAuthMenu().catch(() => {});
+  }, []);
 
   // After login, jump to Demo Tx page (index 1). On logout, go back to Login (index 0).
   React.useEffect(() => {
-    setCurrentPage(loginState?.isLoggedIn ? 1 : 0)
-  }, [loginState?.isLoggedIn])
+    setCurrentPage(loginState?.isLoggedIn ? 1 : 0);
+  }, [loginState?.isLoggedIn]);
 
-  const pages = React.useMemo(() => ([
-    {
-      key: 'demo-auth',
-      title: 'Login',
-      element: ({ nextSlide, canNext, index }: { nextSlide: () => void; canNext: boolean; index: number }) => (
-        <>
-          <PrefetchOnIntent onIntent={prefetchPasskeyMenu}>
+  const pages = React.useMemo(
+    () => [
+      {
+        key: 'demo-auth',
+        title: 'Login',
+        element: ({
+          nextSlide,
+          canNext,
+          index,
+        }: {
+          nextSlide: () => void;
+          canNext: boolean;
+          index: number;
+        }) => (
+          <>
+            <PrefetchOnIntent onIntent={prefetchPasskeyMenu}>
+              <React.Suspense fallback={<SuspenseFallback />}>
+                <PasskeyLoginMenu onLoggedIn={() => setCurrentPage(1)} />
+              </React.Suspense>
+            </PrefetchOnIntent>
+            {index > 0 && canNext && (
+              <div className="carousel-cta">
+                <CarouselNextButton onClick={nextSlide} />
+              </div>
+            )}
+          </>
+        ),
+      },
+      {
+        key: 'transactions',
+        title: 'Transactions',
+        disabled: !loginState?.isLoggedIn,
+        element: ({
+          nextSlide,
+          prevSlide,
+          canNext,
+          canPrev,
+          index,
+        }: {
+          nextSlide: () => void;
+          prevSlide: () => void;
+          canNext: boolean;
+          canPrev: boolean;
+          index: number;
+        }) => (
+          <>
+            <GlassBorder style={{ maxWidth: 480, marginTop: '1rem' }}>
+              <React.Suspense fallback={<SuspenseFallback />}>
+                <DemoPage />
+              </React.Suspense>
+            </GlassBorder>
+            {index > 0 && (
+              <div
+                className="carousel-cta"
+                style={{ paddingBottom: '2rem' }} // prevent clipping of ButtonWithTooltip
+              >
+                <CarouselPrevButton onClick={prevSlide} disabled={!canPrev} />
+                <CarouselNextButton
+                  onClick={nextSlide}
+                  disabled={!canNext}
+                  onPointerOver={() => void preloadSyncAccount().catch(() => {})}
+                  onFocus={() => void preloadSyncAccount().catch(() => {})}
+                  onTouchStart={() => void preloadSyncAccount().catch(() => {})}
+                />
+              </div>
+            )}
+          </>
+        ),
+      },
+      {
+        key: 'sync-account',
+        title: 'Account Recovery',
+        disabled: !loginState?.isLoggedIn,
+        element: ({
+          prevSlide,
+          canPrev,
+          index,
+        }: {
+          prevSlide: () => void;
+          canPrev: boolean;
+          index: number;
+        }) => (
+          <>
             <React.Suspense fallback={<SuspenseFallback />}>
-              <PasskeyLoginMenu onLoggedIn={() => setCurrentPage(1)} />
+              <SyncAccount />
             </React.Suspense>
-          </PrefetchOnIntent>
-          {index > 0 && canNext && (
-            <div className="carousel-cta">
-              <CarouselNextButton onClick={nextSlide} />
-            </div>
-          )}
-        </>
-      ),
-    },
-    {
-      key: 'transactions',
-      title: 'Transactions',
-      disabled: !loginState?.isLoggedIn,
-	      element: ({ nextSlide, prevSlide, canNext, canPrev, index }: { nextSlide: () => void; prevSlide: () => void; canNext: boolean; canPrev: boolean; index: number }) => (
-	        <>
-	          <GlassBorder style={{ maxWidth: 480, marginTop: '1rem' }} >
-	            <React.Suspense fallback={<SuspenseFallback />}>
-	              <DemoPage />
-            </React.Suspense>
-          </GlassBorder>
-          {index > 0 && (
-            <div className="carousel-cta"
-              style={{ paddingBottom: '2rem' }} // prevent clipping of ButtonWithTooltip
-            >
-              <CarouselPrevButton onClick={prevSlide} disabled={!canPrev} />
-	              <CarouselNextButton
-	                onClick={nextSlide}
-	                disabled={!canNext}
-	                onPointerOver={() => void preloadSyncAccount().catch(() => {})}
-	                onFocus={() => void preloadSyncAccount().catch(() => {})}
-	                onTouchStart={() => void preloadSyncAccount().catch(() => {})}
-	              />
-	            </div>
-	          )}
-	        </>
-	      ),
-	    },
-	    {
-	      key: 'sync-account',
-	      title: 'Account Recovery',
-	      disabled: !loginState?.isLoggedIn,
-	      element: ({ prevSlide, canPrev, index }: { prevSlide: () => void; canPrev: boolean; index: number }) => (
-	        <>
-	          <React.Suspense fallback={<SuspenseFallback />}>
-	            <SyncAccount />
-	          </React.Suspense>
-	          {index > 0 && (
-	            <div className="carousel-cta carousel-cta--left">
-	              <CarouselPrevButton
-	                onClick={prevSlide}
-	                disabled={!canPrev}
-	                onPointerOver={() => void preloadDemoPage().catch(() => {})}
-	                onFocus={() => void preloadDemoPage().catch(() => {})}
-	                onTouchStart={() => void preloadDemoPage().catch(() => {})}
-	              />
-	            </div>
-	          )}
-	        </>
-	      ),
-	    },
-	  ]), [loginState?.isLoggedIn])
+            {index > 0 && (
+              <div className="carousel-cta carousel-cta--left">
+                <CarouselPrevButton
+                  onClick={prevSlide}
+                  disabled={!canPrev}
+                  onPointerOver={() => void preloadDemoPage().catch(() => {})}
+                  onFocus={() => void preloadDemoPage().catch(() => {})}
+                  onTouchStart={() => void preloadDemoPage().catch(() => {})}
+                />
+              </div>
+            )}
+          </>
+        ),
+      },
+    ],
+    [loginState?.isLoggedIn],
+  );
 
   return (
     <ProfileMenuControlProvider>
@@ -133,18 +168,19 @@ export function DemoPasskeyColumn() {
 }
 
 const SuspenseFallback = () => (
-  <div className={'suspense-fallback'}
+  <div
+    className={'suspense-fallback'}
     style={{ height: 320, width: 'min(480px, calc(100vw - 2rem))' }}
   />
 );
 
 function PrefetchOnIntent(props: { onIntent: () => void; children: React.ReactNode }) {
-  const didPrefetchRef = React.useRef(false)
+  const didPrefetchRef = React.useRef(false);
   const onIntentOnce = React.useCallback(() => {
-    if (didPrefetchRef.current) return
-    didPrefetchRef.current = true
-    props.onIntent()
-  }, [props.onIntent])
+    if (didPrefetchRef.current) return;
+    didPrefetchRef.current = true;
+    props.onIntent();
+  }, [props.onIntent]);
 
   return (
     <div
@@ -156,5 +192,5 @@ function PrefetchOnIntent(props: { onIntent: () => void; children: React.ReactNo
     >
       {props.children}
     </div>
-  )
+  );
 }

@@ -1,9 +1,21 @@
 import type { NormalizedLogger } from './logger';
-import type { CloudflareDurableObjectNamespaceLike, ThresholdEd25519KeyStoreConfigInput } from './types';
-import { THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT, THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
+import type {
+  CloudflareDurableObjectNamespaceLike,
+  ThresholdEd25519KeyStoreConfigInput,
+} from './types';
+import {
+  THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT,
+  THRESHOLD_PREFIX_DEFAULT,
+} from './defaultConfigsServer';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
-import { RedisTcpClient, UpstashRedisRestClient, redisDel, redisGetJson, redisSetJson } from './ThresholdService/kv';
+import {
+  RedisTcpClient,
+  UpstashRedisRestClient,
+  redisDel,
+  redisGetJson,
+  redisSetJson,
+} from './ThresholdService/kv';
 import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
 
 export type IdentitySubjectRecord = {
@@ -34,15 +46,20 @@ export type LinkIdentityResult =
   | { ok: true; movedFromUserId?: string }
   | { ok: false; code: string; message: string };
 
-export type UnlinkIdentityResult =
-  | { ok: true }
-  | { ok: false; code: string; message: string };
+export type UnlinkIdentityResult = { ok: true } | { ok: false; code: string; message: string };
 
 export interface IdentityStore {
   getUserIdBySubject(subject: string): Promise<string | null>;
   listSubjectsByUserId(userId: string): Promise<string[]>;
-  linkSubjectToUserId(input: { userId: string; subject: string; allowMoveIfSoleIdentity?: boolean }): Promise<LinkIdentityResult>;
-  unlinkSubjectFromUserId(input: { userId: string; subject: string }): Promise<UnlinkIdentityResult>;
+  linkSubjectToUserId(input: {
+    userId: string;
+    subject: string;
+    allowMoveIfSoleIdentity?: boolean;
+  }): Promise<LinkIdentityResult>;
+  unlinkSubjectFromUserId(input: {
+    userId: string;
+    subject: string;
+  }): Promise<UnlinkIdentityResult>;
 
   /**
    * Returns the current app session version for a user.
@@ -71,7 +88,9 @@ function toPrefixWithColon(prefix: unknown, defaultPrefix: string): string {
 }
 
 function toIdentityPrefix(config: Record<string, unknown>): string {
-  const explicit = toOptionalTrimmedString(config.IDENTITY_PREFIX) || toOptionalTrimmedString(config.IDENTITY_MAP_PREFIX);
+  const explicit =
+    toOptionalTrimmedString(config.IDENTITY_PREFIX) ||
+    toOptionalTrimmedString(config.IDENTITY_MAP_PREFIX);
   if (explicit) return toPrefixWithColon(explicit, '');
 
   const base = toOptionalTrimmedString(config.THRESHOLD_PREFIX) || THRESHOLD_PREFIX_DEFAULT;
@@ -208,7 +227,11 @@ class InMemoryIdentityStore implements IdentityStore {
     const existing = this.subjectToUser.get(this.subjectKey(subject)) || null;
     if (existing && existing.userId !== userId) {
       if (!input.allowMoveIfSoleIdentity) {
-        return { ok: false, code: 'already_linked', message: 'Subject is already linked to a different user' };
+        return {
+          ok: false,
+          code: 'already_linked',
+          message: 'Subject is already linked to a different user',
+        };
       }
       const sourceUser = existing.userId;
       const source = this.userToSubjects.get(this.userKey(sourceUser)) || null;
@@ -217,7 +240,8 @@ class InMemoryIdentityStore implements IdentityStore {
         return {
           ok: false,
           code: 'already_linked',
-          message: 'Subject is linked to a different user with other identities; merge is not allowed',
+          message:
+            'Subject is linked to a different user with other identities; merge is not allowed',
         };
       }
       this.userToSubjects.set(this.userKey(sourceUser), {
@@ -273,7 +297,10 @@ class InMemoryIdentityStore implements IdentityStore {
     return { ok: true };
   }
 
-  async unlinkSubjectFromUserId(input: { userId: string; subject: string }): Promise<UnlinkIdentityResult> {
+  async unlinkSubjectFromUserId(input: {
+    userId: string;
+    subject: string;
+  }): Promise<UnlinkIdentityResult> {
     const userId = toOptionalTrimmedString(input.userId);
     const subject = toOptionalTrimmedString(input.subject);
     if (!userId) return { ok: false, code: 'invalid_args', message: 'Missing userId' };
@@ -287,7 +314,11 @@ class InMemoryIdentityStore implements IdentityStore {
     const userRec = this.userToSubjects.get(this.userKey(userId)) || null;
     const subjects = userRec?.subjects || [];
     if (subjects.length <= 1) {
-      return { ok: false, code: 'cannot_unlink_last_identity', message: 'Refusing to remove the last remaining identity' };
+      return {
+        ok: false,
+        code: 'cannot_unlink_last_identity',
+        message: 'Refusing to remove the last remaining identity',
+      };
     }
 
     this.subjectToUser.delete(this.subjectKey(subject));
@@ -308,7 +339,9 @@ class InMemoryIdentityStore implements IdentityStore {
   async getAppSessionVersionByUserId(userId: string): Promise<string | null> {
     const uid = toOptionalTrimmedString(userId);
     if (!uid) return null;
-    return this.userToAppSessionVersion.get(this.appSessionVersionKey(uid))?.appSessionVersion || null;
+    return (
+      this.userToAppSessionVersion.get(this.appSessionVersionKey(uid))?.appSessionVersion || null
+    );
   }
 
   async ensureAppSessionVersionByUserId(userId: string): Promise<string> {
@@ -360,27 +393,35 @@ type DoRequest =
   | { op: 'getdel'; key: string };
 
 function isDurableObjectNamespaceLike(v: unknown): v is CloudflareDurableObjectNamespaceLike {
-  return Boolean(v)
-    && typeof v === 'object'
-    && !Array.isArray(v)
-    && typeof (v as CloudflareDurableObjectNamespaceLike).idFromName === 'function'
-    && typeof (v as CloudflareDurableObjectNamespaceLike).get === 'function';
+  return (
+    Boolean(v) &&
+    typeof v === 'object' &&
+    !Array.isArray(v) &&
+    typeof (v as CloudflareDurableObjectNamespaceLike).idFromName === 'function' &&
+    typeof (v as CloudflareDurableObjectNamespaceLike).get === 'function'
+  );
 }
 
-function resolveDoNamespaceFromConfig(config: Record<string, unknown>): CloudflareDurableObjectNamespaceLike | null {
+function resolveDoNamespaceFromConfig(
+  config: Record<string, unknown>,
+): CloudflareDurableObjectNamespaceLike | null {
   const direct = (config as { namespace?: unknown }).namespace;
   if (isDurableObjectNamespaceLike(direct)) return direct;
 
   const alt = (config as { durableObjectNamespace?: unknown }).durableObjectNamespace;
   if (isDurableObjectNamespaceLike(alt)) return alt;
 
-  const envStyle = (config as { THRESHOLD_ED25519_DO_NAMESPACE?: unknown }).THRESHOLD_ED25519_DO_NAMESPACE;
+  const envStyle = (config as { THRESHOLD_ED25519_DO_NAMESPACE?: unknown })
+    .THRESHOLD_ED25519_DO_NAMESPACE;
   if (isDurableObjectNamespaceLike(envStyle)) return envStyle;
 
   return null;
 }
 
-function resolveDoStub(input: { namespace: CloudflareDurableObjectNamespaceLike; objectName: string }): DurableObjectStubLike {
+function resolveDoStub(input: {
+  namespace: CloudflareDurableObjectNamespaceLike;
+  objectName: string;
+}): DurableObjectStubLike {
   const id = input.namespace.idFromName(input.objectName);
   return input.namespace.get(id) as unknown as DurableObjectStubLike;
 }
@@ -461,10 +502,16 @@ abstract class KvBackedIdentityStore implements IdentityStore {
     if (!subject) return { ok: false, code: 'invalid_args', message: 'Missing subject' };
 
     const now = Date.now();
-    const existingSubject = parseIdentitySubjectRecord(await this.getJson(this.subjectKey(subject)));
+    const existingSubject = parseIdentitySubjectRecord(
+      await this.getJson(this.subjectKey(subject)),
+    );
     if (existingSubject && existingSubject.userId !== userId) {
       if (!input.allowMoveIfSoleIdentity) {
-        return { ok: false, code: 'already_linked', message: 'Subject is already linked to a different user' };
+        return {
+          ok: false,
+          code: 'already_linked',
+          message: 'Subject is already linked to a different user',
+        };
       }
       const sourceUser = existingSubject.userId;
       const sourceUserRec = parseIdentityUserRecord(await this.getJson(this.userKey(sourceUser)));
@@ -473,7 +520,8 @@ abstract class KvBackedIdentityStore implements IdentityStore {
         return {
           ok: false,
           code: 'already_linked',
-          message: 'Subject is linked to a different user with other identities; merge is not allowed',
+          message:
+            'Subject is linked to a different user with other identities; merge is not allowed',
         };
       }
 
@@ -528,7 +576,10 @@ abstract class KvBackedIdentityStore implements IdentityStore {
     return { ok: true };
   }
 
-  async unlinkSubjectFromUserId(input: { userId: string; subject: string }): Promise<UnlinkIdentityResult> {
+  async unlinkSubjectFromUserId(input: {
+    userId: string;
+    subject: string;
+  }): Promise<UnlinkIdentityResult> {
     const userId = toOptionalTrimmedString(input.userId);
     const subject = toOptionalTrimmedString(input.subject);
     if (!userId) return { ok: false, code: 'invalid_args', message: 'Missing userId' };
@@ -542,7 +593,11 @@ abstract class KvBackedIdentityStore implements IdentityStore {
     const userRec = parseIdentityUserRecord(await this.getJson(this.userKey(userId)));
     const subjects = userRec?.subjects || [];
     if (subjects.length <= 1) {
-      return { ok: false, code: 'cannot_unlink_last_identity', message: 'Refusing to remove the last remaining identity' };
+      return {
+        ok: false,
+        code: 'cannot_unlink_last_identity',
+        message: 'Refusing to remove the last remaining identity',
+      };
     }
 
     const nextSubjects = subjects.filter((s) => s !== subject);
@@ -570,7 +625,9 @@ abstract class KvBackedIdentityStore implements IdentityStore {
     const uid = toOptionalTrimmedString(userId);
     if (!uid) throw new Error('Missing userId');
 
-    const existing = parseAppSessionVersionRecord(await this.getJson(this.appSessionVersionKey(uid)));
+    const existing = parseAppSessionVersionRecord(
+      await this.getJson(this.appSessionVersionKey(uid)),
+    );
     if (existing?.appSessionVersion) return existing.appSessionVersion;
 
     const now = Date.now();
@@ -591,7 +648,9 @@ abstract class KvBackedIdentityStore implements IdentityStore {
     const uid = toOptionalTrimmedString(userId);
     if (!uid) throw new Error('Missing userId');
 
-    const existing = parseAppSessionVersionRecord(await this.getJson(this.appSessionVersionKey(uid)));
+    const existing = parseAppSessionVersionRecord(
+      await this.getJson(this.appSessionVersionKey(uid)),
+    );
     const now = Date.now();
     const appSessionVersion = generateAppSessionVersion();
     await this.setJson(this.appSessionVersionKey(uid), {
@@ -646,7 +705,11 @@ class RedisTcpIdentityStore extends KvBackedIdentityStore {
 class CloudflareDurableObjectIdentityStore extends KvBackedIdentityStore {
   private readonly stub: DurableObjectStubLike;
 
-  constructor(input: { namespace: CloudflareDurableObjectNamespaceLike; objectName: string; prefix: string }) {
+  constructor(input: {
+    namespace: CloudflareDurableObjectNamespaceLike;
+    objectName: string;
+    prefix: string;
+  }) {
     super(input.prefix);
     this.stub = resolveDoStub({ namespace: input.namespace, objectName: input.objectName });
   }
@@ -717,13 +780,18 @@ class PostgresIdentityStore implements IdentityStore {
         [this.namespace, subject],
       );
       const existingUserId = toOptionalTrimmedString(existing.rows[0]?.user_id);
-      const createdAtMsExisting = typeof existing.rows[0]?.created_at_ms === 'number'
-        ? existing.rows[0].created_at_ms
-        : Number(existing.rows[0]?.created_at_ms);
+      const createdAtMsExisting =
+        typeof existing.rows[0]?.created_at_ms === 'number'
+          ? existing.rows[0].created_at_ms
+          : Number(existing.rows[0]?.created_at_ms);
 
       if (existingUserId && existingUserId !== userId) {
         if (!allowMove) {
-          return { ok: false, code: 'already_linked', message: 'Subject is already linked to a different user' };
+          return {
+            ok: false,
+            code: 'already_linked',
+            message: 'Subject is already linked to a different user',
+          };
         }
 
         const count = await pool.query(
@@ -736,7 +804,8 @@ class PostgresIdentityStore implements IdentityStore {
           return {
             ok: false,
             code: 'already_linked',
-            message: 'Subject is linked to a different user with other identities; merge is not allowed',
+            message:
+              'Subject is linked to a different user with other identities; merge is not allowed',
           };
         }
 
@@ -754,7 +823,10 @@ class PostgresIdentityStore implements IdentityStore {
               version: 'identity_subject_v1',
               subject,
               userId,
-              createdAtMs: Number.isFinite(createdAtMsExisting) && createdAtMsExisting > 0 ? Math.floor(createdAtMsExisting) : now,
+              createdAtMs:
+                Number.isFinite(createdAtMsExisting) && createdAtMsExisting > 0
+                  ? Math.floor(createdAtMsExisting)
+                  : now,
               updatedAtMs: now,
             } satisfies IdentitySubjectRecord,
             now,
@@ -779,20 +851,32 @@ class PostgresIdentityStore implements IdentityStore {
             version: 'identity_subject_v1',
             subject,
             userId,
-            createdAtMs: Number.isFinite(createdAtMsExisting) && createdAtMsExisting > 0 ? Math.floor(createdAtMsExisting) : now,
+            createdAtMs:
+              Number.isFinite(createdAtMsExisting) && createdAtMsExisting > 0
+                ? Math.floor(createdAtMsExisting)
+                : now,
             updatedAtMs: now,
           } satisfies IdentitySubjectRecord,
-          Number.isFinite(createdAtMsExisting) && createdAtMsExisting > 0 ? Math.floor(createdAtMsExisting) : now,
+          Number.isFinite(createdAtMsExisting) && createdAtMsExisting > 0
+            ? Math.floor(createdAtMsExisting)
+            : now,
           now,
         ],
       );
       return { ok: true };
     } catch (e: unknown) {
-      return { ok: false, code: 'internal', message: e instanceof Error ? e.message : 'Failed to link identity' };
+      return {
+        ok: false,
+        code: 'internal',
+        message: e instanceof Error ? e.message : 'Failed to link identity',
+      };
     }
   }
 
-  async unlinkSubjectFromUserId(input: { userId: string; subject: string }): Promise<UnlinkIdentityResult> {
+  async unlinkSubjectFromUserId(input: {
+    userId: string;
+    subject: string;
+  }): Promise<UnlinkIdentityResult> {
     const userId = toOptionalTrimmedString(input.userId);
     const subject = toOptionalTrimmedString(input.subject);
     if (!userId) return { ok: false, code: 'invalid_args', message: 'Missing userId' };
@@ -816,7 +900,11 @@ class PostgresIdentityStore implements IdentityStore {
       const cRaw = count.rows[0]?.c;
       const c = typeof cRaw === 'number' ? cRaw : Number(cRaw);
       if (!Number.isFinite(c) || c <= 1) {
-        return { ok: false, code: 'cannot_unlink_last_identity', message: 'Refusing to remove the last remaining identity' };
+        return {
+          ok: false,
+          code: 'cannot_unlink_last_identity',
+          message: 'Refusing to remove the last remaining identity',
+        };
       }
 
       await pool.query(
@@ -825,7 +913,11 @@ class PostgresIdentityStore implements IdentityStore {
       );
       return { ok: true };
     } catch (e: unknown) {
-      return { ok: false, code: 'internal', message: e instanceof Error ? e.message : 'Failed to unlink identity' };
+      return {
+        ok: false,
+        code: 'internal',
+        message: e instanceof Error ? e.message : 'Failed to unlink identity',
+      };
     }
   }
 
@@ -923,11 +1015,14 @@ export function createIdentityStore(input: {
   if (kind === 'cloudflare-do') {
     const namespace = resolveDoNamespaceFromConfig(config);
     if (!namespace) {
-      throw new Error('cloudflare-do identity store selected but no Durable Object namespace was provided (expected config.namespace)');
+      throw new Error(
+        'cloudflare-do identity store selected but no Durable Object namespace was provided (expected config.namespace)',
+      );
     }
-    const objectName = toOptionalTrimmedString((config as { objectName?: unknown }).objectName)
-      || toOptionalTrimmedString((config as { name?: unknown }).name)
-      || THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT;
+    const objectName =
+      toOptionalTrimmedString((config as { objectName?: unknown }).objectName) ||
+      toOptionalTrimmedString((config as { name?: unknown }).name) ||
+      THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT;
     input.logger.info('[identity] Using Cloudflare Durable Object identity store');
     return new CloudflareDurableObjectIdentityStore({ namespace, objectName, prefix });
   }
@@ -938,8 +1033,11 @@ export function createIdentityStore(input: {
   }
 
   if (kind === 'upstash-redis-rest') {
-    const url = toOptionalTrimmedString(config.url) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
-    const token = toOptionalTrimmedString(config.token) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
+    const url =
+      toOptionalTrimmedString(config.url) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
+    const token =
+      toOptionalTrimmedString(config.token) ||
+      toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
     if (!url || !token) {
       throw new Error('Upstash identity store enabled but url/token are not both set');
     }
@@ -949,10 +1047,13 @@ export function createIdentityStore(input: {
 
   if (kind === 'redis-tcp') {
     if (!input.isNode) {
-      input.logger.warn('[identity] redis-tcp identity store is not supported in this runtime; falling back to in-memory');
+      input.logger.warn(
+        '[identity] redis-tcp identity store is not supported in this runtime; falling back to in-memory',
+      );
       return new InMemoryIdentityStore(prefix);
     }
-    const redisUrl = toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL);
+    const redisUrl =
+      toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL);
     if (!redisUrl) {
       throw new Error('redis-tcp identity store enabled but redisUrl is not set');
     }
@@ -965,7 +1066,8 @@ export function createIdentityStore(input: {
       throw new Error('[identity] postgres identity store is not supported in this runtime');
     }
     const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl) throw new Error('[identity] postgres identity store enabled but POSTGRES_URL is not set');
+    if (!postgresUrl)
+      throw new Error('[identity] postgres identity store enabled but POSTGRES_URL is not set');
     input.logger.info('[identity] Using Postgres identity store');
     return new PostgresIdentityStore({ postgresUrl, namespace: prefix });
   }
@@ -975,7 +1077,9 @@ export function createIdentityStore(input: {
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
   if (upstashUrl || upstashToken) {
     if (!upstashUrl || !upstashToken) {
-      throw new Error('Upstash identity store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set');
+      throw new Error(
+        'Upstash identity store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set',
+      );
     }
     input.logger.info('[identity] Using Upstash REST identity store');
     return new UpstashRedisRestIdentityStore({ url: upstashUrl, token: upstashToken, prefix });
@@ -984,7 +1088,9 @@ export function createIdentityStore(input: {
   const redisUrl = toOptionalTrimmedString(config.REDIS_URL);
   if (redisUrl) {
     if (!input.isNode) {
-      input.logger.warn('[identity] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory');
+      input.logger.warn(
+        '[identity] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory',
+      );
       return new InMemoryIdentityStore(prefix);
     }
     input.logger.info('[identity] Using redis-tcp identity store');
@@ -994,7 +1100,9 @@ export function createIdentityStore(input: {
   const postgresUrl = getPostgresUrlFromConfig(config);
   if (postgresUrl) {
     if (!input.isNode) {
-      throw new Error('[identity] POSTGRES_URL is set but Postgres is not supported in this runtime');
+      throw new Error(
+        '[identity] POSTGRES_URL is set but Postgres is not supported in this runtime',
+      );
     }
     input.logger.info('[identity] Using Postgres identity store');
     return new PostgresIdentityStore({ postgresUrl, namespace: prefix });

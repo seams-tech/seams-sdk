@@ -54,7 +54,10 @@ export function parseContractExecutionError(
 
           // Common integration issue: Outlayer changed `request_execution` arg name from `code_source` → `source`.
           const executionError = (actionKind as any)?.FunctionCallError?.ExecutionError;
-          if (typeof executionError === 'string' && executionError.includes('missing field `source`')) {
+          if (
+            typeof executionError === 'string' &&
+            executionError.includes('missing field `source`')
+          ) {
             return 'Contract input JSON is missing required field `source` (Outlayer `request_execution` expects `source`, not legacy `code_source`).';
           }
 

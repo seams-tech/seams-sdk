@@ -61,7 +61,7 @@ const ROSE_PINE_LIGHT_COLORS: Record<string, string> = {
   textPrimary: '#575279',
   textSecondary: '#797593',
   textMuted: '#9893a5',
-  textButton: '#faf4ed',
+  textButton: '#fffaf3',
 
   buttonBackground: '#907aa9',
   buttonHoverBackground: '#56949f',

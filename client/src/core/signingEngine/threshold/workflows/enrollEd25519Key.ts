@@ -37,7 +37,7 @@ export async function enrollEd25519KeyHandler(
     prfFirstB64u: string;
     wrapKeySalt: string;
     keygenSessionId?: string;
-  }
+  },
 ): Promise<{
   success: boolean;
   publicKey: string;
@@ -56,7 +56,8 @@ export async function enrollEd25519KeyHandler(
   try {
     if (!sessionId) throw new Error('Missing sessionId');
     if (!relayerUrl) throw new Error('Missing relayer url (configs.network.relayer.url)');
-    if (!args.webauthnAuthentication) throw new Error('Missing webauthnAuthentication for threshold keygen');
+    if (!args.webauthnAuthentication)
+      throw new Error('Missing webauthnAuthentication for threshold keygen');
     if (!args.prfFirstB64u) throw new Error('Missing PRF.first output for threshold keygen');
     if (!args.wrapKeySalt) throw new Error('Missing wrapKeySalt for threshold keygen');
 
@@ -92,13 +93,16 @@ export async function enrollEd25519KeyHandler(
     const relayerVerifyingShareB64u = keygen.relayerVerifyingShareB64u;
     if (!publicKeyRaw) throw new Error('Threshold keygen returned empty publicKey');
     if (!relayerKeyId) throw new Error('Threshold keygen returned empty relayerKeyId');
-    if (!relayerVerifyingShareB64u) throw new Error('Threshold keygen returned empty relayerVerifyingShareB64u');
+    if (!relayerVerifyingShareB64u)
+      throw new Error('Threshold keygen returned empty relayerVerifyingShareB64u');
 
     const publicKey = ensureEd25519Prefix(publicKeyRaw);
     if (!publicKey) throw new Error('Threshold keygen returned empty publicKey');
 
-    const clientParticipantId = typeof keygen.clientParticipantId === 'number' ? keygen.clientParticipantId : undefined;
-    const relayerParticipantId = typeof keygen.relayerParticipantId === 'number' ? keygen.relayerParticipantId : undefined;
+    const clientParticipantId =
+      typeof keygen.clientParticipantId === 'number' ? keygen.clientParticipantId : undefined;
+    const relayerParticipantId =
+      typeof keygen.relayerParticipantId === 'number' ? keygen.relayerParticipantId : undefined;
 
     return {
       success: true,
@@ -112,6 +116,13 @@ export async function enrollEd25519KeyHandler(
     };
   } catch (error: unknown) {
     const message = String((error as { message?: unknown })?.message ?? error);
-    return { success: false, publicKey: '', clientVerifyingShareB64u: '', relayerKeyId: '', relayerVerifyingShareB64u: '', error: message };
+    return {
+      success: false,
+      publicKey: '',
+      clientVerifyingShareB64u: '',
+      relayerKeyId: '',
+      relayerVerifyingShareB64u: '',
+      error: message,
+    };
   }
 }

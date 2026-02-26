@@ -1,7 +1,17 @@
 body {
   margin: 0;
   padding: 0;
-  font-family: var(--fe-font-sans, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
+  font-family: var(
+    --fe-font-sans,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif
+  );
   color: var(--fe-text);
 }
 
@@ -20,9 +30,9 @@ body {
   background: var(--fe-bg);
   min-height: 100dvh;
   grid-template-areas:
-    "one   two"
-    "three three"
-    "five  five";
+    'one   two'
+    'three three'
+    'five  five';
 }
 
 /* Hero right column visual container */
@@ -43,10 +53,10 @@ body {
     grid-template-columns: 1fr;
     grid-template-rows: auto auto auto auto;
     grid-template-areas:
-      "one"
-      "two"
-      "three"
-      "five";
+      'one'
+      'two'
+      'three'
+      'five';
   }
 
   .one {
@@ -65,7 +75,7 @@ body {
     border-radius: 0rem;
   }
 
-  .layout-column-right>.constrained-column {
+  .layout-column-right > .constrained-column {
     position: static;
     top: auto;
     height: auto;
@@ -93,7 +103,7 @@ body {
 }
 
 /* Stack content vertically and push footer to the bottom of the left column */
-.layout-column-left>.constrained-column {
+.layout-column-left > .constrained-column {
   display: flex;
   flex-direction: column;
 }
@@ -106,14 +116,14 @@ body {
   display: grid;
 }
 
-.card>.constrained-column {
+.card > .constrained-column {
   justify-self: center;
   width: 100%;
   padding-left: 1rem;
   padding-right: 1rem;
 }
 
-.card>.single-column-content {
+.card > .single-column-content {
   justify-self: center;
   width: 100%;
   max-width: 1240px;
@@ -121,7 +131,7 @@ body {
   padding-right: 1rem;
 }
 
-.card.one>.constrained-column {
+.card.one > .constrained-column {
   padding-left: 1rem;
   padding-right: 0rem;
   padding-top: 8rem;
@@ -135,7 +145,7 @@ body {
   padding-top: 7rem;
 }
 
-.card>.single-column-content.marketing-stack {
+.card > .single-column-content.marketing-stack {
   max-width: 1300px;
   padding-left: 0;
   padding-right: 0;
@@ -205,7 +215,9 @@ body {
   color: var(--fe-text);
   text-decoration: none;
   background: var(--site-surface-muted);
-  transition: background var(--fe-fast) var(--fe-ease), box-shadow var(--fe-fast) var(--fe-ease);
+  transition:
+    background var(--fe-fast) var(--fe-ease),
+    box-shadow var(--fe-fast) var(--fe-ease);
 }
 
 .site-footer-link:hover {
@@ -215,17 +227,16 @@ body {
 }
 
 @media (max-width: 768px) {
-
-  .layout-root>.hero,
-  .layout-root>.hero-intro,
-  .layout-root>.bento-grid,
-  .layout-root>.site-footer,
-  .layout-column-right>.constrained-column {
+  .layout-root > .hero,
+  .layout-root > .hero-intro,
+  .layout-root > .bento-grid,
+  .layout-root > .site-footer,
+  .layout-column-right > .constrained-column {
     padding-left: 0rem;
     padding-right: 0rem;
   }
 
-  .layout-root>.hero {
+  .layout-root > .hero {
     padding-top: 0.5rem;
   }
 }
@@ -408,14 +419,13 @@ body {
   border-color: transparent;
 }
 
-[data-w3a-theme="light"] .cta-primary:hover {
+[data-w3a-theme='light'] .cta-primary:hover {
   background-color: color-mix(in srgb, var(--site-brand-hover) 78%, #ffffff 22%);
 }
 
-[data-w3a-theme="light"] .cta-secondary:hover {
+[data-w3a-theme='light'] .cta-secondary:hover {
   background-color: color-mix(in srgb, var(--site-accent-hover) 74%, #ffffff 26%);
 }
-
 
 .cta-3 {
   display: flex;
@@ -459,7 +469,6 @@ body {
   margin-right: 0.25rem;
 }
 
-
 .hero-ctas-bottom-grid {
   display: flex;
   flex-direction: column;
@@ -481,7 +490,6 @@ body {
   text-decoration: none;
   font-size: 1.75rem;
   color: var(--site-text-secondary);
-
 }
 
 @media (max-width: 768px) {
@@ -541,18 +549,17 @@ body {
   }
 }
 
-
 .bento-card {
   position: relative;
   border-radius: 1rem;
   box-shadow: 0 1px 3px var(--w3a-shadows-md);
 }
 
-[data-w3a-theme="light"] .bento-card {
+[data-w3a-theme='light'] .bento-card {
   background: var(--site-surface);
 }
 
-[data-w3a-theme="dark"] .bento-card {
+[data-w3a-theme='dark'] .bento-card {
   background: var(--site-surface-muted);
 }
 
@@ -612,7 +619,7 @@ body {
 }
 
 .accent-grey {
-  --accent: var(--site-text-primary)
+  --accent: var(--site-text-primary);
 }
 
 .bento-caption {
@@ -655,7 +662,7 @@ body {
   box-sizing: border-box;
 }
 
-.intall-panel[data-w3a-theme="light"] {
+.intall-panel[data-w3a-theme='light'] {
   border: 1px solid var(--w3a-colors-borderPrimary);
 }
 
@@ -670,7 +677,7 @@ body {
   border-radius: 1rem 1rem 0 0;
 }
 
-[data-w3a-theme="light"] .install-header {
+[data-w3a-theme='light'] .install-header {
   /* border-bottom: 1px solid color-mix(in srgb, var(--site-border) 60%, transparent); */
   background: var(--w3a-colors-surface2);
 }
@@ -767,7 +774,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 300ms ease-in-out, opacity 300ms ease-in-out, filter 300ms ease-in-out;
+  transition:
+    transform 300ms ease-in-out,
+    opacity 300ms ease-in-out,
+    filter 300ms ease-in-out;
   will-change: transform, opacity, filter;
 }
 
@@ -808,7 +818,7 @@ body {
   min-height: 275px;
 }
 
-.install-body>div {
+.install-body > div {
   min-width: 0;
   width: 100%;
 }
@@ -834,7 +844,14 @@ body {
   box-sizing: border-box;
   contain: inline-size;
   /* enforce monospace regardless of global font stacks */
-  font-family: var(--fe-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas) !important;
+  font-family: var(
+    --fe-font-mono,
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas
+  ) !important;
   line-height: 1;
   /* compact code lines */
 }
@@ -915,9 +932,9 @@ body {
   /* GitHub light-ish orange */
 }
 
-[data-w3a-theme="dark"] .code-block .code-kw-tatchi-provider,
-[data-w3a-theme="dark"] .shiki .code-kw-tatchi-provider {
-  color: #FFA657;
+[data-w3a-theme='dark'] .code-block .code-kw-tatchi-provider,
+[data-w3a-theme='dark'] .shiki .code-kw-tatchi-provider {
+  color: #ffa657;
   /* GitHub dark orange */
 }
 
@@ -927,41 +944,49 @@ body {
 }
 
 .install-body .code-block--dark .code-kw-pkg {
-  color: var(--w3a-colors-secondary, #8250DF);
+  color: var(--w3a-colors-secondary, #8250df);
 }
 
 /* Explicit purple for install snippet package names */
 .code-block .code-kw-pkg-install,
 .shiki .code-kw-pkg-install {
-  color: #8250DF;
+  color: #8250df;
   /* GitHub light purple */
 }
 
-[data-w3a-theme="dark"] .code-block .code-kw-pkg-install,
-[data-w3a-theme="dark"] .shiki .code-kw-pkg-install {
-  color: #D2A8FF;
+[data-w3a-theme='dark'] .code-block .code-kw-pkg-install,
+[data-w3a-theme='dark'] .shiki .code-kw-pkg-install {
+  color: #d2a8ff;
   /* GitHub dark purple */
 }
 
 /* Light mode overrides (VitePress + SDK synced) */
-[data-w3a-theme="light"] .code-block,
-[data-w3a-theme="light"] .shiki {
+[data-w3a-theme='light'] .code-block,
+[data-w3a-theme='light'] .shiki {
   background: var(--w3a-colors-surface);
 }
 
 /* Theme-aware install command block surface (light + dark) */
 .code-block.code-block--dark {
-  background: color-mix(in srgb, var(--w3a-colors-surface3) 88%, var(--w3a-colors-colorBackground) 12%);
+  background: color-mix(
+    in srgb,
+    var(--w3a-colors-surface3) 88%,
+    var(--w3a-colors-colorBackground) 12%
+  );
   border-top: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary) 60%, transparent);
 }
 
-[data-w3a-theme="light"] .code-block.code-block--dark {
+[data-w3a-theme='light'] .code-block.code-block--dark {
   background: color-mix(in srgb, var(--w3a-colors-surface2) 90%, var(--w3a-colors-surface3) 10%);
   border-top-color: color-mix(in srgb, var(--w3a-colors-borderPrimary) 68%, transparent);
 }
 
-[data-w3a-theme="dark"] .code-block.code-block--dark {
-  background: color-mix(in srgb, var(--w3a-colors-surface3) 88%, var(--w3a-colors-colorBackground) 12%);
+[data-w3a-theme='dark'] .code-block.code-block--dark {
+  background: color-mix(
+    in srgb,
+    var(--w3a-colors-surface3) 88%,
+    var(--w3a-colors-colorBackground) 12%
+  );
   border-top-color: color-mix(in srgb, var(--w3a-colors-borderPrimary) 56%, transparent);
 }
 
@@ -1005,260 +1030,364 @@ body {
   padding-bottom: 3rem;
   --marketing-focus-ring: color-mix(in srgb, #7597bb 30%, transparent);
   --marketing-rail-surface:
-    radial-gradient(138% 182% at 3% -34%,
+    radial-gradient(
+      138% 182% at 3% -34%,
       color-mix(in srgb, #6f90b0 17%, var(--site-surface-strong) 83%) 0%,
-      transparent 49%),
-    linear-gradient(173deg,
+      transparent 49%
+    ),
+    linear-gradient(
+      173deg,
       color-mix(in srgb, var(--site-surface-strong) 89%, #000 11%) 0%,
-      color-mix(in srgb, var(--site-canvas) 92%, #000 8%) 100%);
+      color-mix(in srgb, var(--site-canvas) 92%, #000 8%) 100%
+    );
   --marketing-rail-grid:
-    linear-gradient(76deg, color-mix(in srgb, var(--site-border) 24%, transparent) 1px, transparent 1px),
-    linear-gradient(-14deg, color-mix(in srgb, var(--site-border) 19%, transparent) 1px, transparent 1px);
+    linear-gradient(
+      76deg,
+      color-mix(in srgb, var(--site-border) 24%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      -14deg,
+      color-mix(in srgb, var(--site-border) 19%, transparent) 1px,
+      transparent 1px
+    );
   --marketing-panel-surface:
-    radial-gradient(132% 170% at 96% -12%,
+    radial-gradient(
+      132% 170% at 96% -12%,
       color-mix(in srgb, #6e90af 15%, var(--site-surface-strong) 85%) 0%,
-      transparent 52%),
-    linear-gradient(154deg,
+      transparent 52%
+    ),
+    linear-gradient(
+      154deg,
       color-mix(in srgb, var(--site-surface-strong) 87%, #000 13%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 91%, #000 9%) 100%);
-  --marketing-panel-highlight: linear-gradient(118deg, color-mix(in srgb, #7395b8 22%, transparent) 0%, transparent 43%);
+      color-mix(in srgb, var(--site-surface-muted) 91%, #000 9%) 100%
+    );
+  --marketing-panel-highlight: linear-gradient(
+    118deg,
+    color-mix(in srgb, #7395b8 22%, transparent) 0%,
+    transparent 43%
+  );
   --marketing-panel-highlight-opacity: 0.28;
   --marketing-eyebrow: color-mix(in srgb, var(--fe-text-secondary) 86%, var(--fe-text) 14%);
   --marketing-title: var(--fe-text-primary);
   --marketing-trust-card-surface:
-    radial-gradient(125% 152% at -8% 100%,
+    radial-gradient(
+      125% 152% at -8% 100%,
       color-mix(in srgb, #7598b7 18%, var(--site-surface-strong) 82%) 0%,
-      transparent 48%),
-    linear-gradient(202deg,
+      transparent 48%
+    ),
+    linear-gradient(
+      202deg,
       color-mix(in srgb, var(--site-surface-strong) 87%, #000 13%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 91%, #000 9%) 100%);
+      color-mix(in srgb, var(--site-surface-muted) 91%, #000 9%) 100%
+    );
   --marketing-trust-icon: color-mix(in srgb, #7c9fbf 52%, var(--fe-text-secondary) 48%);
   --marketing-trust-title: var(--fe-text-primary);
   --marketing-trust-copy: color-mix(in srgb, var(--fe-text-secondary) 90%, var(--fe-text) 10%);
-  --marketing-item-surface:
-    linear-gradient(124deg,
-      color-mix(in srgb, var(--site-surface-strong) 86%, #000 14%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 90%, #000 10%) 100%);
+  --marketing-item-surface: linear-gradient(
+    124deg,
+    color-mix(in srgb, var(--site-surface-strong) 86%, #000 14%) 0%,
+    color-mix(in srgb, var(--site-surface-muted) 90%, #000 10%) 100%
+  );
   --marketing-solution-item-surface: var(--marketing-item-surface);
   --marketing-solution-item-border: color-mix(in srgb, var(--fe-border) 58%, transparent);
   --marketing-item-text: var(--fe-text-primary);
   --marketing-item-title: var(--fe-text-primary);
   --marketing-item-copy: color-mix(in srgb, var(--fe-text-secondary) 90%, var(--fe-text) 10%);
   --marketing-item-art:
-    linear-gradient(42deg,
+    linear-gradient(
+      42deg,
       color-mix(in srgb, var(--site-border) 30%, transparent),
-      color-mix(in srgb, #7294b3 12%, transparent)),
-    repeating-linear-gradient(-18deg,
+      color-mix(in srgb, #7294b3 12%, transparent)
+    ),
+    repeating-linear-gradient(
+      -18deg,
       color-mix(in srgb, var(--site-border) 24%, transparent) 0px,
       color-mix(in srgb, var(--site-border) 24%, transparent) 1px,
       transparent 1px,
-      transparent 22px),
-    repeating-linear-gradient(102deg,
+      transparent 22px
+    ),
+    repeating-linear-gradient(
+      102deg,
       color-mix(in srgb, var(--site-border) 18%, transparent) 0px,
       color-mix(in srgb, var(--site-border) 18%, transparent) 1px,
       transparent 1px,
-      transparent 22px);
+      transparent 22px
+    );
   --marketing-solution-item-art:
-    linear-gradient(224deg,
+    linear-gradient(
+      224deg,
       color-mix(in srgb, #799cbc 20%, transparent),
-      color-mix(in srgb, var(--site-border) 24%, transparent)),
-    repeating-linear-gradient(28deg,
+      color-mix(in srgb, var(--site-border) 24%, transparent)
+    ),
+    repeating-linear-gradient(
+      28deg,
       color-mix(in srgb, var(--site-border) 22%, transparent) 0px,
       color-mix(in srgb, var(--site-border) 22%, transparent) 1px,
       transparent 1px,
-      transparent 22px),
-    repeating-linear-gradient(116deg,
+      transparent 22px
+    ),
+    repeating-linear-gradient(
+      116deg,
       color-mix(in srgb, var(--site-border) 18%, transparent) 0px,
       color-mix(in srgb, var(--site-border) 18%, transparent) 1px,
       transparent 1px,
-      transparent 22px);
-  --marketing-security-link-surface:
-    linear-gradient(238deg,
-      color-mix(in srgb, var(--site-surface-strong) 87%, #000 13%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 90%, #000 10%) 100%);
+      transparent 22px
+    );
+  --marketing-security-link-surface: linear-gradient(
+    238deg,
+    color-mix(in srgb, var(--site-surface-strong) 87%, #000 13%) 0%,
+    color-mix(in srgb, var(--site-surface-muted) 90%, #000 10%) 100%
+  );
   --marketing-security-link-accent: linear-gradient(212deg, #708fb1 0%, #4e6781 100%);
   --marketing-security-link-title: var(--fe-text-primary);
-  --marketing-security-link-copy: color-mix(in srgb, var(--fe-text-secondary) 90%, var(--fe-text) 10%);
-  --marketing-final-cta-surface:
-    linear-gradient(24deg,
-      color-mix(in srgb, #6f92b2 17%, var(--site-surface-strong) 83%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 91%, #000 9%) 44%,
-      color-mix(in srgb, var(--site-canvas) 94%, #000 6%) 100%);
+  --marketing-security-link-copy: color-mix(
+    in srgb,
+    var(--fe-text-secondary) 90%,
+    var(--fe-text) 10%
+  );
+  --marketing-final-cta-surface: linear-gradient(
+    24deg,
+    color-mix(in srgb, #6f92b2 17%, var(--site-surface-strong) 83%) 0%,
+    color-mix(in srgb, var(--site-surface-muted) 91%, #000 9%) 44%,
+    color-mix(in srgb, var(--site-canvas) 94%, #000 6%) 100%
+  );
   --marketing-final-cta-copy: color-mix(in srgb, var(--fe-text-secondary) 90%, var(--fe-text) 10%);
-  --marketing-btn-solid-surface:
-    linear-gradient(126deg,
-      color-mix(in srgb, var(--site-brand) 88%, var(--site-accent) 12%) 0%,
-      color-mix(in srgb, var(--site-brand-hover) 82%, var(--site-brand) 18%) 100%);
-  --marketing-btn-solid-surface-hover:
-    linear-gradient(308deg,
-      color-mix(in srgb, var(--site-brand-hover) 86%, var(--site-brand) 14%) 0%,
-      color-mix(in srgb, var(--site-brand) 74%, var(--site-accent) 26%) 100%);
+  --marketing-btn-solid-surface: linear-gradient(
+    126deg,
+    color-mix(in srgb, var(--site-brand) 88%, var(--site-accent) 12%) 0%,
+    color-mix(in srgb, var(--site-brand-hover) 82%, var(--site-brand) 18%) 100%
+  );
+  --marketing-btn-solid-surface-hover: linear-gradient(
+    308deg,
+    color-mix(in srgb, var(--site-brand-hover) 86%, var(--site-brand) 14%) 0%,
+    color-mix(in srgb, var(--site-brand) 74%, var(--site-accent) 26%) 100%
+  );
   --marketing-btn-solid-border: color-mix(in srgb, var(--site-brand) 54%, var(--site-border) 46%);
   --marketing-btn-solid-text: var(--site-text-button);
   --marketing-btn-solid-text-hover: var(--site-text-button);
-  --marketing-btn-outline-surface: color-mix(in srgb, var(--site-surface) 84%, var(--site-brand) 16%);
+  --marketing-btn-outline-surface: color-mix(
+    in srgb,
+    var(--site-surface) 84%,
+    var(--site-brand) 16%
+  );
   --marketing-btn-outline-border: color-mix(in srgb, var(--site-brand) 28%, var(--site-border) 72%);
   --marketing-btn-outline-text: var(--site-text-primary);
-  --marketing-btn-ghost-surface: color-mix(in srgb, var(--site-surface-muted) 82%, var(--site-brand) 18%);
+  --marketing-btn-ghost-surface: color-mix(
+    in srgb,
+    var(--site-surface-muted) 82%,
+    var(--site-brand) 18%
+  );
   --marketing-btn-ghost-border: color-mix(in srgb, var(--site-brand) 24%, var(--site-border) 76%);
-  --marketing-btn-ghost-text: color-mix(in srgb, var(--site-text-secondary) 82%, var(--site-brand) 18%);
+  --marketing-btn-ghost-text: color-mix(
+    in srgb,
+    var(--site-text-secondary) 82%,
+    var(--site-brand) 18%
+  );
 }
 
-html[data-w3a-theme="dark"] .marketing-stack {
+html[data-w3a-theme='dark'] .marketing-stack {
   --marketing-focus-ring: color-mix(in srgb, #c4a7e7 36%, transparent);
   --marketing-rail-surface:
-    radial-gradient(138% 176% at 2% -30%,
+    radial-gradient(
+      138% 176% at 2% -30%,
       color-mix(in srgb, #c4a7e7 18%, var(--site-surface-strong) 82%) 0%,
-      transparent 48%),
-    linear-gradient(176deg,
+      transparent 48%
+    ),
+    linear-gradient(
+      176deg,
       color-mix(in srgb, var(--site-surface-strong) 95%, #000 5%) 0%,
-      color-mix(in srgb, var(--site-canvas) 97%, #000 3%) 100%);
+      color-mix(in srgb, var(--site-canvas) 97%, #000 3%) 100%
+    );
   --marketing-panel-surface:
-    radial-gradient(130% 170% at 94% -10%,
+    radial-gradient(
+      130% 170% at 94% -10%,
       color-mix(in srgb, #eb6f92 14%, var(--site-surface-strong) 86%) 0%,
-      transparent 52%),
-    linear-gradient(154deg,
+      transparent 52%
+    ),
+    linear-gradient(
+      154deg,
       color-mix(in srgb, var(--site-surface-strong) 94%, #000 6%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 96%, #000 4%) 100%);
-  --marketing-panel-highlight: linear-gradient(118deg, color-mix(in srgb, #c4a7e7 24%, transparent) 0%, transparent 45%);
+      color-mix(in srgb, var(--site-surface-muted) 96%, #000 4%) 100%
+    );
+  --marketing-panel-highlight: linear-gradient(
+    118deg,
+    color-mix(in srgb, #c4a7e7 24%, transparent) 0%,
+    transparent 45%
+  );
   --marketing-panel-highlight-opacity: 0.34;
   --marketing-trust-card-surface:
-    radial-gradient(126% 150% at -6% 100%,
+    radial-gradient(
+      126% 150% at -6% 100%,
       color-mix(in srgb, #9ccfd8 16%, var(--site-surface-strong) 84%) 0%,
-      transparent 49%),
-    linear-gradient(201deg,
+      transparent 49%
+    ),
+    linear-gradient(
+      201deg,
       color-mix(in srgb, var(--site-surface-strong) 94%, #000 6%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 96%, #000 4%) 100%);
+      color-mix(in srgb, var(--site-surface-muted) 96%, #000 4%) 100%
+    );
   --marketing-trust-icon: color-mix(in srgb, var(--fe-text-secondary) 74%, #c4a7e7 26%);
-  --marketing-item-surface:
-    linear-gradient(124deg,
-      color-mix(in srgb, var(--site-surface-strong) 94%, #000 6%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 96%, #000 4%) 100%);
+  --marketing-item-surface: linear-gradient(
+    124deg,
+    color-mix(in srgb, var(--site-surface-strong) 94%, #000 6%) 0%,
+    color-mix(in srgb, var(--site-surface-muted) 96%, #000 4%) 100%
+  );
   --marketing-item-art:
-    linear-gradient(44deg,
+    linear-gradient(
+      44deg,
       color-mix(in srgb, var(--site-border) 30%, transparent),
-      color-mix(in srgb, #9ccfd8 16%, transparent)),
-    repeating-linear-gradient(-18deg,
+      color-mix(in srgb, #9ccfd8 16%, transparent)
+    ),
+    repeating-linear-gradient(
+      -18deg,
       color-mix(in srgb, var(--site-border) 24%, transparent) 0px,
       color-mix(in srgb, var(--site-border) 24%, transparent) 1px,
       transparent 1px,
-      transparent 22px),
-    repeating-linear-gradient(102deg,
+      transparent 22px
+    ),
+    repeating-linear-gradient(
+      102deg,
       color-mix(in srgb, var(--site-border) 18%, transparent) 0px,
       color-mix(in srgb, var(--site-border) 18%, transparent) 1px,
       transparent 1px,
-      transparent 22px);
+      transparent 22px
+    );
   --marketing-solution-item-art:
-    linear-gradient(224deg,
+    linear-gradient(
+      224deg,
       color-mix(in srgb, #ebbcba 16%, transparent),
-      color-mix(in srgb, var(--site-border) 22%, transparent)),
-    repeating-linear-gradient(28deg,
+      color-mix(in srgb, var(--site-border) 22%, transparent)
+    ),
+    repeating-linear-gradient(
+      28deg,
       color-mix(in srgb, var(--site-border) 22%, transparent) 0px,
       color-mix(in srgb, var(--site-border) 22%, transparent) 1px,
       transparent 1px,
-      transparent 22px),
-    repeating-linear-gradient(116deg,
+      transparent 22px
+    ),
+    repeating-linear-gradient(
+      116deg,
       color-mix(in srgb, var(--site-border) 18%, transparent) 0px,
       color-mix(in srgb, var(--site-border) 18%, transparent) 1px,
       transparent 1px,
-      transparent 22px);
-  --marketing-security-link-surface:
-    linear-gradient(238deg,
-      color-mix(in srgb, var(--site-surface-strong) 94%, #000 6%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 96%, #000 4%) 100%);
+      transparent 22px
+    );
+  --marketing-security-link-surface: linear-gradient(
+    238deg,
+    color-mix(in srgb, var(--site-surface-strong) 94%, #000 6%) 0%,
+    color-mix(in srgb, var(--site-surface-muted) 96%, #000 4%) 100%
+  );
   --marketing-security-link-accent: linear-gradient(212deg, #c4a7e7 0%, #907aa9 100%);
-  --marketing-final-cta-surface:
-    linear-gradient(24deg,
-      color-mix(in srgb, #c4a7e7 18%, var(--site-surface-strong) 82%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 96%, #000 4%) 44%,
-      color-mix(in srgb, var(--site-canvas) 97%, #000 3%) 100%);
+  --marketing-final-cta-surface: linear-gradient(
+    24deg,
+    color-mix(in srgb, #c4a7e7 18%, var(--site-surface-strong) 82%) 0%,
+    color-mix(in srgb, var(--site-surface-muted) 96%, #000 4%) 44%,
+    color-mix(in srgb, var(--site-canvas) 97%, #000 3%) 100%
+  );
 }
 
-html[data-w3a-theme="light"] .marketing-stack {
+html[data-w3a-theme='light'] .marketing-stack {
   --marketing-focus-ring: color-mix(in srgb, #89a7c6 32%, transparent);
   --marketing-rail-surface:
-    radial-gradient(136% 184% at 4% -36%,
+    radial-gradient(
+      136% 184% at 4% -36%,
       color-mix(in srgb, #93b0cb 15%, #edf2f8 85%) 0%,
-      transparent 50%),
-    linear-gradient(172deg,
-      #eff3f8 0%,
-      #e5ecf4 100%);
+      transparent 50%
+    ),
+    linear-gradient(172deg, #eff3f8 0%, #e5ecf4 100%);
   --marketing-rail-grid:
     linear-gradient(76deg, color-mix(in srgb, #b6c0cc 24%, transparent) 1px, transparent 1px),
     linear-gradient(-14deg, color-mix(in srgb, #b6c0cc 18%, transparent) 1px, transparent 1px);
   --marketing-panel-surface:
-    radial-gradient(132% 168% at 95% -12%,
+    radial-gradient(
+      132% 168% at 95% -12%,
       color-mix(in srgb, #94b1cc 12%, #f2f6fb 88%) 0%,
-      transparent 52%),
-    linear-gradient(154deg,
-      #f8fbff 0%,
-      #eaf0f7 100%);
-  --marketing-panel-highlight: linear-gradient(118deg, color-mix(in srgb, #91adca 18%, transparent) 0%, transparent 45%);
+      transparent 52%
+    ),
+    linear-gradient(154deg, #f8fbff 0%, #eaf0f7 100%);
+  --marketing-panel-highlight: linear-gradient(
+    118deg,
+    color-mix(in srgb, #91adca 18%, transparent) 0%,
+    transparent 45%
+  );
   --marketing-panel-highlight-opacity: 0.38;
   --marketing-eyebrow: color-mix(in srgb, #5d6e82 84%, #1f2d3a 16%);
   --marketing-title: #1f2d3a;
   --marketing-trust-card-surface:
-    radial-gradient(126% 152% at -8% 100%,
+    radial-gradient(
+      126% 152% at -8% 100%,
       color-mix(in srgb, #96b4cf 14%, #f5f9fe 86%) 0%,
-      transparent 49%),
-    linear-gradient(202deg,
-      #f7fbff 0%,
-      #e7eef6 100%);
+      transparent 49%
+    ),
+    linear-gradient(202deg, #f7fbff 0%, #e7eef6 100%);
   --marketing-trust-icon: color-mix(in srgb, #7e9fbe 58%, #455567 42%);
   --marketing-trust-title: #1f2d3a;
   --marketing-trust-copy: color-mix(in srgb, #5c6d81 90%, #1f2d3a 10%);
-  --marketing-item-surface:
-    linear-gradient(124deg,
-      #fafdff 0%,
-      #e9f0f8 100%);
-  --marketing-solution-item-surface:
-    linear-gradient(124deg,
-      color-mix(in srgb, var(--site-surface) 90%, var(--site-brand) 10%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 90%, var(--site-brand) 10%) 100%);
-  --marketing-solution-item-border: color-mix(in srgb, var(--site-border) 70%, var(--site-brand) 30%);
+  --marketing-item-surface: linear-gradient(124deg, #fafdff 0%, #e9f0f8 100%);
+  --marketing-solution-item-surface: linear-gradient(
+    124deg,
+    color-mix(in srgb, var(--site-surface) 90%, var(--site-brand) 10%) 0%,
+    color-mix(in srgb, var(--site-surface-muted) 90%, var(--site-brand) 10%) 100%
+  );
+  --marketing-solution-item-border: color-mix(
+    in srgb,
+    var(--site-border) 70%,
+    var(--site-brand) 30%
+  );
   --marketing-item-text: #1f2d3a;
   --marketing-item-title: #1f2d3a;
   --marketing-item-copy: color-mix(in srgb, #5c6d81 90%, #1f2d3a 10%);
   --marketing-item-art:
-    linear-gradient(42deg,
+    linear-gradient(
+      42deg,
       color-mix(in srgb, #bcc6d2 40%, transparent),
-      color-mix(in srgb, #99b5cf 12%, transparent)),
-    repeating-linear-gradient(-18deg,
+      color-mix(in srgb, #99b5cf 12%, transparent)
+    ),
+    repeating-linear-gradient(
+      -18deg,
       color-mix(in srgb, #bac4d0 20%, transparent) 0px,
       color-mix(in srgb, #bac4d0 20%, transparent) 1px,
       transparent 1px,
-      transparent 22px),
-    repeating-linear-gradient(102deg,
+      transparent 22px
+    ),
+    repeating-linear-gradient(
+      102deg,
       color-mix(in srgb, #bac4d0 16%, transparent) 0px,
       color-mix(in srgb, #bac4d0 16%, transparent) 1px,
       transparent 1px,
-      transparent 22px);
+      transparent 22px
+    );
   --marketing-solution-item-art:
-    linear-gradient(224deg,
+    linear-gradient(
+      224deg,
       color-mix(in srgb, var(--site-brand) 22%, transparent),
-      color-mix(in srgb, var(--site-border) 28%, transparent)),
-    repeating-linear-gradient(28deg,
+      color-mix(in srgb, var(--site-border) 28%, transparent)
+    ),
+    repeating-linear-gradient(
+      28deg,
       color-mix(in srgb, var(--site-border) 24%, transparent) 0px,
       color-mix(in srgb, var(--site-border) 24%, transparent) 1px,
       transparent 1px,
-      transparent 22px),
-    repeating-linear-gradient(116deg,
+      transparent 22px
+    ),
+    repeating-linear-gradient(
+      116deg,
       color-mix(in srgb, var(--site-border) 18%, transparent) 0px,
       color-mix(in srgb, var(--site-border) 18%, transparent) 1px,
       transparent 1px,
-      transparent 22px);
-  --marketing-security-link-surface:
-    linear-gradient(238deg,
-      #f7fbff 0%,
-      #e7edf5 100%);
+      transparent 22px
+    );
+  --marketing-security-link-surface: linear-gradient(238deg, #f7fbff 0%, #e7edf5 100%);
   --marketing-security-link-accent: linear-gradient(212deg, #7898b8 0%, #5b7694 100%);
   --marketing-security-link-title: #1f2d3a;
   --marketing-security-link-copy: color-mix(in srgb, #5c6d81 90%, #1f2d3a 10%);
-  --marketing-final-cta-surface:
-    linear-gradient(24deg,
-      color-mix(in srgb, #90acc8 17%, #eef3f8 83%) 0%,
-      #e9eef5 44%,
-      #e1e8f1 100%);
+  --marketing-final-cta-surface: linear-gradient(
+    24deg,
+    color-mix(in srgb, #90acc8 17%, #eef3f8 83%) 0%,
+    #e9eef5 44%,
+    #e1e8f1 100%
+  );
   --marketing-final-cta-copy: color-mix(in srgb, #5c6d81 90%, #1f2d3a 10%);
 }
 
@@ -1274,7 +1403,7 @@ html[data-w3a-theme="light"] .marketing-stack {
   --credibility-logo-slate: color-mix(in srgb, var(--fe-text-secondary) 92%, var(--fe-text) 8%);
 }
 
-html[data-w3a-theme="dark"] .credibility-bands {
+html[data-w3a-theme='dark'] .credibility-bands {
   --credibility-band-title: color-mix(in srgb, var(--fe-text-secondary) 86%, var(--fe-text) 14%);
   --credibility-logo-ink: var(--fe-text-primary);
   --credibility-logo-blue: color-mix(in srgb, #7a99be 34%, var(--fe-text) 66%);
@@ -1341,7 +1470,7 @@ html[data-w3a-theme="dark"] .credibility-bands {
 }
 
 .marketing-rail::before {
-  content: "";
+  content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
@@ -1355,12 +1484,12 @@ html[data-w3a-theme="dark"] .credibility-bands {
   content: none;
 }
 
-.marketing-rail>* {
+.marketing-rail > * {
   position: relative;
   z-index: 1;
 }
 
-.marketing-rail>*+* {
+.marketing-rail > * + * {
   margin-top: clamp(1.3rem, 2.4vw, 1.9rem);
 }
 
@@ -1391,7 +1520,7 @@ html[data-w3a-theme="dark"] .credibility-bands {
 .solution-cards::before,
 .security-proof::before,
 .final-cta::before {
-  content: "";
+  content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
@@ -1504,12 +1633,15 @@ html[data-w3a-theme="dark"] .credibility-bands {
 }
 
 .solution-cards__item {
-  border-color: var(--marketing-solution-item-border, color-mix(in srgb, var(--fe-border) 58%, transparent));
+  border-color: var(
+    --marketing-solution-item-border,
+    color-mix(in srgb, var(--fe-border) 58%, transparent)
+  );
   background: var(--marketing-solution-item-surface, var(--marketing-item-surface));
 }
 
 .solution-cards__item::before {
-  content: "";
+  content: '';
   position: absolute;
   inset: 0.85rem 0.85rem auto;
   height: 72px;
@@ -1574,7 +1706,7 @@ html[data-w3a-theme="dark"] .credibility-bands {
 }
 
 .security-proof__link::before {
-  content: "";
+  content: '';
   position: absolute;
   left: 0;
   top: 0.7rem;

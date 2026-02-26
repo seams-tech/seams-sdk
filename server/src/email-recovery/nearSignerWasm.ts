@@ -18,17 +18,18 @@ const SIGNER_WASM_PATH_CANDIDATES = [
 
 let signerWasmInitPromise: Promise<void> | null = null;
 let signerWasmReady = false;
-const capturedFetch = typeof globalThis.fetch === 'function'
-  ? globalThis.fetch.bind(globalThis)
-  : null;
+const capturedFetch =
+  typeof globalThis.fetch === 'function' ? globalThis.fetch.bind(globalThis) : null;
 
 function isNodeEnvironment(): boolean {
-  const processObj = (globalThis as unknown as { process?: { versions?: { node?: string } } }).process;
+  const processObj = (globalThis as unknown as { process?: { versions?: { node?: string } } })
+    .process;
   const isNode = Boolean(processObj?.versions?.node);
   const webSocketPair = (globalThis as unknown as { WebSocketPair?: unknown }).WebSocketPair;
   const nav = (globalThis as unknown as { navigator?: { userAgent?: unknown } }).navigator;
-  const isCloudflareWorker = typeof webSocketPair !== 'undefined'
-    || (typeof nav?.userAgent === 'string' && nav.userAgent.includes('Cloudflare-Workers'));
+  const isCloudflareWorker =
+    typeof webSocketPair !== 'undefined' ||
+    (typeof nav?.userAgent === 'string' && nav.userAgent.includes('Cloudflare-Workers'));
   return isNode && !isCloudflareWorker;
 }
 
@@ -52,7 +53,9 @@ async function initSignerFromCompiledModule(module: WebAssembly.Module): Promise
 }
 
 async function compileWasmFromUrl(url: URL): Promise<WebAssembly.Module> {
-  const fetchFn = capturedFetch ?? (typeof globalThis.fetch === 'function' ? globalThis.fetch.bind(globalThis) : null);
+  const fetchFn =
+    capturedFetch ??
+    (typeof globalThis.fetch === 'function' ? globalThis.fetch.bind(globalThis) : null);
   if (!fetchFn) {
     throw new Error('[email-recovery] fetch is not available to load signer WASM');
   }
@@ -61,7 +64,10 @@ async function compileWasmFromUrl(url: URL): Promise<WebAssembly.Module> {
     throw new Error('[email-recovery] signer WASM fetch returned a non-Response object');
   }
   const status = typeof (response as any).status === 'number' ? (response as any).status : 0;
-  const ok = typeof (response as any).ok === 'boolean' ? (response as any).ok : status === 0 || (status >= 200 && status < 300);
+  const ok =
+    typeof (response as any).ok === 'boolean'
+      ? (response as any).ok
+      : status === 0 || (status >= 200 && status < 300);
   if (!ok) {
     throw new Error(`[email-recovery] signer WASM fetch failed with status ${status}`);
   }
@@ -89,7 +95,9 @@ export async function ensureEmailRecoverySignerWasm(): Promise<void> {
           // try next candidate
         }
       }
-      throw new Error('[email-recovery] Failed to initialize signer WASM from filesystem candidates');
+      throw new Error(
+        '[email-recovery] Failed to initialize signer WASM from filesystem candidates',
+      );
     }
 
     let lastErr: unknown = null;
@@ -102,7 +110,9 @@ export async function ensureEmailRecoverySignerWasm(): Promise<void> {
         lastErr = e;
       }
     }
-    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr || 'Failed to initialize signer WASM'));
+    throw lastErr instanceof Error
+      ? lastErr
+      : new Error(String(lastErr || 'Failed to initialize signer WASM'));
   })();
   return signerWasmInitPromise;
 }

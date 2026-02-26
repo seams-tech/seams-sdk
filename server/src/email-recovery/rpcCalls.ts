@@ -43,7 +43,7 @@ export async function getOutlayerEncryptionPublicKey(
 ): Promise<Uint8Array> {
   const { nearClient, emailDkimVerifierContract } = deps;
 
-  const result = await nearClient.view<{}, unknown>({
+  const result = await nearClient.view<Record<string, never>, unknown>({
     account: emailDkimVerifierContract,
     method: 'get_outlayer_encryption_public_key',
     args: {},
@@ -55,9 +55,10 @@ export async function getOutlayerEncryptionPublicKey(
 
   let bytes: Uint8Array;
   try {
-    const decoded = typeof Buffer !== 'undefined'
-      ? Buffer.from(result, 'base64')
-      : Uint8Array.from(atob(result), c => c.charCodeAt(0));
+    const decoded =
+      typeof Buffer !== 'undefined'
+        ? Buffer.from(result, 'base64')
+        : Uint8Array.from(atob(result), (c) => c.charCodeAt(0));
     bytes = decoded instanceof Uint8Array ? decoded : new Uint8Array(decoded);
   } catch (e) {
     throw new Error(`Failed to decode Outlayer email DKIM public key: ${(e as Error).message}`);
@@ -80,13 +81,12 @@ export async function buildEncryptedEmailRecoveryActions(
       emailRaw: string;
       aeadContext: EmailEncryptionContext;
       recipientPk: Uint8Array;
-    }) => Promise<{ envelope: { version: number; ephemeral_pub: string; nonce: string; ciphertext: string } }>;
+    }) => Promise<{
+      envelope: { version: number; ephemeral_pub: string; nonce: string; ciphertext: string };
+    }>;
   },
 ): Promise<{ actions: ActionArgsWasm[]; receiverId: string }> {
-  const {
-    relayerAccount,
-    networkId,
-  } = deps;
+  const { relayerAccount, networkId } = deps;
   const { accountId, emailBlob, recipientPk, encrypt } = input;
 
   const aeadContext: EmailEncryptionContext = {
@@ -103,17 +103,24 @@ export async function buildEncryptedEmailRecoveryActions(
 
   const bindings = parseRecoverSubjectBindings(emailBlob);
   if (!bindings) {
-    throw new Error('Encrypted email recovery requires Subject: recover-<request_id> <accountId> ed25519:<new_public_key>');
+    throw new Error(
+      'Encrypted email recovery requires Subject: recover-<request_id> <accountId> ed25519:<new_public_key>',
+    );
   }
   if (bindings.accountId !== accountId) {
-    throw new Error(`Encrypted email recovery subject accountId mismatch (expected "${accountId}", got "${bindings.accountId}")`);
+    throw new Error(
+      `Encrypted email recovery subject accountId mismatch (expected "${accountId}", got "${bindings.accountId}")`,
+    );
   }
 
   const fromHeader = parseHeaderValue(emailBlob, 'from');
   if (!fromHeader) {
     throw new Error('Encrypted email recovery requires a From: header');
   }
-  const expectedHashedEmail = await hashRecoveryEmailForAccount({ recoveryEmail: fromHeader, accountId });
+  const expectedHashedEmail = await hashRecoveryEmailForAccount({
+    recoveryEmail: fromHeader,
+    accountId,
+  });
 
   const contractArgs = {
     encrypted_email_blob: envelope,

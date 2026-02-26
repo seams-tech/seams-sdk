@@ -23,7 +23,8 @@ const CHECK = argv.includes('--check');
 const JSON_OUTPUT = argv.includes('--json');
 
 if (HELP) {
-  console.log(`
+  console.log(
+    `
 [report-lite-bundle-sizes] Report lite bundle sizes (raw/gzip/brotli).
 
 Reads from:
@@ -34,7 +35,8 @@ Options:
   --check   Enforce budgets (exit non-zero on regressions)
   --json    Print machine-readable JSON
   -h,--help Show help
-`.trim());
+`.trim(),
+  );
   process.exit(0);
 }
 
@@ -126,7 +128,7 @@ const totals = rows.reduce(
     acc.brotli += r.brotli;
     return acc;
   },
-  { raw: 0, gzip: 0, brotli: 0 }
+  { raw: 0, gzip: 0, brotli: 0 },
 );
 
 if (JSON_OUTPUT) {
@@ -139,20 +141,20 @@ if (JSON_OUTPUT) {
         missing,
       },
       null,
-      2
-    )
+      2,
+    ),
   );
 } else {
   console.log('\n[report-lite-bundle-sizes] Sizes (raw / gzip / brotli):');
   for (const r of rows) {
     console.log(
-      `- ${r.label} (${r.path}): ${formatBytes(r.raw)} / ${formatBytes(r.gzip)} / ${formatBytes(r.brotli)}`
+      `- ${r.label} (${r.path}): ${formatBytes(r.raw)} / ${formatBytes(r.gzip)} / ${formatBytes(r.brotli)}`,
     );
   }
   console.log(
     `\n[report-lite-bundle-sizes] Totals: ${formatBytes(totals.raw)} / ${formatBytes(totals.gzip)} / ${formatBytes(
-      totals.brotli
-    )}`
+      totals.brotli,
+    )}`,
   );
 }
 
@@ -161,9 +163,12 @@ if (CHECK) {
   for (const r of rows) {
     const b = r.budget;
     if (!b) continue;
-    if (typeof b.raw === 'number' && r.raw > b.raw) failures.push(`${r.path}: raw ${r.raw} > ${b.raw}`);
-    if (typeof b.gzip === 'number' && r.gzip > b.gzip) failures.push(`${r.path}: gzip ${r.gzip} > ${b.gzip}`);
-    if (typeof b.brotli === 'number' && r.brotli > b.brotli) failures.push(`${r.path}: brotli ${r.brotli} > ${b.brotli}`);
+    if (typeof b.raw === 'number' && r.raw > b.raw)
+      failures.push(`${r.path}: raw ${r.raw} > ${b.raw}`);
+    if (typeof b.gzip === 'number' && r.gzip > b.gzip)
+      failures.push(`${r.path}: gzip ${r.gzip} > ${b.gzip}`);
+    if (typeof b.brotli === 'number' && r.brotli > b.brotli)
+      failures.push(`${r.path}: brotli ${r.brotli} > ${b.brotli}`);
   }
 
   if (failures.length) {

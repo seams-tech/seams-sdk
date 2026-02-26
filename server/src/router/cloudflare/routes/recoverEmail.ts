@@ -20,8 +20,11 @@ export async function handleRecoverEmail(ctx: CloudflareRelayContext): Promise<R
 
   if (!ctx.service.emailRecovery) {
     return json(
-      { code: 'email_recovery_unavailable', message: 'EmailRecoveryService is not configured on this server' },
-      { status: 503 }
+      {
+        code: 'email_recovery_unavailable',
+        message: 'EmailRecoveryService is not configured on this server',
+      },
+      { status: 503 },
     );
   }
 
@@ -41,7 +44,7 @@ export async function handleRecoverEmail(ctx: CloudflareRelayContext): Promise<R
             accountId,
             error: err?.message || String(err),
           });
-        })
+        }),
     );
     return json({ success: true, queued: true, accountId }, { status: 202 });
   }

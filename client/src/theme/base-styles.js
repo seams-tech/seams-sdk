@@ -4,7 +4,6 @@
 // - CSS variable generators (rolldown + dev script)
 
 export function createThemeTokens(palette) {
-
   const CHROMA_COLORS = {
     ...fromScale('yellow', palette.yellow),
     ...fromScale('blue', palette.blue),

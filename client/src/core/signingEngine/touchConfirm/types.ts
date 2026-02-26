@@ -13,7 +13,7 @@ import type {
   UserConfirmRequest,
 } from './shared/confirmTypes';
 import type { ConfirmationConfig } from '../../types/signer-worker';
-import type { ThemeName, ThemeTokenOverridesInput } from '../../types/tatchi';
+import type { ThemeName, ThemeTokenOverridesInput, TatchiChainConfig } from '../../types/tatchi';
 import type { RegistrationCredentialConfirmationPayload } from '../workerManager/validation';
 import type {
   OrchestrateSigningConfirmationParams,
@@ -36,6 +36,7 @@ export interface TouchConfirmContext {
   indexedDB: UnifiedIndexedDBManager;
   userPreferencesManager: UserPreferencesManager;
   nonceManager: NonceManager;
+  chains?: readonly TatchiChainConfig[];
   getTheme?: () => ThemeName;
   getAppearanceTokens?: () => ThemeTokenOverridesInput | undefined;
   rpIdOverride?: string;
@@ -90,28 +91,24 @@ export interface ThresholdPrfFirstCacheClearAllPort {
   clearAllPrfFirstForThresholdSessions(): Promise<void>;
 }
 
-export type ThresholdPrfFirstCachePort =
-  & ThresholdPrfFirstCacheWriterPort
-  & ThresholdPrfFirstCachePeekPort
-  & ThresholdPrfFirstCacheDispensePort
-  & ThresholdPrfFirstCacheClearPort;
+export type ThresholdPrfFirstCachePort = ThresholdPrfFirstCacheWriterPort &
+  ThresholdPrfFirstCachePeekPort &
+  ThresholdPrfFirstCacheDispensePort &
+  ThresholdPrfFirstCacheClearPort;
 
-export type TouchConfirmSigningSessionPort =
-  & TouchConfirmSigningPort
-  & TouchConfirmSecureConfirmationPort
-  & ThresholdPrfFirstCachePort;
+export type TouchConfirmSigningSessionPort = TouchConfirmSigningPort &
+  TouchConfirmSecureConfirmationPort &
+  ThresholdPrfFirstCachePort;
 
-export type TouchConfirmSigningRuntimePort =
-  & TouchConfirmContextPort
-  & TouchConfirmSigningSessionPort;
+export type TouchConfirmSigningRuntimePort = TouchConfirmContextPort &
+  TouchConfirmSigningSessionPort;
 
-export type TouchConfirmRuntimeBridgePort =
-  & TouchConfirmContextPort
-  & TouchConfirmSigningPort
-  & TouchConfirmRegistrationPort
-  & TouchConfirmSecureConfirmationPort
-  & ThresholdPrfFirstCachePort
-  & TouchConfirmWorkerLifecyclePort;
+export type TouchConfirmRuntimeBridgePort = TouchConfirmContextPort &
+  TouchConfirmSigningPort &
+  TouchConfirmRegistrationPort &
+  TouchConfirmSecureConfirmationPort &
+  ThresholdPrfFirstCachePort &
+  TouchConfirmWorkerLifecyclePort;
 
 export interface TouchConfirmContextPort {
   getContext(): TouchConfirmContext;

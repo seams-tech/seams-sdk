@@ -37,10 +37,10 @@ export function normalizeLogger(logger?: Logger | null): NormalizedLogger {
   const base: Logger = logger;
   const log = typeof base.log === 'function' ? base.log.bind(base) : undefined;
 
-  const debug = (typeof base.debug === 'function' ? base.debug.bind(base) : log);
-  const info = (typeof base.info === 'function' ? base.info.bind(base) : log);
-  const warn = (typeof base.warn === 'function' ? base.warn.bind(base) : log);
-  const error = (typeof base.error === 'function' ? base.error.bind(base) : log);
+  const debug = typeof base.debug === 'function' ? base.debug.bind(base) : log;
+  const info = typeof base.info === 'function' ? base.info.bind(base) : log;
+  const warn = typeof base.warn === 'function' ? base.warn.bind(base) : log;
+  const error = typeof base.error === 'function' ? base.error.bind(base) : log;
 
   return {
     debug: safe(debug),

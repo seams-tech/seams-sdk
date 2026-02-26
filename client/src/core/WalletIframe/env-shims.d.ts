@@ -5,7 +5,7 @@ interface ImportMeta {
   readonly env?: Record<string, string>;
 }
 
-declare var process: { env?: Record<string, string | undefined> };
+declare const process: { env?: Record<string, string | undefined> };
 
 // Narrow globals used by the Wallet Iframe codepath
 declare global {

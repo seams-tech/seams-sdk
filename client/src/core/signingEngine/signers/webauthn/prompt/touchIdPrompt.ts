@@ -5,9 +5,7 @@ import {
   getPrfSecondSaltV1,
 } from '../credentials/helpers';
 import type { WebAuthnAllowCredential } from '../credentials';
-import type {
-  WebAuthnAuthenticationCredential,
-} from '@/core/types/webauthn';
+import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import { executeWebAuthnWithParentFallbacksSafari } from '../fallbacks';
 // Local rpId policy helpers (moved back from WebAuthnFallbacks)
 function isRegistrableSuffix(host: string, cand: string): boolean {
@@ -32,9 +30,9 @@ function decodeChallengeB64u(challengeB64u: string): Uint8Array {
 }
 
 interface RegisterCredentialsArgs {
-  nearAccountId: string,    // NEAR account ID for PRF salts and keypair derivation (always base account)
-  challengeB64u: string,
-  deviceNumber?: number, // Optional device number for device-specific user ID (0, 1, 2, etc.)
+  nearAccountId: string; // NEAR account ID for PRF salts and keypair derivation (always base account)
+  challengeB64u: string;
+  deviceNumber?: number; // Optional device number for device-specific user ID (0, 1, 2, etc.)
 }
 
 interface AuthenticateCredentialsForChallengeB64uArgs {
@@ -87,7 +85,11 @@ export class TouchIdPrompt {
 
   // Utility helpers for cross‑origin fallback
   private static _inIframe(): boolean {
-    try { return window.self !== window.top; } catch { return true; }
+    try {
+      return window.self !== window.top;
+    } catch {
+      return true;
+    }
   }
 
   /**
@@ -119,9 +121,9 @@ export class TouchIdPrompt {
           eval: {
             first: getPrfFirstSaltV1() as BufferSource,
             second: getPrfSecondSaltV1() as BufferSource,
-          }
-        }
-      }
+          },
+        },
+      },
     };
     if (allowCredentials.length > 0) {
       publicKey.allowCredentials = allowCredentials.map((credential) => ({
@@ -180,20 +182,20 @@ export class TouchIdPrompt {
       challenge: decodeChallengeB64u(challengeB64u) as BufferSource,
       rp: {
         name: 'WebAuthn Passkey',
-        id: rpId
+        id: rpId,
       },
       user: {
         id: new TextEncoder().encode(generateDeviceSpecificUserId(nearAccountId, deviceNumber)),
         name: generateDeviceSpecificUserId(nearAccountId, deviceNumber),
-        displayName: generateUserFriendlyDisplayName(nearAccountId, deviceNumber)
+        displayName: generateUserFriendlyDisplayName(nearAccountId, deviceNumber),
       },
       pubKeyCredParams: [
         { alg: -7, type: 'public-key' },
-        { alg: -257, type: 'public-key' }
+        { alg: -257, type: 'public-key' },
       ],
       authenticatorSelection: {
         residentKey: 'required',
-        userVerification: 'preferred'
+        userVerification: 'preferred',
       },
       timeout: 60000,
       attestation: 'none',
@@ -203,8 +205,8 @@ export class TouchIdPrompt {
             // Fixed, versioned salts. Account-scoping happens at the HKDF derivation layer.
             first: getPrfFirstSaltV1() as BufferSource,
             second: getPrfSecondSaltV1() as BufferSource,
-          }
-        }
+          },
+        },
       },
     };
     try {
@@ -278,9 +280,15 @@ function generateUserFriendlyDisplayName(nearAccountId: string, deviceNumber?: n
 
 // Abort native WebAuthn when page is being hidden or unloaded.
 function attachPageAbortHandlers(controller: AbortController): () => void {
-  const onVisibility = () => { if (document.hidden) controller.abort(); };
-  const onPageHide = () => { controller.abort(); };
-  const onBeforeUnload = () => { controller.abort(); };
+  const onVisibility = () => {
+    if (document.hidden) controller.abort();
+  };
+  const onPageHide = () => {
+    controller.abort();
+  };
+  const onBeforeUnload = () => {
+    controller.abort();
+  };
   document.addEventListener('visibilitychange', onVisibility, { passive: true });
   window.addEventListener('pagehide', onPageHide, { passive: true });
   window.addEventListener('beforeunload', onBeforeUnload, { passive: true });

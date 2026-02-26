@@ -81,7 +81,11 @@ export async function syncAccount(
     const optionsMessage = typeof optionsJson.message === 'string' ? optionsJson.message : '';
     const optionsError = typeof optionsJson.error === 'string' ? optionsJson.error : '';
     if (!optionsResp.ok || !optionsOk) {
-      throw new Error(optionsMessage || optionsError || `sync-account/options failed (HTTP ${optionsResp.status})`);
+      throw new Error(
+        optionsMessage ||
+          optionsError ||
+          `sync-account/options failed (HTTP ${optionsResp.status})`,
+      );
     }
 
     const challengeId = String(optionsJson.challengeId || '').trim();
@@ -97,20 +101,24 @@ export async function syncAccount(
       message: 'Authenticating with passkey...',
     });
 
-    const allowCredentials: WebAuthnAllowCredential[] = Array.isArray(allowedCredentialIds) && allowedCredentialIds.length
-      ? allowedCredentialIds.map((id) => ({ id, type: 'public-key', transports: [] }))
-      : [];
+    const allowCredentials: WebAuthnAllowCredential[] =
+      Array.isArray(allowedCredentialIds) && allowedCredentialIds.length
+        ? allowedCredentialIds.map((id) => ({ id, type: 'public-key', transports: [] }))
+        : [];
 
     // NOTE: We intentionally avoid requiring a known accountId for discovery. When `allowCredentials`
     // is empty, the browser prompts the user to select any passkey for `rpId`.
-    const credential = reuseCredential || await context.signingEngine.getAuthenticationCredentialsSerialized({
-      nearAccountId: accountId || toAccountId('dummy.testnet'),
-      challengeB64u,
-      allowCredentials,
-      includeSecondPrfOutput: false,
-    });
+    const credential =
+      reuseCredential ||
+      (await context.signingEngine.getAuthenticationCredentialsSerialized({
+        nearAccountId: accountId || toAccountId('dummy.testnet'),
+        challengeB64u,
+        allowCredentials,
+        includeSecondPrfOutput: false,
+      }));
 
-    const credentialForRelay = redactCredentialExtensionOutputs<WebAuthnAuthenticationCredential>(credential);
+    const credentialForRelay =
+      redactCredentialExtensionOutputs<WebAuthnAuthenticationCredential>(credential);
     const verifyResp = await fetch(`${relayerUrl}/sync-account/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -126,7 +134,9 @@ export async function syncAccount(
     const verifyMessage = typeof verifyJson.message === 'string' ? verifyJson.message : '';
     const verifyError = typeof verifyJson.error === 'string' ? verifyJson.error : '';
     if (!verifyResp.ok || !verifyOk || !verified) {
-      throw new Error(verifyMessage || verifyError || `sync-account/verify failed (HTTP ${verifyResp.status})`);
+      throw new Error(
+        verifyMessage || verifyError || `sync-account/verify failed (HTTP ${verifyResp.status})`,
+      );
     }
 
     const syncedAccountId = String(verifyJson.accountId || '').trim();
@@ -184,15 +194,24 @@ export async function syncAccount(
     });
 
     // 3) Persist threshold key material when available.
-    const thresholdEd25519 = isObject(verifyJson.thresholdEd25519) ? verifyJson.thresholdEd25519 : {};
-    const relayerKeyId = String((thresholdEd25519.relayerKeyId ?? verifyJson.relayerKeyId ?? '') || '').trim();
+    const thresholdEd25519 = isObject(verifyJson.thresholdEd25519)
+      ? verifyJson.thresholdEd25519
+      : {};
+    const relayerKeyId = String(
+      (thresholdEd25519.relayerKeyId ?? verifyJson.relayerKeyId ?? '') || '',
+    ).trim();
     if (relayerKeyId) {
-      const relayerVerifyingShareB64u = String(thresholdEd25519.relayerVerifyingShareB64u || '').trim();
-      const derived = await context.signingEngine.deriveThresholdEd25519ClientVerifyingShareFromCredential({
-        credential,
-        nearAccountId: normalizedAccountId,
-      });
-      const clientVerifyingShareB64u = derived.success ? String(derived.clientVerifyingShareB64u || '').trim() : '';
+      const relayerVerifyingShareB64u = String(
+        thresholdEd25519.relayerVerifyingShareB64u || '',
+      ).trim();
+      const derived =
+        await context.signingEngine.deriveThresholdEd25519ClientVerifyingShareFromCredential({
+          credential,
+          nearAccountId: normalizedAccountId,
+        });
+      const clientVerifyingShareB64u = derived.success
+        ? String(derived.clientVerifyingShareB64u || '').trim()
+        : '';
 
       await IndexedDBManager.storeNearThresholdKeyMaterial({
         nearAccountId: normalizedAccountId,

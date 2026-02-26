@@ -11,19 +11,24 @@ export type SessionClaims = Record<string, unknown>;
 export type SessionKind = 'cookie' | 'jwt';
 
 export function parseSessionKind(body: unknown): SessionKind {
-  const v = (body && typeof body === 'object' && !Array.isArray(body))
-    ? (body as Record<string, unknown>)
-    : {};
+  const v =
+    body && typeof body === 'object' && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : {};
   const raw = v.sessionKind ?? v.session_kind;
   return raw === 'cookie' ? 'cookie' : 'jwt';
 }
 
 export interface SessionAdapter {
   signJwt(sub: string, extra?: Record<string, unknown>): Promise<string>;
-  parse(headers: Record<string, string | string[] | undefined>): Promise<{ ok: true; claims: SessionClaims } | { ok: false }>;
+  parse(
+    headers: Record<string, string | string[] | undefined>,
+  ): Promise<{ ok: true; claims: SessionClaims } | { ok: false }>;
   buildSetCookie(token: string): string;
   buildClearCookie(): string;
-  refresh(headers: Record<string, string | string[] | undefined>): Promise<{ ok: boolean; jwt?: string; code?: string; message?: string }>;
+  refresh(
+    headers: Record<string, string | string[] | undefined>,
+  ): Promise<{ ok: boolean; jwt?: string; code?: string; message?: string }>;
 }
 
 export interface ThresholdSigningAdapter {
@@ -35,7 +40,7 @@ export type SmartAccountDeploymentChain = 'evm' | 'tempo';
 export interface SmartAccountDeployRequest {
   nearAccountId: string;
   chain: SmartAccountDeploymentChain;
-  chainId: string;
+  chainId: number;
   accountAddress: string;
   accountModel: string;
   counterfactualAddress?: string;
@@ -51,7 +56,10 @@ export interface SmartAccountDeployResult {
   message?: string;
 }
 
-export type ThresholdSchemeModuleById<S extends ThresholdSchemeId> = Extract<ThresholdAnySchemeModule, { schemeId: S }>;
+export type ThresholdSchemeModuleById<S extends ThresholdSchemeId> = Extract<
+  ThresholdAnySchemeModule,
+  { schemeId: S }
+>;
 
 export type ResolveThresholdSchemeResult<S extends ThresholdSchemeId> =
   | { ok: true; scheme: ThresholdSchemeModuleById<S> }
@@ -63,14 +71,19 @@ export function resolveThresholdScheme<S extends ThresholdSchemeId>(
   options?: { notFoundMessage?: string },
 ): ResolveThresholdSchemeResult<S> {
   if (!threshold) {
-    return { ok: false, code: 'threshold_disabled', message: 'Threshold signing is not configured on this server' };
+    return {
+      ok: false,
+      code: 'threshold_disabled',
+      message: 'Threshold signing is not configured on this server',
+    };
   }
   const scheme = threshold.getSchemeModule(schemeId);
   if (!scheme || scheme.schemeId !== schemeId) {
     return {
       ok: false,
       code: 'not_found',
-      message: options?.notFoundMessage || `threshold scheme ${schemeId} is not enabled on this server`,
+      message:
+        options?.notFoundMessage || `threshold scheme ${schemeId} is not enabled on this server`,
     };
   }
   return { ok: true, scheme: scheme as ThresholdSchemeModuleById<S> };
@@ -117,7 +130,11 @@ export interface RelayRouterOptions {
    * so clients in deployment-enforce mode can proceed in relayers that do not
    * yet run an explicit deploy pipeline.
    */
-  smartAccountDeploy?: ((request: SmartAccountDeployRequest) => Promise<SmartAccountDeployResult> | SmartAccountDeployResult) | null;
+  smartAccountDeploy?:
+    | ((
+        request: SmartAccountDeployRequest,
+      ) => Promise<SmartAccountDeployResult> | SmartAccountDeployResult)
+    | null;
   /**
    * Optional ROR configuration for `GET /.well-known/webauthn`.
    * When omitted, the endpoint responds with an empty allowlist.

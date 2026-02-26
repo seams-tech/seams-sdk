@@ -7,7 +7,7 @@ import {
 type TempoRlpValueWasm = number[] | TempoRlpValueWasm[];
 
 type TempoTxWasmJson = {
-  chainId: string;
+  chainId: number;
   maxPriorityFeePerGas: string;
   maxFeePerGas: string;
   gasLimit: string;
@@ -31,17 +31,30 @@ function toDec(v: bigint): string {
   return v.toString(10);
 }
 
-function toChainIdDec(v: number): string {
+function toChainIdNumber(v: number | bigint): number {
+  if (typeof v === 'bigint') {
+    if (v < 0n) throw new Error('[tempoSignerWasm] chainId must be a non-negative integer');
+    const asNumber = Number(v);
+    if (!Number.isSafeInteger(asNumber)) {
+      throw new Error('[tempoSignerWasm] chainId must be a non-negative safe integer');
+    }
+    return asNumber;
+  }
   if (!Number.isSafeInteger(v) || v < 0) {
     throw new Error('[tempoSignerWasm] chainId must be a non-negative safe integer');
   }
-  return String(v);
+  return v;
 }
 
 function toDecOpt(v: bigint | null | undefined): string | null | undefined {
   if (v === null) return null;
   if (v === undefined) return undefined;
   return toDec(v);
+}
+
+function requireTxNonce(nonce: bigint | undefined): bigint {
+  if (typeof nonce === 'bigint') return nonce;
+  throw new Error('[tempoSignerWasm] missing tx nonce');
 }
 
 function toWasmTempoRlpValue(
@@ -54,7 +67,7 @@ function toWasmTempoRlpValue(
 
 function toWasmTx(tx: TempoUnsignedTx): TempoTxWasmJson {
   return {
-    chainId: toChainIdDec(tx.chainId),
+    chainId: toChainIdNumber(tx.chainId),
     maxPriorityFeePerGas: toDec(tx.maxPriorityFeePerGas),
     maxFeePerGas: toDec(tx.maxFeePerGas),
     gasLimit: toDec(tx.gasLimit),
@@ -64,7 +77,7 @@ function toWasmTx(tx: TempoUnsignedTx): TempoTxWasmJson {
       storageKeys: item.storageKeys,
     })),
     nonceKey: toDec(tx.nonceKey),
-    nonce: toDec(tx.nonce),
+    nonce: toDec(requireTxNonce(tx.nonce)),
     validBefore: toDecOpt(tx.validBefore),
     validAfter: toDecOpt(tx.validAfter),
     feeToken: tx.feeToken ?? null,

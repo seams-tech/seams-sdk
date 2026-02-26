@@ -40,15 +40,10 @@ import type {
 import type { AccountId } from '../types/accountIds';
 import type { ActionArgs, TransactionInput } from '../types/actions';
 import type { DelegateActionInput, SignedDelegate } from '../types/delegate';
-import type {
-  MultichainSigningRequest,
-} from '../signingEngine/chainAdaptors/tempo/types';
+import type { MultichainSigningRequest } from '../signingEngine/chainAdaptors/tempo/types';
 import type { EvmSignedResult } from '../signingEngine/chainAdaptors/evm/evmAdapter';
 import type { TempoSignedResult } from '../signingEngine/chainAdaptors/tempo/tempoAdapter';
-import type {
-  SignNEP413MessageParams,
-  SignNEP413MessageResult,
-} from './near/signNEP413';
+import type { SignNEP413MessageParams, SignNEP413MessageResult } from './near/signNEP413';
 import type { SyncAccountResult } from './syncAccount';
 import type { EmailRecoveryFlowOptions } from '../types/emailRecovery';
 import type {
@@ -66,6 +61,31 @@ export type SignTempoArgs = {
     confirmationConfig?: Partial<ConfirmationConfig>;
     /** Internal host-only cancellation probe; ignored in wallet-router calls. */
     shouldAbort?: () => boolean;
+    onEvent?: (event: {
+      step: number;
+      phase: string;
+      status: 'progress' | 'success' | 'error';
+      message?: string;
+      data?: unknown;
+    }) => void;
+  };
+};
+
+export type TempoBroadcastResultStatus = 'success' | 'failure';
+
+export type TempoBroadcastErrorData = {
+  code?: string;
+  message?: string;
+  details?: unknown;
+};
+
+export type ReportTempoBroadcastResultArgs = {
+  nearAccountId: string;
+  signedResult: TempoSignedResult | EvmSignedResult;
+  status: TempoBroadcastResultStatus;
+  txHash?: `0x${string}`;
+  error?: unknown;
+  options?: {
     onEvent?: (event: {
       step: number;
       phase: string;
@@ -96,10 +116,7 @@ export type BootstrapThresholdEcdsaSessionArgs = {
 };
 
 export interface AuthCapability {
-  login(
-    nearAccountId: string,
-    options?: LoginHooksOptions,
-  ): Promise<LoginAndCreateSessionResult>;
+  login(nearAccountId: string, options?: LoginHooksOptions): Promise<LoginAndCreateSessionResult>;
   logout(): Promise<void>;
   getSession(nearAccountId?: string): Promise<LoginSession>;
   getRecentLogins(): Promise<GetRecentLoginsResult>;
@@ -189,6 +206,7 @@ export interface NearSignerCapability {
 
 export interface TempoSignerCapability {
   signTempo(args: SignTempoArgs): Promise<TempoSignedResult | EvmSignedResult>;
+  reportBroadcastResult(args: ReportTempoBroadcastResultArgs): Promise<void>;
   bootstrapEcdsaSession(
     args: BootstrapThresholdEcdsaSessionArgs,
   ): Promise<ThresholdEcdsaSessionBootstrapResult>;
@@ -225,10 +243,7 @@ export interface RecoveryCapability {
     options?: EmailRecoveryFlowOptions;
   }): Promise<void>;
 
-  cancelEmailRecovery(args?: {
-    accountId?: string;
-    nearPublicKey?: string;
-  }): Promise<void>;
+  cancelEmailRecovery(args?: { accountId?: string; nearPublicKey?: string }): Promise<void>;
   startDevice2LinkingFlow(
     args: StartDevice2LinkingFlowArgs,
   ): Promise<StartDevice2LinkingFlowResults>;

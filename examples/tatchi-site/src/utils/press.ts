@@ -8,21 +8,21 @@
 export function mobilePressHandlers(onActivate: () => void) {
   return {
     onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
-      const pt = (e as any).pointerType as string | undefined
+      const pt = (e as any).pointerType as string | undefined;
       if (pt && pt !== 'mouse') {
-        e.preventDefault()
-        ;(e.currentTarget as any)._w3aSkipNextClick = true
-        onActivate()
+        e.preventDefault();
+        (e.currentTarget as any)._w3aSkipNextClick = true;
+        onActivate();
       }
     },
     onClick: (e: React.MouseEvent<HTMLElement>) => {
-      const tgt = e.currentTarget as any
+      const tgt = e.currentTarget as any;
       if (tgt._w3aSkipNextClick) {
-        tgt._w3aSkipNextClick = false
-        return
+        tgt._w3aSkipNextClick = false;
+        return;
       }
-      onActivate()
+      onActivate();
     },
-  }
+  };
 }
-import type React from 'react'
+import type React from 'react';

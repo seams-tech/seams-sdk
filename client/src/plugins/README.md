@@ -3,6 +3,7 @@
 This folder contains header builders and small plugins for Vite and Next. They provide security headers needed for the wallet iframe, workers and WASM.
 
 Takeaways:
+
 - Strict CSP is applied only to wallet HTML routes (`/wallet-service`, `/export-viewer`), not to your app pages.
 - COEP is **off by default**; enable it only when you need cross‑origin isolation (`coepMode: 'strict'` or `VITE_COEP_MODE=strict`).
 - COEP `require-corp` can break browser extensions (e.g., Bitwarden/1Password overlays); this is why the default is off.
@@ -74,26 +75,28 @@ Takeaways:
 ## Recommended usage (wrappers)
 
 App (dev + optional build headers):
+
 ```ts
-import { defineConfig, loadEnv } from 'vite'
-import react from '@vitejs/plugin-react'
-import { tatchiApp } from '@tatchi-xyz/sdk/plugins/vite'
+import { defineConfig, loadEnv } from 'vite';
+import react from '@vitejs/plugin-react';
+import { tatchiApp } from '@tatchi-xyz/sdk/plugins/vite';
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '')
+  const env = loadEnv(mode, process.cwd(), '');
   return {
     plugins: [react(), tatchiApp({ walletOrigin: env.VITE_WALLET_ORIGIN, emitHeaders: true })],
-  }
-})
+  };
+});
 ```
 
 Wallet (dev + optional build headers):
+
 ```ts
-import { defineConfig, loadEnv } from 'vite'
-import { tatchiWallet } from '@tatchi-xyz/sdk/plugins/vite'
+import { defineConfig, loadEnv } from 'vite';
+import { tatchiWallet } from '@tatchi-xyz/sdk/plugins/vite';
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '')
+  const env = loadEnv(mode, process.cwd(), '');
   return {
     plugins: [
       tatchiWallet({
@@ -103,8 +106,8 @@ export default defineConfig(({ mode }) => {
         emitHeaders: true,
       }),
     ],
-  }
-})
+  };
+});
 ```
 
 ## Next.js usage
@@ -112,17 +115,18 @@ export default defineConfig(({ mode }) => {
 Use the Next helpers to apply Permissions-Policy and a wallet-friendly CSP via `next.config.js` headers().
 
 App origin:
+
 ```js
 // next.config.js (ESM)
-import { tatchiNextApp } from '@tatchi-xyz/sdk/plugins/next'
+import { tatchiNextApp } from '@tatchi-xyz/sdk/plugins/next';
 
-const isDev = process.env.NODE_ENV !== 'production'
-const walletOrigin = process.env.NEXT_PUBLIC_WALLET_ORIGIN || 'https://wallet.example.localhost'
+const isDev = process.env.NODE_ENV !== 'production';
+const walletOrigin = process.env.NEXT_PUBLIC_WALLET_ORIGIN || 'https://wallet.example.localhost';
 
 const baseConfig = {
   // Optional: silence workspace monorepo root warning
   // outputFileTracingRoot: __dirname,
-}
+};
 
 export default tatchiNextApp({
   walletOrigin,
@@ -132,44 +136,49 @@ export default tatchiNextApp({
   compatibleInDev: true,
   // Allow wallet origin for dev cross-origin modulepreload
   extraScriptSrc: isDev ? [walletOrigin] : [],
-})(baseConfig)
+})(baseConfig);
 ```
 
 Wallet origin (if you proxy wallet routes through Next in dev):
-```js
-import { tatchiNextWallet } from '@tatchi-xyz/sdk/plugins/next'
 
-export default tatchiNextWallet({ walletOrigin: process.env.NEXT_PUBLIC_WALLET_ORIGIN })(/** base config **/)
+```js
+import { tatchiNextWallet } from '@tatchi-xyz/sdk/plugins/next';
+
+export default tatchiNextWallet({
+  walletOrigin: process.env.NEXT_PUBLIC_WALLET_ORIGIN,
+})(/** base config **/);
 ```
 
 Notes
+
 - `emitHeaders` has no effect for Next.js; headers are added via `headers()` in `next.config.js`.
 - In production, keep CSP strict on wallet HTML (no inline styles/scripts; include `style-src-attr 'none'`).
-
 
 ## Advanced: granular/server-level composition
 
 If you need fine-grained control, you can compose the lower-level servers directly.
 
 App server (headers only):
+
 ```ts
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import { tatchiHeaders } from '@tatchi-xyz/sdk/plugins/vite'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { tatchiHeaders } from '@tatchi-xyz/sdk/plugins/vite';
 
 export default defineConfig({
   plugins: [react(), tatchiHeaders({ walletOrigin: 'https://wallet.example.com' })],
-})
+});
 ```
 
 Wallet server (serve SDK + wallet HTML + headers):
+
 ```ts
-import { defineConfig, loadEnv } from 'vite'
-import react from '@vitejs/plugin-react'
-import { tatchiWalletServer, tatchiBuildHeaders } from '@tatchi-xyz/sdk/plugins/vite'
+import { defineConfig, loadEnv } from 'vite';
+import react from '@vitejs/plugin-react';
+import { tatchiWalletServer, tatchiBuildHeaders } from '@tatchi-xyz/sdk/plugins/vite';
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '')
+  const env = loadEnv(mode, process.cwd(), '');
   return {
     plugins: [
       react(),
@@ -180,13 +189,14 @@ export default defineConfig(({ mode }) => {
       }),
       tatchiBuildHeaders({ walletOrigin: env.VITE_WALLET_ORIGIN }),
     ],
-  }
-})
+  };
+});
 ```
 
 ## Which plugins to use
 
 App integrators (your app server):
+
 - Recommended (cross‑origin wallet):
   - Dev+Build: `tatchiApp({ walletOrigin, emitHeaders: true })`.
   - Advanced: dev-only headers via `tatchiHeaders({ walletOrigin })` if you manage build-time headers yourself.
@@ -195,6 +205,7 @@ App integrators (your app server):
   - Advanced: `tatchiWalletServer` / `tatchiAppServer` exist for granular composition when needed.
 
 Wallet deployers (wallet‑iframe host):
+
 - Recommended: `tatchiWallet({ walletOrigin, sdkBasePath, walletServicePath, emitHeaders: true })`.
 - Advanced: `tatchiWalletServer({ ... })` in dev, `tatchiBuildHeaders({ walletOrigin })` at build. Serve the generated `wallet-service/index.html`, `export-viewer/index.html`, and `/sdk/*` assets.
 

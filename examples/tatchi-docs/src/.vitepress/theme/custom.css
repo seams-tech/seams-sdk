@@ -30,11 +30,21 @@
 .vp-doc h4,
 .vp-doc h5,
 .vp-doc h6 {
-  font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family:
+    'Hanken Grotesk',
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
 }
 
-.vp-doc .mermaid svg rect[style*="fill: rgb(243, 244, 246)"],
-.vp-doc .mermaid svg rect[fill="rgb(243, 244, 246)"] {
+.vp-doc .mermaid svg rect[style*='fill: rgb(243, 244, 246)'],
+.vp-doc .mermaid svg rect[fill='rgb(243, 244, 246)'] {
   fill: var(--mermaid-box-fill) !important;
   stroke: var(--mermaid-box-stroke) !important;
 }

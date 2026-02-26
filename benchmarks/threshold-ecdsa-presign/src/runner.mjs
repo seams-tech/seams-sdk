@@ -66,9 +66,8 @@ function evaluateSlo(results, config) {
       });
       return;
     }
-    const pass = input.comparator === '<='
-      ? input.actual <= input.threshold
-      : input.actual >= input.threshold;
+    const pass =
+      input.comparator === '<=' ? input.actual <= input.threshold : input.actual >= input.threshold;
     checks.push({
       name: input.name,
       status: pass ? 'pass' : 'fail',
@@ -102,7 +101,11 @@ function evaluateSlo(results, config) {
   const nonMissScenarios = okResults.filter((entry) => entry.id !== 'live_cache_miss_path');
   pushCheck({
     name: 'presign_step_p95_ms',
-    actual: maxFinite(nonMissScenarios.map((entry) => entry.metrics?.routeDurations?.['/threshold-ecdsa/presign/step']?.p95)),
+    actual: maxFinite(
+      nonMissScenarios.map(
+        (entry) => entry.metrics?.routeDurations?.['/threshold-ecdsa/presign/step']?.p95,
+      ),
+    ),
     threshold: config.presignStepP95Ms,
     comparator: '<=',
     missingReason: 'No `/threshold-ecdsa/presign/step` p95 values were collected',
@@ -111,7 +114,11 @@ function evaluateSlo(results, config) {
 
   pushCheck({
     name: 'presign_step_p99_ms',
-    actual: maxFinite(nonMissScenarios.map((entry) => entry.metrics?.routeDurations?.['/threshold-ecdsa/presign/step']?.p99)),
+    actual: maxFinite(
+      nonMissScenarios.map(
+        (entry) => entry.metrics?.routeDurations?.['/threshold-ecdsa/presign/step']?.p99,
+      ),
+    ),
     threshold: config.presignStepP99Ms,
     comparator: '<=',
     missingReason: 'No `/threshold-ecdsa/presign/step` p99 values were collected',
@@ -120,7 +127,9 @@ function evaluateSlo(results, config) {
 
   pushCheck({
     name: 'stale_session_ratio_nonmiss_max',
-    actual: maxFinite(nonMissScenarios.map((entry) => entry.metrics?.presignStepPerf?.staleSessionRatio)),
+    actual: maxFinite(
+      nonMissScenarios.map((entry) => entry.metrics?.presignStepPerf?.staleSessionRatio),
+    ),
     threshold: config.staleSessionRatioMax,
     comparator: '<=',
     missingReason: 'No stale session ratios were collected',
@@ -229,9 +238,8 @@ async function ensureDir(dir) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const selectedScenarioIds = args.scenarios.length > 0
-    ? args.scenarios
-    : SCENARIOS.map((entry) => entry.id);
+  const selectedScenarioIds =
+    args.scenarios.length > 0 ? args.scenarios : SCENARIOS.map((entry) => entry.id);
   const runId = tsRunId();
   const runOutDir = path.join(args.outDir, runId);
   await ensureDir(runOutDir);
@@ -341,11 +349,17 @@ async function main() {
   console.log(`[benchmark] summary_json=${rawSummaryPath}`);
   console.log(`[benchmark] summary_markdown=${markdownPath}`);
   if (args.syncDocs) console.log(`[benchmark] docs_synced=${args.docsOutput}`);
-  console.log(`[benchmark] scenarios_ok=${okCount} scenarios_error=${errCount} scenarios_skipped=${skipCount}`);
-  console.log(`[benchmark] slo_enabled=${slo.enabled} slo_passed=${slo.passedCount} slo_failed=${slo.failedCount} slo_skipped=${slo.skippedCount}`);
+  console.log(
+    `[benchmark] scenarios_ok=${okCount} scenarios_error=${errCount} scenarios_skipped=${skipCount}`,
+  );
+  console.log(
+    `[benchmark] slo_enabled=${slo.enabled} slo_passed=${slo.passedCount} slo_failed=${slo.failedCount} slo_skipped=${slo.skippedCount}`,
+  );
   if (slo.enabled && slo.failedCount > 0) {
     for (const check of slo.checks.filter((entry) => entry.status === 'fail')) {
-      console.error(`[benchmark][slo][fail] ${check.name}: actual=${check.actual} ${check.comparator} threshold=${check.threshold} (${check.reason || 'failed'})`);
+      console.error(
+        `[benchmark][slo][fail] ${check.name}: actual=${check.actual} ${check.comparator} threshold=${check.threshold} (${check.reason || 'failed'})`,
+      );
     }
   }
 

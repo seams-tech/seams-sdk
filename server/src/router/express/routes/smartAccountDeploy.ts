@@ -1,8 +1,14 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
 import type { ExpressRelayContext } from '../createRelayRouter';
-import { executeSmartAccountDeploy, parseSmartAccountDeployRequest } from '../../smartAccountDeploy';
+import {
+  executeSmartAccountDeploy,
+  parseSmartAccountDeployRequest,
+} from '../../smartAccountDeploy';
 
-export function registerSmartAccountDeployRoute(router: ExpressRouter, ctx: ExpressRelayContext): void {
+export function registerSmartAccountDeployRoute(
+  router: ExpressRouter,
+  ctx: ExpressRelayContext,
+): void {
   router.post('/smart-account/deploy', async (req: Request, res: Response) => {
     const parsed = parseSmartAccountDeployRequest(req.body);
     if (!parsed.ok) {

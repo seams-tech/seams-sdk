@@ -2,8 +2,13 @@ import { IndexedDBManager } from '@/core/indexedDB';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { NonceManager } from '@/core/rpcClients/near/nonceManager';
 import NonceManagerInstance from '@/core/rpcClients/near/nonceManager';
+import { createEvmNonceManager, type EvmNonceManager } from '@/core/rpcClients/evm/nonceManager';
 import { resolvePrimaryExplorerUrl } from '@/core/config/chains';
-import type { ThemeName, ThemeTokenOverridesInput, TatchiConfigsReadonly } from '@/core/types/tatchi';
+import type {
+  ThemeName,
+  ThemeTokenOverridesInput,
+  TatchiConfigsReadonly,
+} from '@/core/types/tatchi';
 import { createTouchConfirmManager } from '../touchConfirm/TouchConfirmManager';
 import type { TouchConfirmRuntimeBridgePort } from '../touchConfirm/types';
 import { TouchIdPrompt } from '../signers/webauthn/prompt/touchIdPrompt';
@@ -15,6 +20,7 @@ export type ManagerAssembly = {
   touchIdPrompt: TouchIdPrompt;
   userPreferencesManager: UserPreferencesManager;
   nonceManager: NonceManager;
+  evmNonceManager: EvmNonceManager;
   touchConfirm: TouchConfirmRuntimeBridgePort;
   signerWorkerManager: SignerWorkerManager;
 };
@@ -25,13 +31,20 @@ export function createManagerAssembly(args: {
   getTheme: () => ThemeName;
   getAppearanceTokens?: () => ThemeTokenOverridesInput | undefined;
 }): ManagerAssembly {
-  const touchIdPrompt = new TouchIdPrompt(args.tatchiPasskeyConfigs.wallet.iframe?.rpIdOverride, true);
+  const touchIdPrompt = new TouchIdPrompt(
+    args.tatchiPasskeyConfigs.wallet.iframe?.rpIdOverride,
+    true,
+  );
   const userPreferencesManager = UserPreferencesInstance;
   userPreferencesManager.configureDefaultSignerMode?.(args.tatchiPasskeyConfigs.signing.mode);
   const nonceManager = NonceManagerInstance;
-  const nearExplorerUrl = resolvePrimaryExplorerUrl(args.tatchiPasskeyConfigs.network.chains, 'near');
-  const tempoExplorerUrl = resolvePrimaryExplorerUrl(args.tatchiPasskeyConfigs.network.chains, 'tempo');
-  const evmExplorerUrl = resolvePrimaryExplorerUrl(args.tatchiPasskeyConfigs.network.chains, 'arc');
+  const chains = args.tatchiPasskeyConfigs.network.chains;
+  const evmNonceManager = createEvmNonceManager({
+    chains,
+  });
+  const nearExplorerUrl = resolvePrimaryExplorerUrl(chains, 'near');
+  const tempoExplorerUrl = resolvePrimaryExplorerUrl(chains, 'tempo');
+  const evmExplorerUrl = resolvePrimaryExplorerUrl(chains, 'evm');
 
   const touchConfirm: TouchConfirmRuntimeBridgePort = createTouchConfirmManager(
     {},
@@ -41,6 +54,7 @@ export function createManagerAssembly(args: {
       indexedDB: IndexedDBManager,
       userPreferencesManager: userPreferencesManager,
       nonceManager: nonceManager,
+      chains,
       rpIdOverride: touchIdPrompt.getRpId(),
       nearExplorerUrl,
       tempoExplorerUrl,
@@ -56,6 +70,7 @@ export function createManagerAssembly(args: {
     userPreferencesManager,
     nonceManager,
     args.tatchiPasskeyConfigs.network.relayer.url,
+    chains,
     args.tatchiPasskeyConfigs.wallet.iframe?.rpIdOverride,
     true,
     nearExplorerUrl,
@@ -68,6 +83,7 @@ export function createManagerAssembly(args: {
     touchIdPrompt,
     userPreferencesManager,
     nonceManager,
+    evmNonceManager,
     touchConfirm,
     signerWorkerManager,
   };

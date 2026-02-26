@@ -1,0 +1,12 @@
+{
+  "version": "v1",
+  "generator": "formal-verification/scripts/export-vectors.sh",
+  "vectors": [
+    {
+      "name": "z_add_sub_cancel",
+      "a": "123456789",
+      "b": "987654321",
+      "expected": "123456789"
+    }
+  ]
+}

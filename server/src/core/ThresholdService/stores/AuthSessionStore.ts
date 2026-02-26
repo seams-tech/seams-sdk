@@ -46,7 +46,10 @@ export interface Ed25519AuthSessionStore {
 
 class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   private readonly keyPrefix: string;
-  private readonly map = new Map<string, { record: Ed25519AuthSessionRecord; remainingUses: number; expiresAtMs: number }>();
+  private readonly map = new Map<
+    string,
+    { record: Ed25519AuthSessionRecord; remainingUses: number; expiresAtMs: number }
+  >();
 
   constructor(input: { keyPrefix?: string }) {
     this.keyPrefix = toThresholdEd25519AuthPrefix(input.keyPrefix);
@@ -64,7 +67,11 @@ class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     const key = this.key(id);
     const ttlMs = Math.max(0, Number(opts.ttlMs) || 0);
     const expiresAtMs = Date.now() + ttlMs;
-    this.map.set(key, { record, remainingUses: Math.max(0, Number(opts.remainingUses) || 0), expiresAtMs });
+    this.map.set(key, {
+      record,
+      remainingUses: Math.max(0, Number(opts.remainingUses) || 0),
+      expiresAtMs,
+    });
   }
 
   async getSession(id: string): Promise<Ed25519AuthSessionRecord | null> {
@@ -81,7 +88,8 @@ class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   async consumeUseCount(id: string): Promise<ThresholdEd25519AuthConsumeUsesResult> {
     const key = this.key(id);
     const entry = this.map.get(key);
-    if (!entry) return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
+    if (!entry)
+      return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
     if (Date.now() > entry.expiresAtMs) {
       this.map.delete(key);
       return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
@@ -122,7 +130,11 @@ class UpstashRedisRestEd25519AuthSessionStore implements Ed25519AuthSessionStore
   ): Promise<void> {
     const ttlMs = Math.max(0, Number(opts.ttlMs) || 0);
     await this.client.setJson(this.metaKey(id), record, ttlMs);
-    await this.client.setRaw(this.usesKey(id), String(Math.max(0, Number(opts.remainingUses) || 0)), ttlMs);
+    await this.client.setRaw(
+      this.usesKey(id),
+      String(Math.max(0, Number(opts.remainingUses) || 0)),
+      ttlMs,
+    );
   }
 
   async getSession(id: string): Promise<Ed25519AuthSessionRecord | null> {
@@ -138,7 +150,11 @@ class UpstashRedisRestEd25519AuthSessionStore implements Ed25519AuthSessionStore
       }
       return { ok: true, remainingUses };
     } catch (e: unknown) {
-      const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'Failed to consume threshold session');
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Failed to consume threshold session',
+      );
       return { ok: false, code: 'internal', message: msg };
     }
   }
@@ -184,7 +200,8 @@ class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   async consumeUseCount(id: string): Promise<ThresholdEd25519AuthConsumeUsesResult> {
     try {
       const resp = await this.client.send(['INCRBY', this.usesKey(id), '-1']);
-      if (resp.type === 'error') return { ok: false, code: 'internal', message: `Redis INCRBY error: ${resp.value}` };
+      if (resp.type === 'error')
+        return { ok: false, code: 'internal', message: `Redis INCRBY error: ${resp.value}` };
       const remainingUses = resp.type === 'integer' ? resp.value : Number(resp.value ?? 0);
       if (!Number.isFinite(remainingUses)) {
         return { ok: false, code: 'internal', message: 'Redis INCRBY returned non-integer value' };
@@ -194,7 +211,11 @@ class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
       }
       return { ok: true, remainingUses };
     } catch (e: unknown) {
-      const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'Failed to consume threshold session');
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Failed to consume threshold session',
+      );
       return { ok: false, code: 'internal', message: msg };
     }
   }
@@ -247,7 +268,10 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     return parseEd25519AuthSessionRecord(rows[0]?.record_json);
   }
 
-  private async explainMissing(id: string, nowMs: number): Promise<{ code: string; message: string }> {
+  private async explainMissing(
+    id: string,
+    nowMs: number,
+  ): Promise<{ code: string; message: string }> {
     const pool = await this.poolPromise;
     const { rows } = await pool.query(
       `
@@ -260,10 +284,14 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     );
     const row = rows[0];
     if (!row) return { code: 'unauthorized', message: 'threshold session expired or invalid' };
-    const expiresAtMs = typeof row.expires_at_ms === 'number' ? row.expires_at_ms : Number(row.expires_at_ms);
-    const remainingUses = typeof row.remaining_uses === 'number' ? row.remaining_uses : Number(row.remaining_uses);
-    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) return { code: 'unauthorized', message: 'threshold session expired' };
-    if (Number.isFinite(remainingUses) && remainingUses <= 0) return { code: 'unauthorized', message: 'threshold session exhausted' };
+    const expiresAtMs =
+      typeof row.expires_at_ms === 'number' ? row.expires_at_ms : Number(row.expires_at_ms);
+    const remainingUses =
+      typeof row.remaining_uses === 'number' ? row.remaining_uses : Number(row.remaining_uses);
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs)
+      return { code: 'unauthorized', message: 'threshold session expired' };
+    if (Number.isFinite(remainingUses) && remainingUses <= 0)
+      return { code: 'unauthorized', message: 'threshold session exhausted' };
     return { code: 'unauthorized', message: 'threshold session expired or invalid' };
   }
 
@@ -285,11 +313,17 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
         const reason = await this.explainMissing(id, nowMs);
         return { ok: false, code: reason.code, message: reason.message };
       }
-      const remainingUses = typeof row.remaining_uses === 'number' ? row.remaining_uses : Number(row.remaining_uses);
-      if (!Number.isFinite(remainingUses)) return { ok: false, code: 'internal', message: 'Postgres returned invalid remainingUses' };
+      const remainingUses =
+        typeof row.remaining_uses === 'number' ? row.remaining_uses : Number(row.remaining_uses);
+      if (!Number.isFinite(remainingUses))
+        return { ok: false, code: 'internal', message: 'Postgres returned invalid remainingUses' };
       return { ok: true, remainingUses };
     } catch (e: unknown) {
-      const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'Failed to consume threshold session');
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Failed to consume threshold session',
+      );
       return { ok: false, code: 'internal', message: msg };
     }
   }
@@ -300,7 +334,10 @@ export function createEd25519AuthSessionStore(input: {
   logger: NormalizedLogger;
   isNode: boolean;
 }): Ed25519AuthSessionStore {
-  const doStores = createCloudflareDurableObjectThresholdEd25519Stores({ config: input.config, logger: input.logger });
+  const doStores = createCloudflareDurableObjectThresholdEd25519Stores({
+    config: input.config,
+    logger: input.logger,
+  });
   if (doStores) return doStores.authSessionStore;
 
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
@@ -308,45 +345,64 @@ export function createEd25519AuthSessionStore(input: {
   const requirePersistent = !input.isNode && !allowInMemory;
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
   const envPrefix =
-    toOptionalTrimmedString(config.THRESHOLD_ED25519_AUTH_PREFIX)
-    || toThresholdEd25519PrefixFromBase(basePrefix, 'auth')
-    || '';
+    toOptionalTrimmedString(config.THRESHOLD_ED25519_AUTH_PREFIX) ||
+    toThresholdEd25519PrefixFromBase(basePrefix, 'auth') ||
+    '';
 
   const kind = toOptionalTrimmedString(config.kind);
   if (kind === 'in-memory') {
     if (requirePersistent) {
-      throw new Error('[threshold-ed25519] In-memory auth session store is not supported in this runtime; configure Upstash/Redis or Durable Objects');
+      throw new Error(
+        '[threshold-ed25519] In-memory auth session store is not supported in this runtime; configure Upstash/Redis or Durable Objects',
+      );
     }
     return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix || undefined });
   }
   if (kind === 'upstash-redis-rest') {
     return new UpstashRedisRestEd25519AuthSessionStore({
-      url: toOptionalTrimmedString(config.url) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL),
-      token: toOptionalTrimmedString(config.token) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN),
+      url:
+        toOptionalTrimmedString(config.url) ||
+        toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL),
+      token:
+        toOptionalTrimmedString(config.token) ||
+        toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN),
       keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
     });
   }
   if (kind === 'redis-tcp') {
     if (!input.isNode) {
       if (requirePersistent) {
-        throw new Error('[threshold-ed25519] redis-tcp auth session store is not supported in this runtime; configure Upstash/Redis REST or Durable Objects');
+        throw new Error(
+          '[threshold-ed25519] redis-tcp auth session store is not supported in this runtime; configure Upstash/Redis REST or Durable Objects',
+        );
       }
-      input.logger.warn('[threshold-ed25519] redis-tcp auth session store is not supported in this runtime; falling back to in-memory');
+      input.logger.warn(
+        '[threshold-ed25519] redis-tcp auth session store is not supported in this runtime; falling back to in-memory',
+      );
       return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix || undefined });
     }
     return new RedisTcpEd25519AuthSessionStore({
-      redisUrl: toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL),
+      redisUrl:
+        toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL),
       keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
     });
   }
   if (kind === 'postgres') {
     if (!input.isNode) {
-      throw new Error('[threshold-ed25519] postgres auth session store is not supported in this runtime');
+      throw new Error(
+        '[threshold-ed25519] postgres auth session store is not supported in this runtime',
+      );
     }
     const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl) throw new Error('[threshold-ed25519] postgres auth session store enabled but POSTGRES_URL is not set');
+    if (!postgresUrl)
+      throw new Error(
+        '[threshold-ed25519] postgres auth session store enabled but POSTGRES_URL is not set',
+      );
     input.logger.info('[threshold-ed25519] Using Postgres store for threshold auth sessions');
-    return new PostgresEd25519AuthSessionStore({ postgresUrl, namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix });
+    return new PostgresEd25519AuthSessionStore({
+      postgresUrl,
+      namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
+    });
   }
 
   // Env-shaped config: prefer Redis/Upstash for auth session storage (TTL + counters) to avoid Postgres churn.
@@ -354,19 +410,29 @@ export function createEd25519AuthSessionStore(input: {
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
   if (upstashUrl || upstashToken) {
     if (!upstashUrl || !upstashToken) {
-      throw new Error('Upstash auth session store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set');
+      throw new Error(
+        'Upstash auth session store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set',
+      );
     }
     input.logger.info('[threshold-ed25519] Using Upstash REST store for threshold auth sessions');
-    return new UpstashRedisRestEd25519AuthSessionStore({ url: upstashUrl, token: upstashToken, keyPrefix: envPrefix || undefined });
+    return new UpstashRedisRestEd25519AuthSessionStore({
+      url: upstashUrl,
+      token: upstashToken,
+      keyPrefix: envPrefix || undefined,
+    });
   }
 
   const redisUrl = toOptionalTrimmedString(config.REDIS_URL);
   if (redisUrl) {
     if (!input.isNode) {
       if (requirePersistent) {
-        throw new Error('[threshold-ed25519] REDIS_URL is set but TCP Redis is not supported in this runtime; use Upstash/Redis REST or Durable Objects');
+        throw new Error(
+          '[threshold-ed25519] REDIS_URL is set but TCP Redis is not supported in this runtime; use Upstash/Redis REST or Durable Objects',
+        );
       }
-      input.logger.warn('[threshold-ed25519] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory');
+      input.logger.warn(
+        '[threshold-ed25519] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory',
+      );
       return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix || undefined });
     }
     input.logger.info('[threshold-ed25519] Using redis-tcp store for threshold auth sessions');
@@ -376,16 +442,22 @@ export function createEd25519AuthSessionStore(input: {
   const postgresUrl = getPostgresUrlFromConfig(config);
   if (postgresUrl) {
     if (!input.isNode) {
-      throw new Error('[threshold-ed25519] POSTGRES_URL is set but Postgres is not supported in this runtime');
+      throw new Error(
+        '[threshold-ed25519] POSTGRES_URL is set but Postgres is not supported in this runtime',
+      );
     }
     input.logger.info('[threshold-ed25519] Using Postgres store for threshold auth sessions');
     return new PostgresEd25519AuthSessionStore({ postgresUrl, namespace: envPrefix || '' });
   }
 
   if (requirePersistent) {
-    throw new Error('[threshold-ed25519] Threshold auth sessions require persistent storage in this runtime; configure UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN or Durable Objects');
+    throw new Error(
+      '[threshold-ed25519] Threshold auth sessions require persistent storage in this runtime; configure UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN or Durable Objects',
+    );
   }
-  input.logger.info('[threshold-ed25519] Using in-memory auth session store for threshold sessions (non-persistent)');
+  input.logger.info(
+    '[threshold-ed25519] Using in-memory auth session store for threshold sessions (non-persistent)',
+  );
   return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix || undefined });
 }
 
@@ -394,7 +466,10 @@ export function createEcdsaAuthSessionStore(input: {
   logger: NormalizedLogger;
   isNode: boolean;
 }): Ed25519AuthSessionStore {
-  const doStores = createCloudflareDurableObjectThresholdEcdsaStores({ config: input.config, logger: input.logger });
+  const doStores = createCloudflareDurableObjectThresholdEcdsaStores({
+    config: input.config,
+    logger: input.logger,
+  });
   if (doStores) return doStores.authSessionStore;
 
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
@@ -402,45 +477,64 @@ export function createEcdsaAuthSessionStore(input: {
   const requirePersistent = !input.isNode && !allowInMemory;
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
   const envPrefix = toThresholdEcdsaAuthPrefix(
-    toOptionalTrimmedString(config.THRESHOLD_ECDSA_AUTH_PREFIX)
-    || toThresholdEcdsaPrefixFromBase(basePrefix, 'auth'),
+    toOptionalTrimmedString(config.THRESHOLD_ECDSA_AUTH_PREFIX) ||
+      toThresholdEcdsaPrefixFromBase(basePrefix, 'auth'),
   );
 
   const kind = toOptionalTrimmedString(config.kind);
   if (kind === 'in-memory') {
     if (requirePersistent) {
-      throw new Error('[threshold-ecdsa] In-memory auth session store is not supported in this runtime; configure Upstash/Redis or Durable Objects');
+      throw new Error(
+        '[threshold-ecdsa] In-memory auth session store is not supported in this runtime; configure Upstash/Redis or Durable Objects',
+      );
     }
     return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix });
   }
   if (kind === 'upstash-redis-rest') {
     return new UpstashRedisRestEd25519AuthSessionStore({
-      url: toOptionalTrimmedString(config.url) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL),
-      token: toOptionalTrimmedString(config.token) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN),
+      url:
+        toOptionalTrimmedString(config.url) ||
+        toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL),
+      token:
+        toOptionalTrimmedString(config.token) ||
+        toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN),
       keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
     });
   }
   if (kind === 'redis-tcp') {
     if (!input.isNode) {
       if (requirePersistent) {
-        throw new Error('[threshold-ecdsa] redis-tcp auth session store is not supported in this runtime; configure Upstash/Redis REST or Durable Objects');
+        throw new Error(
+          '[threshold-ecdsa] redis-tcp auth session store is not supported in this runtime; configure Upstash/Redis REST or Durable Objects',
+        );
       }
-      input.logger.warn('[threshold-ecdsa] redis-tcp auth session store is not supported in this runtime; falling back to in-memory');
+      input.logger.warn(
+        '[threshold-ecdsa] redis-tcp auth session store is not supported in this runtime; falling back to in-memory',
+      );
       return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix });
     }
     return new RedisTcpEd25519AuthSessionStore({
-      redisUrl: toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL),
+      redisUrl:
+        toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL),
       keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
     });
   }
   if (kind === 'postgres') {
     if (!input.isNode) {
-      throw new Error('[threshold-ecdsa] postgres auth session store is not supported in this runtime');
+      throw new Error(
+        '[threshold-ecdsa] postgres auth session store is not supported in this runtime',
+      );
     }
     const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl) throw new Error('[threshold-ecdsa] postgres auth session store enabled but POSTGRES_URL is not set');
+    if (!postgresUrl)
+      throw new Error(
+        '[threshold-ecdsa] postgres auth session store enabled but POSTGRES_URL is not set',
+      );
     input.logger.info('[threshold-ecdsa] Using Postgres store for threshold auth sessions');
-    return new PostgresEd25519AuthSessionStore({ postgresUrl, namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix });
+    return new PostgresEd25519AuthSessionStore({
+      postgresUrl,
+      namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
+    });
   }
 
   // Env-shaped config: prefer Redis/Upstash for auth session storage (TTL + counters) to avoid Postgres churn.
@@ -448,19 +542,29 @@ export function createEcdsaAuthSessionStore(input: {
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
   if (upstashUrl || upstashToken) {
     if (!upstashUrl || !upstashToken) {
-      throw new Error('Upstash auth session store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set');
+      throw new Error(
+        'Upstash auth session store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set',
+      );
     }
     input.logger.info('[threshold-ecdsa] Using Upstash REST store for threshold auth sessions');
-    return new UpstashRedisRestEd25519AuthSessionStore({ url: upstashUrl, token: upstashToken, keyPrefix: envPrefix });
+    return new UpstashRedisRestEd25519AuthSessionStore({
+      url: upstashUrl,
+      token: upstashToken,
+      keyPrefix: envPrefix,
+    });
   }
 
   const redisUrl = toOptionalTrimmedString(config.REDIS_URL);
   if (redisUrl) {
     if (!input.isNode) {
       if (requirePersistent) {
-        throw new Error('[threshold-ecdsa] REDIS_URL is set but TCP Redis is not supported in this runtime; use Upstash/Redis REST or Durable Objects');
+        throw new Error(
+          '[threshold-ecdsa] REDIS_URL is set but TCP Redis is not supported in this runtime; use Upstash/Redis REST or Durable Objects',
+        );
       }
-      input.logger.warn('[threshold-ecdsa] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory');
+      input.logger.warn(
+        '[threshold-ecdsa] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory',
+      );
       return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix });
     }
     input.logger.info('[threshold-ecdsa] Using redis-tcp store for threshold auth sessions');
@@ -470,15 +574,21 @@ export function createEcdsaAuthSessionStore(input: {
   const postgresUrl = getPostgresUrlFromConfig(config);
   if (postgresUrl) {
     if (!input.isNode) {
-      throw new Error('[threshold-ecdsa] POSTGRES_URL is set but Postgres is not supported in this runtime');
+      throw new Error(
+        '[threshold-ecdsa] POSTGRES_URL is set but Postgres is not supported in this runtime',
+      );
     }
     input.logger.info('[threshold-ecdsa] Using Postgres store for threshold auth sessions');
     return new PostgresEd25519AuthSessionStore({ postgresUrl, namespace: envPrefix });
   }
 
   if (requirePersistent) {
-    throw new Error('[threshold-ecdsa] Threshold auth sessions require persistent storage in this runtime; configure UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN or Durable Objects');
+    throw new Error(
+      '[threshold-ecdsa] Threshold auth sessions require persistent storage in this runtime; configure UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN or Durable Objects',
+    );
   }
-  input.logger.info('[threshold-ecdsa] Using in-memory auth session store for threshold sessions (non-persistent)');
+  input.logger.info(
+    '[threshold-ecdsa] Using in-memory auth session store for threshold sessions (non-persistent)',
+  );
   return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix });
 }

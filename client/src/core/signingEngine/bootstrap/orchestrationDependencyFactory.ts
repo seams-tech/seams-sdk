@@ -2,6 +2,7 @@ import { IndexedDBManager } from '@/core/indexedDB';
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { NonceManager } from '@/core/rpcClients/near/nonceManager';
+import type { EvmNonceManager } from '@/core/rpcClients/evm/nonceManager';
 import type { AccountId } from '@/core/types/accountIds';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
@@ -59,6 +60,7 @@ export type CreateOrchestrationDependencyBundleArgs = {
   touchIdPrompt: TouchIdPrompt;
   userPreferencesManager: UserPreferencesManager;
   nonceManager: NonceManager;
+  evmNonceManager: EvmNonceManager;
   touchConfirm: TouchConfirmRuntimeBridgePort;
   signerWorkerManager: SignerWorkerManager;
   getWorkerBaseOrigin: () => string;
@@ -67,10 +69,8 @@ export type CreateOrchestrationDependencyBundleArgs = {
   signTransactionsWithActions: ThresholdEd25519LifecycleDeps['signTransactionsWithActions'];
   extractCosePublicKey: RegistrationAccountLifecycleDeps['extractCosePublicKey'];
   initializeCurrentUser: WorkerResourceWarmupDeps['initializeCurrentUser'];
-  persistThresholdEcdsaBootstrapChainAccount:
-    ThresholdSessionActivationDeps['persistThresholdEcdsaBootstrapChainAccount'];
-  upsertThresholdEcdsaSessionFromBootstrap:
-    ThresholdSessionActivationDeps['upsertThresholdEcdsaSessionFromBootstrap'];
+  persistThresholdEcdsaBootstrapChainAccount: ThresholdSessionActivationDeps['persistThresholdEcdsaBootstrapChainAccount'];
+  upsertThresholdEcdsaSessionFromBootstrap: ThresholdSessionActivationDeps['upsertThresholdEcdsaSessionFromBootstrap'];
   getThresholdEcdsaKeyRefForSigning: (args: {
     nearAccountId: AccountId | string;
     chain: 'tempo' | 'evm';
@@ -161,13 +161,13 @@ export function createOrchestrationDependencyBundle(
     tempoSigningDeps: {
       indexedDB: IndexedDBManager,
       tatchiPasskeyConfigs: args.tatchiPasskeyConfigs,
+      evmNonceManager: args.evmNonceManager,
       getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
       getThresholdEcdsaKeyRefForSigning: ({ nearAccountId, chain }) =>
         args.getThresholdEcdsaKeyRefForSigning({ nearAccountId, chain }),
       bootstrapThresholdEcdsaSession: ({ nearAccountId, chain }) =>
         args.bootstrapThresholdEcdsaSession({ nearAccountId, chain }),
-      withThresholdEcdsaCommitQueue: (queueArgs) =>
-        args.withThresholdEcdsaCommitQueue(queueArgs),
+      withThresholdEcdsaCommitQueue: (queueArgs) => args.withThresholdEcdsaCommitQueue(queueArgs),
       touchConfirm: args.touchConfirm,
     },
     privateKeyExportRecoveryDeps: {
@@ -204,10 +204,8 @@ export function createOrchestrationDependencyBundle(
       setActiveSigningSessionId: (nearAccountId, sessionId) =>
         setActiveSigningSessionIdValue(signingSessionStateDeps, nearAccountId, sessionId),
       defaultRelayerUrl: args.tatchiPasskeyConfigs.network.relayer?.url || '',
-      persistThresholdEcdsaBootstrapChainAccount:
-        args.persistThresholdEcdsaBootstrapChainAccount,
-      upsertThresholdEcdsaSessionFromBootstrap:
-        args.upsertThresholdEcdsaSessionFromBootstrap,
+      persistThresholdEcdsaBootstrapChainAccount: args.persistThresholdEcdsaBootstrapChainAccount,
+      upsertThresholdEcdsaSessionFromBootstrap: args.upsertThresholdEcdsaSessionFromBootstrap,
     },
     nearKeyOpsDeps: {
       signingKeyOps: args.signerWorkerManager.nearKeyOps,
@@ -215,8 +213,7 @@ export function createOrchestrationDependencyBundle(
     getWorkerResourceWarmupDeps: getWorkerResourceWarmupDeps,
     getManagerConvenienceDeps: (): ManagerConvenienceDeps => ({
       signTempo: args.signTempo,
-      prewarmSignerWorkers: () =>
-        prewarmSignerWorkersValue(getWorkerResourceWarmupDeps()),
+      prewarmSignerWorkers: () => prewarmSignerWorkersValue(getWorkerResourceWarmupDeps()),
       warmCriticalResources: (nearAccountId?: string) =>
         warmCriticalResourcesValue(getWorkerResourceWarmupDeps(), nearAccountId),
       getWarmSigningSessionStatus: (nearAccountId: AccountId | string) =>

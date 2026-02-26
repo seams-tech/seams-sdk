@@ -4,9 +4,7 @@ import type {
   ThresholdEcdsaPresignPoolPolicy,
   ThresholdEcdsaPresignPoolPolicyInput,
 } from '@/core/types/tatchi';
-import {
-  deriveThresholdSecp256k1ClientShareWasm,
-} from '../wasm/ethSignerWasm';
+import { deriveThresholdSecp256k1ClientShareWasm } from '../wasm/ethSignerWasm';
 import { authorizeEcdsaWithSession } from '../../threshold/workflows/authorizeEcdsa';
 import {
   getCachedEcdsaAuthSession,
@@ -62,7 +60,9 @@ export class Secp256k1Engine implements Signer {
     getRpId?: () => string | null;
     dispenseThresholdEcdsaPrfFirstForSession?: ThresholdEcdsaPrfFirstDispenseFn;
     enqueueThresholdEcdsaCommit?: ThresholdEcdsaCommitQueueEnqueueFn;
-    thresholdEcdsaPresignPoolPolicy?: ThresholdEcdsaPresignPoolPolicyInput | ThresholdEcdsaPresignPoolPolicy;
+    thresholdEcdsaPresignPoolPolicy?:
+      | ThresholdEcdsaPresignPoolPolicyInput
+      | ThresholdEcdsaPresignPoolPolicy;
     onThresholdEcdsaPresignRefillScheduled?: (
       event: ThresholdEcdsaPresignRefillScheduledEvent,
     ) => void;
@@ -89,7 +89,9 @@ export class Secp256k1Engine implements Signer {
     }
 
     if (keyRef.type !== 'threshold-ecdsa-secp256k1') {
-      throw new Error('[Secp256k1Engine] runtime signing requires threshold-ecdsa-secp256k1 keyRef');
+      throw new Error(
+        '[Secp256k1Engine] runtime signing requires threshold-ecdsa-secp256k1 keyRef',
+      );
     }
 
     const runCommit = async (): Promise<SignatureBytes> => {
@@ -105,7 +107,9 @@ export class Secp256k1Engine implements Signer {
       }
       const participantIds = normalizeThresholdEd25519ParticipantIds(keyRef.participantIds);
       if (!participantIds) {
-        throw new Error('[multichain] Missing threshold-ecdsa participantIds; reconnect threshold session');
+        throw new Error(
+          '[multichain] Missing threshold-ecdsa participantIds; reconnect threshold session',
+        );
       }
 
       const cacheKey = makeEcdsaAuthSessionCacheKey({
@@ -118,12 +122,14 @@ export class Secp256k1Engine implements Signer {
 
       const keyRefThresholdSessionId = String(keyRef.thresholdSessionId || '').trim();
       if (!keyRefThresholdSessionId) {
-        throw new Error('[multichain] Missing threshold-ecdsa sessionId on keyRef; reconnect threshold session via bootstrapEcdsaSession');
+        throw new Error(
+          '[multichain] Missing threshold-ecdsa sessionId on keyRef; reconnect threshold session via bootstrapEcdsaSession',
+        );
       }
 
       const cachedThresholdSession =
-        getCachedEcdsaAuthSession(cacheKey)
-        || getCachedEcdsaAuthSessionBySessionId(keyRefThresholdSessionId);
+        getCachedEcdsaAuthSession(cacheKey) ||
+        getCachedEcdsaAuthSessionBySessionId(keyRefThresholdSessionId);
       if (!cachedThresholdSession) {
         throw new Error(
           '[multichain] threshold-ecdsa session record not available; reconnect threshold session via bootstrapEcdsaSession',
@@ -132,9 +138,12 @@ export class Secp256k1Engine implements Signer {
 
       const keyRefSessionKind = keyRef.thresholdSessionKind;
       if (keyRefSessionKind && keyRefSessionKind !== cachedThresholdSession.sessionKind) {
-        throw new Error('[multichain] threshold-ecdsa session kind mismatch; reconnect threshold session');
+        throw new Error(
+          '[multichain] threshold-ecdsa session kind mismatch; reconnect threshold session',
+        );
       }
-      const sessionKind: EcdsaSessionKind = keyRefSessionKind || cachedThresholdSession.sessionKind || 'jwt';
+      const sessionKind: EcdsaSessionKind =
+        keyRefSessionKind || cachedThresholdSession.sessionKind || 'jwt';
 
       const cachedSessionId = String(cachedThresholdSession.policy?.sessionId || '').trim();
       if (!cachedSessionId || cachedSessionId !== keyRefThresholdSessionId) {
@@ -143,12 +152,11 @@ export class Secp256k1Engine implements Signer {
         );
       }
 
-      const thresholdSessionJwt = sessionKind === 'jwt'
-        ? (
-          getCachedEcdsaAuthSessionJwt(cacheKey)
-          || getCachedEcdsaAuthSessionJwtBySessionId(keyRefThresholdSessionId)
-        )
-        : undefined;
+      const thresholdSessionJwt =
+        sessionKind === 'jwt'
+          ? getCachedEcdsaAuthSessionJwt(cacheKey) ||
+            getCachedEcdsaAuthSessionJwtBySessionId(keyRefThresholdSessionId)
+          : undefined;
 
       if (sessionKind === 'jwt' && !thresholdSessionJwt) {
         throw new Error(
@@ -175,7 +183,9 @@ export class Secp256k1Engine implements Signer {
         ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
       });
       if (!authorized.ok || !authorized.mpcSessionId) {
-        throw new Error(authorized.message || authorized.code || '[multichain] threshold-ecdsa authorize failed');
+        throw new Error(
+          authorized.message || authorized.code || '[multichain] threshold-ecdsa authorize failed',
+        );
       }
       const effectiveThresholdEcdsaPresignPoolPolicy = resolveThresholdEcdsaPresignPoolPolicy({
         ...this.thresholdEcdsaPresignPoolPolicy,
@@ -191,7 +201,11 @@ export class Secp256k1Engine implements Signer {
         uses: 1,
       });
       if (!dispensed.ok) {
-        throw new Error(dispensed.message || dispensed.code || '[multichain] failed to load PRF.first for threshold-ecdsa signing');
+        throw new Error(
+          dispensed.message ||
+            dispensed.code ||
+            '[multichain] failed to load PRF.first for threshold-ecdsa signing',
+        );
       }
 
       const derived = await deriveThresholdSecp256k1ClientShareWasm({
@@ -200,7 +214,9 @@ export class Secp256k1Engine implements Signer {
         workerCtx: this.workerCtx,
       });
       if (derived.clientVerifyingShareB64u !== keyRef.clientVerifyingShareB64u) {
-        throw new Error('[multichain] Derived client share does not match keyRef.clientVerifyingShareB64u');
+        throw new Error(
+          '[multichain] Derived client share does not match keyRef.clientVerifyingShareB64u',
+        );
       }
 
       const refillBaseArgs = {
@@ -224,17 +240,17 @@ export class Secp256k1Engine implements Signer {
       const presignRefillScheduledAtCommitStart =
         presignPoolDepthAtCommitStart > 0
           ? scheduleThresholdEcdsaClientPresignaturePoolRefill({
-            ...refillBaseArgs,
-            poolPolicy: effectiveThresholdEcdsaPresignPoolPolicy,
-            targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
-            triggerIfDepthAtOrBelow: effectiveThresholdEcdsaPresignPoolPolicy.lowWatermark,
-          })
+              ...refillBaseArgs,
+              poolPolicy: effectiveThresholdEcdsaPresignPoolPolicy,
+              targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
+              triggerIfDepthAtOrBelow: effectiveThresholdEcdsaPresignPoolPolicy.lowWatermark,
+            })
           : {
-            scheduled: false,
-            reason: 'cold_start_pool_empty' as const,
-            depth: presignPoolDepthAtCommitStart,
-            targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
-          };
+              scheduled: false,
+              reason: 'cold_start_pool_empty' as const,
+              depth: presignPoolDepthAtCommitStart,
+              targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
+            };
       try {
         this.onThresholdEcdsaPresignRefillScheduled?.({
           trigger: 'commit_start',
@@ -257,14 +273,19 @@ export class Secp256k1Engine implements Signer {
         workerCtx: this.workerCtx,
       });
       if (!signed.ok) {
-        throw new Error(signed.message || signed.code || '[multichain] threshold-ecdsa signing failed');
+        throw new Error(
+          signed.message || signed.code || '[multichain] threshold-ecdsa signing failed',
+        );
       }
 
       const presignRefillScheduledPostSign = scheduleThresholdEcdsaClientPresignaturePoolRefill({
         ...refillBaseArgs,
         poolPolicy: effectiveThresholdEcdsaPresignPoolPolicy,
         targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
-        triggerIfDepthAtOrBelow: Math.max(0, effectiveThresholdEcdsaPresignPoolPolicy.targetDepth - 1),
+        triggerIfDepthAtOrBelow: Math.max(
+          0,
+          effectiveThresholdEcdsaPresignPoolPolicy.targetDepth - 1,
+        ),
       });
       try {
         this.onThresholdEcdsaPresignRefillScheduled?.({

@@ -65,17 +65,20 @@ export function findStableExperimentalExportBoundaryViolations(repoRoot) {
   }));
 
   const experimentalDirViolations = fs.existsSync(experimentalDirPath)
-    ? [{
-      file: toPosixPath(path.relative(repoRoot, experimentalDirPath)),
-      line: null,
-      pattern: 'client/src/experimental must not exist',
-      text: 'remove experimental directory and expose stable APIs via explicit subpaths',
-    }]
+    ? [
+        {
+          file: toPosixPath(path.relative(repoRoot, experimentalDirPath)),
+          line: null,
+          pattern: 'client/src/experimental must not exist',
+          text: 'remove experimental directory and expose stable APIs via explicit subpaths',
+        },
+      ]
     : [];
 
-  const packageExports = sdkPackage?.exports && typeof sdkPackage.exports === 'object'
-    ? Object.keys(sdkPackage.exports)
-    : [];
+  const packageExports =
+    sdkPackage?.exports && typeof sdkPackage.exports === 'object'
+      ? Object.keys(sdkPackage.exports)
+      : [];
   const experimentalExportViolations = packageExports
     .filter((key) => key === './experimental' || key.startsWith('./experimental/'))
     .map((key) => ({
@@ -89,7 +92,8 @@ export function findStableExperimentalExportBoundaryViolations(repoRoot) {
     checks: [
       {
         id: 'root-forbidden-internal-signing-exports',
-        description: 'Root client/src/index.ts must not export signing internals or threshold subpath modules',
+        description:
+          'Root client/src/index.ts must not export signing internals or threshold subpath modules',
         violations: rootForbiddenMatches,
       },
       {

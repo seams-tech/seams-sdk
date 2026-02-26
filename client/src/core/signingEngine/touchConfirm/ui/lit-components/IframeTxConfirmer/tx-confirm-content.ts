@@ -102,14 +102,18 @@ export class TxConfirmContentElement extends LitElementWithProps {
     // Leave tooltipWidth undefined by default so CSS responsive var applies.
   }
 
-  protected getComponentPrefix(): string { return 'tx-confirm-content'; }
+  protected getComponentPrefix(): string {
+    return 'tx-confirm-content';
+  }
 
   protected createRenderRoot(): HTMLElement | DocumentFragment {
-    const root = (this as unknown) as HTMLElement;
+    const root = this as unknown as HTMLElement;
     // Ensure tx-tree.css for nested light-DOM TxTree
     this._stylePromises.push(ensureExternalStyles(root, 'tx-tree.css', 'data-w3a-tx-tree-css'));
     // Also ensure tx-confirmer.css for shared confirmer styles
-    this._stylePromises.push(ensureExternalStyles(root, 'tx-confirmer.css', 'data-w3a-tx-confirmer-css'));
+    this._stylePromises.push(
+      ensureExternalStyles(root, 'tx-confirmer.css', 'data-w3a-tx-confirmer-css'),
+    );
     return root;
   }
 
@@ -123,7 +127,11 @@ export class TxConfirmContentElement extends LitElementWithProps {
     // Prevent drawer drag initiation from content area
     this.addEventListener('pointerdown', this._stopDragStart as EventListener);
     this.addEventListener('mousedown', this._stopDragStart as EventListener);
-    this.addEventListener('touchstart', this._stopDragStart as EventListener, { passive: false } as AddEventListenerOptions);
+    this.addEventListener(
+      'touchstart',
+      this._stopDragStart as EventListener,
+      { passive: false } as AddEventListenerOptions,
+    );
   }
 
   disconnectedCallback(): void {
@@ -139,9 +147,13 @@ export class TxConfirmContentElement extends LitElementWithProps {
     if (this._stylesReady) return true;
     if (!this._stylesAwaiting) {
       const p = Promise.all(this._stylePromises).then(
-        () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+        () =>
+          new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
       );
-      this._stylesAwaiting = p.then(() => { this._stylesReady = true; this.requestUpdate(); });
+      this._stylesAwaiting = p.then(() => {
+        this._stylesReady = true;
+        this.requestUpdate();
+      });
     }
     return false;
   }
@@ -223,23 +235,19 @@ export class TxConfirmContentElement extends LitElementWithProps {
         ${this.errorMessage ? html`<div class="error">${this.errorMessage}</div>` : null}
         ${this._treeNode
           ? html`<div class="tooltip-width">
-                  <w3a-tx-tree
-                    light-dom
-                    .node=${this._treeNode}
-                    .theme=${treeTheme}
-                    .nearExplorerUrl=${nearExplorerBase}
-                    .tempoExplorerUrl=${this.tempoExplorerUrl}
-                    .evmExplorerUrl=${this.evmExplorerUrl}
-                    .showShadow=${this.showShadow}
-                  ></w3a-tx-tree>
-                </div>`
+              <w3a-tx-tree
+                light-dom
+                .node=${this._treeNode}
+                .theme=${treeTheme}
+                .nearExplorerUrl=${nearExplorerBase}
+                .tempoExplorerUrl=${this.tempoExplorerUrl}
+                .evmExplorerUrl=${this.evmExplorerUrl}
+                .showShadow=${this.showShadow}
+              ></w3a-tx-tree>
+            </div>`
           : null}
         <div class="actions">
-          <button
-            class="cancel"
-            @click=${this.onCancel}
-            ?disabled=${this.loading}
-          >
+          <button class="cancel" @click=${this.onCancel} ?disabled=${this.loading}>
             ${this.cancelText}
           </button>
           <button
@@ -248,7 +256,8 @@ export class TxConfirmContentElement extends LitElementWithProps {
             ?disabled=${this.loading || !this._confirmArmed}
           >
             ${this.loading
-              ? html`<span class="loading-indicator" role="progressbar" aria-label="Loading"></span><span class="sr-only">Loading</span>`
+              ? html`<span class="loading-indicator" role="progressbar" aria-label="Loading"></span
+                  ><span class="sr-only">Loading</span>`
               : html`${this.confirmText}`}
           </button>
         </div>

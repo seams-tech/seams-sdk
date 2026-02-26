@@ -31,7 +31,7 @@ export enum ScanQRCodeFlowState {
   SCANNING = 'scanning',
   SUCCESS = 'success',
   ERROR = 'error',
-  CANCELLED = 'cancelled'
+  CANCELLED = 'cancelled',
 }
 
 // ===========================
@@ -57,7 +57,7 @@ export class ScanQRCodeFlow {
 
   constructor(
     private options: ScanQRCodeFlowOptions = {},
-    private events: ScanQRCodeFlowEvents = {}
+    private events: ScanQRCodeFlowEvents = {},
   ) {
     this.canvas = document.createElement('canvas');
     const ctx = this.canvas.getContext('2d');
@@ -82,7 +82,7 @@ export class ScanQRCodeFlow {
       isScanning: this.state === ScanQRCodeFlowState.SCANNING,
       scanDuration: this.scanStartTime ? Date.now() - this.scanStartTime : 0,
       error: this.currentError,
-      qrData: this.detectedQRData
+      qrData: this.detectedQRData,
     };
   }
 
@@ -132,13 +132,14 @@ export class ScanQRCodeFlow {
       const timeout = this.options.timeout ?? 60000;
       if (timeout > 0) {
         this.timeoutId = setTimeout(() => {
-          this.handleError(new Error(`Camera scan timeout - no QR code detected within ${timeout}ms`));
+          this.handleError(
+            new Error(`Camera scan timeout - no QR code detected within ${timeout}ms`),
+          );
         }, timeout);
       }
 
       // Start scanning loop
       this.scanFrame();
-
     } catch (error: any) {
       this.handleError(new Error(`Camera access failed: ${error.message}`));
     }
@@ -198,7 +199,7 @@ export class ScanQRCodeFlow {
   async getAvailableCameras(): Promise<MediaDeviceInfo[]> {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
-      return devices.filter(device => device.kind === 'videoinput');
+      return devices.filter((device) => device.kind === 'videoinput');
     } catch (error) {
       console.error('Error enumerating cameras:', error);
       throw new Error('Failed to access camera devices');
@@ -225,8 +226,8 @@ export class ScanQRCodeFlow {
         width: { ideal: 720, min: 480 },
         height: { ideal: 720, min: 480 },
         aspectRatio: { ideal: 1.0 },
-        facingMode: this.options.cameraId ? undefined : this.options.cameraConfigs?.facingMode
-      }
+        facingMode: this.options.cameraId ? undefined : this.options.cameraConfigs?.facingMode,
+      },
     };
 
     // Override with custom width/height if provided
@@ -253,11 +254,7 @@ export class ScanQRCodeFlow {
   }
 
   private async scanFrame(): Promise<void> {
-    if (
-      this.state !== ScanQRCodeFlowState.SCANNING
-      || !this.video
-      || !this.mediaStream
-    ) {
+    if (this.state !== ScanQRCodeFlowState.SCANNING || !this.video || !this.mediaStream) {
       return;
     }
 
@@ -294,7 +291,7 @@ export class ScanQRCodeFlow {
   private async scanQRFromImageData(imageData: ImageData): Promise<string | null> {
     const { default: jsQR } = await import('jsqr');
     const code = jsQR(imageData.data, imageData.width, imageData.height, {
-      inversionAttempts: "dontInvert"
+      inversionAttempts: 'dontInvert',
     });
     return code ? code.data : null;
   }
@@ -354,7 +351,7 @@ export class ScanQRCodeFlow {
     // MediaStream Cleanup: Stop all tracks and clear all video references
     // This ensures camera light turns off regardless of how the video element is managed
     if (this.mediaStream) {
-      this.mediaStream.getTracks().forEach(track => track.stop());
+      this.mediaStream.getTracks().forEach((track) => track.stop());
       this.mediaStream = null;
     }
 
@@ -425,7 +422,7 @@ export async function scanQRCodeFromFile(file: File): Promise<DeviceLinkingQRDat
 export async function enumerateVideoDevices(): Promise<MediaDeviceInfo[]> {
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
-    return devices.filter(device => device.kind === 'videoinput');
+    return devices.filter((device) => device.kind === 'videoinput');
   } catch (error) {
     console.error('Error enumerating cameras:', error);
     throw new Error('Failed to access camera devices');
@@ -437,11 +434,13 @@ export async function enumerateVideoDevices(): Promise<MediaDeviceInfo[]> {
  */
 export function detectFrontCamera(camera: MediaDeviceInfo): boolean {
   const label = camera.label.toLowerCase();
-  return label.includes('front') ||
-         label.includes('user') ||
-         label.includes('selfie') ||
-         label.includes('facetime') ||
-         label.includes('facing front');
+  return (
+    label.includes('front') ||
+    label.includes('user') ||
+    label.includes('selfie') ||
+    label.includes('facetime') ||
+    label.includes('facing front')
+  );
 }
 
 /**
@@ -463,7 +462,7 @@ export function detectCameraFacingMode(stream: MediaStream): boolean {
 async function scanQRFromImageData(imageData: ImageData): Promise<string | null> {
   const { default: jsQR } = await import('jsqr');
   const code = jsQR(imageData.data, imageData.width, imageData.height, {
-    inversionAttempts: "dontInvert"
+    inversionAttempts: 'dontInvert',
   });
   return code ? code.data : null;
 }

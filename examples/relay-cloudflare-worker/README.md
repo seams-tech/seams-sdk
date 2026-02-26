@@ -58,11 +58,13 @@ extra requirements and limitations compared to the Express example.
 ### Threshold signing (optional)
 
 Threshold signing endpoints are enabled only when you provide:
+
 - `THRESHOLD_ED25519_MASTER_SECRET_B64U` (32 bytes, base64url) via `wrangler secret put`.
 
 You do **not** set this via `--var` (it’s a secret).
 
 Cloudflare-native persistence
+
 - This example uses a **Durable Object** to persist threshold auth sessions + FROST signing sessions.
 - Configure the base key prefix in `wrangler.toml` (or dashboard):
   - `THRESHOLD_PREFIX` (e.g. `tatchi:prod:w3a`)
@@ -82,7 +84,8 @@ const session = new SessionService({
   jwt: {
     signToken: ({ payload }) => {
       // If payload.exp is supplied (e.g., threshold session tokens), do not override it with `expiresIn`.
-      const hasExp = typeof (payload as any).exp === 'number' && Number.isFinite((payload as any).exp);
+      const hasExp =
+        typeof (payload as any).exp === 'number' && Number.isFinite((payload as any).exp);
       return jwt.sign(payload as any, env.JWT_SECRET || 'dev-token', {
         algorithm: 'HS256',
         issuer: 'relay-worker-demo',
@@ -90,10 +93,16 @@ const session = new SessionService({
         ...(hasExp ? {} : { expiresIn: 86400 }),
       });
     },
-    verifyToken: async (token) => { try { return { valid: true, payload: jwt.verify(token, env.JWT_SECRET || 'dev-token') }; } catch { return { valid: false }; } }
+    verifyToken: async (token) => {
+      try {
+        return { valid: true, payload: jwt.verify(token, env.JWT_SECRET || 'dev-token') };
+      } catch {
+        return { valid: false };
+      }
+    },
   },
   // Minimal cookie config (defaults are fine for Lax; customize with hooks below if needed)
-  cookie: { name: 'w3a_session' }
+  cookie: { name: 'w3a_session' },
 });
 ```
 
@@ -101,18 +110,31 @@ Custom cookie headers (optional):
 
 ```ts
 const session = new SessionService({
-  jwt: { /* sign/verify as above */ },
+  jwt: {
+    /* sign/verify as above */
+  },
   cookie: {
     name: 'w3a_session',
-    buildSetHeader: (token) => [
-      `w3a_session=${token}`,
-      'Path=/', 'HttpOnly', 'Secure', 'SameSite=None', 'Max-Age=86400'
-    ].join('; '),
-    buildClearHeader: () => [
-      'w3a_session=', 'Path=/', 'HttpOnly', 'Secure', 'SameSite=None',
-      'Max-Age=0', 'Expires=Thu, 01 Jan 1970 00:00:00 GMT'
-    ].join('; ')
-  }
+    buildSetHeader: (token) =>
+      [
+        `w3a_session=${token}`,
+        'Path=/',
+        'HttpOnly',
+        'Secure',
+        'SameSite=None',
+        'Max-Age=86400',
+      ].join('; '),
+    buildClearHeader: () =>
+      [
+        'w3a_session=',
+        'Path=/',
+        'HttpOnly',
+        'Secure',
+        'SameSite=None',
+        'Max-Age=0',
+        'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+      ].join('; '),
+  },
 });
 ```
 
@@ -124,26 +146,33 @@ Session issuance is a 2-step WebAuthn flow:
 - `POST /auth/passkey/verify` with `{ sessionKind, challengeId, webauthn_authentication }` → verifies and issues a session
 
 Behavior:
+
 - `sessionKind: "jwt"` → JSON response includes `{ ok, verified, jwt }`.
 - `sessionKind: "cookie"` → sets `Set-Cookie: w3a_session=<jwt>; HttpOnly; Secure; SameSite=Lax; Path=/` and omits `jwt` in body.
 
 Cookie mode and CORS
+
 - Pass raw env origins to the router: it normalizes CSV/duplicates internally and only
   advertises `Access-Control-Allow-Credentials: true` when echoing a specific `Origin`.
 - Set `EXPECTED_ORIGIN` (and/or `EXPECTED_WALLET_ORIGIN`) to explicit origins; avoid `*` when using cookies.
 - Your frontend fetch must include credentials in cookie mode:
+
   ```ts
   const options = await fetch(`${relay}/auth/passkey/options`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id, rp_id })
+    body: JSON.stringify({ user_id, rp_id }),
   }).then((r) => r.json());
 
   await fetch(`${relay}/auth/passkey/verify`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionKind: 'cookie', challengeId: options.challengeId, webauthn_authentication })
+    body: JSON.stringify({
+      sessionKind: 'cookie',
+      challengeId: options.challengeId,
+      webauthn_authentication,
+    }),
   });
   ```
 
@@ -155,6 +184,7 @@ Cookie mode and CORS
 2. Authenticate: `npx wrangler login` or `npx wrangler config` with an API
    token.
 3. Provision required secrets (repeat for each environment you deploy):
+
    ```bash
    # staging env (w3a-relay-staging)
    pnpm -C examples/relay-cloudflare-worker exec wrangler secret put RELAYER_PRIVATE_KEY --env staging
@@ -168,6 +198,7 @@ Cookie mode and CORS
    pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SHAMIR_E_S_B64U --env production
    pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SHAMIR_D_S_B64U --env production
    ```
+
 4. Optional: provision threshold signing secret (repeat per environment):
    ```bash
    pnpm -C examples/relay-cloudflare-worker exec wrangler secret put THRESHOLD_ED25519_MASTER_SECRET_B64U --env staging
@@ -190,6 +221,7 @@ If you want cookie-based sessions (`credentials: 'include'`), you must use an
 explicit allowlist (not `Access-Control-Allow-Origin: *`).
 
 Example mapping:
+
 - staging: `EXPECTED_ORIGIN=https://staging.tatchi.xyz`, `EXPECTED_WALLET_ORIGIN=https://wallet-staging.web3authn.org`
 - prod: `EXPECTED_ORIGIN=https://tatchi.xyz`, `EXPECTED_WALLET_ORIGIN=https://wallet.web3authn.org`
 

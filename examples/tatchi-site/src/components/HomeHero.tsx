@@ -1,23 +1,23 @@
-import { useState } from 'react'
-import { TouchIcon, useTheme } from '@tatchi-xyz/sdk/react'
-import CopyButton from './CopyButton'
-import { ArrowRightAnim } from './ArrowRightAnim'
-import { useSiteRouter } from '../hooks/useSiteRouter'
-import { mobilePressHandlers } from '../utils/press'
+import { useState } from 'react';
+import { TouchIcon, useTheme } from '@tatchi-xyz/sdk/react';
+import CopyButton from './CopyButton';
+import { ArrowRightAnim } from './ArrowRightAnim';
+import { useSiteRouter } from '../hooks/useSiteRouter';
+import { mobilePressHandlers } from '../utils/press';
 
-type PackageManager = 'npm' | 'pnpm' | 'bun'
+type PackageManager = 'npm' | 'pnpm' | 'bun';
 
 function getInstallCommand(packageManager: PackageManager): string {
   switch (packageManager) {
     case 'npm':
-      return 'npm install @tatchi-xyz/sdk'
+      return 'npm install @tatchi-xyz/sdk';
     case 'pnpm':
-      return 'pnpm add @tatchi-xyz/sdk'
+      return 'pnpm add @tatchi-xyz/sdk';
     case 'bun':
-      return 'bun add @tatchi-xyz/sdk'
+      return 'bun add @tatchi-xyz/sdk';
     default: {
-      const exhaustive: never = packageManager
-      throw new Error(`Unsupported package manager: ${exhaustive}`)
+      const exhaustive: never = packageManager;
+      throw new Error(`Unsupported package manager: ${exhaustive}`);
     }
   }
 }
@@ -25,18 +25,18 @@ function getInstallCommand(packageManager: PackageManager): string {
 function highlightInstallCommand(command: string): string {
   return command
     .replace(/^(npm|pnpm|bun)/, '<span class="code-kw-pm">$1</span>')
-    .replace(/(@tatchi-xyz\/sdk)/, '<span class="code-kw-pkg">$1</span>')
+    .replace(/(@tatchi-xyz\/sdk)/, '<span class="code-kw-pkg">$1</span>');
 }
 
 export function HomeHero(): React.JSX.Element {
-  const [packageManager, setPackageManager] = useState<PackageManager>('npm')
-  const { linkProps } = useSiteRouter()
-  const { theme } = useTheme()
+  const [packageManager, setPackageManager] = useState<PackageManager>('npm');
+  const { linkProps } = useSiteRouter();
+  const { theme } = useTheme();
 
-  const installBlockCmd = getInstallCommand(packageManager)
-  const highlightedInstall = highlightInstallCommand(installBlockCmd)
-  const getStartedProps = linkProps('/docs/getting-started/installation')
-  const contactSalesProps = linkProps('/contact/')
+  const installBlockCmd = getInstallCommand(packageManager);
+  const highlightedInstall = highlightInstallCommand(installBlockCmd);
+  const getStartedProps = linkProps('/docs/getting-started/installation');
+  const contactSalesProps = linkProps('/contact/');
 
   return (
     <>
@@ -45,7 +45,10 @@ export function HomeHero(): React.JSX.Element {
           Simple Embedded Wallets, Secured by Passkeys + MPC
           <span className="touch-icon-pattern-position" aria-hidden="true">
             <TouchIcon
-              style={{ color: theme === 'dark' ? 'var(--w3a-colors-surface)' : 'var(--w3a-colors-surface2)' }}
+              style={{
+                color:
+                  theme === 'dark' ? 'var(--w3a-colors-surface)' : 'var(--w3a-colors-surface2)',
+              }}
               strokeWidth={11}
               width={124}
               height={124}
@@ -53,13 +56,16 @@ export function HomeHero(): React.JSX.Element {
           </span>
         </h1>
         <h2 className="hero-subtitle">
-          Use biometrics and passkeys for human verification, with embedded wallets that integrate directly into your existing app.
+          Use biometrics and passkeys for human verification, with embedded wallets that integrate
+          directly into your existing app.
         </h2>
         <p className="hero-description">
-          Ship on web today and iOS soon, with threshold-signature (MPC) sessions for secure signing across NEAR, Tempo, and EVM.
+          Ship on web today and iOS soon, with threshold-signature (MPC) sessions for secure signing
+          across NEAR, Tempo, and EVM.
         </p>
         <p className="hero-proof">
-          No lock-in by design: start hosted, then migrate to self-hosted wallet infrastructure when you are ready.
+          No lock-in by design: start hosted, then migrate to self-hosted wallet infrastructure when
+          you are ready.
         </p>
         <div className="hero-ctas">
           <a
@@ -101,17 +107,15 @@ export function HomeHero(): React.JSX.Element {
                 ))}
               </div>
             </div>
-            <CopyButton
-              text={installBlockCmd}
-              size={16}
-              ariaLabel="Copy install command"
-            />
+            <CopyButton text={installBlockCmd} size={16} ariaLabel="Copy install command" />
           </div>
           <div className="install-body">
-            <pre className="code-block code-block--dark"><code dangerouslySetInnerHTML={{ __html: highlightedInstall }} /></pre>
+            <pre className="code-block code-block--dark">
+              <code dangerouslySetInnerHTML={{ __html: highlightedInstall }} />
+            </pre>
           </div>
         </div>
       </section>
     </>
-  )
+  );
 }

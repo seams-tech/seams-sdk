@@ -45,15 +45,18 @@ export const THRESHOLD_SESSION_POLICY_MAX_USES = 1_000_000;
 
 // Default policy used when callers do not specify a policy explicitly.
 // These defaults are kept conservative to limit the blast radius of a stolen token.
-export const DEFAULT_THRESHOLD_SESSION_POLICY: Pick<Ed25519SessionPolicy, 'ttlMs' | 'remainingUses'> = {
+export const DEFAULT_THRESHOLD_SESSION_POLICY: Pick<
+  Ed25519SessionPolicy,
+  'ttlMs' | 'remainingUses'
+> = {
   ttlMs: 5 * 60_000,
   remainingUses: 5,
 };
 
-export function clampThresholdSessionPolicy(input: {
+export function clampThresholdSessionPolicy(input: { ttlMs: number; remainingUses: number }): {
   ttlMs: number;
   remainingUses: number;
-}): { ttlMs: number; remainingUses: number } {
+} {
   const ttlMs = Math.max(0, Math.floor(Number(input.ttlMs) || 0));
   const remainingUses = Math.max(0, Math.floor(Number(input.remainingUses) || 0));
   return {
@@ -63,19 +66,24 @@ export function clampThresholdSessionPolicy(input: {
 }
 
 export function generateThresholdSessionId(): string {
-  const id = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-    ? crypto.randomUUID()
-    : `tsess-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const id =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `tsess-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `tsess-${id}`;
 }
 
-export async function computeEd25519SessionPolicyDigest32(policy: Ed25519SessionPolicy): Promise<string> {
+export async function computeEd25519SessionPolicyDigest32(
+  policy: Ed25519SessionPolicy,
+): Promise<string> {
   const json = alphabetizeStringify(policy);
   const bytes = await sha256BytesUtf8(json);
   return base64UrlEncode(bytes);
 }
 
-export async function computeEcdsaSessionPolicyDigest32(policy: EcdsaSessionPolicy): Promise<string> {
+export async function computeEcdsaSessionPolicyDigest32(
+  policy: EcdsaSessionPolicy,
+): Promise<string> {
   const json = alphabetizeStringify(policy);
   const bytes = await sha256BytesUtf8(json);
   return base64UrlEncode(bytes);

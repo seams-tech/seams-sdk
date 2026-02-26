@@ -5,7 +5,9 @@ export function registerEmailRecoveryRoutes(router: ExpressRouter, ctx: ExpressR
   router.post('/email-recovery/prepare', async (req: any, res: any) => {
     try {
       if (!req?.body) {
-        res.status(400).json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
         return;
       }
       const origin = String(req.headers?.origin || req.headers?.Origin || '').trim() || undefined;
@@ -19,8 +21,9 @@ export function registerEmailRecoveryRoutes(router: ExpressRouter, ctx: ExpressR
       }
       res.status(200).json(result);
     } catch (e: any) {
-      res.status(500).json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+      res
+        .status(500)
+        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
     }
   });
 }
-

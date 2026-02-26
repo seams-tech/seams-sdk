@@ -1,10 +1,7 @@
 import type { IDBPDatabase } from 'idb';
 import { toTrimmedString } from '@shared/utils/validation';
 import type { ChainAccountRecord } from '../passkeyClientDB.types';
-import type {
-  DbMultichainSchemaParity,
-  InvariantValidationSummary,
-} from './invariants';
+import type { DbMultichainSchemaParity, InvariantValidationSummary } from './invariants';
 import {
   DB_CONFIG,
   DB_MULTICHAIN_MIGRATION_CHECKPOINTS_KEY,
@@ -24,14 +21,16 @@ export type DbMultichainMigrationStep =
   | 'paritySummaryLogged'
   | 'invariantsValidatedAndQuarantined';
 
-export type DbMultichainMigrationCheckpoints = Partial<Record<
-  DbMultichainMigrationStep,
-  {
-    status: 'completed';
-    completedAt: number;
-    counts?: Record<string, number>;
-  }
->>;
+export type DbMultichainMigrationCheckpoints = Partial<
+  Record<
+    DbMultichainMigrationStep,
+    {
+      status: 'completed';
+      completedAt: number;
+      counts?: Record<string, number>;
+    }
+  >
+>;
 
 export interface DbMultichainMigrationCounts {
   smartAccountRowsScanned: number;
@@ -66,10 +65,7 @@ export interface RunMigrationsIfNeededArgs {
     ownerTabId: string,
     acquiredAt: number,
   ) => Promise<void>;
-  clearMigrationLeaseInAppState: (
-    db: IDBPDatabase,
-    ownerTabId: string,
-  ) => Promise<void>;
+  clearMigrationLeaseInAppState: (db: IDBPDatabase, ownerTabId: string) => Promise<void>;
   tryRunWithNavigatorMigrationLock: (
     runner: () => Promise<void>,
   ) => Promise<'executed' | 'unavailable' | 'unsupported'>;
@@ -100,40 +96,38 @@ function normalizeAccountAddress(value: unknown): string {
 function hasSmartAccountShape(row: ChainAccountRecord): boolean {
   const accountModel = normalizeAccountModel(row.accountModel);
   return (
-    accountModel === 'erc4337'
-    || accountModel === 'tempo-native'
-    || toTrimmedString((row as any)?.factory || '').length > 0
-    || toTrimmedString((row as any)?.entryPoint || '').length > 0
-    || toTrimmedString((row as any)?.salt || '').length > 0
-    || toTrimmedString((row as any)?.counterfactualAddress || '').length > 0
+    accountModel === 'erc4337' ||
+    accountModel === 'tempo-native' ||
+    toTrimmedString((row as any)?.factory || '').length > 0 ||
+    toTrimmedString((row as any)?.entryPoint || '').length > 0 ||
+    toTrimmedString((row as any)?.salt || '').length > 0 ||
+    toTrimmedString((row as any)?.counterfactualAddress || '').length > 0
   );
 }
 
 export async function runMigrationsIfNeeded(args: RunMigrationsIfNeededArgs): Promise<void> {
   const { db } = args;
 
-  const existingState = await args.getAppStateFromDb(
-    db,
-    DB_MULTICHAIN_MIGRATION_STATE_KEY,
-  ).catch(() => undefined) as DbMultichainMigrationState | undefined;
+  const existingState = (await args
+    .getAppStateFromDb(db, DB_MULTICHAIN_MIGRATION_STATE_KEY)
+    .catch(() => undefined)) as DbMultichainMigrationState | undefined;
   const existingVersion = Number(existingState?.schemaVersion || 1);
   if (
-    existingState?.status === 'completed'
-    && existingVersion >= DB_MULTICHAIN_MIGRATION_SCHEMA_VERSION
+    existingState?.status === 'completed' &&
+    existingVersion >= DB_MULTICHAIN_MIGRATION_SCHEMA_VERSION
   ) {
     return;
   }
 
-  const checkpointsFromAppState = await args.getAppStateFromDb(
-    db,
-    DB_MULTICHAIN_MIGRATION_CHECKPOINTS_KEY,
-  ).catch(() => undefined) as DbMultichainMigrationCheckpoints | undefined;
+  const checkpointsFromAppState = (await args
+    .getAppStateFromDb(db, DB_MULTICHAIN_MIGRATION_CHECKPOINTS_KEY)
+    .catch(() => undefined)) as DbMultichainMigrationCheckpoints | undefined;
 
   const ownerTabId = args.createMigrationOwnerId();
   const acquiredAt = Date.now();
   const startedAt =
-    existingVersion >= DB_MULTICHAIN_MIGRATION_SCHEMA_VERSION
-    && typeof existingState?.startedAt === 'number'
+    existingVersion >= DB_MULTICHAIN_MIGRATION_SCHEMA_VERSION &&
+    typeof existingState?.startedAt === 'number'
       ? existingState.startedAt
       : acquiredAt;
   const counts: DbMultichainMigrationCounts = {
@@ -184,11 +178,7 @@ export async function runMigrationsIfNeeded(args: RunMigrationsIfNeededArgs): Pr
   };
 
   const runMigration = async (): Promise<void> => {
-    const leaseAcquired = await args.tryAcquireMigrationLeaseInAppState(
-      db,
-      ownerTabId,
-      acquiredAt,
-    );
+    const leaseAcquired = await args.tryAcquireMigrationLeaseInAppState(db, ownerTabId, acquiredAt);
     if (!leaseAcquired) {
       console.info('PasskeyClientDB: skipping migration; another tab owns active app-state lock');
       return;
@@ -293,9 +283,9 @@ export async function runMigrationsIfNeeded(args: RunMigrationsIfNeededArgs): Pr
         checkpoints,
         error: String(error?.message || error),
       };
-      await args.setAppStateInDb(db, DB_MULTICHAIN_MIGRATION_STATE_KEY, failedState).catch(
-        () => undefined,
-      );
+      await args
+        .setAppStateInDb(db, DB_MULTICHAIN_MIGRATION_STATE_KEY, failedState)
+        .catch(() => undefined);
       console.error('PasskeyClientDB: schema migration failed', {
         durationMs: finishedAt - startedAt,
         error: failedState.error,

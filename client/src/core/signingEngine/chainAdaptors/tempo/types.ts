@@ -28,7 +28,7 @@ export type TempoUnsignedTx = {
   calls: TempoCall[]; // must be non-empty
   accessList?: EvmAccessListItem[];
   nonceKey: bigint;
-  nonce: bigint;
+  nonce?: bigint;
   validBefore?: bigint | null;
   validAfter?: bigint | null;
   feeToken?: EvmAddress | null;
@@ -37,13 +37,12 @@ export type TempoUnsignedTx = {
   keyAuthorization?: TempoRlpValue; // optional; omitted when undefined
 };
 
-export type TempoSigningRequest =
-  {
-    chain: 'tempo';
-    kind: 'tempoTransaction';
-    tx: TempoUnsignedTx;
-    senderSignatureAlgorithm: 'secp256k1' | 'webauthnP256';
-  };
+export type TempoSigningRequest = {
+  chain: 'tempo';
+  kind: 'tempoTransaction';
+  tx: TempoUnsignedTx;
+  senderSignatureAlgorithm: 'secp256k1' | 'webauthnP256';
+};
 
 export type TempoSecp256k1SigningRequest = Extract<
   TempoSigningRequest,
@@ -53,4 +52,5 @@ export type TempoSecp256k1SigningRequest = Extract<
 export type MultichainSigningRequest = EvmSigningRequest | TempoSigningRequest;
 
 export type MultichainSecp256k1SigningRequest =
-  EvmSecp256k1SigningRequest | TempoSecp256k1SigningRequest;
+  | EvmSecp256k1SigningRequest
+  | TempoSecp256k1SigningRequest;

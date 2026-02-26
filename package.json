@@ -17,7 +17,7 @@
     "check:signing-architecture": "node ./sdk/scripts/checks/check-signing-api-cycles.mjs && node ./sdk/scripts/checks/check-stable-experimental-export-boundaries.mjs && node ./sdk/scripts/checks/check-worker-runtime-boundaries.mjs",
     "check:signer-parity": "pnpm -C tests test:signer-parity",
     "type-check:sdk": "pnpm -C sdk type-check",
-    "type-check:relay-server": "pnpm -C examples/relay-server exec tsc --noEmit",
+    "type-check:relay-server": "pnpm -s server:prepare-sdk && pnpm -C examples/relay-server exec tsc --noEmit",
     "type-check:docs": "pnpm -C examples/tatchi-docs exec tsc --noEmit",
     "type-check": "pnpm -s type-check:sdk && pnpm -s type-check:relay-server",
     "check": "pnpm -s lint && pnpm -s format:check && pnpm -s type-check && pnpm -s format:rust:check && pnpm -s lint:rust && pnpm -s check:signing-architecture && pnpm -s check:signer-parity",

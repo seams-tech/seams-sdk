@@ -69,8 +69,8 @@ function throwLegacyExportShortcutDisabled(args: {
   throw createExportHardeningError({
     code: EXPORT_LEGACY_SHORTCUT_DISABLED_CODE,
     message:
-      `Export is temporarily disabled until worker-owned export hardening is active `
-      + `(${EXPORT_LEGACY_SHORTCUT_DISABLED_CODE})`,
+      `Export is temporarily disabled until worker-owned export hardening is active ` +
+      `(${EXPORT_LEGACY_SHORTCUT_DISABLED_CODE})`,
   });
 }
 
@@ -129,23 +129,24 @@ async function runExportWorkerOperation(
   }
 
   const publicKeyHint = String(
-    userForAccount?.clientNearPublicKey
-      || keyMaterial?.publicKey
-      || thresholdKeyMaterial?.publicKey
-      || '',
+    userForAccount?.clientNearPublicKey ||
+      keyMaterial?.publicKey ||
+      thresholdKeyMaterial?.publicKey ||
+      '',
   ).trim();
 
   const encryptedSk = String(keyMaterial?.encryptedSk || '').trim();
   const chacha20NonceB64u = String(keyMaterial?.chacha20NonceB64u || '').trim();
   const wrapKeySalt = String(keyMaterial?.wrapKeySalt || '').trim();
-  const localKeyMaterial = (encryptedSk && chacha20NonceB64u && wrapKeySalt)
-    ? {
-        encryptedSk,
-        chacha20NonceB64u,
-        wrapKeySalt,
-        publicKey: String(keyMaterial?.publicKey || publicKeyHint || '').trim(),
-      }
-    : undefined;
+  const localKeyMaterial =
+    encryptedSk && chacha20NonceB64u && wrapKeySalt
+      ? {
+          encryptedSk,
+          chacha20NonceB64u,
+          wrapKeySalt,
+          publicKey: String(keyMaterial?.publicKey || publicKeyHint || '').trim(),
+        }
+      : undefined;
 
   const result = await (async (): Promise<ExportPrivateKeysWithUiWorkerResult> => {
     try {
@@ -161,7 +162,9 @@ async function runExportWorkerOperation(
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error || '');
-      if (message.includes('Unsupported UserConfirm worker message type: EXPORT_PRIVATE_KEYS_WITH_UI')) {
+      if (
+        message.includes('Unsupported UserConfirm worker message type: EXPORT_PRIVATE_KEYS_WITH_UI')
+      ) {
         throwLegacyExportShortcutDisabled({
           nearAccountId: accountId,
           deviceNumber,
@@ -185,7 +188,7 @@ export async function exportKeypairWithUIWorkerDriven(
       chain: ExportKeypairChain;
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
-    },
+    };
   },
 ): Promise<ExportPrivateKeysWithUiWorkerResult> {
   return runExportWorkerOperation(deps, args);
@@ -219,8 +222,8 @@ export async function recoverKeypairFromPasskey(
   try {
     if (!args.authenticationCredential) {
       throw new Error(
-        'Authentication credential required for account recovery. '
-          + 'Use an existing credential with dual PRF outputs to re-derive the same NEAR keypair.',
+        'Authentication credential required for account recovery. ' +
+          'Use an existing credential with dual PRF outputs to re-derive the same NEAR keypair.',
       );
     }
 

@@ -1,5 +1,8 @@
 import { isObject } from '@shared/utils/validation';
-import { serializeRegistrationCredentialWithPRF, serializeAuthenticationCredentialWithPRF } from '@/core/signingEngine/signers/webauthn/credentials/helpers';
+import {
+  serializeRegistrationCredentialWithPRF,
+  serializeAuthenticationCredentialWithPRF,
+} from '@/core/signingEngine/signers/webauthn/credentials/helpers';
 import { WebAuthnBridgeMessage } from '@/core/signingEngine/signers/webauthn/fallbacks';
 
 type CreateReq = { requestId?: string; publicKey?: PublicKeyCredentialCreationOptions };
@@ -23,7 +26,7 @@ export function postBridgeResult(
 export function handleWebAuthnBridgeMessage(
   kind: typeof WebAuthnBridgeMessage.Create | typeof WebAuthnBridgeMessage.Get,
   raw: unknown,
-  e: MessageEvent
+  e: MessageEvent,
 ): void {
   if (kind === WebAuthnBridgeMessage.Create) {
     void handleWebAuthnCreate(raw as CreateReq, e);
@@ -39,11 +42,23 @@ function formatBridgeError(err: unknown): string {
 async function handleWebAuthnCreate(req: CreateReq, e: MessageEvent): Promise<void> {
   const requestId = req?.requestId || '';
   if (!isObject(req?.publicKey)) {
-    postBridgeResult(e.source as WindowProxy | null, WebAuthnBridgeMessage.CreateResult, requestId, false, { error: 'publicKey options required' });
+    postBridgeResult(
+      e.source as WindowProxy | null,
+      WebAuthnBridgeMessage.CreateResult,
+      requestId,
+      false,
+      { error: 'publicKey options required' },
+    );
     return;
   }
   if (!navigator.credentials?.create) {
-    postBridgeResult(e.source as WindowProxy | null, WebAuthnBridgeMessage.CreateResult, requestId, false, { error: 'WebAuthn create not available' });
+    postBridgeResult(
+      e.source as WindowProxy | null,
+      WebAuthnBridgeMessage.CreateResult,
+      requestId,
+      false,
+      { error: 'WebAuthn create not available' },
+    );
     return;
   }
   try {
@@ -51,36 +66,80 @@ async function handleWebAuthnCreate(req: CreateReq, e: MessageEvent): Promise<vo
     const rpName = src.rp?.name || 'WebAuthn';
     const rpId = src.rp?.id || window.location.hostname;
     const pub: PublicKeyCredentialCreationOptions = { ...src, rp: { name: rpName, id: rpId } };
-    const cred = await navigator.credentials.create({ publicKey: pub }) as PublicKeyCredential;
-    const serialized = serializeRegistrationCredentialWithPRF({ credential: cred, firstPrfOutput: true, secondPrfOutput: true });
-    postBridgeResult(e.source as WindowProxy | null, WebAuthnBridgeMessage.CreateResult, requestId, true, { credential: serialized });
+    const cred = (await navigator.credentials.create({ publicKey: pub })) as PublicKeyCredential;
+    const serialized = serializeRegistrationCredentialWithPRF({
+      credential: cred,
+      firstPrfOutput: true,
+      secondPrfOutput: true,
+    });
+    postBridgeResult(
+      e.source as WindowProxy | null,
+      WebAuthnBridgeMessage.CreateResult,
+      requestId,
+      true,
+      { credential: serialized },
+    );
   } catch (err) {
     const message = formatBridgeError(err);
     console.warn('[IframeTransport][bridge] CREATE failed', { requestId, err: message });
-    postBridgeResult(e.source as WindowProxy | null, WebAuthnBridgeMessage.CreateResult, requestId, false, { error: message });
+    postBridgeResult(
+      e.source as WindowProxy | null,
+      WebAuthnBridgeMessage.CreateResult,
+      requestId,
+      false,
+      { error: message },
+    );
   }
 }
 
 async function handleWebAuthnGet(req: GetReq, e: MessageEvent): Promise<void> {
   const requestId = req?.requestId || '';
   if (!isObject(req?.publicKey)) {
-    postBridgeResult(e.source as WindowProxy | null, WebAuthnBridgeMessage.GetResult, requestId, false, { error: 'publicKey options required' });
+    postBridgeResult(
+      e.source as WindowProxy | null,
+      WebAuthnBridgeMessage.GetResult,
+      requestId,
+      false,
+      { error: 'publicKey options required' },
+    );
     return;
   }
   if (!navigator.credentials?.get) {
-    postBridgeResult(e.source as WindowProxy | null, WebAuthnBridgeMessage.GetResult, requestId, false, { error: 'WebAuthn get not available' });
+    postBridgeResult(
+      e.source as WindowProxy | null,
+      WebAuthnBridgeMessage.GetResult,
+      requestId,
+      false,
+      { error: 'WebAuthn get not available' },
+    );
     return;
   }
   try {
     const src = req.publicKey as PublicKeyCredentialRequestOptions;
     const rpId = src.rpId || window.location.hostname;
     const pub: PublicKeyCredentialRequestOptions = { ...src, rpId };
-    const cred = await navigator.credentials.get({ publicKey: pub }) as PublicKeyCredential;
-    const serialized = serializeAuthenticationCredentialWithPRF({ credential: cred, firstPrfOutput: true, secondPrfOutput: true });
-    postBridgeResult(e.source as WindowProxy | null, WebAuthnBridgeMessage.GetResult, requestId, true, { credential: serialized });
+    const cred = (await navigator.credentials.get({ publicKey: pub })) as PublicKeyCredential;
+    const serialized = serializeAuthenticationCredentialWithPRF({
+      credential: cred,
+      firstPrfOutput: true,
+      secondPrfOutput: true,
+    });
+    postBridgeResult(
+      e.source as WindowProxy | null,
+      WebAuthnBridgeMessage.GetResult,
+      requestId,
+      true,
+      { credential: serialized },
+    );
   } catch (err) {
     const message = formatBridgeError(err);
     console.warn('[IframeTransport][bridge] GET failed', { requestId, err: message });
-    postBridgeResult(e.source as WindowProxy | null, WebAuthnBridgeMessage.GetResult, requestId, false, { error: message });
+    postBridgeResult(
+      e.source as WindowProxy | null,
+      WebAuthnBridgeMessage.GetResult,
+      requestId,
+      false,
+      { error: message },
+    );
   }
 }

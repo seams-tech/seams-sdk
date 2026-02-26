@@ -10,7 +10,10 @@ function toEmailAddress(input: string): string {
   const angleStart = trimmed.indexOf('<');
   const angleEnd = trimmed.indexOf('>');
   if (angleStart !== -1 && angleEnd > angleStart) {
-    return trimmed.slice(angleStart + 1, angleEnd).trim().toLowerCase();
+    return trimmed
+      .slice(angleStart + 1, angleEnd)
+      .trim()
+      .toLowerCase();
   }
   return trimmed.toLowerCase();
 }
@@ -26,7 +29,7 @@ function toLowercaseHeaderRecord(input: unknown): Record<string, string> {
         out[String(k).toLowerCase()] = String(v);
       });
       return out;
-    } catch { }
+    } catch {}
   }
 
   if (typeof maybeHeaders[Symbol.iterator] === 'function') {
@@ -37,7 +40,7 @@ function toLowercaseHeaderRecord(input: unknown): Record<string, string> {
         out[String(k).toLowerCase()] = String(v);
       }
       return out;
-    } catch { }
+    } catch {}
   }
 
   if (typeof input === 'object') {
@@ -63,9 +66,10 @@ async function buildForwardableEmailPayloadFromCloudflareMessage(message: CfEmai
   let raw = '';
   try {
     raw = await new Response((message as any)?.raw).text();
-  } catch { }
+  } catch {}
 
-  const rawSize = typeof (message as any)?.rawSize === 'number' ? (message as any).rawSize : undefined;
+  const rawSize =
+    typeof (message as any)?.rawSize === 'number' ? (message as any).rawSize : undefined;
 
   return { from, to, headers, raw, rawSize };
 }
@@ -89,7 +93,10 @@ export interface CloudflareEmailHandlerOptions {
   logger?: RouterLogger | null;
 }
 
-export function createCloudflareEmailHandler(service: AuthService, opts: CloudflareEmailHandlerOptions = {}): EmailHandler {
+export function createCloudflareEmailHandler(
+  service: AuthService,
+  opts: CloudflareEmailHandlerOptions = {},
+): EmailHandler {
   const logger = coerceRouterLogger(opts.logger);
   const expectedRecipient = toEmailAddress(opts.expectedRecipient || '');
   const allowUnexpectedRecipient = opts.allowUnexpectedRecipient !== false;
@@ -111,7 +118,11 @@ export function createCloudflareEmailHandler(service: AuthService, opts: Cloudfl
       }
 
       if (verbose) {
-        logger.info('[email] from/to', { from: payload.from, to: payload.to, subject: payload.headers['subject'] });
+        logger.info('[email] from/to', {
+          from: payload.from,
+          to: payload.to,
+          subject: payload.headers['subject'],
+        });
       }
 
       const parsed = parseRecoverEmailRequest(payload as any);
@@ -123,7 +134,9 @@ export function createCloudflareEmailHandler(service: AuthService, opts: Cloudfl
 
       if (!service.emailRecovery) {
         logger.warn('[email] rejecting: EmailRecoveryService not configured');
-        message.setReject('Email recovery relayer rejected email: email recovery service unavailable');
+        message.setReject(
+          'Email recovery relayer rejected email: email recovery service unavailable',
+        );
         return;
       }
 

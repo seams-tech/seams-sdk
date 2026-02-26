@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       prefix:
-        description: "R2 prefix override (auto | releases | releases-dev | custom)"
+        description: 'R2 prefix override (auto | releases | releases-dev | custom)'
         required: false
-        default: "auto"
+        default: 'auto'
   workflow_run:
-    workflows: ["ci"]
+    workflows: ['ci']
     types: [completed]
 
 jobs:
@@ -55,8 +55,8 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "pnpm"
+          node-version: '20'
+          cache: 'pnpm'
 
       - name: Install deps (workspace)
         run: pnpm install --no-frozen-lockfile
@@ -152,7 +152,7 @@ jobs:
 
       - name: Sign manifest with cosign (keyless)
         env:
-          COSIGN_EXPERIMENTAL: "true"
+          COSIGN_EXPERIMENTAL: 'true'
         run: |
           cd sdk/dist
           cosign sign-blob --yes --output-signature manifest.sig manifest.json

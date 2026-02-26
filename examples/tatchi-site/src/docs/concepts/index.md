@@ -25,7 +25,6 @@ The Passkey authenticates with the onchain [Web3Authn contract](./secureconfirm-
 
 - **No single point of failure**: Wallet SDK origins whitelisted and governed by the onchain web3authn contract. Multiple redundant origins can serve the SDK. If one origin goes down, users can switch to another (see [related origin requests](https://passkeys.dev/docs/advanced/related-origins/)) without losing access.
 
-
 ### Simple Self-Custody and Account Recovery
 
 Wallet keys are derived from passkeys using WebAuthn outputs, so there are no seed phrases to manage.
@@ -35,7 +34,6 @@ Wallet keys are derived from passkeys using WebAuthn outputs, so there are no se
 - **Multi-device linking**: if you dislike potential lockin with Apple/Google managing passkeys, you can link different passkeys from different devices to the same account. The passkeys are now disposable, and you can have multiple passkeys stored on different systems (iCloud, Yubikey, etc) all controlling the same wallet account.
 
 - **Offline key export**: Export encrypted keys via Service Worker. Access your wallet offline without network connectivity.
-
 
 ### Clean, Embedded UX
 
@@ -50,7 +48,6 @@ Passkey wallets work across integrated apps, without needing to download separat
 - **Wallet-scoped credentials**: One passkey works across all integrated apps. Users get single sign-on across your ecosystem. Users authenticate once with their passkey, and it controls their wallet across all apps that share the wallet origin.
 
 - **App-scoped option**: Apps can also use domain-specific credentials for maximum isolation. Choose the scoping strategy that fits your deployment.
-
 
 ## Next: Architecture
 

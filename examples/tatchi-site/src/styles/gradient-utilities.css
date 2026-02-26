@@ -11,13 +11,7 @@
       color-mix(in srgb, #f2d8cd 34%, transparent) 0%,
       transparent 60%
     ),
-    linear-gradient(
-      108deg,
-      #e8ddf1 0%,
-      #eee8f2 46%,
-      #f3e8e2 78%,
-      #f3eedf 100%
-    );
+    linear-gradient(108deg, #e8ddf1 0%, #eee8f2 46%, #f3e8e2 78%, #f3eedf 100%);
   --frontpage-gradient-warm-overlay-opacity: 0.56;
   --frontpage-gradient-warm-overlay-bg:
     radial-gradient(
@@ -56,12 +50,7 @@
       color-mix(in srgb, #f1d8cd 24%, transparent) 0%,
       transparent 58%
     ),
-    linear-gradient(
-      138deg,
-      #ede2f4 0%,
-      #f0e8ef 54%,
-      #f4ede6 100%
-    );
+    linear-gradient(138deg, #ede2f4 0%, #f0e8ef 54%, #f4ede6 100%);
 
   --frontpage-gradient-drift-bg:
     radial-gradient(
@@ -74,13 +63,7 @@
       color-mix(in srgb, #f3dcca 26%, transparent) 0%,
       transparent 60%
     ),
-    linear-gradient(
-      142deg,
-      #eee4f6 0%,
-      #f1e9f0 52%,
-      #f5ede6 80%,
-      #f4f0e3 100%
-    );
+    linear-gradient(142deg, #eee4f6 0%, #f1e9f0 52%, #f5ede6 80%, #f4f0e3 100%);
   --frontpage-gradient-drift-overlay-opacity: 0.5;
   --frontpage-gradient-drift-overlay-bg:
     radial-gradient(
@@ -96,7 +79,7 @@
 }
 
 /* Dark variants tuned to Rose Pine dark palette roles. */
-html[data-w3a-theme="dark"] {
+html[data-w3a-theme='dark'] {
   --frontpage-gradient-warm-bg:
     radial-gradient(
       124% 168% at 4% 102%,
@@ -108,13 +91,7 @@ html[data-w3a-theme="dark"] {
       color-mix(in srgb, #eb6f92 24%, transparent) 0%,
       transparent 60%
     ),
-    linear-gradient(
-      108deg,
-      #2b2440 0%,
-      #3a3156 46%,
-      #4a3f6d 78%,
-      #312948 100%
-    );
+    linear-gradient(108deg, #2b2440 0%, #3a3156 46%, #4a3f6d 78%, #312948 100%);
   --frontpage-gradient-warm-overlay-opacity: 0.36;
   --frontpage-gradient-warm-overlay-bg:
     radial-gradient(
@@ -153,12 +130,7 @@ html[data-w3a-theme="dark"] {
       color-mix(in srgb, #eb6f92 22%, transparent) 0%,
       transparent 58%
     ),
-    linear-gradient(
-      138deg,
-      #342c4f 0%,
-      #433962 54%,
-      #2f2746 100%
-    );
+    linear-gradient(138deg, #342c4f 0%, #433962 54%, #2f2746 100%);
 
   --frontpage-gradient-drift-bg:
     radial-gradient(
@@ -171,13 +143,7 @@ html[data-w3a-theme="dark"] {
       color-mix(in srgb, #f6c177 24%, transparent) 0%,
       transparent 60%
     ),
-    linear-gradient(
-      142deg,
-      #352d52 0%,
-      #4f4570 52%,
-      #433960 80%,
-      #2f2746 100%
-    );
+    linear-gradient(142deg, #352d52 0%, #4f4570 52%, #433960 80%, #2f2746 100%);
   --frontpage-gradient-drift-overlay-opacity: 0.34;
   --frontpage-gradient-drift-overlay-bg:
     radial-gradient(

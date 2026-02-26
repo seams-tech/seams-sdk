@@ -1,13 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Copy as CopyIcon, Check as CheckIcon } from 'lucide-react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Copy as CopyIcon, Check as CheckIcon } from 'lucide-react';
 
 export type CopyButtonProps = {
-  text: string
-  ariaLabel?: string
-  className?: string
-  size?: number
-  onCopy?: () => void
-}
+  text: string;
+  ariaLabel?: string;
+  className?: string;
+  size?: number;
+  onCopy?: () => void;
+};
 
 export const CopyButton: React.FC<CopyButtonProps> = ({
   text,
@@ -16,36 +16,36 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
   size = 16,
   onCopy,
 }) => {
-  const [isCopied, setIsCopied] = useState(false)
-  const timerRef = useRef<number | null>(null)
+  const [isCopied, setIsCopied] = useState(false);
+  const timerRef = useRef<number | null>(null);
 
   const buttonClass = useMemo(
     () => ['install-copy', isCopied ? 'is-copied' : '', className].filter(Boolean).join(' '),
-    [isCopied, className]
-  )
+    [isCopied, className],
+  );
 
   const clearTimer = () => {
     if (timerRef.current) {
-      window.clearTimeout(timerRef.current)
-      timerRef.current = null
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
     }
-  }
+  };
 
-  useEffect(() => () => clearTimer(), [])
+  useEffect(() => () => clearTimer(), []);
 
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard?.writeText(text)
-      setIsCopied(true)
-      onCopy?.()
-      clearTimer()
-      timerRef.current = window.setTimeout(() => setIsCopied(false), 1200)
-      return true
+      await navigator.clipboard?.writeText(text);
+      setIsCopied(true);
+      onCopy?.();
+      clearTimer();
+      timerRef.current = window.setTimeout(() => setIsCopied(false), 1200);
+      return true;
     } catch {
       // ignore
-      return false
+      return false;
     }
-  }, [text, onCopy])
+  }, [text, onCopy]);
 
   return (
     <button
@@ -53,21 +53,21 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
       className={buttonClass}
       aria-label={ariaLabel}
       onPointerDown={async (e) => {
-        const anyE = e as unknown as { pointerType?: string }
+        const anyE = e as unknown as { pointerType?: string };
         if (anyE.pointerType && anyE.pointerType !== 'mouse') {
           // Immediate copy on touch/pen; prevent follow-up click
-          e.preventDefault()
-          ;(e.currentTarget as any)._w3aSkipNextClick = true
-          await handleCopy()
+          e.preventDefault();
+          (e.currentTarget as any)._w3aSkipNextClick = true;
+          await handleCopy();
         }
       }}
       onClick={(e) => {
-        const tgt = e.currentTarget as any
+        const tgt = e.currentTarget as any;
         if (tgt._w3aSkipNextClick) {
-          tgt._w3aSkipNextClick = false
-          return
+          tgt._w3aSkipNextClick = false;
+          return;
         }
-        void handleCopy()
+        void handleCopy();
       }}
     >
       <span
@@ -83,7 +83,7 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
         </span>
       </span>
     </button>
-  )
-}
+  );
+};
 
-export default CopyButton
+export default CopyButton;

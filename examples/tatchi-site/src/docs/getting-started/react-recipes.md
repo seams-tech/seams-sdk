@@ -10,21 +10,21 @@ The SDK provides pre-built React components which hooks up a lot of the function
 exposed by the `TatchiPasskeyManager`.
 
 ```tsx
-import { TatchiPasskeyProvider } from '@tatchi-xyz/sdk/react/provider'
+import { TatchiPasskeyProvider } from '@tatchi-xyz/sdk/react/provider';
 
 const config = {
   iframeWallet: { walletOrigin: 'https://wallet.web3authn.org' },
   relayer: {
     url: 'https://relay.tatchi.xyz',
   },
-}
+};
 
 function Root() {
   return (
     <TatchiPasskeyProvider config={config}>
       <App />
     </TatchiPasskeyProvider>
-  )
+  );
 }
 ```
 
@@ -38,33 +38,28 @@ import {
   AuthMenuMode,
   type RegistrationSSEEvent,
   type DeviceLinkingSSEEvent,
-} from '@tatchi-xyz/sdk/react'
-import { PasskeyAuthMenu } from '@tatchi-xyz/sdk/react/passkey-auth-menu'
+} from '@tatchi-xyz/sdk/react';
+import { PasskeyAuthMenu } from '@tatchi-xyz/sdk/react/passkey-auth-menu';
 
 export function PasskeySection() {
-  const {
-    tatchi,
-    accountInputState,
-    registerPasskey,
-    loginAndCreateSession,
-  } = useTatchi()
+  const { tatchi, accountInputState, registerPasskey, loginAndCreateSession } = useTatchi();
 
-  const targetAccountId = accountInputState.targetAccountId
-  const accountExists = accountInputState.accountExists
+  const targetAccountId = accountInputState.targetAccountId;
+  const accountExists = accountInputState.accountExists;
 
   const onRegister = () =>
     registerPasskey(targetAccountId, {
       onEvent: (event: RegistrationSSEEvent) => {
-        console.log('registration event', event)
+        console.log('registration event', event);
       },
-    })
+    });
 
   const onLogin = () =>
     loginAndCreateSession(targetAccountId, {
       onEvent: (event) => {
-        console.log('login event', event)
+        console.log('login event', event);
       },
-    })
+    });
 
   const onSyncAccount = () =>
     tatchi.recovery.syncAccount({
@@ -73,11 +68,11 @@ export function PasskeySection() {
         onEvent: (event) => console.log('sync event', event),
         onError: (error) => console.error('sync error', error),
       },
-    })
+    });
 
   const onLinkDeviceEvent = (event: DeviceLinkingSSEEvent) => {
-    console.log('link-device event', event)
-  }
+    console.log('link-device event', event);
+  };
 
   return (
     <PasskeyAuthMenu
@@ -94,7 +89,7 @@ export function PasskeySection() {
         onError: (error) => console.error('link-device error', error),
       }}
     />
-  )
+  );
 }
 ```
 
@@ -105,18 +100,14 @@ export function PasskeySection() {
 `AccountMenuButton` shows the current account, lets users export keys, link devices, toggle theme, and adjust confirmation settings.
 
 ```tsx
-import {
-  useTatchi,
-  DeviceLinkingPhase,
-  DeviceLinkingStatus,
-} from '@tatchi-xyz/sdk/react'
-import { AccountMenuButton } from '@tatchi-xyz/sdk/react/profile'
+import { useTatchi, DeviceLinkingPhase, DeviceLinkingStatus } from '@tatchi-xyz/sdk/react';
+import { AccountMenuButton } from '@tatchi-xyz/sdk/react/profile';
 
 export function HeaderProfile() {
-  const { loginState } = useTatchi()
+  const { loginState } = useTatchi();
 
   if (!loginState.isLoggedIn || !loginState.nearAccountId) {
-    return null
+    return null;
   }
 
   return (
@@ -125,47 +116,45 @@ export function HeaderProfile() {
         nearAccountId={loginState.nearAccountId}
         hideUsername={false}
         onLogout={() => {
-          console.log('User logged out')
+          console.log('User logged out');
         }}
         deviceLinkingScannerParams={{
           fundingAmount: '0.05',
           onDeviceLinked: (result) => {
-            console.log('Device linked:', result)
+            console.log('Device linked:', result);
           },
           onEvent: (event) => {
-            if (event.phase === DeviceLinkingPhase.STEP_7_LINKING_COMPLETE &&
-                event.status === DeviceLinkingStatus.SUCCESS) {
-              console.log('Device linking complete')
+            if (
+              event.phase === DeviceLinkingPhase.STEP_7_LINKING_COMPLETE &&
+              event.status === DeviceLinkingStatus.SUCCESS
+            ) {
+              console.log('Device linking complete');
             }
           },
           onError: (error) => {
-            console.error('Device linking error:', error)
+            console.error('Device linking error:', error);
           },
         }}
       />
     </header>
-  )
+  );
 }
 ```
 
 ## Transactions – custom button
 
 ```tsx
-import {
-  useTatchi,
-  ActionType,
-  TxExecutionStatus,
-} from '@tatchi-xyz/sdk/react'
+import { useTatchi, ActionType, TxExecutionStatus } from '@tatchi-xyz/sdk/react';
 
 export function SendGreetingButton() {
-  const { tatchi, loginState } = useTatchi()
+  const { tatchi, loginState } = useTatchi();
 
   if (!loginState.isLoggedIn || !loginState.nearAccountId) {
-    return null
+    return null;
   }
 
-  const nearAccountId = loginState.nearAccountId
-  const receiverId = 'guest-book.testnet'
+  const nearAccountId = loginState.nearAccountId;
+  const receiverId = 'guest-book.testnet';
 
   return (
     <button
@@ -184,12 +173,12 @@ export function SendGreetingButton() {
             confirmationConfig: { uiMode: 'drawer' },
             waitUntil: TxExecutionStatus.EXECUTED_OPTIMISTIC,
             afterCall: (success, result) => {
-              if (success) console.log('Tx result', result)
-              else console.warn('Tx failed', result)
+              if (success) console.log('Tx result', result);
+              else console.warn('Tx failed', result);
             },
             onError: (error) => console.error('Tx error', error),
           },
-        })
+        });
       }}
       style={{
         color: 'white',
@@ -202,7 +191,7 @@ export function SendGreetingButton() {
     >
       Send Greeting
     </button>
-  )
+  );
 }
 ```
 

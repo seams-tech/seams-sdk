@@ -27,13 +27,13 @@ function serializeContextForAad(context: EmailEncryptionContext): string {
  * perform deterministic round-trip checks of encryptEmailForOutlayer.
  */
 export async function decryptEmailForOutlayerTestOnly(
-  input: DecryptEmailForOutlayerTestOnlyInput
+  input: DecryptEmailForOutlayerTestOnlyInput,
 ): Promise<string> {
   const { envelope, context, recipientSk } = input;
 
   if (!(recipientSk instanceof Uint8Array) || recipientSk.length !== 32) {
     throw new Error('recipientSk must be a 32-byte X25519 secret key');
-    }
+  }
 
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
@@ -87,7 +87,9 @@ export async function decryptEmailForOutlayerTestOnly(
  * Test-only helper to derive a deterministic X25519 keypair from a seed string.
  * This is used only in unit tests.
  */
-export async function deriveTestX25519KeypairFromSeed(seed: string): Promise<{ secretKey: Uint8Array; publicKey: Uint8Array }> {
+export async function deriveTestX25519KeypairFromSeed(
+  seed: string,
+): Promise<{ secretKey: Uint8Array; publicKey: Uint8Array }> {
   const encoder = new TextEncoder();
   const bytes = encoder.encode(seed || '');
   const sk = new Uint8Array(32);

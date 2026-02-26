@@ -3,7 +3,11 @@ type CborDecoded =
   | { kind: 'bytes'; value: Uint8Array }
   | { kind: 'map'; value: Map<number, CborDecoded> };
 
-function readUInt(bytes: Uint8Array, offset: number, additional: number): { value: number; next: number } {
+function readUInt(
+  bytes: Uint8Array,
+  offset: number,
+  additional: number,
+): { value: number; next: number } {
   if (additional < 24) return { value: additional, next: offset };
   if (additional === 24) {
     if (offset + 1 > bytes.length) throw new Error('CBOR truncated uint8');
@@ -17,7 +21,7 @@ function readUInt(bytes: Uint8Array, offset: number, additional: number): { valu
     if (offset + 4 > bytes.length) throw new Error('CBOR truncated uint32');
     return {
       value:
-        (bytes[offset] * 2 ** 24) +
+        bytes[offset] * 2 ** 24 +
         (bytes[offset + 1] << 16) +
         (bytes[offset + 2] << 8) +
         bytes[offset + 3],
@@ -36,7 +40,7 @@ function decodeItem(bytes: Uint8Array, offset: number): { item: CborDecoded; nex
   if (major === 0 || major === 1) {
     const u = readUInt(bytes, offset, additional);
     offset = u.next;
-    const value = major === 0 ? u.value : (-1 - u.value);
+    const value = major === 0 ? u.value : -1 - u.value;
     return { item: { kind: 'int', value }, next: offset };
   }
 
@@ -76,7 +80,7 @@ export function coseP256PublicKeyToXY(cosePublicKey: Uint8Array): { x: Uint8Arra
   const yItem = decoded.item.value.get(-3);
   if (!xItem || xItem.kind !== 'bytes') throw new Error('CBOR COSE key: missing -2 (x)');
   if (!yItem || yItem.kind !== 'bytes') throw new Error('CBOR COSE key: missing -3 (y)');
-  if (xItem.value.length !== 32 || yItem.value.length !== 32) throw new Error('CBOR COSE key: x/y must be 32 bytes');
+  if (xItem.value.length !== 32 || yItem.value.length !== 32)
+    throw new Error('CBOR COSE key: x/y must be 32 bytes');
   return { x: xItem.value, y: yItem.value };
 }
-

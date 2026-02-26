@@ -25,8 +25,25 @@ function toOptionalString(value: unknown): string | undefined {
   return normalized || undefined;
 }
 
+function toRequiredChainIdNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) {
+    return value;
+  }
+  const raw = String(value || '').trim();
+  if (!/^\d+$/.test(raw)) {
+    throw new Error('Missing or invalid chainId');
+  }
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error('Missing or invalid chainId');
+  }
+  return parsed;
+}
+
 function parseChain(value: unknown): SmartAccountDeploymentChain {
-  const normalized = String(value || '').trim().toLowerCase();
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
   if (normalized !== 'evm' && normalized !== 'tempo') {
     throw new Error('Missing or invalid chain (expected "evm" or "tempo")');
   }
@@ -43,7 +60,7 @@ export function parseSmartAccountDeployRequest(body: unknown): ParseOk | ParseEr
       request: {
         nearAccountId: toRequiredString(obj.nearAccountId, 'nearAccountId'),
         chain: parseChain(obj.chain),
-        chainId: toRequiredString(obj.chainId, 'chainId'),
+        chainId: toRequiredChainIdNumber(obj.chainId),
         accountAddress: toRequiredString(obj.accountAddress, 'accountAddress'),
         accountModel: toRequiredString(obj.accountModel, 'accountModel'),
         counterfactualAddress: toOptionalString(obj.counterfactualAddress),
@@ -77,7 +94,11 @@ export async function executeSmartAccountDeploy(
   const result = await deploy(request);
   const obj = asObject(result);
   if (!obj) {
-    return { ok: false, code: 'invalid_result', message: 'smartAccountDeploy returned a non-object result' };
+    return {
+      ok: false,
+      code: 'invalid_result',
+      message: 'smartAccountDeploy returned a non-object result',
+    };
   }
 
   const ok = obj.ok === true;

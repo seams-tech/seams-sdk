@@ -45,15 +45,15 @@ export class EmailRecoveryPendingStore implements PendingStore {
     const shouldClearIndex = indexedNearPublicKey === resolvedNearPublicKey;
     if (!record) {
       if (shouldClearIndex) {
-        await IndexedDBManager.clientDB.setAppState(indexKey, undefined as any).catch(() => { });
+        await IndexedDBManager.clientDB.setAppState(indexKey, undefined as any).catch(() => {});
       }
       return null;
     }
 
     if (this.now() - record.createdAt > pendingTtlMs) {
-      await IndexedDBManager.clientDB.setAppState(recordKey, undefined as any).catch(() => { });
+      await IndexedDBManager.clientDB.setAppState(recordKey, undefined as any).catch(() => {});
       if (shouldClearIndex) {
-        await IndexedDBManager.clientDB.setAppState(indexKey, undefined as any).catch(() => { });
+        await IndexedDBManager.clientDB.setAppState(indexKey, undefined as any).catch(() => {});
       }
       return null;
     }
@@ -67,7 +67,9 @@ export class EmailRecoveryPendingStore implements PendingStore {
   async set(record: PendingEmailRecovery): Promise<void> {
     const nearPublicKey = record.nearPublicKey;
     if (!nearPublicKey) {
-      throw new Error('[EmailRecoveryPendingStore] Missing nearPublicKey (required to persist pending record)');
+      throw new Error(
+        '[EmailRecoveryPendingStore] Missing nearPublicKey (required to persist pending record)',
+      );
     }
     const key = this.getPendingRecordKey(record.accountId, nearPublicKey);
     await IndexedDBManager.clientDB.setAppState(key, record);
@@ -76,21 +78,25 @@ export class EmailRecoveryPendingStore implements PendingStore {
 
   async clear(accountId: AccountId, nearPublicKey?: string): Promise<void> {
     const indexKey = this.getPendingIndexKey(accountId);
-    const idx = await IndexedDBManager.clientDB.getAppState<string>(indexKey).catch(() => undefined);
+    const idx = await IndexedDBManager.clientDB
+      .getAppState<string>(indexKey)
+      .catch(() => undefined);
 
     const resolvedNearPublicKey = nearPublicKey || idx || '';
     if (resolvedNearPublicKey) {
       await IndexedDBManager.clientDB
         .setAppState(this.getPendingRecordKey(accountId, resolvedNearPublicKey), undefined as any)
-        .catch(() => { });
+        .catch(() => {});
     }
 
     if (!nearPublicKey || idx === nearPublicKey) {
-      await IndexedDBManager.clientDB.setAppState(indexKey, undefined as any).catch(() => { });
+      await IndexedDBManager.clientDB.setAppState(indexKey, undefined as any).catch(() => {});
     }
   }
 
   async touchIndex(accountId: AccountId, nearPublicKey: string): Promise<void> {
-    await IndexedDBManager.clientDB.setAppState(this.getPendingIndexKey(accountId), nearPublicKey).catch(() => { });
+    await IndexedDBManager.clientDB
+      .setAppState(this.getPendingIndexKey(accountId), nearPublicKey)
+      .catch(() => {});
   }
 }

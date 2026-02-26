@@ -24,10 +24,12 @@ When you call methods like `registerPasskey()` or `signTransaction()`, the reque
 ### Core Components
 
 #### 1. **Entry Point Layer**
+
 - **`TatchiPasskeyIframe.ts`** - The main API that developers interact with. It provides the same interface as the regular TatchiPasskey but routes all calls to the iframe.
 - **`index.ts`** - Exports all public APIs and types for the WalletIframe system.
 
 #### 2. **Client-Side Communication Layer** (Runs in Parent App)
+
 - **`client/index.ts`** - Client entrypoint; exports `WalletIframeRouter` and `initWalletIframeClient()`.
 - **`client/router.ts`** - The `WalletIframeRouter` class that manages all communication with the iframe. It handles:
   - Request/response correlation using unique request IDs
@@ -45,6 +47,7 @@ When you call methods like `registerPasskey()` or `signTransaction()`, the reque
   - Uses heuristics to minimize blocking time
 
 #### 3. **Host-Side Execution Layer** (Runs in Iframe)
+
 - **`host/index.ts`** - The main service host entry that:
   - Receives messages from the parent via MessagePort
   - Creates and manages the actual TatchiPasskey instance
@@ -61,6 +64,7 @@ When you call methods like `registerPasskey()` or `signTransaction()`, the reque
   - Provides type-safe component definitions
 
 #### 4. **Shared Communication Protocol**
+
 - **`shared/messages.ts`** - Defines the typed message protocol:
   - Parent-to-child message types (PM_REGISTER, PM_LOGIN, etc.)
   - Child-to-parent response types (PROGRESS, PM_RESULT, ERROR)
@@ -68,6 +72,7 @@ When you call methods like `registerPasskey()` or `signTransaction()`, the reque
   - Progress event structure for real-time updates
 
 #### 5. **Supporting Infrastructure**
+
 - **`validation.ts`** - Type guards and validation utilities for message payloads
 - **`sanitization.ts`** - Security utilities for HTML and URL sanitization
 - **`env.ts`** - Environment variable reading for wallet configuration
@@ -115,29 +120,35 @@ When you call methods like `registerPasskey()` or `signTransaction()`, the reque
 The callback chain follows this flow:
 
 ### 1. **TatchiPasskeyIframe** (Entry Point)
+
 - Acts as a proxy/wrapper around the WalletIframeRouter
 - Handles hook callbacks (`afterCall`, `onError`, `onEvent`)
 - For example, in `registerPasskey()`:
   ```typescript
   const res = await this.client.registerPasskey({
     nearAccountId,
-    options: { onEvent: options?.onEvent }
+    options: { onEvent: options?.onEvent },
   });
   ```
 
 ### 2. **WalletIframeRouter** (Communication Layer)
+
 - Manages the iframe and MessagePort communication
 - Posts messages to the iframe host via `this.post()` method
 - Handles progress events by bridging them back to the caller's `onEvent` callback
 - For example, in `registerPasskey()`:
   ```typescript
   const res = await this.post<any>(
-    { type: 'PM_REGISTER', payload: { nearAccountId: payload.nearAccountId, options: safeOptions } },
-    { onProgress: payload.options?.onEvent }
+    {
+      type: 'PM_REGISTER',
+      payload: { nearAccountId: payload.nearAccountId, options: safeOptions },
+    },
+    { onProgress: payload.options?.onEvent },
   );
   ```
 
 ### 3. **host/index.ts** (Service Host)
+
 - Receives messages via MessagePort in `onPortMessage()`
 - Creates and manages the actual TatchiPasskey instance
 - Executes the requested operations (like `tatchi!.registerPasskey()`)
@@ -158,6 +169,7 @@ The callback chain follows this flow:
 ## Progress Event Bridging:
 
 The key insight is that progress events are bridged through the MessagePort:
+
 - Host sends: `{ type: 'PROGRESS', requestId, payload: ev }`
 - Client receives and calls: `pend?.onProgress?.(msg.payload)`
 - This allows the original `onEvent` callback to receive real-time progress updates
@@ -189,12 +201,17 @@ class OverlayController {
   constructor(opts: { ensureIframe: () => HTMLIFrameElement });
   showFullscreen(): void;
   showAnchored(rect: DOMRectLike): void;
-  showPreferAnchored(): void;     // anchored if rect set, else fullscreen
+  showPreferAnchored(): void; // anchored if rect set, else fullscreen
   setAnchoredRect(rect: DOMRectLike): void;
   clearAnchoredRect(): void;
-  setSticky(v: boolean): void;    // hide() is ignored when sticky
+  setSticky(v: boolean): void; // hide() is ignored when sticky
   hide(): void;
-  getState(): { visible: boolean; mode: 'hidden' | 'fullscreen' | 'anchored'; sticky: boolean; rect?: DOMRectLike };
+  getState(): {
+    visible: boolean;
+    mode: 'hidden' | 'fullscreen' | 'anchored';
+    sticky: boolean;
+    rect?: DOMRectLike;
+  };
 }
 ```
 

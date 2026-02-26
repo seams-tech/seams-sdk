@@ -1,4 +1,4 @@
-import { base64UrlEncode } from "@shared/utils/base64";
+import { base64UrlEncode } from '@shared/utils/base64';
 import { isObject, isString, isArray } from '@shared/utils/validation';
 import {
   type WebAuthnAuthenticationCredential,
@@ -44,9 +44,9 @@ export function serializeRegistrationCredential(
       prf: {
         results: {
           first: undefined,
-          second: undefined
-        }
-      }
+          second: undefined,
+        },
+      },
     },
   };
 }
@@ -65,15 +65,17 @@ export function serializeAuthenticationCredential(
       clientDataJSON: base64UrlEncode(response.clientDataJSON),
       authenticatorData: base64UrlEncode(response.authenticatorData),
       signature: base64UrlEncode(response.signature),
-      userHandle: response.userHandle ? base64UrlEncode(response.userHandle as ArrayBuffer) : undefined,
+      userHandle: response.userHandle
+        ? base64UrlEncode(response.userHandle as ArrayBuffer)
+        : undefined,
     },
     clientExtensionResults: {
       prf: {
         results: {
           first: undefined,
-          second: undefined
-        }
-      }
+          second: undefined,
+        },
+      },
     },
   };
 }
@@ -88,9 +90,9 @@ export function serializeRegistrationCredentialWithPRF({
   firstPrfOutput = true,
   secondPrfOutput = true,
 }: {
-  credential: PublicKeyCredential,
-  firstPrfOutput?: boolean,
-  secondPrfOutput?: boolean,
+  credential: PublicKeyCredential;
+  firstPrfOutput?: boolean;
+  secondPrfOutput?: boolean;
 }): WebAuthnRegistrationCredential {
   const base = serializeRegistrationCredential(credential);
   const { chacha20PrfOutput, ed25519PrfOutput } = extractPrfFromCredential({
@@ -116,9 +118,9 @@ export function serializeAuthenticationCredentialWithPRF({
   firstPrfOutput = true,
   secondPrfOutput = false,
 }: {
-  credential: PublicKeyCredential,
-  firstPrfOutput?: boolean,
-  secondPrfOutput?: boolean,
+  credential: PublicKeyCredential;
+  firstPrfOutput?: boolean;
+  secondPrfOutput?: boolean;
 }): WebAuthnAuthenticationCredential {
   const base = serializeAuthenticationCredential(credential);
   const { chacha20PrfOutput, ed25519PrfOutput } = extractPrfFromCredential({
@@ -160,7 +162,10 @@ export function normalizeRegistrationCredential(input: unknown): WebAuthnRegistr
   if (!isString(normalized.type)) throw new Error('Invalid credential.type');
 
   if (!isString(normalized.rawId)) normalized.rawId = '';
-  if (normalized.authenticatorAttachment !== undefined && !isString(normalized.authenticatorAttachment)) {
+  if (
+    normalized.authenticatorAttachment !== undefined &&
+    !isString(normalized.authenticatorAttachment)
+  ) {
     normalized.authenticatorAttachment = String(normalized.authenticatorAttachment);
   }
 
@@ -173,7 +178,9 @@ export function normalizeRegistrationCredential(input: unknown): WebAuthnRegistr
   if (!isArray<string>(response.transports)) response.transports = [];
 
   normalized.response = response;
-  normalized.clientExtensionResults = normalizeClientExtensionOutputs(normalized.clientExtensionResults);
+  normalized.clientExtensionResults = normalizeClientExtensionOutputs(
+    normalized.clientExtensionResults,
+  );
 
   return normalized as unknown as WebAuthnRegistrationCredential;
 }
@@ -182,7 +189,9 @@ export function normalizeRegistrationCredential(input: unknown): WebAuthnRegistr
  * Validates and normalizes a serialized WebAuthn authentication credential.
  * Ensures required fields exist and have the expected primitive types.
  */
-export function normalizeAuthenticationCredential(input: unknown): WebAuthnAuthenticationCredential {
+export function normalizeAuthenticationCredential(
+  input: unknown,
+): WebAuthnAuthenticationCredential {
   if (!isObject(input)) throw new Error('Invalid credential: not an object');
 
   const candidate = input as Record<string, unknown>;
@@ -192,7 +201,10 @@ export function normalizeAuthenticationCredential(input: unknown): WebAuthnAuthe
   if (!isString(normalized.type)) throw new Error('Invalid credential.type');
 
   if (!isString(normalized.rawId)) normalized.rawId = '';
-  if (normalized.authenticatorAttachment !== undefined && !isString(normalized.authenticatorAttachment)) {
+  if (
+    normalized.authenticatorAttachment !== undefined &&
+    !isString(normalized.authenticatorAttachment)
+  ) {
     normalized.authenticatorAttachment = String(normalized.authenticatorAttachment);
   }
 
@@ -203,10 +215,13 @@ export function normalizeAuthenticationCredential(input: unknown): WebAuthnAuthe
   if (!isString(response.clientDataJSON)) response.clientDataJSON = '';
   if (!isString(response.authenticatorData)) response.authenticatorData = '';
   if (!isString(response.signature)) response.signature = '';
-  if (response.userHandle !== undefined && !isString(response.userHandle)) response.userHandle = undefined;
+  if (response.userHandle !== undefined && !isString(response.userHandle))
+    response.userHandle = undefined;
 
   normalized.response = response;
-  normalized.clientExtensionResults = normalizeClientExtensionOutputs(normalized.clientExtensionResults);
+  normalized.clientExtensionResults = normalizeClientExtensionOutputs(
+    normalized.clientExtensionResults,
+  );
 
   return normalized as unknown as WebAuthnAuthenticationCredential;
 }
@@ -219,7 +234,9 @@ export function normalizeAuthenticationCredential(input: unknown): WebAuthnAuthe
  * Returns true when the input looks like a serialized registration credential
  * (i.e., plain object with base64url string fields), not a live PublicKeyCredential.
  */
-export function isSerializedRegistrationCredential(x: unknown): x is WebAuthnRegistrationCredential {
+export function isSerializedRegistrationCredential(
+  x: unknown,
+): x is WebAuthnRegistrationCredential {
   if (!isObject(x)) return false;
   const candidate = x as {
     id?: unknown;
@@ -325,7 +342,9 @@ function extractPrfFromCredential({
 
   // Step 4: Normalize and encode PRF outputs
   const firstEncoded = firstPrfOutput ? normalizePrfValueToBase64Url(prfResults.first) : undefined;
-  const secondEncoded = secondPrfOutput ? normalizePrfValueToBase64Url(prfResults.second) : undefined;
+  const secondEncoded = secondPrfOutput
+    ? normalizePrfValueToBase64Url(prfResults.second)
+    : undefined;
 
   // Step 5: Validate required outputs are present
   if (firstPrfOutput && !firstEncoded) {
@@ -344,18 +363,23 @@ function extractPrfFromCredential({
 /** Get extension results from credential (live or serialized) */
 function getExtensionResults(credential: CredentialWithExtensions): ExtensionResults | undefined {
   try {
-    const fn = (credential as { getClientExtensionResults?: () => unknown }).getClientExtensionResults;
+    const fn = (credential as { getClientExtensionResults?: () => unknown })
+      .getClientExtensionResults;
     if (typeof fn === 'function') {
       return fn.call(credential) as ExtensionResults;
     }
   } catch {
     // Fall through to direct property access
   }
-  return (credential as { clientExtensionResults?: unknown }).clientExtensionResults as ExtensionResults | undefined;
+  return (credential as { clientExtensionResults?: unknown }).clientExtensionResults as
+    | ExtensionResults
+    | undefined;
 }
 
 /** Extract PRF results object from extension results */
-function extractPrfResultsObject(extensionResults: ExtensionResults | undefined): PrfOutputs | undefined {
+function extractPrfResultsObject(
+  extensionResults: ExtensionResults | undefined,
+): PrfOutputs | undefined {
   try {
     return extensionResults?.prf?.results;
   } catch {
@@ -367,7 +391,7 @@ function extractPrfResultsObject(extensionResults: ExtensionResults | undefined)
 function validatePrfResults(
   prfResults: PrfOutputs | undefined,
   firstRequired: boolean,
-  secondRequired: boolean
+  secondRequired: boolean,
 ): asserts prfResults is PrfOutputs {
   if (!prfResults) {
     throw new Error('Missing PRF results from credential, use a PRF-enabled Authenticator');
@@ -435,7 +459,8 @@ function normalizeClientExtensionOutputs(input: unknown): AuthenticationExtensio
   // appidExclude
   if (typeof src.appidExclude === 'boolean') out.appidExclude = src.appidExclude as boolean;
   // hmacCreateSecret
-  if (typeof src.hmacCreateSecret === 'boolean') out.hmacCreateSecret = src.hmacCreateSecret as boolean;
+  if (typeof src.hmacCreateSecret === 'boolean')
+    out.hmacCreateSecret = src.hmacCreateSecret as boolean;
   // credProps
   if (isObject(src.credProps)) {
     const cp = src.credProps as Record<string, unknown>;
@@ -445,15 +470,18 @@ function normalizeClientExtensionOutputs(input: unknown): AuthenticationExtensio
   }
   // uvm: expect array of 3-number tuples; tolerate nested arrays loosely
   if (isArray(src.uvm)) {
-    const uvmArr = (src.uvm as unknown[]).filter(isArray).map((t) => {
-      const a = t as unknown[];
-      const n0 = typeof a[0] === 'number' ? (a[0] as number) : undefined;
-      const n1 = typeof a[1] === 'number' ? (a[1] as number) : undefined;
-      const n2 = typeof a[2] === 'number' ? (a[2] as number) : undefined;
-      return (typeof n0 === 'number' && typeof n1 === 'number' && typeof n2 === 'number')
-        ? [n0, n1, n2] as [number, number, number]
-        : undefined;
-    }).filter((x): x is [number, number, number] => Array.isArray(x));
+    const uvmArr = (src.uvm as unknown[])
+      .filter(isArray)
+      .map((t) => {
+        const a = t as unknown[];
+        const n0 = typeof a[0] === 'number' ? (a[0] as number) : undefined;
+        const n1 = typeof a[1] === 'number' ? (a[1] as number) : undefined;
+        const n2 = typeof a[2] === 'number' ? (a[2] as number) : undefined;
+        return typeof n0 === 'number' && typeof n1 === 'number' && typeof n2 === 'number'
+          ? ([n0, n1, n2] as [number, number, number])
+          : undefined;
+      })
+      .filter((x): x is [number, number, number] => Array.isArray(x));
     if (uvmArr.length > 0) out.uvm = uvmArr;
   }
   // prf

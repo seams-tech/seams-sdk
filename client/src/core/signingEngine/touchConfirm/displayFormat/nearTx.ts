@@ -27,7 +27,11 @@ function toSafeJson(value: unknown): string {
   }
 }
 
-function makeField(label: string, value: string | undefined, copyValue?: string): TxDisplayField | undefined {
+function makeField(
+  label: string,
+  value: string | undefined,
+  copyValue?: string,
+): TxDisplayField | undefined {
   const normalized = String(value ?? '').trim();
   if (!normalized) return undefined;
   return {
@@ -82,9 +86,7 @@ function buildActionOperation(args: {
         kind: 'near.action',
         actionType: 'createAccount',
         label: `Action ${actionIndex + 1}: CreateAccount`,
-        fields: [
-          makeField('Receiver', receiverId),
-        ].filter(Boolean) as TxDisplayField[],
+        fields: [makeField('Receiver', receiverId)].filter(Boolean) as TxDisplayField[],
       } as NearActionOperation;
 
     case ActionType.Transfer:
@@ -102,12 +104,14 @@ function buildActionOperation(args: {
     case ActionType.FunctionCall: {
       const argsRaw = String(action.args || '');
       const children: TxDisplayOperation[] = argsRaw
-        ? [{
-            id: `${id}.args`,
-            kind: 'raw.fallback',
-            label: 'Function Arguments',
-            raw: argsRaw,
-          }]
+        ? [
+            {
+              id: `${id}.args`,
+              kind: 'raw.fallback',
+              label: 'Function Arguments',
+              raw: argsRaw,
+            },
+          ]
         : [];
       return {
         id,
@@ -218,12 +222,14 @@ function buildActionOperation(args: {
         kind: 'near.action',
         actionType: 'signedDelegate',
         label: `Action ${actionIndex + 1}: SignedDelegate`,
-        children: [{
-          id: `${id}.delegate`,
-          kind: 'raw.fallback',
-          label: 'Signed Delegate Payload',
-          raw: toSafeJson(action),
-        }],
+        children: [
+          {
+            id: `${id}.delegate`,
+            kind: 'raw.fallback',
+            label: 'Signed Delegate Payload',
+            raw: toSafeJson(action),
+          },
+        ],
       } as NearActionOperation;
 
     default:
@@ -236,15 +242,25 @@ function buildActionOperation(args: {
   }
 }
 
-function buildTransactionOperation(tx: TransactionInputWasm, txIndex: number, txCount: number): GenericContractCallOperation {
+function buildTransactionOperation(
+  tx: TransactionInputWasm,
+  txIndex: number,
+  txCount: number,
+): GenericContractCallOperation {
   const receiverId = String(tx.receiverId || '').trim() || '(unknown receiver)';
   const actions = Array.isArray(tx.actions) ? tx.actions : [];
-  const txAttachedValue = actions.reduce((sum, action) => sum + totalAttachedValueForAction(action), BigInt(0));
+  const txAttachedValue = actions.reduce(
+    (sum, action) => sum + totalAttachedValueForAction(action),
+    BigInt(0),
+  );
 
   const fields: TxDisplayField[] = [
     makeField('Receiver', receiverId),
     makeField('Action Count', String(actions.length)),
-    makeField('Attached Value (yoctoNEAR)', txAttachedValue > 0 ? txAttachedValue.toString() : undefined),
+    makeField(
+      'Attached Value (yoctoNEAR)',
+      txAttachedValue > 0 ? txAttachedValue.toString() : undefined,
+    ),
   ].filter(Boolean) as TxDisplayField[];
 
   return {
@@ -260,7 +276,7 @@ function buildTransactionOperation(tx: TransactionInputWasm, txIndex: number, tx
         txIndex,
         actionIndex,
         receiverId,
-      })
+      }),
     ),
   };
 }
@@ -268,12 +284,17 @@ function buildTransactionOperation(tx: TransactionInputWasm, txIndex: number, tx
 export function buildNearDisplayModel(args: BuildNearDisplayModelArgs): TxDisplayModel {
   const txSigningRequests = Array.isArray(args.txSigningRequests) ? args.txSigningRequests : [];
   const operations = txSigningRequests.map((tx, txIndex) =>
-    buildTransactionOperation(tx, txIndex, txSigningRequests.length)
+    buildTransactionOperation(tx, txIndex, txSigningRequests.length),
   );
   const totalAttachedValue = txSigningRequests.reduce(
-    (sum, tx) => sum + (Array.isArray(tx.actions)
-      ? tx.actions.reduce((actionSum, action) => actionSum + totalAttachedValueForAction(action), BigInt(0))
-      : BigInt(0)),
+    (sum, tx) =>
+      sum +
+      (Array.isArray(tx.actions)
+        ? tx.actions.reduce(
+            (actionSum, action) => actionSum + totalAttachedValueForAction(action),
+            BigInt(0),
+          )
+        : BigInt(0)),
     BigInt(0),
   );
 

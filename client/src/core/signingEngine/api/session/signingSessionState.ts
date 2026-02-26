@@ -19,9 +19,9 @@ type SigningSessionPrfCacheClearer = ThresholdPrfFirstCacheClearPort;
 
 export type SigningSessionStateDeps = {
   activeSigningSessionIds: Map<string, string>;
-  touchConfirm: ThresholdPrfFirstCacheWriterPort
-    & ThresholdPrfFirstCachePeekPort
-    & ThresholdPrfFirstCacheClearPort;
+  touchConfirm: ThresholdPrfFirstCacheWriterPort &
+    ThresholdPrfFirstCachePeekPort &
+    ThresholdPrfFirstCacheClearPort;
   createSessionId: (prefix: string) => string;
   signingSessionDefaults: SigningSessionPolicy;
 };
@@ -131,9 +131,7 @@ export function clearActiveSigningSessionId(
   return existing || null;
 }
 
-export function clearAllActiveSigningSessionIds(
-  deps: SigningSessionStateDeps,
-): string[] {
+export function clearAllActiveSigningSessionIds(deps: SigningSessionStateDeps): string[] {
   const sessionIds: string[] = [];
   for (const sessionIdRaw of deps.activeSigningSessionIds.values()) {
     const sessionId = String(sessionIdRaw || '').trim();

@@ -13,9 +13,16 @@ import type {
 import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../../core/ThresholdService/schemes/schemeIds';
 import { thresholdEcdsaStatusCode } from '../../../threshold/statusCodes';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
-import { validateThresholdEcdsaAuthorizeInputs, validateThresholdEcdsaSessionInputs } from '../../commonRouterUtils';
+import {
+  validateThresholdEcdsaAuthorizeInputs,
+  validateThresholdEcdsaSessionInputs,
+} from '../../commonRouterUtils';
 
-const NOT_IMPLEMENTED = { ok: false, code: 'not_implemented', message: 'threshold-ecdsa is not implemented' } as const;
+const NOT_IMPLEMENTED = {
+  ok: false,
+  code: 'not_implemented',
+  message: 'threshold-ecdsa is not implemented',
+} as const;
 
 type PresignTrafficClass = 'foreground' | 'background';
 
@@ -87,9 +94,13 @@ const presignPriorityGate = new PresignPriorityGate();
 
 export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise<Response | null> {
   if (ctx.method === 'GET' && ctx.pathname === '/threshold-ecdsa/healthz') {
-    const resolved = resolveThresholdScheme(ctx.opts.threshold, THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID, {
-      notFoundMessage: 'threshold-ecdsa scheme is not enabled on this server',
-    });
+    const resolved = resolveThresholdScheme(
+      ctx.opts.threshold,
+      THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
+      {
+        notFoundMessage: 'threshold-ecdsa scheme is not enabled on this server',
+      },
+    );
     if (!resolved.ok) {
       const resBody = { ...resolved, configured: false };
       return json(resBody, { status: thresholdEcdsaStatusCode(resBody) });
@@ -106,22 +117,26 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
 
   const pathname = ctx.pathname;
   if (
-    pathname !== '/threshold-ecdsa/bootstrap'
-    && pathname !== '/threshold-ecdsa/authorize'
-    && pathname !== '/threshold-ecdsa/presign/init'
-    && pathname !== '/threshold-ecdsa/presign/step'
-    && pathname !== '/threshold-ecdsa/sign/init'
-    && pathname !== '/threshold-ecdsa/sign/finalize'
-    && pathname !== '/threshold-ecdsa/internal/cosign/init'
-    && pathname !== '/threshold-ecdsa/internal/cosign/finalize'
+    pathname !== '/threshold-ecdsa/bootstrap' &&
+    pathname !== '/threshold-ecdsa/authorize' &&
+    pathname !== '/threshold-ecdsa/presign/init' &&
+    pathname !== '/threshold-ecdsa/presign/step' &&
+    pathname !== '/threshold-ecdsa/sign/init' &&
+    pathname !== '/threshold-ecdsa/sign/finalize' &&
+    pathname !== '/threshold-ecdsa/internal/cosign/init' &&
+    pathname !== '/threshold-ecdsa/internal/cosign/finalize'
   ) {
     return null;
   }
 
   const body = await readJson(ctx.request);
-  const resolved = resolveThresholdScheme(ctx.opts.threshold, THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID, {
-    notFoundMessage: 'threshold-ecdsa scheme is not enabled on this server',
-  });
+  const resolved = resolveThresholdScheme(
+    ctx.opts.threshold,
+    THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
+    {
+      notFoundMessage: 'threshold-ecdsa scheme is not enabled on this server',
+    },
+  );
   if (!resolved.ok) {
     return json(resolved, { status: thresholdEcdsaStatusCode(resolved) });
   }
@@ -130,11 +145,19 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
   if (pathname === '/threshold-ecdsa/bootstrap') {
     const session = ctx.opts.session;
     if (!session) {
-      const resBody = { ok: false, code: 'sessions_disabled', message: 'Sessions are not configured on this server' };
+      const resBody = {
+        ok: false,
+        code: 'sessions_disabled',
+        message: 'Sessions are not configured on this server',
+      };
       return json(resBody, { status: thresholdEcdsaStatusCode(resBody) });
     }
     if (!scheme.bootstrap) {
-      const resBody = { ok: false, code: 'not_implemented', message: 'threshold-ecdsa bootstrap is not implemented on this server' };
+      const resBody = {
+        ok: false,
+        code: 'not_implemented',
+        message: 'threshold-ecdsa bootstrap is not implemented on this server',
+      };
       return json(resBody, { status: thresholdEcdsaStatusCode(resBody) });
     }
 
@@ -144,17 +167,35 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
 
     const sessionId = String(result.sessionId || '').trim();
     if (!sessionId) {
-      return json({ ok: false, code: 'internal', message: 'threshold bootstrap missing sessionId' }, { status: 500 });
+      return json(
+        { ok: false, code: 'internal', message: 'threshold bootstrap missing sessionId' },
+        { status: 500 },
+      );
     }
     const userId = String(reqBody.userId || reqBody.sessionPolicy?.userId || '').trim();
     const rpId = String(reqBody.rpId || reqBody.sessionPolicy?.rpId || '').trim();
     const relayerKeyId = String(result.relayerKeyId || '').trim();
     const thresholdExpiresAtMs = Number(result.expiresAtMs);
-    if (!userId) return json({ ok: false, code: 'internal', message: 'threshold bootstrap missing userId' }, { status: 500 });
-    if (!rpId) return json({ ok: false, code: 'internal', message: 'threshold bootstrap missing rpId' }, { status: 500 });
-    if (!relayerKeyId) return json({ ok: false, code: 'internal', message: 'threshold bootstrap missing relayerKeyId' }, { status: 500 });
+    if (!userId)
+      return json(
+        { ok: false, code: 'internal', message: 'threshold bootstrap missing userId' },
+        { status: 500 },
+      );
+    if (!rpId)
+      return json(
+        { ok: false, code: 'internal', message: 'threshold bootstrap missing rpId' },
+        { status: 500 },
+      );
+    if (!relayerKeyId)
+      return json(
+        { ok: false, code: 'internal', message: 'threshold bootstrap missing relayerKeyId' },
+        { status: 500 },
+      );
     if (!Number.isFinite(thresholdExpiresAtMs) || thresholdExpiresAtMs <= 0) {
-      return json({ ok: false, code: 'internal', message: 'threshold bootstrap missing expiresAtMs' }, { status: 500 });
+      return json(
+        { ok: false, code: 'internal', message: 'threshold bootstrap missing expiresAtMs' },
+        { status: 500 },
+      );
     }
 
     const participantIds = Array.isArray(result.participantIds) ? result.participantIds : undefined;
@@ -237,7 +278,11 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
   if (pathname === '/threshold-ecdsa/internal/cosign/init') {
     const cosignInit = scheme.protocol.internalCosignInit;
     if (!cosignInit) {
-      const resBody = { ok: false, code: 'not_found', message: 'threshold-ecdsa cosigner endpoints are not enabled on this server' };
+      const resBody = {
+        ok: false,
+        code: 'not_found',
+        message: 'threshold-ecdsa cosigner endpoints are not enabled on this server',
+      };
       return json(resBody, { status: thresholdEcdsaStatusCode(resBody) });
     }
     const reqBody = (body || {}) as ThresholdEcdsaCosignInitRequest;
@@ -247,7 +292,11 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
   if (pathname === '/threshold-ecdsa/internal/cosign/finalize') {
     const cosignFinalize = scheme.protocol.internalCosignFinalize;
     if (!cosignFinalize) {
-      const resBody = { ok: false, code: 'not_found', message: 'threshold-ecdsa cosigner endpoints are not enabled on this server' };
+      const resBody = {
+        ok: false,
+        code: 'not_found',
+        message: 'threshold-ecdsa cosigner endpoints are not enabled on this server',
+      };
       return json(resBody, { status: thresholdEcdsaStatusCode(resBody) });
     }
     const reqBody = (body || {}) as ThresholdEcdsaCosignFinalizeRequest;

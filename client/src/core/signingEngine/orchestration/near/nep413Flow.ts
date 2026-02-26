@@ -27,9 +27,7 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 import type { SigningRuntimeDeps } from '../../interfaces/runtime';
 import { toAccountId } from '@/core/types/accountIds';
 import { executeWorkerOperation } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import {
-  clearSigningSessionPrfFirstBestEffort,
-} from '@/core/signingEngine/api/session/signingSessionState';
+import { clearSigningSessionPrfFirstBestEffort } from '@/core/signingEngine/api/session/signingSessionState';
 import {
   generateSessionId,
   requirePrfFirstFromCredential,
@@ -134,9 +132,9 @@ export async function signNep413Message({
       confirmationConfigOverride: payload.confirmationConfigOverride,
     });
 
-    let credentialWithPrf: WebAuthnAuthenticationCredential | undefined =
+    const credentialWithPrf: WebAuthnAuthenticationCredential | undefined =
       confirmation.credential as WebAuthnAuthenticationCredential | undefined;
-    let credentialForRelayJson = toCredentialForRelayJson(credentialWithPrf);
+    const credentialForRelayJson = toCredentialForRelayJson(credentialWithPrf);
 
     const prfFirstB64u = signingContext.threshold
       ? await (async () => {
@@ -161,12 +159,14 @@ export async function signNep413Message({
 
     if (signingContext.threshold && !signingContext.threshold.thresholdSessionJwt) {
       signingContext.threshold.thresholdSessionJwt =
-        getCachedEd25519AuthSessionJwtBySessionId(sessionId)
-        || signingContext.threshold.thresholdSessionJwt;
+        getCachedEd25519AuthSessionJwtBySessionId(sessionId) ||
+        signingContext.threshold.thresholdSessionJwt;
     }
     if (signingContext.threshold && !signingContext.threshold.thresholdSessionJwt) {
       clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
-      throw new Error('[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing');
+      throw new Error(
+        '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing',
+      );
     }
 
     const requestPayload: Omit<WasmSignNep413MessageRequest, 'sessionId'> = {

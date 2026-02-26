@@ -7,7 +7,7 @@ import {
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 
 type Eip1559TxWasmJson = {
-  chainId: string;
+  chainId: number;
   nonce: string;
   maxPriorityFeePerGas: string;
   maxFeePerGas: string;
@@ -23,17 +23,30 @@ function toDec(v: bigint): string {
   return v.toString(10);
 }
 
-function toChainIdDec(v: number): string {
+function toChainIdNumber(v: number | bigint): number {
+  if (typeof v === 'bigint') {
+    if (v < 0n) throw new Error('[ethSignerWasm] chainId must be a non-negative integer');
+    const asNumber = Number(v);
+    if (!Number.isSafeInteger(asNumber)) {
+      throw new Error('[ethSignerWasm] chainId must be a non-negative safe integer');
+    }
+    return asNumber;
+  }
   if (!Number.isSafeInteger(v) || v < 0) {
     throw new Error('[ethSignerWasm] chainId must be a non-negative safe integer');
   }
-  return String(v);
+  return v;
+}
+
+function requireTxNonce(nonce: bigint | undefined): bigint {
+  if (typeof nonce === 'bigint') return nonce;
+  throw new Error('[ethSignerWasm] missing tx nonce');
 }
 
 function toWasmTx(tx: Eip1559UnsignedTx): Eip1559TxWasmJson {
   return {
-    chainId: toChainIdDec(tx.chainId),
-    nonce: toDec(tx.nonce),
+    chainId: toChainIdNumber(tx.chainId),
+    nonce: toDec(requireTxNonce(tx.nonce)),
     maxPriorityFeePerGas: toDec(tx.maxPriorityFeePerGas),
     maxFeePerGas: toDec(tx.maxFeePerGas),
     gasLimit: toDec(tx.gasLimit),

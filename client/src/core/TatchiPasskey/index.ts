@@ -714,7 +714,9 @@ export type {
   PreferencesCapability,
   RegistrationCapability,
   RecoveryCapability,
+  ReportTempoBroadcastResultArgs,
   SignTempoArgs,
+  TempoBroadcastResultStatus,
   TempoSignerCapability,
 } from './interfaces';
 

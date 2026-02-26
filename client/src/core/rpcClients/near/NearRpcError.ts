@@ -1,6 +1,12 @@
 import { RpcResponse } from '../../types/rpc';
 
-type NearRpcErrorType = 'InvalidTxError' | 'ActionError' | 'TxExecutionError' | 'RpcError' | 'Failure' | 'Unknown';
+type NearRpcErrorType =
+  | 'InvalidTxError'
+  | 'ActionError'
+  | 'TxExecutionError'
+  | 'RpcError'
+  | 'Failure'
+  | 'Unknown';
 
 function isObj(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v);
@@ -77,7 +83,10 @@ export class NearRpcError extends Error {
   }
 }
 
-function describeDetails(operationName: string, details: unknown): {
+function describeDetails(
+  operationName: string,
+  details: unknown,
+): {
   message: string;
   type?: NearRpcErrorType;
   kind?: string;
@@ -85,7 +94,9 @@ function describeDetails(operationName: string, details: unknown): {
   short?: string;
 } {
   const d = isObj(details) ? details : undefined;
-  const txExec = isObj(d?.TxExecutionError) ? (d!.TxExecutionError as Record<string, unknown>) : undefined;
+  const txExec = isObj(d?.TxExecutionError)
+    ? (d!.TxExecutionError as Record<string, unknown>)
+    : undefined;
   if (!txExec) {
     const dataStr = d ? ` Details: ${JSON.stringify(d)}` : '';
     return { message: `${operationName} RPC error.${dataStr}` };
@@ -93,7 +104,10 @@ function describeDetails(operationName: string, details: unknown): {
   return describeTxExecution(operationName, txExec);
 }
 
-function describeFailure(operationName: string, failure: any): {
+function describeFailure(
+  operationName: string,
+  failure: any,
+): {
   message: string;
   type?: NearRpcErrorType;
   kind?: string;
@@ -108,7 +122,10 @@ function describeFailure(operationName: string, failure: any): {
   return describeTxExecution(operationName, f as Record<string, unknown>);
 }
 
-function describeTxExecution(operationName: string, exec: Record<string, unknown>): {
+function describeTxExecution(
+  operationName: string,
+  exec: Record<string, unknown>,
+): {
   message: string;
   type?: NearRpcErrorType;
   kind?: string;

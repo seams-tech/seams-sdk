@@ -18,16 +18,23 @@ async function loadPgPoolCtor(): Promise<new (opts: { connectionString: string }
   try {
     mod = (await import('pg')) as unknown as PgModuleLike;
   } catch (err) {
-    const msg = String((err && typeof err === 'object' && 'message' in err) ? (err as any).message : err || '');
-    throw new Error(`Postgres store selected but 'pg' dependency is not available${msg ? `: ${msg}` : ''}`);
+    const msg = String(
+      err && typeof err === 'object' && 'message' in err ? (err as any).message : err || '',
+    );
+    throw new Error(
+      `Postgres store selected but 'pg' dependency is not available${msg ? `: ${msg}` : ''}`,
+    );
   }
   const ctor = mod.Pool || mod.default?.Pool;
-  if (!ctor) throw new Error(`Postgres store selected but failed to load Pool constructor from 'pg'`);
+  if (!ctor)
+    throw new Error(`Postgres store selected but failed to load Pool constructor from 'pg'`);
   return ctor;
 }
 
 export function getPostgresUrlFromConfig(config: Record<string, unknown>): string | null {
-  return toOptionalTrimmedString(config.postgresUrl) || toOptionalTrimmedString(config.POSTGRES_URL);
+  return (
+    toOptionalTrimmedString(config.postgresUrl) || toOptionalTrimmedString(config.POSTGRES_URL)
+  );
 }
 
 export async function getPostgresPool(postgresUrl: string): Promise<PgPool> {

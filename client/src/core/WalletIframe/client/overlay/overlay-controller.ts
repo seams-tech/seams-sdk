@@ -161,7 +161,7 @@ export class OverlayController {
       visible: this.visible,
       mode: this.mode,
       sticky: this.sticky,
-      rect: this.rect || undefined
+      rect: this.rect || undefined,
     };
   }
 }

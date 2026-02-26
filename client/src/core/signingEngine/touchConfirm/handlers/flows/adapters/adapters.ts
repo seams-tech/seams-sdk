@@ -12,7 +12,12 @@ import type {
 } from '../../../shared/confirmTypes';
 import { UserConfirmationType } from '../../../shared/confirmTypes';
 import type { UserConfirmSecurityContext } from '@/core/types';
-import { awaitConfirmUIDecision, mountConfirmUI, type ConfirmUIHandle, type ConfirmUIUpdate } from '../../../ui/confirm-ui';
+import {
+  awaitConfirmUIDecision,
+  mountConfirmUI,
+  type ConfirmUIHandle,
+  type ConfirmUIUpdate,
+} from '../../../ui/confirm-ui';
 import { getDisplayModel, getNearAccountId, getSignTransactionPayload } from './request';
 import type { ThemeName } from '@/core/types/tatchi';
 import type { ProfileAuthenticatorRecord } from '@/core/indexedDB';
@@ -73,12 +78,12 @@ export async function fetchNearContext(
       const txBlockHash = String(block?.header?.hash ?? '');
       const fallback: TransactionContext = {
         nearPublicKeyStr: '', // not needed for registration/link flows here
-        accessKeyInfo: ({
+        accessKeyInfo: {
           nonce: 0,
           permission: 'FullAccess',
           block_height: 0,
           block_hash: '',
-        } as unknown) as AccessKeyView, // minimal shape; not used in registration/link flows
+        } as unknown as AccessKeyView, // minimal shape; not used in registration/link flows
         nextNonce: '0',
         txBlockHeight,
         txBlockHash,
@@ -155,9 +160,10 @@ async function renderConfirmUI({
   const nearAccountIdForUi = getNearAccountId(request);
 
   const uiMode = confirmationConfig.uiMode as ConfirmationUIMode;
-  const txSigningRequests = request.type === UserConfirmationType.SIGN_TRANSACTION
-    ? getSignTransactionPayload(request).txSigningRequests
-    : [];
+  const txSigningRequests =
+    request.type === UserConfirmationType.SIGN_TRANSACTION
+      ? getSignTransactionPayload(request).txSigningRequests
+      : [];
   const model = getDisplayModel(request);
 
   const renderDrawerOrModal = async (mode: 'drawer' | 'modal') => {
@@ -222,8 +228,10 @@ type RenderConfirmUiArgs = Omit<Parameters<typeof renderConfirmUI>[0], 'ctx'>;
 export function createConfirmTxFlowAdapters(ctx: TouchConfirmContext) {
   return {
     near: {
-      fetchNearContext: (opts: Parameters<typeof fetchNearContext>[1]) => fetchNearContext(ctx, opts),
-      releaseReservedNonces: (nonces: Parameters<typeof releaseReservedNonces>[1]) => releaseReservedNonces(ctx, nonces),
+      fetchNearContext: (opts: Parameters<typeof fetchNearContext>[1]) =>
+        fetchNearContext(ctx, opts),
+      releaseReservedNonces: (nonces: Parameters<typeof releaseReservedNonces>[1]) =>
+        releaseReservedNonces(ctx, nonces),
     },
     security: {
       getRpId: () => ctx.touchIdPrompt.getRpId(),
@@ -232,7 +240,9 @@ export function createConfirmTxFlowAdapters(ctx: TouchConfirmContext) {
       collectAuthenticationCredentialWithPRF: (args: CollectAuthenticationCredentialWithPRFArgs) =>
         collectAuthenticationCredentialWithPRF({ ctx, ...args }),
       createRegistrationCredential: (
-        args: Parameters<TouchConfirmContext['touchIdPrompt']['generateRegistrationCredentialsInternal']>[0]
+        args: Parameters<
+          TouchConfirmContext['touchIdPrompt']['generateRegistrationCredentialsInternal']
+        >[0],
       ) => ctx.touchIdPrompt.generateRegistrationCredentialsInternal(args),
     },
     ui: {
@@ -293,7 +303,11 @@ export function createConfirmSession({
     loading?: boolean;
     onMounted?: (handle: ConfirmUIHandle) => void;
   }) => {
-    const { confirmed, confirmHandle: handle, error } = await adapters.ui.renderConfirmUI({
+    const {
+      confirmed,
+      confirmHandle: handle,
+      error,
+    } = await adapters.ui.renderConfirmUI({
       request,
       confirmationConfig,
       transactionSummary,

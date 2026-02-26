@@ -31,7 +31,9 @@ const KNOWN_FUNCTION_SIGNATURES: Readonly<Record<string, string>> = Object.freez
 });
 
 // Contract-specific selector map derived from known contract ABIs.
-const KNOWN_CONTRACT_FUNCTION_SIGNATURES: Readonly<Record<string, Readonly<Record<string, string>>>> = Object.freeze({
+const KNOWN_CONTRACT_FUNCTION_SIGNATURES: Readonly<
+  Record<string, Readonly<Record<string, string>>>
+> = Object.freeze({
   [TEMPO_GREETING_CONTRACT]: Object.freeze({
     '0xa4136862': 'setGreeting(string)',
     '0xcfae3217': 'greet()',
@@ -43,19 +45,25 @@ const KNOWN_CONTRACT_FUNCTION_SIGNATURES: Readonly<Record<string, Readonly<Recor
 });
 
 function normalizeSelector(selector: string | undefined): string | undefined {
-  const normalized = String(selector || '').trim().toLowerCase();
+  const normalized = String(selector || '')
+    .trim()
+    .toLowerCase();
   if (!SELECTOR_HEX_RE.test(normalized)) return undefined;
   return normalized;
 }
 
 function normalizeContractAddress(contractAddress: string | undefined): string | undefined {
-  const normalized = String(contractAddress || '').trim().toLowerCase();
+  const normalized = String(contractAddress || '')
+    .trim()
+    .toLowerCase();
   if (!EVM_ADDRESS_RE.test(normalized)) return undefined;
   return normalized;
 }
 
 export function selectorFromHexData(data: string | undefined): string | undefined {
-  const normalized = String(data || '').trim().toLowerCase();
+  const normalized = String(data || '')
+    .trim()
+    .toLowerCase();
   if (!normalized.startsWith('0x') || normalized.length < 10) return undefined;
   const selector = normalized.slice(0, 10);
   return normalizeSelector(selector);

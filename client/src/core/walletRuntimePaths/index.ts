@@ -1,2 +1,2 @@
-export * from './base'
-export * from './workers'
+export * from './base';
+export * from './workers';

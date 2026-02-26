@@ -6,38 +6,42 @@
 //   which requires 'unsafe-eval' and inline styles. This relaxation is not required by the Tatchi SDK itself.
 // - In PRODUCTION you should keep a strict CSP (no 'unsafe-eval', no inline styles, and include "style-src-attr 'none'").
 
-import { buildPermissionsPolicy, buildWalletCsp, type CspMode } from './headers'
-import { sanitizeOrigins } from './plugin-utils'
+import { buildPermissionsPolicy, buildWalletCsp, type CspMode } from './headers';
+import { sanitizeOrigins } from './plugin-utils';
 
-export type NextHeader = { key: string; value: string }
-export type NextHeaderEntry = { source: string; headers: NextHeader[] }
+export type NextHeader = { key: string; value: string };
+export type NextHeaderEntry = { source: string; headers: NextHeader[] };
 
 export function tatchiNextHeaders(opts: {
-  walletOrigin: string
-  cspMode?: CspMode
-  extraFrameSrc?: string[]
+  walletOrigin: string;
+  cspMode?: CspMode;
+  extraFrameSrc?: string[];
   /** Optional allowlist for script-src (e.g., wallet origin for modulepreload in dev) */
-  extraScriptSrc?: string[]
-  allowUnsafeEvalDev?: boolean
-  compatibleInDev?: boolean
+  extraScriptSrc?: string[];
+  allowUnsafeEvalDev?: boolean;
+  compatibleInDev?: boolean;
 }): NextHeaderEntry[] {
-  const wallet = opts.walletOrigin
-  const permissions = buildPermissionsPolicy(wallet)
-  const isDev = process.env.NODE_ENV !== 'production'
-  const mode: CspMode = opts.cspMode ?? (isDev && (opts.compatibleInDev ?? true) ? 'compatible' : 'strict')
-  const allowUnsafeEval = isDev && (opts.allowUnsafeEvalDev ?? true)
+  const wallet = opts.walletOrigin;
+  const permissions = buildPermissionsPolicy(wallet);
+  const isDev = process.env.NODE_ENV !== 'production';
+  const mode: CspMode =
+    opts.cspMode ?? (isDev && (opts.compatibleInDev ?? true) ? 'compatible' : 'strict');
+  const allowUnsafeEval = isDev && (opts.allowUnsafeEvalDev ?? true);
   const csp = buildWalletCsp({
     frameSrc: [wallet, ...(opts.extraFrameSrc || [])],
     scriptSrcAllowlist: [...(opts.extraScriptSrc || [])],
     mode,
     allowUnsafeEval,
-  })
+  });
   return [
-    { source: '/:path*', headers: [
-      { key: 'Permissions-Policy', value: permissions },
-      { key: 'Content-Security-Policy', value: csp },
-    ]}
-  ]
+    {
+      source: '/:path*',
+      headers: [
+        { key: 'Permissions-Policy', value: permissions },
+        { key: 'Content-Security-Policy', value: csp },
+      ],
+    },
+  ];
 }
 
 /**
@@ -46,27 +50,29 @@ export function tatchiNextHeaders(opts: {
  * emitHeaders has no effect for Next.js; kept for parity with Vite wrappers.
  */
 export function tatchiNextApp(opts: {
-  walletOrigin: string
-  emitHeaders?: boolean
-  cspMode?: CspMode
-  extraFrameSrc?: string[]
-  extraScriptSrc?: string[]
-  allowUnsafeEvalDev?: boolean
-  compatibleInDev?: boolean
+  walletOrigin: string;
+  emitHeaders?: boolean;
+  cspMode?: CspMode;
+  extraFrameSrc?: string[];
+  extraScriptSrc?: string[];
+  allowUnsafeEvalDev?: boolean;
+  compatibleInDev?: boolean;
 }) {
   if (opts.emitHeaders) {
-    console.warn('[tatchi] tatchiNextApp: emitHeaders has no effect in Next.js; headers are applied via next.config.js headers().')
+    console.warn(
+      '[tatchi] tatchiNextApp: emitHeaders has no effect in Next.js; headers are applied via next.config.js headers().',
+    );
   }
   return (config: any) => {
-    const existing = config?.headers
+    const existing = config?.headers;
     return {
       ...config,
       async headers() {
-        const user = typeof existing === 'function' ? await existing() : []
-        return [...(user || []), ...tatchiNextHeaders(opts)]
+        const user = typeof existing === 'function' ? await existing() : [];
+        return [...(user || []), ...tatchiNextHeaders(opts)];
       },
-    }
-  }
+    };
+  };
 }
 
 /**
@@ -76,27 +82,29 @@ export function tatchiNextApp(opts: {
  * proxy wallet routes through Next in dev.
  */
 export function tatchiNextWallet(opts: {
-  walletOrigin: string
-  emitHeaders?: boolean
-  cspMode?: CspMode
-  extraFrameSrc?: string[]
-  extraScriptSrc?: string[]
-  allowUnsafeEvalDev?: boolean
-  compatibleInDev?: boolean
+  walletOrigin: string;
+  emitHeaders?: boolean;
+  cspMode?: CspMode;
+  extraFrameSrc?: string[];
+  extraScriptSrc?: string[];
+  allowUnsafeEvalDev?: boolean;
+  compatibleInDev?: boolean;
 }) {
   if (opts.emitHeaders) {
-    console.warn('[tatchi] tatchiNextWallet: emitHeaders has no effect in Next.js; headers are applied via next.config.js headers().')
+    console.warn(
+      '[tatchi] tatchiNextWallet: emitHeaders has no effect in Next.js; headers are applied via next.config.js headers().',
+    );
   }
   return (config: any) => {
-    const existing = config?.headers
+    const existing = config?.headers;
     return {
       ...config,
       async headers() {
-        const user = typeof existing === 'function' ? await existing() : []
-        return [...(user || []), ...tatchiNextHeaders(opts)]
+        const user = typeof existing === 'function' ? await existing() : [];
+        return [...(user || []), ...tatchiNextHeaders(opts)];
       },
-    }
-  }
+    };
+  };
 }
 
 // === Well-known (/.well-known/webauthn) helpers for Next.js ===
@@ -104,8 +112,8 @@ export function tatchiNextWallet(opts: {
 // static allowlist.
 
 type RorOpts = {
-  origins?: string[]
-}
+  origins?: string[];
+};
 
 function resolveRorParams(opts: RorOpts) {
   return sanitizeOrigins([
@@ -115,7 +123,7 @@ function resolveRorParams(opts: RorOpts) {
       .map((s) => s.trim())
       .filter(Boolean),
     String(process.env.VITE_DOCS_ORIGIN || '').trim(),
-  ])
+  ]);
 }
 
 /**
@@ -124,11 +132,11 @@ function resolveRorParams(opts: RorOpts) {
  *   export default (req, res) => handleWellKnownRorNode(req, res)
  */
 export async function handleWellKnownRorNode(_req: any, res: any, opts: RorOpts = {}) {
-  const origins = resolveRorParams(opts)
-  res.statusCode = 200
-  res.setHeader?.('Content-Type', 'application/json; charset=utf-8')
-  res.setHeader?.('Cache-Control', 'max-age=60, stale-while-revalidate=600')
-  res.end?.(JSON.stringify({ origins }))
+  const origins = resolveRorParams(opts);
+  res.statusCode = 200;
+  res.setHeader?.('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader?.('Cache-Control', 'max-age=60, stale-while-revalidate=600');
+  res.end?.(JSON.stringify({ origins }));
 }
 
 /**
@@ -136,13 +144,16 @@ export async function handleWellKnownRorNode(_req: any, res: any, opts: RorOpts 
  * Usage (app/.well-known/webauthn/route.ts):
  *   export async function GET(req: Request) { return handleWellKnownRorEdge(req) }
  */
-export async function handleWellKnownRorEdge(_request: Request, opts: RorOpts = {}): Promise<Response> {
-  const origins = resolveRorParams(opts)
+export async function handleWellKnownRorEdge(
+  _request: Request,
+  opts: RorOpts = {},
+): Promise<Response> {
+  const origins = resolveRorParams(opts);
   return new Response(JSON.stringify({ origins }), {
     status: 200,
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'max-age=60, stale-while-revalidate=600',
     },
-  })
+  });
 }

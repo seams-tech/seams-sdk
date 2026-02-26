@@ -16,11 +16,14 @@ const tsc = run('pnpm', ['run', 'build:watch']);
 const node = run('node', ['--watch', 'dist/index.js']);
 
 function shutdown() {
-  try { tsc.kill(); } catch {}
-  try { node.kill(); } catch {}
+  try {
+    tsc.kill();
+  } catch {}
+  try {
+    node.kill();
+  } catch {}
   process.exit(0);
 }
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
-

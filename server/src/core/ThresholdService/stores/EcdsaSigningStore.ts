@@ -57,7 +57,11 @@ export type ThresholdEcdsaPresignSessionRecord = {
 };
 
 export interface ThresholdEcdsaSigningSessionStore {
-  putSigningSession(id: string, record: ThresholdEcdsaSigningSessionRecord, ttlMs: number): Promise<void>;
+  putSigningSession(
+    id: string,
+    record: ThresholdEcdsaSigningSessionRecord,
+    ttlMs: number,
+  ): Promise<void>;
   takeSigningSession(id: string): Promise<ThresholdEcdsaSigningSessionRecord | null>;
 }
 
@@ -66,7 +70,11 @@ export type ThresholdEcdsaPresignSessionCasResult =
   | { ok: false; code: 'not_found' | 'expired' | 'version_mismatch' };
 
 export interface ThresholdEcdsaPresignSessionStore {
-  createSession(id: string, record: ThresholdEcdsaPresignSessionRecord, ttlMs: number): Promise<{ ok: true } | { ok: false; code: 'exists' }>;
+  createSession(
+    id: string,
+    record: ThresholdEcdsaPresignSessionRecord,
+    ttlMs: number,
+  ): Promise<{ ok: true } | { ok: false; code: 'exists' }>;
   getSession(id: string): Promise<ThresholdEcdsaPresignSessionRecord | null>;
   advanceSessionCas(input: {
     id: string;
@@ -79,16 +87,29 @@ export interface ThresholdEcdsaPresignSessionStore {
 
 export interface ThresholdEcdsaPresignaturePool {
   reserve(relayerKeyId: string): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null>;
-  reserveById(relayerKeyId: string, presignatureId: string): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null>;
-  consume(relayerKeyId: string, presignatureId: string): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null>;
+  reserveById(
+    relayerKeyId: string,
+    presignatureId: string,
+  ): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null>;
+  consume(
+    relayerKeyId: string,
+    presignatureId: string,
+  ): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null>;
   discard(relayerKeyId: string, presignatureId: string): Promise<void>;
   put(record: ThresholdEcdsaPresignatureRelayerShareRecord): Promise<void>;
 }
 
 export class InMemoryThresholdEcdsaSigningSessionStore implements ThresholdEcdsaSigningSessionStore {
-  private readonly map = new Map<string, { value: ThresholdEcdsaSigningSessionRecord; expiresAtMs: number }>();
+  private readonly map = new Map<
+    string,
+    { value: ThresholdEcdsaSigningSessionRecord; expiresAtMs: number }
+  >();
 
-  async putSigningSession(id: string, record: ThresholdEcdsaSigningSessionRecord, ttlMs: number): Promise<void> {
+  async putSigningSession(
+    id: string,
+    record: ThresholdEcdsaSigningSessionRecord,
+    ttlMs: number,
+  ): Promise<void> {
     const key = toOptionalTrimmedString(id);
     if (!key) throw new Error('Missing signingSessionId');
     const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
@@ -107,7 +128,10 @@ export class InMemoryThresholdEcdsaSigningSessionStore implements ThresholdEcdsa
 }
 
 export class InMemoryThresholdEcdsaPresignSessionStore implements ThresholdEcdsaPresignSessionStore {
-  private readonly map = new Map<string, { value: ThresholdEcdsaPresignSessionRecord; expiresAtMs: number }>();
+  private readonly map = new Map<
+    string,
+    { value: ThresholdEcdsaPresignSessionRecord; expiresAtMs: number }
+  >();
 
   async createSession(
     id: string,
@@ -183,8 +207,14 @@ export class InMemoryThresholdEcdsaPresignSessionStore implements ThresholdEcdsa
 }
 
 export class InMemoryThresholdEcdsaPresignaturePool implements ThresholdEcdsaPresignaturePool {
-  private readonly availableByKey = new Map<string, ThresholdEcdsaPresignatureRelayerShareRecord[]>();
-  private readonly reservedByKey = new Map<string, Map<string, { value: ThresholdEcdsaPresignatureRelayerShareRecord; expiresAtMs: number }>>();
+  private readonly availableByKey = new Map<
+    string,
+    ThresholdEcdsaPresignatureRelayerShareRecord[]
+  >();
+  private readonly reservedByKey = new Map<
+    string,
+    Map<string, { value: ThresholdEcdsaPresignatureRelayerShareRecord; expiresAtMs: number }>
+  >();
   private readonly reservationTtlMs: number;
 
   constructor(input?: { reservationTtlMs?: number }) {
@@ -211,7 +241,9 @@ export class InMemoryThresholdEcdsaPresignaturePool implements ThresholdEcdsaPre
     this.availableByKey.set(relayerKeyId, list);
   }
 
-  async reserve(relayerKeyId: string): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
+  async reserve(
+    relayerKeyId: string,
+  ): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     if (!key) return null;
     this.gc(key);
@@ -225,7 +257,10 @@ export class InMemoryThresholdEcdsaPresignaturePool implements ThresholdEcdsaPre
       reserved = new Map();
       this.reservedByKey.set(key, reserved);
     }
-    reserved.set(record.presignatureId, { value: record, expiresAtMs: Date.now() + this.reservationTtlMs });
+    reserved.set(record.presignatureId, {
+      value: record,
+      expiresAtMs: Date.now() + this.reservationTtlMs,
+    });
     return record;
   }
 
@@ -250,11 +285,17 @@ export class InMemoryThresholdEcdsaPresignaturePool implements ThresholdEcdsaPre
       reserved = new Map();
       this.reservedByKey.set(key, reserved);
     }
-    reserved.set(record.presignatureId, { value: record, expiresAtMs: Date.now() + this.reservationTtlMs });
+    reserved.set(record.presignatureId, {
+      value: record,
+      expiresAtMs: Date.now() + this.reservationTtlMs,
+    });
     return record;
   }
 
-  async consume(relayerKeyId: string, presignatureId: string): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
+  async consume(
+    relayerKeyId: string,
+    presignatureId: string,
+  ): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     const id = toOptionalTrimmedString(presignatureId);
     if (!key || !id) return null;
@@ -291,7 +332,11 @@ class UpstashRedisRestThresholdEcdsaSigningSessionStore implements ThresholdEcds
     return `${this.keyPrefix}${id}`;
   }
 
-  async putSigningSession(id: string, record: ThresholdEcdsaSigningSessionRecord, ttlMs: number): Promise<void> {
+  async putSigningSession(
+    id: string,
+    record: ThresholdEcdsaSigningSessionRecord,
+    ttlMs: number,
+  ): Promise<void> {
     const key = toOptionalTrimmedString(id);
     if (!key) throw new Error('Missing signingSessionId');
     await this.client.setJson(this.key(key), record, Math.max(0, Number(ttlMs) || 0));
@@ -301,7 +346,9 @@ class UpstashRedisRestThresholdEcdsaSigningSessionStore implements ThresholdEcds
     const key = toOptionalTrimmedString(id);
     if (!key) return null;
     const raw = await this.client.getdelJson(this.key(key));
-    return (parseThresholdEcdsaSigningSessionRecord(raw) as ThresholdEcdsaSigningSessionRecord | null);
+    return parseThresholdEcdsaSigningSessionRecord(
+      raw,
+    ) as ThresholdEcdsaSigningSessionRecord | null;
   }
 }
 
@@ -320,7 +367,11 @@ class RedisTcpThresholdEcdsaSigningSessionStore implements ThresholdEcdsaSigning
     return `${this.keyPrefix}${id}`;
   }
 
-  async putSigningSession(id: string, record: ThresholdEcdsaSigningSessionRecord, ttlMs: number): Promise<void> {
+  async putSigningSession(
+    id: string,
+    record: ThresholdEcdsaSigningSessionRecord,
+    ttlMs: number,
+  ): Promise<void> {
     const key = toOptionalTrimmedString(id);
     if (!key) throw new Error('Missing signingSessionId');
     await redisSetJson(this.client, this.key(key), record, Math.max(0, Number(ttlMs) || 0));
@@ -330,7 +381,9 @@ class RedisTcpThresholdEcdsaSigningSessionStore implements ThresholdEcdsaSigning
     const key = toOptionalTrimmedString(id);
     if (!key) return null;
     const raw = await redisGetdelJson(this.client, this.key(key));
-    return (parseThresholdEcdsaSigningSessionRecord(raw) as ThresholdEcdsaSigningSessionRecord | null);
+    return parseThresholdEcdsaSigningSessionRecord(
+      raw,
+    ) as ThresholdEcdsaSigningSessionRecord | null;
   }
 }
 
@@ -360,19 +413,21 @@ class UpstashRedisRestThresholdEcdsaPresignSessionStore implements ThresholdEcds
       const raw = await this.client.eval(
         ECDSA_PRESIGN_SESSION_CREATE_LUA,
         [this.key(key)],
-        [
-          JSON.stringify(parsed),
-          String(toRedisMilliseconds(ttlMs)),
-          String(Date.now()),
-        ],
+        [JSON.stringify(parsed), String(toRedisMilliseconds(ttlMs)), String(Date.now())],
       );
       if (raw === 'ok') return { ok: true };
       if (raw === 'exists') return { ok: false, code: 'exists' };
       throw new Error(`[threshold-ecdsa] Unexpected Upstash CAS-create result: ${String(raw)}`);
     } catch (e: unknown) {
-      const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || '');
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || '',
+      );
       if (isEvalUnsupportedError(msg)) {
-        throw new Error('[threshold-ecdsa] Upstash EVAL is required for atomic presign-session CAS; ensure scripting is enabled');
+        throw new Error(
+          '[threshold-ecdsa] Upstash EVAL is required for atomic presign-session CAS; ensure scripting is enabled',
+        );
       }
       throw e;
     }
@@ -399,7 +454,8 @@ class UpstashRedisRestThresholdEcdsaPresignSessionStore implements ThresholdEcds
     const key = toOptionalTrimmedString(input.id);
     if (!key) return { ok: false, code: 'not_found' };
     const expectedVersion = Math.floor(Number(input.expectedVersion));
-    if (!Number.isFinite(expectedVersion) || expectedVersion < 1) return { ok: false, code: 'version_mismatch' };
+    if (!Number.isFinite(expectedVersion) || expectedVersion < 1)
+      return { ok: false, code: 'version_mismatch' };
     const parsed = parseThresholdEcdsaPresignSessionRecord(input.nextRecord);
     if (!parsed) throw new Error('Invalid threshold-ecdsa presign session record');
     try {
@@ -415,9 +471,15 @@ class UpstashRedisRestThresholdEcdsaPresignSessionStore implements ThresholdEcds
       );
       return parsePresignSessionCasLuaResult(raw);
     } catch (e: unknown) {
-      const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || '');
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || '',
+      );
       if (isEvalUnsupportedError(msg)) {
-        throw new Error('[threshold-ecdsa] Upstash EVAL is required for atomic presign-session CAS; ensure scripting is enabled');
+        throw new Error(
+          '[threshold-ecdsa] Upstash EVAL is required for atomic presign-session CAS; ensure scripting is enabled',
+        );
       }
       throw e;
     }
@@ -471,11 +533,15 @@ class RedisTcpThresholdEcdsaPresignSessionStore implements ThresholdEcdsaPresign
     }
     if (evalResp.type === 'error') {
       if (isEvalUnsupportedError(evalResp.value)) {
-        throw new Error('[threshold-ecdsa] Redis EVAL is required for atomic presign-session CAS; enable scripting permissions');
+        throw new Error(
+          '[threshold-ecdsa] Redis EVAL is required for atomic presign-session CAS; enable scripting permissions',
+        );
       }
       throw new Error(`Redis EVAL error: ${evalResp.value}`);
     }
-    throw new Error(`[threshold-ecdsa] Redis EVAL returned unexpected response type: ${evalResp.type}`);
+    throw new Error(
+      `[threshold-ecdsa] Redis EVAL returned unexpected response type: ${evalResp.type}`,
+    );
   }
 
   async getSession(id: string): Promise<ThresholdEcdsaPresignSessionRecord | null> {
@@ -502,7 +568,8 @@ class RedisTcpThresholdEcdsaPresignSessionStore implements ThresholdEcdsaPresign
     const key = toOptionalTrimmedString(input.id);
     if (!key) return { ok: false, code: 'not_found' };
     const expectedVersion = Math.floor(Number(input.expectedVersion));
-    if (!Number.isFinite(expectedVersion) || expectedVersion < 1) return { ok: false, code: 'version_mismatch' };
+    if (!Number.isFinite(expectedVersion) || expectedVersion < 1)
+      return { ok: false, code: 'version_mismatch' };
     const parsed = parseThresholdEcdsaPresignSessionRecord(input.nextRecord);
     if (!parsed) throw new Error('Invalid threshold-ecdsa presign session record');
     const evalResp = await this.client.send([
@@ -520,11 +587,15 @@ class RedisTcpThresholdEcdsaPresignSessionStore implements ThresholdEcdsaPresign
     }
     if (evalResp.type === 'error') {
       if (isEvalUnsupportedError(evalResp.value)) {
-        throw new Error('[threshold-ecdsa] Redis EVAL is required for atomic presign-session CAS; enable scripting permissions');
+        throw new Error(
+          '[threshold-ecdsa] Redis EVAL is required for atomic presign-session CAS; enable scripting permissions',
+        );
       }
       throw new Error(`Redis EVAL error: ${evalResp.value}`);
     }
-    throw new Error(`[threshold-ecdsa] Redis EVAL returned unexpected response type: ${evalResp.type}`);
+    throw new Error(
+      `[threshold-ecdsa] Redis EVAL returned unexpected response type: ${evalResp.type}`,
+    );
   }
 
   async deleteSession(id: string): Promise<void> {
@@ -544,7 +615,11 @@ class PostgresThresholdEcdsaSigningSessionStore implements ThresholdEcdsaSigning
     this.namespace = input.namespace;
   }
 
-  async putSigningSession(id: string, record: ThresholdEcdsaSigningSessionRecord, ttlMs: number): Promise<void> {
+  async putSigningSession(
+    id: string,
+    record: ThresholdEcdsaSigningSessionRecord,
+    ttlMs: number,
+  ): Promise<void> {
     const key = toOptionalTrimmedString(id);
     if (!key) throw new Error('Missing signingSessionId');
     const ttl = Math.max(0, Number(ttlMs) || 0);
@@ -577,9 +652,12 @@ class PostgresThresholdEcdsaSigningSessionStore implements ThresholdEcdsaSigning
       [this.namespace, key],
     );
     const row = rows[0] as { record_json?: unknown; expires_at_ms?: unknown } | undefined;
-    const expiresAtMs = typeof row?.expires_at_ms === 'number' ? row.expires_at_ms : Number(row?.expires_at_ms);
+    const expiresAtMs =
+      typeof row?.expires_at_ms === 'number' ? row.expires_at_ms : Number(row?.expires_at_ms);
     if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) return null;
-    return (parseThresholdEcdsaSigningSessionRecord(row?.record_json) as ThresholdEcdsaSigningSessionRecord | null);
+    return parseThresholdEcdsaSigningSessionRecord(
+      row?.record_json,
+    ) as ThresholdEcdsaSigningSessionRecord | null;
   }
 }
 
@@ -619,15 +697,7 @@ class PostgresThresholdEcdsaPresignSessionStore implements ThresholdEcdsaPresign
         ON CONFLICT (namespace, presign_session_id) DO NOTHING
         RETURNING presign_session_id
       `,
-      [
-        this.namespace,
-        key,
-        parsed,
-        parsed.stage,
-        parsed.version,
-        expiresAtMs,
-        Date.now(),
-      ],
+      [this.namespace, key, parsed, parsed.stage, parsed.version, expiresAtMs, Date.now()],
     );
     if (Array.isArray(result.rows) && result.rows.length > 0) {
       return { ok: true };
@@ -653,11 +723,9 @@ class PostgresThresholdEcdsaPresignSessionStore implements ThresholdEcdsaPresign
     const expiresAtMs =
       typeof row.expires_at_ms === 'number' ? row.expires_at_ms : Number(row.expires_at_ms);
     if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) return null;
-    return (
-      parseThresholdEcdsaPresignSessionRecord(row.record_json) as
-        | ThresholdEcdsaPresignSessionRecord
-        | null
-    );
+    return parseThresholdEcdsaPresignSessionRecord(
+      row.record_json,
+    ) as ThresholdEcdsaPresignSessionRecord | null;
   }
 
   async advanceSessionCas(input: {
@@ -707,9 +775,9 @@ class PostgresThresholdEcdsaPresignSessionStore implements ThresholdEcdsaPresign
     );
     const row = rows[0] as { record_json?: unknown } | undefined;
     if (row) {
-      const updated = parseThresholdEcdsaPresignSessionRecord(row.record_json) as
-        | ThresholdEcdsaPresignSessionRecord
-        | null;
+      const updated = parseThresholdEcdsaPresignSessionRecord(
+        row.record_json,
+      ) as ThresholdEcdsaPresignSessionRecord | null;
       if (!updated) throw new Error('Invalid threshold-ecdsa presign session record after CAS');
       return { ok: true, record: updated };
     }
@@ -722,7 +790,9 @@ class PostgresThresholdEcdsaPresignSessionStore implements ThresholdEcdsaPresign
       `,
       [this.namespace, key],
     );
-    const existingRow = existing.rows[0] as { version?: unknown; expires_at_ms?: unknown } | undefined;
+    const existingRow = existing.rows[0] as
+      | { version?: unknown; expires_at_ms?: unknown }
+      | undefined;
     if (!existingRow) return { ok: false, code: 'not_found' };
     const existingExpiresAtMs =
       typeof existingRow.expires_at_ms === 'number'
@@ -886,30 +956,39 @@ function toRedisMilliseconds(ms: number): number {
   return Math.max(1, Math.ceil(Math.max(0, Number(ms) || 0)));
 }
 
-function parsePresignatureRecordFromRaw(raw: unknown): ThresholdEcdsaPresignatureRelayerShareRecord | null {
+function parsePresignatureRecordFromRaw(
+  raw: unknown,
+): ThresholdEcdsaPresignatureRelayerShareRecord | null {
   if (raw === null || raw === undefined) return null;
   if (typeof raw === 'string') {
-    return (parseThresholdEcdsaPresignatureRelayerShareRecord(parseJson(raw)) as ThresholdEcdsaPresignatureRelayerShareRecord | null);
+    return parseThresholdEcdsaPresignatureRelayerShareRecord(
+      parseJson(raw),
+    ) as ThresholdEcdsaPresignatureRelayerShareRecord | null;
   }
-  return (parseThresholdEcdsaPresignatureRelayerShareRecord(raw) as ThresholdEcdsaPresignatureRelayerShareRecord | null);
+  return parseThresholdEcdsaPresignatureRelayerShareRecord(
+    raw,
+  ) as ThresholdEcdsaPresignatureRelayerShareRecord | null;
 }
 
 function parsePresignSessionRecordFromRaw(raw: unknown): ThresholdEcdsaPresignSessionRecord | null {
   if (raw === null || raw === undefined) return null;
   if (typeof raw === 'string') {
-    return (parseThresholdEcdsaPresignSessionRecord(parseJson(raw)) as ThresholdEcdsaPresignSessionRecord | null);
+    return parseThresholdEcdsaPresignSessionRecord(
+      parseJson(raw),
+    ) as ThresholdEcdsaPresignSessionRecord | null;
   }
-  return (parseThresholdEcdsaPresignSessionRecord(raw) as ThresholdEcdsaPresignSessionRecord | null);
+  return parseThresholdEcdsaPresignSessionRecord(raw) as ThresholdEcdsaPresignSessionRecord | null;
 }
 
 function parsePresignSessionCasLuaResult(raw: unknown): ThresholdEcdsaPresignSessionCasResult {
   if (typeof raw === 'string' && raw.startsWith('__err__:')) {
     const codeRaw = raw.slice('__err__:'.length).trim();
-    const code = codeRaw === 'expired'
-      ? 'expired'
-      : codeRaw === 'version_mismatch'
-        ? 'version_mismatch'
-        : 'not_found';
+    const code =
+      codeRaw === 'expired'
+        ? 'expired'
+        : codeRaw === 'version_mismatch'
+          ? 'version_mismatch'
+          : 'not_found';
     return { ok: false, code };
   }
   const record = parsePresignSessionRecordFromRaw(raw);
@@ -920,10 +999,12 @@ function parsePresignSessionCasLuaResult(raw: unknown): ThresholdEcdsaPresignSes
 function isEvalUnsupportedError(message: string): boolean {
   const m = String(message || '').toLowerCase();
   if (!m) return false;
-  return m.includes('unknown command')
-    || m.includes('err unknown command')
-    || m.includes('noperm')
-    || m.includes('command is not allowed');
+  return (
+    m.includes('unknown command') ||
+    m.includes('err unknown command') ||
+    m.includes('noperm') ||
+    m.includes('command is not allowed')
+  );
 }
 
 class UpstashRedisRestThresholdEcdsaPresignaturePool implements ThresholdEcdsaPresignaturePool {
@@ -956,7 +1037,9 @@ class UpstashRedisRestThresholdEcdsaPresignaturePool implements ThresholdEcdsaPr
     await this.client.rpush(this.availKey(relayerKeyId), JSON.stringify(record));
   }
 
-  async reserve(relayerKeyId: string): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
+  async reserve(
+    relayerKeyId: string,
+  ): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     if (!key) return null;
     const ttlSeconds = String(toRedisSeconds(this.reservationTtlMs));
@@ -968,9 +1051,15 @@ class UpstashRedisRestThresholdEcdsaPresignaturePool implements ThresholdEcdsaPr
       );
       return parsePresignatureRecordFromRaw(raw);
     } catch (e: unknown) {
-      const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || '');
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || '',
+      );
       if (isEvalUnsupportedError(msg)) {
-        throw new Error('[threshold-ecdsa] Upstash EVAL is required for atomic presignature reserve; ensure scripting is enabled');
+        throw new Error(
+          '[threshold-ecdsa] Upstash EVAL is required for atomic presignature reserve; ensure scripting is enabled',
+        );
       }
       throw e;
     }
@@ -993,20 +1082,31 @@ class UpstashRedisRestThresholdEcdsaPresignaturePool implements ThresholdEcdsaPr
       );
       return parsePresignatureRecordFromRaw(raw);
     } catch (e: unknown) {
-      const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || '');
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || '',
+      );
       if (isEvalUnsupportedError(msg)) {
-        throw new Error('[threshold-ecdsa] Upstash EVAL is required for atomic presignature reserve-by-id; ensure scripting is enabled');
+        throw new Error(
+          '[threshold-ecdsa] Upstash EVAL is required for atomic presignature reserve-by-id; ensure scripting is enabled',
+        );
       }
       throw e;
     }
   }
 
-  async consume(relayerKeyId: string, presignatureId: string): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
+  async consume(
+    relayerKeyId: string,
+    presignatureId: string,
+  ): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     const id = toOptionalTrimmedString(presignatureId);
     if (!key || !id) return null;
     const raw = await this.client.getdelJson(this.reservedKey(key, id));
-    return (parseThresholdEcdsaPresignatureRelayerShareRecord(raw) as ThresholdEcdsaPresignatureRelayerShareRecord | null);
+    return parseThresholdEcdsaPresignatureRelayerShareRecord(
+      raw,
+    ) as ThresholdEcdsaPresignatureRelayerShareRecord | null;
   }
 
   async discard(relayerKeyId: string, presignatureId: string): Promise<void> {
@@ -1054,7 +1154,9 @@ class RedisTcpThresholdEcdsaPresignaturePool implements ThresholdEcdsaPresignatu
     await redisRpushRaw(this.client, this.availKey(relayerKeyId), JSON.stringify(record));
   }
 
-  async reserve(relayerKeyId: string): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
+  async reserve(
+    relayerKeyId: string,
+  ): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     if (!key) return null;
     const ttlSeconds = String(toRedisSeconds(this.reservationTtlMs));
@@ -1072,11 +1174,15 @@ class RedisTcpThresholdEcdsaPresignaturePool implements ThresholdEcdsaPresignatu
     }
     if (evalResp.type === 'error') {
       if (isEvalUnsupportedError(evalResp.value)) {
-        throw new Error('[threshold-ecdsa] Redis EVAL is required for atomic presignature reserve; enable scripting permissions');
+        throw new Error(
+          '[threshold-ecdsa] Redis EVAL is required for atomic presignature reserve; enable scripting permissions',
+        );
       }
       throw new Error(`Redis EVAL error: ${evalResp.value}`);
     }
-    throw new Error(`[threshold-ecdsa] Redis EVAL returned unexpected response type: ${evalResp.type}`);
+    throw new Error(
+      `[threshold-ecdsa] Redis EVAL returned unexpected response type: ${evalResp.type}`,
+    );
   }
 
   async reserveById(
@@ -1103,19 +1209,28 @@ class RedisTcpThresholdEcdsaPresignaturePool implements ThresholdEcdsaPresignatu
     }
     if (evalResp.type === 'error') {
       if (isEvalUnsupportedError(evalResp.value)) {
-        throw new Error('[threshold-ecdsa] Redis EVAL is required for atomic presignature reserve-by-id; enable scripting permissions');
+        throw new Error(
+          '[threshold-ecdsa] Redis EVAL is required for atomic presignature reserve-by-id; enable scripting permissions',
+        );
       }
       throw new Error(`Redis EVAL error: ${evalResp.value}`);
     }
-    throw new Error(`[threshold-ecdsa] Redis EVAL returned unexpected response type: ${evalResp.type}`);
+    throw new Error(
+      `[threshold-ecdsa] Redis EVAL returned unexpected response type: ${evalResp.type}`,
+    );
   }
 
-  async consume(relayerKeyId: string, presignatureId: string): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
+  async consume(
+    relayerKeyId: string,
+    presignatureId: string,
+  ): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     const id = toOptionalTrimmedString(presignatureId);
     if (!key || !id) return null;
     const raw = await redisGetdelJson(this.client, this.reservedKey(key, id));
-    return (parseThresholdEcdsaPresignatureRelayerShareRecord(raw) as ThresholdEcdsaPresignatureRelayerShareRecord | null);
+    return parseThresholdEcdsaPresignatureRelayerShareRecord(
+      raw,
+    ) as ThresholdEcdsaPresignatureRelayerShareRecord | null;
   }
 
   async discard(relayerKeyId: string, presignatureId: string): Promise<void> {
@@ -1155,11 +1270,20 @@ class PostgresThresholdEcdsaPresignaturePool implements ThresholdEcdsaPresignatu
         VALUES ($1, $2, $3, $4, $5, $6)
         ON CONFLICT (namespace, relayer_key_id, presignature_id) DO NOTHING
       `,
-      [this.namespace, parsed.relayerKeyId, parsed.presignatureId, 'available', parsed, parsed.createdAtMs],
+      [
+        this.namespace,
+        parsed.relayerKeyId,
+        parsed.presignatureId,
+        'available',
+        parsed,
+        parsed.createdAtMs,
+      ],
     );
   }
 
-  async reserve(relayerKeyId: string): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
+  async reserve(
+    relayerKeyId: string,
+  ): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
     const relayer = toOptionalTrimmedString(relayerKeyId);
     if (!relayer) return null;
     const pool = await this.poolPromise;
@@ -1188,7 +1312,9 @@ class PostgresThresholdEcdsaPresignaturePool implements ThresholdEcdsaPresignatu
       [this.namespace, relayer, nowMs, reserveExpiresAtMs],
     );
     const record = rows[0]?.record_json;
-    return (parseThresholdEcdsaPresignatureRelayerShareRecord(record) as ThresholdEcdsaPresignatureRelayerShareRecord | null);
+    return parseThresholdEcdsaPresignatureRelayerShareRecord(
+      record,
+    ) as ThresholdEcdsaPresignatureRelayerShareRecord | null;
   }
 
   async reserveById(
@@ -1223,10 +1349,15 @@ class PostgresThresholdEcdsaPresignaturePool implements ThresholdEcdsaPresignatu
       [this.namespace, relayer, id, nowMs, reserveExpiresAtMs],
     );
     const record = rows[0]?.record_json;
-    return (parseThresholdEcdsaPresignatureRelayerShareRecord(record) as ThresholdEcdsaPresignatureRelayerShareRecord | null);
+    return parseThresholdEcdsaPresignatureRelayerShareRecord(
+      record,
+    ) as ThresholdEcdsaPresignatureRelayerShareRecord | null;
   }
 
-  async consume(relayerKeyId: string, presignatureId: string): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
+  async consume(
+    relayerKeyId: string,
+    presignatureId: string,
+  ): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
     const relayer = toOptionalTrimmedString(relayerKeyId);
     const id = toOptionalTrimmedString(presignatureId);
     if (!relayer || !id) return null;
@@ -1241,11 +1372,14 @@ class PostgresThresholdEcdsaPresignaturePool implements ThresholdEcdsaPresignatu
       [this.namespace, relayer, id],
     );
     const row = rows[0] as { record_json?: unknown; reserve_expires_at_ms?: unknown } | undefined;
-    const reserveExpiresAtMs = typeof row?.reserve_expires_at_ms === 'number'
-      ? row.reserve_expires_at_ms
-      : Number(row?.reserve_expires_at_ms);
+    const reserveExpiresAtMs =
+      typeof row?.reserve_expires_at_ms === 'number'
+        ? row.reserve_expires_at_ms
+        : Number(row?.reserve_expires_at_ms);
     if (Number.isFinite(reserveExpiresAtMs) && reserveExpiresAtMs < nowMs) return null;
-    return (parseThresholdEcdsaPresignatureRelayerShareRecord(row?.record_json) as ThresholdEcdsaPresignatureRelayerShareRecord | null);
+    return parseThresholdEcdsaPresignatureRelayerShareRecord(
+      row?.record_json,
+    ) as ThresholdEcdsaPresignatureRelayerShareRecord | null;
   }
 
   async discard(relayerKeyId: string, presignatureId: string): Promise<void> {
@@ -1272,7 +1406,10 @@ export function createThresholdEcdsaSigningStores(input: {
   presignaturePool: ThresholdEcdsaPresignaturePool;
   presignSessionStore: ThresholdEcdsaPresignSessionStore;
 } {
-  const doStores = createCloudflareDurableObjectThresholdEcdsaStores({ config: input.config, logger: input.logger });
+  const doStores = createCloudflareDurableObjectThresholdEcdsaStores({
+    config: input.config,
+    logger: input.logger,
+  });
   if (doStores) {
     return {
       signingSessionStore: doStores.signingSessionStore,
@@ -1286,18 +1423,20 @@ export function createThresholdEcdsaSigningStores(input: {
   const requirePersistent = !input.isNode && !allowInMemory;
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
   const signingPrefix = toThresholdEcdsaSigningPrefix(
-    toOptionalTrimmedString(config.THRESHOLD_ECDSA_SIGNING_PREFIX)
-    || toThresholdEcdsaPrefixFromBase(basePrefix, 'signing'),
+    toOptionalTrimmedString(config.THRESHOLD_ECDSA_SIGNING_PREFIX) ||
+      toThresholdEcdsaPrefixFromBase(basePrefix, 'signing'),
   );
   const presignPrefix = toThresholdEcdsaPresignPrefix(
-    toOptionalTrimmedString(config.THRESHOLD_ECDSA_PRESIGN_PREFIX)
-    || toThresholdEcdsaPrefixFromBase(basePrefix, 'presign'),
+    toOptionalTrimmedString(config.THRESHOLD_ECDSA_PRESIGN_PREFIX) ||
+      toThresholdEcdsaPrefixFromBase(basePrefix, 'presign'),
   );
 
   const kind = toOptionalTrimmedString(config.kind);
   if (kind === 'in-memory') {
     if (requirePersistent) {
-      throw new Error('[threshold-ecdsa] In-memory presign/signing stores are not supported in this runtime; configure Redis/Postgres or Durable Objects');
+      throw new Error(
+        '[threshold-ecdsa] In-memory presign/signing stores are not supported in this runtime; configure Redis/Postgres or Durable Objects',
+      );
     }
     return {
       signingSessionStore: new InMemoryThresholdEcdsaSigningSessionStore(),
@@ -1307,24 +1446,49 @@ export function createThresholdEcdsaSigningStores(input: {
   }
 
   if (kind === 'upstash-redis-rest') {
-    const url = toOptionalTrimmedString((config as any).url) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
-    const token = toOptionalTrimmedString((config as any).token) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
-    if (!url || !token) throw new Error('[threshold-ecdsa] upstash-redis-rest selected but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not set');
+    const url =
+      toOptionalTrimmedString((config as any).url) ||
+      toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
+    const token =
+      toOptionalTrimmedString((config as any).token) ||
+      toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
+    if (!url || !token)
+      throw new Error(
+        '[threshold-ecdsa] upstash-redis-rest selected but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not set',
+      );
     return {
-      signingSessionStore: new UpstashRedisRestThresholdEcdsaSigningSessionStore({ url, token, keyPrefix: signingPrefix }),
-      presignaturePool: new UpstashRedisRestThresholdEcdsaPresignaturePool({ url, token, keyPrefix: presignPrefix }),
-      presignSessionStore: new UpstashRedisRestThresholdEcdsaPresignSessionStore({ url, token, keyPrefix: presignPrefix }),
+      signingSessionStore: new UpstashRedisRestThresholdEcdsaSigningSessionStore({
+        url,
+        token,
+        keyPrefix: signingPrefix,
+      }),
+      presignaturePool: new UpstashRedisRestThresholdEcdsaPresignaturePool({
+        url,
+        token,
+        keyPrefix: presignPrefix,
+      }),
+      presignSessionStore: new UpstashRedisRestThresholdEcdsaPresignSessionStore({
+        url,
+        token,
+        keyPrefix: presignPrefix,
+      }),
     };
   }
 
   if (kind === 'redis-tcp') {
-    const redisUrl = toOptionalTrimmedString((config as any).redisUrl) || toOptionalTrimmedString(config.REDIS_URL);
+    const redisUrl =
+      toOptionalTrimmedString((config as any).redisUrl) ||
+      toOptionalTrimmedString(config.REDIS_URL);
     if (!redisUrl) throw new Error('[threshold-ecdsa] redis-tcp selected but REDIS_URL is not set');
     if (!input.isNode) {
       if (requirePersistent) {
-        throw new Error('[threshold-ecdsa] redis-tcp presign/signing stores are not supported in this runtime; configure Upstash/Redis REST or Durable Objects');
+        throw new Error(
+          '[threshold-ecdsa] redis-tcp presign/signing stores are not supported in this runtime; configure Upstash/Redis REST or Durable Objects',
+        );
       }
-      input.logger.warn('[threshold-ecdsa] redis-tcp is not supported in this runtime; falling back to in-memory');
+      input.logger.warn(
+        '[threshold-ecdsa] redis-tcp is not supported in this runtime; falling back to in-memory',
+      );
       return {
         signingSessionStore: new InMemoryThresholdEcdsaSigningSessionStore(),
         presignaturePool: new InMemoryThresholdEcdsaPresignaturePool(),
@@ -1332,25 +1496,46 @@ export function createThresholdEcdsaSigningStores(input: {
       };
     }
     return {
-      signingSessionStore: new RedisTcpThresholdEcdsaSigningSessionStore({ redisUrl, keyPrefix: signingPrefix }),
-      presignaturePool: new RedisTcpThresholdEcdsaPresignaturePool({ redisUrl, keyPrefix: presignPrefix }),
-      presignSessionStore: new RedisTcpThresholdEcdsaPresignSessionStore({ redisUrl, keyPrefix: presignPrefix }),
+      signingSessionStore: new RedisTcpThresholdEcdsaSigningSessionStore({
+        redisUrl,
+        keyPrefix: signingPrefix,
+      }),
+      presignaturePool: new RedisTcpThresholdEcdsaPresignaturePool({
+        redisUrl,
+        keyPrefix: presignPrefix,
+      }),
+      presignSessionStore: new RedisTcpThresholdEcdsaPresignSessionStore({
+        redisUrl,
+        keyPrefix: presignPrefix,
+      }),
     };
   }
 
   if (kind === 'postgres') {
     if (!input.isNode) {
-      throw new Error('[threshold-ecdsa] postgres presign/signing stores are not supported in this runtime');
+      throw new Error(
+        '[threshold-ecdsa] postgres presign/signing stores are not supported in this runtime',
+      );
     }
     const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl) throw new Error('[threshold-ecdsa] postgres selected but POSTGRES_URL is not set');
+    if (!postgresUrl)
+      throw new Error('[threshold-ecdsa] postgres selected but POSTGRES_URL is not set');
     input.logger.warn(
       '[threshold-ecdsa] Using Postgres for presign/signing hot path; for lower presign p95/p99, prefer Upstash/Redis (set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN or REDIS_URL)',
     );
     return {
-      signingSessionStore: new PostgresThresholdEcdsaSigningSessionStore({ postgresUrl, namespace: signingPrefix }),
-      presignaturePool: new PostgresThresholdEcdsaPresignaturePool({ postgresUrl, namespace: presignPrefix }),
-      presignSessionStore: new PostgresThresholdEcdsaPresignSessionStore({ postgresUrl, namespace: presignPrefix }),
+      signingSessionStore: new PostgresThresholdEcdsaSigningSessionStore({
+        postgresUrl,
+        namespace: signingPrefix,
+      }),
+      presignaturePool: new PostgresThresholdEcdsaPresignaturePool({
+        postgresUrl,
+        namespace: presignPrefix,
+      }),
+      presignSessionStore: new PostgresThresholdEcdsaPresignSessionStore({
+        postgresUrl,
+        namespace: presignPrefix,
+      }),
     };
   }
 
@@ -1359,13 +1544,27 @@ export function createThresholdEcdsaSigningStores(input: {
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
   if (upstashUrl || upstashToken) {
     if (!upstashUrl || !upstashToken) {
-      throw new Error('[threshold-ecdsa] Upstash selected but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set');
+      throw new Error(
+        '[threshold-ecdsa] Upstash selected but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set',
+      );
     }
     input.logger.info('[threshold-ecdsa] Using Upstash REST for presign pool + signing sessions');
     return {
-      signingSessionStore: new UpstashRedisRestThresholdEcdsaSigningSessionStore({ url: upstashUrl, token: upstashToken, keyPrefix: signingPrefix }),
-      presignaturePool: new UpstashRedisRestThresholdEcdsaPresignaturePool({ url: upstashUrl, token: upstashToken, keyPrefix: presignPrefix }),
-      presignSessionStore: new UpstashRedisRestThresholdEcdsaPresignSessionStore({ url: upstashUrl, token: upstashToken, keyPrefix: presignPrefix }),
+      signingSessionStore: new UpstashRedisRestThresholdEcdsaSigningSessionStore({
+        url: upstashUrl,
+        token: upstashToken,
+        keyPrefix: signingPrefix,
+      }),
+      presignaturePool: new UpstashRedisRestThresholdEcdsaPresignaturePool({
+        url: upstashUrl,
+        token: upstashToken,
+        keyPrefix: presignPrefix,
+      }),
+      presignSessionStore: new UpstashRedisRestThresholdEcdsaPresignSessionStore({
+        url: upstashUrl,
+        token: upstashToken,
+        keyPrefix: presignPrefix,
+      }),
     };
   }
 
@@ -1373,9 +1572,13 @@ export function createThresholdEcdsaSigningStores(input: {
   if (redisUrl) {
     if (!input.isNode) {
       if (requirePersistent) {
-        throw new Error('[threshold-ecdsa] REDIS_URL is set but TCP Redis is not supported in this runtime; use Upstash/Redis REST or Durable Objects');
+        throw new Error(
+          '[threshold-ecdsa] REDIS_URL is set but TCP Redis is not supported in this runtime; use Upstash/Redis REST or Durable Objects',
+        );
       }
-      input.logger.warn('[threshold-ecdsa] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory');
+      input.logger.warn(
+        '[threshold-ecdsa] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory',
+      );
       return {
         signingSessionStore: new InMemoryThresholdEcdsaSigningSessionStore(),
         presignaturePool: new InMemoryThresholdEcdsaPresignaturePool(),
@@ -1384,33 +1587,57 @@ export function createThresholdEcdsaSigningStores(input: {
     }
     input.logger.info('[threshold-ecdsa] Using redis-tcp for presign pool + signing sessions');
     return {
-      signingSessionStore: new RedisTcpThresholdEcdsaSigningSessionStore({ redisUrl, keyPrefix: signingPrefix }),
-      presignaturePool: new RedisTcpThresholdEcdsaPresignaturePool({ redisUrl, keyPrefix: presignPrefix }),
-      presignSessionStore: new RedisTcpThresholdEcdsaPresignSessionStore({ redisUrl, keyPrefix: presignPrefix }),
+      signingSessionStore: new RedisTcpThresholdEcdsaSigningSessionStore({
+        redisUrl,
+        keyPrefix: signingPrefix,
+      }),
+      presignaturePool: new RedisTcpThresholdEcdsaPresignaturePool({
+        redisUrl,
+        keyPrefix: presignPrefix,
+      }),
+      presignSessionStore: new RedisTcpThresholdEcdsaPresignSessionStore({
+        redisUrl,
+        keyPrefix: presignPrefix,
+      }),
     };
   }
 
   const postgresUrl = getPostgresUrlFromConfig(config);
   if (postgresUrl) {
     if (!input.isNode) {
-      throw new Error('[threshold-ecdsa] POSTGRES_URL is set but Postgres is not supported in this runtime');
+      throw new Error(
+        '[threshold-ecdsa] POSTGRES_URL is set but Postgres is not supported in this runtime',
+      );
     }
     input.logger.info('[threshold-ecdsa] Using Postgres for presign pool + signing sessions');
     input.logger.warn(
       '[threshold-ecdsa] Postgres hot-path selected for threshold-ecdsa presign/signing; for lower tail latency, prefer Upstash/Redis for these stores',
     );
     return {
-      signingSessionStore: new PostgresThresholdEcdsaSigningSessionStore({ postgresUrl, namespace: signingPrefix }),
-      presignaturePool: new PostgresThresholdEcdsaPresignaturePool({ postgresUrl, namespace: presignPrefix }),
-      presignSessionStore: new PostgresThresholdEcdsaPresignSessionStore({ postgresUrl, namespace: presignPrefix }),
+      signingSessionStore: new PostgresThresholdEcdsaSigningSessionStore({
+        postgresUrl,
+        namespace: signingPrefix,
+      }),
+      presignaturePool: new PostgresThresholdEcdsaPresignaturePool({
+        postgresUrl,
+        namespace: presignPrefix,
+      }),
+      presignSessionStore: new PostgresThresholdEcdsaPresignSessionStore({
+        postgresUrl,
+        namespace: presignPrefix,
+      }),
     };
   }
 
   if (requirePersistent) {
-    throw new Error('[threshold-ecdsa] Presign/signing stores require persistent storage in this runtime; configure UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN or Durable Objects');
+    throw new Error(
+      '[threshold-ecdsa] Presign/signing stores require persistent storage in this runtime; configure UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN or Durable Objects',
+    );
   }
 
-  input.logger.info('[threshold-ecdsa] Using in-memory presign pool + signing sessions (non-persistent)');
+  input.logger.info(
+    '[threshold-ecdsa] Using in-memory presign pool + signing sessions (non-persistent)',
+  );
   return {
     signingSessionStore: new InMemoryThresholdEcdsaSigningSessionStore(),
     presignaturePool: new InMemoryThresholdEcdsaPresignaturePool(),

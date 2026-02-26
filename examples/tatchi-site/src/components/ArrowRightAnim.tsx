@@ -23,15 +23,10 @@ export const ArrowRightAnim: React.FC<ArrowRightAnimProps> = ({
   color,
   size: sizeProp,
 }) => {
-  const size = typeof sizeProp === 'number' && Number.isFinite(sizeProp)
-    ? sizeProp
-    : 12;
+  const size = typeof sizeProp === 'number' && Number.isFinite(sizeProp) ? sizeProp : 12;
 
   return (
-    <div
-      className={clsx('stripe-arrow', className)}
-      style={color ? { color } : undefined}
-    >
+    <div className={clsx('stripe-arrow', className)} style={color ? { color } : undefined}>
       {title ?? null}
       <svg
         className="HoverArrow"
@@ -42,14 +37,8 @@ export const ArrowRightAnim: React.FC<ArrowRightAnimProps> = ({
         focusable="false"
       >
         <g fillRule="evenodd">
-          <path
-            className="HoverArrow__linePath"
-            d="M0 5h7"
-          />
-          <path
-            className="HoverArrow__tipPath"
-            d="M1 1l4 4-4 4"
-          />
+          <path className="HoverArrow__linePath" d="M0 5h7" />
+          <path className="HoverArrow__tipPath" d="M1 1l4 4-4 4" />
         </g>
       </svg>
     </div>

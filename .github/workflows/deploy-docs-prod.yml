@@ -2,7 +2,7 @@ name: deploy-docs-prod
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch: {}
 
 jobs:
@@ -28,8 +28,8 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "pnpm"
+          node-version: '20'
+          cache: 'pnpm'
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -78,4 +78,3 @@ jobs:
           wrangler pages deploy examples/tatchi-docs/dist/docs \
             --project-name "$CF_PAGES_PROJECT" \
             --branch main
-

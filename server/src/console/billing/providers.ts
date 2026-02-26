@@ -1,7 +1,4 @@
-import type {
-  StablecoinAssetSymbol,
-  StablecoinSettlementChain,
-} from './stablecoinAssets';
+import type { StablecoinAssetSymbol, StablecoinSettlementChain } from './stablecoinAssets';
 
 export interface StripeSetupIntentProviderInput {
   orgId: string;
@@ -71,7 +68,11 @@ function makeCustomerRef(orgId: string): string {
   return `cus_${orgId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'org'}`;
 }
 
-function makeDestinationAddress(orgId: string, chain: StablecoinSettlementChain, now: Date): string {
+function makeDestinationAddress(
+  orgId: string,
+  chain: StablecoinSettlementChain,
+  now: Date,
+): string {
   const prefix = chain.toLowerCase().replace(/[^a-z0-9]/g, '');
   return `pay_${prefix}_${orgId.slice(0, 8)}_${now.getTime().toString(36)}`;
 }
@@ -85,10 +86,12 @@ export function createDefaultBillingProviderAdapters(): BillingProviderAdapters 
           id,
           clientSecret: `${id}_secret_${Math.random().toString(36).slice(2, 12)}`,
           customerRef: makeCustomerRef(input.orgId),
-          expiresAt: new Date(input.now.getTime() + (30 * 60 * 1000)).toISOString(),
+          expiresAt: new Date(input.now.getTime() + 30 * 60 * 1000).toISOString(),
         };
       },
-      createPaymentIntent(input: StripePaymentIntentProviderInput): StripePaymentIntentProviderOutput {
+      createPaymentIntent(
+        input: StripePaymentIntentProviderInput,
+      ): StripePaymentIntentProviderOutput {
         const providerRef = makeProviderId('pi_provider', input.now);
         return {
           providerRef,
@@ -97,7 +100,9 @@ export function createDefaultBillingProviderAdapters(): BillingProviderAdapters 
       },
     },
     stablecoin: {
-      allocateDestination(input: StablecoinDestinationProviderInput): StablecoinDestinationProviderOutput {
+      allocateDestination(
+        input: StablecoinDestinationProviderInput,
+      ): StablecoinDestinationProviderOutput {
         return {
           destinationAddress: makeDestinationAddress(input.orgId, input.chain, input.now),
         };
@@ -115,4 +120,3 @@ export function resolveBillingProviderAdapters(
     stablecoin: overrides?.stablecoin || defaults.stablecoin,
   };
 }
-

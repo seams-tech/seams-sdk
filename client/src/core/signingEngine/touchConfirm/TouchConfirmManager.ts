@@ -28,9 +28,7 @@ import {
   type SigningConfirmationResultIntentDigest,
   type SigningConfirmationResultWithTxContext,
 } from './handlers/flowOrchestrator';
-import {
-  requestRegistrationCredentialConfirmation as requestRegistrationCredentialConfirmationFlow,
-} from './handlers/flows/requestRegistrationCredentialConfirmation';
+import { requestRegistrationCredentialConfirmation as requestRegistrationCredentialConfirmationFlow } from './handlers/flows/requestRegistrationCredentialConfirmation';
 import type {
   RequestRegistrationCredentialConfirmationParams,
   RequestUserConfirmationOptions,
@@ -70,7 +68,9 @@ function parseThresholdPrfCachePeekResult(data: unknown): ThresholdPrfCachePeekR
   };
 }
 
-function parseThresholdPrfCacheDispenseResult(data: unknown): ThresholdPrfCacheDispenseResult | null {
+function parseThresholdPrfCacheDispenseResult(
+  data: unknown,
+): ThresholdPrfCacheDispenseResult | null {
   if (!isObjectRecord(data) || typeof data.ok !== 'boolean') return null;
   if (!data.ok) {
     return {
@@ -80,9 +80,9 @@ function parseThresholdPrfCacheDispenseResult(data: unknown): ThresholdPrfCacheD
     };
   }
   if (
-    typeof data.prfFirstB64u !== 'string'
-    || typeof data.remainingUses !== 'number'
-    || typeof data.expiresAtMs !== 'number'
+    typeof data.prfFirstB64u !== 'string' ||
+    typeof data.remainingUses !== 'number' ||
+    typeof data.expiresAtMs !== 'number'
   ) {
     return null;
   }
@@ -101,10 +101,10 @@ function parseUserConfirmProgressEvent(data: unknown): UserConfirmProgressEvent 
   const phase = typeof data.phase === 'string' ? data.phase : '';
   const status = data.status;
   if (
-    !requestId
-    || !Number.isFinite(step)
-    || !phase
-    || (status !== 'progress' && status !== 'success' && status !== 'error')
+    !requestId ||
+    !Number.isFinite(step) ||
+    !phase ||
+    (status !== 'progress' && status !== 'success' && status !== 'error')
   ) {
     return null;
   }
@@ -150,7 +150,10 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
   private workerBaseOrigin: string | undefined;
   private context: TouchConfirmContext;
   private readonly pendingWorkerRequests = new Map<string, PendingWorkerRequest>();
-  private readonly userConfirmProgressListeners = new Map<string, (progress: UserConfirmProgressEvent) => void>();
+  private readonly userConfirmProgressListeners = new Map<
+    string,
+    (progress: UserConfirmProgressEvent) => void
+  >();
   private readonly boundHandleWorkerMessage = this.handleWorkerMessage.bind(this);
   private readonly boundHandleWorkerError = this.handleWorkerError.bind(this);
 
@@ -160,7 +163,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       workerUrl: BUILD_PATHS.RUNTIME.TOUCH_CONFIRM_WORKER,
       workerTimeout: 60_000,
       debug: false,
-      ...config
+      ...config,
     };
     this.context = {
       ...context,
@@ -200,7 +203,11 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     });
     const parsed = parseThresholdPrfCachePeekResult(res?.data);
     if (res?.success !== true || !parsed) {
-      return { ok: false, code: 'worker_error', message: String(res?.error || 'PRF.first cache peek failed') };
+      return {
+        ok: false,
+        code: 'worker_error',
+        message: String(res?.error || 'PRF.first cache peek failed'),
+      };
     }
     return parsed;
   }
@@ -217,7 +224,11 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     });
     const parsed = parseThresholdPrfCacheDispenseResult(res?.data);
     if (res?.success !== true || !parsed) {
-      return { ok: false, code: 'worker_error', message: String(res?.error || 'PRF.first cache dispense failed') };
+      return {
+        ok: false,
+        code: 'worker_error',
+        message: String(res?.error || 'PRF.first cache dispense failed'),
+      };
     }
     return parsed;
   }
@@ -230,7 +241,9 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       payload: args,
     });
     if (!res?.success) {
-      throw new Error(String(res?.error || 'Failed to clear PRF.first cache for threshold session'));
+      throw new Error(
+        String(res?.error || 'Failed to clear PRF.first cache for threshold session'),
+      );
     }
   }
 
@@ -354,11 +367,14 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     // Optional health check for critical operations
     if (requireHealthCheck) {
       try {
-        const healthResponse = await this.sendMessage({
-          type: 'PING',
-          id: this.generateMessageId(),
-          payload: {}
-        }, 3000);
+        const healthResponse = await this.sendMessage(
+          {
+            type: 'PING',
+            id: this.generateMessageId(),
+            payload: {},
+          },
+          3000,
+        );
 
         if (!healthResponse.success) {
           throw new Error('UserConfirm worker failed health check');
@@ -386,12 +402,12 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     // 2. Errors are re-thrown to callers (no silent swallowing)
     // 3. Failed initialization promise is reset for retry
     // 4. Debug logs actually appear in test output
-    this.initializationPromise = this.createUserConfirmWorker().catch(error => {
+    this.initializationPromise = this.createUserConfirmWorker().catch((error) => {
       console.error('[UserConfirmWorker] initialization failed:', error);
       console.error('[UserConfirmWorker] error details:', {
         message: error.message,
         stack: error.stack,
-        name: error.name
+        name: error.name,
       });
       // Reset promise so initialization can be retried
       this.initializationPromise = null;
@@ -413,11 +429,14 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       this.rejectAllPendingWorkerRequests(new Error('UserConfirm worker was restarted'));
 
       const relativePath = this.config.workerUrl || BUILD_PATHS.RUNTIME.TOUCH_CONFIRM_WORKER;
-      const workerUrlStr = resolveWorkerUrl(relativePath, { worker: 'touchConfirm', baseOrigin: this.workerBaseOrigin });
+      const workerUrlStr = resolveWorkerUrl(relativePath, {
+        worker: 'touchConfirm',
+        baseOrigin: this.workerBaseOrigin,
+      });
       console.debug('[UserConfirmWorker] Worker URL:', workerUrlStr);
       const worker = new Worker(workerUrlStr, {
         type: 'module',
-        name: 'Web3AuthnSecureConfirmWorker'
+        name: 'Web3AuthnSecureConfirmWorker',
       });
       this.attachWorkerRouter(worker);
       this.worker = worker;
@@ -440,9 +459,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
   }
 
   private isFromActiveWorker(event: Event): boolean {
-    return !!this.worker
-      && event.currentTarget === this.worker
-      && event.target === this.worker;
+    return !!this.worker && event.currentTarget === this.worker && event.target === this.worker;
   }
 
   private normalizePromptEnvelope(payload: unknown): UserConfirmPromptEnvelope | null {
@@ -463,13 +480,13 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     }
     const request = typedPayload.data as UserConfirmRequest;
     const dataRequestId = typeof request?.requestId === 'string' ? request.requestId.trim() : '';
-    const requestId = typeof typedPayload.requestId === 'string' ? typedPayload.requestId.trim() : '';
+    const requestId =
+      typeof typedPayload.requestId === 'string' ? typedPayload.requestId.trim() : '';
     if (!dataRequestId || !requestId || requestId !== dataRequestId) {
       return null;
     }
-    const channelToken = typeof typedPayload.channelToken === 'string'
-      ? typedPayload.channelToken.trim()
-      : '';
+    const channelToken =
+      typeof typedPayload.channelToken === 'string' ? typedPayload.channelToken.trim() : '';
     if (!channelToken) {
       return null;
     }
@@ -499,9 +516,12 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
 
   private dispatchUserConfirmProgress(payload: { requestId?: unknown; data?: unknown }): void {
     const progressEvent = parseUserConfirmProgressEvent(payload.data);
-    const requestId = typeof payload.requestId === 'string' && payload.requestId.trim()
-      ? payload.requestId.trim()
-      : (typeof progressEvent?.requestId === 'string' ? progressEvent.requestId.trim() : '');
+    const requestId =
+      typeof payload.requestId === 'string' && payload.requestId.trim()
+        ? payload.requestId.trim()
+        : typeof progressEvent?.requestId === 'string'
+          ? progressEvent.requestId.trim()
+          : '';
     if (!requestId || !progressEvent) {
       return;
     }
@@ -521,13 +541,17 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       return;
     }
 
-    const payload = event.data as UserConfirmWorkerResponse | {
-      type?: unknown;
-      requestId?: unknown;
-      data?: unknown;
-    };
+    const payload = event.data as
+      | UserConfirmWorkerResponse
+      | {
+          type?: unknown;
+          requestId?: unknown;
+          data?: unknown;
+        };
 
-    if ((payload as { type?: unknown }).type === UserConfirmMessageType.USER_PASSKEY_CONFIRM_PROGRESS) {
+    if (
+      (payload as { type?: unknown }).type === UserConfirmMessageType.USER_PASSKEY_CONFIRM_PROGRESS
+    ) {
       this.dispatchUserConfirmProgress(payload as { requestId?: unknown; data?: unknown });
       return;
     }
@@ -541,17 +565,26 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     if (promptEnv) {
       const ctx = this.getContext();
       if (!this.worker) {
-        console.error('[UserConfirmWorker] missing worker for PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD');
+        console.error(
+          '[UserConfirmWorker] missing worker for PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD',
+        );
         return;
       }
       void handlePromptFromWorker(ctx, promptEnv, this.worker).catch((error) => {
         console.error('[UserConfirmWorker] failed to handle confirmation prompt:', error);
-        this.postPromptEnvelopeError(promptEnv.requestId, promptEnv.channelToken || '', 'Secure confirmation failed');
+        this.postPromptEnvelopeError(
+          promptEnv.requestId,
+          promptEnv.channelToken || '',
+          'Secure confirmation failed',
+        );
       });
       return;
     }
 
-    if ((payload as { type?: unknown }).type === UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD) {
+    if (
+      (payload as { type?: unknown }).type ===
+      UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD
+    ) {
       console.error('[UserConfirmWorker] rejected malformed prompt envelope');
       return;
     }
@@ -569,7 +602,9 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       return;
     }
     const errorEvent = event as ErrorEvent;
-    const message = String(errorEvent?.message || 'UserConfirm worker encountered an unknown error');
+    const message = String(
+      errorEvent?.message || 'UserConfirm worker encountered an unknown error',
+    );
     const error = new Error(`UserConfirm worker failed: ${message}`);
     console.error('[UserConfirmWorker] error:', errorEvent);
     this.rejectAllPendingWorkerRequests(error);
@@ -625,25 +660,29 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         return;
       }
 
-      const abortedError = () => new Error(`UserConfirm worker request aborted for message type: ${message.type}`);
+      const abortedError = () =>
+        new Error(`UserConfirm worker request aborted for message type: ${message.type}`);
       if (signal?.aborted) {
         reject(abortedError());
         return;
       }
 
-      const requestId = typeof message.id === 'string' && message.id.trim().length
-        ? message.id.trim()
-        : this.generateMessageId();
+      const requestId =
+        typeof message.id === 'string' && message.id.trim().length
+          ? message.id.trim()
+          : this.generateMessageId();
       if (this.pendingWorkerRequests.has(requestId)) {
         reject(new Error(`Duplicate UserConfirm worker request id: ${requestId}`));
         return;
       }
 
-      const timeoutMs = (customTimeout ?? this.config.workerTimeout ?? 60_000);
+      const timeoutMs = customTimeout ?? this.config.workerTimeout ?? 60_000;
       const timeoutId = setTimeout(() => {
         this.rejectPendingWorkerRequest(
           requestId,
-          new Error(`UserConfirm worker communication timeout (${timeoutMs}ms) for message type: ${message.type}`)
+          new Error(
+            `UserConfirm worker communication timeout (${timeoutMs}ms) for message type: ${message.type}`,
+          ),
         );
       }, timeoutMs);
 
@@ -689,11 +728,14 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
   private async testWebWorkerCommunication(): Promise<void> {
     try {
       const timeoutMs = 2000;
-      const pingResponse = await this.sendMessage({
-        type: 'PING',
-        id: this.generateMessageId(),
-        payload: {}
-      }, timeoutMs);
+      const pingResponse = await this.sendMessage(
+        {
+          type: 'PING',
+          id: this.generateMessageId(),
+          payload: {},
+        },
+        timeoutMs,
+      );
       if (!pingResponse.success) {
         throw new Error(`UserConfirm worker PING failed: ${pingResponse.error}`);
       }

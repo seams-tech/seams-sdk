@@ -67,7 +67,11 @@ export function getCachedEcdsaAuthSession(cacheKey: string): EcdsaAuthSession | 
   const entry = authSessionCache.get(cacheKey);
   if (!entry) return null;
 
-  if (typeof entry.expiresAtMs === 'number' && Number.isFinite(entry.expiresAtMs) && Date.now() >= entry.expiresAtMs) {
+  if (
+    typeof entry.expiresAtMs === 'number' &&
+    Number.isFinite(entry.expiresAtMs) &&
+    Date.now() >= entry.expiresAtMs
+  ) {
     clearCachedEcdsaAuthSession(cacheKey);
     return null;
   }
@@ -106,7 +110,9 @@ export function getCachedEcdsaAuthSessionJwt(cacheKey: string): string | undefin
   return undefined;
 }
 
-export function getCachedEcdsaAuthSessionBySessionId(sessionIdRaw: string): EcdsaAuthSession | null {
+export function getCachedEcdsaAuthSessionBySessionId(
+  sessionIdRaw: string,
+): EcdsaAuthSession | null {
   const sessionId = toSessionId(sessionIdRaw);
   if (!sessionId) return null;
 

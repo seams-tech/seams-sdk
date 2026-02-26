@@ -1,9 +1,8 @@
 import { FRONTEND_CONFIG } from './config';
 
-export const NEAR_EXPLORER_BASE_URL = (
-  FRONTEND_CONFIG.chains.find((chain) => String(chain.network).startsWith('near-'))?.explorerUrl
-  || FRONTEND_CONFIG.nearExplorerUrl
-);
+export const NEAR_EXPLORER_BASE_URL =
+  FRONTEND_CONFIG.chains.find((chain) => String(chain.network).startsWith('near-'))?.explorerUrl ||
+  FRONTEND_CONFIG.nearExplorerUrl;
 export const DEMO_CONTRACT_ID = FRONTEND_CONFIG.demoContractId;
 
 // Types for server responses (simplified, ensure they match your backend)

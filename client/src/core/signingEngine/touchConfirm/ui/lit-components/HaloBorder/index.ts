@@ -37,7 +37,11 @@ export class HaloBorderElement extends LitElementWithProps {
 
   protected createRenderRoot(): HTMLElement | DocumentFragment {
     const root = super.createRenderRoot();
-    const p = ensureExternalStyles(root as ShadowRoot | DocumentFragment | HTMLElement, 'halo-border.css', 'data-w3a-halo-border-css');
+    const p = ensureExternalStyles(
+      root as ShadowRoot | DocumentFragment | HTMLElement,
+      'halo-border.css',
+      'data-w3a-halo-border-css',
+    );
     this._stylePromises.push(p);
     p.catch(() => {});
     return root;
@@ -47,9 +51,14 @@ export class HaloBorderElement extends LitElementWithProps {
   protected shouldUpdate(_changed: Map<string | number | symbol, unknown>): boolean {
     if (this._stylesReady) return true;
     if (!this._stylesAwaiting) {
-      const settle = Promise.all(this._stylePromises)
-        .then(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
-      this._stylesAwaiting = settle.then(() => { this._stylesReady = true; this.requestUpdate(); });
+      const settle = Promise.all(this._stylePromises).then(
+        () =>
+          new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+      );
+      this._stylesAwaiting = settle.then(() => {
+        this._stylesReady = true;
+        this.requestUpdate();
+      });
     }
     return false;
   }
@@ -74,7 +83,8 @@ export class HaloBorderElement extends LitElementWithProps {
     // Start/stop animation based on "animated" or duration changes
     if (!changed) return;
     if (changed.has('animated') || changed.has('durationMs')) {
-      if (this.animated) this.start(); else this.stop();
+      if (this.animated) this.start();
+      else this.stop();
     }
   }
 
@@ -91,7 +101,7 @@ export class HaloBorderElement extends LitElementWithProps {
   private tick = (ts: number) => {
     if (!this._running) return;
     if (!this._startTs) this._startTs = ts;
-    const dur = (typeof this.durationMs === 'number' && this.durationMs > 0) ? this.durationMs : 1150;
+    const dur = typeof this.durationMs === 'number' && this.durationMs > 0 ? this.durationMs : 1150;
     const delta = (ts - this._startTs) % dur;
     const angle = (delta / dur) * 360;
     // Update only the angle var via adoptedStyleSheet (no style attribute writes)

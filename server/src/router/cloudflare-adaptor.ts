@@ -1,7 +1,4 @@
-export type {
-  RelayRouterOptions,
-  ThresholdSigningAdapter,
-} from './relay';
+export type { RelayRouterOptions, ThresholdSigningAdapter } from './relay';
 export type {
   ConsoleRouterOptions,
   ConsoleAuthAdapter,

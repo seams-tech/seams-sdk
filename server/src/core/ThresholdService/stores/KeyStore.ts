@@ -181,33 +181,43 @@ export function createThresholdEd25519KeyStore(input: {
   logger: NormalizedLogger;
   isNode: boolean;
 }): ThresholdEd25519KeyStore {
-  const doStores = createCloudflareDurableObjectThresholdEd25519Stores({ config: input.config, logger: input.logger });
+  const doStores = createCloudflareDurableObjectThresholdEd25519Stores({
+    config: input.config,
+    logger: input.logger,
+  });
   if (doStores) return doStores.keyStore;
 
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
   const envPrefix =
-    toOptionalTrimmedString(config.THRESHOLD_ED25519_KEYSTORE_PREFIX)
-    || toThresholdEd25519PrefixFromBase(basePrefix, 'key')
-    || '';
+    toOptionalTrimmedString(config.THRESHOLD_ED25519_KEYSTORE_PREFIX) ||
+    toThresholdEd25519PrefixFromBase(basePrefix, 'key') ||
+    '';
 
   // Explicit config object
   const kind = toOptionalTrimmedString(config.kind);
   if (kind === 'in-memory') return new InMemoryThresholdEd25519KeyStore();
   if (kind === 'upstash-redis-rest') {
     return new UpstashRedisRestThresholdEd25519KeyStore({
-      url: toOptionalTrimmedString(config.url) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL),
-      token: toOptionalTrimmedString(config.token) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN),
+      url:
+        toOptionalTrimmedString(config.url) ||
+        toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL),
+      token:
+        toOptionalTrimmedString(config.token) ||
+        toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN),
       keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
     });
   }
   if (kind === 'redis-tcp') {
     if (!input.isNode) {
-      input.logger.warn('[threshold-ed25519] redis-tcp key store is not supported in this runtime; falling back to in-memory');
+      input.logger.warn(
+        '[threshold-ed25519] redis-tcp key store is not supported in this runtime; falling back to in-memory',
+      );
       return new InMemoryThresholdEd25519KeyStore();
     }
     return new RedisTcpThresholdEd25519KeyStore({
-      redisUrl: toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL),
+      redisUrl:
+        toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL),
       keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
     });
   }
@@ -216,18 +226,28 @@ export function createThresholdEd25519KeyStore(input: {
       throw new Error('[threshold-ed25519] postgres key store is not supported in this runtime');
     }
     const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl) throw new Error('[threshold-ed25519] postgres key store enabled but POSTGRES_URL is not set');
-    input.logger.info('[threshold-ed25519] Using Postgres key store for relayer signing share persistence');
-    return new PostgresThresholdEd25519KeyStore({ postgresUrl, namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix });
+    if (!postgresUrl)
+      throw new Error('[threshold-ed25519] postgres key store enabled but POSTGRES_URL is not set');
+    input.logger.info(
+      '[threshold-ed25519] Using Postgres key store for relayer signing share persistence',
+    );
+    return new PostgresThresholdEd25519KeyStore({
+      postgresUrl,
+      namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
+    });
   }
 
   // Env-shaped config
   const postgresUrl = getPostgresUrlFromConfig(config);
   if (postgresUrl) {
     if (!input.isNode) {
-      throw new Error('[threshold-ed25519] POSTGRES_URL is set but Postgres is not supported in this runtime');
+      throw new Error(
+        '[threshold-ed25519] POSTGRES_URL is set but Postgres is not supported in this runtime',
+      );
     }
-    input.logger.info('[threshold-ed25519] Using Postgres key store for relayer signing share persistence');
+    input.logger.info(
+      '[threshold-ed25519] Using Postgres key store for relayer signing share persistence',
+    );
     return new PostgresThresholdEd25519KeyStore({ postgresUrl, namespace: envPrefix || '' });
   }
 
@@ -235,23 +255,37 @@ export function createThresholdEd25519KeyStore(input: {
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
   if (upstashUrl || upstashToken) {
     if (!upstashUrl || !upstashToken) {
-      throw new Error('Upstash key store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set');
+      throw new Error(
+        'Upstash key store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set',
+      );
     }
-    input.logger.info('[threshold-ed25519] Using Upstash REST key store for relayer signing share persistence');
-    return new UpstashRedisRestThresholdEd25519KeyStore({ url: upstashUrl, token: upstashToken, keyPrefix: envPrefix || undefined });
+    input.logger.info(
+      '[threshold-ed25519] Using Upstash REST key store for relayer signing share persistence',
+    );
+    return new UpstashRedisRestThresholdEd25519KeyStore({
+      url: upstashUrl,
+      token: upstashToken,
+      keyPrefix: envPrefix || undefined,
+    });
   }
 
   const redisUrl = toOptionalTrimmedString(config.REDIS_URL);
   if (redisUrl) {
     if (!input.isNode) {
-      input.logger.warn('[threshold-ed25519] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory');
+      input.logger.warn(
+        '[threshold-ed25519] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory',
+      );
       return new InMemoryThresholdEd25519KeyStore();
     }
-    input.logger.info('[threshold-ed25519] Using redis-tcp key store for relayer signing share persistence');
+    input.logger.info(
+      '[threshold-ed25519] Using redis-tcp key store for relayer signing share persistence',
+    );
     return new RedisTcpThresholdEd25519KeyStore({ redisUrl, keyPrefix: envPrefix || undefined });
   }
 
-  input.logger.info('[threshold-ed25519] Using in-memory key store for relayer signing share (non-persistent)');
+  input.logger.info(
+    '[threshold-ed25519] Using in-memory key store for relayer signing share (non-persistent)',
+  );
   return new InMemoryThresholdEd25519KeyStore();
 }
 
@@ -260,14 +294,17 @@ export function createThresholdEcdsaKeyStore(input: {
   logger: NormalizedLogger;
   isNode: boolean;
 }): ThresholdEd25519KeyStore {
-  const doStores = createCloudflareDurableObjectThresholdEcdsaStores({ config: input.config, logger: input.logger });
+  const doStores = createCloudflareDurableObjectThresholdEcdsaStores({
+    config: input.config,
+    logger: input.logger,
+  });
   if (doStores) return doStores.keyStore;
 
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
   const envPrefix = toThresholdEcdsaKeyPrefix(
-    toOptionalTrimmedString(config.THRESHOLD_ECDSA_KEYSTORE_PREFIX)
-    || toThresholdEcdsaPrefixFromBase(basePrefix, 'key'),
+    toOptionalTrimmedString(config.THRESHOLD_ECDSA_KEYSTORE_PREFIX) ||
+      toThresholdEcdsaPrefixFromBase(basePrefix, 'key'),
   );
 
   // Explicit config object
@@ -275,18 +312,25 @@ export function createThresholdEcdsaKeyStore(input: {
   if (kind === 'in-memory') return new InMemoryThresholdEd25519KeyStore();
   if (kind === 'upstash-redis-rest') {
     return new UpstashRedisRestThresholdEd25519KeyStore({
-      url: toOptionalTrimmedString(config.url) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL),
-      token: toOptionalTrimmedString(config.token) || toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN),
+      url:
+        toOptionalTrimmedString(config.url) ||
+        toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL),
+      token:
+        toOptionalTrimmedString(config.token) ||
+        toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN),
       keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
     });
   }
   if (kind === 'redis-tcp') {
     if (!input.isNode) {
-      input.logger.warn('[threshold-ecdsa] redis-tcp key store is not supported in this runtime; falling back to in-memory');
+      input.logger.warn(
+        '[threshold-ecdsa] redis-tcp key store is not supported in this runtime; falling back to in-memory',
+      );
       return new InMemoryThresholdEd25519KeyStore();
     }
     return new RedisTcpThresholdEd25519KeyStore({
-      redisUrl: toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL),
+      redisUrl:
+        toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL),
       keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
     });
   }
@@ -295,18 +339,28 @@ export function createThresholdEcdsaKeyStore(input: {
       throw new Error('[threshold-ecdsa] postgres key store is not supported in this runtime');
     }
     const postgresUrl = getPostgresUrlFromConfig(config);
-    if (!postgresUrl) throw new Error('[threshold-ecdsa] postgres key store enabled but POSTGRES_URL is not set');
-    input.logger.info('[threshold-ecdsa] Using Postgres key store for relayer signing share persistence');
-    return new PostgresThresholdEd25519KeyStore({ postgresUrl, namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix });
+    if (!postgresUrl)
+      throw new Error('[threshold-ecdsa] postgres key store enabled but POSTGRES_URL is not set');
+    input.logger.info(
+      '[threshold-ecdsa] Using Postgres key store for relayer signing share persistence',
+    );
+    return new PostgresThresholdEd25519KeyStore({
+      postgresUrl,
+      namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
+    });
   }
 
   // Env-shaped config
   const postgresUrl = getPostgresUrlFromConfig(config);
   if (postgresUrl) {
     if (!input.isNode) {
-      throw new Error('[threshold-ecdsa] POSTGRES_URL is set but Postgres is not supported in this runtime');
+      throw new Error(
+        '[threshold-ecdsa] POSTGRES_URL is set but Postgres is not supported in this runtime',
+      );
     }
-    input.logger.info('[threshold-ecdsa] Using Postgres key store for relayer signing share persistence');
+    input.logger.info(
+      '[threshold-ecdsa] Using Postgres key store for relayer signing share persistence',
+    );
     return new PostgresThresholdEd25519KeyStore({ postgresUrl, namespace: envPrefix });
   }
 
@@ -314,22 +368,36 @@ export function createThresholdEcdsaKeyStore(input: {
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
   if (upstashUrl || upstashToken) {
     if (!upstashUrl || !upstashToken) {
-      throw new Error('Upstash key store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set');
+      throw new Error(
+        'Upstash key store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set',
+      );
     }
-    input.logger.info('[threshold-ecdsa] Using Upstash REST key store for relayer signing share persistence');
-    return new UpstashRedisRestThresholdEd25519KeyStore({ url: upstashUrl, token: upstashToken, keyPrefix: envPrefix });
+    input.logger.info(
+      '[threshold-ecdsa] Using Upstash REST key store for relayer signing share persistence',
+    );
+    return new UpstashRedisRestThresholdEd25519KeyStore({
+      url: upstashUrl,
+      token: upstashToken,
+      keyPrefix: envPrefix,
+    });
   }
 
   const redisUrl = toOptionalTrimmedString(config.REDIS_URL);
   if (redisUrl) {
     if (!input.isNode) {
-      input.logger.warn('[threshold-ecdsa] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory');
+      input.logger.warn(
+        '[threshold-ecdsa] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory',
+      );
       return new InMemoryThresholdEd25519KeyStore();
     }
-    input.logger.info('[threshold-ecdsa] Using redis-tcp key store for relayer signing share persistence');
+    input.logger.info(
+      '[threshold-ecdsa] Using redis-tcp key store for relayer signing share persistence',
+    );
     return new RedisTcpThresholdEd25519KeyStore({ redisUrl, keyPrefix: envPrefix });
   }
 
-  input.logger.info('[threshold-ecdsa] Using in-memory key store for relayer signing share (non-persistent)');
+  input.logger.info(
+    '[threshold-ecdsa] Using in-memory key store for relayer signing share (non-persistent)',
+  );
   return new InMemoryThresholdEd25519KeyStore();
 }

@@ -83,8 +83,12 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
   private readonly childRef: Ref<TxConfirmerVariantElement> = createRef();
   private redispatchingEvent = false;
   private currentChild: TxConfirmerVariantElement | null = null;
-  private boundConfirmListener = (event: Event) => { this.handleChildConfirm(event); };
-  private boundCancelListener = (_event: Event) => { this.handleChildCancel(); };
+  private boundConfirmListener = (event: Event) => {
+    this.handleChildConfirm(event);
+  };
+  private boundCancelListener = (_event: Event) => {
+    this.handleChildCancel();
+  };
 
   constructor() {
     super();
@@ -198,15 +202,27 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
     if (this.currentChild) {
       this.detachChildListeners();
     }
-    child.addEventListener(WalletIframeDomEvents.TX_CONFIRMER_CONFIRM, this.boundConfirmListener as EventListener);
-    child.addEventListener(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, this.boundCancelListener as EventListener);
+    child.addEventListener(
+      WalletIframeDomEvents.TX_CONFIRMER_CONFIRM,
+      this.boundConfirmListener as EventListener,
+    );
+    child.addEventListener(
+      WalletIframeDomEvents.TX_CONFIRMER_CANCEL,
+      this.boundCancelListener as EventListener,
+    );
     this.currentChild = child;
   }
 
   private detachChildListeners(): void {
     if (!this.currentChild) return;
-    this.currentChild.removeEventListener(WalletIframeDomEvents.TX_CONFIRMER_CONFIRM, this.boundConfirmListener as EventListener);
-    this.currentChild.removeEventListener(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, this.boundCancelListener as EventListener);
+    this.currentChild.removeEventListener(
+      WalletIframeDomEvents.TX_CONFIRMER_CONFIRM,
+      this.boundConfirmListener as EventListener,
+    );
+    this.currentChild.removeEventListener(
+      WalletIframeDomEvents.TX_CONFIRMER_CANCEL,
+      this.boundCancelListener as EventListener,
+    );
     this.currentChild = null;
   }
 
@@ -214,7 +230,11 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
     super.disconnectedCallback();
     this.detachChildListeners();
     // Remove capture-phase fallback listener
-    this.removeEventListener(WalletIframeDomEvents.TX_CONFIRMER_CONFIRM, this.boundConfirmListener as EventListener, true);
+    this.removeEventListener(
+      WalletIframeDomEvents.TX_CONFIRMER_CONFIRM,
+      this.boundConfirmListener as EventListener,
+      true,
+    );
   }
 
   connectedCallback(): void {
@@ -224,7 +244,7 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
     this.addEventListener(
       WalletIframeDomEvents.TX_CONFIRMER_CONFIRM,
       this.boundConfirmListener as EventListener,
-      true
+      true,
     );
   }
 
@@ -238,7 +258,8 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
   private handleChildConfirm(event: Event): void {
     if (this.redispatchingEvent) return;
     const child = this.childRef.value;
-    const detail = (event as CustomEvent<{ confirmed?: boolean; error?: string }> | undefined)?.detail;
+    const detail = (event as CustomEvent<{ confirmed?: boolean; error?: string }> | undefined)
+      ?.detail;
     const confirmed = detail?.confirmed !== false;
     const error: string | undefined = typeof detail?.error === 'string' ? detail.error : undefined;
 
@@ -251,11 +272,13 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
           this.loading = true;
           this.syncChildProps();
         }
-        this.dispatchEvent(new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CONFIRM, {
-          detail: { confirmed: true },
-          bubbles: true,
-          composed: true,
-        }));
+        this.dispatchEvent(
+          new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CONFIRM, {
+            detail: { confirmed: true },
+            bubbles: true,
+            composed: true,
+          }),
+        );
         return;
       }
 
@@ -271,11 +294,13 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
       const detail: { confirmed: false; error?: string } = { confirmed: false };
       if (typeof error === 'string') detail.error = error;
 
-      this.dispatchEvent(new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
-        detail,
-        bubbles: true,
-        composed: true,
-      }));
+      this.dispatchEvent(
+        new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
+          detail,
+          bubbles: true,
+          composed: true,
+        }),
+      );
     } finally {
       this.redispatchingEvent = false;
     }

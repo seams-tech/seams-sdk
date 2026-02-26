@@ -215,9 +215,7 @@ export async function executeSignedDelegateWithRelayer(params: {
     if (rawDelegate && !('actions' in rawDelegate) && 'actionsJson' in rawDelegate) {
       let parsedActions: any[] = [];
       try {
-        parsedActions = rawDelegate.actionsJson
-          ? JSON.parse(String(rawDelegate.actionsJson))
-          : [];
+        parsedActions = rawDelegate.actionsJson ? JSON.parse(String(rawDelegate.actionsJson)) : [];
       } catch (err) {
         const error = new Error('delegate_actions_parse_failed');
         (error as any).cause = err;
@@ -275,8 +273,7 @@ export async function executeSignedDelegateWithRelayer(params: {
     // receiver is the wallet user's account that owns the access key used
     // to validate delegate_action.nonce and delegate_action.public_key.
     const delegateSenderId = String(
-      delegateForWorker?.senderId ||
-      signedDelegate?.delegateAction?.senderId || ''
+      delegateForWorker?.senderId || signedDelegate?.delegateAction?.senderId || '',
     ).trim();
 
     if (!delegateSenderId) {

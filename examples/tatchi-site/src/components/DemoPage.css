@@ -1,4 +1,3 @@
-
 .demo-page-header {
   padding: var(--fe-gap-6);
   text-align: center;
@@ -60,15 +59,19 @@
 }
 
 /* Loading state: spin the icon when busy/disabled */
-.refresh-icon-button[aria-busy="true"] svg,
+.refresh-icon-button[aria-busy='true'] svg,
 .refresh-icon-button:disabled svg {
   animation: refresh-spin 0.9s linear infinite;
   transform-origin: 50% 50%;
 }
 
 @keyframes refresh-spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 /* Greeting Input Group */
@@ -159,8 +162,12 @@
 }
 
 @media (max-width: 768px) {
-  .embedded-tx-page-root { padding: var(--fe-gap-3); }
-  .demo-subtitle { font-size: var(--fe-text-xl); }
+  .embedded-tx-page-root {
+    padding: var(--fe-gap-3);
+  }
+  .demo-subtitle {
+    font-size: var(--fe-text-xl);
+  }
 }
 
 .action-section {
@@ -195,7 +202,9 @@
 .funding-address-text {
   flex: 1;
   color: var(--fe-text);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
   font-size: 0.8rem;
   line-height: 1.2;
   white-space: nowrap;
@@ -248,9 +257,16 @@
   animation: demo-embedded-fade-in 160ms var(--fe-ease) forwards;
 }
 @keyframes demo-embedded-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .button-with-tooltip-container { animation: none; opacity: 1; }
+  .button-with-tooltip-container {
+    animation: none;
+    opacity: 1;
+  }
 }

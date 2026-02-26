@@ -1,5 +1,5 @@
 import {
-  WorkerRequestType,  // from wasm worker
+  WorkerRequestType, // from wasm worker
   isRecoverKeypairFromPasskeySuccess,
 } from '@/core/types/signer-worker';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
@@ -32,13 +32,21 @@ export async function recoverKeypairFromPasskey({
   wrapKeySalt: string;
 }> {
   try {
-    console.info('SignerWorkerManager: Starting dual PRF-based keypair recovery from authentication credential');
+    console.info(
+      'SignerWorkerManager: Starting dual PRF-based keypair recovery from authentication credential',
+    );
     // Accept either live PublicKeyCredential or already-serialized auth credential
 
-    const prfFirstB64u = String(credential.clientExtensionResults?.prf?.results?.first || '').trim();
-    const prfSecondB64u = String(credential.clientExtensionResults?.prf?.results?.second || '').trim();
+    const prfFirstB64u = String(
+      credential.clientExtensionResults?.prf?.results?.first || '',
+    ).trim();
+    const prfSecondB64u = String(
+      credential.clientExtensionResults?.prf?.results?.second || '',
+    ).trim();
     if (!prfFirstB64u || !prfSecondB64u) {
-      throw new Error('Dual PRF outputs required for account recovery - both PRF.first and PRF.second must be available');
+      throw new Error(
+        'Dual PRF outputs required for account recovery - both PRF.first and PRF.second must be available',
+      );
     }
 
     if (!sessionId) throw new Error('Missing sessionId for recovery WrapKeySeed delivery');
@@ -80,7 +88,6 @@ export async function recoverKeypairFromPasskey({
       accountIdHint: response.payload.accountIdHint,
       wrapKeySalt: response.payload.wrapKeySalt,
     };
-
   } catch (error: unknown) {
     console.error('SignerWorkerManager: Dual PRF keypair recovery error:', error);
     throw error;

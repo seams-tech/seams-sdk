@@ -1,9 +1,8 @@
-
 export { TatchiPasskey } from './core/TatchiPasskey';
 export {
   type NearClient,
   MinimalNearClient,
-  encodeSignedTransactionBase64
+  encodeSignedTransactionBase64,
 } from './core/rpcClients/near/NearClient';
 export { createWebAuthnLoginOptions, verifyWebAuthnLogin } from './core/rpcClients/near/rpcCalls';
 
@@ -43,32 +42,30 @@ export type {
 export { DEFAULT_WAIT_STATUS } from './core/types/rpc';
 export {
   TEMPO_FEE_MANAGER_CONTRACT,
+  TEMPO_ALPHA_USD_FEE_TOKEN,
   TEMPO_SET_USER_TOKEN_SELECTOR,
+  TEMPO_USER_TOKENS_SELECTOR,
   encodeTempoSetUserTokenCalldata,
+  encodeTempoUserTokensCalldata,
+  decodeTempoUserTokenResult,
   buildTempoSetUserTokenCall,
 } from './core/signingEngine/chainAdaptors/tempo/feeToken';
 
 // === Device Linking Types ===
-export {
-  DeviceLinkingPhase,
-  DeviceLinkingStatus,
-} from './core/types/sdkSentEvents';
+export { DeviceLinkingPhase, DeviceLinkingStatus } from './core/types/sdkSentEvents';
 export type {
   DeviceLinkingQRData,
   DeviceLinkingSession,
   LinkDeviceResult,
   DeviceLinkingError,
-  DeviceLinkingErrorCode
+  DeviceLinkingErrorCode,
 } from './core/types/linkDevice';
 
 // === AccountID Types ===
 export type { AccountId } from './core/types/accountIds';
 export { toAccountId } from './core/types/accountIds';
 
-export type {
-  SignNEP413MessageParams,
-  SignNEP413MessageResult
-} from './core/TatchiPasskey/near';
+export type { SignNEP413MessageParams, SignNEP413MessageResult } from './core/TatchiPasskey/near';
 
 // === Action Types ===
 export { ActionType } from './core/types/actions';
@@ -81,7 +78,7 @@ export type {
   StakeAction,
   AddKeyAction,
   DeleteKeyAction,
-  DeleteAccountAction
+  DeleteAccountAction,
 } from './core/types/actions';
 
 // === ERROR TYPES ===

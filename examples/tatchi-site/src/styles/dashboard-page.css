@@ -6,7 +6,11 @@
   --dashboard-ink-soft: color-mix(in srgb, var(--fe-text-secondary, #6d7290) 92%, #7c83a0 8%);
   --dashboard-muted: color-mix(in srgb, var(--fe-surface, #ffffff) 90%, #eef2f8 10%);
   --dashboard-active: color-mix(in srgb, var(--fe-primary, #4d73ff) 13%, #eff3ff 87%);
-  --dashboard-active-border: color-mix(in srgb, var(--fe-primary, #4d73ff) 40%, var(--dashboard-border) 60%);
+  --dashboard-active-border: color-mix(
+    in srgb,
+    var(--fe-primary, #4d73ff) 40%,
+    var(--dashboard-border) 60%
+  );
   --dashboard-env-bg: #f3e8da;
   --dashboard-env-ink: #cc7513;
   --dashboard-sidebar-width: 286px;
@@ -60,7 +64,9 @@
   gap: 4px;
   cursor: pointer;
   color: var(--dashboard-ink-soft);
-  transition: background-color 160ms ease, border-color 160ms ease;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
 }
 
 .dashboard-sidebar-toggle span {
@@ -181,7 +187,7 @@
 
 .dashboard-copy-button span::before,
 .dashboard-copy-button span::after {
-  content: "";
+  content: '';
   position: absolute;
   border: 1.5px solid color-mix(in srgb, var(--dashboard-ink-soft) 80%, transparent);
   border-radius: 3px;
@@ -220,7 +226,8 @@
   display: grid;
   gap: 4px;
   background: var(--dashboard-surface);
-  box-shadow: 0 24px 34px -28px color-mix(in srgb, var(--fe-shadow-strong, rgba(15, 23, 42, 0.34)) 70%, transparent);
+  box-shadow: 0 24px 34px -28px
+    color-mix(in srgb, var(--fe-shadow-strong, rgba(15, 23, 42, 0.34)) 70%, transparent);
   z-index: 16;
 }
 
@@ -316,7 +323,9 @@
   gap: 10px;
   padding: 9px 10px;
   cursor: pointer;
-  transition: background-color 140ms ease, border-color 140ms ease;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease;
 }
 
 .dashboard-nav-item:hover {
@@ -343,7 +352,7 @@
 
 .dashboard-nav-icon::before,
 .dashboard-nav-icon::after {
-  content: "";
+  content: '';
   position: absolute;
 }
 
@@ -562,7 +571,9 @@
 
 .dashboard-filters {
   display: grid;
-  grid-template-columns: minmax(260px, 1.5fr) minmax(170px, 0.9fr) minmax(160px, 0.75fr) minmax(150px, 0.72fr) auto;
+  grid-template-columns:
+    minmax(260px, 1.5fr) minmax(170px, 0.9fr) minmax(160px, 0.75fr) minmax(150px, 0.72fr)
+    auto;
   gap: 10px;
 }
 
@@ -587,7 +598,7 @@
 }
 
 .dashboard-search-icon::after {
-  content: "";
+  content: '';
   position: absolute;
   right: -6px;
   bottom: -2px;
@@ -661,7 +672,7 @@
 
 .dashboard-columns-icon::before,
 .dashboard-columns-icon::after {
-  content: "";
+  content: '';
   position: absolute;
   left: 3px;
   right: 3px;

@@ -41,8 +41,11 @@ function fail(msg) {
 }
 
 function readJson(p) {
-  try { return JSON.parse(fs.readFileSync(p, 'utf-8')); }
-  catch (e) { fail(`Unable to read JSON at ${p}: ${e?.message || e}`); }
+  try {
+    return JSON.parse(fs.readFileSync(p, 'utf-8'));
+  } catch (e) {
+    fail(`Unable to read JSON at ${p}: ${e?.message || e}`);
+  }
 }
 
 const palette = readJson(palettePath);
@@ -51,10 +54,12 @@ const { grey = {}, slate = {}, gradients = {}, tokens = {}, themes = {} } = pale
 let chroma = palette.chroma || {};
 if (!chroma || Object.keys(chroma).length === 0) {
   chroma = {};
-  const exclude = new Set(['grey','slate','gradients','tokens','themes']);
-  Object.keys(palette).filter((k) => !exclude.has(k)).forEach((fam) => {
-    if (palette[fam] && typeof palette[fam] === 'object') chroma[fam] = palette[fam];
-  });
+  const exclude = new Set(['grey', 'slate', 'gradients', 'tokens', 'themes']);
+  Object.keys(palette)
+    .filter((k) => !exclude.has(k))
+    .forEach((fam) => {
+      if (palette[fam] && typeof palette[fam] === 'object') chroma[fam] = palette[fam];
+    });
 }
 
 function get(obj, path) {
@@ -190,7 +195,7 @@ function emitAliasBlock(vars) {
 
 // Also emit theme-specific alias blocks scoped to component hosts, so tokens pierce Shadow DOM via host inheritance
 const themedLightHostSelectors = hostSelectorsArr
-  .map((s) => `:root[data-w3a-theme=\"light\"] ${s}`)
+  .map((s) => `:root[data-w3a-theme="light"] ${s}`)
   .join(',\n');
 const hostThemeTokens = `${themedLightHostSelectors} {\n${emitAliasBlock(LIGHT_VARS)}\n}`;
 

@@ -6,6 +6,7 @@ export type CanonicalWalletSignerErrorCode =
   | 'session_not_ready'
   | 'deployment_in_progress'
   | 'deployment_failed'
+  | 'nonce_conflict_retryable'
   | 'cancelled';
 
 const CANONICAL_SIGNER_CODES = new Set<CanonicalWalletSignerErrorCode>([
@@ -14,11 +15,13 @@ const CANONICAL_SIGNER_CODES = new Set<CanonicalWalletSignerErrorCode>([
   'session_not_ready',
   'deployment_in_progress',
   'deployment_failed',
+  'nonce_conflict_retryable',
   'cancelled',
 ]);
 
 const SIGNER_BOUNDARY_REQUEST_TYPES = new Set<ParentToChildType>([
   'PM_SIGN_TEMPO',
+  'PM_REPORT_TEMPO_BROADCAST_RESULT',
   'PM_SIGN_TXS_WITH_ACTIONS',
   'PM_SIGN_AND_SEND_TXS',
   'PM_SEND_TRANSACTION',
@@ -28,12 +31,14 @@ const SIGNER_BOUNDARY_REQUEST_TYPES = new Set<ParentToChildType>([
 ]);
 
 const CANONICAL_SIGNER_ERROR_MESSAGES: Record<CanonicalWalletSignerErrorCode, string> = {
-  commit_queue_overflow: 'Threshold signing commit queue is full. Wait for pending requests and retry.',
+  commit_queue_overflow:
+    'Threshold signing commit queue is full. Wait for pending requests and retry.',
   commit_queue_timeout: 'Threshold signing commit request timed out in queue. Retry the request.',
   session_not_ready:
     'Threshold signing session is not ready. Reconnect threshold session via bootstrapEcdsaSession and retry.',
   deployment_in_progress: 'Smart-account deployment is already in progress.',
   deployment_failed: 'Smart-account deployment failed before signing.',
+  nonce_conflict_retryable: 'Nonce conflict detected. Refresh nonce state and retry the request.',
   cancelled: 'Request cancelled.',
 };
 
@@ -45,7 +50,42 @@ function normalizeCodeToken(value: unknown): string {
 }
 
 function normalizeMessage(value: unknown): string {
-  return String(value || '').trim().toLowerCase();
+  return String(value || '')
+    .trim()
+    .toLowerCase();
+}
+
+function looksLikeUserCancellationCode(rawCode: string): boolean {
+  if (!rawCode) return false;
+
+  return (
+    rawCode === 'cancelled' ||
+    rawCode === 'canceled' ||
+    rawCode === 'cancel' ||
+    rawCode === '4001' ||
+    rawCode === 'action_rejected' ||
+    rawCode === 'user_rejected' ||
+    rawCode === 'user_rejected_request' ||
+    rawCode === 'request_rejected' ||
+    rawCode === 'rejected_by_user' ||
+    rawCode === 'user_denied' ||
+    rawCode === 'user_denied_request'
+  );
+}
+
+function looksLikeUserCancellationMessage(message: string): boolean {
+  if (!message) return false;
+
+  return (
+    message.includes('cancelled') ||
+    message.includes('canceled') ||
+    message.includes('user rejected') ||
+    message.includes('rejected by user') ||
+    message.includes('rejected by the user') ||
+    message.includes('the user rejected') ||
+    message.includes('user denied') ||
+    message.includes('denied by user')
+  );
 }
 
 function inferCanonicalCodeFromRawCode(rawCode: string): CanonicalWalletSignerErrorCode | null {
@@ -55,47 +95,60 @@ function inferCanonicalCodeFromRawCode(rawCode: string): CanonicalWalletSignerEr
     return rawCode as CanonicalWalletSignerErrorCode;
   }
 
-  if (rawCode === 'canceled' || rawCode === 'cancel' || rawCode === 'cancelled') {
+  if (looksLikeUserCancellationCode(rawCode)) {
     return 'cancelled';
   }
 
   if (
-    rawCode === 'commit_queue_overflow'
-    || (rawCode.includes('commit') && rawCode.includes('queue') && rawCode.includes('overflow'))
+    rawCode === 'commit_queue_overflow' ||
+    (rawCode.includes('commit') && rawCode.includes('queue') && rawCode.includes('overflow'))
   ) {
     return 'commit_queue_overflow';
   }
 
   if (
-    rawCode === 'commit_queue_timeout'
-    || (rawCode.includes('commit') && rawCode.includes('queue') && rawCode.includes('timeout'))
+    rawCode === 'commit_queue_timeout' ||
+    (rawCode.includes('commit') && rawCode.includes('queue') && rawCode.includes('timeout'))
   ) {
     return 'commit_queue_timeout';
   }
 
   if (
-    rawCode === 'session_not_ready'
-    || (rawCode.includes('session') && rawCode.includes('not_ready'))
-    || (rawCode.includes('session') && rawCode.includes('expired'))
-    || (rawCode.includes('session') && rawCode.includes('invalid'))
+    rawCode === 'session_not_ready' ||
+    (rawCode.includes('session') && rawCode.includes('not_ready')) ||
+    (rawCode.includes('session') && rawCode.includes('expired')) ||
+    (rawCode.includes('session') && rawCode.includes('invalid'))
   ) {
     return 'session_not_ready';
   }
 
   if (
-    rawCode === 'deployment_in_progress'
-    || ((rawCode.includes('deployment') || rawCode.includes('deploy')) && rawCode.includes('progress'))
+    rawCode === 'deployment_in_progress' ||
+    ((rawCode.includes('deployment') || rawCode.includes('deploy')) && rawCode.includes('progress'))
   ) {
     return 'deployment_in_progress';
   }
 
   if (
-    rawCode === 'deployment_failed'
-    || rawCode === 'deploy_failed'
-    || ((rawCode.includes('deployment') || rawCode.includes('deploy')) && rawCode.includes('failed'))
-    || ((rawCode.includes('deployment') || rawCode.includes('deploy')) && rawCode.includes('error'))
+    rawCode === 'deployment_failed' ||
+    rawCode === 'deploy_failed' ||
+    ((rawCode.includes('deployment') || rawCode.includes('deploy')) &&
+      rawCode.includes('failed')) ||
+    ((rawCode.includes('deployment') || rawCode.includes('deploy')) && rawCode.includes('error'))
   ) {
     return 'deployment_failed';
+  }
+
+  if (
+    rawCode === 'nonce_conflict_retryable' ||
+    ((rawCode.includes('nonce') || rawCode.includes('already_known')) &&
+      (rawCode.includes('conflict') ||
+        rawCode.includes('too_low') ||
+        rawCode.includes('too_high') ||
+        rawCode.includes('underpriced') ||
+        rawCode.includes('already_known')))
+  ) {
+    return 'nonce_conflict_retryable';
   }
 
   return null;
@@ -104,20 +157,20 @@ function inferCanonicalCodeFromRawCode(rawCode: string): CanonicalWalletSignerEr
 function inferCanonicalCodeFromMessage(message: string): CanonicalWalletSignerErrorCode | null {
   if (!message) return null;
 
-  if (message.includes('cancelled') || message.includes('canceled')) {
+  if (looksLikeUserCancellationMessage(message)) {
     return 'cancelled';
   }
 
   if (
-    message.includes('commit queue overflow')
-    && (message.includes('threshold ecdsa') || message.includes('threshold signing'))
+    message.includes('commit queue overflow') &&
+    (message.includes('threshold ecdsa') || message.includes('threshold signing'))
   ) {
     return 'commit_queue_overflow';
   }
 
   if (
-    message.includes('commit queue timeout')
-    && (message.includes('threshold ecdsa') || message.includes('threshold signing'))
+    message.includes('commit queue timeout') &&
+    (message.includes('threshold ecdsa') || message.includes('threshold signing'))
   ) {
     return 'commit_queue_timeout';
   }
@@ -130,31 +183,40 @@ function inferCanonicalCodeFromMessage(message: string): CanonicalWalletSignerEr
   }
 
   if (
-    message.includes('no cached threshold session token')
-    || message.includes('threshold-ecdsa session token unavailable')
-    || message.includes('threshold-ecdsa session record not available')
-    || message.includes('missing canonical threshold ecdsa session')
-    || message.includes('relayer threshold session expired')
-    || message.includes('threshold session exhausted')
-    || message.includes('threshold session expired')
-    || message.includes('missing or invalid threshold session token')
-    || message.includes('invalid session token kind')
-    || message.includes('/authorize http 401')
-    || message.includes('/authorize http 403')
+    message.includes('nonce conflict') ||
+    message.includes('nonce too low') ||
+    message.includes('nonce too high') ||
+    message.includes('already known') ||
+    message.includes('replacement transaction underpriced') ||
+    message.includes('invalid nonce')
+  ) {
+    return 'nonce_conflict_retryable';
+  }
+
+  if (
+    message.includes('no cached threshold session token') ||
+    message.includes('threshold-ecdsa session token unavailable') ||
+    message.includes('threshold-ecdsa session record not available') ||
+    message.includes('missing canonical threshold ecdsa session') ||
+    message.includes('relayer threshold session expired') ||
+    message.includes('threshold session exhausted') ||
+    message.includes('threshold session expired') ||
+    message.includes('missing or invalid threshold session token') ||
+    message.includes('invalid session token kind') ||
+    message.includes('/authorize http 401') ||
+    message.includes('/authorize http 403')
   ) {
     return 'session_not_ready';
   }
 
   if (
-    (message.includes('threshold session') || message.includes('threshold signingsession'))
-    && (
-      message.includes('not ready')
-      || message.includes('not_found')
-      || message.includes('expired')
-      || message.includes('missing')
-      || message.includes('invalid')
-      || message.includes('exhausted')
-    )
+    (message.includes('threshold session') || message.includes('threshold signingsession')) &&
+    (message.includes('not ready') ||
+      message.includes('not_found') ||
+      message.includes('expired') ||
+      message.includes('missing') ||
+      message.includes('invalid') ||
+      message.includes('exhausted'))
   ) {
     return 'session_not_ready';
   }

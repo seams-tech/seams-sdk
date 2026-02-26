@@ -22,12 +22,30 @@
   --ring-border-radius: 2rem;
   --inner-padding: 2rem;
   --inner-background: var(--w3a-grey650, transparent);
-  --ring-stops: transparent 0%, var(--w3a-colors-highlightHalo, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, #4DAFFE))) 10%, var(--w3a-colors-highlightHalo, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, #4DAFFE))) 25%, transparent 35%;
+  --ring-stops:
+    transparent 0%,
+    var(
+        --w3a-colors-highlightHalo,
+        var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, #4daffe))
+      )
+      10%,
+    var(
+        --w3a-colors-highlightHalo,
+        var(--w3a-colors-highlightPrimary, var(--w3a-colors-info, #4daffe))
+      )
+      25%,
+    transparent 35%;
   --halo-duration: 1.15s;
 }
 
-.halo-root { position: relative; }
-.halo-outer { position: relative; border-radius: 2rem; overflow: visible; }
+.halo-root {
+  position: relative;
+}
+.halo-outer {
+  position: relative;
+  border-radius: 2rem;
+  overflow: visible;
+}
 .halo-inner {
   background: transparent;
   border: 1px solid transparent;
@@ -47,7 +65,9 @@
   z-index: 3;
   background: conic-gradient(from var(--halo-angle, 0deg), var(--ring-stops));
   padding: var(--ring-width);
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
 }

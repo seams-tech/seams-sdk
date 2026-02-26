@@ -3,7 +3,10 @@ import { LitComponentEvents, type LitComponentEventDetailMap } from '../../lit-e
 import { W3A_DRAWER_ID, W3A_EXPORT_KEY_VIEWER_ID } from '../../registry';
 import type { ExportPrivateKeyDisplayEntry } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import type { ThemeTokenOverridesInput } from '@/core/types/tatchi';
-import { createCspStylesheetManager, getDefaultCspNonce } from '@/core/WalletIframe/shared/csp-stylesheet';
+import {
+  createCspStylesheetManager,
+  getDefaultCspNonce,
+} from '@/core/WalletIframe/shared/csp-stylesheet';
 
 type MessageType =
   | 'READY'
@@ -62,9 +65,9 @@ let PARENT_ORIGIN: string | undefined;
 const EXPORT_TOKEN_RULE_ID = 'w3a-export-token-overrides';
 const EXPORT_HOST_SELECTORS = ['w3a-drawer', 'w3a-export-key-viewer'] as const;
 const EXPORT_DARK_SELECTOR = EXPORT_HOST_SELECTORS.join(',\n');
-const EXPORT_LIGHT_SELECTOR = EXPORT_HOST_SELECTORS
-  .map((selector) => `:root[data-w3a-theme="light"] ${selector}`)
-  .join(',\n');
+const EXPORT_LIGHT_SELECTOR = EXPORT_HOST_SELECTORS.map(
+  (selector) => `:root[data-w3a-theme="light"] ${selector}`,
+).join(',\n');
 let exportTokenStyleManager: ReturnType<typeof createCspStylesheetManager> | null = null;
 
 function getExportTokenStyleManager(): ReturnType<typeof createCspStylesheetManager> {
@@ -177,7 +180,11 @@ function getViewer(): ExportViewerElement {
   if (!viewer) {
     viewer = document.createElement(W3A_EXPORT_KEY_VIEWER_ID) as ExportViewerElement;
     // Prefer appending directly into the drawer's declared content root when present
-    const target = drawer.contentRoot || drawer.querySelector('.above-fold') || drawer.querySelector('.body') || drawer;
+    const target =
+      drawer.contentRoot ||
+      drawer.querySelector('.above-fold') ||
+      drawer.querySelector('.body') ||
+      drawer;
     target.appendChild(viewer);
   }
   return viewer;
@@ -208,7 +215,9 @@ function onMessage(e: MessageEvent<{ type?: unknown; payload?: unknown }>) {
       if (payload.theme && isString(payload.theme)) {
         // Reflect theme to viewer and document root so host-scoped tokens update
         viewer.theme = payload.theme;
-        try { document.documentElement.setAttribute('data-w3a-theme', payload.theme); } catch {}
+        try {
+          document.documentElement.setAttribute('data-w3a-theme', payload.theme);
+        } catch {}
       }
       if (payload.variant && isString(payload.variant)) viewer.variant = payload.variant;
       viewer.accountId = payload.accountId;
@@ -223,7 +232,11 @@ function onMessage(e: MessageEvent<{ type?: unknown; payload?: unknown }>) {
       drawer.dragToClose = true;
       drawer.overpullPx = 160;
       // Defer open by two frames so slot content renders before initial measurement
-      requestAnimationFrame(() => requestAnimationFrame(() => { drawer.open = true; }));
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          drawer.open = true;
+        }),
+      );
       break;
     }
     case 'SET_LOADING': {
@@ -271,7 +284,8 @@ document.addEventListener(LitComponentEvents.CANCEL, () => {
   postToParent('CANCEL');
 });
 document.addEventListener(LitComponentEvents.COPY, (e: Event) => {
-  const detail = (e as CustomEvent<LitComponentEventDetailMap[typeof LitComponentEvents.COPY]>).detail;
+  const detail = (e as CustomEvent<LitComponentEventDetailMap[typeof LitComponentEvents.COPY]>)
+    .detail;
   if (isCopyPayload(detail)) postToParent('COPY', detail);
 });
 

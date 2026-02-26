@@ -1,9 +1,6 @@
 import { toAccountId } from '../../types/accountIds';
 import type { EvmSignerCapability } from '..';
-import {
-  routeWalletIframeOrLocal,
-  type WalletIframeRouteDeps,
-} from '../walletIframeRoute';
+import { routeWalletIframeOrLocal, type WalletIframeRouteDeps } from '../walletIframeRoute';
 
 type ChainSignerDeps = {
   getContext: () => import('../index').PasskeyManagerContext;
@@ -22,9 +19,7 @@ export class EvmSigner implements EvmSignerCapability {
     this.walletIframe = deps.walletIframe;
   }
 
-  async bootstrapEcdsaSession(
-    args: Parameters<EvmSignerCapability['bootstrapEcdsaSession']>[0],
-  ) {
+  async bootstrapEcdsaSession(args: Parameters<EvmSignerCapability['bootstrapEcdsaSession']>[0]) {
     const options = {
       ...(args.options || {}),
       chain: 'evm' as const,
@@ -48,15 +43,7 @@ export class EvmSigner implements EvmSignerCapability {
           sessionKind: options.sessionKind,
           ttlMs: options.ttlMs,
           remainingUses: options.remainingUses,
-          smartAccount: options.smartAccount
-            ? (() => {
-                const { chainId, ...rest } = options.smartAccount;
-                return {
-                  ...rest,
-                  chainId: `eip155:${String(chainId)}`,
-                };
-              })()
-            : undefined,
+          smartAccount: options.smartAccount ? { ...options.smartAccount } : undefined,
         });
       },
     });

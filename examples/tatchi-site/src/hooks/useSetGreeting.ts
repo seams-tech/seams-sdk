@@ -40,20 +40,20 @@ export const useSetGreeting = (): SetGreetingHook => {
       const result = await nearClient.view<string>({
         account: DEMO_CONTRACT_ID,
         method: 'get_greeting',
-        args: {}
+        args: {},
       });
       const greeting = result ?? null;
       setOnchainGreeting(greeting);
 
       return { success: true, greeting };
     } catch (err: any) {
-      console.error("Error fetching greeting:", err);
+      console.error('Error fetching greeting:', err);
       const errorMessage = err.message || 'Failed to fetch greeting';
       setError(errorMessage);
 
       return {
         success: false,
-        error: errorMessage
+        error: errorMessage,
       };
     } finally {
       setIsLoading(false);
@@ -72,6 +72,6 @@ export const useSetGreeting = (): SetGreetingHook => {
     onchainGreeting,
     isLoading,
     error,
-    fetchGreeting
+    fetchGreeting,
   };
 };

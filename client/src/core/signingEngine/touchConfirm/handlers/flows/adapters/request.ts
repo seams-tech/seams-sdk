@@ -15,7 +15,9 @@ import type { TxDisplayModel } from '@/core/signingEngine/touchConfirm/shared/di
  */
 export function validateUserConfirmRequest(input: unknown): UserConfirmRequest {
   if (typeof input === 'string') {
-    throw new Error('Invalid secure confirm request: expected an object (JSON strings are not supported)');
+    throw new Error(
+      'Invalid secure confirm request: expected an object (JSON strings are not supported)',
+    );
   }
   if (!isObject(input)) throw new Error('parsed is not an object');
   const p = input as {
@@ -27,16 +29,18 @@ export function validateUserConfirmRequest(input: unknown): UserConfirmRequest {
   if (!isString(p.requestId) || !p.requestId) throw new Error('missing requestId');
   if (!isString(p.type) || !p.type) throw new Error('missing type');
   if (p.summary === undefined || p.summary === null) throw new Error('missing summary');
-  if (!isObject(p.summary) || Array.isArray(p.summary)) throw new Error('invalid summary: expected an object');
+  if (!isObject(p.summary) || Array.isArray(p.summary))
+    throw new Error('invalid summary: expected an object');
   if (p.payload === undefined || p.payload === null) throw new Error('missing payload');
-  if (!isObject(p.payload) || Array.isArray(p.payload)) throw new Error('invalid payload: expected an object');
+  if (!isObject(p.payload) || Array.isArray(p.payload))
+    throw new Error('invalid payload: expected an object');
   return input as unknown as UserConfirmRequest;
 }
 
 export function assertNoForbiddenMainThreadSigningSecrets(request: UserConfirmRequest): void {
   if (
-    request.type !== UserConfirmationType.SIGN_TRANSACTION
-    && request.type !== UserConfirmationType.SIGN_NEP413_MESSAGE
+    request.type !== UserConfirmationType.SIGN_TRANSACTION &&
+    request.type !== UserConfirmationType.SIGN_NEP413_MESSAGE
   ) {
     return;
   }
@@ -79,7 +83,7 @@ export function getNearAccountId(request: UserConfirmRequest): string {
 
 export function getTxCount(request: UserConfirmRequest): number {
   return request.type === UserConfirmationType.SIGN_TRANSACTION
-    ? (getSignTransactionPayload(request).txSigningRequests?.length || 1)
+    ? getSignTransactionPayload(request).txSigningRequests?.length || 1
     : 1;
 }
 
@@ -112,7 +116,10 @@ export function getDisplayModel(request: UserConfirmRequest): TxDisplayModel | u
 }
 
 export function getRegisterAccountPayload(request: UserConfirmRequest): RegisterAccountPayload {
-  if (request.type !== UserConfirmationType.REGISTER_ACCOUNT && request.type !== UserConfirmationType.LINK_DEVICE) {
+  if (
+    request.type !== UserConfirmationType.REGISTER_ACCOUNT &&
+    request.type !== UserConfirmationType.LINK_DEVICE
+  ) {
     throw new Error(`Expected REGISTER_ACCOUNT or LINK_DEVICE request, got ${request.type}`);
   }
   return request.payload as RegisterAccountPayload;

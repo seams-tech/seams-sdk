@@ -1,5 +1,5 @@
 import type {
-  TatchiArcChainNetwork,
+  TatchiEvmChainNetwork,
   TatchiChainConfig,
   TatchiChainConfigInput,
   TatchiChainNetwork,
@@ -15,9 +15,11 @@ import { coerceSignerMode } from '../types/signer-worker';
 import { toTrimmedString } from '@shared/utils/validation';
 import { coerceThemeName } from '@shared/utils/theme';
 import {
-  chainFamilyFromNetwork,
   cloneChainConfig,
   cloneResolvedChainConfig,
+  isEvmChainNetwork,
+  isNearChainNetwork,
+  isTempoChainNetwork,
   isTatchiChainNetwork,
 } from './chains';
 import {
@@ -77,6 +79,12 @@ export const DEFAULT_CHAIN_CONFIGS: TatchiChainConfig[] = [
     rpcUrl: 'https://rpc.testnet.arc.network',
     explorerUrl: 'https://testnet.arcscan.app',
     chainId: 5_042_002,
+  },
+  {
+    network: 'ethereum-sepolia',
+    rpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
+    explorerUrl: 'https://sepolia.etherscan.io',
+    chainId: 11_155_111,
   },
 ];
 
@@ -180,7 +188,7 @@ function normalizeResolvedChainConfig(args: {
     throw new Error(`[configPresets] Missing required config: chains.${network}.explorerUrl`);
   }
 
-  if (chainFamilyFromNetwork(network) === 'arc') {
+  if (isEvmChainNetwork(network)) {
     const chainId = coerceOptionalPositiveInt(
       (args.input as { chainId?: unknown }).chainId,
       (args.fallback as { chainId?: number } | undefined)?.chainId,
@@ -189,14 +197,14 @@ function normalizeResolvedChainConfig(args: {
       throw new Error(`[configPresets] Missing required config: chains.${network}.chainId`);
     }
     return {
-      network: network as TatchiArcChainNetwork,
+      network: network as TatchiEvmChainNetwork,
       rpcUrl,
       explorerUrl,
       chainId,
     };
   }
 
-  if (chainFamilyFromNetwork(network) === 'near') {
+  if (isNearChainNetwork(network)) {
     return {
       network: network as TatchiNearChainNetwork,
       rpcUrl,
@@ -204,19 +212,23 @@ function normalizeResolvedChainConfig(args: {
     };
   }
 
-  const chainId = coerceOptionalPositiveInt(
-    (args.input as { chainId?: unknown }).chainId,
-    (args.fallback as { chainId?: number } | undefined)?.chainId,
-  );
-  if (typeof chainId !== 'number') {
-    throw new Error(`[configPresets] Missing required config: chains.${network}.chainId`);
+  if (isTempoChainNetwork(network)) {
+    const chainId = coerceOptionalPositiveInt(
+      (args.input as { chainId?: unknown }).chainId,
+      (args.fallback as { chainId?: number } | undefined)?.chainId,
+    );
+    if (typeof chainId !== 'number') {
+      throw new Error(`[configPresets] Missing required config: chains.${network}.chainId`);
+    }
+    return {
+      network: network as TatchiTempoChainNetwork,
+      rpcUrl,
+      explorerUrl,
+      chainId,
+    };
   }
-  return {
-    network: network as TatchiTempoChainNetwork,
-    rpcUrl,
-    explorerUrl,
-    chainId,
-  };
+
+  throw new Error(`[configPresets] Unsupported chain network: ${network}`);
 }
 
 function mergeChainConfigs(
@@ -259,7 +271,7 @@ function mergeChainConfigs(
   const merged = orderedNetworks
     .map((network) => mergedByNetwork.get(network))
     .filter((chain): chain is TatchiChainConfig => !!chain);
-  const hasNearChain = merged.some((chain) => chainFamilyFromNetwork(chain.network) === 'near');
+  const hasNearChain = merged.some((chain) => isNearChainNetwork(chain.network));
   if (!hasNearChain) {
     throw new Error(
       '[configPresets] Missing required config: chains (at least one near-* network)',

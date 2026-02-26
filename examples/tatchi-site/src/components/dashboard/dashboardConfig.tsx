@@ -1,11 +1,11 @@
-import { ApiKeyManagementPage } from '../../pages/dashboard/ApiKeyManagementPage'
-import { AppSettingsPage } from '../../pages/dashboard/AppSettingsPage'
-import { ExportKeysSettingsPage } from '../../pages/dashboard/ExportKeysSettingsPage'
-import { GasSponsorshipSmartWalletsPage } from '../../pages/dashboard/GasSponsorshipSmartWalletsPage'
-import { PolicyEnginePage } from '../../pages/dashboard/PolicyEnginePage'
-import { SearchUserWalletsPage } from '../../pages/dashboard/SearchUserWalletsPage'
-import { UserWalletsListPage } from '../../pages/dashboard/UserWalletsListPage'
-import { WebhooksPage } from '../../pages/dashboard/WebhooksPage'
+import { ApiKeyManagementPage } from '../../pages/dashboard/ApiKeyManagementPage';
+import { AppSettingsPage } from '../../pages/dashboard/AppSettingsPage';
+import { ExportKeysSettingsPage } from '../../pages/dashboard/ExportKeysSettingsPage';
+import { GasSponsorshipSmartWalletsPage } from '../../pages/dashboard/GasSponsorshipSmartWalletsPage';
+import { PolicyEnginePage } from '../../pages/dashboard/PolicyEnginePage';
+import { SearchUserWalletsPage } from '../../pages/dashboard/SearchUserWalletsPage';
+import { UserWalletsListPage } from '../../pages/dashboard/UserWalletsListPage';
+import { WebhooksPage } from '../../pages/dashboard/WebhooksPage';
 import type {
   DashboardRoute,
   ExpandedSidebarGroupsState,
@@ -13,7 +13,7 @@ import type {
   SidebarItem,
   TopbarContextState,
   TopbarMenuKey,
-} from './types'
+} from './types';
 
 export const SIDEBAR_GROUPS: SidebarGroup[] = [
   {
@@ -96,47 +96,49 @@ export const SIDEBAR_GROUPS: SidebarGroup[] = [
       },
     ],
   },
-]
+];
 
 export const DASHBOARD_TOPBAR_DROPDOWN_OPTIONS: Record<TopbarMenuKey, string[]> = {
   organization: ['Game1', 'Arc Labs', 'Nova Studio'],
   project: ['Game1', 'Wallet Ops', 'Payments Infra'],
   environment: ['Sandbox', 'Staging', 'Production'],
   accountSettings: ['Account & Settings', 'Team members', 'Roles and permissions', 'Audit logs'],
-}
+};
 
 export const DEFAULT_TOPBAR_CONTEXT_STATE: TopbarContextState = {
   organization: DASHBOARD_TOPBAR_DROPDOWN_OPTIONS.organization[0]!,
   project: DASHBOARD_TOPBAR_DROPDOWN_OPTIONS.project[0]!,
   environment: DASHBOARD_TOPBAR_DROPDOWN_OPTIONS.environment[0]!,
   accountSettings: DASHBOARD_TOPBAR_DROPDOWN_OPTIONS.accountSettings[0]!,
-}
+};
 
 export const DEFAULT_EXPANDED_SIDEBAR_GROUPS: ExpandedSidebarGroupsState = {
   walletInfrastructure: true,
   securityPolicy: true,
   integrationsAutomation: true,
   environmentSettings: true,
-}
+};
 
-export const SIDEBAR_GROUP_KEYS = Object.keys(DEFAULT_EXPANDED_SIDEBAR_GROUPS) as Array<keyof ExpandedSidebarGroupsState>
+export const SIDEBAR_GROUP_KEYS = Object.keys(DEFAULT_EXPANDED_SIDEBAR_GROUPS) as Array<
+  keyof ExpandedSidebarGroupsState
+>;
 
-export const DEFAULT_DASHBOARD_ROUTE: DashboardRoute = '/dashboard/wallets-list'
+export const DEFAULT_DASHBOARD_ROUTE: DashboardRoute = '/dashboard/wallets-list';
 
 export function getRouteFromPathname(pathname: string): DashboardRoute | null {
   for (const group of SIDEBAR_GROUPS) {
     for (const item of group.items) {
-      if (item.path === pathname) return item.path
+      if (item.path === pathname) return item.path;
     }
   }
-  return null
+  return null;
 }
 
 export function getViewForRoute(route: DashboardRoute): SidebarItem {
   for (const group of SIDEBAR_GROUPS) {
     for (const item of group.items) {
-      if (item.path === route) return item
+      if (item.path === route) return item;
     }
   }
-  return SIDEBAR_GROUPS[0]!.items[0]!
+  return SIDEBAR_GROUPS[0]!.items[0]!;
 }

@@ -15,15 +15,19 @@ function resolveOverride(kind: MultichainWorkerKind): string | undefined {
   const ovAny = (typeof window !== 'undefined' ? (window as any) : {}) as any;
   switch (kind) {
     case 'ethSigner':
-      return typeof ovAny.__W3A_ETH_SIGNER_WORKER_URL__ === 'string' ? ovAny.__W3A_ETH_SIGNER_WORKER_URL__ : undefined;
+      return typeof ovAny.__W3A_ETH_SIGNER_WORKER_URL__ === 'string'
+        ? ovAny.__W3A_ETH_SIGNER_WORKER_URL__
+        : undefined;
     case 'tempoSigner':
-      return typeof ovAny.__W3A_TEMPO_SIGNER_WORKER_URL__ === 'string' ? ovAny.__W3A_TEMPO_SIGNER_WORKER_URL__ : undefined;
+      return typeof ovAny.__W3A_TEMPO_SIGNER_WORKER_URL__ === 'string'
+        ? ovAny.__W3A_TEMPO_SIGNER_WORKER_URL__
+        : undefined;
   }
 }
 
 export function resolveMultichainWorkerUrl(
   kind: MultichainWorkerKind,
-  opts?: { baseOrigin?: string }
+  opts?: { baseOrigin?: string },
 ): string {
   const baseOrigin =
     opts?.baseOrigin ||
@@ -35,4 +39,3 @@ export function resolveMultichainWorkerUrl(
   if (/^https?:\/\//i.test(candidate)) return candidate;
   return new URL(candidate, baseOrigin).toString();
 }
-

@@ -4,7 +4,6 @@ import { DARK_THEME, LIGHT_THEME } from '@/base-styles';
 export type TxTreeTheme = 'dark' | 'light';
 
 export interface TxTreeStyles extends ComponentStyles {
-
   // Component-specific tree variables
   host?: Record<string, string>;
 
@@ -51,14 +50,14 @@ export const TX_TREE_THEMES: Record<TxTreeTheme, TxTreeStyles> = {
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       fontSize: '1rem',
       color: DARK_THEME.textPrimary,
-      backgroundColor: DARK_THEME.colorBackground
+      backgroundColor: DARK_THEME.colorBackground,
     },
 
     // Main tooltip container
     tooltipBorderOuter: {
       borderRadius: '24px',
       border: `1px solid transparent`,
-      boxShadow: '0 1px 3px 0px rgba(5, 5, 5, 0.4)'
+      boxShadow: '0 1px 3px 0px rgba(5, 5, 5, 0.4)',
     },
 
     // Component-specific tree variables
@@ -68,11 +67,10 @@ export const TX_TREE_THEMES: Record<TxTreeTheme, TxTreeStyles> = {
       border: 'none',
       color: DARK_THEME.textPrimary,
     },
-    tooltipTreeChildren: {
-    },
+    tooltipTreeChildren: {},
     details: {
       borderRadius: '0.5rem',
-      background: 'transparent'
+      background: 'transparent',
     },
     summary: {
       padding: '0.5rem 0.75rem',
@@ -87,7 +85,7 @@ export const TX_TREE_THEMES: Record<TxTreeTheme, TxTreeStyles> = {
     row: {
       color: DARK_THEME.textPrimary,
       borderRadius: '0.375rem',
-      transition: 'all 160ms cubic-bezier(0.2, 0.6, 0.2, 1)'
+      transition: 'all 160ms cubic-bezier(0.2, 0.6, 0.2, 1)',
     },
     indent: {},
     label: {
@@ -106,35 +104,37 @@ export const TX_TREE_THEMES: Record<TxTreeTheme, TxTreeStyles> = {
     chevron: {
       color: DARK_THEME.textSecondary,
       width: '14px',
-      height: '14px'
+      height: '14px',
     },
     fileRow: {
       padding: '0.5rem 0.75rem',
-      fontSize: '0.875rem'
+      fontSize: '0.875rem',
     },
     fileContent: {
       background: DARK_THEME.surface2,
       border: `1px solid none`,
       color: DARK_THEME.textSecondary,
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+      fontFamily:
+        'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
       borderRadius: '0.5rem',
       padding: '0.25rem',
       scrollbarTrackBackground: DARK_THEME.surface,
-      scrollbarThumbBackground: DARK_THEME.textSecondary
+      scrollbarThumbBackground: DARK_THEME.textSecondary,
     },
     connector: {
       color: DARK_THEME.grey600,
       thickness: '2px',
-      elbowLength: '10px'
+      elbowLength: '10px',
     },
     folderChildren: {
       padding: '0.5rem 0',
-      marginLeft: '1rem'
+      marginLeft: '1rem',
     },
 
     // Highlighting - using unified color scheme from base colors
     highlightReceiver: {
-      color: 'var(--w3a-colors-highlightReceiver, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info)))',
+      color:
+        'var(--w3a-colors-highlightReceiver, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info)))',
       fontWeight: '600',
     },
     highlightMethodName: {
@@ -149,21 +149,21 @@ export const TX_TREE_THEMES: Record<TxTreeTheme, TxTreeStyles> = {
     // Mobile responsive
     rootMobile: {
       borderRadius: '0.5rem',
-      margin: '0'
+      margin: '0',
     },
     treeChildrenMobile: {
-      padding: '0.75rem'
+      padding: '0.75rem',
     },
     folderChildrenMobile: {
-      marginLeft: '0.75rem'
+      marginLeft: '0.75rem',
     },
     rowMobile: {
-      padding: '0.5rem'
+      padding: '0.5rem',
     },
     fileContentMobile: {
       fontSize: '0.7rem',
-      maxHeight: '150px'
-    }
+      maxHeight: '150px',
+    },
   },
   light: {
     // Spread base colors from shared palette
@@ -174,14 +174,14 @@ export const TX_TREE_THEMES: Record<TxTreeTheme, TxTreeStyles> = {
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       fontSize: '1rem',
       color: LIGHT_THEME.textPrimary,
-      backgroundColor: LIGHT_THEME.colorBackground
+      backgroundColor: LIGHT_THEME.colorBackground,
     },
 
     // Main tooltip container
     tooltipBorderOuter: {
       borderRadius: '24px',
       border: `1px solid ${LIGHT_THEME.slate300}`,
-      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
     },
 
     // Component-specific tree variables
@@ -191,12 +191,10 @@ export const TX_TREE_THEMES: Record<TxTreeTheme, TxTreeStyles> = {
       border: 'none',
       color: LIGHT_THEME.textPrimary,
     },
-    tooltipTreeChildren: {
-
-    },
+    tooltipTreeChildren: {},
     details: {
       borderRadius: '0.5rem',
-      background: 'transparent'
+      background: 'transparent',
     },
     summary: {
       padding: '0.5rem 0.75rem',
@@ -206,12 +204,12 @@ export const TX_TREE_THEMES: Record<TxTreeTheme, TxTreeStyles> = {
     },
     summaryRowHover: {
       background: LIGHT_THEME.surface2,
-      borderColor: LIGHT_THEME.borderPrimary
+      borderColor: LIGHT_THEME.borderPrimary,
     },
     row: {
       color: LIGHT_THEME.textPrimary,
       borderRadius: '0.375rem',
-      transition: 'all 160ms cubic-bezier(0.2, 0.6, 0.2, 1)'
+      transition: 'all 160ms cubic-bezier(0.2, 0.6, 0.2, 1)',
     },
     indent: {},
     label: {
@@ -225,41 +223,43 @@ export const TX_TREE_THEMES: Record<TxTreeTheme, TxTreeStyles> = {
     },
     labelHover: {
       background: LIGHT_THEME.grey75,
-      borderColor: LIGHT_THEME.borderPrimary
+      borderColor: LIGHT_THEME.borderPrimary,
     },
     chevron: {
       color: LIGHT_THEME.textSecondary,
       width: '14px',
-      height: '14px'
+      height: '14px',
     },
     fileRow: {
       padding: '0.5rem 0.75rem',
-      fontSize: '0.875rem'
+      fontSize: '0.875rem',
     },
     fileContent: {
       background: LIGHT_THEME.surface,
       border: `1px solid ${LIGHT_THEME.borderPrimary}`,
       color: LIGHT_THEME.textPrimary,
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+      fontFamily:
+        'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
       borderRadius: '0.5rem',
       padding: '0.25rem',
       scrollbarTrackBackground: LIGHT_THEME.surface,
-      scrollbarThumbBackground: LIGHT_THEME.borderPrimary
+      scrollbarThumbBackground: LIGHT_THEME.borderPrimary,
     },
     // Slightly darker connector lines for light mode for better contrast
     connector: {
       color: LIGHT_THEME.slate200,
       thickness: '2px',
-      elbowLength: '10px'
+      elbowLength: '10px',
     },
     folderChildren: {
       padding: '0.5rem 0',
-      marginLeft: '1rem'
+      marginLeft: '1rem',
     },
 
     // Highlighting - using unified color scheme from base colors
     highlightReceiver: {
-      color: 'var(--w3a-colors-highlightReceiver, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info)))',
+      color:
+        'var(--w3a-colors-highlightReceiver, var(--w3a-colors-highlightPrimary, var(--w3a-colors-info)))',
       fontWeight: '600',
     },
     highlightMethodName: {
@@ -274,20 +274,20 @@ export const TX_TREE_THEMES: Record<TxTreeTheme, TxTreeStyles> = {
     // Mobile responsive
     rootMobile: {
       borderRadius: '0.5rem',
-      margin: '0'
+      margin: '0',
     },
     treeChildrenMobile: {
-      padding: '0.75rem'
+      padding: '0.75rem',
     },
     folderChildrenMobile: {
-      marginLeft: '0.75rem'
+      marginLeft: '0.75rem',
     },
     rowMobile: {
-      padding: '0.5rem'
+      padding: '0.5rem',
     },
     fileContentMobile: {
       fontSize: '0.7rem',
-      maxHeight: '150px'
-    }
-  }
+      maxHeight: '150px',
+    },
+  },
 };

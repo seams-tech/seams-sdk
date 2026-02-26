@@ -25,9 +25,10 @@ import {
 import type { EcdsaSessionKind } from '../session/ecdsaAuthSession';
 
 function generateKeygenSessionId(): string {
-  const id = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const id =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `tecdsa-keygen-${id}`;
 }
 
@@ -53,7 +54,7 @@ export async function bootstrapEcdsaSession(args: {
   relayerKeyId?: string;
   relayerVerifyingShareB64u?: string;
   participantIds?: number[];
-  chainId?: string;
+  chainId?: number;
   factory?: string;
   entryPoint?: string;
   salt?: string;
@@ -92,7 +93,11 @@ export async function bootstrapEcdsaSession(args: {
 
   const prfFirstB64u = getPrfFirstB64uFromCredential(credential);
   if (!prfFirstB64u) {
-    return { ok: false, code: 'unsupported', message: 'Missing PRF.first output from credential (requires a PRF-enabled passkey)' };
+    return {
+      ok: false,
+      code: 'unsupported',
+      message: 'Missing PRF.first output from credential (requires a PRF-enabled passkey)',
+    };
   }
 
   try {
@@ -136,12 +141,17 @@ export async function bootstrapEcdsaSession(args: {
 
     const relayerKeyId = String(bootstrap.relayerKeyId || '').trim();
     if (!relayerKeyId) {
-      return { ok: false, code: 'internal', message: 'Threshold bootstrap response missing relayerKeyId' };
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Threshold bootstrap response missing relayerKeyId',
+      };
     }
 
-    const resolvedParticipantIds = normalizeThresholdEd25519ParticipantIds(bootstrap.participantIds)
-      || participantIds
-      || undefined;
+    const resolvedParticipantIds =
+      normalizeThresholdEd25519ParticipantIds(bootstrap.participantIds) ||
+      participantIds ||
+      undefined;
     if (!resolvedParticipantIds) {
       return {
         ok: false,
@@ -151,7 +161,11 @@ export async function bootstrapEcdsaSession(args: {
     }
     const resolvedSessionId = String(bootstrap.sessionId || sessionId).trim();
     if (!resolvedSessionId) {
-      return { ok: false, code: 'internal', message: 'Threshold bootstrap response missing sessionId' };
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Threshold bootstrap response missing sessionId',
+      };
     }
     const resolvedRemainingUses = Number.isFinite(Number(bootstrap.remainingUses))
       ? Math.floor(Number(bootstrap.remainingUses))
@@ -205,9 +219,7 @@ export async function bootstrapEcdsaSession(args: {
       relayerKeyId,
       relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,
       participantIds: resolvedParticipantIds,
-      ...(typeof bootstrap.chainId === 'string' && bootstrap.chainId.trim()
-        ? { chainId: bootstrap.chainId.trim() }
-        : {}),
+      ...(typeof bootstrap.chainId === 'number' ? { chainId: bootstrap.chainId } : {}),
       ...(typeof bootstrap.factory === 'string' && bootstrap.factory.trim()
         ? { factory: bootstrap.factory.trim() }
         : {}),
@@ -217,7 +229,8 @@ export async function bootstrapEcdsaSession(args: {
       ...(typeof bootstrap.salt === 'string' && bootstrap.salt.trim()
         ? { salt: bootstrap.salt.trim() }
         : {}),
-      ...(typeof bootstrap.counterfactualAddress === 'string' && bootstrap.counterfactualAddress.trim()
+      ...(typeof bootstrap.counterfactualAddress === 'string' &&
+      bootstrap.counterfactualAddress.trim()
         ? { counterfactualAddress: bootstrap.counterfactualAddress.trim() }
         : {}),
       sessionId: resolvedSessionId,
@@ -228,7 +241,11 @@ export async function bootstrapEcdsaSession(args: {
       ...(bootstrap.message ? { message: bootstrap.message } : {}),
     };
   } catch (e: unknown) {
-    const msg = String((e && typeof e === 'object' && 'message' in e) ? (e as { message?: unknown }).message : e || 'bootstrap failed');
+    const msg = String(
+      e && typeof e === 'object' && 'message' in e
+        ? (e as { message?: unknown }).message
+        : e || 'bootstrap failed',
+    );
     return { ok: false, code: 'internal', message: msg };
   }
 }

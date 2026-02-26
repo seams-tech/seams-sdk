@@ -1,7 +1,12 @@
 import type { ThemePaletteName } from '../../types/tatchi';
 import type { RegistrationSignerOptions } from '../../types/registrationSignerOptions';
 
-export function coercePositiveIntInRange(value: unknown, fallback: number, min: number, max: number): number {
+export function coercePositiveIntInRange(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
   const rounded = Math.trunc(value);
   if (rounded < min) return min;
@@ -49,9 +54,7 @@ export function cloneRegistrationSignerOptions(
     },
     evm: {
       ...value.evm,
-      participantIds: Array.isArray(value.evm.participantIds)
-        ? [...value.evm.participantIds]
-        : [],
+      participantIds: Array.isArray(value.evm.participantIds) ? [...value.evm.participantIds] : [],
       ...(value.evm.smartAccount ? { smartAccount: { ...value.evm.smartAccount } } : {}),
     },
   };

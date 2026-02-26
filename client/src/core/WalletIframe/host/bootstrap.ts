@@ -3,8 +3,8 @@ import { ensureKnownW3aElement } from '../../signingEngine/touchConfirm/ui/regis
 import { isDevHost } from '../shared/is-dev-host';
 
 interface GlobalThis {
- global?: unknown;
- process?: { env?: Record<string, string | undefined> }
+  global?: unknown;
+  process?: { env?: Record<string, string | undefined> };
 }
 
 /**
@@ -34,13 +34,17 @@ export function bootstrapTransparentHost(): void {
     // Helpful in misconfigured cross-origin or COOP/COEP situations
     // (use direct '*' targeting before we know parent origin)
     window.parent?.postMessage(
-      { type: 'SERVICE_HOST_DEBUG_ORIGIN', origin: window.location.origin, href: window.location.href },
-      '*'
+      {
+        type: 'SERVICE_HOST_DEBUG_ORIGIN',
+        origin: window.location.origin,
+        href: window.location.href,
+      },
+      '*',
     );
     // Keep a console trace locally too
     // eslint-disable-next-line no-console
     console.warn(
-      '[WalletHost] iframe is running with opaque (null) origin. Check COEP/CORP headers and ensure navigation succeeded.'
+      '[WalletHost] iframe is running with opaque (null) origin. Check COEP/CORP headers and ensure navigation succeeded.',
     );
   }
 
@@ -49,8 +53,12 @@ export function bootstrapTransparentHost(): void {
   // Early lifecycle signal for observers in the parent
   window.parent?.postMessage({ type: 'SERVICE_HOST_BOOTED' }, '*');
   window.parent?.postMessage(
-    { type: 'SERVICE_HOST_DEBUG_ORIGIN', origin: window.location.origin, href: window.location.href },
-    '*'
+    {
+      type: 'SERVICE_HOST_DEBUG_ORIGIN',
+      origin: window.location.origin,
+      href: window.location.href,
+    },
+    '*',
   );
 
   // Establish a default embedded assets base as soon as this module loads.
@@ -105,7 +113,7 @@ function setupDevUnupgradedObserver(): void {
       if (!customElements.get(tag)) {
         // eslint-disable-next-line no-console
         console.warn(
-          `[W3A][Dev] <${tag}> not upgraded after 250ms. Ensure a dynamic import runs before createElement. See LitComponents/README-lit-elements.md (Never Break Again).`
+          `[W3A][Dev] <${tag}> not upgraded after 250ms. Ensure a dynamic import runs before createElement. See LitComponents/README-lit-elements.md (Never Break Again).`,
         );
       }
     }, 250);

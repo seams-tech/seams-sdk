@@ -13,9 +13,10 @@ import {
 const DUMMY_WRAP_KEY_SALT_B64U = base64UrlEncode(new Uint8Array(32));
 
 function generateKeygenSessionId(): string {
-  const id = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const id =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `tkeygen-${id}`;
 }
 
@@ -70,7 +71,11 @@ export async function keygenEd25519(args: {
 
   const prfFirstB64u = getPrfFirstB64uFromCredential(credential);
   if (!prfFirstB64u) {
-    return { ok: false, code: 'unsupported', message: 'Missing PRF.first output from credential (requires a PRF-enabled passkey)' };
+    return {
+      ok: false,
+      code: 'unsupported',
+      message: 'Missing PRF.first output from credential (requires a PRF-enabled passkey)',
+    };
   }
 
   // 2) Derive the client verifying share inside the signer worker.
@@ -82,7 +87,11 @@ export async function keygenEd25519(args: {
       wrapKeySalt: DUMMY_WRAP_KEY_SALT_B64U,
     });
     if (!derived.success) {
-      return { ok: false, code: 'internal', message: derived.error || 'Failed to derive client verifying share' };
+      return {
+        ok: false,
+        code: 'internal',
+        message: derived.error || 'Failed to derive client verifying share',
+      };
     }
 
     // 3) Keygen with the relay.
@@ -116,7 +125,7 @@ export async function keygenEd25519(args: {
       ...(keygen.message ? { message: keygen.message } : {}),
     };
   } catch (e: unknown) {
-    const msg = e instanceof Error ? (e.message || 'keygen failed') : String(e || 'keygen failed');
+    const msg = e instanceof Error ? e.message || 'keygen failed' : String(e || 'keygen failed');
     return { ok: false, code: 'internal', message: msg };
   }
 }

@@ -46,7 +46,7 @@ export async function deploySmartAccountForChain(
   const body = {
     nearAccountId: String(input.nearAccountId || '').trim(),
     chain: input.chain,
-    chainId: String(input.chainId || '').trim(),
+    chainId: input.chainId,
     accountAddress: String(input.account.accountAddress || '').trim(),
     accountModel: String(input.account.accountModel || '').trim(),
     counterfactualAddress: String(input.account.counterfactualAddress || '').trim(),

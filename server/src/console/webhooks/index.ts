@@ -25,9 +25,7 @@ export type {
   InMemoryConsoleWebhookServiceOptions,
   ConsoleWebhookService,
 } from './service';
-export {
-  createInMemoryConsoleWebhookService,
-} from './service';
+export { createInMemoryConsoleWebhookService } from './service';
 export type {
   PostgresConsoleWebhookSchemaOptions,
   PostgresConsoleWebhookServiceOptions,
@@ -36,10 +34,7 @@ export {
   ensureConsoleWebhooksPostgresSchema,
   createPostgresConsoleWebhookService,
 } from './postgres';
-export {
-  ConsoleWebhookError,
-  isConsoleWebhookError,
-} from './errors';
+export { ConsoleWebhookError, isConsoleWebhookError } from './errors';
 export {
   parseListConsoleWebhookDeliveriesRequest,
   parseCreateConsoleWebhookEndpointRequest,

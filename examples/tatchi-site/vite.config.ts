@@ -1,8 +1,8 @@
-import { fileURLToPath } from 'node:url'
-import { defineConfig, loadEnv } from 'vite'
-import react from '@vitejs/plugin-react'
-import { tatchiWallet } from '@tatchi-xyz/sdk/plugins/vite'
-import { nodePolyfills } from 'vite-plugin-node-polyfills'
+import { fileURLToPath } from 'node:url';
+import { defineConfig, loadEnv } from 'vite';
+import react from '@vitejs/plugin-react';
+import { tatchiWallet } from '@tatchi-xyz/sdk/plugins/vite';
+import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 /**
  * Do NOT use optional chaining or dynamic access such as `import.meta?.env`
@@ -12,17 +12,18 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills'
  */
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '')
-  const appSrc = fileURLToPath(new URL('./src', import.meta.url))
-  const appPublic = fileURLToPath(new URL('./src/public', import.meta.url))
-  const workspaceRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const env = loadEnv(mode, process.cwd(), '');
+  const appSrc = fileURLToPath(new URL('./src', import.meta.url));
+  const appPublic = fileURLToPath(new URL('./src/public', import.meta.url));
+  const workspaceRoot = fileURLToPath(new URL('../..', import.meta.url));
   // Bitwarden and other password managers inject extension iframes/scripts that are blocked
   // by COEP=require-corp on the host page. Default to COEP off for the docs site; switch
   // back on explicitly when you need cross-origin isolation testing.
-  const coepMode = (env.VITE_COEP_MODE === 'strict' ? 'strict' : 'off') as 'strict' | 'off'
+  const coepMode = (env.VITE_COEP_MODE === 'strict' ? 'strict' : 'off') as 'strict' | 'off';
   // Make VITE_* visible to Node-side dev plugins
-  if (env.VITE_DOCS_ORIGIN) process.env.VITE_DOCS_ORIGIN = env.VITE_DOCS_ORIGIN
-  if (env.VITE_ROR_ALLOWED_ORIGINS) process.env.VITE_ROR_ALLOWED_ORIGINS = env.VITE_ROR_ALLOWED_ORIGINS
+  if (env.VITE_DOCS_ORIGIN) process.env.VITE_DOCS_ORIGIN = env.VITE_DOCS_ORIGIN;
+  if (env.VITE_ROR_ALLOWED_ORIGINS)
+    process.env.VITE_ROR_ALLOWED_ORIGINS = env.VITE_ROR_ALLOWED_ORIGINS;
   return {
     clearScreen: false,
     logLevel: 'info',
@@ -32,13 +33,18 @@ export default defineConfig(({ mode }) => {
       host: 'localhost',
       // Allow access via reverse-proxied hosts (Caddy) and Bonjour (.local)
       // Needed to avoid Vite's DNS‑rebinding protection blocking mDNS hosts
-      allowedHosts: ['example.localhost', 'docs.example.localhost', 'wallet.example.localhost', 'pta-m4.local'],
+      allowedHosts: [
+        'example.localhost',
+        'docs.example.localhost',
+        'wallet.example.localhost',
+        'pta-m4.local',
+      ],
       open: false,
       fs: {
         allow: [
-          workspaceRoot
+          workspaceRoot,
           // Allow serving files from entire workspace including SDK
-        ]
+        ],
       },
     },
     plugins: [
@@ -71,13 +77,7 @@ export default defineConfig(({ mode }) => {
       'process.env': {},
     },
     optimizeDeps: {
-      include: [
-        'buffer',
-        'events',
-        'util',
-        'stream-browserify',
-        'crypto-browserify',
-      ],
+      include: ['buffer', 'events', 'util', 'stream-browserify', 'crypto-browserify'],
       esbuildOptions: {
         define: {
           global: 'globalThis',
@@ -98,5 +98,5 @@ export default defineConfig(({ mode }) => {
         process: 'process/browser',
       },
     },
-  }
-})
+  };
+});

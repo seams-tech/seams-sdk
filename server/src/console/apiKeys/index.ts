@@ -12,16 +12,8 @@ export type {
   ConsoleApiKeyService,
   InMemoryConsoleApiKeyServiceOptions,
 } from './service';
-export {
-  createInMemoryConsoleApiKeyService,
-} from './service';
+export { createInMemoryConsoleApiKeyService } from './service';
 
-export {
-  parseCreateConsoleApiKeyRequest,
-  parseRotateConsoleApiKeyRequest,
-} from './requests';
+export { parseCreateConsoleApiKeyRequest, parseRotateConsoleApiKeyRequest } from './requests';
 
-export {
-  ConsoleApiKeyError,
-  isConsoleApiKeyError,
-} from './errors';
+export { ConsoleApiKeyError, isConsoleApiKeyError } from './errors';

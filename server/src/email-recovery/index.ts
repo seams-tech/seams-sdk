@@ -5,11 +5,7 @@ import {
   sendEmailRecoveryTransaction,
 } from './rpcCalls';
 import { coerceLogger, type NormalizedLogger } from '../core/logger';
-import type {
-  EmailRecoveryRequest,
-  EmailRecoveryResult,
-  EmailRecoveryServiceDeps,
-} from './types';
+import type { EmailRecoveryRequest, EmailRecoveryResult, EmailRecoveryServiceDeps } from './types';
 
 export * from './emailEncryptor';
 export * from './testHelpers';
@@ -70,7 +66,9 @@ export class EmailRecoveryService {
    * `request_id` (parsed from the email Subject) so the frontend can observe
    * success/failure by polling `EmailRecoverer.get_recovery_attempt(request_id)`.
    */
-  async verifyEncryptedEmailAndRecover(request: EmailRecoveryRequest): Promise<EmailRecoveryResult> {
+  async verifyEncryptedEmailAndRecover(
+    request: EmailRecoveryRequest,
+  ): Promise<EmailRecoveryResult> {
     const accountId = (request.accountId || '').trim();
     const emailBlob = request.emailBlob;
 

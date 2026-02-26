@@ -14,7 +14,11 @@ export class PadlockIconElement extends LitElement {
 
   protected createRenderRoot(): HTMLElement | DocumentFragment {
     const root = super.createRenderRoot();
-    ensureExternalStyles(root as ShadowRoot | DocumentFragment | HTMLElement, 'padlock-icon.css', 'data-w3a-padlock-icon-css').catch(() => {});
+    ensureExternalStyles(
+      root as ShadowRoot | DocumentFragment | HTMLElement,
+      'padlock-icon.css',
+      'data-w3a-padlock-icon-css',
+    ).catch(() => {});
     return root;
   }
 
@@ -41,8 +45,8 @@ export class PadlockIconElement extends LitElement {
         aria-hidden="true"
         focusable="false"
       >
-        <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
-        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
       </svg>
     `;
   }

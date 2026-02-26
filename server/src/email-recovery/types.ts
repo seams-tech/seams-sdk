@@ -15,7 +15,10 @@ export interface EmailRecoveryServiceDeps {
   logger?: Logger | null;
   ensureSignerAndRelayerAccount: () => Promise<void>;
   queueTransaction<T>(fn: () => Promise<T>, label: string): Promise<T>;
-  fetchTxContext(accountId: string, publicKey: string): Promise<{ nextNonce: string; blockHash: string }>;
+  fetchTxContext(
+    accountId: string,
+    publicKey: string,
+  ): Promise<{ nextNonce: string; blockHash: string }>;
   signWithPrivateKey(input: {
     nearPrivateKey: string;
     signerAccountId: string;

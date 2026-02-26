@@ -6,9 +6,22 @@
   --pricing-card: var(--fe-surface, #ffffff);
   --pricing-card-soft: var(--fe-bg-secondary, #f8fafc);
   --pricing-border: var(--fe-border, #d9e0ec);
-  --pricing-shadow: 0 16px 34px color-mix(in srgb, var(--fe-shadow-strong, rgba(15, 23, 42, 0.3)) 35%, transparent);
+  --pricing-shadow: 0 16px 34px
+    color-mix(in srgb, var(--fe-shadow-strong, rgba(15, 23, 42, 0.3)) 35%, transparent);
   color: var(--pricing-ink);
-  font-family: var(--fe-font-sans, "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
+  font-family: var(
+    --fe-font-sans,
+    'Hanken Grotesk',
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif
+  );
   background: transparent;
   padding: 72px clamp(20px, 4vw, 56px) 96px;
   margin-top: 4rem;
@@ -50,7 +63,10 @@
   line-height: 1.04;
   letter-spacing: -0.025em;
   color: var(--pricing-ink);
-  font-family: var(--fe-font-display, var(--fe-font-sans, "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif));
+  font-family: var(
+    --fe-font-display,
+    var(--fe-font-sans, 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif)
+  );
 }
 
 .pricing-subtitle {
@@ -80,7 +96,11 @@
   line-height: 1;
   padding: 12px 16px;
   text-decoration: none;
-  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .pricing-button:hover {
@@ -216,7 +236,7 @@
 }
 
 .pricing-feature-list li::before {
-  content: "";
+  content: '';
   position: absolute;
   left: 0;
   top: 0.56rem;
@@ -382,7 +402,6 @@
 }
 
 @media (max-width: 1080px) {
-
   .pricing-cards,
   .pricing-includes-grid,
   .pricing-cta {

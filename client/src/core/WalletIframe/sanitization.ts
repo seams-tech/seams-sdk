@@ -75,13 +75,13 @@ export function escapeHtmlAttribute(value: string): string {
 export function isValidSdkBasePath(path: string): boolean {
   // Check for dangerous patterns
   const dangerousPatterns = [
-    /[<>"']/,           // HTML/JS special chars
-    /\.\./,             // Path traversal
-    /javascript:/i,     // Protocol injection
-    /data:/i,           // Data URI
-    /vbscript:/i,       // VBScript
-    /file:/i,           // File protocol (security risk)
-    /ftp:/i,            // FTP protocol (not suitable for web)
+    /[<>"']/, // HTML/JS special chars
+    /\.\./, // Path traversal
+    /javascript:/i, // Protocol injection
+    /data:/i, // Data URI
+    /vbscript:/i, // VBScript
+    /file:/i, // File protocol (security risk)
+    /ftp:/i, // FTP protocol (not suitable for web)
   ];
 
   // Additional validation for absolute URLs
@@ -89,7 +89,10 @@ export function isValidSdkBasePath(path: string): boolean {
     try {
       const url = new URL(path);
       // Only allow HTTPS in production, HTTP for localhost
-      if (url.protocol !== 'https:' && !url.hostname.match(/^(localhost|127\.0\.0\.1|::1)(:\d+)?$/)) {
+      if (
+        url.protocol !== 'https:' &&
+        !url.hostname.match(/^(localhost|127\.0\.0\.1|::1)(:\d+)?$/)
+      ) {
         return false;
       }
     } catch {
@@ -97,6 +100,5 @@ export function isValidSdkBasePath(path: string): boolean {
     }
   }
 
-  return !dangerousPatterns.some(pattern => pattern.test(path));
+  return !dangerousPatterns.some((pattern) => pattern.test(path));
 }
-

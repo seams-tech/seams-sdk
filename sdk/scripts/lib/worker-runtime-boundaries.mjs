@@ -71,9 +71,7 @@ export function findWorkerRuntimeBoundaryViolations(repoRoot) {
   const executeHelperFile = 'client/src/core/signingEngine/workerManager/executeWorkerOperation.ts';
   const signingEngineRoot = path.join(repoRoot, 'client/src/core/signingEngine');
   const legacyWorkerRoot = 'client/src/core/workers';
-  const workerTransportFiles = [
-    'client/src/core/signingEngine/workerManager/workerTransport.ts',
-  ];
+  const workerTransportFiles = ['client/src/core/signingEngine/workerManager/workerTransport.ts'];
   const workerRuntimeFiles = [
     'client/src/core/signingEngine/workerManager/workers/eth-signer.worker.ts',
     'client/src/core/signingEngine/workerManager/workers/tempo-signer.worker.ts',
@@ -86,10 +84,9 @@ export function findWorkerRuntimeBoundaryViolations(repoRoot) {
     'client/src/core/signingEngine/workerManager/nearKeyOpsService.ts',
     'client/src/core/signingEngine/workerManager/gateway.ts',
   ];
-  const forbiddenLegacyWorkerRoots = [
-    'client/src/core/signingEngine/workers',
-  ];
-  const exportRecoveryFile = 'client/src/core/signingEngine/api/recovery/privateKeyExportRecovery.ts';
+  const forbiddenLegacyWorkerRoots = ['client/src/core/signingEngine/workers'];
+  const exportRecoveryFile =
+    'client/src/core/signingEngine/api/recovery/privateKeyExportRecovery.ts';
   const forbiddenLegacyExportFiles = [
     'client/src/core/signingEngine/workerManager/nearKeyOps/exportNearKeypairUi.ts',
   ];
@@ -110,7 +107,10 @@ export function findWorkerRuntimeBoundaryViolations(repoRoot) {
 
   const legacyWorkerRootAbsolute = path.join(repoRoot, legacyWorkerRoot);
   const legacyWorkerRootViolations = [];
-  if (fs.existsSync(legacyWorkerRootAbsolute) && fs.statSync(legacyWorkerRootAbsolute).isDirectory()) {
+  if (
+    fs.existsSync(legacyWorkerRootAbsolute) &&
+    fs.statSync(legacyWorkerRootAbsolute).isDirectory()
+  ) {
     legacyWorkerRootViolations.push({
       file: toPosixPath(path.relative(repoRoot, legacyWorkerRootAbsolute)),
       line: null,
@@ -227,7 +227,8 @@ export function findWorkerRuntimeBoundaryViolations(repoRoot) {
   }
   checks.push({
     id: 'touchconfirm-manager-single-bridge-boundary',
-    description: 'TouchConfirmManager direct usage must stay limited to manager assembly and manager-definition files',
+    description:
+      'TouchConfirmManager direct usage must stay limited to manager assembly and manager-definition files',
     violations: touchConfirmDirectUsageViolations,
   });
 
@@ -251,7 +252,8 @@ export function findWorkerRuntimeBoundaryViolations(repoRoot) {
   }
   checks.push({
     id: 'touchconfirm-await-user-confirmation-worker-owned',
-    description: 'awaitUserConfirmationV2 usage must stay limited to passkey-confirm worker runtime and its bridge helper',
+    description:
+      'awaitUserConfirmationV2 usage must stay limited to passkey-confirm worker runtime and its bridge helper',
     violations: awaitUserConfirmationViolations,
   });
 
@@ -276,7 +278,8 @@ export function findWorkerRuntimeBoundaryViolations(repoRoot) {
   }
   checks.push({
     id: 'no-mainthread-export-confirmation-shortcuts',
-    description: 'private key export API must not orchestrate confirmations or parse PRF in main thread',
+    description:
+      'private key export API must not orchestrate confirmations or parse PRF in main thread',
     violations: exportShortcutPatternViolations,
   });
 
@@ -287,7 +290,8 @@ export function findWorkerRuntimeBoundaryViolations(repoRoot) {
   );
   checks.push({
     id: 'export-hardening-typed-disable-code',
-    description: 'export flow must provide typed fail-closed code for blocked legacy shortcut paths',
+    description:
+      'export flow must provide typed fail-closed code for blocked legacy shortcut paths',
     violations: exportHardeningGuardMatch
       ? []
       : [

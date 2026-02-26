@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitepress'
+import { defineConfig } from 'vitepress';
 
 export default defineConfig({
   base: '/',
@@ -8,8 +8,21 @@ export default defineConfig({
     ['link', { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' }],
     ['link', { rel: 'preconnect', href: 'https://fonts.googleapis.com' }],
     ['link', { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' }],
-    ['link', { rel: 'preload', as: 'style', href: 'https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&display=fallback' }],
-    ['link', { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&display=fallback' }],
+    [
+      'link',
+      {
+        rel: 'preload',
+        as: 'style',
+        href: 'https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&display=fallback',
+      },
+    ],
+    [
+      'link',
+      {
+        rel: 'stylesheet',
+        href: 'https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&display=fallback',
+      },
+    ],
   ],
   markdown: {
     languageAlias: {
@@ -44,7 +57,10 @@ export default defineConfig({
               { text: 'Next.js', link: '/getting-started/other-frameworks#next-js' },
               { text: 'Vue 3', link: '/getting-started/other-frameworks#vue-3' },
               { text: 'Svelte', link: '/getting-started/other-frameworks#svelte' },
-              { text: 'Vanilla JS / Express', link: '/getting-started/other-frameworks#vanilla-js-express' },
+              {
+                text: 'Vanilla JS / Express',
+                link: '/getting-started/other-frameworks#vanilla-js-express',
+              },
             ],
           },
         ],
@@ -74,4 +90,4 @@ export default defineConfig({
       allowedHosts: ['docs.example.localhost', 'example.localhost', 'pta-m4.local'],
     },
   },
-})
+});

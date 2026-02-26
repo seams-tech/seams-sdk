@@ -53,7 +53,6 @@ export type { TxTreeStyles } from './tx-tree-themes';
  * }
  */
 export class TxTree extends LitElementWithProps {
-
   // Pure component contract:
   // - Renders solely from inputs (node, depth, styles); holds no internal state
   // - Complex inputs are passed via property binding, not attributes
@@ -79,7 +78,7 @@ export class TxTree extends LitElementWithProps {
     evmExplorerUrl: { type: String, attribute: 'evm-explorer-url' },
     // Controls whether the outer tooltip wrapper shows a drop shadow.
     // Defaults to true to preserve existing tooltip visuals.
-    showShadow: { type: Boolean, attribute: 'show-shadow' }
+    showShadow: { type: Boolean, attribute: 'show-shadow' },
   } as const;
 
   // Do NOT set class field initializers for reactive props.
@@ -128,7 +127,9 @@ export class TxTree extends LitElementWithProps {
         ta.className = 'w3a-offscreen';
         document.body.appendChild(ta);
         ta.select();
-        try { document.execCommand('copy'); } catch {}
+        try {
+          document.execCommand('copy');
+        } catch {}
         document.body.removeChild(ta);
       }
       // Mark as copied for 2 seconds
@@ -178,13 +179,16 @@ export class TxTree extends LitElementWithProps {
       }
     } else {
       const target = e.target as HTMLElement | null;
-      clickedReceiverLink = (target?.closest?.('a.highlight-receiver-id') as HTMLAnchorElement | null) ?? null;
+      clickedReceiverLink =
+        (target?.closest?.('a.highlight-receiver-id') as HTMLAnchorElement | null) ?? null;
     }
     if (clickedReceiverLink) {
       e.preventDefault();
       e.stopPropagation();
       dispatchTxReviewOpenLink(this, { href: clickedReceiverLink.href });
-      try { window.open(clickedReceiverLink.href, '_blank', 'noopener'); } catch {}
+      try {
+        window.open(clickedReceiverLink.href, '_blank', 'noopener');
+      } catch {}
       return;
     }
 
@@ -196,7 +200,9 @@ export class TxTree extends LitElementWithProps {
     if (!details || this._animating.has(details)) return;
 
     // Find the collapsible body (folder children or file row content)
-    const body = details.querySelector(':scope > .folder-children, :scope > .row.file-row') as HTMLElement | null;
+    const body = details.querySelector(
+      ':scope > .folder-children, :scope > .row.file-row',
+    ) as HTMLElement | null;
     // If no body, fall back to instant toggle + event
     if (!body) {
       details.open = !details.open;
@@ -222,7 +228,7 @@ export class TxTree extends LitElementWithProps {
     } else {
       this.animateClose(details, body);
     }
-  }
+  };
 
   private animateOpen(details: HTMLDetailsElement, body: HTMLElement) {
     this._animating.add(details);
@@ -238,7 +244,8 @@ export class TxTree extends LitElementWithProps {
       body.classList.add('anim-h-active');
       let done = false;
       const cleanup = () => {
-        if (done) return; done = true;
+        if (done) return;
+        done = true;
         body.classList.remove('anim-h');
         body.classList.remove('anim-h-active');
         this._animating.delete(details);
@@ -271,7 +278,8 @@ export class TxTree extends LitElementWithProps {
       body.classList.remove('anim-h-active');
       let done = false;
       const cleanup = () => {
-        if (done) return; done = true;
+        if (done) return;
+        done = true;
         body.removeEventListener('transitionend', onEnd);
         details.open = false;
         body.classList.remove('anim-h');
@@ -303,14 +311,24 @@ export class TxTree extends LitElementWithProps {
     if (this.shadowDom) {
       // Encapsulated mode: render in ShadowRoot and adopt stylesheet there
       const root = super.createRenderRoot();
-      ensureExternalStyles(root as ShadowRoot | DocumentFragment | HTMLElement, 'tx-tree.css', 'data-w3a-tx-tree-css').catch(() => {});
+      ensureExternalStyles(
+        root as ShadowRoot | DocumentFragment | HTMLElement,
+        'tx-tree.css',
+        'data-w3a-tx-tree-css',
+      ).catch(() => {});
       return root;
     }
     // Default: light DOM render for CSP simplicity; ensure styles at host and (if present) nearest ShadowRoot
-    ensureExternalStyles(this as unknown as HTMLElement, 'tx-tree.css', 'data-w3a-tx-tree-css').catch(() => {});
+    ensureExternalStyles(
+      this as unknown as HTMLElement,
+      'tx-tree.css',
+      'data-w3a-tx-tree-css',
+    ).catch(() => {});
     const root = this.getRootNode ? this.getRootNode() : null;
     if (root instanceof ShadowRoot) {
-      ensureExternalStyles(root as ShadowRoot, 'tx-tree.css', 'data-w3a-tx-tree-css').catch(() => {});
+      ensureExternalStyles(root as ShadowRoot, 'tx-tree.css', 'data-w3a-tx-tree-css').catch(
+        () => {},
+      );
     }
     return this as unknown as HTMLElement;
   }
@@ -321,7 +339,8 @@ export class TxTree extends LitElementWithProps {
   protected updated(changedProperties: Map<string | number | symbol, unknown>): void {
     super.updated(changedProperties);
     // 1) Apply explicit styles when provided and non-empty
-    const hasExplicitStyles = !!this.styles && Object.keys(this.styles as Record<string, unknown>).length > 0;
+    const hasExplicitStyles =
+      !!this.styles && Object.keys(this.styles as Record<string, unknown>).length > 0;
     if (changedProperties.has('styles') && hasExplicitStyles) {
       this.applyStyles(this.styles as TxTreeStyles);
     }
@@ -358,12 +377,16 @@ export class TxTree extends LitElementWithProps {
     return `${match[1]} `;
   }
 
-  private resolveContractExplorerHref(treeNode: TreeNode, contractAddress: string): string | undefined {
+  private resolveContractExplorerHref(
+    treeNode: TreeNode,
+    contractAddress: string,
+  ): string | undefined {
     const chain = treeNode.chain;
     const base = (() => {
       if (chain === 'tempo') return this.normalizeExplorerBase(this.tempoExplorerUrl);
       if (chain === 'evm') return this.normalizeExplorerBase(this.evmExplorerUrl);
-      if (chain === 'near') return this.normalizeExplorerBase(this.nearExplorerUrl || 'https://testnet.nearblocks.io');
+      if (chain === 'near')
+        return this.normalizeExplorerBase(this.nearExplorerUrl || 'https://testnet.nearblocks.io');
       return undefined;
     })();
     if (!base) return undefined;
@@ -381,11 +404,12 @@ export class TxTree extends LitElementWithProps {
       return html`${prefix}<span class="highlight-receiver-id">${displayAddress}</span>`;
     }
     return html`${prefix}<a
-      class="highlight-receiver-id"
-      href=${href}
-      target="_blank"
-      rel="noopener noreferrer"
-    >${displayAddress}</a>`;
+        class="highlight-receiver-id"
+        href=${href}
+        target="_blank"
+        rel="noopener noreferrer"
+        >${displayAddress}</a
+      >`;
   }
 
   private renderCallingLabel(label: string): TemplateResult | string | undefined {
@@ -402,7 +426,9 @@ export class TxTree extends LitElementWithProps {
     const functionName = rest.slice(0, usingIdx).trim();
     const trailing = rest.slice(usingIdx + usingNeedle.length).trim();
     if (!functionName) return undefined;
-    return html`Calling <span class="highlight-method-name">${functionName}</span>${trailing ? html` using ${trailing}` : ''}`;
+    return html`Calling <span class="highlight-method-name">${functionName}</span>${trailing
+        ? html` using ${trailing}`
+        : ''}`;
   }
 
   private renderLabelWithSelectiveHighlight(treeNode: TreeNode): TemplateResult | string {
@@ -414,9 +440,11 @@ export class TxTree extends LitElementWithProps {
           const method = a.methodName;
           const gasStr = formatGas(a.gas);
           const depositStr = formatDeposit(a.deposit);
-          return html`Calling <span class="highlight-method-name">${method}</span>
-              ${depositStr !== '0 NEAR' ? html` with <span class="highlight-method-name">${depositStr}</span>` : ''}
-              ${gasStr ? html` using <span class="highlight-method-name">${gasStr}</span>` : ''}`;
+          return html`Calling <span class="highlight-method-name">${method}</span> ${depositStr !==
+            '0 NEAR'
+              ? html` with <span class="highlight-method-name">${depositStr}</span>`
+              : ''}
+            ${gasStr ? html` using <span class="highlight-method-name">${gasStr}</span>` : ''}`;
         }
         case 'Transfer': {
           const amount = formatDeposit(a.amount);
@@ -445,18 +473,24 @@ export class TxTree extends LitElementWithProps {
           const accountId = (a as unknown as { accountId?: unknown }).accountId;
           const codeHash = (a as unknown as { codeHash?: unknown }).codeHash;
           if (accountId) {
-            const base = (this.nearExplorerUrl || 'https://testnet.nearblocks.io').replace(/\/$/, '');
+            const base = (this.nearExplorerUrl || 'https://testnet.nearblocks.io').replace(
+              /\/$/,
+              '',
+            );
             const href = `${base}/address/${encodeURIComponent(String(accountId))}`;
-            return html`Use global contract <a
-              class="highlight-receiver-id"
-              href=${href}
-              target="_blank"
-              rel="noopener noreferrer"
-            >${String(accountId)}</a>`;
+            return html`Use global contract
+              <a
+                class="highlight-receiver-id"
+                href=${href}
+                target="_blank"
+                rel="noopener noreferrer"
+                >${String(accountId)}</a
+              >`;
           }
           if (codeHash) {
             const short = shortenPubkey(String(codeHash), { prefix: 10, suffix: 6 });
-            return html`Use global contract by hash <span class="highlight-method-name">${short}</span>`;
+            return html`Use global contract by hash
+              <span class="highlight-method-name">${short}</span>`;
           }
           return 'Use global contract';
         }
@@ -477,11 +511,12 @@ export class TxTree extends LitElementWithProps {
       const base = (this.nearExplorerUrl || 'https://testnet.nearblocks.io').replace(/\/$/, '');
       const href = `${base}/address/${encodeURIComponent(receiverId)}`;
       return html`${prefix}<a
-        class="highlight-receiver-id"
-        href=${href}
-        target="_blank"
-        rel="noopener noreferrer"
-      >${receiverId}</a>`;
+          class="highlight-receiver-id"
+          href=${href}
+          target="_blank"
+          rel="noopener noreferrer"
+          >${receiverId}</a
+        >`;
     }
 
     const contractLabel = this.renderContractTransactionLabel(treeNode);
@@ -563,42 +598,37 @@ export class TxTree extends LitElementWithProps {
   }
 
   private renderLeaf(depth: number, node: TreeNode): TemplateResult | undefined {
-
     const depthIndex = Math.max(0, depth - 1);
 
     // If content exists, render a collapsible details with the content
     if (isString(node.content) && node.content.length > 0) {
       return html`
         <details class="tree-node file" ?open=${!!node.open} data-node-id=${node.id}>
-          <summary class="row summary-row depth-${depthIndex}"
+          <summary
+            class="row summary-row depth-${depthIndex}"
             data-no-elbow="${!!node.hideLabel}"
             @click=${this.onSummaryClick}
           >
             <span class="indent"></span>
             <span class="label label-action-node" ?hidden=${!!node.hideLabel}>
-              ${
-                !node.hideChevron
-                ? html`
-                  <svg class="chevron" viewBox="0 0 16 16" aria-hidden="true">
+              ${!node.hideChevron
+                ? html` <svg class="chevron" viewBox="0 0 16 16" aria-hidden="true">
                     <path fill="currentColor" d="M6 3l5 5-5 5z" />
                   </svg>`
-                : ''
-              }
+                : ''}
               <span class="label-text" title=${this.computePlainLabel(node)}>
                 ${this.renderLabelWithSelectiveHighlight(node)}
               </span>
-              ${
-                node.copyValue
-                ? html`
-                  <span class="copy-badge"
+              ${node.copyValue
+                ? html` <span
+                    class="copy-badge"
                     data-copied=${this.isCopied(node.id)}
                     @click=${(e: Event) => this.handleCopyClick(e, node)}
                     title=${this.isCopied(node.id) ? 'Copied' : 'Copy'}
                   >
                     ${this.isCopied(node.id) ? 'copied' : 'copy'}
                   </span>`
-                : ''
-              }
+                : ''}
             </span>
             <!-- Move file-content into .summary-row so we can collapse it by default -->
             <div class="file-content">${node.content}</div>
@@ -609,7 +639,8 @@ export class TxTree extends LitElementWithProps {
     }
     // Plain file row without content
     return html`
-      <div class="row file-row depth-${depthIndex}"
+      <div
+        class="row file-row depth-${depthIndex}"
         data-no-elbow="${!!node.hideLabel}"
         ?open=${!!node.open}
       >
@@ -618,54 +649,64 @@ export class TxTree extends LitElementWithProps {
           <span class="label-text" title=${this.computePlainLabel(node)}>
             ${this.renderLabelWithSelectiveHighlight(node)}
           </span>
-          ${node.copyValue ? html`
-            <span class="copy-badge"
-              data-copied=${this.isCopied(node.id)}
-              @click=${(e: Event) => this.handleCopyClick(e, node)}
-              title=${this.isCopied(node.id) ? 'Copied' : 'Copy'}
-            >${this.isCopied(node.id) ? 'copied' : 'copy'}</span>
-          ` : ''}
+          ${node.copyValue
+            ? html`
+                <span
+                  class="copy-badge"
+                  data-copied=${this.isCopied(node.id)}
+                  @click=${(e: Event) => this.handleCopyClick(e, node)}
+                  title=${this.isCopied(node.id) ? 'Copied' : 'Copy'}
+                  >${this.isCopied(node.id) ? 'copied' : 'copy'}</span
+                >
+              `
+            : ''}
         </span>
       </div>
     `;
   }
 
   private renderFolder(depth: number, node: TreeNode): TemplateResult | undefined {
-
     const { children: nodeChildren } = node;
     const depthIndex = Math.max(0, depth - 1);
 
     return html`
       <details class="tree-node folder" ?open=${!!node.open} data-node-id=${node.id}>
-        <summary class="row summary-row depth-${depthIndex}"
+        <summary
+          class="row summary-row depth-${depthIndex}"
           data-no-elbow="${!!node.hideLabel}"
           @click=${this.onSummaryClick}
         >
           <span class="indent"></span>
           <span class="label" ?hidden=${!!node.hideLabel}>
-            ${!node.hideChevron ? html`
-              <svg class="chevron" viewBox="0 0 16 16" aria-hidden="true">
-                <path fill="currentColor" d="M6 3l5 5-5 5z" />
-              </svg>
-            ` : ''}
+            ${!node.hideChevron
+              ? html`
+                  <svg class="chevron" viewBox="0 0 16 16" aria-hidden="true">
+                    <path fill="currentColor" d="M6 3l5 5-5 5z" />
+                  </svg>
+                `
+              : ''}
             <span class="label-text" title=${this.computePlainLabel(node)}>
               ${this.renderLabelWithSelectiveHighlight(node)}
             </span>
           </span>
         </summary>
-        ${nodeChildren && nodeChildren.length > 0 ? html`
-          <div class="folder-children">
-            ${repeat(nodeChildren, (c) => c.id, (c) => this.renderAnyNode(c, depth + 1))}
-          </div>
-        ` : html``}
+        ${nodeChildren && nodeChildren.length > 0
+          ? html`
+              <div class="folder-children">
+                ${repeat(
+                  nodeChildren,
+                  (c) => c.id,
+                  (c) => this.renderAnyNode(c, depth + 1),
+                )}
+              </div>
+            `
+          : html``}
       </details>
     `;
   }
 
   private renderAnyNode(node: TreeNode, depth: number): TemplateResult | undefined {
-    return node.type === 'file'
-      ? this.renderLeaf(depth, node)
-      : this.renderFolder(depth, node);
+    return node.type === 'file' ? this.renderLeaf(depth, node) : this.renderFolder(depth, node);
   }
 
   render() {
@@ -686,14 +727,12 @@ export class TxTree extends LitElementWithProps {
             ${repeat(
               Array.isArray(this.node.children) ? this.node.children : [],
               (child) => child.id,
-              (child) => this.renderAnyNode(child, depth + 1)
+              (child) => this.renderAnyNode(child, depth + 1),
             )}
           </div>
         </div>
       `;
-      content = this.showShadow
-        ? html`<div class="tooltip-border-outer">${inner}</div>`
-        : inner;
+      content = this.showShadow ? html`<div class="tooltip-border-outer">${inner}</div>` : inner;
     } else if (this.node.type === 'folder') {
       content = this.renderFolder(depth, this.node);
     } else if (this.node.type === 'file') {

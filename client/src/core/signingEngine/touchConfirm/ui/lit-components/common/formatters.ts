@@ -1,9 +1,8 @@
-
 export function formatArgs(args?: string | Record<string, string>): string {
   if (!args) return '';
   if (typeof args === 'string') return args;
   try {
-    return JSON.stringify(args, (_k, v) => typeof v === 'bigint' ? v.toString() : v, 2);
+    return JSON.stringify(args, (_k, v) => (typeof v === 'bigint' ? v.toString() : v), 2);
   } catch {
     return String(args);
   }
@@ -61,7 +60,7 @@ export function formatGas(gas?: string): string {
  */
 export function shortenPubkey(
   pk?: string,
-  opts: { prefix?: number; suffix?: number } = {}
+  opts: { prefix?: number; suffix?: number } = {},
 ): string {
   if (!pk || typeof pk !== 'string') return '';
   const { prefix = 12, suffix = 6 } = opts;
@@ -70,7 +69,6 @@ export function shortenPubkey(
   const tail = pk.slice(-suffix);
   return `${head}...${tail}`;
 }
-
 
 // Helper function for calculating code size
 export function formatCodeSize(code: Uint8Array | string): string {

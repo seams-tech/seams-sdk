@@ -5,11 +5,7 @@ import { ensureEd25519Prefix } from '@shared/utils/validation';
 import { ActionType, type ActionArgsWasm, type TransactionInputWasm } from '@/core/types/actions';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { DEFAULT_WAIT_STATUS } from '@/core/types/rpc';
-import type {
-  ConfirmationConfig,
-  RpcCallPayload,
-  SignerMode,
-} from '@/core/types/signer-worker';
+import type { ConfirmationConfig, RpcCallPayload, SignerMode } from '@/core/types/signer-worker';
 import type { SignTransactionResult } from '@/core/types/tatchi';
 
 export type RotateThresholdEd25519KeyPostRegistrationHandlerContext = {
@@ -43,7 +39,7 @@ export async function rotateEd25519KeyPostRegistrationHandler(
     oldRelayerKeyId: string;
     newPublicKey: string;
     newRelayerKeyId: string;
-  }
+  },
 ): Promise<{
   success: boolean;
   oldPublicKey: string;
@@ -69,7 +65,11 @@ export async function rotateEd25519KeyPostRegistrationHandler(
     relayerKeyId: newRelayerKeyId,
   };
 
-  const ok = (params: { deleteOldKeyAttempted: boolean; deleteOldKeySuccess: boolean; warning?: string }) => {
+  const ok = (params: {
+    deleteOldKeyAttempted: boolean;
+    deleteOldKeySuccess: boolean;
+    warning?: string;
+  }) => {
     const { warning, ...rest } = params;
     return {
       success: true,
@@ -81,7 +81,8 @@ export async function rotateEd25519KeyPostRegistrationHandler(
 
   try {
     const deviceNumber = Number(args.deviceNumber);
-    const resolvedDeviceNumber = Number.isSafeInteger(deviceNumber) && deviceNumber >= 1 ? deviceNumber : NaN;
+    const resolvedDeviceNumber =
+      Number.isSafeInteger(deviceNumber) && deviceNumber >= 1 ? deviceNumber : NaN;
     if (!Number.isSafeInteger(resolvedDeviceNumber) || resolvedDeviceNumber < 1) {
       throw new Error('Invalid deviceNumber');
     }
@@ -93,7 +94,8 @@ export async function rotateEd25519KeyPostRegistrationHandler(
       return ok({
         deleteOldKeyAttempted: false,
         deleteOldKeySuccess: false,
-        warning: 'Rotation completed but old threshold key material had an invalid publicKey; skipped DeleteKey.',
+        warning:
+          'Rotation completed but old threshold key material had an invalid publicKey; skipped DeleteKey.',
       });
     }
 
@@ -118,7 +120,10 @@ export async function rotateEd25519KeyPostRegistrationHandler(
       });
     }
 
-    const oldOnChain = await hasAccessKey(ctx.nearClient, nearAccountId, oldPublicKey, { attempts: 1, delayMs: 0 });
+    const oldOnChain = await hasAccessKey(ctx.nearClient, nearAccountId, oldPublicKey, {
+      attempts: 1,
+      delayMs: 0,
+    });
     if (!oldOnChain) {
       return ok({ deleteOldKeyAttempted: false, deleteOldKeySuccess: true });
     }

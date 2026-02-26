@@ -21,9 +21,15 @@ export type ThresholdSecp256k1Ecdsa2pSchemeModuleDeps = {
   keygen(request: ThresholdEcdsaKeygenRequest): Promise<ThresholdEcdsaKeygenResponse>;
   session(request: ThresholdEcdsaSessionRequest): Promise<ThresholdEcdsaSessionResponse>;
   bootstrap?: (request: ThresholdEcdsaBootstrapRequest) => Promise<ThresholdEcdsaBootstrapResponse>;
-  authorize(input: { claims: ThresholdEcdsaSessionClaims; request: ThresholdEcdsaAuthorizeWithSessionRequest }): Promise<ThresholdEcdsaAuthorizeResponse>;
+  authorize(input: {
+    claims: ThresholdEcdsaSessionClaims;
+    request: ThresholdEcdsaAuthorizeWithSessionRequest;
+  }): Promise<ThresholdEcdsaAuthorizeResponse>;
   presign: {
-    init(input: { claims: ThresholdEcdsaSessionClaims; request: ThresholdEcdsaPresignInitRequest }): Promise<ThresholdEcdsaPresignInitResponse>;
+    init(input: {
+      claims: ThresholdEcdsaSessionClaims;
+      request: ThresholdEcdsaPresignInitRequest;
+    }): Promise<ThresholdEcdsaPresignInitResponse>;
     step(input: {
       claims: ThresholdEcdsaSessionClaims;
       request: ThresholdEcdsaPresignStepRequest;
@@ -39,7 +45,7 @@ export type ThresholdSecp256k1Ecdsa2pSchemeModuleDeps = {
 };
 
 export function createThresholdSecp256k1Ecdsa2pSchemeModule(
-  deps: ThresholdSecp256k1Ecdsa2pSchemeModuleDeps
+  deps: ThresholdSecp256k1Ecdsa2pSchemeModuleDeps,
 ): ThresholdSecp256k1Ecdsa2pSchemeModule {
   return {
     schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,

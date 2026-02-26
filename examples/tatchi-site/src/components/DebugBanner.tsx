@@ -2,17 +2,24 @@ import React, { useEffect, useState } from 'react';
 import { useTatchi } from '@tatchi-xyz/sdk/react';
 
 export const DebugBanner: React.FC = () => {
-  // Hide on mobile devices (coarse pointers / typical UA tokens)
-  try {
-    const ua = (typeof navigator !== 'undefined' ? navigator.userAgent : '') || '';
-    const coarse = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
-    const mobileUA = /Mobi|Android|iPhone|iPad|iPod/i.test(ua);
-    if (coarse || mobileUA) return null;
-  } catch {}
-
   const { walletIframeConnected, accountInputState, tatchi } = useTatchi();
-  const [recentCount, setRecentCount] = useState<number>(accountInputState.indexDBAccounts?.length || 0);
+  const [recentCount, setRecentCount] = useState<number>(
+    accountInputState.indexDBAccounts?.length || 0,
+  );
   const [connecting, setConnecting] = useState<boolean>(false);
+  const shouldHideOnMobile = React.useMemo(() => {
+    try {
+      const ua = (typeof navigator !== 'undefined' ? navigator.userAgent : '') || '';
+      const coarse =
+        typeof window !== 'undefined' &&
+        !!window.matchMedia &&
+        window.matchMedia('(pointer: coarse)').matches;
+      const mobileUA = /Mobi|Android|iPhone|iPad|iPod/i.test(ua);
+      return coarse || mobileUA;
+    } catch {
+      return false;
+    }
+  }, []);
 
   useEffect(() => {
     setRecentCount(accountInputState.indexDBAccounts?.length || 0);
@@ -25,36 +32,46 @@ export const DebugBanner: React.FC = () => {
         setConnecting(true);
         // Force-init wallet iframe if configured to surface READY state quickly
         await tatchi.initWalletIframe?.();
-      } catch {}
-      finally { if (mounted) setConnecting(false); }
+      } catch {
+      } finally {
+        if (mounted) setConnecting(false);
+      }
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [tatchi]);
 
   const status = walletIframeConnected
     ? 'connected'
-    : (connecting ? 'connecting…' : 'waiting for READY');
+    : connecting
+      ? 'connecting…'
+      : 'waiting for READY';
+
+  if (shouldHideOnMobile) return null;
 
   return (
-    <div style={{
-      position: 'absolute',
-      bottom: '-1rem',
-      left: '0rem',
-      color: walletIframeConnected ? 'rgba(66,140,240,0.4)' : 'rgba(234,179,8,0.4)',
-      padding: '4px 4px 0px 4px',
-      lineHeight: '0.75rem',
-      fontSize: '10px',
-      display: 'flex',
-      gap: '6px',
-      alignItems: 'center',
-    }}>
+    <div
+      style={{
+        position: 'absolute',
+        bottom: '-1rem',
+        left: '0rem',
+        color: walletIframeConnected ? 'rgba(66,140,240,0.4)' : 'rgba(234,179,8,0.4)',
+        padding: '4px 4px 0px 4px',
+        lineHeight: '0.75rem',
+        fontSize: '10px',
+        display: 'flex',
+        gap: '6px',
+        alignItems: 'center',
+      }}
+    >
       <strong>wallet iframe:</strong> <span>{status}</span>
-      {walletIframeConnected &&
+      {walletIframeConnected && (
         <>
           <span>|</span>
           <strong>accounts:</strong> <span>{recentCount}</span>
         </>
-      }
+      )}
     </div>
   );
 };

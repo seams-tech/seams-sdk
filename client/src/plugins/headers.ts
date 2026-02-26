@@ -1,19 +1,19 @@
 // Framework-agnostic header helpers to minimize configuration surface.
 // Keep types local to avoid coupling to framework packages.
 
-import { toOriginOrUndefined } from '@shared/utils/validation'
+import { toOriginOrUndefined } from '@shared/utils/validation';
 
-export type CspMode = 'strict' | 'compatible'
+export type CspMode = 'strict' | 'compatible';
 
 export function buildPermissionsPolicy(walletOrigin?: string): string {
-  const o = toOriginOrUndefined(walletOrigin)
-  const part = (name: string) => `${name}=(self${o ? ` "${o}"` : ''})`
+  const o = toOriginOrUndefined(walletOrigin);
+  const part = (name: string) => `${name}=(self${o ? ` "${o}"` : ''})`;
   return [
     part('publickey-credentials-get'),
     part('publickey-credentials-create'),
     part('clipboard-read'),
     part('clipboard-write'),
-  ].join(', ')
+  ].join(', ');
 }
 
 /**
@@ -30,20 +30,22 @@ export function buildPermissionsPolicy(walletOrigin?: string): string {
  * Typical usage: apply strict CSP only to wallet HTML routes
  * (/wallet-service, /export-viewer); do not attach CSP to host app routes.
  */
-export function buildWalletCsp(opts: {
-  frameSrc?: string[]
-  mode?: CspMode
-  allowUnsafeEval?: boolean
-  scriptSrcAllowlist?: string[]
-} = {}): string {
-  const mode: CspMode = opts.mode || 'strict'
-  const frame = (opts.frameSrc || []).filter(Boolean)
+export function buildWalletCsp(
+  opts: {
+    frameSrc?: string[];
+    mode?: CspMode;
+    allowUnsafeEval?: boolean;
+    scriptSrcAllowlist?: string[];
+  } = {},
+): string {
+  const mode: CspMode = opts.mode || 'strict';
+  const frame = (opts.frameSrc || []).filter(Boolean);
   const scriptAllow = (opts.scriptSrcAllowlist || [])
     .map((s) => toOriginOrUndefined(s) || s)
-    .filter(Boolean) as string[]
-  const scriptUnsafeInline = mode === 'compatible' ? " 'unsafe-inline'" : ''
-  const styleUnsafeInline = mode === 'compatible' ? " 'unsafe-inline'" : ''
-  const scriptUnsafeEval = opts.allowUnsafeEval ? " 'unsafe-eval'" : ''
+    .filter(Boolean) as string[];
+  const scriptUnsafeInline = mode === 'compatible' ? " 'unsafe-inline'" : '';
+  const styleUnsafeInline = mode === 'compatible' ? " 'unsafe-inline'" : '';
+  const scriptUnsafeEval = opts.allowUnsafeEval ? " 'unsafe-eval'" : '';
   const base: string[] = [
     "default-src 'self'",
     `script-src 'self'${scriptUnsafeInline}${scriptUnsafeEval}${scriptAllow.length ? ' ' + scriptAllow.join(' ') : ''}`,
@@ -56,7 +58,7 @@ export function buildWalletCsp(opts: {
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'none'",
-  ]
-  if (mode === 'strict') base.splice(2, 0, "style-src-attr 'none'")
-  return base.join('; ')
+  ];
+  if (mode === 'strict') base.splice(2, 0, "style-src-attr 'none'");
+  return base.join('; ');
 }

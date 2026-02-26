@@ -27,7 +27,7 @@ export async function keygenEcdsa(args: {
   relayerKeyId?: string;
   relayerVerifyingShareB64u?: string;
   participantIds?: number[];
-  chainId?: string;
+  chainId?: number;
   factory?: string;
   entryPoint?: string;
   salt?: string;
@@ -53,9 +53,7 @@ export async function keygenEcdsa(args: {
     relayerKeyId: bootstrap.relayerKeyId,
     relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,
     participantIds: bootstrap.participantIds,
-    ...(typeof bootstrap.chainId === 'string' && bootstrap.chainId.trim()
-      ? { chainId: bootstrap.chainId.trim() }
-      : {}),
+    ...(typeof bootstrap.chainId === 'number' ? { chainId: bootstrap.chainId } : {}),
     ...(typeof bootstrap.factory === 'string' && bootstrap.factory.trim()
       ? { factory: bootstrap.factory.trim() }
       : {}),
@@ -65,7 +63,8 @@ export async function keygenEcdsa(args: {
     ...(typeof bootstrap.salt === 'string' && bootstrap.salt.trim()
       ? { salt: bootstrap.salt.trim() }
       : {}),
-    ...(typeof bootstrap.counterfactualAddress === 'string' && bootstrap.counterfactualAddress.trim()
+    ...(typeof bootstrap.counterfactualAddress === 'string' &&
+    bootstrap.counterfactualAddress.trim()
       ? { counterfactualAddress: bootstrap.counterfactualAddress.trim() }
       : {}),
     ...(bootstrap.code ? { code: bootstrap.code } : {}),

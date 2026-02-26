@@ -59,7 +59,12 @@ type DoDelRequest = { op: 'del'; key: string };
 type DoGetDelRequest = { op: 'getdel'; key: string };
 type DoAuthConsumeUseCountRequest = { op: 'authConsumeUseCount'; key: string };
 type DoEcdsaPresignPutRequest = { op: 'ecdsaPresignPut'; listKey: string; value: unknown };
-type DoEcdsaPresignReserveRequest = { op: 'ecdsaPresignReserve'; listKey: string; reservedKeyPrefix: string; ttlMs?: number };
+type DoEcdsaPresignReserveRequest = {
+  op: 'ecdsaPresignReserve';
+  listKey: string;
+  reservedKeyPrefix: string;
+  ttlMs?: number;
+};
 type DoEcdsaPresignReserveByIdRequest = {
   op: 'ecdsaPresignReserveById';
   listKey: string;
@@ -67,7 +72,12 @@ type DoEcdsaPresignReserveByIdRequest = {
   presignatureId: string;
   ttlMs?: number;
 };
-type DoEcdsaPresignSessionCreateRequest = { op: 'ecdsaPresignSessionCreate'; key: string; value: unknown; ttlMs?: number };
+type DoEcdsaPresignSessionCreateRequest = {
+  op: 'ecdsaPresignSessionCreate';
+  key: string;
+  value: unknown;
+  ttlMs?: number;
+};
 type DoEcdsaPresignSessionAdvanceCasRequest = {
   op: 'ecdsaPresignSessionAdvanceCas';
   key: string;
@@ -94,21 +104,26 @@ type DoAuthEntry = {
 };
 
 function isDurableObjectNamespaceLike(v: unknown): v is CloudflareDurableObjectNamespaceLike {
-  return Boolean(v)
-    && typeof v === 'object'
-    && !Array.isArray(v)
-    && typeof (v as CloudflareDurableObjectNamespaceLike).idFromName === 'function'
-    && typeof (v as CloudflareDurableObjectNamespaceLike).get === 'function';
+  return (
+    Boolean(v) &&
+    typeof v === 'object' &&
+    !Array.isArray(v) &&
+    typeof (v as CloudflareDurableObjectNamespaceLike).idFromName === 'function' &&
+    typeof (v as CloudflareDurableObjectNamespaceLike).get === 'function'
+  );
 }
 
-function resolveDoNamespaceFromConfig(config: Record<string, unknown>): CloudflareDurableObjectNamespaceLike | null {
+function resolveDoNamespaceFromConfig(
+  config: Record<string, unknown>,
+): CloudflareDurableObjectNamespaceLike | null {
   const direct = (config as { namespace?: unknown }).namespace;
   if (isDurableObjectNamespaceLike(direct)) return direct;
 
   const alt = (config as { durableObjectNamespace?: unknown }).durableObjectNamespace;
   if (isDurableObjectNamespaceLike(alt)) return alt;
 
-  const envStyle = (config as { THRESHOLD_ED25519_DO_NAMESPACE?: unknown }).THRESHOLD_ED25519_DO_NAMESPACE;
+  const envStyle = (config as { THRESHOLD_ED25519_DO_NAMESPACE?: unknown })
+    .THRESHOLD_ED25519_DO_NAMESPACE;
   if (isDurableObjectNamespaceLike(envStyle)) return envStyle;
 
   return null;
@@ -151,19 +166,25 @@ async function callDo<T>(stub: DurableObjectStubLike, req: DoRequest): Promise<D
 function computeAuthPrefix(config: Record<string, unknown>): string {
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
   const explicit = toOptionalTrimmedString(config.THRESHOLD_ED25519_AUTH_PREFIX);
-  return toThresholdEd25519AuthPrefix(explicit || toThresholdEd25519PrefixFromBase(basePrefix, 'auth'));
+  return toThresholdEd25519AuthPrefix(
+    explicit || toThresholdEd25519PrefixFromBase(basePrefix, 'auth'),
+  );
 }
 
 function computeSessionPrefix(config: Record<string, unknown>): string {
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
   const explicit = toOptionalTrimmedString(config.THRESHOLD_ED25519_SESSION_PREFIX);
-  return toThresholdEd25519SessionPrefix(explicit || toThresholdEd25519PrefixFromBase(basePrefix, 'sess'));
+  return toThresholdEd25519SessionPrefix(
+    explicit || toThresholdEd25519PrefixFromBase(basePrefix, 'sess'),
+  );
 }
 
 function computeKeyPrefix(config: Record<string, unknown>): string {
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
   const explicit = toOptionalTrimmedString(config.THRESHOLD_ED25519_KEYSTORE_PREFIX);
-  return toThresholdEd25519KeyPrefix(explicit || toThresholdEd25519PrefixFromBase(basePrefix, 'key'));
+  return toThresholdEd25519KeyPrefix(
+    explicit || toThresholdEd25519PrefixFromBase(basePrefix, 'key'),
+  );
 }
 
 function computeAuthPrefixEcdsa(config: Record<string, unknown>): string {
@@ -175,7 +196,9 @@ function computeAuthPrefixEcdsa(config: Record<string, unknown>): string {
 function computeSessionPrefixEcdsa(config: Record<string, unknown>): string {
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
   const explicit = toOptionalTrimmedString(config.THRESHOLD_ECDSA_SESSION_PREFIX);
-  return toThresholdEcdsaSessionPrefix(explicit || toThresholdEcdsaPrefixFromBase(basePrefix, 'sess'));
+  return toThresholdEcdsaSessionPrefix(
+    explicit || toThresholdEcdsaPrefixFromBase(basePrefix, 'sess'),
+  );
 }
 
 function computeKeyPrefixEcdsa(config: Record<string, unknown>): string {
@@ -187,13 +210,17 @@ function computeKeyPrefixEcdsa(config: Record<string, unknown>): string {
 function computePresignPrefixEcdsa(config: Record<string, unknown>): string {
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
   const explicit = toOptionalTrimmedString(config.THRESHOLD_ECDSA_PRESIGN_PREFIX);
-  return toThresholdEcdsaPresignPrefix(explicit || toThresholdEcdsaPrefixFromBase(basePrefix, 'presign'));
+  return toThresholdEcdsaPresignPrefix(
+    explicit || toThresholdEcdsaPrefixFromBase(basePrefix, 'presign'),
+  );
 }
 
 function computeSigningPrefixEcdsa(config: Record<string, unknown>): string {
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
   const explicit = toOptionalTrimmedString(config.THRESHOLD_ECDSA_SIGNING_PREFIX);
-  return toThresholdEcdsaSigningPrefix(explicit || toThresholdEcdsaPrefixFromBase(basePrefix, 'signing'));
+  return toThresholdEcdsaSigningPrefix(
+    explicit || toThresholdEcdsaPrefixFromBase(basePrefix, 'signing'),
+  );
 }
 
 export class CloudflareDurableObjectEd25519AuthSessionStore implements Ed25519AuthSessionStore {
@@ -225,7 +252,12 @@ export class CloudflareDurableObjectEd25519AuthSessionStore implements Ed25519Au
       remainingUses: Math.max(0, Number(opts.remainingUses) || 0),
       expiresAtMs,
     };
-    const resp = await callDo<void>(this.stub, { op: 'set', key: this.key(id), value: entry, ttlMs });
+    const resp = await callDo<void>(this.stub, {
+      op: 'set',
+      key: this.key(id),
+      value: entry,
+      ttlMs,
+    });
     if (!resp.ok) throw new Error(resp.message);
   }
 
@@ -233,8 +265,10 @@ export class CloudflareDurableObjectEd25519AuthSessionStore implements Ed25519Au
     const resp = await callDo<unknown | null>(this.stub, { op: 'get', key: this.key(id) });
     if (!resp.ok) return null;
     const raw = resp.value;
-    const entry = isObject(raw) ? raw as Record<string, unknown> : null;
-    const record = entry ? parseEd25519AuthSessionRecord((entry as { record?: unknown }).record) : null;
+    const entry = isObject(raw) ? (raw as Record<string, unknown>) : null;
+    const record = entry
+      ? parseEd25519AuthSessionRecord((entry as { record?: unknown }).record)
+      : null;
     const expiresAtMs = entry ? (entry as { expiresAtMs?: unknown }).expiresAtMs : null;
     if (!record || typeof expiresAtMs !== 'number' || !Number.isFinite(expiresAtMs)) return null;
     if (Date.now() > expiresAtMs) return null;
@@ -242,7 +276,10 @@ export class CloudflareDurableObjectEd25519AuthSessionStore implements Ed25519Au
   }
 
   async consumeUseCount(id: string): Promise<ThresholdEd25519AuthConsumeUsesResult> {
-    const resp = await callDo<{ remainingUses: number }>(this.stub, { op: 'authConsumeUseCount', key: this.key(id) });
+    const resp = await callDo<{ remainingUses: number }>(this.stub, {
+      op: 'authConsumeUseCount',
+      key: this.key(id),
+    });
     if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
     return { ok: true, remainingUses: resp.value.remainingUses };
   }
@@ -271,8 +308,17 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
     return `${this.coordinatorPrefix}${id}`;
   }
 
-  async putMpcSession(id: string, record: ThresholdEd25519MpcSessionRecord, ttlMs: number): Promise<void> {
-    const resp = await callDo<void>(this.stub, { op: 'set', key: this.key(id), value: record, ttlMs });
+  async putMpcSession(
+    id: string,
+    record: ThresholdEd25519MpcSessionRecord,
+    ttlMs: number,
+  ): Promise<void> {
+    const resp = await callDo<void>(this.stub, {
+      op: 'set',
+      key: this.key(id),
+      value: record,
+      ttlMs,
+    });
     if (!resp.ok) throw new Error(resp.message);
   }
 
@@ -282,8 +328,17 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
     return parseThresholdEd25519MpcSessionRecord(resp.value);
   }
 
-  async putSigningSession(id: string, record: ThresholdEd25519SigningSessionRecord, ttlMs: number): Promise<void> {
-    const resp = await callDo<void>(this.stub, { op: 'set', key: this.key(id), value: record, ttlMs });
+  async putSigningSession(
+    id: string,
+    record: ThresholdEd25519SigningSessionRecord,
+    ttlMs: number,
+  ): Promise<void> {
+    const resp = await callDo<void>(this.stub, {
+      op: 'set',
+      key: this.key(id),
+      value: record,
+      ttlMs,
+    });
     if (!resp.ok) throw new Error(resp.message);
   }
 
@@ -298,11 +353,18 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
     record: ThresholdEd25519CoordinatorSigningSessionRecord,
     ttlMs: number,
   ): Promise<void> {
-    const resp = await callDo<void>(this.stub, { op: 'set', key: this.coordKey(id), value: record, ttlMs });
+    const resp = await callDo<void>(this.stub, {
+      op: 'set',
+      key: this.coordKey(id),
+      value: record,
+      ttlMs,
+    });
     if (!resp.ok) throw new Error(resp.message);
   }
 
-  async takeCoordinatorSigningSession(id: string): Promise<ThresholdEd25519CoordinatorSigningSessionRecord | null> {
+  async takeCoordinatorSigningSession(
+    id: string,
+  ): Promise<ThresholdEd25519CoordinatorSigningSessionRecord | null> {
     const resp = await callDo<unknown | null>(this.stub, { op: 'getdel', key: this.coordKey(id) });
     if (!resp.ok) return null;
     return parseThresholdEd25519CoordinatorSigningSessionRecord(resp.value);
@@ -366,16 +428,27 @@ export class CloudflareDurableObjectThresholdEcdsaSigningSessionStore implements
     return `${this.keyPrefix}${id}`;
   }
 
-  async putSigningSession(id: string, record: ThresholdEcdsaSigningSessionRecord, ttlMs: number): Promise<void> {
+  async putSigningSession(
+    id: string,
+    record: ThresholdEcdsaSigningSessionRecord,
+    ttlMs: number,
+  ): Promise<void> {
     const ttl = Math.max(0, Number(ttlMs) || 0);
-    const resp = await callDo<void>(this.stub, { op: 'set', key: this.key(id), value: record, ttlMs: ttl });
+    const resp = await callDo<void>(this.stub, {
+      op: 'set',
+      key: this.key(id),
+      value: record,
+      ttlMs: ttl,
+    });
     if (!resp.ok) throw new Error(resp.message);
   }
 
   async takeSigningSession(id: string): Promise<ThresholdEcdsaSigningSessionRecord | null> {
     const resp = await callDo<unknown | null>(this.stub, { op: 'getdel', key: this.key(id) });
     if (!resp.ok) return null;
-    return (parseThresholdEcdsaSigningSessionRecord(resp.value) as ThresholdEcdsaSigningSessionRecord | null);
+    return parseThresholdEcdsaSigningSessionRecord(
+      resp.value,
+    ) as ThresholdEcdsaSigningSessionRecord | null;
   }
 }
 
@@ -415,7 +488,9 @@ export class CloudflareDurableObjectThresholdEcdsaPresignSessionStore implements
     const status = toOptionalTrimmedString(resp.value?.status);
     if (status === 'ok') return { ok: true };
     if (status === 'exists') return { ok: false, code: 'exists' };
-    throw new Error(`[threshold-ecdsa] Durable Object presign session create returned unexpected status: ${String(status || 'null')}`);
+    throw new Error(
+      `[threshold-ecdsa] Durable Object presign session create returned unexpected status: ${String(status || 'null')}`,
+    );
   }
 
   async getSession(id: string): Promise<ThresholdEcdsaPresignSessionRecord | null> {
@@ -423,7 +498,9 @@ export class CloudflareDurableObjectThresholdEcdsaPresignSessionStore implements
     if (!key) return null;
     const resp = await callDo<unknown | null>(this.stub, { op: 'get', key: this.key(key) });
     if (!resp.ok) return null;
-    const parsed = parseThresholdEcdsaPresignSessionRecord(resp.value) as ThresholdEcdsaPresignSessionRecord | null;
+    const parsed = parseThresholdEcdsaPresignSessionRecord(
+      resp.value,
+    ) as ThresholdEcdsaPresignSessionRecord | null;
     if (!parsed) return null;
     if (Date.now() > parsed.expiresAtMs) {
       await this.deleteSession(key);
@@ -441,7 +518,8 @@ export class CloudflareDurableObjectThresholdEcdsaPresignSessionStore implements
     const key = toOptionalTrimmedString(input.id);
     if (!key) return { ok: false, code: 'not_found' };
     const expectedVersion = Math.floor(Number(input.expectedVersion));
-    if (!Number.isFinite(expectedVersion) || expectedVersion < 1) return { ok: false, code: 'version_mismatch' };
+    if (!Number.isFinite(expectedVersion) || expectedVersion < 1)
+      return { ok: false, code: 'version_mismatch' };
     const parsed = parseThresholdEcdsaPresignSessionRecord(input.nextRecord);
     if (!parsed) throw new Error('Invalid threshold-ecdsa presign session record');
     const resp = await callDo<{ status?: unknown; record?: unknown }>(this.stub, {
@@ -457,10 +535,17 @@ export class CloudflareDurableObjectThresholdEcdsaPresignSessionStore implements
     if (status === 'expired') return { ok: false, code: 'expired' };
     if (status === 'version_mismatch') return { ok: false, code: 'version_mismatch' };
     if (status !== 'ok') {
-      throw new Error(`[threshold-ecdsa] Durable Object presign session CAS returned unexpected status: ${String(status || 'null')}`);
+      throw new Error(
+        `[threshold-ecdsa] Durable Object presign session CAS returned unexpected status: ${String(status || 'null')}`,
+      );
     }
-    const record = parseThresholdEcdsaPresignSessionRecord(resp.value?.record) as ThresholdEcdsaPresignSessionRecord | null;
-    if (!record) throw new Error('[threshold-ecdsa] Durable Object presign session CAS returned invalid record');
+    const record = parseThresholdEcdsaPresignSessionRecord(
+      resp.value?.record,
+    ) as ThresholdEcdsaPresignSessionRecord | null;
+    if (!record)
+      throw new Error(
+        '[threshold-ecdsa] Durable Object presign session CAS returned invalid record',
+      );
     return { ok: true, record };
   }
 
@@ -511,7 +596,9 @@ export class CloudflareDurableObjectThresholdEcdsaPresignaturePool implements Th
     if (!resp.ok) throw new Error(resp.message);
   }
 
-  async reserve(relayerKeyId: string): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
+  async reserve(
+    relayerKeyId: string,
+  ): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     if (!key) return null;
     const resp = await callDo<unknown | null>(this.stub, {
@@ -521,7 +608,9 @@ export class CloudflareDurableObjectThresholdEcdsaPresignaturePool implements Th
       ttlMs: this.reservationTtlMs,
     });
     if (!resp.ok) return null;
-    return (parseThresholdEcdsaPresignatureRelayerShareRecord(resp.value) as ThresholdEcdsaPresignatureRelayerShareRecord | null);
+    return parseThresholdEcdsaPresignatureRelayerShareRecord(
+      resp.value,
+    ) as ThresholdEcdsaPresignatureRelayerShareRecord | null;
   }
 
   async reserveById(
@@ -539,16 +628,26 @@ export class CloudflareDurableObjectThresholdEcdsaPresignaturePool implements Th
       ttlMs: this.reservationTtlMs,
     });
     if (!resp.ok) return null;
-    return (parseThresholdEcdsaPresignatureRelayerShareRecord(resp.value) as ThresholdEcdsaPresignatureRelayerShareRecord | null);
+    return parseThresholdEcdsaPresignatureRelayerShareRecord(
+      resp.value,
+    ) as ThresholdEcdsaPresignatureRelayerShareRecord | null;
   }
 
-  async consume(relayerKeyId: string, presignatureId: string): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
+  async consume(
+    relayerKeyId: string,
+    presignatureId: string,
+  ): Promise<ThresholdEcdsaPresignatureRelayerShareRecord | null> {
     const key = toOptionalTrimmedString(relayerKeyId);
     const id = toOptionalTrimmedString(presignatureId);
     if (!key || !id) return null;
-    const resp = await callDo<unknown | null>(this.stub, { op: 'getdel', key: this.reservedKey(key, id) });
+    const resp = await callDo<unknown | null>(this.stub, {
+      op: 'getdel',
+      key: this.reservedKey(key, id),
+    });
     if (!resp.ok) return null;
-    return (parseThresholdEcdsaPresignatureRelayerShareRecord(resp.value) as ThresholdEcdsaPresignatureRelayerShareRecord | null);
+    return parseThresholdEcdsaPresignatureRelayerShareRecord(
+      resp.value,
+    ) as ThresholdEcdsaPresignatureRelayerShareRecord | null;
   }
 
   async discard(relayerKeyId: string, presignatureId: string): Promise<void> {
@@ -574,23 +673,40 @@ export function createCloudflareDurableObjectThresholdEd25519Stores(input: {
 
   const namespace = resolveDoNamespaceFromConfig(config);
   if (!namespace) {
-    throw new Error('cloudflare-do threshold store selected but no Durable Object namespace was provided (expected config.namespace)');
+    throw new Error(
+      'cloudflare-do threshold store selected but no Durable Object namespace was provided (expected config.namespace)',
+    );
   }
 
-  const objectName = toOptionalTrimmedString((config as { objectName?: unknown }).objectName)
-    || toOptionalTrimmedString((config as { name?: unknown }).name)
-    || 'threshold-ed25519-store';
+  const objectName =
+    toOptionalTrimmedString((config as { objectName?: unknown }).objectName) ||
+    toOptionalTrimmedString((config as { name?: unknown }).name) ||
+    'threshold-ed25519-store';
 
   const authPrefix = computeAuthPrefix(config);
   const sessionPrefix = computeSessionPrefix(config);
   const keyPrefix = computeKeyPrefix(config);
 
-  input.logger.info('[threshold-ed25519] Using Cloudflare Durable Object store for threshold session persistence');
+  input.logger.info(
+    '[threshold-ed25519] Using Cloudflare Durable Object store for threshold session persistence',
+  );
 
   return {
-    keyStore: new CloudflareDurableObjectThresholdEd25519KeyStore({ namespace, objectName, keyPrefix }),
-    sessionStore: new CloudflareDurableObjectThresholdEd25519SessionStore({ namespace, objectName, keyPrefix: sessionPrefix }),
-    authSessionStore: new CloudflareDurableObjectEd25519AuthSessionStore({ namespace, objectName, keyPrefix: authPrefix }),
+    keyStore: new CloudflareDurableObjectThresholdEd25519KeyStore({
+      namespace,
+      objectName,
+      keyPrefix,
+    }),
+    sessionStore: new CloudflareDurableObjectThresholdEd25519SessionStore({
+      namespace,
+      objectName,
+      keyPrefix: sessionPrefix,
+    }),
+    authSessionStore: new CloudflareDurableObjectEd25519AuthSessionStore({
+      namespace,
+      objectName,
+      keyPrefix: authPrefix,
+    }),
   };
 }
 
@@ -611,12 +727,15 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
 
   const namespace = resolveDoNamespaceFromConfig(config);
   if (!namespace) {
-    throw new Error('cloudflare-do threshold store selected but no Durable Object namespace was provided (expected config.namespace)');
+    throw new Error(
+      'cloudflare-do threshold store selected but no Durable Object namespace was provided (expected config.namespace)',
+    );
   }
 
-  const objectName = toOptionalTrimmedString((config as { objectName?: unknown }).objectName)
-    || toOptionalTrimmedString((config as { name?: unknown }).name)
-    || 'threshold-ecdsa-store';
+  const objectName =
+    toOptionalTrimmedString((config as { objectName?: unknown }).objectName) ||
+    toOptionalTrimmedString((config as { name?: unknown }).name) ||
+    'threshold-ecdsa-store';
 
   const authPrefix = computeAuthPrefixEcdsa(config);
   const sessionPrefix = computeSessionPrefixEcdsa(config);
@@ -624,14 +743,40 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
   const signingPrefix = computeSigningPrefixEcdsa(config);
   const presignPrefix = computePresignPrefixEcdsa(config);
 
-  input.logger.info('[threshold-ecdsa] Using Cloudflare Durable Object store for threshold session persistence');
+  input.logger.info(
+    '[threshold-ecdsa] Using Cloudflare Durable Object store for threshold session persistence',
+  );
 
   return {
-    keyStore: new CloudflareDurableObjectThresholdEd25519KeyStore({ namespace, objectName, keyPrefix }),
-    sessionStore: new CloudflareDurableObjectThresholdEd25519SessionStore({ namespace, objectName, keyPrefix: sessionPrefix }),
-    authSessionStore: new CloudflareDurableObjectEd25519AuthSessionStore({ namespace, objectName, keyPrefix: authPrefix }),
-    signingSessionStore: new CloudflareDurableObjectThresholdEcdsaSigningSessionStore({ namespace, objectName, keyPrefix: signingPrefix }),
-    presignSessionStore: new CloudflareDurableObjectThresholdEcdsaPresignSessionStore({ namespace, objectName, keyPrefix: presignPrefix }),
-    presignaturePool: new CloudflareDurableObjectThresholdEcdsaPresignaturePool({ namespace, objectName, keyPrefix: presignPrefix }),
+    keyStore: new CloudflareDurableObjectThresholdEd25519KeyStore({
+      namespace,
+      objectName,
+      keyPrefix,
+    }),
+    sessionStore: new CloudflareDurableObjectThresholdEd25519SessionStore({
+      namespace,
+      objectName,
+      keyPrefix: sessionPrefix,
+    }),
+    authSessionStore: new CloudflareDurableObjectEd25519AuthSessionStore({
+      namespace,
+      objectName,
+      keyPrefix: authPrefix,
+    }),
+    signingSessionStore: new CloudflareDurableObjectThresholdEcdsaSigningSessionStore({
+      namespace,
+      objectName,
+      keyPrefix: signingPrefix,
+    }),
+    presignSessionStore: new CloudflareDurableObjectThresholdEcdsaPresignSessionStore({
+      namespace,
+      objectName,
+      keyPrefix: presignPrefix,
+    }),
+    presignaturePool: new CloudflareDurableObjectThresholdEcdsaPresignaturePool({
+      namespace,
+      objectName,
+      keyPrefix: presignPrefix,
+    }),
   };
 }
