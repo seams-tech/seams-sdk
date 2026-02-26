@@ -215,13 +215,17 @@ export interface TatchiContextType {
  * @param config - TatchiConfigsInput
  * @example
  * config: {
- *   nearRpcUrl: 'https://rpc.testnet.near.org',
- *   nearNetwork: 'testnet',
+ *   chains: [
+ *     {
+ *       network: 'near-testnet',
+ *       rpcUrl: 'https://rpc.testnet.near.org',
+ *       explorerUrl: 'https://testnet.nearblocks.io',
+ *     },
+ *   ],
  *   // Parent account used for new subaccount creation via the relay server.
  *   // Must match relay-server `RELAYER_ACCOUNT_ID` when using atomic registration.
  *   relayerAccount: 'w3a-relayer.testnet',
  *   relayer: { url: 'https://relay.example.com' },
- *   nearExplorerUrl: 'https://testnet.nearblocks.io',
  * }
  */
 export interface TatchiContextProviderProps {

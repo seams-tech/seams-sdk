@@ -17,9 +17,13 @@ export const SetupEmailRecovery: React.FC = () => {
   const [isBusy, setIsBusy] = React.useState(false);
   const [recoveryEmails, setRecoveryEmails] = React.useState<string[]>(['']);
   const [onChainHashes, setOnChainHashes] = React.useState<string[]>([]);
+  const nearNetwork = (() => {
+    const nearChain = tatchi?.configs.chains.find((chain) => String(chain.network).startsWith('near-'));
+    return nearChain?.network === 'near-mainnet' ? 'mainnet' : 'testnet';
+  })();
 
   const refreshOnChainEmails = React.useCallback(async () => {
-    if (!tatchi || !nearAccountId || tatchi.configs.nearNetwork !== 'testnet') {
+    if (!tatchi || !nearAccountId || nearNetwork !== 'testnet') {
       setOnChainHashes([]);
       return;
     }
@@ -33,14 +37,14 @@ export const SetupEmailRecovery: React.FC = () => {
       console.error('[EmailRecovery] Failed to fetch recovery emails', err);
       setOnChainHashes([]);
     }
-  }, [tatchi, nearAccountId]);
+  }, [tatchi, nearAccountId, nearNetwork]);
 
   React.useEffect(() => {
     void refreshOnChainEmails();
   }, [refreshOnChainEmails]);
 
   const ensureTestnet = () => {
-    if (tatchi.configs.nearNetwork !== 'testnet') {
+    if (nearNetwork !== 'testnet') {
       toast.error('Email recovery demo is only available on testnet for now.');
       return false;
     }

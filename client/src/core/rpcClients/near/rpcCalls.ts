@@ -21,6 +21,7 @@ import { redactCredentialExtensionOutputs } from '../../signingEngine/signers/we
 import { errorMessage } from '@shared/utils/errors';
 import { ensureEd25519Prefix, isObject } from '@shared/utils/validation';
 import { ActionType } from '../../types/actions';
+import { resolvePrimaryNearRpcUrl } from '../../config/chains';
 import {
   DeviceLinkingPhase,
   DeviceLinkingStatus,
@@ -745,7 +746,7 @@ export async function executeDeviceLinkingContractCalls({
         ? `link-device-${crypto.randomUUID()}`
         : `link-device-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       rpcCall: {
-        nearRpcUrl: context.signingEngine.tatchiPasskeyConfigs.nearRpcUrl,
+        nearRpcUrl: resolvePrimaryNearRpcUrl(context.signingEngine.tatchiPasskeyConfigs.chains),
         nearAccountId: device1AccountId
       },
       // Prefer threshold signing when available; fall back to local signing if the account

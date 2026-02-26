@@ -1,5 +1,10 @@
 import type {
-  ThemePaletteName,
+  TatchiArcChainNetwork,
+  TatchiChainConfig,
+  TatchiChainConfigInput,
+  TatchiChainNetwork,
+  TatchiNearChainNetwork,
+  TatchiTempoChainNetwork,
   ThresholdEcdsaPresignPoolPolicy,
   TatchiConfigs,
   TatchiConfigsInput,
@@ -8,6 +13,20 @@ import type { RegistrationSignerOptions } from '../types/registrationSignerOptio
 import { coerceSignerMode } from '../types/signer-worker';
 import { toTrimmedString } from '@shared/utils/validation';
 import { coerceThemeName } from '@shared/utils/theme';
+import {
+  chainFamilyFromNetwork,
+  cloneChainConfig,
+  cloneResolvedChainConfig,
+  isTatchiChainNetwork,
+} from './chains';
+import {
+  cloneRegistrationSignerOptions,
+  coerceBoolean,
+  coerceOptionalPositiveInt,
+  coercePositiveIntInRange,
+  coerceThemePaletteName,
+  toStringRecord,
+} from './utils/configHelpers';
 
 // Default SDK configs suitable for local dev.
 // Cross-origin wallet isolation is recommended; set iframeWallet in your app config when you have a dedicated origin.
@@ -38,14 +57,30 @@ export const DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY: ThresholdEcdsaPresignP
   refillAttemptTimeoutMs: 30_000,
 };
 
-const TEMPO_L1_EXPLORER_URL = 'https://explore.tempo.xyz';
-const CIRCLE_ARC_L1_EXPLORER_URL = 'https://testnet.arcscan.app';
+export const DEFAULT_CHAIN_CONFIGS: TatchiChainConfig[] = [
+  {
+    network: 'near-testnet',
+    // You can provide a single URL or a comma-separated list for failover.
+    // First URL is treated as primary, subsequent URLs are fallbacks.
+    rpcUrl: 'https://test.rpc.fastnear.com, https://rpc.testnet.near.org',
+    explorerUrl: 'https://testnet.nearblocks.io',
+  },
+  {
+    network: 'tempo-testnet',
+    rpcUrl: 'https://rpc.moderato.tempo.xyz',
+    explorerUrl: 'https://explore.tempo.xyz',
+  },
+  {
+    network: 'arc-testnet',
+    rpcUrl: 'https://rpc.testnet.arc.network',
+    explorerUrl: 'https://testnet.arcscan.app',
+    chainId: 5_042_002,
+  },
+];
 
 export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigs = {
-  // You can provide a single URL or a comma-separated list for failover.
-  // First URL is treated as primary, subsequent URLs are fallbacks.
-  nearRpcUrl: 'https://test.rpc.fastnear.com, https://rpc.testnet.near.org',
-  nearNetwork: 'testnet',
+  chains: DEFAULT_CHAIN_CONFIGS.map(cloneResolvedChainConfig),
+  relayerAccount: 'w3a-relayer.testnet',
   appearance: {
     theme: 'dark',
     palette: 'default',
@@ -54,11 +89,6 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigs = {
       dark: { colors: {} },
     },
   },
-  // Default account domain for newly created accounts (subaccounts under the relayer).
-  relayerAccount: 'w3a-relayer.testnet',
-  nearExplorerUrl: 'https://testnet.nearblocks.io',
-  tempoExplorerUrl: TEMPO_L1_EXPLORER_URL,
-  evmExplorerUrl: CIRCLE_ARC_L1_EXPLORER_URL,
   signerMode: { mode: 'local-signer' },
   // Warm signing session defaults used by login/unlock flows.
   // Enforcement (TTL/uses) is owned by the UserConfirm worker (wallet origin); signer workers remain one-shot.
@@ -88,16 +118,16 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigs = {
       pendingTtlMs: 30 * 60 * 1000,
       // Default recovery mailbox for examples / docs.
       mailtoAddress: 'recover@web3authn.org',
+      emailDkimVerifierContract: 'email-dkim-verifier-v1.testnet',
     },
   },
-  emailDkimVerifierContract: 'email-dkim-verifier-v1.testnet',
   // Configure iframeWallet in application code to point at your dedicated wallet origin when available.
   iframeWallet: {
     walletOrigin: 'https://wallet.example.localhost',
     walletServicePath: '/wallet-service',
     sdkBasePath: '/sdk',
     rpIdOverride: 'example.localhost',
-  }
+  },
 };
 
 // Default threshold participant identifiers (2P FROST).
@@ -110,76 +140,121 @@ export const THRESHOLD_ED25519_2P_PARTICIPANT_IDS = [
   THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID,
 ] as const;
 
-function coercePositiveIntInRange(value: unknown, fallback: number, min: number, max: number): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
-  const rounded = Math.trunc(value);
-  if (rounded < min) return min;
-  if (rounded > max) return max;
-  return rounded;
-}
-
-function coerceBoolean(value: unknown, fallback: boolean): boolean {
-  return typeof value === 'boolean' ? value : fallback;
-}
-
-function coerceThemePaletteName(value: unknown): ThemePaletteName | undefined {
-  return value === 'default' ? value : undefined;
-}
-
-function toStringRecord(value: unknown): Record<string, string> {
-  if (!value || typeof value !== 'object') return {};
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof v === 'string') out[k] = v;
+function normalizeResolvedChainConfig(args: {
+  input: TatchiChainConfigInput;
+  fallback?: TatchiChainConfig;
+}): TatchiChainConfig {
+  const networkRaw = (args.input as { network?: unknown }).network;
+  if (!isTatchiChainNetwork(networkRaw)) {
+    throw new Error(`[configPresets] Invalid chain network: ${String(networkRaw || '')}`);
   }
-  return out;
+  const network = networkRaw as TatchiChainNetwork;
+  const rpcUrl = toTrimmedString(args.input.rpcUrl) || toTrimmedString(args.fallback?.rpcUrl);
+  if (!rpcUrl) {
+    throw new Error(`[configPresets] Missing required config: chains.${network}.rpcUrl`);
+  }
+  const explorerUrl =
+    toTrimmedString(args.input.explorerUrl) || toTrimmedString(args.fallback?.explorerUrl);
+  if (!explorerUrl) {
+    throw new Error(`[configPresets] Missing required config: chains.${network}.explorerUrl`);
+  }
+
+  if (chainFamilyFromNetwork(network) === 'arc') {
+    const chainId = coerceOptionalPositiveInt(
+      (args.input as { chainId?: unknown }).chainId,
+      (args.fallback as { chainId?: number } | undefined)?.chainId,
+    );
+    return {
+      network: network as TatchiArcChainNetwork,
+      rpcUrl,
+      explorerUrl,
+      ...(typeof chainId === 'number' ? { chainId } : {}),
+    };
+  }
+
+  if (chainFamilyFromNetwork(network) === 'near') {
+    return {
+      network: network as TatchiNearChainNetwork,
+      rpcUrl,
+      explorerUrl,
+    };
+  }
+
+  return {
+    network: network as TatchiTempoChainNetwork,
+    rpcUrl,
+    explorerUrl,
+  };
 }
 
-function cloneRegistrationSignerOptions(
-  value: RegistrationSignerOptions,
-): RegistrationSignerOptions {
-  return {
-    tempo: {
-      ...value.tempo,
-      participantIds: Array.isArray(value.tempo.participantIds)
-        ? [...value.tempo.participantIds]
-        : [],
-      ...(value.tempo.smartAccount ? { smartAccount: { ...value.tempo.smartAccount } } : {}),
-    },
-    evm: {
-      ...value.evm,
-      participantIds: Array.isArray(value.evm.participantIds)
-        ? [...value.evm.participantIds]
-        : [],
-      ...(value.evm.smartAccount ? { smartAccount: { ...value.evm.smartAccount } } : {}),
-    },
-  };
+function mergeChainConfigs(
+  defaults: readonly TatchiChainConfig[],
+  overrides: TatchiConfigsInput['chains'],
+): TatchiChainConfig[] {
+  const defaultCopies = defaults.map(cloneResolvedChainConfig);
+  if (!Array.isArray(overrides) || overrides.length === 0) {
+    return defaultCopies;
+  }
+
+  const mergedByNetwork = new Map<TatchiChainNetwork, TatchiChainConfig>(
+    defaultCopies.map((chain) => [chain.network, chain]),
+  );
+  const orderedNetworks: TatchiChainNetwork[] = [];
+
+  for (const rawOverride of overrides) {
+    const override = cloneChainConfig(rawOverride);
+    if (!isTatchiChainNetwork(override.network)) {
+      throw new Error(`[configPresets] Invalid chain network: ${String(override.network || '')}`);
+    }
+    const network = override.network;
+    const fallback = mergedByNetwork.get(network);
+    const resolved = normalizeResolvedChainConfig({
+      input: override as TatchiChainConfigInput,
+      fallback,
+    });
+    mergedByNetwork.set(network, resolved);
+    if (!orderedNetworks.includes(network)) {
+      orderedNetworks.push(network);
+    }
+  }
+
+  for (const chain of defaultCopies) {
+    if (!orderedNetworks.includes(chain.network)) {
+      orderedNetworks.push(chain.network);
+    }
+  }
+
+  const merged = orderedNetworks
+    .map((network) => mergedByNetwork.get(network))
+    .filter((chain): chain is TatchiChainConfig => !!chain);
+  const hasNearChain = merged.some((chain) => chainFamilyFromNetwork(chain.network) === 'near');
+  if (!hasNearChain) {
+    throw new Error(
+      '[configPresets] Missing required config: chains (at least one near-* network)',
+    );
+  }
+  return merged;
 }
 
 // Merge defaults with overrides
 export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiConfigs {
-
   const defaults = PASSKEY_MANAGER_DEFAULT_CONFIGS;
   const relayerUrl = overrides.relayer?.url ?? defaults.relayer?.url ?? '';
-  const relayerAccount = toTrimmedString(overrides.relayerAccount)
-    || toTrimmedString(defaults.relayerAccount);
+  const chains = mergeChainConfigs(defaults.chains, overrides.chains);
+  const relayerAccount =
+    toTrimmedString(overrides.relayerAccount) || toTrimmedString(defaults.relayerAccount);
   const signerMode = coerceSignerMode(overrides.signerMode, defaults.signerMode);
   const smartAccountDeploymentMode =
-    overrides.relayer?.smartAccountDeploymentMode === 'observe'
-      ? 'observe'
-      : 'enforce';
+    overrides.relayer?.smartAccountDeploymentMode === 'observe' ? 'observe' : 'enforce';
   const smartAccountDeploymentMaxAttempts = coercePositiveIntInRange(
     overrides.relayer?.smartAccountDeploymentMaxAttempts,
     defaults.relayer?.smartAccountDeploymentMaxAttempts ?? 2,
     1,
     5,
   );
-  const appearanceTheme =
-    coerceThemeName(overrides.appearance?.theme)
-    ?? defaults.appearance.theme;
+  const appearanceTheme = coerceThemeName(overrides.appearance?.theme) ?? defaults.appearance.theme;
   const appearancePalette =
-    coerceThemePaletteName(overrides.appearance?.palette)
-    ?? defaults.appearance.palette;
+    coerceThemePaletteName(overrides.appearance?.palette) ?? defaults.appearance.palette;
   const defaultLightColors = toStringRecord(defaults.appearance.tokens.light.colors);
   const defaultDarkColors = toStringRecord(defaults.appearance.tokens.dark.colors);
   const overrideLightColors = toStringRecord(overrides.appearance?.tokens?.light?.colors);
@@ -187,26 +262,25 @@ export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiC
   const registrationSignerDefaults = cloneRegistrationSignerOptions(
     overrides.registrationSignerDefaults ?? defaults.registrationSignerDefaults,
   );
-  const thresholdEcdsaPresignPoolDefaults = (
-    overrides.thresholdEcdsaPresignPool
-    ?? defaults.thresholdEcdsaPresignPool
-    ?? DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY
-  );
+  const thresholdEcdsaPresignPoolDefaults =
+    overrides.thresholdEcdsaPresignPool ??
+    defaults.thresholdEcdsaPresignPool ??
+    DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY;
   const thresholdEcdsaPresignPoolEnabledDefault =
-    thresholdEcdsaPresignPoolDefaults.enabled
-    ?? DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.enabled;
+    thresholdEcdsaPresignPoolDefaults.enabled ??
+    DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.enabled;
   const thresholdEcdsaPresignPoolTargetDepthDefault =
-    thresholdEcdsaPresignPoolDefaults.targetDepth
-    ?? DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.targetDepth;
+    thresholdEcdsaPresignPoolDefaults.targetDepth ??
+    DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.targetDepth;
   const thresholdEcdsaPresignPoolLowWatermarkDefault =
-    thresholdEcdsaPresignPoolDefaults.lowWatermark
-    ?? DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.lowWatermark;
+    thresholdEcdsaPresignPoolDefaults.lowWatermark ??
+    DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.lowWatermark;
   const thresholdEcdsaPresignPoolMaxRefillInFlightDefault =
-    thresholdEcdsaPresignPoolDefaults.maxRefillInFlight
-    ?? DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.maxRefillInFlight;
+    thresholdEcdsaPresignPoolDefaults.maxRefillInFlight ??
+    DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.maxRefillInFlight;
   const thresholdEcdsaPresignPoolRefillAttemptTimeoutMsDefault =
-    thresholdEcdsaPresignPoolDefaults.refillAttemptTimeoutMs
-    ?? DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.refillAttemptTimeoutMs;
+    thresholdEcdsaPresignPoolDefaults.refillAttemptTimeoutMs ??
+    DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY.refillAttemptTimeoutMs;
   const thresholdEcdsaPresignPoolTargetDepth = coercePositiveIntInRange(
     overrides.thresholdEcdsaPresignPool?.targetDepth ?? thresholdEcdsaPresignPoolTargetDepthDefault,
     thresholdEcdsaPresignPoolTargetDepthDefault,
@@ -214,14 +288,14 @@ export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiC
     64,
   );
   const thresholdEcdsaPresignPoolLowWatermark = coercePositiveIntInRange(
-    overrides.thresholdEcdsaPresignPool?.lowWatermark ?? thresholdEcdsaPresignPoolLowWatermarkDefault,
+    overrides.thresholdEcdsaPresignPool?.lowWatermark ??
+      thresholdEcdsaPresignPoolLowWatermarkDefault,
     thresholdEcdsaPresignPoolLowWatermarkDefault,
     0,
     thresholdEcdsaPresignPoolTargetDepth,
   );
   const merged: TatchiConfigs = {
-    nearRpcUrl: overrides.nearRpcUrl ?? defaults.nearRpcUrl,
-    nearNetwork: overrides.nearNetwork ?? defaults.nearNetwork,
+    chains,
     appearance: {
       theme: appearanceTheme,
       palette: appearancePalette,
@@ -241,15 +315,12 @@ export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiC
       },
     },
     relayerAccount,
-    nearExplorerUrl: overrides.nearExplorerUrl ?? defaults.nearExplorerUrl,
-    tempoExplorerUrl: overrides.tempoExplorerUrl ?? defaults.tempoExplorerUrl,
-    evmExplorerUrl: overrides.evmExplorerUrl ?? defaults.evmExplorerUrl,
     signerMode,
     signingSessionDefaults: {
-      ttlMs: overrides.signingSessionDefaults?.ttlMs
-        ?? defaults.signingSessionDefaults?.ttlMs,
-      remainingUses: overrides.signingSessionDefaults?.remainingUses
-        ?? defaults.signingSessionDefaults?.remainingUses,
+      ttlMs: overrides.signingSessionDefaults?.ttlMs ?? defaults.signingSessionDefaults?.ttlMs,
+      remainingUses:
+        overrides.signingSessionDefaults?.remainingUses ??
+        defaults.signingSessionDefaults?.remainingUses,
     },
     thresholdEcdsaPresignPool: {
       enabled: coerceBoolean(
@@ -259,15 +330,15 @@ export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiC
       targetDepth: thresholdEcdsaPresignPoolTargetDepth,
       lowWatermark: thresholdEcdsaPresignPoolLowWatermark,
       maxRefillInFlight: coercePositiveIntInRange(
-        overrides.thresholdEcdsaPresignPool?.maxRefillInFlight
-          ?? thresholdEcdsaPresignPoolMaxRefillInFlightDefault,
+        overrides.thresholdEcdsaPresignPool?.maxRefillInFlight ??
+          thresholdEcdsaPresignPoolMaxRefillInFlightDefault,
         thresholdEcdsaPresignPoolMaxRefillInFlightDefault,
         1,
         8,
       ),
       refillAttemptTimeoutMs: coercePositiveIntInRange(
-        overrides.thresholdEcdsaPresignPool?.refillAttemptTimeoutMs
-          ?? thresholdEcdsaPresignPoolRefillAttemptTimeoutMsDefault,
+        overrides.thresholdEcdsaPresignPool?.refillAttemptTimeoutMs ??
+          thresholdEcdsaPresignPoolRefillAttemptTimeoutMsDefault,
         thresholdEcdsaPresignPoolRefillAttemptTimeoutMsDefault,
         5_000,
         120_000,
@@ -276,47 +347,53 @@ export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiC
     registrationSignerDefaults,
     relayer: {
       url: relayerUrl,
-      delegateActionRoute: overrides.relayer?.delegateActionRoute
-        ?? defaults.relayer?.delegateActionRoute,
-      smartAccountDeployRoute: overrides.relayer?.smartAccountDeployRoute
-        ?? defaults.relayer?.smartAccountDeployRoute,
+      delegateActionRoute:
+        overrides.relayer?.delegateActionRoute ?? defaults.relayer?.delegateActionRoute,
+      smartAccountDeployRoute:
+        overrides.relayer?.smartAccountDeployRoute ?? defaults.relayer?.smartAccountDeployRoute,
       smartAccountDeploymentMode,
       smartAccountDeploymentMaxAttempts,
       emailRecovery: {
-        minBalanceYocto: overrides.relayer?.emailRecovery?.minBalanceYocto
-          ?? defaults.relayer?.emailRecovery?.minBalanceYocto,
-        pollingIntervalMs: overrides.relayer?.emailRecovery?.pollingIntervalMs
-          ?? defaults.relayer?.emailRecovery?.pollingIntervalMs,
-        maxPollingDurationMs: overrides.relayer?.emailRecovery?.maxPollingDurationMs
-          ?? defaults.relayer?.emailRecovery?.maxPollingDurationMs,
-        pendingTtlMs: overrides.relayer?.emailRecovery?.pendingTtlMs
-          ?? defaults.relayer?.emailRecovery?.pendingTtlMs,
-        mailtoAddress: overrides.relayer?.emailRecovery?.mailtoAddress
-          ?? defaults.relayer?.emailRecovery?.mailtoAddress,
+        minBalanceYocto:
+          overrides.relayer?.emailRecovery?.minBalanceYocto ??
+          defaults.relayer?.emailRecovery?.minBalanceYocto,
+        pollingIntervalMs:
+          overrides.relayer?.emailRecovery?.pollingIntervalMs ??
+          defaults.relayer?.emailRecovery?.pollingIntervalMs,
+        maxPollingDurationMs:
+          overrides.relayer?.emailRecovery?.maxPollingDurationMs ??
+          defaults.relayer?.emailRecovery?.maxPollingDurationMs,
+        pendingTtlMs:
+          overrides.relayer?.emailRecovery?.pendingTtlMs ??
+          defaults.relayer?.emailRecovery?.pendingTtlMs,
+        mailtoAddress:
+          overrides.relayer?.emailRecovery?.mailtoAddress ??
+          defaults.relayer?.emailRecovery?.mailtoAddress,
+        emailDkimVerifierContract:
+          overrides.relayer?.emailRecovery?.emailDkimVerifierContract ??
+          defaults.relayer?.emailRecovery?.emailDkimVerifierContract,
       },
     },
     authenticatorOptions: overrides.authenticatorOptions ?? defaults.authenticatorOptions,
-    emailDkimVerifierContract: overrides.emailDkimVerifierContract
-      ?? defaults.emailDkimVerifierContract,
     iframeWallet: {
       // Preserve explicit empty-string walletOrigin ("") because it is used as a sentinel
       // to disable iframe-wallet mode in tests and some apps.
-      walletOrigin: overrides.iframeWallet?.walletOrigin
-        ?? defaults.iframeWallet?.walletOrigin,
-      rpIdOverride: overrides.iframeWallet?.rpIdOverride
-        ?? defaults.iframeWallet?.rpIdOverride,
+      walletOrigin: overrides.iframeWallet?.walletOrigin ?? defaults.iframeWallet?.walletOrigin,
+      rpIdOverride: overrides.iframeWallet?.rpIdOverride ?? defaults.iframeWallet?.rpIdOverride,
       // IMPORTANT: the following fields are often wired from CI env vars like `VITE_SDK_BASE_PATH`.
       // When a GitHub Actions env var is missing, expressions like `${{ vars.VITE_SDK_BASE_PATH }}`
       // frequently become the empty string at build-time. Treat empty strings as "unset" so we
       // fall back to SDK defaults instead of accidentally generating root-relative URLs like:
       //   https://wallet.example.com/w3a-components.css  (wrong; should be /sdk/w3a-components.css)
-      walletServicePath: toTrimmedString(overrides.iframeWallet?.walletServicePath)
-        || toTrimmedString(defaults.iframeWallet?.walletServicePath)
-        || '/wallet-service',
-      sdkBasePath: toTrimmedString(overrides.iframeWallet?.sdkBasePath)
-        || toTrimmedString(defaults.iframeWallet?.sdkBasePath)
-        || '/sdk',
-    }
+      walletServicePath:
+        toTrimmedString(overrides.iframeWallet?.walletServicePath) ||
+        toTrimmedString(defaults.iframeWallet?.walletServicePath) ||
+        '/wallet-service',
+      sdkBasePath:
+        toTrimmedString(overrides.iframeWallet?.sdkBasePath) ||
+        toTrimmedString(defaults.iframeWallet?.sdkBasePath) ||
+        '/sdk',
+    },
   };
   if (!merged.relayer.url) {
     throw new Error('[configPresets] Missing required config: relayer.url');

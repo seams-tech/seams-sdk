@@ -108,11 +108,11 @@ export interface SignTransactionResult {
 }
 
 export interface GetRecentLoginsResult {
-  accountIds: string[],
+  accountIds: string[];
   lastUsedAccount: {
-    nearAccountId: AccountId,
-    deviceNumber: number,
-  } | null
+    nearAccountId: AccountId;
+    deviceNumber: number;
+  } | null;
 }
 
 export interface SignDelegateActionResult {
@@ -155,9 +155,65 @@ export interface ThresholdEcdsaPresignPoolPolicy {
 /// TatchiPasskey Configuration
 //////////////////////////////////
 
+export type TatchiNearChainNetwork = 'near-mainnet' | 'near-testnet';
+export type TatchiTempoChainNetwork = 'tempo-mainnet' | 'tempo-testnet';
+export type TatchiArcChainNetwork = 'arc-mainnet' | 'arc-testnet';
+export type TatchiChainNetwork =
+  | TatchiNearChainNetwork
+  | TatchiTempoChainNetwork
+  | TatchiArcChainNetwork;
+export type TatchiChainFamily = 'near' | 'tempo' | 'arc';
+
+export interface TatchiNearChainConfigInput {
+  network: TatchiNearChainNetwork;
+  rpcUrl?: string;
+  explorerUrl?: string;
+}
+
+export interface TatchiTempoChainConfigInput {
+  network: TatchiTempoChainNetwork;
+  rpcUrl?: string;
+  explorerUrl?: string;
+}
+
+export interface TatchiArcChainConfigInput {
+  network: TatchiArcChainNetwork;
+  rpcUrl?: string;
+  explorerUrl?: string;
+  chainId?: number;
+}
+
+export type TatchiChainConfigInput =
+  | TatchiNearChainConfigInput
+  | TatchiTempoChainConfigInput
+  | TatchiArcChainConfigInput;
+
+export interface TatchiNearChainConfig {
+  network: TatchiNearChainNetwork;
+  rpcUrl: string;
+  explorerUrl: string;
+}
+
+export interface TatchiTempoChainConfig {
+  network: TatchiTempoChainNetwork;
+  rpcUrl: string;
+  explorerUrl: string;
+}
+
+export interface TatchiArcChainConfig {
+  network: TatchiArcChainNetwork;
+  rpcUrl: string;
+  explorerUrl: string;
+  chainId?: number;
+}
+
+export type TatchiChainConfig =
+  | TatchiNearChainConfig
+  | TatchiTempoChainConfig
+  | TatchiArcChainConfig;
+
 export interface TatchiConfigsInput {
-  nearRpcUrl?: string;
-  nearNetwork?: 'testnet' | 'mainnet';
+  chains?: TatchiChainConfigInput[];
   appearance?: AppearanceConfigInput;
   /**
    * NEAR account ID under which the relay server creates new subaccounts.
@@ -168,9 +224,6 @@ export interface TatchiConfigsInput {
    * Defaults to the SDK relayer account default.
    */
   relayerAccount?: string;
-  nearExplorerUrl?: string; // NEAR Explorer URL for transaction links
-  tempoExplorerUrl?: string; // Tempo explorer URL for contract links
-  evmExplorerUrl?: string; // EVM explorer URL for contract links
   /**
    * Default signing mode used by higher-level convenience helpers and UI wrappers when a per-call
    * `signerMode` is not explicitly provided.
@@ -244,12 +297,12 @@ export interface TatchiConfigsInput {
       maxPollingDurationMs?: number;
       pendingTtlMs?: number;
       mailtoAddress?: string;
+      // Contract account that verifies DKIM signatures for email recovery.
+      emailDkimVerifierContract?: string;
     };
-  }
+  };
   // authenticator options for registrations
   authenticatorOptions?: AuthenticatorOptions;
-  // Email recovery contract identifier
-  emailDkimVerifierContract?: string;
 }
 
 /**
@@ -257,13 +310,9 @@ export interface TatchiConfigsInput {
  * All fields that the SDK relies on at runtime are non-optional here.
  */
 export interface TatchiConfigs {
-  nearRpcUrl: string;
-  nearNetwork: 'testnet' | 'mainnet';
+  chains: TatchiChainConfig[];
   appearance: AppearanceConfig;
   relayerAccount: string;
-  nearExplorerUrl?: string;
-  tempoExplorerUrl?: string;
-  evmExplorerUrl?: string;
   signerMode: SignerMode;
   signingSessionDefaults: {
     ttlMs: number;
@@ -289,10 +338,11 @@ export interface TatchiConfigs {
       maxPollingDurationMs: number;
       pendingTtlMs: number;
       mailtoAddress: string;
+      // Contract account that verifies DKIM signatures for email recovery.
+      emailDkimVerifierContract: string;
     };
   };
   authenticatorOptions?: AuthenticatorOptions;
-  emailDkimVerifierContract: string;
 }
 
 // === TRANSACTION TYPES ===

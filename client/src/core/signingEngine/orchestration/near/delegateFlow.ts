@@ -36,6 +36,7 @@ import {
   ensureEd25519Prefix,
   toPublicKeyString,
 } from '@/core/signingEngine/workerManager/validation';
+import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { executeWorkerOperation } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
   clearSigningSessionPrfFirstBestEffort,
@@ -84,8 +85,7 @@ export async function signDelegateAction({
   const resolvedRpcCall = {
     nearRpcUrl:
       rpcCall.nearRpcUrl ||
-      PASSKEY_MANAGER_DEFAULT_CONFIGS.nearRpcUrl.split(',')[0] ||
-      PASSKEY_MANAGER_DEFAULT_CONFIGS.nearRpcUrl,
+      resolvePrimaryNearRpcUrl(PASSKEY_MANAGER_DEFAULT_CONFIGS.chains),
     nearAccountId,
   } as RpcCallPayload;
 

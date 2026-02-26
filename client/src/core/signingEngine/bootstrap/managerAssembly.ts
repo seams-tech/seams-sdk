@@ -2,6 +2,7 @@ import { IndexedDBManager } from '@/core/indexedDB';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { NonceManager } from '@/core/rpcClients/near/nonceManager';
 import NonceManagerInstance from '@/core/rpcClients/near/nonceManager';
+import { resolvePrimaryExplorerUrl } from '@/core/config/chains';
 import type { ThemeName, ThemeTokenOverridesInput, TatchiConfigs } from '@/core/types/tatchi';
 import { createTouchConfirmManager } from '../touchConfirm/TouchConfirmManager';
 import type { TouchConfirmRuntimeBridgePort } from '../touchConfirm/types';
@@ -28,6 +29,9 @@ export function createManagerAssembly(args: {
   const userPreferencesManager = UserPreferencesInstance;
   userPreferencesManager.configureDefaultSignerMode?.(args.tatchiPasskeyConfigs.signerMode);
   const nonceManager = NonceManagerInstance;
+  const nearExplorerUrl = resolvePrimaryExplorerUrl(args.tatchiPasskeyConfigs.chains, 'near');
+  const tempoExplorerUrl = resolvePrimaryExplorerUrl(args.tatchiPasskeyConfigs.chains, 'tempo');
+  const evmExplorerUrl = resolvePrimaryExplorerUrl(args.tatchiPasskeyConfigs.chains, 'arc');
 
   const touchConfirm: TouchConfirmRuntimeBridgePort = createTouchConfirmManager(
     {},
@@ -38,9 +42,9 @@ export function createManagerAssembly(args: {
       userPreferencesManager: userPreferencesManager,
       nonceManager: nonceManager,
       rpIdOverride: touchIdPrompt.getRpId(),
-      nearExplorerUrl: args.tatchiPasskeyConfigs.nearExplorerUrl,
-      tempoExplorerUrl: args.tatchiPasskeyConfigs.tempoExplorerUrl,
-      evmExplorerUrl: args.tatchiPasskeyConfigs.evmExplorerUrl,
+      nearExplorerUrl,
+      tempoExplorerUrl,
+      evmExplorerUrl,
       getTheme: args.getTheme,
       getAppearanceTokens: args.getAppearanceTokens,
     },
@@ -54,9 +58,9 @@ export function createManagerAssembly(args: {
     args.tatchiPasskeyConfigs.relayer.url,
     args.tatchiPasskeyConfigs.iframeWallet?.rpIdOverride,
     true,
-    args.tatchiPasskeyConfigs.nearExplorerUrl,
-    args.tatchiPasskeyConfigs.tempoExplorerUrl,
-    args.tatchiPasskeyConfigs.evmExplorerUrl,
+    nearExplorerUrl,
+    tempoExplorerUrl,
+    evmExplorerUrl,
     args.getTheme,
   );
 

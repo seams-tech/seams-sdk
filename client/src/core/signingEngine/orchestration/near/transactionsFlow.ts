@@ -16,6 +16,7 @@ import {
 import { AccountId } from '@/core/types/accountIds';
 import type { SigningRuntimeDeps } from '../../interfaces/runtime';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
+import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { toAccountId } from '@/core/types/accountIds';
 import { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { TransactionContext } from '@/core/types/rpc';
@@ -154,7 +155,7 @@ export async function signTransactionsWithActions({
 
   // Normalize rpcCall to ensure required fields are present.
   const resolvedRpcCall = {
-    nearRpcUrl: rpcCall.nearRpcUrl || PASSKEY_MANAGER_DEFAULT_CONFIGS.nearRpcUrl,
+    nearRpcUrl: rpcCall.nearRpcUrl || resolvePrimaryNearRpcUrl(PASSKEY_MANAGER_DEFAULT_CONFIGS.chains),
     nearAccountId: rpcCall.nearAccountId,
   } as RpcCallPayload;
   const normalizedInputTransactions = Array.isArray(transactions) ? transactions : [];

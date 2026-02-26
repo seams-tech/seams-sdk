@@ -49,8 +49,13 @@ function App() {
   return (
     <TatchiPasskeyProvider
       config={{
-        nearRpcUrl: 'https://rpc.testnet.near.org',
-        nearNetwork: 'testnet',
+        chains: [
+          {
+            network: 'near-testnet',
+            rpcUrl: 'https://rpc.testnet.near.org',
+            explorerUrl: 'https://testnet.nearblocks.io',
+          },
+        ],
         iframeWallet: {
           walletOrigin: 'https://wallet.web3authn.org',
         },
@@ -117,9 +122,13 @@ import { keygenEcdsa } from '@tatchi-xyz/sdk/threshold'
 
 ```typescript
 interface TatchiPasskeyConfig {
-  // NEAR blockchain settings
-  nearRpcUrl: string               // RPC endpoint
-  nearNetwork: 'testnet' | 'mainnet'
+  // Chain settings
+  chains: Array<{
+    network: 'near-mainnet' | 'near-testnet' | 'tempo-mainnet' | 'tempo-testnet' | 'arc-mainnet' | 'arc-testnet'
+    rpcUrl: string
+    explorerUrl: string
+    chainId?: number               // EVM (arc-*) chains only
+  }>
   relayerAccount: string           // Parent account used for new subaccounts
 
   // Wallet iframe settings (recommended)

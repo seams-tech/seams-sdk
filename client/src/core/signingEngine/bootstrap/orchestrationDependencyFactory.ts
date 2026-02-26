@@ -3,6 +3,7 @@ import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { NonceManager } from '@/core/rpcClients/near/nonceManager';
 import type { AccountId } from '@/core/types/accountIds';
+import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { SigningSessionStatus, ThemeName, TatchiConfigs } from '@/core/types/tatchi';
 import type { TouchConfirmRuntimeBridgePort } from '../touchConfirm/types';
@@ -114,6 +115,7 @@ export type OrchestrationDependencyBundle = {
 export function createOrchestrationDependencyBundle(
   args: CreateOrchestrationDependencyBundleArgs,
 ): OrchestrationDependencyBundle {
+  const nearRpcUrl = resolvePrimaryNearRpcUrl(args.tatchiPasskeyConfigs.chains);
   const activeSigningSessionIds = new Map<string, string>();
   const signingSessionStateDeps: SigningSessionStateDeps = {
     activeSigningSessionIds,
@@ -125,7 +127,7 @@ export function createOrchestrationDependencyBundle(
     getOrCreateActiveSigningSessionIdValue(signingSessionStateDeps, nearAccountId);
 
   const nearSigningDeps: NearSigningApiDeps = {
-    nearRpcUrl: args.tatchiPasskeyConfigs.nearRpcUrl,
+    nearRpcUrl,
     getOrCreateActiveSigningSessionId: getOrCreateActiveSigningSessionId,
     createSigningSessionId: (prefix: string): string => generateSessionIdValue(prefix),
     getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
@@ -152,7 +154,7 @@ export function createOrchestrationDependencyBundle(
       nearClient: args.nearClient,
       nonceManager: args.nonceManager,
       relayerUrl: args.tatchiPasskeyConfigs.relayer.url,
-      nearRpcUrl: args.tatchiPasskeyConfigs.nearRpcUrl,
+      nearRpcUrl,
       signTransactionsWithActions: args.signTransactionsWithActions,
     },
     nearSigningDeps: nearSigningDeps,
@@ -187,7 +189,7 @@ export function createOrchestrationDependencyBundle(
       extractCosePublicKey: args.extractCosePublicKey,
     },
     registrationSessionDeps: {
-      nearRpcUrl: args.tatchiPasskeyConfigs.nearRpcUrl,
+      nearRpcUrl,
       touchConfirm: args.touchConfirm,
       touchIdPrompt: args.touchIdPrompt,
     },

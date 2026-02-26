@@ -14,6 +14,7 @@ import type { SignedTransaction } from '../../rpcClients/near/NearClient';
 import type { AccountId } from '../../types/accountIds';
 import { ActionPhase, ActionStatus, type ActionSSEEvent, type onProgressEvents } from '../../types/sdkSentEvents';
 import { toError, getNearShortErrorMessage } from '@shared/utils/errors';
+import { resolvePrimaryNearRpcUrl } from '../../config/chains';
 
 /**
  * executeAction signs a single transaction (with actions[]) to a single receiver.
@@ -460,7 +461,7 @@ export async function signTransactionsWithActionsInternal({
       args: {
         transactions: transactionInputsWasm,
         rpcCall: {
-          nearRpcUrl: context.configs.nearRpcUrl,
+          nearRpcUrl: resolvePrimaryNearRpcUrl(context.configs.chains),
           nearAccountId: nearAccountId, // caller account
         },
         deviceNumber,

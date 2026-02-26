@@ -35,6 +35,7 @@ import { __isWalletIframeHostMode } from '../WalletIframe/host-mode';
 import { toError } from '@shared/utils/errors';
 import { coerceThemeName } from '@shared/utils/theme';
 import { buildConfigsFromEnv } from '../config/defaultConfigs';
+import { resolvePrimaryNearRpcUrl } from '../config/chains';
 import { WalletIframeCoordinator } from './walletIframeCoordinator';
 import {
   getLoginSessionDomain,
@@ -102,7 +103,7 @@ export class TatchiPasskey {
       : (this.configs.iframeWallet?.walletOrigin ? 'disabled' : 'app');
     configureIndexedDB({ mode });
     // Use provided client or create default one
-    this.nearClient = nearClient || new MinimalNearClient(this.configs.nearRpcUrl);
+    this.nearClient = nearClient || new MinimalNearClient(resolvePrimaryNearRpcUrl(this.configs.chains));
     this.signingEngine = new SigningEngine(this.configs, this.nearClient);
 
     this.theme = coerceThemeName(this.configs.appearance?.theme) ?? 'dark';

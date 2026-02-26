@@ -5,7 +5,11 @@ import type { TatchiConfigsInput } from '../../types/tatchi';
 import type { PMSetConfigPayload } from '../shared/messages';
 import { isString } from '@shared/utils/validation';
 import { setEmbeddedBase } from '../../walletRuntimePaths';
-import { assertWalletHostConfigsNoNestedIframeWallet, sanitizeWalletHostConfigs } from './config-guards';
+import { cloneChainConfig, resolvePrimaryNearRpcUrl } from '../../config/chains';
+import {
+  assertWalletHostConfigsNoNestedIframeWallet,
+  sanitizeWalletHostConfigs,
+} from './config-guards';
 import { createCspStylesheetManager, getDefaultCspNonce } from '../shared/csp-stylesheet';
 
 const W3A_LIT_THEME_OVERRIDE_STYLE_ID = 'w3a-lit-theme-token-overrides';
@@ -21,9 +25,9 @@ const W3A_LIT_HOST_SELECTORS = [
   'w3a-export-key-viewer',
 ] as const;
 const W3A_LIT_DARK_SELECTOR = W3A_LIT_HOST_SELECTORS.join(',\n');
-const W3A_LIT_LIGHT_SELECTOR = W3A_LIT_HOST_SELECTORS
-  .map((selector) => `:root[data-w3a-theme="light"] ${selector}`)
-  .join(',\n');
+const W3A_LIT_LIGHT_SELECTOR = W3A_LIT_HOST_SELECTORS.map(
+  (selector) => `:root[data-w3a-theme="light"] ${selector}`,
+).join(',\n');
 let litThemeOverrideStyleManager: ReturnType<typeof createCspStylesheetManager> | null = null;
 
 function getLitThemeOverrideStyleManager(): ReturnType<typeof createCspStylesheetManager> {
@@ -131,11 +135,12 @@ export function createHostContext(): HostContext {
 
 export function ensurePasskeyManager(ctx: HostContext): TatchiPasskey {
   const { walletConfigs } = ctx;
-  if (!walletConfigs || !walletConfigs.nearRpcUrl) {
+  if (!walletConfigs) {
     throw new Error('Wallet service not configured. Call PM_SET_CONFIG first.');
   }
+  const nearRpcUrl = resolvePrimaryNearRpcUrl(walletConfigs.chains || []);
   if (!ctx.nearClient) {
-    ctx.nearClient = new MinimalNearClient(walletConfigs.nearRpcUrl);
+    ctx.nearClient = new MinimalNearClient(nearRpcUrl);
   }
   if (!ctx.tatchiPasskey) {
     const cfg = sanitizeWalletHostConfigs(walletConfigs);
@@ -163,46 +168,54 @@ export function updateThemeBridge(ctx: HostContext): void {
 
 export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload): void {
   const prev = ctx.walletConfigs || ({} as TatchiConfigsInput);
+  const nextChains = Array.isArray(payload?.chains)
+    ? payload.chains.map(cloneChainConfig)
+    : Array.isArray(prev.chains)
+      ? prev.chains.map(cloneChainConfig)
+      : [];
   const prevLightColors = toStringRecord(prev.appearance?.tokens?.light?.colors);
   const prevDarkColors = toStringRecord(prev.appearance?.tokens?.dark?.colors);
   const incomingLightRaw = payload?.appearance?.tokens?.light?.colors;
   const incomingDarkRaw = payload?.appearance?.tokens?.dark?.colors;
-  const nextLightColors = incomingLightRaw !== undefined
-    ? toStringRecord(incomingLightRaw)
-    : prevLightColors;
-  const nextDarkColors = incomingDarkRaw !== undefined
-    ? toStringRecord(incomingDarkRaw)
-    : prevDarkColors;
+  const nextLightColors =
+    incomingLightRaw !== undefined ? toStringRecord(incomingLightRaw) : prevLightColors;
+  const nextDarkColors =
+    incomingDarkRaw !== undefined ? toStringRecord(incomingDarkRaw) : prevDarkColors;
   const incomingTheme = coerceThemeName(payload?.appearance?.theme);
   const prevTheme = coerceThemeName(prev.appearance?.theme);
   const nextTheme = incomingTheme ?? prevTheme;
   const hasAppearance =
-    !!nextTheme
-    || Object.keys(nextLightColors).length > 0
-    || Object.keys(nextDarkColors).length > 0;
+    !!nextTheme ||
+    Object.keys(nextLightColors).length > 0 ||
+    Object.keys(nextDarkColors).length > 0;
   const nextAppearance = hasAppearance
     ? {
-      ...(prev.appearance || {}),
-      ...(nextTheme ? { theme: nextTheme } : {}),
-      palette: 'default' as const,
-      tokens: {
-        light: { colors: nextLightColors },
-        dark: { colors: nextDarkColors },
-      },
-    }
+        ...(prev.appearance || {}),
+        ...(nextTheme ? { theme: nextTheme } : {}),
+        palette: 'default' as const,
+        tokens: {
+          light: { colors: nextLightColors },
+          dark: { colors: nextDarkColors },
+        },
+      }
     : undefined;
 
   const base = {
-    nearRpcUrl: payload?.nearRpcUrl || prev.nearRpcUrl || '',
-    nearNetwork: payload?.nearNetwork || prev.nearNetwork || 'testnet',
+    chains: nextChains,
     relayerAccount: payload?.relayerAccount || prev.relayerAccount || '',
-    nearExplorerUrl: payload?.nearExplorerUrl || prev.nearExplorerUrl,
-    tempoExplorerUrl: payload?.tempoExplorerUrl || prev.tempoExplorerUrl,
-    evmExplorerUrl: payload?.evmExplorerUrl || prev.evmExplorerUrl,
     signerMode: payload?.signerMode || prev.signerMode,
-    relayer: payload?.relayer || prev.relayer,
+    relayer:
+      payload?.relayer || prev.relayer
+        ? {
+            ...(prev.relayer || {}),
+            ...(payload?.relayer || {}),
+            emailRecovery: {
+              ...(prev.relayer?.emailRecovery || {}),
+              ...(payload?.relayer?.emailRecovery || {}),
+            },
+          }
+        : undefined,
     authenticatorOptions: payload?.authenticatorOptions || prev.authenticatorOptions,
-    emailDkimVerifierContract: payload?.emailDkimVerifierContract || prev.emailDkimVerifierContract,
     iframeWallet: {
       ...(prev.iframeWallet || {}),
       rpIdOverride: payload?.rpIdOverride || prev.iframeWallet?.rpIdOverride,

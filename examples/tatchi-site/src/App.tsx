@@ -118,10 +118,7 @@ export const App: React.FC = () => {
           ttlMs: FRONTEND_CONFIG.signingSessionDefaults.ttlMs,
           remainingUses: FRONTEND_CONFIG.signingSessionDefaults.remainingUses,
         },
-        nearRpcUrl: FRONTEND_CONFIG.nearRpcUrl,
-        nearExplorerUrl: FRONTEND_CONFIG.nearExplorerUrl,
-        tempoExplorerUrl: FRONTEND_CONFIG.tempoExplorerUrl,
-        evmExplorerUrl: FRONTEND_CONFIG.arcExplorerUrl,
+        chains: FRONTEND_CONFIG.chains,
         relayer: {
           url: FRONTEND_CONFIG.relayerUrl!,
         },

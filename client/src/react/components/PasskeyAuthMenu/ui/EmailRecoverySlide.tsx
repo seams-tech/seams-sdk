@@ -6,6 +6,7 @@ import {
   type EmailRecoverySSEEvent,
 } from '@/core/types/sdkSentEvents';
 import type { TatchiPasskey } from '@/core/TatchiPasskey';
+import { resolvePrimaryExplorerUrl } from '@/core/config/chains';
 import { EmailRecoveryErrorCode } from '@/core/types/emailRecovery';
 import type { EmailRecoveryFlowOptions } from '@/core/types/emailRecovery';
 
@@ -34,7 +35,9 @@ const ACCOUNT_INFO_DEBOUNCE_MS = 350;
 const MAILTO_REENABLE_MS = 2_000;
 
 function getExplorerBaseUrl(tatchiPasskey: TatchiPasskey): string {
-  return String(tatchiPasskey.configs?.nearExplorerUrl || DEFAULT_NEAR_EXPLORER_URL).replace(/\/$/, '');
+  return String(
+    resolvePrimaryExplorerUrl(tatchiPasskey.configs?.chains || [], 'near') || DEFAULT_NEAR_EXPLORER_URL,
+  ).replace(/\/$/, '');
 }
 
 function getExplorerAccountUrl(args: { base: string; accountId: string }): string {

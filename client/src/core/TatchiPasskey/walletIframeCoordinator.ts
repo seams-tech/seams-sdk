@@ -77,7 +77,9 @@ export class WalletIframeCoordinator {
     // Warm local critical resources (NonceManager, workers) regardless of iframe usage.
     // In iframe mode, avoid persisting user state (lastUserAccountId, preferences) on the app origin.
     const shouldAvoidLocalUserState = walletOriginConfigured && !__isWalletIframeHostMode();
-    await this.signingEngine.warmCriticalResources(shouldAvoidLocalUserState ? undefined : nearAccountId);
+    await this.signingEngine.warmCriticalResources(
+      shouldAvoidLocalUserState ? undefined : nearAccountId,
+    );
 
     // Guardrail: when running inside the wallet service iframe host, never attempt to
     // initialize a nested wallet iframe client, even if configs accidentally include iframeWallet.
@@ -99,7 +101,9 @@ export class WalletIframeCoordinator {
         const parsed = new URL(walletOrigin);
         if (typeof window !== 'undefined' && parsed.origin === window.location.origin) {
           warnedAboutSameOriginWallet = true;
-          console.warn('[TatchiPasskey] iframeWallet.walletOrigin matches the host origin. Consider moving the wallet to a dedicated origin for stronger isolation.');
+          console.warn(
+            '[TatchiPasskey] iframeWallet.walletOrigin matches the host origin. Consider moving the wallet to a dedicated origin for stronger isolation.',
+          );
         }
       } catch {
         // ignore invalid URL here; constructor downstream will surface an error
@@ -117,16 +121,11 @@ export class WalletIframeCoordinator {
             connectTimeoutMs: 20_000,
             requestTimeoutMs: 60_000,
             signerMode: this.configs.signerMode,
-            nearRpcUrl: this.configs.nearRpcUrl,
-            nearNetwork: this.configs.nearNetwork,
+            chains: this.configs.chains,
             relayerAccount: this.configs.relayerAccount,
-            nearExplorerUrl: this.configs.nearExplorerUrl,
-            tempoExplorerUrl: this.configs.tempoExplorerUrl,
-            evmExplorerUrl: this.configs.evmExplorerUrl,
             relayer: this.configs.relayer,
             rpIdOverride: walletIframeConfig?.rpIdOverride,
             authenticatorOptions: this.configs.authenticatorOptions,
-            emailDkimVerifierContract: this.configs.emailDkimVerifierContract,
             appearance: {
               theme: this.getTheme(),
               tokens: this.configs.appearance?.tokens,
@@ -166,7 +165,9 @@ export class WalletIframeCoordinator {
           confirmationConfig: cfg,
         });
       }
-      const signerMode = await this.iframeRouter.getSignerMode?.({ timeoutMs: 1000 }).catch(() => null);
+      const signerMode = await this.iframeRouter
+        .getSignerMode?.({ timeoutMs: 1000 })
+        .catch(() => null);
       if (signerMode) {
         this.userPreferences.applyWalletHostSignerMode?.({
           nearAccountId: nearAccountId ? toAccountId(nearAccountId) : null,
@@ -195,7 +196,7 @@ export class WalletIframeCoordinator {
     if (this.walletIframePrefsUnsubscribe) {
       return;
     }
-    const unsubscribe = router.onPreferencesChanged?.(payload => {
+    const unsubscribe = router.onPreferencesChanged?.((payload) => {
       const id = payload?.nearAccountId;
       const nearAccountId: AccountId | null = id ? toAccountId(id) : null;
       this.userPreferences.applyWalletHostConfirmationConfig({

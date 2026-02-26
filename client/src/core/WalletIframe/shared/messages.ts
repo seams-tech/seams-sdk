@@ -1,17 +1,14 @@
-
 // Typed RPC messages for the wallet service iframe channel (TatchiPasskey-first)
 import type { AuthenticatorOptions } from '@server';
 import type { WalletUIRegistry } from '../host/lit-ui/iframe-lit-element-registry';
 import { SignedTransaction } from '../../rpcClients/near/NearClient';
-import {
-  ActionArgs,
-  TransactionInput
-} from '../../types';
+import { ActionArgs, TransactionInput } from '../../types';
 import { type DeviceLinkingQRData } from '../../types/linkDevice';
 import type { DelegateActionInput } from '../../types/delegate';
 import type { ConfirmationConfig } from '../../types/signer-worker';
 import type { SignerMode } from '../../types/signer-worker';
 import type { MultichainSigningRequest } from '../../signingEngine/chainAdaptors/tempo/types';
+import type { TatchiChainConfigInput } from '../../types/tatchi';
 
 export type WalletProtocolVersion = '1.0.0';
 
@@ -72,7 +69,7 @@ export interface RpcEnvelope<T extends string = string, P = unknown> {
   options?: {
     onProgress?(payload: ProgressPayload): void;
     sticky?: boolean;
-  }
+  };
 }
 
 // ===== Payloads =====
@@ -90,12 +87,8 @@ export interface PreferencesChangedPayload {
 
 export interface PMSetConfigPayload {
   // TatchiConfigs subset for wallet host
-  nearRpcUrl?: string;
-  nearNetwork?: 'testnet' | 'mainnet';
+  chains?: TatchiChainConfigInput[];
   relayerAccount?: string;
-  nearExplorerUrl?: string;
-  tempoExplorerUrl?: string;
-  evmExplorerUrl?: string;
   /**
    * Default signing policy applied inside the wallet iframe when per-call `options.signerMode`
    * is not provided (e.g., `registerPasskey()`).
@@ -104,10 +97,17 @@ export interface PMSetConfigPayload {
   relayer?: {
     initialUseRelayer?: boolean;
     url: string;
+    emailRecovery?: {
+      minBalanceYocto?: string;
+      pollingIntervalMs?: number;
+      maxPollingDurationMs?: number;
+      pendingTtlMs?: number;
+      mailtoAddress?: string;
+      emailDkimVerifierContract?: string;
+    };
   };
   rpIdOverride?: string;
   authenticatorOptions?: AuthenticatorOptions;
-  emailDkimVerifierContract?: string;
   // Absolute base URL for SDK Lit component assets (e.g., https://app.example.com/sdk/)
   assetsBaseUrl?: string;
   // Optional appearance defaults forwarded to the wallet host so Lit confirmer UI
@@ -194,7 +194,13 @@ export interface PMSignAndSendTxsPayload {
     signerMode: SignerMode;
     deviceNumber?: number;
     // Keep only serializable fields; functions are bridged via PROGRESS
-    waitUntil?: 'NONE' | 'INCLUDED' | 'INCLUDED_FINAL' | 'EXECUTED' | 'FINAL' | 'EXECUTED_OPTIMISTIC';
+    waitUntil?:
+      | 'NONE'
+      | 'INCLUDED'
+      | 'INCLUDED_FINAL'
+      | 'EXECUTED'
+      | 'FINAL'
+      | 'EXECUTED_OPTIMISTIC';
     executionWait?: Record<string, unknown>;
     confirmationConfig?: Partial<ConfirmationConfig>;
     confirmerText?: { title?: string; body?: string };
@@ -260,11 +266,19 @@ export interface PMExportKeypairUiPayload {
   theme?: 'dark' | 'light';
 }
 
-export interface PMSetConfirmBehaviorPayload { behavior: 'requireClick' | 'skipClick'; nearAccountId?: string }
+export interface PMSetConfirmBehaviorPayload {
+  behavior: 'requireClick' | 'skipClick';
+  nearAccountId?: string;
+}
 
-export interface PMSetConfirmationConfigPayload { config: Partial<ConfirmationConfig>; nearAccountId?: string }
+export interface PMSetConfirmationConfigPayload {
+  config: Partial<ConfirmationConfig>;
+  nearAccountId?: string;
+}
 
-export interface PMGetLoginSessionPayload { nearAccountId?: string }
+export interface PMGetLoginSessionPayload {
+  nearAccountId?: string;
+}
 
 export interface PMPrefillThresholdEcdsaPresignPoolPayload {
   nearAccountId: string;
@@ -277,13 +291,22 @@ export interface PMPrefillThresholdEcdsaPresignPoolPayload {
   };
 }
 
-export interface PMSetSignerModePayload { signerMode: SignerMode; nearAccountId?: string }
+export interface PMSetSignerModePayload {
+  signerMode: SignerMode;
+  nearAccountId?: string;
+}
 
-export interface PMSetThemePayload { theme: 'dark' | 'light' }
+export interface PMSetThemePayload {
+  theme: 'dark' | 'light';
+}
 
-export interface PMHasPasskeyPayload { nearAccountId: string }
+export interface PMHasPasskeyPayload {
+  nearAccountId: string;
+}
 
-export interface PMViewAccessKeysPayload { accountId: string }
+export interface PMViewAccessKeysPayload {
+  accountId: string;
+}
 
 export interface PMDeleteDeviceKeyPayload {
   accountId: string;
@@ -370,7 +393,10 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_EXPORT_KEYPAIR_UI', PMExportKeypairUiPayload>
   | RpcEnvelope<'PM_GET_RECENT_LOGINS'>
   | RpcEnvelope<'PM_PREFETCH_BLOCKHEIGHT'>
-  | RpcEnvelope<'PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL', PMPrefillThresholdEcdsaPresignPoolPayload>
+  | RpcEnvelope<
+      'PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL',
+      PMPrefillThresholdEcdsaPresignPoolPayload
+    >
   | RpcEnvelope<'PM_SET_CONFIRM_BEHAVIOR', PMSetConfirmBehaviorPayload>
   | RpcEnvelope<'PM_SET_CONFIRMATION_CONFIG', PMSetConfirmationConfigPayload>
   | RpcEnvelope<'PM_GET_CONFIRMATION_CONFIG'>
@@ -380,25 +406,31 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_HAS_PASSKEY', PMHasPasskeyPayload>
   | RpcEnvelope<'PM_VIEW_ACCESS_KEYS', PMViewAccessKeysPayload>
   | RpcEnvelope<'PM_DELETE_DEVICE_KEY', PMDeleteDeviceKeyPayload>
-  | RpcEnvelope<'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA', {
-    qrData: DeviceLinkingQRData;
-    fundingAmount: string;
-    options?: {
-      confirmationConfig?: Partial<ConfirmationConfig>;
-      confirmerText?: { title?: string; body?: string };
-    };
-  }>
-  | RpcEnvelope<'PM_START_DEVICE2_LINKING_FLOW', {
-    ui?: 'modal' | 'inline';
-    cameraId?: string;
-    accountId?: string;
-    deviceNumber?: number;
-    localSignerEnabled?: boolean;
-    options?: {
-      confirmationConfig?: Partial<ConfirmationConfig>;
-      confirmerText?: { title?: string; body?: string };
-    };
-  }>
+  | RpcEnvelope<
+      'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA',
+      {
+        qrData: DeviceLinkingQRData;
+        fundingAmount: string;
+        options?: {
+          confirmationConfig?: Partial<ConfirmationConfig>;
+          confirmerText?: { title?: string; body?: string };
+        };
+      }
+    >
+  | RpcEnvelope<
+      'PM_START_DEVICE2_LINKING_FLOW',
+      {
+        ui?: 'modal' | 'inline';
+        cameraId?: string;
+        accountId?: string;
+        deviceNumber?: number;
+        localSignerEnabled?: boolean;
+        options?: {
+          confirmationConfig?: Partial<ConfirmationConfig>;
+          confirmerText?: { title?: string; body?: string };
+        };
+      }
+    >
   | RpcEnvelope<'PM_STOP_DEVICE2_LINKING_FLOW'>
   | RpcEnvelope<'PM_SYNC_ACCOUNT_FLOW', { accountId?: string }>
   | RpcEnvelope<'PM_START_EMAIL_RECOVERY', PMStartEmailRecoveryPayload>

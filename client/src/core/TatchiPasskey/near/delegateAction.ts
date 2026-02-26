@@ -13,6 +13,7 @@ import { toAccountId } from '../../types/accountIds';
 import { toError } from '@shared/utils/errors';
 import { mergeSignerMode, type WasmSignedDelegate } from '../../types/signer-worker';
 import { isObject } from '@shared/utils/validation';
+import { resolvePrimaryNearRpcUrl } from '../../config/chains';
 
 export interface RelayDelegateRequest {
   hash: string;
@@ -62,7 +63,7 @@ export async function signDelegateAction(args: {
       args: {
         delegate: resolvedDelegate,
         rpcCall: {
-          nearRpcUrl: context.configs.nearRpcUrl,
+          nearRpcUrl: resolvePrimaryNearRpcUrl(context.configs.chains),
           nearAccountId: String(nearAccountId),
         },
         signerMode,

@@ -33,17 +33,43 @@ const env = import.meta.env
 
 const docsOrigin = stripTrailingSlash(toTrimmedString(env.VITE_DOCS_ORIGIN)) || DEFAULT_DOCS_ORIGIN
 const baseUrl = stripTrailingSlash(toTrimmedString(env.BASE_URL || '/')) || '/'
+const nearNetwork = env.VITE_NEAR_NETWORK === 'mainnet' ? 'mainnet' : 'testnet'
+const nearChainNetwork = nearNetwork === 'mainnet' ? 'near-mainnet' : 'near-testnet'
+const nearRpcUrl = toTrimmedString(env.VITE_NEAR_RPC_URL) || DEFAULT_NEAR_RPC_URL
+const nearExplorerUrl = toTrimmedString(env.VITE_NEAR_EXPLORER) || DEFAULT_NEAR_EXPLORER_URL
+const tempoRpcUrl = toTrimmedString(env.VITE_TEMPO_RPC_URL) || DEFAULT_TEMPO_RPC_URL
+const tempoExplorerUrl = toTrimmedString(env.VITE_TEMPO_EXPLORER) || DEFAULT_TEMPO_EXPLORER_URL
+const arcRpcUrl = toTrimmedString(env.VITE_ARC_RPC_URL) || DEFAULT_ARC_RPC_URL
+const arcExplorerUrl = toTrimmedString(env.VITE_ARC_EXPLORER) || DEFAULT_ARC_EXPLORER_URL
 
 export const FRONTEND_CONFIG = Object.freeze({
   relayerUrl: toOptionalString(env.VITE_RELAYER_URL),
   relayerAccountId: toOptionalString(env.VITE_RELAYER_ACCOUNT_ID),
-  nearNetwork: env.VITE_NEAR_NETWORK === 'mainnet' ? 'mainnet' : 'testnet',
-  nearRpcUrl: toTrimmedString(env.VITE_NEAR_RPC_URL) || DEFAULT_NEAR_RPC_URL,
-  nearExplorerUrl: toTrimmedString(env.VITE_NEAR_EXPLORER) || DEFAULT_NEAR_EXPLORER_URL,
-  tempoRpcUrl: toTrimmedString(env.VITE_TEMPO_RPC_URL) || DEFAULT_TEMPO_RPC_URL,
-  tempoExplorerUrl: toTrimmedString(env.VITE_TEMPO_EXPLORER) || DEFAULT_TEMPO_EXPLORER_URL,
-  arcRpcUrl: toTrimmedString(env.VITE_ARC_RPC_URL) || DEFAULT_ARC_RPC_URL,
-  arcExplorerUrl: toTrimmedString(env.VITE_ARC_EXPLORER) || DEFAULT_ARC_EXPLORER_URL,
+  nearNetwork,
+  nearRpcUrl,
+  nearExplorerUrl,
+  tempoRpcUrl,
+  tempoExplorerUrl,
+  arcRpcUrl,
+  arcExplorerUrl,
+  chains: [
+    {
+      network: nearChainNetwork,
+      rpcUrl: nearRpcUrl,
+      explorerUrl: nearExplorerUrl,
+    },
+    {
+      network: 'tempo-testnet',
+      rpcUrl: tempoRpcUrl,
+      explorerUrl: tempoExplorerUrl,
+    },
+    {
+      network: 'arc-testnet',
+      rpcUrl: arcRpcUrl,
+      explorerUrl: arcExplorerUrl,
+      chainId: 5_042_002,
+    },
+  ],
   walletOrigin: toOptionalString(env.VITE_WALLET_ORIGIN),
   walletServicePath: toOptionalString(env.VITE_WALLET_SERVICE_PATH),
   sdkBasePath: toOptionalString(env.VITE_SDK_BASE_PATH),

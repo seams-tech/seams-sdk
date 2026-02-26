@@ -33,6 +33,7 @@ import {
   resolveWalletBoundaryErrorCode,
   resolveWalletBoundaryErrorMessage,
 } from './canonicalSignerErrorCode';
+import { resolvePrimaryNearRpcUrl } from '../../config/chains';
 
 const PROTOCOL: ReadyPayload['protocolVersion'] = '1.0.0';
 let initialized = false;
@@ -154,7 +155,13 @@ export function initWalletIFrame(): void {
     // Handle ping/pong for connection health checks
     if (req.type === 'PING') {
       // Initialize TatchiPasskey and prewarm workers on wallet origin (non-blocking)
-      if (ctx.walletConfigs?.nearRpcUrl && ctx.walletConfigs?.relayerAccount) {
+      let canInitOnPing = false;
+      try {
+        canInitOnPing = !!ctx.walletConfigs?.relayerAccount && !!resolvePrimaryNearRpcUrl(ctx.walletConfigs?.chains || []);
+      } catch {
+        canInitOnPing = false;
+      }
+      if (canInitOnPing) {
         Promise.resolve().then(() => {
           const pm = ensureTatchiPasskey();
           return pm.initWalletIframe();
