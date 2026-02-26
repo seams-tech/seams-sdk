@@ -46,9 +46,15 @@ interface HostTxConfirmerElement extends HTMLElement {
   title: string;
   requestUpdate?: () => void;
   nearExplorerUrl?: string;
+  tempoExplorerUrl?: string;
+  evmExplorerUrl?: string;
 }
 
-type ConfirmUIInternalUpdate = ConfirmUIUpdate & { nearExplorerUrl?: string };
+type ConfirmUIInternalUpdate = ConfirmUIUpdate & {
+  nearExplorerUrl?: string;
+  tempoExplorerUrl?: string;
+  evmExplorerUrl?: string;
+};
 
 async function ensureTxConfirmerElementDefined(): Promise<void> {
   await ensureDefined(
@@ -186,6 +192,12 @@ function applyHostElementProps(element: HostTxConfirmerElement, props?: ConfirmU
   if (update.nearExplorerUrl != null) {
     element.nearExplorerUrl = update.nearExplorerUrl;
   }
+  if (update.tempoExplorerUrl != null) {
+    element.tempoExplorerUrl = update.tempoExplorerUrl;
+  }
+  if (update.evmExplorerUrl != null) {
+    element.evmExplorerUrl = update.evmExplorerUrl;
+  }
 
   element.requestUpdate?.();
 }
@@ -195,8 +207,17 @@ function createHostConfirmHandle(
   onClose: () => void,
 ): ConfirmUIHandle {
   return {
-    close: (_confirmed: boolean) => {
+    close: (confirmed: boolean) => {
       try {
+        // If closed programmatically before a user decision was emitted, dispatch a cancel
+        // so awaiters can resolve and clean up listeners.
+        if (!confirmed) {
+          element.dispatchEvent(new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
+            detail: { confirmed: false },
+            bubbles: true,
+            composed: true,
+          }));
+        }
         removeHostConfirmerElement(element);
       } finally {
         onClose();
@@ -250,18 +271,22 @@ export async function awaitConfirmUIDecision({
   txSigningRequests,
   model,
   securityContext,
+  loading,
   theme,
   uiMode,
   nearAccountIdOverride,
+  onMounted,
 }: {
   ctx: TouchConfirmContext,
   summary: TransactionSummary,
   txSigningRequests: TransactionInputWasm[],
   model?: TxDisplayModel,
   securityContext?: Partial<UserConfirmSecurityContext>,
+  loading?: boolean,
   theme: ThemeName,
   uiMode: ConfirmationUIMode,
   nearAccountIdOverride: string,
+  onMounted?: (handle: ConfirmUIHandle) => void,
 }): Promise<{ confirmed: boolean; handle: ConfirmUIHandle; error?: string }> {
   await ensureTxConfirmerElementDefined();
 
@@ -275,10 +300,15 @@ export async function awaitConfirmUIDecision({
       txSigningRequests,
       model,
       securityContext,
+      loading,
       theme,
       variant: resolvedVariant,
       nearAccountIdOverride,
     });
+
+    try {
+      onMounted?.(handle);
+    } catch {}
 
     const finalize = (result: { confirmed: boolean; error?: string }) => {
       cleanup();
@@ -365,6 +395,12 @@ function mountHostElement({
 
   if (ctx.nearExplorerUrl) {
     element.nearExplorerUrl = ctx.nearExplorerUrl;
+  }
+  if (ctx.tempoExplorerUrl) {
+    element.tempoExplorerUrl = ctx.tempoExplorerUrl;
+  }
+  if (ctx.evmExplorerUrl) {
+    element.evmExplorerUrl = ctx.evmExplorerUrl;
   }
 
   if ((txSigningRequests?.length || 0) > 0) {

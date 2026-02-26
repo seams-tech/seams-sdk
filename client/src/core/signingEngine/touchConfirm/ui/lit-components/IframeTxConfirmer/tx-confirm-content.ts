@@ -40,6 +40,8 @@ export class TxConfirmContentElement extends LitElementWithProps {
     tooltipWidth: { type: String, attribute: 'tooltip-width' },
     // Optional: pass explorer base URL down to TxTree
     nearExplorerUrl: { type: String, attribute: 'near-explorer-url' },
+    tempoExplorerUrl: { type: String, attribute: 'tempo-explorer-url' },
+    evmExplorerUrl: { type: String, attribute: 'evm-explorer-url' },
     // Forwarded flag to control TxTree's shadow wrapper (drop shadow)
     showShadow: { type: Boolean, attribute: 'show-shadow' },
   } as const;
@@ -57,6 +59,8 @@ export class TxConfirmContentElement extends LitElementWithProps {
   declare cancelText: string;
   declare tooltipWidth?: string | number;
   declare nearExplorerUrl?: string;
+  declare tempoExplorerUrl?: string;
+  declare evmExplorerUrl?: string;
   declare showShadow: boolean;
 
   private _treeNode: unknown | null = null;
@@ -213,7 +217,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
 
   render() {
     const treeTheme: 'dark' | 'light' = this.theme === 'dark' ? 'dark' : 'light';
-    const explorerBase = this.nearExplorerUrl || 'https://testnet.nearblocks.io';
+    const nearExplorerBase = this.nearExplorerUrl || 'https://testnet.nearblocks.io';
     return html`
       <div class="txc-root">
         ${this.errorMessage ? html`<div class="error">${this.errorMessage}</div>` : null}
@@ -223,7 +227,9 @@ export class TxConfirmContentElement extends LitElementWithProps {
                     light-dom
                     .node=${this._treeNode}
                     .theme=${treeTheme}
-                    .nearExplorerUrl=${explorerBase}
+                    .nearExplorerUrl=${nearExplorerBase}
+                    .tempoExplorerUrl=${this.tempoExplorerUrl}
+                    .evmExplorerUrl=${this.evmExplorerUrl}
                     .showShadow=${this.showShadow}
                   ></w3a-tx-tree>
                 </div>`

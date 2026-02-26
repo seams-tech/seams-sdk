@@ -73,6 +73,10 @@ export class TxTree extends LitElementWithProps {
     shadowDom: { type: Boolean, attribute: 'shadow-dom' },
     // Optional: base URL for NEAR explorer links, e.g., https://testnet.nearblocks.io
     nearExplorerUrl: { type: String, attribute: 'near-explorer-url' },
+    // Optional: base URL for Tempo explorer links
+    tempoExplorerUrl: { type: String, attribute: 'tempo-explorer-url' },
+    // Optional: base URL for EVM explorer links
+    evmExplorerUrl: { type: String, attribute: 'evm-explorer-url' },
     // Controls whether the outer tooltip wrapper shows a drop shadow.
     // Defaults to true to preserve existing tooltip visuals.
     showShadow: { type: Boolean, attribute: 'show-shadow' }
@@ -92,6 +96,10 @@ export class TxTree extends LitElementWithProps {
   shadowDom?: boolean;
   // Optional base URL for explorer (e.g., https://testnet.nearblocks.io)
   nearExplorerUrl?: string;
+  // Optional base URL for Tempo explorer (e.g., https://explorer.tempo.xyz)
+  tempoExplorerUrl?: string;
+  // Optional base URL for EVM explorer (e.g., https://sepolia.etherscan.io)
+  evmExplorerUrl?: string;
   // When true (default), render the outer wrapper with drop shadow for tooltip usage
   showShadow: boolean = true;
 
@@ -330,6 +338,73 @@ export class TxTree extends LitElementWithProps {
     super.connectedCallback();
   }
 
+  private normalizeExplorerBase(url?: string): string | undefined {
+    const value = String(url || '').trim();
+    if (!value) return undefined;
+    return value.replace(/\/$/, '');
+  }
+
+  private shortenHexAddress(address: string): string {
+    const normalized = String(address || '').trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(normalized)) return normalized;
+    return `${normalized.slice(0, 8)}...${normalized.slice(-4)}`;
+  }
+
+  private extractContractTransactionPrefix(label: string): string | undefined {
+    const normalized = String(label || '').trim();
+    if (!normalized) return undefined;
+    const match = normalized.match(/^(Transaction(?:\s+\d+)?\s+to contract)\b/i);
+    if (!match?.[1]) return undefined;
+    return `${match[1]} `;
+  }
+
+  private resolveContractExplorerHref(treeNode: TreeNode, contractAddress: string): string | undefined {
+    const chain = treeNode.chain;
+    const base = (() => {
+      if (chain === 'tempo') return this.normalizeExplorerBase(this.tempoExplorerUrl);
+      if (chain === 'evm') return this.normalizeExplorerBase(this.evmExplorerUrl);
+      if (chain === 'near') return this.normalizeExplorerBase(this.nearExplorerUrl || 'https://testnet.nearblocks.io');
+      return undefined;
+    })();
+    if (!base) return undefined;
+    return `${base}/address/${encodeURIComponent(contractAddress)}`;
+  }
+
+  private renderContractTransactionLabel(treeNode: TreeNode): TemplateResult | string | undefined {
+    const contractAddress = String(treeNode.contractAddress || '').trim();
+    if (!contractAddress) return undefined;
+    const prefix = this.extractContractTransactionPrefix(treeNode.label || '');
+    if (!prefix) return undefined;
+    const displayAddress = this.shortenHexAddress(contractAddress);
+    const href = this.resolveContractExplorerHref(treeNode, contractAddress);
+    if (!href) {
+      return html`${prefix}<span class="highlight-receiver-id">${displayAddress}</span>`;
+    }
+    return html`${prefix}<a
+      class="highlight-receiver-id"
+      href=${href}
+      target="_blank"
+      rel="noopener noreferrer"
+    >${displayAddress}</a>`;
+  }
+
+  private renderCallingLabel(label: string): TemplateResult | string | undefined {
+    const normalized = String(label || '').trim();
+    if (!normalized.toLowerCase().startsWith('calling ')) return undefined;
+    const rest = normalized.slice('Calling '.length).trim();
+    if (!rest) return undefined;
+    const usingNeedle = ' using ';
+    const usingIdx = rest.toLowerCase().indexOf(usingNeedle);
+    if (usingIdx < 0) {
+      return html`Calling <span class="highlight-method-name">${rest}</span>`;
+    }
+
+    const functionName = rest.slice(0, usingIdx).trim();
+    const trailing = rest.slice(usingIdx + usingNeedle.length).trim();
+    if (!functionName) return undefined;
+    return html`Calling <span class="highlight-method-name">${functionName}</span>${trailing ? html` using ${trailing}` : ''}`;
+  }
+
   private renderLabelWithSelectiveHighlight(treeNode: TreeNode): TemplateResult | string {
     // Action-level labels (with inline highlights)
     if (treeNode.action) {
@@ -409,6 +484,12 @@ export class TxTree extends LitElementWithProps {
       >${receiverId}</a>`;
     }
 
+    const contractLabel = this.renderContractTransactionLabel(treeNode);
+    if (contractLabel != null) return contractLabel;
+
+    const callingLabel = this.renderCallingLabel(treeNode.label || '');
+    if (callingLabel != null) return callingLabel;
+
     return treeNode.label || '';
   }
 
@@ -470,6 +551,12 @@ export class TxTree extends LitElementWithProps {
       const prefix = total > 1 ? `Transaction ${idx + 1}: to ` : 'Transaction to ';
       const receiverId = treeNode.transaction.receiverId;
       return `${prefix}${receiverId}`;
+    }
+
+    const contractAddress = String(treeNode.contractAddress || '').trim();
+    const contractPrefix = this.extractContractTransactionPrefix(treeNode.label || '');
+    if (contractAddress && contractPrefix) {
+      return `${contractPrefix}${this.shortenHexAddress(contractAddress)}`;
     }
 
     return treeNode.label || '';

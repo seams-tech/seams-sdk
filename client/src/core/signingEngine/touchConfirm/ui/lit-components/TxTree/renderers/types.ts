@@ -10,6 +10,9 @@ export interface RenderTreeNode {
   content?: string;
   children?: RenderTreeNode[];
   copyValue?: string;
+  contractAddress?: string;
+  hideLabel?: boolean;
+  hideChevron?: boolean;
 }
 
 export type RenderDisplayOperation = (args: {
@@ -37,7 +40,20 @@ export function buildFieldNodes(parentId: string, fields?: TxDisplayField[]): Re
   return fields.flatMap((field, fieldIndex) => {
     const label = String(field.label || '').trim();
     const value = String(field.value || '');
+    const renderAs = field.renderAs || 'inline';
     if (isZeroWeiDisplayField(label, value)) return [];
+    if (renderAs === 'file-content') {
+      return [{
+        id: `${parentId}-field-${fieldIndex}`,
+        label: label ? `${label}:` : '',
+        type: 'file',
+        open: false,
+        content: value,
+        copyValue: typeof field.copyValue === 'string' ? field.copyValue : undefined,
+        hideLabel: Boolean(field.hideLabel),
+        hideChevron: typeof field.hideChevron === 'boolean' ? field.hideChevron : true,
+      }];
+    }
     return [{
       id: `${parentId}-field-${fieldIndex}`,
       label: label ? `${label}: ${value}` : value,

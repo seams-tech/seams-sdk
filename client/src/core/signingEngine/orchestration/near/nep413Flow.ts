@@ -16,9 +16,8 @@ import {
 import {
   clearCachedEd25519AuthSession,
   getCachedEd25519AuthSessionJwt,
+  getCachedEd25519AuthSessionJwtBySessionId,
   makeEd25519AuthSessionCacheKey,
-  mintEd25519AuthSession,
-  putCachedEd25519AuthSession,
 } from '@/core/signingEngine/threshold/session/ed25519AuthSession';
 import {
   isThresholdSessionAuthUnavailableError,
@@ -27,10 +26,8 @@ import {
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import type { SigningRuntimeDeps } from '../../interfaces/runtime';
 import { toAccountId } from '@/core/types/accountIds';
-import { deriveThresholdEd25519ClientVerifyingShareWasm } from '@/core/signingEngine/signers/wasm/nearSignerWasm';
 import { executeWorkerOperation } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
-  cacheSigningSessionPrfFirstBestEffort,
   clearSigningSessionPrfFirstBestEffort,
 } from '@/core/signingEngine/api/session/signingSessionState';
 import {
@@ -39,11 +36,7 @@ import {
   resolveNearSigningMaterials,
   toCredentialForRelayJson,
 } from './shared/signingMaterials';
-import {
-  buildEd25519SessionPolicyForNearSigning,
-  resolveDesiredSessionOptions,
-  resolveInitialThresholdSigningAuthPlan,
-} from './shared/thresholdSessionPolicy';
+import { assertThresholdSigningSessionReady } from '@/core/signingEngine/orchestration/shared/thresholdSigningSessionPlanner';
 import { buildNearWorkerSigningEnvelope } from './shared/workerRequestAssembly';
 
 /**
@@ -68,8 +61,6 @@ export async function signNep413Message({
     title?: string;
     body?: string;
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
-    signingSessionTtlMs?: number;
-    signingSessionRemainingUses?: number;
     sessionId?: string;
     nearRpcUrl?: string;
   };
@@ -118,20 +109,16 @@ export async function signNep413Message({
     ctx.nonceManager.initializeUser(toAccountId(nearAccountId), signingContext.nearPublicKey);
 
     const usesNeeded = 1;
-    const { desiredTtlMs, desiredRemainingUses } = resolveDesiredSessionOptions({
-      signingSessionTtlMs: payload.signingSessionTtlMs,
-      signingSessionRemainingUses: payload.signingSessionRemainingUses,
-    });
-    let { signingAuthMode, thresholdSessionPlan } = await resolveInitialThresholdSigningAuthPlan({
-      threshold: signingContext.threshold,
-      sessionId,
-      usesNeeded,
-      nearAccountId,
-      getRpId: () => ctx.touchIdPrompt.getRpId(),
-      touchConfirm,
-      desiredTtlMs,
-      desiredRemainingUses,
-    });
+    const signingAuthMode = signingContext.threshold
+      ? await (async () => {
+          await assertThresholdSigningSessionReady({
+            touchConfirm,
+            sessionId,
+            usesNeeded,
+          });
+          return 'warmSession' as const;
+        })()
+      : undefined;
 
     const confirmation = await touchConfirm.orchestrateSigningConfirmation({
       ctx: { touchConfirm },
@@ -139,9 +126,6 @@ export async function signNep413Message({
       chain: 'near',
       kind: 'nep413',
       ...(signingAuthMode ? { signingAuthMode } : {}),
-      ...(thresholdSessionPlan
-        ? { sessionPolicyDigest32: thresholdSessionPlan.sessionPolicyDigest32 }
-        : {}),
       nearAccountId,
       message: payload.message,
       recipient: payload.recipient,
@@ -154,110 +138,35 @@ export async function signNep413Message({
       confirmation.credential as WebAuthnAuthenticationCredential | undefined;
     let credentialForRelayJson = toCredentialForRelayJson(credentialWithPrf);
 
-    let prfFirstB64u: string | undefined;
-
-    if (signingContext.threshold && signingAuthMode === 'warmSession') {
-      const delivered = await touchConfirm.dispensePrfFirstForThresholdSession({
-        sessionId,
-        uses: usesNeeded,
-      });
-      if (delivered.ok) {
-        prfFirstB64u = delivered.prfFirstB64u;
-      } else {
-        await clearSigningSessionPrfFirstBestEffort(touchConfirm, sessionId);
-        signingAuthMode = 'webauthn';
-
-        thresholdSessionPlan = await buildEd25519SessionPolicyForNearSigning({
-          nearAccountId,
-          getRpId: () => ctx.touchIdPrompt.getRpId(),
-          thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
-          usesNeeded,
-          desiredTtlMs,
-          desiredRemainingUses,
-        });
-
-        const refreshed = await touchConfirm.orchestrateSigningConfirmation({
-          ctx: { touchConfirm },
-          sessionId,
-          chain: 'near',
-          kind: 'nep413',
-          signingAuthMode: 'webauthn',
-          sessionPolicyDigest32: thresholdSessionPlan.sessionPolicyDigest32,
-          nearAccountId,
-          message: payload.message,
-          recipient: payload.recipient,
-          title: payload.title,
-          body: payload.body,
-          confirmationConfigOverride: payload.confirmationConfigOverride,
-        });
-
-        credentialWithPrf = refreshed.credential as WebAuthnAuthenticationCredential | undefined;
-        credentialForRelayJson = toCredentialForRelayJson(credentialWithPrf);
-        prfFirstB64u = requirePrfFirstFromCredential(credentialWithPrf);
-      }
-    } else {
-      prfFirstB64u = requirePrfFirstFromCredential(credentialWithPrf);
-    }
+    const prfFirstB64u = signingContext.threshold
+      ? await (async () => {
+          const delivered = await touchConfirm.dispensePrfFirstForThresholdSession({
+            sessionId,
+            uses: usesNeeded,
+          });
+          if (!delivered.ok) {
+            clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
+            await clearSigningSessionPrfFirstBestEffort(touchConfirm, sessionId);
+            throw new Error(
+              `[chains] threshold signingSession is ${delivered.code}; reconnect threshold session before signing`,
+            );
+          }
+          return delivered.prfFirstB64u;
+        })()
+      : requirePrfFirstFromCredential(credentialWithPrf);
 
     if (!prfFirstB64u) {
       throw new Error('Missing PRF.first output for signing');
     }
 
-    if (signingContext.threshold && signingAuthMode !== 'warmSession') {
-      if (!credentialWithPrf) {
-        throw new Error('Missing WebAuthn credential for threshold session mint');
-      }
-      if (!thresholdSessionPlan) {
-        throw new Error('Missing threshold session policy for threshold session mint');
-      }
-
-      const derived = await deriveThresholdEd25519ClientVerifyingShareWasm({
-        sessionId,
-        nearAccountId,
-        prfFirstB64u,
-        wrapKeySalt: thresholdWrapKeySalt,
-        workerCtx: ctx,
-      });
-
-      const minted = await mintEd25519AuthSession({
-        relayerUrl: signingContext.threshold.relayerUrl,
-        sessionKind: 'jwt',
-        relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
-        clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
-        sessionPolicy: thresholdSessionPlan.policy,
-        webauthnAuthentication: credentialWithPrf,
-      });
-      if (!minted.ok || !minted.jwt) {
-        throw new Error(minted.message || 'Failed to mint threshold session');
-      }
-
-      const expiresAtMs = minted.expiresAtMs ?? Date.now() + thresholdSessionPlan.policy.ttlMs;
-      const remainingUses = minted.remainingUses ?? thresholdSessionPlan.policy.remainingUses;
-
-      if (!prfFirstB64u) {
-        throw new Error('Missing PRF.first output for threshold session cache');
-      }
-      await cacheSigningSessionPrfFirstBestEffort(touchConfirm, {
-        sessionId,
-        prfFirstB64u,
-        expiresAtMs,
-        remainingUses,
-      });
-
-      putCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey, {
-        sessionKind: 'jwt',
-        policy: thresholdSessionPlan.policy,
-        policyJson: thresholdSessionPlan.policyJson,
-        sessionPolicyDigest32: thresholdSessionPlan.sessionPolicyDigest32,
-        jwt: minted.jwt,
-        expiresAtMs,
-      });
-
-      signingContext.threshold.thresholdSessionJwt = minted.jwt;
-    }
-
     if (signingContext.threshold && !signingContext.threshold.thresholdSessionJwt) {
-      throw new Error('Missing thresholdSessionJwt for threshold NEP-413 signing');
+      signingContext.threshold.thresholdSessionJwt =
+        getCachedEd25519AuthSessionJwtBySessionId(sessionId)
+        || signingContext.threshold.thresholdSessionJwt;
+    }
+    if (signingContext.threshold && !signingContext.threshold.thresholdSessionJwt) {
+      clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
+      throw new Error('[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing');
     }
 
     const requestPayload: Omit<WasmSignNep413MessageRequest, 'sessionId'> = {
@@ -304,116 +213,39 @@ export async function signNep413Message({
       };
     }
 
-    let okResponse: WorkerSuccessResponse<typeof WorkerRequestType.SignNep413Message> | undefined;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const response = await executeWorkerOperation({
-          ctx,
-          kind: 'nearSigner',
-          request: {
-            sessionId,
-            type: WorkerRequestType.SignNep413Message,
-            payload: requestPayload,
-          },
-        });
-        okResponse = requireOkSignNep413MessageResponse(response);
-        break;
-      } catch (e: unknown) {
-        const err = e instanceof Error ? e : new Error(String(e));
+    let okResponse: WorkerSuccessResponse<typeof WorkerRequestType.SignNep413Message>;
+    try {
+      const response = await executeWorkerOperation({
+        ctx,
+        kind: 'nearSigner',
+        request: {
+          sessionId,
+          type: WorkerRequestType.SignNep413Message,
+          payload: requestPayload,
+        },
+      });
+      okResponse = requireOkSignNep413MessageResponse(response);
+    } catch (e: unknown) {
+      const err = e instanceof Error ? e : new Error(String(e));
 
-        if (isThresholdSignerMissingKeyError(err)) {
-          const msg =
-            '[SigningEngine] threshold-signer requested but the relayer is missing the signing share; local fallback is disabled';
-          clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
-          signingContext.threshold.thresholdSessionJwt = undefined;
-          throw new Error(msg);
-        }
-
-        if (attempt === 0 && isThresholdSessionAuthUnavailableError(err)) {
-          clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
-          await clearSigningSessionPrfFirstBestEffort(touchConfirm, sessionId);
-          signingContext.threshold.thresholdSessionJwt = undefined;
-          requestPayload.threshold!.thresholdSessionJwt = undefined;
-
-          thresholdSessionPlan = await buildEd25519SessionPolicyForNearSigning({
-            nearAccountId,
-            getRpId: () => ctx.touchIdPrompt.getRpId(),
-            thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
-            usesNeeded,
-            desiredTtlMs,
-            desiredRemainingUses,
-          });
-
-          const refreshed = await touchConfirm.orchestrateSigningConfirmation({
-            ctx: { touchConfirm },
-            sessionId,
-            chain: 'near',
-            kind: 'nep413',
-            signingAuthMode: 'webauthn',
-            sessionPolicyDigest32: thresholdSessionPlan.sessionPolicyDigest32,
-            nearAccountId,
-            message: payload.message,
-            recipient: payload.recipient,
-            title: payload.title,
-            body: payload.body,
-            confirmationConfigOverride: payload.confirmationConfigOverride,
-          });
-
-          credentialWithPrf = refreshed.credential as WebAuthnAuthenticationCredential | undefined;
-          credentialForRelayJson = toCredentialForRelayJson(credentialWithPrf);
-          const prfFirst = requirePrfFirstFromCredential(credentialWithPrf);
-
-          const derived = await deriveThresholdEd25519ClientVerifyingShareWasm({
-            sessionId,
-            nearAccountId,
-            prfFirstB64u: prfFirst,
-            wrapKeySalt: thresholdWrapKeySalt,
-            workerCtx: ctx,
-          });
-
-          const minted = await mintEd25519AuthSession({
-            relayerUrl: signingContext.threshold.relayerUrl,
-            sessionKind: 'jwt',
-            relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
-            clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
-            sessionPolicy: thresholdSessionPlan.policy,
-            webauthnAuthentication: credentialWithPrf!,
-          });
-          if (!minted.ok || !minted.jwt) {
-            throw new Error(minted.message || 'Failed to mint threshold session');
-          }
-
-          const expiresAtMs = minted.expiresAtMs ?? Date.now() + thresholdSessionPlan.policy.ttlMs;
-          const remainingUses = minted.remainingUses ?? thresholdSessionPlan.policy.remainingUses;
-
-          await cacheSigningSessionPrfFirstBestEffort(touchConfirm, {
-            sessionId,
-            prfFirstB64u: prfFirst,
-            expiresAtMs,
-            remainingUses,
-          });
-
-          putCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey, {
-            sessionKind: 'jwt',
-            policy: thresholdSessionPlan.policy,
-            policyJson: thresholdSessionPlan.policyJson,
-            sessionPolicyDigest32: thresholdSessionPlan.sessionPolicyDigest32,
-            jwt: minted.jwt,
-            expiresAtMs,
-          });
-
-          signingContext.threshold.thresholdSessionJwt = minted.jwt;
-          requestPayload.threshold!.thresholdSessionJwt = minted.jwt;
-          requestPayload.credential = credentialForRelayJson;
-          continue;
-        }
-
-        throw err;
+      if (isThresholdSignerMissingKeyError(err)) {
+        const msg =
+          '[SigningEngine] threshold-signer requested but the relayer is missing the signing share; local fallback is disabled';
+        clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
+        signingContext.threshold.thresholdSessionJwt = undefined;
+        throw new Error(msg);
       }
-    }
 
-    if (!okResponse) {
-      throw new Error('No NEP-413 signing response received');
+      if (isThresholdSessionAuthUnavailableError(err)) {
+        clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
+        await clearSigningSessionPrfFirstBestEffort(touchConfirm, sessionId);
+        signingContext.threshold.thresholdSessionJwt = undefined;
+        throw new Error(
+          '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing',
+        );
+      }
+
+      throw err;
     }
 
     return {

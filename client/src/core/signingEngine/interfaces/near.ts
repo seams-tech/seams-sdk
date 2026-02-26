@@ -22,8 +22,6 @@ export type NearTransactionsWithActionsPayload = {
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   title?: string;
   body?: string;
-  signingSessionTtlMs?: number;
-  signingSessionRemainingUses?: number;
   deviceNumber?: number;
 };
 
@@ -36,8 +34,6 @@ export type NearDelegateActionPayload = {
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   title?: string;
   body?: string;
-  signingSessionTtlMs?: number;
-  signingSessionRemainingUses?: number;
   sessionId?: string;
   deviceNumber?: number;
 };
@@ -55,8 +51,6 @@ export type NearNep413Payload = {
     title?: string;
     body?: string;
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
-    signingSessionTtlMs?: number;
-    signingSessionRemainingUses?: number;
     sessionId?: string;
   };
 };

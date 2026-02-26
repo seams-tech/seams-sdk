@@ -24,10 +24,12 @@ export interface TreeNode {
   id: string;
   label: string;
   type: TreeNodeType;
+  chain?: DisplayChain;
   open?: boolean;
   content?: string;
   children?: TreeNode[];
   copyValue?: string;
+  contractAddress?: string;
   hideChevron?: boolean;
   hideLabel?: boolean;
   highlight?: {
@@ -93,12 +95,41 @@ function renderOperationNode(operation: TxDisplayOperation, depth: number, path:
   return rendered as TreeNode;
 }
 
+function hideFolderChevrons(node: TreeNode): TreeNode {
+  const children = Array.isArray(node.children)
+    ? node.children.map((child) => hideFolderChevrons(child))
+    : undefined;
+  if (node.type !== 'folder') {
+    return children ? { ...node, children } : node;
+  }
+  return {
+    ...node,
+    hideChevron: true,
+    children,
+  };
+}
+
+function attachChainToNode(node: TreeNode, chain: DisplayChain): TreeNode {
+  const children = Array.isArray(node.children)
+    ? node.children.map((child) => attachChainToNode(child, chain))
+    : undefined;
+  return {
+    ...node,
+    chain,
+    ...(children ? { children } : {}),
+  };
+}
+
 export function buildDisplayTreeFromModel(model: TxDisplayModel): TreeNode {
+  const hideModelFolderChevrons = model.chain === 'evm' || model.chain === 'tempo';
   const operations = Array.isArray(model.operations) ? model.operations : [];
-  const operationNodes = operations.map((operation, operationIndex) =>
-    renderOperationNode(operation, 0, String(operationIndex))
-  );
-  const warningNodes = buildWarningNodes(model.warnings);
+  const operationNodes = operations
+    .map((operation, operationIndex) => renderOperationNode(operation, 0, String(operationIndex)))
+    .map((node) => attachChainToNode(node, model.chain))
+    .map((node) => (hideModelFolderChevrons ? hideFolderChevrons(node) : node));
+  const warningNodes = buildWarningNodes(model.warnings)
+    .map((node) => attachChainToNode(node, model.chain))
+    .map((node) => (hideModelFolderChevrons ? hideFolderChevrons(node) : node));
   const rootChildren = [...warningNodes, ...operationNodes];
 
   if (rootChildren.length === 0) {

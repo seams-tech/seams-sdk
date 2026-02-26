@@ -25,6 +25,8 @@ export interface SigningRuntimeDeps {
   getTheme?: () => ThemeName;
   rpIdOverride?: string;
   nearExplorerUrl?: string;
+  tempoExplorerUrl?: string;
+  evmExplorerUrl?: string;
   relayerUrl: string;
   touchConfirm?: TouchConfirmSigningSessionPort;
   requestWorkerOperation: <

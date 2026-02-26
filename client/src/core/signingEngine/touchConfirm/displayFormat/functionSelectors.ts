@@ -1,4 +1,8 @@
 const SELECTOR_HEX_RE = /^0x[0-9a-f]{8}$/;
+const EVM_ADDRESS_RE = /^0x[0-9a-f]{40}$/;
+
+const TEMPO_GREETING_CONTRACT = '0x96cfe92241481954ada6410409a86acb6e76a00e';
+const ARC_GREETING_CONTRACT = '0xeb7ab5a6f761072c96147a54b8a15f012e836691';
 
 // Best-effort mapping for common EVM selectors.
 const KNOWN_FUNCTION_SIGNATURES: Readonly<Record<string, string>> = Object.freeze({
@@ -25,9 +29,27 @@ const KNOWN_FUNCTION_SIGNATURES: Readonly<Record<string, string>> = Object.freez
   '0xf2fde38b': 'transferOwnership(address)',
 });
 
+// Contract-specific selector map derived from known contract ABIs.
+const KNOWN_CONTRACT_FUNCTION_SIGNATURES: Readonly<Record<string, Readonly<Record<string, string>>>> = Object.freeze({
+  [TEMPO_GREETING_CONTRACT]: Object.freeze({
+    '0xa4136862': 'setGreeting(string)',
+    '0xcfae3217': 'greet()',
+  }),
+  [ARC_GREETING_CONTRACT]: Object.freeze({
+    '0xa4136862': 'setGreeting(string)',
+    '0xcfae3217': 'greet()',
+  }),
+});
+
 function normalizeSelector(selector: string | undefined): string | undefined {
   const normalized = String(selector || '').trim().toLowerCase();
   if (!SELECTOR_HEX_RE.test(normalized)) return undefined;
+  return normalized;
+}
+
+function normalizeContractAddress(contractAddress: string | undefined): string | undefined {
+  const normalized = String(contractAddress || '').trim().toLowerCase();
+  if (!EVM_ADDRESS_RE.test(normalized)) return undefined;
   return normalized;
 }
 
@@ -38,8 +60,33 @@ export function selectorFromHexData(data: string | undefined): string | undefine
   return normalizeSelector(selector);
 }
 
-export function resolveFunctionSignature(selector: string | undefined): string | undefined {
+export function resolveFunctionSignature(
+  selector: string | undefined,
+  contractAddress?: string,
+): string | undefined {
   const normalized = normalizeSelector(selector);
   if (!normalized) return undefined;
+  const normalizedContractAddress = normalizeContractAddress(contractAddress);
+  if (normalizedContractAddress) {
+    const contractMap = KNOWN_CONTRACT_FUNCTION_SIGNATURES[normalizedContractAddress];
+    if (contractMap && contractMap[normalized]) return contractMap[normalized];
+  }
   return KNOWN_FUNCTION_SIGNATURES[normalized];
+}
+
+export function resolveFunctionDisplayName(
+  selector: string | undefined,
+  contractAddress?: string,
+): string | undefined {
+  const signature = resolveFunctionSignature(selector, contractAddress);
+  if (signature) {
+    const idx = signature.indexOf('(');
+    const name = idx > 0 ? signature.slice(0, idx) : signature;
+    const normalizedName = name.trim();
+    if (normalizedName) return `${normalizedName}()`;
+  }
+
+  const normalizedSelector = normalizeSelector(selector);
+  if (normalizedSelector) return `function ${normalizedSelector}`;
+  return undefined;
 }

@@ -39,6 +39,8 @@ export function createManagerAssembly(args: {
       nonceManager: nonceManager,
       rpIdOverride: touchIdPrompt.getRpId(),
       nearExplorerUrl: args.tatchiPasskeyConfigs.nearExplorerUrl,
+      tempoExplorerUrl: args.tatchiPasskeyConfigs.tempoExplorerUrl,
+      evmExplorerUrl: args.tatchiPasskeyConfigs.evmExplorerUrl,
       getTheme: args.getTheme,
       getAppearanceTokens: args.getAppearanceTokens,
     },
@@ -53,6 +55,8 @@ export function createManagerAssembly(args: {
     args.tatchiPasskeyConfigs.iframeWallet?.rpIdOverride,
     true,
     args.tatchiPasskeyConfigs.nearExplorerUrl,
+    args.tatchiPasskeyConfigs.tempoExplorerUrl,
+    args.tatchiPasskeyConfigs.evmExplorerUrl,
     args.getTheme,
   );
 

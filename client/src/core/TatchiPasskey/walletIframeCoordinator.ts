@@ -121,6 +121,8 @@ export class WalletIframeCoordinator {
             nearNetwork: this.configs.nearNetwork,
             relayerAccount: this.configs.relayerAccount,
             nearExplorerUrl: this.configs.nearExplorerUrl,
+            tempoExplorerUrl: this.configs.tempoExplorerUrl,
+            evmExplorerUrl: this.configs.evmExplorerUrl,
             relayer: this.configs.relayer,
             rpIdOverride: walletIframeConfig?.rpIdOverride,
             authenticatorOptions: this.configs.authenticatorOptions,

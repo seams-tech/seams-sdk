@@ -10,7 +10,9 @@ import {
 import { authorizeEcdsaWithSession } from '../../threshold/workflows/authorizeEcdsa';
 import {
   getCachedEcdsaAuthSession,
+  getCachedEcdsaAuthSessionBySessionId,
   getCachedEcdsaAuthSessionJwt,
+  getCachedEcdsaAuthSessionJwtBySessionId,
   makeEcdsaAuthSessionCacheKey,
 } from '../../threshold/session/ecdsaAuthSession';
 import {
@@ -114,7 +116,14 @@ export class Secp256k1Engine implements Signer {
         participantIds,
       });
 
-      const cachedThresholdSession = getCachedEcdsaAuthSession(cacheKey);
+      const keyRefThresholdSessionId = String(keyRef.thresholdSessionId || '').trim();
+      if (!keyRefThresholdSessionId) {
+        throw new Error('[multichain] Missing threshold-ecdsa sessionId on keyRef; reconnect threshold session via bootstrapEcdsaSession');
+      }
+
+      const cachedThresholdSession =
+        getCachedEcdsaAuthSession(cacheKey)
+        || getCachedEcdsaAuthSessionBySessionId(keyRefThresholdSessionId);
       if (!cachedThresholdSession) {
         throw new Error(
           '[multichain] threshold-ecdsa session record not available; reconnect threshold session via bootstrapEcdsaSession',
@@ -127,10 +136,6 @@ export class Secp256k1Engine implements Signer {
       }
       const sessionKind: EcdsaSessionKind = keyRefSessionKind || cachedThresholdSession.sessionKind || 'jwt';
 
-      const keyRefThresholdSessionId = String(keyRef.thresholdSessionId || '').trim();
-      if (!keyRefThresholdSessionId) {
-        throw new Error('[multichain] Missing threshold-ecdsa sessionId on keyRef; reconnect threshold session via bootstrapEcdsaSession');
-      }
       const cachedSessionId = String(cachedThresholdSession.policy?.sessionId || '').trim();
       if (!cachedSessionId || cachedSessionId !== keyRefThresholdSessionId) {
         throw new Error(
@@ -139,7 +144,10 @@ export class Secp256k1Engine implements Signer {
       }
 
       const thresholdSessionJwt = sessionKind === 'jwt'
-        ? getCachedEcdsaAuthSessionJwt(cacheKey)
+        ? (
+          getCachedEcdsaAuthSessionJwt(cacheKey)
+          || getCachedEcdsaAuthSessionJwtBySessionId(keyRefThresholdSessionId)
+        )
         : undefined;
 
       if (sessionKind === 'jwt' && !thresholdSessionJwt) {

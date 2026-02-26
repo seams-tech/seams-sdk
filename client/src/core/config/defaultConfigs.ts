@@ -54,6 +54,8 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigs = {
   // Default account domain for newly created accounts (subaccounts under the relayer).
   relayerAccount: 'w3a-relayer.testnet',
   nearExplorerUrl: 'https://testnet.nearblocks.io',
+  tempoExplorerUrl: undefined,
+  evmExplorerUrl: undefined,
   signerMode: { mode: 'local-signer' },
   // Warm signing session defaults used by login/unlock flows.
   // Enforcement (TTL/uses) is owned by the UserConfirm worker (wallet origin); signer workers remain one-shot.
@@ -237,6 +239,8 @@ export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiC
     },
     relayerAccount,
     nearExplorerUrl: overrides.nearExplorerUrl ?? defaults.nearExplorerUrl,
+    tempoExplorerUrl: overrides.tempoExplorerUrl ?? defaults.tempoExplorerUrl,
+    evmExplorerUrl: overrides.evmExplorerUrl ?? defaults.evmExplorerUrl,
     signerMode,
     signingSessionDefaults: {
       ttlMs: overrides.signingSessionDefaults?.ttlMs

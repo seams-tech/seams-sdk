@@ -73,7 +73,10 @@
   --w3a-tree__label__border: 1px solid transparent;
   --w3a-tree__label__padding: 0.25rem 0.75rem;
   --w3a-tree__label__border-radius: 1rem;
-  --w3a-tree__label-hover__background: var(--w3a-colors-active, var(--w3a-colors-hover));
+  --w3a-tree__label-hover__background: var(
+    --w3a-colors-highlightRow,
+    var(--w3a-colors-active, var(--w3a-colors-hover))
+  );
   --w3a-tree__label-hover__border-color: var(--w3a-colors-borderHover);
   --w3a-tree__chevron__color: var(--w3a-grey500);
   --w3a-tree__chevron__width: 14px;
@@ -136,7 +139,10 @@
   --w3a-tree__label__border: 1px solid transparent;
   --w3a-tree__label__padding: 0.25rem 0.75rem;
   --w3a-tree__label__border-radius: 1rem;
-  --w3a-tree__label-hover__background: var(--w3a-colors-hover, var(--w3a-colors-active));
+  --w3a-tree__label-hover__background: var(
+    --w3a-colors-highlightRow,
+    var(--w3a-colors-hover, var(--w3a-colors-active))
+  );
   --w3a-tree__label-hover__border-color: var(--w3a-colors-borderHover);
   --w3a-tree__label-hover__mix-color: var(--w3a-colors-surface, #fff);
   --w3a-tree__chevron__color: var(--w3a-grey500);
@@ -194,7 +200,8 @@
 :is(w3a-tx-tree, tx-tree) [hidden] { display: none !important; }
 
 :is(w3a-tx-tree, tx-tree) .tooltip-border-outer {
-  max-width: 600px;
+  width: 100%;
+  max-width: min(600px, 100%);
   position: relative;
   border: var(--w3a-tree__tooltip-border-outer__border, 1px solid transparent);
   border-radius: var(--w3a-tree__tooltip-border-outer__border-radius, 24px);
@@ -208,12 +215,12 @@
 
 :is(w3a-tx-tree, tx-tree) .tooltip-tree-root {
   background: var(--w3a-tree__tooltip-tree-root__background, #f1f1f1);
-  max-width: 600px;
+  width: 100%;
+  max-width: min(600px, 100%);
   margin: 0 auto;
   border-radius: 1.5rem;
   border: var(--w3a-tree__tooltip-tree-root__border, none);
   overflow: hidden;
-  width: auto;
   height: auto;
   padding: var(--w3a-tree__tooltip-tree-root__padding, 0);
   -webkit-text-size-adjust: 100%;
@@ -292,6 +299,11 @@
   -webkit-text-fill-color: currentColor;
 }
 
+:is(w3a-tx-tree, tx-tree) .summary-row > .label {
+  display: flex;
+  width: 100%;
+}
+
 :is(w3a-tx-tree, tx-tree) .label-text {
   display: inline-flex;
   flex: 1 1 auto;
@@ -305,7 +317,7 @@
 :is(w3a-tx-tree, tx-tree) .label.label-action-node {
   font-size: 0.8rem;
   color: #94a3b8;
-  margin: 0rem 0.5rem 0rem calc(var(--w3a-tree__chevron__width, 14px) + var(--w3a-tree__label__gap, 4px));
+  margin: 0rem 0rem 0rem 0.25rem;
 }
 
 :is(w3a-tx-tree, tx-tree) .label.gradient-text {
@@ -411,10 +423,19 @@
   );
   left: var(--connector-indent, var(--indent, 0));
   background: var(--w3a-tree__connector__color);
+  transition: opacity 0ms ease;
 }
 
 :is(w3a-tx-tree, tx-tree) .folder-children .row.file-row .indent::after { content: none; }
 :is(w3a-tx-tree, tx-tree) .folder-children .row[data-no-elbow="true"] .indent::after { content: none; }
+/* Content-only rows (no label/elbow) should continue from the parent connector column. */
+:is(w3a-tx-tree, tx-tree) .folder-children .row[data-no-elbow="true"] .indent::before {
+  left: max(calc(var(--indent, 0) - var(--indent-step)), 0px);
+}
+:is(w3a-tx-tree, tx-tree) .folder-children .row:has(> .label:hover) .indent::after,
+:is(w3a-tx-tree, tx-tree) .folder-children .row:has(> .label:focus-visible) .indent::after {
+  opacity: 0;
+}
 :is(w3a-tx-tree, tx-tree) .folder-children > details:last-child > summary .indent::before { height: calc(50% + 0px); }
 :is(w3a-tx-tree, tx-tree) .folder-children > details.file:last-child > summary .indent::before { height: calc(100% + 0px); }
 :is(w3a-tx-tree, tx-tree) .folder-children > .row.file-row:last-child .indent::before { height: calc(50% + 0px); }
@@ -424,7 +445,7 @@
 
 :is(w3a-tx-tree, tx-tree) .file-content {
   box-sizing: border-box;
-  margin: 0rem 0.25rem 0rem 0.5rem;
+  margin: 0rem;
   padding: var(--w3a-tree__file-content__padding, 0rem 0.25rem 0rem 0.25rem);
   border-radius: var(--w3a-tree__file-content__border-radius, 0.5rem);
   background: var(--w3a-tree__file-content__background, rgba(255, 255, 255, 0.06));

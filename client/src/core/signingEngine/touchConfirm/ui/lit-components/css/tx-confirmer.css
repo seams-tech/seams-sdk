@@ -103,6 +103,11 @@ w3a-tx-confirm-content {
   /* Default tx-tree wrapper width fills the available card width. */
   --tooltip-width: 100%;
 }
+:is(w3a-tx-confirm-content) {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
 .section { margin: 0.5rem 0; }
 .tooltip-width {
   width: min(100%, var(--tooltip-width, 100%));
@@ -112,8 +117,15 @@ w3a-tx-confirm-content {
   width: 100%;
   max-width: 100%;
 }
-.summary-row > * { min-width: 0; }
-.label { font-size: 0.75rem; color: var(--w3a-colors-textMuted, rgba(255,255,255,0.7)); }
+.tooltip-width > :is(w3a-tx-tree, tx-tree) .tooltip-tree-root,
+.tooltip-width > :is(w3a-tx-tree, tx-tree) .tooltip-border-outer {
+  width: 100%;
+  max-width: 100%;
+}
+.label {
+  font-size: 0.75rem;
+  color: var(--w3a-colors-textMuted, rgba(255,255,255,0.7));
+}
 .value {
   font-size: 0.8125rem;
   color: var(--w3a-colors-textPrimary, #f6f7f8);
@@ -285,6 +297,7 @@ w3a-modal-tx-confirmer {
 :root[data-w3a-theme="light"] .modal-container-root,
 w3a-modal-tx-confirmer[theme="light"] .modal-container-root,
 w3a-drawer-tx-confirmer[theme="light"] .modal-container-root {
+  border: 1px solid var(--w3a-colors-surface);
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
@@ -348,33 +361,6 @@ w3a-drawer-tx-confirmer[theme="light"] .modal-container-root {
   font-size: 0.9rem;
   color: var(--w3a-colors-textSecondary);
   text-align: start;
-}
-
-.summary-row {
-  display: grid;
-  /* Use content-aware label column that scales with text */
-  grid-template-columns: minmax(8.5em, max-content) 1fr;
-  align-items: center;
-  gap: var(--w3a-spacing-sm);
-  background: transparent;
-  border-radius: 0;
-  transition: all 100ms cubic-bezier(0.2, 0.6, 0.2, 1);
-  position: relative;
-  overflow: hidden;
-}
-.summary-row > * { min-width: 0; }
-.summary-label {
-  color: var(--w3a-colors-textSecondary);
-  font-size: var(--w3a-font-size-sm);
-  font-weight: 500;
-}
-.summary-value {
-  color: var(--w3a-colors-textPrimary);
-  font-size: var(--w3a-font-size-sm);
-  font-weight: 500;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-  hyphens: auto;
 }
 
 /* Transactions section */
@@ -628,6 +614,10 @@ w3a-drawer-tx-confirmer[theme="light"] .modal-container-root {
 }
 
 @media (max-width: 640px) {
+  .drawer-tx-confirmer-root {
+    padding: 0rem;
+  }
+
   .responsive-card {
     /* Make modal 1rem narrower on small/zoomed viewports */
     max-width: calc(100vw - 2rem);
@@ -638,17 +628,6 @@ w3a-drawer-tx-confirmer[theme="light"] .modal-container-root {
     .responsive-card {
       max-width: calc(100dvw - 2rem);
     }
-  }
-
-  .summary-row {
-    grid-template-columns: 1fr;
-    gap: 0.25rem;
-    padding: calc(var(--w3a-spacing-sm) + var(--w3a-spacing-xs));
-  }
-
-  .summary-label {
-    font-size: var(--w3a-font-size-sm);
-    margin-bottom: 2px;
   }
 
   .action-row {
@@ -726,8 +705,9 @@ w3a-drawer {
   --w3a-drawer__max-width: min(100vw, 28rem);
 }
 .drawer-tx-confirmer-root {
-  display: grid;
-  place-content: center;
+  display: block;
+  width: 100%;
+  padding: 0.25rem;
 }
 .drawer-header {
   display: flex;
@@ -737,6 +717,7 @@ w3a-drawer {
   row-gap: 0.5em;
   margin-top: 0.5rem;
   margin-bottom: 0.5rem;
+  padding-left: 0.5rem;
 }
 .drawer-title {
   margin: 0;
@@ -789,9 +770,31 @@ w3a-drawer {
   display: flex;
   justify-content: center;
 }
+.drawer-tx-confirmer-root .responsive-card-center {
+  display: block;
+  justify-content: initial;
+}
+.drawer-tx-confirmer-root .section.responsive-card.responsive-card-center {
+  width: 100%;
+  max-width: 100%;
+}
+.drawer-tx-confirmer-root .section,
+.drawer-tx-confirmer-root .responsive-card {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+.drawer-tx-confirmer-root .margin-left1 {
+  margin-left: 0;
+}
+w3a-drawer .above-fold > .drawer-tx-confirmer-root {
+  width: 100%;
+  max-width: 100%;
+}
 
 .rpid-wrapper {
   margin-bottom: 1rem;
+  padding-left: 0.5rem;
 }
 .confirmation-body {
   margin-top: 0.5rem;

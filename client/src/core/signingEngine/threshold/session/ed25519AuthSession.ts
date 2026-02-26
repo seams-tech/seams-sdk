@@ -18,6 +18,17 @@ export type Ed25519AuthSession = {
 type Ed25519AuthSessionCacheEntry = Ed25519AuthSession;
 
 const authSessionCache = new Map<string, Ed25519AuthSessionCacheEntry>();
+const authSessionBySessionId = new Map<string, Ed25519AuthSessionCacheEntry>();
+
+function toSessionId(value: unknown): string {
+  return String(value || '').trim();
+}
+
+function clearAuthSessionBySessionId(entry: Ed25519AuthSessionCacheEntry | undefined): void {
+  const sessionId = toSessionId(entry?.policy?.sessionId);
+  if (!sessionId) return;
+  authSessionBySessionId.delete(sessionId);
+}
 
 export function makeEd25519AuthSessionCacheKey(args: {
   nearAccountId: string;
@@ -43,6 +54,7 @@ export function getCachedEd25519AuthSession(cacheKey: string): Ed25519AuthSessio
 
   if (typeof entry.expiresAtMs === 'number' && Number.isFinite(entry.expiresAtMs) && Date.now() >= entry.expiresAtMs) {
     authSessionCache.delete(cacheKey);
+    clearAuthSessionBySessionId(entry);
     return null;
   }
 
@@ -51,14 +63,21 @@ export function getCachedEd25519AuthSession(cacheKey: string): Ed25519AuthSessio
 
 export function putCachedEd25519AuthSession(cacheKey: string, entry: Ed25519AuthSession): void {
   authSessionCache.set(cacheKey, entry);
+  const sessionId = toSessionId(entry?.policy?.sessionId);
+  if (sessionId) {
+    authSessionBySessionId.set(sessionId, entry);
+  }
 }
 
 export function clearCachedEd25519AuthSession(cacheKey: string): void {
+  const entry = authSessionCache.get(cacheKey);
   authSessionCache.delete(cacheKey);
+  clearAuthSessionBySessionId(entry);
 }
 
 export function clearAllCachedEd25519AuthSessions(): void {
   authSessionCache.clear();
+  authSessionBySessionId.clear();
 }
 
 export function getCachedEd25519AuthSessionJwt(cacheKey: string): string | undefined {
@@ -70,6 +89,33 @@ export function getCachedEd25519AuthSessionJwt(cacheKey: string): string | undef
   }
   if (cached) clearCachedEd25519AuthSession(cacheKey);
   return undefined;
+}
+
+export function getCachedEd25519AuthSessionBySessionId(sessionIdRaw: string): Ed25519AuthSession | null {
+  const sessionId = toSessionId(sessionIdRaw);
+  if (!sessionId) return null;
+
+  const entry = authSessionBySessionId.get(sessionId);
+  if (!entry) return null;
+
+  if (typeof entry.expiresAtMs === 'number' && Number.isFinite(entry.expiresAtMs) && Date.now() >= entry.expiresAtMs) {
+    authSessionBySessionId.delete(sessionId);
+    for (const [cacheKey, candidate] of authSessionCache.entries()) {
+      if (candidate === entry) authSessionCache.delete(cacheKey);
+    }
+    return null;
+  }
+
+  return entry;
+}
+
+export function getCachedEd25519AuthSessionJwtBySessionId(sessionIdRaw: string): string | undefined {
+  const cached = getCachedEd25519AuthSessionBySessionId(sessionIdRaw);
+  const jwt = cached?.jwt;
+  if (typeof jwt !== 'string') return undefined;
+  const trimmed = jwt.trim();
+  if (!trimmed) return undefined;
+  return trimmed;
 }
 
 /**

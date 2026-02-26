@@ -30,6 +30,8 @@ export interface SignerWorkerManagerContext extends SigningRuntimeDeps {
   getTheme?: () => ThemeName;
   rpIdOverride?: string;
   nearExplorerUrl?: string;
+  tempoExplorerUrl?: string;
+  evmExplorerUrl?: string;
 }
 
 /**
@@ -47,6 +49,8 @@ export class SignerWorkerManager {
   private nonceManager: NonceManager;
   private relayerUrl: string;
   private nearExplorerUrl?: string;
+  private tempoExplorerUrl?: string;
+  private evmExplorerUrl?: string;
   private getTheme?: () => ThemeName;
   private workerTransport: WorkerTransport;
   readonly nearKeyOps: NearSigningKeyOps;
@@ -60,6 +64,8 @@ export class SignerWorkerManager {
     rpIdOverride?: string,
     enableSafariGetWebauthnRegistrationFallback: boolean = true,
     nearExplorerUrl?: string,
+    tempoExplorerUrl?: string,
+    evmExplorerUrl?: string,
     getTheme?: () => ThemeName,
   ) {
     this.indexedDB = IndexedDBManager;
@@ -73,6 +79,8 @@ export class SignerWorkerManager {
     this.nonceManager = nonceManager;
     this.relayerUrl = relayerUrl;
     this.nearExplorerUrl = nearExplorerUrl;
+    this.tempoExplorerUrl = tempoExplorerUrl;
+    this.evmExplorerUrl = evmExplorerUrl;
     this.getTheme = getTheme;
     this.workerTransport = getWorkerTransport();
     this.nearKeyOps = createNearKeyOps(() => this.getContext());
@@ -94,6 +102,8 @@ export class SignerWorkerManager {
       getTheme: this.getTheme,
       rpIdOverride: this.touchIdPrompt.getRpId(),
       nearExplorerUrl: this.nearExplorerUrl,
+      tempoExplorerUrl: this.tempoExplorerUrl,
+      evmExplorerUrl: this.evmExplorerUrl,
       relayerUrl: this.relayerUrl,
     };
   }

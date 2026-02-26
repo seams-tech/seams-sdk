@@ -1,6 +1,12 @@
 import type { EvmSigningRequest } from '@/core/signingEngine/chainAdaptors/evm/types';
 import { bytesToHex, hexToBytes } from '@/core/signingEngine/chainAdaptors/evm/bytes';
-import { resolveFunctionSignature, selectorFromHexData } from './functionSelectors';
+import {
+  resolveFunctionDisplayName,
+  resolveFunctionSignature,
+  selectorFromHexData,
+} from './functionSelectors';
+import { formatCalldataForDisplay } from './calldata';
+import { formatCompactGas } from './gas';
 import type {
   TxDisplayField,
   TxDisplayModel,
@@ -93,6 +99,12 @@ function makeField(label: string, value: string | undefined, copyValue?: string)
     value: normalized,
     ...(typeof copyValue === 'string' && copyValue.trim() ? { copyValue } : {}),
   };
+}
+
+function shortenHexAddress(address: string | undefined): string {
+  const normalized = String(address || '').trim();
+  if (!/^0x[0-9a-fA-F]{40}$/.test(normalized)) return normalized;
+  return `${normalized.slice(0, 8)}...${normalized.slice(-4)}`;
 }
 
 function normalizeHex(input: string | undefined): string {
@@ -415,7 +427,7 @@ function buildCallOperation(args: {
   call: DecodedContractCall;
 }): GenericContractCallOperation {
   const { call } = args;
-  const functionSignature = resolveFunctionSignature(call.selector);
+  const functionSignature = resolveFunctionSignature(call.selector, call.to);
   const fields: TxDisplayField[] = [
     makeField('To', call.to, call.to),
     makeField('Value (wei)', call.valueWei),
@@ -486,7 +498,7 @@ function buildErc4337OperationFromHandleOps(args: {
       makeField('Smart Account', userOp.sender, userOp.sender),
       makeField('Nonce', userOp.nonce),
       makeField('Call Type', callTypeLabel(userOp.decodedCall.callType)),
-      makeField('CallData Function', resolveFunctionSignature(userOp.decodedCall.selector)),
+      makeField('CallData Function', resolveFunctionSignature(userOp.decodedCall.selector, userOp.sender)),
       makeField('CallData Selector', userOp.decodedCall.selector, userOp.decodedCall.selector),
       makeField('CallData', userOp.callDataHex, userOp.callDataHex),
       makeField('Decoded Call Count', String(callChildren.length)),
@@ -515,7 +527,7 @@ function buildErc4337OperationFromHandleOps(args: {
     makeField('EntryPoint', args.to, args.to),
     makeField('Beneficiary', decoded.beneficiary, decoded.beneficiary),
     makeField('UserOperation Count', String(decoded.userOperations.length)),
-    makeField('Function', resolveFunctionSignature(decoded.selector)),
+    makeField('Function', resolveFunctionSignature(decoded.selector, args.to)),
     makeField('Selector', decoded.selector, decoded.selector),
   ].filter(Boolean) as TxDisplayField[];
 
@@ -571,7 +583,7 @@ function buildErc4337OperationFromDirectSmartAccountCall(args: {
     makeField('Kind', 'ERC-4337 Smart Account Call'),
     makeField('Smart Account', args.to, args.to),
     makeField('Call Type', callTypeLabel(decodedCall.callType)),
-    makeField('Function', resolveFunctionSignature(decodedCall.selector)),
+    makeField('Function', resolveFunctionSignature(decodedCall.selector, args.to)),
     makeField('Selector', decodedCall.selector, decodedCall.selector),
     makeField('Decoded Call Count', String(callChildren.length)),
   ].filter(Boolean) as TxDisplayField[];
@@ -598,27 +610,44 @@ function buildDefaultContractCallOperation(args: {
   dataHex: string;
   selector?: string;
 }): GenericContractCallOperation {
-  const functionSignature = resolveFunctionSignature(args.selector);
-  const fields: TxDisplayField[] = [
-    makeField('Kind', 'EIP-1559 (0x02)'),
-    makeField('To', args.to, args.to),
+  const functionLabel = resolveFunctionDisplayName(args.selector, args.to);
+  const hasCallData = !!args.to && args.dataHex !== '0x';
+  const formattedGasLimit = formatCompactGas(args.tx.gasLimit);
+  const rowLabel = args.to
+    ? `Transaction to contract ${shortenHexAddress(args.to)}`
+    : 'Contract Deployment';
+  const dataField = makeField('Data', formatCalldataForDisplay(args.dataHex), args.dataHex);
+  if (dataField) {
+    dataField.renderAs = 'file-content';
+    dataField.hideLabel = true;
+    dataField.hideChevron = true;
+  }
+
+  const callFields: TxDisplayField[] = [
+    dataField,
     makeField('Value (wei)', args.valueWei),
-    makeField('Nonce', args.tx.nonce.toString()),
-    makeField('Gas Limit', args.tx.gasLimit.toString()),
-    makeField('Chain ID', args.tx.chainId.toString()),
-    makeField('Data', args.dataHex, args.dataHex),
-    makeField('Function', functionSignature),
-    makeField('Selector', args.selector, args.selector),
   ].filter(Boolean) as TxDisplayField[];
+
+  const children = hasCallData
+    ? [{
+      id: 'evm.eip1559.call',
+      kind: 'generic.contractCall' as const,
+      label: `Calling ${functionLabel || 'contract function'} using ${formattedGasLimit} gas`,
+      to: args.to,
+      value: args.valueWei,
+      selector: args.selector,
+      fields: callFields,
+    }]
+    : undefined;
 
   return {
     id: 'evm.eip1559',
     kind: 'generic.contractCall',
-    label: args.to ? 'Contract Call' : 'Contract Deployment',
+    label: rowLabel,
     to: args.to,
     value: args.valueWei,
     selector: args.selector,
-    fields,
+    ...(children ? { children } : {}),
   };
 }
 

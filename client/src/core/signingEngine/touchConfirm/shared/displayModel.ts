@@ -32,6 +32,9 @@ export interface TxDisplayField {
   label: string;
   value: string;
   copyValue?: string;
+  renderAs?: 'inline' | 'file-content';
+  hideLabel?: boolean;
+  hideChevron?: boolean;
 }
 
 export interface BaseDisplayOperation {
@@ -71,6 +74,8 @@ export interface TempoTypedOperation extends BaseDisplayOperation {
   kind: 'tempo.eip2718';
   txTypeHex?: string;
   txTypeName?: string;
+  to?: string;
+  selector?: string;
 }
 
 export interface GenericContractCallOperation extends BaseDisplayOperation {

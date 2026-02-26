@@ -59,6 +59,8 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
     errorMessage: { type: String },
     theme: { type: String, attribute: 'theme', reflect: true },
     nearExplorerUrl: { type: String, attribute: 'near-explorer-url' },
+    tempoExplorerUrl: { type: String, attribute: 'tempo-explorer-url' },
+    evmExplorerUrl: { type: String, attribute: 'evm-explorer-url' },
   };
 
   totalAmount = '';
@@ -76,6 +78,8 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   // style injection has been removed to satisfy strict CSP.
   theme: ThemeName = 'dark';
   nearExplorerUrl?: string;
+  tempoExplorerUrl?: string;
+  evmExplorerUrl?: string;
   intentDigest?: string;
   declare nearAccountId: string;
   declare txSigningRequests?: TransactionInputWasm[];
@@ -335,6 +339,8 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
               .securityContext=${this.securityContext}
               .theme=${this.theme}
               .nearExplorerUrl=${this.nearExplorerUrl}
+              .tempoExplorerUrl=${this.tempoExplorerUrl}
+              .evmExplorerUrl=${this.evmExplorerUrl}
               .showShadow=${false}
               .loading=${this.loading}
               .errorMessage=${this.errorMessage || ''}

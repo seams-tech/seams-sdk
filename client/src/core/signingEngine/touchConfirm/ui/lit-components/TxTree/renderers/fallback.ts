@@ -12,6 +12,10 @@ export const renderFallbackDisplayOperation: RenderDisplayOperation = ({
   renderChild,
 }) => {
   const opId = String(operation.id || '').trim() || `op-${path}`;
+  const contractAddress = (() => {
+    const raw = String((operation as { to?: string }).to || '').trim();
+    return /^0x[0-9a-fA-F]{40}$/.test(raw) ? raw : undefined;
+  })();
   const description = String(operation.description || '').trim();
   const childOps = Array.isArray(operation.children)
     ? operation.children.map((child, childIndex) => renderChild(child, depth + 1, `${path}.${childIndex}`))
@@ -41,6 +45,7 @@ export const renderFallbackDisplayOperation: RenderDisplayOperation = ({
       label: String(operation.label || operation.kind),
       type: 'file',
       open: false,
+      contractAddress,
     };
   }
   return {
@@ -48,6 +53,7 @@ export const renderFallbackDisplayOperation: RenderDisplayOperation = ({
     label: String(operation.label || operation.kind),
     type: 'folder',
     open: depth < 1,
+    contractAddress,
     children,
   };
 };

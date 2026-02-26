@@ -35,6 +35,8 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     // Two‑phase close: when true, host controls removal
     deferClose: { type: Boolean, attribute: 'defer-close' },
     nearExplorerUrl: { type: String, attribute: 'near-explorer-url' },
+    tempoExplorerUrl: { type: String, attribute: 'tempo-explorer-url' },
+    evmExplorerUrl: { type: String, attribute: 'evm-explorer-url' },
   } as const;
 
   declare nearAccountId: string;
@@ -52,6 +54,8 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   declare cancelText: string;
   declare deferClose: boolean;
   declare nearExplorerUrl?: string;
+  declare tempoExplorerUrl?: string;
+  declare evmExplorerUrl?: string;
   declare intentDigest?: string;
 
   // Keep essential custom elements from being tree-shaken
@@ -321,6 +325,8 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
               .securityContext=${this.securityContext}
               .theme=${this.theme}
               .nearExplorerUrl=${this.nearExplorerUrl}
+              .tempoExplorerUrl=${this.tempoExplorerUrl}
+              .evmExplorerUrl=${this.evmExplorerUrl}
               .showShadow=${false}
               .loading=${this.loading}
               .errorMessage=${this.errorMessage || ''}

@@ -12,9 +12,6 @@ import type { TransactionInputWasm } from '@/core/types/actions';
 import type { SignerWorkerManagerContext } from '../workerManager';
 import { signNearWithTouchConfirm } from '../orchestration/near/nearSigningFlow';
 
-export type ResolveSigningSessionPolicyArgs = { ttlMs?: number; remainingUses?: number };
-export type ResolveSigningSessionPolicyResult = { ttlMs: number; remainingUses: number };
-
 export type SignDelegateActionResult = {
   signedDelegate: WasmSignedDelegate;
   hash: string;
@@ -115,9 +112,6 @@ export async function signNear<TRequest extends NearSignIntentRequest>(
 
 export type NearSigningApiDeps = {
   nearRpcUrl: string;
-  resolveSigningSessionPolicy: (
-    args: ResolveSigningSessionPolicyArgs,
-  ) => ResolveSigningSessionPolicyResult;
   getOrCreateActiveSigningSessionId: (nearAccountId: AccountId) => string;
   createSigningSessionId: (prefix: string) => string;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
@@ -145,7 +139,6 @@ export async function signTransactionsWithActions(
   deps: NearSigningApiDeps,
   args: SignTransactionsWithActionsInput,
 ): Promise<SignTransactionResult[]> {
-  const signingSessionPolicy = deps.resolveSigningSessionPolicy({});
   const nearAccountId = toAccountId(args.rpcCall.nearAccountId);
   const resolvedSessionId = resolveSigningRequestSessionId({
     deps,
@@ -167,8 +160,6 @@ export async function signTransactionsWithActions(
       title: args.title,
       body: args.body,
       onEvent: args.onEvent,
-      signingSessionTtlMs: signingSessionPolicy.ttlMs,
-      signingSessionRemainingUses: signingSessionPolicy.remainingUses,
       sessionId: resolvedSessionId,
     },
   }) as unknown as SignTransactionResult[];
@@ -179,7 +170,6 @@ export async function signDelegateAction(
   args: SignDelegateActionInput,
 ): Promise<SignDelegateActionResult> {
   const nearAccountId = toAccountId(args.rpcCall.nearAccountId || args.delegate.senderId);
-  const signingSessionPolicy = deps.resolveSigningSessionPolicy({});
   const normalizedRpcCall: RpcCallPayload = {
     nearRpcUrl: args.rpcCall.nearRpcUrl || deps.nearRpcUrl,
     nearAccountId,
@@ -206,8 +196,6 @@ export async function signDelegateAction(
         title: args.title,
         body: args.body,
         onEvent: args.onEvent,
-        signingSessionTtlMs: signingSessionPolicy.ttlMs,
-        signingSessionRemainingUses: signingSessionPolicy.remainingUses,
         sessionId: activeSessionId,
       },
     }) as unknown as SignDelegateActionResult;
@@ -228,7 +216,6 @@ export async function signNEP413Message(
       nearAccountId,
       signerMode: payload.signerMode,
     });
-    const signingSessionPolicy = deps.resolveSigningSessionPolicy({});
     const ctx = deps.getSignerWorkerContext();
     const result = await signNearWithTouchConfirm({
       chain: 'near',
@@ -238,8 +225,6 @@ export async function signNEP413Message(
         payload: {
           ...payload,
           sessionId: activeSessionId,
-          signingSessionTtlMs: signingSessionPolicy.ttlMs,
-          signingSessionRemainingUses: signingSessionPolicy.remainingUses,
         },
       },
     }) as unknown as SignNep413MessageResult;

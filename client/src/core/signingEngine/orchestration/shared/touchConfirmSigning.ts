@@ -2,6 +2,7 @@ import type { SigningAuthMode } from '@/core/signingEngine/touchConfirm/shared/c
 import type { ThresholdPrfFirstCachePeekPort } from '@/core/signingEngine/touchConfirm';
 import type { KeyRef, SignRequest } from '@/core/signingEngine/interfaces/signing';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
+import { resolveThresholdSigningAuthMode } from './thresholdSigningSessionPlanner';
 
 export function makeRequestId(prefix: string): string {
   const c = globalThis.crypto;
@@ -27,25 +28,12 @@ export async function resolveSigningAuthMode(args: {
   thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef | null;
   touchConfirm: ThresholdPrfFirstCachePeekPort;
 }): Promise<SigningAuthMode> {
-  if (args.needsWebAuthn) return 'webauthn';
-
-  const thresholdSessionId = String(args.thresholdEcdsaKeyRef?.thresholdSessionId || '').trim();
-  if (!thresholdSessionId) {
-    throw new Error('[chains] Missing threshold signingSessionId; reconnect threshold session before signing');
-  }
-
-  const peek = await args.touchConfirm.peekPrfFirstForThresholdSession({
-    sessionId: thresholdSessionId,
+  return await resolveThresholdSigningAuthMode({
+    needsWebAuthn: args.needsWebAuthn,
+    sessionId: args.thresholdEcdsaKeyRef?.thresholdSessionId,
+    touchConfirm: args.touchConfirm,
+    usesNeeded: 1,
   });
-  if (!peek.ok) {
-    throw new Error(
-      `[chains] threshold signingSession is ${peek.code}; reconnect threshold session before signing`,
-    );
-  }
-  if (peek.remainingUses < 1) {
-    throw new Error('[chains] threshold signingSession is exhausted; reconnect threshold session before signing');
-  }
-  return 'warmSession';
 }
 
 export function resolveKeyRefForSignRequest(args: {

@@ -197,6 +197,8 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
     nearNetwork: payload?.nearNetwork || prev.nearNetwork || 'testnet',
     relayerAccount: payload?.relayerAccount || prev.relayerAccount || '',
     nearExplorerUrl: payload?.nearExplorerUrl || prev.nearExplorerUrl,
+    tempoExplorerUrl: payload?.tempoExplorerUrl || prev.tempoExplorerUrl,
+    evmExplorerUrl: payload?.evmExplorerUrl || prev.evmExplorerUrl,
     signerMode: payload?.signerMode || prev.signerMode,
     relayer: payload?.relayer || prev.relayer,
     authenticatorOptions: payload?.authenticatorOptions || prev.authenticatorOptions,

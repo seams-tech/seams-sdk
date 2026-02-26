@@ -94,6 +94,8 @@ export interface PMSetConfigPayload {
   nearNetwork?: 'testnet' | 'mainnet';
   relayerAccount?: string;
   nearExplorerUrl?: string;
+  tempoExplorerUrl?: string;
+  evmExplorerUrl?: string;
   /**
    * Default signing policy applied inside the wallet iframe when per-call `options.signerMode`
    * is not provided (e.g., `registerPasskey()`).

@@ -19,6 +19,9 @@ export type ConfirmUIUpdate = {
   model?: TxDisplayModel;
   securityContext?: Partial<UserConfirmSecurityContext>;
   theme?: ThemeName;
+  nearExplorerUrl?: string;
+  tempoExplorerUrl?: string;
+  evmExplorerUrl?: string;
   loading?: boolean;
   errorMessage?: string;
   title?: string;

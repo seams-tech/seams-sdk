@@ -75,7 +75,7 @@ export const TransactionSettingsSection: React.FC<TransactionSettingsSectionProp
             )}
             <div>
               <div className="w3a-confirmation-options">
-                Confirmation Options
+                Confirmer UI
               </div>
               <div style={{ width: '100%' }}>
                 <SegmentedControl
@@ -101,20 +101,23 @@ export const TransactionSettingsSection: React.FC<TransactionSettingsSectionProp
                 pointerEvents: disableRequireClick ? 'none' : 'auto'
               }}
             >
+              <div className="w3a-confirmation-options">
+                Confirmation Options
+              </div>
               <div style={{ width: '100%' }}>
                 <SegmentedControl
                   items={[
-                    { value: 'auto', label: 'auto proceed', disabled: disableAll || disableRequireClick },
-                    { value: 'require', label: 'require click', disabled: disableAll || disableRequireClick },
+                    { value: 'skipClick', label: 'skip click', disabled: disableAll || disableRequireClick },
+                    { value: 'requireClick', label: 'require click', disabled: disableAll || disableRequireClick },
                   ]}
-                  value={(currentConfirmConfig?.behavior === 'skipClick') ? 'auto' : 'require'}
+                  value={(currentConfirmConfig?.behavior === 'skipClick') ? 'skipClick' : 'requireClick'}
                   onValueChange={(v) => {
-                    const wantsAuto = v === 'auto';
-                    const isAuto = currentConfirmConfig?.behavior === 'skipClick';
-                    if (wantsAuto && (currentConfirmConfig?.autoProceedDelay ?? 0) !== 0) {
+                    const wantsSkipClick = v === 'skipClick';
+                    const isSkipClick = currentConfirmConfig?.behavior === 'skipClick';
+                    if (wantsSkipClick && (currentConfirmConfig?.autoProceedDelay ?? 0) !== 0) {
                       onSetDelay(0);
                     }
-                    if (wantsAuto !== isAuto) onToggleSkipClick?.();
+                    if (wantsSkipClick !== isSkipClick) onToggleSkipClick?.();
                   }}
                   activeBg={'var(--w3a-colors-primary)'}
                   height={40}

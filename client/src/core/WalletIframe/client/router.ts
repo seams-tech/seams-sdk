@@ -159,6 +159,8 @@ export interface WalletIframeRouterOptions {
   uiRegistry?: Record<string, unknown>;
   // Optional: explorer base URL for TxTree links
   nearExplorerUrl?: string;
+  tempoExplorerUrl?: string;
+  evmExplorerUrl?: string;
 }
 
 type Pending = {
@@ -426,6 +428,8 @@ export class WalletIframeRouter {
           nearNetwork: this.opts.nearNetwork,
           relayerAccount: this.opts.relayerAccount,
           nearExplorerUrl: this.opts.nearExplorerUrl,
+          tempoExplorerUrl: this.opts.tempoExplorerUrl,
+          evmExplorerUrl: this.opts.evmExplorerUrl,
           relayer: this.opts.relayer,
           rpIdOverride: this.opts.rpIdOverride,
           authenticatorOptions: this.opts.authenticatorOptions,

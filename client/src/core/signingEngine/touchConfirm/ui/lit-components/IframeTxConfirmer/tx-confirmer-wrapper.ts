@@ -28,6 +28,8 @@ export type TxConfirmerVariantElement = (ConfirmUIElement & HTMLElement) & {
   cancelText?: string;
   deferClose?: boolean;
   nearExplorerUrl?: string;
+  tempoExplorerUrl?: string;
+  evmExplorerUrl?: string;
   requestUpdate?: () => void;
   close?: (confirmed: boolean) => void;
 };
@@ -54,6 +56,8 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
     cancelText: { type: String, attribute: 'cancel-text' },
     deferClose: { type: Boolean, attribute: 'defer-close' },
     nearExplorerUrl: { type: String, attribute: 'near-explorer-url' },
+    tempoExplorerUrl: { type: String, attribute: 'tempo-explorer-url' },
+    evmExplorerUrl: { type: String, attribute: 'evm-explorer-url' },
   } as const;
 
   static keepDefinitions = [ModalTxConfirmElement, DrawerTxConfirmerElement];
@@ -73,6 +77,8 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
   declare cancelText: string;
   declare deferClose: boolean;
   declare nearExplorerUrl?: string;
+  declare tempoExplorerUrl?: string;
+  declare evmExplorerUrl?: string;
 
   private readonly childRef: Ref<TxConfirmerVariantElement> = createRef();
   private redispatchingEvent = false;
@@ -121,6 +127,8 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
           .securityContext=${this.securityContext}
           .theme=${this.theme}
           .nearExplorerUrl=${this.nearExplorerUrl}
+          .tempoExplorerUrl=${this.tempoExplorerUrl}
+          .evmExplorerUrl=${this.evmExplorerUrl}
           .loading=${this.loading}
           .errorMessage=${this.errorMessage || ''}
           .body=${this.body}
@@ -140,6 +148,9 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
         .model=${this.model}
         .securityContext=${this.securityContext}
         .theme=${this.theme}
+        .nearExplorerUrl=${this.nearExplorerUrl}
+        .tempoExplorerUrl=${this.tempoExplorerUrl}
+        .evmExplorerUrl=${this.evmExplorerUrl}
         .loading=${this.loading}
         .errorMessage=${this.errorMessage || ''}
         .body=${this.body}
@@ -167,6 +178,8 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
     child.cancelText = this.cancelText;
     child.deferClose = this.deferClose;
     child.nearExplorerUrl = this.nearExplorerUrl;
+    child.tempoExplorerUrl = this.tempoExplorerUrl;
+    child.evmExplorerUrl = this.evmExplorerUrl;
     child.requestUpdate?.();
     this.attachChildListeners();
   }
