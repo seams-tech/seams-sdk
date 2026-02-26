@@ -17,7 +17,6 @@ import type { AccountId } from '../types/accountIds';
 import { getUserFriendlyErrorMessage, toError } from '@shared/utils/errors';
 import { authenticatorsToAllowCredentials } from '../signingEngine/signers/webauthn/credentials';
 import { IndexedDBManager } from '../indexedDB';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../signingEngine/interfaces/signing';
 import type { ClientAuthenticatorData, ClientUserData } from '../indexedDB';
 import { createWebAuthnLoginOptions, verifyWebAuthnLogin } from '../rpcClients/near/rpcCalls';
 import { parseDeviceNumber } from '../signingEngine/signers/webauthn/device/getDeviceNumber';
@@ -115,12 +114,11 @@ export async function loginAndCreateSession(
     })();
 
     let signingSession: LoginAndCreateSessionResult['signingSession'] | undefined;
-    let thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef | undefined;
     const isThresholdSignerMode = context.configs?.signerMode?.mode === 'threshold-signer';
     // Warm sessions are enabled when policy budgets are non-zero.
     const shouldWarmThresholdSigningSession =
       signingSessionPolicy.ttlMs > 0 && signingSessionPolicy.remainingUses > 0;
-    // In threshold-signer mode, threshold ECDSA warm-up must succeed during login.
+    // In threshold-signer mode, warm session creation must succeed during login.
     const requireThresholdWarmup = isThresholdSignerMode && shouldWarmThresholdSigningSession;
 
     const requireActiveWarmSession = (source: string): void => {
@@ -129,12 +127,12 @@ export async function loginAndCreateSession(
       throw new Error(`[login] ${source} did not produce an active warm signing session (status=${status})`);
     };
 
-    const maybeWarmThresholdEcdsaSigningSession = async (): Promise<void> => {
+    const maybeWarmThresholdSigningSessions = async (deviceNumber: number): Promise<void> => {
       if (!requireThresholdWarmup) return;
 
       const relayerUrl = String(context.configs?.relayer?.url || '').trim();
       if (!relayerUrl) {
-        throw new Error('[login] threshold ECDSA warm session requires relayer.url to be configured');
+        throw new Error('[login] threshold warm session requires relayer.url to be configured');
       }
 
       onEvent?.({
@@ -144,51 +142,51 @@ export async function loginAndCreateSession(
         message: 'Preparing a threshold signing session...',
       });
 
-      const bootstrap = await signingEngine.bootstrapEcdsaSession({
+      const thresholdKeyMaterial = await IndexedDBManager
+        .getNearThresholdKeyMaterial(nearAccountId, deviceNumber)
+        .catch(() => null);
+      if (!thresholdKeyMaterial) {
+        throw new Error(
+          `[login] threshold warm-up requires threshold key material for ${nearAccountId} device ${deviceNumber}`,
+        );
+      }
+
+      const participantIds = thresholdKeyMaterial.participants.map((participant) => participant.id);
+      const canonicalThresholdSessionId = resolveCanonicalThresholdEcdsaSessionId(
+        signingEngine as unknown,
         nearAccountId,
-        chain: 'tempo',
-        source: 'login',
+      );
+      await signingEngine.clearWarmSigningSessions(nearAccountId).catch(() => undefined);
+      const connected = await signingEngine.connectEd25519Session({
+        nearAccountId,
         relayerUrl,
+        relayerKeyId: thresholdKeyMaterial.relayerKeyId,
+        participantIds,
         sessionKind: 'jwt',
         ttlMs: signingSessionPolicy.ttlMs,
         remainingUses: signingSessionPolicy.remainingUses,
+        ...(canonicalThresholdSessionId ? { sessionId: canonicalThresholdSessionId } : {}),
       });
-      const keyRef = bootstrap.thresholdEcdsaKeyRef;
-      const thresholdSessionId = String(keyRef?.thresholdSessionId || '').trim();
-      const thresholdSessionJwt = String(keyRef?.thresholdSessionJwt || '').trim();
-      if (!keyRef || !thresholdSessionId || !thresholdSessionJwt) {
-        throw new Error('[login] threshold ECDSA warm-up completed without a valid threshold session keyRef');
+      if (!connected.ok) {
+        const details = String(connected.message || connected.code || 'Failed to connect threshold Ed25519 session');
+        throw new Error(`[login] threshold Ed25519 warm-up failed: ${details}`);
       }
-      thresholdEcdsaKeyRef = keyRef;
 
       const warmStatus = await signingEngine.getWarmSigningSessionStatus(nearAccountId).catch(() => null);
       signingSession = warmStatus || signingSession;
-      requireActiveWarmSession('threshold ECDSA warm-up');
+      requireActiveWarmSession('threshold warm-up');
 
       onEvent?.({
         step: 3,
         phase: LoginPhase.STEP_3_SESSION_READY,
         status: LoginStatus.PROGRESS,
-        message: 'Warm Tempo/EVM signing session ready',
+        message: 'Warm signing session ready',
       });
     };
 
     const requireThresholdWarmLoginBundle = (
       source: string,
     ): Pick<ThresholdWarmLoginAndCreateSessionResult, 'signingSession'> => {
-      if (!thresholdEcdsaKeyRef) {
-        throw new Error(
-          `[login] ${source} must return threshold ECDSA session key material in threshold-signer warm mode`,
-        );
-      }
-      const thresholdSessionId = String(thresholdEcdsaKeyRef.thresholdSessionId || '').trim();
-      const thresholdSessionJwt = String(thresholdEcdsaKeyRef.thresholdSessionJwt || '').trim();
-      if (!thresholdSessionId || !thresholdSessionJwt) {
-        throw new Error(
-          `[login] ${source} returned threshold ECDSA key material without threshold session credentials`,
-        );
-      }
-
       requireActiveWarmSession(source);
       const activeSigningSession = signingSession as ThresholdWarmLoginAndCreateSessionResult['signingSession'];
       return {
@@ -277,7 +275,7 @@ export async function loginAndCreateSession(
       };
 
       if (requireThresholdWarmup) {
-        await maybeWarmThresholdEcdsaSigningSession();
+        await maybeWarmThresholdSigningSessions(selectedDeviceNumber);
       }
 
       await persistSuccessfulLoginState(selectedDeviceNumber);
@@ -300,7 +298,7 @@ export async function loginAndCreateSession(
     }
 
     if (requireThresholdWarmup) {
-      await maybeWarmThresholdEcdsaSigningSession();
+      await maybeWarmThresholdSigningSessions(baseDeviceNumber);
     }
 
     await persistSuccessfulLoginState(baseDeviceNumber);
@@ -470,6 +468,26 @@ async function resolveThresholdEcdsaEthereumAddress(
       selected.counterfactualAddress || selected.accountAddress || '',
     ).trim();
     return candidate || null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveCanonicalThresholdEcdsaSessionId(
+  signingEngine: unknown,
+  nearAccountId: AccountId,
+): string | null {
+  const getRecord = (signingEngine as {
+    getThresholdEcdsaSessionRecordForSigning?: (args: {
+      nearAccountId: AccountId | string;
+      chain?: 'evm' | 'tempo';
+    }) => { thresholdSessionId?: string };
+  })?.getThresholdEcdsaSessionRecordForSigning;
+  if (typeof getRecord !== 'function') return null;
+  try {
+    const record = getRecord({ nearAccountId });
+    const sessionId = String(record?.thresholdSessionId || '').trim();
+    return sessionId || null;
   } catch {
     return null;
   }

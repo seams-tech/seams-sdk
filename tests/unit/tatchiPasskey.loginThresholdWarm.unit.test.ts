@@ -23,18 +23,14 @@ function createBaseContext(args?: {
         clientNearPublicKey: 'ed25519:alice',
       }),
       getAuthenticatorsByUser: async () => [{ credentialId: 'cred-1', deviceNumber: 1 }],
-      bootstrapEcdsaSession: async () => ({
-        thresholdEcdsaKeyRef: {
-          type: 'threshold-ecdsa-secp256k1',
-          userId: 'alice.testnet',
-          relayerUrl: 'https://relay.example',
-          relayerKeyId: 'rk-1',
-          clientVerifyingShareB64u: 'AQ',
-          thresholdSessionId: 'session-1',
-          thresholdSessionJwt: 'jwt-1',
-          participantIds: [1, 2],
-        },
+      connectEd25519Session: async () => ({
+        ok: true,
+        sessionId: 'session-1',
+        jwt: 'jwt-ed25519',
+        remainingUses: 3,
+        expiresAtMs: now + 60_000,
       }),
+      clearWarmSigningSessions: async () => undefined,
       getWarmSigningSessionStatus: async () => ({
         sessionId: 'session-1',
         status: 'active',
@@ -61,12 +57,22 @@ function createBaseContext(args?: {
 
 async function withMockedMostRecentProjection<T>(fn: () => Promise<T>): Promise<T> {
   const clientDb = IndexedDBManager.clientDB as { getMostRecentNearAccountProjection?: unknown };
+  const nearDb = IndexedDBManager as { getNearThresholdKeyMaterial?: unknown };
   const original = clientDb.getMostRecentNearAccountProjection;
+  const originalThreshold = nearDb.getNearThresholdKeyMaterial;
   clientDb.getMostRecentNearAccountProjection = async () => null;
+  nearDb.getNearThresholdKeyMaterial = async () => ({
+    kind: 'threshold_ed25519_2p_v1',
+    publicKey: 'ed25519:threshold',
+    relayerKeyId: 'rk-1',
+    participants: [{ id: 1 }, { id: 2 }],
+    wrapKeySalt: 'AQ',
+  });
   try {
     return await fn();
   } finally {
     clientDb.getMostRecentNearAccountProjection = original;
+    nearDb.getNearThresholdKeyMaterial = originalThreshold;
   }
 }
 
@@ -91,23 +97,16 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
     expect(prefillCalls).toBe(0);
   });
 
-  test('fails closed when threshold warm-up returns incomplete session material', async () => {
+  test('fails closed when threshold warm-up cannot connect Ed25519 session', async () => {
     let setLastUserCalls = 0;
     let updateLastLoginCalls = 0;
     let prefillCalls = 0;
     const context = createBaseContext({
       signingEngine: {
-        bootstrapEcdsaSession: async () => ({
-          thresholdEcdsaKeyRef: {
-            type: 'threshold-ecdsa-secp256k1',
-            userId: 'alice.testnet',
-            relayerUrl: 'https://relay.example',
-            relayerKeyId: 'rk-1',
-            clientVerifyingShareB64u: 'AQ',
-            thresholdSessionId: 'session-1',
-            thresholdSessionJwt: '',
-            participantIds: [1, 2],
-          },
+        connectEd25519Session: async () => ({
+          ok: false,
+          code: 'unauthorized',
+          message: 'session bootstrap rejected',
         }),
         setLastUser: async () => {
           setLastUserCalls += 1;
@@ -127,7 +126,7 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
     );
 
     expect(result.success).toBe(false);
-    expect(String(result.error || '')).toContain('valid threshold session keyRef');
+    expect(String(result.error || '')).toContain('threshold Ed25519 warm-up failed');
     expect(setLastUserCalls).toBe(0);
     expect(updateLastLoginCalls).toBe(0);
     expect(prefillCalls).toBe(0);
@@ -154,5 +153,35 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
     expect(result.signingSession?.status).toBe('active');
     expect(prefillCalls).toBe(0);
     expect(prefillArgs).toBeNull();
+  });
+
+  test('login warm-up reuses canonical ECDSA threshold session id when available', async () => {
+    let capturedConnectArgs: Record<string, unknown> | null = null;
+    const context = createBaseContext({
+      signingEngine: {
+        getThresholdEcdsaSessionRecordForSigning: () => ({
+          thresholdSessionId: 'canonical-ecdsa-session-1',
+        }),
+        connectEd25519Session: async (args: Record<string, unknown>) => {
+          capturedConnectArgs = args;
+          return {
+            ok: true,
+            sessionId: 'canonical-ecdsa-session-1',
+            jwt: 'jwt-ed25519',
+            remainingUses: 3,
+            expiresAtMs: Date.now() + 60_000,
+          };
+        },
+      },
+    });
+
+    const result = await withMockedMostRecentProjection(async () =>
+      await loginAndCreateSession(context, ACCOUNT_ID),
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.signingSession?.status).toBe('active');
+    expect(capturedConnectArgs).not.toBeNull();
+    expect(String(capturedConnectArgs?.['sessionId'] || '')).toBe('canonical-ecdsa-session-1');
   });
 });

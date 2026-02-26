@@ -6,7 +6,6 @@ import type {
   ThresholdPrfFirstCacheWriterPort,
 } from '../../touchConfirm';
 
-export type SigningSessionPolicyArgs = { ttlMs?: number; remainingUses?: number };
 export type SigningSessionPolicy = { ttlMs: number; remainingUses: number };
 export type SigningSessionCacheEntry = {
   sessionId: string;
@@ -96,16 +95,6 @@ export async function clearSigningSessionPrfFirstBestEffort(
   await clearer.clearPrfFirstForThresholdSession({ sessionId }).catch(() => undefined);
 }
 
-export function resolveSigningSessionPolicy(
-  deps: SigningSessionStateDeps,
-  args: SigningSessionPolicyArgs,
-): SigningSessionPolicy {
-  const ttlMs = toNonNegativeInt(args.ttlMs) ?? deps.signingSessionDefaults.ttlMs;
-  const remainingUses =
-    toNonNegativeInt(args.remainingUses) ?? deps.signingSessionDefaults.remainingUses;
-  return { ttlMs, remainingUses };
-}
-
 export function getOrCreateActiveSigningSessionId(
   deps: SigningSessionStateDeps,
   nearAccountId: AccountId,
@@ -118,7 +107,7 @@ export function getOrCreateActiveSigningSessionId(
   return sessionId;
 }
 
-function setActiveSigningSessionId(
+export function setActiveSigningSessionId(
   deps: SigningSessionStateDeps,
   nearAccountId: AccountId | string,
   sessionId: string,

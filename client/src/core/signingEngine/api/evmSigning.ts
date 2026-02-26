@@ -24,6 +24,11 @@ import {
   resolveSmartAccountDeploymentMaxAttempts,
   resolveSmartAccountDeploymentMode,
 } from '../orchestration/smartAccountDeployment';
+import {
+  assertThresholdSigningSessionReady,
+  isThresholdSigningSessionReady,
+} from '../orchestration/shared/thresholdSigningSessionPlanner';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/thresholdActivation';
 
 export type EvmFamilySigningDeps = {
   indexedDB: UnifiedIndexedDBManager;
@@ -41,6 +46,10 @@ export type EvmFamilySigningDeps = {
     nearAccountId: string;
     chain: 'tempo' | 'evm';
   }) => ThresholdEcdsaSecp256k1KeyRef;
+  bootstrapThresholdEcdsaSession: (args: {
+    nearAccountId: string;
+    chain: 'tempo' | 'evm';
+  }) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   touchConfirm:
     & TouchConfirmContextPort
     & TouchConfirmSigningPort
@@ -63,25 +72,89 @@ function throwIfEvmFamilySigningCancelled(shouldAbort?: () => boolean): void {
   }
 }
 
-async function assertThresholdSigningSessionReady(args: {
-  thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
-  touchConfirm: ThresholdPrfFirstCachePeekPort;
-}): Promise<void> {
-  const thresholdSessionId = String(args.thresholdEcdsaKeyRef.thresholdSessionId || '').trim();
-  if (!thresholdSessionId) {
-    throw new Error('[chains] Missing threshold signingSessionId; reconnect threshold session before signing');
+function tryGetThresholdEcdsaKeyRefForSigning(args: {
+  deps: EvmFamilySigningDeps;
+  nearAccountId: string;
+  chain: 'tempo' | 'evm';
+}): ThresholdEcdsaSecp256k1KeyRef | null {
+  try {
+    return args.deps.getThresholdEcdsaKeyRefForSigning({
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+    });
+  } catch {
+    return null;
   }
-  const peek = await args.touchConfirm.peekPrfFirstForThresholdSession({
-    sessionId: thresholdSessionId,
+}
+
+async function ensureThresholdEcdsaKeyRefReady(args: {
+  deps: EvmFamilySigningDeps;
+  nearAccountId: string;
+  chain: 'tempo' | 'evm';
+  keyRef: ThresholdEcdsaSecp256k1KeyRef | undefined;
+  shouldAbort?: () => boolean;
+  onEvent?: (event: {
+    step: number;
+    phase: string;
+    status: 'progress' | 'success' | 'error';
+    message?: string;
+    data?: unknown;
+  }) => void;
+}): Promise<ThresholdEcdsaSecp256k1KeyRef> {
+  throwIfEvmFamilySigningCancelled(args.shouldAbort);
+
+  let resolvedKeyRef = args.keyRef
+    || tryGetThresholdEcdsaKeyRefForSigning({
+      deps: args.deps,
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+    });
+
+  const isReady = await (async (): Promise<boolean> => {
+    const sessionId = String(resolvedKeyRef?.thresholdSessionId || '').trim();
+    if (!resolvedKeyRef || !sessionId) return false;
+    return await isThresholdSigningSessionReady({
+      touchConfirm: args.deps.touchConfirm,
+      sessionId,
+      usesNeeded: 1,
+    });
+  })();
+
+  if (!isReady) {
+    try {
+      args.onEvent?.({
+        step: 3,
+        phase: 'threshold-session-reconnect',
+        status: 'progress',
+        message: args.chain === 'tempo'
+          ? 'Threshold signer not ready, reconnecting Tempo signer'
+          : 'Threshold signer not ready, reconnecting EVM signer',
+      });
+    } catch {}
+
+    throwIfEvmFamilySigningCancelled(args.shouldAbort);
+    await args.deps.bootstrapThresholdEcdsaSession({
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+    });
+    throwIfEvmFamilySigningCancelled(args.shouldAbort);
+
+    resolvedKeyRef = args.deps.getThresholdEcdsaKeyRefForSigning({
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+    });
+  }
+  if (!resolvedKeyRef) {
+    throw new Error('[SigningEngine] threshold ECDSA keyRef is unavailable after reconnect');
+  }
+
+  await assertThresholdSigningSessionReady({
+    touchConfirm: args.deps.touchConfirm,
+    sessionId: resolvedKeyRef.thresholdSessionId,
+    usesNeeded: 1,
   });
-  if (!peek.ok) {
-    throw new Error(
-      `[chains] threshold signingSession is ${peek.code}; reconnect threshold session before signing`,
-    );
-  }
-  if (peek.remainingUses < 1) {
-    throw new Error('[chains] threshold signingSession is exhausted; reconnect threshold session before signing');
-  }
+
+  return resolvedKeyRef;
 }
 
 async function ensureSmartAccountDeploymentReady(args: {
@@ -138,18 +211,13 @@ export async function signEvmFamily(
   if (args.request.chain !== 'tempo' && args.request.chain !== 'evm') {
     throw new Error('[SigningEngine] invalid request: chain must be tempo or evm');
   }
-  const thresholdEcdsaKeyRef = args.request.senderSignatureAlgorithm === 'secp256k1'
-    ? deps.getThresholdEcdsaKeyRefForSigning({
-        nearAccountId: args.nearAccountId,
-        chain: args.request.chain,
-      })
-    : undefined;
-
+  let thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef | undefined;
   if (args.request.senderSignatureAlgorithm === 'secp256k1') {
-    await assertThresholdSigningSessionReady({
-      thresholdEcdsaKeyRef: thresholdEcdsaKeyRef!,
-      touchConfirm: deps.touchConfirm,
-    });
+    thresholdEcdsaKeyRef = tryGetThresholdEcdsaKeyRefForSigning({
+      deps,
+      nearAccountId: args.nearAccountId,
+      chain: args.request.chain,
+    }) || undefined;
   }
 
   throwIfEvmFamilySigningCancelled(args.shouldAbort);
@@ -203,8 +271,9 @@ export async function signEvmFamily(
                 task: async () => {
                   throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
                   await assertThresholdSigningSessionReady({
-                    thresholdEcdsaKeyRef: thresholdEcdsaKeyRef,
                     touchConfirm: deps.touchConfirm,
+                    sessionId: thresholdEcdsaKeyRef?.thresholdSessionId,
+                    usesNeeded: 1,
                   });
                   try {
                     args.onEvent?.({
@@ -224,7 +293,22 @@ export async function signEvmFamily(
                 },
               });
             }
-          : undefined,
+          : async (queueArgs) =>
+            await deps.withThresholdEcdsaCommitQueue({
+              nearAccountId: queueArgs.nearAccountId,
+              enabled: true,
+              shouldAbort: queueArgs.shouldAbort,
+              task: async () => {
+                throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
+                await ensureSmartAccountDeploymentReady({
+                  deps,
+                  nearAccountId: args.nearAccountId,
+                  request: args.request,
+                });
+                throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
+                return await queueArgs.task();
+              },
+            }),
         dispenseThresholdEcdsaPrfFirstForSession: (payload) =>
           deps.touchConfirm.dispensePrfFirstForThresholdSession(payload),
       }),
@@ -234,6 +318,22 @@ export async function signEvmFamily(
       ? { keyRefsByAlgorithm: { secp256k1: thresholdEcdsaKeyRef } }
       : {}),
     confirmationConfigOverride: args.confirmationConfigOverride,
+    ...(args.request.senderSignatureAlgorithm === 'secp256k1'
+      ? {
+          ensureThresholdEcdsaKeyRefReady: async () => {
+            const readyKeyRef = await ensureThresholdEcdsaKeyRefReady({
+              deps,
+              nearAccountId: args.nearAccountId,
+              chain: args.request.chain,
+              keyRef: thresholdEcdsaKeyRef,
+              shouldAbort: args.shouldAbort,
+              onEvent: args.onEvent,
+            });
+            thresholdEcdsaKeyRef = readyKeyRef;
+            return readyKeyRef;
+          },
+        }
+      : {}),
   };
 
   if (args.request.chain === 'evm') {

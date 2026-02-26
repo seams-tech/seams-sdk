@@ -11,6 +11,7 @@ import type {
   SignerMap,
   SignatureBytes,
 } from '@/core/signingEngine/interfaces/signing';
+import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { bytesToHex } from '@/core/signingEngine/chainAdaptors/evm/bytes';
@@ -46,6 +47,7 @@ export async function signEvmWithTouchConfirm(args: {
   keyRefsByAlgorithm?: Partial<Record<SignRequest['algorithm'], KeyRef>>;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   workerCtx: WorkerOperationContext;
+  ensureThresholdEcdsaKeyRefReady?: () => Promise<ThresholdEcdsaSecp256k1KeyRef>;
 }): Promise<EvmSignedResult> {
   const emitProgress = (event: {
     step: number;
@@ -77,7 +79,7 @@ export async function signEvmWithTouchConfirm(args: {
     title,
     subtitle: body,
   });
-  const thresholdEcdsaKeyRef = asThresholdEcdsaKeyRef(args.keyRefsByAlgorithm?.secp256k1);
+  let thresholdEcdsaKeyRef = asThresholdEcdsaKeyRef(args.keyRefsByAlgorithm?.secp256k1);
   const signingAuthMode = await resolveSigningAuthMode({
     needsWebAuthn: false,
     thresholdEcdsaKeyRef,
@@ -113,6 +115,37 @@ export async function signEvmWithTouchConfirm(args: {
     message: 'Confirmation complete',
   });
 
+  let ensuredThresholdKeyRef: ThresholdEcdsaSecp256k1KeyRef | null = null;
+  let ensureThresholdKeyRefTask: Promise<ThresholdEcdsaSecp256k1KeyRef> | null = null;
+  const ensureThresholdKeyRef = async (): Promise<ThresholdEcdsaSecp256k1KeyRef> => {
+    if (ensuredThresholdKeyRef) return ensuredThresholdKeyRef;
+    if (ensureThresholdKeyRefTask) return await ensureThresholdKeyRefTask;
+    if (args.ensureThresholdEcdsaKeyRefReady) {
+      ensureThresholdKeyRefTask = (async () => {
+        const ensured = await args.ensureThresholdEcdsaKeyRefReady!();
+        thresholdEcdsaKeyRef = ensured;
+        ensuredThresholdKeyRef = ensured;
+        return ensured;
+      })();
+      try {
+        return await ensureThresholdKeyRefTask;
+      } finally {
+        ensureThresholdKeyRefTask = null;
+      }
+    }
+    if (thresholdEcdsaKeyRef) {
+      ensuredThresholdKeyRef = thresholdEcdsaKeyRef;
+      return thresholdEcdsaKeyRef;
+    }
+    throw new Error('[chains] missing threshold ECDSA keyRef for secp256k1 signing');
+  };
+  const hasSecp256k1Request = intent.signRequests.some(
+    (signReq) => signReq.algorithm === 'secp256k1',
+  );
+  if (hasSecp256k1Request && args.ensureThresholdEcdsaKeyRefReady) {
+    await ensureThresholdKeyRef();
+  }
+
   emitProgress({
     step: 5,
     phase: ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS,
@@ -122,11 +155,16 @@ export async function signEvmWithTouchConfirm(args: {
   const result = await executeSigningIntent({
     intent,
     engines: args.engines,
-    resolveSignInput: async (signReq: SignRequest) =>
-      resolveKeyRefForSignRequest({
+    resolveSignInput: async (signReq: SignRequest) => {
+      if (signReq.algorithm === 'secp256k1') {
+        const keyRef = await ensureThresholdKeyRef();
+        return { signReq, keyRef };
+      }
+      return resolveKeyRefForSignRequest({
         signReq,
         keyRefsByAlgorithm: args.keyRefsByAlgorithm,
-      }),
+      });
+    },
   });
   emitProgress({
     step: 6,

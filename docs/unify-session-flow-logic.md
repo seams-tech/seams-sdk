@@ -98,6 +98,39 @@ Changes:
 3. Remove transaction API params that imply tx-time session creation if now invalid.
 4. Remove dead tests tied to removed behavior.
 
+## Status snapshot (in progress)
+
+Completed:
+1. Shared planner added and wired for NEAR + EVM/Tempo auth-mode/session readiness gating.
+2. NEAR-specific planner path deleted (`orchestration/near/shared/thresholdSessionPolicy.ts`).
+3. NEAR tx-time session mint/fallback logic removed from transaction/delegate/NEP-413 flows.
+4. Login warm-up now provisions threshold signing session in one WebAuthn touch path.
+5. Dead NEAR tx-time session policy plumbing removed (`signingSessionTtlMs` / `signingSessionRemainingUses`).
+6. Session exhaustion contract updated: fail fast on exhausted warm session, then explicit relogin reconnect.
+7. EVM/Tempo high-level duplicate readiness check removed; commit-queue-time readiness check retained as safety gate.
+8. ECDSA auth-session cache now supports session-id fallback lookup semantics in signer path, with unit coverage.
+9. Docs/examples updated to remove wording that login auto-provisions Tempo/EVM sessions.
+
+Remaining:
+1. Collect runtime telemetry and confirm no further session-index divergence reports.
+
+## TODO (current)
+
+1. [ ] `loginAndCreateSession` re-primes ECDSA signing state by default in `threshold-signer` mode without requiring a second TouchID prompt.
+2. [ ] Login warm-up reuses canonical ECDSA `thresholdSessionId` when available so PRF cache and ECDSA signer session id stay aligned.
+3. [ ] EVM/Tempo signing never hard-fails before confirmer UI on missing warm session.
+4. [ ] EVM/Tempo missing-session recovery is in core flow (not demo/app layer) with strict ordering:
+   - confirmer approval
+   - TouchID/WebAuthn only when reconnect is needed
+   - signing commit
+5. [ ] Core reconnect path bootstraps ECDSA session, refreshes canonical keyRef, then continues same signing request.
+6. [ ] `confirmationConfig` remains UI-only and does not control signing auth/session mode.
+7. [ ] Remove demo-only pre-sign reconnect workaround from `tatchi-site` so app behavior matches core flow.
+8. [ ] Unit coverage:
+   - login warm flow reuses canonical ECDSA session id when present
+   - EVM/Tempo flow recovers missing warm session post-confirmation and signs successfully
+9. [ ] Regression check: login should not require 2 TouchID prompts in standard warm-session path.
+
 ## Acceptance criteria
 
 1. NEAR and EVM/Tempo call the same planner for session/auth decisions.
@@ -117,4 +150,3 @@ Changes:
 1. PR A: Add shared planner + tests.
 2. PR B: Migrate NEAR flows + remove NEAR planner path.
 3. PR C: Migrate EVM/Tempo duplicate checks + cleanup dead APIs/tests/docs.
-

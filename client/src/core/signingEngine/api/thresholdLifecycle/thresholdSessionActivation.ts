@@ -23,6 +23,7 @@ export type ConnectEd25519SessionArgs = {
   relayerUrl?: string;
   ttlMs?: number;
   remainingUses?: number;
+  sessionId?: string;
 };
 
 export type BootstrapEcdsaSessionArgs = {
@@ -44,6 +45,7 @@ export type ThresholdSessionActivationDeps = {
   touchConfirm: ThresholdPrfFirstCachePort;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
   getOrCreateActiveSigningSessionId: (nearAccountId: AccountId) => string;
+  setActiveSigningSessionId: (nearAccountId: AccountId | string, sessionId: string) => void;
   defaultRelayerUrl: string;
   persistThresholdEcdsaBootstrapChainAccount: (args: {
     nearAccountId: AccountId | string;
@@ -73,8 +75,9 @@ export async function connectEd25519SessionValue(
 ): Promise<Awaited<ReturnType<typeof connectEd25519Session>>> {
   const nearAccountId = toAccountId(args.nearAccountId);
   const relayerUrl = resolveRelayerUrl(args.relayerUrl, deps.defaultRelayerUrl);
-  const sessionId = deps.getOrCreateActiveSigningSessionId(nearAccountId);
-  return await connectEd25519Session({
+  const requestedSessionId = String(args.sessionId || '').trim();
+  const sessionId = requestedSessionId || deps.getOrCreateActiveSigningSessionId(nearAccountId);
+  const connected = await connectEd25519Session({
     indexedDB: deps.indexedDB,
     touchIdPrompt: deps.touchIdPrompt,
     signingKeyOps: deps.signingKeyOps,
@@ -88,6 +91,13 @@ export async function connectEd25519SessionValue(
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
   });
+  if (connected.ok) {
+    const resolvedSessionId = String(connected.sessionId || sessionId).trim();
+    if (resolvedSessionId) {
+      deps.setActiveSigningSessionId(nearAccountId, resolvedSessionId);
+    }
+  }
+  return connected;
 }
 
 export async function bootstrapEcdsaSessionValue(

@@ -11,6 +11,7 @@ import type { EvmSignedResult } from '../chainAdaptors/evm/evmAdapter';
 import type { TempoSigningRequest } from '../chainAdaptors/tempo/types';
 import type { TempoSignedResult } from '../chainAdaptors/tempo/tempoAdapter';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../interfaces/signing';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/thresholdActivation';
 import type { TouchIdPrompt } from '../signers/webauthn/prompt/touchIdPrompt';
 import type { SignerWorkerManager } from '../workerManager';
 import type { NearKeyDerivationDeps } from '../api/recovery/nearKeyDerivation';
@@ -22,7 +23,7 @@ import {
   generateSessionId as generateSessionIdValue,
   getOrCreateActiveSigningSessionId as getOrCreateActiveSigningSessionIdValue,
   getWarmSigningSessionStatus as getWarmSigningSessionStatusValue,
-  resolveSigningSessionPolicy as resolveSigningSessionPolicyValue,
+  setActiveSigningSessionId as setActiveSigningSessionIdValue,
   type SigningSessionStateDeps,
 } from '../api/session/signingSessionState';
 import type { TempoSigningDeps } from '../api/tempoSigning';
@@ -73,6 +74,10 @@ export type CreateOrchestrationDependencyBundleArgs = {
     nearAccountId: AccountId | string;
     chain: 'tempo' | 'evm';
   }) => ThresholdEcdsaSecp256k1KeyRef;
+  bootstrapThresholdEcdsaSession: (args: {
+    nearAccountId: AccountId | string;
+    chain: 'tempo' | 'evm';
+  }) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   withThresholdEcdsaCommitQueue: <T>(args: {
     nearAccountId: AccountId | string;
     enabled: boolean;
@@ -121,8 +126,6 @@ export function createOrchestrationDependencyBundle(
 
   const nearSigningDeps: NearSigningApiDeps = {
     nearRpcUrl: args.tatchiPasskeyConfigs.nearRpcUrl,
-    resolveSigningSessionPolicy: (policyArgs) =>
-      resolveSigningSessionPolicyValue(signingSessionStateDeps, policyArgs),
     getOrCreateActiveSigningSessionId: getOrCreateActiveSigningSessionId,
     createSigningSessionId: (prefix: string): string => generateSessionIdValue(prefix),
     getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
@@ -159,6 +162,8 @@ export function createOrchestrationDependencyBundle(
       getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
       getThresholdEcdsaKeyRefForSigning: ({ nearAccountId, chain }) =>
         args.getThresholdEcdsaKeyRefForSigning({ nearAccountId, chain }),
+      bootstrapThresholdEcdsaSession: ({ nearAccountId, chain }) =>
+        args.bootstrapThresholdEcdsaSession({ nearAccountId, chain }),
       withThresholdEcdsaCommitQueue: (queueArgs) =>
         args.withThresholdEcdsaCommitQueue(queueArgs),
       touchConfirm: args.touchConfirm,
@@ -194,6 +199,8 @@ export function createOrchestrationDependencyBundle(
       touchConfirm: args.touchConfirm,
       getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
       getOrCreateActiveSigningSessionId: getOrCreateActiveSigningSessionId,
+      setActiveSigningSessionId: (nearAccountId, sessionId) =>
+        setActiveSigningSessionIdValue(signingSessionStateDeps, nearAccountId, sessionId),
       defaultRelayerUrl: args.tatchiPasskeyConfigs.relayer?.url || '',
       persistThresholdEcdsaBootstrapChainAccount:
         args.persistThresholdEcdsaBootstrapChainAccount,

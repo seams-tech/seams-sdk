@@ -187,6 +187,8 @@ export class SigningEngine {
         this.upsertThresholdEcdsaSessionFromBootstrap(args),
       getThresholdEcdsaKeyRefForSigning: (args) =>
         this.getThresholdEcdsaKeyRefForSigning(args),
+      bootstrapThresholdEcdsaSession: (args) =>
+        this.bootstrapEcdsaSession(args),
       withThresholdEcdsaCommitQueue: (queueArgs) =>
         this.withThresholdEcdsaCommitQueue(queueArgs),
     });

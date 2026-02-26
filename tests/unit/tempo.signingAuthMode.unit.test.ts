@@ -12,7 +12,7 @@ test.describe('tempo signing auth-mode resolution', () => {
     await page.goto('/');
   });
 
-  test('fails fast when threshold warm session cache is unavailable (EVM)', async ({
+  test('does not fail before confirmer when threshold warm session cache is unavailable (EVM)', async ({
     page,
   }) => {
     const result = await page.evaluate(async ({ paths }) => {
@@ -98,10 +98,9 @@ test.describe('tempo signing auth-mode resolution', () => {
       }
     }, { paths: IMPORT_PATHS });
 
-    expect(result.ok).toBe(false);
-    expect(result.confirmCalls).toBe(0);
-    expect(result.capturedAuthMode).toBeNull();
-    expect(result.message).toContain('threshold signingSession is expired');
+    expect(result.ok).toBe(true);
+    expect(result.confirmCalls).toBe(1);
+    expect(result.capturedAuthMode).toBe('warmSession');
   });
 
   test('uses warmSession mode when threshold warm cache is available', async ({ page }) => {
@@ -185,6 +184,91 @@ test.describe('tempo signing auth-mode resolution', () => {
     expect(result.capturedAuthMode).toBe('warmSession');
     expect(result.chain).toBe('evm');
     expect(result.kind).toBe('eip1559');
+  });
+
+  test('runs reconnect hook after confirmer and before signing (EVM)', async ({ page }) => {
+    const result = await page.evaluate(async ({ paths }) => {
+      const { signEvmWithTouchConfirm } = await import(paths.signEvmWithTouchConfirm);
+      const order: string[] = [];
+
+      const workerCtx = {
+        requestWorkerOperation: async ({ request }: { request: any }) => {
+          const type = String(request?.type || '');
+          if (type === 'computeEip1559TxHash') return new Uint8Array(32).buffer;
+          if (type === 'encodeEip1559SignedTxFromSignature65')
+            return new Uint8Array([0x02, 0xaa]).buffer;
+          throw new Error(`Unexpected worker operation: ${type}`);
+        },
+      };
+
+      const signed = await signEvmWithTouchConfirm({
+        ctx: { indexedDB: {} } as any,
+        workerCtx: workerCtx as any,
+        touchConfirm: {
+          peekPrfFirstForThresholdSession: async () => ({
+            ok: false,
+            code: 'not_found',
+            message: 'missing',
+          }),
+          orchestrateSigningConfirmation: async () => {
+            order.push('confirm');
+            return {
+              sessionId: 'intent',
+              intentDigest: '0x' + '11'.repeat(32),
+            };
+          },
+        } as any,
+        nearAccountId: 'alice.testnet',
+        request: {
+          chain: 'evm',
+          kind: 'eip1559',
+          senderSignatureAlgorithm: 'secp256k1',
+          tx: {
+            chainId: 11155111n,
+            nonce: 7n,
+            maxPriorityFeePerGas: 1_500_000_000n,
+            maxFeePerGas: 3_000_000_000n,
+            gasLimit: 21_000n,
+            to: '0x' + '22'.repeat(20),
+            value: 12_345n,
+            data: '0x',
+            accessList: [],
+          },
+        } as any,
+        ensureThresholdEcdsaKeyRefReady: async () => {
+          order.push('reconnect');
+          return {
+            type: 'threshold-ecdsa-secp256k1',
+            userId: 'alice.testnet',
+            relayerUrl: 'https://relayer.example',
+            relayerKeyId: 'rk-1',
+            clientVerifyingShareB64u: 'AQ',
+            thresholdSessionId: 'session-1',
+          } as any;
+        },
+        engines: {
+          secp256k1: {
+            algorithm: 'secp256k1',
+            sign: async () => {
+              order.push('sign');
+              const sig = new Uint8Array(65);
+              sig[64] = 0;
+              return sig;
+            },
+          },
+        } as any,
+      });
+
+      return {
+        chain: signed.chain,
+        kind: signed.kind,
+        order,
+      };
+    }, { paths: IMPORT_PATHS });
+
+    expect(result.chain).toBe('evm');
+    expect(result.kind).toBe('eip1559');
+    expect(result.order).toEqual(['confirm', 'reconnect', 'sign']);
   });
 
   test('ignores confirmation behavior for auth-mode and still uses warmSession when cache is available (EVM)', async ({ page }) => {
@@ -271,7 +355,7 @@ test.describe('tempo signing auth-mode resolution', () => {
     expect(result.kind).toBe('eip1559');
   });
 
-  test('fails fast when threshold warm session cache is unavailable (Tempo)', async ({
+  test('does not fail before confirmer when threshold warm session cache is unavailable (Tempo)', async ({
     page,
   }) => {
     const result = await page.evaluate(async ({ paths }) => {
@@ -355,8 +439,7 @@ test.describe('tempo signing auth-mode resolution', () => {
       }
     }, { paths: IMPORT_PATHS });
 
-    expect(result.ok).toBe(false);
-    expect(result.confirmCalls).toBe(0);
-    expect(result.message).toContain('threshold signingSession is expired');
+    expect(result.ok).toBe(true);
+    expect(result.confirmCalls).toBe(1);
   });
 });

@@ -12,6 +12,7 @@ import type { ActionArgs, FunctionCallAction } from '@tatchi-xyz/sdk/react';
 
 import { LoadingButton } from './LoadingButton';
 import Refresh from './icons/Refresh';
+import { CopyButton } from './CopyButton';
 import { useSetGreeting } from '../hooks/useSetGreeting';
 import { DEMO_CONTRACT_ID, NEAR_EXPLORER_BASE_URL } from '../types';
 import { FRONTEND_CONFIG } from '../config';
@@ -932,9 +933,24 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
         <h2 className="demo-subtitle">Tempo + EVM Threshold Signers</h2>
         <div className="action-text funding-instructions">
           <span>Fund this threshold EVM signer address with native gas tokens (Tempo + Arc):</span>
-          <code>
-            {thresholdEvmFundingAddress || 'Address unavailable. Sign once to bootstrap threshold ECDSA.'}
-          </code>
+          <div className="funding-address-row">
+            <span className="funding-address-text">
+              {thresholdEvmFundingAddress || 'Address unavailable. Sign once to bootstrap threshold ECDSA.'}
+            </span>
+            {thresholdEvmFundingAddress ? (
+              <CopyButton
+                text={thresholdEvmFundingAddress}
+                ariaLabel="Copy funding address"
+                className="funding-address-copy"
+                size={18}
+                onCopy={() => {
+                  toast.success('Address copied');
+                }}
+              />
+            ) : (
+              <span className="funding-address-copy-placeholder" aria-hidden="true" />
+            )}
+          </div>
         </div>
 
         <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
