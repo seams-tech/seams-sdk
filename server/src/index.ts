@@ -12,6 +12,8 @@ export {
   createThresholdSigningService,
   createThresholdEd25519KeyStore,
   createThresholdEd25519SessionStore,
+  createEd25519AuthSessionStore,
+  createEcdsaAuthSessionStore,
 } from './core/ThresholdService';
 export type {
   ThresholdEd25519KeyStore,
@@ -20,5 +22,8 @@ export type {
   ThresholdEd25519MpcSessionRecord,
   ThresholdEd25519SigningSessionRecord,
   ThresholdEd25519Commitments,
+  Ed25519AuthSessionStore,
+  Ed25519AuthSessionRecord,
 } from './core/ThresholdService';
 export * from './email-recovery';
+export * from './threshold/session/prfSessionSeal';

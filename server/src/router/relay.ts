@@ -3,6 +3,7 @@ import type { RouterLogger } from './logger';
 import type { ThresholdAnySchemeModule } from '../core/ThresholdService/schemes/types';
 import type { ThresholdSchemeId } from '../core/ThresholdService/schemes/schemeIds';
 import type { RelayRouterRorOptions } from './ror/provider';
+import type { PrfSessionSealRoutesOptions } from '../threshold/session/prfSessionSeal/types';
 
 // Minimal session adapter interface expected by the routers.
 export type SessionClaims = Record<string, unknown>;
@@ -99,6 +100,16 @@ export interface RelayRouterOptions {
   session?: SessionAdapter | null;
   // Optional: pluggable threshold signing service
   threshold?: ThresholdSigningAdapter | null;
+  /**
+   * Optional standalone PRF session seal/unlock routes.
+   *
+   * When provided and enabled, routers mount:
+   * - POST `<basePath>/apply-server-seal`
+   * - POST `<basePath>/remove-server-seal`
+   *
+   * Default `basePath` is `/threshold-ecdsa/prf-seal`.
+   */
+  prfSessionSeal?: PrfSessionSealRoutesOptions | null;
   /**
    * Optional smart-account deploy hook used by `POST /smart-account/deploy`.
    *

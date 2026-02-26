@@ -23,6 +23,7 @@ import { handleWellKnown } from './routes/wellKnown';
 import { handleSmartAccountDeploy } from './routes/smartAccountDeploy';
 import { resolveThresholdOption } from '../routerOptions';
 import { validateRelayRouterRorOptions } from '../ror/provider';
+import { handlePrfSessionSealRoutes } from '../../threshold/session/prfSessionSeal';
 
 export interface CloudflareRelayContext {
   request: Request;
@@ -71,6 +72,15 @@ export function createCloudflareRouter(service: AuthService, opts: RelayRouterOp
     handleEmailRecoveryPrepare,
     handleThresholdEd25519,
     handleThresholdEcdsa,
+    async (c: CloudflareRelayContext) =>
+      await handlePrfSessionSealRoutes({
+        request: c.request,
+        pathname: c.pathname,
+        method: c.method,
+        logger: c.logger,
+        session: c.opts.session,
+        options: c.opts.prfSessionSeal,
+      }),
     handleWebAuthnAuthenticators,
     handleNearPublicKeys,
     handleSessionAuth,

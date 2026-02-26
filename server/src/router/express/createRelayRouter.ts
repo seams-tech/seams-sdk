@@ -24,6 +24,7 @@ import { registerWellKnownRoutes } from './routes/wellKnown';
 import { registerSmartAccountDeployRoute } from './routes/smartAccountDeploy';
 import { resolveThresholdOption } from '../routerOptions';
 import { validateRelayRouterRorOptions } from '../ror/provider';
+import { registerPrfSessionSealRoutes } from '../../threshold/session/prfSessionSeal';
 
 export interface ExpressRelayContext {
   service: AuthService;
@@ -74,6 +75,11 @@ export function createRelayRouter(service: AuthService, opts: RelayRouterOptions
   registerEmailRecoveryRoutes(router, ctx);
   registerThresholdEd25519Routes(router, ctx);
   registerThresholdEcdsaRoutes(router, ctx);
+  registerPrfSessionSealRoutes(router, {
+    logger: ctx.logger,
+    session: ctx.opts.session,
+    options: ctx.opts.prfSessionSeal,
+  });
   registerWebAuthnAuthenticatorRoutes(router, ctx);
   registerNearPublicKeysRoutes(router, ctx);
   registerSessionRoutes(router, ctx);
