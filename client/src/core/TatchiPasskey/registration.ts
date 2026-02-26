@@ -785,6 +785,7 @@ export async function registerPasskeyInternal(
       clientNearPublicKey,
       transactionId: registrationState.contractTransactionId,
       ...(thresholdEcdsaEthereumAddress ? { thresholdEcdsaEthereumAddress } : {}),
+      ...(thresholdEcdsaGroupPublicKeyB64u ? { thresholdEcdsaGroupPublicKeyB64u } : {}),
     };
 
     afterCall?.(true, successResult);

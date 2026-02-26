@@ -438,6 +438,75 @@ export async function getLoginSession(
   return { login, signingSession };
 }
 
+async function resolveThresholdEcdsaEthereumAddress(
+  nearAccountId: AccountId,
+): Promise<string | null> {
+  try {
+    const nearContext = await IndexedDBManager.clientDB.resolveNearAccountContext(nearAccountId);
+    if (!nearContext?.profileId) return null;
+
+    const chainAccounts = await IndexedDBManager.clientDB.listChainAccountsByProfile(
+      nearContext.profileId,
+    );
+    if (!Array.isArray(chainAccounts) || chainAccounts.length === 0) return null;
+
+    const thresholdRows = chainAccounts.filter((row) => {
+      const accountModel = String(row.accountModel || '').trim().toLowerCase();
+      return accountModel === 'erc4337' || accountModel === 'tempo-native';
+    });
+    if (!thresholdRows.length) return null;
+
+    const preferred = [
+      ...thresholdRows.filter((row) => row.isPrimary && String(row.chainId || '').startsWith('eip155:')),
+      ...thresholdRows.filter((row) => row.isPrimary && String(row.chainId || '').startsWith('tempo:')),
+      ...thresholdRows.filter((row) => String(row.chainId || '').startsWith('eip155:')),
+      ...thresholdRows.filter((row) => String(row.chainId || '').startsWith('tempo:')),
+      ...thresholdRows,
+    ];
+
+    const selected = preferred[0];
+    if (!selected) return null;
+    const candidate = String(
+      selected.counterfactualAddress || selected.accountAddress || '',
+    ).trim();
+    return candidate || null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveThresholdEcdsaGroupPublicKeyB64u(
+  context: PasskeyManagerContext,
+  nearAccountId: AccountId,
+): string | null {
+  try {
+    const record = context.signingEngine.getThresholdEcdsaSessionRecordForSigning({
+      nearAccountId,
+    });
+    const groupPublicKeyB64u = String(record.groupPublicKeyB64u || '').trim();
+    return groupPublicKeyB64u || null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveThresholdEcdsaLoginMetadata(
+  context: PasskeyManagerContext,
+  nearAccountId: AccountId,
+): Promise<{
+  ethereumAddress: string | null;
+  groupPublicKeyB64u: string | null;
+}> {
+  const [ethereumAddress, groupPublicKeyB64u] = await Promise.all([
+    resolveThresholdEcdsaEthereumAddress(nearAccountId),
+    Promise.resolve(resolveThresholdEcdsaGroupPublicKeyB64u(context, nearAccountId)),
+  ]);
+  return {
+    ethereumAddress,
+    groupPublicKeyB64u,
+  };
+}
+
 async function getLoginStateInternal(
   context: PasskeyManagerContext,
   nearAccountId?: AccountId
@@ -453,6 +522,8 @@ async function getLoginStateInternal(
         nearAccountId: targetAccountId || null,
         publicKey: null,
         userData: null,
+        thresholdEcdsaEthereumAddress: null,
+        thresholdEcdsaGroupPublicKeyB64u: null,
       };
     }
 
@@ -471,15 +542,23 @@ async function getLoginStateInternal(
           nearAccountId: resolvedNearAccountId,
           publicKey: null,
           userData: null,
+          thresholdEcdsaEthereumAddress: null,
+          thresholdEcdsaGroupPublicKeyB64u: null,
         };
       }
     }
+
+    const thresholdMetadata = resolvedNearAccountId
+      ? await resolveThresholdEcdsaLoginMetadata(context, resolvedNearAccountId)
+      : { ethereumAddress: null, groupPublicKeyB64u: null };
 
     return {
       isLoggedIn,
       nearAccountId: resolvedNearAccountId,
       publicKey,
       userData,
+      thresholdEcdsaEthereumAddress: thresholdMetadata.ethereumAddress,
+      thresholdEcdsaGroupPublicKeyB64u: thresholdMetadata.groupPublicKeyB64u,
     };
   } catch (error: unknown) {
     console.warn('Error getting login state:', error);
@@ -488,6 +567,8 @@ async function getLoginStateInternal(
       nearAccountId: nearAccountId || null,
       publicKey: null,
       userData: null,
+      thresholdEcdsaEthereumAddress: null,
+      thresholdEcdsaGroupPublicKeyB64u: null,
     };
   }
 }

@@ -62,6 +62,10 @@ export interface LoginState {
   nearPublicKey: string | null;
   // The NEAR account ID of the currently authenticated user (e.g., "alice.testnet")
   nearAccountId: string | null;
+  // Canonical threshold ECDSA account address used for Tempo/EVM signing
+  thresholdEcdsaEthereumAddress?: string | null;
+  // Canonical threshold ECDSA group public key (base64url)
+  thresholdEcdsaGroupPublicKeyB64u?: string | null;
 }
 
 // UI input state - tracks user input and form state

@@ -24,6 +24,8 @@ export function useLoginStateRefresher(args: {
               ...prevState,
               nearAccountId: st.nearAccountId,
               nearPublicKey: st.publicKey || null,
+              thresholdEcdsaEthereumAddress: st.thresholdEcdsaEthereumAddress || null,
+              thresholdEcdsaGroupPublicKeyB64u: st.thresholdEcdsaGroupPublicKeyB64u || null,
               isLoggedIn: true,
             }));
             return;
@@ -41,6 +43,8 @@ export function useLoginStateRefresher(args: {
           ...prevState,
           nearAccountId: ls.nearAccountId,
           nearPublicKey: ls.publicKey || null,
+          thresholdEcdsaEthereumAddress: ls.thresholdEcdsaEthereumAddress || null,
+          thresholdEcdsaGroupPublicKeyB64u: ls.thresholdEcdsaGroupPublicKeyB64u || null,
           isLoggedIn: true,
         }));
       } else {
@@ -48,6 +52,8 @@ export function useLoginStateRefresher(args: {
           ...prevState,
           nearAccountId: null,
           nearPublicKey: null,
+          thresholdEcdsaEthereumAddress: null,
+          thresholdEcdsaGroupPublicKeyB64u: null,
           isLoggedIn: false,
         }));
       }

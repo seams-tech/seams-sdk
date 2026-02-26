@@ -14,26 +14,247 @@ import { LoadingButton } from './LoadingButton';
 import Refresh from './icons/Refresh';
 import { useSetGreeting } from '../hooks/useSetGreeting';
 import { DEMO_CONTRACT_ID, NEAR_EXPLORER_BASE_URL } from '../types';
+import { FRONTEND_CONFIG } from '../config';
 import './DemoPage.css';
 
-function shortenHex(value: string, size = 24): string {
-  if (!value) return '—';
-  return value.length <= size ? value : `${value.slice(0, size)}…`;
+const TEMPO_GREETING_CONTRACT = '0x96cFE92241481954AdA6410409a86AcB6E76a00e' as `0x${string}`;
+const ARC_TESTNET_GREETING_CONTRACT = '0xeB7aB5A6F761072C96147A54B8a15F012e836691' as `0x${string}`;
+const SET_GREETING_SELECTOR = '0xa4136862';
+const GREET_SELECTOR = '0xcfae3217';
+const EVM_TX_FINALITY_TIMEOUT_MS = 90_000;
+const EVM_TX_RECEIPT_POLL_INTERVAL_MS = 1_250;
+const DEFAULT_DEMO_MAX_PRIORITY_FEE_PER_GAS = 2_000_000_000n; // 2 gwei
+const DEFAULT_DEMO_MAX_FEE_PER_GAS = 40_000_000_000n; // 40 gwei
+
+type Eip1559FeeCaps = {
+  maxPriorityFeePerGas: bigint;
+  maxFeePerGas: bigint;
+};
+
+function utf8ToHex(value: string): string {
+  return Array.from(new TextEncoder().encode(value), (byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
 }
 
-function buildDemoTempoTransactionRequest() {
-  const to = `0x${'11'.repeat(20)}` as `0x${string}`;
-  const input = '0x' as `0x${string}`;
+function hexToUtf8(value: string): string {
+  const hex = value.startsWith('0x') ? value.slice(2) : value;
+  if (hex.length === 0) return '';
+  if (hex.length % 2 !== 0) throw new Error('Invalid hex payload length');
+
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < hex.length; index += 2) {
+    bytes[index / 2] = Number.parseInt(hex.slice(index, index + 2), 16);
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+function encodeSetGreetingInput(greeting: string): `0x${string}` {
+  const messageHex = utf8ToHex(greeting);
+  const messageBytesLength = messageHex.length / 2;
+  const dataWordLength = Math.ceil(messageBytesLength / 32) * 64;
+  const offsetHex = (32).toString(16).padStart(64, '0');
+  const lengthHex = messageBytesLength.toString(16).padStart(64, '0');
+  const dataHex = messageHex.padEnd(dataWordLength, '0');
+  return `0x${SET_GREETING_SELECTOR.slice(2)}${offsetHex}${lengthHex}${dataHex}` as `0x${string}`;
+}
+
+function decodeStringResultData(rawHex: string): string {
+  const resultHex = rawHex.startsWith('0x') ? rawHex.slice(2) : rawHex;
+  if (resultHex.length < 128) {
+    throw new Error('Invalid RPC result payload');
+  }
+
+  const dataOffsetBytes = Number.parseInt(resultHex.slice(0, 64), 16);
+  if (!Number.isFinite(dataOffsetBytes) || dataOffsetBytes < 0) {
+    throw new Error('Invalid ABI offset');
+  }
+
+  const dataOffsetHex = dataOffsetBytes * 2;
+  const lengthStart = dataOffsetHex;
+  const lengthEnd = lengthStart + 64;
+  if (lengthEnd > resultHex.length) {
+    throw new Error('Invalid ABI string length offset');
+  }
+
+  const stringLengthBytes = Number.parseInt(resultHex.slice(lengthStart, lengthEnd), 16);
+  if (!Number.isFinite(stringLengthBytes) || stringLengthBytes < 0) {
+    throw new Error('Invalid ABI string length');
+  }
+
+  const dataStart = lengthEnd;
+  const dataEnd = dataStart + stringLengthBytes * 2;
+  if (dataEnd > resultHex.length) {
+    throw new Error('Invalid ABI string data');
+  }
+
+  return hexToUtf8(resultHex.slice(dataStart, dataEnd));
+}
+
+type EvmJsonRpcError = {
+  message?: string;
+};
+
+type EvmTransactionReceipt = {
+  blockNumber?: string | null;
+  status?: string | null;
+};
+
+async function callEvmJsonRpc<T>(args: {
+  rpcUrl: string;
+  method: string;
+  params: unknown[];
+}): Promise<T> {
+  const { rpcUrl, method, params } = args;
+  if (!rpcUrl) {
+    throw new Error('RPC URL is not configured');
+  }
+
+  const response = await fetch(rpcUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method,
+      params,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`RPC HTTP ${response.status}`);
+  }
+
+  const payload = (await response.json()) as {
+    error?: EvmJsonRpcError;
+    result?: T;
+  };
+  if (payload.error) {
+    throw new Error(payload.error.message || `${method} failed`);
+  }
+  if (!('result' in payload)) {
+    throw new Error(`Invalid ${method} response`);
+  }
+
+  return payload.result as T;
+}
+
+async function readEvmGreeting(params: {
+  rpcUrl: string;
+  contract: `0x${string}`;
+}): Promise<string> {
+  const { rpcUrl, contract } = params;
+  const result = await callEvmJsonRpc<string>({
+    rpcUrl,
+    method: 'eth_call',
+    params: [{ to: contract, data: GREET_SELECTOR }, 'latest'],
+  });
+
+  if (typeof result !== 'string' || !result.startsWith('0x')) {
+    throw new Error('Invalid eth_call response');
+  }
+
+  return decodeStringResultData(result);
+}
+
+async function sendRawEvmTransaction(args: {
+  rpcUrl: string;
+  rawTxHex: string;
+}): Promise<`0x${string}`> {
+  const txHash = await callEvmJsonRpc<string>({
+    rpcUrl: args.rpcUrl,
+    method: 'eth_sendRawTransaction',
+    params: [args.rawTxHex],
+  });
+  if (typeof txHash !== 'string' || !txHash.startsWith('0x')) {
+    throw new Error('Invalid eth_sendRawTransaction response');
+  }
+  return txHash as `0x${string}`;
+}
+
+async function waitForEvmTransactionFinalization(args: {
+  rpcUrl: string;
+  txHash: `0x${string}`;
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+}): Promise<EvmTransactionReceipt> {
+  const timeoutMs = args.timeoutMs ?? EVM_TX_FINALITY_TIMEOUT_MS;
+  const pollIntervalMs = args.pollIntervalMs ?? EVM_TX_RECEIPT_POLL_INTERVAL_MS;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const receipt = await callEvmJsonRpc<EvmTransactionReceipt | null>({
+      rpcUrl: args.rpcUrl,
+      method: 'eth_getTransactionReceipt',
+      params: [args.txHash],
+    });
+    if (receipt && typeof receipt === 'object' && typeof receipt.blockNumber === 'string') {
+      const status = String(receipt.status || '').toLowerCase();
+      if (status && status !== '0x1' && status !== '0x01') {
+        throw new Error(`Transaction reverted with status ${receipt.status}`);
+      }
+      return receipt;
+    }
+
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, pollIntervalMs);
+    });
+  }
+
+  throw new Error(`Timed out waiting for tx finalization after ${timeoutMs}ms`);
+}
+
+function parseRpcHexQuantity(value: string, label: string): bigint {
+  const normalized = String(value || '').trim();
+  if (!/^0x[0-9a-fA-F]+$/.test(normalized)) {
+    throw new Error(`Invalid ${label} quantity`);
+  }
+  return BigInt(normalized);
+}
+
+async function resolveEip1559FeeCaps(rpcUrl: string): Promise<Eip1559FeeCaps> {
+  try {
+    const gasPriceHex = await callEvmJsonRpc<string>({
+      rpcUrl,
+      method: 'eth_gasPrice',
+      params: [],
+    });
+    const gasPrice = parseRpcHexQuantity(gasPriceHex, 'eth_gasPrice');
+    if (gasPrice <= 0n) {
+      throw new Error('eth_gasPrice returned non-positive value');
+    }
+
+    const maxFeePerGas =
+      gasPrice * 2n > DEFAULT_DEMO_MAX_FEE_PER_GAS ? gasPrice * 2n : DEFAULT_DEMO_MAX_FEE_PER_GAS;
+    const suggestedPriority =
+      gasPrice / 10n > DEFAULT_DEMO_MAX_PRIORITY_FEE_PER_GAS
+        ? gasPrice / 10n
+        : DEFAULT_DEMO_MAX_PRIORITY_FEE_PER_GAS;
+    const maxPriorityFeePerGas =
+      suggestedPriority < maxFeePerGas ? suggestedPriority : maxFeePerGas / 2n;
+    return {
+      maxPriorityFeePerGas,
+      maxFeePerGas,
+    };
+  } catch {
+    return {
+      maxPriorityFeePerGas: DEFAULT_DEMO_MAX_PRIORITY_FEE_PER_GAS,
+      maxFeePerGas: DEFAULT_DEMO_MAX_FEE_PER_GAS,
+    };
+  }
+}
+
+function buildDemoTempoTransactionRequest(greeting: string, feeCaps: Eip1559FeeCaps) {
+  const setGreetingInput = encodeSetGreetingInput(greeting);
   return {
     chain: 'tempo' as const,
     kind: 'tempoTransaction' as const,
     senderSignatureAlgorithm: 'secp256k1' as const,
     tx: {
       chainId: 42431n,
-      maxPriorityFeePerGas: 1n,
-      maxFeePerGas: 2n,
-      gasLimit: 21_000n,
-      calls: [{ to, value: 0n, input }],
+      maxPriorityFeePerGas: feeCaps.maxPriorityFeePerGas,
+      maxFeePerGas: feeCaps.maxFeePerGas,
+      gasLimit: 200_000n,
+      calls: [{ to: TEMPO_GREETING_CONTRACT, value: 0n, input: setGreetingInput }],
       accessList: [],
       nonceKey: 0n,
       nonce: 1n,
@@ -45,36 +266,60 @@ function buildDemoTempoTransactionRequest() {
   };
 }
 
-function buildDemoEip1559Request() {
-  const to = `0x${'22'.repeat(20)}` as `0x${string}`;
-  const data = '0x' as `0x${string}`;
+function buildDemoEip1559Request(greeting: string, feeCaps: Eip1559FeeCaps) {
+  const data = encodeSetGreetingInput(greeting);
   return {
     chain: 'evm' as const,
     kind: 'eip1559' as const,
     senderSignatureAlgorithm: 'secp256k1' as const,
     tx: {
-      chainId: 11155111n,
+      chainId: 5042002n,
       nonce: 7n,
-      maxPriorityFeePerGas: 1_500_000_000n,
-      maxFeePerGas: 3_000_000_000n,
-      gasLimit: 21_000n,
-      to,
-      value: 12_345n,
+      maxPriorityFeePerGas: feeCaps.maxPriorityFeePerGas,
+      maxFeePerGas: feeCaps.maxFeePerGas,
+      gasLimit: 200_000n,
+      to: ARC_TESTNET_GREETING_CONTRACT,
+      value: 0n,
       data,
       accessList: [],
     },
   };
 }
 
-type LastTempoSigned = {
-  senderHashHex: string;
-  rawTxHex: string;
-};
+function createChainDefaultGreeting(chainLabel: string): string {
+  return `Hello ${chainLabel} [${new Date().toLocaleTimeString()}]`;
+}
 
-type LastEvmSigned = {
-  txHashHex: string;
-  rawTxHex: string;
-};
+function compactHex(value: string): string {
+  if (value.length <= 20) return value;
+  return `${value.slice(0, 10)}…${value.slice(-8)}`;
+}
+
+function parseInsufficientFundsError(message: string): {
+  haveWei: bigint;
+  wantWei: bigint;
+} | null {
+  const match = /insufficient funds.*have\s+(\d+)\s+want\s+(\d+)/i.exec(message);
+  if (!match) return null;
+  try {
+    return {
+      haveWei: BigInt(match[1]!),
+      wantWei: BigInt(match[2]!),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function formatWeiToEth(wei: bigint, precision = 6): string {
+  const base = 10n ** 18n;
+  const whole = wei / base;
+  const fraction = wei % base;
+  if (fraction === 0n) return whole.toString();
+  const fractionRaw = fraction.toString().padStart(18, '0').slice(0, precision);
+  const fractionTrimmed = fractionRaw.replace(/0+$/, '');
+  return fractionTrimmed ? `${whole.toString()}.${fractionTrimmed}` : whole.toString();
+}
 
 type DemoPageTestOverrides = {
   useTatchiHook?: typeof useTatchi;
@@ -105,6 +350,8 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
   const { onchainGreeting, isLoading, fetchGreeting, error } = useSetGreetingHook();
 
   const [greetingInput, setGreetingInput] = useState('Hello from Tatchi!');
+  const [tempoGreetingInput, setTempoGreetingInput] = useState(() => createChainDefaultGreeting('Tempo'));
+  const [arcGreetingInput, setArcGreetingInput] = useState(() => createChainDefaultGreeting('Arc'));
   const [txLoading, setTxLoading] = useState(false);
   const [delegateLoading, setDelegateLoading] = useState(false);
   const [unlockLoading, setUnlockLoading] = useState(false);
@@ -120,19 +367,13 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
 
   const [tempoThresholdSignLoading, setTempoThresholdSignLoading] = useState(false);
   const [evmThresholdSignLoading, setEvmThresholdSignLoading] = useState(false);
-  const [lastTempoSigned, setLastTempoSigned] = useState<LastTempoSigned | null>(null);
-  const [lastEvmSigned, setLastEvmSigned] = useState<LastEvmSigned | null>(null);
-
-  useEffect(() => {
-    if (!nearAccountId) {
-      setLastTempoSigned(null);
-      setLastEvmSigned(null);
-      return;
-    }
-
-    setLastTempoSigned(null);
-    setLastEvmSigned(null);
-  }, [nearAccountId]);
+  const [tempoGreeting, setTempoGreeting] = useState<string | null>(null);
+  const [arcGreeting, setArcGreeting] = useState<string | null>(null);
+  const [tempoGreetingLoading, setTempoGreetingLoading] = useState(false);
+  const [arcGreetingLoading, setArcGreetingLoading] = useState(false);
+  const [tempoGreetingError, setTempoGreetingError] = useState<string | null>(null);
+  const [arcGreetingError, setArcGreetingError] = useState<string | null>(null);
+  const [thresholdEvmFundingAddress, setThresholdEvmFundingAddress] = useState<string | null>(null);
 
   const refreshSessionStatus = useCallback(async () => {
     if (!nearAccountId) return;
@@ -217,13 +458,25 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     const actionToExecute: FunctionCallAction = createGreetingAction(
       greetingInput,
     ) as FunctionCallAction;
+    const secondActionToExecute: FunctionCallAction = createGreetingAction(
+      greetingInput,
+      { postfix: 'Tx 2' },
+    ) as FunctionCallAction;
 
     setTxLoading(true);
     try {
-      await tatchi.near.executeAction({
+      await tatchi.near.signAndSendTransactions({
         nearAccountId: nearAccountId!,
-        receiverId: DEMO_CONTRACT_ID,
-        actionArgs: actionToExecute,
+        transactions: [
+          {
+            receiverId: DEMO_CONTRACT_ID,
+            actions: [actionToExecute, actionToExecute],
+          },
+          {
+            receiverId: DEMO_CONTRACT_ID,
+            actions: [secondActionToExecute],
+          },
+        ],
         options: {
           onEvent: (event) => {
             switch (event.phase) {
@@ -244,14 +497,18 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
             }
           },
           waitUntil: TxExecutionStatus.EXECUTED_OPTIMISTIC,
-          afterCall: (success: boolean, result?: ActionResult) => {
+          afterCall: (success: boolean, results?: ActionResult[]) => {
             try {
               toast.dismiss('greeting');
             } catch {}
-            const txId = result?.transactionId;
-            const isSuccess = success && result?.success !== false;
-            if (isSuccess && txId) {
-              const txLink = `${NEAR_EXPLORER_BASE_URL}/transactions/${txId}`;
+            const normalizedResults = Array.isArray(results) ? results : [];
+            const successfulResults = normalizedResults.filter((item) => item?.success !== false);
+            const latestTxId =
+              successfulResults.at(-1)?.transactionId
+              || normalizedResults.at(-1)?.transactionId;
+            const isSuccess = success && successfulResults.length > 0;
+            if (isSuccess && latestTxId) {
+              const txLink = `${NEAR_EXPLORER_BASE_URL}/transactions/${latestTxId}`;
               toast.success('Greeting updated on-chain', {
                 description: (
                   <a href={txLink} target="_blank" rel="noopener noreferrer">
@@ -262,8 +519,8 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
               setGreetingInput('');
               setTimeout(() => fetchGreeting(), 1000);
             } else {
-              const message =
-                result?.error || (isSuccess ? 'Missing transaction ID' : 'Unknown error');
+              const message = normalizedResults.find((item) => item?.error)?.error
+                || (isSuccess ? 'Missing transaction ID' : 'Unknown error');
               toast.error(`Greeting update failed: ${message}`);
             }
             setTxLoading(false);
@@ -391,15 +648,76 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     tatchi,
   ]);
 
+  const fetchTempoGreeting = useCallback(async (opts?: { silent?: boolean }) => {
+    setTempoGreetingLoading(true);
+    setTempoGreetingError(null);
+    try {
+      const greeting = await readEvmGreeting({
+        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+        contract: TEMPO_GREETING_CONTRACT,
+      });
+      setTempoGreeting(greeting);
+      return greeting;
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setTempoGreetingError(message);
+      if (!opts?.silent) {
+        toast.error(`Tempo greeting fetch failed: ${message}`);
+      }
+      return null;
+    } finally {
+      setTempoGreetingLoading(false);
+    }
+  }, []);
+
+  const fetchArcGreeting = useCallback(async (opts?: { silent?: boolean }) => {
+    setArcGreetingLoading(true);
+    setArcGreetingError(null);
+    try {
+      const greeting = await readEvmGreeting({
+        rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
+        contract: ARC_TESTNET_GREETING_CONTRACT,
+      });
+      setArcGreeting(greeting);
+      return greeting;
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setArcGreetingError(message);
+      if (!opts?.silent) {
+        toast.error(`Arc greeting fetch failed: ${message}`);
+      }
+      return null;
+    } finally {
+      setArcGreetingLoading(false);
+    }
+  }, []);
+
+  const refreshThresholdEvmFundingAddress = useCallback(async () => {
+    if (!isLoggedIn || !nearAccountId) {
+      setThresholdEvmFundingAddress(null);
+      return null;
+    }
+    try {
+      const session = await tatchi.auth.getSession(nearAccountId);
+      const address = String(session.login.thresholdEcdsaEthereumAddress || '').trim();
+      setThresholdEvmFundingAddress(address || null);
+      return address || null;
+    } catch {
+      setThresholdEvmFundingAddress(null);
+      return null;
+    }
+  }, [isLoggedIn, nearAccountId, tatchi]);
+
   const handleSignTempoThresholdTx = useCallback(async () => {
-    if (!nearAccountId) return;
+    if (!canExecuteGreeting(tempoGreetingInput, isLoggedIn, nearAccountId)) return;
     const toastId = 'tempo-threshold-sign';
     setTempoThresholdSignLoading(true);
-    toast.loading('Signing Tempo transaction with threshold signer…', { id: toastId });
+    toast.loading('Signing Tempo transaction…', { id: toastId });
     try {
-      const request = buildDemoTempoTransactionRequest();
+      const feeCaps = await resolveEip1559FeeCaps(FRONTEND_CONFIG.tempoRpcUrl);
+      const request = buildDemoTempoTransactionRequest(tempoGreetingInput.trim(), feeCaps);
       const signed = await tatchi.tempo.signTempo({
-        nearAccountId,
+        nearAccountId: nearAccountId!,
         request,
       });
 
@@ -407,28 +725,63 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
         throw new Error(`Unexpected signing result kind: ${signed.kind}`);
       }
 
-      setLastTempoSigned({
-        senderHashHex: signed.senderHashHex,
+      toast.loading('Dispatching Tempo transaction…', { id: toastId });
+      const txHash = await sendRawEvmTransaction({
+        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
         rawTxHex: signed.rawTxHex,
       });
-      toast.success('Tempo threshold signature ready', { id: toastId });
+
+      toast.loading('Tempo transaction broadcasted, waiting for finalization…', { id: toastId });
+      await waitForEvmTransactionFinalization({
+        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+        txHash,
+      });
+      await fetchTempoGreeting({ silent: true });
+      await refreshThresholdEvmFundingAddress();
+
+      toast.success('Tempo transaction finalized', {
+        id: toastId,
+        description: (
+          <span>
+            Tx hash:&nbsp;
+            <code>{compactHex(txHash)}</code>
+          </span>
+        ),
+      });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
-      toast.error(`Tempo threshold signing failed: ${message}`, { id: toastId });
+      const insufficient = parseInsufficientFundsError(message);
+      if (insufficient) {
+        toast.error(
+          `Tempo sender has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`,
+          { id: toastId },
+        );
+      } else {
+        toast.error(`Tempo transaction failed: ${message}`, { id: toastId });
+      }
     } finally {
       setTempoThresholdSignLoading(false);
     }
-  }, [nearAccountId, tatchi]);
+  }, [
+    canExecuteGreeting,
+    fetchTempoGreeting,
+    isLoggedIn,
+    nearAccountId,
+    refreshThresholdEvmFundingAddress,
+    tatchi,
+    tempoGreetingInput,
+  ]);
 
   const handleSignEvmThresholdTx = useCallback(async () => {
-    if (!nearAccountId) return;
+    if (!canExecuteGreeting(arcGreetingInput, isLoggedIn, nearAccountId)) return;
     const toastId = 'evm-threshold-sign';
     setEvmThresholdSignLoading(true);
-    toast.loading('Signing EIP-1559 transaction with threshold signer…', { id: toastId });
+    toast.loading('Signing EVM transaction…', { id: toastId });
     try {
-      const request = buildDemoEip1559Request();
+      const feeCaps = await resolveEip1559FeeCaps(FRONTEND_CONFIG.arcRpcUrl);
+      const request = buildDemoEip1559Request(arcGreetingInput.trim(), feeCaps);
       const signed = await tatchi.tempo.signTempo({
-        nearAccountId,
+        nearAccountId: nearAccountId!,
         request,
       });
 
@@ -436,18 +789,65 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
         throw new Error(`Unexpected signing result kind: ${signed.kind}`);
       }
 
-      setLastEvmSigned({
-        txHashHex: signed.txHashHex,
+      toast.loading('Dispatching EVM transaction…', { id: toastId });
+      const txHash = await sendRawEvmTransaction({
+        rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
         rawTxHex: signed.rawTxHex,
       });
-      toast.success('EVM threshold signature ready', { id: toastId });
+
+      toast.loading('EVM transaction broadcasted, waiting for finalization…', { id: toastId });
+      await waitForEvmTransactionFinalization({
+        rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
+        txHash,
+      });
+      await fetchArcGreeting({ silent: true });
+      await refreshThresholdEvmFundingAddress();
+
+      toast.success('EVM transaction finalized', {
+        id: toastId,
+        description: (
+          <span>
+            Tx hash:&nbsp;
+            <code>{compactHex(txHash)}</code>
+          </span>
+        ),
+      });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
-      toast.error(`EVM threshold signing failed: ${message}`, { id: toastId });
+      const insufficient = parseInsufficientFundsError(message);
+      if (insufficient) {
+        toast.error(
+          `ARC sender has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`,
+          { id: toastId },
+        );
+      } else {
+        toast.error(`EVM transaction failed: ${message}`, { id: toastId });
+      }
     } finally {
       setEvmThresholdSignLoading(false);
     }
-  }, [nearAccountId, tatchi]);
+  }, [
+    arcGreetingInput,
+    canExecuteGreeting,
+    fetchArcGreeting,
+    isLoggedIn,
+    nearAccountId,
+    refreshThresholdEvmFundingAddress,
+    tatchi,
+  ]);
+
+  useEffect(() => {
+    if (!isLoggedIn || !nearAccountId) return;
+    void fetchTempoGreeting({ silent: true });
+    void fetchArcGreeting({ silent: true });
+    void refreshThresholdEvmFundingAddress();
+  }, [
+    fetchArcGreeting,
+    fetchTempoGreeting,
+    isLoggedIn,
+    nearAccountId,
+    refreshThresholdEvmFundingAddress,
+  ]);
 
   if (!isLoggedIn || !nearAccountId) {
     return null;
@@ -530,33 +930,43 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       <div className="action-section">
         <div className="demo-divider" aria-hidden="true" />
         <h2 className="demo-subtitle">Tempo + EVM Threshold Signers</h2>
-        <div className="action-text">
-          Login provisions the threshold signer session. Signing uses canonical SDK session state
-          directly.
-        </div>
-
-        <div
-          style={{
-            marginTop: 12,
-            background: 'var(--fe-bg-secondary)',
-            border: '1px solid var(--fe-border)',
-            borderRadius: 'var(--fe-radius-lg)',
-            padding: 'var(--fe-gap-3)',
-            fontSize: '0.9rem',
-            color: 'var(--fe-text)',
-          }}
-        >
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
-            <div>
-              <strong>Provisioning path:</strong>&nbsp;login/register/bootstrap flow
-            </div>
-            <div>
-              <strong>Signing source:</strong>&nbsp;canonical threshold session state
-            </div>
-          </div>
+        <div className="action-text funding-instructions">
+          <span>Fund this threshold EVM signer address with native gas tokens (Tempo + Arc):</span>
+          <code>
+            {thresholdEvmFundingAddress || 'Address unavailable. Sign once to bootstrap threshold ECDSA.'}
+          </code>
         </div>
 
         <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
+          <div className="evm-greeting-stack" style={{ display: 'grid', gap: 8 }}>
+            <div style={{ fontSize: '0.9rem', color: 'var(--fe-text-secondary)' }}>Tempo Greeting</div>
+            <div className="on-chain-greeting-box">
+              <button
+                onClick={() => void fetchTempoGreeting()}
+                disabled={tempoGreetingLoading}
+                title="Refresh Tempo Greeting"
+                className="refresh-icon-button"
+                aria-busy={tempoGreetingLoading}
+              >
+                <Refresh size={22} strokeWidth={2} />
+              </button>
+              <p>
+                <strong>{tempoGreeting ?? '...'}</strong>
+              </p>
+            </div>
+            <div className="greeting-input-group" style={{ marginBottom: 0 }}>
+              <input
+                type="text"
+                name="tempo-greeting"
+                value={tempoGreetingInput}
+                onChange={(event) => setTempoGreetingInput(event.target.value)}
+                placeholder="Enter Tempo greeting"
+              />
+            </div>
+          </div>
+          {tempoGreetingError ? (
+            <div className="error-message">Tempo greeting error: {tempoGreetingError}</div>
+          ) : null}
           <LoadingButton
             onClick={handleSignTempoThresholdTx}
             loading={tempoThresholdSignLoading}
@@ -564,9 +974,42 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
             variant="primary"
             size="medium"
             style={{ width: '100%' }}
+            disabled={
+              !canExecuteGreeting(tempoGreetingInput, isLoggedIn, nearAccountId)
+              || tempoThresholdSignLoading
+            }
           >
-            Sign Tempo Threshold Transaction
+            Sign Tempo Transaction
           </LoadingButton>
+
+          <div className="evm-greeting-stack" style={{ display: 'grid', gap: 8 }}>
+            <div style={{ fontSize: '0.9rem', color: 'var(--fe-text-secondary)' }}>Arc Greeting</div>
+            <div className="on-chain-greeting-box">
+              <button
+                onClick={() => void fetchArcGreeting()}
+                disabled={arcGreetingLoading}
+                title="Refresh Arc Greeting"
+                className="refresh-icon-button"
+                aria-busy={arcGreetingLoading}
+              >
+                <Refresh size={22} strokeWidth={2} />
+              </button>
+              <p>
+                <strong>{arcGreeting ?? '...'}</strong>
+              </p>
+            </div>
+            <div className="greeting-input-group" style={{ marginBottom: 0 }}>
+              <input
+                type="text"
+                name="arc-greeting"
+                value={arcGreetingInput}
+                onChange={(event) => setArcGreetingInput(event.target.value)}
+                placeholder="Enter Arc greeting"
+              />
+            </div>
+          </div>
+          {arcGreetingError ? <div className="error-message">Arc greeting error: {arcGreetingError}</div> : null}
+
           <LoadingButton
             onClick={handleSignEvmThresholdTx}
             loading={evmThresholdSignLoading}
@@ -574,55 +1017,14 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
             variant="primary"
             size="medium"
             style={{ width: '100%' }}
+            disabled={
+              !canExecuteGreeting(arcGreetingInput, isLoggedIn, nearAccountId)
+              || evmThresholdSignLoading
+            }
           >
-            Sign EVM Threshold EIP-1559 Transaction
+            Sign EVM Transaction
           </LoadingButton>
         </div>
-
-        {lastTempoSigned ? (
-          <div
-            style={{
-              marginTop: 12,
-              background: 'var(--fe-bg-secondary)',
-              border: '1px solid var(--fe-border)',
-              borderRadius: 'var(--fe-radius-lg)',
-              padding: 'var(--fe-gap-3)',
-              fontSize: '0.85rem',
-              color: 'var(--fe-text)',
-            }}
-          >
-            <div>
-              <strong>Tempo sender hash:</strong>{' '}
-              <code>{shortenHex(lastTempoSigned.senderHashHex, 42)}</code>
-            </div>
-            <div style={{ marginTop: 6 }}>
-              <strong>Tempo raw tx:</strong> <code>{shortenHex(lastTempoSigned.rawTxHex, 42)}</code>
-            </div>
-          </div>
-        ) : null}
-
-        {lastEvmSigned ? (
-          <div
-            style={{
-              marginTop: 10,
-              background: 'var(--fe-bg-secondary)',
-              border: '1px solid var(--fe-border)',
-              borderRadius: 'var(--fe-radius-lg)',
-              padding: 'var(--fe-gap-3)',
-              fontSize: '0.85rem',
-              color: 'var(--fe-text)',
-            }}
-          >
-            <div>
-              <strong>EIP-1559 tx hash:</strong>{' '}
-              <code>{shortenHex(lastEvmSigned.txHashHex, 42)}</code>
-            </div>
-            <div style={{ marginTop: 6 }}>
-              <strong>EIP-1559 raw tx:</strong>{' '}
-              <code>{shortenHex(lastEvmSigned.rawTxHex, 42)}</code>
-            </div>
-          </div>
-        ) : null}
       </div>
 
       <div className="action-section">

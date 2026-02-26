@@ -15,6 +15,8 @@ export interface LoginState {
   nearAccountId: AccountId | null;
   publicKey: string | null;
   userData: ClientUserData | null;
+  thresholdEcdsaEthereumAddress?: string | null;
+  thresholdEcdsaGroupPublicKeyB64u?: string | null;
 }
 
 export type ThemeName = 'light' | 'dark';
@@ -55,6 +57,7 @@ export interface RegistrationResult {
   nearAccountId?: AccountId;
   transactionId?: string | null;
   thresholdEcdsaEthereumAddress?: string;
+  thresholdEcdsaGroupPublicKeyB64u?: string;
 }
 
 export interface LoginResult {
@@ -166,6 +169,8 @@ export interface TatchiConfigsInput {
    */
   relayerAccount?: string;
   nearExplorerUrl?: string; // NEAR Explorer URL for transaction links
+  tempoExplorerUrl?: string; // Tempo explorer URL for contract links
+  evmExplorerUrl?: string; // EVM explorer URL for contract links
   /**
    * Default signing mode used by higher-level convenience helpers and UI wrappers when a per-call
    * `signerMode` is not explicitly provided.
@@ -257,6 +262,8 @@ export interface TatchiConfigs {
   appearance: AppearanceConfig;
   relayerAccount: string;
   nearExplorerUrl?: string;
+  tempoExplorerUrl?: string;
+  evmExplorerUrl?: string;
   signerMode: SignerMode;
   signingSessionDefaults: {
     ttlMs: number;

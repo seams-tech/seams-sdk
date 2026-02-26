@@ -26,6 +26,10 @@
   margin-bottom: var(--fe-gap-2);
 }
 
+.evm-greeting-stack .on-chain-greeting-box {
+  margin-bottom: 0;
+}
+
 .on-chain-greeting-box p {
   margin: 0;
   font-size: 0.9rem;
@@ -170,6 +174,22 @@
   font-size: 1rem;
   color: var(--fe-text-secondary);
   margin-bottom: 1rem;
+}
+
+.funding-instructions {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.funding-instructions code {
+  display: block;
+  width: 100%;
+  padding: 0.7rem 0.95rem;
+  border-radius: var(--fe-radius-lg);
+  background: var(--w3a-colors-surface2);
+  border: 1px solid var(--fe-border);
+  color: var(--fe-text);
+  word-break: break-all;
 }
 
 .demo-divider {
