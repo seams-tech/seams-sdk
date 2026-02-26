@@ -7,7 +7,7 @@ Last updated: 2026-02-25
 - Threshold ECDSA signing reads `keyRef` and session state from one canonical store only.
 - `signTempo` does not trigger hidden bootstrap.
 - There is no legacy fallback for participant IDs, JWT, or session ID.
-- In `threshold-signer` warm-session mode, successful login must produce a valid threshold ECDSA `keyRef` and session bundle.
+- Threshold ECDSA session creation is explicit (`registerPasskey` provisioning or `bootstrapEcdsaSession`), never transaction-time.
 - Worker reset returns deterministic typed status (`not_found`, `expired`, `exhausted`) with explicit reconnect guidance, never silent retry with stale state.
 - Threshold ECDSA sign requests for the same account are serialized FIFO across Tempo and EVM in the SDK path.
 - Temporary threshold-trace debug instrumentation is not part of steady-state hot paths.
@@ -26,17 +26,17 @@ The SDK owns a single threshold ECDSA session record keyed by wallet/account con
 - `thresholdSessionKind`, `thresholdSessionId`, `thresholdSessionJwt` (when JWT mode is used)
 - `expiresAtMs`, `remainingUses`
 - `updatedAtMs`
-- `source` (`login`, `registration`, or `manual-bootstrap`)
+- `source` (`registration` or `manual-bootstrap`)
 
 ### 2.2 Ownership Model
 
-- Writers are limited to login warm-up, registration provisioning, and explicit reconnect/manual bootstrap.
+- Writers are limited to registration provisioning and explicit reconnect/manual bootstrap.
 - Readers are signing flows.
 - UI components only mirror state for display and do not mutate canonical threshold session state directly.
 
 ### 2.3 Flow Boundaries
 
-1. Login/provisioning mints threshold ECDSA session state and writes the canonical record.
+1. Registration/bootstrap mints threshold ECDSA session state and writes the canonical record.
 2. Signing validates the canonical record and worker cache status (`peekPrfFirstForThresholdSession`) before confirmation/sign orchestration.
 3. Missing or invalid state fails closed with typed errors and routes to explicit reconnect/provision flows.
 
@@ -117,6 +117,6 @@ Server-side instrumentation for threshold ECDSA presign/sign should be treated a
 
 3. Wallet-origin coordinator and presign pool scheduling: `client/src/core/signingEngine/orchestration/walletOrigin/thresholdEcdsaCoordinator.ts`.
 
-4. Login warm bootstrap path: `client/src/core/TatchiPasskey/login.ts`.
+4. ECDSA bootstrap path: `client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionActivation.ts`, `client/src/core/TatchiPasskey/registration.ts`.
 
 5. Server route timings and presign prioritization: `server/src/router/express/routes/thresholdEcdsa.ts`.

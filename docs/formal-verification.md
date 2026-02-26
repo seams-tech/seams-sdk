@@ -1,6 +1,6 @@
 # Formal Verification Plan (Coq)
 
-Last updated: 2026-02-18
+Last updated: 2026-02-26
 
 ## Goal
 
@@ -35,6 +35,17 @@ Use Coq to formally verify security-critical cryptographic logic in Rust, focusi
   - `frost-ed25519`
   - `threshold-signatures` (pinned rev)
 - Browser runtime, network transport, and relay durability semantics.
+
+## What Formal Verification Covers vs Testing
+
+- Formal verification in this plan targets both:
+  - cryptographic/algebraic correctness of the targeted protocol math, and
+  - implementation-level correctness properties of our Rust code for those targets (for example deterministic encoding/hash preimages, signature-finalize invariants, share-mapping relations, and reject/accept conditions at protocol composition boundaries).
+- Formal verification does not replace integration/E2E testing. We still use integration/E2E suites to validate runtime behavior not modeled in Coq, including:
+  - network transport behavior, retries, and ordering effects,
+  - relay/store durability behavior and operational failure modes,
+  - process/runtime wiring across WASM/server/client boundaries.
+- Coq-generated vector parity tests are the bridge between model and implementation for in-scope functions: they detect byte-level divergence between proofs and Rust behavior.
 
 ## Specification Sources and Weighting
 
@@ -89,7 +100,9 @@ Useful for rationale and lineage, but lower priority than pinned `near/threshold
   - Pinned `near/threshold-signatures` docs + pinned code semantics
   - RFC constraints (for Ed25519/FROST semantics)
   - Cait-Sith docs
-- Every theorem in `formal/docs/proof-inventory.md` must cite one Tier 0 source and may cite Tier 1/Tier 2 as supporting context.
+- Every theorem in `formal-verification/docs/proof-inventory.md` must declare a source class and cite at least one primary source.
+- Tier 0 citation is required for theorem targets that depend on `threshold-signatures` behavior.
+- Local encoding/hash theorems may use local Rust implementation semantics as the primary source class, with standards references when applicable.
 
 ## Proof Objectives (Priority)
 
@@ -124,7 +137,7 @@ Useful for rationale and lineage, but lower priority than pinned `near/threshold
   - attacker model
   - security and correctness properties
 - [ ] Freeze canonical theorem names and mapping to Rust functions.
-- [ ] Freeze spec source mapping in `formal/docs/proof-inventory.md`:
+- [ ] Freeze spec source mapping in `formal-verification/docs/proof-inventory.md`:
   - theorem -> Rust function
   - theorem -> Tier 0 source URL(s)
   - supporting Tier 1/Tier 2 URLs when used
@@ -137,12 +150,12 @@ Definition of done:
 ## Phase 1: Create Formal Workspace
 
 - [ ] Create top-level workspace:
-  - `formal/coq`
-  - `formal/vectors/generated`
-  - `formal/scripts`
-  - `formal/docs`
+  - `formal-verification/coq`
+  - `formal-verification/vectors/generated`
+  - `formal-verification/scripts`
+  - `formal-verification/docs`
 - [ ] Add Coq build files (`_CoqProject`, `Makefile`) and deterministic tooling entrypoints.
-- [ ] Add `formal/docs/proof-inventory.md` with theorem coverage table.
+- [ ] Add `formal-verification/docs/proof-inventory.md` with theorem coverage table.
 
 Definition of done:
 
@@ -153,7 +166,7 @@ Definition of done:
 - [ ] Model and prove hex/decimal/rlp primitives (`codec.rs`) used by signing pipelines.
 - [ ] Prove EIP-1559 hash and signed-transaction encoding relations (`eip1559.rs`).
 - [ ] Prove Tempo sender-hash and signed-payload encoding relations (`tempo_tx.rs`).
-- [ ] Export Coq-generated vectors to `formal/vectors/generated/*.json`.
+- [ ] Export Coq-generated vectors to `formal-verification/vectors/generated/*.json`.
 - [ ] Add/extend Rust parity tests in:
   - `crates/signer-core/tests/baseline_behavior.rs`
   - `crates/signer-core/fixtures/signing-vectors/`
@@ -200,6 +213,8 @@ Definition of done:
 
 - [ ] Add CI job:
   - `coqc` proof build
+  - `coqchk` kernel re-check
+  - fail on `Admitted` and `Axiom` usage in theorem files
   - vector export consistency check
   - Rust parity tests
 - [ ] Add guard script preventing Rust crypto-function changes without proof-inventory updates.
@@ -212,10 +227,10 @@ Definition of done:
 ## Deliverables
 
 - `docs/formal-verification.md` (this plan)
-- `formal/docs/model-boundary.md`
-- `formal/docs/proof-inventory.md`
-- `formal/coq/**` theorem files
-- `formal/vectors/generated/*.json`
+- `formal-verification/docs/model-boundary.md`
+- `formal-verification/docs/proof-inventory.md`
+- `formal-verification/coq/**` theorem files
+- `formal-verification/vectors/generated/*.json`
 - Updated `signer-core` vector fixtures + parity tests
 - CI gate for formal + parity checks
 
@@ -230,7 +245,7 @@ Definition of done:
 
 ## Immediate Next Actions
 
-- [ ] Create `formal/` skeleton and baseline Coq build in one PR.
+- [ ] Create `formal-verification/` skeleton and baseline Coq build in one PR.
 - [ ] Implement first pilot proof on:
   - `crates/signer-core/src/secp256k1.rs::map_additive_share_to_threshold_signatures_share_2p`
 - [ ] Wire pilot proof output into `crates/signer-core/tests/baseline_behavior.rs`.

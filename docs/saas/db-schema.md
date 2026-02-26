@@ -176,6 +176,8 @@ Billing support:
 - Card payments via Stripe:
   - map organization billing account to Stripe customer,
   - store external payment method references and default method per billing account,
+  - persist external Stripe payment intent reference per payment attempt for webhook correlation,
+  - persist processed Stripe webhook callback events (event id + provider ref + linked payment intent) for idempotency and auditability,
   - reconcile invoice/payment status from verified Stripe webhook events.
   - authorization rule: only `admin` role can create/delete card payment method records and set the default card payment method.
 - Stablecoin settlement for `USDC` and `USDT`:
@@ -183,6 +185,7 @@ Billing support:
   - lock quote terms (asset, amount, network, expiry) per invoice payment intent,
   - allocate destination details per payment intent,
   - track on-chain confirmations and settlement outcomes.
+  - persist settlement risk metadata (`settled_at_ms`, `reorg_risk_window_ends_at_ms`) and expose `withinReorgRiskWindow` for post-settlement monitoring.
   - v1 finality policy defaults:
     - `Ethereum`: `12` confirmations, `360` minute confirmation timeout, `24` hour reorg-risk window.
     - `Base`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.

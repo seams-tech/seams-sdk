@@ -88,6 +88,13 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - Signed payloads with rotating secrets.
 - Retry strategy with backoff and dead-letter queue handling.
 - Delivery logs with request/response metadata and replay action.
+- Webhook list pagination semantics:
+  - Cursor pagination uses `limit` + opaque `cursor` token and returns `nextCursor` when more rows exist.
+  - Stable sort order is descending by timestamp then id:
+    - deliveries: (`createdAt`, `id`)
+    - attempts: (`attemptedAt`, `id`)
+    - dead-letters: (`movedToDlqAt`, `id`)
+  - Invalid cursor format returns `400` with code `invalid_query`.
 
 ### 9) Billing and payments
 - Billing overview with current plan, active-wallet usage, credit balance, invoice status, and upcoming charge estimate.
@@ -105,7 +112,15 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
   - `USDC` and `USDT` can be funded from any supported chain. Current supported chains: `Ethereum`, `Base`, `Tempo`, `Arc Circle`, `NEAR`.
   - Create payment quote and payment intent for an invoice.
   - Issue asset/network-specific destination details and quote expiry.
+  - Quote semantics:
+    - quote amount is a snapshot of invoice outstanding at quote creation time.
+    - quote is single-use and cannot back multiple payment intents.
+    - quote consumption requires amount to still match current invoice outstanding; stale quotes are rejected.
   - Track confirmations and settlement status through completion.
+  - Surface post-settlement risk metadata on payment intents:
+    - `settledAt`
+    - `reorgRiskWindowEndsAt`
+    - `withinReorgRiskWindow`
   - Finality thresholds and risk windows (v1 defaults):
     - `Ethereum`: `12` confirmations, `360` minute confirmation timeout, `24` hour post-settlement reorg-risk window.
     - `Base`: `20` confirmations, `120` minute confirmation timeout, `12` hour post-settlement reorg-risk window.
@@ -115,6 +130,7 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - Reconciliation and controls:
   - Invoices are single-rail: fully paid by `Stripe/card` or `stablecoin` rail; mixed-rail settlement is rejected.
   - Payment rail lock is set on first payment intent for an invoice and cannot change while invoice is open.
+  - At most one active payment intent is allowed per invoice per rail (`CREATED`/`ACTION_REQUIRED`/`PENDING`/`CONFIRMING`).
   - Detect underpayment/overpayment and apply rules (credit, partial balance due, or manual review).
   - Immutable payment ledger tying invoices, payment attempts, and settlement evidence.
   - Webhook events for invoice status changes and payment settlement.
@@ -167,9 +183,13 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - `GET/POST /console/key-exports`, `POST /console/key-exports/:id/approve`
 - `GET/POST/DELETE /console/api-keys`, `POST /console/api-keys/:id/rotate`
 - `GET/POST/PATCH/DELETE /console/webhooks`, `GET /console/webhooks/:id/deliveries`, `POST /console/webhooks/:id/replay`
+- `GET /console/webhooks/:id/attempts`, `GET /console/webhooks/:id/dead-letters` (support `limit`/`cursor` pagination)
 - `GET /console/billing/overview`, `GET /console/billing/invoices`, `GET /console/billing/invoices/:id`
+- `GET /console/billing/invoices/:id/line-items`, `POST /console/billing/invoices/generate`
+- `GET /console/billing/usage/monthly-active-wallets`, `POST /console/billing/usage/events`
 - `GET/POST/DELETE /console/billing/payment-methods`, `POST /console/billing/payment-methods/:id/default`
 - `POST /console/billing/stripe/setup-intent`, `POST /console/billing/stripe/payment-intent`
+- `POST /console/billing/stripe/webhook` (provider callback endpoint; shared-secret protected)
 - `GET /console/billing/stablecoins/assets`, `POST /console/billing/stablecoins/quotes`, `POST /console/billing/stablecoins/payment-intents`
 - `GET /console/billing/stablecoins/payment-intents/:id`, `POST /console/billing/stablecoins/payment-intents/:id/cancel`
 

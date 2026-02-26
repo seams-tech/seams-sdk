@@ -1,114 +1,69 @@
-# PRF Session Persistence Plan (Refresh-Only)
+# PRF Session Persistence Plan (Sealed Refresh-Only)
 
 Date updated: February 26, 2026
 
 ## Objective
 
-Keep threshold signing unlocked across browser refresh in the same tab, without requiring a new TouchID/WebAuthn prompt, using a two-phase rollout:
+Keep threshold signing unlocked across browser refresh in the same tab without requiring a new TouchID/WebAuthn prompt by implementing only:
 
-- Phase 1: plaintext `PRF.first` persisted in wallet-origin `sessionStorage` for fast delivery.
-- Phase 2: replace plaintext persistence with `shamir-3-pass-rs` sealed persistence.
+- `signingSessionPersistenceMode: 'sealed_refresh_v1'` (opt-in)
 
-Scope for this plan:
+This plan intentionally skips `plaintext_refresh_v1`.
 
-- Persist across refresh.
+## Scope
+
+- Persist across refresh in the same tab.
 - Do not persist across tab close.
 - Wallet-iframe mode is the canonical runtime.
 - Use `shamir-3-pass-rs`: https://github.com/peitalin/shamir-3-pass-rs
 
 ## Non-Goals
 
-- XSS defense redesign (already handled separately via cross-origin wallet iframe + CSP hardening).
+- XSS defense redesign (handled separately via cross-origin wallet iframe + CSP hardening).
 - Surviving browser restart.
 - Long-term key escrow.
 
-## Two-Phase Delivery Strategy
-
-### Phase 1 (Interim): Plaintext Session Storage
-
-- Store plaintext `prfFirstB64u` in wallet-origin `sessionStorage`.
-- Rehydrate passkey-confirm worker cache from `sessionStorage` after refresh.
-- Restrict to wallet-iframe runtime and tab lifetime only.
-- Keep strict TTL/remaining-uses/cleanup semantics aligned with threshold session policy.
-
-### Phase 2 (Target): Sealed Session Storage with `shamir-3-pass-rs`
-
-- Replace plaintext record with sealed blob `enc_s(PRF.first)` in `sessionStorage`.
-- Perform seal/rehydrate protocol in worker using `shamir-3-pass-rs`.
-- Keep plaintext only in worker memory and remove Phase 1 plaintext path.
-
-## Phase 1 Interim Design (Plaintext)
+## Target Design (`sealed_refresh_v1`)
 
 1. `PRF.first` is obtained during login/auth and delivered to the passkey-confirm worker.
-2. Main thread persists `prfFirstB64u` plus session metadata in wallet-origin `sessionStorage`.
-3. After refresh, main thread loads the record and asks worker to rehydrate in-memory cache.
-4. Signing uses worker cache as today; no additional WebAuthn prompt unless record is missing/expired/invalid.
-
-## Phase 2 Target Design (Sealed)
-
-1. `PRF.first` is obtained during login/auth and delivered to the passkey-confirm worker.
-2. Worker uses `shamir-3-pass-rs` to produce a server-layer encrypted blob `enc_s(PRF.first)` without revealing plaintext to server.
-3. Main thread stores only the sealed blob in wallet-origin `sessionStorage`.
+2. Worker runs 3-pass seal protocol and produces sealed blob `enc_s(PRF.first)` without revealing plaintext to server.
+3. Main thread stores only sealed blob + metadata in wallet-origin `sessionStorage`.
 4. After refresh, main thread reads sealed blob and sends it to worker.
-5. Worker performs 3-pass unwrap with server and restores plaintext `PRF.first` into worker memory cache only.
-6. Signing uses worker cache as today; no additional WebAuthn prompt unless sealed blob is missing/expired/invalid.
+5. Worker runs 3-pass unwrap with server and restores plaintext `PRF.first` into worker memory cache only.
+6. Signing uses worker cache as today; no additional WebAuthn prompt unless record is missing/expired/invalid.
 
-In this target phase, plaintext `PRF.first` never lands in `sessionStorage`, `localStorage`, or IndexedDB.
+Plaintext `PRF.first` must never be persisted in `sessionStorage`, `localStorage`, or IndexedDB.
 
-## Phase 2 Protocol
+## 3-Pass Protocol
 
 Notation:
 
-- `E_k(x)`: commutative encryption with key `k`.
-- `D_k(x)`: corresponding decryption.
-- `k_s`: server KEK.
-- `k1`, `k2`: worker-ephemeral client keys from secure RNG.
+- `E_k(x)`: commutative encryption with key `k`
+- `D_k(x)`: corresponding decryption
+- `k_s`: server KEK
+- `k1`, `k2`: worker-ephemeral client keys from secure RNG
 
-### A. Seal for Storage (during login/bootstrap)
+### A) Seal for Storage
 
 1. Worker receives plaintext `PRF.first`.
 2. Worker computes `a = E_k1(PRF)`.
 3. Worker calls authenticated server endpoint with `a`.
 4. Server returns `b = E_ks(a)`.
 5. Worker computes `sealed = D_k1(b) = E_ks(PRF)`.
-6. Worker zeroizes `k1`, `a`, `b` buffers and asks main thread to persist `sealed`.
+6. Worker zeroizes `k1`, `a`, `b` and asks main thread to persist `sealed`.
 
-Server never sees plaintext `PRF`.
-
-### B. Rehydrate after Refresh
+### B) Rehydrate After Refresh
 
 1. Main thread reads `sealed = E_ks(PRF)` from `sessionStorage` and sends it to worker.
 2. Worker computes `d = E_k2(sealed) = E_k2(E_ks(PRF))`.
 3. Worker sends `d` to authenticated server endpoint.
 4. Server returns `e = D_ks(d) = E_k2(PRF)`.
 5. Worker computes `PRF = D_k2(e)` and repopulates in-memory PRF cache.
-6. Worker zeroizes `k2`, `d`, `e` buffers.
+6. Worker zeroizes `k2`, `d`, `e`.
 
-Server still never sees plaintext `PRF`.
+Server never sees plaintext `PRF`.
 
-## Storage Model
-
-### Phase 1 Key (Plaintext)
-
-Wallet-origin `sessionStorage` key:
-
-- `tatchi:threshold-prf-plain:v1:<thresholdSessionId>`
-
-Value shape:
-
-```json
-{
-  "v": 1,
-  "alg": "plain-v1",
-  "thresholdSessionId": "....",
-  "prfFirstB64u": "....",
-  "expiresAtMs": 0,
-  "remainingUses": 0,
-  "updatedAtMs": 0
-}
-```
-
-### Phase 2 Key (Sealed)
+## Storage Model (Sealed Only)
 
 Wallet-origin `sessionStorage` key:
 
@@ -131,25 +86,23 @@ Value shape:
 
 Rules:
 
-- TTL and remaining uses must be clamped to threshold-session policy.
-- On logout, lock, session expiry, or account switch, remove this record.
-- Phase 2 must never store raw `prfFirstB64u`.
+- Clamp TTL and remaining uses to threshold-session policy.
+- Delete on logout, lock, session expiry, account switch, exhaustion, unwrap failure, or shape/version mismatch.
+- Reject unknown versions explicitly.
 
-## Auth Model for Worker -> Server (Phase 2)
+## Auth Model (Worker -> Server)
 
-Either auth mode is supported:
+Either mode is supported:
 
-1. `HttpOnly` cookie session (preferred when available):
-   - Worker `fetch(..., { credentials: "include" })`.
-   - Cross-origin CORS must allow credentials and exact wallet origin.
+1. `HttpOnly` cookie session (preferred):
+   - Worker uses `fetch(..., { credentials: "include" })`.
+   - CORS allows credentials and exact wallet origin.
 2. Bearer JWT:
    - Worker sets `Authorization: Bearer <token>`.
 
-Both modes require server-side auth before any 3-pass operation.
+Server authenticates before any 3-pass operation.
 
-## API Contract (Server, Phase 2)
-
-Add dedicated authenticated endpoints:
+## API Contract (Server)
 
 1. `POST /threshold-ecdsa/prf-seal/apply-server-seal`
    - Input: `ciphertext` (`E_k1(PRF)`), `thresholdSessionId`, metadata/version.
@@ -160,162 +113,92 @@ Add dedicated authenticated endpoints:
 
 Server requirements:
 
-- Enforce authenticated principal matches `thresholdSessionId` ownership.
-- Validate session not expired/exhausted.
+- Enforce authenticated principal owns `thresholdSessionId`.
+- Enforce session TTL/remainingUses.
 - Rate-limit and audit both endpoints.
 - Never log ciphertext payloads.
 
-## Server SDK Module Shape (Phase 2)
+## Server Module Status (Completed)
 
-Server-side shamir3pass unlock routes must be implemented as a standalone module, not embedded directly inside existing threshold ECDSA route files.
+- [x] Standalone server-SDK module for PRF seal/unlock routes.
+- [x] Endpoints `apply-server-seal` and `remove-server-seal` with auth/session binding.
+- [x] Router-option configuration surface for SDK consumers.
+- [x] Service factory with pluggable session-policy adapter, cipher adapter, consume policy, guard/audit hooks.
+- [x] ECDSA auth-session-store adapter for ownership + TTL/uses enforcement.
+- [x] Helper builders for cipher adapter + route-options composition.
+- [x] Rate-limit guard backends (in-memory/Upstash/Redis-TCP) wired.
+- [x] Audit sink helper wired to structured logs/metrics.
+- [x] Integration tests for owner mismatch, expired/exhausted session, status mapping, and audit redaction.
 
-Module requirements:
+## Client/Worker Integration Plan (`sealed_refresh_v1`)
 
-- Provide a dedicated server-SDK module (for example `server/src/threshold/session/prfSessionSeal/*`) with:
-  - route handlers for `apply-server-seal` and `remove-server-seal`,
-  - request/response validation,
-  - auth/session ownership checks,
-  - audit/rate-limit hooks,
-  - pluggable cryptography adapter around `shamir-3-pass-rs` runtime.
-- Export explicit registration helpers for both router stacks:
-  - Express registration function,
-  - Cloudflare handler/registration function.
-- Expose configuration via server SDK/router options so apps can enable/disable and configure routes without patching core route files.
-- Keep module loading opt-in and fail-closed when module or config is absent.
-
-Integration requirements:
-
-- `createRelayRouter(...)` and `createCloudflareRouter(...)` should call module registration only when the module is configured/enabled.
-- Existing threshold ECDSA route modules should remain focused on core ECDSA flows; no duplicate unlock logic should be scattered across route files.
-
-## Client/Worker Integration Plan
-
-### Phase 1 Integration (Plaintext)
-
-1. Worker message surface:
-   - add `THRESHOLD_PRF_FIRST_CACHE_PERSIST_PLAINTEXT`,
-   - add `THRESHOLD_PRF_FIRST_CACHE_REHYDRATE_PLAINTEXT`,
-   - add `THRESHOLD_PRF_FIRST_CACHE_DELETE_PLAINTEXT`.
-2. Main-thread adapter:
-   - persist/read/delete plaintext `sessionStorage` record (`plain-v1`) on wallet origin.
-3. Refresh bootstrap:
-   - hydrate canonical threshold session (`thresholdEcdsaSessionStore`),
-   - load plaintext record from `sessionStorage`,
-   - call worker plaintext rehydrate handler,
-   - mark warm session active on success.
-4. Failure behavior:
-   - if missing/expired/invalid, fail closed and request passkey auth.
-
-### Phase 2 Integration (Sealed with `shamir-3-pass-rs`)
-
-1. WASM integration in passkey-confirm worker:
-   - add a worker runtime module wrapping `shamir-3-pass-rs`,
-   - keep protocol execution in worker; main thread persists opaque blob only.
-2. Worker message surface:
+1. Config + gating:
+   - support only `signingSessionPersistenceMode: 'none' | 'sealed_refresh_v1'` (default `none`),
+   - enable sealed flow only when `sealed_refresh_v1` and wallet-iframe mode are active.
+2. Worker runtime:
+   - add worker-only lazy-loaded runtime wrapping `shamir-3-pass-rs`.
+3. Worker message surface:
    - add `THRESHOLD_PRF_FIRST_CACHE_SEAL_AND_PERSIST`,
    - add `THRESHOLD_PRF_FIRST_CACHE_REHYDRATE`,
    - add `THRESHOLD_PRF_FIRST_CACHE_DELETE_PERSISTED`.
-3. Main-thread adapter:
-   - replace plaintext record handling with sealed record handling (`shamir3pass-v1`).
-4. Refresh bootstrap:
-   - same flow as Phase 1, but with sealed record + 3-pass unwrap.
-5. Failure behavior:
-   - if unwrap fails, delete sealed record and request passkey auth.
+4. Main-thread adapter:
+   - add sealed storage adapter (`shamir3pass-v1`) persist/read/delete helpers.
+5. TouchConfirm wiring:
+   - seal on successful cache put/login bootstrap,
+   - rehydrate on refresh from sealed record,
+   - delete on clear/clear-all/logout/lock/switch/expiry/failure.
+6. Failure behavior:
+   - if sealed record missing/invalid/expired or unwrap fails, delete record and fail closed to passkey auth.
 
 ## Cleanup Rules (No Legacy Paths)
 
-During rollout:
-
-- Phase 1 explicitly allows plaintext `plain-v1` storage as an interim step.
-- Phase 2 must remove `plain-v1` persistence and all related worker message paths.
-- Do not keep a hidden fallback that writes raw `prfFirstB64u` once Phase 2 is enabled.
-- Keep exactly one steady-state persistence format after Phase 2: sealed blob `v1`.
-- Reject unknown/legacy blob versions explicitly.
-
-## Rollout Phases
-
-1. Phase 1: plaintext `sessionStorage` persistence in wallet iframe mode.
-2. Phase 2: `shamir-3-pass-rs` sealed persistence replacing plaintext.
+- Do not implement `plaintext_refresh_v1`.
+- Remove/avoid any `plain-v1` storage paths and related worker message handling.
+- Keep one steady-state persistence format: `shamir3pass-v1`.
+- No hidden fallback that writes raw `prfFirstB64u`.
 
 ## Phased TODO List
 
-### Phase 1: Plaintext Session Storage (Interim)
+### Phase 1 — Client Sealed Runtime + Wiring
 
-- [ ] Add client opt-in config mode `plaintext_refresh_v1` (`none` remains default).
-- [ ] Add worker message handlers for plaintext persist/rehydrate/delete.
-- [ ] Add wallet-origin `sessionStorage` adapter for `plain-v1` records.
-- [ ] Persist plaintext PRF record after successful login/bootstrap.
-- [ ] Rehydrate worker cache from `plain-v1` record on refresh.
-- [ ] Clear `plain-v1` record on logout/lock/session-expiry/account-switch.
-- [ ] Add integration tests for refresh success, tab-close re-auth, and fail-closed invalid record handling.
+- [ ] Add client opt-in config mode `sealed_refresh_v1` (`none` remains default).
+- [ ] Add worker-only lazy-loaded `shamir-3-pass-rs` runtime.
+- [ ] Implement worker seal/rehydrate handlers for 3-pass protocol.
+- [ ] Add sealed storage adapter for `shamir3pass-v1`.
+- [ ] Wire persist/rehydrate/delete flows in `TouchConfirmManager` and wallet bootstrap path.
+- [ ] Enforce fail-closed invalidation behavior.
+
+### Phase 2 — Legacy Removal + Contract Tightening
+
+- [ ] Remove or block any `plain-v1` handling paths.
+- [ ] Ensure config/type surfaces expose only `none` and `sealed_refresh_v1`.
+- [ ] Reject unknown/legacy storage versions explicitly.
+
+### Phase 3 — Tests + Rollout
+
+- [ ] Worker/WASM tests for 3-pass roundtrip and malformed payload handling.
+- [ ] Storage tests for sealed `v1` parse/serialize and TTL/remainingUses enforcement.
+- [ ] Integration tests for login->refresh no TouchID, tab-close re-auth, session mismatch rejection.
+- [ ] Security regression tests for auth rejection, cross-account mismatch, and no plaintext at-rest persistence.
+- [ ] Verify runtime lazy-load behavior (loaded only when `sealed_refresh_v1` enabled).
 
 Exit criteria:
 
 - [ ] Login -> refresh -> sign succeeds without TouchID re-prompt.
 - [ ] Tab close requires TouchID re-auth.
-- [ ] Feature is off unless explicitly opted in.
-
-### Phase 2: `shamir-3-pass-rs` Sealed Storage (Target)
-
-- [ ] Add client opt-in config mode `sealed_refresh_v1`.
-- [x] Add server-SDK standalone module for PRF seal/unlock routes.
-- [x] Add server endpoints `apply-server-seal` and `remove-server-seal` via that module with auth/session binding.
-- [x] Add router-option configuration surface to enable/configure module from server SDK consumers.
-- [x] Add server service factory with pluggable session-policy adapter, cipher adapter, consume policy, and guard/audit hooks.
-- [x] Add ECDSA auth-session-store adapter for session ownership + TTL/uses enforcement in PRF seal routes.
-- [x] Add server helper builders for cipher adapter and route-options composition.
-- [ ] Add worker-only lazy-loaded runtime wrapping `shamir-3-pass-rs`.
-- [ ] Implement worker seal/rehydrate handlers for 3-pass protocol.
-- [ ] Replace `plain-v1` read/write paths with sealed `v1` read/write paths.
-- [ ] Remove Phase 1 plaintext worker/storage code after Phase 2 stabilization.
-- [ ] Add tests for 3-pass roundtrip, malformed payloads, auth rejection, and log redaction.
-
-Next server-side implementation steps:
-
-- [x] Implement `PrfSessionSealCipherAdapter` with `shamir-3-pass-rs` bindings.
-- [x] Add reusable helper factories for server-side rate-limiter guard and audit sink.
-- [x] Wire host-specific rate-limiter backend (in-memory/Upstash/Redis-TCP) through guard helper for both routes.
-- [x] Wire audit sink helper to existing structured logs/metrics pipeline.
-- [x] Add integration tests for owner mismatch, expired/exhausted session, route status mapping, and audit redaction.
-
-Exit criteria:
-
-- [ ] No plaintext PRF is persisted in steady state.
-- [ ] `shamir-3-pass-rs` runtime is loaded only when `sealed_refresh_v1` is enabled.
-- [ ] All new tests pass in CI.
-
-## Test Plan
-
-1. Phase 1 tests (plaintext path):
-   - login once -> refresh -> sign succeeds without TouchID.
-   - tab close -> new tab requires TouchID.
-   - malformed/expired `plain-v1` record fails closed to re-auth.
-2. Phase 2 worker/WASM tests (sealed path):
-   - 3-pass math roundtrip and malformed payload handling.
-   - zeroization/cleanup hooks are invoked on success/failure.
-3. Phase 2 storage tests:
-   - serialize/deserialize sealed blob `v1`.
-   - TTL/remaining-uses enforcement and legacy record rejection.
-4. Phase 2 security regression tests:
-   - server rejects unauthenticated unwrap.
-   - cross-account/session mismatch rejected.
-   - no plaintext PRF in persistent storage snapshots in steady state.
+- [ ] No plaintext PRF persisted in steady state.
+- [ ] `shamir-3-pass-rs` runtime only loads when `sealed_refresh_v1` is enabled.
+- [ ] New tests pass in CI.
 
 ## Planned Touchpoints
 
 - `client/src/core/types/secure-confirm-worker.ts`
 - `client/src/core/signingEngine/touchConfirm/TouchConfirmManager.ts`
 - `client/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts`
-- `client/src/core/signingEngine/api/thresholdLifecycle/thresholdEcdsaSessionStore.ts` (rehydrate trigger integration only)
-- new server SDK module for shamir unlock routes (for example under `server/src/threshold/session/prfSessionSeal/`)
-- `server/src/router/relay.ts` (router option surface for module config)
-- `server/src/router/express/createRelayRouter.ts` (module registration wiring)
-- `server/src/router/cloudflare/createCloudflareRouter.ts` (module registration wiring)
-- `server/src/threshold/session/prfSessionSeal/service.ts` (session-guarded route service factory)
-- `server/src/threshold/session/prfSessionSeal/guards/index.ts` (guard composition + rate-limit guard helpers)
-- `server/src/threshold/session/prfSessionSeal/guards/backends.ts` (in-memory/Upstash/Redis-TCP limiter backends)
-- `server/src/threshold/session/prfSessionSeal/observability/audit.ts` (audit sink helpers)
-- `server/src/threshold/session/prfSessionSeal/routesOptions.ts` (module config composition)
-- `server/src/threshold/session/prfSessionSeal/crypto/cipher.ts` (cipher adapters + shamir 3-pass runtime binding surface)
-- `tests/relayer/prf-session-seal-router.test.ts` (server route integration tests)
+- `client/src/core/signingEngine/api/thresholdLifecycle/thresholdEcdsaSessionStore.ts`
+- `server/src/threshold/session/prfSessionSeal/`
+- `server/src/router/relay.ts`
+- `server/src/router/express/createRelayRouter.ts`
+- `server/src/router/cloudflare/createCloudflareRouter.ts`
+- `tests/relayer/prf-session-seal-router.test.ts`
 - new worker-facing Rust/WASM module for `shamir-3-pass-rs` bindings

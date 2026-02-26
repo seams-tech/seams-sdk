@@ -1,6 +1,6 @@
 # Dashboard + Backend Implementation Plan
 
-Date updated: February 25, 2026
+Date updated: February 26, 2026
 
 ## Objective
 
@@ -39,6 +39,55 @@ Backend:
 
 - No dedicated SaaS console backend is finalized yet.
 - API surfaces are defined at requirements level, but not yet contract-locked.
+
+## Status Snapshot (as of February 26, 2026)
+
+Completed:
+
+- `/console` route namespace and separate console router paths are implemented for Express and Cloudflare adapters.
+- Webhooks backend slice is implemented:
+  - `GET/POST/PATCH/DELETE /console/webhooks`
+  - `GET /console/webhooks/:id/deliveries`
+  - `GET /console/webhooks/:id/attempts`
+  - `GET /console/webhooks/:id/dead-letters`
+  - `POST /console/webhooks/:id/replay`
+  - cursor pagination contract (`limit`, `cursor`, `nextCursor`) and malformed-cursor validation are implemented and tested.
+- Billing backend slice is implemented:
+  - `GET /console/billing/overview`
+  - `POST /console/billing/invoices/generate`
+  - `GET /console/billing/usage/monthly-active-wallets`
+  - `POST /console/billing/usage/events`
+  - `GET /console/billing/invoices`
+  - `GET /console/billing/invoices/:id`
+  - `GET /console/billing/invoices/:id/line-items`
+  - `GET/POST/DELETE /console/billing/payment-methods`
+  - `POST /console/billing/payment-methods/:id/default`
+  - `POST /console/billing/stripe/setup-intent`
+  - `POST /console/billing/stripe/payment-intent`
+  - `POST /console/billing/stripe/payment-intents/:id/reconcile`
+  - `POST /console/billing/stripe/webhook`
+  - `GET /console/billing/stablecoins/assets`
+  - `POST /console/billing/stablecoins/quotes`
+  - `POST /console/billing/stablecoins/payment-intents`
+  - `GET /console/billing/stablecoins/payment-intents/:id`
+  - `POST /console/billing/stablecoins/payment-intents/:id/cancel`
+  - `POST /console/billing/stablecoins/payment-intents/:id/reconcile`
+- Payment semantics implemented:
+  - single-rail invoice lock (`CARD` vs `STABLECOIN`),
+  - quote single-use and amount guards,
+  - chain-specific finality thresholds/timeouts/risk windows,
+  - payment state transition validation and append-only transition ledger.
+- Billing provider boundaries are implemented via explicit Stripe/stablecoin adapters.
+- API key backend slice is implemented:
+  - `GET/POST/DELETE /console/api-keys`
+  - `POST /console/api-keys/:id/rotate`
+  - create/rotate reveal-once secret semantics are implemented.
+- Cross-org isolation coverage is implemented for webhook and billing routes (including invoice, payment-intent, overview, and MAW usage paths) with Postgres-backed integration tests.
+
+In progress:
+
+- Wallet index/search live console APIs and dashboard wiring are still pending.
+- RLS-specific CI gating remains to be explicitly documented/verified as complete.
 
 ## Route Namespace Convention
 
@@ -203,8 +252,13 @@ Key outputs:
 
 - APIs:
   - `GET/POST/PATCH/DELETE /console/webhooks`
-  - `GET /console/webhooks/:id/deliveries`
+  - `GET /console/webhooks/:id/deliveries` (`limit`, `cursor`)
+  - `GET /console/webhooks/:id/attempts` (`deliveryId`, `limit`, `cursor`)
+  - `GET /console/webhooks/:id/dead-letters` (`deliveryId`, `includeResolved`, `limit`, `cursor`)
   - `POST /console/webhooks/:id/replay`
+- Pagination contract:
+  - Responses return `items` and optional `nextCursor`.
+  - Invalid cursor returns `400` with code `invalid_query`.
 - Data:
   - `webhook_endpoints`
   - `webhook_secrets`
@@ -218,12 +272,17 @@ Key outputs:
 
 - APIs:
   - `GET /console/billing/overview`
+  - `POST /console/billing/invoices/generate`
+  - `GET /console/billing/usage/monthly-active-wallets`
+  - `POST /console/billing/usage/events`
   - `GET /console/billing/invoices`
   - `GET /console/billing/invoices/:id`
+  - `GET /console/billing/invoices/:id/line-items`
   - `GET/POST/DELETE /console/billing/payment-methods`
   - `POST /console/billing/payment-methods/:id/default`
   - `POST /console/billing/stripe/setup-intent`
   - `POST /console/billing/stripe/payment-intent`
+  - `POST /console/billing/stripe/webhook` (provider callback endpoint)
   - `GET /console/billing/stablecoins/assets`
   - `POST /console/billing/stablecoins/quotes`
   - `POST /console/billing/stablecoins/payment-intents`
@@ -343,6 +402,18 @@ Frontend:
 
 Backend:
 
+Status (backend):
+
+- [x] API key routes (`/console/api-keys`) are implemented.
+- [x] Webhook CRUD + delivery/replay flows are implemented.
+- [x] Webhook attempts/dead-letter list endpoints with cursor pagination are implemented.
+- [x] Billing overview/invoice/usage/card/stablecoin route set is implemented.
+- [x] Stripe + stablecoin payment intent lifecycle and reconcile endpoints are implemented.
+- [x] Single-rail settlement enforcement is implemented.
+- [x] Billing card mutation RBAC (`admin` only) is implemented.
+- [x] Chain finality defaults and risk-window metadata are implemented.
+- [x] Postgres-backed cross-org isolation route tests are implemented for webhook and billing surfaces.
+
 - Implement:
   - `GET/POST/DELETE /console/api-keys`
   - `POST /console/api-keys/:id/rotate`
@@ -361,6 +432,7 @@ Backend:
 - Add webhook signer and retry worker.
 - Add Stripe integration (setup intents, payment intents, webhook verification).
 - Add stablecoin quote/payment-intent lifecycle and on-chain settlement reconciliation for `USDC` and `USDT`.
+- Keep provider boundaries explicit via billing provider adapters (Stripe setup/payment intent creation + stablecoin destination allocation) so billing domain logic remains provider-agnostic.
 - Enforce `USDC`/`USDT` funding support across all currently supported chains: `Ethereum`, `Base`, `Tempo`, `Arc Circle`, and `NEAR`.
 - Enforce chain finality defaults for stablecoin settlement:
   - `Ethereum`: `12` confirmations, `360` minute confirmation timeout, `24` hour reorg-risk window.
@@ -503,6 +575,8 @@ Define one shared payment attempt lifecycle across Stripe and stablecoin rails:
 - Contract rule:
   - illegal transitions are rejected at API and persistence layers, and emitted as auditable validation failures.
   - each invoice has one locked settlement rail (`CARD` or `STABLECOIN`) and payment events from other rails are rejected.
+  - each invoice allows at most one active payment intent per rail (`CREATED`, `ACTION_REQUIRED`, `PENDING`, `CONFIRMING`).
+  - stablecoin quote is single-use and may be consumed only when quote amount matches current invoice outstanding.
   - `CONFIRMING` -> `SETTLED` requires chain-specific confirmation threshold; timeout breaches transition to `FAILED` with reason `CONFIRMATION_TIMEOUT`.
 - Chain finality defaults (stablecoin payments):
   - `Ethereum`: `12` confirmations, `360` minute confirmation timeout, `24` hour reorg-risk window.
@@ -510,6 +584,10 @@ Define one shared payment attempt lifecycle across Stripe and stablecoin rails:
   - `Tempo`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
   - `Arc Circle`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
   - `NEAR`: `10` confirmations, `60` minute confirmation timeout, `6` hour reorg-risk window.
+  - stablecoin payment intent responses include post-settlement risk metadata:
+    - `settledAt`
+    - `reorgRiskWindowEndsAt`
+    - `withinReorgRiskWindow`
 
 ### MAW billing metric contract
 
@@ -594,12 +672,12 @@ Compliance:
 
 ## Immediate Next Steps (Execution Checklist)
 
-1. Lock API contract skeleton for Milestones 0-3 (including billing + payments).
-2. Create backend service scaffold and migration pipeline.
-3. Implement org/project/environment read APIs first.
-4. Wire dashboard wallets list route to live API behind feature flag.
-5. Land RLS test harness and cross-tenant denial tests in CI.
-6. Define payment provider adapter boundaries (Stripe + stablecoin watcher) before endpoint implementation.
+- [x] Lock API contract skeleton for Milestones 0-3 (including billing + payments).
+- [x] Create backend service scaffold and migration pipeline.
+- [ ] Implement org/project/environment read APIs first.
+- [ ] Wire dashboard wallets list route to live API behind feature flag.
+- [ ] Land RLS test harness and cross-tenant denial tests in CI.
+- [x] Define payment provider adapter boundaries (Stripe + stablecoin watcher) before endpoint implementation.
 
 ## Open Decisions
 
