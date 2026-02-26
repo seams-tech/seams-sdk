@@ -79,37 +79,44 @@ test.describe('Wallet iframe duplicate guardrails', () => {
     await page.unroute(WALLET_SERVICE_ROUTE.replace('wallet-service', 'service')).catch(() => {});
   });
 
-  test('does not accumulate multiple wallet overlay iframes across multiple instances', async ({ page }) => {
-    const result = await page.evaluate(async ({ walletOrigin }) => {
-      const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-      const { TatchiPasskey } = mod as any;
+  test('does not accumulate multiple wallet overlay iframes across multiple instances', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ walletOrigin }) => {
+        const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+        const { TatchiPasskey } = mod as any;
 
-      for (const el of Array.from(document.querySelectorAll('iframe.w3a-wallet-overlay'))) {
-        try { el.remove(); } catch {}
-      }
+        for (const el of Array.from(document.querySelectorAll('iframe.w3a-wallet-overlay'))) {
+          try {
+            el.remove();
+          } catch {}
+        }
 
-      const cfg = {
-        relayer: { url: 'http://localhost:3000' },
-        iframeWallet: {
-          walletOrigin,
-          walletServicePath: '/wallet-service',
-          sdkBasePath: '/sdk',
-        },
-      };
+        const cfg = {
+          relayer: { url: 'http://localhost:3000' },
+          iframeWallet: {
+            walletOrigin,
+            walletServicePath: '/wallet-service',
+            sdkBasePath: '/sdk',
+          },
+        };
 
-      const a = new TatchiPasskey(cfg);
-      await a.initWalletIframe();
-      const countAfterFirst = document.querySelectorAll('iframe.w3a-wallet-overlay').length;
+        const a = new TatchiPasskey(cfg);
+        await a.initWalletIframe();
+        const countAfterFirst = document.querySelectorAll('iframe.w3a-wallet-overlay').length;
 
-      const b = new TatchiPasskey(cfg);
-      await b.initWalletIframe();
-      const countAfterSecond = document.querySelectorAll('iframe.w3a-wallet-overlay').length;
+        const b = new TatchiPasskey(cfg);
+        await b.initWalletIframe();
+        const countAfterSecond = document.querySelectorAll('iframe.w3a-wallet-overlay').length;
 
-      return {
-        countAfterFirst,
-        countAfterSecond,
-      };
-    }, { walletOrigin: WALLET_ORIGIN });
+        return {
+          countAfterFirst,
+          countAfterSecond,
+        };
+      },
+      { walletOrigin: WALLET_ORIGIN },
+    );
 
     expect(result.countAfterFirst, JSON.stringify(result)).toBe(1);
     expect(result.countAfterSecond, JSON.stringify(result)).toBe(1);

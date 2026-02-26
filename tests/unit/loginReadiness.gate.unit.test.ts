@@ -25,68 +25,84 @@ test.describe('login readiness gate', () => {
   test('threshold-signer requires active signing session', () => {
     const signerMode = { mode: 'threshold-signer' };
 
-    expect(isLoginSessionReadyForUi({
-      session: makeSession({ signingSession: null }),
-      signerMode,
-    })).toBe(false);
-
-    expect(isLoginSessionReadyForUi({
-      session: makeSession({
-        signingSession: { sessionId: 'session-1', status: 'expired' },
+    expect(
+      isLoginSessionReadyForUi({
+        session: makeSession({ signingSession: null }),
+        signerMode,
       }),
-      signerMode,
-    })).toBe(false);
+    ).toBe(false);
 
-    expect(isLoginSessionReadyForUi({
-      session: makeSession({
-        signingSession: { sessionId: 'session-1', status: 'active' },
+    expect(
+      isLoginSessionReadyForUi({
+        session: makeSession({
+          signingSession: { sessionId: 'session-1', status: 'expired' },
+        }),
+        signerMode,
       }),
-      signerMode,
-    })).toBe(true);
+    ).toBe(false);
+
+    expect(
+      isLoginSessionReadyForUi({
+        session: makeSession({
+          signingSession: { sessionId: 'session-1', status: 'active' },
+        }),
+        signerMode,
+      }),
+    ).toBe(true);
   });
 
   test('non-threshold signer mode does not require signing session readiness', () => {
-    expect(isLoginSessionReadyForUi({
-      session: makeSession({ signingSession: null }),
-      signerMode: { mode: 'local-signer' },
-    })).toBe(true);
+    expect(
+      isLoginSessionReadyForUi({
+        session: makeSession({ signingSession: null }),
+        signerMode: { mode: 'local-signer' },
+      }),
+    ).toBe(true);
 
-    expect(isLoginSessionReadyForUi({
-      session: makeSession({ signingSession: null }),
-      signerMode: { mode: 'evm' },
-    })).toBe(true);
+    expect(
+      isLoginSessionReadyForUi({
+        session: makeSession({ signingSession: null }),
+        signerMode: { mode: 'evm' },
+      }),
+    ).toBe(true);
   });
 
   test('unknown signer mode defaults to local-signer behavior', () => {
-    expect(isLoginSessionReadyForUi({
-      session: makeSession({ signingSession: null }),
-      signerMode: undefined,
-    })).toBe(true);
+    expect(
+      isLoginSessionReadyForUi({
+        session: makeSession({ signingSession: null }),
+        signerMode: undefined,
+      }),
+    ).toBe(true);
   });
 
   test('requires base logged-in snapshot regardless of signer mode', () => {
-    expect(isLoginSessionReadyForUi({
-      session: makeSession({
-        login: {
-          isLoggedIn: false,
-          nearAccountId: toAccountId('alice.testnet'),
-          publicKey: null,
-          userData: null,
-        },
+    expect(
+      isLoginSessionReadyForUi({
+        session: makeSession({
+          login: {
+            isLoggedIn: false,
+            nearAccountId: toAccountId('alice.testnet'),
+            publicKey: null,
+            userData: null,
+          },
+        }),
+        signerMode: { mode: 'threshold-signer' },
       }),
-      signerMode: { mode: 'threshold-signer' },
-    })).toBe(false);
+    ).toBe(false);
 
-    expect(isLoginSessionReadyForUi({
-      session: makeSession({
-        login: {
-          isLoggedIn: true,
-          nearAccountId: null,
-          publicKey: null,
-          userData: null,
-        },
+    expect(
+      isLoginSessionReadyForUi({
+        session: makeSession({
+          login: {
+            isLoggedIn: true,
+            nearAccountId: null,
+            publicKey: null,
+            userData: null,
+          },
+        }),
+        signerMode: { mode: 'local-signer' },
       }),
-      signerMode: { mode: 'local-signer' },
-    })).toBe(false);
+    ).toBe(false);
   });
 });

@@ -18,16 +18,14 @@ async function runFlow(
       const viteReactDomClientPath = '/node_modules/.vite/deps/react-dom_client.js' as string;
       const viteReactDomPath = '/node_modules/.vite/deps/react-dom.js' as string;
       const React =
-        ((await import(viteReactPath).catch(() => null)) as any) ||
-        (await import('react'));
+        ((await import(viteReactPath).catch(() => null)) as any) || (await import('react'));
       const ReactRuntime = (React as any).default || React;
       const ReactDOMClient =
         ((await import(viteReactDomClientPath).catch(() => null)) as any) ||
         (await import('react-dom/client'));
       const ReactDOMClientRuntime = (ReactDOMClient as any).default || ReactDOMClient;
       const ReactDOM =
-        ((await import(viteReactDomPath).catch(() => null)) as any) ||
-        (await import('react-dom'));
+        ((await import(viteReactDomPath).catch(() => null)) as any) || (await import('react-dom'));
       const ReactDOMRuntime = (ReactDOM as any).default || ReactDOM;
       const menuMod = await import(paths.passkeyLoginMenu);
       const PasskeyLoginMenu = (menuMod as any).PasskeyLoginMenu || (menuMod as any).default;
@@ -141,7 +139,7 @@ async function runFlow(
           await onLogin();
         } catch (error: unknown) {
           counters.loginError = String(
-            (error && typeof error === 'object' && 'message' in error)
+            error && typeof error === 'object' && 'message' in error
               ? (error as { message?: unknown }).message
               : error || '',
           );

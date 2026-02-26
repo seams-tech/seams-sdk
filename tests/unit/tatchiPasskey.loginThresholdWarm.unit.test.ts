@@ -47,9 +47,13 @@ function createBaseContext(args?: {
       ...(args?.signingEngine || {}),
     },
     configs: {
-      signerMode: { mode: 'threshold-signer' },
-      signingSessionDefaults: { ttlMs: 60_000, remainingUses: 3 },
-      relayer: { url: 'https://relay.example' },
+      signing: {
+        mode: { mode: 'threshold-signer' },
+        sessionDefaults: { ttlMs: 60_000, remainingUses: 3 },
+      },
+      network: {
+        relayer: { url: 'https://relay.example' },
+      },
       ...(args?.configs || {}),
     },
   };
@@ -87,8 +91,8 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
         },
       },
     });
-    const result = await withMockedMostRecentProjection(async () =>
-      await loginAndCreateSession(context, ACCOUNT_ID),
+    const result = await withMockedMostRecentProjection(
+      async () => await loginAndCreateSession(context, ACCOUNT_ID),
     );
 
     expect(result.success).toBe(true);
@@ -121,8 +125,8 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
       },
     });
 
-    const result = await withMockedMostRecentProjection(async () =>
-      await loginAndCreateSession(context, ACCOUNT_ID),
+    const result = await withMockedMostRecentProjection(
+      async () => await loginAndCreateSession(context, ACCOUNT_ID),
     );
 
     expect(result.success).toBe(false);
@@ -145,8 +149,8 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
       },
     });
 
-    const result = await withMockedMostRecentProjection(async () =>
-      await loginAndCreateSession(context, ACCOUNT_ID),
+    const result = await withMockedMostRecentProjection(
+      async () => await loginAndCreateSession(context, ACCOUNT_ID),
     );
 
     expect(result.success).toBe(true);
@@ -175,8 +179,8 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
       },
     });
 
-    const result = await withMockedMostRecentProjection(async () =>
-      await loginAndCreateSession(context, ACCOUNT_ID),
+    const result = await withMockedMostRecentProjection(
+      async () => await loginAndCreateSession(context, ACCOUNT_ID),
     );
 
     expect(result.success).toBe(true);

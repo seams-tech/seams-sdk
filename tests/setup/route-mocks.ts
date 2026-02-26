@@ -11,11 +11,12 @@ export interface RelayMockOptions {
   success?: boolean;
 }
 
-export async function mockRelayServer(
-  page: Page,
-  options: RelayMockOptions = {}
-): Promise<void> {
-  const relayBase = (options.relayUrl ?? DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost').replace(/\/$/, '');
+export async function mockRelayServer(page: Page, options: RelayMockOptions = {}): Promise<void> {
+  const relayBase = (
+    options.relayUrl ??
+    DEFAULT_TEST_CONFIG.relayer?.url ??
+    'https://relay-server.localhost'
+  ).replace(/\/$/, '');
   const endpoint = `${relayBase}/registration/bootstrap`;
 
   await page.unroute(endpoint).catch(() => undefined);
@@ -76,7 +77,7 @@ export interface FaucetMockOptions {
 
 export async function mockTestnetFaucet(
   page: Page,
-  options: FaucetMockOptions = {}
+  options: FaucetMockOptions = {},
 ): Promise<void> {
   const faucetBase = (options.faucetUrl ?? 'https://helper.testnet.near.org').replace(/\/$/, '');
   const endpointPattern = new RegExp(`^${faucetBase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}.*`);
@@ -123,7 +124,7 @@ export interface AccessKeyMockOptions {
 
 export async function mockAccessKeyLookup(
   page: Page,
-  options: AccessKeyMockOptions = {}
+  options: AccessKeyMockOptions = {},
 ): Promise<void> {
   const rpcUrl = options.nearRpcUrl ?? DEFAULT_TEST_CONFIG.nearRpcUrl;
   const accountId = options.accountId ?? 'mock-account.testnet';
@@ -197,7 +198,7 @@ export interface SendTxMockOptions {
 
 export async function mockSendTransaction(
   page: Page,
-  options: SendTxMockOptions = {}
+  options: SendTxMockOptions = {},
 ): Promise<void> {
   const rpcUrl = options.nearRpcUrl ?? DEFAULT_TEST_CONFIG.nearRpcUrl;
 

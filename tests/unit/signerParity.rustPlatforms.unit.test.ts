@@ -5,8 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { test, expect } from '@playwright/test';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const parityFeatures =
-  'secp256k1,near-ed25519,near-crypto,near-threshold-ed25519,tx-finalization';
+const parityFeatures = 'secp256k1,near-ed25519,near-crypto,near-threshold-ed25519,tx-finalization';
 const vectorsFile = path.join(repoRoot, 'crates/signer-core/fixtures/signing-vectors/v1.json');
 const iosSwiftReplayScript = 'crates/signer-platform-ios/scripts/run-swift-vector-replay.sh';
 

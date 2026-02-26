@@ -10,9 +10,8 @@ test.describe('decryptPrivateKeyWithPrf in-memory payload fallback', () => {
     page,
   }) => {
     const result = await page.evaluate(async () => {
-      const nearKeyOps = await import(
-        '/sdk/esm/core/signingEngine/workerManager/nearKeyOps/decryptPrivateKeyWithPrf.js'
-      );
+      const nearKeyOps =
+        await import('/sdk/esm/core/signingEngine/workerManager/nearKeyOps/decryptPrivateKeyWithPrf.js');
       const signerTypes = await import('/sdk/esm/core/types/signer-worker.js');
 
       let localKeyReadCount = 0;

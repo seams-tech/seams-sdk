@@ -39,7 +39,11 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
 
     const frontendOrigin = new URL(DEFAULT_TEST_CONFIG.frontendUrl).origin;
     const session = createInMemoryJwtSessionAdapter();
-    const router = createRelayRouter(service, { corsOrigins: [frontendOrigin], threshold, session });
+    const router = createRelayRouter(service, {
+      corsOrigins: [frontendOrigin],
+      threshold,
+      session,
+    });
     const srv = await startExpressRouter(router);
 
     try {
@@ -67,66 +71,81 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
             keysOnChain.add(thresholdPublicKeyFromKeygen);
             nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
             if (localNearPublicKey) {
-              nonceByPublicKey.set(localNearPublicKey, (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1);
+              nonceByPublicKey.set(
+                localNearPublicKey,
+                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
+              );
             }
           }
         },
         strictAccessKeyLookup: true,
       });
 
-      const result = await page.evaluate(async ({ relayerUrl }) => {
-        try {
-          const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
-          const suffix =
-            (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          const accountId = `e2enep413${suffix}.w3a-v1.testnet`;
+      const result = await page.evaluate(
+        async ({ relayerUrl }) => {
+          try {
+            const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const suffix =
+              typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const accountId = `e2enep413${suffix}.w3a-v1.testnet`;
 
-          const pm = new TatchiPasskey({
-            nearNetwork: 'testnet',
-            nearRpcUrl: 'https://test.rpc.fastnear.com',
-            relayer: { url: relayerUrl },
-            iframeWallet: { walletOrigin: '' },
-          });
+            const pm = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayer: { url: relayerUrl },
+              iframeWallet: { walletOrigin: '' },
+            });
 
-          const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
+            const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 };
 
-          const reg = await pm.registration.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
-          if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
+            const reg = await pm.registration.registerPasskeyInternal(
+              accountId,
+              { signerMode: { mode: 'local-signer' } },
+              confirmConfig as any,
+            );
+            if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
 
-          const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-          if (!enrollment?.success) return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
+            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
+            if (!enrollment?.success)
+              return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
 
-          const login = await pm.auth.login(accountId);
-          if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
+            const login = await pm.auth.login(accountId);
+            if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
 
-          const localPublicKey = String(reg.clientNearPublicKey || '');
-          const message = 'hello threshold nep413';
-          const recipient = 'example.localhost';
-          const state = 'test-state';
-          const signed = await pm.near.signNEP413Message({
-            nearAccountId: accountId,
-            params: { message, recipient, state },
-            options: { signerMode: { mode: 'threshold-signer', behavior: 'strict' }, confirmationConfig: confirmConfig as any },
-          });
-          if (!signed?.success) return { ok: false, error: signed?.error || 'nep413 signing failed' };
-          return {
-            ok: true,
-            accountId,
-            message,
-            recipient,
-            state,
-            nonce: String((signed as any)?.nonce || ''),
-            localPublicKey,
-            thresholdPublicKey: String(enrollment.publicKey || ''),
-            signerPublicKey: String(signed.publicKey || ''),
-            signature: String(signed.signature || ''),
-          };
-        } catch (e: any) {
-          return { ok: false, error: e?.message || String(e) };
-        }
-      }, { relayerUrl: srv.baseUrl });
+            const localPublicKey = String(reg.clientNearPublicKey || '');
+            const message = 'hello threshold nep413';
+            const recipient = 'example.localhost';
+            const state = 'test-state';
+            const signed = await pm.near.signNEP413Message({
+              nearAccountId: accountId,
+              params: { message, recipient, state },
+              options: {
+                signerMode: { mode: 'threshold-signer', behavior: 'strict' },
+                confirmationConfig: confirmConfig as any,
+              },
+            });
+            if (!signed?.success)
+              return { ok: false, error: signed?.error || 'nep413 signing failed' };
+            return {
+              ok: true,
+              accountId,
+              message,
+              recipient,
+              state,
+              nonce: String((signed as any)?.nonce || ''),
+              localPublicKey,
+              thresholdPublicKey: String(enrollment.publicKey || ''),
+              signerPublicKey: String(signed.publicKey || ''),
+              signature: String(signed.signature || ''),
+            };
+          } catch (e: any) {
+            return { ok: false, error: e?.message || String(e) };
+          }
+        },
+        { relayerUrl: srv.baseUrl },
+      );
 
       if (!result.ok) {
         throw new Error(`nep413 threshold signing test failed: ${result.error || 'unknown'}`);
@@ -141,7 +160,9 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
         return bs58.decode(raw);
       };
       const sigStr = String(result.signature || '');
-      const sigBytes = Uint8Array.from(Buffer.from(sigStr, (sigStr.includes('-') || sigStr.includes('_')) ? 'base64url' : 'base64'));
+      const sigBytes = Uint8Array.from(
+        Buffer.from(sigStr, sigStr.includes('-') || sigStr.includes('_') ? 'base64url' : 'base64'),
+      );
       expect(sigBytes.length).toBe(64);
 
       const signingPayload = {
@@ -153,14 +174,19 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
         state: String(result.state),
       };
 
-      const digestUnknown: unknown = threshold_ed25519_compute_nep413_signing_digest(signingPayload);
+      const digestUnknown: unknown =
+        threshold_ed25519_compute_nep413_signing_digest(signingPayload);
       const digest = digestUnknown instanceof Uint8Array ? digestUnknown : null;
       if (!digest || digest.length !== 32) {
         throw new Error('Expected NEP-413 signing digest to be a 32-byte Uint8Array');
       }
 
-      expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.thresholdPublicKey)))).toBe(true);
-      expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.localPublicKey)))).toBe(false);
+      expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.thresholdPublicKey)))).toBe(
+        true,
+      );
+      expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.localPublicKey)))).toBe(
+        false,
+      );
     } finally {
       await srv.close().catch(() => undefined);
     }

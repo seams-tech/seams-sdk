@@ -20,7 +20,8 @@ const RELAY_DIR = path.join(ROOT, 'examples', 'relay-server');
 const DEFAULT_CACHE_PATH = path.join(RELAY_DIR, '.provision-cache.json');
 // Store relay cache and generated artifacts under the tests Playwright report
 const REPORT_DIR = path.join(ROOT, 'tests', 'playwright-report');
-const CACHE_PATH = process.env.RELAY_PROVISION_CACHE_PATH || path.join(REPORT_DIR, 'relay-provision-cache.json');
+const CACHE_PATH =
+  process.env.RELAY_PROVISION_CACHE_PATH || path.join(REPORT_DIR, 'relay-provision-cache.json');
 
 function resolveFrontendDirRel() {
   const candidates = ['examples/vite', 'examples/tatchi-site'];
@@ -48,7 +49,11 @@ function runWait(cmd, args, opts = {}) {
 }
 
 async function readCache(file) {
-  try { return JSON.parse(await fs.readFile(file, 'utf8')); } catch { return null; }
+  try {
+    return JSON.parse(await fs.readFile(file, 'utf8'));
+  } catch {
+    return null;
+  }
 }
 
 async function waitForRelayHealth(port, timeoutMs = 120_000) {
@@ -72,7 +77,7 @@ async function waitForRelayHealth(port, timeoutMs = 120_000) {
 async function main() {
   // 1) Provision relayer keys
   await runWait('node', ['tests/scripts/provision-relay-server.mjs'], {
-    env: { ...process.env, RELAY_PROVISION_CACHE_PATH: CACHE_PATH }
+    env: { ...process.env, RELAY_PROVISION_CACHE_PATH: CACHE_PATH },
   });
 
   // 2) Build environment variables for relay (do not require .env)
@@ -80,7 +85,8 @@ async function main() {
   if (!cache) throw new Error('missing provision cache');
   // Default to 3001 to avoid conflicts with the example relay-server (which defaults to 3000).
   const relayPort = Number(process.env.RELAY_PORT || '3001');
-  const NO_CADDY = process.env.NO_CADDY === '1' || process.env.VITE_NO_CADDY === '1' || process.env.CI === '1';
+  const NO_CADDY =
+    process.env.NO_CADDY === '1' || process.env.VITE_NO_CADDY === '1' || process.env.CI === '1';
   const frontendOverride = String(process.env.W3A_TEST_FRONTEND_URL || '').trim();
   const defaultOrigin = (() => {
     if (frontendOverride) {
@@ -101,12 +107,17 @@ async function main() {
     NEAR_RPC_URL: process.env.NEAR_RPC_URL || 'https://test.rpc.fastnear.com',
     // Allow CORS for the actual frontend origin used in tests
     EXPECTED_ORIGIN: process.env.EXPECTED_ORIGIN || defaultOrigin,
-    EXPECTED_WALLET_ORIGIN: process.env.EXPECTED_WALLET_ORIGIN || 'https://wallet.example.localhost',
+    EXPECTED_WALLET_ORIGIN:
+      process.env.EXPECTED_WALLET_ORIGIN || 'https://wallet.example.localhost',
     RELAY_PROVISION_CACHE_PATH: CACHE_PATH,
   };
 
   // 3) Start test relay server in background (self-contained)
-  const relay = spawn('node', ['tests/scripts/test-relay-server.mjs'], { stdio: 'inherit', cwd: ROOT, env: relayEnv });
+  const relay = spawn('node', ['tests/scripts/test-relay-server.mjs'], {
+    stdio: 'inherit',
+    cwd: ROOT,
+    env: relayEnv,
+  });
 
   // 4) Determine port and wait for health
   const port = relayPort;
@@ -117,8 +128,13 @@ async function main() {
 
   // 5) Start vite dev (foreground)
   const frontendDir = resolveFrontendDirRel();
-  const viteScript = (process.env.NO_CADDY === '1' || process.env.VITE_NO_CADDY === '1' || process.env.CI === '1') ? 'dev:ci' : 'dev';
-  console.log(`[start-servers] Starting Vite (frontend=${frontendDir}, NO_CADDY=${process.env.NO_CADDY || ''}, CI=${process.env.CI || ''})`);
+  const viteScript =
+    process.env.NO_CADDY === '1' || process.env.VITE_NO_CADDY === '1' || process.env.CI === '1'
+      ? 'dev:ci'
+      : 'dev';
+  console.log(
+    `[start-servers] Starting Vite (frontend=${frontendDir}, NO_CADDY=${process.env.NO_CADDY || ''}, CI=${process.env.CI || ''})`,
+  );
   // Use path relative to ROOT (repo root)
   const vite = (() => {
     if (NO_CADDY && frontendOverride) {
@@ -127,24 +143,58 @@ async function main() {
         const rawPort = u.port || (u.protocol === 'https:' ? '443' : '80');
         const port = Number(rawPort);
         if (Number.isFinite(port) && port > 0) {
-          console.log(`[start-servers] Starting Vite on port ${port} (W3A_TEST_FRONTEND_URL=${frontendOverride})`);
-          return spawn('pnpm', ['-C', frontendDir, 'exec', 'vite', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], { stdio: 'inherit', cwd: ROOT });
+          console.log(
+            `[start-servers] Starting Vite on port ${port} (W3A_TEST_FRONTEND_URL=${frontendOverride})`,
+          );
+          return spawn(
+            'pnpm',
+            [
+              '-C',
+              frontendDir,
+              'exec',
+              'vite',
+              '--host',
+              '127.0.0.1',
+              '--port',
+              String(port),
+              '--strictPort',
+            ],
+            { stdio: 'inherit', cwd: ROOT },
+          );
         }
-      } catch { }
+      } catch {}
     }
     if (NO_CADDY) {
-      return spawn('pnpm', ['-C', frontendDir, 'exec', 'vite', '--host', '127.0.0.1', '--port', '5174', '--strictPort'], {
-        stdio: 'inherit',
-        cwd: ROOT,
-      });
+      return spawn(
+        'pnpm',
+        [
+          '-C',
+          frontendDir,
+          'exec',
+          'vite',
+          '--host',
+          '127.0.0.1',
+          '--port',
+          '5174',
+          '--strictPort',
+        ],
+        {
+          stdio: 'inherit',
+          cwd: ROOT,
+        },
+      );
     }
     return spawn('pnpm', ['-C', frontendDir, viteScript], { stdio: 'inherit', cwd: ROOT });
   })();
 
   // Cleanup on exit
   function shutdown(code = 0) {
-    try { relay.kill(); } catch {}
-    try { vite.kill(); } catch {}
+    try {
+      relay.kill();
+    } catch {}
+    try {
+      vite.kill();
+    } catch {}
     // no wallet dev server in shim mode
     process.exit(code);
   }

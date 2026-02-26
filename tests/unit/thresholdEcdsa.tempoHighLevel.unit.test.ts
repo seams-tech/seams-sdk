@@ -145,7 +145,7 @@ async function signTempoWithExistingPasskey(
       return {
         ok: false,
         error: String(
-          (e && typeof e === 'object' && 'message' in e)
+          e && typeof e === 'object' && 'message' in e
             ? (e as { message?: unknown }).message
             : e || 'signTempo failed',
         ),
@@ -168,11 +168,36 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
     };
 
     try {
-      await observePostCalls(page, `${harness.baseUrl}/threshold-ecdsa/authorize`, counters, 'authorize');
-      await observePostCalls(page, `${harness.baseUrl}/threshold-ecdsa/presign/init`, counters, 'presignInit');
-      await observePostCalls(page, `${harness.baseUrl}/threshold-ecdsa/presign/step`, counters, 'presignStep');
-      await observePostCalls(page, `${harness.baseUrl}/threshold-ecdsa/sign/init`, counters, 'signInit');
-      await observePostCalls(page, `${harness.baseUrl}/threshold-ecdsa/sign/finalize`, counters, 'signFinalize');
+      await observePostCalls(
+        page,
+        `${harness.baseUrl}/threshold-ecdsa/authorize`,
+        counters,
+        'authorize',
+      );
+      await observePostCalls(
+        page,
+        `${harness.baseUrl}/threshold-ecdsa/presign/init`,
+        counters,
+        'presignInit',
+      );
+      await observePostCalls(
+        page,
+        `${harness.baseUrl}/threshold-ecdsa/presign/step`,
+        counters,
+        'presignStep',
+      );
+      await observePostCalls(
+        page,
+        `${harness.baseUrl}/threshold-ecdsa/sign/init`,
+        counters,
+        'signInit',
+      );
+      await observePostCalls(
+        page,
+        `${harness.baseUrl}/threshold-ecdsa/sign/finalize`,
+        counters,
+        'signFinalize',
+      );
 
       const result = await runThresholdEcdsaTempoFlow(page, {
         relayerUrl: harness.baseUrl,
@@ -234,7 +259,9 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       expect(parsedTx.type).toBe('eip1559');
       expect(asBigInt(parsedTx.chainId, 'chainId')).toBe(EIP1559_TEST_TX.chainId);
       expect(asBigInt(parsedTx.nonce, 'nonce')).toBe(EIP1559_TEST_TX.nonce);
-      expect(asBigInt(parsedTx.maxPriorityFeePerGas, 'maxPriorityFeePerGas')).toBe(EIP1559_TEST_TX.maxPriorityFeePerGas);
+      expect(asBigInt(parsedTx.maxPriorityFeePerGas, 'maxPriorityFeePerGas')).toBe(
+        EIP1559_TEST_TX.maxPriorityFeePerGas,
+      );
       expect(asBigInt(parsedTx.maxFeePerGas, 'maxFeePerGas')).toBe(EIP1559_TEST_TX.maxFeePerGas);
       expect(asBigInt(parsedTx.gas, 'gas')).toBe(EIP1559_TEST_TX.gasLimit);
       expect((parsedTx.to || '').toLowerCase()).toBe(EIP1559_TEST_TX.to.toLowerCase());
@@ -245,7 +272,10 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       const recoveredAddress = await recoverTransactionAddress({
         serializedTransaction: result.signed.rawTxHex as `0x02${string}`,
       });
-      const groupPublicKeyCompressed = Buffer.from(String(result.keygen?.groupPublicKeyB64u || ''), 'base64url');
+      const groupPublicKeyCompressed = Buffer.from(
+        String(result.keygen?.groupPublicKeyB64u || ''),
+        'base64url',
+      );
       expect(groupPublicKeyCompressed.length).toBe(33);
 
       const groupPoint = secpPointFromCompressedHex(groupPublicKeyCompressed);
@@ -287,10 +317,30 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
     let forcedPoolEmpty = false;
 
     try {
-      await observePostCalls(page, `${harness.baseUrl}/threshold-ecdsa/authorize`, counters, 'authorize');
-      await observePostCalls(page, `${harness.baseUrl}/threshold-ecdsa/presign/init`, counters, 'presignInit');
-      await observePostCalls(page, `${harness.baseUrl}/threshold-ecdsa/presign/step`, counters, 'presignStep');
-      await observePostCalls(page, `${harness.baseUrl}/threshold-ecdsa/sign/finalize`, counters, 'signFinalize');
+      await observePostCalls(
+        page,
+        `${harness.baseUrl}/threshold-ecdsa/authorize`,
+        counters,
+        'authorize',
+      );
+      await observePostCalls(
+        page,
+        `${harness.baseUrl}/threshold-ecdsa/presign/init`,
+        counters,
+        'presignInit',
+      );
+      await observePostCalls(
+        page,
+        `${harness.baseUrl}/threshold-ecdsa/presign/step`,
+        counters,
+        'presignStep',
+      );
+      await observePostCalls(
+        page,
+        `${harness.baseUrl}/threshold-ecdsa/sign/finalize`,
+        counters,
+        'signFinalize',
+      );
 
       await page.route(`${harness.baseUrl}/threshold-ecdsa/sign/init`, async (route) => {
         if (route.request().method().toUpperCase() === 'POST') {
@@ -323,7 +373,9 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       expect(counters.signInit).toBeGreaterThanOrEqual(2);
       expect(counters.presignInit).toBeGreaterThanOrEqual(2);
       if (!result.ok) {
-        expect(String(result.error || '')).toMatch(/bigR mismatch|mpcSessionId expired or invalid/i);
+        expect(String(result.error || '')).toMatch(
+          /bigR mismatch|mpcSessionId expired or invalid/i,
+        );
       } else {
         expect(counters.signFinalize).toBeGreaterThanOrEqual(1);
       }
@@ -332,7 +384,9 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
     }
   });
 
-  test('repeated same-account signs complete after warm-up even when presign/init is blocked', async ({ page }) => {
+  test('repeated same-account signs complete after warm-up even when presign/init is blocked', async ({
+    page,
+  }) => {
     const harness = await setupThresholdEcdsaTempoHarness(page);
     const counters: Counters = {
       authorize: 0,
@@ -345,10 +399,30 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
     let blockedPresignInitCalls = 0;
 
     try {
-      await observePostCalls(page, `${harness.baseUrl}/threshold-ecdsa/authorize`, counters, 'authorize');
-      await observePostCalls(page, `${harness.baseUrl}/threshold-ecdsa/presign/step`, counters, 'presignStep');
-      await observePostCalls(page, `${harness.baseUrl}/threshold-ecdsa/sign/init`, counters, 'signInit');
-      await observePostCalls(page, `${harness.baseUrl}/threshold-ecdsa/sign/finalize`, counters, 'signFinalize');
+      await observePostCalls(
+        page,
+        `${harness.baseUrl}/threshold-ecdsa/authorize`,
+        counters,
+        'authorize',
+      );
+      await observePostCalls(
+        page,
+        `${harness.baseUrl}/threshold-ecdsa/presign/step`,
+        counters,
+        'presignStep',
+      );
+      await observePostCalls(
+        page,
+        `${harness.baseUrl}/threshold-ecdsa/sign/init`,
+        counters,
+        'signInit',
+      );
+      await observePostCalls(
+        page,
+        `${harness.baseUrl}/threshold-ecdsa/sign/finalize`,
+        counters,
+        'signFinalize',
+      );
 
       await page.route(`${harness.baseUrl}/threshold-ecdsa/presign/init`, async (route) => {
         if (route.request().method().toUpperCase() === 'POST') {
@@ -423,5 +497,4 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       await harness.close();
     }
   });
-
 });

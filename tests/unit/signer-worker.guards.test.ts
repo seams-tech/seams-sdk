@@ -9,7 +9,10 @@ test.describe('signer worker JS guards – PRF rejection', () => {
     const res = await page.evaluate(async () => {
       try {
         // Load the signer worker as a module and create a Worker instance
-        const workerUrl = new URL('/sdk/workers/near-signer.worker.js', window.location.origin).toString();
+        const workerUrl = new URL(
+          '/sdk/workers/near-signer.worker.js',
+          window.location.origin,
+        ).toString();
         const worker = new Worker(workerUrl, { type: 'module', name: 'GuardTestSignerWorker' });
 
         const messages: any[] = [];
@@ -19,7 +22,10 @@ test.describe('signer worker JS guards – PRF rejection', () => {
         worker.onmessage = (ev: MessageEvent) => messages.push(ev.data);
         worker.onerror = (ev: ErrorEvent) => errors.push(ev.message || ev.error);
 
-        const waitFor = async (predicate: () => boolean, timeoutMs: number = 5000): Promise<void> => {
+        const waitFor = async (
+          predicate: () => boolean,
+          timeoutMs: number = 5000,
+        ): Promise<void> => {
           const start = Date.now();
           while (Date.now() - start < timeoutMs) {
             if (predicate()) return;
@@ -56,8 +62,14 @@ test.describe('signer worker JS guards – PRF rejection', () => {
   test('rejects payloads containing prfFirst', async ({ page }) => {
     const res = await page.evaluate(async () => {
       try {
-        const workerUrl = new URL('/sdk/workers/near-signer.worker.js', window.location.origin).toString();
-        const worker = new Worker(workerUrl, { type: 'module', name: 'GuardTestSignerWorkerSecureConfirm' });
+        const workerUrl = new URL(
+          '/sdk/workers/near-signer.worker.js',
+          window.location.origin,
+        ).toString();
+        const worker = new Worker(workerUrl, {
+          type: 'module',
+          name: 'GuardTestSignerWorkerSecureConfirm',
+        });
 
         const messages: any[] = [];
         const errors: any[] = [];
@@ -66,7 +78,10 @@ test.describe('signer worker JS guards – PRF rejection', () => {
         worker.onmessage = (ev: MessageEvent) => messages.push(ev.data);
         worker.onerror = (ev: ErrorEvent) => errors.push(ev.message || ev.error);
 
-        const waitFor = async (predicate: () => boolean, timeoutMs: number = 5000): Promise<void> => {
+        const waitFor = async (
+          predicate: () => boolean,
+          timeoutMs: number = 5000,
+        ): Promise<void> => {
           const start = Date.now();
           while (Date.now() - start < timeoutMs) {
             if (predicate()) return;

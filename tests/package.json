@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "check:chain-family-naming": "node scripts/check-chain-family-naming.mjs",
     "test": "pnpm -C ../sdk run build:check:fresh || pnpm -C ../sdk run build && USE_RELAY_SERVER=1 playwright test --reporter=line",
     "test:lite": "pnpm -C ../sdk run build:check:fresh || pnpm -C ../sdk run build && USE_RELAY_SERVER=1 playwright test -c playwright.lite.config.ts --reporter=line",
     "test:inline": "pnpm -C ../sdk run build:check:fresh || pnpm -C ../sdk run build && USE_RELAY_SERVER=1 playwright test --reporter=line",

@@ -33,6 +33,7 @@ Playwright config includes wallet‑iframe and lit‑components suites in `testM
 - Lit Confirm UI: host/iframe modal + drawer behavior covered; theme guardrails pending
 
 Status highlights from recent additions:
+
 - OnEventsProgressBus default heuristics for show/hide/none mapping and cancelled → hide
 - Overlay controller CSS/ARIA semantics; sticky prevents hide
 - Router behavior for pre‑show, timeout hide, anchored bounds, sticky lifecycle
@@ -53,11 +54,11 @@ Status highlights from recent additions:
 The test bootstrap is a precise 5‑step sequence to avoid WebAuthn/import‑map races. It’s split for clarity:
 
 - `tests/setup/bootstrap.ts`: `executeSequentialSetup()`
-  1) WebAuthn Virtual Authenticator (Chromium CDP)
-  2) Import map injection (NEAR + lit deps)
-  3) Environment stabilization
-  4) Dynamic import from `/sdk/esm/...` and instance wiring
-  5) Global fallbacks (e.g., base64UrlEncode)
+  1. WebAuthn Virtual Authenticator (Chromium CDP)
+  2. Import map injection (NEAR + lit deps)
+  3. Environment stabilization
+  4. Dynamic import from `/sdk/esm/...` and instance wiring
+  5. Global fallbacks (e.g., base64UrlEncode)
 
 - `tests/setup/index.ts`:
   - `setupBasicPasskeyTest(page, overrides)` orchestrates the 5 steps
@@ -80,6 +81,7 @@ The test bootstrap is a precise 5‑step sequence to avoid WebAuthn/import‑map
   - `executeTransfer(passkey, { accountId, receiverId, amountYocto })`
 
 Example (see `tests/setup/flows.ts`):
+
 ```ts
 import { test, expect } from '../setup/fixtures';
 import { registerPasskey, loginAndCreateSession } from '../setup/flows';
@@ -102,6 +104,7 @@ test('register → login', async ({ passkey }) => {
   - `pnpm show-report` to open Playwright HTML report
 
 - Direct Playwright subset examples:
+
 ```bash
 pnpm -C tests exec playwright test **/e2e/**/*.test.ts
 pnpm -C tests exec playwright test **/unit/**/*.test.ts
@@ -124,6 +127,7 @@ pnpm -C tests run test:signers:gates
 - `VERBOSE_TEST_LOGS=1` print captured console logs live
 
 Manual build without tests:
+
 ```bash
 pnpm -C sdk build
 ```
@@ -180,6 +184,7 @@ pnpm -C sdk build
 Chromium enforces COEP. If the initial `CONNECT` is posted with `targetOrigin='*'`, the transferable `MessagePort` is discarded and `READY` never arrives.
 
 To keep iframe tests stable:
+
 - Post initial `CONNECT` to the exact wallet origin (for example `https://wallet.example.localhost`).
 
 ## Gaps & Next Steps

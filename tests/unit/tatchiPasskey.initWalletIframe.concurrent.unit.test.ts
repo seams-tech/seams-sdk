@@ -80,59 +80,76 @@ test.describe('TatchiPasskey.initWalletIframe', () => {
   });
 
   test('does not mount multiple wallet iframes on concurrent init', async ({ page }) => {
-    const result = await page.evaluate(async ({ walletOrigin }) => {
-      const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-      const { TatchiPasskey } = mod as any;
+    const result = await page.evaluate(
+      async ({ walletOrigin }) => {
+        const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+        const { TatchiPasskey } = mod as any;
 
-      // Defensive: ensure a clean slate.
-      for (const el of Array.from(document.querySelectorAll('iframe.w3a-wallet-overlay'))) {
-        try { el.remove(); } catch {}
-      }
-
-      const pm = new TatchiPasskey({
-        relayer: { url: 'http://localhost:3000' },
-        iframeWallet: {
-          walletOrigin,
-          walletServicePath: '/wallet-service',
-          sdkBasePath: '/sdk',
-        },
-      });
-
-      const timeoutMs = 12_000;
-      const start = Date.now();
-      const init = Promise.all([
-        pm.initWalletIframe(),
-        pm.initWalletIframe(),
-        pm.initWalletIframe(),
-        pm.initWalletIframe(),
-      ]).then(() => ({ ok: true as const })).catch((err) => ({ ok: false as const, error: String(err?.message || err) }));
-
-      const out = await Promise.race([
-        init,
-        new Promise<{ ok: false; error: string }>((resolve) => setTimeout(() => resolve({
-          ok: false,
-          error: `timeout after ${timeoutMs}ms (elapsed ${Date.now() - start}ms)`,
-        }), timeoutMs)),
-      ]);
-
-      const waitUntilReady = async (pmInst: any, waitMs = 1000): Promise<boolean> => {
-        const started = Date.now();
-        while (Date.now() - started < waitMs) {
+        // Defensive: ensure a clean slate.
+        for (const el of Array.from(document.querySelectorAll('iframe.w3a-wallet-overlay'))) {
           try {
-            if (pmInst.isWalletIframeReady?.()) return true;
+            el.remove();
           } catch {}
-          await new Promise((resolve) => setTimeout(resolve, 25));
         }
-        try { return !!pmInst.isWalletIframeReady?.(); } catch { return false; }
-      };
 
-      return {
-        ok: out.ok,
-        error: (out as any).error,
-        iframeCount: document.querySelectorAll('iframe.w3a-wallet-overlay').length,
-        routerReady: await waitUntilReady(pm),
-      };
-    }, { walletOrigin: WALLET_ORIGIN });
+        const pm = new TatchiPasskey({
+          relayer: { url: 'http://localhost:3000' },
+          iframeWallet: {
+            walletOrigin,
+            walletServicePath: '/wallet-service',
+            sdkBasePath: '/sdk',
+          },
+        });
+
+        const timeoutMs = 12_000;
+        const start = Date.now();
+        const init = Promise.all([
+          pm.initWalletIframe(),
+          pm.initWalletIframe(),
+          pm.initWalletIframe(),
+          pm.initWalletIframe(),
+        ])
+          .then(() => ({ ok: true as const }))
+          .catch((err) => ({ ok: false as const, error: String(err?.message || err) }));
+
+        const out = await Promise.race([
+          init,
+          new Promise<{ ok: false; error: string }>((resolve) =>
+            setTimeout(
+              () =>
+                resolve({
+                  ok: false,
+                  error: `timeout after ${timeoutMs}ms (elapsed ${Date.now() - start}ms)`,
+                }),
+              timeoutMs,
+            ),
+          ),
+        ]);
+
+        const waitUntilReady = async (pmInst: any, waitMs = 1000): Promise<boolean> => {
+          const started = Date.now();
+          while (Date.now() - started < waitMs) {
+            try {
+              if (pmInst.isWalletIframeReady?.()) return true;
+            } catch {}
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+          try {
+            return !!pmInst.isWalletIframeReady?.();
+          } catch {
+            return false;
+          }
+        };
+
+        return {
+          ok: out.ok,
+          error: (out as any).error,
+          iframeCount: document.querySelectorAll('iframe.w3a-wallet-overlay').length,
+          routerReady: await waitUntilReady(pm),
+        };
+      },
+      { walletOrigin: WALLET_ORIGIN },
+    );
 
     expect(result.ok, JSON.stringify(result)).toBe(true);
     expect(result.iframeCount).toBe(1);

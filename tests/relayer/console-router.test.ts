@@ -114,27 +114,36 @@ test.describe('console router (express)', () => {
       expect(String(getPath(listed.json, 'apiKeys', 0, 'id') || '')).toBe(keyId);
       expect(getPath(listed.json, 'apiKeys', 0, 'secret')).toBeUndefined();
 
-      const rotated = await fetchJson(`${srv.baseUrl}/console/api-keys/${encodeURIComponent(keyId)}/rotate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: 'scheduled rotation' }),
-      });
+      const rotated = await fetchJson(
+        `${srv.baseUrl}/console/api-keys/${encodeURIComponent(keyId)}/rotate`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'scheduled rotation' }),
+        },
+      );
       expect(rotated.status).toBe(200);
       const rotatedSecret = String(getPath(rotated.json, 'secret') || '');
       expect(rotatedSecret).toContain('tsk_');
       expect(rotatedSecret).not.toBe(createdSecret);
       expect(Number(getPath(rotated.json, 'apiKey', 'secretVersion') || 0)).toBe(2);
 
-      const revoked = await fetchJson(`${srv.baseUrl}/console/api-keys/${encodeURIComponent(keyId)}`, {
-        method: 'DELETE',
-      });
+      const revoked = await fetchJson(
+        `${srv.baseUrl}/console/api-keys/${encodeURIComponent(keyId)}`,
+        {
+          method: 'DELETE',
+        },
+      );
       expect(revoked.status).toBe(200);
       expect(getPath(revoked.json, 'revoked')).toBe(true);
       expect(getPath(revoked.json, 'apiKey', 'status')).toBe('REVOKED');
 
-      const rotateRevoked = await fetchJson(`${srv.baseUrl}/console/api-keys/${encodeURIComponent(keyId)}/rotate`, {
-        method: 'POST',
-      });
+      const rotateRevoked = await fetchJson(
+        `${srv.baseUrl}/console/api-keys/${encodeURIComponent(keyId)}/rotate`,
+        {
+          method: 'POST',
+        },
+      );
       expect(rotateRevoked.status).toBe(409);
       expect(rotateRevoked.json?.code).toBe('api_key_revoked');
     } finally {
@@ -188,23 +197,29 @@ test.describe('console router (express)', () => {
       expect(endpoints.length).toBe(1);
       expect(String(getPath(listed.json, 'endpoints', 0, 'id') || '')).toBe(endpointId);
 
-      const emitted = await webhooks.emitEvent({
-        orgId: 'org-1',
-        actorUserId: 'system-webhooks-test',
-        roles: ['ops'],
-      }, {
-        eventType: 'billing.invoice.paid',
-        payload: {
-          invoiceId: 'inv_router_1',
+      const emitted = await webhooks.emitEvent(
+        {
+          orgId: 'org-1',
+          actorUserId: 'system-webhooks-test',
+          roles: ['ops'],
         },
-      });
+        {
+          eventType: 'billing.invoice.paid',
+          payload: {
+            invoiceId: 'inv_router_1',
+          },
+        },
+      );
       expect(emitted.attempted).toBe(1);
       expect(emitted.delivered).toBe(0);
       expect(emitted.failed).toBe(1);
 
-      const deliveries = await fetchJson(`${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/deliveries`, {
-        method: 'GET',
-      });
+      const deliveries = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/deliveries`,
+        {
+          method: 'GET',
+        },
+      );
       expect(deliveries.status).toBe(200);
       const rows = Array.isArray(deliveries.json?.deliveries) ? deliveries.json?.deliveries : [];
       expect(rows.length).toBe(1);
@@ -213,38 +228,54 @@ test.describe('console router (express)', () => {
       const deliveryId = String(getPath(deliveries.json, 'deliveries', 0, 'id') || '');
       expect(deliveryId).toBeTruthy();
 
-      const attemptsBeforeReplay = await fetchJson(`${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/attempts`, {
-        method: 'GET',
-      });
+      const attemptsBeforeReplay = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/attempts`,
+        {
+          method: 'GET',
+        },
+      );
       expect(attemptsBeforeReplay.status).toBe(200);
       expect(Number(getPath(attemptsBeforeReplay.json, 'attempts', 0, 'attemptNo') || 0)).toBe(1);
       expect(getPath(attemptsBeforeReplay.json, 'attempts', 0, 'status')).toBe('FAILED');
 
-      const unresolvedDlq = await fetchJson(`${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/dead-letters`, {
-        method: 'GET',
-      });
+      const unresolvedDlq = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/dead-letters`,
+        {
+          method: 'GET',
+        },
+      );
       expect(unresolvedDlq.status).toBe(200);
-      const unresolvedRows = Array.isArray(unresolvedDlq.json?.deadLetters) ? unresolvedDlq.json?.deadLetters : [];
+      const unresolvedRows = Array.isArray(unresolvedDlq.json?.deadLetters)
+        ? unresolvedDlq.json?.deadLetters
+        : [];
       expect(unresolvedRows.length).toBe(1);
       expect(getPath(unresolvedDlq.json, 'deadLetters', 0, 'deliveryId')).toBe(deliveryId);
       expect(getPath(unresolvedDlq.json, 'deadLetters', 0, 'resolvedAt')).toBeNull();
 
-      const replayed = await fetchJson(`${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/replay`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deliveryId }),
-      });
+      const replayed = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/replay`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deliveryId }),
+        },
+      );
       expect(replayed.status).toBe(200);
       expect(getPath(replayed.json, 'replay', 'replayed')).toBe(true);
       expect(getPath(replayed.json, 'replay', 'delivery', 'status')).toBe('SUCCEEDED');
       expect(Number(getPath(replayed.json, 'replay', 'delivery', 'attemptCount') || 0)).toBe(2);
       expect(Number(getPath(replayed.json, 'replay', 'delivery', 'replayCount') || 0)).toBe(1);
 
-      const attemptsAfterReplay = await fetchJson(`${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/attempts?deliveryId=${encodeURIComponent(deliveryId)}&limit=1`, {
-        method: 'GET',
-      });
+      const attemptsAfterReplay = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/attempts?deliveryId=${encodeURIComponent(deliveryId)}&limit=1`,
+        {
+          method: 'GET',
+        },
+      );
       expect(attemptsAfterReplay.status).toBe(200);
-      const replayAttempts = Array.isArray(attemptsAfterReplay.json?.attempts) ? attemptsAfterReplay.json?.attempts : [];
+      const replayAttempts = Array.isArray(attemptsAfterReplay.json?.attempts)
+        ? attemptsAfterReplay.json?.attempts
+        : [];
       expect(replayAttempts.length).toBe(1);
       expect(Number(getPath(attemptsAfterReplay.json, 'attempts', 0, 'attemptNo') || 0)).toBe(2);
       expect(getPath(attemptsAfterReplay.json, 'attempts', 0, 'status')).toBe('SUCCEEDED');
@@ -252,9 +283,12 @@ test.describe('console router (express)', () => {
       const attemptsNextCursor = String(attemptsAfterReplay.json?.nextCursor || '');
       expect(attemptsNextCursor).toBeTruthy();
 
-      const attemptsSecondPage = await fetchJson(`${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/attempts?deliveryId=${encodeURIComponent(deliveryId)}&limit=1&cursor=${encodeURIComponent(attemptsNextCursor)}`, {
-        method: 'GET',
-      });
+      const attemptsSecondPage = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/attempts?deliveryId=${encodeURIComponent(deliveryId)}&limit=1&cursor=${encodeURIComponent(attemptsNextCursor)}`,
+        {
+          method: 'GET',
+        },
+      );
       expect(attemptsSecondPage.status).toBe(200);
       const replayAttemptsSecondPage = Array.isArray(attemptsSecondPage.json?.attempts)
         ? attemptsSecondPage.json?.attempts
@@ -263,52 +297,69 @@ test.describe('console router (express)', () => {
       expect(Number(getPath(attemptsSecondPage.json, 'attempts', 0, 'attemptNo') || 0)).toBe(1);
       expect(String(attemptsSecondPage.json?.nextCursor || '')).toBe('');
 
-      const unresolvedAfterReplay = await fetchJson(`${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/dead-letters`, {
-        method: 'GET',
-      });
+      const unresolvedAfterReplay = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/dead-letters`,
+        {
+          method: 'GET',
+        },
+      );
       expect(unresolvedAfterReplay.status).toBe(200);
       const unresolvedRowsAfterReplay = Array.isArray(unresolvedAfterReplay.json?.deadLetters)
         ? unresolvedAfterReplay.json?.deadLetters
         : [];
       expect(unresolvedRowsAfterReplay.length).toBe(0);
 
-      const resolvedDlq = await fetchJson(`${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/dead-letters?includeResolved=true`, {
-        method: 'GET',
-      });
+      const resolvedDlq = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/dead-letters?includeResolved=true`,
+        {
+          method: 'GET',
+        },
+      );
       expect(resolvedDlq.status).toBe(200);
-      const resolvedRows = Array.isArray(resolvedDlq.json?.deadLetters) ? resolvedDlq.json?.deadLetters : [];
+      const resolvedRows = Array.isArray(resolvedDlq.json?.deadLetters)
+        ? resolvedDlq.json?.deadLetters
+        : [];
       expect(resolvedRows.length).toBe(1);
       expect(getPath(resolvedDlq.json, 'deadLetters', 0, 'deliveryId')).toBe(deliveryId);
       expect(Boolean(getPath(resolvedDlq.json, 'deadLetters', 0, 'resolvedAt'))).toBe(true);
 
-      const updated = await fetchJson(`${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          status: 'DISABLED',
-          subscriptions: ['wallet', 'policy'],
-        }),
-      });
+      const updated = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: 'DISABLED',
+            subscriptions: ['wallet', 'policy'],
+          }),
+        },
+      );
       expect(updated.status).toBe(200);
       expect(getPath(updated.json, 'endpoint', 'status')).toBe('DISABLED');
 
-      const emittedDisabled = await webhooks.emitEvent({
-        orgId: 'org-1',
-        actorUserId: 'system-webhooks-test',
-        roles: ['ops'],
-      }, {
-        eventType: 'billing.invoice.paid',
-        payload: {
-          invoiceId: 'inv_router_2',
+      const emittedDisabled = await webhooks.emitEvent(
+        {
+          orgId: 'org-1',
+          actorUserId: 'system-webhooks-test',
+          roles: ['ops'],
         },
-      });
+        {
+          eventType: 'billing.invoice.paid',
+          payload: {
+            invoiceId: 'inv_router_2',
+          },
+        },
+      );
       expect(emittedDisabled.attempted).toBe(0);
       expect(emittedDisabled.delivered).toBe(0);
       expect(emittedDisabled.failed).toBe(0);
 
-      const deleted = await fetchJson(`${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}`, {
-        method: 'DELETE',
-      });
+      const deleted = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}`,
+        {
+          method: 'DELETE',
+        },
+      );
       expect(deleted.status).toBe(200);
       expect(deleted.json?.removed).toBe(true);
     } finally {
@@ -335,21 +386,30 @@ test.describe('console router (express)', () => {
       const endpointId = String(getPath(created.json, 'endpoint', 'id') || '');
       expect(endpointId).toBeTruthy();
 
-      const deliveries = await fetchJson(`${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/deliveries?cursor=bad_cursor`, {
-        method: 'GET',
-      });
+      const deliveries = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/deliveries?cursor=bad_cursor`,
+        {
+          method: 'GET',
+        },
+      );
       expect(deliveries.status).toBe(400);
       expect(deliveries.json?.code).toBe('invalid_query');
 
-      const attempts = await fetchJson(`${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/attempts?cursor=bad_cursor`, {
-        method: 'GET',
-      });
+      const attempts = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/attempts?cursor=bad_cursor`,
+        {
+          method: 'GET',
+        },
+      );
       expect(attempts.status).toBe(400);
       expect(attempts.json?.code).toBe('invalid_query');
 
-      const deadLetters = await fetchJson(`${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/dead-letters?cursor=bad_cursor`, {
-        method: 'GET',
-      });
+      const deadLetters = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/dead-letters?cursor=bad_cursor`,
+        {
+          method: 'GET',
+        },
+      );
       expect(deadLetters.status).toBe(400);
       expect(deadLetters.json?.code).toBe('invalid_query');
 
@@ -370,7 +430,9 @@ test.describe('console router (express)', () => {
     const router = createConsoleRouter({});
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/assets`, { method: 'GET' });
+      const res = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/assets`, {
+        method: 'GET',
+      });
       expect(res.status).toBe(503);
       expect(res.json?.code).toBe('console_auth_not_configured');
     } finally {
@@ -382,7 +444,9 @@ test.describe('console router (express)', () => {
     const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/assets`, { method: 'GET' });
+      const res = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/assets`, {
+        method: 'GET',
+      });
       expect(res.status).toBe(200);
       expect(res.json?.version).toBe('v1');
       const assets = Array.isArray(res.json?.assets) ? res.json?.assets : [];
@@ -472,9 +536,13 @@ test.describe('console router (express)', () => {
       expect(addCard.status).toBe(201);
       expect(String(getPath(addCard.json, 'paymentMethod', 'id') || '')).toBeTruthy();
 
-      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, { method: 'GET' });
+      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
+        method: 'GET',
+      });
       expect(invoices.status).toBe(200);
-      const invoiceId = Array.isArray(invoices.json?.invoices) ? (invoices.json?.invoices?.[0] as any)?.id : '';
+      const invoiceId = Array.isArray(invoices.json?.invoices)
+        ? (invoices.json?.invoices?.[0] as any)?.id
+        : '';
       expect(invoiceId).toBeTruthy();
 
       const quote = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/quotes`, {
@@ -490,14 +558,17 @@ test.describe('console router (express)', () => {
       const quoteId = String(getPath(quote.json, 'quote', 'id') || '');
       expect(quoteId).toBeTruthy();
 
-      const stablecoinIntent = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/payment-intents`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          invoiceId,
-          quoteId,
-        }),
-      });
+      const stablecoinIntent = await fetchJson(
+        `${srv.baseUrl}/console/billing/stablecoins/payment-intents`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            invoiceId,
+            quoteId,
+          }),
+        },
+      );
       expect(stablecoinIntent.status).toBe(201);
       expect(getPath(stablecoinIntent.json, 'paymentIntent', 'rail')).toBe('STABLECOIN');
 
@@ -523,9 +594,13 @@ test.describe('console router (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, { method: 'GET' });
+      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
+        method: 'GET',
+      });
       expect(invoices.status).toBe(200);
-      const invoiceId = Array.isArray(invoices.json?.invoices) ? (invoices.json?.invoices?.[0] as any)?.id : '';
+      const invoiceId = Array.isArray(invoices.json?.invoices)
+        ? (invoices.json?.invoices?.[0] as any)?.id
+        : '';
       expect(invoiceId).toBeTruthy();
 
       const quote = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/quotes`, {
@@ -541,18 +616,24 @@ test.describe('console router (express)', () => {
       const quoteId = String(getPath(quote.json, 'quote', 'id') || '');
       expect(quoteId).toBeTruthy();
 
-      const firstIntent = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/payment-intents`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceId, quoteId }),
-      });
+      const firstIntent = await fetchJson(
+        `${srv.baseUrl}/console/billing/stablecoins/payment-intents`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ invoiceId, quoteId }),
+        },
+      );
       expect(firstIntent.status).toBe(201);
       const paymentIntentId = String(getPath(firstIntent.json, 'paymentIntent', 'id') || '');
       expect(paymentIntentId).toBeTruthy();
 
-      const canceled = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/payment-intents/${paymentIntentId}/cancel`, {
-        method: 'POST',
-      });
+      const canceled = await fetchJson(
+        `${srv.baseUrl}/console/billing/stablecoins/payment-intents/${paymentIntentId}/cancel`,
+        {
+          method: 'POST',
+        },
+      );
       expect(canceled.status).toBe(200);
       expect(getPath(canceled.json, 'paymentIntent', 'state')).toBe('CANCELED');
 
@@ -578,9 +659,13 @@ test.describe('console router (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, { method: 'GET' });
+      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
+        method: 'GET',
+      });
       expect(invoices.status).toBe(200);
-      const invoiceId = Array.isArray(invoices.json?.invoices) ? (invoices.json?.invoices?.[0] as any)?.id : '';
+      const invoiceId = Array.isArray(invoices.json?.invoices)
+        ? (invoices.json?.invoices?.[0] as any)?.id
+        : '';
       expect(invoiceId).toBeTruthy();
 
       const created = await fetchJson(`${srv.baseUrl}/console/billing/stripe/payment-intent`, {
@@ -654,9 +739,13 @@ test.describe('console router (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, { method: 'GET' });
+      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
+        method: 'GET',
+      });
       expect(invoices.status).toBe(200);
-      const invoiceId = Array.isArray(invoices.json?.invoices) ? (invoices.json?.invoices?.[0] as any)?.id : '';
+      const invoiceId = Array.isArray(invoices.json?.invoices)
+        ? (invoices.json?.invoices?.[0] as any)?.id
+        : '';
       expect(invoiceId).toBeTruthy();
 
       const firstIntent = await fetchJson(`${srv.baseUrl}/console/billing/stripe/payment-intent`, {
@@ -759,9 +848,12 @@ test.describe('console router (express)', () => {
       expect(getPath(duplicate.json, 'result', 'counted')).toBe(false);
       expect(Number(getPath(duplicate.json, 'result', 'monthlyActiveWallets') || 0)).toBe(2);
 
-      const usage = await fetchJson(`${srv.baseUrl}/console/billing/usage/monthly-active-wallets?monthUtc=${encodeURIComponent(monthUtc)}`, {
-        method: 'GET',
-      });
+      const usage = await fetchJson(
+        `${srv.baseUrl}/console/billing/usage/monthly-active-wallets?monthUtc=${encodeURIComponent(monthUtc)}`,
+        {
+          method: 'GET',
+        },
+      );
       expect(usage.status).toBe(200);
       expect(getPath(usage.json, 'usage', 'usageMetricVersion')).toBe('maw_v1');
       expect(getPath(usage.json, 'usage', 'monthUtc')).toBe(monthUtc);
@@ -841,13 +933,18 @@ test.describe('console router (express)', () => {
       });
       expect(generated.status).toBe(200);
       expect(getPath(generated.json, 'generation', 'generated')).toBe(true);
-      expect(Number(getPath(generated.json, 'generation', 'invoice', 'amountDueMinor') || 0)).toBe(2500);
+      expect(Number(getPath(generated.json, 'generation', 'invoice', 'amountDueMinor') || 0)).toBe(
+        2500,
+      );
       const invoiceId = String(getPath(generated.json, 'generation', 'invoice', 'id') || '');
       expect(invoiceId).toBeTruthy();
 
-      const lineItems = await fetchJson(`${srv.baseUrl}/console/billing/invoices/${encodeURIComponent(invoiceId)}/line-items`, {
-        method: 'GET',
-      });
+      const lineItems = await fetchJson(
+        `${srv.baseUrl}/console/billing/invoices/${encodeURIComponent(invoiceId)}/line-items`,
+        {
+          method: 'GET',
+        },
+      );
       expect(lineItems.status).toBe(200);
       const items = Array.isArray(lineItems.json?.lineItems) ? lineItems.json?.lineItems : [];
       expect(items.length).toBe(2);
@@ -865,14 +962,17 @@ test.describe('console router (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/payment-intents/scpi_fake/reconcile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          observedAmountMinor: 1,
-          observedConfirmations: 1,
-        }),
-      });
+      const res = await fetchJson(
+        `${srv.baseUrl}/console/billing/stablecoins/payment-intents/scpi_fake/reconcile`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            observedAmountMinor: 1,
+            observedConfirmations: 1,
+          }),
+        },
+      );
       expect(res.status).toBe(403);
       expect(res.json?.code).toBe('forbidden');
     } finally {
@@ -888,9 +988,13 @@ test.describe('console router (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, { method: 'GET' });
+      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
+        method: 'GET',
+      });
       expect(invoices.status).toBe(200);
-      const invoiceId = Array.isArray(invoices.json?.invoices) ? (invoices.json?.invoices?.[0] as any)?.id : '';
+      const invoiceId = Array.isArray(invoices.json?.invoices)
+        ? (invoices.json?.invoices?.[0] as any)?.id
+        : '';
       expect(invoiceId).toBeTruthy();
 
       const quote = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/quotes`, {
@@ -906,48 +1010,65 @@ test.describe('console router (express)', () => {
       const quoteId = String(getPath(quote.json, 'quote', 'id') || '');
       expect(quoteId).toBeTruthy();
 
-      const created = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/payment-intents`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceId, quoteId }),
-      });
+      const created = await fetchJson(
+        `${srv.baseUrl}/console/billing/stablecoins/payment-intents`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ invoiceId, quoteId }),
+        },
+      );
       expect(created.status).toBe(201);
       const paymentIntentId = String(getPath(created.json, 'paymentIntent', 'id') || '');
-      const expectedAmountMinor = Number(getPath(created.json, 'paymentIntent', 'expectedAmountMinor') || 0);
-      const requiredConfirmations = Number(getPath(created.json, 'paymentIntent', 'requiredConfirmations') || 0);
+      const expectedAmountMinor = Number(
+        getPath(created.json, 'paymentIntent', 'expectedAmountMinor') || 0,
+      );
+      const requiredConfirmations = Number(
+        getPath(created.json, 'paymentIntent', 'requiredConfirmations') || 0,
+      );
       expect(paymentIntentId).toBeTruthy();
       expect(expectedAmountMinor).toBeGreaterThan(0);
       expect(requiredConfirmations).toBeGreaterThan(0);
 
-      const confirming = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/payment-intents/${paymentIntentId}/reconcile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          observedAmountMinor: expectedAmountMinor,
-          observedConfirmations: Math.max(requiredConfirmations - 1, 0),
-        }),
-      });
+      const confirming = await fetchJson(
+        `${srv.baseUrl}/console/billing/stablecoins/payment-intents/${paymentIntentId}/reconcile`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            observedAmountMinor: expectedAmountMinor,
+            observedConfirmations: Math.max(requiredConfirmations - 1, 0),
+          }),
+        },
+      );
       expect(confirming.status).toBe(200);
       expect(getPath(confirming.json, 'paymentIntent', 'state')).toBe('CONFIRMING');
 
-      const settled = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/payment-intents/${paymentIntentId}/reconcile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          observedAmountMinor: expectedAmountMinor,
-          observedConfirmations: requiredConfirmations,
-        }),
-      });
+      const settled = await fetchJson(
+        `${srv.baseUrl}/console/billing/stablecoins/payment-intents/${paymentIntentId}/reconcile`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            observedAmountMinor: expectedAmountMinor,
+            observedConfirmations: requiredConfirmations,
+          }),
+        },
+      );
       expect(settled.status).toBe(200);
       expect(getPath(settled.json, 'paymentIntent', 'state')).toBe('SETTLED');
       expect(getPath(settled.json, 'paymentIntent', 'settledAt')).toBeTruthy();
       expect(getPath(settled.json, 'paymentIntent', 'reorgRiskWindowEndsAt')).toBeTruthy();
       expect(getPath(settled.json, 'paymentIntent', 'withinReorgRiskWindow')).toBe(true);
 
-      const invoice = await fetchJson(`${srv.baseUrl}/console/billing/invoices/${invoiceId}`, { method: 'GET' });
+      const invoice = await fetchJson(`${srv.baseUrl}/console/billing/invoices/${invoiceId}`, {
+        method: 'GET',
+      });
       expect(invoice.status).toBe(200);
       expect(getPath(invoice.json, 'invoice', 'status')).toBe('PAID');
-      expect(Number(getPath(invoice.json, 'invoice', 'amountPaidMinor') || 0)).toBeGreaterThanOrEqual(expectedAmountMinor);
+      expect(
+        Number(getPath(invoice.json, 'invoice', 'amountPaidMinor') || 0),
+      ).toBeGreaterThanOrEqual(expectedAmountMinor);
     } finally {
       await srv.close();
     }
@@ -964,9 +1085,13 @@ test.describe('console router (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, { method: 'GET' });
+      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
+        method: 'GET',
+      });
       expect(invoices.status).toBe(200);
-      const invoiceId = Array.isArray(invoices.json?.invoices) ? (invoices.json?.invoices?.[0] as any)?.id : '';
+      const invoiceId = Array.isArray(invoices.json?.invoices)
+        ? (invoices.json?.invoices?.[0] as any)?.id
+        : '';
       expect(invoiceId).toBeTruthy();
 
       const quote = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/quotes`, {
@@ -982,32 +1107,44 @@ test.describe('console router (express)', () => {
       const quoteId = String(getPath(quote.json, 'quote', 'id') || '');
       expect(quoteId).toBeTruthy();
 
-      const created = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/payment-intents`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceId, quoteId }),
-      });
+      const created = await fetchJson(
+        `${srv.baseUrl}/console/billing/stablecoins/payment-intents`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ invoiceId, quoteId }),
+        },
+      );
       expect(created.status).toBe(201);
       const paymentIntentId = String(getPath(created.json, 'paymentIntent', 'id') || '');
-      const expectedAmountMinor = Number(getPath(created.json, 'paymentIntent', 'expectedAmountMinor') || 0);
-      const requiredConfirmations = Number(getPath(created.json, 'paymentIntent', 'requiredConfirmations') || 0);
+      const expectedAmountMinor = Number(
+        getPath(created.json, 'paymentIntent', 'expectedAmountMinor') || 0,
+      );
+      const requiredConfirmations = Number(
+        getPath(created.json, 'paymentIntent', 'requiredConfirmations') || 0,
+      );
       expect(paymentIntentId).toBeTruthy();
       expect(requiredConfirmations).toBeGreaterThan(0);
 
-      current = new Date(current.getTime() + (16 * 60 * 1000));
+      current = new Date(current.getTime() + 16 * 60 * 1000);
 
-      const reconcile = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/payment-intents/${paymentIntentId}/reconcile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          observedAmountMinor: expectedAmountMinor,
-          observedConfirmations: requiredConfirmations,
-        }),
-      });
+      const reconcile = await fetchJson(
+        `${srv.baseUrl}/console/billing/stablecoins/payment-intents/${paymentIntentId}/reconcile`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            observedAmountMinor: expectedAmountMinor,
+            observedConfirmations: requiredConfirmations,
+          }),
+        },
+      );
       expect(reconcile.status).toBe(200);
       expect(getPath(reconcile.json, 'paymentIntent', 'state')).toBe('EXPIRED');
 
-      const invoice = await fetchJson(`${srv.baseUrl}/console/billing/invoices/${invoiceId}`, { method: 'GET' });
+      const invoice = await fetchJson(`${srv.baseUrl}/console/billing/invoices/${invoiceId}`, {
+        method: 'GET',
+      });
       expect(invoice.status).toBe(200);
       expect(getPath(invoice.json, 'invoice', 'status')).toBe('OPEN');
       expect(Number(getPath(invoice.json, 'invoice', 'amountPaidMinor') || 0)).toBe(0);
@@ -1024,9 +1161,13 @@ test.describe('console router (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, { method: 'GET' });
+      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
+        method: 'GET',
+      });
       expect(invoices.status).toBe(200);
-      const invoiceId = Array.isArray(invoices.json?.invoices) ? (invoices.json?.invoices?.[0] as any)?.id : '';
+      const invoiceId = Array.isArray(invoices.json?.invoices)
+        ? (invoices.json?.invoices?.[0] as any)?.id
+        : '';
       expect(invoiceId).toBeTruthy();
 
       const created = await fetchJson(`${srv.baseUrl}/console/billing/stripe/payment-intent`, {
@@ -1041,41 +1182,52 @@ test.describe('console router (express)', () => {
       expect(paymentIntentId).toBeTruthy();
       expect(amountMinor).toBeGreaterThan(0);
 
-      const actionRequired = await fetchJson(`${srv.baseUrl}/console/billing/stripe/payment-intents/${paymentIntentId}/reconcile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          providerStatus: 'ACTION_REQUIRED',
-          sourceEventId: `evt_${Date.now()}_action_required`,
-        }),
-      });
+      const actionRequired = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/payment-intents/${paymentIntentId}/reconcile`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            providerStatus: 'ACTION_REQUIRED',
+            sourceEventId: `evt_${Date.now()}_action_required`,
+          }),
+        },
+      );
       expect(actionRequired.status).toBe(200);
       expect(getPath(actionRequired.json, 'paymentIntent', 'state')).toBe('ACTION_REQUIRED');
 
-      const pending = await fetchJson(`${srv.baseUrl}/console/billing/stripe/payment-intents/${paymentIntentId}/reconcile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          providerStatus: 'PENDING',
-          sourceEventId: `evt_${Date.now()}_pending`,
-        }),
-      });
+      const pending = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/payment-intents/${paymentIntentId}/reconcile`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            providerStatus: 'PENDING',
+            sourceEventId: `evt_${Date.now()}_pending`,
+          }),
+        },
+      );
       expect(pending.status).toBe(200);
       expect(getPath(pending.json, 'paymentIntent', 'state')).toBe('PENDING');
 
-      const settled = await fetchJson(`${srv.baseUrl}/console/billing/stripe/payment-intents/${paymentIntentId}/reconcile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          providerStatus: 'SUCCEEDED',
-          settledAmountMinor: amountMinor,
-          sourceEventId: `evt_${Date.now()}_succeeded`,
-        }),
-      });
+      const settled = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/payment-intents/${paymentIntentId}/reconcile`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            providerStatus: 'SUCCEEDED',
+            settledAmountMinor: amountMinor,
+            sourceEventId: `evt_${Date.now()}_succeeded`,
+          }),
+        },
+      );
       expect(settled.status).toBe(200);
       expect(getPath(settled.json, 'paymentIntent', 'state')).toBe('SETTLED');
 
-      const invoice = await fetchJson(`${srv.baseUrl}/console/billing/invoices/${invoiceId}`, { method: 'GET' });
+      const invoice = await fetchJson(`${srv.baseUrl}/console/billing/invoices/${invoiceId}`, {
+        method: 'GET',
+      });
       expect(invoice.status).toBe(200);
       expect(getPath(invoice.json, 'invoice', 'status')).toBe('PAID');
     } finally {
@@ -1113,9 +1265,13 @@ test.describe('console router (express)', () => {
       const endpointId = String(getPath(endpointCreated.json, 'endpoint', 'id') || '');
       expect(endpointId).toBeTruthy();
 
-      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, { method: 'GET' });
+      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
+        method: 'GET',
+      });
       expect(invoices.status).toBe(200);
-      const invoiceId = Array.isArray(invoices.json?.invoices) ? (invoices.json?.invoices?.[0] as any)?.id : '';
+      const invoiceId = Array.isArray(invoices.json?.invoices)
+        ? (invoices.json?.invoices?.[0] as any)?.id
+        : '';
       expect(invoiceId).toBeTruthy();
 
       const created = await fetchJson(`${srv.baseUrl}/console/billing/stripe/payment-intent`, {
@@ -1129,38 +1285,50 @@ test.describe('console router (express)', () => {
       expect(paymentIntentId).toBeTruthy();
       expect(amountMinor).toBeGreaterThan(0);
 
-      const actionRequired = await fetchJson(`${srv.baseUrl}/console/billing/stripe/payment-intents/${paymentIntentId}/reconcile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          providerStatus: 'ACTION_REQUIRED',
-        }),
-      });
+      const actionRequired = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/payment-intents/${paymentIntentId}/reconcile`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            providerStatus: 'ACTION_REQUIRED',
+          }),
+        },
+      );
       expect(actionRequired.status).toBe(200);
 
-      const pending = await fetchJson(`${srv.baseUrl}/console/billing/stripe/payment-intents/${paymentIntentId}/reconcile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          providerStatus: 'PENDING',
-        }),
-      });
+      const pending = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/payment-intents/${paymentIntentId}/reconcile`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            providerStatus: 'PENDING',
+          }),
+        },
+      );
       expect(pending.status).toBe(200);
 
-      const settled = await fetchJson(`${srv.baseUrl}/console/billing/stripe/payment-intents/${paymentIntentId}/reconcile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          providerStatus: 'SUCCEEDED',
-          settledAmountMinor: amountMinor,
-        }),
-      });
+      const settled = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/payment-intents/${paymentIntentId}/reconcile`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            providerStatus: 'SUCCEEDED',
+            settledAmountMinor: amountMinor,
+          }),
+        },
+      );
       expect(settled.status).toBe(200);
       expect(getPath(settled.json, 'paymentIntent', 'state')).toBe('SETTLED');
 
-      const deliveries = await fetchJson(`${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/deliveries`, {
-        method: 'GET',
-      });
+      const deliveries = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/deliveries`,
+        {
+          method: 'GET',
+        },
+      );
       expect(deliveries.status).toBe(200);
       const rows = Array.isArray(deliveries.json?.deliveries) ? deliveries.json?.deliveries : [];
       const eventTypes = rows.map((row: any) => String(row?.eventType || ''));
@@ -1168,18 +1336,24 @@ test.describe('console router (express)', () => {
       expect(eventTypes).toContain('billing.payment_intent.updated');
       expect(eventTypes).toContain('billing.invoice.paid');
 
-      const pageOne = await fetchJson(`${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/deliveries?limit=2`, {
-        method: 'GET',
-      });
+      const pageOne = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/deliveries?limit=2`,
+        {
+          method: 'GET',
+        },
+      );
       expect(pageOne.status).toBe(200);
       const pageOneRows = Array.isArray(pageOne.json?.deliveries) ? pageOne.json?.deliveries : [];
       expect(pageOneRows.length).toBe(2);
       const pageOneCursor = String(pageOne.json?.nextCursor || '');
       expect(pageOneCursor).toBeTruthy();
 
-      const pageTwo = await fetchJson(`${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/deliveries?limit=2&cursor=${encodeURIComponent(pageOneCursor)}`, {
-        method: 'GET',
-      });
+      const pageTwo = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/deliveries?limit=2&cursor=${encodeURIComponent(pageOneCursor)}`,
+        {
+          method: 'GET',
+        },
+      );
       expect(pageTwo.status).toBe(200);
       const pageTwoRows = Array.isArray(pageTwo.json?.deliveries) ? pageTwo.json?.deliveries : [];
       expect(pageTwoRows.length).toBeGreaterThanOrEqual(1);
@@ -1329,16 +1503,19 @@ test.describe('console router (cloudflare)', () => {
     expect(Array.isArray(listed.json?.endpoints)).toBe(true);
     expect(String(getPath(listed.json, 'endpoints', 0, 'id') || '')).toBe(endpointId);
 
-    const emitted = await webhooks.emitEvent({
-      orgId: 'org-1',
-      actorUserId: 'system-webhooks-test',
-      roles: ['ops'],
-    }, {
-      eventType: 'billing.invoice.paid',
-      payload: {
-        invoiceId: 'inv_cf_1',
+    const emitted = await webhooks.emitEvent(
+      {
+        orgId: 'org-1',
+        actorUserId: 'system-webhooks-test',
+        roles: ['ops'],
       },
-    });
+      {
+        eventType: 'billing.invoice.paid',
+        payload: {
+          invoiceId: 'inv_cf_1',
+        },
+      },
+    );
     expect(emitted.attempted).toBe(1);
     expect(emitted.delivered).toBe(0);
     expect(emitted.failed).toBe(1);
@@ -1367,7 +1544,9 @@ test.describe('console router (cloudflare)', () => {
       path: `/console/webhooks/${encodeURIComponent(endpointId)}/dead-letters`,
     });
     expect(unresolvedDlq.status).toBe(200);
-    const unresolvedRows = Array.isArray(unresolvedDlq.json?.deadLetters) ? unresolvedDlq.json?.deadLetters : [];
+    const unresolvedRows = Array.isArray(unresolvedDlq.json?.deadLetters)
+      ? unresolvedDlq.json?.deadLetters
+      : [];
     expect(unresolvedRows.length).toBe(1);
     expect(getPath(unresolvedDlq.json, 'deadLetters', 0, 'deliveryId')).toBe(deliveryId);
     expect(getPath(unresolvedDlq.json, 'deadLetters', 0, 'resolvedAt')).toBeNull();
@@ -1386,7 +1565,9 @@ test.describe('console router (cloudflare)', () => {
       path: `/console/webhooks/${encodeURIComponent(endpointId)}/attempts?deliveryId=${encodeURIComponent(deliveryId)}&limit=1`,
     });
     expect(attemptsAfterReplay.status).toBe(200);
-    const replayAttempts = Array.isArray(attemptsAfterReplay.json?.attempts) ? attemptsAfterReplay.json?.attempts : [];
+    const replayAttempts = Array.isArray(attemptsAfterReplay.json?.attempts)
+      ? attemptsAfterReplay.json?.attempts
+      : [];
     expect(replayAttempts.length).toBe(1);
     expect(Number(getPath(attemptsAfterReplay.json, 'attempts', 0, 'attemptNo') || 0)).toBe(2);
     expect(getPath(attemptsAfterReplay.json, 'attempts', 0, 'isReplay')).toBe(true);
@@ -1420,7 +1601,9 @@ test.describe('console router (cloudflare)', () => {
       path: `/console/webhooks/${encodeURIComponent(endpointId)}/dead-letters?includeResolved=true`,
     });
     expect(resolvedDlq.status).toBe(200);
-    const resolvedRows = Array.isArray(resolvedDlq.json?.deadLetters) ? resolvedDlq.json?.deadLetters : [];
+    const resolvedRows = Array.isArray(resolvedDlq.json?.deadLetters)
+      ? resolvedDlq.json?.deadLetters
+      : [];
     expect(resolvedRows.length).toBe(1);
     expect(getPath(resolvedDlq.json, 'deadLetters', 0, 'deliveryId')).toBe(deliveryId);
     expect(Boolean(getPath(resolvedDlq.json, 'deadLetters', 0, 'resolvedAt'))).toBe(true);
@@ -1492,14 +1675,20 @@ test.describe('console router (cloudflare)', () => {
 
   test('GET /console/billing/stablecoins/assets requires auth adapter', async () => {
     const handler = createCloudflareConsoleRouter({});
-    const res = await callCf(handler, { method: 'GET', path: '/console/billing/stablecoins/assets' });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/billing/stablecoins/assets',
+    });
     expect(res.status).toBe(503);
     expect(res.json?.code).toBe('console_auth_not_configured');
   });
 
   test('GET /console/billing/stablecoins/assets returns supported assets/chains', async () => {
     const handler = createCloudflareConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
-    const res = await callCf(handler, { method: 'GET', path: '/console/billing/stablecoins/assets' });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/billing/stablecoins/assets',
+    });
     expect(res.status).toBe(200);
     expect(res.json?.version).toBe('v1');
     expect(JSON.stringify(res.json?.assets || null)).toContain('"asset":"USDT"');
@@ -1567,7 +1756,9 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/billing/invoices',
     });
     expect(invoices.status).toBe(200);
-    const invoiceId = Array.isArray(invoices.json?.invoices) ? (invoices.json?.invoices?.[0] as any)?.id : '';
+    const invoiceId = Array.isArray(invoices.json?.invoices)
+      ? (invoices.json?.invoices?.[0] as any)?.id
+      : '';
     expect(invoiceId).toBeTruthy();
 
     const quote = await callCf(handler, {
@@ -1617,7 +1808,9 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/billing/invoices',
     });
     expect(invoices.status).toBe(200);
-    const invoiceId = Array.isArray(invoices.json?.invoices) ? (invoices.json?.invoices?.[0] as any)?.id : '';
+    const invoiceId = Array.isArray(invoices.json?.invoices)
+      ? (invoices.json?.invoices?.[0] as any)?.id
+      : '';
     expect(invoiceId).toBeTruthy();
 
     const quote = await callCf(handler, {
@@ -1670,7 +1863,9 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/billing/invoices',
     });
     expect(invoices.status).toBe(200);
-    const invoiceId = Array.isArray(invoices.json?.invoices) ? (invoices.json?.invoices?.[0] as any)?.id : '';
+    const invoiceId = Array.isArray(invoices.json?.invoices)
+      ? (invoices.json?.invoices?.[0] as any)?.id
+      : '';
     expect(invoiceId).toBeTruthy();
 
     const firstIntent = await callCf(handler, {
@@ -1704,7 +1899,9 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/billing/invoices',
     });
     expect(invoices.status).toBe(200);
-    const invoiceId = Array.isArray(invoices.json?.invoices) ? (invoices.json?.invoices?.[0] as any)?.id : '';
+    const invoiceId = Array.isArray(invoices.json?.invoices)
+      ? (invoices.json?.invoices?.[0] as any)?.id
+      : '';
     expect(invoiceId).toBeTruthy();
 
     const created = await callCf(handler, {
@@ -1880,7 +2077,9 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(generated.status).toBe(200);
     expect(getPath(generated.json, 'generation', 'generated')).toBe(true);
-    expect(Number(getPath(generated.json, 'generation', 'invoice', 'amountDueMinor') || 0)).toBe(2500);
+    expect(Number(getPath(generated.json, 'generation', 'invoice', 'amountDueMinor') || 0)).toBe(
+      2500,
+    );
     const invoiceId = String(getPath(generated.json, 'generation', 'invoice', 'id') || '');
     expect(invoiceId).toBeTruthy();
 
@@ -1924,7 +2123,9 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/billing/invoices',
     });
     expect(invoices.status).toBe(200);
-    const invoiceId = Array.isArray(invoices.json?.invoices) ? (invoices.json?.invoices?.[0] as any)?.id : '';
+    const invoiceId = Array.isArray(invoices.json?.invoices)
+      ? (invoices.json?.invoices?.[0] as any)?.id
+      : '';
     expect(invoiceId).toBeTruthy();
 
     const quote = await callCf(handler, {
@@ -1980,7 +2181,9 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/billing/invoices',
     });
     expect(invoices.status).toBe(200);
-    const invoiceId = Array.isArray(invoices.json?.invoices) ? (invoices.json?.invoices?.[0] as any)?.id : '';
+    const invoiceId = Array.isArray(invoices.json?.invoices)
+      ? (invoices.json?.invoices?.[0] as any)?.id
+      : '';
     expect(invoiceId).toBeTruthy();
 
     const quote = await callCf(handler, {
@@ -2006,12 +2209,16 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(created.status).toBe(201);
     const paymentIntentId = String(getPath(created.json, 'paymentIntent', 'id') || '');
-    const expectedAmountMinor = Number(getPath(created.json, 'paymentIntent', 'expectedAmountMinor') || 0);
-    const requiredConfirmations = Number(getPath(created.json, 'paymentIntent', 'requiredConfirmations') || 0);
+    const expectedAmountMinor = Number(
+      getPath(created.json, 'paymentIntent', 'expectedAmountMinor') || 0,
+    );
+    const requiredConfirmations = Number(
+      getPath(created.json, 'paymentIntent', 'requiredConfirmations') || 0,
+    );
     expect(paymentIntentId).toBeTruthy();
     expect(requiredConfirmations).toBeGreaterThan(0);
 
-    current = new Date(current.getTime() + (16 * 60 * 1000));
+    current = new Date(current.getTime() + 16 * 60 * 1000);
 
     const reconciled = await callCf(handler, {
       method: 'POST',
@@ -2045,7 +2252,9 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/billing/invoices',
     });
     expect(invoices.status).toBe(200);
-    const invoiceId = Array.isArray(invoices.json?.invoices) ? (invoices.json?.invoices?.[0] as any)?.id : '';
+    const invoiceId = Array.isArray(invoices.json?.invoices)
+      ? (invoices.json?.invoices?.[0] as any)?.id
+      : '';
     expect(invoiceId).toBeTruthy();
 
     const created = await callCf(handler, {
@@ -2118,7 +2327,9 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/billing/invoices',
     });
     expect(invoices.status).toBe(200);
-    const invoiceId = Array.isArray(invoices.json?.invoices) ? (invoices.json?.invoices?.[0] as any)?.id : '';
+    const invoiceId = Array.isArray(invoices.json?.invoices)
+      ? (invoices.json?.invoices?.[0] as any)?.id
+      : '';
     expect(invoiceId).toBeTruthy();
 
     const created = await callCf(handler, {
@@ -2333,7 +2544,9 @@ test.describe('console router (postgres webhooks)', () => {
       const list = await fetchJson(`${attackerServer.baseUrl}/console/webhooks`, { method: 'GET' });
       expect(list.status).toBe(200);
       const attackerEndpoints = Array.isArray(list.json?.endpoints) ? list.json?.endpoints : [];
-      expect(attackerEndpoints.some((entry: any) => String(entry?.id || '') === endpointId)).toBe(false);
+      expect(attackerEndpoints.some((entry: any) => String(entry?.id || '') === endpointId)).toBe(
+        false,
+      );
 
       const deliveries = await fetchJson(
         `${attackerServer.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/deliveries`,
@@ -2392,7 +2605,9 @@ test.describe('console router (postgres webhooks)', () => {
     const list = await callCf(attackerHandler, { method: 'GET', path: '/console/webhooks' });
     expect(list.status).toBe(200);
     const attackerEndpoints = Array.isArray(list.json?.endpoints) ? list.json?.endpoints : [];
-    expect(attackerEndpoints.some((entry: any) => String(entry?.id || '') === endpointId)).toBe(false);
+    expect(attackerEndpoints.some((entry: any) => String(entry?.id || '') === endpointId)).toBe(
+      false,
+    );
 
     const deliveries = await callCf(attackerHandler, {
       method: 'GET',
@@ -2440,9 +2655,13 @@ test.describe('console router (postgres billing)', () => {
     const pool = await getPostgresPool(postgresUrl);
     // Transition ledger is append-only by contract; cleanup omits this table.
     await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [namespace]);
+    await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
+      namespace,
+    ]);
     await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [namespace]);
+    await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
+      namespace,
+    ]);
     await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
     await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
     await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [namespace]);
@@ -2463,7 +2682,9 @@ test.describe('console router (postgres billing)', () => {
     const ownerServer = await startExpressRouter(ownerRouter);
     let ownerInvoiceId = '';
     try {
-      const invoices = await fetchJson(`${ownerServer.baseUrl}/console/billing/invoices`, { method: 'GET' });
+      const invoices = await fetchJson(`${ownerServer.baseUrl}/console/billing/invoices`, {
+        method: 'GET',
+      });
       expect(invoices.status).toBe(200);
       ownerInvoiceId = String(getPath(invoices.json, 'invoices', 0, 'id') || '');
       expect(ownerInvoiceId).toBeTruthy();
@@ -2477,10 +2698,14 @@ test.describe('console router (postgres billing)', () => {
     });
     const attackerServer = await startExpressRouter(attackerRouter);
     try {
-      const list = await fetchJson(`${attackerServer.baseUrl}/console/billing/invoices`, { method: 'GET' });
+      const list = await fetchJson(`${attackerServer.baseUrl}/console/billing/invoices`, {
+        method: 'GET',
+      });
       expect(list.status).toBe(200);
       const attackerInvoices = Array.isArray(list.json?.invoices) ? list.json?.invoices : [];
-      expect(attackerInvoices.some((entry: any) => String(entry?.id || '') === ownerInvoiceId)).toBe(false);
+      expect(
+        attackerInvoices.some((entry: any) => String(entry?.id || '') === ownerInvoiceId),
+      ).toBe(false);
 
       const getInvoice = await fetchJson(
         `${attackerServer.baseUrl}/console/billing/invoices/${encodeURIComponent(ownerInvoiceId)}`,
@@ -2496,23 +2721,29 @@ test.describe('console router (postgres billing)', () => {
       expect(getLineItems.status).toBe(404);
       expect(getLineItems.json?.code).toBe('invoice_not_found');
 
-      const stripeIntent = await fetchJson(`${attackerServer.baseUrl}/console/billing/stripe/payment-intent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceId: ownerInvoiceId }),
-      });
+      const stripeIntent = await fetchJson(
+        `${attackerServer.baseUrl}/console/billing/stripe/payment-intent`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ invoiceId: ownerInvoiceId }),
+        },
+      );
       expect(stripeIntent.status).toBe(404);
       expect(stripeIntent.json?.code).toBe('invoice_not_found');
 
-      const quote = await fetchJson(`${attackerServer.baseUrl}/console/billing/stablecoins/quotes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          invoiceId: ownerInvoiceId,
-          asset: 'USDC',
-          chain: 'Ethereum',
-        }),
-      });
+      const quote = await fetchJson(
+        `${attackerServer.baseUrl}/console/billing/stablecoins/quotes`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            invoiceId: ownerInvoiceId,
+            asset: 'USDC',
+            chain: 'Ethereum',
+          }),
+        },
+      );
       expect(quote.status).toBe(404);
       expect(quote.json?.code).toBe('invoice_not_found');
     } finally {
@@ -2547,7 +2778,9 @@ test.describe('console router (postgres billing)', () => {
     });
     expect(list.status).toBe(200);
     const attackerInvoices = Array.isArray(list.json?.invoices) ? list.json?.invoices : [];
-    expect(attackerInvoices.some((entry: any) => String(entry?.id || '') === ownerInvoiceId)).toBe(false);
+    expect(attackerInvoices.some((entry: any) => String(entry?.id || '') === ownerInvoiceId)).toBe(
+      false,
+    );
 
     const getInvoice = await callCf(attackerHandler, {
       method: 'GET',
@@ -2597,16 +2830,21 @@ test.describe('console router (postgres billing)', () => {
     });
     const ownerCardServer = await startExpressRouter(ownerCardRouter);
     try {
-      const invoices = await fetchJson(`${ownerCardServer.baseUrl}/console/billing/invoices`, { method: 'GET' });
+      const invoices = await fetchJson(`${ownerCardServer.baseUrl}/console/billing/invoices`, {
+        method: 'GET',
+      });
       expect(invoices.status).toBe(200);
       const invoiceId = String(getPath(invoices.json, 'invoices', 0, 'id') || '');
       expect(invoiceId).toBeTruthy();
 
-      const stripeIntent = await fetchJson(`${ownerCardServer.baseUrl}/console/billing/stripe/payment-intent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceId }),
-      });
+      const stripeIntent = await fetchJson(
+        `${ownerCardServer.baseUrl}/console/billing/stripe/payment-intent`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ invoiceId }),
+        },
+      );
       expect(stripeIntent.status).toBe(201);
       stripeIntentId = String(getPath(stripeIntent.json, 'paymentIntent', 'id') || '');
       expect(stripeIntentId).toBeTruthy();
@@ -2621,32 +2859,40 @@ test.describe('console router (postgres billing)', () => {
     });
     const ownerStableServer = await startExpressRouter(ownerStableRouter);
     try {
-      const invoices = await fetchJson(`${ownerStableServer.baseUrl}/console/billing/invoices`, { method: 'GET' });
+      const invoices = await fetchJson(`${ownerStableServer.baseUrl}/console/billing/invoices`, {
+        method: 'GET',
+      });
       expect(invoices.status).toBe(200);
       const invoiceId = String(getPath(invoices.json, 'invoices', 0, 'id') || '');
       expect(invoiceId).toBeTruthy();
 
-      const quote = await fetchJson(`${ownerStableServer.baseUrl}/console/billing/stablecoins/quotes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          invoiceId,
-          asset: 'USDC',
-          chain: 'Ethereum',
-        }),
-      });
+      const quote = await fetchJson(
+        `${ownerStableServer.baseUrl}/console/billing/stablecoins/quotes`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            invoiceId,
+            asset: 'USDC',
+            chain: 'Ethereum',
+          }),
+        },
+      );
       expect(quote.status).toBe(201);
       const quoteId = String(getPath(quote.json, 'quote', 'id') || '');
       expect(quoteId).toBeTruthy();
 
-      const stableIntent = await fetchJson(`${ownerStableServer.baseUrl}/console/billing/stablecoins/payment-intents`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          invoiceId,
-          quoteId,
-        }),
-      });
+      const stableIntent = await fetchJson(
+        `${ownerStableServer.baseUrl}/console/billing/stablecoins/payment-intents`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            invoiceId,
+            quoteId,
+          }),
+        },
+      );
       expect(stableIntent.status).toBe(201);
       stableIntentId = String(getPath(stableIntent.json, 'paymentIntent', 'id') || '');
       expect(stableIntentId).toBeTruthy();
@@ -2743,7 +2989,9 @@ test.describe('console router (postgres billing)', () => {
       path: '/console/billing/invoices',
     });
     expect(ownerStableInvoices.status).toBe(200);
-    const ownerStableInvoiceId = String(getPath(ownerStableInvoices.json, 'invoices', 0, 'id') || '');
+    const ownerStableInvoiceId = String(
+      getPath(ownerStableInvoices.json, 'invoices', 0, 'id') || '',
+    );
     expect(ownerStableInvoiceId).toBeTruthy();
 
     const ownerQuote = await callCf(ownerStableHandler, {
@@ -2860,11 +3108,16 @@ test.describe('console router (postgres billing)', () => {
     });
     const attackerServer = await startExpressRouter(attackerRouter);
     try {
-      const attackerOverview = await fetchJson(`${attackerServer.baseUrl}/console/billing/overview`, {
-        method: 'GET',
-      });
+      const attackerOverview = await fetchJson(
+        `${attackerServer.baseUrl}/console/billing/overview`,
+        {
+          method: 'GET',
+        },
+      );
       expect(attackerOverview.status).toBe(200);
-      expect(Number(getPath(attackerOverview.json, 'overview', 'monthlyActiveWallets') || 0)).toBe(0);
+      expect(Number(getPath(attackerOverview.json, 'overview', 'monthlyActiveWallets') || 0)).toBe(
+        0,
+      );
 
       const attackerUsage = await fetchJson(
         `${attackerServer.baseUrl}/console/billing/usage/monthly-active-wallets?monthUtc=${encodeURIComponent(monthUtc)}`,

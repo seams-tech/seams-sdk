@@ -1,9 +1,5 @@
 import { test, expect } from '@playwright/test';
-import {
-  buildWalletServiceHtml,
-  initRouter,
-  registerWalletServiceRoute,
-} from './harness';
+import { buildWalletServiceHtml, initRouter, registerWalletServiceRoute } from './harness';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service';
@@ -14,9 +10,11 @@ test.describe('Wallet iframe handshake', () => {
       console.log(`[browser] ${msg.type().toUpperCase()}: ${msg.text()}`);
     });
     const configured = String(process.env.W3A_TEST_FRONTEND_URL || '').trim();
-    const url = configured || ((process.env.NO_CADDY === '1' || process.env.CI === '1')
-      ? 'http://localhost:5174'
-      : 'https://example.localhost');
+    const url =
+      configured ||
+      (process.env.NO_CADDY === '1' || process.env.CI === '1'
+        ? 'http://localhost:5174'
+        : 'https://example.localhost');
     await page.goto(url);
   });
 
@@ -38,7 +36,9 @@ test.describe('Wallet iframe handshake', () => {
     expect(readyState).toBe(true);
 
     const iframeAttributes = await page.evaluate(() => {
-      const iframeEl = document.querySelector('iframe[data-w3a-owner="tests"]') || document.querySelector('iframe');
+      const iframeEl =
+        document.querySelector('iframe[data-w3a-owner="tests"]') ||
+        document.querySelector('iframe');
       if (!iframeEl) return null;
       const cs = window.getComputedStyle(iframeEl as HTMLIFrameElement);
       return {
@@ -59,7 +59,11 @@ test.describe('Wallet iframe handshake', () => {
 
   // asserts init() times out if the wallet host never acknowledges READY
   test('rejects when READY never arrives within the timeout budget', async ({ page }) => {
-    await registerWalletServiceRoute(page, buildWalletServiceHtml({ respondReady: false }), WALLET_SERVICE_ROUTE);
+    await registerWalletServiceRoute(
+      page,
+      buildWalletServiceHtml({ respondReady: false }),
+      WALLET_SERVICE_ROUTE,
+    );
     await initRouter(page, { walletOrigin: WALLET_ORIGIN, connectTimeoutMs: 200 });
 
     const result = await page.evaluate(async () => {

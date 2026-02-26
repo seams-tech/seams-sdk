@@ -17,165 +17,169 @@ test.describe('unified signing pipeline', () => {
   });
 
   test('NEAR/EVM/Tempo intent flows traverse the same sign runner steps', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      const { executeSigningIntent } = await import(paths.executeSigningIntent);
-      const { NearAdapter } = await import(paths.nearAdapter);
-      const { EvmAdapter } = await import(paths.evmAdapter);
-      const { TempoAdapter } = await import(paths.tempoAdapter);
-      const { ActionType } = await import(paths.actions);
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { executeSigningIntent } = await import(paths.executeSigningIntent);
+        const { NearAdapter } = await import(paths.nearAdapter);
+        const { EvmAdapter } = await import(paths.evmAdapter);
+        const { TempoAdapter } = await import(paths.tempoAdapter);
+        const { ActionType } = await import(paths.actions);
 
-      const pipeline = {
-        near: [] as string[],
-        evm: [] as string[],
-        tempo: [] as string[],
-      };
-      const workerOps: string[] = [];
+        const pipeline = {
+          near: [] as string[],
+          evm: [] as string[],
+          tempo: [] as string[],
+        };
+        const workerOps: string[] = [];
 
-      const workerCtx = {
-        requestWorkerOperation: async ({ kind, request }: { kind: string; request: any }) => {
-          const op = `${kind}:${String(request?.type || '')}`;
-          workerOps.push(op);
+        const workerCtx = {
+          requestWorkerOperation: async ({ kind, request }: { kind: string; request: any }) => {
+            const op = `${kind}:${String(request?.type || '')}`;
+            workerOps.push(op);
 
-          switch (String(request?.type || '')) {
-            case 'computeEip1559TxHash':
-            case 'computeTempoSenderHash':
-              return new Uint8Array(32).buffer;
-            case 'encodeEip1559SignedTxFromSignature65':
-              return new Uint8Array([0x02, 0xaa, 0xbb]).buffer;
-            case 'encodeTempoSignedTx':
-              return new Uint8Array([0x76, 0xaa, 0xbb]).buffer;
-            default:
-              throw new Error(`Unexpected worker operation: ${op}`);
-          }
-        },
-      };
+            switch (String(request?.type || '')) {
+              case 'computeEip1559TxHash':
+              case 'computeTempoSenderHash':
+                return new Uint8Array(32).buffer;
+              case 'encodeEip1559SignedTxFromSignature65':
+                return new Uint8Array([0x02, 0xaa, 0xbb]).buffer;
+              case 'encodeTempoSignedTx':
+                return new Uint8Array([0x76, 0xaa, 0xbb]).buffer;
+              default:
+                throw new Error(`Unexpected worker operation: ${op}`);
+            }
+          },
+        };
 
-      const makeResolve = (label: 'near' | 'evm' | 'tempo', keyRef: any) => async (signReq: any) => {
-        pipeline[label].push('resolve');
-        return { signReq, keyRef };
-      };
-      const runIntent = async (args: {
-        adapter: any;
-        request: any;
-        engines: Record<string, any>;
-        resolveSignInput: (signReq: any) => Promise<{ signReq: any; keyRef: any }>;
-      }) => {
-        const intent = await args.adapter.buildIntent(args.request);
-        return await executeSigningIntent({
-          intent,
-          engines: args.engines,
-          resolveSignInput: args.resolveSignInput,
+        const makeResolve =
+          (label: 'near' | 'evm' | 'tempo', keyRef: any) => async (signReq: any) => {
+            pipeline[label].push('resolve');
+            return { signReq, keyRef };
+          };
+        const runIntent = async (args: {
+          adapter: any;
+          request: any;
+          engines: Record<string, any>;
+          resolveSignInput: (signReq: any) => Promise<{ signReq: any; keyRef: any }>;
+        }) => {
+          const intent = await args.adapter.buildIntent(args.request);
+          return await executeSigningIntent({
+            intent,
+            engines: args.engines,
+            resolveSignInput: args.resolveSignInput,
+          });
+        };
+
+        const nearEngine: any = {
+          algorithm: 'ed25519',
+          sign: async (signReq: any) => {
+            pipeline.near.push('engine');
+            return { kind: signReq.kind, result: { path: 'near' } };
+          },
+        };
+
+        const makeSecpEngine = (label: 'evm' | 'tempo') => ({
+          algorithm: 'secp256k1',
+          sign: async () => {
+            pipeline[label].push('engine');
+            const sig = new Uint8Array(65);
+            sig[64] = 0;
+            return sig;
+          },
         });
-      };
 
-      const nearEngine: any = {
-        algorithm: 'ed25519',
-        sign: async (signReq: any) => {
-          pipeline.near.push('engine');
-          return { kind: signReq.kind, result: { path: 'near' } };
-        },
-      };
-
-      const makeSecpEngine = (label: 'evm' | 'tempo') => ({
-        algorithm: 'secp256k1',
-        sign: async () => {
-          pipeline[label].push('engine');
-          const sig = new Uint8Array(65);
-          sig[64] = 0;
-          return sig;
-        },
-      });
-
-      const nearResult = await runIntent({
-        adapter: new NearAdapter(),
-        request: {
-          chain: 'near',
-          kind: 'transactionsWithActions',
-          payload: {
-            rpcCall: {
-              nearAccountId: 'alice.testnet',
-              nearRpcUrl: 'https://rpc.testnet.near.org',
-            },
-            transactions: [
-              {
-                receiverId: 'bob.testnet',
-                actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
+        const nearResult = await runIntent({
+          adapter: new NearAdapter(),
+          request: {
+            chain: 'near',
+            kind: 'transactionsWithActions',
+            payload: {
+              rpcCall: {
+                nearAccountId: 'alice.testnet',
+                nearRpcUrl: 'https://rpc.testnet.near.org',
               },
-            ],
-            signerMode: 'threshold-signer',
+              transactions: [
+                {
+                  receiverId: 'bob.testnet',
+                  actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
+                },
+              ],
+              signerMode: 'threshold-signer',
+            },
           },
-        },
-        engines: { ed25519: nearEngine },
-        resolveSignInput: makeResolve('near', { type: 'near-ed25519-runtime' }),
-      });
+          engines: { ed25519: nearEngine },
+          resolveSignInput: makeResolve('near', { type: 'near-ed25519-runtime' }),
+        });
 
-      const evmResult = await runIntent({
-        adapter: new EvmAdapter(workerCtx as any),
-        request: {
-          chain: 'evm',
-          kind: 'eip1559',
-          senderSignatureAlgorithm: 'secp256k1',
-          tx: {
-            chainId: 11155111,
-            nonce: 7n,
-            maxPriorityFeePerGas: 1_500_000_000n,
-            maxFeePerGas: 3_000_000_000n,
-            gasLimit: 21_000n,
-            to: '0x' + '22'.repeat(20),
-            value: 12_345n,
-            data: '0x',
-            accessList: [],
+        const evmResult = await runIntent({
+          adapter: new EvmAdapter(workerCtx as any),
+          request: {
+            chain: 'evm',
+            kind: 'eip1559',
+            senderSignatureAlgorithm: 'secp256k1',
+            tx: {
+              chainId: 11155111,
+              nonce: 7n,
+              maxPriorityFeePerGas: 1_500_000_000n,
+              maxFeePerGas: 3_000_000_000n,
+              gasLimit: 21_000n,
+              to: '0x' + '22'.repeat(20),
+              value: 12_345n,
+              data: '0x',
+              accessList: [],
+            },
           },
-        },
-        engines: { secp256k1: makeSecpEngine('evm') as any },
-        resolveSignInput: makeResolve('evm', {
-          type: 'threshold-ecdsa-secp256k1',
-          userId: 'alice',
-          relayerUrl: 'https://relayer.example',
-          relayerKeyId: 'rk-1',
-          clientVerifyingShareB64u: 'AQ',
-        }),
-      });
+          engines: { secp256k1: makeSecpEngine('evm') as any },
+          resolveSignInput: makeResolve('evm', {
+            type: 'threshold-ecdsa-secp256k1',
+            userId: 'alice',
+            relayerUrl: 'https://relayer.example',
+            relayerKeyId: 'rk-1',
+            clientVerifyingShareB64u: 'AQ',
+          }),
+        });
 
-      const tempoResult = await runIntent({
-        adapter: new TempoAdapter(workerCtx as any),
-        request: {
-          chain: 'tempo',
-          kind: 'tempoTransaction',
-          senderSignatureAlgorithm: 'secp256k1',
-          tx: {
-            chainId: 42431,
-            maxPriorityFeePerGas: 1n,
-            maxFeePerGas: 2n,
-            gasLimit: 21_000n,
-            calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
-            accessList: [],
-            nonceKey: 0n,
-            nonce: 1n,
-            validBefore: null,
-            validAfter: null,
-            feePayerSignature: { kind: 'none' as const },
-            aaAuthorizationList: [],
+        const tempoResult = await runIntent({
+          adapter: new TempoAdapter(workerCtx as any),
+          request: {
+            chain: 'tempo',
+            kind: 'tempoTransaction',
+            senderSignatureAlgorithm: 'secp256k1',
+            tx: {
+              chainId: 42431,
+              maxPriorityFeePerGas: 1n,
+              maxFeePerGas: 2n,
+              gasLimit: 21_000n,
+              calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
+              accessList: [],
+              nonceKey: 0n,
+              nonce: 1n,
+              validBefore: null,
+              validAfter: null,
+              feePayerSignature: { kind: 'none' as const },
+              aaAuthorizationList: [],
+            },
           },
-        },
-        engines: { secp256k1: makeSecpEngine('tempo') as any },
-        resolveSignInput: makeResolve('tempo', {
-          type: 'threshold-ecdsa-secp256k1',
-          userId: 'alice',
-          relayerUrl: 'https://relayer.example',
-          relayerKeyId: 'rk-1',
-          clientVerifyingShareB64u: 'AQ',
-        }),
-      });
+          engines: { secp256k1: makeSecpEngine('tempo') as any },
+          resolveSignInput: makeResolve('tempo', {
+            type: 'threshold-ecdsa-secp256k1',
+            userId: 'alice',
+            relayerUrl: 'https://relayer.example',
+            relayerKeyId: 'rk-1',
+            clientVerifyingShareB64u: 'AQ',
+          }),
+        });
 
-      return {
-        pipeline,
-        workerOps,
-        nearResult,
-        evmResult,
-        tempoResult,
-      };
-    }, { paths: IMPORT_PATHS });
+        return {
+          pipeline,
+          workerOps,
+          nearResult,
+          evmResult,
+          tempoResult,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     expect(result.pipeline.near).toEqual(['resolve', 'engine']);
     expect(result.pipeline.evm).toEqual(['resolve', 'engine']);
@@ -193,42 +197,47 @@ test.describe('unified signing pipeline', () => {
     expect(result.tempoResult?.kind).toBe('tempoTransaction');
   });
 
-  test('eth signer wrapper requests only signature65 EIP-1559 encode operation', async ({ page }) => {
-    const workerTypes = await page.evaluate(async ({ paths }) => {
-      const { encodeEip1559SignedTxFromSignature65Wasm } = await import(paths.ethSignerWasm);
-      const calls: string[] = [];
-      const workerCtx = {
-        requestWorkerOperation: async ({ request }: { request: any }) => {
-          const type = String(request?.type || '');
-          calls.push(type);
-          if (type === 'encodeEip1559SignedTx') {
-            throw new Error('legacy split-signature op requested');
-          }
-          if (type !== 'encodeEip1559SignedTxFromSignature65') {
-            throw new Error(`unexpected worker operation: ${type}`);
-          }
-          return new Uint8Array([0x02, 0xaa]).buffer;
-        },
-      };
+  test('eth signer wrapper requests only signature65 EIP-1559 encode operation', async ({
+    page,
+  }) => {
+    const workerTypes = await page.evaluate(
+      async ({ paths }) => {
+        const { encodeEip1559SignedTxFromSignature65Wasm } = await import(paths.ethSignerWasm);
+        const calls: string[] = [];
+        const workerCtx = {
+          requestWorkerOperation: async ({ request }: { request: any }) => {
+            const type = String(request?.type || '');
+            calls.push(type);
+            if (type === 'encodeEip1559SignedTx') {
+              throw new Error('legacy split-signature op requested');
+            }
+            if (type !== 'encodeEip1559SignedTxFromSignature65') {
+              throw new Error(`unexpected worker operation: ${type}`);
+            }
+            return new Uint8Array([0x02, 0xaa]).buffer;
+          },
+        };
 
-      await encodeEip1559SignedTxFromSignature65Wasm({
-        tx: {
-          chainId: 11155111,
-          nonce: 7n,
-          maxPriorityFeePerGas: 1_500_000_000n,
-          maxFeePerGas: 3_000_000_000n,
-          gasLimit: 21_000n,
-          to: '0x' + '22'.repeat(20),
-          value: 12_345n,
-          data: '0x',
-          accessList: [],
-        },
-        signature65: new Uint8Array(65),
-        workerCtx: workerCtx as any,
-      });
+        await encodeEip1559SignedTxFromSignature65Wasm({
+          tx: {
+            chainId: 11155111,
+            nonce: 7n,
+            maxPriorityFeePerGas: 1_500_000_000n,
+            maxFeePerGas: 3_000_000_000n,
+            gasLimit: 21_000n,
+            to: '0x' + '22'.repeat(20),
+            value: 12_345n,
+            data: '0x',
+            accessList: [],
+          },
+          signature65: new Uint8Array(65),
+          workerCtx: workerCtx as any,
+        });
 
-      return calls;
-    }, { paths: IMPORT_PATHS });
+        return calls;
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     expect(workerTypes).toEqual(['encodeEip1559SignedTxFromSignature65']);
   });
@@ -265,11 +274,17 @@ test.describe('unified signing pipeline', () => {
       'utf8',
     );
     const thresholdSessionActivationSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionActivation.ts'),
+      path.resolve(
+        process.cwd(),
+        '../client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionActivation.ts',
+      ),
       'utf8',
     );
     const thresholdEd25519LifecycleSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signingEngine/api/thresholdLifecycle/thresholdEd25519Lifecycle.ts'),
+      path.resolve(
+        process.cwd(),
+        '../client/src/core/signingEngine/api/thresholdLifecycle/thresholdEd25519Lifecycle.ts',
+      ),
       'utf8',
     );
 
@@ -286,7 +301,10 @@ test.describe('unified signing pipeline', () => {
 
   test('runtime secp signing enforces threshold keyRef guardrail', () => {
     const secpEngineSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signingEngine/signers/algorithms/secp256k1.ts'),
+      path.resolve(
+        process.cwd(),
+        '../client/src/core/signingEngine/signers/algorithms/secp256k1.ts',
+      ),
       'utf8',
     );
 

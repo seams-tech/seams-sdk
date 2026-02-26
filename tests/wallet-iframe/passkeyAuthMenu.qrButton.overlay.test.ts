@@ -159,13 +159,16 @@ test.describe('PasskeyAuthMenu QR button overlay regression', () => {
     );
 
     const capture = async () =>
-      page.evaluate(({ captureOverlaySource }) => {
-        const fn = eval(captureOverlaySource) as () => {
-          exists: boolean;
-          visible: boolean;
-        };
-        return fn();
-      }, { captureOverlaySource: CAPTURE_OVERLAY_SOURCE });
+      page.evaluate(
+        ({ captureOverlaySource }) => {
+          const fn = eval(captureOverlaySource) as () => {
+            exists: boolean;
+            visible: boolean;
+          };
+          return fn();
+        },
+        { captureOverlaySource: CAPTURE_OVERLAY_SOURCE },
+      );
 
     const mount = page.locator('#w3a-qr-regression-mount');
     const qrButton = mount.getByRole('button', { name: 'Scan and Link Device' }).first();
@@ -176,9 +179,7 @@ test.describe('PasskeyAuthMenu QR button overlay regression', () => {
     if (beforeClick.exists) expect(beforeClick.visible).toBe(false);
 
     await qrButton.click();
-    await expect(
-      mount.locator('.w3a-signup-menu-root[data-scan-device="true"]'),
-    ).toBeVisible();
+    await expect(mount.locator('.w3a-signup-menu-root[data-scan-device="true"]')).toBeVisible();
     await page.waitForTimeout(120);
 
     const duringLoading = await capture();

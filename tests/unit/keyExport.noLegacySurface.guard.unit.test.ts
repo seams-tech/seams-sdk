@@ -27,10 +27,7 @@ test.describe('key export legacy-surface guard', () => {
   test('forbids removed export APIs/protocol messages in SDK + tests', () => {
     const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
     const thisFile = path.resolve(fileURLToPath(import.meta.url));
-    const scanRoots = [
-      path.join(repoRoot, 'client/src'),
-      path.join(repoRoot, 'tests'),
-    ];
+    const scanRoots = [path.join(repoRoot, 'client/src'), path.join(repoRoot, 'tests')];
 
     const forbiddenNeedles = [
       ['exportNear', 'KeypairWithUI'].join(''),

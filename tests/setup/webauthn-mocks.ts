@@ -22,7 +22,11 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
           const bytes =
             value instanceof ArrayBuffer
               ? new Uint8Array(value)
-              : new Uint8Array((value as ArrayBufferView).buffer, (value as ArrayBufferView).byteOffset, (value as ArrayBufferView).byteLength);
+              : new Uint8Array(
+                  (value as ArrayBufferView).buffer,
+                  (value as ArrayBufferView).byteOffset,
+                  (value as ArrayBufferView).byteLength,
+                );
           let binary = '';
           for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
           return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -30,7 +34,9 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
       }
       if (typeof (window as any).base64UrlDecode !== 'function') {
         (window as any).base64UrlDecode = (value: string): Uint8Array => {
-          const padded = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+          const padded = String(value || '')
+            .replace(/-/g, '+')
+            .replace(/_/g, '/');
           const padding = padded.length % 4 ? 4 - (padded.length % 4) : 0;
           const base64 = padded + '='.repeat(padding);
           const binary = atob(base64);
@@ -39,14 +45,17 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
           return out;
         };
       }
-    } catch { }
+    } catch {}
 
     // Store original functions for restoration
     const originalFetch = window.fetch;
     const originalCredentialsCreate = navigator.credentials?.create;
     const originalCredentialsGet = navigator.credentials?.get;
 
-    const createProperAttestationObject = async (rpIdHash: Uint8Array, credentialIdString: string): Promise<Uint8Array> => {
+    const createProperAttestationObject = async (
+      rpIdHash: Uint8Array,
+      credentialIdString: string,
+    ): Promise<Uint8Array> => {
       // Convert string credential ID to bytes for embedding in attestation object
       // This ensures the contract will store and lookup the credential using the same format
       const credentialIdBytes = new TextEncoder().encode(credentialIdString);
@@ -56,7 +65,10 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
       let privateKey: CryptoKey | undefined;
 
       try {
-        const keyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+        const keyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, [
+          'sign',
+          'verify',
+        ]);
         privateKey = keyPair.privateKey;
         const pub = await crypto.subtle.exportKey('raw', keyPair.publicKey);
         publicKeyBytes = new Uint8Array(pub);
@@ -70,17 +82,24 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
       (window as any).__testKeyPairs = (window as any).__testKeyPairs || {};
       (window as any).__testKeyPairs[credentialIdString] = { privateKey, publicKeyBytes };
 
-      try { console.log('Public key bytes:', Array.from(publicKeyBytes)); } catch {}
+      try {
+        console.log('Public key bytes:', Array.from(publicKeyBytes));
+      } catch {}
 
       // Create COSE key using the real Ed25519 public key
       // This replicates the exact CBOR structure the contract expects and can parse
       const coseKeyBytes = new Uint8Array([
-        0xa4,                           // map(4) - 4 key-value pairs
-        0x01, 0x01,                     // 1: 1 (kty: OKP)
-        0x03, 0x27,                     // 3: -8 (alg: EdDSA)
-        0x20, 0x06,                     // -1: 6 (crv: Ed25519)
-        0x21, 0x58, 0x20,               // -2: bytes(32) (x coordinate)
-        ...publicKeyBytes               // Real Ed25519 public key
+        0xa4, // map(4) - 4 key-value pairs
+        0x01,
+        0x01, // 1: 1 (kty: OKP)
+        0x03,
+        0x27, // 3: -8 (alg: EdDSA)
+        0x20,
+        0x06, // -1: 6 (crv: Ed25519)
+        0x21,
+        0x58,
+        0x20, // -2: bytes(32) (x coordinate)
+        ...publicKeyBytes, // Real Ed25519 public key
       ]);
 
       // Create valid authenticator data following contract format in:
@@ -126,13 +145,37 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
       // Simple CBOR encoding for attestation object
       const attestationObjectBytes = new Uint8Array([
         0xa3, // map with 3 items
-        0x63, 0x66, 0x6d, 0x74, // "fmt"
-        0x64, 0x6e, 0x6f, 0x6e, 0x65, // "none"
-        0x68, 0x61, 0x75, 0x74, 0x68, 0x44, 0x61, 0x74, 0x61, // "authData"
-        0x59, (authData.length >> 8) & 0xff, authData.length & 0xff, // bytes(authData.length)
+        0x63,
+        0x66,
+        0x6d,
+        0x74, // "fmt"
+        0x64,
+        0x6e,
+        0x6f,
+        0x6e,
+        0x65, // "none"
+        0x68,
+        0x61,
+        0x75,
+        0x74,
+        0x68,
+        0x44,
+        0x61,
+        0x74,
+        0x61, // "authData"
+        0x59,
+        (authData.length >> 8) & 0xff,
+        authData.length & 0xff, // bytes(authData.length)
         ...authData,
-        0x67, 0x61, 0x74, 0x74, 0x53, 0x74, 0x6d, 0x74, // "attStmt"
-        0xa0 // empty map
+        0x67,
+        0x61,
+        0x74,
+        0x74,
+        0x53,
+        0x74,
+        0x6d,
+        0x74, // "attStmt"
+        0xa0, // empty map
       ]);
 
       return attestationObjectBytes;
@@ -144,8 +187,10 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
         const explicit = (window as any).__W3A_TEST_RP_ID__;
         if (explicit && typeof explicit === 'string' && explicit.length > 0) return explicit;
         const fromConfig = (window as any).testUtils?.configs?.rpId;
-        if (fromConfig && typeof fromConfig === 'string' && fromConfig.length > 0) return fromConfig;
-        const host = (typeof window !== 'undefined' && window.location) ? window.location.hostname : '';
+        if (fromConfig && typeof fromConfig === 'string' && fromConfig.length > 0)
+          return fromConfig;
+        const host =
+          typeof window !== 'undefined' && window.location ? window.location.hostname : '';
         return host || 'localhost';
       } catch {
         return 'localhost';
@@ -168,7 +213,11 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
      * - Signer worker receives PRF outputs via direct request fields (wallet-origin only);
      *   confirmTxFlow envelopes never include raw PRF material.
      */
-    const createMockPRFOutput = (seed: string, accountHint: string = '', length: number = 32): ArrayBuffer => {
+    const createMockPRFOutput = (
+      seed: string,
+      accountHint: string = '',
+      length: number = 32,
+    ): ArrayBuffer => {
       const encoder = new TextEncoder();
       // Use deterministic seed based on credential and account, NOT timestamp
       const deterministic_seed = `${seed}-${accountHint}-deterministic-v1`;
@@ -183,7 +232,7 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
     const resolvePrfEvalValue = (
       requested: unknown,
       fallbackSeed: string,
-      accountHint: string
+      accountHint: string,
     ): ArrayBuffer | null => {
       if (requested === null) {
         return null;
@@ -221,7 +270,7 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
 
     const buildPrfExtensionResults = (
       prfRequest: any,
-      accountHint: string
+      accountHint: string,
     ): { first: ArrayBuffer | null; second: ArrayBuffer | null } => {
       const evalConfig = prfRequest?.eval || {};
       return {
@@ -232,12 +281,12 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
 
     // Override WebAuthn API to include PRF extension support
     if (navigator.credentials) {
-      navigator.credentials.create = async function(options: any) {
+      navigator.credentials.create = async function (options: any) {
         console.log('Enhanced Virtual Authenticator CREATE with PRF support');
         if (!options?.publicKey) {
           throw new DOMException('Missing publicKey', 'NotSupportedError');
         }
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise((resolve) => setTimeout(resolve, 200));
 
         const prfRequested = options.publicKey.extensions?.prf;
         // Resolve RP ID (shared logic for tests)
@@ -257,7 +306,10 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
         const credentialIdBase64Url = (window as any).base64UrlEncode(credentialIdBytes); // What contract expects
 
         // Create proper CBOR-encoded attestation object that matches contract expectations
-        const attestationObjectBytes = await createProperAttestationObject(rpIdHash, credentialIdString);
+        const attestationObjectBytes = await createProperAttestationObject(
+          rpIdHash,
+          credentialIdString,
+        );
 
         return {
           // Follow WebAuthn spec - id is base64URL string, rawId is bytes
@@ -266,19 +318,23 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
           type: 'public-key',
           authenticatorAttachment: 'platform',
           response: {
-            clientDataJSON: new TextEncoder().encode(JSON.stringify({
-              type: 'webauthn.create',
-              challenge: (window as any).base64UrlEncode(new Uint8Array(options.publicKey.challenge)),
-              origin: window.location.origin,
-              rpId: rpId, // Must match rpIdHash and session rpId
-              crossOrigin: false
-            })),
+            clientDataJSON: new TextEncoder().encode(
+              JSON.stringify({
+                type: 'webauthn.create',
+                challenge: (window as any).base64UrlEncode(
+                  new Uint8Array(options.publicKey.challenge),
+                ),
+                origin: window.location.origin,
+                rpId: rpId, // Must match rpIdHash and session rpId
+                crossOrigin: false,
+              }),
+            ),
             attestationObject: attestationObjectBytes,
             getPublicKey: () => new Uint8Array(65).fill(0).map((_, i) => i + 1),
             getPublicKeyAlgorithm: () => -7,
             getTransports: () => ['internal', 'hybrid'],
             // Add missing properties that might be expected
-            url: undefined
+            url: undefined,
           },
           getClientExtensionResults: () => {
             const results: any = {};
@@ -286,21 +342,21 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
               results.prf = {
                 enabled: true,
                 results: {
-                  ...buildPrfExtensionResults(prfRequested, accountId)
-                }
+                  ...buildPrfExtensionResults(prfRequested, accountId),
+                },
               };
             }
             return results;
-          }
+          },
         };
       };
 
-      navigator.credentials.get = async function(options: any) {
+      navigator.credentials.get = async function (options: any) {
         console.log('Enhanced Virtual Authenticator GET with PRF support');
         if (!options?.publicKey) {
           throw new DOMException('Missing publicKey', 'NotSupportedError');
         }
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise((resolve) => setTimeout(resolve, 200));
 
         const prfRequested = options.publicKey.extensions?.prf;
 
@@ -323,24 +379,36 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
             // touchIdPrompt.ts calls base64UrlDecode(auth.credentialId) which returns raw bytes
             if (credentialId instanceof Uint8Array || credentialId instanceof ArrayBuffer) {
               // Convert raw bytes back to credential string for account ID extraction
-              const bytes = credentialId instanceof ArrayBuffer
-                ? new Uint8Array(credentialId)
-                : credentialId;
+              const bytes =
+                credentialId instanceof ArrayBuffer ? new Uint8Array(credentialId) : credentialId;
               const credentialIdString = new TextDecoder().decode(bytes);
 
               const match = credentialIdString.match(/test-credential-(.+)-auth$/);
               if (match && match[1]) {
                 accountId = match[1];
               } else {
-                console.warn('[AUTH PRF DEBUG] Failed to extract account ID from credential string, using default');
+                console.warn(
+                  '[AUTH PRF DEBUG] Failed to extract account ID from credential string, using default',
+                );
               }
             } else {
-              console.warn('[AUTH PRF DEBUG] Unexpected credential ID format:', typeof credentialId);
-              console.warn('[AUTH PRF DEBUG] Expected Uint8Array or ArrayBuffer from touchIdPrompt.ts, got:', credentialId);
-              throw new Error(`Expected raw bytes from touchIdPrompt.ts, got ${typeof credentialId}`);
+              console.warn(
+                '[AUTH PRF DEBUG] Unexpected credential ID format:',
+                typeof credentialId,
+              );
+              console.warn(
+                '[AUTH PRF DEBUG] Expected Uint8Array or ArrayBuffer from touchIdPrompt.ts, got:',
+                credentialId,
+              );
+              throw new Error(
+                `Expected raw bytes from touchIdPrompt.ts, got ${typeof credentialId}`,
+              );
             }
           } catch (e) {
-            console.warn('[AUTH PRF DEBUG] Failed to decode credential ID, using default account:', e);
+            console.warn(
+              '[AUTH PRF DEBUG] Failed to decode credential ID, using default account:',
+              e,
+            );
           }
         } else {
           // No allowCredentials provided (recovery chooser). Pick from stored keypairs if available.
@@ -348,7 +416,7 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
             const keyPairs = (window as any).__testKeyPairs || {};
             const keys = Object.keys(keyPairs);
             // Prefer any key that matches our test pattern and extract account id
-            const matchKey = keys.find(k => /test-credential-(.+)-auth$/.test(k));
+            const matchKey = keys.find((k) => /test-credential-(.+)-auth$/.test(k));
             if (matchKey) {
               const m = matchKey.match(/test-credential-(.+)-auth$/);
               if (m && m[1]) accountId = m[1];
@@ -380,13 +448,17 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
           type: 'public-key',
           authenticatorAttachment: 'platform',
           response: {
-            clientDataJSON: new TextEncoder().encode(JSON.stringify({
-              type: 'webauthn.get',
-              challenge: (window as any).base64UrlEncode(new Uint8Array(options.publicKey.challenge)),
-              origin: window.location.origin,
-              rpId: resolveTestRpId(),
-              crossOrigin: false
-            })),
+            clientDataJSON: new TextEncoder().encode(
+              JSON.stringify({
+                type: 'webauthn.get',
+                challenge: (window as any).base64UrlEncode(
+                  new Uint8Array(options.publicKey.challenge),
+                ),
+                origin: window.location.origin,
+                rpId: resolveTestRpId(),
+                crossOrigin: false,
+              }),
+            ),
             authenticatorData: await (async () => {
               // Create proper authenticatorData with correct RP ID hash (same as registration)
               const rpId = resolveTestRpId(); // Must match registration mock
@@ -394,9 +466,9 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
 
               // AuthenticatorData structure: rpIdHash(32) + flags(1) + counter(4)
               const authData = new Uint8Array(37);
-              authData.set(rpIdHash, 0);       // RP ID hash
-              authData[32] = 0x05;             // Flags (user present + user verified)
-              authData.set([0, 0, 0, 1], 33);  // Counter (4 bytes)
+              authData.set(rpIdHash, 0); // RP ID hash
+              authData[32] = 0x05; // Flags (user present + user verified)
+              authData.set([0, 0, 0, 1], 33); // Counter (4 bytes)
               return authData;
             })(),
             signature: await (async () => {
@@ -424,15 +496,20 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
                 // Create clientDataJSON
                 const clientDataJSON = JSON.stringify({
                   type: 'webauthn.get',
-                  challenge: (window as any).base64UrlEncode(new Uint8Array(options.publicKey.challenge)),
+                  challenge: (window as any).base64UrlEncode(
+                    new Uint8Array(options.publicKey.challenge),
+                  ),
                   origin: window.location.origin,
                   rpId: rpId, // RP ID should match the origin policy + hash
-                  crossOrigin: false
+                  crossOrigin: false,
                 });
                 const clientDataJSONBytes = new TextEncoder().encode(clientDataJSON);
 
                 // Hash clientDataJSON using SHA-256 (proper WebAuthn way)
-                const clientDataHashBuffer = await crypto.subtle.digest('SHA-256', clientDataJSONBytes);
+                const clientDataHashBuffer = await crypto.subtle.digest(
+                  'SHA-256',
+                  clientDataJSONBytes,
+                );
                 const clientDataHash = new Uint8Array(clientDataHashBuffer);
 
                 // Create the data to sign: authenticatorData + clientDataHash
@@ -440,10 +517,17 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
                 dataToSign.set(authenticatorData, 0);
                 dataToSign.set(clientDataHash, authenticatorData.length);
 
-                const signature = await crypto.subtle.sign({ name: 'Ed25519' }, entry.privateKey, dataToSign);
+                const signature = await crypto.subtle.sign(
+                  { name: 'Ed25519' },
+                  entry.privateKey,
+                  dataToSign,
+                );
                 const signatureBytes = new Uint8Array(signature);
 
-                console.log('Generated proper WebAuthn signature for credential:', credentialIdString);
+                console.log(
+                  'Generated proper WebAuthn signature for credential:',
+                  credentialIdString,
+                );
                 console.log('Signature bytes length:', signatureBytes.length);
                 console.log('Data signed length:', dataToSign.length);
                 return signatureBytes;
@@ -455,7 +539,7 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
             // Provide userHandle with the near account id for recovery discovery
             userHandle: new TextEncoder().encode(accountId),
             // Add missing properties that might be expected
-            url: undefined
+            url: undefined,
           },
           getClientExtensionResults: () => {
             const results: any = {};
@@ -464,12 +548,12 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
                 enabled: true,
                 results: {
                   first: prfResults.first,
-                  second: prfResults.second
-                }
+                  second: prfResults.second,
+                },
               };
             }
             return results;
-          }
+          },
         };
       };
     }
@@ -478,7 +562,7 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
     (window as any).__test_originals = {
       originalFetch,
       originalCredentialsCreate,
-      originalCredentialsGet
+      originalCredentialsGet,
     };
 
     console.log('Enhanced WebAuthn mock with dual PRF extension support installed');

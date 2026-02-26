@@ -30,20 +30,25 @@ function makeAuthServiceForThreshold(keysOnChain: Set<string>): {
   });
 
   // Avoid WebAuthn ceremony verification in threshold routes; we only want to test digest binding logic.
-  (svc as unknown as {
-    verifyWebAuthnAuthenticationLite: (req: unknown) => Promise<{ success: boolean; verified: boolean }>;
-  }).verifyWebAuthnAuthenticationLite = async (_req: unknown) => ({ success: true, verified: true });
+  (
+    svc as unknown as {
+      verifyWebAuthnAuthenticationLite: (
+        req: unknown,
+      ) => Promise<{ success: boolean; verified: boolean }>;
+    }
+  ).verifyWebAuthnAuthenticationLite = async (_req: unknown) => ({ success: true, verified: true });
 
   // /authorize requires the relayer key be an active access key on-chain.
   // Model this with an in-memory set that we mutate in mocked NEAR RPC send_tx.
-  (svc as unknown as { nearClient: { viewAccessKeyList: (accountId: string) => Promise<unknown> } }).nearClient.viewAccessKeyList =
-    async (_accountId: string) => {
-      const keys = Array.from(keysOnChain).map((publicKey) => ({
-        public_key: publicKey,
-        access_key: { nonce: 0, permission: 'FullAccess' as const },
-      }));
-      return { keys };
-    };
+  (
+    svc as unknown as { nearClient: { viewAccessKeyList: (accountId: string) => Promise<unknown> } }
+  ).nearClient.viewAccessKeyList = async (_accountId: string) => {
+    const keys = Array.from(keysOnChain).map((publicKey) => ({
+      public_key: publicKey,
+      access_key: { nonce: 0, permission: 'FullAccess' as const },
+    }));
+    return { keys };
+  };
 
   const threshold = createThresholdSigningService({
     authService: svc,
@@ -84,7 +89,11 @@ test.describe('threshold-ed25519 digest binding', () => {
 
     const frontendOrigin = new URL(DEFAULT_TEST_CONFIG.frontendUrl).origin;
     const session = createInMemoryJwtSessionAdapter();
-    const router = createRelayRouter(service, { corsOrigins: [frontendOrigin], threshold, session });
+    const router = createRelayRouter(service, {
+      corsOrigins: [frontendOrigin],
+      threshold,
+      session,
+    });
     const srv = await startExpressRouter(router);
 
     const relayerCounts = { authorize: 0, init: 0, finalize: 0, keygen: 0 };
@@ -98,7 +107,8 @@ test.describe('threshold-ed25519 digest binding', () => {
         relayerCounts.keygen += 1;
 
         const origin = req.headers()['origin'] || req.headers()['Origin'] || '';
-        const contentType = req.headers()['content-type'] || req.headers()['Content-Type'] || 'application/json';
+        const contentType =
+          req.headers()['content-type'] || req.headers()['Content-Type'] || 'application/json';
         const body = req.postData() || '';
 
         const res = await fetch(req.url(), {
@@ -113,7 +123,7 @@ test.describe('threshold-ed25519 digest binding', () => {
         try {
           const json = JSON.parse(text || '{}');
           thresholdPublicKeyFromKeygen = String(json?.publicKey || '');
-        } catch { }
+        } catch {}
 
         await route.fulfill({
           status: res.status,
@@ -137,7 +147,7 @@ test.describe('threshold-ed25519 digest binding', () => {
             // Change receiverId so the recomputed intent digest differs from the originally-authorized intent digest.
             (txs[0] as any).receiverId = 'evil.w3a-v1.testnet';
           }
-        } catch { }
+        } catch {}
 
         await route.continue({ postData: JSON.stringify(mutated) });
       });
@@ -192,11 +202,14 @@ test.describe('threshold-ed25519 digest binding', () => {
           'Access-Control-Allow-Methods': 'POST,OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type',
         };
-        if (method === 'OPTIONS') return route.fulfill({ status: 204, headers: corsHeaders, body: '' });
+        if (method === 'OPTIONS')
+          return route.fulfill({ status: 204, headers: corsHeaders, body: '' });
         if (method !== 'POST') return route.fallback();
 
         let body: any = {};
-        try { body = JSON.parse(req.postData() || '{}'); } catch { }
+        try {
+          body = JSON.parse(req.postData() || '{}');
+        } catch {}
         const rpcMethod = body?.method;
         const params = body?.params || {};
         const id = body?.id ?? '1';
@@ -208,7 +221,11 @@ test.describe('threshold-ed25519 digest binding', () => {
           return route.fulfill({
             status: 200,
             headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            body: JSON.stringify({ jsonrpc: '2.0', id, result: { header: { hash: blockHash, height: blockHeight } } }),
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              result: { header: { hash: blockHash, height: blockHeight } },
+            }),
           });
         }
 
@@ -283,7 +300,12 @@ test.describe('threshold-ed25519 digest binding', () => {
             body: JSON.stringify({
               jsonrpc: '2.0',
               id,
-              result: { block_hash: blockHash, block_height: blockHeight, nonce, permission: 'FullAccess' },
+              result: {
+                block_hash: blockHash,
+                block_height: blockHeight,
+                nonce,
+                permission: 'FullAccess',
+              },
             }),
           });
         }
@@ -306,7 +328,10 @@ test.describe('threshold-ed25519 digest binding', () => {
             keysOnChain.add(thresholdPublicKeyFromKeygen);
             nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
             if (localNearPublicKey) {
-              nonceByPublicKey.set(localNearPublicKey, (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1);
+              nonceByPublicKey.set(
+                localNearPublicKey,
+                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
+              );
             }
           }
           return route.fulfill({
@@ -332,43 +357,61 @@ test.describe('threshold-ed25519 digest binding', () => {
         });
       });
 
-      const result = await page.evaluate(async ({ relayerUrl }) => {
-        try {
-          const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
-          const { ActionType } = await import('/sdk/esm/core/types/actions.js');
-          const suffix =
-            (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          const accountId = `e2edigest${suffix}.w3a-v1.testnet`;
+      const result = await page.evaluate(
+        async ({ relayerUrl }) => {
+          try {
+            const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const { ActionType } = await import('/sdk/esm/core/types/actions.js');
+            const suffix =
+              typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const accountId = `e2edigest${suffix}.w3a-v1.testnet`;
 
-          const pm = new TatchiPasskey({
-            nearNetwork: 'testnet',
-            nearRpcUrl: 'https://test.rpc.fastnear.com',
-            relayer: { url: relayerUrl },
-            iframeWallet: { walletOrigin: '' },
-          });
+            const pm = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayer: { url: relayerUrl },
+              iframeWallet: { walletOrigin: '' },
+            });
 
-          const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
+            const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 };
 
-          const reg = await pm.registration.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
-          if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
+            const reg = await pm.registration.registerPasskeyInternal(
+              accountId,
+              { signerMode: { mode: 'local-signer' } },
+              confirmConfig as any,
+            );
+            if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
 
-          const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-          if (!enrollment?.success) return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
+            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
+            if (!enrollment?.success)
+              return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
+            const login = await pm.auth.login(accountId);
+            if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
 
-          // Attempt a threshold sign. The test tampered /authorize, so this must fail.
-          await pm.near.signTransactionsWithActions({
-            nearAccountId: accountId,
-            transactions: [{ receiverId: 'w3a-v1.testnet', actions: [{ type: ActionType.Transfer, amount: '1' }] }],
-            options: { signerMode: { mode: 'threshold-signer' }, confirmationConfig: confirmConfig as any },
-          });
+            // Attempt a threshold sign. The test tampered /authorize, so this must fail.
+            await pm.near.signTransactionsWithActions({
+              nearAccountId: accountId,
+              transactions: [
+                {
+                  receiverId: 'w3a-v1.testnet',
+                  actions: [{ type: ActionType.Transfer, amount: '1' }],
+                },
+              ],
+              options: {
+                signerMode: { mode: 'threshold-signer' },
+                confirmationConfig: confirmConfig as any,
+              },
+            });
 
-          return { ok: false, error: 'expected signing to fail but it succeeded' };
-        } catch (e: any) {
-          return { ok: true, error: e?.message || String(e) };
-        }
-      }, { relayerUrl: srv.baseUrl });
+            return { ok: false, error: 'expected signing to fail but it succeeded' };
+          } catch (e: any) {
+            return { ok: true, error: e?.message || String(e) };
+          }
+        },
+        { relayerUrl: srv.baseUrl },
+      );
 
       expect(result.ok).toBe(true);
       expect(String(result.error)).toContain('signing_digest_mismatch');
@@ -393,7 +436,11 @@ test.describe('threshold-ed25519 digest binding', () => {
 
     const frontendOrigin = new URL(DEFAULT_TEST_CONFIG.frontendUrl).origin;
     const session = createInMemoryJwtSessionAdapter();
-    const router = createRelayRouter(service, { corsOrigins: [frontendOrigin], threshold, session });
+    const router = createRelayRouter(service, {
+      corsOrigins: [frontendOrigin],
+      threshold,
+      session,
+    });
     const srv = await startExpressRouter(router);
 
     const relayerCounts = { authorize: 0, init: 0, finalize: 0, keygen: 0 };
@@ -406,7 +453,8 @@ test.describe('threshold-ed25519 digest binding', () => {
         relayerCounts.keygen += 1;
 
         const origin = req.headers()['origin'] || req.headers()['Origin'] || '';
-        const contentType = req.headers()['content-type'] || req.headers()['Content-Type'] || 'application/json';
+        const contentType =
+          req.headers()['content-type'] || req.headers()['Content-Type'] || 'application/json';
         const body = req.postData() || '';
 
         const res = await fetch(req.url(), {
@@ -421,7 +469,7 @@ test.describe('threshold-ed25519 digest binding', () => {
         try {
           const json = JSON.parse(text || '{}');
           thresholdPublicKeyFromKeygen = String(json?.publicKey || '');
-        } catch { }
+        } catch {}
 
         await route.fulfill({
           status: res.status,
@@ -444,7 +492,7 @@ test.describe('threshold-ed25519 digest binding', () => {
           if (Array.isArray(bytes) && bytes.length === 32 && Number.isFinite(Number(bytes[0]))) {
             bytes[0] = (Number(bytes[0]) ^ 0xff) & 0xff;
           }
-        } catch { }
+        } catch {}
 
         await route.continue({ postData: JSON.stringify(mutated) });
       });
@@ -498,11 +546,14 @@ test.describe('threshold-ed25519 digest binding', () => {
           'Access-Control-Allow-Methods': 'POST,OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type',
         };
-        if (method === 'OPTIONS') return route.fulfill({ status: 204, headers: corsHeaders, body: '' });
+        if (method === 'OPTIONS')
+          return route.fulfill({ status: 204, headers: corsHeaders, body: '' });
         if (method !== 'POST') return route.fallback();
 
         let body: any = {};
-        try { body = JSON.parse(req.postData() || '{}'); } catch { }
+        try {
+          body = JSON.parse(req.postData() || '{}');
+        } catch {}
         const rpcMethod = body?.method;
         const params = body?.params || {};
         const id = body?.id ?? '1';
@@ -514,7 +565,11 @@ test.describe('threshold-ed25519 digest binding', () => {
           return route.fulfill({
             status: 200,
             headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            body: JSON.stringify({ jsonrpc: '2.0', id, result: { header: { hash: blockHash, height: blockHeight } } }),
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              result: { header: { hash: blockHash, height: blockHeight } },
+            }),
           });
         }
 
@@ -589,7 +644,12 @@ test.describe('threshold-ed25519 digest binding', () => {
             body: JSON.stringify({
               jsonrpc: '2.0',
               id,
-              result: { block_hash: blockHash, block_height: blockHeight, nonce, permission: 'FullAccess' },
+              result: {
+                block_hash: blockHash,
+                block_height: blockHeight,
+                nonce,
+                permission: 'FullAccess',
+              },
             }),
           });
         }
@@ -611,7 +671,10 @@ test.describe('threshold-ed25519 digest binding', () => {
             keysOnChain.add(thresholdPublicKeyFromKeygen);
             nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
             if (localNearPublicKey) {
-              nonceByPublicKey.set(localNearPublicKey, (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1);
+              nonceByPublicKey.set(
+                localNearPublicKey,
+                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
+              );
             }
           }
           return route.fulfill({
@@ -637,42 +700,60 @@ test.describe('threshold-ed25519 digest binding', () => {
         });
       });
 
-      const result = await page.evaluate(async ({ relayerUrl }) => {
-        try {
-          const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
-          const { ActionType } = await import('/sdk/esm/core/types/actions.js');
-          const suffix =
-            (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          const accountId = `e2edigest${suffix}.w3a-v1.testnet`;
+      const result = await page.evaluate(
+        async ({ relayerUrl }) => {
+          try {
+            const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const { ActionType } = await import('/sdk/esm/core/types/actions.js');
+            const suffix =
+              typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const accountId = `e2edigest${suffix}.w3a-v1.testnet`;
 
-          const pm = new TatchiPasskey({
-            nearNetwork: 'testnet',
-            nearRpcUrl: 'https://test.rpc.fastnear.com',
-            relayer: { url: relayerUrl },
-            iframeWallet: { walletOrigin: '' },
-          });
+            const pm = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayer: { url: relayerUrl },
+              iframeWallet: { walletOrigin: '' },
+            });
 
-          const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
+            const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 };
 
-          const reg = await pm.registration.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
-          if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
+            const reg = await pm.registration.registerPasskeyInternal(
+              accountId,
+              { signerMode: { mode: 'local-signer' } },
+              confirmConfig as any,
+            );
+            if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
 
-          const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-          if (!enrollment?.success) return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
+            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
+            if (!enrollment?.success)
+              return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
+            const login = await pm.auth.login(accountId);
+            if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
 
-          await pm.near.signTransactionsWithActions({
-            nearAccountId: accountId,
-            transactions: [{ receiverId: 'w3a-v1.testnet', actions: [{ type: ActionType.Transfer, amount: '1' }] }],
-            options: { signerMode: { mode: 'threshold-signer' }, confirmationConfig: confirmConfig as any },
-          });
+            await pm.near.signTransactionsWithActions({
+              nearAccountId: accountId,
+              transactions: [
+                {
+                  receiverId: 'w3a-v1.testnet',
+                  actions: [{ type: ActionType.Transfer, amount: '1' }],
+                },
+              ],
+              options: {
+                signerMode: { mode: 'threshold-signer' },
+                confirmationConfig: confirmConfig as any,
+              },
+            });
 
-          return { ok: false, error: 'expected signing to fail but it succeeded' };
-        } catch (e: any) {
-          return { ok: true, error: e?.message || String(e) };
-        }
-      }, { relayerUrl: srv.baseUrl });
+            return { ok: false, error: 'expected signing to fail but it succeeded' };
+          } catch (e: any) {
+            return { ok: true, error: e?.message || String(e) };
+          }
+        },
+        { relayerUrl: srv.baseUrl },
+      );
 
       expect(result.ok).toBe(true);
       expect(String(result.error)).toContain('signing_digest_mismatch');

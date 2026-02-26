@@ -25,7 +25,9 @@ export async function setupThresholdE2ePage(page: Page): Promise<void> {
 const DEFAULT_ACCOUNTS_ON_CHAIN = new Set<string>(
   [DEFAULT_TEST_CONFIG.relayerAccount].filter((id): id is string => !!id),
 );
-const DEFAULT_ECDSA_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString('base64url');
+const DEFAULT_ECDSA_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString(
+  'base64url',
+);
 
 export function makeAuthServiceForThreshold(
   keysOnChain: Set<string>,
@@ -45,18 +47,23 @@ export function makeAuthServiceForThreshold(
   });
 
   // For lite threshold flows, we also stub the standard WebAuthn verifier (contract-backed by default).
-  (svc as unknown as {
-    verifyWebAuthnAuthenticationLite: (req: unknown) => Promise<{ success: boolean; verified: boolean }>;
-  }).verifyWebAuthnAuthenticationLite = async (_req: unknown) => ({ success: true, verified: true });
+  (
+    svc as unknown as {
+      verifyWebAuthnAuthenticationLite: (
+        req: unknown,
+      ) => Promise<{ success: boolean; verified: boolean }>;
+    }
+  ).verifyWebAuthnAuthenticationLite = async (_req: unknown) => ({ success: true, verified: true });
 
-  (svc as unknown as { nearClient: { viewAccessKeyList: (accountId: string) => Promise<unknown> } }).nearClient.viewAccessKeyList =
-    async (_accountId: string) => {
-      const keys = Array.from(keysOnChain).map((publicKey) => ({
-        public_key: publicKey,
-        access_key: { nonce: 0, permission: 'FullAccess' as const },
-      }));
-      return { keys };
-    };
+  (
+    svc as unknown as { nearClient: { viewAccessKeyList: (accountId: string) => Promise<unknown> } }
+  ).nearClient.viewAccessKeyList = async (_accountId: string) => {
+    const keys = Array.from(keysOnChain).map((publicKey) => ({
+      public_key: publicKey,
+      access_key: { nonce: 0, permission: 'FullAccess' as const },
+    }));
+    return { keys };
+  };
 
   const thresholdConfigDefaults: ThresholdEd25519KeyStoreConfigInput = {
     THRESHOLD_NODE_ROLE: 'coordinator',
@@ -67,8 +74,8 @@ export function makeAuthServiceForThreshold(
         ...thresholdConfigDefaults,
         ...thresholdEd25519KeyStore,
         THRESHOLD_SECP256K1_MASTER_SECRET_B64U:
-          String(thresholdEd25519KeyStore.THRESHOLD_SECP256K1_MASTER_SECRET_B64U || '').trim()
-          || DEFAULT_ECDSA_MASTER_SECRET_B64U,
+          String(thresholdEd25519KeyStore.THRESHOLD_SECP256K1_MASTER_SECRET_B64U || '').trim() ||
+          DEFAULT_ECDSA_MASTER_SECRET_B64U,
       }
     : thresholdConfigDefaults;
 
@@ -85,9 +92,10 @@ export function createInMemoryJwtSessionAdapter(): ReturnType<typeof makeSession
   const issuedTokens = new Map<string, Record<string, unknown>>();
   return makeSessionAdapter({
     signJwt: async (sub: string, extra?: Record<string, unknown>) => {
-      const id = typeof globalThis.crypto?.randomUUID === 'function'
-        ? globalThis.crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const id =
+        typeof globalThis.crypto?.randomUUID === 'function'
+          ? globalThis.crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       const token = `testjwt-${id}`;
       issuedTokens.set(token, { sub, ...(extra || {}) });
       return token;
@@ -95,9 +103,8 @@ export function createInMemoryJwtSessionAdapter(): ReturnType<typeof makeSession
     parse: async (headers: Record<string, string | string[] | undefined>) => {
       const authHeaderRaw = headers['authorization'] ?? headers['Authorization'];
       const authHeader = Array.isArray(authHeaderRaw) ? authHeaderRaw[0] : authHeaderRaw;
-      const token = typeof authHeader === 'string'
-        ? authHeader.replace(/^Bearer\s+/i, '').trim()
-        : '';
+      const token =
+        typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '').trim() : '';
       const claims = token ? issuedTokens.get(token) : undefined;
       return claims ? { ok: true as const, claims } : { ok: false as const };
     },
@@ -108,19 +115,24 @@ export function corsHeadersForRoute(route: Route): Record<string, string> {
   const req = route.request();
   const origin = req.headers()['origin'] || req.headers()['Origin'] || '';
   return {
-    ...(origin ? { 'Access-Control-Allow-Origin': origin } : { 'Access-Control-Allow-Origin': '*' }),
+    ...(origin
+      ? { 'Access-Control-Allow-Origin': origin }
+      : { 'Access-Control-Allow-Origin': '*' }),
     'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Methods': 'POST,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type,Authorization',
   };
 }
 
-export async function installCreateAccountAndRegisterUserMock(page: Page, input: {
-  relayerBaseUrl: string;
-  onNewPublicKey: (publicKey: string) => void;
-  accountsOnChain?: Set<string>;
-  onNewAccountId?: (accountId: string) => void;
-}): Promise<void> {
+export async function installCreateAccountAndRegisterUserMock(
+  page: Page,
+  input: {
+    relayerBaseUrl: string;
+    onNewPublicKey: (publicKey: string) => void;
+    accountsOnChain?: Set<string>;
+    onNewAccountId?: (accountId: string) => void;
+  },
+): Promise<void> {
   await page.route(`${input.relayerBaseUrl}/registration/bootstrap`, async (route) => {
     const req = route.request();
     const method = req.method().toUpperCase();
@@ -156,26 +168,49 @@ export async function installCreateAccountAndRegisterUserMock(page: Page, input:
       const n = Number(value);
       return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
     };
-    const edSession = thresholdMode && edSessionPolicy
-      ? {
-        sessionKind: String(payload?.threshold_ed25519?.session_kind || 'jwt').toLowerCase() === 'cookie' ? 'cookie' as const : 'jwt' as const,
-        sessionId: String(edSessionPolicy?.sessionId || edSessionPolicy?.session_id || `ed-session-${nowMs}`),
-        expiresAtMs: nowMs + coercePositive(edSessionPolicy?.ttlMs || edSessionPolicy?.ttl_ms, 60_000),
-        participantIds: [1, 2],
-        remainingUses: coercePositive(edSessionPolicy?.remainingUses || edSessionPolicy?.remaining_uses, 10_000),
-        jwt: 'mock-threshold-ed25519-jwt',
-      }
-      : undefined;
-    const ecdsaSession = thresholdEcdsaMode && ecdsaSessionPolicy
-      ? {
-        sessionKind: String(payload?.threshold_ecdsa?.session_kind || 'jwt').toLowerCase() === 'cookie' ? 'cookie' as const : 'jwt' as const,
-        sessionId: String(ecdsaSessionPolicy?.sessionId || ecdsaSessionPolicy?.session_id || `ecdsa-session-${nowMs}`),
-        expiresAtMs: nowMs + coercePositive(ecdsaSessionPolicy?.ttlMs || ecdsaSessionPolicy?.ttl_ms, 60_000),
-        participantIds: [1, 2],
-        remainingUses: coercePositive(ecdsaSessionPolicy?.remainingUses || ecdsaSessionPolicy?.remaining_uses, 10_000),
-        jwt: 'mock-threshold-ecdsa-jwt',
-      }
-      : undefined;
+    const edSession =
+      thresholdMode && edSessionPolicy
+        ? {
+            sessionKind:
+              String(payload?.threshold_ed25519?.session_kind || 'jwt').toLowerCase() === 'cookie'
+                ? ('cookie' as const)
+                : ('jwt' as const),
+            sessionId: String(
+              edSessionPolicy?.sessionId || edSessionPolicy?.session_id || `ed-session-${nowMs}`,
+            ),
+            expiresAtMs:
+              nowMs + coercePositive(edSessionPolicy?.ttlMs || edSessionPolicy?.ttl_ms, 60_000),
+            participantIds: [1, 2],
+            remainingUses: coercePositive(
+              edSessionPolicy?.remainingUses || edSessionPolicy?.remaining_uses,
+              10_000,
+            ),
+            jwt: 'mock-threshold-ed25519-jwt',
+          }
+        : undefined;
+    const ecdsaSession =
+      thresholdEcdsaMode && ecdsaSessionPolicy
+        ? {
+            sessionKind:
+              String(payload?.threshold_ecdsa?.session_kind || 'jwt').toLowerCase() === 'cookie'
+                ? ('cookie' as const)
+                : ('jwt' as const),
+            sessionId: String(
+              ecdsaSessionPolicy?.sessionId ||
+                ecdsaSessionPolicy?.session_id ||
+                `ecdsa-session-${nowMs}`,
+            ),
+            expiresAtMs:
+              nowMs +
+              coercePositive(ecdsaSessionPolicy?.ttlMs || ecdsaSessionPolicy?.ttl_ms, 60_000),
+            participantIds: [1, 2],
+            remainingUses: coercePositive(
+              ecdsaSessionPolicy?.remainingUses || ecdsaSessionPolicy?.remaining_uses,
+              10_000,
+            ),
+            jwt: 'mock-threshold-ecdsa-jwt',
+          }
+        : undefined;
 
     if (registeredPublicKey) input.onNewPublicKey(registeredPublicKey);
     if (accountId) {
@@ -192,41 +227,44 @@ export async function installCreateAccountAndRegisterUserMock(page: Page, input:
         transactionHash: `mock_atomic_tx_${Date.now()}`,
         ...(thresholdMode
           ? {
-            thresholdEd25519: {
-              publicKey: thresholdPublicKey,
-              relayerKeyId,
-              relayerVerifyingShareB64u,
-              clientParticipantId: 1,
-              relayerParticipantId: 2,
-              participantIds: [1, 2],
-              ...(edSession ? { session: edSession } : {}),
-            },
-          }
+              thresholdEd25519: {
+                publicKey: thresholdPublicKey,
+                relayerKeyId,
+                relayerVerifyingShareB64u,
+                clientParticipantId: 1,
+                relayerParticipantId: 2,
+                participantIds: [1, 2],
+                ...(edSession ? { session: edSession } : {}),
+              },
+            }
           : {}),
         ...(thresholdEcdsaMode
           ? {
-            thresholdEcdsa: {
-              relayerKeyId: thresholdEcdsaRelayerKeyId,
-              groupPublicKeyB64u: thresholdEcdsaGroupPublicKeyB64u,
-              ethereumAddress: thresholdEcdsaEthereumAddress,
-              relayerVerifyingShareB64u: thresholdEcdsaRelayerVerifyingShareB64u,
-              participantIds: [1, 2],
-              ...(ecdsaSession ? { session: ecdsaSession } : {}),
-            },
-          }
+              thresholdEcdsa: {
+                relayerKeyId: thresholdEcdsaRelayerKeyId,
+                groupPublicKeyB64u: thresholdEcdsaGroupPublicKeyB64u,
+                ethereumAddress: thresholdEcdsaEthereumAddress,
+                relayerVerifyingShareB64u: thresholdEcdsaRelayerVerifyingShareB64u,
+                participantIds: [1, 2],
+                ...(ecdsaSession ? { session: ecdsaSession } : {}),
+              },
+            }
           : {}),
       }),
     });
   });
 }
 
-export async function installFastNearRpcMock(page: Page, input: {
-  keysOnChain: Set<string>;
-  nonceByPublicKey: Map<string, number>;
-  onSendTx?: () => void;
-  strictAccessKeyLookup?: boolean;
-  accountsOnChain?: Set<string>;
-}): Promise<void> {
+export async function installFastNearRpcMock(
+  page: Page,
+  input: {
+    keysOnChain: Set<string>;
+    nonceByPublicKey: Map<string, number>;
+    onSendTx?: () => void;
+    strictAccessKeyLookup?: boolean;
+    accountsOnChain?: Set<string>;
+  },
+): Promise<void> {
   const strictAccessKeyLookup = input.strictAccessKeyLookup ?? true;
   const accountsOnChain = input.accountsOnChain ?? DEFAULT_ACCOUNTS_ON_CHAIN;
   const isKnownAccount = (accountId: string) =>
@@ -254,7 +292,7 @@ export async function installFastNearRpcMock(page: Page, input: {
     let body: any = {};
     try {
       body = JSON.parse(req.postData() || '{}');
-    } catch { }
+    } catch {}
 
     const rpcMethod = body?.method;
     const params = body?.params || {};
@@ -267,7 +305,11 @@ export async function installFastNearRpcMock(page: Page, input: {
       await route.fulfill({
         status: 200,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
-        body: JSON.stringify({ jsonrpc: '2.0', id, result: { header: { hash: blockHash, height: blockHeight } } }),
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id,
+          result: { header: { hash: blockHash, height: blockHeight } },
+        }),
       });
       return;
     }
@@ -283,7 +325,9 @@ export async function installFastNearRpcMock(page: Page, input: {
     }
 
     const requestType = typeof params?.request_type === 'string' ? params.request_type : '';
-    const isViewAccount = rpcMethod === 'query' && (requestType === 'view_account' || (!!params?.account_id && !requestType));
+    const isViewAccount =
+      rpcMethod === 'query' &&
+      (requestType === 'view_account' || (!!params?.account_id && !requestType));
 
     if (isViewAccount) {
       const accountId = String(params?.account_id || '');
@@ -407,7 +451,10 @@ export function flipFirstByteB64u(b64u: string): string {
   return base64UrlEncode(bytes);
 }
 
-export async function proxyPostJsonAndMutate(route: Route, mutate: (json: any) => any): Promise<void> {
+export async function proxyPostJsonAndMutate(
+  route: Route,
+  mutate: (json: any) => any,
+): Promise<void> {
   const req = route.request();
   const method = req.method().toUpperCase();
   if (method !== 'POST') {
@@ -416,7 +463,8 @@ export async function proxyPostJsonAndMutate(route: Route, mutate: (json: any) =
   }
 
   const origin = req.headers()['origin'] || req.headers()['Origin'] || '';
-  const contentType = req.headers()['content-type'] || req.headers()['Content-Type'] || 'application/json';
+  const contentType =
+    req.headers()['content-type'] || req.headers()['Content-Type'] || 'application/json';
   const body = req.postData() || '';
 
   const res = await fetch(req.url(), {
@@ -432,7 +480,7 @@ export async function proxyPostJsonAndMutate(route: Route, mutate: (json: any) =
   try {
     const json = JSON.parse(text || '{}');
     outText = JSON.stringify(mutate(json));
-  } catch { }
+  } catch {}
 
   const headers = Object.fromEntries(res.headers.entries());
   delete (headers as Record<string, string>)['content-length'];

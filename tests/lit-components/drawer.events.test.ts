@@ -51,7 +51,11 @@ test.describe('Lit component – drawer events', () => {
     });
 
     // Expect at least an open-start (viewer opens after styles/rAF)
-    await expect.poll(async () => (await page.evaluate(() => (window as any).__drawerTestRefs?.counts?.os || 0))).toBeGreaterThan(0);
+    await expect
+      .poll(
+        async () => await page.evaluate(() => (window as any).__drawerTestRefs?.counts?.os || 0),
+      )
+      .toBeGreaterThan(0);
 
     // Simulate overlay click to close
     await page.evaluate(() => {
@@ -61,7 +65,15 @@ test.describe('Lit component – drawer events', () => {
       overlay?.click();
     });
 
-    await expect.poll(async () => (await page.evaluate(() => (window as any).__drawerTestRefs?.counts?.cs || 0))).toBeGreaterThan(0);
-    await expect.poll(async () => (await page.evaluate(() => (window as any).__drawerTestRefs?.counts?.ce || 0))).toBeGreaterThan(0);
+    await expect
+      .poll(
+        async () => await page.evaluate(() => (window as any).__drawerTestRefs?.counts?.cs || 0),
+      )
+      .toBeGreaterThan(0);
+    await expect
+      .poll(
+        async () => await page.evaluate(() => (window as any).__drawerTestRefs?.counts?.ce || 0),
+      )
+      .toBeGreaterThan(0);
   });
 });

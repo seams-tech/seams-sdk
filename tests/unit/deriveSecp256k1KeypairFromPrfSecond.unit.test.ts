@@ -3,10 +3,8 @@ import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { bytesToHex, hexToBytes } from '@/core/signingEngine/chainAdaptors/evm/bytes';
 
 const IMPORT_PATHS = {
-  ethSignerWasm:
-    '/sdk/esm/core/signingEngine/signers/wasm/ethSignerWasm.js',
-  signerGateway:
-    '/sdk/esm/core/signingEngine/workerManager/workerTransport.js',
+  ethSignerWasm: '/sdk/esm/core/signingEngine/signers/wasm/ethSignerWasm.js',
+  signerGateway: '/sdk/esm/core/signingEngine/workerManager/workerTransport.js',
 } as const;
 
 test.describe('deriveSecp256k1KeypairFromPrfSecondWasm', () => {
@@ -17,32 +15,35 @@ test.describe('deriveSecp256k1KeypairFromPrfSecondWasm', () => {
   test('is deterministic and returns valid secp256k1 material', async ({ page }) => {
     const prfSecondB64u = Buffer.alloc(32, 7).toString('base64url');
 
-    const result = await page.evaluate(async ({ paths, prfSecondB64u }) => {
-      const { deriveSecp256k1KeypairFromPrfSecondWasm } = await import(paths.ethSignerWasm);
-      const { requestWorkerOperation } = await import(paths.signerGateway);
-      const workerCtx = {
-        requestWorkerOperation: async ({ kind, request }: { kind: string; request: unknown }) =>
-          await requestWorkerOperation({ kind: kind as any, request: request as any }),
-      };
+    const result = await page.evaluate(
+      async ({ paths, prfSecondB64u }) => {
+        const { deriveSecp256k1KeypairFromPrfSecondWasm } = await import(paths.ethSignerWasm);
+        const { requestWorkerOperation } = await import(paths.signerGateway);
+        const workerCtx = {
+          requestWorkerOperation: async ({ kind, request }: { kind: string; request: unknown }) =>
+            await requestWorkerOperation({ kind: kind as any, request: request as any }),
+        };
 
-      const first = await deriveSecp256k1KeypairFromPrfSecondWasm({
-        prfSecondB64u,
-        nearAccountId: 'alice.testnet',
-        workerCtx: workerCtx as any,
-      });
-      const second = await deriveSecp256k1KeypairFromPrfSecondWasm({
-        prfSecondB64u,
-        nearAccountId: 'alice.testnet',
-        workerCtx: workerCtx as any,
-      });
-      const otherAccount = await deriveSecp256k1KeypairFromPrfSecondWasm({
-        prfSecondB64u,
-        nearAccountId: 'bob.testnet',
-        workerCtx: workerCtx as any,
-      });
+        const first = await deriveSecp256k1KeypairFromPrfSecondWasm({
+          prfSecondB64u,
+          nearAccountId: 'alice.testnet',
+          workerCtx: workerCtx as any,
+        });
+        const second = await deriveSecp256k1KeypairFromPrfSecondWasm({
+          prfSecondB64u,
+          nearAccountId: 'alice.testnet',
+          workerCtx: workerCtx as any,
+        });
+        const otherAccount = await deriveSecp256k1KeypairFromPrfSecondWasm({
+          prfSecondB64u,
+          nearAccountId: 'bob.testnet',
+          workerCtx: workerCtx as any,
+        });
 
-      return { first, second, otherAccount };
-    }, { paths: IMPORT_PATHS, prfSecondB64u });
+        return { first, second, otherAccount };
+      },
+      { paths: IMPORT_PATHS, prfSecondB64u },
+    );
 
     const { first, second, otherAccount } = result;
 

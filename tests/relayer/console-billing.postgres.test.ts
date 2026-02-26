@@ -10,10 +10,7 @@ function randomNamespace(prefix: string): string {
   return `${prefix}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
 }
 
-async function expectBillingError(
-  fn: () => Promise<unknown>,
-  code: string,
-): Promise<void> {
+async function expectBillingError(fn: () => Promise<unknown>, code: string): Promise<void> {
   let caught: any;
   try {
     await fn();
@@ -45,9 +42,13 @@ test.describe('console billing postgres service', () => {
     const pool = await getPostgresPool(postgresUrl);
     // Transition ledger is append-only by contract; cleanup omits this table.
     await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [namespace]);
+    await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
+      namespace,
+    ]);
     await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [namespace]);
+    await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
+      namespace,
+    ]);
     await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
     await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
     await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [namespace]);
@@ -81,12 +82,9 @@ test.describe('console billing postgres service', () => {
     expect(intent.rail).toBe('STABLECOIN');
     expect(intent.requiredConfirmations).toBe(20);
 
-    await expectBillingError(
-      async () => {
-        await service!.createStripePaymentIntent(ctx, { invoiceId });
-      },
-      'invoice_rail_locked',
-    );
+    await expectBillingError(async () => {
+      await service!.createStripePaymentIntent(ctx, { invoiceId });
+    }, 'invoice_rail_locked');
   });
 
   test('card payment method lifecycle keeps a default method', async () => {
@@ -196,16 +194,34 @@ test.describe('console billing postgres service', () => {
       expect(stableIntent.destinationAddress).toBe('pay_pg_provider_destination');
     } finally {
       const pool = await getPostgresPool(postgresUrl);
-      await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [providerNamespace]);
-      await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [providerNamespace]);
-      await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [providerNamespace]);
-      await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [providerNamespace]);
-      await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [providerNamespace]);
-      await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [providerNamespace]);
-      await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [providerNamespace]);
-      await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [providerNamespace]);
+      await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
+        providerNamespace,
+      ]);
+      await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
+        providerNamespace,
+      ]);
+      await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [
+        providerNamespace,
+      ]);
+      await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
+        providerNamespace,
+      ]);
+      await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [
+        providerNamespace,
+      ]);
+      await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [
+        providerNamespace,
+      ]);
+      await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
+        providerNamespace,
+      ]);
+      await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [
+        providerNamespace,
+      ]);
       await pool.query('DELETE FROM console_invoices WHERE namespace = $1', [providerNamespace]);
-      await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [providerNamespace]);
+      await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [
+        providerNamespace,
+      ]);
     }
   });
 
@@ -250,7 +266,9 @@ test.describe('console billing postgres service', () => {
 
     const invoice = await service!.getInvoice(ctx, invoiceId);
     expect(invoice?.status).toBe('PAID');
-    expect(Number(invoice?.amountPaidMinor || 0)).toBeGreaterThanOrEqual(created.expectedAmountMinor);
+    expect(Number(invoice?.amountPaidMinor || 0)).toBeGreaterThanOrEqual(
+      created.expectedAmountMinor,
+    );
 
     const pool = await getPostgresPool(postgresUrl);
     const transitions = await pool.query(
@@ -302,7 +320,7 @@ test.describe('console billing postgres service', () => {
         observedConfirmations: created.requiredConfirmations,
         sourceEventId: `evt_${Date.now()}_risk_settled`,
       });
-      const expectedRiskEndsAt = new Date(current.getTime() + (6 * 60 * 60 * 1000)).toISOString();
+      const expectedRiskEndsAt = new Date(current.getTime() + 6 * 60 * 60 * 1000).toISOString();
       expect(settled?.state).toBe('SETTLED');
       expect(settled?.settledAt).toBe(current.toISOString());
       expect(settled?.reorgRiskWindowEndsAt).toBe(expectedRiskEndsAt);
@@ -317,25 +335,43 @@ test.describe('console billing postgres service', () => {
       );
       expect(persisted.rows.length).toBe(1);
       expect(Number((persisted.rows[0] as any).settled_at_ms || 0)).toBe(current.getTime());
-      expect(Number((persisted.rows[0] as any).reorg_risk_window_ends_at_ms || 0)).toBe(current.getTime() + (6 * 60 * 60 * 1000));
+      expect(Number((persisted.rows[0] as any).reorg_risk_window_ends_at_ms || 0)).toBe(
+        current.getTime() + 6 * 60 * 60 * 1000,
+      );
 
-      current = new Date(current.getTime() + (6 * 60 * 60 * 1000) + (60 * 1000));
+      current = new Date(current.getTime() + 6 * 60 * 60 * 1000 + 60 * 1000);
       const afterRiskWindow = await riskService.getStablecoinPaymentIntent(ctx, created.id);
       expect(afterRiskWindow?.state).toBe('SETTLED');
       expect(afterRiskWindow?.reorgRiskWindowEndsAt).toBe(expectedRiskEndsAt);
       expect(afterRiskWindow?.withinReorgRiskWindow).toBe(false);
     } finally {
       const pool = await getPostgresPool(postgresUrl);
-      await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [riskNamespace]);
-      await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [riskNamespace]);
-      await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [riskNamespace]);
-      await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [riskNamespace]);
+      await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
+        riskNamespace,
+      ]);
+      await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
+        riskNamespace,
+      ]);
+      await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [
+        riskNamespace,
+      ]);
+      await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
+        riskNamespace,
+      ]);
       await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [riskNamespace]);
-      await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [riskNamespace]);
-      await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [riskNamespace]);
-      await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [riskNamespace]);
+      await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [
+        riskNamespace,
+      ]);
+      await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
+        riskNamespace,
+      ]);
+      await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [
+        riskNamespace,
+      ]);
       await pool.query('DELETE FROM console_invoices WHERE namespace = $1', [riskNamespace]);
-      await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [riskNamespace]);
+      await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [
+        riskNamespace,
+      ]);
     }
   });
 
@@ -363,15 +399,12 @@ test.describe('console billing postgres service', () => {
     const canceledA = await service!.cancelStablecoinPaymentIntent(ctx, createdA.id);
     expect(canceledA?.state).toBe('CANCELED');
 
-    await expectBillingError(
-      async () => {
-        await service!.createStablecoinPaymentIntent(ctx, {
-          invoiceId,
-          quoteId: quoteA.id,
-        });
-      },
-      'quote_already_consumed',
-    );
+    await expectBillingError(async () => {
+      await service!.createStablecoinPaymentIntent(ctx, {
+        invoiceId,
+        quoteId: quoteA.id,
+      });
+    }, 'quote_already_consumed');
 
     const quoteB = await service!.createStablecoinQuote(ctx, {
       invoiceId,
@@ -397,15 +430,12 @@ test.describe('console billing postgres service', () => {
     });
     expect(partiallySettled?.state).toBe('PARTIALLY_SETTLED');
 
-    await expectBillingError(
-      async () => {
-        await service!.createStablecoinPaymentIntent(ctx, {
-          invoiceId,
-          quoteId: quoteC.id,
-        });
-      },
-      'quote_amount_mismatch',
-    );
+    await expectBillingError(async () => {
+      await service!.createStablecoinPaymentIntent(ctx, {
+        invoiceId,
+        quoteId: quoteC.id,
+      });
+    }, 'quote_amount_mismatch');
   });
 
   test('expired stablecoin intent is immutable for reconcile/cancel paths', async () => {
@@ -441,7 +471,7 @@ test.describe('console billing postgres service', () => {
       });
       expect(created.state).toBe('PENDING');
 
-      current = new Date(current.getTime() + (16 * 60 * 1000));
+      current = new Date(current.getTime() + 16 * 60 * 1000);
 
       const reconciled = await expiryService.reconcileStablecoinPaymentIntent(ctx, created.id, {
         observedAmountMinor: created.expectedAmountMinor,
@@ -469,16 +499,34 @@ test.describe('console billing postgres service', () => {
       expect(String((transitions.rows[1] as any).to_state)).toBe('EXPIRED');
     } finally {
       const pool = await getPostgresPool(postgresUrl);
-      await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [expiryNamespace]);
-      await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [expiryNamespace]);
-      await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [expiryNamespace]);
-      await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [expiryNamespace]);
-      await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [expiryNamespace]);
-      await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [expiryNamespace]);
-      await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [expiryNamespace]);
-      await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [expiryNamespace]);
+      await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
+        expiryNamespace,
+      ]);
+      await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
+        expiryNamespace,
+      ]);
+      await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [
+        expiryNamespace,
+      ]);
+      await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
+        expiryNamespace,
+      ]);
+      await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [
+        expiryNamespace,
+      ]);
+      await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [
+        expiryNamespace,
+      ]);
+      await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
+        expiryNamespace,
+      ]);
+      await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [
+        expiryNamespace,
+      ]);
       await pool.query('DELETE FROM console_invoices WHERE namespace = $1', [expiryNamespace]);
-      await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [expiryNamespace]);
+      await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [
+        expiryNamespace,
+      ]);
     }
   });
 
@@ -496,12 +544,9 @@ test.describe('console billing postgres service', () => {
     const created = await service!.createStripePaymentIntent(ctx, { invoiceId });
     expect(created.state).toBe('CREATED');
 
-    await expectBillingError(
-      async () => {
-        await service!.createStripePaymentIntent(ctx, { invoiceId });
-      },
-      'active_payment_intent_exists',
-    );
+    await expectBillingError(async () => {
+      await service!.createStripePaymentIntent(ctx, { invoiceId });
+    }, 'active_payment_intent_exists');
   });
 
   test('reconcile moves stripe intent action_required -> settled and updates invoice', async () => {
@@ -758,7 +803,7 @@ test.describe('console billing postgres service', () => {
   test('monthly finalization job generates prior-month invoices for all orgs in namespace', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const finalizationNamespace = randomNamespace('test:console-billing:finalization-job');
-    let current = new Date('2026-02-15T00:00:00.000Z');
+    const current = new Date('2026-02-15T00:00:00.000Z');
     const finalizationService = await createPostgresConsoleBillingService({
       postgresUrl,
       namespace: finalizationNamespace,
@@ -827,24 +872,46 @@ test.describe('console billing postgres service', () => {
       expect(secondRun.skippedCount).toBe(2);
       expect(secondRun.failures.length).toBe(0);
 
-      const orgAJanInvoice = (await finalizationService.listInvoices(orgA))
-        .find((invoice) => invoice.periodMonthUtc === '2026-01');
-      const orgBJanInvoice = (await finalizationService.listInvoices(orgB))
-        .find((invoice) => invoice.periodMonthUtc === '2026-01');
+      const orgAJanInvoice = (await finalizationService.listInvoices(orgA)).find(
+        (invoice) => invoice.periodMonthUtc === '2026-01',
+      );
+      const orgBJanInvoice = (await finalizationService.listInvoices(orgB)).find(
+        (invoice) => invoice.periodMonthUtc === '2026-01',
+      );
       expect(orgAJanInvoice?.amountDueMinor).toBe(2200);
       expect(orgBJanInvoice?.amountDueMinor).toBe(2500);
     } finally {
       const pool = await getPostgresPool(postgresUrl);
-      await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [finalizationNamespace]);
-      await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [finalizationNamespace]);
-      await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [finalizationNamespace]);
-      await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [finalizationNamespace]);
-      await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [finalizationNamespace]);
-      await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [finalizationNamespace]);
-      await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [finalizationNamespace]);
-      await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [finalizationNamespace]);
-      await pool.query('DELETE FROM console_invoices WHERE namespace = $1', [finalizationNamespace]);
-      await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [finalizationNamespace]);
+      await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
+        finalizationNamespace,
+      ]);
+      await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
+        finalizationNamespace,
+      ]);
+      await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [
+        finalizationNamespace,
+      ]);
+      await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
+        finalizationNamespace,
+      ]);
+      await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [
+        finalizationNamespace,
+      ]);
+      await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [
+        finalizationNamespace,
+      ]);
+      await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
+        finalizationNamespace,
+      ]);
+      await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [
+        finalizationNamespace,
+      ]);
+      await pool.query('DELETE FROM console_invoices WHERE namespace = $1', [
+        finalizationNamespace,
+      ]);
+      await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [
+        finalizationNamespace,
+      ]);
     }
   });
 
@@ -878,19 +945,39 @@ test.describe('console billing postgres service', () => {
 
       current = new Date('2026-02-10T00:00:00.000Z');
       const febInvoicesAgain = await rolloverService.listInvoices(ctx);
-      expect(febInvoicesAgain.filter((invoice) => invoice.periodMonthUtc === '2026-02').length).toBe(1);
+      expect(
+        febInvoicesAgain.filter((invoice) => invoice.periodMonthUtc === '2026-02').length,
+      ).toBe(1);
     } finally {
       const pool = await getPostgresPool(postgresUrl);
-      await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [rolloverNamespace]);
-      await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [rolloverNamespace]);
-      await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [rolloverNamespace]);
-      await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [rolloverNamespace]);
-      await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [rolloverNamespace]);
-      await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [rolloverNamespace]);
-      await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [rolloverNamespace]);
-      await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [rolloverNamespace]);
+      await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
+        rolloverNamespace,
+      ]);
+      await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
+        rolloverNamespace,
+      ]);
+      await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [
+        rolloverNamespace,
+      ]);
+      await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
+        rolloverNamespace,
+      ]);
+      await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [
+        rolloverNamespace,
+      ]);
+      await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [
+        rolloverNamespace,
+      ]);
+      await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
+        rolloverNamespace,
+      ]);
+      await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [
+        rolloverNamespace,
+      ]);
       await pool.query('DELETE FROM console_invoices WHERE namespace = $1', [rolloverNamespace]);
-      await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [rolloverNamespace]);
+      await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [
+        rolloverNamespace,
+      ]);
     }
   });
 

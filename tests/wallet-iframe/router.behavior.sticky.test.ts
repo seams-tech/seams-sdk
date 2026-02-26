@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest, handleInfrastructureErrors, SDK_ESM_PATHS } from '../setup';
-import { buildWalletServiceHtml, registerWalletServiceRoute, waitFor, captureOverlay } from './harness';
+import {
+  buildWalletServiceHtml,
+  registerWalletServiceRoute,
+  waitFor,
+  captureOverlay,
+} from './harness';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
@@ -118,7 +123,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
     await registerWalletServiceRoute(
       page,
       buildWalletServiceHtml({ extraScript: stickyResponseScript }),
-      WALLET_SERVICE_ROUTE
+      WALLET_SERVICE_ROUTE,
     );
   });
 
@@ -128,55 +133,62 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
 
   test('sticky requests keep overlay visible until explicit cancel', async ({ page }) => {
     const routerPath = SDK_ESM_PATHS.walletIframeRouter;
-    const result = await page.evaluate(async ({ walletOrigin, waitForSource, captureOverlaySource, routerPath }) => {
-      const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
-      const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
-      try {
-        const mod = await import(routerPath);
-        const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
+    const result = await page.evaluate(
+      async ({ walletOrigin, waitForSource, captureOverlaySource, routerPath }) => {
+        const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
+        const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
+        try {
+          const mod = await import(routerPath);
+          const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
 
-        const router = new WalletIframeRouter({
-          walletOrigin,
-          servicePath: '/wallet-service',
-          connectTimeoutMs: 3000,
-          requestTimeoutMs: 1200,
-          debug: true,
-          sdkBasePath: '/sdk',
-        });
-        await router.init();
+          const router = new WalletIframeRouter({
+            walletOrigin,
+            servicePath: '/wallet-service',
+            connectTimeoutMs: 3000,
+            requestTimeoutMs: 1200,
+            debug: true,
+            sdkBasePath: '/sdk',
+          });
+          await router.init();
 
+          const stickyPromise = router.exportKeypairWithUI('sticky.testnet', {
+            chain: 'near',
+          });
 
-        const stickyPromise = router.exportKeypairWithUI('sticky.testnet', {
-          chain: 'near',
-        });
+          const shown = await waitFor(() => {
+            const state = capture();
+            return state.exists && state.visible;
+          }, 3000);
 
-        const shown = await waitFor(() => {
-          const state = capture();
-          return state.exists && state.visible;
-        }, 3000);
+          await stickyPromise;
+          const afterResult = capture();
+          const stillVisible = afterResult.exists && afterResult.visible;
 
-        await stickyPromise;
-        const afterResult = capture();
-        const stillVisible = afterResult.exists && afterResult.visible;
+          await router.cancelAll();
+          const hidden = await waitFor(() => {
+            const state = capture();
+            if (!state.exists) return true;
+            return !state.visible;
+          }, 3000);
 
-        await router.cancelAll();
-        const hidden = await waitFor(() => {
-          const state = capture();
-          if (!state.exists) return true;
-          return !state.visible;
-        }, 3000);
-
-        return {
-          success: true,
-          shown,
-          stillVisible,
-          hidden,
-          afterResult,
-        } as const;
-      } catch (error: any) {
-        return { success: false, error: error?.message || String(error) } as const;
-      }
-    }, { walletOrigin: WALLET_ORIGIN, waitForSource: WAIT_FOR_SOURCE, captureOverlaySource: CAPTURE_OVERLAY_SOURCE, routerPath });
+          return {
+            success: true,
+            shown,
+            stillVisible,
+            hidden,
+            afterResult,
+          } as const;
+        } catch (error: any) {
+          return { success: false, error: error?.message || String(error) } as const;
+        }
+      },
+      {
+        walletOrigin: WALLET_ORIGIN,
+        waitForSource: WAIT_FOR_SOURCE,
+        captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
+        routerPath,
+      },
+    );
 
     if (!result.success) {
       if (handleInfrastructureErrors(result)) return;
@@ -191,70 +203,78 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
 
   test('sticky demand does not pin later PM_SIGN_TEMPO overlay visibility', async ({ page }) => {
     const routerPath = SDK_ESM_PATHS.walletIframeRouter;
-    const result = await page.evaluate(async ({ walletOrigin, waitForSource, captureOverlaySource, routerPath }) => {
-      const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
-      const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
-      try {
-        const mod = await import(routerPath);
-        const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
+    const result = await page.evaluate(
+      async ({ walletOrigin, waitForSource, captureOverlaySource, routerPath }) => {
+        const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
+        const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
+        try {
+          const mod = await import(routerPath);
+          const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
 
-        const router = new WalletIframeRouter({
-          walletOrigin,
-          servicePath: '/wallet-service',
-          connectTimeoutMs: 3000,
-          requestTimeoutMs: 1200,
-          debug: true,
-          sdkBasePath: '/sdk',
-        });
-        await router.init();
+          const router = new WalletIframeRouter({
+            walletOrigin,
+            servicePath: '/wallet-service',
+            connectTimeoutMs: 3000,
+            requestTimeoutMs: 1200,
+            debug: true,
+            sdkBasePath: '/sdk',
+          });
+          await router.init();
 
-        await router.exportKeypairWithUI('sticky.testnet', {
-          chain: 'near',
-        });
+          await router.exportKeypairWithUI('sticky.testnet', {
+            chain: 'near',
+          });
 
-        // Simulate wallet-host export UI close cleanup (release sticky + hide),
-        // while intentionally leaving the sticky subscription entry alive.
-        (router as any).overlayState.controller.setSticky(false);
-        (router as any).hideFrameForActivation();
+          // Simulate wallet-host export UI close cleanup (release sticky + hide),
+          // while intentionally leaving the sticky subscription entry alive.
+          (router as any).overlayState.controller.setSticky(false);
+          (router as any).hideFrameForActivation();
 
-        const hiddenAfterExportClose = await waitFor(() => {
-          const state = capture();
-          if (!state.exists) return true;
-          return !state.visible;
-        }, 3000);
+          const hiddenAfterExportClose = await waitFor(() => {
+            const state = capture();
+            if (!state.exists) return true;
+            return !state.visible;
+          }, 3000);
 
-        const signPromise = (router as any).signTempo({
-          nearAccountId: 'sticky.testnet',
-          request: {
-            chain: 'evm',
-            kind: 'eip1559',
-            senderSignatureAlgorithm: 'secp256k1',
-            tx: {},
-          },
-        });
+          const signPromise = (router as any).signTempo({
+            nearAccountId: 'sticky.testnet',
+            request: {
+              chain: 'evm',
+              kind: 'eip1559',
+              senderSignatureAlgorithm: 'secp256k1',
+              tx: {},
+            },
+          });
 
-        const shownForTempo = await waitFor(() => {
-          const state = capture();
-          return state.exists && state.visible;
-        }, 3000);
+          const shownForTempo = await waitFor(() => {
+            const state = capture();
+            return state.exists && state.visible;
+          }, 3000);
 
-        await signPromise;
-        const hiddenAfterTempoResult = await waitFor(() => {
-          const state = capture();
-          if (!state.exists) return true;
-          return !state.visible;
-        }, 3000);
+          await signPromise;
+          const hiddenAfterTempoResult = await waitFor(() => {
+            const state = capture();
+            if (!state.exists) return true;
+            return !state.visible;
+          }, 3000);
 
-        return {
-          success: true,
-          hiddenAfterExportClose,
-          shownForTempo,
-          hiddenAfterTempoResult,
-        } as const;
-      } catch (error: any) {
-        return { success: false, error: error?.message || String(error) } as const;
-      }
-    }, { walletOrigin: WALLET_ORIGIN, waitForSource: WAIT_FOR_SOURCE, captureOverlaySource: CAPTURE_OVERLAY_SOURCE, routerPath });
+          return {
+            success: true,
+            hiddenAfterExportClose,
+            shownForTempo,
+            hiddenAfterTempoResult,
+          } as const;
+        } catch (error: any) {
+          return { success: false, error: error?.message || String(error) } as const;
+        }
+      },
+      {
+        walletOrigin: WALLET_ORIGIN,
+        waitForSource: WAIT_FOR_SOURCE,
+        captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
+        routerPath,
+      },
+    );
 
     if (!result.success) {
       if (handleInfrastructureErrors(result)) return;

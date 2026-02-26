@@ -11,13 +11,13 @@ const REPO_ROOT = process.env.W3A_REPO_ROOT || process.cwd();
 
 const GMAIL_RESET_EMAIL_BLOB = readFileSync(
   path.join(REPO_ROOT, 'tests/unit/emails/gmail_reset_full.eml'),
-  'utf8'
+  'utf8',
 );
 
 // Raw email for the on-chain envelope test is now stored as a fixture.
 const RAW_EMAIL_FROM_LOGS = readFileSync(
   path.join(REPO_ROOT, 'tests/unit/emails/gmail_reset_full2.eml'),
-  'utf8'
+  'utf8',
 );
 
 const ENVELOPE_FROM_CHAIN = {
@@ -40,50 +40,60 @@ test.describe('Email encryption compatibility with Outlayer worker seed', () => 
     await injectImportMap(page);
   });
 
-  test('encryptEmailForOutlayer matches decryptEmailForOutlayerTestOnly for given worker seed', async ({ page }) => {
-    const res = await page.evaluate(async ({ paths }) => {
-      try {
-        const {
-          encryptEmailForOutlayer,
-          decryptEmailForOutlayerTestOnly,
-          deriveOutlayerStaticKeyFromSeedHex,
-        } = await import(paths.server);
+  test('encryptEmailForOutlayer matches decryptEmailForOutlayerTestOnly for given worker seed', async ({
+    page,
+  }) => {
+    const res = await page.evaluate(
+      async ({ paths }) => {
+        try {
+          const {
+            encryptEmailForOutlayer,
+            decryptEmailForOutlayerTestOnly,
+            deriveOutlayerStaticKeyFromSeedHex,
+          } = await import(paths.server);
 
-        const SEED_HEX = 'e4c9a1f3b87d54c2a0fe93d1c6428b7fd2a6c1e89bf7405de318ab94f6c2d07e';
-        const { secretKey: workerSk, publicKey: workerPk } = await deriveOutlayerStaticKeyFromSeedHex(SEED_HEX);
+          const SEED_HEX = 'e4c9a1f3b87d54c2a0fe93d1c6428b7fd2a6c1e89bf7405de318ab94f6c2d07e';
+          const { secretKey: workerSk, publicKey: workerPk } =
+            await deriveOutlayerStaticKeyFromSeedHex(SEED_HEX);
 
-        const pkB64 = btoa(String.fromCharCode(...workerPk));
+          const pkB64 = btoa(String.fromCharCode(...workerPk));
 
-        const emailRaw = 'Subject: recover-ABC123 alice.testnet\n\nHello DKIM/TEE world with Outlayer seed!';
-        const context = {
-          account_id: 'alice.testnet',
-          payer_account_id: 'w3a-relayer.testnet',
-          network_id: 'testnet',
-        };
+          const emailRaw =
+            'Subject: recover-ABC123 alice.testnet\n\nHello DKIM/TEE world with Outlayer seed!';
+          const context = {
+            account_id: 'alice.testnet',
+            payer_account_id: 'w3a-relayer.testnet',
+            network_id: 'testnet',
+          };
 
-        const { envelope } = await encryptEmailForOutlayer({
-          emailRaw,
-          aeadContext: context,
-          recipientPk: workerPk,
-        });
+          const { envelope } = await encryptEmailForOutlayer({
+            emailRaw,
+            aeadContext: context,
+            recipientPk: workerPk,
+          });
 
-        const decrypted = await decryptEmailForOutlayerTestOnly({
-          envelope,
-          context,
-          recipientSk: workerSk,
-        });
+          const decrypted = await decryptEmailForOutlayerTestOnly({
+            envelope,
+            context,
+            recipientSk: workerSk,
+          });
 
-        return { success: true, decrypted, original: emailRaw, pkB64 };
-      } catch (error: any) {
-        return {
-          success: false,
-          error: error?.message || String(error),
-        };
-      }
-    }, { paths: IMPORT_PATHS });
+          return { success: true, decrypted, original: emailRaw, pkB64 };
+        } catch (error: any) {
+          return {
+            success: false,
+            error: error?.message || String(error),
+          };
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     if (!res.success) {
-      test.skip(true, `email encryption Outlayer compat test unavailable: ${res.error || 'unknown error'}`);
+      test.skip(
+        true,
+        `email encryption Outlayer compat test unavailable: ${res.error || 'unknown error'}`,
+      );
       return;
     }
 
@@ -92,82 +102,88 @@ test.describe('Email encryption compatibility with Outlayer worker seed', () => 
   });
 
   test('decrypts on-chain Outlayer envelope with seed-derived static key', async ({ page }) => {
-    const res = await page.evaluate(async ({ paths, envelope, context }) => {
-      try {
-        const {
-          decryptEmailForOutlayerTestOnly,
-          deriveOutlayerStaticKeyFromSeedHex,
-        } = await import(paths.server);
+    const res = await page.evaluate(
+      async ({ paths, envelope, context }) => {
+        try {
+          const { decryptEmailForOutlayerTestOnly, deriveOutlayerStaticKeyFromSeedHex } =
+            await import(paths.server);
 
-        const SEED_HEX = 'e4c9a1f3b87d54c2a0fe93d1c6428b7fd2a6c1e89bf7405de318ab94f6c2d07e';
-        const { secretKey: workerSk } = await deriveOutlayerStaticKeyFromSeedHex(SEED_HEX);
+          const SEED_HEX = 'e4c9a1f3b87d54c2a0fe93d1c6428b7fd2a6c1e89bf7405de318ab94f6c2d07e';
+          const { secretKey: workerSk } = await deriveOutlayerStaticKeyFromSeedHex(SEED_HEX);
 
-        const decrypted = await decryptEmailForOutlayerTestOnly({
-          envelope,
-          context,
-          recipientSk: workerSk,
-        });
+          const decrypted = await decryptEmailForOutlayerTestOnly({
+            envelope,
+            context,
+            recipientSk: workerSk,
+          });
 
-        return { success: true, decrypted };
-      } catch (error: any) {
-        return {
-          success: false,
-          error: error?.message || String(error),
-        };
-      }
-    }, { paths: IMPORT_PATHS, envelope: ENVELOPE_FROM_CHAIN, context: CONTEXT_FROM_CHAIN });
+          return { success: true, decrypted };
+        } catch (error: any) {
+          return {
+            success: false,
+            error: error?.message || String(error),
+          };
+        }
+      },
+      { paths: IMPORT_PATHS, envelope: ENVELOPE_FROM_CHAIN, context: CONTEXT_FROM_CHAIN },
+    );
 
     if (!res.success) {
       test.skip(true, `on-chain envelope decrypt failed: ${res.error || 'unknown error'}`);
       return;
     }
 
-    expect(
-      res.decrypted.replace(/\r\n/g, '\n')
-    ).toBe(RAW_EMAIL_FROM_LOGS.replace(/\r\n/g, '\n'));
+    expect(res.decrypted.replace(/\r\n/g, '\n')).toBe(RAW_EMAIL_FROM_LOGS.replace(/\r\n/g, '\n'));
   });
 
   test('encrypts and decrypts full Gmail fixture with Outlayer worker seed', async ({ page }) => {
-    const res = await page.evaluate(async ({ paths, emailBlob }) => {
-      try {
-        const {
-          encryptEmailForOutlayer,
-          decryptEmailForOutlayerTestOnly,
-          deriveOutlayerStaticKeyFromSeedHex,
-        } = await import(paths.server);
+    const res = await page.evaluate(
+      async ({ paths, emailBlob }) => {
+        try {
+          const {
+            encryptEmailForOutlayer,
+            decryptEmailForOutlayerTestOnly,
+            deriveOutlayerStaticKeyFromSeedHex,
+          } = await import(paths.server);
 
-        const SEED_HEX = 'e4c9a1f3b87d54c2a0fe93d1c6428b7fd2a6c1e89bf7405de318ab94f6c2d07e';
-        const { secretKey: workerSk, publicKey: workerPk } = await deriveOutlayerStaticKeyFromSeedHex(SEED_HEX);
+          const SEED_HEX = 'e4c9a1f3b87d54c2a0fe93d1c6428b7fd2a6c1e89bf7405de318ab94f6c2d07e';
+          const { secretKey: workerSk, publicKey: workerPk } =
+            await deriveOutlayerStaticKeyFromSeedHex(SEED_HEX);
 
-        const context = {
-          account_id: 'berp61.w3a-v1.testnet',
-          payer_account_id: 'w3a-relayer.testnet',
-          network_id: 'testnet',
-        };
+          const context = {
+            account_id: 'berp61.w3a-v1.testnet',
+            payer_account_id: 'w3a-relayer.testnet',
+            network_id: 'testnet',
+          };
 
-        const { envelope } = await encryptEmailForOutlayer({
-          emailRaw: emailBlob,
-          aeadContext: context,
-          recipientPk: workerPk,
-        });
+          const { envelope } = await encryptEmailForOutlayer({
+            emailRaw: emailBlob,
+            aeadContext: context,
+            recipientPk: workerPk,
+          });
 
-        const decrypted = await decryptEmailForOutlayerTestOnly({
-          envelope,
-          context,
-          recipientSk: workerSk,
-        });
+          const decrypted = await decryptEmailForOutlayerTestOnly({
+            envelope,
+            context,
+            recipientSk: workerSk,
+          });
 
-        return { success: true, decrypted, original: emailBlob };
-      } catch (error: any) {
-        return {
-          success: false,
-          error: error?.message || String(error),
-        };
-      }
-    }, { paths: IMPORT_PATHS, emailBlob: GMAIL_RESET_EMAIL_BLOB });
+          return { success: true, decrypted, original: emailBlob };
+        } catch (error: any) {
+          return {
+            success: false,
+            error: error?.message || String(error),
+          };
+        }
+      },
+      { paths: IMPORT_PATHS, emailBlob: GMAIL_RESET_EMAIL_BLOB },
+    );
 
     if (!res.success) {
-      test.skip(true, `gmail_reset_full.eml encryption compat test unavailable: ${res.error || 'unknown error'}`);
+      test.skip(
+        true,
+        `gmail_reset_full.eml encryption compat test unavailable: ${res.error || 'unknown error'}`,
+      );
       return;
     }
 

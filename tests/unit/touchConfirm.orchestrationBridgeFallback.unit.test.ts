@@ -8,7 +8,10 @@ test.describe('touchConfirm orchestration manager bridge', () => {
     const result = await orchestrateSigningConfirmation({
       ctx: {
         touchConfirm: {
-          requestUserConfirmation: async (request: { requestId: string; intentDigest?: string }) => {
+          requestUserConfirmation: async (request: {
+            requestId: string;
+            intentDigest?: string;
+          }) => {
             managerCalls += 1;
             return {
               requestId: request.requestId,

@@ -50,8 +50,13 @@ export async function startExpressRouter(router: unknown): Promise<{
 
 export async function fetchJson(
   url: string,
-  init?: RequestInit
-): Promise<{ status: number; headers: Headers; json: Record<string, unknown> | null; text: string }> {
+  init?: RequestInit,
+): Promise<{
+  status: number;
+  headers: Headers;
+  json: Record<string, unknown> | null;
+  text: string;
+}> {
   const res = await fetch(url, init);
   const text = await res.text();
   let json: Record<string, unknown> | null = null;
@@ -77,7 +82,7 @@ export function makeCfCtx(): {
     waitUntil(p: Promise<unknown>) {
       waited.push(p);
     },
-    passThroughOnException() { },
+    passThroughOnException() {},
   };
   return { ctx, waited };
 }
@@ -92,8 +97,13 @@ export async function callCf(
     body?: unknown;
     env?: CfEnv;
     ctx?: CfExecutionContext;
-  }
-): Promise<{ status: number; headers: Headers; json: Record<string, unknown> | null; text: string }> {
+  },
+): Promise<{
+  status: number;
+  headers: Headers;
+  json: Record<string, unknown> | null;
+  text: string;
+}> {
   const url = new URL(input.path, 'https://relay.test');
   const headers = new Headers(input.headers || {});
   if (input.origin) headers.set('Origin', input.origin);
@@ -145,54 +155,76 @@ export function getPath(
 export function makeSessionAdapter(overrides: Partial<SessionAdapter> = {}): SessionAdapter {
   const adapter: SessionAdapter = {
     signJwt: overrides.signJwt || (async (sub: string) => `jwt-for:${sub}`),
-    parse: overrides.parse || (async () => ({ ok: false } as const)),
-    buildSetCookie: overrides.buildSetCookie || ((token: string) => `w3a_session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax`),
+    parse: overrides.parse || (async () => ({ ok: false }) as const),
+    buildSetCookie:
+      overrides.buildSetCookie ||
+      ((token: string) => `w3a_session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax`),
     buildClearCookie: overrides.buildClearCookie || (() => `w3a_session=; Path=/; Max-Age=0`),
-    refresh: overrides.refresh || (async () => ({ ok: false, code: 'not_eligible', message: 'not eligible' })),
+    refresh:
+      overrides.refresh ||
+      (async () => ({ ok: false, code: 'not_eligible', message: 'not eligible' })),
   };
   return adapter;
 }
 
-export function makeFakeAuthService(overrides: Partial<{
-  getRelayerAccount: AuthService['getRelayerAccount'];
-  createWebAuthnLoginOptions: AuthService['createWebAuthnLoginOptions'];
-  verifyWebAuthnLogin: AuthService['verifyWebAuthnLogin'];
-  createAccountAndRegisterUser: AuthService['createAccountAndRegisterUser'];
-  getOrCreateAppSessionVersion: AuthService['getOrCreateAppSessionVersion'];
-  validateAppSessionVersion: AuthService['validateAppSessionVersion'];
-  rotateAppSessionVersion: AuthService['rotateAppSessionVersion'];
-  isGoogleOidcConfigured: AuthService['isGoogleOidcConfigured'];
-  verifyGoogleLogin: AuthService['verifyGoogleLogin'];
-  listIdentities: AuthService['listIdentities'];
-  linkIdentity: AuthService['linkIdentity'];
-  unlinkIdentity: AuthService['unlinkIdentity'];
-  getThresholdSigningService: AuthService['getThresholdSigningService'];
-  emailRecovery: unknown;
-}> = {}): AuthService {
+export function makeFakeAuthService(
+  overrides: Partial<{
+    getRelayerAccount: AuthService['getRelayerAccount'];
+    createWebAuthnLoginOptions: AuthService['createWebAuthnLoginOptions'];
+    verifyWebAuthnLogin: AuthService['verifyWebAuthnLogin'];
+    createAccountAndRegisterUser: AuthService['createAccountAndRegisterUser'];
+    getOrCreateAppSessionVersion: AuthService['getOrCreateAppSessionVersion'];
+    validateAppSessionVersion: AuthService['validateAppSessionVersion'];
+    rotateAppSessionVersion: AuthService['rotateAppSessionVersion'];
+    isGoogleOidcConfigured: AuthService['isGoogleOidcConfigured'];
+    verifyGoogleLogin: AuthService['verifyGoogleLogin'];
+    listIdentities: AuthService['listIdentities'];
+    linkIdentity: AuthService['linkIdentity'];
+    unlinkIdentity: AuthService['unlinkIdentity'];
+    getThresholdSigningService: AuthService['getThresholdSigningService'];
+    emailRecovery: unknown;
+  }> = {},
+): AuthService {
   const service = {
-    getRelayerAccount: overrides.getRelayerAccount
-      || (async () => ({ accountId: 'w3a-relayer.testnet', publicKey: 'ed25519:test' })),
-    createWebAuthnLoginOptions: overrides.createWebAuthnLoginOptions
-      || (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
-    verifyWebAuthnLogin: overrides.verifyWebAuthnLogin
-      || (async () => ({ ok: false, verified: false, code: 'not_implemented', message: 'not implemented' })),
-    createAccountAndRegisterUser: overrides.createAccountAndRegisterUser
-      || (async () => ({ success: false, error: 'not implemented' })),
-    getOrCreateAppSessionVersion: overrides.getOrCreateAppSessionVersion
-      || (async () => ({ ok: true, appSessionVersion: 'v1' })),
-    validateAppSessionVersion: overrides.validateAppSessionVersion
-      || (async () => ({ ok: true })),
-    rotateAppSessionVersion: overrides.rotateAppSessionVersion
-      || (async () => ({ ok: true, appSessionVersion: 'v2' })),
+    getRelayerAccount:
+      overrides.getRelayerAccount ||
+      (async () => ({ accountId: 'w3a-relayer.testnet', publicKey: 'ed25519:test' })),
+    createWebAuthnLoginOptions:
+      overrides.createWebAuthnLoginOptions ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    verifyWebAuthnLogin:
+      overrides.verifyWebAuthnLogin ||
+      (async () => ({
+        ok: false,
+        verified: false,
+        code: 'not_implemented',
+        message: 'not implemented',
+      })),
+    createAccountAndRegisterUser:
+      overrides.createAccountAndRegisterUser ||
+      (async () => ({ success: false, error: 'not implemented' })),
+    getOrCreateAppSessionVersion:
+      overrides.getOrCreateAppSessionVersion ||
+      (async () => ({ ok: true, appSessionVersion: 'v1' })),
+    validateAppSessionVersion: overrides.validateAppSessionVersion || (async () => ({ ok: true })),
+    rotateAppSessionVersion:
+      overrides.rotateAppSessionVersion || (async () => ({ ok: true, appSessionVersion: 'v2' })),
     isGoogleOidcConfigured: overrides.isGoogleOidcConfigured || (() => false),
-    verifyGoogleLogin: overrides.verifyGoogleLogin
-      || (async () => ({ ok: false, verified: false, code: 'not_implemented', message: 'not implemented' })),
-    listIdentities: overrides.listIdentities
-      || (async () => ({ ok: true, subjects: [] })),
-    linkIdentity: overrides.linkIdentity
-      || (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
-    unlinkIdentity: overrides.unlinkIdentity
-      || (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    verifyGoogleLogin:
+      overrides.verifyGoogleLogin ||
+      (async () => ({
+        ok: false,
+        verified: false,
+        code: 'not_implemented',
+        message: 'not implemented',
+      })),
+    listIdentities: overrides.listIdentities || (async () => ({ ok: true, subjects: [] })),
+    linkIdentity:
+      overrides.linkIdentity ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    unlinkIdentity:
+      overrides.unlinkIdentity ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
     getThresholdSigningService: overrides.getThresholdSigningService || (() => null),
     emailRecovery: overrides.emailRecovery ?? null,
   };

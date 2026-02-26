@@ -10,7 +10,9 @@ import {
 import { createRelayRouter } from '@server/router/express-adaptor';
 import { startExpressRouter } from '../relayer/helpers';
 
-const DEFAULT_ECDSA_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString('base64url');
+const DEFAULT_ECDSA_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString(
+  'base64url',
+);
 
 export type ThresholdEcdsaTempoFlowOptions = {
   relayerUrl: string;
@@ -51,17 +53,19 @@ export type ThresholdEcdsaTempoFlowResult = {
     code?: string;
     message?: string;
   };
-  signed?: {
-    chain: 'tempo';
-    kind: 'tempoTransaction';
-    senderHashHex: string;
-    rawTxHex: string;
-  } | {
-    chain: 'evm';
-    kind: 'eip1559';
-    txHashHex: string;
-    rawTxHex: string;
-  };
+  signed?:
+    | {
+        chain: 'tempo';
+        kind: 'tempoTransaction';
+        senderHashHex: string;
+        rawTxHex: string;
+      }
+    | {
+        chain: 'evm';
+        kind: 'eip1559';
+        txHashHex: string;
+        rawTxHex: string;
+      };
   error?: string;
 };
 
@@ -117,7 +121,7 @@ export async function runThresholdEcdsaTempoFlow(
     const { TatchiPasskey } = sdkMod as any;
 
     const accountId =
-      (typeof input.accountId === 'string' && input.accountId.trim())
+      typeof input.accountId === 'string' && input.accountId.trim()
         ? input.accountId.trim()
         : `tempoecdsa${Date.now()}.w3a-v1.testnet`;
 
@@ -185,8 +189,12 @@ export async function runThresholdEcdsaTempoFlow(
             nearAccountId: accountId,
             options: {
               relayerUrl: input.relayerUrl,
-              ...(typeof input.connectSessionTtlMs === 'number' ? { ttlMs: input.connectSessionTtlMs } : {}),
-              ...(typeof input.connectSessionRemainingUses === 'number' ? { remainingUses: input.connectSessionRemainingUses } : {}),
+              ...(typeof input.connectSessionTtlMs === 'number'
+                ? { ttlMs: input.connectSessionTtlMs }
+                : {}),
+              ...(typeof input.connectSessionRemainingUses === 'number'
+                ? { remainingUses: input.connectSessionRemainingUses }
+                : {}),
             },
           });
           keygen = boot.keygen;
@@ -196,7 +204,7 @@ export async function runThresholdEcdsaTempoFlow(
             ok: false,
             accountId,
             error: String(
-              (e && typeof e === 'object' && 'message' in e)
+              e && typeof e === 'object' && 'message' in e
                 ? (e as { message?: unknown }).message
                 : e || 'bootstrapEcdsaSession failed',
             ),
@@ -209,42 +217,41 @@ export async function runThresholdEcdsaTempoFlow(
         await new Promise((resolve) => setTimeout(resolve, Math.floor(waitBeforeSignMs)));
       }
 
-      const request = input.signingKind === 'eip1559'
-        ? {
-            chain: 'evm' as const,
-            kind: 'eip1559' as const,
-            senderSignatureAlgorithm: 'secp256k1' as const,
-            tx: {
-              chainId: 11155111,
-              nonce: 7n,
-              maxPriorityFeePerGas: 1_500_000_000n,
-              maxFeePerGas: 3_000_000_000n,
-              gasLimit: 21_000n,
-              to: '0x' + '22'.repeat(20),
-              value: 12_345n,
-              data: '0x',
-              accessList: [],
-            },
-          }
-        : {
-            chain: 'tempo' as const,
-            kind: 'tempoTransaction' as const,
-            senderSignatureAlgorithm: 'secp256k1' as const,
-            tx: {
-              chainId: 42431,
-              maxPriorityFeePerGas: 1n,
-              maxFeePerGas: 2n,
-              gasLimit: 21_000n,
-              calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
-              accessList: [],
-              nonceKey: 0n,
-              nonce: 1n,
-              validBefore: null,
-              validAfter: null,
-              feePayerSignature: { kind: 'none' as const },
-              aaAuthorizationList: [],
-            },
-          };
+      const request =
+        input.signingKind === 'eip1559'
+          ? {
+              chain: 'evm' as const,
+              kind: 'eip1559' as const,
+              senderSignatureAlgorithm: 'secp256k1' as const,
+              tx: {
+                chainId: 11155111,
+                maxPriorityFeePerGas: 1_500_000_000n,
+                maxFeePerGas: 3_000_000_000n,
+                gasLimit: 21_000n,
+                to: '0x' + '22'.repeat(20),
+                value: 12_345n,
+                data: '0x',
+                accessList: [],
+              },
+            }
+          : {
+              chain: 'tempo' as const,
+              kind: 'tempoTransaction' as const,
+              senderSignatureAlgorithm: 'secp256k1' as const,
+              tx: {
+                chainId: 42431,
+                maxPriorityFeePerGas: 1n,
+                maxFeePerGas: 2n,
+                gasLimit: 21_000n,
+                calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
+                accessList: [],
+                nonceKey: 0n,
+                validBefore: null,
+                validAfter: null,
+                feePayerSignature: { kind: 'none' as const },
+                aaAuthorizationList: [],
+              },
+            };
 
       try {
         const signed = await pm.tempo.signTempo({
@@ -262,7 +269,7 @@ export async function runThresholdEcdsaTempoFlow(
         };
       } catch (e: unknown) {
         const message = String(
-          (e && typeof e === 'object' && 'message' in e)
+          e && typeof e === 'object' && 'message' in e
             ? (e as { message?: unknown }).message
             : e || 'signTempo failed',
         );
@@ -276,7 +283,7 @@ export async function runThresholdEcdsaTempoFlow(
       }
     } catch (e: unknown) {
       const message = String(
-        (e && typeof e === 'object' && 'message' in e)
+        e && typeof e === 'object' && 'message' in e
           ? (e as { message?: unknown }).message
           : e || 'threshold ecdsa flow failed',
       );

@@ -90,24 +90,33 @@ test.describe('threshold ECDSA legacy-surface guard', () => {
   test('signTempo does not wrap the full flow with queueing', () => {
     const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
     const signingEnginePath = path.join(repoRoot, 'client/src/core/signingEngine/SigningEngine.ts');
-    const secp256k1Path = path.join(repoRoot, 'client/src/core/signingEngine/signers/algorithms/secp256k1.ts');
+    const secp256k1Path = path.join(
+      repoRoot,
+      'client/src/core/signingEngine/signers/algorithms/secp256k1.ts',
+    );
     const signingEngineContent = fs.readFileSync(signingEnginePath, 'utf8');
     const secp256k1Content = fs.readFileSync(secp256k1Path, 'utf8');
 
-    expect(signingEngineContent.includes('return await signTempoValue(this.orchestrationDeps.tempoSigningDeps, args);')).toBe(true);
+    expect(
+      signingEngineContent.includes(
+        'return await signTempoValue(this.orchestrationDeps.tempoSigningDeps, args);',
+      ),
+    ).toBe(true);
     expect(signingEngineContent.includes('withThresholdEcdsaSignQueue({')).toBe(false);
     expect(secp256k1Content.includes('enqueueThresholdEcdsaCommit')).toBe(true);
   });
 
   test('presign refill scheduler remains wired to secp256k1 signing path', () => {
     const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-    const secp256k1Path = path.join(repoRoot, 'client/src/core/signingEngine/signers/algorithms/secp256k1.ts');
+    const secp256k1Path = path.join(
+      repoRoot,
+      'client/src/core/signingEngine/signers/algorithms/secp256k1.ts',
+    );
     const evmSigningPath = path.join(repoRoot, 'client/src/core/signingEngine/api/evmSigning.ts');
     const secp256k1Content = fs.readFileSync(secp256k1Path, 'utf8');
     const evmSigningContent = fs.readFileSync(evmSigningPath, 'utf8');
     const schedulerCallCount =
-      secp256k1Content.match(/scheduleThresholdEcdsaClientPresignaturePoolRefill\(/g)?.length
-      || 0;
+      secp256k1Content.match(/scheduleThresholdEcdsaClientPresignaturePoolRefill\(/g)?.length || 0;
 
     expect(schedulerCallCount).toBeGreaterThanOrEqual(2);
     expect(secp256k1Content.includes("trigger: 'commit_start'")).toBe(true);

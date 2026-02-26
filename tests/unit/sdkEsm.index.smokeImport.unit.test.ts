@@ -18,4 +18,3 @@ test.describe('SDK ESM smoke import', () => {
     expect(Array.isArray(res.keys)).toBe(true);
   });
 });
-

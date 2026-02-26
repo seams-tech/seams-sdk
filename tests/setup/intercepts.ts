@@ -8,11 +8,12 @@ export interface RelayMockOptions {
   success?: boolean;
 }
 
-export async function mockRelayServer(
-  page: Page,
-  options: RelayMockOptions = {}
-): Promise<void> {
-  const relayBase = (options.relayUrl ?? DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost').replace(/\/$/, '');
+export async function mockRelayServer(page: Page, options: RelayMockOptions = {}): Promise<void> {
+  const relayBase = (
+    options.relayUrl ??
+    DEFAULT_TEST_CONFIG.relayer?.url ??
+    'https://relay-server.localhost'
+  ).replace(/\/$/, '');
   const endpoint = `${relayBase}/registration/bootstrap`;
 
   await page.unroute(endpoint).catch(() => undefined);
@@ -72,7 +73,7 @@ export interface FaucetMockOptions {
 
 export async function mockTestnetFaucet(
   page: Page,
-  options: FaucetMockOptions = {}
+  options: FaucetMockOptions = {},
 ): Promise<void> {
   const faucetBase = (options.faucetUrl ?? 'https://helper.testnet.near.org').replace(/\/$/, '');
   const endpointPattern = new RegExp(`^${faucetBase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}.*`);
@@ -119,7 +120,7 @@ export interface AccessKeyMockOptions {
 
 export async function mockAccessKeyLookup(
   page: Page,
-  options: AccessKeyMockOptions = {}
+  options: AccessKeyMockOptions = {},
 ): Promise<void> {
   const rpcUrl = options.nearRpcUrl ?? DEFAULT_TEST_CONFIG.nearRpcUrl;
   const accountId = options.accountId ?? 'mock-account.testnet';
@@ -194,7 +195,7 @@ export interface SendTxMockOptions {
 
 export async function mockSendTransaction(
   page: Page,
-  options: SendTxMockOptions = {}
+  options: SendTxMockOptions = {},
 ): Promise<void> {
   const rpcUrl = options.nearRpcUrl ?? DEFAULT_TEST_CONFIG.nearRpcUrl;
 
@@ -251,7 +252,11 @@ export async function mockSendTransaction(
 // --- Wallet SDK CORS/CORP shim ---
 export async function installWalletSdkCorsShim(
   page: Page,
-  options: { walletOrigin?: string; appOrigin?: string; logStyle?: 'intercept' | 'setup' | 'silent' } = {}
+  options: {
+    walletOrigin?: string;
+    appOrigin?: string;
+    logStyle?: 'intercept' | 'setup' | 'silent';
+  } = {},
 ): Promise<void> {
   const walletOrigin = options.walletOrigin ?? 'https://wallet.example.localhost';
   const appOrigin = options.appOrigin ?? 'https://example.localhost';
@@ -301,12 +306,18 @@ export async function installWalletSdkCorsShim(
       const headers = buildAssetHeaders(lower, url);
       await route.fulfill({ status: fetched.status(), headers, body });
     } catch (error) {
-      printLog('intercept', `cors shim fell back (${(error as Error).message})`, { scope: 'cors', indent: 1 });
+      printLog('intercept', `cors shim fell back (${(error as Error).message})`, {
+        scope: 'cors',
+        indent: 1,
+      });
       return route.fallback();
     }
   });
   if (logStyle === 'intercept') {
-    printLog('intercept', `wallet SDK CORS/CORP shim installed for ${walletOrigin}/sdk/*`, { scope: 'cors', step: 'ready' });
+    printLog('intercept', `wallet SDK CORS/CORP shim installed for ${walletOrigin}/sdk/*`, {
+      scope: 'cors',
+      step: 'ready',
+    });
   } else if (logStyle === 'setup') {
     printStepLine(1, `wallet SDK CORS/CORP headers installed for ${walletOrigin}/sdk/*`);
   }
@@ -325,13 +336,24 @@ export async function installWalletSdkCorsShim(
       };
       await route.fulfill({ status: fetched.status(), headers, body });
     } catch (error) {
-      printLog('intercept', `wallet-service shim fell back (${(error as Error).message})`, { scope: 'cors', indent: 1 });
+      printLog('intercept', `wallet-service shim fell back (${(error as Error).message})`, {
+        scope: 'cors',
+        indent: 1,
+      });
       return route.fallback();
     }
   });
   if (logStyle === 'intercept') {
-    printLog('intercept', `wallet service headers shim installed for ${walletOrigin}/wallet-service/*`, { scope: 'cors', step: 'ready' });
+    printLog(
+      'intercept',
+      `wallet service headers shim installed for ${walletOrigin}/wallet-service/*`,
+      { scope: 'cors', step: 'ready' },
+    );
   } else if (logStyle === 'setup') {
-    printStepLine(1, `wallet service headers shim installed for ${walletOrigin}/wallet-service/*`, 2);
+    printStepLine(
+      1,
+      `wallet service headers shim installed for ${walletOrigin}/wallet-service/*`,
+      2,
+    );
   }
 }

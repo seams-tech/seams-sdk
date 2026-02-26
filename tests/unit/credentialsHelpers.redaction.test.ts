@@ -2,7 +2,8 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  credentialExtensions: '/sdk/esm/core/signingEngine/signers/webauthn/credentials/credentialExtensions.js',
+  credentialExtensions:
+    '/sdk/esm/core/signingEngine/signers/webauthn/credentials/credentialExtensions.js',
 } as const;
 
 test.describe('credentialExtensions – redaction', () => {
@@ -10,49 +11,60 @@ test.describe('credentialExtensions – redaction', () => {
     await setupBasicPasskeyTest(page);
   });
 
-  test('redactCredentialExtensionOutputs redacts entire clientExtensionResults', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      const { redactCredentialExtensionOutputs } = await import(paths.credentialExtensions);
+  test('redactCredentialExtensionOutputs redacts entire clientExtensionResults', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { redactCredentialExtensionOutputs } = await import(paths.credentialExtensions);
 
-      const credential: any = {
-        id: 'cred-id',
-        rawId: 'AQID',
-        type: 'public-key',
-        authenticatorAttachment: undefined,
-        response: {
-          clientDataJSON: 'AQ',
-          authenticatorData: 'Ag',
-          signature: 'Aw',
-          userHandle: undefined,
-          // Non-standard but supported by worker extractors; ensure we redact it too.
-          clientExtensionResults: {
-            prf: { results: { first: 'nested-secret', second: 'nested-secret-2' } },
+        const credential: any = {
+          id: 'cred-id',
+          rawId: 'AQID',
+          type: 'public-key',
+          authenticatorAttachment: undefined,
+          response: {
+            clientDataJSON: 'AQ',
+            authenticatorData: 'Ag',
+            signature: 'Aw',
+            userHandle: undefined,
+            // Non-standard but supported by worker extractors; ensure we redact it too.
+            clientExtensionResults: {
+              prf: { results: { first: 'nested-secret', second: 'nested-secret-2' } },
+            },
           },
-        },
-        clientExtensionResults: {
-          appid: true,
-          credProps: { rk: true },
-          prf: { results: { first: 'secret-first', second: 'secret-second' } },
-        },
-      };
+          clientExtensionResults: {
+            appid: true,
+            credProps: { rk: true },
+            prf: { results: { first: 'secret-first', second: 'secret-second' } },
+          },
+        };
 
-      const stripped = redactCredentialExtensionOutputs(credential);
-      const json = JSON.stringify(stripped);
+        const stripped = redactCredentialExtensionOutputs(credential);
+        const json = JSON.stringify(stripped);
 
-      const hasClientExtensionResults = !!stripped && Object.prototype.hasOwnProperty.call(stripped, 'clientExtensionResults');
-      const responseObj =
-        stripped?.response && typeof stripped.response === 'object' ? (stripped.response as any) : null;
-      const hasResponseClientExtensionResults =
-        !!responseObj && Object.prototype.hasOwnProperty.call(responseObj, 'clientExtensionResults');
+        const hasClientExtensionResults =
+          !!stripped && Object.prototype.hasOwnProperty.call(stripped, 'clientExtensionResults');
+        const responseObj =
+          stripped?.response && typeof stripped.response === 'object'
+            ? (stripped.response as any)
+            : null;
+        const hasResponseClientExtensionResults =
+          !!responseObj &&
+          Object.prototype.hasOwnProperty.call(responseObj, 'clientExtensionResults');
 
-      return {
-        hasClientExtensionResults,
-        clientExtensionResults: (stripped as any).clientExtensionResults,
-        hasResponseClientExtensionResults,
-        responseClientExtensionResults: responseObj ? responseObj.clientExtensionResults : undefined,
-        json,
-      };
-    }, { paths: IMPORT_PATHS });
+        return {
+          hasClientExtensionResults,
+          clientExtensionResults: (stripped as any).clientExtensionResults,
+          hasResponseClientExtensionResults,
+          responseClientExtensionResults: responseObj
+            ? responseObj.clientExtensionResults
+            : undefined,
+          json,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     expect(result.hasClientExtensionResults).toBe(true);
     expect(result.clientExtensionResults).toBeNull();

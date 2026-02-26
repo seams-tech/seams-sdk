@@ -43,7 +43,11 @@ test.describe('threshold-ed25519 keygen integrity', () => {
 
     const frontendOrigin = new URL(DEFAULT_TEST_CONFIG.frontendUrl).origin;
     const session = createInMemoryJwtSessionAdapter();
-    const router = createRelayRouter(service, { corsOrigins: [frontendOrigin], threshold, session });
+    const router = createRelayRouter(service, {
+      corsOrigins: [frontendOrigin],
+      threshold,
+      session,
+    });
     const srv = await startExpressRouter(router);
 
     try {
@@ -69,33 +73,41 @@ test.describe('threshold-ed25519 keygen integrity', () => {
         strictAccessKeyLookup: true,
       });
 
-      const result = await page.evaluate(async ({ relayerUrl }) => {
-        try {
-          const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
-          const suffix =
-            (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          const accountId = `e2ekeygen${suffix}.w3a-v1.testnet`;
+      const result = await page.evaluate(
+        async ({ relayerUrl }) => {
+          try {
+            const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const suffix =
+              typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const accountId = `e2ekeygen${suffix}.w3a-v1.testnet`;
 
-          const pm = new TatchiPasskey({
-            nearNetwork: 'testnet',
-            nearRpcUrl: 'https://test.rpc.fastnear.com',
-            relayer: { url: relayerUrl },
-            iframeWallet: { walletOrigin: '' },
-          });
+            const pm = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayer: { url: relayerUrl },
+              iframeWallet: { walletOrigin: '' },
+            });
 
-          const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
+            const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 };
 
-          const reg = await pm.registration.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
-          if (!reg?.success) return { success: false, error: reg?.error || 'registration failed' };
+            const reg = await pm.registration.registerPasskeyInternal(
+              accountId,
+              { signerMode: { mode: 'local-signer' } },
+              confirmConfig as any,
+            );
+            if (!reg?.success)
+              return { success: false, error: reg?.error || 'registration failed' };
 
-          const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-          return { success: !!enrollment?.success, error: String(enrollment?.error || '') };
-        } catch (e: any) {
-          return { success: false, error: e?.message || String(e) };
-        }
-      }, { relayerUrl: srv.baseUrl });
+            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
+            return { success: !!enrollment?.success, error: String(enrollment?.error || '') };
+          } catch (e: any) {
+            return { success: false, error: e?.message || String(e) };
+          }
+        },
+        { relayerUrl: srv.baseUrl },
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('does not match the client+relayer verifying shares');
@@ -106,26 +118,37 @@ test.describe('threshold-ed25519 keygen integrity', () => {
     }
   });
 
-  test('rejects tampered /keygen relayerVerifyingShareB64u (anti key-injection)', async ({ page }) => {
+  test('rejects tampered /keygen relayerVerifyingShareB64u (anti key-injection)', async ({
+    page,
+  }) => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
     let localNearPublicKey = '';
     let sendTxCount = 0;
 
     const tamperedRelayerSk = new Uint8Array(32).fill(9);
-    const tamperedRelayerVerifyingShareB64u = base64UrlEncode(ed25519.getPublicKey(tamperedRelayerSk));
+    const tamperedRelayerVerifyingShareB64u = base64UrlEncode(
+      ed25519.getPublicKey(tamperedRelayerSk),
+    );
 
     const { service, threshold } = makeAuthServiceForThreshold(keysOnChain);
     await service.getRelayerAccount();
 
     const frontendOrigin = new URL(DEFAULT_TEST_CONFIG.frontendUrl).origin;
     const session = createInMemoryJwtSessionAdapter();
-    const router = createRelayRouter(service, { corsOrigins: [frontendOrigin], threshold, session });
+    const router = createRelayRouter(service, {
+      corsOrigins: [frontendOrigin],
+      threshold,
+      session,
+    });
     const srv = await startExpressRouter(router);
 
     try {
       await page.route(`${srv.baseUrl}/threshold-ed25519/keygen`, async (route) => {
-        await proxyPostJsonAndMutate(route, (json) => ({ ...json, relayerVerifyingShareB64u: tamperedRelayerVerifyingShareB64u }));
+        await proxyPostJsonAndMutate(route, (json) => ({
+          ...json,
+          relayerVerifyingShareB64u: tamperedRelayerVerifyingShareB64u,
+        }));
       });
 
       await installCreateAccountAndRegisterUserMock(page, {
@@ -146,33 +169,41 @@ test.describe('threshold-ed25519 keygen integrity', () => {
         strictAccessKeyLookup: true,
       });
 
-      const result = await page.evaluate(async ({ relayerUrl }) => {
-        try {
-          const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
-          const suffix =
-            (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          const accountId = `e2ekeygen${suffix}.w3a-v1.testnet`;
+      const result = await page.evaluate(
+        async ({ relayerUrl }) => {
+          try {
+            const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const suffix =
+              typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const accountId = `e2ekeygen${suffix}.w3a-v1.testnet`;
 
-          const pm = new TatchiPasskey({
-            nearNetwork: 'testnet',
-            nearRpcUrl: 'https://test.rpc.fastnear.com',
-            relayer: { url: relayerUrl },
-            iframeWallet: { walletOrigin: '' },
-          });
+            const pm = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayer: { url: relayerUrl },
+              iframeWallet: { walletOrigin: '' },
+            });
 
-          const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
+            const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 };
 
-          const reg = await pm.registration.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
-          if (!reg?.success) return { success: false, error: reg?.error || 'registration failed' };
+            const reg = await pm.registration.registerPasskeyInternal(
+              accountId,
+              { signerMode: { mode: 'local-signer' } },
+              confirmConfig as any,
+            );
+            if (!reg?.success)
+              return { success: false, error: reg?.error || 'registration failed' };
 
-          const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-          return { success: !!enrollment?.success, error: String(enrollment?.error || '') };
-        } catch (e: any) {
-          return { success: false, error: e?.message || String(e) };
-        }
-      }, { relayerUrl: srv.baseUrl });
+            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
+            return { success: !!enrollment?.success, error: String(enrollment?.error || '') };
+          } catch (e: any) {
+            return { success: false, error: e?.message || String(e) };
+          }
+        },
+        { relayerUrl: srv.baseUrl },
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('does not match the client+relayer verifying shares');

@@ -5,7 +5,10 @@ import path from 'node:path';
 test.describe('WebAuthnP256Engine wasm boundary', () => {
   test('routes WebAuthn challenge binding + DER parsing through wasm wrapper', () => {
     const engineSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signingEngine/signers/algorithms/webauthnP256.ts'),
+      path.resolve(
+        process.cwd(),
+        '../client/src/core/signingEngine/signers/algorithms/webauthnP256.ts',
+      ),
       'utf8',
     );
 
@@ -17,7 +20,10 @@ test.describe('WebAuthnP256Engine wasm boundary', () => {
 
   test('eth worker exposes buildWebauthnP256Signature operation', () => {
     const workerSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signingEngine/workerManager/workers/eth-signer.worker.ts'),
+      path.resolve(
+        process.cwd(),
+        '../client/src/core/signingEngine/workerManager/workers/eth-signer.worker.ts',
+      ),
       'utf8',
     );
 

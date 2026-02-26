@@ -29,15 +29,15 @@ export type PasskeyTestSetupOptions = PasskeyTestConfigOverrides & {
    * When true, force Worker() URLs to same-origin to avoid cross-origin restrictions in tests.
    * Defaults to the env var W3A_FORCE_SAME_ORIGIN_WORKERS !== '0' (true when unset).
    */
-  forceSameOriginWorkers?: boolean
+  forceSameOriginWorkers?: boolean;
   /**
    * When true, pins window.__W3A_WALLET_SDK_BASE__ to the app origin /sdk/ during tests.
    * Defaults to the same value as forceSameOriginWorkers when undefined.
    */
-  forceSameOriginSdkBase?: boolean
+  forceSameOriginSdkBase?: boolean;
   /**
    * When true, skip dynamic loading of TatchiPasskey + global fallback injection.
    * Useful for lightweight lit-component tests that only need the import map.
    */
-  skipPasskeyManagerInit?: boolean
+  skipPasskeyManagerInit?: boolean;
 };

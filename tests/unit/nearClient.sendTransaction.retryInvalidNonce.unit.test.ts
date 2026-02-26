@@ -51,33 +51,35 @@ test.describe('MinimalNearClient.sendTransaction', () => {
       });
     });
 
-    const result = await page.evaluate(async ({ paths }) => {
-      const mod = await import(paths.nearClient);
-      const { MinimalNearClient } = mod as any;
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.nearClient);
+        const { MinimalNearClient } = mod as any;
 
-      const origin = window.location.origin;
-      const nearClient = new MinimalNearClient(`${origin}/rpc-send-tx`);
+        const origin = window.location.origin;
+        const nearClient = new MinimalNearClient(`${origin}/rpc-send-tx`);
 
-      const dummyBytes = Array.from(new TextEncoder().encode('dummy-signed-tx'));
-      const signedTx = { borsh_bytes: dummyBytes };
+        const dummyBytes = Array.from(new TextEncoder().encode('dummy-signed-tx'));
+        const signedTx = { borsh_bytes: dummyBytes };
 
-      try {
-        await nearClient.sendTransaction(signedTx, 'FINAL');
-        return { ok: true as const };
-      } catch (error: any) {
-        return {
-          ok: false as const,
-          message: error?.message || String(error),
-          short: error?.short,
-          kind: error?.kind,
-          type: error?.type,
-        };
-      }
-    }, { paths: IMPORT_PATHS });
+        try {
+          await nearClient.sendTransaction(signedTx, 'FINAL');
+          return { ok: true as const };
+        } catch (error: any) {
+          return {
+            ok: false as const,
+            message: error?.message || String(error),
+            short: error?.short,
+            kind: error?.kind,
+            type: error?.type,
+          };
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     expect(result.ok, JSON.stringify(result)).toBe(false);
     expect(result.short).toBe('InvalidTxError: InvalidNonce');
     expect(requestCount).toBe(2);
   });
 });
-

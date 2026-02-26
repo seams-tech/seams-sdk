@@ -1,6 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { createRelayRouter } from '@server/router/express-adaptor';
-import { fetchJson, getPath, makeFakeAuthService, makeSessionAdapter, startExpressRouter } from './helpers';
+import {
+  fetchJson,
+  getPath,
+  makeFakeAuthService,
+  makeSessionAdapter,
+  startExpressRouter,
+} from './helpers';
 
 function validLoginOptionsBody(overrides?: Partial<any>): any {
   return {
@@ -34,7 +40,11 @@ function validSmartAccountDeployBody(overrides?: Partial<any>): any {
 test.describe('relayer router (express) – P0', () => {
   test('POST /auth/passkey/options: invalid body', async () => {
     const service = makeFakeAuthService({
-      createWebAuthnLoginOptions: async () => ({ ok: false, code: 'invalid_body', message: 'Missing user_id' }),
+      createWebAuthnLoginOptions: async () => ({
+        ok: false,
+        code: 'invalid_body',
+        message: 'Missing user_id',
+      }),
     });
     const router = createRelayRouter(service, {});
     const srv = await startExpressRouter(router);
@@ -94,7 +104,12 @@ test.describe('relayer router (express) – P0', () => {
 
   test('POST /auth/passkey/verify: not verified maps to 400', async () => {
     const service = makeFakeAuthService({
-      verifyWebAuthnLogin: async () => ({ ok: false, verified: false, code: 'not_verified', message: 'nope' }),
+      verifyWebAuthnLogin: async () => ({
+        ok: false,
+        verified: false,
+        code: 'not_verified',
+        message: 'nope',
+      }),
     });
     const router = createRelayRouter(service, {});
     const srv = await startExpressRouter(router);
@@ -114,7 +129,12 @@ test.describe('relayer router (express) – P0', () => {
   test('POST /auth/passkey/verify: verified + sessionKind=jwt returns jwt', async () => {
     const session = makeSessionAdapter({ signJwt: async () => 'jwt-123' });
     const service = makeFakeAuthService({
-      verifyWebAuthnLogin: async () => ({ ok: true, verified: true, userId: 'bob.testnet', rpId: 'example.localhost' }),
+      verifyWebAuthnLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'bob.testnet',
+        rpId: 'example.localhost',
+      }),
     });
     const router = createRelayRouter(service, { session });
     const srv = await startExpressRouter(router);
@@ -137,7 +157,12 @@ test.describe('relayer router (express) – P0', () => {
       buildSetCookie: (t) => `w3a_session=${t}; Path=/; HttpOnly`,
     });
     const service = makeFakeAuthService({
-      verifyWebAuthnLogin: async () => ({ ok: true, verified: true, userId: 'bob.testnet', rpId: 'example.localhost' }),
+      verifyWebAuthnLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'bob.testnet',
+        rpId: 'example.localhost',
+      }),
     });
     const router = createRelayRouter(service, { session });
     const srv = await startExpressRouter(router);
@@ -157,10 +182,17 @@ test.describe('relayer router (express) – P0', () => {
 
   test('POST /auth/passkey/verify: session issuance failures are best-effort', async () => {
     const session = makeSessionAdapter({
-      signJwt: async () => { throw new Error('boom'); },
+      signJwt: async () => {
+        throw new Error('boom');
+      },
     });
     const service = makeFakeAuthService({
-      verifyWebAuthnLogin: async () => ({ ok: true, verified: true, userId: 'bob.testnet', rpId: 'example.localhost' }),
+      verifyWebAuthnLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'bob.testnet',
+        rpId: 'example.localhost',
+      }),
     });
     const router = createRelayRouter(service, { session });
     const srv = await startExpressRouter(router);
@@ -259,7 +291,10 @@ test.describe('relayer router (express) – P0', () => {
 
   test('GET /session/auth: valid session -> 200 with claims', async () => {
     const session = makeSessionAdapter({
-      parse: async () => ({ ok: true, claims: { sub: 'bob.testnet', kind: 'app_session_v1', appSessionVersion: 'v1' } }),
+      parse: async () => ({
+        ok: true,
+        claims: { sub: 'bob.testnet', kind: 'app_session_v1', appSessionVersion: 'v1' },
+      }),
     });
     const service = makeFakeAuthService();
     const router = createRelayRouter(service, { session });
@@ -276,7 +311,10 @@ test.describe('relayer router (express) – P0', () => {
 
   test('POST /session/refresh: cookie session sets Set-Cookie and returns { ok: true }', async () => {
     const session = makeSessionAdapter({
-      parse: async () => ({ ok: true, claims: { sub: 'bob.testnet', kind: 'app_session_v1', appSessionVersion: 'v1' } }),
+      parse: async () => ({
+        ok: true,
+        claims: { sub: 'bob.testnet', kind: 'app_session_v1', appSessionVersion: 'v1' },
+      }),
       refresh: async () => ({ ok: true, jwt: 'refreshed-999' }),
       buildSetCookie: (t) => `w3a_session=${t}; Path=/; HttpOnly`,
     });
@@ -337,11 +375,17 @@ test.describe('relayer router (express) – P0', () => {
 
   test('custom sessionRoutes: auth/logout paths are honored', async () => {
     const session = makeSessionAdapter({
-      parse: async () => ({ ok: true, claims: { sub: 'bob.testnet', kind: 'app_session_v1', appSessionVersion: 'v1' } }),
+      parse: async () => ({
+        ok: true,
+        claims: { sub: 'bob.testnet', kind: 'app_session_v1', appSessionVersion: 'v1' },
+      }),
       buildClearCookie: () => 'w3a_session=; Path=/; Max-Age=0',
     });
     const service = makeFakeAuthService();
-    const router = createRelayRouter(service, { session, sessionRoutes: { auth: '/me', logout: '/bye' } });
+    const router = createRelayRouter(service, {
+      session,
+      sessionRoutes: { auth: '/me', logout: '/bye' },
+    });
     const srv = await startExpressRouter(router);
     try {
       const me = await fetchJson(`${srv.baseUrl}/me`, { method: 'GET' });

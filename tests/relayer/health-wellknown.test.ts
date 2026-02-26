@@ -5,7 +5,7 @@ import { callCf, fetchJson, getPath, makeFakeAuthService, startExpressRouter } f
 
 test.describe('relayer health/ready + well-known', () => {
   test('express: GET /healthz includes threshold hints when enabled', async () => {
-    const service = makeFakeAuthService({ getThresholdSigningService: () => ({} as any) });
+    const service = makeFakeAuthService({ getThresholdSigningService: () => ({}) as any });
     const router = createRelayRouter(service, { healthz: true, readyz: true });
     const srv = await startExpressRouter(router);
     try {
@@ -73,7 +73,10 @@ test.describe('relayer health/ready + well-known', () => {
       const res = await fetchJson(`${srv.baseUrl}/.well-known/webauthn`, { method: 'GET' });
       expect(res.status).toBe(200);
       expect(res.headers.get('cache-control')).toContain('max-age=60');
-      expect(res.json?.origins).toEqual(['https://wallet.example.localhost', 'https://example.localhost']);
+      expect(res.json?.origins).toEqual([
+        'https://wallet.example.localhost',
+        'https://example.localhost',
+      ]);
       expect(calls.length).toBe(1);
       expect(calls[0]).toEqual({ rpId: 'wallet.example.localhost', host: '127.0.0.1' });
     } finally {
@@ -83,7 +86,10 @@ test.describe('relayer health/ready + well-known', () => {
 
   test('cloudflare: GET /healthz includes cors.allowedOrigins when enabled', async () => {
     const service = makeFakeAuthService();
-    const handler = createCloudflareRouter(service, { healthz: true, corsOrigins: ['https://example.localhost'] });
+    const handler = createCloudflareRouter(service, {
+      healthz: true,
+      corsOrigins: ['https://example.localhost'],
+    });
 
     const res = await callCf(handler, {
       method: 'GET',
@@ -100,7 +106,10 @@ test.describe('relayer health/ready + well-known', () => {
 
   test('cloudflare: GET /readyz returns 200 when relayer account is available', async () => {
     const service = makeFakeAuthService();
-    const handler = createCloudflareRouter(service, { readyz: true, corsOrigins: ['https://example.localhost'] });
+    const handler = createCloudflareRouter(service, {
+      readyz: true,
+      corsOrigins: ['https://example.localhost'],
+    });
 
     const res = await callCf(handler, {
       method: 'GET',
@@ -118,7 +127,10 @@ test.describe('relayer health/ready + well-known', () => {
         throw new Error('relayer not reachable');
       },
     });
-    const handler = createCloudflareRouter(service, { readyz: true, corsOrigins: ['https://example.localhost'] });
+    const handler = createCloudflareRouter(service, {
+      readyz: true,
+      corsOrigins: ['https://example.localhost'],
+    });
 
     const res = await callCf(handler, {
       method: 'GET',

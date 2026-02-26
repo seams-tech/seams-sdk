@@ -213,83 +213,93 @@ type ContrastSample = {
   background: string;
 };
 
-async function measureCssVarContrast(page: Page, foregroundVar: string, backgroundVar: string): Promise<ContrastSample> {
-  return await page.evaluate(({ foregroundVar, backgroundVar }) => {
-    type Parsed = { r: number; g: number; b: number; a: number };
+async function measureCssVarContrast(
+  page: Page,
+  foregroundVar: string,
+  backgroundVar: string,
+): Promise<ContrastSample> {
+  return await page.evaluate(
+    ({ foregroundVar, backgroundVar }) => {
+      type Parsed = { r: number; g: number; b: number; a: number };
 
-    function parseColor(input: string): Parsed {
-      const canvas = document.createElement('canvas');
-      canvas.width = 1;
-      canvas.height = 1;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('2d canvas context unavailable');
-      ctx.clearRect(0, 0, 1, 1);
-      ctx.fillStyle = input;
-      ctx.fillRect(0, 0, 1, 1);
-      const data = ctx.getImageData(0, 0, 1, 1).data;
+      function parseColor(input: string): Parsed {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1;
+        canvas.height = 1;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('2d canvas context unavailable');
+        ctx.clearRect(0, 0, 1, 1);
+        ctx.fillStyle = input;
+        ctx.fillRect(0, 0, 1, 1);
+        const data = ctx.getImageData(0, 0, 1, 1).data;
+        return {
+          r: data[0] ?? 0,
+          g: data[1] ?? 0,
+          b: data[2] ?? 0,
+          a: (data[3] ?? 255) / 255,
+        };
+      }
+
+      function flatten(top: Parsed, bottom: Parsed): Parsed {
+        const alpha = top.a + bottom.a * (1 - top.a);
+        if (alpha <= 0) return { r: 0, g: 0, b: 0, a: 0 };
+        return {
+          r: (top.r * top.a + bottom.r * bottom.a * (1 - top.a)) / alpha,
+          g: (top.g * top.a + bottom.g * bottom.a * (1 - top.a)) / alpha,
+          b: (top.b * top.a + bottom.b * bottom.a * (1 - top.a)) / alpha,
+          a: alpha,
+        };
+      }
+
+      function channelToLinear(channel: number): number {
+        const c = channel / 255;
+        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      }
+
+      function luminance(color: Parsed): number {
+        return (
+          0.2126 * channelToLinear(color.r) +
+          0.7152 * channelToLinear(color.g) +
+          0.0722 * channelToLinear(color.b)
+        );
+      }
+
+      function contrastRatio(foreground: Parsed, background: Parsed): number {
+        const white: Parsed = { r: 255, g: 255, b: 255, a: 1 };
+        const resolvedBackground = background.a < 1 ? flatten(background, white) : background;
+        const resolvedForeground =
+          foreground.a < 1 ? flatten(foreground, resolvedBackground) : foreground;
+        const l1 = luminance(resolvedForeground);
+        const l2 = luminance(resolvedBackground);
+        const brighter = Math.max(l1, l2);
+        const darker = Math.min(l1, l2);
+        return Number(((brighter + 0.05) / (darker + 0.05)).toFixed(2));
+      }
+
+      const scope =
+        document.querySelector('.w3a-theme-provider[data-w3a-theme]') ||
+        document.querySelector('.w3a-theme-provider') ||
+        document.querySelector('[data-w3a-theme]') ||
+        document.documentElement;
+      const rootStyles = getComputedStyle(scope);
+      const foregroundRaw = rootStyles.getPropertyValue(foregroundVar).trim();
+      const backgroundRaw = rootStyles.getPropertyValue(backgroundVar).trim();
+      if (!foregroundRaw || !backgroundRaw) {
+        throw new Error(
+          `Missing CSS vars: ${foregroundVar}=${foregroundRaw}, ${backgroundVar}=${backgroundRaw}`,
+        );
+      }
+
+      const foreground = parseColor(foregroundRaw);
+      const background = parseColor(backgroundRaw);
       return {
-        r: data[0] ?? 0,
-        g: data[1] ?? 0,
-        b: data[2] ?? 0,
-        a: (data[3] ?? 255) / 255,
+        ratio: contrastRatio(foreground, background),
+        foreground: foregroundRaw,
+        background: backgroundRaw,
       };
-    }
-
-    function flatten(top: Parsed, bottom: Parsed): Parsed {
-      const alpha = top.a + bottom.a * (1 - top.a);
-      if (alpha <= 0) return { r: 0, g: 0, b: 0, a: 0 };
-      return {
-        r: (top.r * top.a + bottom.r * bottom.a * (1 - top.a)) / alpha,
-        g: (top.g * top.a + bottom.g * bottom.a * (1 - top.a)) / alpha,
-        b: (top.b * top.a + bottom.b * bottom.a * (1 - top.a)) / alpha,
-        a: alpha,
-      };
-    }
-
-    function channelToLinear(channel: number): number {
-      const c = channel / 255;
-      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-    }
-
-    function luminance(color: Parsed): number {
-      return (
-        0.2126 * channelToLinear(color.r) +
-        0.7152 * channelToLinear(color.g) +
-        0.0722 * channelToLinear(color.b)
-      );
-    }
-
-    function contrastRatio(foreground: Parsed, background: Parsed): number {
-      const white: Parsed = { r: 255, g: 255, b: 255, a: 1 };
-      const resolvedBackground = background.a < 1 ? flatten(background, white) : background;
-      const resolvedForeground = foreground.a < 1 ? flatten(foreground, resolvedBackground) : foreground;
-      const l1 = luminance(resolvedForeground);
-      const l2 = luminance(resolvedBackground);
-      const brighter = Math.max(l1, l2);
-      const darker = Math.min(l1, l2);
-      return Number(((brighter + 0.05) / (darker + 0.05)).toFixed(2));
-    }
-
-    const scope =
-      document.querySelector('.w3a-theme-provider[data-w3a-theme]') ||
-      document.querySelector('.w3a-theme-provider') ||
-      document.querySelector('[data-w3a-theme]') ||
-      document.documentElement;
-    const rootStyles = getComputedStyle(scope);
-    const foregroundRaw = rootStyles.getPropertyValue(foregroundVar).trim();
-    const backgroundRaw = rootStyles.getPropertyValue(backgroundVar).trim();
-    if (!foregroundRaw || !backgroundRaw) {
-      throw new Error(`Missing CSS vars: ${foregroundVar}=${foregroundRaw}, ${backgroundVar}=${backgroundRaw}`);
-    }
-
-    const foreground = parseColor(foregroundRaw);
-    const background = parseColor(backgroundRaw);
-    return {
-      ratio: contrastRatio(foreground, background),
-      foreground: foregroundRaw,
-      background: backgroundRaw,
-    };
-  }, { foregroundVar, backgroundVar });
+    },
+    { foregroundVar, backgroundVar },
+  );
 }
 
 async function measureElementContrast(page: Page, selector: string): Promise<ContrastSample> {
@@ -341,7 +351,8 @@ async function measureElementContrast(page: Page, selector: string): Promise<Con
     function contrastRatio(foreground: Parsed, background: Parsed): number {
       const white: Parsed = { r: 255, g: 255, b: 255, a: 1 };
       const resolvedBackground = background.a < 1 ? flatten(background, white) : background;
-      const resolvedForeground = foreground.a < 1 ? flatten(foreground, resolvedBackground) : foreground;
+      const resolvedForeground =
+        foreground.a < 1 ? flatten(foreground, resolvedBackground) : foreground;
       const l1 = luminance(resolvedForeground);
       const l2 = luminance(resolvedBackground);
       const brighter = Math.max(l1, l2);
@@ -379,7 +390,9 @@ async function measureElementContrast(page: Page, selector: string): Promise<Con
 }
 
 test.describe('color-themer phase 5 validation', () => {
-  test('theme toggle and persistence across route transitions with screenshot capture', async ({ page }, testInfo) => {
+  test('theme toggle and persistence across route transitions with screenshot capture', async ({
+    page,
+  }, testInfo) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await waitForRoute(page, ROUTES[0]!);
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -409,7 +422,9 @@ test.describe('color-themer phase 5 validation', () => {
     await expectStoredTheme(page, 'light');
   });
 
-  test('contrast and focus indicators remain accessible in light and dark themes', async ({ page }) => {
+  test('contrast and focus indicators remain accessible in light and dark themes', async ({
+    page,
+  }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await waitForRoute(page, ROUTES[0]!);
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -420,13 +435,26 @@ test.describe('color-themer phase 5 validation', () => {
       await setTheme(page, theme);
 
       const textPrimary = await measureCssVarContrast(page, '--site-text-primary', '--site-canvas');
-      expect(textPrimary.ratio, `${theme} text-primary/canvas contrast (${textPrimary.foreground} on ${textPrimary.background})`).toBeGreaterThanOrEqual(4.5);
+      expect(
+        textPrimary.ratio,
+        `${theme} text-primary/canvas contrast (${textPrimary.foreground} on ${textPrimary.background})`,
+      ).toBeGreaterThanOrEqual(4.5);
 
-      const textSecondary = await measureCssVarContrast(page, '--site-text-secondary', '--site-canvas');
-      expect(textSecondary.ratio, `${theme} text-secondary/canvas contrast (${textSecondary.foreground} on ${textSecondary.background})`).toBeGreaterThanOrEqual(3.0);
+      const textSecondary = await measureCssVarContrast(
+        page,
+        '--site-text-secondary',
+        '--site-canvas',
+      );
+      expect(
+        textSecondary.ratio,
+        `${theme} text-secondary/canvas contrast (${textSecondary.foreground} on ${textSecondary.background})`,
+      ).toBeGreaterThanOrEqual(3.0);
 
       const textButton = await measureCssVarContrast(page, '--site-text-button', '--site-brand');
-      expect(textButton.ratio, `${theme} text-button/brand contrast (${textButton.foreground} on ${textButton.background})`).toBeGreaterThanOrEqual(4.5);
+      expect(
+        textButton.ratio,
+        `${theme} text-button/brand contrast (${textButton.foreground} on ${textButton.background})`,
+      ).toBeGreaterThanOrEqual(4.5);
 
       await navigateViaSpa(page, '/pricing');
       await waitForRoute(page, ROUTES[1]!);
@@ -438,7 +466,10 @@ test.describe('color-themer phase 5 validation', () => {
 
       await navigateViaSpa(page, '/contact');
       await waitForRoute(page, ROUTES[3]!);
-      const contactInputContrast = await measureElementContrast(page, '.contact-form input[name="firstName"]');
+      const contactInputContrast = await measureElementContrast(
+        page,
+        '.contact-form input[name="firstName"]',
+      );
       expect(
         contactInputContrast.ratio,
         `${theme} contact input contrast (${contactInputContrast.foreground} on ${contactInputContrast.background})`,

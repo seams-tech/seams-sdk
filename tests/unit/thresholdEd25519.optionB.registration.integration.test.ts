@@ -63,7 +63,9 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
     }, SDK_ESM_PATHS.base64);
   });
 
-  test('registration defaults to threshold-signer and stores threshold material without local on-chain bootstrap', async ({ page }) => {
+  test('registration defaults to threshold-signer and stores threshold material without local on-chain bootstrap', async ({
+    page,
+  }) => {
     let sendTxCount = 0;
     let localNearPublicKey = '';
     let thresholdPublicKey = '';
@@ -129,7 +131,10 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
           body: JSON.stringify({
             jsonrpc: '2.0',
             id,
-            result: { result: resultBytes, logs: [`mock call_function ${String(methodName || '')}`] },
+            result: {
+              result: resultBytes,
+              logs: [`mock call_function ${String(methodName || '')}`],
+            },
           }),
         });
         return;
@@ -232,10 +237,16 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
       if (rpcMethod === 'query' && params?.request_type === 'view_access_key_list') {
         const keys: any[] = [];
         if (localNearPublicKey) {
-          keys.push({ public_key: localNearPublicKey, access_key: { nonce: 0, permission: 'FullAccess' } });
+          keys.push({
+            public_key: localNearPublicKey,
+            access_key: { nonce: 0, permission: 'FullAccess' },
+          });
         }
         if (thresholdActivatedOnChain && thresholdPublicKey) {
-          keys.push({ public_key: thresholdPublicKey, access_key: { nonce: 0, permission: 'FullAccess' } });
+          keys.push({
+            public_key: thresholdPublicKey,
+            access_key: { nonce: 0, permission: 'FullAccess' },
+          });
         }
         await route.fulfill({
           status: 200,
@@ -304,14 +315,17 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
       const clientDataJSONB64u = payload?.webauthn_registration?.response?.clientDataJSON;
       if (typeof clientDataJSONB64u === 'string' && clientDataJSONB64u) {
         try {
-          const clientData = JSON.parse(Buffer.from(clientDataJSONB64u, 'base64url').toString('utf8'));
+          const clientData = JSON.parse(
+            Buffer.from(clientDataJSONB64u, 'base64url').toString('utf8'),
+          );
           const challengeB64u = clientData?.challenge;
           if (typeof challengeB64u === 'string' && challengeB64u) {
             relayIntentDigest32 = Array.from(Buffer.from(challengeB64u, 'base64url'));
           }
         } catch {}
       }
-      const clientVerifyingShareB64u = payload?.threshold_ed25519?.client_verifying_share_b64u || '';
+      const clientVerifyingShareB64u =
+        payload?.threshold_ed25519?.client_verifying_share_b64u || '';
       const thresholdSessionPolicy = payload?.threshold_ed25519?.session_policy || null;
       const thresholdSessionId = String(
         thresholdSessionPolicy?.sessionId || thresholdSessionPolicy?.session_id || '',
@@ -346,78 +360,81 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
             relayerVerifyingShareB64u,
             ...(thresholdSessionId
               ? {
-                session: {
-                  sessionKind: 'jwt',
-                  sessionId: thresholdSessionId,
-                  expiresAtMs: Date.now() + thresholdSessionTtlMs,
-                  participantIds: [1, 2],
-                  remainingUses: thresholdSessionRemainingUses,
-                  jwt: 'mock-threshold-ed25519-registration-jwt',
-                },
-              }
+                  session: {
+                    sessionKind: 'jwt',
+                    sessionId: thresholdSessionId,
+                    expiresAtMs: Date.now() + thresholdSessionTtlMs,
+                    participantIds: [1, 2],
+                    remainingUses: thresholdSessionRemainingUses,
+                    jwt: 'mock-threshold-ed25519-registration-jwt',
+                  },
+                }
               : {}),
           },
         }),
       });
     });
 
-    const registration = await page.evaluate(async ({ paths }) => {
-      try {
-        const { TatchiPasskey } = await import(paths.tatchi);
-        const suffix =
-          (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-            ? crypto.randomUUID()
-            : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        const accountId = `e2e${suffix}.w3a-v1.testnet`;
+    const registration = await page.evaluate(
+      async ({ paths }) => {
+        try {
+          const { TatchiPasskey } = await import(paths.tatchi);
+          const suffix =
+            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+              ? crypto.randomUUID()
+              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+          const accountId = `e2e${suffix}.w3a-v1.testnet`;
 
-        const pm = new TatchiPasskey({
-          nearNetwork: 'testnet',
-          nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayer: { url: 'http://localhost:3000' },
-          iframeWallet: { walletOrigin: '' },
-        });
+          const pm = new TatchiPasskey({
+            nearNetwork: 'testnet',
+            nearRpcUrl: 'https://test.rpc.fastnear.com',
+            relayer: { url: 'http://localhost:3000' },
+            iframeWallet: { walletOrigin: '' },
+          });
 
-        const confirmConfig = {
-          uiMode: 'none',
-          behavior: 'skipClick',
-          autoProceedDelay: 0,
-        };
+          const confirmConfig = {
+            uiMode: 'none',
+            behavior: 'skipClick',
+            autoProceedDelay: 0,
+          };
 
-        (window as any).__registrationEvents = [];
+          (window as any).__registrationEvents = [];
 
-        const res = await pm.registration.registerPasskeyInternal(
-          accountId,
-          {
-            signerOptions: {
-              tempo: {
-                enabled: false,
-                participantIds: [1, 2],
-                sessionKind: 'jwt',
-                ttlMs: 1,
-                remainingUses: 1,
+          const res = await pm.registration.registerPasskeyInternal(
+            accountId,
+            {
+              signerOptions: {
+                tempo: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  sessionKind: 'jwt',
+                  ttlMs: 1,
+                  remainingUses: 1,
+                },
+                evm: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  sessionKind: 'jwt',
+                  ttlMs: 1,
+                  remainingUses: 1,
+                },
               },
-              evm: {
-                enabled: false,
-                participantIds: [1, 2],
-                sessionKind: 'jwt',
-                ttlMs: 1,
-                remainingUses: 1,
+              onEvent: (event: any) => {
+                try {
+                  (window as any).__registrationEvents.push(event);
+                } catch {}
               },
             },
-            onEvent: (event: any) => {
-              try {
-                (window as any).__registrationEvents.push(event);
-              } catch {}
-            },
-          },
-          confirmConfig as any,
-        );
+            confirmConfig as any,
+          );
 
-        return { accountId, success: !!res?.success, error: res?.error };
-      } catch (error: any) {
-        return { accountId: 'unknown', success: false, error: error?.message || String(error) };
-      }
-    }, { paths: IMPORT_PATHS });
+          return { accountId, success: !!res?.success, error: res?.error };
+        } catch (error: any) {
+          return { accountId: 'unknown', success: false, error: error?.message || String(error) };
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     if (!registration.success) {
       throw new Error(`registration failed: ${registration.error || 'unknown'}`);
@@ -432,60 +449,81 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
     expect(relayIntentDigest32).toHaveLength(32);
     // ConfirmTxFlow binds `sha256("register:<accountId>:<deviceNumber>")` into the WebAuthn challenge.
     const expectedIntentDigest32 = Array.from(
-      createHash('sha256')
-        .update(`register:${registration.accountId}:1`, 'utf8')
-        .digest(),
+      createHash('sha256').update(`register:${registration.accountId}:1`, 'utf8').digest(),
     );
     expect(relayIntentDigest32).toEqual(expectedIntentDigest32);
 
     // Wait for local vault to be updated with threshold material.
     await expect
-      .poll(async () => {
-        return await page.evaluate(async ({ paths, accountId }) => {
-          const { IndexedDBManager } = await import(paths.indexedDb);
-          const rec = await IndexedDBManager.getNearThresholdKeyMaterial(
-            String(accountId || '').trim().toLowerCase(),
-            1,
+      .poll(
+        async () => {
+          return await page.evaluate(
+            async ({ paths, accountId }) => {
+              const { IndexedDBManager } = await import(paths.indexedDb);
+              const rec = await IndexedDBManager.getNearThresholdKeyMaterial(
+                String(accountId || '')
+                  .trim()
+                  .toLowerCase(),
+                1,
+              );
+              return !!rec;
+            },
+            { paths: IMPORT_PATHS, accountId: registration.accountId },
           );
-          return !!rec;
-        }, { paths: IMPORT_PATHS, accountId: registration.accountId });
-      }, { timeout: 10_000 })
+        },
+        { timeout: 10_000 },
+      )
       .toBe(true);
 
     await expect
-      .poll(async () => {
-        return await page.evaluate(() => {
-          const events = (window as any).__registrationEvents;
-          if (!Array.isArray(events)) return null;
-          return (
-            events.find((e: any) => e?.phase === 'threshold-key-enrollment' && e?.thresholdKeyReady === true) ??
-            null
-          );
-        });
-      }, { timeout: 10_000 })
+      .poll(
+        async () => {
+          return await page.evaluate(() => {
+            const events = (window as any).__registrationEvents;
+            if (!Array.isArray(events)) return null;
+            return (
+              events.find(
+                (e: any) =>
+                  e?.phase === 'threshold-key-enrollment' && e?.thresholdKeyReady === true,
+              ) ?? null
+            );
+          });
+        },
+        { timeout: 10_000 },
+      )
       .not.toBeNull();
 
     const thresholdReadyEvent = await page.evaluate(() => {
       const events = (window as any).__registrationEvents;
       if (!Array.isArray(events)) return null;
       return (
-        events.find((e: any) => e?.phase === 'threshold-key-enrollment' && e?.thresholdKeyReady === true) ?? null
+        events.find(
+          (e: any) => e?.phase === 'threshold-key-enrollment' && e?.thresholdKeyReady === true,
+        ) ?? null
       );
     });
 
     expect(thresholdReadyEvent?.thresholdPublicKey).toBe(thresholdPublicKey);
     expect(thresholdReadyEvent?.relayerKeyId).toBe(relayerKeyId);
 
-    const stored = await page.evaluate(async ({ paths, accountId }) => {
-      const { IndexedDBManager } = await import(paths.indexedDb);
-      const normalizedAccountId = String(accountId || '').trim().toLowerCase();
-      const thresholdRec = await IndexedDBManager.getNearThresholdKeyMaterial(normalizedAccountId, 1);
-      const localRec = await IndexedDBManager.getNearLocalKeyMaterial(normalizedAccountId, 1);
-      return {
-        threshold: thresholdRec ? { ...thresholdRec } : null,
-        local: localRec ? { ...localRec } : null,
-      };
-    }, { paths: IMPORT_PATHS, accountId: registration.accountId });
+    const stored = await page.evaluate(
+      async ({ paths, accountId }) => {
+        const { IndexedDBManager } = await import(paths.indexedDb);
+        const normalizedAccountId = String(accountId || '')
+          .trim()
+          .toLowerCase();
+        const thresholdRec = await IndexedDBManager.getNearThresholdKeyMaterial(
+          normalizedAccountId,
+          1,
+        );
+        const localRec = await IndexedDBManager.getNearLocalKeyMaterial(normalizedAccountId, 1);
+        return {
+          threshold: thresholdRec ? { ...thresholdRec } : null,
+          local: localRec ? { ...localRec } : null,
+        };
+      },
+      { paths: IMPORT_PATHS, accountId: registration.accountId },
+    );
 
     expect(stored?.threshold?.kind).toBe('threshold_ed25519_2p_v1');
     expect(stored?.threshold?.publicKey).toBe(thresholdPublicKey);
@@ -494,7 +532,9 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
     expect(String(stored?.local?.usage || '')).toBe('export-only');
   });
 
-  test('registration fails if relay omits threshold key material (no stored threshold material)', async ({ page }) => {
+  test('registration fails if relay omits threshold key material (no stored threshold material)', async ({
+    page,
+  }) => {
     let sendTxCount = 0;
     let localNearPublicKey = '';
     let newPublicKeyProvided = false;
@@ -532,7 +572,11 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
         await route.fulfill({
           status: 200,
           headers: { 'Content-Type': 'application/json', ...corsHeaders },
-          body: JSON.stringify({ jsonrpc: '2.0', id, result: { header: { hash: blockHash, height: blockHeight } } }),
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            result: { header: { hash: blockHash, height: blockHeight } },
+          }),
         });
         return;
       }
@@ -630,7 +674,12 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
           body: JSON.stringify({
             jsonrpc: '2.0',
             id,
-            result: { block_hash: blockHash, block_height: blockHeight, nonce: 0, permission: 'FullAccess' },
+            result: {
+              block_hash: blockHash,
+              block_height: blockHeight,
+              nonce: 0,
+              permission: 'FullAccess',
+            },
           }),
         });
         return;
@@ -638,7 +687,11 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
 
       if (rpcMethod === 'query' && params?.request_type === 'view_access_key_list') {
         const keys: any[] = [];
-        if (localNearPublicKey) keys.push({ public_key: localNearPublicKey, access_key: { nonce: 0, permission: 'FullAccess' } });
+        if (localNearPublicKey)
+          keys.push({
+            public_key: localNearPublicKey,
+            access_key: { nonce: 0, permission: 'FullAccess' },
+          });
         await route.fulfill({
           status: 200,
           headers: { 'Content-Type': 'application/json', ...corsHeaders },
@@ -705,61 +758,64 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
       });
     });
 
-    const registration = await page.evaluate(async ({ paths }) => {
-      try {
-        const { TatchiPasskey } = await import(paths.tatchi);
-        const suffix =
-          (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-            ? crypto.randomUUID()
-            : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        const accountId = `e2e${suffix}.w3a-v1.testnet`;
+    const registration = await page.evaluate(
+      async ({ paths }) => {
+        try {
+          const { TatchiPasskey } = await import(paths.tatchi);
+          const suffix =
+            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+              ? crypto.randomUUID()
+              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+          const accountId = `e2e${suffix}.w3a-v1.testnet`;
 
-        const pm = new TatchiPasskey({
-          nearNetwork: 'testnet',
-          nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayer: { url: 'http://localhost:3000' },
-          iframeWallet: { walletOrigin: '' },
-        });
+          const pm = new TatchiPasskey({
+            nearNetwork: 'testnet',
+            nearRpcUrl: 'https://test.rpc.fastnear.com',
+            relayer: { url: 'http://localhost:3000' },
+            iframeWallet: { walletOrigin: '' },
+          });
 
-        const confirmConfig = {
-          uiMode: 'none',
-          behavior: 'skipClick',
-          autoProceedDelay: 0,
-        };
+          const confirmConfig = {
+            uiMode: 'none',
+            behavior: 'skipClick',
+            autoProceedDelay: 0,
+          };
 
-        (window as any).__registrationEvents = [];
-        const res = await pm.registration.registerPasskeyInternal(
-          accountId,
-          {
-            signerOptions: {
-              tempo: {
-                enabled: false,
-                participantIds: [1, 2],
-                sessionKind: 'jwt',
-                ttlMs: 1,
-                remainingUses: 1,
+          (window as any).__registrationEvents = [];
+          const res = await pm.registration.registerPasskeyInternal(
+            accountId,
+            {
+              signerOptions: {
+                tempo: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  sessionKind: 'jwt',
+                  ttlMs: 1,
+                  remainingUses: 1,
+                },
+                evm: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  sessionKind: 'jwt',
+                  ttlMs: 1,
+                  remainingUses: 1,
+                },
               },
-              evm: {
-                enabled: false,
-                participantIds: [1, 2],
-                sessionKind: 'jwt',
-                ttlMs: 1,
-                remainingUses: 1,
+              onEvent: (event: any) => {
+                try {
+                  (window as any).__registrationEvents.push(event);
+                } catch {}
               },
             },
-            onEvent: (event: any) => {
-              try {
-                (window as any).__registrationEvents.push(event);
-              } catch {}
-            },
-          },
-          confirmConfig as any,
-        );
-        return { accountId, success: !!res?.success, error: res?.error };
-      } catch (error: any) {
-        return { accountId: 'unknown', success: false, error: error?.message || String(error) };
-      }
-    }, { paths: IMPORT_PATHS });
+            confirmConfig as any,
+          );
+          return { accountId, success: !!res?.success, error: res?.error };
+        } catch (error: any) {
+          return { accountId: 'unknown', success: false, error: error?.message || String(error) };
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     expect(registration.success).toBe(false);
     expect(Boolean(registration.error)).toBe(true);
@@ -767,14 +823,19 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
     expect(newPublicKeyProvided).toBe(false);
     expect(localNearPublicKey).toBe('');
 
-    const stored = await page.evaluate(async ({ paths, accountId }) => {
-      const { IndexedDBManager } = await import(paths.indexedDb);
-      const rec = await IndexedDBManager.getNearThresholdKeyMaterial(
-        String(accountId || '').trim().toLowerCase(),
-        1,
-      );
-      return rec ? { ...rec } : null;
-    }, { paths: IMPORT_PATHS, accountId: registration.accountId });
+    const stored = await page.evaluate(
+      async ({ paths, accountId }) => {
+        const { IndexedDBManager } = await import(paths.indexedDb);
+        const rec = await IndexedDBManager.getNearThresholdKeyMaterial(
+          String(accountId || '')
+            .trim()
+            .toLowerCase(),
+          1,
+        );
+        return rec ? { ...rec } : null;
+      },
+      { paths: IMPORT_PATHS, accountId: registration.accountId },
+    );
 
     expect(stored).toBeNull();
   });

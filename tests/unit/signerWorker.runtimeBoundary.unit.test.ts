@@ -5,11 +5,12 @@ test.describe('signer worker runtime boundary', () => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
   });
 
-  test('accepts requests without version fields and preserves typed signer errors', async ({ page }) => {
+  test('accepts requests without version fields and preserves typed signer errors', async ({
+    page,
+  }) => {
     const result = await page.evaluate(async () => {
-      const { requestWorkerOperation } = await import(
-        '/sdk/esm/core/signingEngine/workerManager/workerTransport.js'
-      );
+      const { requestWorkerOperation } =
+        await import('/sdk/esm/core/signingEngine/workerManager/workerTransport.js');
 
       try {
         await requestWorkerOperation({

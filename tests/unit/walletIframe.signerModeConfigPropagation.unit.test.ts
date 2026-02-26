@@ -83,23 +83,28 @@ test.describe('Wallet iframe config propagation', () => {
     await page.unroute(WALLET_SERVICE_ROUTE.replace('wallet-service', 'service')).catch(() => {});
   });
 
-  test('forwards signerMode in PM_SET_CONFIG (so wallet host registration can use threshold-signer)', async ({ page }) => {
-    await page.evaluate(async ({ walletOrigin }) => {
-      const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-      const { TatchiPasskey } = mod as any;
+  test('forwards signerMode in PM_SET_CONFIG (so wallet host registration can use threshold-signer)', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ walletOrigin }) => {
+        const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+        const { TatchiPasskey } = mod as any;
 
-      const pm = new TatchiPasskey({
-        relayer: { url: 'http://localhost:3000' },
-        signerMode: { mode: 'threshold-signer', behavior: 'fallback' },
-        iframeWallet: {
-          walletOrigin,
-          walletServicePath: '/wallet-service',
-          sdkBasePath: '/sdk',
-        },
-      });
+        const pm = new TatchiPasskey({
+          relayer: { url: 'http://localhost:3000' },
+          signerMode: { mode: 'threshold-signer', behavior: 'fallback' },
+          iframeWallet: {
+            walletOrigin,
+            walletServicePath: '/wallet-service',
+            sdkBasePath: '/sdk',
+          },
+        });
 
-      await pm.initWalletIframe();
-    }, { walletOrigin: WALLET_ORIGIN });
+        await pm.initWalletIframe();
+      },
+      { walletOrigin: WALLET_ORIGIN },
+    );
 
     const walletFrame = page.frames().find((frame) => {
       const url = frame.url();
@@ -113,38 +118,43 @@ test.describe('Wallet iframe config propagation', () => {
     expect(capturedSignerMode).toEqual({ mode: 'threshold-signer', behavior: 'fallback' });
   });
 
-  test('forwards appearance theme/tokens in PM_SET_CONFIG for Lit confirmer theming', async ({ page }) => {
-    await page.evaluate(async ({ walletOrigin }) => {
-      const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-      const { TatchiPasskey } = mod as any;
+  test('forwards appearance theme/tokens in PM_SET_CONFIG for Lit confirmer theming', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ walletOrigin }) => {
+        const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+        const { TatchiPasskey } = mod as any;
 
-      const pm = new TatchiPasskey({
-        relayer: { url: 'http://localhost:3000' },
-        appearance: {
-          theme: 'light',
-          tokens: {
-            light: {
-              colors: {
-                primary: '#abcdef',
-                surface: '#f5f7fb',
+        const pm = new TatchiPasskey({
+          relayer: { url: 'http://localhost:3000' },
+          appearance: {
+            theme: 'light',
+            tokens: {
+              light: {
+                colors: {
+                  primary: '#abcdef',
+                  surface: '#f5f7fb',
+                },
               },
-            },
-            dark: {
-              colors: {
-                primary: '#112233',
+              dark: {
+                colors: {
+                  primary: '#112233',
+                },
               },
             },
           },
-        },
-        iframeWallet: {
-          walletOrigin,
-          walletServicePath: '/wallet-service',
-          sdkBasePath: '/sdk',
-        },
-      });
+          iframeWallet: {
+            walletOrigin,
+            walletServicePath: '/wallet-service',
+            sdkBasePath: '/sdk',
+          },
+        });
 
-      await pm.initWalletIframe();
-    }, { walletOrigin: WALLET_ORIGIN });
+        await pm.initWalletIframe();
+      },
+      { walletOrigin: WALLET_ORIGIN },
+    );
 
     const walletFrame = page.frames().find((frame) => {
       const url = frame.url();

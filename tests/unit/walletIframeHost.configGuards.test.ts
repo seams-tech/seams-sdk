@@ -1,11 +1,16 @@
 import { test, expect } from '@playwright/test';
-import { assertWalletHostConfigsNoNestedIframeWallet, sanitizeWalletHostConfigs } from '@/core/WalletIframe/host/config-guards';
+import {
+  assertWalletHostConfigsNoNestedIframeWallet,
+  sanitizeWalletHostConfigs,
+} from '@/core/WalletIframe/host/config-guards';
 
 test.describe('WalletIframe host config guardrails', () => {
   test('sanitizeWalletHostConfigs clears nested iframeWallet fields', async () => {
     const warnings: unknown[] = [];
     const prevWarn = console.warn;
-    console.warn = (...args: unknown[]) => { warnings.push(args); };
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
     try {
       const sanitized = sanitizeWalletHostConfigs({
         relayer: { url: 'https://relay.example' },
@@ -28,10 +33,11 @@ test.describe('WalletIframe host config guardrails', () => {
   });
 
   test('assertWalletHostConfigsNoNestedIframeWallet throws when walletOrigin is set', async () => {
-    expect(() => assertWalletHostConfigsNoNestedIframeWallet({
-      relayer: { url: 'https://relay.example' },
-      iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
-    })).toThrow(/walletOrigin/);
+    expect(() =>
+      assertWalletHostConfigsNoNestedIframeWallet({
+        relayer: { url: 'https://relay.example' },
+        iframeWallet: { walletOrigin: 'https://wallet.example.localhost' },
+      }),
+    ).toThrow(/walletOrigin/);
   });
 });
-

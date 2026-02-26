@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest, handleInfrastructureErrors, SDK_ESM_PATHS } from '../setup';
-import { buildWalletServiceHtml, registerWalletServiceRoute, waitFor, captureOverlay } from './harness';
+import {
+  buildWalletServiceHtml,
+  registerWalletServiceRoute,
+  waitFor,
+  captureOverlay,
+} from './harness';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
@@ -89,7 +94,7 @@ test.describe('WalletIframeRouter – concurrent requests aggregate overlay visi
     await registerWalletServiceRoute(
       page,
       buildWalletServiceHtml({ extraScript: concurrentResponseScript }),
-      WALLET_SERVICE_ROUTE
+      WALLET_SERVICE_ROUTE,
     );
   });
 
@@ -99,83 +104,97 @@ test.describe('WalletIframeRouter – concurrent requests aggregate overlay visi
 
   test('overlay stays visible while any request demands show', async ({ page }) => {
     const routerPath = SDK_ESM_PATHS.walletIframeRouter;
-    const result = await page.evaluate(async ({ walletOrigin, waitForSource, captureOverlaySource, routerPath }) => {
-      const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
-      const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
-      try {
-        const mod = await import(routerPath);
-        const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
+    const result = await page.evaluate(
+      async ({ walletOrigin, waitForSource, captureOverlaySource, routerPath }) => {
+        const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
+        const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
+        try {
+          const mod = await import(routerPath);
+          const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
 
-        const router = new WalletIframeRouter({
-          walletOrigin,
-          servicePath: '/wallet-service',
-          connectTimeoutMs: 3000,
-          requestTimeoutMs: 2000,
-          debug: true,
-          sdkBasePath: '/sdk',
-        });
-        await router.init();
+          const router = new WalletIframeRouter({
+            walletOrigin,
+            servicePath: '/wallet-service',
+            connectTimeoutMs: 3000,
+            requestTimeoutMs: 2000,
+            debug: true,
+            sdkBasePath: '/sdk',
+          });
+          await router.init();
 
-        // Helpers to capture overlay styles
-        
+          // Helpers to capture overlay styles
 
-        // Marker listeners for coordination
-        const marks: Record<string, boolean> = {};
-        window.addEventListener('message', (ev) => {
-          const d = ev.data || {};
-          if (d && d.type === 'TEST_MARKER' && typeof d.marker === 'string') {
-            marks[d.marker] = true;
-          }
-        });
+          // Marker listeners for coordination
+          const marks: Record<string, boolean> = {};
+          window.addEventListener('message', (ev) => {
+            const d = ev.data || {};
+            if (d && d.type === 'TEST_MARKER' && typeof d.marker === 'string') {
+              marks[d.marker] = true;
+            }
+          });
 
-        const actionArgs = { type: 'Transfer', amount: '1' } as any;
+          const actionArgs = { type: 'Transfer', amount: '1' } as any;
 
-	        const p1 = router.executeAction({
-	          nearAccountId: 'concurrent1.testnet',
-	          receiverId: 'w3a-v1.testnet',
-	          actionArgs,
-	          options: { signerMode: { mode: 'local-signer' } },
-	        });
+          const p1 = router.executeAction({
+            nearAccountId: 'concurrent1.testnet',
+            receiverId: 'w3a-v1.testnet',
+            actionArgs,
+            options: { signerMode: { mode: 'local-signer' } },
+          });
 
-        // Wait for overlay to be shown by first request
-        const shown1 = await waitFor(() => {
-          const s = capture();
-          return s.exists && s.visible;
-        }, 3000);
+          // Wait for overlay to be shown by first request
+          const shown1 = await waitFor(() => {
+            const s = capture();
+            return s.exists && s.visible;
+          }, 3000);
 
-	        const p2 = router.executeAction({
-	          nearAccountId: 'concurrent2.testnet',
-	          receiverId: 'w3a-v1.testnet',
-	          actionArgs,
-	          options: { signerMode: { mode: 'local-signer' } },
-	        });
+          const p2 = router.executeAction({
+            nearAccountId: 'concurrent2.testnet',
+            receiverId: 'w3a-v1.testnet',
+            actionArgs,
+            options: { signerMode: { mode: 'local-signer' } },
+          });
 
-        // Ensure second has reached confirmation (show) before first hides
-        const secondAtConfirm = await waitFor(() => !!marks['SECOND_CONFIRMATION'], 1500);
+          // Ensure second has reached confirmation (show) before first hides
+          const secondAtConfirm = await waitFor(() => !!marks['SECOND_CONFIRMATION'], 1500);
 
-        // Wait for first to emit broadcasting (hide intent)
-        const firstAtBroadcast = await waitFor(() => !!marks['FIRST_BROADCASTING'], 1500);
+          // Wait for first to emit broadcasting (hide intent)
+          const firstAtBroadcast = await waitFor(() => !!marks['FIRST_BROADCASTING'], 1500);
 
-        // After first signals broadcasting, overlay should still be visible due to second's show
-        const stillVisible = (() => {
-          const s = capture();
-          return s.exists && s.visible;
-        })();
+          // After first signals broadcasting, overlay should still be visible due to second's show
+          const stillVisible = (() => {
+            const s = capture();
+            return s.exists && s.visible;
+          })();
 
-        await Promise.all([p1, p2]);
+          await Promise.all([p1, p2]);
 
-        // Eventually overlay should hide after both complete
-        const hidden = await waitFor(() => {
-          const s = capture();
-          if (!s.exists) return true;
-          return !s.visible;
-        }, 3000);
+          // Eventually overlay should hide after both complete
+          const hidden = await waitFor(() => {
+            const s = capture();
+            if (!s.exists) return true;
+            return !s.visible;
+          }, 3000);
 
-        return { success: true, shown1, secondAtConfirm, firstAtBroadcast, stillVisible, hidden } as const;
-      } catch (error: any) {
-        return { success: false, error: error?.message || String(error) } as const;
-      }
-    }, { walletOrigin: WALLET_ORIGIN, waitForSource: WAIT_FOR_SOURCE, captureOverlaySource: CAPTURE_OVERLAY_SOURCE, routerPath });
+          return {
+            success: true,
+            shown1,
+            secondAtConfirm,
+            firstAtBroadcast,
+            stillVisible,
+            hidden,
+          } as const;
+        } catch (error: any) {
+          return { success: false, error: error?.message || String(error) } as const;
+        }
+      },
+      {
+        walletOrigin: WALLET_ORIGIN,
+        waitForSource: WAIT_FOR_SOURCE,
+        captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
+        routerPath,
+      },
+    );
 
     if (!result.success) {
       if (handleInfrastructureErrors(result)) return;

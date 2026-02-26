@@ -18,33 +18,36 @@ test.describe('privateKeyExportRecovery method binding', () => {
       };
     };
 
-    const result = await exportKeypairWithUI({
-      indexedDB: {
-        clientDB: {
-          resolveNearAccountContext: async () => ({ profileId: 'profile-1' }),
-          getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 9 }),
-          getNearAccountProjection: async () => ({ clientNearPublicKey: 'ed25519:pub' }),
+    const result = await exportKeypairWithUI(
+      {
+        indexedDB: {
+          clientDB: {
+            resolveNearAccountContext: async () => ({ profileId: 'profile-1' }),
+            getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 9 }),
+            getNearAccountProjection: async () => ({ clientNearPublicKey: 'ed25519:pub' }),
+          },
+          getNearLocalKeyMaterial: async () => ({
+            publicKey: 'ed25519:pub',
+            encryptedSk: 'encrypted-sk',
+            chacha20NonceB64u: 'nonce',
+            wrapKeySalt: 'salt',
+          }),
+          getNearThresholdKeyMaterial: async () => null,
+        } as any,
+        requestExportPrivateKeysWithUi: requestExportPrivateKeysWithUi as any,
+        getTheme: () => 'dark',
+        signingKeyOps: {
+          recoverKeypairFromPasskey: async () => {
+            throw new Error('unused');
+          },
         },
-        getNearLocalKeyMaterial: async () => ({
-          publicKey: 'ed25519:pub',
-          encryptedSk: 'encrypted-sk',
-          chacha20NonceB64u: 'nonce',
-          wrapKeySalt: 'salt',
-        }),
-        getNearThresholdKeyMaterial: async () => null,
-      } as any,
-      requestExportPrivateKeysWithUi: requestExportPrivateKeysWithUi as any,
-      getTheme: () => 'dark',
-      signingKeyOps: {
-        recoverKeypairFromPasskey: async () => {
-          throw new Error('unused');
-        },
+        createSessionId: () => 'session-unused',
       },
-      createSessionId: () => 'session-unused',
-    }, {
-      nearAccountId: 'alice.testnet' as any,
-      options: { chain: 'near', variant: 'drawer' },
-    });
+      {
+        nearAccountId: 'alice.testnet' as any,
+        options: { chain: 'near', variant: 'drawer' },
+      },
+    );
 
     expect(result).toEqual({
       accountId: 'alice.testnet',

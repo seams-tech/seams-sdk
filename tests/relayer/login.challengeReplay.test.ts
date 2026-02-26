@@ -17,9 +17,16 @@ test.describe('relayer login challenge replay', () => {
     });
 
     // Keep the test focused on challenge replay protection (store.consume).
-    (service as unknown as {
-      verifyWebAuthnAuthenticationLite: (req: unknown) => Promise<{ success: boolean; verified: boolean }>;
-    }).verifyWebAuthnAuthenticationLite = async (_req: unknown) => ({ success: true, verified: true });
+    (
+      service as unknown as {
+        verifyWebAuthnAuthenticationLite: (
+          req: unknown,
+        ) => Promise<{ success: boolean; verified: boolean }>;
+      }
+    ).verifyWebAuthnAuthenticationLite = async (_req: unknown) => ({
+      success: true,
+      verified: true,
+    });
 
     const session = makeSessionAdapter({ signJwt: async () => 'jwt-123' });
     const router = createRelayRouter(service, { session });
@@ -38,7 +45,11 @@ test.describe('relayer login challenge replay', () => {
       const verify1 = await fetchJson(`${srv.baseUrl}/auth/passkey/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionKind: 'jwt', challengeId, webauthn_authentication: { ok: true } }),
+        body: JSON.stringify({
+          sessionKind: 'jwt',
+          challengeId,
+          webauthn_authentication: { ok: true },
+        }),
       });
       expect(verify1.status).toBe(200);
       expect(verify1.json?.verified).toBe(true);
@@ -47,7 +58,11 @@ test.describe('relayer login challenge replay', () => {
       const verify2 = await fetchJson(`${srv.baseUrl}/auth/passkey/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionKind: 'jwt', challengeId, webauthn_authentication: { ok: true } }),
+        body: JSON.stringify({
+          sessionKind: 'jwt',
+          challengeId,
+          webauthn_authentication: { ok: true },
+        }),
       });
       expect(verify2.status).toBe(400);
       expect(verify2.json?.code).toBe('challenge_expired_or_invalid');

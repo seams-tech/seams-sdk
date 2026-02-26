@@ -46,7 +46,7 @@ test.describe('wallet iframe host export UI handlers', () => {
               return await deferred.promise;
             },
           },
-        } as any),
+        }) as any,
       post: (msg) => posts.push(msg),
       postProgress: () => undefined,
       isCancelled: () => false,
@@ -82,7 +82,7 @@ test.describe('wallet iframe host export UI handlers', () => {
               throw new Error('No key material found for account alice.testnet device 1');
             },
           },
-        } as any),
+        }) as any,
       post: (msg) => posts.push(msg),
       postProgress: () => undefined,
       postToParent: (msg) => parentPosts.push(msg),
@@ -90,9 +90,9 @@ test.describe('wallet iframe host export UI handlers', () => {
       respondIfCancelled: () => false,
     });
 
-    await expect(handlers.PM_EXPORT_KEYPAIR_UI!(makeExportKeypairReq('req-error') as any)).rejects.toThrow(
-      'No key material found for account alice.testnet device 1',
-    );
+    await expect(
+      handlers.PM_EXPORT_KEYPAIR_UI!(makeExportKeypairReq('req-error') as any),
+    ).rejects.toThrow('No key material found for account alice.testnet device 1');
 
     expect(posts).toEqual([]);
     expect(parentPosts).toContainEqual({
@@ -110,10 +110,12 @@ test.describe('wallet iframe host export UI handlers', () => {
         ({
           keys: {
             exportKeypairWithUI: async () => {
-              throw new Error('NotAllowedError: The operation either timed out or was not allowed.');
+              throw new Error(
+                'NotAllowedError: The operation either timed out or was not allowed.',
+              );
             },
           },
-        } as any),
+        }) as any,
       post: (msg) => posts.push(msg),
       postProgress: () => undefined,
       postToParent: (msg) => parentPosts.push(msg),

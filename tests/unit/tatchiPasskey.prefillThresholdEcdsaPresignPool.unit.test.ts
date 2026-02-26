@@ -18,7 +18,10 @@ test.describe('prefillThresholdEcdsaPresignPoolDomain', () => {
           },
         } as any,
         signingEngine: {
-          getThresholdEcdsaKeyRefForSigning: (args: { nearAccountId: string; chain?: 'tempo' | 'evm' }) => {
+          getThresholdEcdsaKeyRefForSigning: (args: {
+            nearAccountId: string;
+            chain?: 'tempo' | 'evm';
+          }) => {
             calls.push(args);
             return {
               type: 'threshold-ecdsa-secp256k1',
@@ -45,9 +48,7 @@ test.describe('prefillThresholdEcdsaPresignPoolDomain', () => {
     );
 
     expect(out).toEqual(result);
-    expect(calls).toEqual([
-      { nearAccountId: toAccountId('alice.testnet'), chain: 'tempo' },
-    ]);
+    expect(calls).toEqual([{ nearAccountId: toAccountId('alice.testnet'), chain: 'tempo' }]);
     expect(scheduleCalls).toHaveLength(1);
     expect(scheduleCalls[0]?.nearAccountId).toBe(toAccountId('alice.testnet'));
     expect(scheduleCalls[0]?.thresholdEcdsaKeyRef?.thresholdSessionId).toBe('session-1');

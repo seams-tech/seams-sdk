@@ -11,4 +11,3 @@ if (!postgresUrl) {
 
 await ensurePostgresSchema({ postgresUrl, logger: console });
 console.log('[migration] postgres schema ready');
-

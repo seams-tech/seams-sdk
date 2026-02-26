@@ -11,7 +11,12 @@ test.describe('threshold-ed25519 access key scope retries', () => {
         calls += 1;
         if (calls < 3) return { keys: [] } as any;
         return {
-          keys: [{ public_key: 'ed25519:relayer-key', access_key: { nonce: 0, permission: 'FullAccess' } }],
+          keys: [
+            {
+              public_key: 'ed25519:relayer-key',
+              access_key: { nonce: 0, permission: 'FullAccess' },
+            },
+          ],
         } as any;
       },
       maxAttempts: 4,

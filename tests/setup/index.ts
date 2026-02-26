@@ -69,7 +69,7 @@ export { SDK_ESM_BASE_PATH, SDK_ESM_PATHS, sdkEsmPath } from './sdkEsmPaths';
  */
 export async function setupBasicPasskeyTest(
   page: Page,
-  options: PasskeyTestSetupOptions = {}
+  options: PasskeyTestSetupOptions = {},
 ): Promise<void> {
   const config: PasskeyTestConfig = { ...DEFAULT_TEST_CONFIG, ...options };
 
@@ -85,83 +85,111 @@ export async function setupBasicPasskeyTest(
     const forceSameOriginSdkBase = options.forceSameOriginSdkBase ?? forceSameOriginWorkers;
 
     // Make rpId available in all frames (wallet iframe mocks run cross-origin).
-    await page.addInitScript((args: { rpId: string }) => {
-      try {
-        const v = String(args?.rpId || '').trim();
-        if (v) (window as any).__W3A_TEST_RP_ID__ = v;
-      } catch { }
-    }, { rpId });
+    await page.addInitScript(
+      (args: { rpId: string }) => {
+        try {
+          const v = String(args?.rpId || '').trim();
+          if (v) (window as any).__W3A_TEST_RP_ID__ = v;
+        } catch {}
+      },
+      { rpId },
+    );
 
     // (1) Lock __W3A_WALLET_SDK_BASE__ to per-frame same-origin /sdk/
-    await page.addInitScript((args: { appOrigin: string; enable: boolean }) => {
-      const { appOrigin, enable } = args || ({} as any);
-      if (!enable) return;
-      try {
-        const frameOrigin = (() => {
-          try {
-            const o = window.location?.origin;
-            if (o && o !== 'null') return o;
-          } catch { }
-          return appOrigin || '';
-        })();
-
-        const base = String(frameOrigin || '').replace(/\/$/, '') + '/sdk/';
-        Object.defineProperty(window, '__W3A_WALLET_SDK_BASE__', {
-          get() { return base; },
-          set() { /* ignore test overrides */ },
-          configurable: false,
-        } as any);
+    await page.addInitScript(
+      (args: { appOrigin: string; enable: boolean }) => {
+        const { appOrigin, enable } = args || ({} as any);
+        if (!enable) return;
         try {
-          window.addEventListener('W3A_WALLET_SDK_BASE_CHANGED' as any, (e: Event) => {
-            try { (e as any).stopImmediatePropagation?.(); } catch { }
-            try { e.stopPropagation(); } catch { }
-          }, true);
-        } catch { }
-      } catch { }
-    }, { appOrigin, enable: forceSameOriginSdkBase });
+          const frameOrigin = (() => {
+            try {
+              const o = window.location?.origin;
+              if (o && o !== 'null') return o;
+            } catch {}
+            return appOrigin || '';
+          })();
+
+          const base = String(frameOrigin || '').replace(/\/$/, '') + '/sdk/';
+          Object.defineProperty(window, '__W3A_WALLET_SDK_BASE__', {
+            get() {
+              return base;
+            },
+            set() {
+              /* ignore test overrides */
+            },
+            configurable: false,
+          } as any);
+          try {
+            window.addEventListener(
+              'W3A_WALLET_SDK_BASE_CHANGED' as any,
+              (e: Event) => {
+                try {
+                  (e as any).stopImmediatePropagation?.();
+                } catch {}
+                try {
+                  e.stopPropagation();
+                } catch {}
+              },
+              true,
+            );
+          } catch {}
+        } catch {}
+      },
+      { appOrigin, enable: forceSameOriginSdkBase },
+    );
 
     // (2) Patch Worker constructor to force same-origin worker URLs (per-frame)
-    await page.addInitScript((args: { appOrigin: string; enable: boolean }) => {
-      const { appOrigin, enable } = args || ({} as any);
-      if (!enable) return;
-      try {
-        const frameOrigin = (() => {
-          try {
-            const o = window.location?.origin;
-            if (o && o !== 'null') return o;
-          } catch { }
-          return appOrigin || '';
-        })();
+    await page.addInitScript(
+      (args: { appOrigin: string; enable: boolean }) => {
+        const { appOrigin, enable } = args || ({} as any);
+        if (!enable) return;
+        try {
+          const frameOrigin = (() => {
+            try {
+              const o = window.location?.origin;
+              if (o && o !== 'null') return o;
+            } catch {}
+            return appOrigin || '';
+          })();
 
-        const OriginalWorker = window.Worker;
-        // Normalize worker URLs for both signer + UserConfirm workers.
-        const normalize = (url: string) => {
-          try {
-            const u = new URL(url, frameOrigin);
-            const filename = (u.pathname.split('/').pop() || '').toLowerCase();
-            if (filename === 'passkey-confirm.worker.js' || filename === 'near-signer.worker.js') {
-              const patchedPath = `/sdk/workers/${filename}`;
-              return new URL(patchedPath + u.search + u.hash, frameOrigin).toString();
+          const OriginalWorker = window.Worker;
+          // Normalize worker URLs for both signer + UserConfirm workers.
+          const normalize = (url: string) => {
+            try {
+              const u = new URL(url, frameOrigin);
+              const filename = (u.pathname.split('/').pop() || '').toLowerCase();
+              if (
+                filename === 'passkey-confirm.worker.js' ||
+                filename === 'near-signer.worker.js'
+              ) {
+                const patchedPath = `/sdk/workers/${filename}`;
+                return new URL(patchedPath + u.search + u.hash, frameOrigin).toString();
+              }
+              if (u.origin !== frameOrigin) {
+                // preserve path/query/hash but swap origin
+                return new URL(u.pathname + u.search + u.hash, frameOrigin).toString();
+              }
+              return u.toString();
+            } catch {
+              return url;
             }
-            if (u.origin !== frameOrigin) {
-              // preserve path/query/hash but swap origin
-              return new URL(u.pathname + u.search + u.hash, frameOrigin).toString();
-            }
-            return u.toString();
-          } catch {
-            return url;
-          }
-        };
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const PatchedWorker: any = function (this: any, url: string | URL, options?: WorkerOptions) {
-          const patchedUrl = normalize(String(url));
-          return new (OriginalWorker as any)(patchedUrl, options);
-        };
-        PatchedWorker.prototype = (OriginalWorker as any).prototype;
-        Object.defineProperty(window, 'Worker', { value: PatchedWorker });
-      } catch { }
-    }, { appOrigin, enable: forceSameOriginWorkers });
-  } catch { }
+          };
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const PatchedWorker: any = function (
+            this: any,
+            url: string | URL,
+            options?: WorkerOptions,
+          ) {
+            const patchedUrl = normalize(String(url));
+            return new (OriginalWorker as any)(patchedUrl, options);
+          };
+          PatchedWorker.prototype = (OriginalWorker as any).prototype;
+          Object.defineProperty(window, 'Worker', { value: PatchedWorker });
+        } catch {}
+      },
+      { appOrigin, enable: forceSameOriginWorkers },
+    );
+  } catch {}
 
   // Execute the 5-step sequential setup process
   const authenticatorId = await executeSequentialSetup(page, config, {
@@ -191,12 +219,12 @@ export async function setupRelayServerTest(
     nearRpcUrl?: string;
     rpId?: string;
     testReceiverAccountId?: string;
-  } = {}
+  } = {},
 ): Promise<void> {
   await setupBasicPasskeyTest(page, {
     ...options,
     useRelayer: true,
-    relayServerUrl: options.relayServerUrl || 'https://relay-server.localhost'
+    relayServerUrl: options.relayServerUrl || 'https://relay-server.localhost',
   });
 }
 
@@ -211,12 +239,12 @@ export async function setupTestnetFaucetTest(
     nearRpcUrl?: string;
     rpId?: string;
     testReceiverAccountId?: string;
-  } = {}
+  } = {},
 ): Promise<void> {
   await setupBasicPasskeyTest(page, {
     ...options,
     useRelayer: false,
-    relayServerUrl: undefined
+    relayServerUrl: undefined,
   });
 }
 
@@ -247,7 +275,10 @@ export interface TestUtils {
   // WebAuthn Virtual Authenticator utilities
   webAuthnUtils: {
     simulateSuccessfulPasskeyInput: (operationTrigger: () => Promise<void>) => Promise<void>;
-    simulateFailedPasskeyInput: (operationTrigger: () => Promise<void>, postOperationCheck?: () => Promise<void>) => Promise<void>;
+    simulateFailedPasskeyInput: (
+      operationTrigger: () => Promise<void>,
+      postOperationCheck?: () => Promise<void>,
+    ) => Promise<void>;
     getCredentials: () => Promise<any[]>;
     clearCredentials: () => Promise<void>;
   };
@@ -310,13 +341,15 @@ export function handleInfrastructureErrors(result: { success: boolean; error?: s
     }
     // Real relay server sometimes lacks funds; treat as infra flake and skip
     if (
-      result.error.includes('LackBalanceForState')
-      || result.error.includes('NotEnoughBalance')
-      || result.error.includes('InvalidTxError: NotEnoughBalance')
-      || result.error.includes('Atomic registration failed')
+      result.error.includes('LackBalanceForState') ||
+      result.error.includes('NotEnoughBalance') ||
+      result.error.includes('InvalidTxError: NotEnoughBalance') ||
+      result.error.includes('Atomic registration failed')
     ) {
       console.warn('⚠️  Test skipped due to relay server insufficient balance (infra condition)');
-      console.warn('   Use mocked relay server for deterministic tests or fund the relayer account.');
+      console.warn(
+        '   Use mocked relay server for deterministic tests or fund the relayer account.',
+      );
       console.warn(`   Error: ${result.error}`);
       test.skip(true, 'Relay server insufficient balance - skipping test');
       return true;
@@ -330,7 +363,10 @@ export function handleInfrastructureErrors(result: { success: boolean; error?: s
       return true;
     }
     // Occasional on-chain propagation delays in CI cause access key mismatch after registration
-    if (result.error.includes('On-chain access key mismatch') || result.error.includes('not found after registration')) {
+    if (
+      result.error.includes('On-chain access key mismatch') ||
+      result.error.includes('not found after registration')
+    ) {
       console.warn('⚠️  Test skipped due to transient on-chain access key propagation delay');
       console.warn('   This can occur on shared testnet infrastructure; treating as infra flake.');
       console.warn(`   Error: ${result.error}`);

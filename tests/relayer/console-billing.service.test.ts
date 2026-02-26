@@ -10,10 +10,7 @@ function randomNamespace(prefix: string): string {
   return `${prefix}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
 }
 
-async function expectBillingError(
-  fn: () => Promise<unknown>,
-  code: string,
-): Promise<void> {
+async function expectBillingError(fn: () => Promise<unknown>, code: string): Promise<void> {
   let caught: any;
   try {
     await fn();
@@ -94,32 +91,23 @@ test.describe('console billing service rbac', () => {
       roles: ['billing_admin'],
     };
 
-    await expectBillingError(
-      async () => {
-        await service.addCardPaymentMethod(nonAdminCtx, {
-          providerRef: 'pm_mem_forbidden',
-          brand: 'visa',
-          last4: '4242',
-          expMonth: 1,
-          expYear: 2031,
-        });
-      },
-      'forbidden',
-    );
+    await expectBillingError(async () => {
+      await service.addCardPaymentMethod(nonAdminCtx, {
+        providerRef: 'pm_mem_forbidden',
+        brand: 'visa',
+        last4: '4242',
+        expMonth: 1,
+        expYear: 2031,
+      });
+    }, 'forbidden');
 
-    await expectBillingError(
-      async () => {
-        await service.removeCardPaymentMethod(nonAdminCtx, 'pm_missing');
-      },
-      'forbidden',
-    );
+    await expectBillingError(async () => {
+      await service.removeCardPaymentMethod(nonAdminCtx, 'pm_missing');
+    }, 'forbidden');
 
-    await expectBillingError(
-      async () => {
-        await service.setDefaultCardPaymentMethod(nonAdminCtx, 'pm_missing');
-      },
-      'forbidden',
-    );
+    await expectBillingError(async () => {
+      await service.setDefaultCardPaymentMethod(nonAdminCtx, 'pm_missing');
+    }, 'forbidden');
   });
 
   test('in-memory service reconciles stablecoin intent to settled', async () => {
@@ -194,14 +182,18 @@ test.describe('console billing service rbac', () => {
     });
     expect(settled?.state).toBe('SETTLED');
     expect(settled?.settledAt).toBe(current.toISOString());
-    expect(settled?.reorgRiskWindowEndsAt).toBe(new Date(current.getTime() + (6 * 60 * 60 * 1000)).toISOString());
+    expect(settled?.reorgRiskWindowEndsAt).toBe(
+      new Date(current.getTime() + 6 * 60 * 60 * 1000).toISOString(),
+    );
     expect(settled?.withinReorgRiskWindow).toBe(true);
 
-    current = new Date(current.getTime() + (6 * 60 * 60 * 1000) + (60 * 1000));
+    current = new Date(current.getTime() + 6 * 60 * 60 * 1000 + 60 * 1000);
     const afterRiskWindow = await service.getStablecoinPaymentIntent(ctx, created.id);
     expect(afterRiskWindow?.state).toBe('SETTLED');
     expect(afterRiskWindow?.withinReorgRiskWindow).toBe(false);
-    expect(afterRiskWindow?.reorgRiskWindowEndsAt).toBe(new Date(new Date('2026-03-01T00:00:00.000Z').getTime() + (6 * 60 * 60 * 1000)).toISOString());
+    expect(afterRiskWindow?.reorgRiskWindowEndsAt).toBe(
+      new Date(new Date('2026-03-01T00:00:00.000Z').getTime() + 6 * 60 * 60 * 1000).toISOString(),
+    );
   });
 
   test('in-memory service auto-expires stablecoin intent before reconcile/cancel', async () => {
@@ -230,7 +222,7 @@ test.describe('console billing service rbac', () => {
     });
     expect(created.state).toBe('PENDING');
 
-    current = new Date(current.getTime() + (16 * 60 * 1000));
+    current = new Date(current.getTime() + 16 * 60 * 1000);
 
     const reconciled = await service.reconcileStablecoinPaymentIntent(ctx, created.id, {
       observedAmountMinor: created.expectedAmountMinor,
@@ -271,15 +263,12 @@ test.describe('console billing service rbac', () => {
     const canceledA = await service.cancelStablecoinPaymentIntent(ctx, createdA.id);
     expect(canceledA?.state).toBe('CANCELED');
 
-    await expectBillingError(
-      async () => {
-        await service.createStablecoinPaymentIntent(ctx, {
-          invoiceId,
-          quoteId: quoteA.id,
-        });
-      },
-      'quote_already_consumed',
-    );
+    await expectBillingError(async () => {
+      await service.createStablecoinPaymentIntent(ctx, {
+        invoiceId,
+        quoteId: quoteA.id,
+      });
+    }, 'quote_already_consumed');
 
     const quoteB = await service.createStablecoinQuote(ctx, {
       invoiceId,
@@ -304,15 +293,12 @@ test.describe('console billing service rbac', () => {
     });
     expect(partiallySettled?.state).toBe('PARTIALLY_SETTLED');
 
-    await expectBillingError(
-      async () => {
-        await service.createStablecoinPaymentIntent(ctx, {
-          invoiceId,
-          quoteId: quoteC.id,
-        });
-      },
-      'quote_amount_mismatch',
-    );
+    await expectBillingError(async () => {
+      await service.createStablecoinPaymentIntent(ctx, {
+        invoiceId,
+        quoteId: quoteC.id,
+      });
+    }, 'quote_amount_mismatch');
   });
 
   test('in-memory service blocks concurrent active card payment intents on one invoice', async () => {
@@ -332,14 +318,11 @@ test.describe('console billing service rbac', () => {
     });
     expect(firstIntent.state).toBe('CREATED');
 
-    await expectBillingError(
-      async () => {
-        await service.createStripePaymentIntent(ctx, {
-          invoiceId,
-        });
-      },
-      'active_payment_intent_exists',
-    );
+    await expectBillingError(async () => {
+      await service.createStripePaymentIntent(ctx, {
+        invoiceId,
+      });
+    }, 'active_payment_intent_exists');
   });
 
   test('in-memory service MAW counts distinct wallets with exclusions and idempotency', async () => {
@@ -429,7 +412,9 @@ test.describe('console billing service rbac', () => {
 
     current = new Date('2026-02-10T00:00:00.000Z');
     const febInvoicesAgain = await service.listInvoices(ctx);
-    expect(febInvoicesAgain.filter((invoice) => invoice.periodMonthUtc === '2026-02').length).toBe(1);
+    expect(febInvoicesAgain.filter((invoice) => invoice.periodMonthUtc === '2026-02').length).toBe(
+      1,
+    );
   });
 
   test('in-memory service generates monthly invoice from MAW rollup with deterministic line items', async () => {
@@ -596,35 +581,39 @@ test.describe('console billing service rbac', () => {
     };
 
     try {
-      await expectBillingError(
-        async () => {
-          await service.addCardPaymentMethod(nonAdminCtx, {
-            providerRef: 'pm_pg_forbidden',
-            brand: 'visa',
-            last4: '4242',
-            expMonth: 1,
-            expYear: 2031,
-          });
-        },
-        'forbidden',
-      );
+      await expectBillingError(async () => {
+        await service.addCardPaymentMethod(nonAdminCtx, {
+          providerRef: 'pm_pg_forbidden',
+          brand: 'visa',
+          last4: '4242',
+          expMonth: 1,
+          expYear: 2031,
+        });
+      }, 'forbidden');
 
-      await expectBillingError(
-        async () => {
-          await service.removeCardPaymentMethod(nonAdminCtx, 'pm_missing');
-        },
-        'forbidden',
-      );
+      await expectBillingError(async () => {
+        await service.removeCardPaymentMethod(nonAdminCtx, 'pm_missing');
+      }, 'forbidden');
     } finally {
       const pool = await getPostgresPool(postgresUrl);
-      await pool.query('DELETE FROM console_payment_state_transitions WHERE namespace = $1', [namespace]);
-      await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [namespace]);
-      await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [namespace]);
+      await pool.query('DELETE FROM console_payment_state_transitions WHERE namespace = $1', [
+        namespace,
+      ]);
+      await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
+        namespace,
+      ]);
+      await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
+        namespace,
+      ]);
       await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [namespace]);
-      await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [namespace]);
+      await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
+        namespace,
+      ]);
       await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
       await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
-      await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [namespace]);
+      await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
+        namespace,
+      ]);
       await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [namespace]);
       await pool.query('DELETE FROM console_invoices WHERE namespace = $1', [namespace]);
       await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [namespace]);

@@ -9,12 +9,18 @@ test.describe('SSR sanity: PasskeyAuthMenuSkeleton', () => {
   test('imports public subpath and renders without window', async () => {
     const here = path.dirname(url.fileURLToPath(import.meta.url));
     const distMarkerCandidates = [
-      path.resolve(here, '../../../dist/esm/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js'),
-      path.resolve(here, '../../../dist/cjs/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js'),
+      path.resolve(
+        here,
+        '../../../dist/esm/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js',
+      ),
+      path.resolve(
+        here,
+        '../../../dist/cjs/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js',
+      ),
     ];
     test.skip(
       distMarkerCandidates.every((p) => !fs.existsSync(p)),
-      `SDK dist not found at ${distMarkerCandidates[0]}; run pnpm -C sdk build`
+      `SDK dist not found at ${distMarkerCandidates[0]}; run pnpm -C sdk build`,
     );
 
     expect(typeof (globalThis as any).window).toBe('undefined');

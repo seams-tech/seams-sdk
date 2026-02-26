@@ -30,7 +30,9 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
     await setupThresholdE2ePage(page);
   });
 
-  test('signs successfully after relayer restart (no persisted relayer signing share)', async ({ page }) => {
+  test('signs successfully after relayer restart (no persisted relayer signing share)', async ({
+    page,
+  }) => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
     let localNearPublicKey = '';
@@ -45,11 +47,18 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
 
     const frontendOrigin = new URL(DEFAULT_TEST_CONFIG.frontendUrl).origin;
 
-    const startDerivedRelayer = async (): Promise<{ baseUrl: string; close: () => Promise<void> }> => {
+    const startDerivedRelayer = async (): Promise<{
+      baseUrl: string;
+      close: () => Promise<void>;
+    }> => {
       const { service, threshold } = makeAuthServiceForThreshold(keysOnChain, derivedConfig);
       await service.getRelayerAccount();
       const session = createInMemoryJwtSessionAdapter();
-      const router = createRelayRouter(service, { corsOrigins: [frontendOrigin], threshold, session });
+      const router = createRelayRouter(service, {
+        corsOrigins: [frontendOrigin],
+        threshold,
+        session,
+      });
       return await startExpressRouter(router);
     };
 
@@ -59,13 +68,13 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
     type ExtractedSignedTx = { nonce: string; blockHash: number[]; signature: number[] };
     type FlowResult =
       | {
-        ok: true;
-        accountId: string;
-        localPublicKey: string;
-        thresholdPublicKey: string;
-        txInput: { receiverId: string; wasmActions: unknown[] };
-        signed: ExtractedSignedTx;
-      }
+          ok: true;
+          accountId: string;
+          localPublicKey: string;
+          thresholdPublicKey: string;
+          txInput: { receiverId: string; wasmActions: unknown[] };
+          signed: ExtractedSignedTx;
+        }
       | { ok: false; error: string };
 
     const srv1 = await startDerivedRelayer();
@@ -122,80 +131,97 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
             keysOnChain.add(thresholdPublicKeyFromKeygen);
             nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
             if (localNearPublicKey) {
-              nonceByPublicKey.set(localNearPublicKey, (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1);
+              nonceByPublicKey.set(
+                localNearPublicKey,
+                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
+              );
             }
           }
         },
         strictAccessKeyLookup: true,
       });
 
-      baseline = await page.evaluate(async ({ relayerUrl }) => {
-        try {
-          const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
-          const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
-          const suffix =
-            (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          const accountId = `e2ederived${suffix}.w3a-v1.testnet`;
+      baseline = (await page.evaluate(
+        async ({ relayerUrl }) => {
+          try {
+            const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
+            const suffix =
+              typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const accountId = `e2ederived${suffix}.w3a-v1.testnet`;
 
-          const pm = new TatchiPasskey({
-            nearNetwork: 'testnet',
-            nearRpcUrl: 'https://test.rpc.fastnear.com',
-            relayer: { url: relayerUrl },
-            signerMode: { mode: 'threshold-signer' },
-            signingSessionDefaults: { ttlMs: 60_000, remainingUses: 10 },
-            iframeWallet: { walletOrigin: '' },
-          });
+            const pm = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayer: { url: relayerUrl },
+              signerMode: { mode: 'threshold-signer' },
+              signingSessionDefaults: { ttlMs: 60_000, remainingUses: 10 },
+              iframeWallet: { walletOrigin: '' },
+            });
 
-          const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
+            const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 };
 
-          const reg = await pm.registration.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
-          if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
+            const reg = await pm.registration.registerPasskeyInternal(
+              accountId,
+              { signerMode: { mode: 'local-signer' } },
+              confirmConfig as any,
+            );
+            if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
 
-          const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-          if (!enrollment?.success) return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
+            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
+            if (!enrollment?.success)
+              return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
 
-          const login = await pm.auth.login(accountId);
-          if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
+            const login = await pm.auth.login(accountId);
+            if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
 
-          const receiverId = 'w3a-v1.testnet';
-          const actions = [{ type: ActionType.Transfer, amount: '1' }];
-          const wasmActions = actions.map(toActionArgsWasm);
+            const receiverId = 'w3a-v1.testnet';
+            const actions = [{ type: ActionType.Transfer, amount: '1' }];
+            const wasmActions = actions.map(toActionArgsWasm);
 
-          const signed = await pm.near.signTransactionsWithActions({
-            nearAccountId: accountId,
-            transactions: [{ receiverId, actions }],
-            options: { signerMode: { mode: 'threshold-signer', behavior: 'strict' }, confirmationConfig: confirmConfig as any },
-          });
+            const signed = await pm.near.signTransactionsWithActions({
+              nearAccountId: accountId,
+              transactions: [{ receiverId, actions }],
+              options: {
+                signerMode: { mode: 'threshold-signer', behavior: 'strict' },
+                confirmationConfig: confirmConfig as any,
+              },
+            });
 
-          if (!Array.isArray(signed) || signed.length !== 1) {
-            return { ok: false, error: `expected 1 signed tx, got ${Array.isArray(signed) ? signed.length : 'non-array'}` };
+            if (!Array.isArray(signed) || signed.length !== 1) {
+              return {
+                ok: false,
+                error: `expected 1 signed tx, got ${Array.isArray(signed) ? signed.length : 'non-array'}`,
+              };
+            }
+
+            const signedTx: any = signed[0]?.signedTransaction;
+            const signatureData = signedTx?.signature?.signatureData;
+            const tx = signedTx?.transaction;
+            if (!tx || !signatureData) {
+              return { ok: false, error: 'invalid signed transaction shape' };
+            }
+
+            return {
+              ok: true,
+              accountId,
+              localPublicKey: String(reg.clientNearPublicKey || ''),
+              thresholdPublicKey: String(enrollment.publicKey || ''),
+              txInput: { receiverId, wasmActions },
+              signed: {
+                nonce: typeof tx.nonce === 'bigint' ? tx.nonce.toString() : String(tx.nonce || ''),
+                blockHash: Array.from(tx.blockHash || []) as number[],
+                signature: Array.from(signatureData) as number[],
+              },
+            };
+          } catch (e: any) {
+            return { ok: false, error: e?.message || String(e) };
           }
-
-          const signedTx: any = signed[0]?.signedTransaction;
-          const signatureData = signedTx?.signature?.signatureData;
-          const tx = signedTx?.transaction;
-          if (!tx || !signatureData) {
-            return { ok: false, error: 'invalid signed transaction shape' };
-          }
-
-          return {
-            ok: true,
-            accountId,
-            localPublicKey: String(reg.clientNearPublicKey || ''),
-            thresholdPublicKey: String(enrollment.publicKey || ''),
-            txInput: { receiverId, wasmActions },
-            signed: {
-              nonce: typeof tx.nonce === 'bigint' ? tx.nonce.toString() : String(tx.nonce || ''),
-              blockHash: Array.from(tx.blockHash || []) as number[],
-              signature: Array.from(signatureData) as number[],
-            },
-          };
-        } catch (e: any) {
-          return { ok: false, error: e?.message || String(e) };
-        }
-      }, { relayerUrl: srv1.baseUrl }) as FlowResult;
+        },
+        { relayerUrl: srv1.baseUrl },
+      )) as FlowResult;
 
       if (!baseline.ok) {
         throw new Error(`baseline derived-mode signing failed: ${baseline.error || 'unknown'}`);
@@ -233,76 +259,87 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
         await route.fallback();
       });
 
-      afterRestart = await page.evaluate(async ({ relayerUrl, accountId }) => {
-        try {
-          const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
-          const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
+      afterRestart = (await page.evaluate(
+        async ({ relayerUrl, accountId }) => {
+          try {
+            const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
 
-          const pm = new TatchiPasskey({
-            nearNetwork: 'testnet',
-            nearRpcUrl: 'https://test.rpc.fastnear.com',
-            relayer: { url: relayerUrl },
-            signerMode: { mode: 'threshold-signer' },
-            signingSessionDefaults: { ttlMs: 60_000, remainingUses: 10 },
-            iframeWallet: { walletOrigin: '' },
-          });
+            const pm = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayer: { url: relayerUrl },
+              signerMode: { mode: 'threshold-signer' },
+              signingSessionDefaults: { ttlMs: 60_000, remainingUses: 10 },
+              iframeWallet: { walletOrigin: '' },
+            });
 
-          const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
+            const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 };
 
-          // After relayer restart, we must re-login (fresh threshold session / UserConfirm confirmation).
-          const login = await pm.auth.login(accountId);
-          if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
+            // After relayer restart, we must re-login (fresh threshold session / UserConfirm confirmation).
+            const login = await pm.auth.login(accountId);
+            if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
 
-          const receiverId = 'w3a-v1.testnet';
-          const actions = [{ type: ActionType.Transfer, amount: '1' }];
-          const wasmActions = actions.map(toActionArgsWasm);
+            const receiverId = 'w3a-v1.testnet';
+            const actions = [{ type: ActionType.Transfer, amount: '1' }];
+            const wasmActions = actions.map(toActionArgsWasm);
 
-          const signed = await pm.near.signTransactionsWithActions({
-            nearAccountId: accountId,
-            transactions: [{ receiverId, actions }],
-            options: { signerMode: { mode: 'threshold-signer', behavior: 'strict' }, confirmationConfig: confirmConfig as any },
-          });
+            const signed = await pm.near.signTransactionsWithActions({
+              nearAccountId: accountId,
+              transactions: [{ receiverId, actions }],
+              options: {
+                signerMode: { mode: 'threshold-signer', behavior: 'strict' },
+                confirmationConfig: confirmConfig as any,
+              },
+            });
 
-          if (!Array.isArray(signed) || signed.length !== 1) {
-            return { ok: false, error: `expected 1 signed tx, got ${Array.isArray(signed) ? signed.length : 'non-array'}` };
+            if (!Array.isArray(signed) || signed.length !== 1) {
+              return {
+                ok: false,
+                error: `expected 1 signed tx, got ${Array.isArray(signed) ? signed.length : 'non-array'}`,
+              };
+            }
+
+            const signedTx: any = signed[0]?.signedTransaction;
+            const signatureData = signedTx?.signature?.signatureData;
+            const tx = signedTx?.transaction;
+            if (!tx || !signatureData) {
+              return { ok: false, error: 'invalid signed transaction shape' };
+            }
+
+            // Pull keys from IndexedDB-backed state for verification in the test process.
+            const localPublicKey = String(login?.clientNearPublicKey || '');
+            const thresholdPublicKey = (() => {
+              const pk = String(login?.thresholdEd25519PublicKey || '');
+              return pk || '';
+            })();
+            if (!localPublicKey || !thresholdPublicKey) {
+              // If login does not expose threshold pk, the test harness will still validate using baseline values.
+            }
+
+            return {
+              ok: true,
+              accountId,
+              localPublicKey,
+              thresholdPublicKey,
+              txInput: { receiverId, wasmActions },
+              signed: {
+                nonce: typeof tx.nonce === 'bigint' ? tx.nonce.toString() : String(tx.nonce || ''),
+                blockHash: Array.from(tx.blockHash || []) as number[],
+                signature: Array.from(signatureData) as number[],
+              },
+            };
+          } catch (e: any) {
+            return { ok: false, error: e?.message || String(e) };
           }
-
-          const signedTx: any = signed[0]?.signedTransaction;
-          const signatureData = signedTx?.signature?.signatureData;
-          const tx = signedTx?.transaction;
-          if (!tx || !signatureData) {
-            return { ok: false, error: 'invalid signed transaction shape' };
-          }
-
-          // Pull keys from IndexedDB-backed state for verification in the test process.
-          const localPublicKey = String(login?.clientNearPublicKey || '');
-          const thresholdPublicKey = (() => {
-            const pk = String(login?.thresholdEd25519PublicKey || '');
-            return pk || '';
-          })();
-          if (!localPublicKey || !thresholdPublicKey) {
-            // If login does not expose threshold pk, the test harness will still validate using baseline values.
-          }
-
-          return {
-            ok: true,
-            accountId,
-            localPublicKey,
-            thresholdPublicKey,
-            txInput: { receiverId, wasmActions },
-            signed: {
-              nonce: typeof tx.nonce === 'bigint' ? tx.nonce.toString() : String(tx.nonce || ''),
-              blockHash: Array.from(tx.blockHash || []) as number[],
-              signature: Array.from(signatureData) as number[],
-            },
-          };
-        } catch (e: any) {
-          return { ok: false, error: e?.message || String(e) };
-        }
-      }, { relayerUrl: srv2.baseUrl, accountId: (baseline as any).accountId }) as FlowResult;
+        },
+        { relayerUrl: srv2.baseUrl, accountId: (baseline as any).accountId },
+      )) as FlowResult;
 
       if (!afterRestart.ok) {
-        throw new Error(`derived-mode signing after restart failed: ${afterRestart.error || 'unknown'}`);
+        throw new Error(
+          `derived-mode signing after restart failed: ${afterRestart.error || 'unknown'}`,
+        );
       }
     } finally {
       await srv2.close().catch(() => undefined);
@@ -339,11 +376,13 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
     const computeDigest = (signed: { nonce: string; blockHash: number[] }): Uint8Array => {
       const signingPayload = {
         kind: 'near_tx',
-        txSigningRequests: [{
-          nearAccountId: String(baseline!.ok ? baseline!.accountId : ''),
-          receiverId: String(baseline!.ok ? baseline!.txInput.receiverId : ''),
-          actions: baseline!.ok ? baseline!.txInput.wasmActions : [],
-        }],
+        txSigningRequests: [
+          {
+            nearAccountId: String(baseline!.ok ? baseline!.accountId : ''),
+            receiverId: String(baseline!.ok ? baseline!.txInput.receiverId : ''),
+            actions: baseline!.ok ? baseline!.txInput.wasmActions : [],
+          },
+        ],
         transactionContext: {
           nearPublicKeyStr: thresholdPkStr,
           nextNonce: String(signed.nonce),
@@ -352,7 +391,8 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
         },
       };
 
-      const digestsUnknown: unknown = threshold_ed25519_compute_near_tx_signing_digests(signingPayload);
+      const digestsUnknown: unknown =
+        threshold_ed25519_compute_near_tx_signing_digests(signingPayload);
       if (!Array.isArray(digestsUnknown) || digestsUnknown.length === 0) {
         throw new Error('Expected a non-empty signing digests array');
       }

@@ -11,4 +11,3 @@ test.describe('signing api cycle guard', () => {
     expect(result.cycles).toEqual([]);
   });
 });
-

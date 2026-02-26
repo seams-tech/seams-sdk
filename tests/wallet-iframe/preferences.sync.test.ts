@@ -109,7 +109,7 @@ test.describe('Wallet iframe preferences sync', () => {
     await registerWalletServiceRoute(
       page,
       buildWalletServiceHtml({ extraScript: PREFERENCES_PUSH_STUB }),
-      WALLET_SERVICE_ROUTE
+      WALLET_SERVICE_ROUTE,
     );
   });
 
@@ -117,55 +117,78 @@ test.describe('Wallet iframe preferences sync', () => {
     await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
   });
 
-  test('app-origin mirrors wallet-host confirmation config via PREFERENCES_CHANGED', async ({ page }) => {
+  test('app-origin mirrors wallet-host confirmation config via PREFERENCES_CHANGED', async ({
+    page,
+  }) => {
     const consoleErrors: string[] = [];
     page.on('console', (msg) => {
       if (msg.type() === 'error') consoleErrors.push(msg.text());
     });
 
     const tatchiPath = SDK_ESM_PATHS.tatchiPasskey;
-    const result = await page.evaluate(async ({ walletOrigin, waitForSource, tatchiPath }) => {
-      const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
-      try {
-        const base = window.location.origin === 'null' ? 'https://example.localhost' : window.location.origin;
-        const mod = await import(new URL(tatchiPath, base).toString());
-        const { TatchiPasskey } = mod as typeof import('@/core/TatchiPasskey');
+    const result = await page.evaluate(
+      async ({ walletOrigin, waitForSource, tatchiPath }) => {
+        const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
+        try {
+          const base =
+            window.location.origin === 'null'
+              ? 'https://example.localhost'
+              : window.location.origin;
+          const mod = await import(new URL(tatchiPath, base).toString());
+          const { TatchiPasskey } = mod as typeof import('@/core/TatchiPasskey');
 
-        const tatchi = new TatchiPasskey({
-          nearRpcUrl: 'https://test.rpc.fastnear.com',
-          nearNetwork: 'testnet',
-          relayer: { url: 'http://localhost:3000' },
-          iframeWallet: {
-            walletOrigin,
-            walletServicePath: '/wallet-service',
-            sdkBasePath: '/sdk',
-          },
-        });
+          const tatchi = new TatchiPasskey({
+            chains: [
+              {
+                network: 'near-testnet',
+                rpcUrl: 'https://test.rpc.fastnear.com',
+                explorerUrl: 'https://testnet.nearblocks.io',
+              },
+            ],
+            relayer: { url: 'http://localhost:3000' },
+            iframeWallet: {
+              walletOrigin,
+              walletServicePath: '/wallet-service',
+              sdkBasePath: '/sdk',
+            },
+          });
 
-        await tatchi.initWalletIframe();
-        const seeded = await waitFor(() => tatchi.getConfirmationConfig().uiMode === 'modal', 3000);
-        const initialTheme = tatchi.theme;
-        const initialConfig = tatchi.getConfirmationConfig();
+          await tatchi.initWalletIframe();
+          const seeded = await waitFor(
+            () => tatchi.getConfirmationConfig().uiMode === 'modal',
+            3000,
+          );
+          const initialTheme = tatchi.theme;
+          const initialConfig = tatchi.getConfirmationConfig();
 
-        // Flip confirmation config on the wallet host and ensure the app-origin mirrors it via PREFERENCES_CHANGED.
-        const router = await (tatchi as any).walletIframe.requireRouter();
-        await router.setConfirmationConfig({ uiMode: 'drawer', behavior: 'skipClick', autoProceedDelay: 5 });
-        const mirrored = await waitFor(() => tatchi.getConfirmationConfig().uiMode === 'drawer', 3000);
+          // Flip confirmation config on the wallet host and ensure the app-origin mirrors it via PREFERENCES_CHANGED.
+          const router = await (tatchi as any).walletIframe.requireRouter();
+          await router.setConfirmationConfig({
+            uiMode: 'drawer',
+            behavior: 'skipClick',
+            autoProceedDelay: 5,
+          });
+          const mirrored = await waitFor(
+            () => tatchi.getConfirmationConfig().uiMode === 'drawer',
+            3000,
+          );
 
-        return {
-          success: true,
-          initialTheme,
-          finalTheme: tatchi.theme,
-          initialConfig,
-          finalConfig: tatchi.getConfirmationConfig(),
-          currentUser: String(tatchi.preferences.getCurrentUserAccountId?.() || ''),
-          seeded,
-          mirrored,
-        };
-      } catch (error: any) {
-        return { success: false, error: error?.message || String(error) };
-      }
-    }, { walletOrigin: WALLET_ORIGIN, waitForSource: WAIT_FOR_SOURCE, tatchiPath });
+          return {
+            success: true,
+            initialTheme,
+            finalTheme: tatchi.theme,
+            initialConfig,
+            finalConfig: tatchi.getConfirmationConfig(),
+            currentUser: String(tatchi.preferences.getCurrentUserAccountId?.() || ''),
+            seeded,
+            mirrored,
+          };
+        } catch (error: any) {
+          return { success: false, error: error?.message || String(error) };
+        }
+      },
+      { walletOrigin: WALLET_ORIGIN, waitForSource: WAIT_FOR_SOURCE, tatchiPath },
+    );
 
     if (!result.success) {
       if (handleInfrastructureErrors(result)) return;
@@ -176,43 +199,64 @@ test.describe('Wallet iframe preferences sync', () => {
     expect(result.initialTheme).toBe('dark');
     expect(result.mirrored).toBe(true);
     expect(result.finalTheme).toBe('dark');
-    expect(result.initialConfig).toEqual({ behavior: 'requireClick', uiMode: 'modal', autoProceedDelay: 0 });
-    expect(result.finalConfig).toEqual({ behavior: 'skipClick', uiMode: 'drawer', autoProceedDelay: 5 });
+    expect(result.initialConfig).toEqual({
+      behavior: 'requireClick',
+      uiMode: 'modal',
+      autoProceedDelay: 0,
+    });
+    expect(result.finalConfig).toEqual({
+      behavior: 'skipClick',
+      uiMode: 'drawer',
+      autoProceedDelay: 5,
+    });
     expect(result.currentUser).toBe('alice.testnet');
 
-    const indexedDbNoise = consoleErrors.find((m) =>
-      m.includes('PasskeyClientDBManager') || m.includes('IndexedDB is disabled in this environment')
+    const indexedDbNoise = consoleErrors.find(
+      (m) =>
+        m.includes('PasskeyClientDBManager') ||
+        m.includes('IndexedDB is disabled in this environment'),
     );
     expect(indexedDbNoise).toBeUndefined();
   });
 
   test('tatchi.setTheme forwards updates to the wallet host', async ({ page }) => {
     const tatchiPath = SDK_ESM_PATHS.tatchiPasskey;
-    const result = await page.evaluate(async ({ walletOrigin, tatchiPath }) => {
-      try {
-        const base = window.location.origin === 'null' ? 'https://example.localhost' : window.location.origin;
-        const mod = await import(new URL(tatchiPath, base).toString());
-        const { TatchiPasskey } = mod as typeof import('@/core/TatchiPasskey');
+    const result = await page.evaluate(
+      async ({ walletOrigin, tatchiPath }) => {
+        try {
+          const base =
+            window.location.origin === 'null'
+              ? 'https://example.localhost'
+              : window.location.origin;
+          const mod = await import(new URL(tatchiPath, base).toString());
+          const { TatchiPasskey } = mod as typeof import('@/core/TatchiPasskey');
 
-        const tatchi = new TatchiPasskey({
-          nearRpcUrl: 'https://test.rpc.fastnear.com',
-          nearNetwork: 'testnet',
-          relayer: { url: 'http://localhost:3000' },
-          iframeWallet: {
-            walletOrigin,
-            walletServicePath: '/wallet-service',
-            sdkBasePath: '/sdk',
-          },
-        });
+          const tatchi = new TatchiPasskey({
+            chains: [
+              {
+                network: 'near-testnet',
+                rpcUrl: 'https://test.rpc.fastnear.com',
+                explorerUrl: 'https://testnet.nearblocks.io',
+              },
+            ],
+            relayer: { url: 'http://localhost:3000' },
+            iframeWallet: {
+              walletOrigin,
+              walletServicePath: '/wallet-service',
+              sdkBasePath: '/sdk',
+            },
+          });
 
-        await tatchi.initWalletIframe();
-        tatchi.setTheme('light');
+          await tatchi.initWalletIframe();
+          tatchi.setTheme('light');
 
-        return { success: true, currentTheme: tatchi.theme };
-      } catch (error: any) {
-        return { success: false, error: error?.message || String(error) };
-      }
-    }, { walletOrigin: WALLET_ORIGIN, tatchiPath });
+          return { success: true, currentTheme: tatchi.theme };
+        } catch (error: any) {
+          return { success: false, error: error?.message || String(error) };
+        }
+      },
+      { walletOrigin: WALLET_ORIGIN, tatchiPath },
+    );
 
     if (!result.success) {
       if (handleInfrastructureErrors(result)) return;
@@ -228,6 +272,8 @@ test.describe('Wallet iframe preferences sync', () => {
     });
     expect(walletFrame, 'wallet iframe should be mounted').toBeTruthy();
 
-    await walletFrame!.waitForFunction(() => (window as any).__lastSetTheme === 'light', null, { timeout: 3000 });
+    await walletFrame!.waitForFunction(() => (window as any).__lastSetTheme === 'light', null, {
+      timeout: 3000,
+    });
   });
 });

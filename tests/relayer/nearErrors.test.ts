@@ -5,7 +5,7 @@ test.describe('parseContractExecutionError()', () => {
   test.beforeEach(() => {
     // This helper currently logs when it detects failures; silence for unit tests.
     (console as any).__orig_log = console.log;
-    console.log = () => { };
+    console.log = () => {};
   });
 
   test.afterEach(() => {
@@ -15,7 +15,10 @@ test.describe('parseContractExecutionError()', () => {
   });
 
   test('surfaces top-level transaction Failure', async () => {
-    const out = parseContractExecutionError({ status: { Failure: { any: 'err' } }, receipts_outcome: [] } as any, 'bob.testnet');
+    const out = parseContractExecutionError(
+      { status: { Failure: { any: 'err' } }, receipts_outcome: [] } as any,
+      'bob.testnet',
+    );
     expect(out).toContain('Transaction failed');
   });
 

@@ -54,12 +54,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
     blocker.resolve();
     await expect(first).resolves.toBe('first-ok');
     await expect(second).resolves.toBe('second-ok');
-    expect(order).toEqual([
-      'first:start',
-      'first:end',
-      'second:start',
-      'second:end',
-    ]);
+    expect(order).toEqual(['first:start', 'first:end', 'second:start', 'second:end']);
   });
 
   test('allows concurrent requests for different accounts', async () => {
@@ -77,12 +72,14 @@ test.describe('threshold ECDSA commit queue gate', () => {
     });
 
     await Promise.resolve();
-    await expect(withThresholdEcdsaCommitQueue({
-      queueByAccount,
-      nearAccountId: 'bob.testnet',
-      enabled: true,
-      task: async () => 'bob-ok',
-    })).resolves.toBe('bob-ok');
+    await expect(
+      withThresholdEcdsaCommitQueue({
+        queueByAccount,
+        nearAccountId: 'bob.testnet',
+        enabled: true,
+        task: async () => 'bob-ok',
+      }),
+    ).resolves.toBe('bob-ok');
 
     blocker.resolve();
     await expect(first).resolves.toBe('alice-ok');
@@ -91,21 +88,25 @@ test.describe('threshold ECDSA commit queue gate', () => {
   test('continues queue processing after a failed request', async () => {
     const queueByAccount: ThresholdEcdsaCommitQueueByAccount = new Map();
 
-    await expect(withThresholdEcdsaCommitQueue({
-      queueByAccount,
-      nearAccountId: 'alice.testnet',
-      enabled: true,
-      task: async () => {
-        throw new Error('boom');
-      },
-    })).rejects.toThrow('boom');
+    await expect(
+      withThresholdEcdsaCommitQueue({
+        queueByAccount,
+        nearAccountId: 'alice.testnet',
+        enabled: true,
+        task: async () => {
+          throw new Error('boom');
+        },
+      }),
+    ).rejects.toThrow('boom');
 
-    await expect(withThresholdEcdsaCommitQueue({
-      queueByAccount,
-      nearAccountId: 'alice.testnet',
-      enabled: true,
-      task: async () => 'after-failure',
-    })).resolves.toBe('after-failure');
+    await expect(
+      withThresholdEcdsaCommitQueue({
+        queueByAccount,
+        nearAccountId: 'alice.testnet',
+        enabled: true,
+        task: async () => 'after-failure',
+      }),
+    ).resolves.toBe('after-failure');
   });
 
   test('fails fast with commit_queue_overflow when queue depth exceeds max', async () => {
@@ -123,13 +124,15 @@ test.describe('threshold ECDSA commit queue gate', () => {
       },
     });
 
-    await expect(withThresholdEcdsaCommitQueue({
-      queueByAccount,
-      nearAccountId: 'alice.testnet',
-      enabled: true,
-      maxQueueLength: 1,
-      task: async () => 'second-ok',
-    })).rejects.toMatchObject({ code: 'commit_queue_overflow' });
+    await expect(
+      withThresholdEcdsaCommitQueue({
+        queueByAccount,
+        nearAccountId: 'alice.testnet',
+        enabled: true,
+        maxQueueLength: 1,
+        task: async () => 'second-ok',
+      }),
+    ).rejects.toMatchObject({ code: 'commit_queue_overflow' });
 
     blocker.resolve();
     await expect(first).resolves.toBe('first-ok');
@@ -149,13 +152,15 @@ test.describe('threshold ECDSA commit queue gate', () => {
       },
     });
 
-    await expect(withThresholdEcdsaCommitQueue({
-      queueByAccount,
-      nearAccountId: 'alice.testnet',
-      enabled: true,
-      queueTimeoutMs: 10,
-      task: async () => 'second-ok',
-    })).rejects.toMatchObject({ code: 'commit_queue_timeout' });
+    await expect(
+      withThresholdEcdsaCommitQueue({
+        queueByAccount,
+        nearAccountId: 'alice.testnet',
+        enabled: true,
+        queueTimeoutMs: 10,
+        task: async () => 'second-ok',
+      }),
+    ).rejects.toMatchObject({ code: 'commit_queue_timeout' });
 
     blocker.resolve();
     await expect(first).resolves.toBe('first-ok');

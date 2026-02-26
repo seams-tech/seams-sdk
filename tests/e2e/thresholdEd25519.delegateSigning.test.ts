@@ -28,7 +28,9 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
     await setupThresholdE2ePage(page);
   });
 
-  test('happy path: threshold delegate signature verifies under threshold key', async ({ page }) => {
+  test('happy path: threshold delegate signature verifies under threshold key', async ({
+    page,
+  }) => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
     let localNearPublicKey = '';
@@ -39,7 +41,11 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
 
     const frontendOrigin = new URL(DEFAULT_TEST_CONFIG.frontendUrl).origin;
     const session = createInMemoryJwtSessionAdapter();
-    const router = createRelayRouter(service, { corsOrigins: [frontendOrigin], threshold, session });
+    const router = createRelayRouter(service, {
+      corsOrigins: [frontendOrigin],
+      threshold,
+      session,
+    });
     const srv = await startExpressRouter(router);
 
     try {
@@ -67,7 +73,10 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
             keysOnChain.add(thresholdPublicKeyFromKeygen);
             nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
             if (localNearPublicKey) {
-              nonceByPublicKey.set(localNearPublicKey, (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1);
+              nonceByPublicKey.set(
+                localNearPublicKey,
+                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
+              );
             }
           }
         },
@@ -76,99 +85,115 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
 
       type DelegateSigningResult =
         | {
-          ok: true;
-          accountId: string;
-          thresholdPublicKey: string;
-          localPublicKey: string;
-          signingPayload: unknown;
-          signature: number[];
-        }
+            ok: true;
+            accountId: string;
+            thresholdPublicKey: string;
+            localPublicKey: string;
+            signingPayload: unknown;
+            signature: number[];
+          }
         | { ok: false; error: string };
 
-      const result = await page.evaluate(async ({ relayerUrl }) => {
-        try {
-          const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
-          const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
-          const suffix =
-            (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          const accountId = `e2edelegate${suffix}.w3a-v1.testnet`;
+      const result = (await page.evaluate(
+        async ({ relayerUrl }) => {
+          try {
+            const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
+            const suffix =
+              typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const accountId = `e2edelegate${suffix}.w3a-v1.testnet`;
 
-          const pm = new TatchiPasskey({
-            nearNetwork: 'testnet',
-            nearRpcUrl: 'https://test.rpc.fastnear.com',
-            relayer: { url: relayerUrl },
-            iframeWallet: { walletOrigin: '' },
-          });
+            const pm = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayer: { url: relayerUrl },
+              iframeWallet: { walletOrigin: '' },
+            });
 
-          const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
+            const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 };
 
-          const reg = await pm.registration.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
-          if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
+            const reg = await pm.registration.registerPasskeyInternal(
+              accountId,
+              { signerMode: { mode: 'local-signer' } },
+              confirmConfig as any,
+            );
+            if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
 
-          const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-          if (!enrollment?.success) return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
+            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
+            if (!enrollment?.success)
+              return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
 
-          const login = await pm.auth.login(accountId);
-          if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
+            const login = await pm.auth.login(accountId);
+            if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
 
-          const thresholdPublicKey = String(enrollment.publicKey || '');
-          const localPublicKey = String(reg.clientNearPublicKey || '');
+            const thresholdPublicKey = String(enrollment.publicKey || '');
+            const localPublicKey = String(reg.clientNearPublicKey || '');
 
-          const actions = [{ type: ActionType.Transfer, amount: '1' }];
-          const wasmActions = actions.map(toActionArgsWasm);
-          const delegate = {
-            senderId: accountId,
-            receiverId: 'w3a-v1.testnet',
-            actions,
-            nonce: 1,
-            maxBlockHeight: 999_999,
-            publicKey: thresholdPublicKey,
-          };
+            const actions = [{ type: ActionType.Transfer, amount: '1' }];
+            const wasmActions = actions.map(toActionArgsWasm);
+            const delegate = {
+              senderId: accountId,
+              receiverId: 'w3a-v1.testnet',
+              actions,
+              nonce: 1,
+              maxBlockHeight: 999_999,
+              publicKey: thresholdPublicKey,
+            };
 
-          const signed = await pm.near.signDelegateAction({
-            nearAccountId: accountId,
-            delegate,
-            options: { signerMode: { mode: 'threshold-signer', behavior: 'strict' }, confirmationConfig: confirmConfig as any },
-          });
-
-          const sd = signed?.signedDelegate as any;
-          const da = sd?.delegateAction as any;
-          const signedNonce = (typeof da?.nonce === 'bigint') ? da.nonce.toString() : String(da?.nonce || '');
-          const signedMaxBlockHeight = (typeof da?.maxBlockHeight === 'bigint')
-            ? da.maxBlockHeight.toString()
-            : String(da?.maxBlockHeight || '');
-          const sigData = sd?.signature?.signatureData;
-          const sigBytes = sigData instanceof Uint8Array
-            ? Array.from(sigData)
-            : (Array.isArray(sigData) ? sigData.map((n) => Number(n)) : null);
-          if (!sigBytes || sigBytes.length !== 64) {
-            return { ok: false, error: 'missing signature bytes' };
-          }
-
-          return {
-            ok: true,
-            accountId,
-            thresholdPublicKey,
-            localPublicKey,
-            signingPayload: {
-              kind: 'nep461_delegate',
-              delegate: {
-                senderId: accountId,
-                receiverId: delegate.receiverId,
-                actions: wasmActions,
-                nonce: signedNonce || String(delegate.nonce),
-                maxBlockHeight: signedMaxBlockHeight || String(delegate.maxBlockHeight),
-                publicKey: thresholdPublicKey,
+            const signed = await pm.near.signDelegateAction({
+              nearAccountId: accountId,
+              delegate,
+              options: {
+                signerMode: { mode: 'threshold-signer', behavior: 'strict' },
+                confirmationConfig: confirmConfig as any,
               },
-            },
-            signature: sigBytes,
-          };
-        } catch (e: any) {
-          return { ok: false, error: e?.message || String(e) };
-        }
-      }, { relayerUrl: srv.baseUrl }) as DelegateSigningResult;
+            });
+
+            const sd = signed?.signedDelegate as any;
+            const da = sd?.delegateAction as any;
+            const signedNonce =
+              typeof da?.nonce === 'bigint' ? da.nonce.toString() : String(da?.nonce || '');
+            const signedMaxBlockHeight =
+              typeof da?.maxBlockHeight === 'bigint'
+                ? da.maxBlockHeight.toString()
+                : String(da?.maxBlockHeight || '');
+            const sigData = sd?.signature?.signatureData;
+            const sigBytes =
+              sigData instanceof Uint8Array
+                ? Array.from(sigData)
+                : Array.isArray(sigData)
+                  ? sigData.map((n) => Number(n))
+                  : null;
+            if (!sigBytes || sigBytes.length !== 64) {
+              return { ok: false, error: 'missing signature bytes' };
+            }
+
+            return {
+              ok: true,
+              accountId,
+              thresholdPublicKey,
+              localPublicKey,
+              signingPayload: {
+                kind: 'nep461_delegate',
+                delegate: {
+                  senderId: accountId,
+                  receiverId: delegate.receiverId,
+                  actions: wasmActions,
+                  nonce: signedNonce || String(delegate.nonce),
+                  maxBlockHeight: signedMaxBlockHeight || String(delegate.maxBlockHeight),
+                  publicKey: thresholdPublicKey,
+                },
+              },
+              signature: sigBytes,
+            };
+          } catch (e: any) {
+            return { ok: false, error: e?.message || String(e) };
+          }
+        },
+        { relayerUrl: srv.baseUrl },
+      )) as DelegateSigningResult;
 
       if (!result.ok) {
         throw new Error(`delegate threshold signing test failed: ${result.error || 'unknown'}`);
@@ -179,7 +204,9 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
         return bs58.decode(raw);
       };
 
-      const digestUnknown: unknown = threshold_ed25519_compute_delegate_signing_digest(result.signingPayload);
+      const digestUnknown: unknown = threshold_ed25519_compute_delegate_signing_digest(
+        result.signingPayload,
+      );
       const digest = digestUnknown instanceof Uint8Array ? digestUnknown : null;
       if (!digest || digest.length !== 32) {
         throw new Error('Expected delegate signing digest to be a 32-byte Uint8Array');
@@ -188,8 +215,12 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
       const sigBytes = Uint8Array.from(result.signature);
       expect(sigBytes.length).toBe(64);
 
-      expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.thresholdPublicKey)))).toBe(true);
-      expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.localPublicKey)))).toBe(false);
+      expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.thresholdPublicKey)))).toBe(
+        true,
+      );
+      expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.localPublicKey)))).toBe(
+        false,
+      );
     } finally {
       await srv.close().catch(() => undefined);
     }

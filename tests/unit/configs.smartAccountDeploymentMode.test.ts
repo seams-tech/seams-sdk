@@ -6,7 +6,7 @@ test.describe('buildConfigsFromEnv smart-account deployment mode defaults', () =
     const cfg = buildConfigsFromEnv({
       relayer: { url: 'https://relay.example' },
     });
-    expect(cfg.relayer.smartAccountDeploymentMode).toBe('enforce');
+    expect(cfg.network.relayer.smartAccountDeployment.mode).toBe('enforce');
   });
 
   test('respects explicit observe override', async () => {
@@ -16,7 +16,7 @@ test.describe('buildConfigsFromEnv smart-account deployment mode defaults', () =
         smartAccountDeploymentMode: 'observe',
       },
     });
-    expect(cfg.relayer.smartAccountDeploymentMode).toBe('observe');
+    expect(cfg.network.relayer.smartAccountDeployment.mode).toBe('observe');
   });
 
   test('keeps explicit enforce override', async () => {
@@ -26,6 +26,6 @@ test.describe('buildConfigsFromEnv smart-account deployment mode defaults', () =
         smartAccountDeploymentMode: 'enforce',
       },
     });
-    expect(cfg.relayer.smartAccountDeploymentMode).toBe('enforce');
+    expect(cfg.network.relayer.smartAccountDeployment.mode).toBe('enforce');
   });
 });

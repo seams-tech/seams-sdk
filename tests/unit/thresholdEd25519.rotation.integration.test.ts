@@ -64,7 +64,9 @@ test.describe('Threshold Ed25519 rotation helper', () => {
     }, SDK_ESM_PATHS.base64);
   });
 
-  test('rotateThresholdEd25519Key performs keygen and updates local threshold metadata', async ({ page }) => {
+  test('rotateThresholdEd25519Key performs keygen and updates local threshold metadata', async ({
+    page,
+  }) => {
     // What this test validates (end-to-end in browser, with mocked network):
     //
     // 1) Registration (signerMode=threshold-signer) is threshold-only:
@@ -79,10 +81,14 @@ test.describe('Threshold Ed25519 rotation helper', () => {
     //    - does not submit on-chain AddKey/DeleteKey when the threshold public key remains unchanged
     const consoleMessages: string[] = [];
     const onConsole = (msg: any) => {
-      try { consoleMessages.push(`[${msg.type?.() || 'log'}] ${msg.text?.() || String(msg)}`); } catch {}
+      try {
+        consoleMessages.push(`[${msg.type?.() || 'log'}] ${msg.text?.() || String(msg)}`);
+      } catch {}
     };
     const onPageError = (err: any) => {
-      try { consoleMessages.push(`[pageerror] ${String(err?.message || err)}`); } catch {}
+      try {
+        consoleMessages.push(`[pageerror] ${String(err?.message || err)}`);
+      } catch {}
     };
     page.on('console', onConsole);
     page.on('pageerror', onPageError);
@@ -144,7 +150,11 @@ test.describe('Threshold Ed25519 rotation helper', () => {
         await route.fulfill({
           status: 200,
           headers: { 'Content-Type': 'application/json', ...corsHeaders },
-          body: JSON.stringify({ jsonrpc: '2.0', id, result: { header: { hash: blockHash, height: blockHeight } } }),
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            result: { header: { hash: blockHash, height: blockHeight } },
+          }),
         });
         return;
       }
@@ -200,8 +210,8 @@ test.describe('Threshold Ed25519 rotation helper', () => {
       if (rpcMethod === 'query' && params?.request_type === 'view_access_key') {
         const requestedPk = String(params?.public_key || '').trim();
         const isKnown =
-          (!!requestedPk && requestedPk === localNearPublicKey)
-          || (!!requestedPk && thresholdKeysOnChain.has(requestedPk));
+          (!!requestedPk && requestedPk === localNearPublicKey) ||
+          (!!requestedPk && thresholdKeysOnChain.has(requestedPk));
         viewAccessKeyCalls.push({ publicKey: requestedPk, known: isKnown });
 
         if (!isKnown) {
@@ -243,7 +253,10 @@ test.describe('Threshold Ed25519 rotation helper', () => {
       if (rpcMethod === 'query' && params?.request_type === 'view_access_key_list') {
         const keys: any[] = [];
         if (localNearPublicKey) {
-          keys.push({ public_key: localNearPublicKey, access_key: { nonce: sendTxCount, permission: 'FullAccess' } });
+          keys.push({
+            public_key: localNearPublicKey,
+            access_key: { nonce: sendTxCount, permission: 'FullAccess' },
+          });
         }
         for (const pk of thresholdKeysOnChain) {
           keys.push({ public_key: pk, access_key: { nonce: 0, permission: 'FullAccess' } });
@@ -306,7 +319,8 @@ test.describe('Threshold Ed25519 rotation helper', () => {
       if (accountId) {
         accountsOnChain.add(accountId);
       }
-      const clientVerifyingShareB64u = payload?.threshold_ed25519?.client_verifying_share_b64u || '';
+      const clientVerifyingShareB64u =
+        payload?.threshold_ed25519?.client_verifying_share_b64u || '';
       const thresholdSessionPolicy = payload?.threshold_ed25519?.session_policy || null;
       const thresholdSessionId = String(
         thresholdSessionPolicy?.sessionId || thresholdSessionPolicy?.session_id || '',
@@ -340,15 +354,15 @@ test.describe('Threshold Ed25519 rotation helper', () => {
             relayerVerifyingShareB64u: relayerVerifyingShareB64uOld,
             ...(thresholdSessionId
               ? {
-                session: {
-                  sessionKind: 'jwt',
-                  sessionId: thresholdSessionId,
-                  expiresAtMs: Date.now() + thresholdSessionTtlMs,
-                  participantIds: [1, 2],
-                  remainingUses: thresholdSessionRemainingUses,
-                  jwt: 'mock-threshold-ed25519-registration-jwt',
-                },
-              }
+                  session: {
+                    sessionKind: 'jwt',
+                    sessionId: thresholdSessionId,
+                    expiresAtMs: Date.now() + thresholdSessionTtlMs,
+                    participantIds: [1, 2],
+                    remainingUses: thresholdSessionRemainingUses,
+                    jwt: 'mock-threshold-ed25519-registration-jwt',
+                  },
+                }
               : {}),
           },
         }),
@@ -397,106 +411,113 @@ test.describe('Threshold Ed25519 rotation helper', () => {
       });
     });
 
-    const result = await page.evaluate(async ({ paths }) => {
-      // Run the SDK flow inside the browser context:
-      // - register a passkey-backed account with signerMode=threshold-signer (threshold-only)
-      // - rotate the threshold key and return the helper output for assertions
-      try {
-        const { TatchiPasskey } = await import(paths.tatchi);
-        const { IndexedDBManager } = await import(paths.indexedDb);
-        const suffix =
-          (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-            ? crypto.randomUUID()
-            : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        const accountId = `e2e${suffix}.w3a-v1.testnet`;
-        const normalizedAccountId = accountId.toLowerCase();
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        // Run the SDK flow inside the browser context:
+        // - register a passkey-backed account with signerMode=threshold-signer (threshold-only)
+        // - rotate the threshold key and return the helper output for assertions
+        try {
+          const { TatchiPasskey } = await import(paths.tatchi);
+          const { IndexedDBManager } = await import(paths.indexedDb);
+          const suffix =
+            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+              ? crypto.randomUUID()
+              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+          const accountId = `e2e${suffix}.w3a-v1.testnet`;
+          const normalizedAccountId = accountId.toLowerCase();
 
-        const pm = new TatchiPasskey({
-          nearNetwork: 'testnet',
-          nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayer: { url: 'http://localhost:3000' },
-          iframeWallet: { walletOrigin: '' },
-        });
+          const pm = new TatchiPasskey({
+            nearNetwork: 'testnet',
+            nearRpcUrl: 'https://test.rpc.fastnear.com',
+            relayer: { url: 'http://localhost:3000' },
+            iframeWallet: { walletOrigin: '' },
+          });
 
-        const confirmConfig = {
-          uiMode: 'none',
-          behavior: 'skipClick',
-          autoProceedDelay: 0,
-        };
+          const confirmConfig = {
+            uiMode: 'none',
+            behavior: 'skipClick',
+            autoProceedDelay: 0,
+          };
 
-        const reg = await pm.registration.registerPasskeyInternal(
-          accountId,
-          {
-            signerMode: { mode: 'threshold-signer' },
-            signerOptions: {
-              tempo: {
-                enabled: false,
-                participantIds: [1, 2],
-                sessionKind: 'jwt',
-                ttlMs: 1,
-                remainingUses: 1,
-              },
-              evm: {
-                enabled: false,
-                participantIds: [1, 2],
-                sessionKind: 'jwt',
-                ttlMs: 1,
-                remainingUses: 1,
+          const reg = await pm.registration.registerPasskeyInternal(
+            accountId,
+            {
+              signerMode: { mode: 'threshold-signer' },
+              signerOptions: {
+                tempo: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  sessionKind: 'jwt',
+                  ttlMs: 1,
+                  remainingUses: 1,
+                },
+                evm: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  sessionKind: 'jwt',
+                  ttlMs: 1,
+                  remainingUses: 1,
+                },
               },
             },
-          },
-          confirmConfig as any,
-        );
-        if (!reg?.success) {
-          return { ok: false, accountId, error: reg?.error || 'registration failed' };
-        }
+            confirmConfig as any,
+          );
+          if (!reg?.success) {
+            return { ok: false, accountId, error: reg?.error || 'registration failed' };
+          }
 
-        // Rotation requires the old threshold key material to already be stored.
-        const start = Date.now();
-        const maxWaitMs = 10_000;
-        while (Date.now() - start < maxWaitMs) {
+          // Rotation requires the old threshold key material to already be stored.
+          const start = Date.now();
+          const maxWaitMs = 10_000;
+          while (Date.now() - start < maxWaitMs) {
+            const existing = await IndexedDBManager.getNearThresholdKeyMaterial(
+              normalizedAccountId,
+              1,
+            ).catch(() => null);
+            if (existing) break;
+            await new Promise((r) => setTimeout(r, 50));
+          }
           const existing = await IndexedDBManager.getNearThresholdKeyMaterial(
             normalizedAccountId,
             1,
           ).catch(() => null);
-          if (existing) break;
-          await new Promise((r) => setTimeout(r, 50));
-        }
-        const existing = await IndexedDBManager.getNearThresholdKeyMaterial(
-          normalizedAccountId,
-          1,
-        ).catch(() => null);
-        if (!existing) {
-          return { ok: false, accountId, error: 'threshold enrollment did not complete in time' };
-        }
+          if (!existing) {
+            return { ok: false, accountId, error: 'threshold enrollment did not complete in time' };
+          }
 
-        const rotated = await pm.rotateThresholdEd25519Key(accountId, { deviceNumber: 1 });
-        return { ok: true, accountId, rotated };
-      } catch (error: any) {
-        return { ok: false, accountId: 'unknown', error: error?.message || String(error) };
-      }
-    }, { paths: IMPORT_PATHS });
+          const rotated = await pm.rotateThresholdEd25519Key(accountId, { deviceNumber: 1 });
+          return { ok: true, accountId, rotated };
+        } catch (error: any) {
+          return { ok: false, accountId: 'unknown', error: error?.message || String(error) };
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     if (!result.ok) {
-      throw new Error([
-        `rotation test failed: ${result.error || 'unknown'}`,
-        '',
-        'console:',
-        ...consoleMessages.slice(-120),
-      ].join('\n'));
+      throw new Error(
+        [
+          `rotation test failed: ${result.error || 'unknown'}`,
+          '',
+          'console:',
+          ...consoleMessages.slice(-120),
+        ].join('\n'),
+      );
     }
 
     const rotated = result.rotated as any;
     if (!rotated?.success) {
-      throw new Error([
-        `rotation returned success=false: ${String(rotated?.error || rotated?.warning || 'unknown error')}`,
-        `last view_access_key calls: ${JSON.stringify(viewAccessKeyCalls.slice(-12))}`,
-        `thresholdKeysOnChain: ${JSON.stringify(Array.from(thresholdKeysOnChain))}`,
-        `keygenResponse: ${JSON.stringify({ publicKey: keygenResponsePublicKeySent, relayerKeyId: keygenResponseRelayerKeyIdSent })}`,
-        '',
-        'console:',
-        ...consoleMessages.slice(-120),
-      ].join('\n'));
+      throw new Error(
+        [
+          `rotation returned success=false: ${String(rotated?.error || rotated?.warning || 'unknown error')}`,
+          `last view_access_key calls: ${JSON.stringify(viewAccessKeyCalls.slice(-12))}`,
+          `thresholdKeysOnChain: ${JSON.stringify(Array.from(thresholdKeysOnChain))}`,
+          `keygenResponse: ${JSON.stringify({ publicKey: keygenResponsePublicKeySent, relayerKeyId: keygenResponseRelayerKeyIdSent })}`,
+          '',
+          'console:',
+          ...consoleMessages.slice(-120),
+        ].join('\n'),
+      );
     }
 
     // Assertions:
@@ -521,14 +542,19 @@ test.describe('Threshold Ed25519 rotation helper', () => {
 
     expect(Array.from(thresholdKeysOnChain)).toEqual([thresholdPublicKeyOld]);
 
-    const stored = await page.evaluate(async ({ paths, accountId }) => {
-      const { IndexedDBManager } = await import(paths.indexedDb);
-      const rec = await IndexedDBManager.getNearThresholdKeyMaterial(
-        String(accountId || '').trim().toLowerCase(),
-        1,
-      );
-      return rec ? { ...rec } : null;
-    }, { paths: IMPORT_PATHS, accountId: result.accountId });
+    const stored = await page.evaluate(
+      async ({ paths, accountId }) => {
+        const { IndexedDBManager } = await import(paths.indexedDb);
+        const rec = await IndexedDBManager.getNearThresholdKeyMaterial(
+          String(accountId || '')
+            .trim()
+            .toLowerCase(),
+          1,
+        );
+        return rec ? { ...rec } : null;
+      },
+      { paths: IMPORT_PATHS, accountId: result.accountId },
+    );
 
     expect(stored?.kind).toBe('threshold_ed25519_2p_v1');
     expect(stored?.publicKey).toBe(thresholdPublicKeyNew);

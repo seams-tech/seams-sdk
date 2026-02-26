@@ -5,10 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { promises as fs } from 'node:fs';
 
 // Import from built SDK to avoid TS transpilation for tests
-import {
-  AuthService,
-  createThresholdSigningService,
-} from '../../sdk/dist/esm/server/index.js';
+import { AuthService, createThresholdSigningService } from '../../sdk/dist/esm/server/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,8 +22,8 @@ async function readCache() {
 async function main() {
   const cache = await readCache();
   const thresholdEcdsaMasterSecretB64u =
-    String(process.env.THRESHOLD_SECP256K1_MASTER_SECRET_B64U || '').trim()
-    || Buffer.from(new Uint8Array(32).fill(9)).toString('base64url');
+    String(process.env.THRESHOLD_SECP256K1_MASTER_SECRET_B64U || '').trim() ||
+    Buffer.from(new Uint8Array(32).fill(9)).toString('base64url');
 
   const config = {
     relayerAccount: cache.accountId,
@@ -44,7 +41,7 @@ async function main() {
   // failures caused by browser WebAuthn mock signature differences.
   try {
     authService.verifyWebAuthnAuthenticationLite = async () => ({ success: true, verified: true });
-  } catch { }
+  } catch {}
 
   // Threshold signing services (in-memory stores are sufficient for test runs).
   const threshold = createThresholdSigningService({
@@ -68,7 +65,7 @@ async function main() {
     // Test harness: be permissive in dev (ports can vary, e.g. 5174 vs 5175).
     // If an Origin is present, echo it so browsers accept the response.
     const requestOrigin = String(req.headers?.origin || '').trim();
-    const allowOrigin = requestOrigin || (allowedOrigins[0] || '*');
+    const allowOrigin = requestOrigin || allowedOrigins[0] || '*';
 
     res.setHeader('Access-Control-Allow-Origin', allowOrigin);
     res.setHeader('Vary', 'Origin');
@@ -79,14 +76,21 @@ async function main() {
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   };
 
-  const readJson = async (req) => new Promise((resolve, reject) => {
-    let data = '';
-    req.on('data', (chunk) => { data += chunk; });
-    req.on('end', () => {
-      try { resolve(data ? JSON.parse(data) : {}); } catch (e) { reject(e); }
+  const readJson = async (req) =>
+    new Promise((resolve, reject) => {
+      let data = '';
+      req.on('data', (chunk) => {
+        data += chunk;
+      });
+      req.on('end', () => {
+        try {
+          resolve(data ? JSON.parse(data) : {});
+        } catch (e) {
+          reject(e);
+        }
+      });
+      req.on('error', reject);
     });
-    req.on('error', reject);
-  });
 
   const sendJson = (res, status, body) => {
     res.statusCode = status;
@@ -111,7 +115,8 @@ async function main() {
   const server = createServer(async (req, res) => {
     setCors(req, res);
     if (req.method === 'OPTIONS') {
-      res.statusCode = 200; return res.end();
+      res.statusCode = 200;
+      return res.end();
     }
     const url = new URL(req.url, `http://localhost:${port}`);
     try {
@@ -133,11 +138,19 @@ async function main() {
         const body = await readJson(req);
         const challengeId = String(body?.challengeId ?? body?.challenge_id ?? '').trim();
         if (!challengeId) {
-          return sendJson(res, 400, { ok: false, code: 'invalid_body', message: 'challengeId is required' });
+          return sendJson(res, 400, {
+            ok: false,
+            code: 'invalid_body',
+            message: 'challengeId is required',
+          });
         }
         const authn = body?.webauthn_authentication;
         if (!authn || typeof authn !== 'object') {
-          return sendJson(res, 400, { ok: false, code: 'invalid_body', message: 'webauthn_authentication is required' });
+          return sendJson(res, 400, {
+            ok: false,
+            code: 'invalid_body',
+            message: 'webauthn_authentication is required',
+          });
         }
 
         const origin = String(req.headers?.origin || req.headers?.Origin || '').trim() || undefined;
@@ -151,7 +164,9 @@ async function main() {
           return sendJson(res, out?.code === 'internal' ? 500 : 400, out);
         }
 
-        const sessionKindRaw = String(body?.sessionKind ?? body?.session_kind ?? 'jwt').trim().toLowerCase();
+        const sessionKindRaw = String(body?.sessionKind ?? body?.session_kind ?? 'jwt')
+          .trim()
+          .toLowerCase();
         const sessionKind = sessionKindRaw === 'cookie' ? 'cookie' : 'jwt';
         if (sessionKind === 'jwt') {
           const token = `testjwt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -163,7 +178,11 @@ async function main() {
         const body = await readJson(req);
         const scheme = threshold.getSchemeModule('threshold-ed25519-frost-2p-v1');
         if (!scheme || scheme.schemeId !== 'threshold-ed25519-frost-2p-v1') {
-          return sendJson(res, 404, { ok: false, code: 'not_found', message: 'threshold-ed25519 scheme is not enabled on this server' });
+          return sendJson(res, 404, {
+            ok: false,
+            code: 'not_found',
+            message: 'threshold-ed25519 scheme is not enabled on this server',
+          });
         }
         const out = await scheme.keygen(body);
         return sendJson(res, thresholdStatus(out), out);
@@ -177,17 +196,22 @@ async function main() {
           device_number,
           rp_id,
           webauthn_registration,
-          authenticator_options
+          authenticator_options,
         } = body || {};
 
-        const thresholdClientVerifyingShareB64u = String(threshold_ed25519?.client_verifying_share_b64u || '').trim();
+        const thresholdClientVerifyingShareB64u = String(
+          threshold_ed25519?.client_verifying_share_b64u || '',
+        ).trim();
         let new_public_key = String(requested_public_key || '').trim();
         let thresholdEd25519 = null;
 
         if (!new_public_key && thresholdClientVerifyingShareB64u) {
           const scheme = threshold.getSchemeModule('threshold-ed25519-frost-2p-v1');
           if (!scheme || scheme.schemeId !== 'threshold-ed25519-frost-2p-v1') {
-            return sendJson(res, 404, { success: false, error: 'threshold-ed25519 scheme is not enabled on this server' });
+            return sendJson(res, 404, {
+              success: false,
+              error: 'threshold-ed25519 scheme is not enabled on this server',
+            });
           }
           const out = await scheme.registration.keygenFromClientVerifyingShare({
             nearAccountId: new_account_id,
@@ -195,7 +219,10 @@ async function main() {
             clientVerifyingShareB64u: thresholdClientVerifyingShareB64u,
           });
           if (!out.ok) {
-            return sendJson(res, 400, { success: false, error: out.message || 'threshold keygen failed' });
+            return sendJson(res, 400, {
+              success: false,
+              error: out.message || 'threshold keygen failed',
+            });
           }
           new_public_key = out.publicKey;
           thresholdEd25519 = {
@@ -220,11 +247,10 @@ async function main() {
           rp_id,
           webauthn_registration,
           ...(expected_origin ? { expected_origin } : {}),
-          authenticator_options
+          authenticator_options,
         });
-        const response = thresholdEd25519 && result?.success
-          ? { ...result, thresholdEd25519 }
-          : result;
+        const response =
+          thresholdEd25519 && result?.success ? { ...result, thresholdEd25519 } : result;
         return sendJson(res, result.success ? 200 : 400, response);
       }
       sendJson(res, 404, { error: 'not_found' });
@@ -238,4 +264,7 @@ async function main() {
   });
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

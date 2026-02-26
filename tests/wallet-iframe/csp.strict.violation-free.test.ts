@@ -3,7 +3,10 @@ import { test, expect } from '@playwright/test';
 // Verifies that the wallet-service page served by the dev plugin under
 // strict CSP renders without inline <style> tags or style="…" attributes.
 // CI sets VITE_WALLET_DEV_CSP=strict for these tests.
-test('wallet-service under strict CSP has no inline style tags or style attributes', async ({ page, baseURL }) => {
+test('wallet-service under strict CSP has no inline style tags or style attributes', async ({
+  page,
+  baseURL,
+}) => {
   if (process.env.VITE_WALLET_DEV_CSP !== 'strict') {
     test.skip(true, 'Strict dev CSP not enabled');
   }

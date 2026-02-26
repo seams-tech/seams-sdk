@@ -140,9 +140,8 @@ function installThresholdEcdsaFetchMock(args?: {
   const presignInitDelayMs = Number(args?.presignInitDelayMs ?? 0);
 
   (globalThis as { fetch: typeof fetch }).fetch = (async (input, init) => {
-    const urlRaw = typeof input === 'string'
-      ? input
-      : (input instanceof URL ? input.toString() : input.url);
+    const urlRaw =
+      typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     const path = new URL(urlRaw).pathname;
     const method = String(init?.method || 'GET').toUpperCase();
     if (method !== 'POST') {
@@ -154,25 +153,28 @@ function installThresholdEcdsaFetchMock(args?: {
 
     if (path.endsWith('/threshold-ecdsa/authorize')) {
       counters.authorize += 1;
-      return new Response(JSON.stringify({
-        ok: true,
-        mpcSessionId: `mpc-${counters.authorize}`,
-        expiresAt: new Date(Date.now() + 60_000).toISOString(),
-        ...(includeAuthorizePolicyHint
-          ? {
-              presignPoolPolicy: {
-                enabled: true,
-                targetDepth: 2,
-                lowWatermark: 1,
-                maxRefillInFlight: 2,
-                refillAttemptTimeoutMs: 30_000,
-              },
-            }
-          : {}),
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          mpcSessionId: `mpc-${counters.authorize}`,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          ...(includeAuthorizePolicyHint
+            ? {
+                presignPoolPolicy: {
+                  enabled: true,
+                  targetDepth: 2,
+                  lowWatermark: 1,
+                  maxRefillInFlight: 2,
+                  refillAttemptTimeoutMs: 30_000,
+                },
+              }
+            : {}),
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
     }
 
     if (path.endsWith('/threshold-ecdsa/presign/init')) {
@@ -181,80 +183,98 @@ function installThresholdEcdsaFetchMock(args?: {
         await new Promise((resolve) => setTimeout(resolve, presignInitDelayMs));
       }
       if (counters.presignInit > failPresignInitAfter) {
-        return new Response(JSON.stringify({
-          ok: false,
-          code: 'forced_presign_init_failure',
-          message: 'forced failure',
-        }), {
-          status: 500,
-          headers: { 'Content-Type': 'application/json' },
-        });
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            code: 'forced_presign_init_failure',
+            message: 'forced failure',
+          }),
+          {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
       }
-      return new Response(JSON.stringify({
-        ok: true,
-        presignSessionId: `presign-session-${counters.presignInit}`,
-        stage: 'triples',
-        outgoingMessagesB64u: [],
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          presignSessionId: `presign-session-${counters.presignInit}`,
+          stage: 'triples',
+          outgoingMessagesB64u: [],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
     }
 
     if (path.endsWith('/threshold-ecdsa/presign/step')) {
       counters.presignStep += 1;
-      return new Response(JSON.stringify({
-        ok: true,
-        stage: 'done',
-        event: 'presign_done',
-        outgoingMessagesB64u: [],
-        presignatureId: `presig-${counters.presignStep}`,
-        bigRB64u: PRESIGN_BIG_R_B64U,
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          stage: 'done',
+          event: 'presign_done',
+          outgoingMessagesB64u: [],
+          presignatureId: `presig-${counters.presignStep}`,
+          bigRB64u: PRESIGN_BIG_R_B64U,
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
     }
 
     if (path.endsWith('/threshold-ecdsa/sign/init')) {
       counters.signInit += 1;
-      return new Response(JSON.stringify({
-        ok: true,
-        signingSessionId: `signing-session-${counters.signInit}`,
-        relayerRound1: {
-          entropyB64u: ENTROPY_B64U,
-          bigRB64u: PRESIGN_BIG_R_B64U,
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          signingSessionId: `signing-session-${counters.signInit}`,
+          relayerRound1: {
+            entropyB64u: ENTROPY_B64U,
+            bigRB64u: PRESIGN_BIG_R_B64U,
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
         },
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      );
     }
 
     if (path.endsWith('/threshold-ecdsa/sign/finalize')) {
       counters.signFinalize += 1;
-      return new Response(JSON.stringify({
-        ok: true,
-        relayerRound2: {
-          signature65B64u: SIGNATURE_65_B64U,
-          rB64u: base64UrlEncode(new Uint8Array(32).fill(43)),
-          sB64u: base64UrlEncode(new Uint8Array(32).fill(47)),
-          recId: 1,
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          relayerRound2: {
+            signature65B64u: SIGNATURE_65_B64U,
+            rB64u: base64UrlEncode(new Uint8Array(32).fill(43)),
+            sB64u: base64UrlEncode(new Uint8Array(32).fill(47)),
+            recId: 1,
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
         },
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      );
     }
 
-    return new Response(JSON.stringify({
-      ok: false,
-      code: 'unexpected_route',
-      message: path,
-    }), {
-      status: 404,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        code: 'unexpected_route',
+        message: path,
+      }),
+      {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
   }) as typeof fetch;
 
   return {
@@ -265,10 +285,7 @@ function installThresholdEcdsaFetchMock(args?: {
   };
 }
 
-async function waitForPredicate(
-  predicate: () => boolean,
-  timeoutMs = 1_000,
-): Promise<void> {
+async function waitForPredicate(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     if (predicate()) return;
@@ -313,12 +330,14 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       const refill2 = await refillThresholdEcdsaClientPresignaturePool(refillInput);
       expect(refill1.ok).toBe(true);
       expect(refill2.ok).toBe(true);
-      expect(getThresholdEcdsaClientPresignaturePoolDepth({
-        relayerUrl: RELAYER_URL,
-        relayerKeyId: RELAYER_KEY_ID,
-        clientVerifyingShareB64u: CLIENT_VERIFYING_SHARE_B64U,
-        participantIds: PARTICIPANT_IDS,
-      })).toBe(2);
+      expect(
+        getThresholdEcdsaClientPresignaturePoolDepth({
+          relayerUrl: RELAYER_URL,
+          relayerKeyId: RELAYER_KEY_ID,
+          clientVerifyingShareB64u: CLIENT_VERIFYING_SHARE_B64U,
+          participantIds: PARTICIPANT_IDS,
+        }),
+      ).toBe(2);
 
       const signArgsBase = {
         relayerUrl: RELAYER_URL,

@@ -13,7 +13,7 @@ export interface LogFormatOptions {
 export function formatLog(
   category: LogCategory,
   message: string,
-  options: LogFormatOptions = {}
+  options: LogFormatOptions = {},
 ): string {
   const { step, indent = 0, scope } = options;
   const parts: string[] = [`[${category}`];
@@ -36,7 +36,7 @@ export function formatLog(
 export function printLog(
   category: LogCategory,
   message: string,
-  options: LogFormatOptions = {}
+  options: LogFormatOptions = {},
 ): void {
   console.log(formatLog(category, message, options));
 }
@@ -53,7 +53,7 @@ export function printStepLine(
   step: string | number,
   message: string,
   indent = 1,
-  category: LogCategory = 'setup'
+  category: LogCategory = 'setup',
 ): void {
   const pad = INDENT_UNIT.repeat(Math.max(0, indent));
   const label = `${category}: ${step}`;
@@ -63,7 +63,7 @@ export function printStepLine(
 export function createConsoleCapture(
   page: Page,
   testInfo: TestInfo,
-  options: { verboseEnvVar?: string } = {}
+  options: { verboseEnvVar?: string } = {},
 ) {
   const verboseFlag = options.verboseEnvVar ?? 'VERBOSE_TEST_LOGS';
   const verbose = process.env[verboseFlag] === '1' || process.env[verboseFlag] === 'true';
@@ -111,13 +111,17 @@ export function createConsoleCapture(
       return;
     }
     console.log('');
-    console.log(formatLog('console', `Captured browser output for "${testInfo.title}"`, {
-      scope: testInfo.project?.name,
-    }));
+    console.log(
+      formatLog('console', `Captured browser output for "${testInfo.title}"`, {
+        scope: testInfo.project?.name,
+      }),
+    );
     for (const entry of messages) {
-      console.log(formatLog('console', entry.replace(/^\[console[^\]]*\]\s*/, ''), {
-        indent: 1,
-      }));
+      console.log(
+        formatLog('console', entry.replace(/^\[console[^\]]*\]\s*/, ''), {
+          indent: 1,
+        }),
+      );
     }
   };
 

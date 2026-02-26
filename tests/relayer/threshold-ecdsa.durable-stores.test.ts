@@ -21,7 +21,11 @@ function makeSigningSessionRecord(args: { relayerKeyId: string; presignatureId: 
   };
 }
 
-function makePresignRecord(args: { relayerKeyId: string; presignatureId: string; createdAtMs?: number }) {
+function makePresignRecord(args: {
+  relayerKeyId: string;
+  presignatureId: string;
+  createdAtMs?: number;
+}) {
   return {
     relayerKeyId: args.relayerKeyId,
     presignatureId: args.presignatureId,
@@ -32,7 +36,10 @@ function makePresignRecord(args: { relayerKeyId: string; presignatureId: string;
   };
 }
 
-function makePresignSessionRecord(args?: { version?: number; stage?: 'triples' | 'triples_done' | 'presign' | 'done' }) {
+function makePresignSessionRecord(args?: {
+  version?: number;
+  stage?: 'triples' | 'triples_done' | 'presign' | 'done';
+}) {
   const version = args?.version ?? 1;
   return {
     expiresAtMs: Date.now() + 60_000,
@@ -65,9 +72,15 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
     test.afterAll(async () => {
       if (!enabled) return;
       const pool = await getPostgresPool(postgresUrl);
-      await pool.query('DELETE FROM threshold_ecdsa_signing_sessions WHERE namespace = $1', [signingPrefix]);
-      await pool.query('DELETE FROM threshold_ecdsa_presignatures WHERE namespace = $1', [presignPrefix]);
-      await pool.query('DELETE FROM threshold_ecdsa_presign_sessions WHERE namespace = $1', [presignPrefix]);
+      await pool.query('DELETE FROM threshold_ecdsa_signing_sessions WHERE namespace = $1', [
+        signingPrefix,
+      ]);
+      await pool.query('DELETE FROM threshold_ecdsa_presignatures WHERE namespace = $1', [
+        presignPrefix,
+      ]);
+      await pool.query('DELETE FROM threshold_ecdsa_presign_sessions WHERE namespace = $1', [
+        presignPrefix,
+      ]);
     });
 
     test('signingSessionStore take is atomic', async () => {
@@ -107,10 +120,25 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
       });
 
       const relayerKeyId = 'rk-2';
-      await presignaturePool.put(makePresignRecord({ relayerKeyId, presignatureId: 'ps-a', createdAtMs: Date.now() - 2 }) as any);
-      await presignaturePool.put(makePresignRecord({ relayerKeyId, presignatureId: 'ps-b', createdAtMs: Date.now() - 1 }) as any);
+      await presignaturePool.put(
+        makePresignRecord({
+          relayerKeyId,
+          presignatureId: 'ps-a',
+          createdAtMs: Date.now() - 2,
+        }) as any,
+      );
+      await presignaturePool.put(
+        makePresignRecord({
+          relayerKeyId,
+          presignatureId: 'ps-b',
+          createdAtMs: Date.now() - 1,
+        }) as any,
+      );
 
-      const [a, b] = await Promise.all([presignaturePool.reserve(relayerKeyId), presignaturePool.reserve(relayerKeyId)]);
+      const [a, b] = await Promise.all([
+        presignaturePool.reserve(relayerKeyId),
+        presignaturePool.reserve(relayerKeyId),
+      ]);
       expect(a && b).toBeTruthy();
       expect(a!.presignatureId).not.toBe(b!.presignatureId);
 
@@ -139,8 +167,20 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
       });
 
       const relayerKeyId = 'rk-2-by-id';
-      await presignaturePool.put(makePresignRecord({ relayerKeyId, presignatureId: 'ps-by-a', createdAtMs: Date.now() - 2 }) as any);
-      await presignaturePool.put(makePresignRecord({ relayerKeyId, presignatureId: 'ps-by-b', createdAtMs: Date.now() - 1 }) as any);
+      await presignaturePool.put(
+        makePresignRecord({
+          relayerKeyId,
+          presignatureId: 'ps-by-a',
+          createdAtMs: Date.now() - 2,
+        }) as any,
+      );
+      await presignaturePool.put(
+        makePresignRecord({
+          relayerKeyId,
+          presignatureId: 'ps-by-b',
+          createdAtMs: Date.now() - 1,
+        }) as any,
+      );
 
       const reservedById = await presignaturePool.reserveById(relayerKeyId, 'ps-by-b');
       expect(reservedById?.presignatureId).toBe('ps-by-b');
@@ -167,7 +207,9 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
       });
 
       const relayerKeyId = 'rk-3';
-      await presignaturePool.put(makePresignRecord({ relayerKeyId, presignatureId: 'ps-x' }) as any);
+      await presignaturePool.put(
+        makePresignRecord({ relayerKeyId, presignatureId: 'ps-x' }) as any,
+      );
       const reserved = await presignaturePool.reserve(relayerKeyId);
       expect(reserved?.presignatureId).toBe('ps-x');
 
@@ -279,10 +321,25 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
       });
 
       const relayerKeyId = 'rk-11';
-      await presignaturePool.put(makePresignRecord({ relayerKeyId, presignatureId: 'ps-ra', createdAtMs: Date.now() - 2 }) as any);
-      await presignaturePool.put(makePresignRecord({ relayerKeyId, presignatureId: 'ps-rb', createdAtMs: Date.now() - 1 }) as any);
+      await presignaturePool.put(
+        makePresignRecord({
+          relayerKeyId,
+          presignatureId: 'ps-ra',
+          createdAtMs: Date.now() - 2,
+        }) as any,
+      );
+      await presignaturePool.put(
+        makePresignRecord({
+          relayerKeyId,
+          presignatureId: 'ps-rb',
+          createdAtMs: Date.now() - 1,
+        }) as any,
+      );
 
-      const [a, b] = await Promise.all([presignaturePool.reserve(relayerKeyId), presignaturePool.reserve(relayerKeyId)]);
+      const [a, b] = await Promise.all([
+        presignaturePool.reserve(relayerKeyId),
+        presignaturePool.reserve(relayerKeyId),
+      ]);
       expect(a && b).toBeTruthy();
       expect(a!.presignatureId).not.toBe(b!.presignatureId);
 
@@ -311,8 +368,20 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
       });
 
       const relayerKeyId = 'rk-11-by-id';
-      await presignaturePool.put(makePresignRecord({ relayerKeyId, presignatureId: 'ps-rby-a', createdAtMs: Date.now() - 2 }) as any);
-      await presignaturePool.put(makePresignRecord({ relayerKeyId, presignatureId: 'ps-rby-b', createdAtMs: Date.now() - 1 }) as any);
+      await presignaturePool.put(
+        makePresignRecord({
+          relayerKeyId,
+          presignatureId: 'ps-rby-a',
+          createdAtMs: Date.now() - 2,
+        }) as any,
+      );
+      await presignaturePool.put(
+        makePresignRecord({
+          relayerKeyId,
+          presignatureId: 'ps-rby-b',
+          createdAtMs: Date.now() - 1,
+        }) as any,
+      );
 
       const reservedById = await presignaturePool.reserveById(relayerKeyId, 'ps-rby-b');
       expect(reservedById?.presignatureId).toBe('ps-rby-b');
@@ -431,10 +500,25 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
       });
 
       const relayerKeyId = 'rk-u2';
-      await presignaturePool.put(makePresignRecord({ relayerKeyId, presignatureId: 'ps-ua', createdAtMs: Date.now() - 2 }) as any);
-      await presignaturePool.put(makePresignRecord({ relayerKeyId, presignatureId: 'ps-ub', createdAtMs: Date.now() - 1 }) as any);
+      await presignaturePool.put(
+        makePresignRecord({
+          relayerKeyId,
+          presignatureId: 'ps-ua',
+          createdAtMs: Date.now() - 2,
+        }) as any,
+      );
+      await presignaturePool.put(
+        makePresignRecord({
+          relayerKeyId,
+          presignatureId: 'ps-ub',
+          createdAtMs: Date.now() - 1,
+        }) as any,
+      );
 
-      const [a, b] = await Promise.all([presignaturePool.reserve(relayerKeyId), presignaturePool.reserve(relayerKeyId)]);
+      const [a, b] = await Promise.all([
+        presignaturePool.reserve(relayerKeyId),
+        presignaturePool.reserve(relayerKeyId),
+      ]);
       expect(a && b).toBeTruthy();
       expect(a!.presignatureId).not.toBe(b!.presignatureId);
 
@@ -464,8 +548,20 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
       });
 
       const relayerKeyId = 'rk-u2-by-id';
-      await presignaturePool.put(makePresignRecord({ relayerKeyId, presignatureId: 'ps-uby-a', createdAtMs: Date.now() - 2 }) as any);
-      await presignaturePool.put(makePresignRecord({ relayerKeyId, presignatureId: 'ps-uby-b', createdAtMs: Date.now() - 1 }) as any);
+      await presignaturePool.put(
+        makePresignRecord({
+          relayerKeyId,
+          presignatureId: 'ps-uby-a',
+          createdAtMs: Date.now() - 2,
+        }) as any,
+      );
+      await presignaturePool.put(
+        makePresignRecord({
+          relayerKeyId,
+          presignatureId: 'ps-uby-b',
+          createdAtMs: Date.now() - 1,
+        }) as any,
+      );
 
       const reservedById = await presignaturePool.reserveById(relayerKeyId, 'ps-uby-b');
       expect(reservedById?.presignatureId).toBe('ps-uby-b');

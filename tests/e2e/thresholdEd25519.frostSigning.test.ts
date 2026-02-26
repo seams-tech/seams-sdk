@@ -15,9 +15,7 @@ import { AuthService } from '@server/core/AuthService';
 import { createThresholdSigningService } from '@server/core/ThresholdService';
 import { createRelayRouter } from '@server/router/express-adaptor';
 import { makeSessionAdapter, startExpressRouter } from '../relayer/helpers';
-import {
-  threshold_ed25519_compute_near_tx_signing_digests,
-} from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
+import { threshold_ed25519_compute_near_tx_signing_digests } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
 
 function makeAuthServiceForThreshold(keysOnChain: Set<string>): {
   service: AuthService;
@@ -34,20 +32,25 @@ function makeAuthServiceForThreshold(keysOnChain: Set<string>): {
   });
 
   // Avoid WebAuthn ceremony verification in threshold routes; this test focuses on the FROST coordinator wiring.
-  (svc as unknown as {
-    verifyWebAuthnAuthenticationLite: (req: unknown) => Promise<{ success: boolean; verified: boolean }>;
-  }).verifyWebAuthnAuthenticationLite = async (_req: unknown) => ({ success: true, verified: true });
+  (
+    svc as unknown as {
+      verifyWebAuthnAuthenticationLite: (
+        req: unknown,
+      ) => Promise<{ success: boolean; verified: boolean }>;
+    }
+  ).verifyWebAuthnAuthenticationLite = async (_req: unknown) => ({ success: true, verified: true });
 
   // Tight scope checks in /authorize and /sign/init require verifying the relayer key is actually
   // an on-chain access key. For tests, model this with an in-memory set that we mutate via send_tx mocks.
-  (svc as unknown as { nearClient: { viewAccessKeyList: (accountId: string) => Promise<unknown> } }).nearClient.viewAccessKeyList =
-    async (_accountId: string) => {
-      const keys = Array.from(keysOnChain).map((publicKey) => ({
-        public_key: publicKey,
-        access_key: { nonce: 0, permission: 'FullAccess' as const },
-      }));
-      return { keys };
-    };
+  (
+    svc as unknown as { nearClient: { viewAccessKeyList: (accountId: string) => Promise<unknown> } }
+  ).nearClient.viewAccessKeyList = async (_accountId: string) => {
+    const keys = Array.from(keysOnChain).map((publicKey) => ({
+      public_key: publicKey,
+      access_key: { nonce: 0, permission: 'FullAccess' as const },
+    }));
+    return { keys };
+  };
 
   const threshold = createThresholdSigningService({
     authService: svc,
@@ -81,15 +84,17 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
     }, SDK_ESM_PATHS.base64);
   });
 
-  test('happy path: enroll threshold key then sign near_tx via relayer FROST endpoints', async ({ page }) => {
+  test('happy path: enroll threshold key then sign near_tx via relayer FROST endpoints', async ({
+    page,
+  }) => {
     // What this test validates (end-to-end in a real browser context, with a real in-process relayer):
     //
-	    // 1) Post-registration threshold enrollment works against the actual relayer routes:
-	    //    - client calls POST /threshold-ed25519/keygen (standard WebAuthn verified)
-	    //    - client submits AddKey(thresholdPublicKey) on-chain (mocked NEAR RPC)
-	    //
-	    // 2) Threshold transaction signing uses the full 2-round FROST flow end-to-end:
-	    //    - client calls POST /threshold-ed25519/authorize (binds intent + signing digests)
+    // 1) Post-registration threshold enrollment works against the actual relayer routes:
+    //    - client calls POST /threshold-ed25519/keygen (standard WebAuthn verified)
+    //    - client submits AddKey(thresholdPublicKey) on-chain (mocked NEAR RPC)
+    //
+    // 2) Threshold transaction signing uses the full 2-round FROST flow end-to-end:
+    //    - client calls POST /threshold-ed25519/authorize (binds intent + signing digests)
     //    - client calls POST /threshold-ed25519/sign/init (round 1: commitments/nonces)
     //    - client calls POST /threshold-ed25519/sign/finalize (round 2: relayer signature share)
     //    - client aggregates signature shares into a valid Ed25519 signature for the threshold group public key
@@ -100,12 +105,12 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
     const onConsole = (msg: any) => {
       try {
         consoleMessages.push(`[${msg.type?.() || 'log'}] ${msg.text?.() || String(msg)}`);
-      } catch { }
+      } catch {}
     };
     const onPageError = (err: any) => {
       try {
         consoleMessages.push(`[pageerror] ${String(err?.message || err)}`);
-      } catch { }
+      } catch {}
     };
     page.on('console', onConsole);
     page.on('pageerror', onPageError);
@@ -124,9 +129,10 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
     const issuedTokens = new Map<string, Record<string, unknown>>();
     const session = makeSessionAdapter({
       signJwt: async (sub: string, extra?: Record<string, unknown>) => {
-        const id = typeof globalThis.crypto?.randomUUID === 'function'
-          ? globalThis.crypto.randomUUID()
-          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const id =
+          typeof globalThis.crypto?.randomUUID === 'function'
+            ? globalThis.crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
         const token = `testjwt-${id}`;
         issuedTokens.set(token, { sub, ...(extra || {}) });
         return token;
@@ -134,16 +140,19 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
       parse: async (headers: Record<string, string | string[] | undefined>) => {
         const authHeaderRaw = headers['authorization'] ?? headers['Authorization'];
         const authHeader = Array.isArray(authHeaderRaw) ? authHeaderRaw[0] : authHeaderRaw;
-        const token = typeof authHeader === 'string'
-          ? authHeader.replace(/^Bearer\s+/i, '').trim()
-          : '';
+        const token =
+          typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '').trim() : '';
         const claims = token ? issuedTokens.get(token) : undefined;
         return claims ? { ok: true as const, claims } : { ok: false as const };
       },
     });
 
     const frontendOrigin = new URL(DEFAULT_TEST_CONFIG.frontendUrl).origin;
-    const router = createRelayRouter(service, { corsOrigins: [frontendOrigin], threshold, session });
+    const router = createRelayRouter(service, {
+      corsOrigins: [frontendOrigin],
+      threshold,
+      session,
+    });
     const srv = await startExpressRouter(router);
     try {
       // Observe relayer calls (do not mock). This ensures the browser is actually hitting:
@@ -164,7 +173,9 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
         const method = req.method().toUpperCase();
         if (method === 'POST') {
           relayerCounts.session += 1;
-          try { sessionBodies.push(JSON.parse(req.postData() || '{}')); } catch { }
+          try {
+            sessionBodies.push(JSON.parse(req.postData() || '{}'));
+          } catch {}
         }
         await route.fallback();
       });
@@ -174,14 +185,19 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
         const method = req.method().toUpperCase();
         if (method === 'POST') {
           relayerCounts.authorize += 1;
-          try { authorizeBodies.push(JSON.parse(req.postData() || '{}')); } catch { }
+          try {
+            authorizeBodies.push(JSON.parse(req.postData() || '{}'));
+          } catch {}
           const h = req.headers();
           authorizeAuthHeaders.push(String(h['authorization'] || h['Authorization'] || ''));
         }
         await route.fallback();
       });
       await page.route(`${srv.baseUrl}/threshold-ed25519/sign/init`, observeRelayerCall('init'));
-      await page.route(`${srv.baseUrl}/threshold-ed25519/sign/finalize`, observeRelayerCall('finalize'));
+      await page.route(
+        `${srv.baseUrl}/threshold-ed25519/sign/finalize`,
+        observeRelayerCall('finalize'),
+      );
       await page.route(`${srv.baseUrl}/threshold-ed25519/keygen`, async (route) => {
         const req = route.request();
         const method = req.method().toUpperCase();
@@ -195,7 +211,8 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
         // Proxy the request to the real relayer so we can capture the actual (random) keygen output.
         // threshold_ed25519_keygen_from_client_verifying_share uses RNG, so we cannot safely recompute here.
         const origin = req.headers()['origin'] || req.headers()['Origin'] || '';
-        const contentType = req.headers()['content-type'] || req.headers()['Content-Type'] || 'application/json';
+        const contentType =
+          req.headers()['content-type'] || req.headers()['Content-Type'] || 'application/json';
         const body = req.postData() || '';
 
         const res = await fetch(req.url(), {
@@ -210,7 +227,7 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
         try {
           const json = JSON.parse(text || '{}');
           thresholdPublicKeyFromKeygen = String(json?.publicKey || '');
-        } catch { }
+        } catch {}
 
         await route.fulfill({
           status: res.status,
@@ -255,11 +272,11 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
         });
       });
 
-	      // Mock NEAR JSON-RPC for:
-	      // - block (tx context)
-	      // - call_function (contract verification; always { verified: true })
-	      // - view_access_key / view_access_key_list (nonce + on-chain key presence)
-	      // - send_tx (mutate on-chain key set when AddKey runs)
+      // Mock NEAR JSON-RPC for:
+      // - block (tx context)
+      // - call_function (contract verification; always { verified: true })
+      // - view_access_key / view_access_key_list (nonce + on-chain key presence)
+      // - send_tx (mutate on-chain key set when AddKey runs)
       await page.route('**://test.rpc.fastnear.com/**', async (route) => {
         const req = route.request();
         const method = req.method().toUpperCase();
@@ -294,7 +311,11 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
           await route.fulfill({
             status: 200,
             headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            body: JSON.stringify({ jsonrpc: '2.0', id, result: { header: { hash: blockHash, height: blockHeight } } }),
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              result: { header: { hash: blockHash, height: blockHeight } },
+            }),
           });
           return;
         }
@@ -386,7 +407,10 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
         if (rpcMethod === 'query' && params?.request_type === 'view_access_key_list') {
           const keys: any[] = [];
           for (const pk of keysOnChain) {
-            keys.push({ public_key: pk, access_key: { nonce: nonceByPublicKey.get(pk) ?? 0, permission: 'FullAccess' } });
+            keys.push({
+              public_key: pk,
+              access_key: { nonce: nonceByPublicKey.get(pk) ?? 0, permission: 'FullAccess' },
+            });
           }
           await route.fulfill({
             status: 200,
@@ -404,7 +428,10 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
             keysOnChain.add(thresholdPublicKeyFromKeygen);
             nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
             if (localNearPublicKey) {
-              nonceByPublicKey.set(localNearPublicKey, (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1);
+              nonceByPublicKey.set(
+                localNearPublicKey,
+                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
+              );
             }
           }
           await route.fulfill({
@@ -456,121 +483,132 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
       };
       type EvaluateResult = { ok: false; error: string } | EvaluateOkResult;
 
-	      const result = await page.evaluate<EvaluateResult, { relayerUrl: string }>(async ({ relayerUrl }): Promise<EvaluateResult> => {
-	        try {
-	          const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
-	          const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
-          const suffix =
-            (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          const accountId = `e2efrost${suffix}.w3a-v1.testnet`;
+      const result = await page.evaluate<EvaluateResult, { relayerUrl: string }>(
+        async ({ relayerUrl }): Promise<EvaluateResult> => {
+          try {
+            const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
+            const suffix =
+              typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const accountId = `e2efrost${suffix}.w3a-v1.testnet`;
 
-	          const pm = new TatchiPasskey({
-	            nearNetwork: 'testnet',
-	            nearRpcUrl: 'https://test.rpc.fastnear.com',
-	            relayer: { url: relayerUrl },
-	            // Session-style threshold signing: login mints a relayer session, then signing uses warm-session auth.
-	            signerMode: { mode: 'threshold-signer' },
-	            signingSessionDefaults: { ttlMs: 60_000, remainingUses: 10 },
-	            iframeWallet: { walletOrigin: '' },
-	          });
+            const pm = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayer: { url: relayerUrl },
+              // Session-style threshold signing: login mints a relayer session, then signing uses warm-session auth.
+              signerMode: { mode: 'threshold-signer' },
+              signingSessionDefaults: { ttlMs: 60_000, remainingUses: 10 },
+              iframeWallet: { walletOrigin: '' },
+            });
 
-          const confirmConfig = {
-            uiMode: 'none',
-            behavior: 'skipClick',
-            autoProceedDelay: 0,
-          };
-
-          const reg = await pm.registration.registerPasskeyInternal(
-            accountId,
-            { signerMode: { mode: 'local-signer' } },
-            confirmConfig as any,
-          );
-          if (!reg?.success) {
-            return { ok: false, error: reg?.error || 'registration failed' };
-          }
-
-	          const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-	          if (!enrollment?.success) {
-	            return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
-	          }
-
-	          // Mint a threshold relayer auth session (one WebAuthn prompt).
-	          // Subsequent threshold signing calls should use the cached session JWT and warm PRF session.
-	          const login = await pm.auth.login(accountId);
-	          if (!login?.success) {
-	            return { ok: false, error: login?.error || 'login failed' };
-	          }
-
-	          const receiverId = 'w3a-v1.testnet';
-	          const actions = [{ type: ActionType.Transfer, amount: '1' }];
-	          const wasmActions = actions.map(toActionArgsWasm);
-          console.log('[e2e] signTransactionsWithActions (1) start');
-          const signed1 = await pm.near.signTransactionsWithActions({
-            nearAccountId: accountId,
-            transactions: [{ receiverId, actions }],
-            options: { signerMode: { mode: 'threshold-signer' }, confirmationConfig: confirmConfig as any },
-          });
-          console.log('[e2e] signTransactionsWithActions (1) done');
-          if (!Array.isArray(signed1) || !signed1.length) {
-            return { ok: false, error: 'no signed transaction returned (1)' };
-          }
-
-          console.log('[e2e] signTransactionsWithActions (2) start');
-          const signed2 = await pm.near.signTransactionsWithActions({
-            nearAccountId: accountId,
-            transactions: [{ receiverId, actions }],
-            options: { signerMode: { mode: 'threshold-signer' }, confirmationConfig: confirmConfig as any },
-          });
-          console.log('[e2e] signTransactionsWithActions (2) done');
-          if (!Array.isArray(signed2) || !signed2.length) {
-            return { ok: false, error: 'no signed transaction returned (2)' };
-          }
-
-          const extractSigned = (item: any): EvaluateOkResult['signedTx1'] => {
-            const signedTx = item?.signedTransaction as any;
-            const signatureData = signedTx?.signature?.signatureData;
-            const tx = signedTx?.transaction;
-            const borshBytes = signedTx?.borsh_bytes;
-            if (!tx || !signatureData || !borshBytes) {
-              throw new Error('invalid signed transaction shape');
-            }
-            return {
-              signerId: String(tx.signerId || ''),
-              receiverId: String(tx.receiverId || ''),
-              nonce: typeof tx.nonce === 'bigint' ? tx.nonce.toString() : String(tx.nonce || ''),
-              blockHash: Array.from(tx.blockHash || []),
-              signature: Array.from(signatureData),
-              borshBytes: Array.isArray(borshBytes) ? borshBytes : [],
+            const confirmConfig = {
+              uiMode: 'none',
+              behavior: 'skipClick',
+              autoProceedDelay: 0,
             };
-          };
 
-          return {
-            ok: true,
-            accountId,
-            localPublicKey: String(reg.clientNearPublicKey || ''),
-            thresholdPublicKey: String(enrollment.publicKey || ''),
-            txInput: { receiverId, wasmActions },
-            signedTx1: extractSigned(signed1[0]),
-            signedTx2: extractSigned(signed2[0]),
-          };
-        } catch (e: any) {
-          return { ok: false, error: e?.message || String(e) };
-        }
-      }, { relayerUrl: srv.baseUrl });
+            const reg = await pm.registration.registerPasskeyInternal(
+              accountId,
+              { signerMode: { mode: 'local-signer' } },
+              confirmConfig as any,
+            );
+            if (!reg?.success) {
+              return { ok: false, error: reg?.error || 'registration failed' };
+            }
+
+            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
+            if (!enrollment?.success) {
+              return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
+            }
+
+            // Mint a threshold relayer auth session (one WebAuthn prompt).
+            // Subsequent threshold signing calls should use the cached session JWT and warm PRF session.
+            const login = await pm.auth.login(accountId);
+            if (!login?.success) {
+              return { ok: false, error: login?.error || 'login failed' };
+            }
+
+            const receiverId = 'w3a-v1.testnet';
+            const actions = [{ type: ActionType.Transfer, amount: '1' }];
+            const wasmActions = actions.map(toActionArgsWasm);
+            console.log('[e2e] signTransactionsWithActions (1) start');
+            const signed1 = await pm.near.signTransactionsWithActions({
+              nearAccountId: accountId,
+              transactions: [{ receiverId, actions }],
+              options: {
+                signerMode: { mode: 'threshold-signer' },
+                confirmationConfig: confirmConfig as any,
+              },
+            });
+            console.log('[e2e] signTransactionsWithActions (1) done');
+            if (!Array.isArray(signed1) || !signed1.length) {
+              return { ok: false, error: 'no signed transaction returned (1)' };
+            }
+
+            console.log('[e2e] signTransactionsWithActions (2) start');
+            const signed2 = await pm.near.signTransactionsWithActions({
+              nearAccountId: accountId,
+              transactions: [{ receiverId, actions }],
+              options: {
+                signerMode: { mode: 'threshold-signer' },
+                confirmationConfig: confirmConfig as any,
+              },
+            });
+            console.log('[e2e] signTransactionsWithActions (2) done');
+            if (!Array.isArray(signed2) || !signed2.length) {
+              return { ok: false, error: 'no signed transaction returned (2)' };
+            }
+
+            const extractSigned = (item: any): EvaluateOkResult['signedTx1'] => {
+              const signedTx = item?.signedTransaction as any;
+              const signatureData = signedTx?.signature?.signatureData;
+              const tx = signedTx?.transaction;
+              const borshBytes = signedTx?.borsh_bytes;
+              if (!tx || !signatureData || !borshBytes) {
+                throw new Error('invalid signed transaction shape');
+              }
+              return {
+                signerId: String(tx.signerId || ''),
+                receiverId: String(tx.receiverId || ''),
+                nonce: typeof tx.nonce === 'bigint' ? tx.nonce.toString() : String(tx.nonce || ''),
+                blockHash: Array.from(tx.blockHash || []),
+                signature: Array.from(signatureData),
+                borshBytes: Array.isArray(borshBytes) ? borshBytes : [],
+              };
+            };
+
+            return {
+              ok: true,
+              accountId,
+              localPublicKey: String(reg.clientNearPublicKey || ''),
+              thresholdPublicKey: String(enrollment.publicKey || ''),
+              txInput: { receiverId, wasmActions },
+              signedTx1: extractSigned(signed1[0]),
+              signedTx2: extractSigned(signed2[0]),
+            };
+          } catch (e: any) {
+            return { ok: false, error: e?.message || String(e) };
+          }
+        },
+        { relayerUrl: srv.baseUrl },
+      );
 
       if (!result.ok) {
-        throw new Error([
-          `threshold signing test failed: ${result.error || 'unknown'}`,
-          '',
-          `relayerCounts: ${JSON.stringify(relayerCounts)}`,
-          `sendTxCount: ${sendTxCount}`,
-          `thresholdPublicKeyFromKeygen: ${thresholdPublicKeyFromKeygen || '(empty)'}`,
-          '',
-          'console:',
-          ...consoleMessages.slice(-120),
-        ].join('\n'));
+        throw new Error(
+          [
+            `threshold signing test failed: ${result.error || 'unknown'}`,
+            '',
+            `relayerCounts: ${JSON.stringify(relayerCounts)}`,
+            `sendTxCount: ${sendTxCount}`,
+            `thresholdPublicKeyFromKeygen: ${thresholdPublicKeyFromKeygen || '(empty)'}`,
+            '',
+            'console:',
+            ...consoleMessages.slice(-120),
+          ].join('\n'),
+        );
       }
 
       // Registration does not submit send_tx in this test (relayer does); enrollment activation does.
@@ -581,19 +619,21 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
       expect(String(result.thresholdPublicKey)).not.toBe(String(result.localPublicKey));
 
       // Ensure the real relayer endpoints were called (FROST 2-round flow) and that
-	      // session-style threshold authorization is used (one WebAuthn → JWT → multiple signatures).
-	      expect(relayerCounts.keygen).toBe(1);
-	      expect(relayerCounts.session).toBe(1);
-	      expect(relayerCounts.authorize).toBe(2);
-	      expect(relayerCounts.init).toBe(2);
+      // session-style threshold authorization is used (one WebAuthn → JWT → multiple signatures).
+      expect(relayerCounts.keygen).toBe(1);
+      expect(relayerCounts.session).toBe(1);
+      expect(relayerCounts.authorize).toBe(2);
+      expect(relayerCounts.init).toBe(2);
       expect(relayerCounts.finalize).toBe(2);
 
-	      expect(sessionBodies.length).toBe(1);
-	      const sessionBody = sessionBodies[0] as any;
-	      expect(typeof sessionBody?.relayerKeyId).toBe('string');
-	      expect(sessionBody?.sessionPolicy).toBeTruthy();
-	      expect(sessionBody?.webauthn_authentication).toBeTruthy();
-	      expect((sessionBody?.webauthn_authentication as any)?.clientExtensionResults?.prf).toBeUndefined();
+      expect(sessionBodies.length).toBe(1);
+      const sessionBody = sessionBodies[0] as any;
+      expect(typeof sessionBody?.relayerKeyId).toBe('string');
+      expect(sessionBody?.sessionPolicy).toBeTruthy();
+      expect(sessionBody?.webauthn_authentication).toBeTruthy();
+      expect(
+        (sessionBody?.webauthn_authentication as any)?.clientExtensionResults?.prf,
+      ).toBeUndefined();
 
       // `/authorize` should be token-authenticated (no WebAuthn assertion in the body).
       expect(authorizeBodies.length).toBe(2);
@@ -616,11 +656,13 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
       const computeDigest = (signed: { nonce: string; blockHash: number[] }): Uint8Array => {
         const signingPayload = {
           kind: 'near_tx',
-          txSigningRequests: [{
-            nearAccountId: String(result.accountId),
-            receiverId: String(result.txInput.receiverId),
-            actions: result.txInput.wasmActions,
-          }],
+          txSigningRequests: [
+            {
+              nearAccountId: String(result.accountId),
+              receiverId: String(result.txInput.receiverId),
+              actions: result.txInput.wasmActions,
+            },
+          ],
           transactionContext: {
             nearPublicKeyStr: thresholdPkStr,
             nextNonce: String(signed.nonce),
@@ -629,7 +671,8 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
           },
         };
 
-        const digestsUnknown: unknown = threshold_ed25519_compute_near_tx_signing_digests(signingPayload);
+        const digestsUnknown: unknown =
+          threshold_ed25519_compute_near_tx_signing_digests(signingPayload);
         if (!Array.isArray(digestsUnknown) || digestsUnknown.length === 0) {
           throw new Error('Expected a non-empty signing digests array');
         }
@@ -640,7 +683,11 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
         return digest0;
       };
 
-      const verifySigned = (signed: { nonce: string; blockHash: number[]; signature: number[] }): void => {
+      const verifySigned = (signed: {
+        nonce: string;
+        blockHash: number[];
+        signature: number[];
+      }): void => {
         const digest = computeDigest(signed);
         const sigBytes = Uint8Array.from(signed.signature);
         expect(sigBytes.length).toBe(64);

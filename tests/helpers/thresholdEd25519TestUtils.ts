@@ -12,7 +12,9 @@ let signerWasmInitializedForTests = false;
 
 function ensureSignerWasmForUnitTests(): void {
   if (signerWasmInitializedForTests) return;
-  const wasmBytes = readFileSync(new URL('../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm', import.meta.url));
+  const wasmBytes = readFileSync(
+    new URL('../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm', import.meta.url),
+  );
   initWasmSignerSync({ module: wasmBytes });
   signerWasmInitializedForTests = true;
 }
@@ -23,9 +25,16 @@ export function silentLogger() {
 
 export function createThresholdSigningServiceForUnitTests(input: {
   config?: ThresholdEd25519KeyStoreConfigInput | null;
-  keyRecord?: { publicKey: string; relayerSigningShareB64u: string; relayerVerifyingShareB64u: string } | null;
+  keyRecord?: {
+    publicKey: string;
+    relayerSigningShareB64u: string;
+    relayerVerifyingShareB64u: string;
+  } | null;
   accessKeysOnChain?: string[] | null;
-}): { svc: ThresholdSigningService; sessionStore: ReturnType<typeof createThresholdEd25519SessionStore> } {
+}): {
+  svc: ThresholdSigningService;
+  sessionStore: ReturnType<typeof createThresholdEd25519SessionStore>;
+} {
   const logger = silentLogger();
   const sessionStore = createThresholdEd25519SessionStore({
     config: { kind: 'in-memory' },
@@ -81,18 +90,22 @@ export function createThresholdSigningServiceForUnitTests(input: {
       ensureSignerWasmForUnitTests();
     },
     verifyWebAuthnAuthenticationLite: async () => ({ success: true, verified: true }),
-    viewAccessKeyList: async () => ({
-      keys: (accessKeysOnChain || []).map((publicKey) => ({
-        public_key: publicKey,
-        access_key: { nonce: 0, permission: 'FullAccess' as const },
-      })),
-    } as any),
+    viewAccessKeyList: async () =>
+      ({
+        keys: (accessKeysOnChain || []).map((publicKey) => ({
+          public_key: publicKey,
+          access_key: { nonce: 0, permission: 'FullAccess' as const },
+        })),
+      }) as any,
   });
 
   return { svc, sessionStore };
 }
 
-export async function verifyThresholdEd25519CoordinatorGrantHmac(token: string, secretB64u: string): Promise<any> {
+export async function verifyThresholdEd25519CoordinatorGrantHmac(
+  token: string,
+  secretB64u: string,
+): Promise<any> {
   const [payloadB64u, sigB64u] = token.split('.');
   if (!payloadB64u || !sigB64u) throw new Error('Invalid coordinatorGrant format');
 
@@ -111,7 +124,8 @@ export async function verifyThresholdEd25519CoordinatorGrantHmac(token: string, 
     ['sign'],
   );
   const expected = Buffer.from(await crypto.subtle.sign('HMAC', key, payloadBytes));
-  if (Buffer.compare(expected, sigBytes) !== 0) throw new Error('Invalid coordinatorGrant signature');
+  if (Buffer.compare(expected, sigBytes) !== 0)
+    throw new Error('Invalid coordinatorGrant signature');
 
   return JSON.parse(payloadBytes.toString('utf8'));
 }

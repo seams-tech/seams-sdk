@@ -67,7 +67,11 @@ test.describe('relayer router (cloudflare) – P0', () => {
 
   test('POST /auth/passkey/options: invalid body', async () => {
     const service = makeFakeAuthService({
-      createWebAuthnLoginOptions: async () => ({ ok: false, code: 'invalid_body', message: 'Missing user_id' }),
+      createWebAuthnLoginOptions: async () => ({
+        ok: false,
+        code: 'invalid_body',
+        message: 'Missing user_id',
+      }),
     });
     const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'] });
 
@@ -121,7 +125,12 @@ test.describe('relayer router (cloudflare) – P0', () => {
 
   test('POST /auth/passkey/verify: not verified maps to 400', async () => {
     const service = makeFakeAuthService({
-      verifyWebAuthnLogin: async () => ({ ok: false, verified: false, code: 'not_verified', message: 'nope' }),
+      verifyWebAuthnLogin: async () => ({
+        ok: false,
+        verified: false,
+        code: 'not_verified',
+        message: 'nope',
+      }),
     });
     const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'] });
 
@@ -139,9 +148,17 @@ test.describe('relayer router (cloudflare) – P0', () => {
   test('POST /auth/passkey/verify: verified + sessionKind=jwt returns jwt', async () => {
     const session = makeSessionAdapter({ signJwt: async () => 'jwt-123' });
     const service = makeFakeAuthService({
-      verifyWebAuthnLogin: async () => ({ ok: true, verified: true, userId: 'bob.testnet', rpId: 'example.localhost' }),
+      verifyWebAuthnLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'bob.testnet',
+        rpId: 'example.localhost',
+      }),
     });
-    const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'], session });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+    });
 
     const res = await callCf(handler, {
       method: 'POST',
@@ -160,9 +177,17 @@ test.describe('relayer router (cloudflare) – P0', () => {
       buildSetCookie: (t) => `w3a_session=${t}; Path=/; HttpOnly`,
     });
     const service = makeFakeAuthService({
-      verifyWebAuthnLogin: async () => ({ ok: true, verified: true, userId: 'bob.testnet', rpId: 'example.localhost' }),
+      verifyWebAuthnLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'bob.testnet',
+        rpId: 'example.localhost',
+      }),
     });
-    const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'], session });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+    });
 
     const res = await callCf(handler, {
       method: 'POST',
@@ -178,12 +203,22 @@ test.describe('relayer router (cloudflare) – P0', () => {
 
   test('POST /auth/passkey/verify: session failures are best-effort (still 200)', async () => {
     const session = makeSessionAdapter({
-      signJwt: async () => { throw new Error('boom'); },
+      signJwt: async () => {
+        throw new Error('boom');
+      },
     });
     const service = makeFakeAuthService({
-      verifyWebAuthnLogin: async () => ({ ok: true, verified: true, userId: 'bob.testnet', rpId: 'example.localhost' }),
+      verifyWebAuthnLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'bob.testnet',
+        rpId: 'example.localhost',
+      }),
     });
-    const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'], session });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+    });
 
     const res = await callCf(handler, {
       method: 'POST',
@@ -291,18 +326,30 @@ test.describe('relayer router (cloudflare) – P0', () => {
   test('GET /session/auth: invalid session -> 401', async () => {
     const session = makeSessionAdapter({ parse: async () => ({ ok: false }) });
     const service = makeFakeAuthService();
-    const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'], session });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+    });
 
-    const res = await callCf(handler, { method: 'GET', path: '/session/auth', origin: 'https://example.localhost' });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/session/auth',
+      origin: 'https://example.localhost',
+    });
 
     expect(res.status).toBe(401);
     expect(res.json?.authenticated).toBe(false);
   });
 
   test('POST /session/refresh: unauthorized maps to 401', async () => {
-    const session = makeSessionAdapter({ refresh: async () => ({ ok: false, code: 'unauthorized', message: 'no token' }) });
+    const session = makeSessionAdapter({
+      refresh: async () => ({ ok: false, code: 'unauthorized', message: 'no token' }),
+    });
     const service = makeFakeAuthService();
-    const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'], session });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+    });
 
     const res = await callCf(handler, {
       method: 'POST',
@@ -320,7 +367,10 @@ test.describe('relayer router (cloudflare) – P0', () => {
       buildClearCookie: () => 'w3a_session=; Path=/; Max-Age=0',
     });
     const service = makeFakeAuthService();
-    const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'], session });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+    });
 
     const res = await callCf(handler, {
       method: 'POST',

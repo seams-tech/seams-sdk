@@ -25,7 +25,9 @@ test.describe('threshold-ed25519 on-chain scope', () => {
     await setupThresholdE2ePage(page);
   });
 
-  test('rejects threshold signing when relayerKeyId is not an active access key', async ({ page }) => {
+  test('rejects threshold signing when relayerKeyId is not an active access key', async ({
+    page,
+  }) => {
     const keysOnChainClient = new Set<string>();
     const keysOnChainServer = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
@@ -37,7 +39,11 @@ test.describe('threshold-ed25519 on-chain scope', () => {
 
     const frontendOrigin = new URL(DEFAULT_TEST_CONFIG.frontendUrl).origin;
     const session = createInMemoryJwtSessionAdapter();
-    const router = createRelayRouter(service, { corsOrigins: [frontendOrigin], threshold, session });
+    const router = createRelayRouter(service, {
+      corsOrigins: [frontendOrigin],
+      threshold,
+      session,
+    });
     const srv = await startExpressRouter(router);
 
     const relayerCounts = { keygen: 0, session: 0, authorize: 0, init: 0, finalize: 0 };
@@ -92,52 +98,70 @@ test.describe('threshold-ed25519 on-chain scope', () => {
             keysOnChainClient.add(thresholdPublicKeyFromKeygen);
             nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
             if (localNearPublicKey) {
-              nonceByPublicKey.set(localNearPublicKey, (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1);
+              nonceByPublicKey.set(
+                localNearPublicKey,
+                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
+              );
             }
           }
         },
         strictAccessKeyLookup: true,
       });
 
-      const result = await page.evaluate(async ({ relayerUrl }) => {
-        try {
-          const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
-          const { ActionType } = await import('/sdk/esm/core/types/actions.js');
-          const suffix =
-            (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          const accountId = `e2escope${suffix}.w3a-v1.testnet`;
+      const result = await page.evaluate(
+        async ({ relayerUrl }) => {
+          try {
+            const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const { ActionType } = await import('/sdk/esm/core/types/actions.js');
+            const suffix =
+              typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const accountId = `e2escope${suffix}.w3a-v1.testnet`;
 
-          const pm = new TatchiPasskey({
-            nearNetwork: 'testnet',
-            nearRpcUrl: 'https://test.rpc.fastnear.com',
-            relayer: { url: relayerUrl },
-            iframeWallet: { walletOrigin: '' },
-          });
+            const pm = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayer: { url: relayerUrl },
+              iframeWallet: { walletOrigin: '' },
+            });
 
-          const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
+            const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 };
 
-          const reg = await pm.registration.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
-          if (!reg?.success) throw new Error(reg?.error || 'registration failed');
+            const reg = await pm.registration.registerPasskeyInternal(
+              accountId,
+              { signerMode: { mode: 'local-signer' } },
+              confirmConfig as any,
+            );
+            if (!reg?.success) throw new Error(reg?.error || 'registration failed');
 
-          const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-          if (!enrollment?.success) throw new Error(enrollment?.error || 'threshold enrollment failed');
+            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
+            if (!enrollment?.success)
+              throw new Error(enrollment?.error || 'threshold enrollment failed');
+            const login = await pm.auth.login(accountId);
+            if (!login?.success) throw new Error(login?.error || 'login failed');
 
-          await pm.near.signTransactionsWithActions({
-            nearAccountId: accountId,
-            transactions: [{
-              receiverId: 'w3a-v1.testnet',
-              actions: [{ type: ActionType.Transfer, amount: '1' }],
-            }],
-            options: { signerMode: { mode: 'threshold-signer', behavior: 'strict' }, confirmationConfig: confirmConfig as any },
-          });
+            await pm.near.signTransactionsWithActions({
+              nearAccountId: accountId,
+              transactions: [
+                {
+                  receiverId: 'w3a-v1.testnet',
+                  actions: [{ type: ActionType.Transfer, amount: '1' }],
+                },
+              ],
+              options: {
+                signerMode: { mode: 'threshold-signer', behavior: 'strict' },
+                confirmationConfig: confirmConfig as any,
+              },
+            });
 
-          return { ok: false, error: 'expected signing to fail but it succeeded' };
-        } catch (e: any) {
-          return { ok: true, error: e?.message || String(e) };
-        }
-      }, { relayerUrl: srv.baseUrl });
+            return { ok: false, error: 'expected signing to fail but it succeeded' };
+          } catch (e: any) {
+            return { ok: true, error: e?.message || String(e) };
+          }
+        },
+        { relayerUrl: srv.baseUrl },
+      );
 
       expect(result.ok).toBe(true);
       expect(String(result.error)).toContain('not an active access key');

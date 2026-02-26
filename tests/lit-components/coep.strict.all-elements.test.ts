@@ -35,7 +35,9 @@ function findExportIframeHostBundleFromDistRoot(distRoot: string): string | null
   return `/sdk/${(preferred ?? matches[0]).file}`;
 }
 
-test('COEP strict: all Lit elements define + upgrade without COEP/CORP violations', async ({ page }) => {
+test('COEP strict: all Lit elements define + upgrade without COEP/CORP violations', async ({
+  page,
+}) => {
   test.setTimeout(120_000);
   if (process.env.VITE_COEP_MODE !== 'strict') {
     test.skip(true, 'VITE_COEP_MODE is not strict');
@@ -62,7 +64,11 @@ test('COEP strict: all Lit elements define + upgrade without COEP/CORP violation
   await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
 
   const origin = (() => {
-    try { return new URL(page.url()).origin; } catch { return ''; }
+    try {
+      return new URL(page.url()).origin;
+    } catch {
+      return '';
+    }
   })();
   expect(origin).not.toBe('');
 
@@ -79,17 +85,29 @@ test('COEP strict: all Lit elements define + upgrade without COEP/CORP violation
   // then pick the export-iframe-host chunk from that folder. This avoids
   // mismatches when pnpm links the SDK into multiple locations.
   const sdkRootResp = await page.request.get(`${origin}/__sdk-root`);
-  expect(sdkRootResp.ok(), `expected /__sdk-root debug route to exist at ${origin} (${sdkRootResp.status()})`).toBeTruthy();
+  expect(
+    sdkRootResp.ok(),
+    `expected /__sdk-root debug route to exist at ${origin} (${sdkRootResp.status()})`,
+  ).toBeTruthy();
   const sdkDistRoot = (await sdkRootResp.text()).trim();
   expect(sdkDistRoot, 'expected /__sdk-root to return a dist root path').not.toBe('');
 
   const exportIframeHostBundle = findExportIframeHostBundleFromDistRoot(sdkDistRoot);
-  expect(exportIframeHostBundle, `export iframe host bundle not found in ${path.join(sdkDistRoot, 'esm', 'sdk')}`).not.toBeNull();
+  expect(
+    exportIframeHostBundle,
+    `export iframe host bundle not found in ${path.join(sdkDistRoot, 'esm', 'sdk')}`,
+  ).not.toBeNull();
   {
     const resp = await page.request.get(`${origin}${exportIframeHostBundle}`);
-    expect(resp.ok(), `export iframe host bundle not reachable: ${origin}${exportIframeHostBundle} (${resp.status()})`).toBeTruthy();
+    expect(
+      resp.ok(),
+      `export iframe host bundle not reachable: ${origin}${exportIframeHostBundle} (${resp.status()})`,
+    ).toBeTruthy();
     const ct = resp.headers()['content-type'] || '';
-    expect(ct.toLowerCase(), `export iframe host bundle has unexpected content-type: ${ct}`).toContain('javascript');
+    expect(
+      ct.toLowerCase(),
+      `export iframe host bundle has unexpected content-type: ${ct}`,
+    ).toContain('javascript');
   }
 
   // Prefer public/stable SDK bundles under `/sdk/*` (these are what integrators load).
@@ -98,21 +116,52 @@ test('COEP strict: all Lit elements define + upgrade without COEP/CORP violation
   const CASES: ElementCase[] = [
     // This wrapper bundle is what integrators typically load; it pulls in the confirmer variants
     // and their internal Lit element definitions (drawer/tree/halo/loading/etc).
-    { name: 'TxConfirmerWrapper', modulePath: '/sdk/w3a-tx-confirmer.js', tagName: 'w3a-tx-confirmer' },
+    {
+      name: 'TxConfirmerWrapper',
+      modulePath: '/sdk/w3a-tx-confirmer.js',
+      tagName: 'w3a-tx-confirmer',
+    },
     { name: 'Drawer', modulePath: '/sdk/w3a-tx-confirmer.js', tagName: 'w3a-drawer' },
     { name: 'TxTree', modulePath: '/sdk/w3a-tx-confirmer.js', tagName: 'w3a-tx-tree' },
-    { name: 'TxConfirmContent', modulePath: '/sdk/w3a-tx-confirmer.js', tagName: 'w3a-tx-confirm-content' },
-    { name: 'ModalTxConfirmer', modulePath: '/sdk/w3a-tx-confirmer.js', tagName: 'w3a-modal-tx-confirmer' },
-    { name: 'DrawerTxConfirmer', modulePath: '/sdk/w3a-tx-confirmer.js', tagName: 'w3a-drawer-tx-confirmer' },
+    {
+      name: 'TxConfirmContent',
+      modulePath: '/sdk/w3a-tx-confirmer.js',
+      tagName: 'w3a-tx-confirm-content',
+    },
+    {
+      name: 'ModalTxConfirmer',
+      modulePath: '/sdk/w3a-tx-confirmer.js',
+      tagName: 'w3a-modal-tx-confirmer',
+    },
+    {
+      name: 'DrawerTxConfirmer',
+      modulePath: '/sdk/w3a-tx-confirmer.js',
+      tagName: 'w3a-drawer-tx-confirmer',
+    },
     { name: 'HaloBorder', modulePath: '/sdk/w3a-tx-confirmer.js', tagName: 'w3a-halo-border' },
-    { name: 'PasskeyHaloLoading', modulePath: '/sdk/w3a-tx-confirmer.js', tagName: 'w3a-passkey-halo-loading' },
+    {
+      name: 'PasskeyHaloLoading',
+      modulePath: '/sdk/w3a-tx-confirmer.js',
+      tagName: 'w3a-passkey-halo-loading',
+    },
     { name: 'PadlockIcon', modulePath: '/sdk/w3a-tx-confirmer.js', tagName: 'w3a-padlock-icon' },
-    { name: 'ExportPrivateKeyViewer', modulePath: '/sdk/export-private-key-viewer.js', tagName: 'w3a-export-key-viewer' },
+    {
+      name: 'ExportPrivateKeyViewer',
+      modulePath: '/sdk/export-private-key-viewer.js',
+      tagName: 'w3a-export-key-viewer',
+    },
     {
       name: 'ExportViewerIframeHost',
       modulePath: exportIframeHostBundle as string,
       tagName: 'w3a-export-viewer-iframe',
-      mount: { props: { theme: 'dark', variant: 'drawer', accountId: 'demo.testnet', publicKey: 'ed25519:demo' } },
+      mount: {
+        props: {
+          theme: 'dark',
+          variant: 'drawer',
+          accountId: 'demo.testnet',
+          publicKey: 'ed25519:demo',
+        },
+      },
     },
   ];
 

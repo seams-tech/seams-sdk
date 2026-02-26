@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest, handleInfrastructureErrors, SDK_ESM_PATHS } from '../setup';
-import { buildWalletServiceHtml, registerWalletServiceRoute, waitFor, captureOverlay } from './harness';
+import {
+  buildWalletServiceHtml,
+  registerWalletServiceRoute,
+  waitFor,
+  captureOverlay,
+} from './harness';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
@@ -52,55 +57,63 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
 
   test('executeAction shows overlay then hides it after request timeout', async ({ page }) => {
     const routerPath = SDK_ESM_PATHS.walletIframeRouter;
-    const result = await page.evaluate(async ({ walletOrigin, waitForSource, captureOverlaySource, routerPath }) => {
-      const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
-      const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
-      try {
-        // Dynamically import the router from built ESM
-        const mod = await import(routerPath);
-        const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
+    const result = await page.evaluate(
+      async ({ walletOrigin, waitForSource, captureOverlaySource, routerPath }) => {
+        const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
+        const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
+        try {
+          // Dynamically import the router from built ESM
+          const mod = await import(routerPath);
+          const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
 
-        const router = new WalletIframeRouter({
-          walletOrigin,
-          servicePath: '/wallet-service',
-          connectTimeoutMs: 3000,
-          requestTimeoutMs: 200, // short timeout to exercise cleanup
-          debug: true,
-          sdkBasePath: '/sdk',
-        });
-        await router.init();
+          const router = new WalletIframeRouter({
+            walletOrigin,
+            servicePath: '/wallet-service',
+            connectTimeoutMs: 3000,
+            requestTimeoutMs: 200, // short timeout to exercise cleanup
+            debug: true,
+            sdkBasePath: '/sdk',
+          });
+          await router.init();
 
-        
+          // Fire-and-forget request that will time out since the stub never replies with PM_RESULT
+          const p = router
+            .executeAction({
+              nearAccountId: 'e2e_router_timeout.testnet',
+              receiverId: 'w3a-v1.testnet',
+              actionArgs: { type: 'Transfer', amount: '1' } as any,
+              options: { signerMode: { mode: 'local-signer' } },
+            })
+            .catch((e) => ({ ok: false, error: String(e?.message || e) }));
 
-        // Fire-and-forget request that will time out since the stub never replies with PM_RESULT
-	        const p = router.executeAction({
-	          nearAccountId: 'e2e_router_timeout.testnet',
-	          receiverId: 'w3a-v1.testnet',
-	          actionArgs: { type: 'Transfer', amount: '1' } as any,
-	          options: { signerMode: { mode: 'local-signer' } }
-	        }).catch((e) => ({ ok: false, error: String(e?.message || e) }));
+          // Expect overlay to become visible soon after posting
+          const shown = await waitFor(() => {
+            const s = capture();
+            return s.exists && s.visible;
+          }, 3000);
 
-        // Expect overlay to become visible soon after posting
-        const shown = await waitFor(() => {
-          const s = capture();
-          return s.exists && s.visible;
-        }, 3000);
+          // Wait for timeout path and cleanup
+          await p;
+          // Wait for overlay to contract (hide) after timeout cleanup
+          const hidden = await waitFor(() => {
+            const s = capture();
+            if (!s.exists) return true; // entirely removed counts as hidden
+            return !s.visible;
+          }, 3000);
+          const after = capture();
 
-        // Wait for timeout path and cleanup
-        await p;
-        // Wait for overlay to contract (hide) after timeout cleanup
-        const hidden = await waitFor(() => {
-          const s = capture();
-          if (!s.exists) return true; // entirely removed counts as hidden
-          return !s.visible;
-        }, 3000);
-        const after = capture();
-
-        return { success: true, shown, hidden, after };
-      } catch (error: any) {
-        return { success: false, error: error?.message || String(error) };
-      }
-    }, { walletOrigin: WALLET_ORIGIN, waitForSource: WAIT_FOR_SOURCE, captureOverlaySource: CAPTURE_OVERLAY_SOURCE, routerPath });
+          return { success: true, shown, hidden, after };
+        } catch (error: any) {
+          return { success: false, error: error?.message || String(error) };
+        }
+      },
+      {
+        walletOrigin: WALLET_ORIGIN,
+        waitForSource: WAIT_FOR_SOURCE,
+        captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
+        routerPath,
+      },
+    );
 
     if (!result.success) {
       if (handleInfrastructureErrors(result)) return;
@@ -116,7 +129,9 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
     expect(result.hidden).toBe(true);
   });
 
-  test('executeAction still times out when host keeps sending PROGRESS frames', async ({ page }) => {
+  test('executeAction still times out when host keeps sending PROGRESS frames', async ({
+    page,
+  }) => {
     await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
     const spamProgressHtml = buildWalletServiceHtml({
       extraScript: `
@@ -144,44 +159,49 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
     await registerWalletServiceRoute(page, spamProgressHtml, WALLET_SERVICE_ROUTE);
 
     const routerPath = SDK_ESM_PATHS.walletIframeRouter;
-    const result = await page.evaluate(async ({ walletOrigin, routerPath }) => {
-      try {
-        const mod = await import(routerPath);
-        const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
+    const result = await page.evaluate(
+      async ({ walletOrigin, routerPath }) => {
+        try {
+          const mod = await import(routerPath);
+          const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
 
-        const router = new WalletIframeRouter({
-          walletOrigin,
-          servicePath: '/wallet-service',
-          connectTimeoutMs: 3000,
-          requestTimeoutMs: 200,
-          debug: true,
-          sdkBasePath: '/sdk',
-        });
-        await router.init();
+          const router = new WalletIframeRouter({
+            walletOrigin,
+            servicePath: '/wallet-service',
+            connectTimeoutMs: 3000,
+            requestTimeoutMs: 200,
+            debug: true,
+            sdkBasePath: '/sdk',
+          });
+          await router.init();
 
-        const start = Date.now();
-        const outcome = await router.executeAction({
-          nearAccountId: 'e2e_router_progress_timeout.testnet',
-          receiverId: 'w3a-v1.testnet',
-          actionArgs: { type: 'Transfer', amount: '1' } as any,
-          options: { signerMode: { mode: 'local-signer' } },
-        }).then(
-          () => ({ ok: true as const }),
-          (error: unknown) => ({
-            ok: false as const,
+          const start = Date.now();
+          const outcome = await router
+            .executeAction({
+              nearAccountId: 'e2e_router_progress_timeout.testnet',
+              receiverId: 'w3a-v1.testnet',
+              actionArgs: { type: 'Transfer', amount: '1' } as any,
+              options: { signerMode: { mode: 'local-signer' } },
+            })
+            .then(
+              () => ({ ok: true as const }),
+              (error: unknown) => ({
+                ok: false as const,
+                error: String((error as { message?: unknown })?.message || error || ''),
+                elapsedMs: Date.now() - start,
+              }),
+            );
+
+          return { success: true as const, outcome };
+        } catch (error: unknown) {
+          return {
+            success: false as const,
             error: String((error as { message?: unknown })?.message || error || ''),
-            elapsedMs: Date.now() - start,
-          }),
-        );
-
-        return { success: true as const, outcome };
-      } catch (error: unknown) {
-        return {
-          success: false as const,
-          error: String((error as { message?: unknown })?.message || error || ''),
-        };
-      }
-    }, { walletOrigin: WALLET_ORIGIN, routerPath });
+          };
+        }
+      },
+      { walletOrigin: WALLET_ORIGIN, routerPath },
+    );
 
     if (!result.success) {
       if (handleInfrastructureErrors(result)) return;
@@ -207,43 +227,48 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
     );
 
     const routerPath = SDK_ESM_PATHS.walletIframeRouter;
-    const result = await page.evaluate(async ({ walletOrigin, routerPath }) => {
-      try {
-        const mod = await import(routerPath);
-        const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
+    const result = await page.evaluate(
+      async ({ walletOrigin, routerPath }) => {
+        try {
+          const mod = await import(routerPath);
+          const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
 
-        const router = new WalletIframeRouter({
-          walletOrigin,
-          servicePath: '/wallet-service',
-          connectTimeoutMs: 3000,
-          requestTimeoutMs: 800,
-          debug: true,
-          sdkBasePath: '/sdk',
-        });
-        await router.init();
+          const router = new WalletIframeRouter({
+            walletOrigin,
+            servicePath: '/wallet-service',
+            connectTimeoutMs: 3000,
+            requestTimeoutMs: 800,
+            debug: true,
+            sdkBasePath: '/sdk',
+          });
+          await router.init();
 
-        const outcome = await (router as any).signTempo({
-          nearAccountId: 'alice.testnet',
-          request: {
-            chain: 'evm',
-            kind: 'eip1559',
-            senderSignatureAlgorithm: 'secp256k1',
-            tx: {},
-          },
-        }).then(
-          () => ({ ok: true as const }),
-          (error: any) => ({
-            ok: false as const,
-            code: String(error?.code || ''),
-            message: String(error?.message || ''),
-          }),
-        );
+          const outcome = await (router as any)
+            .signTempo({
+              nearAccountId: 'alice.testnet',
+              request: {
+                chain: 'evm',
+                kind: 'eip1559',
+                senderSignatureAlgorithm: 'secp256k1',
+                tx: {},
+              },
+            })
+            .then(
+              () => ({ ok: true as const }),
+              (error: any) => ({
+                ok: false as const,
+                code: String(error?.code || ''),
+                message: String(error?.message || ''),
+              }),
+            );
 
-        return { success: true as const, outcome };
-      } catch (error: any) {
-        return { success: false as const, error: error?.message || String(error) };
-      }
-    }, { walletOrigin: WALLET_ORIGIN, routerPath });
+          return { success: true as const, outcome };
+        } catch (error: any) {
+          return { success: false as const, error: error?.message || String(error) };
+        }
+      },
+      { walletOrigin: WALLET_ORIGIN, routerPath },
+    );
 
     if (!result.success) {
       if (handleInfrastructureErrors(result)) return;
@@ -258,5 +283,4 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
     expect(result.outcome.message).toContain('bootstrapEcdsaSession');
     expect(result.outcome.message).not.toContain('missing canonical threshold ECDSA session');
   });
-
 });

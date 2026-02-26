@@ -211,4 +211,83 @@ test.describe('TatchiPasskey chain signer modules', () => {
     expect(tempoCalls[0]?.options?.chain).toBe('tempo');
     expect(evmCalls[0]?.options?.chain).toBe('evm');
   });
+
+  test('TempoSigner.reportBroadcastResult forwards args in non-iframe mode', async () => {
+    let capturedArgs: any = null;
+    const signer = new TempoSigner({
+      getContext: () =>
+        ({
+          signingEngine: {
+            reportTempoBroadcastResult: async (args: any) => {
+              capturedArgs = args;
+            },
+          },
+        }) as any,
+      walletIframe: {
+        shouldUseWalletIframe: () => false,
+        requireRouter: async () => {
+          throw new Error('should not call router in non-iframe mode');
+        },
+      },
+    });
+
+    const signedResult = {
+      chain: 'evm',
+      kind: 'eip1559',
+      txHashHex: '0x1',
+      rawTxHex: '0x2',
+    } as any;
+    const onEvent = () => undefined;
+
+    await signer.reportBroadcastResult({
+      nearAccountId: 'alice.testnet',
+      signedResult,
+      status: 'failure',
+      error: { code: 'nonce too low', message: 'nonce too low' },
+      options: { onEvent },
+    });
+
+    expect(capturedArgs?.nearAccountId).toBe('alice.testnet');
+    expect(capturedArgs?.signedResult).toEqual(signedResult);
+    expect(capturedArgs?.status).toBe('failure');
+    expect(capturedArgs?.error?.code).toContain('nonce');
+    expect(capturedArgs?.onEvent).toBe(onEvent);
+  });
+
+  test('TempoSigner.reportBroadcastResult serializes errors in iframe mode', async () => {
+    const routerCalls: any[] = [];
+    const signer = new TempoSigner({
+      getContext: () => ({}) as any,
+      walletIframe: {
+        shouldUseWalletIframe: () => true,
+        requireRouter: async () =>
+          ({
+            reportTempoBroadcastResult: async (args: any) => {
+              routerCalls.push(args);
+            },
+          }) as any,
+      },
+    });
+
+    const error: any = new Error('replacement transaction underpriced');
+    error.code = 'nonce_conflict_retryable';
+
+    await signer.reportBroadcastResult({
+      nearAccountId: 'alice.testnet',
+      signedResult: {
+        chain: 'tempo',
+        kind: 'tempoTransaction',
+        senderHashHex: '0x3',
+        rawTxHex: '0x4',
+      } as any,
+      status: 'failure',
+      error,
+    });
+
+    expect(routerCalls).toHaveLength(1);
+    expect(routerCalls[0]?.nearAccountId).toBe('alice.testnet');
+    expect(routerCalls[0]?.status).toBe('failure');
+    expect(routerCalls[0]?.error?.code).toBe('nonce_conflict_retryable');
+    expect(String(routerCalls[0]?.error?.message || '')).toContain('underpriced');
+  });
 });

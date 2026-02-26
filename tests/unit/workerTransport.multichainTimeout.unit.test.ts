@@ -36,7 +36,8 @@ test.describe('WorkerTransport multichain timeout guard', () => {
   test('tempo signer request fails with TIMEOUT when worker does not respond', async () => {
     const originalWorker = globalThis.Worker;
     NonResponsiveWorker.instances.length = 0;
-    (globalThis as unknown as { Worker: typeof Worker }).Worker = NonResponsiveWorker as unknown as typeof Worker;
+    (globalThis as unknown as { Worker: typeof Worker }).Worker =
+      NonResponsiveWorker as unknown as typeof Worker;
 
     try {
       const transport = new WorkerTransport();

@@ -313,7 +313,9 @@ test.describe('console webhooks postgres service', () => {
     expect(String(deliveriesPageTwo.nextCursor || '')).toBe('');
 
     const attemptsPageOne = await service!.listAttempts(ctx, endpoint.id, { limit: 2 });
-    expect(attemptsPageOne.items.map((entry) => entry.deliveryId)).toEqual(expectedOrder.slice(0, 2));
+    expect(attemptsPageOne.items.map((entry) => entry.deliveryId)).toEqual(
+      expectedOrder.slice(0, 2),
+    );
     expect(String(attemptsPageOne.nextCursor || '')).toBeTruthy();
 
     const attemptsPageTwo = await service!.listAttempts(ctx, endpoint.id, {
@@ -324,14 +326,18 @@ test.describe('console webhooks postgres service', () => {
     expect(String(attemptsPageTwo.nextCursor || '')).toBe('');
 
     const deadLettersPageOne = await service!.listDeadLetters(ctx, endpoint.id, { limit: 2 });
-    expect(deadLettersPageOne.items.map((entry) => entry.deliveryId)).toEqual(expectedOrder.slice(0, 2));
+    expect(deadLettersPageOne.items.map((entry) => entry.deliveryId)).toEqual(
+      expectedOrder.slice(0, 2),
+    );
     expect(String(deadLettersPageOne.nextCursor || '')).toBeTruthy();
 
     const deadLettersPageTwo = await service!.listDeadLetters(ctx, endpoint.id, {
       limit: 2,
       cursor: deadLettersPageOne.nextCursor,
     });
-    expect(deadLettersPageTwo.items.map((entry) => entry.deliveryId)).toEqual(expectedOrder.slice(2));
+    expect(deadLettersPageTwo.items.map((entry) => entry.deliveryId)).toEqual(
+      expectedOrder.slice(2),
+    );
     expect(String(deadLettersPageTwo.nextCursor || '')).toBe('');
   });
 
@@ -439,30 +445,42 @@ test.describe('console webhooks postgres service', () => {
     const expectedDeliveryOrder = ['whd_pg_tie_b', 'whd_pg_tie_a'];
 
     const deliveriesPageOne = await service!.listDeliveries(ctx, endpoint.id, { limit: 1 });
-    expect(deliveriesPageOne.items.map((entry) => entry.id)).toEqual(expectedDeliveryOrder.slice(0, 1));
+    expect(deliveriesPageOne.items.map((entry) => entry.id)).toEqual(
+      expectedDeliveryOrder.slice(0, 1),
+    );
     const deliveriesPageTwo = await service!.listDeliveries(ctx, endpoint.id, {
       limit: 1,
       cursor: deliveriesPageOne.nextCursor,
     });
-    expect(deliveriesPageTwo.items.map((entry) => entry.id)).toEqual(expectedDeliveryOrder.slice(1));
+    expect(deliveriesPageTwo.items.map((entry) => entry.id)).toEqual(
+      expectedDeliveryOrder.slice(1),
+    );
     expect(String(deliveriesPageTwo.nextCursor || '')).toBe('');
 
     const attemptsPageOne = await service!.listAttempts(ctx, endpoint.id, { limit: 1 });
-    expect(attemptsPageOne.items.map((entry) => entry.deliveryId)).toEqual(expectedDeliveryOrder.slice(0, 1));
+    expect(attemptsPageOne.items.map((entry) => entry.deliveryId)).toEqual(
+      expectedDeliveryOrder.slice(0, 1),
+    );
     const attemptsPageTwo = await service!.listAttempts(ctx, endpoint.id, {
       limit: 1,
       cursor: attemptsPageOne.nextCursor,
     });
-    expect(attemptsPageTwo.items.map((entry) => entry.deliveryId)).toEqual(expectedDeliveryOrder.slice(1));
+    expect(attemptsPageTwo.items.map((entry) => entry.deliveryId)).toEqual(
+      expectedDeliveryOrder.slice(1),
+    );
     expect(String(attemptsPageTwo.nextCursor || '')).toBe('');
 
     const deadLettersPageOne = await service!.listDeadLetters(ctx, endpoint.id, { limit: 1 });
-    expect(deadLettersPageOne.items.map((entry) => entry.deliveryId)).toEqual(expectedDeliveryOrder.slice(0, 1));
+    expect(deadLettersPageOne.items.map((entry) => entry.deliveryId)).toEqual(
+      expectedDeliveryOrder.slice(0, 1),
+    );
     const deadLettersPageTwo = await service!.listDeadLetters(ctx, endpoint.id, {
       limit: 1,
       cursor: deadLettersPageOne.nextCursor,
     });
-    expect(deadLettersPageTwo.items.map((entry) => entry.deliveryId)).toEqual(expectedDeliveryOrder.slice(1));
+    expect(deadLettersPageTwo.items.map((entry) => entry.deliveryId)).toEqual(
+      expectedDeliveryOrder.slice(1),
+    );
     expect(String(deadLettersPageTwo.nextCursor || '')).toBe('');
   });
 

@@ -11,31 +11,34 @@ test.describe('OverlayController', () => {
   });
 
   test('showFullscreen → visible + interactive, hide → invisible + inert', async ({ page }) => {
-    const res = await page.evaluate(async ({ paths }) => {
-      const mod = await import(paths.overlay);
-      const OverlayController = (mod as any).OverlayController || (mod as any).default;
-      const iframe = document.createElement('iframe');
-      document.body.appendChild(iframe);
-      const overlay = new OverlayController({ ensureIframe: () => iframe });
+    const res = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.overlay);
+        const OverlayController = (mod as any).OverlayController || (mod as any).default;
+        const iframe = document.createElement('iframe');
+        document.body.appendChild(iframe);
+        const overlay = new OverlayController({ ensureIframe: () => iframe });
 
-      overlay.showFullscreen();
-      const afterShow = {
-        pointerEvents: getComputedStyle(iframe).pointerEvents,
-        ariaHidden: iframe.getAttribute('aria-hidden'),
-        opacity: getComputedStyle(iframe).opacity,
-      };
+        overlay.showFullscreen();
+        const afterShow = {
+          pointerEvents: getComputedStyle(iframe).pointerEvents,
+          ariaHidden: iframe.getAttribute('aria-hidden'),
+          opacity: getComputedStyle(iframe).opacity,
+        };
 
-      overlay.hide();
-      const afterHide = {
-        pointerEvents: getComputedStyle(iframe).pointerEvents,
-        ariaHidden: iframe.getAttribute('aria-hidden'),
-        width: getComputedStyle(iframe).width,
-        height: getComputedStyle(iframe).height,
-        opacity: getComputedStyle(iframe).opacity,
-      };
+        overlay.hide();
+        const afterHide = {
+          pointerEvents: getComputedStyle(iframe).pointerEvents,
+          ariaHidden: iframe.getAttribute('aria-hidden'),
+          width: getComputedStyle(iframe).width,
+          height: getComputedStyle(iframe).height,
+          opacity: getComputedStyle(iframe).opacity,
+        };
 
-      return { afterShow, afterHide };
-    }, { paths: IMPORT_PATHS });
+        return { afterShow, afterHide };
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     expect(res.afterShow.pointerEvents).toBe('auto');
     expect(res.afterShow.ariaHidden).toBe('false');
@@ -49,37 +52,40 @@ test.describe('OverlayController', () => {
   });
 
   test('anchored positioning and sticky prevents hide', async ({ page }) => {
-    const res = await page.evaluate(async ({ paths }) => {
-      const mod = await import(paths.overlay);
-      const OverlayController = (mod as any).OverlayController || (mod as any).default;
-      const iframe = document.createElement('iframe');
-      document.body.appendChild(iframe);
-      const overlay = new OverlayController({ ensureIframe: () => iframe });
+    const res = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.overlay);
+        const OverlayController = (mod as any).OverlayController || (mod as any).default;
+        const iframe = document.createElement('iframe');
+        document.body.appendChild(iframe);
+        const overlay = new OverlayController({ ensureIframe: () => iframe });
 
-      overlay.showAnchored({ top: 10, left: 12, width: 123, height: 45 });
-      const anchored = {
-        top: getComputedStyle(iframe).top,
-        left: getComputedStyle(iframe).left,
-        width: getComputedStyle(iframe).width,
-        height: getComputedStyle(iframe).height,
-        ariaHidden: iframe.getAttribute('aria-hidden'),
-        pointerEvents: getComputedStyle(iframe).pointerEvents,
-      };
+        overlay.showAnchored({ top: 10, left: 12, width: 123, height: 45 });
+        const anchored = {
+          top: getComputedStyle(iframe).top,
+          left: getComputedStyle(iframe).left,
+          width: getComputedStyle(iframe).width,
+          height: getComputedStyle(iframe).height,
+          ariaHidden: iframe.getAttribute('aria-hidden'),
+          pointerEvents: getComputedStyle(iframe).pointerEvents,
+        };
 
-      overlay.setSticky(true);
-      overlay.hide(); // should be ignored due to sticky
-      const stateAfterHideAttempt = overlay.getState();
+        overlay.setSticky(true);
+        overlay.hide(); // should be ignored due to sticky
+        const stateAfterHideAttempt = overlay.getState();
 
-      overlay.setAnchoredRect({ top: 20, left: 22, width: 150, height: 60 });
-      const afterUpdate = {
-        top: getComputedStyle(iframe).top,
-        left: getComputedStyle(iframe).left,
-        width: getComputedStyle(iframe).width,
-        height: getComputedStyle(iframe).height,
-      };
+        overlay.setAnchoredRect({ top: 20, left: 22, width: 150, height: 60 });
+        const afterUpdate = {
+          top: getComputedStyle(iframe).top,
+          left: getComputedStyle(iframe).left,
+          width: getComputedStyle(iframe).width,
+          height: getComputedStyle(iframe).height,
+        };
 
-      return { anchored, stateAfterHideAttempt, afterUpdate };
-    }, { paths: IMPORT_PATHS });
+        return { anchored, stateAfterHideAttempt, afterUpdate };
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     expect(res.anchored.top).toBe('10px');
     expect(res.anchored.left).toBe('12px');

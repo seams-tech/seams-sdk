@@ -29,7 +29,9 @@ test.describe('threshold-ed25519 session exhaustion', () => {
     await setupThresholdE2ePage(page);
   });
 
-  test('fails fast when exhausted and succeeds after explicit login reconnect', async ({ page }) => {
+  test('fails fast when exhausted and succeeds after explicit login reconnect', async ({
+    page,
+  }) => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
     let localNearPublicKey = '';
@@ -41,7 +43,11 @@ test.describe('threshold-ed25519 session exhaustion', () => {
 
     const session = createInMemoryJwtSessionAdapter();
     const frontendOrigin = new URL(DEFAULT_TEST_CONFIG.frontendUrl).origin;
-    const router = createRelayRouter(service, { corsOrigins: [frontendOrigin], threshold, session });
+    const router = createRelayRouter(service, {
+      corsOrigins: [frontendOrigin],
+      threshold,
+      session,
+    });
     const srv = await startExpressRouter(router);
 
     const relayerCounts = { keygen: 0, session: 0, authorize: 0, init: 0, finalize: 0 };
@@ -58,21 +64,27 @@ test.describe('threshold-ed25519 session exhaustion', () => {
     try {
       onAuthorizeResponse = (resp: any) => {
         try {
-          if (typeof resp?.url !== 'function' || resp.url() !== `${srv.baseUrl}/threshold-ed25519/authorize`) return;
+          if (
+            typeof resp?.url !== 'function' ||
+            resp.url() !== `${srv.baseUrl}/threshold-ed25519/authorize`
+          )
+            return;
           const req = typeof resp?.request === 'function' ? resp.request() : null;
           if (!req || typeof req.method !== 'function') return;
           if (req.method().toUpperCase() !== 'POST') return;
 
-          authorizeResponsePromises.push((async () => {
-            const status = typeof resp.status === 'function' ? resp.status() : 0;
-            const text = typeof resp.text === 'function' ? await resp.text() : '';
-            let message = '';
-            try {
-              message = String(JSON.parse(text || '{}')?.message || '');
-            } catch { }
-            authorizeResponses.push({ status, message });
-          })());
-        } catch { }
+          authorizeResponsePromises.push(
+            (async () => {
+              const status = typeof resp.status === 'function' ? resp.status() : 0;
+              const text = typeof resp.text === 'function' ? await resp.text() : '';
+              let message = '';
+              try {
+                message = String(JSON.parse(text || '{}')?.message || '');
+              } catch {}
+              authorizeResponses.push({ status, message });
+            })(),
+          );
+        } catch {}
       };
 
       page.on('response', onAuthorizeResponse);
@@ -86,8 +98,9 @@ test.describe('threshold-ed25519 session exhaustion', () => {
             const sessionId = String(body?.sessionPolicy?.sessionId || '').trim();
             if (sessionId) thresholdSessionPolicySessionIds.push(sessionId);
             const remainingUses = Number(body?.sessionPolicy?.remainingUses);
-            if (Number.isFinite(remainingUses)) thresholdSessionPolicyRemainingUses.push(remainingUses);
-          } catch { }
+            if (Number.isFinite(remainingUses))
+              thresholdSessionPolicyRemainingUses.push(remainingUses);
+          } catch {}
         }
         await route.fallback();
       });
@@ -106,7 +119,7 @@ test.describe('threshold-ed25519 session exhaustion', () => {
         let body: Record<string, unknown> = {};
         try {
           body = JSON.parse(req.postData() || '{}');
-        } catch { }
+        } catch {}
 
         authorizeRequests.push({ authHeader, body });
         await route.fallback();
@@ -155,7 +168,10 @@ test.describe('threshold-ed25519 session exhaustion', () => {
             keysOnChain.add(thresholdPublicKeyFromKeygen);
             nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
             if (localNearPublicKey) {
-              nonceByPublicKey.set(localNearPublicKey, (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1);
+              nonceByPublicKey.set(
+                localNearPublicKey,
+                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
+              );
             }
           }
         },
@@ -170,114 +186,133 @@ test.describe('threshold-ed25519 session exhaustion', () => {
 
       type SessionExhaustionResult =
         | {
-          ok: true;
-          accountId: string;
-          localPublicKey: string;
-          thresholdPublicKey: string;
-          txInput: { receiverId: string; wasmActions: unknown[] };
-          secondFailureMessage: string;
-          signed1: ExtractedSignedTx;
-          signed2: ExtractedSignedTx;
-        }
+            ok: true;
+            accountId: string;
+            localPublicKey: string;
+            thresholdPublicKey: string;
+            txInput: { receiverId: string; wasmActions: unknown[] };
+            secondFailureMessage: string;
+            signed1: ExtractedSignedTx;
+            signed2: ExtractedSignedTx;
+          }
         | { ok: false; error: string };
 
-      const result = await page.evaluate(async ({ relayerUrl }) => {
-        let stage = 'init';
-        try {
-          const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
-          const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
-          const suffix =
-            (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          const accountId = `e2esess${suffix}.w3a-v1.testnet`;
-
-          const pm = new TatchiPasskey({
-            nearNetwork: 'testnet',
-            nearRpcUrl: 'https://test.rpc.fastnear.com',
-            relayer: { url: relayerUrl },
-            signerMode: { mode: 'threshold-signer' },
-            signingSessionDefaults: { ttlMs: 60_000, remainingUses: 1 },
-            iframeWallet: { walletOrigin: '' },
-          });
-
-          const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 };
-
-          stage = 'register';
-          const reg = await pm.registration.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
-          if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
-
-          stage = 'enroll';
-          const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-          if (!enrollment?.success) return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
-
-          stage = 'login';
-          const login = await pm.auth.login(accountId);
-          if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
-
-          const receiverId = 'w3a-v1.testnet';
-          const actions = [{ type: ActionType.Transfer, amount: '1' }];
-          const wasmActions = actions.map(toActionArgsWasm);
-
-          const signOnce = async () => {
-            const signed = await pm.near.signTransactionsWithActions({
-              nearAccountId: accountId,
-              transactions: [{ receiverId, actions }],
-              options: { signerMode: { mode: 'threshold-signer', behavior: 'strict' }, confirmationConfig: confirmConfig as any },
-            });
-            if (!Array.isArray(signed) || signed.length !== 1) {
-              throw new Error(`expected 1 signed tx, got ${Array.isArray(signed) ? signed.length : 'non-array'}`);
-            }
-            const signedTx: any = signed[0]?.signedTransaction;
-            const signatureData = signedTx?.signature?.signatureData;
-            const tx = signedTx?.transaction;
-            if (!tx || !signatureData) {
-              throw new Error('invalid signed transaction shape');
-            }
-            return {
-              nonce: typeof tx.nonce === 'bigint' ? tx.nonce.toString() : String(tx.nonce || ''),
-              blockHash: Array.from(tx.blockHash || []) as number[],
-              signature: Array.from(signatureData) as number[],
-            };
-          };
-
-          stage = 'sign-1';
-          const signed1 = await signOnce();
-          let secondFailureMessage = '';
+      const result = (await page.evaluate(
+        async ({ relayerUrl }) => {
+          let stage = 'init';
           try {
-            stage = 'sign-2';
-            await signOnce();
+            const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
+            const suffix =
+              typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const accountId = `e2esess${suffix}.w3a-v1.testnet`;
+
+            const pm = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayer: { url: relayerUrl },
+              signerMode: { mode: 'threshold-signer' },
+              signingSessionDefaults: { ttlMs: 60_000, remainingUses: 1 },
+              iframeWallet: { walletOrigin: '' },
+            });
+
+            const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 };
+
+            stage = 'register';
+            const reg = await pm.registration.registerPasskeyInternal(
+              accountId,
+              { signerMode: { mode: 'local-signer' } },
+              confirmConfig as any,
+            );
+            if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
+
+            stage = 'enroll';
+            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
+            if (!enrollment?.success)
+              return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
+
+            stage = 'login';
+            const login = await pm.auth.login(accountId);
+            if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
+
+            const receiverId = 'w3a-v1.testnet';
+            const actions = [{ type: ActionType.Transfer, amount: '1' }];
+            const wasmActions = actions.map(toActionArgsWasm);
+
+            const signOnce = async () => {
+              const signed = await pm.near.signTransactionsWithActions({
+                nearAccountId: accountId,
+                transactions: [{ receiverId, actions }],
+                options: {
+                  signerMode: { mode: 'threshold-signer', behavior: 'strict' },
+                  confirmationConfig: confirmConfig as any,
+                },
+              });
+              if (!Array.isArray(signed) || signed.length !== 1) {
+                throw new Error(
+                  `expected 1 signed tx, got ${Array.isArray(signed) ? signed.length : 'non-array'}`,
+                );
+              }
+              const signedTx: any = signed[0]?.signedTransaction;
+              const signatureData = signedTx?.signature?.signatureData;
+              const tx = signedTx?.transaction;
+              if (!tx || !signatureData) {
+                throw new Error('invalid signed transaction shape');
+              }
+              return {
+                nonce: typeof tx.nonce === 'bigint' ? tx.nonce.toString() : String(tx.nonce || ''),
+                blockHash: Array.from(tx.blockHash || []) as number[],
+                signature: Array.from(signatureData) as number[],
+              };
+            };
+
+            stage = 'sign-1';
+            const signed1 = await signOnce();
+            let secondFailureMessage = '';
+            try {
+              stage = 'sign-2';
+              await signOnce();
+            } catch (e: any) {
+              secondFailureMessage = String(e?.message || e || '');
+            }
+            if (!secondFailureMessage) {
+              throw new Error(
+                'expected second sign attempt to fail when warm session is exhausted',
+              );
+            }
+            if (
+              !/threshold signingSession is (not_found|exhausted|expired)/i.test(
+                secondFailureMessage,
+              )
+            ) {
+              throw new Error(`unexpected second sign failure: ${secondFailureMessage}`);
+            }
+
+            stage = 'relogin';
+            const relogin = await pm.auth.login(accountId);
+            if (!relogin?.success) return { ok: false, error: relogin?.error || 'relogin failed' };
+
+            stage = 'sign-3';
+            const signed2 = await signOnce();
+
+            return {
+              ok: true,
+              accountId,
+              localPublicKey: String(reg.clientNearPublicKey || ''),
+              thresholdPublicKey: String(enrollment.publicKey || ''),
+              txInput: { receiverId, wasmActions },
+              secondFailureMessage,
+              signed1,
+              signed2,
+            };
           } catch (e: any) {
-            secondFailureMessage = String(e?.message || e || '');
+            return { ok: false, error: `[${stage}] ${e?.message || String(e)}` };
           }
-          if (!secondFailureMessage) {
-            throw new Error('expected second sign attempt to fail when warm session is exhausted');
-          }
-          if (!/threshold signingSession is (not_found|exhausted|expired)/i.test(secondFailureMessage)) {
-            throw new Error(`unexpected second sign failure: ${secondFailureMessage}`);
-          }
-
-          stage = 'relogin';
-          const relogin = await pm.auth.login(accountId);
-          if (!relogin?.success) return { ok: false, error: relogin?.error || 'relogin failed' };
-
-          stage = 'sign-3';
-          const signed2 = await signOnce();
-
-          return {
-            ok: true,
-            accountId,
-            localPublicKey: String(reg.clientNearPublicKey || ''),
-            thresholdPublicKey: String(enrollment.publicKey || ''),
-            txInput: { receiverId, wasmActions },
-            secondFailureMessage,
-            signed1,
-            signed2,
-          };
-        } catch (e: any) {
-          return { ok: false, error: `[${stage}] ${e?.message || String(e)}` };
-        }
-      }, { relayerUrl: srv.baseUrl }) as SessionExhaustionResult;
+        },
+        { relayerUrl: srv.baseUrl },
+      )) as SessionExhaustionResult;
 
       if (!result.ok) {
         throw new Error(`session exhaustion test failed: ${result.error || 'unknown'}`);
@@ -286,7 +321,9 @@ test.describe('threshold-ed25519 session exhaustion', () => {
       expect(sendTxCount).toBe(1);
       expect(relayerCounts.keygen).toBe(1);
       expect(relayerCounts.session).toBe(2);
-      expect(result.secondFailureMessage).toMatch(/threshold signingSession is (not_found|exhausted|expired)/i);
+      expect(result.secondFailureMessage).toMatch(
+        /threshold signingSession is (not_found|exhausted|expired)/i,
+      );
       expect(relayerCounts.authorize).toBeGreaterThanOrEqual(2);
       expect(relayerCounts.authorize).toBeLessThanOrEqual(3);
       expect(relayerCounts.init).toBe(2);
@@ -328,11 +365,13 @@ test.describe('threshold-ed25519 session exhaustion', () => {
       const computeDigest = (signed: { nonce: string; blockHash: number[] }): Uint8Array => {
         const signingPayload = {
           kind: 'near_tx',
-          txSigningRequests: [{
-            nearAccountId: String(result.accountId),
-            receiverId: String(result.txInput.receiverId),
-            actions: result.txInput.wasmActions,
-          }],
+          txSigningRequests: [
+            {
+              nearAccountId: String(result.accountId),
+              receiverId: String(result.txInput.receiverId),
+              actions: result.txInput.wasmActions,
+            },
+          ],
           transactionContext: {
             nearPublicKeyStr: thresholdPkStr,
             nextNonce: String(signed.nonce),
@@ -341,7 +380,8 @@ test.describe('threshold-ed25519 session exhaustion', () => {
           },
         };
 
-        const digestsUnknown: unknown = threshold_ed25519_compute_near_tx_signing_digests(signingPayload);
+        const digestsUnknown: unknown =
+          threshold_ed25519_compute_near_tx_signing_digests(signingPayload);
         if (!Array.isArray(digestsUnknown) || digestsUnknown.length === 0) {
           throw new Error('Expected a non-empty signing digests array');
         }
@@ -352,7 +392,11 @@ test.describe('threshold-ed25519 session exhaustion', () => {
         return digest0;
       };
 
-      const verifySigned = (signed: { nonce: string; blockHash: number[]; signature: number[] }): void => {
+      const verifySigned = (signed: {
+        nonce: string;
+        blockHash: number[];
+        signature: number[];
+      }): void => {
         const digest = computeDigest(signed);
         const sigBytes = Uint8Array.from(signed.signature);
         expect(sigBytes.length).toBe(64);

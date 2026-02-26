@@ -56,12 +56,14 @@ function createLocalDomain(options?: {
 
   const context = {
     configs: {
-      relayer: {
-        url: 'https://relay.example.test',
-        emailRecovery: {
-          mailtoAddress: 'recovery@example.test',
-          pollingIntervalMs: 1,
-          maxPollingDurationMs: 10,
+      network: {
+        relayer: {
+          url: 'https://relay.example.test',
+          emailRecovery: {
+            mailtoAddress: 'recovery@example.test',
+            pollingIntervalMs: 1,
+            maxPollingDurationMs: 10,
+          },
         },
       },
     },
@@ -128,18 +130,23 @@ test.describe('EmailRecoveryDomain', () => {
       globalThis.fetch = (async (input: unknown) => {
         const url = String((input as any)?.url || input);
         if (!url.endsWith('/email-recovery/prepare')) {
-          return new Response(JSON.stringify({ ok: false, error: 'unexpected_url' }), { status: 404 });
+          return new Response(JSON.stringify({ ok: false, error: 'unexpected_url' }), {
+            status: 404,
+          });
         }
-        return new Response(JSON.stringify({
-          ok: true,
-          thresholdEd25519: {
-            publicKey: 'ed25519:recovery-key',
-            relayerKeyId: 'relayer-key-1',
-            relayerVerifyingShareB64u: 'relayer-share',
-            clientParticipantId: 1,
-            relayerParticipantId: 2,
-          },
-        }), { status: 200 });
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            thresholdEd25519: {
+              publicKey: 'ed25519:recovery-key',
+              relayerKeyId: 'relayer-key-1',
+              relayerVerifyingShareB64u: 'relayer-share',
+              clientParticipantId: 1,
+              relayerParticipantId: 2,
+            },
+          }),
+          { status: 200 },
+        );
       }) as any;
       (IndexedDBManager as any).storeNearThresholdKeyMaterial = async (input: any) => {
         thresholdMaterialWrites.push(input);
@@ -296,15 +303,19 @@ test.describe('EmailRecoveryDomain', () => {
         confirmationConfig: { uiMode: 'modal' },
       },
     });
-    expect(calls.finalize).toEqual([{
-      accountId: 'alice.testnet',
-      nearPublicKey: 'ed25519:router-key',
-      onEvent: expect.any(Function),
-    }]);
-    expect(calls.cancel).toEqual([{
-      accountId: 'alice.testnet',
-      nearPublicKey: 'ed25519:router-key',
-    }]);
+    expect(calls.finalize).toEqual([
+      {
+        accountId: 'alice.testnet',
+        nearPublicKey: 'ed25519:router-key',
+        onEvent: expect.any(Function),
+      },
+    ]);
+    expect(calls.cancel).toEqual([
+      {
+        accountId: 'alice.testnet',
+        nearPublicKey: 'ed25519:router-key',
+      },
+    ]);
     expect(events).toEqual([]);
     expect(localContextTouched).toBe(false);
   });

@@ -33,7 +33,7 @@ const test = base.extend<Fixtures>({
 
     const withTestUtils = async <T, A = undefined>(
       callback: (arg: A) => Promise<T> | T,
-      arg?: A
+      arg?: A,
     ): Promise<T> => {
       if (!hasSetupRun) {
         await ensureSetup();
@@ -55,16 +55,17 @@ const test = base.extend<Fixtures>({
       messages: () => [...capture.messages],
       clear: () => {
         capture.messages.length = 0;
-      }
+      },
     });
 
     capture.stop();
 
-    const verbose = process.env.VERBOSE_TEST_LOGS === '1' || process.env.VERBOSE_TEST_LOGS === 'true';
+    const verbose =
+      process.env.VERBOSE_TEST_LOGS === '1' || process.env.VERBOSE_TEST_LOGS === 'true';
     if (testInfo.status !== 'passed' || verbose) {
       capture.flush();
     }
-  }
+  },
 });
 
 export { test, expect };

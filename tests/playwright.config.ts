@@ -107,10 +107,15 @@ if (process.env.VITE_COEP_MODE == null) {
 /**
  * @see https://playwright.dev/docs/test-configuration
  */
-const USE_RELAY_SERVER = process.env.USE_RELAY_SERVER === '1' || process.env.USE_RELAY_SERVER === 'true';
-const NO_CADDY = process.env.NO_CADDY === '1' || process.env.VITE_NO_CADDY === '1' || process.env.CI === '1';
-const OVERRIDE_FRONTEND_URL = NO_CADDY ? resolveDefaultFrontendUrlNoCaddy() : String(process.env.W3A_TEST_FRONTEND_URL || '').trim();
-const BASE_URL = OVERRIDE_FRONTEND_URL || (NO_CADDY ? 'http://127.0.0.1:5174' : 'https://example.localhost');
+const USE_RELAY_SERVER =
+  process.env.USE_RELAY_SERVER === '1' || process.env.USE_RELAY_SERVER === 'true';
+const NO_CADDY =
+  process.env.NO_CADDY === '1' || process.env.VITE_NO_CADDY === '1' || process.env.CI === '1';
+const OVERRIDE_FRONTEND_URL = NO_CADDY
+  ? resolveDefaultFrontendUrlNoCaddy()
+  : String(process.env.W3A_TEST_FRONTEND_URL || '').trim();
+const BASE_URL =
+  OVERRIDE_FRONTEND_URL || (NO_CADDY ? 'http://127.0.0.1:5174' : 'https://example.localhost');
 const DEV_SERVER_URL = (() => {
   if (OVERRIDE_FRONTEND_URL) {
     try {
@@ -142,13 +147,19 @@ try {
   process.env.W3A_REPO_ROOT = fs.realpathSync(path.resolve(path.join(__dirname, '..')));
 } catch {}
 try {
-  process.env.W3A_SDK_DIST_ROOT = fs.realpathSync(path.resolve(path.join(__dirname, '../sdk/dist')));
+  process.env.W3A_SDK_DIST_ROOT = fs.realpathSync(
+    path.resolve(path.join(__dirname, '../sdk/dist')),
+  );
 } catch {}
 function resolveExamplesFrontendDir(): string {
   // Prefer the historical examples/vite path when present, but fall back to the
   // current workspace frontend (examples/tatchi-site) when it's the only one.
-  const candidates = ['../examples/vite', '../examples/tatchi-site'].map((p) => path.resolve(path.join(__dirname, p)));
-  const existing = candidates.find((dir) => fs.existsSync(dir) && fs.existsSync(path.join(dir, 'package.json')));
+  const candidates = ['../examples/vite', '../examples/tatchi-site'].map((p) =>
+    path.resolve(path.join(__dirname, p)),
+  );
+  const existing = candidates.find(
+    (dir) => fs.existsSync(dir) && fs.existsSync(path.join(dir, 'package.json')),
+  );
   if (!existing) {
     throw new Error(`[playwright] missing frontend example; tried: ${candidates.join(', ')}`);
   }
@@ -204,9 +215,9 @@ export default defineConfig({
     // If USE_RELAY_SERVER is set, start both servers with a relay health check
     command: USE_RELAY_SERVER
       ? 'node ./scripts/start-servers.mjs'
-      : (NO_CADDY
+      : NO_CADDY
         ? `pnpm -C "${EXAMPLES_FRONTEND_DIR}" exec vite --host 127.0.0.1 --port ${DEV_SERVER_PORT} --strictPort`
-        : `pnpm -C "${EXAMPLES_FRONTEND_DIR}" dev`),
+        : `pnpm -C "${EXAMPLES_FRONTEND_DIR}" dev`,
     url: DEV_SERVER_URL,
     reuseExistingServer: true,
     timeout: 60000, // Allow time for relay health check + build

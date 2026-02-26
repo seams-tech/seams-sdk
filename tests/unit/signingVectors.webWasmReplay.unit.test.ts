@@ -5,8 +5,7 @@ import path from 'node:path';
 const IMPORT_PATHS = {
   ethSignerWasm: '/sdk/esm/core/signingEngine/signers/wasm/ethSignerWasm.js',
   tempoSignerWasm: '/sdk/esm/core/signingEngine/signers/wasm/tempoSignerWasm.js',
-  signerGateway:
-    '/sdk/esm/core/signingEngine/workerManager/workerTransport.js',
+  signerGateway: '/sdk/esm/core/signingEngine/workerManager/workerTransport.js',
 } as const;
 
 const VECTORS_PATH = path.resolve(
@@ -109,7 +108,9 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
         const secp = vectors.secp256k1;
         const txFinalization = vectors.tx_finalization;
 
-        const prfFirstB64u = toBase64Url(fromHex(secp.derive_threshold_client_share.prf_first32_hex));
+        const prfFirstB64u = toBase64Url(
+          fromHex(secp.derive_threshold_client_share.prf_first32_hex),
+        );
         const deriveShare = await deriveThresholdSecp256k1ClientShareWasm({
           prfFirstB64u,
           userId: secp.derive_threshold_client_share.user_id,
@@ -215,8 +216,12 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
     expect(replay.deriveKeypairHex).toBe(
       CANONICAL_VECTORS.secp256k1.derive_keypair_from_prf_second.expected_hex,
     );
-    expect(replay.mappedShareHex).toBe(CANONICAL_VECTORS.secp256k1.map_additive_share_2p.expected_hex);
-    expect(replay.validatedPkHex).toBe(CANONICAL_VECTORS.secp256k1.validate_public_key_33.expected_hex);
+    expect(replay.mappedShareHex).toBe(
+      CANONICAL_VECTORS.secp256k1.map_additive_share_2p.expected_hex,
+    );
+    expect(replay.validatedPkHex).toBe(
+      CANONICAL_VECTORS.secp256k1.validate_public_key_33.expected_hex,
+    );
     expect(replay.addedPkHex).toBe(CANONICAL_VECTORS.secp256k1.add_public_keys_33.expected_hex);
 
     expect(replay.eipHashHex).toBe(CANONICAL_VECTORS.tx_finalization.eip1559.expected_hash_hex);
@@ -241,60 +246,63 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
   });
 
   test('tempo wasm finalization rejects unsupported MVP authorization fields', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      const { encodeTempoSignedTxWasm } = await import(paths.tempoSignerWasm);
-      const { requestWorkerOperation } = await import(paths.signerGateway);
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { encodeTempoSignedTxWasm } = await import(paths.tempoSignerWasm);
+        const { requestWorkerOperation } = await import(paths.signerGateway);
 
-      const workerCtx = {
-        requestWorkerOperation: async ({ kind, request }: { kind: string; request: unknown }) =>
-          await requestWorkerOperation({
-            kind: kind as any,
-            request: request as any,
-          }),
-      };
+        const workerCtx = {
+          requestWorkerOperation: async ({ kind, request }: { kind: string; request: unknown }) =>
+            await requestWorkerOperation({
+              kind: kind as any,
+              request: request as any,
+            }),
+        };
 
-      const baseTx = {
-        chainId: 42431,
-        maxPriorityFeePerGas: 1n,
-        maxFeePerGas: 2n,
-        gasLimit: 21_000n,
-        calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
-        accessList: [],
-        nonceKey: 0n,
-        nonce: 1n,
-        validBefore: null,
-        validAfter: null,
-        feeToken: '0x' + 'aa'.repeat(20),
-        feePayerSignature: { kind: 'none' as const },
-      };
+        const baseTx = {
+          chainId: 42431,
+          maxPriorityFeePerGas: 1n,
+          maxFeePerGas: 2n,
+          gasLimit: 21_000n,
+          calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
+          accessList: [],
+          nonceKey: 0n,
+          nonce: 1n,
+          validBefore: null,
+          validAfter: null,
+          feeToken: '0x' + 'aa'.repeat(20),
+          feePayerSignature: { kind: 'none' as const },
+        };
 
-      const senderSignature = new Uint8Array(65);
-      senderSignature.fill(0x99);
+        const senderSignature = new Uint8Array(65);
+        senderSignature.fill(0x99);
 
-      const captureError = async (tx: any) => {
-        try {
-          await encodeTempoSignedTxWasm({
-            tx,
-            senderSignature,
-            workerCtx: workerCtx as any,
-          });
-          return null;
-        } catch (error: any) {
-          return String(error?.message || error);
-        }
-      };
+        const captureError = async (tx: any) => {
+          try {
+            await encodeTempoSignedTxWasm({
+              tx,
+              senderSignature,
+              workerCtx: workerCtx as any,
+            });
+            return null;
+          } catch (error: any) {
+            return String(error?.message || error);
+          }
+        };
 
-      const aaAuthorizationListError = await captureError({
-        ...baseTx,
-        aaAuthorizationList: new Uint8Array([0x01]),
-      });
-      const keyAuthorizationError = await captureError({
-        ...baseTx,
-        keyAuthorization: [],
-      });
+        const aaAuthorizationListError = await captureError({
+          ...baseTx,
+          aaAuthorizationList: new Uint8Array([0x01]),
+        });
+        const keyAuthorizationError = await captureError({
+          ...baseTx,
+          keyAuthorization: [],
+        });
 
-      return { aaAuthorizationListError, keyAuthorizationError };
-    }, { paths: IMPORT_PATHS });
+        return { aaAuthorizationListError, keyAuthorizationError };
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     expect(String(result.aaAuthorizationListError || '')).toContain(
       'aaAuthorizationList not supported in MVP (must be empty)',
@@ -305,54 +313,58 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
   });
 
   test('eip1559 wasm finalization rejects invalid signature65 length', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths, vectors }) => {
-      const { encodeEip1559SignedTxFromSignature65Wasm } = await import(paths.ethSignerWasm);
-      const { requestWorkerOperation } = await import(paths.signerGateway);
+    const result = await page.evaluate(
+      async ({ paths, vectors }) => {
+        const { encodeEip1559SignedTxFromSignature65Wasm } = await import(paths.ethSignerWasm);
+        const { requestWorkerOperation } = await import(paths.signerGateway);
 
-      const workerCtx = {
-        requestWorkerOperation: async ({ kind, request }: { kind: string; request: unknown }) =>
-          await requestWorkerOperation({
-            kind: kind as any,
-            request: request as any,
-          }),
-      };
+        const workerCtx = {
+          requestWorkerOperation: async ({ kind, request }: { kind: string; request: unknown }) =>
+            await requestWorkerOperation({
+              kind: kind as any,
+              request: request as any,
+            }),
+        };
 
-      const fromHex = (hex: string): Uint8Array => {
-        const clean = String(hex).trim().replace(/^0x/i, '');
-        if (clean.length % 2 !== 0) throw new Error(`invalid hex length: ${clean.length}`);
-        const out = new Uint8Array(clean.length / 2);
-        for (let i = 0; i < clean.length; i += 2) out[i / 2] = Number.parseInt(clean.slice(i, i + 2), 16);
-        return out;
-      };
+        const fromHex = (hex: string): Uint8Array => {
+          const clean = String(hex).trim().replace(/^0x/i, '');
+          if (clean.length % 2 !== 0) throw new Error(`invalid hex length: ${clean.length}`);
+          const out = new Uint8Array(clean.length / 2);
+          for (let i = 0; i < clean.length; i += 2)
+            out[i / 2] = Number.parseInt(clean.slice(i, i + 2), 16);
+          return out;
+        };
 
-      const tx = vectors.tx_finalization.eip1559.tx;
-      const invalid = vectors.tx_finalization.eip1559.invalid;
-      const eipTx = {
-        chainId: BigInt(tx.chain_id),
-        nonce: BigInt(tx.nonce),
-        maxPriorityFeePerGas: BigInt(tx.max_priority_fee_per_gas),
-        maxFeePerGas: BigInt(tx.max_fee_per_gas),
-        gasLimit: BigInt(tx.gas_limit),
-        to: tx.to ?? null,
-        value: BigInt(tx.value),
-        data: tx.data ?? '0x',
-        accessList: (tx.access_list || []).map((item: any) => ({
-          address: item.address,
-          storageKeys: item.storage_keys ?? item.storageKeys ?? [],
-        })),
-      };
+        const tx = vectors.tx_finalization.eip1559.tx;
+        const invalid = vectors.tx_finalization.eip1559.invalid;
+        const eipTx = {
+          chainId: BigInt(tx.chain_id),
+          nonce: BigInt(tx.nonce),
+          maxPriorityFeePerGas: BigInt(tx.max_priority_fee_per_gas),
+          maxFeePerGas: BigInt(tx.max_fee_per_gas),
+          gasLimit: BigInt(tx.gas_limit),
+          to: tx.to ?? null,
+          value: BigInt(tx.value),
+          data: tx.data ?? '0x',
+          accessList: (tx.access_list || []).map((item: any) => ({
+            address: item.address,
+            storageKeys: item.storage_keys ?? item.storageKeys ?? [],
+          })),
+        };
 
-      try {
-        await encodeEip1559SignedTxFromSignature65Wasm({
-          tx: eipTx,
-          signature65: fromHex(invalid.signature65_too_short_hex),
-          workerCtx: workerCtx as any,
-        });
-        return null;
-      } catch (error: any) {
-        return String(error?.message || error);
-      }
-    }, { paths: IMPORT_PATHS, vectors: CANONICAL_VECTORS });
+        try {
+          await encodeEip1559SignedTxFromSignature65Wasm({
+            tx: eipTx,
+            signature65: fromHex(invalid.signature65_too_short_hex),
+            workerCtx: workerCtx as any,
+          });
+          return null;
+        } catch (error: any) {
+          return String(error?.message || error);
+        }
+      },
+      { paths: IMPORT_PATHS, vectors: CANONICAL_VECTORS },
+    );
 
     expect(String(result || '')).toContain(
       CANONICAL_VECTORS.tx_finalization.eip1559.invalid.expected_error,

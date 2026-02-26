@@ -7,7 +7,7 @@ test.describe('buildConfigsFromEnv appearance defaults and overrides', () => {
       relayer: { url: 'https://relay.example' },
     });
 
-    expect(cfg.appearance).toEqual({
+    expect(cfg.ui.appearance).toEqual({
       theme: 'dark',
       palette: 'default',
       tokens: {
@@ -38,10 +38,10 @@ test.describe('buildConfigsFromEnv appearance defaults and overrides', () => {
       },
     });
 
-    expect(cfg.appearance.theme).toBe('light');
-    expect(cfg.appearance.palette).toBe('default');
-    expect(cfg.appearance.tokens.light.colors.primary).toBe('#123456');
-    expect(cfg.appearance.tokens.dark.colors.borderPrimary).toBe('#556677');
+    expect(cfg.ui.appearance.theme).toBe('light');
+    expect(cfg.ui.appearance.palette).toBe('default');
+    expect(cfg.ui.appearance.tokens.light.colors.primary).toBe('#123456');
+    expect(cfg.ui.appearance.tokens.dark.colors.borderPrimary).toBe('#556677');
   });
 
   test('falls back to defaults for invalid appearance enum values', async () => {
@@ -53,7 +53,7 @@ test.describe('buildConfigsFromEnv appearance defaults and overrides', () => {
       } as any,
     });
 
-    expect(cfg.appearance.theme).toBe('dark');
-    expect(cfg.appearance.palette).toBe('default');
+    expect(cfg.ui.appearance.theme).toBe('dark');
+    expect(cfg.ui.appearance.palette).toBe('default');
   });
 });

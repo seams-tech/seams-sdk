@@ -26,10 +26,7 @@ const DOTENV_PATH = path.join(RELAY_DIR, '.env');
 const DEFAULT_CACHE_FILE = path.join(RELAY_DIR, '.provision-cache.json');
 const CACHE_PATH = process.env.RELAY_PROVISION_CACHE_PATH || DEFAULT_CACHE_FILE;
 
-const REQUIRED_ENV_KEYS = [
-  'RELAYER_ACCOUNT_ID',
-  'RELAYER_PRIVATE_KEY',
-];
+const REQUIRED_ENV_KEYS = ['RELAYER_ACCOUNT_ID', 'RELAYER_PRIVATE_KEY'];
 
 /** Parse a .env style file into an object */
 async function readDotEnv(file) {
@@ -49,9 +46,11 @@ async function readDotEnv(file) {
 }
 
 function toEnvText(envObj) {
-  return Object.entries(envObj)
-    .map(([k, v]) => `${k}=${v}`)
-    .join('\n') + '\n';
+  return (
+    Object.entries(envObj)
+      .map(([k, v]) => `${k}=${v}`)
+      .join('\n') + '\n'
+  );
 }
 
 function hasAllEnv(env) {
@@ -59,7 +58,10 @@ function hasAllEnv(env) {
 }
 
 function randomSuffix(n = 8) {
-  return crypto.randomBytes(Math.ceil(n / 2)).toString('hex').slice(0, n);
+  return crypto
+    .randomBytes(Math.ceil(n / 2))
+    .toString('hex')
+    .slice(0, n);
 }
 
 async function readCache() {
@@ -72,7 +74,9 @@ async function readCache() {
 }
 
 async function writeCache(data) {
-  try { await fs.mkdir(path.dirname(CACHE_PATH), { recursive: true }); } catch {}
+  try {
+    await fs.mkdir(path.dirname(CACHE_PATH), { recursive: true });
+  } catch {}
   await fs.writeFile(CACHE_PATH, JSON.stringify(data, null, 2) + '\n', 'utf8');
 }
 
@@ -152,13 +156,18 @@ async function faucetCreateAccount(accountId, publicKey) {
 async function main() {
   console.log('[provision] Checking relay-server .env');
   const env = await readDotEnv(DOTENV_PATH);
-  const writeDotEnv = process.env.PROVISION_WRITE_DOTENV === '1' || process.env.PROVISION_WRITE_DOTENV === 'true';
+  const writeDotEnv =
+    process.env.PROVISION_WRITE_DOTENV === '1' || process.env.PROVISION_WRITE_DOTENV === 'true';
 
-  const reuseExisting = process.env.REUSE_EXISTING_RELAY_ENV === '1' || process.env.REUSE_EXISTING_RELAY_ENV === 'true';
-  const forceReprovision = process.env.FORCE_RELAY_REPROVISION === '1' || process.env.FORCE_RELAY_REPROVISION === 'true';
+  const reuseExisting =
+    process.env.REUSE_EXISTING_RELAY_ENV === '1' || process.env.REUSE_EXISTING_RELAY_ENV === 'true';
+  const forceReprovision =
+    process.env.FORCE_RELAY_REPROVISION === '1' || process.env.FORCE_RELAY_REPROVISION === 'true';
 
   if (reuseExisting && hasAllEnv(env)) {
-    console.log('[provision] REUSE_EXISTING_RELAY_ENV is set and .env has values; skipping provisioning');
+    console.log(
+      '[provision] REUSE_EXISTING_RELAY_ENV is set and .env has values; skipping provisioning',
+    );
     return;
   }
 
@@ -167,24 +176,29 @@ async function main() {
     const cache = await readCache();
     const ttlMs = ttlMsFromEnv();
     const now = Date.now();
-	    if (cache && cache.createdAt && (now - Number(new Date(cache.createdAt))) < ttlMs) {
-	      const exists = await verifyNearAccountExists(cache.accountId);
-	      if (exists) {
-	        console.log(`[provision] Using cached relayer within TTL (${Math.round((ttlMs - (now - new Date(cache.createdAt).getTime()))/60000)}m left)`);
-	        if (writeDotEnv) {
-	          const next = {
-	            RELAYER_ACCOUNT_ID: cache.accountId,
-	            RELAYER_PRIVATE_KEY: cache.nearPrivateKey,
-	            NEAR_NETWORK_ID: 'testnet',
-	            NEAR_RPC_URL: env.NEAR_RPC_URL || 'https://test.rpc.fastnear.com',
-	            PORT: env.PORT || '3000',
-	            EXPECTED_ORIGIN: env.EXPECTED_ORIGIN || 'https://example.localhost',
-	            EXPECTED_WALLET_ORIGIN: env.EXPECTED_WALLET_ORIGIN || 'https://wallet.example.localhost',
-	          };
-	          await fs.writeFile(DOTENV_PATH, toEnvText(next), 'utf8');
-	          console.log('[provision] Updated relay-server .env from cache (PROVISION_WRITE_DOTENV=1)');
-	        }
-	        return;
+    if (cache && cache.createdAt && now - Number(new Date(cache.createdAt)) < ttlMs) {
+      const exists = await verifyNearAccountExists(cache.accountId);
+      if (exists) {
+        console.log(
+          `[provision] Using cached relayer within TTL (${Math.round((ttlMs - (now - new Date(cache.createdAt).getTime())) / 60000)}m left)`,
+        );
+        if (writeDotEnv) {
+          const next = {
+            RELAYER_ACCOUNT_ID: cache.accountId,
+            RELAYER_PRIVATE_KEY: cache.nearPrivateKey,
+            NEAR_NETWORK_ID: 'testnet',
+            NEAR_RPC_URL: env.NEAR_RPC_URL || 'https://test.rpc.fastnear.com',
+            PORT: env.PORT || '3000',
+            EXPECTED_ORIGIN: env.EXPECTED_ORIGIN || 'https://example.localhost',
+            EXPECTED_WALLET_ORIGIN:
+              env.EXPECTED_WALLET_ORIGIN || 'https://wallet.example.localhost',
+          };
+          await fs.writeFile(DOTENV_PATH, toEnvText(next), 'utf8');
+          console.log(
+            '[provision] Updated relay-server .env from cache (PROVISION_WRITE_DOTENV=1)',
+          );
+        }
+        return;
       } else {
         console.warn('[provision] Cached relayer account missing on RPC; re-provisioning');
       }
@@ -198,8 +212,8 @@ async function main() {
 
   // 2) Fund account via faucet
   console.log('[provision] Requesting testnet faucet funding...');
-	await faucetCreateAccount(accountId, nearPublicKey);
-	console.log('[provision] Faucet created and funded account');
+  await faucetCreateAccount(accountId, nearPublicKey);
+  console.log('[provision] Faucet created and funded account');
 
   // 3) Optionally write .env for manual/example usage
   if (writeDotEnv) {

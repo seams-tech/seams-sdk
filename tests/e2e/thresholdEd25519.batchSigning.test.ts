@@ -28,7 +28,9 @@ test.describe('threshold-ed25519 batch signing', () => {
     await setupThresholdE2ePage(page);
   });
 
-  test('happy path: batch (2 txs) threshold signatures verify and relayer is called per digest', async ({ page }) => {
+  test('happy path: batch (2 txs) threshold signatures verify and relayer is called per digest', async ({
+    page,
+  }) => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
     let localNearPublicKey = '';
@@ -40,7 +42,11 @@ test.describe('threshold-ed25519 batch signing', () => {
 
     const session = createInMemoryJwtSessionAdapter();
     const frontendOrigin = new URL(DEFAULT_TEST_CONFIG.frontendUrl).origin;
-    const router = createRelayRouter(service, { corsOrigins: [frontendOrigin], threshold, session });
+    const router = createRelayRouter(service, {
+      corsOrigins: [frontendOrigin],
+      threshold,
+      session,
+    });
     const srv = await startExpressRouter(router);
 
     const relayerCounts = { keygen: 0, session: 0, authorize: 0, init: 0, finalize: 0 };
@@ -97,7 +103,10 @@ test.describe('threshold-ed25519 batch signing', () => {
             keysOnChain.add(thresholdPublicKeyFromKeygen);
             nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
             if (localNearPublicKey) {
-              nonceByPublicKey.set(localNearPublicKey, (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1);
+              nonceByPublicKey.set(
+                localNearPublicKey,
+                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
+              );
             }
           }
         },
@@ -115,92 +124,106 @@ test.describe('threshold-ed25519 batch signing', () => {
 
       type BatchSigningResult =
         | {
-          ok: true;
-          accountId: string;
-          localPublicKey: string;
-          thresholdPublicKey: string;
-          txInput: { receiverId: string; wasmActions: unknown[] };
-          signedTxs: ExtractedSignedTx[];
-        }
+            ok: true;
+            accountId: string;
+            localPublicKey: string;
+            thresholdPublicKey: string;
+            txInput: { receiverId: string; wasmActions: unknown[] };
+            signedTxs: ExtractedSignedTx[];
+          }
         | { ok: false; error: string };
 
-      const result = await page.evaluate(async ({ relayerUrl }) => {
-        try {
-          const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
-          const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
-          const suffix =
-            (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          const accountId = `e2ebatch${suffix}.w3a-v1.testnet`;
+      const result = (await page.evaluate(
+        async ({ relayerUrl }) => {
+          try {
+            const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
+            const suffix =
+              typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const accountId = `e2ebatch${suffix}.w3a-v1.testnet`;
 
-          const pm = new TatchiPasskey({
-            nearNetwork: 'testnet',
-            nearRpcUrl: 'https://test.rpc.fastnear.com',
-            relayer: { url: relayerUrl },
-            signerMode: { mode: 'threshold-signer' },
-            signingSessionDefaults: { ttlMs: 60_000, remainingUses: 10 },
-            iframeWallet: { walletOrigin: '' },
-          });
+            const pm = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayer: { url: relayerUrl },
+              signerMode: { mode: 'threshold-signer' },
+              signingSessionDefaults: { ttlMs: 60_000, remainingUses: 10 },
+              iframeWallet: { walletOrigin: '' },
+            });
 
-          const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
+            const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 };
 
-          const reg = await pm.registration.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
-          if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
+            const reg = await pm.registration.registerPasskeyInternal(
+              accountId,
+              { signerMode: { mode: 'local-signer' } },
+              confirmConfig as any,
+            );
+            if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
 
-          const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-          if (!enrollment?.success) return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
+            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
+            if (!enrollment?.success)
+              return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
 
-          const login = await pm.auth.login(accountId);
-          if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
+            const login = await pm.auth.login(accountId);
+            if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
 
-          const receiverId = 'w3a-v1.testnet';
-          const actions = [{ type: ActionType.Transfer, amount: '1' }];
-          const wasmActions = actions.map(toActionArgsWasm);
+            const receiverId = 'w3a-v1.testnet';
+            const actions = [{ type: ActionType.Transfer, amount: '1' }];
+            const wasmActions = actions.map(toActionArgsWasm);
 
-          const signed = await pm.near.signTransactionsWithActions({
-            nearAccountId: accountId,
-            transactions: [
-              { receiverId, actions },
-              { receiverId, actions },
-            ],
-            options: { signerMode: { mode: 'threshold-signer', behavior: 'strict' }, confirmationConfig: confirmConfig as any },
-          });
+            const signed = await pm.near.signTransactionsWithActions({
+              nearAccountId: accountId,
+              transactions: [
+                { receiverId, actions },
+                { receiverId, actions },
+              ],
+              options: {
+                signerMode: { mode: 'threshold-signer', behavior: 'strict' },
+                confirmationConfig: confirmConfig as any,
+              },
+            });
 
-          if (!Array.isArray(signed) || signed.length !== 2) {
-            return { ok: false, error: `expected 2 signed txs, got ${Array.isArray(signed) ? signed.length : 'non-array'}` };
-          }
-
-          const extractSigned = (item: any) => {
-            const signedTx = item?.signedTransaction as any;
-            const signatureData = signedTx?.signature?.signatureData;
-            const tx = signedTx?.transaction;
-            const borshBytes = signedTx?.borsh_bytes;
-            if (!tx || !signatureData || !borshBytes) {
-              throw new Error('invalid signed transaction shape');
+            if (!Array.isArray(signed) || signed.length !== 2) {
+              return {
+                ok: false,
+                error: `expected 2 signed txs, got ${Array.isArray(signed) ? signed.length : 'non-array'}`,
+              };
             }
-            return {
-              signerId: String(tx.signerId || ''),
-              receiverId: String(tx.receiverId || ''),
-              nonce: typeof tx.nonce === 'bigint' ? tx.nonce.toString() : String(tx.nonce || ''),
-              blockHash: Array.from(tx.blockHash || []) as number[],
-              signature: Array.from(signatureData) as number[],
-              borshBytes: (Array.isArray(borshBytes) ? borshBytes : []) as number[],
-            };
-          };
 
-          return {
-            ok: true,
-            accountId,
-            localPublicKey: String(reg.clientNearPublicKey || ''),
-            thresholdPublicKey: String(enrollment.publicKey || ''),
-            txInput: { receiverId, wasmActions },
-            signedTxs: [extractSigned(signed[0]), extractSigned(signed[1])],
-          };
-        } catch (e: any) {
-          return { ok: false, error: e?.message || String(e) };
-        }
-      }, { relayerUrl: srv.baseUrl }) as BatchSigningResult;
+            const extractSigned = (item: any) => {
+              const signedTx = item?.signedTransaction as any;
+              const signatureData = signedTx?.signature?.signatureData;
+              const tx = signedTx?.transaction;
+              const borshBytes = signedTx?.borsh_bytes;
+              if (!tx || !signatureData || !borshBytes) {
+                throw new Error('invalid signed transaction shape');
+              }
+              return {
+                signerId: String(tx.signerId || ''),
+                receiverId: String(tx.receiverId || ''),
+                nonce: typeof tx.nonce === 'bigint' ? tx.nonce.toString() : String(tx.nonce || ''),
+                blockHash: Array.from(tx.blockHash || []) as number[],
+                signature: Array.from(signatureData) as number[],
+                borshBytes: (Array.isArray(borshBytes) ? borshBytes : []) as number[],
+              };
+            };
+
+            return {
+              ok: true,
+              accountId,
+              localPublicKey: String(reg.clientNearPublicKey || ''),
+              thresholdPublicKey: String(enrollment.publicKey || ''),
+              txInput: { receiverId, wasmActions },
+              signedTxs: [extractSigned(signed[0]), extractSigned(signed[1])],
+            };
+          } catch (e: any) {
+            return { ok: false, error: e?.message || String(e) };
+          }
+        },
+        { relayerUrl: srv.baseUrl },
+      )) as BatchSigningResult;
 
       if (!result.ok) {
         throw new Error(`batch signing test failed: ${result.error || 'unknown'}`);
@@ -225,11 +248,13 @@ test.describe('threshold-ed25519 batch signing', () => {
       const computeDigest = (signed: { nonce: string; blockHash: number[] }): Uint8Array => {
         const signingPayload = {
           kind: 'near_tx',
-          txSigningRequests: [{
-            nearAccountId: String(result.accountId),
-            receiverId: String(result.txInput.receiverId),
-            actions: result.txInput.wasmActions,
-          }],
+          txSigningRequests: [
+            {
+              nearAccountId: String(result.accountId),
+              receiverId: String(result.txInput.receiverId),
+              actions: result.txInput.wasmActions,
+            },
+          ],
           transactionContext: {
             nearPublicKeyStr: thresholdPkStr,
             nextNonce: String(signed.nonce),
@@ -238,7 +263,8 @@ test.describe('threshold-ed25519 batch signing', () => {
           },
         };
 
-        const digestsUnknown: unknown = threshold_ed25519_compute_near_tx_signing_digests(signingPayload);
+        const digestsUnknown: unknown =
+          threshold_ed25519_compute_near_tx_signing_digests(signingPayload);
         if (!Array.isArray(digestsUnknown) || digestsUnknown.length === 0) {
           throw new Error('Expected a non-empty signing digests array');
         }

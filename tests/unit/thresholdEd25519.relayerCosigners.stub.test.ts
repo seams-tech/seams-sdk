@@ -101,17 +101,21 @@ test('threshold-ed25519 relayer-fleet cosigning (2-of-3 stub) aggregates cosigne
   const userId = 'alice.near';
   const rpId = 'example.com';
 
-  await sessionStore.putMpcSession(mpcSessionId, {
-    expiresAtMs: Date.now() + 60_000,
-    relayerKeyId,
-    purpose: 'near_tx',
-    intentDigestB64u: Buffer.alloc(32, 1).toString('base64url'),
-    signingDigestB64u,
-    userId,
-    rpId,
-    clientVerifyingShareB64u,
-    participantIds: [1, 2],
-  }, 60_000);
+  await sessionStore.putMpcSession(
+    mpcSessionId,
+    {
+      expiresAtMs: Date.now() + 60_000,
+      relayerKeyId,
+      purpose: 'near_tx',
+      intentDigestB64u: Buffer.alloc(32, 1).toString('base64url'),
+      signingDigestB64u,
+      userId,
+      rpId,
+      clientVerifyingShareB64u,
+      participantIds: [1, 2],
+    },
+    60_000,
+  );
 
   const c2 = { hiding: pointB64u(10n), binding: pointB64u(11n) };
   const c3 = { hiding: pointB64u(20n), binding: pointB64u(21n) };
@@ -136,15 +140,23 @@ test('threshold-ed25519 relayer-fleet cosigning (2-of-3 stub) aggregates cosigne
 
       if (url === `${cosigner1Url}/threshold-ed25519/internal/cosign/init`) {
         coordinatorSigningSessionId = String(body.signingSessionId || coordinatorSigningSessionId);
-        const grant = await verifyThresholdEd25519CoordinatorGrantHmac(String(body.coordinatorGrant || ''), secretB64u);
+        const grant = await verifyThresholdEd25519CoordinatorGrantHmac(
+          String(body.coordinatorGrant || ''),
+          secretB64u,
+        );
         expect(grant.typ).toBe('threshold_ed25519_cosigner_grant_v1');
         expect(grant.cosignerId).toBe(1);
-        return new Response(JSON.stringify({ ok: false, code: 'unavailable', message: 'down' }), { status: 503 });
+        return new Response(JSON.stringify({ ok: false, code: 'unavailable', message: 'down' }), {
+          status: 503,
+        });
       }
 
       if (url === `${cosigner2Url}/threshold-ed25519/internal/cosign/init`) {
         coordinatorSigningSessionId = String(body.signingSessionId || coordinatorSigningSessionId);
-        const grant = await verifyThresholdEd25519CoordinatorGrantHmac(String(body.coordinatorGrant || ''), secretB64u);
+        const grant = await verifyThresholdEd25519CoordinatorGrantHmac(
+          String(body.coordinatorGrant || ''),
+          secretB64u,
+        );
         expect(grant.typ).toBe('threshold_ed25519_cosigner_grant_v1');
         expect(grant.cosignerId).toBe(2);
         expect(grant.mpcSessionId).toBe(mpcSessionId);
@@ -155,7 +167,10 @@ test('threshold-ed25519 relayer-fleet cosigning (2-of-3 stub) aggregates cosigne
 
       if (url === `${cosigner3Url}/threshold-ed25519/internal/cosign/init`) {
         coordinatorSigningSessionId = String(body.signingSessionId || coordinatorSigningSessionId);
-        const grant = await verifyThresholdEd25519CoordinatorGrantHmac(String(body.coordinatorGrant || ''), secretB64u);
+        const grant = await verifyThresholdEd25519CoordinatorGrantHmac(
+          String(body.coordinatorGrant || ''),
+          secretB64u,
+        );
         expect(grant.typ).toBe('threshold_ed25519_cosigner_grant_v1');
         expect(grant.cosignerId).toBe(3);
         expect(grant.mpcSessionId).toBe(mpcSessionId);
@@ -165,28 +180,41 @@ test('threshold-ed25519 relayer-fleet cosigning (2-of-3 stub) aggregates cosigne
       }
 
       if (url === `${cosigner2Url}/threshold-ed25519/internal/cosign/finalize`) {
-        const grant = await verifyThresholdEd25519CoordinatorGrantHmac(String(body.coordinatorGrant || ''), secretB64u);
+        const grant = await verifyThresholdEd25519CoordinatorGrantHmac(
+          String(body.coordinatorGrant || ''),
+          secretB64u,
+        );
         expect(grant.typ).toBe('threshold_ed25519_cosigner_grant_v1');
         expect(grant.cosignerId).toBe(2);
         expect(body.signingSessionId).toBe(coordinatorSigningSessionId);
         expect(body.cosignerIds).toEqual([2, 3]);
         expect(body.groupPublicKey).toBe(groupPublicKey);
         expect(body.relayerCommitments).toEqual(combined);
-        return new Response(JSON.stringify({ ok: true, relayerSignatureShareB64u: sig2 }), { status: 200 });
+        return new Response(JSON.stringify({ ok: true, relayerSignatureShareB64u: sig2 }), {
+          status: 200,
+        });
       }
 
       if (url === `${cosigner3Url}/threshold-ed25519/internal/cosign/finalize`) {
-        const grant = await verifyThresholdEd25519CoordinatorGrantHmac(String(body.coordinatorGrant || ''), secretB64u);
+        const grant = await verifyThresholdEd25519CoordinatorGrantHmac(
+          String(body.coordinatorGrant || ''),
+          secretB64u,
+        );
         expect(grant.typ).toBe('threshold_ed25519_cosigner_grant_v1');
         expect(grant.cosignerId).toBe(3);
         expect(body.signingSessionId).toBe(coordinatorSigningSessionId);
         expect(body.cosignerIds).toEqual([2, 3]);
         expect(body.groupPublicKey).toBe(groupPublicKey);
         expect(body.relayerCommitments).toEqual(combined);
-        return new Response(JSON.stringify({ ok: true, relayerSignatureShareB64u: sig3 }), { status: 200 });
+        return new Response(JSON.stringify({ ok: true, relayerSignatureShareB64u: sig3 }), {
+          status: 200,
+        });
       }
 
-      return new Response(JSON.stringify({ ok: false, code: 'not_found', message: 'unexpected url' }), { status: 404 });
+      return new Response(
+        JSON.stringify({ ok: false, code: 'not_found', message: 'unexpected url' }),
+        { status: 404 },
+      );
     }) as any;
 
     const schemeAny = svc.getSchemeModule('threshold-ed25519-frost-2p-v1');
@@ -218,13 +246,15 @@ test('threshold-ed25519 relayer-fleet cosigning (2-of-3 stub) aggregates cosigne
     expect(finalize.ok).toBe(true);
     expect(finalize.relayerSignatureSharesById?.['2']).toBe(combinedSig);
 
-    expect(seenUrls).toEqual(expect.arrayContaining([
-      `${cosigner1Url}/threshold-ed25519/internal/cosign/init`,
-      `${cosigner2Url}/threshold-ed25519/internal/cosign/init`,
-      `${cosigner3Url}/threshold-ed25519/internal/cosign/init`,
-      `${cosigner2Url}/threshold-ed25519/internal/cosign/finalize`,
-      `${cosigner3Url}/threshold-ed25519/internal/cosign/finalize`,
-    ]));
+    expect(seenUrls).toEqual(
+      expect.arrayContaining([
+        `${cosigner1Url}/threshold-ed25519/internal/cosign/init`,
+        `${cosigner2Url}/threshold-ed25519/internal/cosign/init`,
+        `${cosigner3Url}/threshold-ed25519/internal/cosign/init`,
+        `${cosigner2Url}/threshold-ed25519/internal/cosign/finalize`,
+        `${cosigner3Url}/threshold-ed25519/internal/cosign/finalize`,
+      ]),
+    );
     expect(seenUrls).not.toContain(`${cosigner1Url}/threshold-ed25519/internal/cosign/finalize`);
   } finally {
     globalThis.fetch = originalFetch;

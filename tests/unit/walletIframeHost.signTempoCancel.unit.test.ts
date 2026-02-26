@@ -30,14 +30,15 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
     let cancelChecks = 0;
 
     const handlers = createWalletIframeHandlers({
-      getTatchiPasskey: () => ({
-        tempo: {
-          signTempo: async () => {
-            signCalls += 1;
-            return { chain: 'evm', txHashHex: '0x1', rawTxHex: '0x2' } as any;
+      getTatchiPasskey: () =>
+        ({
+          tempo: {
+            signTempo: async () => {
+              signCalls += 1;
+              return { chain: 'evm', txHashHex: '0x1', rawTxHex: '0x2' } as any;
+            },
           },
-        },
-      } as any),
+        }) as any,
       post: (msg) => posts.push(msg),
       postProgress: () => undefined,
       isCancelled: () => true,
@@ -60,20 +61,21 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
     let signCalls = 0;
 
     const handlers = createWalletIframeHandlers({
-      getTatchiPasskey: () => ({
-        tempo: {
-          signTempo: async (args: any) => {
-            signCalls += 1;
-            const shouldAbort = args?.options?.shouldAbort;
-            expect(typeof shouldAbort).toBe('function');
-            expect(shouldAbort()).toBe(false);
-            cancelled = true;
-            expect(shouldAbort()).toBe(true);
-            cancelled = false;
-            return { chain: 'evm', txHashHex: '0x1', rawTxHex: '0x2' } as any;
+      getTatchiPasskey: () =>
+        ({
+          tempo: {
+            signTempo: async (args: any) => {
+              signCalls += 1;
+              const shouldAbort = args?.options?.shouldAbort;
+              expect(typeof shouldAbort).toBe('function');
+              expect(shouldAbort()).toBe(false);
+              cancelled = true;
+              expect(shouldAbort()).toBe(true);
+              cancelled = false;
+              return { chain: 'evm', txHashHex: '0x1', rawTxHex: '0x2' } as any;
+            },
           },
-        },
-      } as any),
+        }) as any,
       post: (msg) => posts.push(msg),
       postProgress: () => undefined,
       isCancelled: () => cancelled,
@@ -99,7 +101,8 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
   test('maps deployment failure message to deployment_failed', async () => {
     const code = resolveWalletBoundaryErrorCode({
       requestType: 'PM_SIGN_TEMPO',
-      message: '[SigningEngine] smart-account deployment must succeed before first EVM send: gateway timeout',
+      message:
+        '[SigningEngine] smart-account deployment must succeed before first EVM send: gateway timeout',
     });
     expect(code).toBe('deployment_failed');
   });
@@ -131,6 +134,32 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
     expect(code).toBe('commit_queue_timeout');
   });
 
+  test('maps nonce-conflict raw code to canonical code', async () => {
+    const code = resolveWalletBoundaryErrorCode({
+      requestType: 'PM_SIGN_TEMPO',
+      rawCode: 'nonce_conflict_retryable',
+      message:
+        '[SigningEngine] EVM nonce conflict (nonce_too_low) on arc-testnet. Refresh nonce context and retry.',
+    });
+    expect(code).toBe('nonce_conflict_retryable');
+  });
+
+  test('maps nonce-conflict message to canonical code', async () => {
+    const code = resolveWalletBoundaryErrorCode({
+      requestType: 'PM_SIGN_TEMPO',
+      message: 'replacement transaction underpriced',
+    });
+    expect(code).toBe('nonce_conflict_retryable');
+  });
+
+  test('maps nonce-conflict message for broadcast-report boundary request', async () => {
+    const code = resolveWalletBoundaryErrorCode({
+      requestType: 'PM_REPORT_TEMPO_BROADCAST_RESULT',
+      message: 'nonce too low',
+    });
+    expect(code).toBe('nonce_conflict_retryable');
+  });
+
   test('maps threshold session auth errors to session_not_ready', async () => {
     const code = resolveWalletBoundaryErrorCode({
       requestType: 'PM_SIGN_TEMPO',
@@ -142,7 +171,8 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
   test('maps missing canonical session wording to session_not_ready', async () => {
     const code = resolveWalletBoundaryErrorCode({
       requestType: 'PM_SIGN_TEMPO',
-      message: '[SigningEngine] missing canonical threshold ECDSA session for alice.testnet; reconnect threshold session via bootstrapEcdsaSession',
+      message:
+        '[SigningEngine] missing canonical threshold ECDSA session for alice.testnet; reconnect threshold session via bootstrapEcdsaSession',
     });
     expect(code).toBe('session_not_ready');
   });
@@ -150,9 +180,27 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
   test('maps threshold signingSession not_found wording to session_not_ready', async () => {
     const code = resolveWalletBoundaryErrorCode({
       requestType: 'PM_SIGN_TEMPO',
-      message: '[chains] threshold signingSession is not_found; reconnect threshold session before signing',
+      message:
+        '[chains] threshold signingSession is not_found; reconnect threshold session before signing',
     });
     expect(code).toBe('session_not_ready');
+  });
+
+  test('maps user-rejected signing wording to cancelled', async () => {
+    const code = resolveWalletBoundaryErrorCode({
+      requestType: 'PM_SIGN_TEMPO',
+      message: 'User rejected signing request',
+    });
+    expect(code).toBe('cancelled');
+  });
+
+  test('maps EIP-1193 user-rejection raw code to cancelled', async () => {
+    const code = resolveWalletBoundaryErrorCode({
+      requestType: 'PM_SIGN_TEMPO',
+      rawCode: 4001,
+      message: 'The user rejected the request.',
+    });
+    expect(code).toBe('cancelled');
   });
 
   test('normalizes signer boundary session_not_ready message', async () => {
@@ -181,6 +229,25 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
       message: 'internal deployment failure details',
     });
     expect(message).toContain('deployment failed');
+  });
+
+  test('normalizes signer boundary nonce_conflict_retryable message', async () => {
+    const message = resolveWalletBoundaryErrorMessage({
+      requestType: 'PM_SIGN_TEMPO',
+      code: 'nonce_conflict_retryable',
+      message: 'nonce too low',
+    });
+    expect(message).toContain('Nonce conflict detected');
+    expect(message).toContain('retry');
+  });
+
+  test('normalizes signer boundary cancelled message', async () => {
+    const message = resolveWalletBoundaryErrorMessage({
+      requestType: 'PM_SIGN_TEMPO',
+      code: 'cancelled',
+      message: 'User rejected signing request',
+    });
+    expect(message).toContain('Request cancelled');
   });
 
   test('prevents unknown signer-boundary code leakage', async () => {

@@ -295,8 +295,8 @@ export async function executeTransfer(
 
       try {
         console.log(`[flow:transfer] executing action for ${args.accountId}`);
-        return utils.tatchi
-          .near.executeAction({
+        return utils.tatchi.near
+          .executeAction({
             nearAccountId: toAccountId(args.accountId),
             receiverId: args.receiverId,
             actionArgs: {

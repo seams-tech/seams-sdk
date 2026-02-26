@@ -81,21 +81,24 @@ test.describe('Wallet iframe assetsBaseUrl normalization', () => {
   });
 
   test('uses /sdk/ when sdkBasePath is an empty string', async ({ page }) => {
-    await page.evaluate(async ({ walletOrigin }) => {
-      const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-      const { TatchiPasskey } = mod as any;
+    await page.evaluate(
+      async ({ walletOrigin }) => {
+        const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+        const { TatchiPasskey } = mod as any;
 
-      const pm = new TatchiPasskey({
-        relayer: { url: 'http://localhost:3000' },
-        iframeWallet: {
-          walletOrigin,
-          walletServicePath: '/wallet-service',
-          sdkBasePath: '',
-        },
-      });
+        const pm = new TatchiPasskey({
+          relayer: { url: 'http://localhost:3000' },
+          iframeWallet: {
+            walletOrigin,
+            walletServicePath: '/wallet-service',
+            sdkBasePath: '',
+          },
+        });
 
-      await pm.initWalletIframe();
-    }, { walletOrigin: WALLET_ORIGIN });
+        await pm.initWalletIframe();
+      },
+      { walletOrigin: WALLET_ORIGIN },
+    );
 
     const walletFrame = page.frames().find((frame) => {
       const url = frame.url();

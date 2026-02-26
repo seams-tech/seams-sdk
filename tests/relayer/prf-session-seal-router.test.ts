@@ -28,11 +28,13 @@ function makeSession(userId = USER_ID) {
   });
 }
 
-function makePolicy(input?: Partial<{
-  userId: string;
-  expiresAtMs: number;
-  remainingUses: number;
-}>) {
+function makePolicy(
+  input?: Partial<{
+    userId: string;
+    expiresAtMs: number;
+    remainingUses: number;
+  }>,
+) {
   const sessionUserId = input?.userId || USER_ID;
   const expiresAtMs = Number.isFinite(Number(input?.expiresAtMs))
     ? Number(input?.expiresAtMs)
@@ -50,7 +52,10 @@ function makePolicy(input?: Partial<{
         remainingUses,
       };
     },
-    consumeUseCount: async () => ({ ok: true as const, remainingUses: Math.max(0, remainingUses - 1) }),
+    consumeUseCount: async () => ({
+      ok: true as const,
+      remainingUses: Math.max(0, remainingUses - 1),
+    }),
   };
 }
 
@@ -270,12 +275,14 @@ test.describe('prf session seal routes', () => {
         sessionPolicy: makePolicy(),
         cipher: createPrfSessionSealShamir3PassCipherAdapter({
           currentKeyVersion: keyVersion,
-          keys: [{
-            keyVersion,
-            shamirPrimeB64u: primeB64u,
-            serverEncryptExponentB64u: encryptExponentB64u,
-            serverDecryptExponentB64u: decryptExponentB64u,
-          }],
+          keys: [
+            {
+              keyVersion,
+              shamirPrimeB64u: primeB64u,
+              serverEncryptExponentB64u: encryptExponentB64u,
+              serverDecryptExponentB64u: decryptExponentB64u,
+            },
+          ],
         }),
       }),
     });
@@ -285,9 +292,11 @@ test.describe('prf session seal routes', () => {
       const applied = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/prf-seal/apply-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(makeBody({
-          ciphertext: plaintextCiphertextB64u,
-        })),
+        body: JSON.stringify(
+          makeBody({
+            ciphertext: plaintextCiphertextB64u,
+          }),
+        ),
       });
 
       expect(applied.status).toBe(200);
@@ -295,14 +304,19 @@ test.describe('prf session seal routes', () => {
       expect(applied.json?.keyVersion).toBe(keyVersion);
       expect(applied.json?.ciphertext).not.toBe(plaintextCiphertextB64u);
 
-      const removed = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/prf-seal/remove-server-seal`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(makeBody({
-          ciphertext: applied.json?.ciphertext,
-          keyVersion,
-        })),
-      });
+      const removed = await fetchJson(
+        `${srv.baseUrl}/threshold-ecdsa/prf-seal/remove-server-seal`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(
+            makeBody({
+              ciphertext: applied.json?.ciphertext,
+              keyVersion,
+            }),
+          ),
+        },
+      );
 
       expect(removed.status).toBe(200);
       expect(removed.json?.ok).toBe(true);
@@ -321,12 +335,14 @@ test.describe('prf session seal routes', () => {
         sessionPolicy: makePolicy(),
         cipher: createPrfSessionSealShamir3PassCipherAdapter({
           currentKeyVersion: 'kek-s-2026-02',
-          keys: [{
-            keyVersion: 'kek-s-2026-02',
-            shamirPrimeB64u: encodePositiveBigIntB64u(257n),
-            serverEncryptExponentB64u: encodePositiveBigIntB64u(3n),
-            serverDecryptExponentB64u: encodePositiveBigIntB64u(171n),
-          }],
+          keys: [
+            {
+              keyVersion: 'kek-s-2026-02',
+              shamirPrimeB64u: encodePositiveBigIntB64u(257n),
+              serverEncryptExponentB64u: encodePositiveBigIntB64u(3n),
+              serverDecryptExponentB64u: encodePositiveBigIntB64u(171n),
+            },
+          ],
         }),
       }),
     });
@@ -336,10 +352,12 @@ test.describe('prf session seal routes', () => {
       const res = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/prf-seal/remove-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(makeBody({
-          ciphertext: encodePositiveBigIntB64u(7n),
-          keyVersion: 'kek-s-unknown',
-        })),
+        body: JSON.stringify(
+          makeBody({
+            ciphertext: encodePositiveBigIntB64u(7n),
+            keyVersion: 'kek-s-unknown',
+          }),
+        ),
       });
       expect(res.status).toBe(400);
       expect(res.json?.ok).toBe(false);
@@ -359,11 +377,13 @@ test.describe('prf session seal routes', () => {
     expect(fromMemory.limit).toBe(3);
     expect(fromMemory.windowMs).toBe(1_000);
 
-    expect(() => resolvePrfSessionSealRateLimitFromEnv({
-      limiterKind: 'upstash-redis-rest',
-      upstashUrl: 'https://example.upstash.io',
-      limit: 5,
-      windowMs: 2_000,
-    })).toThrow(/upstash/i);
+    expect(() =>
+      resolvePrfSessionSealRateLimitFromEnv({
+        limiterKind: 'upstash-redis-rest',
+        upstashUrl: 'https://example.upstash.io',
+        limit: 5,
+        windowMs: 2_000,
+      }),
+    ).toThrow(/upstash/i);
   });
 });

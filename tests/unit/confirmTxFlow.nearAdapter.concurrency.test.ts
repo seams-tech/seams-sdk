@@ -12,47 +12,58 @@ test.describe('touchConfirm near adapter – concurrency', () => {
   });
 
   test('fetchNearContext returns an isolated transactionContext per call', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      try {
-        // @ts-ignore runtime import
-        const nonceManager = (await import(paths.nonceManager)).default;
-        // @ts-ignore runtime import
-        const nearAdapter = await import(paths.nearAdapter);
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        try {
+          // @ts-ignore runtime import
+          const nonceManager = (await import(paths.nonceManager)).default;
+          // @ts-ignore runtime import
+          const nearAdapter = await import(paths.nearAdapter);
 
-        nonceManager.clear();
-        nonceManager.initializeUser('test-account', 'ed25519:test-public-key');
+          nonceManager.clear();
+          nonceManager.initializeUser('test-account', 'ed25519:test-public-key');
 
-        // Seed a fresh cached context so fetchNearContext doesn't need RPC calls.
-        (nonceManager as any).transactionContext = {
-          nearPublicKeyStr: 'ed25519:test-public-key',
-          accessKeyInfo: { nonce: 10 },
-          nextNonce: '11',
-          txBlockHeight: '1000',
-          txBlockHash: '11111111111111111111111111111111',
-        };
-        (nonceManager as any).lastNonceUpdate = Date.now();
-        (nonceManager as any).lastBlockHeightUpdate = Date.now();
+          // Seed a fresh cached context so fetchNearContext doesn't need RPC calls.
+          (nonceManager as any).transactionContext = {
+            nearPublicKeyStr: 'ed25519:test-public-key',
+            accessKeyInfo: { nonce: 10 },
+            nextNonce: '11',
+            txBlockHeight: '1000',
+            txBlockHash: '11111111111111111111111111111111',
+          };
+          (nonceManager as any).lastNonceUpdate = Date.now();
+          (nonceManager as any).lastBlockHeightUpdate = Date.now();
 
-        const ctx = { nonceManager, nearClient: {} } as any;
-        const adapters = nearAdapter.createConfirmTxFlowAdapters(ctx);
+          const ctx = { nonceManager, nearClient: {} } as any;
+          const adapters = nearAdapter.createConfirmTxFlowAdapters(ctx);
 
-        // Run two reservations "concurrently" to mimic rapid-fire signing requests.
-        const [r1, r2] = await Promise.all([
-          adapters.near.fetchNearContext({ nearAccountId: 'test-account', txCount: 1, reserveNonces: true }),
-          adapters.near.fetchNearContext({ nearAccountId: 'test-account', txCount: 1, reserveNonces: true }),
-        ]);
+          // Run two reservations "concurrently" to mimic rapid-fire signing requests.
+          const [r1, r2] = await Promise.all([
+            adapters.near.fetchNearContext({
+              nearAccountId: 'test-account',
+              txCount: 1,
+              reserveNonces: true,
+            }),
+            adapters.near.fetchNearContext({
+              nearAccountId: 'test-account',
+              txCount: 1,
+              reserveNonces: true,
+            }),
+          ]);
 
-        return {
-          ok: true as const,
-          sameObject: r1.transactionContext === r2.transactionContext,
-          nonce1: r1.transactionContext?.nextNonce ?? null,
-          nonce2: r2.transactionContext?.nextNonce ?? null,
-          reserved: Array.from((nonceManager as any).reservedNonces || []),
-        };
-      } catch (e: any) {
-        return { ok: false as const, error: e?.message || String(e) };
-      }
-    }, { paths: IMPORT_PATHS });
+          return {
+            ok: true as const,
+            sameObject: r1.transactionContext === r2.transactionContext,
+            nonce1: r1.transactionContext?.nextNonce ?? null,
+            nonce2: r2.transactionContext?.nextNonce ?? null,
+            reserved: Array.from((nonceManager as any).reservedNonces || []),
+          };
+        } catch (e: any) {
+          return { ok: false as const, error: e?.message || String(e) };
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     if (!result.ok) {
       if (handleInfrastructureErrors(result as any)) return;

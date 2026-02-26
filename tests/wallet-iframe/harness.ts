@@ -157,10 +157,7 @@ export interface RouterHarnessOptions {
   requestTimeoutMs?: number;
 }
 
-export const initRouter = async (
-  page: Page,
-  options: RouterHarnessOptions = {}
-): Promise<void> => {
+export const initRouter = async (page: Page, options: RouterHarnessOptions = {}): Promise<void> => {
   // Ensure bare module specifiers used by the built ESM bundle
   // (e.g., "bs58") resolve in the browser by installing the
   // shared import map used across Playwright tests.
@@ -173,20 +170,23 @@ export const initRouter = async (
     ...options,
   };
 
-  await page.evaluate(async ({ routerOptions, modulePath }) => {
-    // @ts-ignore - runtime import resolved by dev server during tests
-    const base =
-      window.location.origin === 'null' ? 'https://example.localhost' : window.location.origin;
-    const module = await import(new URL(modulePath, base).toString());
-    const { WalletIframeRouter } = module as typeof import('@/core/WalletIframe/client/router');
-    const router = new WalletIframeRouter(routerOptions);
-    (window as any).__walletRouter = router;
-  }, { routerOptions: opts, modulePath: SDK_ESM_PATHS.walletIframeRouter });
+  await page.evaluate(
+    async ({ routerOptions, modulePath }) => {
+      // @ts-ignore - runtime import resolved by dev server during tests
+      const base =
+        window.location.origin === 'null' ? 'https://example.localhost' : window.location.origin;
+      const module = await import(new URL(modulePath, base).toString());
+      const { WalletIframeRouter } = module as typeof import('@/core/WalletIframe/client/router');
+      const router = new WalletIframeRouter(routerOptions);
+      (window as any).__walletRouter = router;
+    },
+    { routerOptions: opts, modulePath: SDK_ESM_PATHS.walletIframeRouter },
+  );
 };
 
 export const waitFor = async (
   predicate: () => boolean,
-  timeoutMs: number = 2000
+  timeoutMs: number = 2000,
 ): Promise<boolean> => {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -244,7 +244,9 @@ export const captureOverlay = () => {
   const portal = document.getElementById('w3a-confirm-portal');
   const host = portal?.firstElementChild as HTMLElement | null;
   if (!host) return { exists: false, visible: false } as const;
-  const interactive = host.querySelector<HTMLElement>('w3a-drawer-tx-confirmer, w3a-modal-tx-confirmer, w3a-drawer, w3a-modal');
+  const interactive = host.querySelector<HTMLElement>(
+    'w3a-drawer-tx-confirmer, w3a-modal-tx-confirmer, w3a-drawer, w3a-modal',
+  );
   const target = interactive || host;
   const style = getComputedStyle(target);
   const rect = target.getBoundingClientRect();
@@ -277,7 +279,7 @@ export const captureOverlay = () => {
 export const registerWalletServiceRoute = async (
   page: Page,
   html: string,
-  urlPattern: string = 'https://wallet.test/wallet-service*'
+  urlPattern: string = 'https://wallet.test/wallet-service*',
 ): Promise<void> => {
   await page.route(urlPattern, (route) => {
     console.log(`[wallet-stub] fulfilling ${route.request().url()}`);

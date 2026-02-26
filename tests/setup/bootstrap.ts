@@ -6,7 +6,6 @@ import { DEFAULT_TEST_CONFIG } from './config';
 import { SDK_ESM_PATHS } from './sdkEsmPaths';
 
 async function setupWebAuthnVirtualAuthenticator(page: Page): Promise<string> {
-
   const client = await page.context().newCDPSession(page);
   await client.send('WebAuthn.enable');
 
@@ -34,7 +33,10 @@ async function setupWebAuthnVirtualAuthenticator(page: Page): Promise<string> {
  */
 export async function injectImportMap(page: Page): Promise<void>;
 export async function injectImportMap(page: Page, options: { frontendUrl: string }): Promise<void>;
-export async function injectImportMap(page: Page, options?: { frontendUrl: string }): Promise<void> {
+export async function injectImportMap(
+  page: Page,
+  options?: { frontendUrl: string },
+): Promise<void> {
   const imports = {
     // React: required to import SDK React components from /sdk/esm/*
     react: 'https://esm.sh/react@19.1.1',
@@ -183,9 +185,10 @@ export async function injectImportMap(page: Page, options?: { frontendUrl: strin
  * Allow browser environment to settle
  */
 async function waitForEnvironmentStabilization(page: Page): Promise<void> {
-
   await page.waitForLoadState('domcontentloaded');
-  await page.waitForFunction(() => document.readyState === 'complete' || document.readyState === 'interactive');
+  await page.waitForFunction(
+    () => document.readyState === 'complete' || document.readyState === 'interactive',
+  );
 
   printStepLine(4, 'environment stabilized');
 }
@@ -201,11 +204,16 @@ async function waitForEnvironmentStabilization(page: Page): Promise<void> {
  *   - Signer worker as a WrapKeySeed/KEK/NEAR‑signature enclave that derives
  *     WrapKeySeed from prfFirstB64u + wrapKeySalt supplied in wallet-origin requests.
  */
-async function loadPasskeyManagerDynamically(page: Page, configs: PasskeyTestConfig): Promise<void> {
+async function loadPasskeyManagerDynamically(
+  page: Page,
+  configs: PasskeyTestConfig,
+): Promise<void> {
   // Wait for the page to be ready before attempting imports.
   // Note: `networkidle` is unreliable on Vite dev pages due to HMR/WebSocket connections.
   await page.waitForLoadState('domcontentloaded');
-  await page.waitForFunction(() => document.readyState === 'complete' || document.readyState === 'interactive');
+  await page.waitForFunction(
+    () => document.readyState === 'complete' || document.readyState === 'interactive',
+  );
 
   // Robust error handling + retry logic
   const maxRetries = 3;
@@ -217,71 +225,80 @@ async function loadPasskeyManagerDynamically(page: Page, configs: PasskeyTestCon
       printStepLine(5, `importing TatchiPasskey: attempt ${attempt}/${maxRetries}`, 1);
 
       const modulePaths = { tatchiPasskey: SDK_ESM_PATHS.tatchiPasskey } as const;
-      const loadHandle = await page.waitForFunction(async (args) => {
-        try {
-          const { setupOptions, modulePaths } = args as any;
-          const { TatchiPasskey } = await import(modulePaths.tatchiPasskey);
+      const loadHandle = await page.waitForFunction(
+        async (args) => {
+          try {
+            const { setupOptions, modulePaths } = args as any;
+            const { TatchiPasskey } = await import(modulePaths.tatchiPasskey);
 
-          if (!TatchiPasskey) {
-            throw new Error('TatchiPasskey not found in SDK module');
+            if (!TatchiPasskey) {
+              throw new Error('TatchiPasskey not found in SDK module');
+            }
+
+            // Create and validate configuration
+            const runtimeConfigs = {
+              nearNetwork: setupOptions.nearNetwork as 'testnet',
+              relayerAccount: setupOptions.relayerAccount,
+              nearRpcUrl: setupOptions.nearRpcUrl,
+              useRelayer: setupOptions.useRelayer || false,
+              relayServerUrl: setupOptions.relayServerUrl,
+              relayer: setupOptions.relayer,
+              // Additional centralized configuration
+              frontendUrl: setupOptions.frontendUrl,
+              rpId: setupOptions.rpId,
+              testReceiverAccountId: setupOptions.testReceiverAccountId,
+            };
+
+            // Validate required configs
+            if (!runtimeConfigs.nearRpcUrl)
+              throw new Error('nearRpcUrl is required but not provided');
+            if (!runtimeConfigs.relayerAccount)
+              throw new Error('relayerAccount is required but not provided');
+
+            // Create TatchiPasskey instance
+            const tatchi = new TatchiPasskey(runtimeConfigs);
+
+            // Store in window for test access
+            (window as any).TatchiPasskey = TatchiPasskey;
+            (window as any).tatchi = tatchi;
+            (window as any).configs = runtimeConfigs;
+
+            return { success: true, message: 'TatchiPasskey loaded successfully' };
+          } catch (error: any) {
+            const message = error?.message ? String(error.message) : String(error);
+            return { success: false, error: message };
           }
-
-	          // Create and validate configuration
-		          const runtimeConfigs = {
-		            nearNetwork: setupOptions.nearNetwork as 'testnet',
-		            relayerAccount: setupOptions.relayerAccount,
-		            nearRpcUrl: setupOptions.nearRpcUrl,
-		            useRelayer: setupOptions.useRelayer || false,
-		            relayServerUrl: setupOptions.relayServerUrl,
-		            relayer: setupOptions.relayer,
-	            // Additional centralized configuration
-	            frontendUrl: setupOptions.frontendUrl,
-	            rpId: setupOptions.rpId,
-	            testReceiverAccountId: setupOptions.testReceiverAccountId
-	          };
-
-	          // Validate required configs
-	          if (!runtimeConfigs.nearRpcUrl) throw new Error('nearRpcUrl is required but not provided');
-	          if (!runtimeConfigs.relayerAccount) throw new Error('relayerAccount is required but not provided');
-
-          // Create TatchiPasskey instance
-          const tatchi = new TatchiPasskey(runtimeConfigs);
-
-          // Store in window for test access
-          (window as any).TatchiPasskey = TatchiPasskey;
-          (window as any).tatchi = tatchi;
-          (window as any).configs = runtimeConfigs;
-
-          return { success: true, message: 'TatchiPasskey loaded successfully' };
-        } catch (error: any) {
-          const message = error?.message ? String(error.message) : String(error);
-          return { success: false, error: message };
-        }
-      }, { setupOptions: configs, modulePaths }, {
-        timeout: attemptTimeoutMs,
-        polling: 1000
-      });
+        },
+        { setupOptions: configs, modulePaths },
+        {
+          timeout: attemptTimeoutMs,
+          polling: 1000,
+        },
+      );
 
       const loadResult = await loadHandle.jsonValue().catch(() => ({ success: true }));
       await loadHandle.dispose();
 
       if (!loadResult?.success) {
-        const message = (loadResult && typeof loadResult === 'object' && 'error' in loadResult && typeof (loadResult as { error?: unknown }).error === 'string')
-          ? (loadResult as { error: string }).error
-          : 'Unknown error loading TatchiPasskey';
+        const message =
+          loadResult &&
+          typeof loadResult === 'object' &&
+          'error' in loadResult &&
+          typeof (loadResult as { error?: unknown }).error === 'string'
+            ? (loadResult as { error: string }).error
+            : 'Unknown error loading TatchiPasskey';
         throw new Error(message);
       }
 
       printStepLine(5, `TatchiPasskey ready (attempt ${attempt})`, 2);
       return;
-
     } catch (error: any) {
       lastError = error;
       printStepLine(5, `attempt ${attempt} failed: ${error.message}`, 3);
 
       if (attempt < maxRetries) {
         printStepLine(5, `retrying in 0.5 seconds (${maxRetries - attempt} retries remaining)`, 3);
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 500));
         // Wait for page to be stable again before retry
         await page.waitForLoadState('domcontentloaded');
       }
@@ -289,7 +306,9 @@ async function loadPasskeyManagerDynamically(page: Page, configs: PasskeyTestCon
   }
 
   // All retries failed
-  throw new Error(`Failed to load TatchiPasskey after ${maxRetries} attempts. Last error: ${lastError?.message}`);
+  throw new Error(
+    `Failed to load TatchiPasskey after ${maxRetries} attempts. Last error: ${lastError?.message}`,
+  );
 }
 
 /**
@@ -298,49 +317,62 @@ async function loadPasskeyManagerDynamically(page: Page, configs: PasskeyTestCon
  */
 async function ensureGlobalFallbacks(page: Page): Promise<void> {
   const paths = { base64: SDK_ESM_PATHS.base64, accountIds: SDK_ESM_PATHS.accountIds } as const;
-  await page.waitForFunction(async (paths) => {
-    try {
-      // Defense in depth: Ensure base64UrlEncode is globally available
-      // This prevents "base64UrlEncode is not defined" errors even if timing issues occur
-      if (typeof (window as any).base64UrlEncode === 'undefined') {
-        try {
-          const { base64UrlEncode } = await import(paths.base64);
-          (window as any).base64UrlEncode = base64UrlEncode;
-          console.log('[setup:browser] base64UrlEncode made available globally as fallback');
-        } catch (encoderError) {
-          console.error('[setup:browser] Failed to import base64UrlEncode fallback:', encoderError);
+  await page.waitForFunction(
+    async (paths) => {
+      try {
+        // Defense in depth: Ensure base64UrlEncode is globally available
+        // This prevents "base64UrlEncode is not defined" errors even if timing issues occur
+        if (typeof (window as any).base64UrlEncode === 'undefined') {
+          try {
+            const { base64UrlEncode } = await import(paths.base64);
+            (window as any).base64UrlEncode = base64UrlEncode;
+            console.log('[setup:browser] base64UrlEncode made available globally as fallback');
+          } catch (encoderError) {
+            console.error(
+              '[setup:browser] Failed to import base64UrlEncode fallback:',
+              encoderError,
+            );
+          }
         }
-      }
 
-      // Also ensure base64UrlDecode is available for credential ID decoding
-      if (typeof (window as any).base64UrlDecode === 'undefined') {
-        try {
-          const { base64UrlDecode } = await import(paths.base64);
-          (window as any).base64UrlDecode = base64UrlDecode;
-        } catch (encoderError) {
-          console.error('[setup:browser - step 5] Failed to import base64UrlDecode fallback:', encoderError);
+        // Also ensure base64UrlDecode is available for credential ID decoding
+        if (typeof (window as any).base64UrlDecode === 'undefined') {
+          try {
+            const { base64UrlDecode } = await import(paths.base64);
+            (window as any).base64UrlDecode = base64UrlDecode;
+          } catch (encoderError) {
+            console.error(
+              '[setup:browser - step 5] Failed to import base64UrlDecode fallback:',
+              encoderError,
+            );
+          }
         }
-      }
 
-      // Ensure toAccountId is available globally for tests
-      if (typeof (window as any).toAccountId === 'undefined') {
-        try {
-          const { toAccountId } = await import(paths.accountIds);
-          (window as any).toAccountId = toAccountId;
-        } catch (accountIdError) {
-          console.error('[setup:browser - step 5] Failed to import toAccountId fallback:', accountIdError);
+        // Ensure toAccountId is available globally for tests
+        if (typeof (window as any).toAccountId === 'undefined') {
+          try {
+            const { toAccountId } = await import(paths.accountIds);
+            (window as any).toAccountId = toAccountId;
+          } catch (accountIdError) {
+            console.error(
+              '[setup:browser - step 5] Failed to import toAccountId fallback:',
+              accountIdError,
+            );
+          }
         }
-      }
 
-      return true; // Success indicator
-    } catch (error) {
-      console.error('Global fallbacks setup failed:', error);
-      return false;
-    }
-  }, paths, {
-    timeout: 15000, // 15 second timeout
-    polling: 500    // Check every 500ms
-  });
+        return true; // Success indicator
+      } catch (error) {
+        console.error('Global fallbacks setup failed:', error);
+        return false;
+      }
+    },
+    paths,
+    {
+      timeout: 15000, // 15 second timeout
+      polling: 500, // Check every 500ms
+    },
+  );
 
   printStepLine(6, 'global fallbacks ready');
 }
@@ -351,7 +383,7 @@ async function ensureGlobalFallbacks(page: Page): Promise<void> {
 export async function executeSequentialSetup(
   page: Page,
   configs: PasskeyTestConfig,
-  options: { skipPasskeyManagerInit?: boolean } = {}
+  options: { skipPasskeyManagerInit?: boolean } = {},
 ): Promise<string> {
   printStepLine('bootstrap', 'starting 6-step sequential bootstrap', 0);
 
@@ -362,12 +394,14 @@ export async function executeSequentialSetup(
     // assets/routes from the app origin. With Caddy enabled (default), wallet.example.localhost is
     // served separately and we should not mirror to avoid breaking the iframe handshake.
     const noCaddy =
-      process.env.NO_CADDY === '1'
-      || process.env.VITE_NO_CADDY === '1'
-      || process.env.CI === '1';
+      process.env.NO_CADDY === '1' || process.env.VITE_NO_CADDY === '1' || process.env.CI === '1';
     return noCaddy;
   })();
-  await installWalletSdkCorsShim(page, { appOrigin, logStyle: 'setup', mirror: mirrorWalletOrigin });
+  await installWalletSdkCorsShim(page, {
+    appOrigin,
+    logStyle: 'setup',
+    mirror: mirrorWalletOrigin,
+  });
   const useRelayServer =
     process.env.USE_RELAY_SERVER === '1' || process.env.USE_RELAY_SERVER === 'true';
   if (mirrorWalletOrigin && useRelayServer) {

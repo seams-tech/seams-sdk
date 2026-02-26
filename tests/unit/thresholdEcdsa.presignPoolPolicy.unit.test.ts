@@ -45,11 +45,11 @@ test.describe('threshold ECDSA presign pool policy', () => {
         refillAttemptTimeoutMs: 999_999,
       },
     });
-    expect(cfg.thresholdEcdsaPresignPool.enabled).toBe(false);
-    expect(cfg.thresholdEcdsaPresignPool.targetDepth).toBe(64);
-    expect(cfg.thresholdEcdsaPresignPool.lowWatermark).toBe(0);
-    expect(cfg.thresholdEcdsaPresignPool.maxRefillInFlight).toBe(8);
-    expect(cfg.thresholdEcdsaPresignPool.refillAttemptTimeoutMs).toBe(120_000);
+    expect(cfg.signing.thresholdEcdsa.presignPool.enabled).toBe(false);
+    expect(cfg.signing.thresholdEcdsa.presignPool.targetDepth).toBe(64);
+    expect(cfg.signing.thresholdEcdsa.presignPool.lowWatermark).toBe(0);
+    expect(cfg.signing.thresholdEcdsa.presignPool.maxRefillInFlight).toBe(8);
+    expect(cfg.signing.thresholdEcdsa.presignPool.refillAttemptTimeoutMs).toBe(120_000);
   });
 
   test('accepts larger target depth policy for pooled warm signing', async () => {
@@ -61,8 +61,8 @@ test.describe('threshold ECDSA presign pool policy', () => {
         lowWatermark: 4,
       },
     });
-    expect(cfg.thresholdEcdsaPresignPool.targetDepth).toBe(12);
-    expect(cfg.thresholdEcdsaPresignPool.lowWatermark).toBe(4);
+    expect(cfg.signing.thresholdEcdsa.presignPool.targetDepth).toBe(12);
+    expect(cfg.signing.thresholdEcdsa.presignPool.lowWatermark).toBe(4);
   });
 
   test('scheduler no-ops cleanly when policy is disabled', async () => {

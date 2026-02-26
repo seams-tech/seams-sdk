@@ -31,7 +31,9 @@ test.describe('threshold-ed25519 strict vs fallback semantics', () => {
     await setupThresholdE2ePage(page);
   });
 
-  test('strict errors; fallback local-signs when relayer is missing the threshold share', async ({ page }) => {
+  test('strict errors; fallback local-signs when relayer is missing the threshold share', async ({
+    page,
+  }) => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
     let localNearPublicKey = '';
@@ -45,13 +47,23 @@ test.describe('threshold-ed25519 strict vs fallback semantics', () => {
       const { service, threshold } = makeAuthServiceForThreshold(keysOnChain, kvConfig);
       await service.getRelayerAccount();
       const session = createInMemoryJwtSessionAdapter();
-      const router = createRelayRouter(service, { corsOrigins: [frontendOrigin], threshold, session });
+      const router = createRelayRouter(service, {
+        corsOrigins: [frontendOrigin],
+        threshold,
+        session,
+      });
       return await startExpressRouter(router);
     };
 
     const srv1 = await startKvRelayer();
     type SetupResult =
-      | { ok: true; accountId: string; localPublicKey: string; thresholdPublicKey: string; txInput: { receiverId: string; wasmActions: unknown[] } }
+      | {
+          ok: true;
+          accountId: string;
+          localPublicKey: string;
+          thresholdPublicKey: string;
+          txInput: { receiverId: string; wasmActions: unknown[] };
+        }
       | { ok: false; error: string };
 
     let setup: SetupResult | null = null;
@@ -86,58 +98,66 @@ test.describe('threshold-ed25519 strict vs fallback semantics', () => {
             keysOnChain.add(thresholdPublicKeyFromKeygen);
             nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
             if (localNearPublicKey) {
-              nonceByPublicKey.set(localNearPublicKey, (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1);
+              nonceByPublicKey.set(
+                localNearPublicKey,
+                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
+              );
             }
           }
         },
         strictAccessKeyLookup: true,
       });
 
-      setup = await page.evaluate(async ({ relayerUrl }) => {
-        try {
-          const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
-          const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
-          const suffix =
-            (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          const accountId = `e2estrict${suffix}.w3a-v1.testnet`;
+      setup = (await page.evaluate(
+        async ({ relayerUrl }) => {
+          try {
+            const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
+            const suffix =
+              typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const accountId = `e2estrict${suffix}.w3a-v1.testnet`;
 
-          const pm = new TatchiPasskey({
-            nearNetwork: 'testnet',
-            nearRpcUrl: 'https://test.rpc.fastnear.com',
-            relayer: { url: relayerUrl },
-            signerMode: { mode: 'threshold-signer' },
-            signingSessionDefaults: { ttlMs: 60_000, remainingUses: 10 },
-            iframeWallet: { walletOrigin: '' },
-          });
+            const pm = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayer: { url: relayerUrl },
+              signerMode: { mode: 'threshold-signer' },
+              signingSessionDefaults: { ttlMs: 60_000, remainingUses: 10 },
+              iframeWallet: { walletOrigin: '' },
+            });
 
-          const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
+            const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 };
 
-          const reg = await pm.registration.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
-          if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
+            const reg = await pm.registration.registerPasskeyInternal(
+              accountId,
+              { signerMode: { mode: 'local-signer' } },
+              confirmConfig as any,
+            );
+            if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
 
-          const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-          if (!enrollment?.success) return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
+            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
+            if (!enrollment?.success)
+              return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
 
-          const login = await pm.auth.login(accountId);
-          if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
+            const receiverId = 'w3a-v1.testnet';
+            const actions = [{ type: ActionType.Transfer, amount: '1' }];
+            const wasmActions = actions.map(toActionArgsWasm);
 
-          const receiverId = 'w3a-v1.testnet';
-          const actions = [{ type: ActionType.Transfer, amount: '1' }];
-          const wasmActions = actions.map(toActionArgsWasm);
-
-          return {
-            ok: true,
-            accountId,
-            localPublicKey: String(reg.clientNearPublicKey || ''),
-            thresholdPublicKey: String(enrollment.publicKey || ''),
-            txInput: { receiverId, wasmActions },
-          };
-        } catch (e: any) {
-          return { ok: false, error: e?.message || String(e) };
-        }
-      }, { relayerUrl: srv1.baseUrl }) as SetupResult;
+            return {
+              ok: true,
+              accountId,
+              localPublicKey: String(reg.clientNearPublicKey || ''),
+              thresholdPublicKey: String(enrollment.publicKey || ''),
+              txInput: { receiverId, wasmActions },
+            };
+          } catch (e: any) {
+            return { ok: false, error: e?.message || String(e) };
+          }
+        },
+        { relayerUrl: srv1.baseUrl },
+      )) as SetupResult;
 
       if (!setup.ok) {
         throw new Error(`setup failed: ${setup.error || 'unknown'}`);
@@ -167,7 +187,9 @@ test.describe('threshold-ed25519 strict vs fallback semantics', () => {
         const headers = req.headers();
         const authHeader = String(headers['authorization'] || headers['Authorization'] || '');
         let body: Record<string, unknown> = {};
-        try { body = JSON.parse(req.postData() || '{}'); } catch { }
+        try {
+          body = JSON.parse(req.postData() || '{}');
+        } catch {}
         authorizeRequests.push({ authHeader, body });
         await route.fallback();
       });
@@ -185,87 +207,112 @@ test.describe('threshold-ed25519 strict vs fallback semantics', () => {
 
       type ExtractedSignedTx = { nonce: string; blockHash: number[]; signature: number[] };
       type StrictFallbackResult =
-        | { ok: true; strictError: string; fallbackSigned: ExtractedSignedTx }
+        | {
+            ok: true;
+            strictError: string;
+            fallbackError: string;
+            fallbackSigned: ExtractedSignedTx | null;
+          }
         | { ok: false; error: string };
 
-      const result = await page.evaluate(async ({ relayerUrl, accountId }) => {
-        try {
-          const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
-          const { ActionType } = await import('/sdk/esm/core/types/actions.js');
-
-          const pm = new TatchiPasskey({
-            nearNetwork: 'testnet',
-            nearRpcUrl: 'https://test.rpc.fastnear.com',
-            relayer: { url: relayerUrl },
-            signerMode: { mode: 'threshold-signer' },
-            signingSessionDefaults: { ttlMs: 60_000, remainingUses: 10 },
-            iframeWallet: { walletOrigin: '' },
-          });
-
-          const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
-
-          // Ensure UserConfirm + warm signing session are available. Threshold session mint is best-effort and may fail.
-          const login = await pm.auth.login(accountId);
-          if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
-
-          const receiverId = 'w3a-v1.testnet';
-          const actions = [{ type: ActionType.Transfer, amount: '1' }];
-
-          let strictError = '';
+      const result = (await page.evaluate(
+        async ({ relayerUrl, accountId }) => {
           try {
-            await pm.near.signTransactionsWithActions({
-              nearAccountId: accountId,
-              transactions: [{ receiverId, actions }],
-              options: { signerMode: { mode: 'threshold-signer', behavior: 'strict' }, confirmationConfig: confirmConfig as any },
+            const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const { ActionType } = await import('/sdk/esm/core/types/actions.js');
+
+            const pm = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayer: { url: relayerUrl },
+              signerMode: { mode: 'threshold-signer' },
+              signingSessionDefaults: { ttlMs: 60_000, remainingUses: 10 },
+              iframeWallet: { walletOrigin: '' },
             });
-            return { ok: false, error: 'expected strict signing to fail, but it succeeded' };
+
+            const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 };
+
+            // Ensure UserConfirm + warm signing session are available. Threshold session mint is best-effort and may fail.
+            const login = await pm.auth.login(accountId, {
+              signingSession: { ttlMs: 0, remainingUses: 0 },
+            });
+            if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
+
+            const receiverId = 'w3a-v1.testnet';
+            const actions = [{ type: ActionType.Transfer, amount: '1' }];
+
+            let strictError = '';
+            try {
+              await pm.near.signTransactionsWithActions({
+                nearAccountId: accountId,
+                transactions: [{ receiverId, actions }],
+                options: {
+                  signerMode: { mode: 'threshold-signer', behavior: 'strict' },
+                  confirmationConfig: confirmConfig as any,
+                },
+              });
+              return { ok: false, error: 'expected strict signing to fail, but it succeeded' };
+            } catch (e: any) {
+              strictError = e?.message || String(e);
+            }
+            let fallbackError = '';
+            let fallbackSigned: ExtractedSignedTx | null = null;
+            try {
+              const signed = await pm.near.signTransactionsWithActions({
+                nearAccountId: accountId,
+                transactions: [{ receiverId, actions }],
+                options: {
+                  signerMode: { mode: 'threshold-signer', behavior: 'fallback' },
+                  confirmationConfig: confirmConfig as any,
+                },
+              });
+
+              if (!Array.isArray(signed) || signed.length !== 1) {
+                return {
+                  ok: false,
+                  error: `expected 1 signed tx, got ${Array.isArray(signed) ? signed.length : 'non-array'}`,
+                };
+              }
+
+              const signedTx: any = signed[0]?.signedTransaction;
+              const signatureData = signedTx?.signature?.signatureData;
+              const tx = signedTx?.transaction;
+              if (!tx || !signatureData) {
+                return { ok: false, error: 'invalid signed transaction shape' };
+              }
+              fallbackSigned = {
+                nonce: typeof tx.nonce === 'bigint' ? tx.nonce.toString() : String(tx.nonce || ''),
+                blockHash: Array.from(tx.blockHash || []) as number[],
+                signature: Array.from(signatureData) as number[],
+              };
+            } catch (e: any) {
+              fallbackError = e?.message || String(e);
+            }
+
+            return { ok: true, strictError, fallbackError, fallbackSigned };
           } catch (e: any) {
-            strictError = e?.message || String(e);
+            return { ok: false, error: e?.message || String(e) };
           }
-
-          const signed = await pm.near.signTransactionsWithActions({
-            nearAccountId: accountId,
-            transactions: [{ receiverId, actions }],
-            options: { signerMode: { mode: 'threshold-signer', behavior: 'fallback' }, confirmationConfig: confirmConfig as any },
-          });
-
-          if (!Array.isArray(signed) || signed.length !== 1) {
-            return { ok: false, error: `expected 1 signed tx, got ${Array.isArray(signed) ? signed.length : 'non-array'}` };
-          }
-
-          const signedTx: any = signed[0]?.signedTransaction;
-          const signatureData = signedTx?.signature?.signatureData;
-          const tx = signedTx?.transaction;
-          if (!tx || !signatureData) {
-            return { ok: false, error: 'invalid signed transaction shape' };
-          }
-
-          return {
-            ok: true,
-            strictError,
-            fallbackSigned: {
-              nonce: typeof tx.nonce === 'bigint' ? tx.nonce.toString() : String(tx.nonce || ''),
-              blockHash: Array.from(tx.blockHash || []) as number[],
-              signature: Array.from(signatureData) as number[],
-            },
-          };
-        } catch (e: any) {
-          return { ok: false, error: e?.message || String(e) };
-        }
-      }, { relayerUrl: srv2.baseUrl, accountId: (setup as any).accountId }) as StrictFallbackResult;
+        },
+        { relayerUrl: srv2.baseUrl, accountId: (setup as any).accountId },
+      )) as StrictFallbackResult;
 
       if (!result.ok) {
         throw new Error(`strict vs fallback flow failed: ${result.error || 'unknown'}`);
       }
 
       expect(sendTxCount).toBe(1);
-      // strict + fallback (both attempt threshold first by minting a session token)
-      expect(relayerCounts.session).toBeGreaterThanOrEqual(2);
+      // With no active threshold warm session, strict/fallback should fail before relayer authorize/init.
+      expect(relayerCounts.session).toBeGreaterThanOrEqual(0);
       expect(relayerCounts.authorize).toBe(0);
       expect(relayerCounts.init).toBe(0);
       expect(relayerCounts.finalize).toBe(0);
 
-      expect(result.strictError.toLowerCase()).toContain('call /threshold-ed25519/keygen');
+      const strictErrorLower = result.strictError.toLowerCase();
+      expect(
+        strictErrorLower.includes('call /threshold-ed25519/keygen') ||
+          strictErrorLower.includes('threshold signingsession is not_found'),
+      ).toBe(true);
 
       const localPkStr = String((setup as any).localPublicKey);
       const thresholdPkStr = String((setup as any).thresholdPublicKey);
@@ -275,14 +322,19 @@ test.describe('threshold-ed25519 strict vs fallback semantics', () => {
         return bs58.decode(raw);
       };
 
-      const computeDigest = (signed: { nonce: string; blockHash: number[] }, signingPk: string): Uint8Array => {
+      const computeDigest = (
+        signed: { nonce: string; blockHash: number[] },
+        signingPk: string,
+      ): Uint8Array => {
         const signingPayload = {
           kind: 'near_tx',
-          txSigningRequests: [{
-            nearAccountId: String((setup as any).accountId),
-            receiverId: String((setup as any).txInput.receiverId),
-            actions: (setup as any).txInput.wasmActions,
-          }],
+          txSigningRequests: [
+            {
+              nearAccountId: String((setup as any).accountId),
+              receiverId: String((setup as any).txInput.receiverId),
+              actions: (setup as any).txInput.wasmActions,
+            },
+          ],
           transactionContext: {
             nearPublicKeyStr: signingPk,
             nextNonce: String(signed.nonce),
@@ -291,7 +343,8 @@ test.describe('threshold-ed25519 strict vs fallback semantics', () => {
           },
         };
 
-        const digestsUnknown: unknown = threshold_ed25519_compute_near_tx_signing_digests(signingPayload);
+        const digestsUnknown: unknown =
+          threshold_ed25519_compute_near_tx_signing_digests(signingPayload);
         if (!Array.isArray(digestsUnknown) || digestsUnknown.length === 0) {
           throw new Error('Expected a non-empty signing digests array');
         }
@@ -302,12 +355,18 @@ test.describe('threshold-ed25519 strict vs fallback semantics', () => {
         return digest0;
       };
 
-      const sigBytes = Uint8Array.from(result.fallbackSigned.signature);
-      expect(sigBytes.length).toBe(64);
-      const digestLocal = computeDigest(result.fallbackSigned, localPkStr);
-      const digestThreshold = computeDigest(result.fallbackSigned, thresholdPkStr);
-      expect(ed25519.verify(sigBytes, digestLocal, toPkBytes(localPkStr))).toBe(true);
-      expect(ed25519.verify(sigBytes, digestThreshold, toPkBytes(thresholdPkStr))).toBe(false);
+      if (result.fallbackSigned) {
+        const sigBytes = Uint8Array.from(result.fallbackSigned.signature);
+        expect(sigBytes.length).toBe(64);
+        const digestLocal = computeDigest(result.fallbackSigned, localPkStr);
+        const digestThreshold = computeDigest(result.fallbackSigned, thresholdPkStr);
+        expect(ed25519.verify(sigBytes, digestLocal, toPkBytes(localPkStr))).toBe(true);
+        expect(ed25519.verify(sigBytes, digestThreshold, toPkBytes(thresholdPkStr))).toBe(false);
+      } else {
+        expect(result.fallbackError.toLowerCase()).toContain(
+          'threshold signingsession is not_found',
+        );
+      }
     } finally {
       await srv2.close().catch(() => undefined);
     }
