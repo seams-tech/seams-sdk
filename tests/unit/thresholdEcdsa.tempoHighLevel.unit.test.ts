@@ -12,7 +12,7 @@ type CounterKey = 'authorize' | 'presignInit' | 'presignStep' | 'signInit' | 'si
 type Counters = Record<CounterKey, number>;
 
 const EIP1559_TEST_TX = {
-  chainId: 11155111n,
+  chainId: 11155111,
   nonce: 7n,
   maxPriorityFeePerGas: 1_500_000_000n,
   maxFeePerGas: 3_000_000_000n,
@@ -118,7 +118,7 @@ async function signTempoWithExistingPasskey(
           kind: 'tempoTransaction',
           senderSignatureAlgorithm: 'secp256k1',
           tx: {
-            chainId: 42431n,
+            chainId: 42431,
             maxPriorityFeePerGas: 1n,
             maxFeePerGas: 2n,
             gasLimit: 21_000n,

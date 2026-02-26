@@ -20,7 +20,7 @@ import type { RegistrationSignerOptions } from './registrationSignerOptions';
  *     network: 'near-mainnet' | 'near-testnet' | 'tempo-mainnet' | 'tempo-testnet' | 'arc-mainnet' | 'arc-testnet';
  *     rpcUrl?: string;
  *     explorerUrl?: string;
- *     chainId?: number; // EVM-style chains (tempo-*, arc-*)
+ *     chainId: number; // required for EVM-style chains (tempo-*, arc-*)
  *   }>;
  *   appearance?: {
  *     theme?: 'light' | 'dark';
@@ -51,7 +51,7 @@ import type { RegistrationSignerOptions } from './registrationSignerOptions';
  *       ttlMs: number;
  *       remainingUses: number;
  *       smartAccount?: {
- *         chainId?: string;
+ *         chainId: number;
  *         factory?: string;
  *         entryPoint?: string;
  *         salt?: string;
@@ -65,7 +65,7 @@ import type { RegistrationSignerOptions } from './registrationSignerOptions';
  *       ttlMs: number;
  *       remainingUses: number;
  *       smartAccount?: {
- *         chainId?: string;
+ *         chainId: number;
  *         factory?: string;
  *         entryPoint?: string;
  *         salt?: string;
@@ -382,14 +382,14 @@ export interface TatchiTempoChainConfigInput {
   network: TatchiTempoChainNetwork;
   rpcUrl?: string;
   explorerUrl?: string;
-  chainId?: number;
+  chainId: number;
 }
 
 export interface TatchiArcChainConfigInput {
   network: TatchiArcChainNetwork;
   rpcUrl?: string;
   explorerUrl?: string;
-  chainId?: number;
+  chainId: number;
 }
 
 export type TatchiChainConfigInput =
@@ -407,14 +407,14 @@ export interface TatchiTempoChainConfig {
   network: TatchiTempoChainNetwork;
   rpcUrl: string;
   explorerUrl: string;
-  chainId?: number;
+  chainId: number;
 }
 
 export interface TatchiArcChainConfig {
   network: TatchiArcChainNetwork;
   rpcUrl: string;
   explorerUrl: string;
-  chainId?: number;
+  chainId: number;
 }
 
 export type TatchiChainConfig =

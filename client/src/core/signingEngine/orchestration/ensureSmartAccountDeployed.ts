@@ -272,7 +272,7 @@ async function mirrorMissingSmartAccountRowFromCounterpart(args: {
   return seeded;
 }
 
-function toChainIdFromBigint(prefix: 'eip155' | 'tempo', chainId: bigint): string {
+function toChainIdFromNumber(prefix: 'eip155' | 'tempo', chainId: number): string {
   return `${prefix}:${String(chainId)}`;
 }
 
@@ -283,7 +283,7 @@ export function deriveSmartAccountDeploymentTargetFromSigningRequest(
     return {
       chain: 'evm',
       chainIdCandidates: [
-        toChainIdFromBigint('eip155', request.tx.chainId),
+        toChainIdFromNumber('eip155', request.tx.chainId),
         'eip155:unknown',
       ],
       accountModelCandidates: ['erc4337'],
@@ -292,7 +292,7 @@ export function deriveSmartAccountDeploymentTargetFromSigningRequest(
   return {
     chain: 'tempo',
     chainIdCandidates: [
-      toChainIdFromBigint('tempo', request.tx.chainId),
+      toChainIdFromNumber('tempo', request.tx.chainId),
       'tempo:unknown',
     ],
     accountModelCandidates: ['tempo-native'],

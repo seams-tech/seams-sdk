@@ -68,6 +68,33 @@ function coercePositiveInt(value: unknown, fallback: number): number {
   return Math.floor(n);
 }
 
+function toSmartAccountCaipChainId(
+  chain: ThresholdEcdsaActivationChain,
+  chainId: number,
+): string {
+  return `${chain === 'evm' ? 'eip155' : 'tempo'}:${String(chainId)}`;
+}
+
+function toSmartAccountBootstrapInput(
+  chain: ThresholdEcdsaActivationChain,
+  smartAccount: RegistrationThresholdEcdsaSignerOptions['smartAccount'] | undefined,
+):
+  | {
+      chainId: string;
+      factory?: string;
+      entryPoint?: string;
+      salt?: string;
+      counterfactualAddress?: string;
+    }
+  | undefined {
+  if (!smartAccount) return undefined;
+  const { chainId, ...rest } = smartAccount;
+  return {
+    ...rest,
+    chainId: toSmartAccountCaipChainId(chain, chainId),
+  };
+}
+
 /**
  * Core registration function that handles passkey registration
  *
@@ -710,6 +737,14 @@ export async function registerPasskeyInternal(
           expiresAtMs: ecdsaExpiresAtMs,
         });
 
+        const primarySmartAccountBootstrap =
+          thresholdEcdsaPrimaryProvisionTarget
+            ? toSmartAccountBootstrapInput(
+              thresholdEcdsaPrimaryProvisionTarget.chain,
+              thresholdEcdsaPrimaryProvisionTarget.options.smartAccount,
+            )
+            : undefined;
+
         const bootstrapProjection: ThresholdEcdsaSessionBootstrapResult = {
           thresholdEcdsaKeyRef,
           keygen: {
@@ -720,20 +755,20 @@ export async function registerPasskeyInternal(
             ethereumAddress: thresholdEcdsaEthereumAddress || undefined,
             relayerVerifyingShareB64u: thresholdEcdsaRelayerVerifyingShareB64u || undefined,
             participantIds: ecdsaParticipantIds,
-            ...(thresholdEcdsaPrimaryProvisionTarget?.options.smartAccount?.chainId
-              ? { chainId: thresholdEcdsaPrimaryProvisionTarget.options.smartAccount.chainId }
+            ...(primarySmartAccountBootstrap
+              ? { chainId: primarySmartAccountBootstrap.chainId }
               : {}),
-            ...(thresholdEcdsaPrimaryProvisionTarget?.options.smartAccount?.factory
-              ? { factory: thresholdEcdsaPrimaryProvisionTarget.options.smartAccount.factory }
+            ...(primarySmartAccountBootstrap?.factory
+              ? { factory: primarySmartAccountBootstrap.factory }
               : {}),
-            ...(thresholdEcdsaPrimaryProvisionTarget?.options.smartAccount?.entryPoint
-              ? { entryPoint: thresholdEcdsaPrimaryProvisionTarget.options.smartAccount.entryPoint }
+            ...(primarySmartAccountBootstrap?.entryPoint
+              ? { entryPoint: primarySmartAccountBootstrap.entryPoint }
               : {}),
-            ...(thresholdEcdsaPrimaryProvisionTarget?.options.smartAccount?.salt
-              ? { salt: thresholdEcdsaPrimaryProvisionTarget.options.smartAccount.salt }
+            ...(primarySmartAccountBootstrap?.salt
+              ? { salt: primarySmartAccountBootstrap.salt }
               : {}),
-            ...(thresholdEcdsaPrimaryProvisionTarget?.options.smartAccount?.counterfactualAddress
-              ? { counterfactualAddress: thresholdEcdsaPrimaryProvisionTarget.options.smartAccount.counterfactualAddress }
+            ...(primarySmartAccountBootstrap?.counterfactualAddress
+              ? { counterfactualAddress: primarySmartAccountBootstrap.counterfactualAddress }
               : {}),
           },
           session: {
@@ -759,7 +794,10 @@ export async function registerPasskeyInternal(
             nearAccountId,
             chain: target.chain,
             bootstrap: bootstrapProjection,
-            smartAccount: target.options.smartAccount,
+            smartAccount: toSmartAccountBootstrapInput(
+              target.chain,
+              target.options.smartAccount,
+            ),
           });
         }
       }

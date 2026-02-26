@@ -116,7 +116,7 @@ test.describe('unified signing pipeline', () => {
           kind: 'eip1559',
           senderSignatureAlgorithm: 'secp256k1',
           tx: {
-            chainId: 11155111n,
+            chainId: 11155111,
             nonce: 7n,
             maxPriorityFeePerGas: 1_500_000_000n,
             maxFeePerGas: 3_000_000_000n,
@@ -144,7 +144,7 @@ test.describe('unified signing pipeline', () => {
           kind: 'tempoTransaction',
           senderSignatureAlgorithm: 'secp256k1',
           tx: {
-            chainId: 42431n,
+            chainId: 42431,
             maxPriorityFeePerGas: 1n,
             maxFeePerGas: 2n,
             gasLimit: 21_000n,
@@ -213,7 +213,7 @@ test.describe('unified signing pipeline', () => {
 
       await encodeEip1559SignedTxFromSignature65Wasm({
         tx: {
-          chainId: 11155111n,
+          chainId: 11155111,
           nonce: 7n,
           maxPriorityFeePerGas: 1_500_000_000n,
           maxFeePerGas: 3_000_000_000n,

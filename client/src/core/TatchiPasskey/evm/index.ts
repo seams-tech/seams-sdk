@@ -48,7 +48,15 @@ export class EvmSigner implements EvmSignerCapability {
           sessionKind: options.sessionKind,
           ttlMs: options.ttlMs,
           remainingUses: options.remainingUses,
-          smartAccount: options.smartAccount,
+          smartAccount: options.smartAccount
+            ? (() => {
+                const { chainId, ...rest } = options.smartAccount;
+                return {
+                  ...rest,
+                  chainId: `eip155:${String(chainId)}`,
+                };
+              })()
+            : undefined,
         });
       },
     });

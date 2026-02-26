@@ -9,7 +9,7 @@ import type {
 } from '../../orchestration/thresholdActivation';
 
 export type ThresholdEcdsaSmartAccountBootstrapInput = {
-  chainId?: string;
+  chainId: string;
   factory?: string;
   entryPoint?: string;
   salt?: string;

@@ -23,7 +23,7 @@ test.describe('TempoTransaction sender hash', () => {
       };
 
       const mkTx = (feeToken: string) => ({
-        chainId: 42431n,
+        chainId: 42431,
         maxPriorityFeePerGas: 1n,
         maxFeePerGas: 2n,
         gasLimit: 21_000n,
@@ -59,7 +59,7 @@ test.describe('TempoTransaction sender hash', () => {
       };
 
       const mkTx = (feeToken: string) => ({
-        chainId: 42431n,
+        chainId: 42431,
         maxPriorityFeePerGas: 1n,
         maxFeePerGas: 2n,
         gasLimit: 21_000n,

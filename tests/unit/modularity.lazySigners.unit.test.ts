@@ -205,7 +205,7 @@ test.describe('modularity lazy signer loading', () => {
           kind: 'eip1559' as const,
           senderSignatureAlgorithm: 'secp256k1' as const,
           tx: {
-            chainId: 11155111n,
+            chainId: 11155111,
             nonce: 1n,
             maxPriorityFeePerGas: 1n,
             maxFeePerGas: 2n,
@@ -230,7 +230,7 @@ test.describe('modularity lazy signer loading', () => {
           kind: 'tempoTransaction' as const,
           senderSignatureAlgorithm: 'secp256k1' as const,
           tx: {
-            chainId: 11155111n,
+            chainId: 11155111,
             maxPriorityFeePerGas: 1n,
             maxFeePerGas: 2n,
             gasLimit: 21_000n,

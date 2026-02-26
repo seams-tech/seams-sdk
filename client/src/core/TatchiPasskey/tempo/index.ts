@@ -87,7 +87,15 @@ export class TempoSigner implements TempoSignerCapability {
             sessionKind: options.sessionKind,
             ttlMs: options.ttlMs,
             remainingUses: options.remainingUses,
-            smartAccount: options.smartAccount,
+            smartAccount: options.smartAccount
+              ? (() => {
+                  const { chainId, ...rest } = options.smartAccount;
+                  return {
+                    ...rest,
+                    chainId: `tempo:${String(chainId)}`,
+                  };
+                })()
+              : undefined,
           });
       },
     });

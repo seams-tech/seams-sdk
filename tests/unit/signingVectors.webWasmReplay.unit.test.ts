@@ -254,7 +254,7 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
       };
 
       const baseTx = {
-        chainId: 42431n,
+        chainId: 42431,
         maxPriorityFeePerGas: 1n,
         maxFeePerGas: 2n,
         gasLimit: 21_000n,

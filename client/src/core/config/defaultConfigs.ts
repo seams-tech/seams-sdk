@@ -185,11 +185,14 @@ function normalizeResolvedChainConfig(args: {
       (args.input as { chainId?: unknown }).chainId,
       (args.fallback as { chainId?: number } | undefined)?.chainId,
     );
+    if (typeof chainId !== 'number') {
+      throw new Error(`[configPresets] Missing required config: chains.${network}.chainId`);
+    }
     return {
       network: network as TatchiArcChainNetwork,
       rpcUrl,
       explorerUrl,
-      ...(typeof chainId === 'number' ? { chainId } : {}),
+      chainId,
     };
   }
 
@@ -205,11 +208,14 @@ function normalizeResolvedChainConfig(args: {
     (args.input as { chainId?: unknown }).chainId,
     (args.fallback as { chainId?: number } | undefined)?.chainId,
   );
+  if (typeof chainId !== 'number') {
+    throw new Error(`[configPresets] Missing required config: chains.${network}.chainId`);
+  }
   return {
     network: network as TatchiTempoChainNetwork,
     rpcUrl,
     explorerUrl,
-    ...(typeof chainId === 'number' ? { chainId } : {}),
+    chainId,
   };
 }
 

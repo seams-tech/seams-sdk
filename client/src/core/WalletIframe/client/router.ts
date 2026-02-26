@@ -807,7 +807,7 @@ export class WalletIframeRouter {
       ttlMs?: number;
       remainingUses?: number;
       smartAccount?: {
-        chainId?: string;
+        chainId: number;
         factory?: string;
         entryPoint?: string;
         salt?: string;

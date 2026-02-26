@@ -31,6 +31,13 @@ function toDec(v: bigint): string {
   return v.toString(10);
 }
 
+function toChainIdDec(v: number): string {
+  if (!Number.isSafeInteger(v) || v < 0) {
+    throw new Error('[tempoSignerWasm] chainId must be a non-negative safe integer');
+  }
+  return String(v);
+}
+
 function toDecOpt(v: bigint | null | undefined): string | null | undefined {
   if (v === null) return null;
   if (v === undefined) return undefined;
@@ -47,7 +54,7 @@ function toWasmTempoRlpValue(
 
 function toWasmTx(tx: TempoUnsignedTx): TempoTxWasmJson {
   return {
-    chainId: toDec(tx.chainId),
+    chainId: toChainIdDec(tx.chainId),
     maxPriorityFeePerGas: toDec(tx.maxPriorityFeePerGas),
     maxFeePerGas: toDec(tx.maxFeePerGas),
     gasLimit: toDec(tx.gasLimit),

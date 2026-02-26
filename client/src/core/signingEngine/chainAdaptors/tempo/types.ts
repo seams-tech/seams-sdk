@@ -21,7 +21,7 @@ export type TempoFeePayerSignature =
   | { kind: 'signed'; v: 0 | 1; r: Hex; s: Hex };
 
 export type TempoUnsignedTx = {
-  chainId: bigint;
+  chainId: number;
   maxPriorityFeePerGas: bigint;
   maxFeePerGas: bigint;
   gasLimit: bigint;

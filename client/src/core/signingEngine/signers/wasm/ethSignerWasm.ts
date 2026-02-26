@@ -23,9 +23,16 @@ function toDec(v: bigint): string {
   return v.toString(10);
 }
 
+function toChainIdDec(v: number): string {
+  if (!Number.isSafeInteger(v) || v < 0) {
+    throw new Error('[ethSignerWasm] chainId must be a non-negative safe integer');
+  }
+  return String(v);
+}
+
 function toWasmTx(tx: Eip1559UnsignedTx): Eip1559TxWasmJson {
   return {
-    chainId: toDec(tx.chainId),
+    chainId: toChainIdDec(tx.chainId),
     nonce: toDec(tx.nonce),
     maxPriorityFeePerGas: toDec(tx.maxPriorityFeePerGas),
     maxFeePerGas: toDec(tx.maxFeePerGas),
