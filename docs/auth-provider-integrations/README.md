@@ -37,10 +37,12 @@ Current issue: `/auth/*` mixes app-auth provider workflows with wallet runtime c
 Two explicit planes:
 
 1. **App Auth Plane (customer-owned)**
+
 - Customer app authenticates users via Auth0/Okta/Better Auth/Google/etc.
 - Customer backend sends verified auth assertions to wallet server.
 
 2. **Wallet Session + Unlock Plane (wallet-owned)**
+
 - Wallet server mints/refreshes/revokes warm sessions (JWT or HttpOnly cookie).
 - Wallet server manages wallet `lock/unlock` state and unlock step-up checks.
 - Wallet server emits webhooks so customer backend can observe/control session lifecycle.
@@ -51,10 +53,12 @@ Two explicit planes:
 
 1. Remove provider-specific login semantics from core route naming.
 2. Replace "login" wording with "unlock" for wallet actions in:
+
 - SDK public APIs
 - server route names
 - webhook event names
 - docs and examples
+
 3. Keep `session/*` as app-session transport, keep `wallet/*` as signing-state transport.
 
 ### B) Proposed Route Surface
@@ -126,13 +130,13 @@ Protocol-first adapter priority:
 
 ### Priority Integration Matrix
 
-| Provider | Why it matters | Integration mode | Priority |
-| --- | --- | --- | --- |
-| Better Auth | Growing TS-first auth framework, supports OAuth/OIDC and passkey plugin model | Exchange Better Auth-issued session/JWT into wallet warm session; ship reference middleware | P0 |
-| Auth0 | Common B2B/B2C managed auth platform with OIDC + SAML support | OIDC ID token/JWT exchange + optional logout/revocation webhook bridge | P0 |
-| Okta | Enterprise SSO standard with strong OIDC posture and inbound federation patterns | OIDC token exchange + enterprise claim mapping (`groups`, org, domain) | P0 |
-| Google (GIS / OIDC) | Frequent direct social/Workspace SSO source | Google ID token exchange in customer backend, then wallet session exchange | P1 |
-| Clerk / Supabase / Firebase Auth (guides) | Common dev-platform auth stacks in modern web apps | Reuse OIDC/JWT adapter path, provider-specific quickstart docs | P2 |
+| Provider                                  | Why it matters                                                                   | Integration mode                                                                            | Priority |
+| ----------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | -------- |
+| Better Auth                               | Growing TS-first auth framework, supports OAuth/OIDC and passkey plugin model    | Exchange Better Auth-issued session/JWT into wallet warm session; ship reference middleware | P0       |
+| Auth0                                     | Common B2B/B2C managed auth platform with OIDC + SAML support                    | OIDC ID token/JWT exchange + optional logout/revocation webhook bridge                      | P0       |
+| Okta                                      | Enterprise SSO standard with strong OIDC posture and inbound federation patterns | OIDC token exchange + enterprise claim mapping (`groups`, org, domain)                      | P0       |
+| Google (GIS / OIDC)                       | Frequent direct social/Workspace SSO source                                      | Google ID token exchange in customer backend, then wallet session exchange                  | P1       |
+| Clerk / Supabase / Firebase Auth (guides) | Common dev-platform auth stacks in modern web apps                               | Reuse OIDC/JWT adapter path, provider-specific quickstart docs                              | P2       |
 
 ## Delivery Plan
 

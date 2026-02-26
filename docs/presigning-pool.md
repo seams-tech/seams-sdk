@@ -67,14 +67,14 @@ sequenceDiagram
 
 ## 3. Which Operations Are Presign vs Actual Tx Signing
 
-| Operation | Class | Endpoint(s) | Purpose |
-|---|---|---|---|
-| Threshold session bootstrap | Session/Auth | `/threshold-ecdsa/bootstrap` | Create threshold session + token/cookie binding |
-| Sign authorization | Session/Auth | `/threshold-ecdsa/authorize` | Mint/consume short-lived MPC session id (`mpcSessionId`) |
-| Presign init | Presign (Cait-Sith preprocessing) | `/threshold-ecdsa/presign/init` | Start one presignature handshake |
-| Presign step | Presign (Cait-Sith preprocessing) | `/threshold-ecdsa/presign/step` | Advance triples/presign rounds until `presign_done` |
-| Sign init | Actual tx signing | `/threshold-ecdsa/sign/init` | Bind digest + presignature and get relayer round-1 data |
-| Sign finalize | Actual tx signing | `/threshold-ecdsa/sign/finalize` | Combine shares and return final 65-byte signature |
+| Operation                   | Class                             | Endpoint(s)                      | Purpose                                                  |
+| --------------------------- | --------------------------------- | -------------------------------- | -------------------------------------------------------- |
+| Threshold session bootstrap | Session/Auth                      | `/threshold-ecdsa/bootstrap`     | Create threshold session + token/cookie binding          |
+| Sign authorization          | Session/Auth                      | `/threshold-ecdsa/authorize`     | Mint/consume short-lived MPC session id (`mpcSessionId`) |
+| Presign init                | Presign (Cait-Sith preprocessing) | `/threshold-ecdsa/presign/init`  | Start one presignature handshake                         |
+| Presign step                | Presign (Cait-Sith preprocessing) | `/threshold-ecdsa/presign/step`  | Advance triples/presign rounds until `presign_done`      |
+| Sign init                   | Actual tx signing                 | `/threshold-ecdsa/sign/init`     | Bind digest + presignature and get relayer round-1 data  |
+| Sign finalize               | Actual tx signing                 | `/threshold-ecdsa/sign/finalize` | Combine shares and return final 65-byte signature        |
 
 Important: `/presign/*` is preprocessing, not the final transaction signature itself.
 
@@ -82,15 +82,15 @@ Important: `/presign/*` is preprocessing, not the final transaction signature it
 
 Measured from your recent server logs.
 
-| Operation | Class | Typical server duration |
-|---|---|---|
-| `/threshold-ecdsa/bootstrap` | Session/Auth | ~18ms |
-| `/threshold-ecdsa/authorize` | Session/Auth | ~4-10ms |
-| `/threshold-ecdsa/presign/init` | Presign | ~20-35ms |
-| `/threshold-ecdsa/presign/step` (normal) | Presign | ~740-1150ms per step |
-| `/threshold-ecdsa/presign/step` (under contention) | Presign | ~1800-2300ms per step |
-| `/threshold-ecdsa/sign/init` | Actual signing | ~7-10ms |
-| `/threshold-ecdsa/sign/finalize` | Actual signing | ~24-35ms |
+| Operation                                          | Class          | Typical server duration |
+| -------------------------------------------------- | -------------- | ----------------------- |
+| `/threshold-ecdsa/bootstrap`                       | Session/Auth   | ~18ms                   |
+| `/threshold-ecdsa/authorize`                       | Session/Auth   | ~4-10ms                 |
+| `/threshold-ecdsa/presign/init`                    | Presign        | ~20-35ms                |
+| `/threshold-ecdsa/presign/step` (normal)           | Presign        | ~740-1150ms per step    |
+| `/threshold-ecdsa/presign/step` (under contention) | Presign        | ~1800-2300ms per step   |
+| `/threshold-ecdsa/sign/init`                       | Actual signing | ~7-10ms                 |
+| `/threshold-ecdsa/sign/finalize`                   | Actual signing | ~24-35ms                |
 
 Cold foreground sign usually includes one full presign handshake:
 
@@ -111,45 +111,45 @@ Run metadata:
 
 Key latency results from that run:
 
-| Scenario | p95 end-to-end (ms) | Notes |
-|---|---:|---|
-| `cold_first_sign_no_pool` | 2226 | Cold first sign with empty pool |
-| `warm_sign_pool_hit` | 24 | Warm sign with available presignature |
-| `background_refill_contention` | 4205 | Foreground sign while refill is active |
-| `multi_runtime_contention` | 6267 | Duplicate runtime pressure |
-| `live_cache_miss_path` | 7018 | Forced live-cache miss retriable path |
+| Scenario                       | p95 end-to-end (ms) | Notes                                  |
+| ------------------------------ | ------------------: | -------------------------------------- |
+| `cold_first_sign_no_pool`      |                2226 | Cold first sign with empty pool        |
+| `warm_sign_pool_hit`           |                  24 | Warm sign with available presignature  |
+| `background_refill_contention` |                4205 | Foreground sign while refill is active |
+| `multi_runtime_contention`     |                6267 | Duplicate runtime pressure             |
+| `live_cache_miss_path`         |                7018 | Forced live-cache miss retriable path  |
 
 Key presign-step and gate metrics:
 
-| Metric | Value |
-|---|---:|
-| `/threshold-ecdsa/presign/step` p95 | 783ms |
-| `/threshold-ecdsa/presign/step` p99 | 783ms |
-| Non-fallback `liveCacheHitRatio` | 100% |
-| Non-miss `staleSessionRatio` | 0% |
-| Live-cache-miss scenario `staleSessionRatio` | 100% |
+| Metric                                       | Value |
+| -------------------------------------------- | ----: |
+| `/threshold-ecdsa/presign/step` p95          | 783ms |
+| `/threshold-ecdsa/presign/step` p99          | 783ms |
+| Non-fallback `liveCacheHitRatio`             |  100% |
+| Non-miss `staleSessionRatio`                 |    0% |
+| Live-cache-miss scenario `staleSessionRatio` |  100% |
 
 CI benchmark SLO gate thresholds and result:
 
-| Gate | Threshold | Actual | Result |
-|---|---:|---:|---|
-| `first_sign_p95_ms` | <= 4000 | 2226 | pass |
-| `warm_sign_p95_ms` | <= 1500 | 24 | pass |
-| `presign_step_p95_ms` | <= 1400 | 783 | pass |
-| `presign_step_p99_ms` | <= 2000 | 783 | pass |
-| `stale_session_ratio_nonmiss_max` | <= 0.01 | 0.00 | pass |
+| Gate                              | Threshold | Actual | Result |
+| --------------------------------- | --------: | -----: | ------ |
+| `first_sign_p95_ms`               |   <= 4000 |   2226 | pass   |
+| `warm_sign_p95_ms`                |   <= 1500 |     24 | pass   |
+| `presign_step_p95_ms`             |   <= 1400 |    783 | pass   |
+| `presign_step_p99_ms`             |   <= 2000 |    783 | pass   |
+| `stale_session_ratio_nonmiss_max` |   <= 0.01 |   0.00 | pass   |
 
 ### 4.2 Full CI Mirror Status (Same Validation Session)
 
 This benchmark run passed its gate, but the full local CI mirror was not fully green in the same session.
 
-| Command | Result | Notes |
-|---|---|---|
-| `pnpm check` | fail | Existing lint issues in current workspace |
-| `pnpm build:sdk-prod` | pass | SDK prod build completed |
-| `pnpm -C sdk smoke:eth-signer:runtimes` | pass | Runtime smoke tests passed |
-| `pnpm test:threshold-core` | fail | Failing assertion at `tests/relayer/threshold-ecdsa.signature-harness.test.ts:396` |
-| `pnpm test:signers:gates` | pass | Signer gate suite passed |
+| Command                                 | Result | Notes                                                                              |
+| --------------------------------------- | ------ | ---------------------------------------------------------------------------------- |
+| `pnpm check`                            | fail   | Existing lint issues in current workspace                                          |
+| `pnpm build:sdk-prod`                   | pass   | SDK prod build completed                                                           |
+| `pnpm -C sdk smoke:eth-signer:runtimes` | pass   | Runtime smoke tests passed                                                         |
+| `pnpm test:threshold-core`              | fail   | Failing assertion at `tests/relayer/threshold-ecdsa.signature-harness.test.ts:396` |
+| `pnpm test:signers:gates`               | pass   | Signer gate suite passed                                                           |
 
 Interpretation: benchmark stability and CI SLO gating are confirmed for threshold ECDSA presign, while separate non-benchmark failures remain for full CI closure.
 
@@ -353,13 +353,13 @@ to drive pool policy changes in:
 
 ### 12.1 Decision Table
 
-| Condition from benchmark report | Suggested action |
-|---|---|
-| `pool_empty` events observed in interactive flows | Increase `targetDepth` by `+1` and `lowWatermark` by `+1` (cap conservatively) |
-| `/presign/step` p95 > 1500ms | Keep `maxRefillInFlight=1`; do not increase depth until backend/store bottleneck is reduced |
-| High background refill ratio during sign + elevated p95 | Lower refill pressure (`targetDepth<=3`, `lowWatermark=1`, `maxRefillInFlight=1`) |
-| Warm-sign fast, no `pool_empty`, stable p95 | Keep current defaults (`targetDepth=3`, `lowWatermark=1`, `maxRefillInFlight=1`) |
-| Tail latency high only under Postgres store | Prioritize Redis/Upstash migration for presign/session hot path before tuning depth up |
+| Condition from benchmark report                         | Suggested action                                                                            |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `pool_empty` events observed in interactive flows       | Increase `targetDepth` by `+1` and `lowWatermark` by `+1` (cap conservatively)              |
+| `/presign/step` p95 > 1500ms                            | Keep `maxRefillInFlight=1`; do not increase depth until backend/store bottleneck is reduced |
+| High background refill ratio during sign + elevated p95 | Lower refill pressure (`targetDepth<=3`, `lowWatermark=1`, `maxRefillInFlight=1`)           |
+| Warm-sign fast, no `pool_empty`, stable p95             | Keep current defaults (`targetDepth=3`, `lowWatermark=1`, `maxRefillInFlight=1`)            |
+| Tail latency high only under Postgres store             | Prioritize Redis/Upstash migration for presign/session hot path before tuning depth up      |
 
 ### 12.2 Change Control
 

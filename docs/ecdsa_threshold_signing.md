@@ -49,6 +49,12 @@ The SDK owns a single threshold ECDSA session record keyed by wallet/account con
 - Queued requests can be cancelled before execution via existing abort/cancel signals.
 - Guardrails: bounded queue length (`commit_queue_overflow`), queue timeout budget (`commit_queue_timeout`), and deterministic teardown on logout/engine destroy.
 
+### 2.5 Family vs Network Naming
+
+- Threshold ECDSA orchestration is family-scoped (`chain: 'tempo' | 'evm'`).
+- Concrete RPC/explorer/nonce isolation is network + chainId scoped.
+- `evm` is the family label; Arc and Ethereum are concrete EVM networks (for example `arc-testnet`, `ethereum-sepolia`).
+
 ## 3. Failure and Recovery Model
 
 - Missing canonical session data is an immediate typed failure before authorize/sign.

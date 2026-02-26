@@ -51,11 +51,13 @@ Extend the existing NEAR email-recovery flow into a multichain recovery console/
 Use one of these patterns:
 
 1. Smart account stores recovery authority directly:
+
 - `recoveryPublicKey` (or hash)
 - replay state (`nonce` and/or consumed `requestId`)
 - trusted verifier address
 
 2. Preferred for reuse:
+
 - smart account stores `recoveryAuthorityId` + trusted verifier
 - verifier stores `recoveryAuthorityId -> recoveryPublicKey` mapping
 
@@ -93,10 +95,12 @@ Required invariants:
 3. User (or wallet-origin flow) signs a multichain `RecoveryIntent` with NEAR recovery key.
 4. Relayer submits `(intent, signature)` to `ed25519Verifier` on target chain.
 5. `ed25519Verifier` validates:
+
 - signature matches configured recovery key/authority
 - domain fields match call target
 - nonce/requestId not replayed
 - deadline still valid
+
 6. Verifier calls target smart account recovery method.
 7. Backend invalidates old sessions/keyrefs and rotates local signer metadata.
 

@@ -5,13 +5,16 @@ Related implementation plan:
 - `docs/saas/dashboard-backend-implementation-plan.md`
 
 ## Objective
+
 Build a console dashboard at `/dashboard` for teams running embedded threshold wallets, with operational controls for wallet lifecycle, authorization policy, app security, integrations, and billing/payments.
 
 ## API Namespace Convention
+
 - `/console/*` for SaaS/admin APIs used by dashboard features.
 - `/relay/*` for runtime/transaction APIs used by signing and relay execution flows.
 
 ## Personas
+
 - Product admin: configures wallet behavior and app-level settings.
 - Security admin: owns policy, key export controls, and approvals.
 - Developer/platform engineer: manages API keys, webhooks, and environments.
@@ -19,6 +22,7 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - Support/ops: inspects wallet state, transactions, and delivery failures.
 
 ## Information architecture
+
 - Wallet infrastructure
 - User management
 - Security and policy
@@ -29,18 +33,21 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 ## Functional requirements
 
 ### 1) User wallets list
+
 - Paginated wallets table with columns: wallet ID, address, chain type, environment, owner/user, policy, balance, status, created/updated timestamps.
 - Summary KPI cards: total assets, total wallets, funded wallets, activity in last 24h/7d.
 - Row actions: view details, view activity, assign policy, freeze/unfreeze (if supported).
 - Empty/loading/error states with retry.
 
 ### 2) Search for user wallets
+
 - Search by wallet address, wallet ID, user ID, and external reference ID.
 - Filter by chain, environment, policy, key quorum, wallet type (EOA/smart), status, and date range.
 - Sort by balance, last activity, and creation time.
 - URL-synced filter state for shareable views.
 
 ### 3) Policy engine (threshold wallet actions + chains)
+
 - Policy model supports:
   - Allowed actions: transfer, swap, approve, contract call, key export.
   - Allowed chains/networks by environment.
@@ -53,12 +60,14 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - Default approval for policy publish: `1 admin` approval.
 
 ### 4) Gas sponsorship and smart wallets
+
 - Toggle gas sponsorship at org, environment, policy, and wallet segment levels.
 - Budget and quota controls by chain and period.
 - Smart wallet/AA controls (when enabled): account type, paymaster mode, fallback behavior.
 - Telemetry: sponsored tx count, spend, failures, and budget threshold alerts.
 
 ### 5) App settings (origins/domains, cookies, JWT)
+
 - Environment-scoped app settings panel:
   - Allowed origins/domains with strict validation.
   - Cookie mode (including `HttpOnly`, `Secure`, `SameSite`).
@@ -68,6 +77,7 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - Default approval for risky security settings changes: `1 admin + MFA`.
 
 ### 6) Export keys settings
+
 - Export policy modes:
   - Disabled
   - Approval required
@@ -78,12 +88,14 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - Immutable export log: who, what, when, why, approval chain.
 
 ### 7) API key management
+
 - Create/revoke/rotate API keys with scoped permissions.
 - Keys scoped by environment and optional IP restrictions.
 - Secret visible once at creation only; never retrievable in plaintext.
 - Usage analytics: last used, endpoint distribution, anomaly flags.
 
 ### 8) Webhooks
+
 - Webhook endpoints with event subscriptions (wallet, policy, auth, tx lifecycle).
 - Signed payloads with rotating secrets.
 - Retry strategy with backoff and dead-letter queue handling.
@@ -97,6 +109,7 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
   - Invalid cursor format returns `400` with code `invalid_query`.
 
 ### 9) Billing and payments
+
 - Billing overview with current plan, active-wallet usage, credit balance, invoice status, and upcoming charge estimate.
 - Canonical usage metric is `Monthly Active Wallets (MAW)`:
   - Count distinct wallet IDs per organization per calendar month (`UTC`) with at least one successful billable action.
@@ -159,6 +172,7 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
   - If confirmation timeout elapses before threshold is met, transition to `FAILED` with reason `CONFIRMATION_TIMEOUT`.
 
 ## Non-functional requirements
+
 - Security: least-privilege RBAC, immutable audit logs, encryption at rest/in transit.
 - Reliability: p95 list/search latency < 500ms at target org scale.
 - Compliance readiness: evidence-friendly logs and deterministic change history.
@@ -175,6 +189,7 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
   - Billing + payments + audit data: `7` years retention.
 
 ## Suggested API surfaces
+
 - `GET /console/wallets`, `GET /console/wallets/:id`
 - `GET /console/wallets/search`
 - `GET/POST/PATCH /console/policies`, `POST /console/policies/:id/simulate`, `POST /console/policies/:id/publish`
@@ -194,11 +209,13 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - `GET /console/billing/stablecoins/payment-intents/:id`, `POST /console/billing/stablecoins/payment-intents/:id/cancel`
 
 ## Delivery plan
+
 - Phase 1 (MVP): wallets list/search, baseline policy controls, app settings core, API keys, webhooks basics, billing overview + invoices read APIs.
 - Phase 2: policy simulation/versioning, gas sponsorship budgets, smart wallet controls, key export approvals, Stripe card payment flows.
 - Phase 3: advanced governance (RBAC refinements, staged rollouts, SSO, anomaly detection, deeper observability) and stablecoin payment flows (`USDC`, `USDT`).
 
 ## Acceptance criteria
+
 - Pricing CTAs route users into `/dashboard`.
 - Admin can list/search wallets and filter by chain/policy/status.
 - Policy engine can enforce action+chain constraints for threshold wallets.

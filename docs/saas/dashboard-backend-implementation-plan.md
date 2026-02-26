@@ -662,13 +662,16 @@ Compliance:
    - non-admin receives authorization denial for `POST/DELETE /console/billing/payment-methods`.
    - only `admin` can set default card payment method (`POST /console/billing/payment-methods/:id/default`).
 10. Chain-finality tests:
-   - settlement blocked before threshold and allowed once threshold is met,
-   - confirmation timeout transitions to `FAILED` with `CONFIRMATION_TIMEOUT`,
-   - post-settlement risk-window flags are emitted per chain policy.
+
+- settlement blocked before threshold and allowed once threshold is met,
+- confirmation timeout transitions to `FAILED` with `CONFIRMATION_TIMEOUT`,
+- post-settlement risk-window flags are emitted per chain policy.
+
 11. MAW billing tests:
-   - distinct-wallet counting per org/month is correct,
-   - only successful billable actions contribute,
-   - excluded action categories never affect MAW totals.
+
+- distinct-wallet counting per org/month is correct,
+- only successful billable actions contribute,
+- excluded action categories never affect MAW totals.
 
 ## Immediate Next Steps (Execution Checklist)
 

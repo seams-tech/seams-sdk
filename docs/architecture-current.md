@@ -13,6 +13,18 @@ The system has three execution domains:
 
 Main thread initiates intents and renders UI, but sensitive signing/export orchestration is worker-owned.
 
+## 1.1 Chain Identity Contract
+
+Chain naming is split into family vs concrete network:
+
+- family: `near` | `tempo` | `evm`
+- network examples:
+  - NEAR: `near-mainnet`, `near-testnet`
+  - Tempo: `tempo-mainnet`, `tempo-testnet`
+  - EVM: `arc-mainnet`, `arc-testnet`, `ethereum-mainnet`, `ethereum-sepolia`
+
+Runtime behavior selection uses family. Concrete routing/state (RPC, explorer, nonce scope) uses network and chainId.
+
 ## 2. Confirmation and Signing Model
 
 Threshold ECDSA (Tempo/EVM) uses a two-phase flow:
@@ -56,14 +68,17 @@ Presign pool is actively managed (no legacy passive-only mode):
 ## 5.1 Presign Flow (Detailed)
 
 1. Authorize:
+
 - signer calls `/threshold-ecdsa/authorize`
 - response may include an advisory `presignPoolPolicy` hint
 
 2. Commit start scheduling:
+
 - secp signer schedules refill with trigger `commit_start`
 - scheduler only queues refill when depth is at/below `lowWatermark`
 
 3. Sign execution:
+
 - sign path pops one client presign entry for the current pool key
 - if empty, it runs presign handshake inline (`presign/init` + `presign/step`) and uses that entry
 - sign path calls `/threshold-ecdsa/sign/init` with the chosen `presignatureId`
@@ -71,10 +86,12 @@ Presign pool is actively managed (no legacy passive-only mode):
 - sign finalization completes via `/threshold-ecdsa/sign/finalize`
 
 4. Fallback and safety:
+
 - if sign init reports `pool_empty`, client generates a new presign entry and retries sign init once
 - refill failure does not fail the active sign request
 
 5. Post-sign top-up:
+
 - after successful sign, scheduler runs with trigger `post_sign_success`
 - target is to refill toward `targetDepth`
 

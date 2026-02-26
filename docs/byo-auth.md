@@ -42,12 +42,14 @@ This means BYO auth can slot in primarily at app session issuance time (`session
 Two explicit planes:
 
 1. **App Auth Plane (customer-owned)**
+
 - Customer authenticates via Auth0/Okta/Better Auth/Google/etc.
 - Customer backend verifies provider token.
 - Customer backend calls wallet server `POST /session/exchange` with a verified assertion/token.
 - Wallet server returns app session as JWT or HttpOnly cookie.
 
 2. **Wallet Unlock + Signing Plane (wallet-owned)**
+
 - Wallet unlock uses dedicated unlock endpoints and passkey step-up.
 - Threshold signing routes continue using threshold-scoped session tokens and policies.
 - Wallet server emits lifecycle webhooks for audit and orchestration.
@@ -122,6 +124,7 @@ Validation requirements:
 2. Keep current threshold policy constraints (TTL, remainingUses, participantIds, relayerKeyId scope).
 3. Ensure app session from `session/exchange` can call threshold bootstrap/session endpoints exactly as current app sessions do.
 4. Decide and lock threshold transport policy:
+
 - Option A: keep threshold sessions JWT-only for now (current behavior in registration/bootstrap paths).
 - Option B: add complete cookie parity for threshold sessions.
 
@@ -189,27 +192,32 @@ Delivery requirements:
 ## First Steps (Execution Order)
 
 1. Lock contracts and naming in one short spec PR.
+
 - Freeze `POST /session/exchange` schema (request, JWT response, cookie response).
 - Freeze claim mapping (`iss`, `aud`, `sub`, optional org/role claims).
 - Freeze route vocabulary: app auth in `session/*`, wallet state in `wallet/*`, no `login/logout` naming for wallet state.
 
 2. Ship a minimal vertical slice for BYO auth exchange.
+
 - Implement `POST /session/exchange` for `exchange.type=oidc_jwt`.
 - Verify JWKS signature, issuer/audience, time claims, and map `sub -> userId`.
 - Mint `app_session_v1` through existing SessionAdapter.
 - Add unit tests for verifier failure modes and mapping behavior.
 
 3. Prove compatibility with current signing-session architecture.
+
 - Add integration test: `session/exchange -> threshold bootstrap/session -> authorize/sign`.
 - Confirm threshold claim kinds and policy (`ttlMs`, `remainingUses`, participant binding) are unchanged.
 - Fail closed on invalid app session or invalid threshold session.
 
 4. Cut over SDK/API naming and routes in the same sequence.
+
 - Switch default client session creation path to `session/exchange`.
 - Rename wallet state methods/symbols to `unlock/lock`.
 - Remove old `/auth/*` as primary login paths and remove old wallet login/logout symbols in the same rollout (no compatibility aliases).
 
 5. Add baseline lifecycle controls.
+
 - Implement `POST /session/revoke` and `GET /session/state`.
 - Implement `POST /wallet/lock` and `GET /wallet/state`.
 - Emit initial signed webhooks for `session.warm.created`, `session.revoked`, `wallet.unlocked`, `wallet.locked`.

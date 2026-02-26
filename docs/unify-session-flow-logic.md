@@ -101,6 +101,7 @@ Changes:
 ## Status snapshot (in progress)
 
 Completed:
+
 1. Shared planner added and wired for NEAR + EVM/Tempo auth-mode/session readiness gating.
 2. NEAR-specific planner path deleted (`orchestration/near/shared/thresholdSessionPolicy.ts`).
 3. NEAR tx-time session mint/fallback logic removed from transaction/delegate/NEP-413 flows.
@@ -112,6 +113,7 @@ Completed:
 9. Docs/examples updated to remove wording that login auto-provisions Tempo/EVM sessions.
 
 Remaining:
+
 1. Collect runtime telemetry and confirm no further session-index divergence reports.
 
 ## TODO (current)

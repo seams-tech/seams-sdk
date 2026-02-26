@@ -3,6 +3,7 @@
 Implement “import private key → threshold MPC signing” for both Ed25519 (NEAR) and secp256k1/ECDSA (ETH/Tempo) while preserving the wallet-origin boundary and the WASM-first crypto requirement. The core idea is: import happens only in the wallet origin, the key is converted into threshold key material (shares + public commitments), the relay stores only its share + public commitments, and all signing thereafter uses the MPC protocol (no local full key).
 
 ## Requirements
+
 - Wallet-origin only: app-origin never receives imported private key bytes, PRF outputs, or threshold shares.
 - WASM-first: key parsing, secret sharing math, signature math, tx hashing/encoding live in WASM workers; JS orchestrates UI + network only.
 - Server/relay is system of record for authenticators, counters, and the relay’s key share.
@@ -10,6 +11,7 @@ Implement “import private key → threshold MPC signing” for both Ed25519 (N
 - Support multichain: same high-level UX + APIs, different algorithms and transaction encodings.
 
 ## Scope
+
 - In:
   - Ed25519 import for NEAR threshold signing (2-party).
   - ECDSA threshold signing protocol for ETH/Tempo (2-party) and import pathway.
@@ -19,6 +21,7 @@ Implement “import private key → threshold MPC signing” for both Ed25519 (N
   - Multi-device share replication/resharing (beyond the initial 2-party client↔relay setup).
 
 ## Files and entry points (expected)
+
 - Wallet origin UI + confirmation:
   - `client/src/core/signingEngine/touchConfirm/handlers/*` (new “IMPORT_PRIVATE_KEY” confirmation type)
   - `client/src/core/signingEngine/touchConfirm/handlers/flows/*`
@@ -31,7 +34,9 @@ Implement “import private key → threshold MPC signing” for both Ed25519 (N
   - New `/relay/threshold-ecdsa/*` (or similar) for ECDSA sessions, presigning, signing, and optional import
 
 ## Data model / API changes
+
 ### Common (both algorithms)
+
 - Introduce a “threshold key record” concept on the relay:
   - `keyId` (stable identifier)
   - `algorithm` (`ed25519` | `secp256k1`)
@@ -42,11 +47,13 @@ Implement “import private key → threshold MPC signing” for both Ed25519 (N
   - `createdAt`, `rotatedAt`, `status`
 
 ### NEAR / Ed25519
+
 - Add `POST /relay/threshold-ed25519/keys/import`:
   - Request: `keyId`, `participantId=relay`, `shareBytes`, `commitments`, `publicKey`, metadata (account binding)
   - Relay validates share against commitments and stores relay share + commitments
 
 ### ETH/Tempo / ECDSA
+
 - Add a new route family, e.g. `POST /relay/threshold-ecdsa/*`:
   - Key lifecycle: DKG (optional), import (optional), refresh/rotate (later)
   - Signing lifecycle: start session → (optional) presign/preprocess → sign digest → finalize signature
@@ -55,9 +62,11 @@ Implement “import private key → threshold MPC signing” for both Ed25519 (N
 ## Plan — Ed25519 keys (high level)
 
 ### Design choice: “dealer-based import” (client sees key during import)
+
 We assume the client (wallet origin) receives the full Ed25519 secret during import. The client converts it into 2-party threshold material without ever sending the full secret to the relay.
 
 ### Protocol sketch (2-party FROST-style VSS with fixed secret)
+
 1. User inputs an Ed25519 private key (supported formats: `ed25519:...`, base58, raw 32/64 bytes).
 2. Wallet-origin WASM:
    - parses and normalizes to scalar `x` (and derives `pub = x·G`)
@@ -75,12 +84,14 @@ We assume the client (wallet origin) receives the full Ed25519 secret during imp
 6. Relay stores `s2` + commitments and marks key as active.
 
 ### Integrate with existing threshold Ed25519 signing
+
 - Make the threshold Ed25519 engine able to select a `keyId` that points to:
   - local share `s1` (client-side) and
   - relay share `s2` (server-side)
 - Ensure signing produces signatures verifying under `pub == C0` (the imported key’s public key).
 
 ### UX / product flows
+
 - touchConfirm “Import private key” screen:
   - show derived public key and (NEAR) the corresponding access key/public key string
   - strongly warn about key exposure, clipboard, and environment trust
@@ -91,16 +102,20 @@ We assume the client (wallet origin) receives the full Ed25519 secret during imp
 ## Plan — ECDSA keys (ETH/Tempo)
 
 ### Phase 0: Choose a 2-party threshold ECDSA protocol and threat model
+
 Pick a concrete scheme with known security properties and implementation maturity. Two practical options:
+
 - “Online” 2-party threshold ECDSA with preprocessing/presigning (faster signing at runtime).
 - “Fully online” 2-party threshold ECDSA (simpler storage but slower signing).
 
 Decisions to lock:
+
 - 2-party only vs N-party extensibility
 - Preprocessing strategy (how much can be cached, replay protections, invalidation)
 - What public verification material the relay stores (depends on scheme)
 
 ### Phase 1: Implement threshold ECDSA signing end-to-end (no import yet)
+
 1. Define `threshold-ecdsa` engine interface aligned with existing `SignerEngine` / multichain `SigningIntent`:
    - input: `digest32` + `keyId`
    - output: recoverable signature `r||s||recId` (low-s normalized) to support `yParity`/`v`
@@ -116,7 +131,9 @@ Decisions to lock:
    - finalize raw tx bytes in WASM given `{r,s,yParity}` (EIP-1559) or Tempo signature bytes
 
 #### Protocol choice (ECDSA)
+
 Use NEAR’s production-hardened threshold ECDSA implementation as the baseline:
+
 - `https://github.com/near/threshold-signatures` (OT-based ECDSA originally imported from Cait-Sith + NEAR hardening; plus `robust_ecdsa`)
 - Used by `https://github.com/near/mpc` (pins `near/threshold-signatures` by git rev)
 
@@ -125,7 +142,9 @@ This keeps the signing contract compatible with our backend output requirement (
 ### Phase 2: Add ECDSA key import that converts a local key into threshold shares
 
 #### Option A (recommended MVP): “client-known key → additive secret sharing”
+
 Assume wallet-origin sees the secp256k1 secret scalar `x` during import.
+
 1. Wallet-origin WASM parses `x` (32-byte hex, optionally supports common formats later).
 2. Wallet-origin WASM samples random `x1` and sets `x2 = x - x1 (mod n)`.
 3. Wallet stores `x1`; relay stores `x2`.
@@ -136,15 +155,18 @@ Assume wallet-origin sees the secp256k1 secret scalar `x` during import.
    - For `near/threshold-signatures`, use the fixed-participant Lagrange scaling mapping (`share_i = x_i * inv(λ_i)`) described in `docs/threshold-multichain.md`.
 
 #### Option B (later): “key injection without exposing full key to client”
+
 Out of MVP scope; requires a different protocol where the user provides encrypted material and neither party learns the full secret.
 
 ### Phase 3: Tempo-specific MVP details
+
 - Ensure signature output format matches Tempo expectations:
   - Standard EIP-1559 tx: ECDSA signature fields `yParity,r,s` (typed tx `0x02`)
   - TempoTransaction `0x76`: secp256k1 sender signature is 65 bytes `r||s||v` (or `r||s||recId` normalized to Tempo’s `v` definition)
 - Keep the fee payer signature domain (`0x78`) and other advanced Tempo fields out of MVP unless explicitly needed.
 
 ## Action items
+
 [ ] Add `docs/import_threshold_private_keys.md` (this document) and link it from `docs/multichain_adaptor.md`.
 [ ] Ed25519: add WASM function “import ed25519 key → (s1,s2,commitments)” to `near_signer.wasm`.
 [ ] Ed25519: add relay endpoint `POST /relay/threshold-ed25519/keys/import` + storage + verification.
@@ -155,6 +177,7 @@ Out of MVP scope; requires a different protocol where the user provides encrypte
 [ ] Integrate both into multichain orchestrator/engines so adapters request `digest32` signing and get chain-specific finalized tx bytes.
 
 ## Testing and validation
+
 - Ed25519:
   - Unit: imported key’s derived `pub` matches original
   - Unit: relay share verification (`s2·G == C0 + 2·C1`)
@@ -165,6 +188,7 @@ Out of MVP scope; requires a different protocol where the user provides encrypte
   - Integration: digest computed in WASM == digest used in signing == raw tx verifies in an EVM client
 
 ## Risks and edge cases
+
 - Import is inherently high-risk (clipboard, logging, crash dumps); must harden UI, disable analytics, and keep bytes inside wallet-origin + WASM worker.
 - Key format ambiguity (NEAR 32 vs 64 bytes; ECDSA 0x-prefixed 32 bytes vs keystore JSON).
 - Correctness pitfalls:
@@ -175,6 +199,7 @@ Out of MVP scope; requires a different protocol where the user provides encrypte
   - Relay must treat imported keys as sensitive and isolate storage/ACLs; implement rotation/revocation.
 
 ## Open questions
+
 - Do we require passkey re-auth (WebAuthn) before import, or is touchConfirm UI approval sufficient?
 - For ECDSA, do we require preprocessing (presigning) for latency, or accept slower online signing for MVP?
 - For Tempo, do we need fee sponsorship / fee payer signatures in MVP import+threshold signing, or can we defer?

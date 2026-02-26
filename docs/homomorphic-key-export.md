@@ -216,19 +216,19 @@ Minimum properties to verify:
 
 ## Citations
 
-1. Paillier, P. “Public-Key Cryptosystems Based on Composite Degree Residuosity Classes,” EUROCRYPT 1999. DOI: `10.1007/3-540-48910-X_16`  
+1. Paillier, P. “Public-Key Cryptosystems Based on Composite Degree Residuosity Classes,” EUROCRYPT 1999. DOI: `10.1007/3-540-48910-X_16`
    - https://www.iacr.org/cryptodb/data/paper.php?pubkey=2681
-2. Damgård, I.; Jurik, M. “A Generalisation, a Simplification and some Applications of Paillier's Probabilistic Public-Key System,” BRICS RS-00-45, 2000.  
+2. Damgård, I.; Jurik, M. “A Generalisation, a Simplification and some Applications of Paillier's Probabilistic Public-Key System,” BRICS RS-00-45, 2000.
    - https://www.brics.dk/RS/00/45/
-3. Lindell, Y. “Fast Secure Two-Party ECDSA Signing,” IACR ePrint 2017/552.  
+3. Lindell, Y. “Fast Secure Two-Party ECDSA Signing,” IACR ePrint 2017/552.
    - https://eprint.iacr.org/2017/552
-4. Gennaro, R.; Goldfeder, S. “Fast Multiparty Threshold ECDSA with Fast Trustless Setup,” IACR ePrint 2019/114.  
+4. Gennaro, R.; Goldfeder, S. “Fast Multiparty Threshold ECDSA with Fast Trustless Setup,” IACR ePrint 2019/114.
    - https://eprint.iacr.org/2019/114
-5. Canetti, R.; Gennaro, R.; Goldfeder, S.; Makriyannis, N.; Peled, U. “UC Non-Interactive, Proactive, Threshold ECDSA with Identifiable Aborts,” IACR ePrint 2021/060.  
+5. Canetti, R.; Gennaro, R.; Goldfeder, S.; Makriyannis, N.; Peled, U. “UC Non-Interactive, Proactive, Threshold ECDSA with Identifiable Aborts,” IACR ePrint 2021/060.
    - https://eprint.iacr.org/2021/060
-6. RFC 8032: “Edwards-Curve Digital Signature Algorithm (EdDSA),” IETF, 2017.  
+6. RFC 8032: “Edwards-Curve Digital Signature Algorithm (EdDSA),” IETF, 2017.
    - https://www.rfc-editor.org/rfc/rfc8032
-7. RFC 8410: “Algorithm Identifiers for Ed25519, Ed448, X25519, and X448,” IETF, 2018.  
+7. RFC 8410: “Algorithm Identifiers for Ed25519, Ed448, X25519, and X448,” IETF, 2018.
    - https://www.rfc-editor.org/rfc/rfc8410
-8. FIPS 186-5: “Digital Signature Standard (DSS),” NIST, 2023.  
+8. FIPS 186-5: “Digital Signature Standard (DSS),” NIST, 2023.
    - https://csrc.nist.gov/pubs/fips/186-5/final

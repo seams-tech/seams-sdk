@@ -18,9 +18,11 @@ Core outcomes:
 1. Delegation is modeled as a `DelegationGrant` object, not as app login.
 2. Grant issuance requires step-up user presence (`passkey`/wallet unlock path).
 3. Grants are least-privilege by default:
+
 - explicit intent allowlist
 - explicit constraints (amount, recipient, contract/method, chain)
 - explicit expiry and usage limits
+
 4. Existing warm session and threshold signing contracts remain canonical; delegation composes on top.
 5. Breaking changes are allowed; legacy aliases and duplicate pathways are removed during rollout.
 
@@ -85,8 +87,11 @@ Delegation grants should reuse these primitives instead of adding parallel auth/
 ### Grant Issuance
 
 1. `POST /delegation-grants/options`
+
 - Returns challenge + policy template for user confirmation UX.
+
 2. `POST /delegation-grants/create`
+
 - Requires authenticated app session and wallet unlock step-up.
 - Creates `DelegationGrant`.
 - Mints scoped `walletApiKey`.
@@ -102,12 +107,14 @@ Delegation grants should reuse these primitives instead of adding parallel auth/
 ### Delegated Execution
 
 1. `POST /delegation-grants/:grantId/execute`
+
 - Auth: `walletApiKey` + signed request nonce.
 - Input: typed `intent`.
 - Server validates grant constraints before any signing path.
 - On success, decrements remaining uses and writes audit events.
 
 2. `POST /delegation-grants/:grantId/simulate`
+
 - Same policy checks as `execute`, no signing side effect.
 
 ## Wallet API Key and Delegation Material
@@ -159,9 +166,11 @@ Use NEAR delegate actions as an adapter, not as the core abstraction:
 
 1. Grant creation requires active app session (`app_session_v1`) plus wallet unlock confirmation path.
 2. Delegated execute path reuses threshold session policy enforcement:
+
 - grant TTL and remaining uses
 - threshold session readiness checks
 - fail-closed behavior on expired/exhausted states
+
 3. No transaction-time implicit session creation.
 4. Existing shared session planner remains the single readiness gate.
 
@@ -172,9 +181,11 @@ Use NEAR delegate actions as an adapter, not as the core abstraction:
 3. HMAC/request-signature verification for backend-to-wallet-server calls.
 4. Replay prevention and sequence tracking per `grantId`.
 5. Risk hooks:
+
 - force lock wallet
 - force revoke grant
 - require step-up on anomaly
+
 6. Complete audit trail for grant create/use/revoke/fail decisions.
 
 ## Webhooks and Observability
@@ -230,10 +241,12 @@ Delivery requirements:
 ### Phase 5: SDK and Docs
 
 1. Add SDK methods:
+
 - `createDelegationGrant`
 - `listDelegationGrants`
 - `revokeDelegationGrant`
 - `executeDelegatedIntent`
+
 2. Add backend quickstarts for recurring payments, subscription billing, and bot automation.
 3. Remove deprecated or duplicate session/delegate naming in docs and SDK.
 

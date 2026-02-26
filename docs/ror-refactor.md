@@ -224,14 +224,17 @@ const service = new AuthService({
   relayerPrivateKey,
 });
 
-app.use('/', createRelayRouter(service, {
-  ror: {
-    provider: new StaticRorOriginsProvider({
-      byRpId: { 'wallet.example.com': ['https://app1.com'] },
-    }),
-    rpIdByHost: { 'wallet.example.com': 'wallet.example.com' },
-  },
-}));
+app.use(
+  '/',
+  createRelayRouter(service, {
+    ror: {
+      provider: new StaticRorOriginsProvider({
+        byRpId: { 'wallet.example.com': ['https://app1.com'] },
+      }),
+      rpIdByHost: { 'wallet.example.com': 'wallet.example.com' },
+    },
+  }),
+);
 ```
 
 ## 8. Test Plan

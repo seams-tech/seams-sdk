@@ -18,7 +18,8 @@ The Cloudflare Pages deploy workflows serve the SDK runtime assets from Pages un
 
 ## Manually tag releases
 
-1) Tag the release
+1. Tag the release
+
 ```
 # Edit sdk/package.json → "version": "0.1.1"
 git add sdk/package.json
@@ -26,21 +27,22 @@ git commit -m "release: v0.1.1"
 git tag v0.1.1 -m "release: v0.1.1"
 ```
 
-2) Push commits and the tag
+2. Push commits and the tag
 
 ```
 git push origin main
 git push origin v0.1.1
 ```
 
-3) (Optional) Publish bundles to Cloudflare R2
+3. (Optional) Publish bundles to Cloudflare R2
 
 `publish-sdk-r2` runs on `workflow_run` after `ci` succeeds on `main`/`dev` and on `v*` tag pushes, and can also be triggered manually.
 
 - `main`/tags publish to `releases/<sha>` (and `releases/<tag>` for `v*` tags)
 - `dev` publishes to `releases-dev/<sha>`
 
-4) Publish to npm (manual)
+4. Publish to npm (manual)
+
 ```
 npm login --scope=@tatchi-xyz --registry=https://registry.npmjs.org
 pnpm install
@@ -52,7 +54,9 @@ npm publish --access public
 ## Reverting a bad publish
 
 If you need to yank a version soon after release:
+
 ```
 npm unpublish @tatchi-xyz/sdk@X.Y.Z --force
 ```
+
 Use with caution — unpublishing can break consumers.
