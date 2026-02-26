@@ -42,8 +42,136 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
       bootstrapCalls: [] as string[],
       tempoSigns: 0,
       evmSigns: 0,
+      tempoDispatches: 0,
+      evmDispatches: 0,
+      tempoReceiptPolls: 0,
+      evmReceiptPolls: 0,
     };
     (window as any).__docsRegisterFlowCounters = counters;
+
+    const greetings = {
+      tempo: 'Hello, world!',
+      evm: 'Hello, world!',
+    };
+    const txHashes = {
+      tempo: `0x${'11'.repeat(32)}`,
+      evm: `0x${'22'.repeat(32)}`,
+    };
+    const txHashesSeen = new Set<string>();
+
+    const encodeAbiString = (value: string): string => {
+      const bytes = new TextEncoder().encode(value);
+      const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+      const paddedHexLength = Math.ceil(bytes.length / 32) * 64;
+      return `0x${(32).toString(16).padStart(64, '0')}${bytes.length
+        .toString(16)
+        .padStart(64, '0')}${hex.padEnd(paddedHexLength, '0')}`;
+    };
+
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
+      const method = String(init?.method || 'GET').toUpperCase();
+      const isTempoRpc = url.includes('rpc.moderato.tempo.xyz');
+      const isArcRpc = url.includes('rpc.testnet.arc.network');
+      if (method !== 'POST' || (!isTempoRpc && !isArcRpc)) {
+        return await originalFetch(input, init);
+      }
+
+      const chain = isTempoRpc ? 'tempo' : 'evm';
+      let body: Record<string, unknown> = {};
+      try {
+        body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+      } catch {}
+
+      const rpcMethod = String(body.method || '');
+      const rpcParams = Array.isArray(body.params) ? body.params : [];
+      const id = body.id ?? Date.now();
+
+      if (rpcMethod === 'eth_call') {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            result: encodeAbiString(greetings[chain]),
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (rpcMethod === 'eth_gasPrice') {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            result: '0x4a817c800',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+
+      if (rpcMethod === 'eth_sendRawTransaction') {
+        if (chain === 'tempo') {
+          counters.tempoDispatches += 1;
+          greetings.tempo = 'Tempo greeting updated';
+        } else {
+          counters.evmDispatches += 1;
+          greetings.evm = 'Arc greeting updated';
+        }
+        txHashesSeen.add(txHashes[chain]);
+        return new Response(
+          JSON.stringify({ jsonrpc: '2.0', id, result: txHashes[chain] }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+
+      if (rpcMethod === 'eth_getTransactionReceipt') {
+        const txHash = String(rpcParams[0] || '');
+        const receiptChain = txHash === txHashes.tempo ? 'tempo' : txHash === txHashes.evm ? 'evm' : chain;
+        if (!txHashesSeen.has(txHash)) {
+          return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: null }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+
+        if (receiptChain === 'tempo') {
+          counters.tempoReceiptPolls += 1;
+          if (counters.tempoReceiptPolls < 2) {
+            return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: null }), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            });
+          }
+        } else {
+          counters.evmReceiptPolls += 1;
+          if (counters.evmReceiptPolls < 2) {
+            return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: null }), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            });
+          }
+        }
+
+        return new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            result: {
+              transactionHash: txHash,
+              blockNumber: '0x1',
+              status: '0x1',
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+
+      return await originalFetch(input, init);
+    }) as typeof fetch;
 
     const TatchiContext = ReactRuntime.createContext(null as any);
 
@@ -140,6 +268,15 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
             }),
           },
           tempo: {
+            bootstrapEcdsaSession: async () => ({
+              keygen: { ok: true },
+              session: {
+                ok: true,
+                sessionId: 'tempo-session-1',
+                expiresAtMs: Date.now() + 60_000,
+                remainingUses: 3,
+              },
+            }),
             signTempo: async (args: any) => {
               if (args?.request?.kind === 'eip1559') {
                 counters.evmSigns += 1;
@@ -156,6 +293,17 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
                 rawTxHex: `0x${'12'.repeat(64)}`,
               };
             },
+          },
+          evm: {
+            bootstrapEcdsaSession: async () => ({
+              keygen: { ok: true },
+              session: {
+                ok: true,
+                sessionId: 'evm-session-1',
+                expiresAtMs: Date.now() + 60_000,
+                remainingUses: 3,
+              },
+            }),
           },
           configs: {
             relayer: {
@@ -235,7 +383,7 @@ test.describe('docs frontend register + threshold signing integration', () => {
 
     const scope = page.locator('#docs-register-to-signing-root');
 
-    await expect(scope.getByRole('button', { name: 'Sign Tempo Threshold Transaction' })).toHaveCount(0);
+    await expect(scope.getByRole('button', { name: 'Sign Tempo Transaction' })).toHaveCount(0);
 
     await scope.getByRole('button', { name: 'Register' }).evaluate((el: HTMLElement) => el.click());
 
@@ -251,18 +399,18 @@ test.describe('docs frontend register + threshold signing integration', () => {
 
     await scope.getByRole('button', { name: 'Login' }).evaluate((el: HTMLElement) => el.click());
 
-    const tempoButton = scope.getByRole('button', { name: 'Sign Tempo Threshold Transaction' });
+    const tempoButton = scope.getByRole('button', { name: 'Sign Tempo Transaction' });
     const evmButton = scope.getByRole('button', {
-      name: 'Sign EVM Threshold EIP-1559 Transaction',
+      name: 'Sign EVM Transaction',
     });
 
     await expect(tempoButton).toBeVisible();
     await expect(evmButton).toBeVisible();
+    await expect(scope.getByText(/Tempo Greeting/i)).toBeVisible();
+    await expect(scope.getByText(/Arc Greeting/i)).toBeVisible();
 
     await tempoButton.evaluate((el: HTMLElement) => el.click());
-    await expect(scope.getByText(/Tempo sender hash:/i)).toBeVisible();
     await evmButton.evaluate((el: HTMLElement) => el.click());
-    await expect(scope.getByText(/EIP-1559 tx hash:/i)).toBeVisible();
 
     await page.waitForFunction(() => {
       const counters = (window as any).__docsRegisterFlowCounters;
@@ -270,21 +418,27 @@ test.describe('docs frontend register + threshold signing integration', () => {
         counters &&
         counters.loginCalls === 1 &&
         counters.bootstrapCalls.length === 1 &&
-        counters.tempoSigns === 1 &&
-        counters.evmSigns === 1
+        counters.tempoSigns >= 1 &&
+        counters.evmSigns >= 1 &&
+        counters.tempoDispatches >= 1 &&
+        counters.evmDispatches >= 1 &&
+        counters.tempoReceiptPolls >= 2 &&
+        counters.evmReceiptPolls >= 2
       );
     });
 
-    await expect(scope.getByText(/Provisioning path:\s*login\/register\/bootstrap flow/i)).toBeVisible();
-    await expect(scope.getByText(/Signing source:\s*canonical threshold session state/i)).toBeVisible();
-
     const finalCounters = await page.evaluate(() => (window as any).__docsRegisterFlowCounters);
-    expect(finalCounters).toEqual({
-      registerCalls: 1,
-      loginCalls: 1,
-      bootstrapCalls: ['alice.testnet:tempo'],
-      tempoSigns: 1,
-      evmSigns: 1,
-    });
+    expect(finalCounters.registerCalls).toBe(1);
+    expect(finalCounters.loginCalls).toBe(1);
+    expect(finalCounters.bootstrapCalls).toEqual(['alice.testnet:tempo']);
+    expect(finalCounters.tempoSigns).toBeGreaterThanOrEqual(1);
+    expect(finalCounters.evmSigns).toBeGreaterThanOrEqual(1);
+    expect(finalCounters.tempoDispatches).toBeGreaterThanOrEqual(1);
+    expect(finalCounters.evmDispatches).toBeGreaterThanOrEqual(1);
+    expect(finalCounters.tempoReceiptPolls).toBeGreaterThanOrEqual(2);
+    expect(finalCounters.evmReceiptPolls).toBeGreaterThanOrEqual(2);
+
+    await expect(scope.getByText('Tempo greeting updated')).toBeVisible();
+    await expect(scope.getByText('Arc greeting updated')).toBeVisible();
   });
 });

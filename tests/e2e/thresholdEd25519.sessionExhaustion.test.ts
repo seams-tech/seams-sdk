@@ -2,7 +2,8 @@
  * Threshold Ed25519 (2-party) — threshold session exhaustion.
  *
  * Validates browser behavior when the relayer-issued threshold session token runs out of uses:
- * the client mints a fresh `/threshold-ed25519/session` via WebAuthn, then completes threshold signing successfully.
+ * signing fails fast, then an explicit login mints a fresh `/threshold-ed25519/session`,
+ * and signing succeeds again.
  */
 
 import { test, expect } from '@playwright/test';
@@ -28,7 +29,7 @@ test.describe('threshold-ed25519 session exhaustion', () => {
     await setupThresholdE2ePage(page);
   });
 
-  test('mints a fresh threshold session when exhausted', async ({ page }) => {
+  test('fails fast when exhausted and succeeds after explicit login reconnect', async ({ page }) => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
     let localNearPublicKey = '';
@@ -174,12 +175,14 @@ test.describe('threshold-ed25519 session exhaustion', () => {
           localPublicKey: string;
           thresholdPublicKey: string;
           txInput: { receiverId: string; wasmActions: unknown[] };
+          secondFailureMessage: string;
           signed1: ExtractedSignedTx;
           signed2: ExtractedSignedTx;
         }
         | { ok: false; error: string };
 
       const result = await page.evaluate(async ({ relayerUrl }) => {
+        let stage = 'init';
         try {
           const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
           const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
@@ -198,14 +201,17 @@ test.describe('threshold-ed25519 session exhaustion', () => {
             iframeWallet: { walletOrigin: '' },
           });
 
-          const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0};
+          const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 };
 
+          stage = 'register';
           const reg = await pm.registration.registerPasskeyInternal(accountId, { signerMode: { mode: 'local-signer' } }, confirmConfig as any);
           if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
 
+          stage = 'enroll';
           const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
           if (!enrollment?.success) return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
 
+          stage = 'login';
           const login = await pm.auth.login(accountId);
           if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
 
@@ -235,7 +241,27 @@ test.describe('threshold-ed25519 session exhaustion', () => {
             };
           };
 
+          stage = 'sign-1';
           const signed1 = await signOnce();
+          let secondFailureMessage = '';
+          try {
+            stage = 'sign-2';
+            await signOnce();
+          } catch (e: any) {
+            secondFailureMessage = String(e?.message || e || '');
+          }
+          if (!secondFailureMessage) {
+            throw new Error('expected second sign attempt to fail when warm session is exhausted');
+          }
+          if (!/threshold signingSession is (not_found|exhausted|expired)/i.test(secondFailureMessage)) {
+            throw new Error(`unexpected second sign failure: ${secondFailureMessage}`);
+          }
+
+          stage = 'relogin';
+          const relogin = await pm.auth.login(accountId);
+          if (!relogin?.success) return { ok: false, error: relogin?.error || 'relogin failed' };
+
+          stage = 'sign-3';
           const signed2 = await signOnce();
 
           return {
@@ -244,11 +270,12 @@ test.describe('threshold-ed25519 session exhaustion', () => {
             localPublicKey: String(reg.clientNearPublicKey || ''),
             thresholdPublicKey: String(enrollment.publicKey || ''),
             txInput: { receiverId, wasmActions },
+            secondFailureMessage,
             signed1,
             signed2,
           };
         } catch (e: any) {
-          return { ok: false, error: e?.message || String(e) };
+          return { ok: false, error: `[${stage}] ${e?.message || String(e)}` };
         }
       }, { relayerUrl: srv.baseUrl }) as SessionExhaustionResult;
 
@@ -259,6 +286,7 @@ test.describe('threshold-ed25519 session exhaustion', () => {
       expect(sendTxCount).toBe(1);
       expect(relayerCounts.keygen).toBe(1);
       expect(relayerCounts.session).toBe(2);
+      expect(result.secondFailureMessage).toMatch(/threshold signingSession is (not_found|exhausted|expired)/i);
       expect(relayerCounts.authorize).toBeGreaterThanOrEqual(2);
       expect(relayerCounts.authorize).toBeLessThanOrEqual(3);
       expect(relayerCounts.init).toBe(2);
@@ -278,7 +306,7 @@ test.describe('threshold-ed25519 session exhaustion', () => {
         expect('webauthn_authentication' in req.body).toBe(false);
       }
 
-      // Ensure we minted a fresh threshold sessionId when re-minting (do not reuse a stable client sessionId).
+      // Ensure relogin minted a fresh threshold sessionId (do not reuse a stale sessionId).
       const uniqueSessionIds = Array.from(new Set(thresholdSessionPolicySessionIds));
       expect(uniqueSessionIds.length).toBeGreaterThanOrEqual(2);
       expect(uniqueSessionIds[0]).not.toBe(uniqueSessionIds[1]);

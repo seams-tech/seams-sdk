@@ -99,7 +99,7 @@ test.describe('determineConfirmationConfig', () => {
     expect(res.cfg.uiMode === 'modal' || res.cfg.uiMode === 'drawer').toBe(true);
   });
 
-  test('SIGN_INTENT_DIGEST (webauthn) forces modal+requireClick even when prefs/override request skip flow', async ({ page }) => {
+  test('SIGN_INTENT_DIGEST respects configured click behavior when explicit activation is not required', async ({ page }) => {
     const res = await page.evaluate(async ({ paths }) => {
       const mod = await import(paths.determine);
       const types = await import(paths.types);
@@ -134,8 +134,8 @@ test.describe('determineConfirmationConfig', () => {
     }, { paths: IMPORT_PATHS });
 
     expect(res.cfg).toEqual({
-      uiMode: 'modal',
-      behavior: 'requireClick',
+      uiMode: 'none',
+      behavior: 'skipClick',
       autoProceedDelay: 0,
     });
   });

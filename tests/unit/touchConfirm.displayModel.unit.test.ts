@@ -240,8 +240,12 @@ test.describe('touchConfirm display model fixtures', () => {
     });
 
     expect(model.operations[0].kind).toBe('generic.contractCall');
+    expect(model.operations[0].label).toContain('Transaction to contract');
+    expect(model.operations[0].children).toHaveLength(1);
     expect(model.operations[0].selector).toBe('0xa9059cbb');
-    const fields = Array.isArray(model.operations[0].fields) ? model.operations[0].fields : [];
+    const callChild = model.operations[0].children[0];
+    expect(callChild.label).toContain('Calling transfer()');
+    const fields = Array.isArray(callChild.fields) ? callChild.fields : [];
     const functionField = fields.find((field: { label?: string; value?: string }) => field.label === 'Function');
     expect(functionField?.value).toBe('transfer(address,uint256)');
   });
@@ -279,8 +283,11 @@ test.describe('touchConfirm display model fixtures', () => {
     expect(model.chain).toBe('tempo');
     expect(model.operations).toHaveLength(1);
     expect(model.operations[0].kind).toBe('tempo.eip2718');
-    expect(model.operations[0].children?.length || 0).toBe(0);
-    const fields = Array.isArray(model.operations[0].fields) ? model.operations[0].fields : [];
+    expect(model.operations[0].label).toContain('Transaction to contract');
+    expect(model.operations[0].children?.length || 0).toBe(1);
+    const fields = Array.isArray(model.operations[0].children?.[0]?.fields)
+      ? model.operations[0].children[0].fields
+      : [];
     const selectorField = fields.find((field: { label?: string; value?: string }) => field.label === 'Selector');
     expect(selectorField?.value).toBe('0xabcdef12');
   });

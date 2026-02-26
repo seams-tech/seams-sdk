@@ -80,6 +80,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
         hasTreeElement: !!treeEl,
         hasTreeNode: !!treeNode,
         operationLabel: String(firstOperation?.label || ''),
+        operationHideChevron: !!firstOperation?.hideChevron,
         fieldLabels,
         hasIntentDigestValue: !!portalChild?.intentDigest,
       };
@@ -90,6 +91,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
     expect(result.hasTreeElement).toBe(true);
     expect(result.hasTreeNode).toBe(true);
     expect(result.operationLabel).toBe('Contract Call');
+    expect(result.operationHideChevron).toBe(true);
     expect(result.fieldLabels.some((label: string) => label.includes('To:'))).toBe(true);
     expect(result.hasIntentDigestValue).toBe(false);
   });
@@ -157,7 +159,12 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
         }
       };
 
-      const checks: Array<{ chain: string; matchesExpected: boolean; hasTree: boolean }> = [];
+      const checks: Array<{
+        chain: string;
+        matchesExpected: boolean;
+        hasTree: boolean;
+        operationHideChevron: boolean;
+      }> = [];
       for (const fixture of models) {
         const handle = await mountConfirmUI({
           ctx,
@@ -185,6 +192,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           chain: fixture.chain,
           matchesExpected: operationLabel === fixture.expectedLabel,
           hasTree: !!treeNode && Array.isArray(treeNode.children) && treeNode.children.length > 0,
+          operationHideChevron: !!firstOperation?.hideChevron,
         });
 
         handle.close(true);
@@ -197,6 +205,9 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
     for (const entry of result.checks) {
       expect(entry.hasTree).toBe(true);
       expect(entry.matchesExpected).toBe(true);
+      if (entry.chain === 'evm' || entry.chain === 'tempo') {
+        expect(entry.operationHideChevron).toBe(true);
+      }
     }
   });
 
