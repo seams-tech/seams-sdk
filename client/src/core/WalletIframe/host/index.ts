@@ -34,6 +34,7 @@ import {
   postToParent as postToParentMessage,
 } from './messaging';
 import {
+  isWalletSignerBoundaryRequestType,
   resolveWalletBoundaryErrorCode,
   resolveWalletBoundaryErrorMessage,
 } from './canonicalSignerErrorCode';
@@ -249,7 +250,7 @@ export function initWalletIFrame(): void {
         err && typeof err === 'object' && 'code' in err
           ? (err as { code?: unknown }).code
           : undefined;
-      const details =
+      const detailsRaw =
         err && typeof err === 'object' && 'details' in err
           ? (err as { details?: unknown }).details
           : undefined;
@@ -269,6 +270,31 @@ export function initWalletIFrame(): void {
       if (code === 'cancelled') {
         clearCancelled(requestId);
       }
+      const details = (() => {
+        const isSignerBoundary = isWalletSignerBoundaryRequestType(req.type);
+        const rawCodeText = String(codeRaw || '').trim();
+        const rawMessageText = String(message || '').trim();
+        if (!isSignerBoundary) return detailsRaw;
+        if (detailsRaw && typeof detailsRaw === 'object' && !Array.isArray(detailsRaw)) {
+          return {
+            ...(detailsRaw as Record<string, unknown>),
+            ...(rawCodeText ? { rawCode: rawCodeText } : {}),
+            ...(rawMessageText ? { rawMessage: rawMessageText } : {}),
+          };
+        }
+        if (detailsRaw !== undefined) {
+          return {
+            details: detailsRaw,
+            ...(rawCodeText ? { rawCode: rawCodeText } : {}),
+            ...(rawMessageText ? { rawMessage: rawMessageText } : {}),
+          };
+        }
+        if (!rawCodeText && !rawMessageText) return undefined;
+        return {
+          ...(rawCodeText ? { rawCode: rawCodeText } : {}),
+          ...(rawMessageText ? { rawMessage: rawMessageText } : {}),
+        };
+      })();
       post({
         type: 'ERROR',
         requestId,

@@ -29,20 +29,28 @@ import {
   ActionPhase,
 } from '../../types/sdkSentEvents';
 
-export async function fetchNonceBlockHashAndHeight({ nearClient, nearPublicKeyStr, nearAccountId }: {
-  nearClient: NearClient,
-  nearPublicKeyStr: string,
-  nearAccountId: AccountId
+export async function fetchNonceBlockHashAndHeight({
+  nearClient,
+  nearPublicKeyStr,
+  nearAccountId,
+}: {
+  nearClient: NearClient;
+  nearPublicKeyStr: string;
+  nearAccountId: AccountId;
 }): Promise<TransactionContext> {
   // Get access key and transaction block info concurrently
   const [accessKeyInfo, txBlockInfo] = await Promise.all([
-    nearClient.viewAccessKey(nearAccountId, nearPublicKeyStr)
-      .catch(e => { throw new Error(`Failed to fetch Access Key`) }),
-    nearClient.viewBlock({ finality: 'final' })
-      .catch(e => { throw new Error(`Failed to fetch Block Info`) })
+    nearClient.viewAccessKey(nearAccountId, nearPublicKeyStr).catch((e) => {
+      throw new Error(`Failed to fetch Access Key`);
+    }),
+    nearClient.viewBlock({ finality: 'final' }).catch((e) => {
+      throw new Error(`Failed to fetch Block Info`);
+    }),
   ]);
   if (!accessKeyInfo || accessKeyInfo.nonce === undefined) {
-    throw new Error(`Access key not found or invalid for account ${nearAccountId} with public key ${nearPublicKeyStr}. Response: ${JSON.stringify(accessKeyInfo)}`);
+    throw new Error(
+      `Access key not found or invalid for account ${nearAccountId} with public key ${nearPublicKeyStr}. Response: ${JSON.stringify(accessKeyInfo)}`,
+    );
   }
   const nextNonce = (BigInt(accessKeyInfo.nonce) + BigInt(1)).toString();
   const txBlockHeight = String(txBlockInfo.header.height);
@@ -75,7 +83,11 @@ function isAccessKeyNotFoundError(err: unknown): boolean {
   if (!msg) return false;
 
   // Common NEAR node / near-api-js phrasing for missing access keys.
-  if (msg.includes('unknown access key') || msg.includes('unknown_access_key') || msg.includes('unknownaccesskey')) {
+  if (
+    msg.includes('unknown access key') ||
+    msg.includes('unknown_access_key') ||
+    msg.includes('unknownaccesskey')
+  ) {
     return true;
   }
   if (msg.includes('accesskeydoesnotexist')) return true;
@@ -83,7 +95,12 @@ function isAccessKeyNotFoundError(err: unknown): boolean {
   if (msg.includes("access key doesn't exist")) return true;
   if (msg.includes('access key not found')) return true;
   if (msg.includes('no such access key')) return true;
-  if (msg.includes('viewing access key') && msg.includes('does not exist') && !msg.includes('account')) return true;
+  if (
+    msg.includes('viewing access key') &&
+    msg.includes('does not exist') &&
+    !msg.includes('account')
+  )
+    return true;
 
   return false;
 }
@@ -158,7 +175,9 @@ export async function checkNearAccountExistsBestEffort(
 ): Promise<boolean> {
   const isNotFound = (m: string) => /does not exist|UNKNOWN_ACCOUNT|unknown\s+account/i.test(m);
   const isRetryable = (m: string) =>
-    /server error|internal|temporar|timeout|too many requests|429|empty response|rpc request failed|failed to fetch/i.test(m);
+    /server error|internal|temporar|timeout|too many requests|429|empty response|rpc request failed|failed to fetch/i.test(
+      m,
+    );
 
   const attempts = Math.max(1, Math.floor(opts?.attempts ?? 2));
   const baseDelayMs = Math.max(50, Math.floor(opts?.delayMs ?? 150));
@@ -169,9 +188,10 @@ export async function checkNearAccountExistsBestEffort(
       return true;
     } catch (err: unknown) {
       const msg = errorMessage(err);
-      const details = (err && typeof err === 'object' && 'details' in err)
-        ? (err as { details?: unknown }).details
-        : undefined;
+      const details =
+        err && typeof err === 'object' && 'details' in err
+          ? (err as { details?: unknown }).details
+          : undefined;
       let detailsBlob = '';
       if (details) {
         try {
@@ -187,7 +207,10 @@ export async function checkNearAccountExistsBestEffort(
         await sleep(backoffMs);
         continue;
       }
-      console.warn(`[rpcCalls] Account existence check failed for '${nearAccountId}'; continuing:`, err);
+      console.warn(
+        `[rpcCalls] Account existence check failed for '${nearAccountId}'; continuing:`,
+        err,
+      );
       return false;
     }
   }
@@ -279,7 +302,7 @@ export async function verifyWebAuthnLogin(
       response: {
         ...redacted.response,
         userHandle: redacted.response.userHandle ?? null,
-      }
+      },
     };
 
     const url = `${relayServerUrl.replace(/\/$/, '')}${routePath.startsWith('/') ? routePath : `/${routePath}`}`;
@@ -306,7 +329,8 @@ export async function verifyWebAuthnLogin(
       return {
         success: false,
         verified: false,
-        error: typeof data.message === 'string' ? data.message : 'Authentication verification failed',
+        error:
+          typeof data.message === 'string' ? data.message : 'Authentication verification failed',
       };
     }
     return {
@@ -341,7 +365,9 @@ export async function thresholdEd25519Keygen(
   error?: string;
 }> {
   try {
-    const base = String(relayServerUrl || '').trim().replace(/\/$/, '');
+    const base = String(relayServerUrl || '')
+      .trim()
+      .replace(/\/$/, '');
     if (!base) throw new Error('Missing relayServerUrl');
 
     const clientVerifyingShareB64u = String(args.clientVerifyingShareB64u || '').trim();
@@ -411,7 +437,7 @@ export async function thresholdEcdsaKeygen(
   groupPublicKeyB64u?: string;
   ethereumAddress?: string;
   relayerVerifyingShareB64u?: string;
-  chainId?: string;
+  chainId?: number;
   factory?: string;
   entryPoint?: string;
   salt?: string;
@@ -433,9 +459,10 @@ export async function thresholdEcdsaKeygen(
     const clientVerifyingShareB64u = String(args.clientVerifyingShareB64u || '').trim();
     if (!clientVerifyingShareB64u) throw new Error('Missing clientVerifyingShareB64u');
 
-    const sessionId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-      ? `threshold-keygen-${crypto.randomUUID()}`
-      : `threshold-keygen-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const sessionId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? `threshold-keygen-${crypto.randomUUID()}`
+        : `threshold-keygen-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
     const bootstrap = await thresholdEcdsaBootstrap(relayServerUrl, {
       userId,
@@ -508,7 +535,7 @@ export async function thresholdEcdsaBootstrap(
   groupPublicKeyB64u?: string;
   ethereumAddress?: string;
   relayerVerifyingShareB64u?: string;
-  chainId?: string;
+  chainId?: number;
   factory?: string;
   entryPoint?: string;
   salt?: string;
@@ -521,8 +548,30 @@ export async function thresholdEcdsaBootstrap(
   message?: string;
   error?: string;
 }> {
+  type ThresholdEcdsaBootstrapHttpResponse = {
+    ok?: boolean;
+    participantIds?: number[];
+    relayerKeyId?: string;
+    groupPublicKeyB64u?: string;
+    ethereumAddress?: string;
+    relayerVerifyingShareB64u?: string;
+    chainId?: number;
+    factory?: string;
+    entryPoint?: string;
+    salt?: string;
+    counterfactualAddress?: string;
+    sessionId?: string;
+    expiresAtMs?: number;
+    remainingUses?: number;
+    jwt?: string;
+    code?: string;
+    message?: string;
+  };
+
   try {
-    const base = String(relayServerUrl || '').trim().replace(/\/$/, '');
+    const base = String(relayServerUrl || '')
+      .trim()
+      .replace(/\/$/, '');
     if (!base) throw new Error('Missing relayServerUrl');
 
     const userId = String(args.userId || '').trim();
@@ -567,9 +616,9 @@ export async function thresholdEcdsaBootstrap(
       return { ok: false, error: `HTTP ${response.status}: ${errorText}` };
     }
 
-    const json = await response.json();
+    const json = (await response.json()) as ThresholdEcdsaBootstrapHttpResponse;
     return {
-      ok: !!json?.ok,
+      ok: json.ok === true,
       participantIds: json?.participantIds,
       relayerKeyId: json?.relayerKeyId,
       groupPublicKeyB64u: json?.groupPublicKeyB64u,
@@ -588,7 +637,10 @@ export async function thresholdEcdsaBootstrap(
       message: json?.message,
     };
   } catch (error: unknown) {
-    return { ok: false, error: errorMessage(error) || 'Failed to bootstrap threshold-ecdsa session' };
+    return {
+      ok: false,
+      error: errorMessage(error) || 'Failed to bootstrap threshold-ecdsa session',
+    };
   }
 }
 
@@ -615,14 +667,14 @@ export interface AuthenticatorsResult {
 export type ContractStoredAuthenticator = Record<string, unknown>;
 
 export type RecoveryAttemptStatus =
-  | "Started"
-  | "VerifyingDkim"
-  | "DkimFailed"
-  | "PolicyFailed"
-  | "Recovering"
-  | "AwaitingMoreEmails"
-  | "Complete"
-  | "Failed";
+  | 'Started'
+  | 'VerifyingDkim'
+  | 'DkimFailed'
+  | 'PolicyFailed'
+  | 'Recovering'
+  | 'AwaitingMoreEmails'
+  | 'Complete'
+  | 'Failed';
 
 export type RecoveryAttempt = {
   request_id: string;
@@ -654,7 +706,8 @@ function normalizeByteArray(input: unknown): number[] | null | undefined {
         typeof Buffer !== 'undefined'
           ? Buffer.from(input, 'base64')
           : Uint8Array.from(atob(input), (c) => c.charCodeAt(0));
-      const arr = bytes instanceof Uint8Array ? Array.from(bytes) : Array.from(new Uint8Array(bytes));
+      const arr =
+        bytes instanceof Uint8Array ? Array.from(bytes) : Array.from(new Uint8Array(bytes));
       return arr;
     } catch {
       return undefined;
@@ -664,18 +717,18 @@ function normalizeByteArray(input: unknown): number[] | null | undefined {
   return undefined;
 }
 
-
 export async function getEmailRecoveryAttempt(
   nearClient: NearClient,
   accountId: string,
-  requestId: string
+  requestId: string,
 ): Promise<RecoveryAttempt | null> {
   const raw = await nearClient.view<
     { request_id: string },
-    (Omit<RecoveryAttempt, 'status' | 'from_address_hash'> & {
-      status: unknown;
-      from_address_hash?: unknown;
-    }) | null
+    | (Omit<RecoveryAttempt, 'status' | 'from_address_hash'> & {
+        status: unknown;
+        from_address_hash?: unknown;
+      })
+    | null
   >({
     account: accountId,
     method: 'get_recovery_attempt',
@@ -728,62 +781,67 @@ export async function executeDeviceLinkingContractCalls({
   confirmationConfigOverride,
   confirmerText,
 }: {
-  context: PasskeyManagerContext,
-  device1AccountId: AccountId,
-  device2PublicKey: string,
+  context: PasskeyManagerContext;
+  device1AccountId: AccountId;
+  device2PublicKey: string;
   onEvent?: (event: DeviceLinkingSSEEvent) => void;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   confirmerText?: { title?: string; body?: string };
 }): Promise<{
   addKeyTxResult: FinalExecutionOutcome;
 }> {
-
-  const signTransactions = () => context.signingEngine.signNear({
-    chain: 'near',
-    kind: 'transactionsWithActions',
-    args: {
-      sessionId: (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-        ? `link-device-${crypto.randomUUID()}`
-        : `link-device-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      rpcCall: {
-        nearRpcUrl: resolvePrimaryNearRpcUrl(context.signingEngine.tatchiPasskeyConfigs.network.chains),
-        nearAccountId: device1AccountId
-      },
-      // Prefer threshold signing when available; fall back to local signing if the account
-      // is not enrolled with threshold key material.
-      signerMode: { mode: 'threshold-signer', behavior: 'fallback' },
-      confirmationConfigOverride,
-      title: confirmerText?.title,
-      body: confirmerText?.body,
-      transactions: [
-        // Transaction 1: AddKey - Add Device2's key to Device1's account
-        {
-          receiverId: device1AccountId,
-          actions: [{
-            action_type: ActionType.AddKey,
-            public_key: device2PublicKey,
-            access_key: JSON.stringify({
-              // NEAR-style AccessKey JSON shape, matching near-api-js:
-              // { nonce: number, permission: { FullAccess: {} } }
-              nonce: 0,
-              permission: { FullAccess: {} },
-            }),
-          }],
+  const signTransactions = () =>
+    context.signingEngine.signNear({
+      chain: 'near',
+      kind: 'transactionsWithActions',
+      args: {
+        sessionId:
+          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? `link-device-${crypto.randomUUID()}`
+            : `link-device-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        rpcCall: {
+          nearRpcUrl: resolvePrimaryNearRpcUrl(
+            context.signingEngine.tatchiPasskeyConfigs.network.chains,
+          ),
+          nearAccountId: device1AccountId,
         },
-      ],
-      onEvent: (progress) => {
-        // Keep device-linking progress semantic and surface signing as a loading state.
-        if (progress.phase == ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE) {
-          onEvent?.({
-            step: 3,
-            phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION,
-            status: DeviceLinkingStatus.PROGRESS,
-            message: progress.message || 'Transaction signing in progress...'
-          })
-        }
-      }
-    },
-  });
+        // Prefer threshold signing when available; fall back to local signing if the account
+        // is not enrolled with threshold key material.
+        signerMode: { mode: 'threshold-signer', behavior: 'fallback' },
+        confirmationConfigOverride,
+        title: confirmerText?.title,
+        body: confirmerText?.body,
+        transactions: [
+          // Transaction 1: AddKey - Add Device2's key to Device1's account
+          {
+            receiverId: device1AccountId,
+            actions: [
+              {
+                action_type: ActionType.AddKey,
+                public_key: device2PublicKey,
+                access_key: JSON.stringify({
+                  // NEAR-style AccessKey JSON shape, matching near-api-js:
+                  // { nonce: number, permission: { FullAccess: {} } }
+                  nonce: 0,
+                  permission: { FullAccess: {} },
+                }),
+              },
+            ],
+          },
+        ],
+        onEvent: (progress) => {
+          // Keep device-linking progress semantic and surface signing as a loading state.
+          if (progress.phase == ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE) {
+            onEvent?.({
+              step: 3,
+              phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION,
+              status: DeviceLinkingStatus.PROGRESS,
+              message: progress.message || 'Transaction signing in progress...',
+            });
+          }
+        },
+      },
+    });
 
   // Sign both transactions with one PRF authentication
   const signedTransactions = await signTransactions();
@@ -796,7 +854,7 @@ export async function executeDeviceLinkingContractCalls({
   try {
     addKeyTxResult = await context.nearClient.sendTransaction(
       signedTransactions[0].signedTransaction,
-      DEFAULT_WAIT_STATUS.linkDeviceAddKey
+      DEFAULT_WAIT_STATUS.linkDeviceAddKey,
     );
   } catch (txError: unknown) {
     throw new Error(`Transaction broadcasting failed: ${errorMessage(txError)}`);
@@ -806,7 +864,7 @@ export async function executeDeviceLinkingContractCalls({
     step: 7,
     phase: DeviceLinkingPhase.STEP_7_LINKING_COMPLETE,
     status: DeviceLinkingStatus.SUCCESS,
-    message: `Device key added successfully!`
+    message: `Device key added successfully!`,
   });
 
   return {
