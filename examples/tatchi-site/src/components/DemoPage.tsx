@@ -465,6 +465,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     ) as FunctionCallAction;
 
     setTxLoading(true);
+    let signingFailureMessage: string | null = null;
     try {
       await tatchi.near.signAndSendTransactions({
         nearAccountId: nearAccountId!,
@@ -497,8 +498,12 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
                 break;
             }
           },
+          onError: (error: unknown) => {
+            const message = String((error as { message?: unknown })?.message || error || '').trim();
+            if (message) signingFailureMessage = message;
+          },
           waitUntil: TxExecutionStatus.EXECUTED_OPTIMISTIC,
-          afterCall: (success: boolean, results?: ActionResult[]) => {
+          afterCall: (success: boolean, results?: ActionResult[], error?: Error) => {
             try {
               toast.dismiss('greeting');
             } catch {}
@@ -520,7 +525,10 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
               setGreetingInput('');
               setTimeout(() => fetchGreeting(), 1000);
             } else {
+              const callbackErrorMessage = String(error?.message || '').trim();
               const message = normalizedResults.find((item) => item?.error)?.error
+                || callbackErrorMessage
+                || signingFailureMessage
                 || (isSuccess ? 'Missing transaction ID' : 'Unknown error');
               toast.error(`Greeting update failed: ${message}`);
             }
@@ -528,7 +536,11 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
           },
         },
       });
-    } catch {
+    } catch (error: unknown) {
+      if (!signingFailureMessage) {
+        const fallbackMessage = String((error as { message?: unknown })?.message || error || 'Unknown error');
+        toast.error(`Greeting update failed: ${fallbackMessage}`);
+      }
       setTxLoading(false);
     }
   }, [
