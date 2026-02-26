@@ -40,7 +40,10 @@ export function createCSSVariables(tokens: DesignTokens, prefix = '--w3a'): Reac
   return style;
 }
 
-export function mergeTokens(base: DesignTokens, override?: PartialDeep<DesignTokens>): DesignTokens {
+export function mergeTokens(
+  base: DesignTokens,
+  override?: PartialDeep<DesignTokens>,
+): DesignTokens {
   if (!override) return base;
   return deepMerge(base, override);
 }

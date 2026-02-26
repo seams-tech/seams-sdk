@@ -11,4 +11,3 @@ export const PasskeyAuthMenuHydrationContext = React.createContext<boolean>(fals
 export function usePasskeyAuthMenuForceInitialRegister(): boolean {
   return React.useContext(PasskeyAuthMenuHydrationContext);
 }
-

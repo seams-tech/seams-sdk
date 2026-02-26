@@ -41,7 +41,9 @@ export function useWalletIframeZIndex(overlayZIndex?: number | null): void {
     const root = document.documentElement;
 
     if (overlayZIndex == null || !Number.isFinite(overlayZIndex) || overlayZIndex <= 0) {
-      try { root.style.removeProperty('--w3a-wallet-overlay-z'); } catch {}
+      try {
+        root.style.removeProperty('--w3a-wallet-overlay-z');
+      } catch {}
       return;
     }
 

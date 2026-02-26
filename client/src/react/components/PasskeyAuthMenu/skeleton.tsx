@@ -85,7 +85,12 @@ export const PasskeyAuthMenuSkeletonInner = React.forwardRef<
                   </div>
                 </div>
                 <div style={{ position: 'relative', display: 'inline-block' }}>
-                  <button aria-label="Continue" type="button" className="w3a-arrow-btn no-transition" disabled />
+                  <button
+                    aria-label="Continue"
+                    type="button"
+                    className="w3a-arrow-btn no-transition"
+                    disabled
+                  />
                 </div>
               </div>
 
@@ -138,10 +143,10 @@ export const PasskeyAuthMenuSkeletonInner = React.forwardRef<
                   <span className="w3a-section-divider-text">Already have an account?</span>
                 </div>
                 <div className="w3a-secondary-actions">
-	                  <button className="w3a-link-device-btn" disabled>
-	                    <QRCodeIcon width={18} height={18} strokeWidth={2} />
-                      Scan and Link Device
-	                  </button>
+                  <button className="w3a-link-device-btn" disabled>
+                    <QRCodeIcon width={18} height={18} strokeWidth={2} />
+                    Scan and Link Device
+                  </button>
                   <button className="w3a-link-device-btn" disabled>
                     <MailIcon size={18} strokeWidth={2} style={{ display: 'block' }} />
                     Recover Account with Email

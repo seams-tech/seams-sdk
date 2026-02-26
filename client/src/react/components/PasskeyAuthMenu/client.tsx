@@ -64,7 +64,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
   );
 
   const prefetchQRCode = React.useCallback(() => {
-    void preloadShowQRCode().catch(() => { });
+    void preloadShowQRCode().catch(() => {});
   }, []);
 
   const segActiveBg = 'var(--w3a-passkey-auth-menu2-seg-active-bg)';
@@ -72,7 +72,9 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
   const rootStyle = React.useMemo<CSSVarStyle>(
     () => ({
       ...style,
-      ...(loadingScreenDelayMs != null ? { '--w3a-waiting-delay': `${loadingScreenDelayMs}ms` } : null),
+      ...(loadingScreenDelayMs != null
+        ? { '--w3a-waiting-delay': `${loadingScreenDelayMs}ms` }
+        : null),
     }),
     [loadingScreenDelayMs, style],
   );
@@ -130,7 +132,13 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
         }
         showScanDevice={controller.showScanDevice}
         showQRCodeElement={
-          <React.Suspense fallback={<div className="qr-loading"><p>Loading QR…</p></div>}>
+          <React.Suspense
+            fallback={
+              <div className="qr-loading">
+                <p>Loading QR…</p>
+              </div>
+            }
+          >
             <LazyShowQRCode
               isOpen={controller.linkDevice.isOpen}
               onClose={controller.linkDevice.onClose}

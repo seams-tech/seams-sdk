@@ -60,10 +60,12 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
 }) => {
   // Compute layout metrics
   const count = Math.max(1, items.length);
-  const activeIndex = Math.max(0, items.findIndex((it) => Object.is(it.value, value)));
-  const useIsomorphicLayoutEffect = typeof window !== 'undefined'
-    ? React.useLayoutEffect
-    : React.useEffect;
+  const activeIndex = Math.max(
+    0,
+    items.findIndex((it) => Object.is(it.value, value)),
+  );
+  const useIsomorphicLayoutEffect =
+    typeof window !== 'undefined' ? React.useLayoutEffect : React.useEffect;
 
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const gridRef = React.useRef<HTMLDivElement | null>(null);
@@ -254,7 +256,7 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
               }}
               style={{
                 ...btnBaseStyle,
-                ...(isActive ? (activeButtonStyle || {}) : {}),
+                ...(isActive ? activeButtonStyle || {} : {}),
               }}
             >
               {it.label ?? String(it.value)}

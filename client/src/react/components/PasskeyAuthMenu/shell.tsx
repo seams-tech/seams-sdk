@@ -7,11 +7,15 @@ import { useTheme } from '../theme';
 import { preloadPasskeyAuthMenu } from './preload';
 import { PasskeyAuthMenuHydrationContext } from './hydrationContext';
 
-const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? React.useLayoutEffect : React.useEffect;
+const useIsomorphicLayoutEffect =
+  typeof window !== 'undefined' ? React.useLayoutEffect : React.useEffect;
 
 type PasskeyAuthMenuClientComponent = React.ComponentType<PasskeyAuthMenuProps>;
 
-const clientLazyCache = new Map<number, React.LazyExoticComponent<PasskeyAuthMenuClientComponent>>();
+const clientLazyCache = new Map<
+  number,
+  React.LazyExoticComponent<PasskeyAuthMenuClientComponent>
+>();
 
 let didClientMountOnce = false;
 
@@ -28,7 +32,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   autoPreloadClientChunk();
 }
 
-function getClientLazy(retryKey: number): React.LazyExoticComponent<PasskeyAuthMenuClientComponent> {
+function getClientLazy(
+  retryKey: number,
+): React.LazyExoticComponent<PasskeyAuthMenuClientComponent> {
   const existing = clientLazyCache.get(retryKey);
   if (existing) return existing;
 
@@ -88,7 +94,8 @@ export const PasskeyAuthMenu: React.FC<PasskeyAuthMenuProps> = (props) => {
     return didClientMountOnce;
   });
   const forceInitialRegisterRef = React.useRef(
-    !didClientMountOnce && (props.defaultMode == null || props.defaultMode === AuthMenuMode.Register),
+    !didClientMountOnce &&
+      (props.defaultMode == null || props.defaultMode === AuthMenuMode.Register),
   );
   const [retryKey, setRetryKey] = React.useState(0);
   const ClientLazy = React.useMemo(() => getClientLazy(retryKey), [retryKey]);

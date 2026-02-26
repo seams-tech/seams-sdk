@@ -24,7 +24,12 @@ export function useTatchiWithSdkFlow(args: {
   tatchi: TatchiPasskey;
   beginSdkFlow: (kind: 'login' | 'register' | 'sync', accountId?: string) => number;
   appendSdkEventMessage: (seq: number, message: string) => void;
-  endSdkFlow: (kind: 'login' | 'register' | 'sync', seq: number, status: 'success' | 'error', error?: string) => void;
+  endSdkFlow: (
+    kind: 'login' | 'register' | 'sync',
+    seq: number,
+    status: 'success' | 'error',
+    error?: string,
+  ) => void;
   hostSetTheme?: (theme: 'light' | 'dark') => void;
 }): TatchiPasskey {
   const { tatchi, beginSdkFlow, appendSdkEventMessage, endSdkFlow, hostSetTheme } = args;
@@ -36,7 +41,7 @@ export function useTatchiWithSdkFlow(args: {
      *
      * This lets *all* callers (not just PasskeyAuthMenu) use `ctx.tatchi.*` directly and
      * still have `sdkFlow` update as events stream in.
-    */
+     */
     type LoginFn = AuthCapability['login'];
     type RegisterPasskeyFn = RegistrationCapability['registerPasskey'];
     type SyncAccountFn = RecoveryCapability['syncAccount'];
@@ -51,7 +56,10 @@ export function useTatchiWithSdkFlow(args: {
         ...options,
         onEvent: (event: LoginSSEvent) => {
           appendSdkEventMessage(seq, event.message);
-          if (event.phase === LoginPhase.STEP_4_LOGIN_COMPLETE && event.status === LoginStatus.SUCCESS) {
+          if (
+            event.phase === LoginPhase.STEP_4_LOGIN_COMPLETE &&
+            event.status === LoginStatus.SUCCESS
+          ) {
             endSdkFlow('login', seq, 'success');
           } else if (event.phase === LoginPhase.LOGIN_ERROR || event.status === LoginStatus.ERROR) {
             const error = 'error' in event ? event.error : event.message;
@@ -83,7 +91,10 @@ export function useTatchiWithSdkFlow(args: {
             event.status === RegistrationStatus.SUCCESS
           ) {
             endSdkFlow('register', seq, 'success');
-          } else if (event.phase === RegistrationPhase.REGISTRATION_ERROR || event.status === RegistrationStatus.ERROR) {
+          } else if (
+            event.phase === RegistrationPhase.REGISTRATION_ERROR ||
+            event.status === RegistrationStatus.ERROR
+          ) {
             const error = 'error' in event ? event.error : event.message;
             endSdkFlow('register', seq, 'error', error || event.message);
           }
@@ -106,9 +117,15 @@ export function useTatchiWithSdkFlow(args: {
         ...args?.options,
         onEvent: (event: SyncAccountSSEEvent) => {
           appendSdkEventMessage(seq, event.message);
-          if (event.phase === SyncAccountPhase.STEP_5_SYNC_ACCOUNT_COMPLETE && event.status === SyncAccountStatus.SUCCESS) {
+          if (
+            event.phase === SyncAccountPhase.STEP_5_SYNC_ACCOUNT_COMPLETE &&
+            event.status === SyncAccountStatus.SUCCESS
+          ) {
             endSdkFlow('sync', seq, 'success');
-          } else if (event.phase === SyncAccountPhase.ERROR || event.status === SyncAccountStatus.ERROR) {
+          } else if (
+            event.phase === SyncAccountPhase.ERROR ||
+            event.status === SyncAccountStatus.ERROR
+          ) {
             const error = 'error' in event ? event.error : event.message;
             endSdkFlow('sync', seq, 'error', error || event.message);
           }
@@ -141,19 +158,26 @@ export function useTatchiWithSdkFlow(args: {
           return {
             login: loginWithSdkFlow,
             logout: () => auth.logout(),
-            getSession: (...args: Parameters<AuthCapability['getSession']>) => auth.getSession(...args),
+            getSession: (...args: Parameters<AuthCapability['getSession']>) =>
+              auth.getSession(...args),
             hasPasskeyCredential: (...args: Parameters<AuthCapability['hasPasskeyCredential']>) =>
               auth.hasPasskeyCredential(...args),
-            getRecentLogins: (...args: Parameters<AuthCapability['getRecentLogins']>) => auth.getRecentLogins(...args),
+            getRecentLogins: (...args: Parameters<AuthCapability['getRecentLogins']>) =>
+              auth.getRecentLogins(...args),
           } as AuthCapability;
         }
 
         if (prop === 'registration') {
-          const registration = Reflect.get(target as object, prop, receiver) as RegistrationCapability;
+          const registration = Reflect.get(
+            target as object,
+            prop,
+            receiver,
+          ) as RegistrationCapability;
           return {
             registerPasskey: registerPasskeyWithSdkFlow,
-            registerPasskeyInternal: (...args: Parameters<RegistrationCapability['registerPasskeyInternal']>) =>
-              registration.registerPasskeyInternal(...args),
+            registerPasskeyInternal: (
+              ...args: Parameters<RegistrationCapability['registerPasskeyInternal']>
+            ) => registration.registerPasskeyInternal(...args),
           } as RegistrationCapability;
         }
 
@@ -167,16 +191,20 @@ export function useTatchiWithSdkFlow(args: {
             syncAccount: syncAccountWithSdkFlow,
             startEmailRecovery: (...args: Parameters<RecoveryCapability['startEmailRecovery']>) =>
               recovery.startEmailRecovery(...args),
-            finalizeEmailRecovery: (...args: Parameters<RecoveryCapability['finalizeEmailRecovery']>) =>
-              recovery.finalizeEmailRecovery(...args),
+            finalizeEmailRecovery: (
+              ...args: Parameters<RecoveryCapability['finalizeEmailRecovery']>
+            ) => recovery.finalizeEmailRecovery(...args),
             cancelEmailRecovery: (...args: Parameters<RecoveryCapability['cancelEmailRecovery']>) =>
               recovery.cancelEmailRecovery(...args),
-            startDevice2LinkingFlow: (...args: Parameters<RecoveryCapability['startDevice2LinkingFlow']>) =>
-              recovery.startDevice2LinkingFlow(...args),
-            stopDevice2LinkingFlow: (...args: Parameters<RecoveryCapability['stopDevice2LinkingFlow']>) =>
-              recovery.stopDevice2LinkingFlow(...args),
-            linkDeviceWithScannedQRData: (...args: Parameters<RecoveryCapability['linkDeviceWithScannedQRData']>) =>
-              recovery.linkDeviceWithScannedQRData(...args),
+            startDevice2LinkingFlow: (
+              ...args: Parameters<RecoveryCapability['startDevice2LinkingFlow']>
+            ) => recovery.startDevice2LinkingFlow(...args),
+            stopDevice2LinkingFlow: (
+              ...args: Parameters<RecoveryCapability['stopDevice2LinkingFlow']>
+            ) => recovery.stopDevice2LinkingFlow(...args),
+            linkDeviceWithScannedQRData: (
+              ...args: Parameters<RecoveryCapability['linkDeviceWithScannedQRData']>
+            ) => recovery.linkDeviceWithScannedQRData(...args),
           } as RecoveryCapability;
         }
 
@@ -186,7 +214,8 @@ export function useTatchiWithSdkFlow(args: {
 
         const value: unknown = Reflect.get(target as object, prop, receiver);
         // For non-wrapped methods, bind to preserve `this` on the class instance.
-        if (typeof value === 'function') return (value as (...args: unknown[]) => unknown).bind(target);
+        if (typeof value === 'function')
+          return (value as (...args: unknown[]) => unknown).bind(target);
         return value;
       },
     });

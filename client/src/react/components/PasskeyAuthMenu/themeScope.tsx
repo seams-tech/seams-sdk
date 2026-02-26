@@ -50,23 +50,26 @@ export const PasskeyAuthMenuThemeScope: React.FC<PasskeyAuthMenuThemeScopeProps>
     [themeName, tokens],
   );
   const vars = React.useMemo(() => createCSSVariables(resolvedTokens, '--w3a'), [resolvedTokens]);
-  const passkeyAuthMenuVars = React.useMemo(() => ({
-    ['--w3a-passkey-auth-menu2-seg-active-bg' as any]:
-      themeName === 'dark'
-        ? `color-mix(in srgb, ${resolvedTokens.colors.surface3} 86%, ${resolvedTokens.colors.primary} 14%)`
-        : `color-mix(in srgb, ${resolvedTokens.colors.surface2} 88%, ${resolvedTokens.colors.primary} 12%)`,
-    ['--w3a-passkey-auth-menu2-seg-register-active-text' as any]:
-      themeName === 'dark' ? resolvedTokens.colors.textPrimary : resolvedTokens.colors.primary,
-    ['--w3a-passkey-auth-menu2-seg-register-active-text-hover' as any]:
-      themeName === 'dark' ? resolvedTokens.colors.primary : resolvedTokens.colors.primaryHover,
-  }), [
-    themeName,
-    resolvedTokens.colors.primary,
-    resolvedTokens.colors.primaryHover,
-    resolvedTokens.colors.surface2,
-    resolvedTokens.colors.surface3,
-    resolvedTokens.colors.textPrimary,
-  ]);
+  const passkeyAuthMenuVars = React.useMemo(
+    () => ({
+      ['--w3a-passkey-auth-menu2-seg-active-bg' as any]:
+        themeName === 'dark'
+          ? `color-mix(in srgb, ${resolvedTokens.colors.surface3} 86%, ${resolvedTokens.colors.primary} 14%)`
+          : `color-mix(in srgb, ${resolvedTokens.colors.surface2} 88%, ${resolvedTokens.colors.primary} 12%)`,
+      ['--w3a-passkey-auth-menu2-seg-register-active-text' as any]:
+        themeName === 'dark' ? resolvedTokens.colors.textPrimary : resolvedTokens.colors.primary,
+      ['--w3a-passkey-auth-menu2-seg-register-active-text-hover' as any]:
+        themeName === 'dark' ? resolvedTokens.colors.primary : resolvedTokens.colors.primaryHover,
+    }),
+    [
+      themeName,
+      resolvedTokens.colors.primary,
+      resolvedTokens.colors.primaryHover,
+      resolvedTokens.colors.surface2,
+      resolvedTokens.colors.surface3,
+      resolvedTokens.colors.textPrimary,
+    ],
+  );
   const Comp: any = tag;
   const attrs: any = { [dataAttr]: themeName };
   return (

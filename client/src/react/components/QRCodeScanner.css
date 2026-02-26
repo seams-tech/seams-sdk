@@ -4,7 +4,10 @@
   position: fixed;
   inset: 0;
   /* Stay below the wallet iframe overlay so Tx confirmer always sits on top */
-  z-index: var(--w3a-z-underlay-backdrop, calc(var(--w3a-wallet-overlay-z, 2147483646) - var(--w3a-wallet-underlay-backdrop-offset, 2)));
+  z-index: var(
+    --w3a-z-underlay-backdrop,
+    calc(var(--w3a-wallet-overlay-z, 2147483646) - var(--w3a-wallet-underlay-backdrop-offset, 2))
+  );
   display: flex;
   justify-content: center;
   align-items: center;
@@ -13,7 +16,9 @@
   backdrop-filter: blur(8px);
   animation: backdrop-opacity 32ms ease-in;
   will-change: opacity;
-  transition: background-color 0.1s ease-in-out, backdrop-filter 0.2s ease-in-out;
+  transition:
+    background-color 0.1s ease-in-out,
+    backdrop-filter 0.2s ease-in-out;
   padding: 0.5rem;
 }
 

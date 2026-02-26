@@ -36,4 +36,3 @@ export const AtSignIcon: React.FC<AtSignIconProps> = ({
 };
 
 export default AtSignIcon;
-

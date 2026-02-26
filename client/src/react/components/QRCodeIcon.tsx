@@ -48,4 +48,3 @@ const QRCodeIcon: React.FC<QRCodeIconProps> = ({
 );
 
 export default QRCodeIcon;
-

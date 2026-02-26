@@ -36,4 +36,3 @@ export const ArrowUpIcon: React.FC<ArrowUpIconProps> = ({
 };
 
 export default ArrowUpIcon;
-

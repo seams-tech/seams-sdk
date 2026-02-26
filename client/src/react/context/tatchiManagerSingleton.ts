@@ -14,7 +14,7 @@ type SingletonState = {
 
 const WINDOW_SINGLETON_KEY = '__w3a_tatchi_passkey_singleton__';
 
-let moduleSingletonState: SingletonState = {
+const moduleSingletonState: SingletonState = {
   manager: null,
   configKey: null,
 };

@@ -15,11 +15,20 @@ export function resolveDefaultMode(
   return accountExists ? AuthMenuMode.Login : AuthMenuMode.Register;
 }
 
-export function getModeTitle(mode: AuthMenuMode, headings?: AuthMenuHeadings | null): AuthMenuTitle {
+export function getModeTitle(
+  mode: AuthMenuMode,
+  headings?: AuthMenuHeadings | null,
+): AuthMenuTitle {
   const defaults: Record<AuthMenuMode, AuthMenuTitle> = {
     [AuthMenuMode.Login]: { title: 'Login', subtitle: 'Login with Passkey' },
-    [AuthMenuMode.Register]: { title: 'Register Account', subtitle: 'Create a wallet with Passkey' },
-    [AuthMenuMode.Sync]: { title: 'Sync Account', subtitle: 'Sync a wallet to this device with Passkey' },
+    [AuthMenuMode.Register]: {
+      title: 'Register Account',
+      subtitle: 'Create a wallet with Passkey',
+    },
+    [AuthMenuMode.Sync]: {
+      title: 'Sync Account',
+      subtitle: 'Sync a wallet to this device with Passkey',
+    },
   } as const;
 
   if (headings) {

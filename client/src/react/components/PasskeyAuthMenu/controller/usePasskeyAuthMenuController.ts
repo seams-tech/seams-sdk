@@ -48,7 +48,14 @@ export function usePasskeyAuthMenuController(
   const setCurrentValue = runtime.setInputUsername;
   const forceInitialRegister = usePasskeyAuthMenuForceInitialRegister();
 
-  const { mode, setMode, title, onSegmentChange: onSegmentChangeBase, onInputChange: onInputChangeBase, resetToDefault } = useAuthMenuMode({
+  const {
+    mode,
+    setMode,
+    title,
+    onSegmentChange: onSegmentChangeBase,
+    onInputChange: onInputChangeBase,
+    resetToDefault,
+  } = useAuthMenuMode({
     defaultMode: props.defaultMode,
     accountExists: runtime.accountExists,
     currentValue,

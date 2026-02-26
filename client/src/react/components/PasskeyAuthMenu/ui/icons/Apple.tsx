@@ -36,4 +36,3 @@ export const AppleIcon: React.FC<AppleIconProps> = ({
 };
 
 export default AppleIcon;
-

@@ -35,4 +35,3 @@ export function getProceedEligibility({
 }
 
 export default getProceedEligibility;
-

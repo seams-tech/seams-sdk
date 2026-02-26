@@ -7,7 +7,10 @@
   height: 100%;
   width: 100%;
   /* Ensure this modal stays below the wallet iframe overlay */
-  z-index: var(--w3a-z-underlay-backdrop, calc(var(--w3a-wallet-overlay-z, 2147483646) - var(--w3a-wallet-underlay-backdrop-offset, 2)));
+  z-index: var(
+    --w3a-z-underlay-backdrop,
+    calc(var(--w3a-wallet-overlay-z, 2147483646) - var(--w3a-wallet-underlay-backdrop-offset, 2))
+  );
   background: oklch(0.2 0.01 240 / 0.8);
   backdrop-filter: blur(8px);
   display: flex;
@@ -27,7 +30,10 @@
 
 .w3a-access-keys-modal-inner {
   position: relative;
-  z-index: var(--w3a-z-underlay-content, calc(var(--w3a-wallet-overlay-z, 2147483646) - var(--w3a-wallet-underlay-content-offset, 1)));
+  z-index: var(
+    --w3a-z-underlay-content,
+    calc(var(--w3a-wallet-overlay-z, 2147483646) - var(--w3a-wallet-underlay-content-offset, 1))
+  );
   display: grid;
   place-items: center;
   height: 100%;
@@ -111,7 +117,6 @@
   color: var(--w3a-colors-primary, var(--w3a-colors-blue500));
 }
 
-
 /* Loading, error, and empty states */
 .w3a-access-keys-error,
 .w3a-access-keys-empty {
@@ -125,7 +130,9 @@
   align-items: center;
 }
 
-.w3a-access-keys-error { color: var(--w3a-colors-error); }
+.w3a-access-keys-error {
+  color: var(--w3a-colors-error);
+}
 
 .w3a-access-keys-error .w3a-btn {
   margin-top: 16px;
@@ -139,11 +146,11 @@
 
   .w3a-access-keys-modal-inner {
     max-width: 100%;
-  max-height: 90vh;
-  /* Prefer dynamic viewport height on capable browsers */
-  @supports (height: 1dvh) {
-    max-height: 90dvh;
-  }
+    max-height: 90vh;
+    /* Prefer dynamic viewport height on capable browsers */
+    @supports (height: 1dvh) {
+      max-height: 90dvh;
+    }
   }
 
   .w3a-access-keys-modal-header {
@@ -467,8 +474,12 @@
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes fadeInKeyItem {

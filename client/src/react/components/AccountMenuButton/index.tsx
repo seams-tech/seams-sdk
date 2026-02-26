@@ -80,15 +80,14 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   highlightedMenuItem,
 }) => {
   // Get values from context if not provided as props
-  const {
-    loginState,
-    tatchi,
-    logout,
-    themeCapabilities,
-  } = useTatchi();
+  const { loginState, tatchi, logout, themeCapabilities } = useTatchi();
 
   // Use props if provided, otherwise fall back to context
-  const accountName = usernameProp || nearAccountIdProp?.split('.')?.[0] || loginState.nearAccountId?.split('.')?.[0] || 'User';
+  const accountName =
+    usernameProp ||
+    nearAccountIdProp?.split('.')?.[0] ||
+    loginState.nearAccountId?.split('.')?.[0] ||
+    'User';
   const loggedInAccountId = loginState.nearAccountId;
   const nearAccountId = nearAccountIdProp || loggedInAccountId;
 
@@ -101,12 +100,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   const lastThresholdSignerModeRef = useRef<SignerMode | null>(null);
 
   // State management
-  const {
-    isOpen,
-    refs,
-    handleToggle,
-    handleClose,
-  } = useProfileState({
+  const { isOpen, refs, handleToggle, handleClose } = useProfileState({
     open: typeof isMenuOpen === 'boolean' ? isMenuOpen : undefined,
     onOpenChange: onMenuOpenChange,
   });
@@ -161,7 +155,8 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
 
   const handleToggleSkipClick = () => {
     if (!currentConfirmConfig) return;
-    const newBehavior = currentConfirmConfig.behavior === 'requireClick' ? 'skipClick' : 'requireClick';
+    const newBehavior =
+      currentConfirmConfig.behavior === 'requireClick' ? 'skipClick' : 'requireClick';
     tatchi.setConfirmBehavior(newBehavior);
   };
 
@@ -176,7 +171,14 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       return;
     }
     // Determine next theme from current visible theme when possible
-    const newTheme = (theme === 'dark' ? 'light' : (theme === 'light' ? 'dark' : (currentConfirmConfig?.theme === 'dark' ? 'light' : 'dark')));
+    const newTheme =
+      theme === 'dark'
+        ? 'light'
+        : theme === 'light'
+          ? 'dark'
+          : currentConfirmConfig?.theme === 'dark'
+            ? 'light'
+            : 'dark';
     tatchi.setTheme(newTheme);
     // Always show a quick pulse to acknowledge the press
     if (typeof document !== 'undefined' && document.body) {
@@ -200,45 +202,45 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   const MENU_ITEMS: MenuItem[] = useMemo(() => {
     const items: MenuItem[] = [
       {
-      id: PROFILE_MENU_ITEM_IDS.EXPORT_KEYS,
-      icon: <KeyIcon />,
-      label: 'Export Keys',
-      description: 'View your private keys',
-      disabled: !loginState.isLoggedIn,
-      onClick: async () => {
-        try {
-          await tatchi.keys.exportKeypairWithUI(nearAccountId!, { chain: 'near' });
-        } catch (error: any) {
-          console.error('Key export failed:', error);
-          const msg = String(error?.message || 'Unknown error');
-          const friendly = /No user data found|No public key found/i.test(msg)
-            ? 'No local key material found for this account on this device. Please complete registration or recovery here first.'
-            : msg;
-          alert(`Key export failed: ${friendly}`);
-        }
+        id: PROFILE_MENU_ITEM_IDS.EXPORT_KEYS,
+        icon: <KeyIcon />,
+        label: 'Export Keys',
+        description: 'View your private keys',
+        disabled: !loginState.isLoggedIn,
+        onClick: async () => {
+          try {
+            await tatchi.keys.exportKeypairWithUI(nearAccountId!, { chain: 'near' });
+          } catch (error: any) {
+            console.error('Key export failed:', error);
+            const msg = String(error?.message || 'Unknown error');
+            const friendly = /No user data found|No public key found/i.test(msg)
+              ? 'No local key material found for this account on this device. Please complete registration or recovery here first.'
+              : msg;
+            alert(`Key export failed: ${friendly}`);
+          }
+        },
+        keepOpenOnClick: true,
       },
-      keepOpenOnClick: true,
-    },
       {
-      id: PROFILE_MENU_ITEM_IDS.SCAN_LINK_DEVICE,
-      icon: <ScanIcon />,
-      label: 'Scan and Link Device',
-      description: 'Scan QR to link a device',
-      disabled: !loginState.isLoggedIn,
-      onClick: () => {
-        setShowQRScanner(true);
+        id: PROFILE_MENU_ITEM_IDS.SCAN_LINK_DEVICE,
+        icon: <ScanIcon />,
+        label: 'Scan and Link Device',
+        description: 'Scan QR to link a device',
+        disabled: !loginState.isLoggedIn,
+        onClick: () => {
+          setShowQRScanner(true);
+        },
+        keepOpenOnClick: true,
       },
-      keepOpenOnClick: true,
-    },
       {
-      id: PROFILE_MENU_ITEM_IDS.LINKED_DEVICES,
-      icon: <LinkIcon />,
-      label: 'Linked Devices',
-      description: 'View linked devices',
-      disabled: !loginState.isLoggedIn,
-      onClick: () => setShowLinkedDevices(true),
-      keepOpenOnClick: true,
-    },
+        id: PROFILE_MENU_ITEM_IDS.LINKED_DEVICES,
+        icon: <LinkIcon />,
+        label: 'Linked Devices',
+        description: 'View linked devices',
+        disabled: !loginState.isLoggedIn,
+        onClick: () => setShowLinkedDevices(true),
+        keepOpenOnClick: true,
+      },
     ];
 
     items.push({
@@ -336,33 +338,39 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       />
 
       {/* QR Scanner Modal (portaled to nearest root for robustness) */}
-      {canPortal && createPortal(
-        <QRCodeScanner
-          key="profile-qr-scanner"
-          isOpen={showQRScanner}
-          fundingAmount={deviceLinkingScannerParams?.fundingAmount || '0.05'}
-          onDeviceLinked={(result) => {
-            deviceLinkingScannerParams?.onDeviceLinked?.(result);
-            setShowQRScanner(false);
-          }}
-          onError={(error) => {
-            deviceLinkingScannerParams?.onError?.(error);
-            setShowQRScanner(false);
-          }}
-          onClose={() => {
-            deviceLinkingScannerParams?.onClose?.();
-            setShowQRScanner(false);
-          }}
-          onEvent={(event) => deviceLinkingScannerParams?.onEvent?.(event)}
-        />, portalHost!)}
+      {canPortal &&
+        createPortal(
+          <QRCodeScanner
+            key="profile-qr-scanner"
+            isOpen={showQRScanner}
+            fundingAmount={deviceLinkingScannerParams?.fundingAmount || '0.05'}
+            onDeviceLinked={(result) => {
+              deviceLinkingScannerParams?.onDeviceLinked?.(result);
+              setShowQRScanner(false);
+            }}
+            onError={(error) => {
+              deviceLinkingScannerParams?.onError?.(error);
+              setShowQRScanner(false);
+            }}
+            onClose={() => {
+              deviceLinkingScannerParams?.onClose?.();
+              setShowQRScanner(false);
+            }}
+            onEvent={(event) => deviceLinkingScannerParams?.onEvent?.(event)}
+          />,
+          portalHost!,
+        )}
 
       {/* Linked Devices Modal (portaled to nearest root for robustness) */}
-      {canPortal && createPortal(
-        <LinkedDevicesModal
-          nearAccountId={nearAccountId!}
-          isOpen={showLinkedDevices}
-          onClose={() => setShowLinkedDevices(false)}
-        />, portalHost!)}
+      {canPortal &&
+        createPortal(
+          <LinkedDevicesModal
+            nearAccountId={nearAccountId!}
+            isOpen={showLinkedDevices}
+            onClose={() => setShowLinkedDevices(false)}
+          />,
+          portalHost!,
+        )}
     </div>
   );
 };

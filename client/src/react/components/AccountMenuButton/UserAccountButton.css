@@ -65,12 +65,12 @@
 
 .w3a-user-account--avatar.shrunk svg {
   transform: scale(1.1);
-  color: var(--w3a-colors-textPrimary)
+  color: var(--w3a-colors-textPrimary);
 }
 
 .w3a-user-account--avatar.expanded svg {
   transform: scale(1.1);
-  color: var(--w3a-colors-textSecondary) /* same as other MenuItem svg icons */
+  color: var(--w3a-colors-textSecondary); /* same as other MenuItem svg icons */
 }
 
 /* User Details States */
@@ -84,7 +84,10 @@
   padding: 0;
   border: 0;
   pointer-events: none;
-  transition: opacity 0s ease, transform 0s ease, max-height 0s ease;
+  transition:
+    opacity 0s ease,
+    transform 0s ease,
+    max-height 0s ease;
 }
 
 .w3a-user-account--user-details .w3a-user-account--account-id.visible {
@@ -94,7 +97,10 @@
   max-height: 2rem;
   margin: -0.2rem 0 0 0;
   padding: 0;
-  transition: opacity 0.2s ease 0.2s, transform 0s ease 0s, max-height 0s;
+  transition:
+    opacity 0.2s ease 0.2s,
+    transform 0s ease 0s,
+    max-height 0s;
 }
 
 /* Username is always visible */
@@ -158,7 +164,11 @@
   color: var(--w3a-colors-textSecondary);
   margin: 0;
   text-decoration: none;
-  transition: color 0.1s ease, opacity 0.1s ease, transform 0s ease; cursor: pointer;
+  transition:
+    color 0.1s ease,
+    opacity 0.1s ease,
+    transform 0s ease;
+  cursor: pointer;
 }
 
 .w3a-user-account--account-id:hover {

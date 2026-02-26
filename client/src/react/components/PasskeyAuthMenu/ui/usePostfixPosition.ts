@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef } from 'react';
 
-const DEFAULT_FONT = "16px sans-serif";
+const DEFAULT_FONT = '16px sans-serif';
 const ROOT_FONT_SIZE_FALLBACK = 16;
 
 const applyTextTransform = (value: string, transform: string): string => {
@@ -219,4 +219,3 @@ export function usePostfixPosition({
 
   return { bindInput, bindPostfix };
 }
-

@@ -26,9 +26,10 @@ export const useProfileState = (options?: UseProfileStateOptions) => {
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
-      const path = typeof (event as any).composedPath === 'function'
-        ? ((event as any).composedPath() as Node[])
-        : [];
+      const path =
+        typeof (event as any).composedPath === 'function'
+          ? ((event as any).composedPath() as Node[])
+          : [];
 
       const isInPath = (el: HTMLElement | null) => {
         if (!el) return false;
@@ -44,13 +45,14 @@ export const useProfileState = (options?: UseProfileStateOptions) => {
       // Linked devices / access keys modal (match any class starting with prefix)
       const pathEls = path.filter((n): n is HTMLElement => n instanceof HTMLElement);
       const inAccessKeysModal = pathEls.some((el) =>
-        Array.from(el.classList ?? []).some((c) => c.startsWith('w3a-access-keys-modal'))
+        Array.from(el.classList ?? []).some((c) => c.startsWith('w3a-access-keys-modal')),
       );
       if (inAccessKeysModal) return;
 
       // QR scanner overlay
-      const inQRScanner = pathEls.some((el) =>
-        el.classList?.contains('qr-scanner-modal') || el.classList?.contains('qr-scanner-panel')
+      const inQRScanner = pathEls.some(
+        (el) =>
+          el.classList?.contains('qr-scanner-modal') || el.classList?.contains('qr-scanner-panel'),
       );
       if (inQRScanner) return;
 
@@ -64,17 +66,23 @@ export const useProfileState = (options?: UseProfileStateOptions) => {
     const root: Document | ShadowRoot = (buttonRef.current?.getRootNode?.() as any) || document;
     root.addEventListener('click', handleClickOutside as any, true);
     return () => {
-      try { root.removeEventListener('click', handleClickOutside as any, true); } catch {}
+      try {
+        root.removeEventListener('click', handleClickOutside as any, true);
+      } catch {}
     };
   }, [isControlled, onOpenChange]);
 
-  const setOpen = useCallback((next: boolean | ((prev: boolean) => boolean)) => {
-    const resolved = typeof next === 'function' ? (next as (prev: boolean) => boolean)(isOpen) : next;
-    if (!isControlled) {
-      setUncontrolledOpen(resolved);
-    }
-    onOpenChange?.(resolved);
-  }, [isControlled, isOpen, onOpenChange]);
+  const setOpen = useCallback(
+    (next: boolean | ((prev: boolean) => boolean)) => {
+      const resolved =
+        typeof next === 'function' ? (next as (prev: boolean) => boolean)(isOpen) : next;
+      if (!isControlled) {
+        setUncontrolledOpen(resolved);
+      }
+      onOpenChange?.(resolved);
+    },
+    [isControlled, isOpen, onOpenChange],
+  );
 
   const handleToggle = () => {
     setOpen((prev) => !prev);

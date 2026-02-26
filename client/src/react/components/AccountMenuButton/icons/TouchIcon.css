@@ -24,13 +24,21 @@
 }
 
 @keyframes w3a-fp-open {
-  from { stroke-dashoffset: 1; }
-  to { stroke-dashoffset: 0; }
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 @keyframes w3a-fp-close {
-  from { stroke-dashoffset: 1; }
-  to { stroke-dashoffset: 0; }
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 .w3a-fingerprint-icon:hover {

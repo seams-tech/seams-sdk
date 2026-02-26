@@ -8,7 +8,7 @@ import type { TatchiPasskey } from '@/core/TatchiPasskey';
  */
 export async function awaitWalletIframeReady(
   manager: Pick<TatchiPasskey, 'initWalletIframe' | 'isWalletIframeReady' | 'onWalletIframeReady'>,
-  opts?: { timeoutMs?: number }
+  opts?: { timeoutMs?: number },
 ): Promise<boolean> {
   const timeoutMs = Math.max(500, Math.min(15_000, opts?.timeoutMs ?? 4000));
 
@@ -22,16 +22,23 @@ export async function awaitWalletIframeReady(
   };
 
   // Kick init (idempotent in implementations)
-  try { await manager.initWalletIframe(); } catch {}
+  try {
+    await manager.initWalletIframe();
+  } catch {}
 
   if (isReadyNow()) return true;
 
   return await new Promise<boolean>((resolve) => {
     let done = false;
     const finish = (ok: boolean) => {
-      if (done) return; done = true;
-      try { offReady?.(); } catch {}
-      try { clearTimeout(timer); } catch {}
+      if (done) return;
+      done = true;
+      try {
+        offReady?.();
+      } catch {}
+      try {
+        clearTimeout(timer);
+      } catch {}
       resolve(ok);
     };
 
@@ -45,10 +52,18 @@ export async function awaitWalletIframeReady(
     const start = Date.now();
     const poll = async () => {
       if (done) return;
-      if (isReadyNow()) { finish(true); return; }
-      if (Date.now() - start >= timeoutMs) { finish(false); return; }
+      if (isReadyNow()) {
+        finish(true);
+        return;
+      }
+      if (Date.now() - start >= timeoutMs) {
+        finish(false);
+        return;
+      }
       // Nudge init (no-op if already initialized)
-      try { await manager.initWalletIframe(); } catch {}
+      try {
+        await manager.initWalletIframe();
+      } catch {}
       setTimeout(poll, 100);
     };
     poll();

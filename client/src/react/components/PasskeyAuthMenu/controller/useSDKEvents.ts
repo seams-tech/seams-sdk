@@ -9,10 +9,12 @@ import type { SDKFlowRuntime } from '@/react/types';
 type FlowKind = Exclude<SDKFlowRuntime['kind'], null>;
 type Handler = (() => void | Promise<unknown>) | undefined;
 
-export function useSDKEvents(args: {
-  sdkFlow: SDKFlowRuntime;
-}): {
-  withSdkEventsHandler: (kind: FlowKind, handler: Handler, timeoutMs: number) => (() => Promise<void>) | undefined;
+export function useSDKEvents(args: { sdkFlow: SDKFlowRuntime }): {
+  withSdkEventsHandler: (
+    kind: FlowKind,
+    handler: Handler,
+    timeoutMs: number,
+  ) => (() => Promise<void>) | undefined;
 } {
   const { sdkFlow } = args;
 

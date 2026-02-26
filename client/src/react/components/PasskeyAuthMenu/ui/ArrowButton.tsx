@@ -62,4 +62,3 @@ export const ArrowButton: React.FC<ArrowButtonProps> = ({
 };
 
 export default ArrowButton;
-

@@ -54,7 +54,10 @@
   position: absolute;
   /* Extend outside the box so the ring is OUTSIDE */
   inset: calc(-1 * (var(--w3a-halo__ring-gap, 8px) + var(--w3a-halo__ring-width, 2px)));
-  border-radius: calc(var(--w3a-halo__ring-border-radius) + var(--w3a-halo__ring-gap, 8px) + var(--w3a-halo__ring-width, 2px));
+  border-radius: calc(
+    var(--w3a-halo__ring-border-radius) + var(--w3a-halo__ring-gap, 8px) +
+      var(--w3a-halo__ring-width, 2px)
+  );
   pointer-events: none;
   z-index: 3; /* sit above content so it's visible */
 
@@ -62,8 +65,8 @@
   background: conic-gradient(
     from var(--w3a-ring-angle, 0deg),
     transparent 0%,
-    #4DAFFE 10%,
-    #4DAFFE 25%,
+    #4daffe 10%,
+    #4daffe 25%,
     transparent 35%
   );
 
@@ -80,14 +83,18 @@
 
 /* Make the custom angle property animatable */
 @property --w3a-ring-angle {
-  syntax: "<angle>";
+  syntax: '<angle>';
   initial-value: 0deg;
   inherits: false;
 }
 
 @keyframes w3a-ring-rotate {
-  from { --w3a-ring-angle: 0deg; }
-  to { --w3a-ring-angle: 360deg; }
+  from {
+    --w3a-ring-angle: 0deg;
+  }
+  to {
+    --w3a-ring-angle: 360deg;
+  }
 }
 
 /* Legacy styles removed: the new ring implementation supersedes

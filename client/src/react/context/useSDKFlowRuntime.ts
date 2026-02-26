@@ -19,7 +19,7 @@ type StartWaiter = {
   timeoutId: ReturnType<typeof setTimeout>;
 };
 
-const createDeferred = <T,>(): Deferred<T> => {
+const createDeferred = <T>(): Deferred<T> => {
   let resolve!: (value: T) => void;
   let reject!: (error: Error) => void;
   const promise = new Promise<T>((res, rej) => {
@@ -29,7 +29,7 @@ const createDeferred = <T,>(): Deferred<T> => {
   return { promise, resolve, reject, settled: false };
 };
 
-const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
+const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
   if (timeoutMs <= 0) return await promise;
   return await new Promise<T>((resolve, reject) => {
     const timeoutId = setTimeout(() => reject(new Error('Operation timed out')), timeoutMs);
@@ -120,47 +120,53 @@ export function useSDKFlowRuntime(): {
     });
   }, []);
 
-  const endSdkFlow = useCallback((kind: FlowKind, seq: number, status: 'success' | 'error', error?: string) => {
-    const current = sdkFlowRef.current;
-    const snapshot: SDKFlowState =
-      current.seq === seq && current.kind === kind
-        ? { ...current, status, ...(error ? { error } : {}) }
-        : { seq, kind, status, eventsText: '', ...(error ? { error } : {}) };
+  const endSdkFlow = useCallback(
+    (kind: FlowKind, seq: number, status: 'success' | 'error', error?: string) => {
+      const current = sdkFlowRef.current;
+      const snapshot: SDKFlowState =
+        current.seq === seq && current.kind === kind
+          ? { ...current, status, ...(error ? { error } : {}) }
+          : { seq, kind, status, eventsText: '', ...(error ? { error } : {}) };
 
-    if (current.seq === seq && current.kind === kind) {
-      sdkFlowRef.current = snapshot;
-      setSdkFlowState(snapshot);
-    }
-
-    const deferred = sdkFlowCompletionDeferredsRef.current.get(seq);
-    if (deferred && !deferred.settled) {
-      deferred.settled = true;
-      sdkFlowCompletionDeferredsRef.current.delete(seq);
-      if (status === 'error') {
-        deferred.reject(new Error(error || 'Operation failed'));
-      } else {
-        deferred.resolve(snapshot);
+      if (current.seq === seq && current.kind === kind) {
+        sdkFlowRef.current = snapshot;
+        setSdkFlowState(snapshot);
       }
-    }
-  }, []);
 
-  const awaitNextStart: SDKFlowRuntime['awaitNextStart'] = useCallback(async (kind, seqAfter, timeoutMs) => {
-    const current = sdkFlowRef.current;
-    if (current.kind === kind && current.seq > seqAfter) return current.seq;
+      const deferred = sdkFlowCompletionDeferredsRef.current.get(seq);
+      if (deferred && !deferred.settled) {
+        deferred.settled = true;
+        sdkFlowCompletionDeferredsRef.current.delete(seq);
+        if (status === 'error') {
+          deferred.reject(new Error(error || 'Operation failed'));
+        } else {
+          deferred.resolve(snapshot);
+        }
+      }
+    },
+    [],
+  );
 
-    return await new Promise<number | null>((resolve) => {
-      const waiter: StartWaiter = {
-        kind,
-        seqAfter,
-        resolve: (seq) => resolve(seq),
-        timeoutId: setTimeout(() => {
-          sdkFlowStartWaitersRef.current.delete(waiter);
-          resolve(null);
-        }, timeoutMs),
-      };
-      sdkFlowStartWaitersRef.current.add(waiter);
-    });
-  }, []);
+  const awaitNextStart: SDKFlowRuntime['awaitNextStart'] = useCallback(
+    async (kind, seqAfter, timeoutMs) => {
+      const current = sdkFlowRef.current;
+      if (current.kind === kind && current.seq > seqAfter) return current.seq;
+
+      return await new Promise<number | null>((resolve) => {
+        const waiter: StartWaiter = {
+          kind,
+          seqAfter,
+          resolve: (seq) => resolve(seq),
+          timeoutId: setTimeout(() => {
+            sdkFlowStartWaitersRef.current.delete(waiter);
+            resolve(null);
+          }, timeoutMs),
+        };
+        sdkFlowStartWaitersRef.current.add(waiter);
+      });
+    },
+    [],
+  );
 
   const awaitCompletion: SDKFlowRuntime['awaitCompletion'] = useCallback(async (seq, timeoutMs) => {
     const current = sdkFlowRef.current;

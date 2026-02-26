@@ -29,7 +29,7 @@ import { ScanQRCodeFlow, enumerateVideoDevices, detectFrontCamera } from '@/util
 export enum QRScanMode {
   CAMERA = 'camera',
   FILE = 'file',
-  AUTO = 'auto'
+  AUTO = 'auto',
 }
 
 export interface UseQRCameraOptions {
@@ -66,12 +66,7 @@ export interface UseQRCameraReturn {
 }
 
 export const useQRCamera = (options: UseQRCameraOptions): UseQRCameraReturn => {
-  const {
-    onQRDetected,
-    onError,
-    isOpen = true,
-    cameraId
-  } = options;
+  const { onQRDetected, onError, isOpen = true, cameraId } = options;
 
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -95,9 +90,9 @@ export const useQRCamera = (options: UseQRCameraOptions): UseQRCameraReturn => {
       {
         cameraId: selectedCamera,
         cameraConfigs: {
-          facingMode: getOptimalCameraFacingMode()
+          facingMode: getOptimalCameraFacingMode(),
         },
-        timeout: 60000 // 60 seconds
+        timeout: 60000, // 60 seconds
       },
       {
         onQRDetected: (qrData) => {
@@ -105,7 +100,7 @@ export const useQRCamera = (options: UseQRCameraOptions): UseQRCameraReturn => {
           console.log('useQRCamera: Valid QR data detected -', {
             devicePublicKey,
             accountId: qrData.accountId,
-            timestamp: new Date(qrData.timestamp || 0).toISOString()
+            timestamp: new Date(qrData.timestamp || 0).toISOString(),
           });
           setIsProcessing(false);
           setIsScanning(false);
@@ -126,8 +121,8 @@ export const useQRCamera = (options: UseQRCameraOptions): UseQRCameraReturn => {
         },
         onScanProgress: (duration) => {
           setScanDurationMs(duration);
-        }
-      }
+        },
+      },
     );
 
     return () => {
@@ -220,16 +215,19 @@ export const useQRCamera = (options: UseQRCameraOptions): UseQRCameraReturn => {
   }, []);
 
   // Handle camera change
-  const handleCameraChange = useCallback(async (deviceId: string) => {
-    setSelectedCamera(deviceId);
+  const handleCameraChange = useCallback(
+    async (deviceId: string) => {
+      setSelectedCamera(deviceId);
 
-    const selectedCameraDevice = cameras.find(camera => camera.deviceId === deviceId);
-    if (selectedCameraDevice) {
-      setIsFrontCamera(detectFrontCamera(selectedCameraDevice));
-    }
+      const selectedCameraDevice = cameras.find((camera) => camera.deviceId === deviceId);
+      if (selectedCameraDevice) {
+        setIsFrontCamera(detectFrontCamera(selectedCameraDevice));
+      }
 
-    // The useEffect will handle updating the flow
-  }, [cameras]);
+      // The useEffect will handle updating the flow
+    },
+    [cameras],
+  );
 
   const getOptimalFacingMode = useCallback(() => getOptimalCameraFacingMode(), []);
 
@@ -256,6 +254,6 @@ export const useQRCamera = (options: UseQRCameraOptions): UseQRCameraReturn => {
     setError,
 
     // Utilities
-    getOptimalFacingMode
+    getOptimalFacingMode,
   };
 };

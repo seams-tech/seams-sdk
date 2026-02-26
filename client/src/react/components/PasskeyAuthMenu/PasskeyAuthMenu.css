@@ -23,7 +23,9 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  transition: height 260ms cubic-bezier(0.2, 0.8, 0.2, 1), min-height 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition:
+    height 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    min-height 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
   will-change: height, min-height;
 }
 
@@ -45,7 +47,10 @@
   cursor: pointer;
   border: none;
   z-index: 3;
-  transition: transform 120ms ease, background-color 160ms ease, opacity 220ms ease;
+  transition:
+    transform 120ms ease,
+    background-color 160ms ease,
+    opacity 220ms ease;
   opacity: 0;
   pointer-events: none;
   filter: blur(0.2px);
@@ -74,15 +79,19 @@
   opacity: 1;
   height: auto;
   overflow: hidden;
-  transition: opacity 240ms ease-out, height 260ms cubic-bezier(0.2, 0.8, 0.2, 1), padding 260ms cubic-bezier(0.2, 0.8, 0.2, 1), margin 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition:
+    opacity 240ms ease-out,
+    height 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    padding 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    margin 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
   pointer-events: auto;
   position: relative;
   will-change: height, opacity;
 }
 
 /* Hide header when waiting or scan device is active */
-.w3a-signup-menu-root[data-waiting="true"] .w3a-header,
-.w3a-signup-menu-root[data-scan-device="true"] .w3a-header {
+.w3a-signup-menu-root[data-waiting='true'] .w3a-header,
+.w3a-signup-menu-root[data-scan-device='true'] .w3a-header {
   opacity: 0;
   height: 0px;
   padding-top: 0px;
@@ -93,7 +102,7 @@
 }
 
 /* Hide header when email recovery is active */
-.w3a-signup-menu-root[data-email-recovery="true"] .w3a-header {
+.w3a-signup-menu-root[data-email-recovery='true'] .w3a-header {
   opacity: 0;
   height: 0px;
   padding-top: 0px;
@@ -104,28 +113,28 @@
 }
 
 /* Adjust content area when header is hidden */
-.w3a-signup-menu-root[data-waiting="true"] .w3a-content-area,
-.w3a-signup-menu-root[data-scan-device="true"] .w3a-content-area {
+.w3a-signup-menu-root[data-waiting='true'] .w3a-content-area,
+.w3a-signup-menu-root[data-scan-device='true'] .w3a-content-area {
   flex: 1 1 auto;
   transition: height 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 /* Adjust content area when email recovery is active */
-.w3a-signup-menu-root[data-email-recovery="true"] .w3a-content-area {
+.w3a-signup-menu-root[data-email-recovery='true'] .w3a-content-area {
   flex: 1 1 auto;
   transition: height 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 /* Specific height adjustments for different states */
-.w3a-signup-menu-root[data-waiting="true"] {
+.w3a-signup-menu-root[data-waiting='true'] {
   min-height: 200px;
 }
 
-.w3a-signup-menu-root[data-scan-device="true"] {
+.w3a-signup-menu-root[data-scan-device='true'] {
   min-height: 300px;
 }
 
-.w3a-signup-menu-root[data-email-recovery="true"] {
+.w3a-signup-menu-root[data-email-recovery='true'] {
   min-height: 320px;
 }
 
@@ -318,7 +327,7 @@
 }
 
 /* On focus, keep postfix subtle for readability */
-.w3a-input:focus~.w3a-postfix {
+.w3a-input:focus ~ .w3a-postfix {
   color: var(--w3a-colors-textMuted);
 }
 
@@ -342,7 +351,8 @@
   z-index: 1;
   border: 6px solid var(--w3a-colors-colorBackground, #fff);
   height: 64px;
-  transition: transform 150ms ease,
+  transition:
+    transform 150ms ease,
     background-color 150ms ease,
     border-radius 150ms ease,
     opacity 150ms ease,
@@ -359,7 +369,8 @@
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
-  transition: transform 150ms ease,
+  transition:
+    transform 150ms ease,
     background-color 150ms ease,
     border-radius 150ms ease,
     opacity 150ms ease,
@@ -389,7 +400,8 @@
   cursor: not-allowed;
   opacity: 0.5;
   background: var(--w3a-colors-borderSecondary);
-  transition: transform 150ms ease,
+  transition:
+    transform 150ms ease,
     background-color 150ms ease,
     border-radius 150ms ease,
     opacity 150ms ease,
@@ -409,7 +421,7 @@
   justify-content: center;
 }
 
-.w3a-arrow-btn .stripe-arrow>.HoverArrow {
+.w3a-arrow-btn .stripe-arrow > .HoverArrow {
   position: relative;
   margin-top: 0.1rem;
   margin-left: 8px;
@@ -419,23 +431,23 @@
 }
 
 /* Horizontal line: fades in on hover of the button */
-.w3a-arrow-btn .stripe-arrow>.HoverArrow .HoverArrow__linePath {
+.w3a-arrow-btn .stripe-arrow > .HoverArrow .HoverArrow__linePath {
   opacity: 0;
   transition: opacity 120ms cubic-bezier(0.215, 0.61, 0.355, 1);
 }
 
 /* Chevron: nudges right and slightly scales on hover */
-.w3a-arrow-btn .stripe-arrow>.HoverArrow .HoverArrow__tipPath {
+.w3a-arrow-btn .stripe-arrow > .HoverArrow .HoverArrow__tipPath {
   transition: transform 120ms cubic-bezier(0.215, 0.61, 0.355, 1);
 }
 
-.w3a-arrow-btn.is-enabled:hover .stripe-arrow>.HoverArrow .HoverArrow__linePath,
-.w3a-arrow-btn.is-enabled:focus-visible .stripe-arrow>.HoverArrow .HoverArrow__linePath {
+.w3a-arrow-btn.is-enabled:hover .stripe-arrow > .HoverArrow .HoverArrow__linePath,
+.w3a-arrow-btn.is-enabled:focus-visible .stripe-arrow > .HoverArrow .HoverArrow__linePath {
   opacity: 1;
 }
 
-.w3a-arrow-btn.is-enabled:hover .stripe-arrow>.HoverArrow .HoverArrow__tipPath,
-.w3a-arrow-btn.is-enabled:focus-visible .stripe-arrow>.HoverArrow .HoverArrow__tipPath {
+.w3a-arrow-btn.is-enabled:hover .stripe-arrow > .HoverArrow .HoverArrow__tipPath,
+.w3a-arrow-btn.is-enabled:focus-visible .stripe-arrow > .HoverArrow .HoverArrow__tipPath {
   transform: translateX(3px);
 }
 
@@ -486,7 +498,9 @@
   /* Immediate taps on mobile; opt-out of double-tap zoom heuristics */
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  transition: color 200ms ease, transform 120ms ease;
+  transition:
+    color 200ms ease,
+    transform 120ms ease;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -514,7 +528,10 @@
 
 .w3a-seg-btn.is-active.register:hover,
 .w3a-seg-btn.is-active.register:focus-visible {
-  color: var(--w3a-passkey-auth-menu2-seg-register-active-text-hover, var(--w3a-colors-primaryHover));
+  color: var(
+    --w3a-passkey-auth-menu2-seg-register-active-text-hover,
+    var(--w3a-colors-primaryHover)
+  );
 }
 
 .w3a-seg-btn:focus-visible {
@@ -741,7 +758,9 @@
   opacity: 0;
   transform: translateX(50px) scale(0.9);
   pointer-events: none;
-  transition: opacity 180ms ease, transform 200ms ease;
+  transition:
+    opacity 180ms ease,
+    transform 200ms ease;
   z-index: 2;
 }
 
@@ -773,7 +792,6 @@
 }
 
 @keyframes w3a-ellipsis-dot {
-
   0%,
   80%,
   100% {
@@ -833,7 +851,8 @@
 }
 
 /* Button System */
-.w3a-scan-device-row {}
+.w3a-scan-device-row {
+}
 
 .w3a-secondary-actions {
   display: flex;
@@ -857,7 +876,14 @@
   border-radius: 2rem;
   cursor: pointer;
   color: var(--w3a-colors-textPrimary);
-  font-family: var(--w3a-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+  font-family: var(
+    --w3a-font-family,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif
+  );
   font-weight: 500;
   font-size: 0.875rem;
   text-overflow: ellipsis;
@@ -879,7 +905,10 @@
 
 .w3a-link-device-btn-primary:hover:not(:disabled),
 .w3a-link-device-btn-primary:focus-visible {
-  background: var(--w3a-colors-buttonHoverBackground, var(--w3a-colors-primaryHover, #2563eb)) !important;
+  background: var(
+    --w3a-colors-buttonHoverBackground,
+    var(--w3a-colors-primaryHover, #2563eb)
+  ) !important;
   color: var(--w3a-colors-textButton, white);
 }
 
@@ -944,7 +973,9 @@
 }
 
 .w3a-email-recovery-meta-value {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
   font-size: 0.85rem;
   opacity: 0.9;
   overflow: hidden;
@@ -959,7 +990,9 @@
   padding: 0 1rem;
   border: 1px solid var(--w3a-colors-borderPrimary);
   background: var(--w3a-colors-surface);
-  transition: box-shadow 160ms ease, border-color 160ms ease;
+  transition:
+    box-shadow 160ms ease,
+    border-color 160ms ease;
 }
 
 .w3a-email-recovery-input-pill:focus-within {
@@ -992,11 +1025,11 @@
   font-weight: 600;
 }
 
-[data-w3a-theme="light"] .w3a-email-recovery-from-warning {
+[data-w3a-theme='light'] .w3a-email-recovery-from-warning {
   color: #d80;
 }
 
-[data-w3a-theme="dark"] .w3a-email-recovery-from-warning {
+[data-w3a-theme='dark'] .w3a-email-recovery-from-warning {
   color: #ea5;
 }
 

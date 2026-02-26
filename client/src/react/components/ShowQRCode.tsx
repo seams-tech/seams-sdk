@@ -1,9 +1,13 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react';
 
-import { useTatchi } from '../context'
-import { DeviceLinkingSSEEvent, DeviceLinkingStatus, DeviceLinkingPhase } from '../../core/types/sdkSentEvents'
-import { toAccountId } from '../../core/types/accountIds'
-import './ShowQRCode.css'
+import { useTatchi } from '../context';
+import {
+  DeviceLinkingSSEEvent,
+  DeviceLinkingStatus,
+  DeviceLinkingPhase,
+} from '../../core/types/sdkSentEvents';
+import { toAccountId } from '../../core/types/accountIds';
+import './ShowQRCode.css';
 
 export interface ShowQRCodeProps {
   isOpen: boolean;
@@ -20,13 +24,8 @@ export function ShowQRCode({
   onError,
   localSignerEnabled,
 }: ShowQRCodeProps) {
-
-  const {
-    startDevice2LinkingFlow,
-    stopDevice2LinkingFlow,
-    accountInputState,
-    loginState,
-  } = useTatchi();
+  const { startDevice2LinkingFlow, stopDevice2LinkingFlow, accountInputState, loginState } =
+    useTatchi();
 
   const [deviceLinkingState, setDeviceLinkingState] = useState<{
     mode: 'idle' | 'device1' | 'device2';
@@ -43,7 +42,9 @@ export function ShowQRCode({
   useEffect(() => {
     if (!isOpen) return;
 
-    const accountIdRaw = String(accountInputState?.targetAccountId || loginState?.nearAccountId || '').trim();
+    const accountIdRaw = String(
+      accountInputState?.targetAccountId || loginState?.nearAccountId || '',
+    ).trim();
 
     const mySession = ++sessionRef.current;
     let cancelled = false;
@@ -57,26 +58,38 @@ export function ShowQRCode({
           options: {
             onEvent: (event: DeviceLinkingSSEEvent) => {
               if (cancelled) return;
-              setDeviceLinkingState(prev => ({ ...prev, lastPhase: String(event.phase), lastMessage: event.message }));
+              setDeviceLinkingState((prev) => ({
+                ...prev,
+                lastPhase: String(event.phase),
+                lastMessage: event.message,
+              }));
               onEvent(event);
-              if (event.phase === DeviceLinkingPhase.STEP_7_LINKING_COMPLETE && event.status === DeviceLinkingStatus.SUCCESS) {
-                try { onClose(); } catch {}
+              if (
+                event.phase === DeviceLinkingPhase.STEP_7_LINKING_COMPLETE &&
+                event.status === DeviceLinkingStatus.SUCCESS
+              ) {
+                try {
+                  onClose();
+                } catch {}
               }
             },
             onError: (error: Error) => {
               if (cancelled) return;
               setDeviceLinkingState({ mode: 'idle', isProcessing: false });
               onError(error);
-              try { onClose(); } catch {}
-            }
-          }
+              try {
+                onClose();
+              } catch {}
+            },
+          },
         });
         if (!cancelled && sessionRef.current === mySession) {
-          setDeviceLinkingState(prev => ({ ...prev, qrCodeDataURL, isProcessing: false }));
+          setDeviceLinkingState((prev) => ({ ...prev, qrCodeDataURL, isProcessing: false }));
         }
       } catch (err) {
         if (!cancelled && sessionRef.current === mySession) {
-          const msg = err instanceof Error ? err.message : String(err || 'Failed to generate QR code');
+          const msg =
+            err instanceof Error ? err.message : String(err || 'Failed to generate QR code');
           setDeviceLinkingState({ mode: 'device2', isProcessing: false, lastMessage: msg });
         }
       }
@@ -89,7 +102,17 @@ export function ShowQRCode({
         stopDevice2LinkingFlow().catch(() => {});
       } catch {}
     };
-  }, [accountInputState?.targetAccountId, isOpen, localSignerEnabled, loginState?.nearAccountId, onClose, onEvent, onError, startDevice2LinkingFlow, stopDevice2LinkingFlow]);
+  }, [
+    accountInputState?.targetAccountId,
+    isOpen,
+    localSignerEnabled,
+    loginState?.nearAccountId,
+    onClose,
+    onEvent,
+    onError,
+    startDevice2LinkingFlow,
+    stopDevice2LinkingFlow,
+  ]);
 
   if (!isOpen) return null;
 
@@ -123,7 +146,7 @@ export function ShowQRCode({
             <div className="qr-header">
               <h2 className="qr-title">Scan and Link Device</h2>
             </div>
-            {deviceLinkingState.qrCodeDataURL &&
+            {deviceLinkingState.qrCodeDataURL && (
               <>
                 <div className="qr-instruction">Scan to backup your other device.</div>
                 <div className="qr-status">
@@ -131,7 +154,7 @@ export function ShowQRCode({
                   <span className="animated-ellipsis"></span>
                 </div>
               </>
-            }
+            )}
           </div>
         )}
       </div>

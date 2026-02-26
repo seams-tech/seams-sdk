@@ -22,10 +22,7 @@ export const ArrowRightAnim: React.FC<ArrowRightAnimProps> = ({
   color,
   size: sizeProp,
 }) => {
-  const size =
-    typeof sizeProp === 'number' && Number.isFinite(sizeProp)
-      ? sizeProp
-      : 16;
+  const size = typeof sizeProp === 'number' && Number.isFinite(sizeProp) ? sizeProp : 16;
 
   return (
     <div

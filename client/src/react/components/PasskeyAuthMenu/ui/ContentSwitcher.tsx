@@ -52,7 +52,7 @@ export const ContentSwitcher: React.FC<ContentSwitcherProps> = ({
       // Apply without animation
       wrap.style.transition = 'none';
       wrap.style.height = `${next}px`;
-      wrap.offsetHeight;
+      void wrap.offsetHeight;
       wrap.style.transition = '';
       return;
     }
@@ -79,7 +79,7 @@ export const ContentSwitcher: React.FC<ContentSwitcherProps> = ({
     // Re-sync after fonts load (text metrics can change)
     const fonts = document?.fonts;
     if (fonts?.ready) {
-      fonts.ready.then(() => syncHeight()).catch(() => { });
+      fonts.ready.then(() => syncHeight()).catch(() => {});
     }
 
     // Also re-sync on window resize
@@ -117,7 +117,9 @@ export const ContentSwitcher: React.FC<ContentSwitcherProps> = ({
 
           {showScanDevice && <div className="w3a-scan-device-content">{showQRCodeElement}</div>}
 
-          {showEmailRecovery && <div className="w3a-email-recovery-content">{emailRecoveryElement}</div>}
+          {showEmailRecovery && (
+            <div className="w3a-email-recovery-content">{emailRecoveryElement}</div>
+          )}
 
           {!waiting && !showScanDevice && !showEmailRecovery && (
             <div className={`w3a-signin-menu${isInitialMount.current ? ' w3a-no-animation' : ''}`}>

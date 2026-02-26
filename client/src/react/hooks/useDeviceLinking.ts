@@ -5,7 +5,7 @@ import {
   DeviceLinkingStatus,
   type DeviceLinkingQRData,
   type LinkDeviceResult,
-  type DeviceLinkingSSEEvent
+  type DeviceLinkingSSEEvent,
 } from '@/index';
 import { QRScanMode } from '@/react/hooks/useQRCamera';
 
@@ -48,13 +48,7 @@ export interface UseDeviceLinkingReturn {
 
 export const useDeviceLinking = (options: UseDeviceLinkingOptions): UseDeviceLinkingReturn => {
   const { tatchi } = useTatchi();
-  const {
-    onDeviceLinked,
-    onError,
-    onClose,
-    onEvent,
-    fundingAmount = '0.05'
-  } = options;
+  const { onDeviceLinked, onError, onClose, onEvent, fundingAmount = '0.05' } = options;
 
   const hasClosedEarlyRef = useRef(false);
 
@@ -63,7 +57,7 @@ export const useDeviceLinking = (options: UseDeviceLinkingOptions): UseDeviceLin
     onDeviceLinked,
     onError,
     onClose,
-    onEvent
+    onEvent,
   });
 
   // Update refs when callbacks change
@@ -71,60 +65,58 @@ export const useDeviceLinking = (options: UseDeviceLinkingOptions): UseDeviceLin
     onDeviceLinked,
     onError,
     onClose,
-    onEvent
+    onEvent,
   };
 
   // Handle device linking with early close logic
-  const linkDevice = useCallback(async (qrData: DeviceLinkingQRData, source: QRScanMode) => {
+  const linkDevice = useCallback(
+    async (qrData: DeviceLinkingQRData, source: QRScanMode) => {
+      const { onDeviceLinked, onError, onClose, onEvent } = callbacksRef.current;
 
-    const {
-      onDeviceLinked,
-      onError,
-      onClose,
-      onEvent
-    } = callbacksRef.current;
+      try {
+        console.log(`useDeviceLinking: Starting device linking from ${source}...`);
+        hasClosedEarlyRef.current = false; // Reset for this linking attempt
 
-    try {
-      console.log(`useDeviceLinking: Starting device linking from ${source}...`);
-      hasClosedEarlyRef.current = false; // Reset for this linking attempt
+        const result = await tatchi.recovery.linkDeviceWithScannedQRData(qrData, {
+          fundingAmount,
+          onEvent: (event) => {
+            onEvent?.(event);
+            console.log(`useDeviceLinking: ${source} linking event -`, event.phase, event.message);
+            // Close scanner immediately after QR validation succeeds
+            switch (event.phase) {
+              case DeviceLinkingPhase.STEP_3_AUTHORIZATION:
+                if (event.status === DeviceLinkingStatus.PROGRESS) {
+                  console.log(
+                    'useDeviceLinking: QR validation complete - closing scanner while linking continues...',
+                  );
+                  hasClosedEarlyRef.current = true;
+                  onClose?.();
+                }
+                break;
+            }
+          },
+          onError: (error: any) => {
+            console.error(`useDeviceLinking: ${source} linking error -`, error.message);
+            onError?.(error);
+          },
+        });
 
-      const result = await tatchi.recovery.linkDeviceWithScannedQRData(qrData, {
-        fundingAmount,
-        onEvent: (event) => {
-          onEvent?.(event);
-          console.log(`useDeviceLinking: ${source} linking event -`, event.phase, event.message);
-          // Close scanner immediately after QR validation succeeds
-          switch (event.phase) {
-            case DeviceLinkingPhase.STEP_3_AUTHORIZATION:
-              if (event.status === DeviceLinkingStatus.PROGRESS) {
-                console.log('useDeviceLinking: QR validation complete - closing scanner while linking continues...');
-                hasClosedEarlyRef.current = true;
-                onClose?.();
-              }
-              break;
-          }
-        },
-        onError: (error: any) => {
-          console.error(`useDeviceLinking: ${source} linking error -`, error.message);
-          onError?.(error);
+        console.log(`useDeviceLinking: ${source} linking completed -`, { success: !!result });
+
+        onDeviceLinked?.(result);
+      } catch (linkingError: any) {
+        console.error(`useDeviceLinking: ${source} linking failed -`, linkingError.message);
+        onError?.(linkingError);
+
+        // Close scanner on error if it hasn't been closed early
+        if (!hasClosedEarlyRef.current) {
+          console.log('useDeviceLinking: Closing scanner due to linking error...');
+          onClose?.();
         }
-      });
-
-      console.log(`useDeviceLinking: ${source} linking completed -`, { success: !!result });
-
-      onDeviceLinked?.(result);
-
-    } catch (linkingError: any) {
-      console.error(`useDeviceLinking: ${source} linking failed -`, linkingError.message);
-      onError?.(linkingError);
-
-      // Close scanner on error if it hasn't been closed early
-      if (!hasClosedEarlyRef.current) {
-        console.log('useDeviceLinking: Closing scanner due to linking error...');
-        onClose?.();
       }
-    }
-  }, [fundingAmount, tatchi]);
+    },
+    [fundingAmount, tatchi],
+  );
 
   return {
     linkDevice,

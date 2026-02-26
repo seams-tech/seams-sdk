@@ -3,7 +3,6 @@ import type { DesignTokens, UseThemeReturn } from './design-tokens';
 import { LIGHT_TOKENS, DARK_TOKENS } from './design-tokens';
 import { createCSSVariables, mergeTokens, PartialDeep } from './utils';
 
-
 export type ThemeName = 'light' | 'dark';
 
 interface ThemeContextValue {
@@ -36,12 +35,15 @@ export const useThemeContext = (): ThemeContextValue => {
 
 export function useTheme(): UseThemeReturn {
   const ctx = useThemeContext();
-  return React.useMemo(() => ({
-    theme: ctx.theme,
-    tokens: ctx.tokens,
-    isDark: ctx.isDark,
-    setTheme: ctx.setTheme,
-  }), [ctx.isDark, ctx.setTheme, ctx.theme, ctx.tokens]);
+  return React.useMemo(
+    () => ({
+      theme: ctx.theme,
+      tokens: ctx.tokens,
+      isDark: ctx.isDark,
+      setTheme: ctx.setTheme,
+    }),
+    [ctx.isDark, ctx.setTheme, ctx.theme, ctx.tokens],
+  );
 }
 
 interface ThemeScopeProps {
@@ -89,40 +91,47 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({
   prefix = '--w3a',
   setTheme,
 }) => {
-
   const resolvedTheme: ThemeName = theme === 'light' || theme === 'dark' ? theme : 'dark';
   const baseLight = React.useMemo(() => LIGHT_TOKENS, []);
   const baseDark = React.useMemo(() => DARK_TOKENS, []);
 
-  const resolvedOverrides = React.useMemo(() =>
-    typeof tokens === 'function' ? tokens({ light: baseLight, dark: baseDark }) : (tokens || {}),
-    [tokens, baseLight, baseDark]
+  const resolvedOverrides = React.useMemo(
+    () =>
+      typeof tokens === 'function' ? tokens({ light: baseLight, dark: baseDark }) : tokens || {},
+    [tokens, baseLight, baseDark],
   );
   const lightTokens = React.useMemo(
     () => mergeTokens(baseLight, resolvedOverrides.light),
-    [baseLight, resolvedOverrides.light]
+    [baseLight, resolvedOverrides.light],
   );
   const darkTokens = React.useMemo(
     () => mergeTokens(baseDark, resolvedOverrides.dark),
-    [baseDark, resolvedOverrides.dark]
+    [baseDark, resolvedOverrides.dark],
   );
 
   const tokensForTheme = resolvedTheme === 'dark' ? darkTokens : lightTokens;
-  const vars = React.useMemo(() => createCSSVariables(tokensForTheme, prefix), [tokensForTheme, prefix]);
+  const vars = React.useMemo(
+    () => createCSSVariables(tokensForTheme, prefix),
+    [tokensForTheme, prefix],
+  );
 
-  const value = React.useMemo(() => ({
-    theme: resolvedTheme,
-    tokens: tokensForTheme,
-    isDark: resolvedTheme === 'dark',
-    prefix,
-    vars,
-    setTheme,
-  }), [prefix, resolvedTheme, setTheme, tokensForTheme, vars]);
+  const value = React.useMemo(
+    () => ({
+      theme: resolvedTheme,
+      tokens: tokensForTheme,
+      isDark: resolvedTheme === 'dark',
+      prefix,
+      vars,
+      setTheme,
+    }),
+    [prefix, resolvedTheme, setTheme, tokensForTheme, vars],
+  );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 };
 
-export interface ThemeProps extends Omit<ThemeProviderProps, 'children'>, Omit<ThemeScopeProps, 'children'> {
+export interface ThemeProps
+  extends Omit<ThemeProviderProps, 'children'>, Omit<ThemeScopeProps, 'children'> {
   children?: React.ReactNode;
 }
 
@@ -139,12 +148,7 @@ export const Theme: React.FC<ThemeProps> = ({
   setTheme,
 }) => {
   return (
-    <ThemeProvider
-      theme={theme}
-      tokens={tokens}
-      prefix={prefix}
-      setTheme={setTheme}
-    >
+    <ThemeProvider theme={theme} tokens={tokens} prefix={prefix} setTheme={setTheme}>
       <ThemeScope tag={tag} className={className} style={style} dataAttr={dataAttr}>
         {children}
       </ThemeScope>

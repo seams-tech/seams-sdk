@@ -41,14 +41,16 @@ This yields a true “floating ring,” not a background fake gap.
   background: conic-gradient(
     from var(--w3a-ring-angle, 0deg),
     transparent 0%,
-    #4DAFFE 10%,
-    #4DAFFE 25%,
+    #4daffe 10%,
+    #4daffe 25%,
     transparent 35%
   );
 
   /* keep only a thin band (padding area) visible */
   padding: var(--ring-width, 2px);
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
 
@@ -56,14 +58,18 @@ This yields a true “floating ring,” not a background fake gap.
 }
 
 @property --w3a-ring-angle {
-  syntax: "<angle>";
+  syntax: '<angle>';
   initial-value: 0deg;
   inherits: false;
 }
 
 @keyframes w3a-ring-rotate {
-  from { --w3a-ring-angle: 0deg; }
-  to   { --w3a-ring-angle: 360deg; }
+  from {
+    --w3a-ring-angle: 0deg;
+  }
+  to {
+    --w3a-ring-angle: 360deg;
+  }
 }
 ```
 
@@ -76,7 +82,7 @@ Compositing “exclude/xor” between B and A yields ring = border-box minus con
 
 Why the padding matters: on the pseudo-element we set padding: var(--ring-width). That shrinks the content-box inward, so “border-box XOR content-box” becomes a thin band whose thickness equals the padding value.
 
-Why the negative inset: inset: calc(-1 * (gap + width)) makes the pseudo-element extend beyond the host box. After XOR, the visible band sits outside the element, creating the floating ring with a real gap.
+Why the negative inset: inset: calc(-1 \* (gap + width)) makes the pseudo-element extend beyond the host box. After XOR, the visible band sits outside the element, creating the floating ring with a real gap.
 
 ## Component API
 
@@ -88,7 +94,9 @@ Why the negative inset: inset: calc(-1 * (gap + width)) makes the pseudo-element
 They are passed into CSS variables `--ring-gap` and `--ring-width` on the container.
 
 ```tsx
-<HaloBorder animated borderGap={10} borderWidth={2}>…</HaloBorder>
+<HaloBorder animated borderGap={10} borderWidth={2}>
+  …
+</HaloBorder>
 ```
 
 ## Example Usage

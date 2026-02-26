@@ -10,7 +10,7 @@ export const AuthMenuModeMap = {
   [AuthMenuMode.Sync]: 'sync',
 } as const;
 
-export type AuthMenuModeLabel = typeof AuthMenuModeMap[keyof typeof AuthMenuModeMap];
+export type AuthMenuModeLabel = (typeof AuthMenuModeMap)[keyof typeof AuthMenuModeMap];
 
 export interface AuthMenuTitle {
   title: string;

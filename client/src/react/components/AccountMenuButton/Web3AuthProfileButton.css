@@ -41,7 +41,8 @@
 }
 
 .w3a-profile-button-username {
-  display: block; color: var(--w3a-colors-textSecondary);
+  display: block;
+  color: var(--w3a-colors-textSecondary);
 }
 
 .w3a-profile-button-username.hidden {

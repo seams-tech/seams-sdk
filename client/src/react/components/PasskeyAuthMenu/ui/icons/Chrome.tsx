@@ -39,4 +39,3 @@ export const ChromeIcon: React.FC<ChromeIconProps> = ({
 };
 
 export default ChromeIcon;
-

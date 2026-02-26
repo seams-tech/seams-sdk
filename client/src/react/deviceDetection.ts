@@ -42,7 +42,8 @@ export const detectDeviceType = (): DeviceType => {
 export const isSafari = (): boolean => {
   try {
     const ua = navigator.userAgent;
-    const isSafariEngine = /safari/i.test(ua) && !/chrome|crios|crmo|chromium|edg|edge|opr|opera|brave/i.test(ua);
+    const isSafariEngine =
+      /safari/i.test(ua) && !/chrome|crios|crmo|chromium|edg|edge|opr|opera|brave/i.test(ua);
     return isSafariEngine;
   } catch {
     return false;
@@ -163,8 +164,8 @@ export const getDeviceCapabilities = () => {
         facingMode,
         width: deviceType === 'mobile' ? { ideal: 720, min: 480 } : { ideal: 1280, min: 720 },
         height: deviceType === 'mobile' ? { ideal: 720, min: 480 } : { ideal: 720, min: 480 },
-        aspectRatio: deviceType === 'mobile' ? { ideal: 1.0 } : { ideal: 16/9 }
-      }
-    }
+        aspectRatio: deviceType === 'mobile' ? { ideal: 1.0 } : { ideal: 16 / 9 },
+      },
+    },
   };
 };

@@ -25,9 +25,7 @@
  */
 
 export { TatchiContextProvider, useTatchi } from './context';
-export {
-  TatchiPasskeyProvider,
-} from './context/TatchiPasskeyProvider';
+export { TatchiPasskeyProvider } from './context/TatchiPasskeyProvider';
 
 // === RE-EXPORT CORE TYPES ===
 export { TatchiPasskey } from '../core/TatchiPasskey';
@@ -48,7 +46,7 @@ export type {
   StakeAction,
   AddKeyAction,
   DeleteKeyAction,
-  DeleteAccountAction
+  DeleteAccountAction,
 } from '../core/types/actions';
 
 // === TYPES ===
@@ -90,7 +88,10 @@ export type { UseDeviceLinkingOptions, UseDeviceLinkingReturn } from './hooks/us
 export { useQRCamera, QRScanMode } from './hooks/useQRCamera';
 export type { UseQRCameraOptions, UseQRCameraReturn } from './hooks/useQRCamera';
 export { usePostfixPosition } from './components/PasskeyAuthMenu/ui/usePostfixPosition';
-export type { UsePostfixPositionOptions, UsePostfixPositionReturn } from './components/PasskeyAuthMenu/ui/usePostfixPosition';
+export type {
+  UsePostfixPositionOptions,
+  UsePostfixPositionReturn,
+} from './components/PasskeyAuthMenu/ui/usePostfixPosition';
 export { TxExecutionStatus } from '../core/types/actions';
 
 ////////////////////////////
@@ -103,10 +104,16 @@ export type { QRCodeScannerProps } from './components/QRCodeScanner';
 export { ShowQRCode } from './components/ShowQRCode';
 export type { ShowQRCodeProps } from './components/ShowQRCode';
 // Sign Up / Sign In menu
-export { PasskeyAuthMenu, PasskeyAuthMenuSkeleton } from './components/PasskeyAuthMenu/passkeyAuthMenuCompat';
+export {
+  PasskeyAuthMenu,
+  PasskeyAuthMenuSkeleton,
+} from './components/PasskeyAuthMenu/passkeyAuthMenuCompat';
 export type { PasskeyAuthMenuProps } from './components/PasskeyAuthMenu/passkeyAuthMenuCompat';
 export { AuthMenuMode, AuthMenuModeMap } from './components/PasskeyAuthMenu/authMenuTypes';
-export type { AuthMenuModeLabel, AuthMenuHeadings } from './components/PasskeyAuthMenu/authMenuTypes';
+export type {
+  AuthMenuModeLabel,
+  AuthMenuHeadings,
+} from './components/PasskeyAuthMenu/authMenuTypes';
 // SSR-safe shell + explicit client entrypoints
 export {
   PasskeyAuthMenuClient,

@@ -1,11 +1,5 @@
 // Consolidate color sources to base-styles
-import {
-  CHROMA_COLORS,
-  GREY_COLORS,
-  GRADIENTS,
-  LIGHT_THEME,
-  DARK_THEME
-} from '@/base-styles';
+import { CHROMA_COLORS, GREY_COLORS, GRADIENTS, LIGHT_THEME, DARK_THEME } from '@/base-styles';
 
 /**
  * About these tokens and CSS variables
@@ -255,11 +249,11 @@ export const LIGHT_TOKENS: DesignTokens = {
   },
 
   spacing: {
-    xs: '0.25rem',   // 4px
-    sm: '0.5rem',    // 8px
-    md: '1rem',      // 16px
-    lg: '1.5rem',    // 24px
-    xl: '2rem',      // 32px
+    xs: '0.25rem', // 4px
+    sm: '0.5rem', // 8px
+    md: '1rem', // 16px
+    lg: '1.5rem', // 24px
+    xl: '2rem', // 32px
   },
 
   borderRadius: {
@@ -429,14 +423,14 @@ export const PROFILE_BUTTON_TOKENS = {
     colors: {
       ...LIGHT_TOKENS.colors,
       // Profile button specific overrides
-    }
+    },
   },
   dark: {
     ...DARK_TOKENS,
     colors: {
       ...DARK_TOKENS.colors,
-    }
-  }
+    },
+  },
 };
 
 // ============================================================================
@@ -479,5 +473,5 @@ export const PROFILE_TOGGLE_TOKENS: { light: ToggleColorTokens; dark: ToggleColo
     disabledTextColor: DARK_TOKENS.colors.textSecondary,
     // Slightly lighter knob in dark mode for better visibility
     circleColor: DARK_TOKENS.colors.grey800,
-  }
+  },
 };

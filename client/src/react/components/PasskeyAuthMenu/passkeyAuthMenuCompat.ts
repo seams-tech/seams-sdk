@@ -1,7 +1,12 @@
 import { PasskeyAuthMenu } from './shell';
 import { PasskeyAuthMenuSkeleton } from './skeleton';
 import type { PasskeyAuthMenuProps } from './types';
-import { AuthMenuMode, AuthMenuModeMap, type AuthMenuModeLabel, type AuthMenuHeadings } from './authMenuTypes';
+import {
+  AuthMenuMode,
+  AuthMenuModeMap,
+  type AuthMenuModeLabel,
+  type AuthMenuHeadings,
+} from './authMenuTypes';
 
 /**
  * SSR-safe entrypoint for `@tatchi-xyz/sdk/react/passkey-auth-menu`.

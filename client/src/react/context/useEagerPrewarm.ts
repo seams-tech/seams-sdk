@@ -17,7 +17,9 @@ export function useEagerPrewarm(tatchi: TatchiPasskey, eager?: boolean) {
     const run = async () => {
       if (cancelled) return;
       try {
-        const anyTatchi = tatchi as unknown as { prewarm?: (opts: { iframe: boolean; workers: boolean }) => Promise<void> };
+        const anyTatchi = tatchi as unknown as {
+          prewarm?: (opts: { iframe: boolean; workers: boolean }) => Promise<void>;
+        };
         if (typeof anyTatchi.prewarm === 'function') {
           await anyTatchi.prewarm({ iframe: true, workers: true }).catch(() => undefined);
         } else {
@@ -32,15 +34,24 @@ export function useEagerPrewarm(tatchi: TatchiPasskey, eager?: boolean) {
     let timeoutId: number | undefined;
 
     if (typeof win.requestIdleCallback === 'function') {
-      idleId = win.requestIdleCallback(() => { void run(); }, { timeout: 1500 }) as number;
+      idleId = win.requestIdleCallback(
+        () => {
+          void run();
+        },
+        { timeout: 1500 },
+      ) as number;
     } else {
-      timeoutId = window.setTimeout(() => { void run(); }, 600);
+      timeoutId = window.setTimeout(() => {
+        void run();
+      }, 600);
     }
 
     return () => {
       cancelled = true;
       if (idleId != null && typeof win.cancelIdleCallback === 'function') {
-        try { win.cancelIdleCallback(idleId); } catch {}
+        try {
+          win.cancelIdleCallback(idleId);
+        } catch {}
       }
       if (timeoutId != null) {
         clearTimeout(timeoutId);
@@ -48,4 +59,3 @@ export function useEagerPrewarm(tatchi: TatchiPasskey, eager?: boolean) {
     };
   }, [eager, tatchi]);
 }
-

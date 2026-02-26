@@ -5,7 +5,9 @@ import { awaitWalletIframeReady } from '../utils/walletIframe';
 import { isObject } from '@shared/utils/validation';
 
 async function discoverRelayerAccountFromHealthz(relayUrl: string): Promise<string | null> {
-  const base = String(relayUrl || '').trim().replace(/\/$/, '');
+  const base = String(relayUrl || '')
+    .trim()
+    .replace(/\/$/, '');
   if (!base) return null;
 
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -19,8 +21,7 @@ async function discoverRelayerAccountFromHealthz(relayUrl: string): Promise<stri
     if (!res.ok) return null;
     const jsonData: unknown = await res.json().catch(() => ({}));
     const json = isObject(jsonData) ? jsonData : {};
-    const relayerAccount =
-      typeof json.relayerAccount === 'string' ? json.relayerAccount : '';
+    const relayerAccount = typeof json.relayerAccount === 'string' ? json.relayerAccount : '';
     const normalized = String(relayerAccount).trim().replace(/^\./, '').toLowerCase();
     return normalized || null;
   } catch {
@@ -61,7 +62,7 @@ export function useAccountInput({
   tatchi,
   accountDomain,
   currentNearAccountId,
-  isLoggedIn
+  isLoggedIn,
 }: UseAccountInputOptions): UseAccountInputReturn {
   const [discoveredRelayerAccount, setDiscoveredRelayerAccount] = useState<string>('');
 
@@ -72,7 +73,10 @@ export function useAccountInput({
     const hasExplicitDomain = typeof accountDomain === 'string' && accountDomain.trim().length > 0;
     if (hasExplicitDomain) return;
 
-    const cfgRelayer = String(tatchi.configs.network.relayer.accountId || '').trim().replace(/^\./, '').toLowerCase();
+    const cfgRelayer = String(tatchi.configs.network.relayer.accountId || '')
+      .trim()
+      .replace(/^\./, '')
+      .toLowerCase();
     if (cfgRelayer) return;
 
     const relayUrl = String(tatchi.configs.network.relayer?.url || '').trim();
@@ -89,7 +93,12 @@ export function useAccountInput({
     };
   }, [accountDomain, tatchi]);
 
-  const normalizedDomain = (accountDomain || discoveredRelayerAccount || tatchi.configs.network.relayer.accountId || '')
+  const normalizedDomain = (
+    accountDomain ||
+    discoveredRelayerAccount ||
+    tatchi.configs.network.relayer.accountId ||
+    ''
+  )
     .trim()
     .replace(/^\./, '')
     .toLowerCase();
@@ -102,7 +111,7 @@ export function useAccountInput({
     displayPostfix: '',
     isUsingExistingAccount: false,
     accountExists: false,
-    indexDBAccounts: []
+    indexDBAccounts: [],
   });
 
   // Await wallet iframe readiness when needed
@@ -125,98 +134,112 @@ export function useAccountInput({
         lastDomain = `.${parts.slice(1).join('.')}`;
       }
 
-      setState(prevState => ({
+      setState((prevState) => ({
         ...prevState,
         indexDBAccounts: accountIds,
         lastLoggedInUsername: lastUsername,
-        lastLoggedInDomain: lastDomain
+        lastLoggedInDomain: lastDomain,
       }));
-
     } catch (error) {
       console.warn('Error loading account data:', error);
     }
   }, [awaitWalletIframeIfNeeded, tatchi]);
 
   // Check if account has passkey credentials
-  const checkAccountExists = useCallback(async (accountId: string) => {
-    if (!accountId) {
-      setState(prevState => ({ ...prevState, accountExists: false }));
-      return;
-    }
+  const checkAccountExists = useCallback(
+    async (accountId: string) => {
+      if (!accountId) {
+        setState((prevState) => ({ ...prevState, accountExists: false }));
+        return;
+      }
 
-    try {
-      await awaitWalletIframeIfNeeded();
-      const hasCredential = await tatchi.auth.hasPasskeyCredential(toAccountId(accountId));
-      setState(prevState => ({ ...prevState, accountExists: hasCredential }));
-    } catch (error) {
-      console.warn('Error checking credentials:', error);
-      setState(prevState => ({ ...prevState, accountExists: false }));
-    }
-  }, [awaitWalletIframeIfNeeded, tatchi]);
+      try {
+        await awaitWalletIframeIfNeeded();
+        const hasCredential = await tatchi.auth.hasPasskeyCredential(toAccountId(accountId));
+        setState((prevState) => ({ ...prevState, accountExists: hasCredential }));
+      } catch (error) {
+        console.warn('Error checking credentials:', error);
+        setState((prevState) => ({ ...prevState, accountExists: false }));
+      }
+    },
+    [awaitWalletIframeIfNeeded, tatchi],
+  );
 
   // Update derived state when inputs change
-  const updateDerivedState = useCallback((username: string, accounts: string[]) => {
-    // Normalize username to lowercase to avoid iOS autocapitalize causing invalid NEAR IDs
-    const raw = (username || '').trim();
-    const uname = raw.toLowerCase();
+  const updateDerivedState = useCallback(
+    (username: string, accounts: string[]) => {
+      // Normalize username to lowercase to avoid iOS autocapitalize causing invalid NEAR IDs
+      const raw = (username || '').trim();
+      const uname = raw.toLowerCase();
 
-    if (!raw) {
-      setState(prevState => ({
+      if (!raw) {
+        setState((prevState) => ({
+          ...prevState,
+          targetAccountId: '',
+          displayPostfix: '',
+          isUsingExistingAccount: false,
+          accountExists: false,
+        }));
+        return;
+      }
+
+      // If user types a full accountId (or selects one via custom UI), prefer it when present in storage.
+      const accountByExactInput = accounts.find((accountId) => accountId.toLowerCase() === uname);
+
+      // If the user typed a full accountId, don't append any postfix.
+      const typedFullAccountId = uname.includes('.');
+      const derivedTarget = typedFullAccountId
+        ? uname
+        : normalizedDomain
+          ? `${uname}.${normalizedDomain}`
+          : uname;
+      const derivedStoredMatch = accounts.find(
+        (accountId) => accountId.toLowerCase() === derivedTarget,
+      );
+
+      // Only treat as an "existing account" when we have an exact accountId match. This prevents
+      // accidentally selecting `alice.<old-domain>` when the configured domain is `.<new-domain>`.
+      const existingAccount = accountByExactInput || derivedStoredMatch;
+
+      let targetAccountId: string;
+      let displayPostfix: string;
+      let isUsingExistingAccount: boolean;
+
+      if (existingAccount) {
+        // Use existing account's full ID
+        targetAccountId = existingAccount;
+        const parts = existingAccount.split('.');
+        // If the user typed the full accountId, don't show an extra postfix overlay.
+        displayPostfix = accountByExactInput ? '' : `.${parts.slice(1).join('.')}`;
+        isUsingExistingAccount = true;
+      } else {
+        targetAccountId = derivedTarget;
+        displayPostfix = !typedFullAccountId && normalizedDomain ? `.${normalizedDomain}` : '';
+        isUsingExistingAccount = false;
+      }
+
+      setState((prevState) => ({
         ...prevState,
-        targetAccountId: '',
-        displayPostfix: '',
-        isUsingExistingAccount: false,
-        accountExists: false
+        targetAccountId,
+        displayPostfix,
+        isUsingExistingAccount,
       }));
-      return;
-    }
 
-    // If user types a full accountId (or selects one via custom UI), prefer it when present in storage.
-    const accountByExactInput = accounts.find((accountId) => accountId.toLowerCase() === uname);
-
-    // If the user typed a full accountId, don't append any postfix.
-    const typedFullAccountId = uname.includes('.');
-    const derivedTarget = typedFullAccountId ? uname : (normalizedDomain ? `${uname}.${normalizedDomain}` : uname);
-    const derivedStoredMatch = accounts.find((accountId) => accountId.toLowerCase() === derivedTarget);
-
-    // Only treat as an "existing account" when we have an exact accountId match. This prevents
-    // accidentally selecting `alice.<old-domain>` when the configured domain is `.<new-domain>`.
-    const existingAccount = accountByExactInput || derivedStoredMatch;
-
-    let targetAccountId: string;
-    let displayPostfix: string;
-    let isUsingExistingAccount: boolean;
-
-    if (existingAccount) {
-      // Use existing account's full ID
-      targetAccountId = existingAccount;
-      const parts = existingAccount.split('.');
-      // If the user typed the full accountId, don't show an extra postfix overlay.
-      displayPostfix = accountByExactInput ? '' : `.${parts.slice(1).join('.')}`;
-      isUsingExistingAccount = true;
-    } else {
-      targetAccountId = derivedTarget;
-      displayPostfix = (!typedFullAccountId && normalizedDomain) ? `.${normalizedDomain}` : '';
-      isUsingExistingAccount = false;
-    }
-
-    setState(prevState => ({
-      ...prevState,
-      targetAccountId,
-      displayPostfix,
-      isUsingExistingAccount
-    }));
-
-    // Check if account has credentials
-    void checkAccountExists(targetAccountId);
-  }, [checkAccountExists, normalizedDomain]);
+      // Check if account has credentials
+      void checkAccountExists(targetAccountId);
+    },
+    [checkAccountExists, normalizedDomain],
+  );
 
   // Handle username input changes
-  const setInputUsername = useCallback((username: string) => {
-    const uname = (username || '').toLowerCase();
-    setState(prevState => ({ ...prevState, inputUsername: uname }));
-    updateDerivedState(uname, state.indexDBAccounts);
-  }, [state.indexDBAccounts, updateDerivedState]);
+  const setInputUsername = useCallback(
+    (username: string) => {
+      const uname = (username || '').toLowerCase();
+      setState((prevState) => ({ ...prevState, inputUsername: uname }));
+      updateDerivedState(uname, state.indexDBAccounts);
+    },
+    [state.indexDBAccounts, updateDerivedState],
+  );
 
   // onInitialMount: Load last logged in user and prefill
   useEffect(() => {
@@ -226,14 +249,14 @@ export function useAccountInput({
       if (isLoggedIn && currentNearAccountId) {
         // User is logged in, show their username
         const username = currentNearAccountId.split('.')[0];
-        setState(prevState => ({ ...prevState, inputUsername: username }));
+        setState((prevState) => ({ ...prevState, inputUsername: username }));
       } else {
         // No logged-in user, try to get last used account
         await awaitWalletIframeIfNeeded();
         const { lastUsedAccount } = await tatchi.auth.getRecentLogins();
         if (lastUsedAccount) {
           const username = lastUsedAccount.nearAccountId.split('.')[0];
-          setState(prevState => ({ ...prevState, inputUsername: username }));
+          setState((prevState) => ({ ...prevState, inputUsername: username }));
         }
       }
     };
@@ -251,7 +274,7 @@ export function useAccountInput({
           const { lastUsedAccount } = await tatchi.auth.getRecentLogins();
           if (lastUsedAccount) {
             const username = lastUsedAccount.nearAccountId.split('.')[0];
-            setState(prevState => ({ ...prevState, inputUsername: username }));
+            setState((prevState) => ({ ...prevState, inputUsername: username }));
           }
         } catch (error) {
           console.warn('Error resetting username after logout:', error);
@@ -270,6 +293,6 @@ export function useAccountInput({
   return {
     ...state,
     setInputUsername,
-    refreshAccountData
+    refreshAccountData,
   };
 }

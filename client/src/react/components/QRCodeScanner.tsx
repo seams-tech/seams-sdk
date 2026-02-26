@@ -1,9 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import type {
-  DeviceLinkingQRData,
-  LinkDeviceResult,
-  DeviceLinkingSSEEvent
-} from '@/index';
+import type { DeviceLinkingQRData, LinkDeviceResult, DeviceLinkingSSEEvent } from '@/index';
 import { useQRCamera, QRScanMode } from '../hooks/useQRCamera';
 import { useDeviceLinking } from '../hooks/useDeviceLinking';
 import { Theme, useTheme } from './theme';
@@ -72,7 +68,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
     onError,
     onClose,
     onEvent,
-    fundingAmount
+    fundingAmount,
   });
 
   const qrCamera = useQRCamera({
@@ -82,7 +78,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
     },
     onError,
     isOpen: showCamera ? isOpen : false, // Only active when camera should be shown
-    cameraId
+    cameraId,
   });
 
   const [isVideoReady, setIsVideoReady] = useState(false);
@@ -107,18 +103,24 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
     }
   }, []);
 
-  const handleBackdropClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    event.stopPropagation();
-    stopPropagationNative(event);
-    if (event.target === event.currentTarget) {
-      handleClose();
-    }
-  }, [handleClose, stopPropagationNative]);
+  const handleBackdropClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      event.stopPropagation();
+      stopPropagationNative(event);
+      if (event.target === event.currentTarget) {
+        handleClose();
+      }
+    },
+    [handleClose, stopPropagationNative],
+  );
 
-  const stopEventPropagation = useCallback((event: React.SyntheticEvent<HTMLElement>) => {
-    event.stopPropagation();
-    stopPropagationNative(event);
-  }, [stopPropagationNative]);
+  const stopEventPropagation = useCallback(
+    (event: React.SyntheticEvent<HTMLElement>) => {
+      event.stopPropagation();
+      stopPropagationNative(event);
+    },
+    [stopPropagationNative],
+  );
 
   // Camera Cleanup Point 2: Component unmount
   useEffect(() => {
@@ -164,16 +166,10 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
         <div className="qr-scanner-error-container">
           <div className="qr-scanner-error-message">
             <p>{qrCamera.error}</p>
-            <button
-              onClick={() => qrCamera.setError(null)}
-              className="qr-scanner-error-button"
-            >
+            <button onClick={() => qrCamera.setError(null)} className="qr-scanner-error-button">
               Try Again
             </button>
-            <button
-              onClick={handleClose}
-              className="qr-scanner-error-button"
-            >
+            <button onClick={handleClose} className="qr-scanner-error-button">
               Close
             </button>
           </div>
@@ -198,69 +194,65 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
           onMouseDown={stopEventPropagation}
         >
           {/* Camera Scanner Section */}
-          {showCamera
-            && (qrCamera.scanMode === QRScanMode.CAMERA || qrCamera.scanMode === QRScanMode.AUTO)
-            && (
-            <div className="qr-scanner-camera-section">
-              {/* Camera Feed */}
-              <div className="qr-scanner-camera-container">
-                <video
-                  ref={qrCamera.videoRef}
-                  className={`qr-scanner-video${isVideoReady ? ' is-ready' : ''}`}
-                  style={{
-                    transform: qrCamera.isFrontCamera ? 'scaleX(-1)' : 'none'
-                  }}
-                  playsInline
-                  autoPlay
-                  muted
-                  onCanPlay={() => setIsVideoReady(true)}
-                  onLoadedData={() => setIsVideoReady(true)}
-                />
-                <canvas
-                  ref={qrCamera.canvasRef}
-                  className="qr-scanner-canvas"
-                />
+          {showCamera &&
+            (qrCamera.scanMode === QRScanMode.CAMERA || qrCamera.scanMode === QRScanMode.AUTO) && (
+              <div className="qr-scanner-camera-section">
+                {/* Camera Feed */}
+                <div className="qr-scanner-camera-container">
+                  <video
+                    ref={qrCamera.videoRef}
+                    className={`qr-scanner-video${isVideoReady ? ' is-ready' : ''}`}
+                    style={{
+                      transform: qrCamera.isFrontCamera ? 'scaleX(-1)' : 'none',
+                    }}
+                    playsInline
+                    autoPlay
+                    muted
+                    onCanPlay={() => setIsVideoReady(true)}
+                    onLoadedData={() => setIsVideoReady(true)}
+                  />
+                  <canvas ref={qrCamera.canvasRef} className="qr-scanner-canvas" />
 
-                {/* Scanner Overlay */}
-                <div className="qr-scanner-overlay">
-                  <div className="qr-scanner-box">
-                    <div className="qr-scanner-corner-top-left" />
-                    <div className="qr-scanner-corner-top-right" />
-                    <div className="qr-scanner-corner-bottom-left" />
-                    <div className="qr-scanner-corner-bottom-right" />
+                  {/* Scanner Overlay */}
+                  <div className="qr-scanner-overlay">
+                    <div className="qr-scanner-box">
+                      <div className="qr-scanner-corner-top-left" />
+                      <div className="qr-scanner-corner-top-right" />
+                      <div className="qr-scanner-corner-bottom-left" />
+                      <div className="qr-scanner-corner-bottom-right" />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Instructions */}
-              <div className="qr-scanner-instructions">
-                <p>Position the QR code within the frame</p>
-                {qrCamera.isScanning && (
-                  <p className="qr-scanner-sub-instruction qr-scanner-sub-instruction--small">
-                    Scanning...
-                  </p>
+                {/* Instructions */}
+                <div className="qr-scanner-instructions">
+                  <p>Position the QR code within the frame</p>
+                  {qrCamera.isScanning && (
+                    <p className="qr-scanner-sub-instruction qr-scanner-sub-instruction--small">
+                      Scanning...
+                    </p>
+                  )}
+                </div>
+
+                {/* Camera Controls */}
+                {qrCamera.cameras.length > 1 && (
+                  <div className="qr-scanner-camera-controls">
+                    <select
+                      name="camera"
+                      value={qrCamera.selectedCamera}
+                      onChange={(e) => qrCamera.handleCameraChange(e.target.value)}
+                      className="qr-scanner-camera-selector"
+                    >
+                      {qrCamera.cameras.map((camera) => (
+                        <option key={camera.deviceId} value={camera.deviceId}>
+                          {camera.label || `Camera ${camera.deviceId.substring(0, 8)}...`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 )}
               </div>
-
-              {/* Camera Controls */}
-              {qrCamera.cameras.length > 1 && (
-                <div className="qr-scanner-camera-controls">
-                  <select
-                    name="camera"
-                    value={qrCamera.selectedCamera}
-                    onChange={(e) => qrCamera.handleCameraChange(e.target.value)}
-                    className="qr-scanner-camera-selector"
-                  >
-                    {qrCamera.cameras.map(camera => (
-                      <option key={camera.deviceId} value={camera.deviceId}>
-                        {camera.label || `Camera ${camera.deviceId.substring(0, 8)}...`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-          )}
+            )}
         </div>
 
         {/* Close Button */}

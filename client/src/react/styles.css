@@ -32,8 +32,12 @@
    * - Nav/profile overlays should sit below these SDK modals and the wallet overlay
    *   but above typical app chrome.
    */
-  --w3a-z-underlay-backdrop: calc(var(--w3a-wallet-overlay-z, 2147483646) - var(--w3a-wallet-underlay-backdrop-offset, 2));
-  --w3a-z-underlay-content: calc(var(--w3a-wallet-overlay-z, 2147483646) - var(--w3a-wallet-underlay-content-offset, 1));
+  --w3a-z-underlay-backdrop: calc(
+    var(--w3a-wallet-overlay-z, 2147483646) - var(--w3a-wallet-underlay-backdrop-offset, 2)
+  );
+  --w3a-z-underlay-content: calc(
+    var(--w3a-wallet-overlay-z, 2147483646) - var(--w3a-wallet-underlay-content-offset, 1)
+  );
   --w3a-z-profile-overlay: calc(var(--w3a-wallet-overlay-z, 2147483646) - 4);
   --w3a-z-nav-root: calc(var(--w3a-wallet-overlay-z, 2147483646) - 5);
 }

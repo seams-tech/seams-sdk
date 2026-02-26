@@ -110,7 +110,9 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
           />
           {postfixText && value.length > 0 && (
             <span
-              title={isUsingExistingAccount ? 'Using existing account domain' : 'New account domain'}
+              title={
+                isUsingExistingAccount ? 'Using existing account domain' : 'New account domain'
+              }
               className={`w3a-postfix${isUsingExistingAccount ? ' is-existing' : ''}`}
               ref={bindPostfix}
             >

@@ -30,7 +30,7 @@ export const Toggle: React.FC<ToggleProps> = ({
   checked,
   onChange,
   tooltip,
-  label = "",
+  label = '',
   showTooltip = true,
   className = '',
   size = 'small',
@@ -43,7 +43,8 @@ export const Toggle: React.FC<ToggleProps> = ({
   const isTextOnLeft = textPosition === 'left';
 
   // Use theme-appropriate colors if no custom colors provided
-  const themeColors = colors || (theme === 'dark' ? PROFILE_TOGGLE_TOKENS.dark : PROFILE_TOGGLE_TOKENS.light);
+  const themeColors =
+    colors || (theme === 'dark' ? PROFILE_TOGGLE_TOKENS.dark : PROFILE_TOGGLE_TOKENS.light);
 
   return (
     <div className={`${className}`}>
@@ -71,8 +72,8 @@ export const Toggle: React.FC<ToggleProps> = ({
           ...(isLarge && {
             display: 'flex',
             alignItems: 'center',
-            gap: 'var(--w3a-spacing-sm)'
-          })
+            gap: 'var(--w3a-spacing-sm)',
+          }),
         }}
       >
         <input
@@ -86,7 +87,7 @@ export const Toggle: React.FC<ToggleProps> = ({
             opacity: 0,
             position: 'absolute',
             width: 0,
-            height: 0
+            height: 0,
           }}
         />
         <span
@@ -100,15 +101,14 @@ export const Toggle: React.FC<ToggleProps> = ({
               ? { backgroundColor: themeColors.disabledBackground }
               : checked
                 ? { background: themeColors.activeBackground as any }
-                : { backgroundColor: themeColors.inactiveBackground }
-            ),
+                : { backgroundColor: themeColors.inactiveBackground }),
             borderRadius: isLarge ? 'var(--w3a-border-radius-lg)' : 'var(--w3a-border-radius-md)',
             transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
             cursor: disabled ? 'not-allowed' : 'pointer',
             transform: disabled ? 'scale(1)' : checked ? 'scale(1.02)' : 'scale(1)',
             ...(isLarge && {
-              [isTextOnLeft ? 'marginLeft' : 'marginRight']: 'var(--w3a-spacing-sm)'
-            })
+              [isTextOnLeft ? 'marginLeft' : 'marginRight']: 'var(--w3a-spacing-sm)',
+            }),
           }}
         >
           <span
@@ -141,7 +141,7 @@ export const Toggle: React.FC<ToggleProps> = ({
             display: 'flex',
             alignItems: 'center',
             height: isLarge ? '24px' : '16px',
-            lineHeight: 1
+            lineHeight: 1,
           }}
         >
           {label}

@@ -23,7 +23,8 @@ export const PROFILE_MENU_ITEM_IDS = {
   TRANSACTION_SETTINGS: 'transaction-settings',
 } as const;
 
-export type ProfileSettingsMenuItemId = typeof PROFILE_MENU_ITEM_IDS[keyof typeof PROFILE_MENU_ITEM_IDS];
+export type ProfileSettingsMenuItemId =
+  (typeof PROFILE_MENU_ITEM_IDS)[keyof typeof PROFILE_MENU_ITEM_IDS];
 
 export interface MenuItem {
   id?: ProfileSettingsMenuItemId | (string & {});

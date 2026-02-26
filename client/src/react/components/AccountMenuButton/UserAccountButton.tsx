@@ -1,4 +1,3 @@
-
 import React from 'react';
 import TouchIcon from './icons/TouchIcon';
 import type { UserAccountButtonProps } from './types';
@@ -22,7 +21,7 @@ export const UserAccountButton: React.FC<UserAccountButtonProps> = ({
       onClick();
     }
   };
-  const hideWhenClosed = (hideUsername && !isOpen);
+  const hideWhenClosed = hideUsername && !isOpen;
   return (
     <div className={`w3a-user-account-button-root ${theme}`}>
       <div
@@ -33,20 +32,21 @@ export const UserAccountButton: React.FC<UserAccountButtonProps> = ({
         tabIndex={0}
         aria-haspopup="menu"
         aria-expanded={isOpen}
-        {...(menuId ? { 'aria-controls': menuId } as any : {})}
+        {...(menuId ? ({ 'aria-controls': menuId } as any) : {})}
         onKeyDown={onKeyDown}
         {...(onMouseEnter && { onMouseEnter })}
         {...(onMouseLeave && { onMouseLeave })}
       >
         <div className="w3a-user-account--user-content">
-          <div className={`w3a-user-account--avatar ${hideWhenClosed ? 'hide-username' : ''} ${isOpen ? 'expanded' : 'shrunk'}`}>
+          <div
+            className={`w3a-user-account--avatar ${hideWhenClosed ? 'hide-username' : ''} ${isOpen ? 'expanded' : 'shrunk'}`}
+          >
             <TouchIcon
               className={`w3a-fingerprint-icon ${isOpen ? 'open' : 'closed'}`}
               strokeWidth={1.4}
             />
           </div>
-          {
-            !hideWhenClosed &&
+          {!hideWhenClosed && (
             <UserAccountId
               username={username}
               fullAccountId={fullAccountId}
@@ -54,7 +54,7 @@ export const UserAccountButton: React.FC<UserAccountButtonProps> = ({
               nearExplorerBaseUrl={nearExplorerBaseUrl}
               theme={theme}
             />
-          }
+          )}
         </div>
       </div>
     </div>
@@ -66,7 +66,7 @@ export const UserAccountId = ({
   fullAccountId,
   isOpen,
   nearExplorerBaseUrl,
-  theme = 'dark'
+  theme = 'dark',
 }: {
   username: string;
   fullAccountId?: string;
@@ -79,9 +79,7 @@ export const UserAccountId = ({
 
   return (
     <div className="w3a-user-account--user-details">
-      <p className="w3a-user-account--username">
-        {username || 'User'}
-      </p>
+      <p className="w3a-user-account--username">{username || 'User'}</p>
       <a
         href={username ? `${nearExplorerBaseUrl}/address/${displayAccountId}` : '#'}
         target="_blank"

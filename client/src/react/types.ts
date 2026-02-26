@@ -50,7 +50,7 @@ export {
   LoginPhase,
   LoginStatus,
   ActionPhase,
-  ActionStatus
+  ActionStatus,
 };
 
 // === React states types ===
@@ -114,7 +114,11 @@ export type SDKFlowRuntime = SDKFlowState & {
   /**
    * Resolves with the next started flow sequence number (or null if it doesn't start in time).
    */
-  awaitNextStart: (kind: Exclude<SDKFlowKind, null>, seqAfter: number, timeoutMs: number) => Promise<number | null>;
+  awaitNextStart: (
+    kind: Exclude<SDKFlowKind, null>,
+    seqAfter: number,
+    timeoutMs: number,
+  ) => Promise<number | null>;
   /**
    * Waits for the next started flow (after `seqAfter`) and then for its completion.
    * If no flow starts in `startTimeoutMs`, it returns without error.
@@ -143,8 +147,14 @@ export interface TatchiContextType {
   ////////////////////////////
 
   // Registration and login functions
-  registerPasskey: (nearAccountId: string, options?: RegistrationHooksOptions) => Promise<RegistrationResult>;
-  loginAndCreateSession: (nearAccountId: string, options?: LoginHooksOptions) => Promise<LoginAndCreateSessionResult>;
+  registerPasskey: (
+    nearAccountId: string,
+    options?: RegistrationHooksOptions,
+  ) => Promise<RegistrationResult>;
+  loginAndCreateSession: (
+    nearAccountId: string,
+    options?: LoginHooksOptions,
+  ) => Promise<LoginAndCreateSessionResult>;
   logout: () => void;
 
   // Execute actions
@@ -177,7 +187,7 @@ export interface TatchiContextType {
   // Device linking functions
   startDevice2LinkingFlow: (args?: StartDevice2LinkingFlowArgs) => Promise<{
     qrData: DeviceLinkingQRData;
-    qrCodeDataURL: string
+    qrCodeDataURL: string;
   }>;
 
   stopDevice2LinkingFlow: () => Promise<void>;

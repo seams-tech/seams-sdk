@@ -110,7 +110,8 @@ export const HaloBorder: React.FC<HaloBorderProps> = ({
     borderRadius: `calc(${ringBorderRadius} + ${ringGap}px + ${ringWidth}px)`,
     pointerEvents: 'none' as const,
     zIndex: 3,
-    background: 'conic-gradient(from 0deg, transparent 0%, #4DAFFE 10%, #4DAFFE 25%, transparent 35%)',
+    background:
+      'conic-gradient(from 0deg, transparent 0%, #4DAFFE 10%, #4DAFFE 25%, transparent 35%)',
     padding: `${ringWidth}px`,
     WebkitMask: 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)',
     WebkitMaskComposite: 'xor',

@@ -17,36 +17,44 @@ interface ProfileDropdownWithRefs extends Omit<ProfileDropdownProps, 'menuItemsR
   transactionSettingsOpen?: boolean;
 }
 
-export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRefs>((
-  {
-    isOpen,
-    menuItems,
-    onLogout,
-    onClose,
-    menuItemsRef,
-    toggleColors,
-    currentConfirmConfig,
-    signerMode,
-    onToggleThresholdSigning,
-    onSetUiMode,
-    onToggleShowDetails,
-    onToggleSkipClick,
-    onSetDelay,
-    onToggleTheme,
-    transactionSettingsOpen = false,
-    theme = 'dark',
-    highlightedMenuItemId,
-  },
-  ref
-) => {
+export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRefs>(
+  (
+    {
+      isOpen,
+      menuItems,
+      onLogout,
+      onClose,
+      menuItemsRef,
+      toggleColors,
+      currentConfirmConfig,
+      signerMode,
+      onToggleThresholdSigning,
+      onSetUiMode,
+      onToggleShowDetails,
+      onToggleSkipClick,
+      onSetDelay,
+      onToggleTheme,
+      transactionSettingsOpen = false,
+      theme = 'dark',
+      highlightedMenuItemId,
+    },
+    ref,
+  ) => {
     // Only count transaction settings if it's actually rendered (when expanded)
-    const hasTransactionSettings = transactionSettingsOpen && currentConfirmConfig && onToggleShowDetails && onToggleSkipClick && onSetDelay;
+    const hasTransactionSettings =
+      transactionSettingsOpen &&
+      currentConfirmConfig &&
+      onToggleShowDetails &&
+      onToggleSkipClick &&
+      onSetDelay;
 
     menuItemsRef.current.length = menuItems.length;
 
     const highlightedIndex = useMemo(() => {
       if (!highlightedMenuItemId) return -1;
-      return menuItems.findIndex((item) => item.id === highlightedMenuItemId || item.label === highlightedMenuItemId);
+      return menuItems.findIndex(
+        (item) => item.id === highlightedMenuItemId || item.label === highlightedMenuItemId,
+      );
     }, [highlightedMenuItemId, menuItems]);
 
     return (
@@ -56,7 +64,6 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
         data-state={isOpen ? 'open' : 'closed'}
       >
         <div className="w3a-profile-dropdown-menu">
-
           {/* Menu Items */}
           {menuItems.map((item, index) => {
             const refCallback = (el: HTMLElement | null) => {
@@ -81,32 +88,39 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
           })}
 
           {/* Transaction Settings Section - Always render with animation */}
-          {currentConfirmConfig && (onSetUiMode || onToggleShowDetails) && onToggleSkipClick && onSetDelay && (
-            <TransactionSettingsSection
-              currentConfirmConfig={currentConfirmConfig}
-              signerMode={signerMode}
-              onToggleThresholdSigning={onToggleThresholdSigning}
-              onSetUiMode={onSetUiMode}
-              onToggleShowDetails={onToggleShowDetails}
-              onToggleSkipClick={onToggleSkipClick}
-              onSetDelay={onSetDelay}
-              onToggleTheme={onToggleTheme}
-              isOpen={transactionSettingsOpen}
-              theme={theme}
-              // Set CSS variable to calculate stagger delay in CSS stylesheet
-              style={{ ['--stagger-item-n' as any]: menuItems.length }}
-            />
-          )}
+          {currentConfirmConfig &&
+            (onSetUiMode || onToggleShowDetails) &&
+            onToggleSkipClick &&
+            onSetDelay && (
+              <TransactionSettingsSection
+                currentConfirmConfig={currentConfirmConfig}
+                signerMode={signerMode}
+                onToggleThresholdSigning={onToggleThresholdSigning}
+                onSetUiMode={onSetUiMode}
+                onToggleShowDetails={onToggleShowDetails}
+                onToggleSkipClick={onToggleSkipClick}
+                onSetDelay={onSetDelay}
+                onToggleTheme={onToggleTheme}
+                isOpen={transactionSettingsOpen}
+                theme={theme}
+                // Set CSS variable to calculate stagger delay in CSS stylesheet
+                style={{ ['--stagger-item-n' as any]: menuItems.length }}
+              />
+            )}
 
           {/* Logout Section */}
           <LogoutMenuItem
             onLogout={onLogout}
             className="w3a-logout-menu-item"
             // Set CSS variable to calculate stagger delay in CSS stylesheet
-            style={{ ['--stagger-item-n' as any]: hasTransactionSettings ? menuItems.length + 1 : menuItems.length }}
+            style={{
+              ['--stagger-item-n' as any]: hasTransactionSettings
+                ? menuItems.length + 1
+                : menuItems.length,
+            }}
           />
         </div>
       </div>
     );
-  }
+  },
 );
