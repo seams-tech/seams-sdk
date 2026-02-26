@@ -34,9 +34,8 @@ export function buildNearProfileId(accountId: AccountId): string {
 export function parseLastProfileState(raw: unknown): LastProfileState | null {
   if (raw == null || typeof raw !== 'object') return null;
 
-  const profileId = typeof (raw as any).profileId === 'string'
-    ? String((raw as any).profileId).trim()
-    : '';
+  const profileId =
+    typeof (raw as any).profileId === 'string' ? String((raw as any).profileId).trim() : '';
   if (!profileId) return null;
 
   const deviceNumberRaw = (raw as any).deviceNumber;
@@ -44,12 +43,10 @@ export function parseLastProfileState(raw: unknown): LastProfileState | null {
   if (!Number.isSafeInteger(deviceNumber) || deviceNumber < 1) return null;
 
   const scope = normalizeLastUserScope((raw as any).scope);
-  return scope != null
-    ? { profileId, deviceNumber, scope }
-    : { profileId, deviceNumber };
+  return scope != null ? { profileId, deviceNumber, scope } : { profileId, deviceNumber };
 }
 
-export function inferNearChainId(
+export function inferNearChainIdKey(
   nearAccountId: AccountId,
   networkHint?: UserPreferences['useNetwork'],
 ): string {
@@ -59,7 +56,7 @@ export function inferNearChainId(
 }
 
 export function getNearChainCandidates(accountId: AccountId): string[] {
-  const preferred = inferNearChainId(accountId);
+  const preferred = inferNearChainIdKey(accountId);
   return preferred === 'near:testnet'
     ? ['near:testnet', 'near:mainnet']
     : ['near:mainnet', 'near:testnet'];
@@ -85,7 +82,7 @@ export interface UpsertNearProjectionOperations {
   upsertProfile: (input: UpsertProfileInput) => Promise<unknown>;
   upsertChainAccount: (input: UpsertChainAccountInput) => Promise<unknown>;
   getAccountSigner: (args: {
-    chainId: string;
+    chainIdKey: string;
     accountAddress: string;
     signerId: string;
   }) => Promise<AccountSignerRecord | null>;
@@ -104,10 +101,10 @@ export async function upsertNearAccountProjectionRecords(args: {
   }
 
   const profileId = buildNearProfileId(accountId);
-  const chainId = inferNearChainId(accountId, userData.preferences?.useNetwork);
+  const chainIdKey = inferNearChainIdKey(accountId, userData.preferences?.useNetwork);
   const accountAddress = normalizeAccountAddress(accountId);
-  const signerId = toTrimmedString(userData.passkeyCredential?.rawId || '')
-    || `device-${deviceNumber}`;
+  const signerId =
+    toTrimmedString(userData.passkeyCredential?.rawId || '') || `device-${deviceNumber}`;
 
   await ops.upsertProfile({
     profileId,
@@ -118,20 +115,22 @@ export async function upsertNearAccountProjectionRecords(args: {
 
   await ops.upsertChainAccount({
     profileId,
-    chainId,
+    chainIdKey,
     accountAddress,
     accountModel: 'near-native',
     isPrimary: true,
   });
 
-  const existingSigner = await ops.getAccountSigner({
-    chainId,
-    accountAddress,
-    signerId,
-  }).catch(() => null);
+  const existingSigner = await ops
+    .getAccountSigner({
+      chainIdKey,
+      accountAddress,
+      signerId,
+    })
+    .catch(() => null);
   await ops.upsertAccountSigner({
     profileId,
-    chainId,
+    chainIdKey,
     accountAddress,
     signerId,
     signerSlot: deviceNumber,
@@ -161,20 +160,24 @@ export async function buildNearAccountProjection(args: {
   const accountId = toAccountId(nearAccountId);
   const accountAddress = normalizeAccountAddress(accountId);
 
-  for (const chainId of getNearChainCandidates(accountId)) {
+  for (const chainIdKey of getNearChainCandidates(accountId)) {
     const tx = db.transaction(stores.chainAccountsStore, 'readonly');
-    const idx = tx.store.index('chainId_accountAddress');
-    const chainAccount = await idx.get([chainId, accountAddress]) as ChainAccountRecord | undefined;
+    const idx = tx.store.index('chainIdKey_accountAddress');
+    const chainAccount = (await idx.get([chainIdKey, accountAddress])) as
+      | ChainAccountRecord
+      | undefined;
     if (!chainAccount?.profileId) continue;
 
-    const profile = await db.get(stores.profilesStore, chainAccount.profileId) as ProfileRecord | undefined;
+    const profile = (await db.get(stores.profilesStore, chainAccount.profileId)) as
+      | ProfileRecord
+      | undefined;
     if (!profile) continue;
 
     const signerTx = db.transaction(stores.accountSignersStore, 'readonly');
     const signerStore = signerTx.store;
-    const activeSigners = await signerStore
-      .index('chainId_accountAddress_status')
-      .getAll([chainId, accountAddress, 'active']) as AccountSignerRecord[];
+    const activeSigners = (await signerStore
+      .index('chainIdKey_accountAddress_status')
+      .getAll([chainIdKey, accountAddress, 'active'])) as AccountSignerRecord[];
     if (!activeSigners.length) continue;
 
     const selectedSigner = (() => {
@@ -185,24 +188,23 @@ export async function buildNearAccountProjection(args: {
         ? profile.defaultDeviceNumber
         : 1;
       return (
-        activeSigners.find((row) => row.signerSlot === preferredSlot)
-        || activeSigners
-          .slice()
-          .sort((a, b) => a.signerSlot - b.signerSlot)[0]
+        activeSigners.find((row) => row.signerSlot === preferredSlot) ||
+        activeSigners.slice().sort((a, b) => a.signerSlot - b.signerSlot)[0]
       );
     })();
     if (!selectedSigner) continue;
 
     const metadata = selectedSigner.metadata || {};
-    const passkeyCredentialRawId = typeof metadata.passkeyCredentialRawId === 'string'
-      ? metadata.passkeyCredentialRawId
-      : selectedSigner.signerId;
-    const passkeyCredentialId = typeof metadata.passkeyCredentialId === 'string'
-      ? metadata.passkeyCredentialId
-      : profile.passkeyCredential?.id || passkeyCredentialRawId;
-    const clientNearPublicKey = typeof metadata.clientNearPublicKey === 'string'
-      ? metadata.clientNearPublicKey
-      : '';
+    const passkeyCredentialRawId =
+      typeof metadata.passkeyCredentialRawId === 'string'
+        ? metadata.passkeyCredentialRawId
+        : selectedSigner.signerId;
+    const passkeyCredentialId =
+      typeof metadata.passkeyCredentialId === 'string'
+        ? metadata.passkeyCredentialId
+        : profile.passkeyCredential?.id || passkeyCredentialRawId;
+    const clientNearPublicKey =
+      typeof metadata.clientNearPublicKey === 'string' ? metadata.clientNearPublicKey : '';
 
     return {
       nearAccountId: accountId,

@@ -17,7 +17,7 @@ export const SIGNER_OPS_OUTBOX_STATUS_NEXT_ATTEMPT_INDEX = 'status_nextAttemptAt
 
 export const DB_CONFIG: PasskeyClientDBConfig = {
   dbName: 'PasskeyClientDB',
-  dbVersion: 24, // v24: remove obsolete compatibility stores and fields
+  dbVersion: 25, // v25: chain key fields renamed from chainId -> chainIdKey
   appStateStore: 'appState',
   profileAuthenticatorStore: 'profileAuthenticators',
   profilesStore: 'profiles',
@@ -32,8 +32,10 @@ export const LAST_PROFILE_STATE_APP_STATE_KEY = 'lastProfileState' as const;
 export const NEAR_PROFILE_PREFIX = 'near-profile' as const;
 export const DB_MULTICHAIN_MIGRATION_STATE_KEY = 'migration.dbMultichainSchema.v1' as const;
 export const DB_MULTICHAIN_MIGRATION_LOCK_KEY = 'migration.dbMultichainSchema.v1.lock' as const;
-export const DB_MULTICHAIN_MIGRATION_CHECKPOINTS_KEY = 'migration.dbMultichainSchema.v1.checkpoints' as const;
-export const DB_MULTICHAIN_MIGRATION_LOCK_NAME = 'passkey-client-db-multichain-migration-v1' as const;
+export const DB_MULTICHAIN_MIGRATION_CHECKPOINTS_KEY =
+  'migration.dbMultichainSchema.v1.checkpoints' as const;
+export const DB_MULTICHAIN_MIGRATION_LOCK_NAME =
+  'passkey-client-db-multichain-migration-v1' as const;
 export const DB_MULTICHAIN_MIGRATION_LOCK_TTL_MS = 2 * 60_000;
 export const DB_MULTICHAIN_MIGRATION_HEARTBEAT_INTERVAL_MS = 5_000;
 export const DB_MULTICHAIN_MIGRATION_SCHEMA_VERSION = 6 as const;
@@ -57,24 +59,24 @@ export function upgradePasskeyClientDBSchema(
   {
     const profileAuthenticators = !db.objectStoreNames.contains(DB_CONFIG.profileAuthenticatorStore)
       ? db.createObjectStore(DB_CONFIG.profileAuthenticatorStore, {
-        keyPath: ['profileId', 'deviceNumber', 'credentialId'],
-      })
+          keyPath: ['profileId', 'deviceNumber', 'credentialId'],
+        })
       : transaction.objectStore(DB_CONFIG.profileAuthenticatorStore);
-    try { profileAuthenticators.createIndex('profileId', 'profileId', { unique: false }); } catch {}
-    try { profileAuthenticators.createIndex('credentialId', 'credentialId', { unique: false }); } catch {}
     try {
-      profileAuthenticators.createIndex(
-        'profileId_credentialId',
-        ['profileId', 'credentialId'],
-        { unique: false },
-      );
+      profileAuthenticators.createIndex('profileId', 'profileId', { unique: false });
     } catch {}
     try {
-      profileAuthenticators.createIndex(
-        'profileId_deviceNumber',
-        ['profileId', 'deviceNumber'],
-        { unique: false },
-      );
+      profileAuthenticators.createIndex('credentialId', 'credentialId', { unique: false });
+    } catch {}
+    try {
+      profileAuthenticators.createIndex('profileId_credentialId', ['profileId', 'credentialId'], {
+        unique: false,
+      });
+    } catch {}
+    try {
+      profileAuthenticators.createIndex('profileId_deviceNumber', ['profileId', 'deviceNumber'], {
+        unique: false,
+      });
     } catch {}
   }
 
@@ -82,58 +84,56 @@ export function upgradePasskeyClientDBSchema(
     const profiles = !db.objectStoreNames.contains(DB_CONFIG.profilesStore)
       ? db.createObjectStore(DB_CONFIG.profilesStore, { keyPath: 'profileId' })
       : transaction.objectStore(DB_CONFIG.profilesStore);
-    try { profiles.createIndex('updatedAt', 'updatedAt', { unique: false }); } catch {}
+    try {
+      profiles.createIndex('updatedAt', 'updatedAt', { unique: false });
+    } catch {}
   }
 
   {
     const chainAccounts = !db.objectStoreNames.contains(DB_CONFIG.chainAccountsStore)
       ? db.createObjectStore(DB_CONFIG.chainAccountsStore, {
-        keyPath: ['profileId', 'chainId', 'accountAddress'],
-      })
+          keyPath: ['profileId', 'chainIdKey', 'accountAddress'],
+        })
       : transaction.objectStore(DB_CONFIG.chainAccountsStore);
-    try { chainAccounts.createIndex('profileId', 'profileId', { unique: false }); } catch {}
-    try { chainAccounts.createIndex('chainId', 'chainId', { unique: false }); } catch {}
     try {
-      chainAccounts.createIndex(
-        'chainId_accountAddress',
-        ['chainId', 'accountAddress'],
-        { unique: false },
-      );
+      chainAccounts.createIndex('profileId', 'profileId', { unique: false });
     } catch {}
     try {
-      chainAccounts.createIndex(
-        'profileId_chainId',
-        ['profileId', 'chainId'],
-        { unique: false },
-      );
+      chainAccounts.createIndex('chainIdKey', 'chainIdKey', { unique: false });
+    } catch {}
+    try {
+      chainAccounts.createIndex('chainIdKey_accountAddress', ['chainIdKey', 'accountAddress'], {
+        unique: false,
+      });
+    } catch {}
+    try {
+      chainAccounts.createIndex('profileId_chainIdKey', ['profileId', 'chainIdKey'], { unique: false });
     } catch {}
   }
 
   {
     const accountSigners = !db.objectStoreNames.contains(DB_CONFIG.accountSignersStore)
       ? db.createObjectStore(DB_CONFIG.accountSignersStore, {
-        keyPath: ['chainId', 'accountAddress', 'signerId'],
-      })
+          keyPath: ['chainIdKey', 'accountAddress', 'signerId'],
+        })
       : transaction.objectStore(DB_CONFIG.accountSignersStore);
-    try { accountSigners.createIndex('profileId', 'profileId', { unique: false }); } catch {}
     try {
-      accountSigners.createIndex(
-        'profileId_chainId',
-        ['profileId', 'chainId'],
-        { unique: false },
-      );
+      accountSigners.createIndex('profileId', 'profileId', { unique: false });
+    } catch {}
+    try {
+      accountSigners.createIndex('profileId_chainIdKey', ['profileId', 'chainIdKey'], {
+        unique: false,
+      });
+    } catch {}
+    try {
+      accountSigners.createIndex('chainIdKey_accountAddress', ['chainIdKey', 'accountAddress'], {
+        unique: false,
+      });
     } catch {}
     try {
       accountSigners.createIndex(
-        'chainId_accountAddress',
-        ['chainId', 'accountAddress'],
-        { unique: false },
-      );
-    } catch {}
-    try {
-      accountSigners.createIndex(
-        'chainId_accountAddress_status',
-        ['chainId', 'accountAddress', 'status'],
+        'chainIdKey_accountAddress_status',
+        ['chainIdKey', 'accountAddress', 'status'],
         { unique: false },
       );
     } catch {}
@@ -143,8 +143,12 @@ export function upgradePasskeyClientDBSchema(
     const signerOpsOutbox = !db.objectStoreNames.contains(DB_CONFIG.signerOpsOutboxStore)
       ? db.createObjectStore(DB_CONFIG.signerOpsOutboxStore, { keyPath: 'opId' })
       : transaction.objectStore(DB_CONFIG.signerOpsOutboxStore);
-    try { signerOpsOutbox.createIndex('status', 'status', { unique: false }); } catch {}
-    try { signerOpsOutbox.createIndex('nextAttemptAt', 'nextAttemptAt', { unique: false }); } catch {}
+    try {
+      signerOpsOutbox.createIndex('status', 'status', { unique: false });
+    } catch {}
+    try {
+      signerOpsOutbox.createIndex('nextAttemptAt', 'nextAttemptAt', { unique: false });
+    } catch {}
     try {
       signerOpsOutbox.createIndex(
         SIGNER_OPS_OUTBOX_STATUS_NEXT_ATTEMPT_INDEX,
@@ -152,34 +156,40 @@ export function upgradePasskeyClientDBSchema(
         { unique: false },
       );
     } catch {}
-    try { signerOpsOutbox.createIndex('idempotencyKey', 'idempotencyKey', { unique: true }); } catch {}
     try {
-      signerOpsOutbox.createIndex(
-        'chainId_accountAddress',
-        ['chainId', 'accountAddress'],
-        { unique: false },
-      );
+      signerOpsOutbox.createIndex('idempotencyKey', 'idempotencyKey', { unique: true });
+    } catch {}
+    try {
+      signerOpsOutbox.createIndex('chainIdKey_accountAddress', ['chainIdKey', 'accountAddress'], {
+        unique: false,
+      });
     } catch {}
   }
 
   {
     const recoveryEmails = !db.objectStoreNames.contains(DB_CONFIG.recoveryEmailStore)
       ? db.createObjectStore(DB_CONFIG.recoveryEmailStore, {
-        keyPath: ['profileId', 'hashHex'],
-      })
+          keyPath: ['profileId', 'hashHex'],
+        })
       : transaction.objectStore(DB_CONFIG.recoveryEmailStore);
-    try { recoveryEmails.createIndex('profileId', 'profileId', { unique: false }); } catch {}
+    try {
+      recoveryEmails.createIndex('profileId', 'profileId', { unique: false });
+    } catch {}
   }
 
   {
     const quarantine = !db.objectStoreNames.contains(DB_CONFIG.migrationQuarantineStore)
       ? db.createObjectStore(DB_CONFIG.migrationQuarantineStore, {
-        keyPath: 'quarantineId',
-        autoIncrement: true,
-      })
+          keyPath: 'quarantineId',
+          autoIncrement: true,
+        })
       : transaction.objectStore(DB_CONFIG.migrationQuarantineStore);
-    try { quarantine.createIndex('sourceStore', 'sourceStore', { unique: false }); } catch {}
-    try { quarantine.createIndex('detectedAt', 'detectedAt', { unique: false }); } catch {}
+    try {
+      quarantine.createIndex('sourceStore', 'sourceStore', { unique: false });
+    } catch {}
+    try {
+      quarantine.createIndex('detectedAt', 'detectedAt', { unique: false });
+    } catch {}
   }
 
   if (oldVersion < 24) {

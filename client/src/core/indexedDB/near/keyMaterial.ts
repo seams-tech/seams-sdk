@@ -9,9 +9,9 @@ import type { PasskeyNearKeysDBManager } from '../passkeyNearKeysDB/manager';
 import type {
   ClientShareDerivation,
   LocalNearSkV3Material,
-  PasskeyChainKeyAlgorithm,
-  PasskeyChainKeyKind,
-  PasskeyChainKeyMaterial,
+  PasskeyChainIdKeyAlgorithm,
+  PasskeyChainIdKeyKind,
+  PasskeyChainIdKeyMaterial,
   ThresholdEd25519_2p_V1Material,
 } from '../passkeyNearKeysDB.types';
 import { getNearChainCandidates } from './accountProjection';
@@ -24,8 +24,8 @@ export interface NearKeyMaterialDeps {
 export interface StoreNearKeyMaterialInput {
   nearAccountId: AccountId;
   deviceNumber: number;
-  keyKind: PasskeyChainKeyKind;
-  algorithm?: PasskeyChainKeyAlgorithm;
+  keyKind: PasskeyChainIdKeyKind;
+  algorithm?: PasskeyChainIdKeyAlgorithm;
   publicKey: string;
   signerId?: string;
   wrapKeySalt?: string;
@@ -33,7 +33,7 @@ export interface StoreNearKeyMaterialInput {
   timestamp?: number;
   schemaVersion?: number;
   profileId?: string;
-  chainId?: string;
+  chainIdKey?: string;
 }
 
 export interface StoreNearLocalKeyMaterialInput {
@@ -48,7 +48,7 @@ export interface StoreNearLocalKeyMaterialInput {
   timestamp?: number;
   schemaVersion?: number;
   profileId?: string;
-  chainId?: string;
+  chainIdKey?: string;
 }
 
 export interface StoreNearThresholdKeyMaterialInput {
@@ -63,13 +63,13 @@ export interface StoreNearThresholdKeyMaterialInput {
   timestamp?: number;
   schemaVersion?: number;
   profileId?: string;
-  chainId?: string;
+  chainIdKey?: string;
 }
 
 function mapLocalNearKey(
   nearAccountId: AccountId,
   deviceNumber: number,
-  rec: PasskeyChainKeyMaterial | null,
+  rec: PasskeyChainIdKeyMaterial | null,
 ): LocalNearSkV3Material | null {
   if (!rec) return null;
   const wrapKeySalt = toTrimmedString(rec.wrapKeySalt || '');
@@ -84,7 +84,7 @@ function mapLocalNearKey(
     publicKey: rec.publicKey,
     wrapKeySalt,
     encryptedSk,
-    ...((usage === 'runtime-signing' || usage === 'export-only') ? { usage } : {}),
+    ...(usage === 'runtime-signing' || usage === 'export-only' ? { usage } : {}),
     chacha20NonceB64u,
     timestamp: rec.timestamp,
   };
@@ -93,7 +93,7 @@ function mapLocalNearKey(
 function mapThresholdNearKey(
   nearAccountId: AccountId,
   deviceNumber: number,
-  rec: PasskeyChainKeyMaterial | null,
+  rec: PasskeyChainIdKeyMaterial | null,
 ): ThresholdEd25519_2p_V1Material | null {
   if (!rec) return null;
   const payload = (rec.payload || {}) as Record<string, unknown>;
@@ -103,8 +103,8 @@ function mapThresholdNearKey(
     | '';
   if (!relayerKeyId || !clientShareDerivation) return null;
   const participants =
-    parseThresholdEd25519ParticipantsV1(payload.participants)
-    || buildThresholdEd25519Participants2pV1({
+    parseThresholdEd25519ParticipantsV1(payload.participants) ||
+    buildThresholdEd25519Participants2pV1({
       relayerKeyId,
       clientShareDerivation,
     });
@@ -124,18 +124,18 @@ function mapThresholdNearKey(
 async function resolveNearProfileByAccount(
   deps: NearKeyMaterialDeps,
   nearAccountId: AccountId,
-): Promise<{ profileId: string; chainId: string } | null> {
+): Promise<{ profileId: string; chainIdKey: string } | null> {
   const accountAddress = toTrimmedString(nearAccountId || '').toLowerCase();
   if (!accountAddress) return null;
 
-  for (const chainId of getNearChainCandidates(accountAddress as AccountId)) {
-    const profile = await deps.clientDB.getProfileByAccount(chainId, accountAddress).catch(
-      () => null,
-    );
+  for (const chainIdKey of getNearChainCandidates(accountAddress as AccountId)) {
+    const profile = await deps.clientDB
+      .getProfileByAccount(chainIdKey, accountAddress)
+      .catch(() => null);
     if (profile?.profileId) {
       return {
         profileId: String(profile.profileId).trim(),
-        chainId,
+        chainIdKey,
       };
     }
   }
@@ -148,11 +148,11 @@ export async function getNearLocalKeyMaterial(
   deviceNumber: number,
 ): Promise<LocalNearSkV3Material | null> {
   const resolved = await resolveNearProfileByAccount(deps, nearAccountId);
-  if (!resolved?.profileId || !resolved.chainId) return null;
+  if (!resolved?.profileId || !resolved.chainIdKey) return null;
   const keyRecord = await deps.nearKeysDB.getKeyMaterial(
     resolved.profileId,
     deviceNumber,
-    resolved.chainId,
+    resolved.chainIdKey,
     'local_sk_encrypted_v1',
   );
   return mapLocalNearKey(nearAccountId, deviceNumber, keyRecord);
@@ -164,11 +164,11 @@ export async function getNearThresholdKeyMaterial(
   deviceNumber: number,
 ): Promise<ThresholdEd25519_2p_V1Material | null> {
   const resolved = await resolveNearProfileByAccount(deps, nearAccountId);
-  if (!resolved?.profileId || !resolved.chainId) return null;
+  if (!resolved?.profileId || !resolved.chainIdKey) return null;
   const keyRecord = await deps.nearKeysDB.getKeyMaterial(
     resolved.profileId,
     deviceNumber,
-    resolved.chainId,
+    resolved.chainIdKey,
     'threshold_share_v1',
   );
   return mapThresholdNearKey(nearAccountId, deviceNumber, keyRecord);
@@ -192,7 +192,9 @@ export async function storeNearKeyMaterial(
   if (keyKind !== 'local_sk_encrypted_v1' && keyKind !== 'threshold_share_v1') {
     throw new Error(`IndexedDBManager: Unsupported NEAR keyKind for key write: ${keyKind}`);
   }
-  const algorithm = String(input.algorithm || 'ed25519').trim().toLowerCase();
+  const algorithm = String(input.algorithm || 'ed25519')
+    .trim()
+    .toLowerCase();
   if (algorithm !== 'ed25519') {
     throw new Error(`IndexedDBManager: Unsupported NEAR key algorithm for key write: ${algorithm}`);
   }
@@ -202,53 +204,59 @@ export async function storeNearKeyMaterial(
   }
 
   const explicitProfileId = toTrimmedString(input.profileId || '');
-  const explicitChainId = toTrimmedString(input.chainId || '').toLowerCase();
+  const explicitChainIdKey = toTrimmedString(input.chainIdKey || '').toLowerCase();
   const hasExplicitProfileId = explicitProfileId.length > 0;
-  const hasExplicitChainId = explicitChainId.length > 0;
-  if (hasExplicitProfileId !== hasExplicitChainId) {
+  const hasExplicitChainIdKey = explicitChainIdKey.length > 0;
+  if (hasExplicitProfileId !== hasExplicitChainIdKey) {
     throw new Error(
-      'IndexedDBManager: profileId and chainId must be provided together for explicit key target writes',
+      'IndexedDBManager: profileId and chainIdKey must be provided together for explicit key target writes',
     );
   }
 
-  const resolved = hasExplicitProfileId && hasExplicitChainId
-    ? null
-    : await resolveNearProfileByAccount(deps, accountAddress as AccountId);
+  const resolved =
+    hasExplicitProfileId && hasExplicitChainIdKey
+      ? null
+      : await resolveNearProfileByAccount(deps, accountAddress as AccountId);
   const profileId = hasExplicitProfileId
     ? explicitProfileId
     : toTrimmedString(resolved?.profileId || '');
-  const chainId = hasExplicitChainId
-    ? explicitChainId
-    : toTrimmedString(resolved?.chainId || '').toLowerCase();
-  if (!profileId || !chainId) {
+  const chainIdKey = hasExplicitChainIdKey
+    ? explicitChainIdKey
+    : toTrimmedString(resolved?.chainIdKey || '').toLowerCase();
+  if (!profileId || !chainIdKey) {
     throw new Error(
-      `IndexedDBManager: Missing profile/account mapping for NEAR account "${accountAddress}". `
-      + 'Persist profile/account first or pass explicit profileId + chainId.',
+      `IndexedDBManager: Missing profile/account mapping for NEAR account "${accountAddress}". ` +
+        'Persist profile/account first or pass explicit profileId + chainIdKey.',
     );
   }
-  if (!chainId.startsWith('near:')) {
-    throw new Error(`IndexedDBManager: NEAR key writes require near:* chainId, received "${chainId}"`);
+  if (!chainIdKey.startsWith('near:')) {
+    throw new Error(
+      `IndexedDBManager: NEAR key writes require near:* chainIdKey, received "${chainIdKey}"`,
+    );
   }
 
-  if (hasExplicitProfileId && hasExplicitChainId) {
-    const mapped = await deps.clientDB.getProfileByAccount(chainId, accountAddress).catch(() => null);
+  if (hasExplicitProfileId && hasExplicitChainIdKey) {
+    const mapped = await deps.clientDB
+      .getProfileByAccount(chainIdKey, accountAddress)
+      .catch(() => null);
     if (mapped?.profileId && String(mapped.profileId).trim() !== profileId) {
       throw new Error(
-        `IndexedDBManager: Explicit key target (${profileId}, ${chainId}, ${accountAddress}) mismatches mapped profile ${String(mapped.profileId).trim()}`,
+        `IndexedDBManager: Explicit key target (${profileId}, ${chainIdKey}, ${accountAddress}) mismatches mapped profile ${String(mapped.profileId).trim()}`,
       );
     }
   }
 
-  const schemaVersion = Number.isSafeInteger(input.schemaVersion)
-    && typeof input.schemaVersion === 'number'
-    && input.schemaVersion >= 1
-    ? input.schemaVersion
-    : 1;
+  const schemaVersion =
+    Number.isSafeInteger(input.schemaVersion) &&
+    typeof input.schemaVersion === 'number' &&
+    input.schemaVersion >= 1
+      ? input.schemaVersion
+      : 1;
 
   await deps.nearKeysDB.storeKeyMaterial({
     profileId,
     deviceNumber: input.deviceNumber,
-    chainId,
+    chainIdKey,
     keyKind,
     algorithm,
     publicKey,
@@ -290,7 +298,7 @@ export async function storeNearLocalKeyMaterial(
     timestamp: input.timestamp,
     schemaVersion: input.schemaVersion,
     profileId: input.profileId,
-    chainId: input.chainId,
+    chainIdKey: input.chainIdKey,
   });
 }
 
@@ -299,13 +307,15 @@ export async function storeNearThresholdKeyMaterial(
   input: StoreNearThresholdKeyMaterialInput,
 ): Promise<void> {
   const relayerKeyId = toTrimmedString(input.relayerKeyId || '');
-  const clientShareDerivation = toTrimmedString(input.clientShareDerivation || '') as ClientShareDerivation;
+  const clientShareDerivation = toTrimmedString(
+    input.clientShareDerivation || '',
+  ) as ClientShareDerivation;
   if (!relayerKeyId || !clientShareDerivation) {
     throw new Error('IndexedDBManager: Missing threshold NEAR key fields for key write');
   }
   const participants =
-    parseThresholdEd25519ParticipantsV1(input.participants)
-    || buildThresholdEd25519Participants2pV1({
+    parseThresholdEd25519ParticipantsV1(input.participants) ||
+    buildThresholdEd25519Participants2pV1({
       relayerKeyId,
       clientShareDerivation,
     });
@@ -325,6 +335,6 @@ export async function storeNearThresholdKeyMaterial(
     timestamp: input.timestamp,
     schemaVersion: input.schemaVersion,
     profileId: input.profileId,
-    chainId: input.chainId,
+    chainIdKey: input.chainIdKey,
   });
 }

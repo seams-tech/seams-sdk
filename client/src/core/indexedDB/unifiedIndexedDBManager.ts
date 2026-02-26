@@ -18,8 +18,8 @@ import type {
 import type { PasskeyNearKeysDBManager } from './passkeyNearKeysDB/manager';
 import {
   type LocalNearSkV3Material,
-  type PasskeyChainKeyKind,
-  type PasskeyChainKeyMaterial,
+  type PasskeyChainIdKeyKind,
+  type PasskeyChainIdKeyMaterial,
   type ThresholdEd25519_2p_V1Material,
 } from './passkeyNearKeysDB.types';
 import {
@@ -70,12 +70,7 @@ export class UnifiedIndexedDBManager {
       // This will trigger the getDB() method in both managers and ensure databases are created
       await Promise.all([
         this.clientDB.getAppState('_init_check'),
-        this.nearKeysDB.getKeyMaterial(
-          '_init_check',
-          1,
-          'near:testnet',
-          'local_sk_encrypted_v1',
-        )
+        this.nearKeysDB.getKeyMaterial('_init_check', 1, 'near:testnet', 'local_sk_encrypted_v1'),
       ]);
 
       try {
@@ -135,9 +130,7 @@ export class UnifiedIndexedDBManager {
     return this.clientDB.getLastProfileState();
   }
 
-  async setLastProfileState(
-    state: LastProfileState | null,
-  ): Promise<void> {
+  async setLastProfileState(state: LastProfileState | null): Promise<void> {
     return this.clientDB.setLastProfileState(state);
   }
 
@@ -155,24 +148,26 @@ export class UnifiedIndexedDBManager {
   }
 
   async getProfileByAccount(
-    chainId: string,
+    chainIdKey: string,
     accountAddress: string,
   ): Promise<ProfileRecord | null> {
-    return this.clientDB.getProfileByAccount(chainId, accountAddress);
+    return this.clientDB.getProfileByAccount(chainIdKey, accountAddress);
   }
 
   async upsertAccountSigner(input: UpsertAccountSignerInput): Promise<AccountSignerRecord> {
     return this.clientDB.upsertAccountSigner(input);
   }
 
-  async listAccountSigners(
-    args: { chainId: string; accountAddress: string; status?: AccountSignerStatus },
-  ): Promise<AccountSignerRecord[]> {
+  async listAccountSigners(args: {
+    chainIdKey: string;
+    accountAddress: string;
+    status?: AccountSignerStatus;
+  }): Promise<AccountSignerRecord[]> {
     return this.clientDB.listAccountSigners(args);
   }
 
   async getAccountSigner(args: {
-    chainId: string;
+    chainIdKey: string;
     accountAddress: string;
     signerId: string;
   }): Promise<AccountSignerRecord | null> {
@@ -180,7 +175,7 @@ export class UnifiedIndexedDBManager {
   }
 
   async setAccountSignerStatus(args: {
-    chainId: string;
+    chainIdKey: string;
     accountAddress: string;
     signerId: string;
     status: AccountSignerStatus;
@@ -190,9 +185,7 @@ export class UnifiedIndexedDBManager {
     return this.clientDB.setAccountSignerStatus(args);
   }
 
-  async enqueueSignerOperation(
-    input: EnqueueSignerOperationInput,
-  ): Promise<SignerOpOutboxRecord> {
+  async enqueueSignerOperation(input: EnqueueSignerOperationInput): Promise<SignerOpOutboxRecord> {
     return this.clientDB.enqueueSignerOperation(input);
   }
 
@@ -216,17 +209,17 @@ export class UnifiedIndexedDBManager {
   }
 
   // === key material convenience ===
-  async storeKeyMaterial(input: PasskeyChainKeyMaterial): Promise<void> {
+  async storeKeyMaterial(input: PasskeyChainIdKeyMaterial): Promise<void> {
     return this.nearKeysDB.storeKeyMaterial(input);
   }
 
   async getKeyMaterial(
     profileId: string,
     deviceNumber: number,
-    chainId: string,
-    keyKind: PasskeyChainKeyKind,
-  ): Promise<PasskeyChainKeyMaterial | null> {
-    return this.nearKeysDB.getKeyMaterial(profileId, deviceNumber, chainId, keyKind);
+    chainIdKey: string,
+    keyKind: PasskeyChainIdKeyKind,
+  ): Promise<PasskeyChainIdKeyMaterial | null> {
+    return this.nearKeysDB.getKeyMaterial(profileId, deviceNumber, chainIdKey, keyKind);
   }
 
   private computeSignerOpRetryDelayMs(nextAttemptCount: number): number {
@@ -234,19 +227,15 @@ export class UnifiedIndexedDBManager {
     return Math.min(5 * 60_000, 5_000 * Math.pow(2, bounded - 1));
   }
 
-  async repairSignerMutationSagas(args?: {
-    limit?: number;
-    now?: number;
-  }): Promise<{
+  async repairSignerMutationSagas(args?: { limit?: number; now?: number }): Promise<{
     scanned: number;
     confirmed: number;
     failed: number;
     deadLettered: number;
   }> {
     const now = typeof args?.now === 'number' ? args.now : Date.now();
-    const limit = Number.isSafeInteger(args?.limit) && Number(args?.limit) > 0
-      ? Number(args?.limit)
-      : 100;
+    const limit =
+      Number.isSafeInteger(args?.limit) && Number(args?.limit) > 0 ? Number(args?.limit) : 100;
     const summary = {
       scanned: 0,
       confirmed: 0,
@@ -264,15 +253,16 @@ export class UnifiedIndexedDBManager {
       summary.scanned += 1;
       const payload = (op.payload || {}) as Record<string, unknown>;
       const signer = await this.clientDB.getAccountSigner({
-        chainId: op.chainId,
+        chainIdKey: op.chainIdKey,
         accountAddress: op.accountAddress,
         signerId: op.signerId,
       });
       const profileIdRaw = toTrimmedString(signer?.profileId || payload.profileId || '');
-      const signerSlotRaw = Number(payload.signerSlot ?? payload.deviceNumber ?? signer?.signerSlot);
-      const signerSlot = Number.isSafeInteger(signerSlotRaw) && signerSlotRaw >= 1
-        ? signerSlotRaw
-        : null;
+      const signerSlotRaw = Number(
+        payload.signerSlot ?? payload.deviceNumber ?? signer?.signerSlot,
+      );
+      const signerSlot =
+        Number.isSafeInteger(signerSlotRaw) && signerSlotRaw >= 1 ? signerSlotRaw : null;
 
       const markFailed = async (reason: string): Promise<void> => {
         const nextAttemptCount = (op.attemptCount || 0) + 1;
@@ -323,7 +313,7 @@ export class UnifiedIndexedDBManager {
           const keys = await this.nearKeysDB.listKeyMaterialByProfileAndDevice(
             profileIdRaw,
             signerSlot,
-            op.chainId,
+            op.chainIdKey,
           );
           if (keys.length === 0) {
             await markFailed('Missing key material for signer operation');
@@ -331,7 +321,7 @@ export class UnifiedIndexedDBManager {
           }
           if (signer.status !== 'active') {
             await this.clientDB.setAccountSignerStatus({
-              chainId: op.chainId,
+              chainIdKey: op.chainIdKey,
               accountAddress: op.accountAddress,
               signerId: op.signerId,
               status: 'active',
@@ -346,7 +336,7 @@ export class UnifiedIndexedDBManager {
           if (signer) {
             if (signer.status !== 'revoked') {
               await this.clientDB.setAccountSignerStatus({
-                chainId: op.chainId,
+                chainIdKey: op.chainIdKey,
                 accountAddress: op.accountAddress,
                 signerId: op.signerId,
                 status: 'revoked',
@@ -358,13 +348,13 @@ export class UnifiedIndexedDBManager {
               const keys = await this.nearKeysDB.listKeyMaterialByProfileAndDevice(
                 profileIdRaw,
                 signerSlot,
-                op.chainId,
+                op.chainIdKey,
               );
               for (const key of keys) {
                 await this.nearKeysDB.deleteKeyMaterial(
                   key.profileId,
                   key.deviceNumber,
-                  key.chainId,
+                  key.chainIdKey,
                   key.keyKind,
                 );
               }

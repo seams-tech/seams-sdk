@@ -3,8 +3,8 @@ import { toTrimmedString } from '@shared/utils/validation';
 import type {
   ClientShareDerivation,
   LocalNearSkV3Material,
-  PasskeyChainKeyKind,
-  PasskeyChainKeyMaterial,
+  PasskeyChainIdKeyKind,
+  PasskeyChainIdKeyMaterial,
   ThresholdEd25519_2p_V1Material,
 } from '../passkeyNearKeysDB.types';
 import {
@@ -14,20 +14,16 @@ import {
   normalizePayloadEnvelope,
   sanitizePayload,
 } from './envelope';
-import {
-  DB_CONFIG,
-  type PasskeyNearKeysDBConfig,
-  upgradePasskeyNearKeysDBSchema,
-} from './schema';
+import { DB_CONFIG, type PasskeyNearKeysDBConfig, upgradePasskeyNearKeysDBSchema } from './schema';
 
 export type {
   ClientShareDerivation,
   LocalNearSkV3Material,
-  PasskeyChainKeyAlgorithm,
-  PasskeyChainKeyKind,
-  PasskeyChainKeyMaterial,
-  PasskeyChainKeyPayloadEnvelope,
-  PasskeyChainKeyPayloadEnvelopeAAD,
+  PasskeyChainIdKeyAlgorithm,
+  PasskeyChainIdKeyKind,
+  PasskeyChainIdKeyMaterial,
+  PasskeyChainIdKeyPayloadEnvelope,
+  PasskeyChainIdKeyPayloadEnvelopeAAD,
   PasskeyNearKeyMaterial,
   PasskeyNearKeyMaterialKind,
   ThresholdEd25519_2p_V1Material,
@@ -49,7 +45,9 @@ export class PasskeyNearKeysDBManager {
   setDbName(dbName: string): void {
     const next = toTrimmedString(dbName || '');
     if (!next || next === this.config.dbName) return;
-    try { (this.db as any)?.close?.(); } catch {}
+    try {
+      (this.db as any)?.close?.();
+    } catch {}
     this.db = null;
     this.config = { ...this.config, dbName: next };
   }
@@ -63,7 +61,9 @@ export class PasskeyNearKeysDBManager {
     if (next === this.disabled) return;
     this.disabled = next;
     if (next) {
-      try { (this.db as any)?.close?.(); } catch {}
+      try {
+        (this.db as any)?.close?.();
+      } catch {}
       this.db = null;
     }
   }
@@ -98,12 +98,12 @@ export class PasskeyNearKeysDBManager {
     return this.db;
   }
 
-  async storeKeyMaterial(data: PasskeyChainKeyMaterial): Promise<void> {
+  async storeKeyMaterial(data: PasskeyChainIdKeyMaterial): Promise<void> {
     const db = await this.getDB();
     const profileId = toTrimmedString(data.profileId || '');
     const signerId = toTrimmedString(data.signerId || '');
     const wrapKeySalt = toTrimmedString(data.wrapKeySalt || '');
-    const chainId = toTrimmedString(data.chainId || '').toLowerCase();
+    const chainIdKey = toTrimmedString(data.chainIdKey || '').toLowerCase();
     const keyKind = toTrimmedString(data.keyKind || '');
     const algorithm = toTrimmedString(data.algorithm || '');
     const publicKey = toTrimmedString(data.publicKey || '');
@@ -113,8 +113,8 @@ export class PasskeyNearKeysDBManager {
     if (!Number.isSafeInteger(data.deviceNumber) || data.deviceNumber < 1) {
       throw new Error('PasskeyNearKeysDB: Invalid deviceNumber for key material record');
     }
-    if (!chainId) {
-      throw new Error('PasskeyNearKeysDB: Missing chainId for key material record');
+    if (!chainIdKey) {
+      throw new Error('PasskeyNearKeysDB: Missing chainIdKey for key material record');
     }
     if (!keyKind) {
       throw new Error('PasskeyNearKeysDB: Missing keyKind for key material record');
@@ -136,7 +136,7 @@ export class PasskeyNearKeysDBManager {
     const expectedAAD = buildEnvelopeAAD({
       profileId,
       deviceNumber: data.deviceNumber,
-      chainId,
+      chainIdKey,
       keyKind,
       schemaVersion: data.schemaVersion,
       ...(signerId ? { signerId } : {}),
@@ -144,7 +144,7 @@ export class PasskeyNearKeysDBManager {
     const payloadEnvelope = normalizePayloadEnvelope(
       data.payloadEnvelope,
       expectedAAD,
-      `${profileId}/${data.deviceNumber}/${chainId}/${keyKind}`,
+      `${profileId}/${data.deviceNumber}/${chainIdKey}/${keyKind}`,
     );
 
     const normalizedLocalSkEnvelope = normalizeLocalSkEnvelope({
@@ -156,10 +156,10 @@ export class PasskeyNearKeysDBManager {
     const storedPayload = normalizedLocalSkEnvelope.payload;
     const storedPayloadEnvelope = normalizedLocalSkEnvelope.payloadEnvelope;
 
-    const toStore: PasskeyChainKeyMaterial = {
+    const toStore: PasskeyChainIdKeyMaterial = {
       profileId,
       deviceNumber: data.deviceNumber,
-      chainId,
+      chainIdKey,
       keyKind,
       algorithm,
       publicKey,
@@ -176,15 +176,20 @@ export class PasskeyNearKeysDBManager {
   async getKeyMaterial(
     profileId: string,
     deviceNumber: number,
-    chainId: string,
-    keyKind: PasskeyChainKeyKind
-  ): Promise<PasskeyChainKeyMaterial | null> {
+    chainIdKey: string,
+    keyKind: PasskeyChainIdKeyKind,
+  ): Promise<PasskeyChainIdKeyMaterial | null> {
     const db = await this.getDB();
     const normalizedProfileId = toTrimmedString(profileId || '');
-    const normalizedChainId = toTrimmedString(chainId || '').toLowerCase();
+    const normalizedChainIdKey = toTrimmedString(chainIdKey || '').toLowerCase();
     const normalizedKeyKind = toTrimmedString(keyKind || '');
-    if (!normalizedProfileId || !normalizedChainId || !normalizedKeyKind) return null;
-    const rec = await db.get(this.config.storeName, [normalizedProfileId, deviceNumber, normalizedChainId, normalizedKeyKind]) as PasskeyChainKeyMaterial | undefined;
+    if (!normalizedProfileId || !normalizedChainIdKey || !normalizedKeyKind) return null;
+    const rec = (await db.get(this.config.storeName, [
+      normalizedProfileId,
+      deviceNumber,
+      normalizedChainIdKey,
+      normalizedKeyKind,
+    ])) as PasskeyChainIdKeyMaterial | undefined;
     if (!rec) return null;
     return normalizeStoredPayloadRecordValue(rec);
   }
@@ -192,39 +197,46 @@ export class PasskeyNearKeysDBManager {
   async listKeyMaterialByProfileAndDevice(
     profileId: string,
     deviceNumber: number,
-    chainId?: string,
-  ): Promise<PasskeyChainKeyMaterial[]> {
+    chainIdKey?: string,
+  ): Promise<PasskeyChainIdKeyMaterial[]> {
     const db = await this.getDB();
     const normalizedProfileId = toTrimmedString(profileId || '');
-    const normalizedChainId = toTrimmedString(chainId || '').toLowerCase();
+    const normalizedChainIdKey = toTrimmedString(chainIdKey || '').toLowerCase();
     if (!normalizedProfileId) return [];
     if (!Number.isSafeInteger(deviceNumber) || deviceNumber < 1) return [];
 
     const tx = db.transaction(this.config.storeName, 'readonly');
-    const rows = await tx.store
+    const rows = (await tx.store
       .index('profileId_deviceNumber')
-      .getAll([normalizedProfileId, deviceNumber]) as PasskeyChainKeyMaterial[];
+      .getAll([normalizedProfileId, deviceNumber])) as PasskeyChainIdKeyMaterial[];
     await tx.done;
 
     const hydratedRows = (rows || [])
       .map((row) => normalizeStoredPayloadRecordValue(row))
-      .filter((row): row is PasskeyChainKeyMaterial => !!row);
-    if (!normalizedChainId) return hydratedRows;
-    return hydratedRows.filter((row) => String(row.chainId).trim().toLowerCase() === normalizedChainId);
+      .filter((row): row is PasskeyChainIdKeyMaterial => !!row);
+    if (!normalizedChainIdKey) return hydratedRows;
+    return hydratedRows.filter(
+      (row) => String(row.chainIdKey).trim().toLowerCase() === normalizedChainIdKey,
+    );
   }
 
   async deleteKeyMaterial(
     profileId: string,
     deviceNumber: number,
-    chainId: string,
-    keyKind: PasskeyChainKeyKind,
+    chainIdKey: string,
+    keyKind: PasskeyChainIdKeyKind,
   ): Promise<void> {
     const db = await this.getDB();
     const normalizedProfileId = toTrimmedString(profileId || '');
-    const normalizedChainId = toTrimmedString(chainId || '').toLowerCase();
+    const normalizedChainIdKey = toTrimmedString(chainIdKey || '').toLowerCase();
     const normalizedKeyKind = toTrimmedString(keyKind || '');
-    if (!normalizedProfileId || !normalizedChainId || !normalizedKeyKind) return;
+    if (!normalizedProfileId || !normalizedChainIdKey || !normalizedKeyKind) return;
     if (!Number.isSafeInteger(deviceNumber) || deviceNumber < 1) return;
-    await db.delete(this.config.storeName, [normalizedProfileId, deviceNumber, normalizedChainId, normalizedKeyKind]);
+    await db.delete(this.config.storeName, [
+      normalizedProfileId,
+      deviceNumber,
+      normalizedChainIdKey,
+      normalizedKeyKind,
+    ]);
   }
 }

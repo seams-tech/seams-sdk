@@ -478,13 +478,13 @@ async function resolveThresholdEcdsaEthereumAddress(
 
     const preferred = [
       ...thresholdRows.filter(
-        (row) => row.isPrimary && String(row.chainId || '').startsWith('eip155:'),
+        (row) => row.isPrimary && String(row.chainIdKey || '').startsWith('evm:'),
       ),
       ...thresholdRows.filter(
-        (row) => row.isPrimary && String(row.chainId || '').startsWith('tempo:'),
+        (row) => row.isPrimary && String(row.chainIdKey || '').startsWith('tempo:'),
       ),
-      ...thresholdRows.filter((row) => String(row.chainId || '').startsWith('eip155:')),
-      ...thresholdRows.filter((row) => String(row.chainId || '').startsWith('tempo:')),
+      ...thresholdRows.filter((row) => String(row.chainIdKey || '').startsWith('evm:')),
+      ...thresholdRows.filter((row) => String(row.chainIdKey || '').startsWith('tempo:')),
       ...thresholdRows,
     ];
 

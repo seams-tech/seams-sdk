@@ -49,8 +49,8 @@ export interface InvariantStores {
   migrationQuarantineStore: string;
 }
 
-function normalizeChainId(chainId: unknown): string {
-  return toTrimmedString(chainId || '').toLowerCase();
+function normalizeChainIdKey(chainIdKey: unknown): string {
+  return toTrimmedString(chainIdKey || '').toLowerCase();
 }
 
 function normalizeAccountAddress(address: unknown): string {
@@ -94,10 +94,7 @@ async function quarantineInvariantViolation(
   migrationQuarantineStore: string,
   violation: InvariantViolationRecord,
 ): Promise<void> {
-  const tx = db.transaction(
-    [violation.sourceStore, migrationQuarantineStore],
-    'readwrite',
-  );
+  const tx = db.transaction([violation.sourceStore, migrationQuarantineStore], 'readwrite');
   const quarantine: MigrationQuarantineRecord = {
     sourceStore: violation.sourceStore,
     sourcePrimaryKey: encodeDbPrimaryKey(violation.sourcePrimaryKey),
@@ -193,12 +190,16 @@ export async function validateAndQuarantineInvariantViolations(
     string,
     Array<{ primaryKey: unknown; row: AccountSignerRecord }>
   >();
-  const chainAccountKey = (profileId: string, chainId: string, accountAddress: string): string =>
-    `${profileId}::${normalizeChainId(chainId)}::${normalizeAccountAddress(accountAddress)}`;
-  const signerSlotKey = (profileId: string, chainId: string, accountAddress: string, signerSlot: number): string =>
-    `${chainAccountKey(profileId, chainId, accountAddress)}::slot:${signerSlot}`;
-  const profileChainKey = (profileId: string, chainId: string): string =>
-    `${profileId}::${normalizeChainId(chainId)}`;
+  const chainAccountKey = (profileId: string, chainIdKey: string, accountAddress: string): string =>
+    `${profileId}::${normalizeChainIdKey(chainIdKey)}::${normalizeAccountAddress(accountAddress)}`;
+  const signerSlotKey = (
+    profileId: string,
+    chainIdKey: string,
+    accountAddress: string,
+    signerSlot: number,
+  ): string => `${chainAccountKey(profileId, chainIdKey, accountAddress)}::slot:${signerSlot}`;
+  const profileChainIdKey = (profileId: string, chainIdKey: string): string =>
+    `${profileId}::${normalizeChainIdKey(chainIdKey)}`;
 
   {
     const tx = db.transaction(args.stores.profilesStore, 'readonly');
@@ -229,14 +230,14 @@ export async function validateAndQuarantineInvariantViolations(
       checked += 1;
       const row = cursor.value as ChainAccountRecord;
       const profileId = toTrimmedString(row?.profileId || '');
-      const chainId = normalizeChainId((row as any)?.chainId);
+      const chainIdKey = normalizeChainIdKey((row as any)?.chainIdKey);
       const accountAddress = normalizeAccountAddress((row as any)?.accountAddress);
       const accountModel = normalizeAccountModel((row as any)?.accountModel);
-      if (!profileId || !chainId || !accountAddress) {
+      if (!profileId || !chainIdKey || !accountAddress) {
         addViolation({
           sourceStore: args.stores.chainAccountsStore,
           sourcePrimaryKey: cursor.primaryKey,
-          reason: 'Missing profileId/chainId/accountAddress on chain account row',
+          reason: 'Missing profileId/chainIdKey/accountAddress on chain account row',
           record: row,
         });
         cursor = await cursor.continue();
@@ -262,16 +263,16 @@ export async function validateAndQuarantineInvariantViolations(
         cursor = await cursor.continue();
         continue;
       }
-      const accountRef = chainAccountKey(profileId, chainId, accountAddress);
+      const accountRef = chainAccountKey(profileId, chainIdKey, accountAddress);
       chainAccounts.add(accountRef);
       chainAccountModelByRef.set(accountRef, accountModel);
       if (row?.isPrimary) {
-        const primaryKey = profileChainKey(profileId, chainId);
+        const primaryKey = profileChainIdKey(profileId, chainIdKey);
         if (primaryByProfileChain.has(primaryKey)) {
           addViolation({
             sourceStore: args.stores.chainAccountsStore,
             sourcePrimaryKey: cursor.primaryKey,
-            reason: `Multiple primary chain accounts for ${profileId}/${chainId}`,
+            reason: `Multiple primary chain accounts for ${profileId}/${chainIdKey}`,
             record: row,
           });
           cursor = await cursor.continue();
@@ -291,16 +292,16 @@ export async function validateAndQuarantineInvariantViolations(
       checked += 1;
       const row = cursor.value as AccountSignerRecord;
       const profileId = toTrimmedString(row?.profileId || '');
-      const chainId = normalizeChainId((row as any)?.chainId);
+      const chainIdKey = normalizeChainIdKey((row as any)?.chainIdKey);
       const accountAddress = normalizeAccountAddress((row as any)?.accountAddress);
       const signerId = toTrimmedString((row as any)?.signerId || '');
       const signerSlot = Number((row as any)?.signerSlot);
       const status = toTrimmedString((row as any)?.status || '') as AccountSignerStatus;
-      if (!profileId || !chainId || !accountAddress || !signerId) {
+      if (!profileId || !chainIdKey || !accountAddress || !signerId) {
         addViolation({
           sourceStore: args.stores.accountSignersStore,
           sourcePrimaryKey: cursor.primaryKey,
-          reason: 'Missing profileId/chainId/accountAddress/signerId on account signer row',
+          reason: 'Missing profileId/chainIdKey/accountAddress/signerId on account signer row',
           record: row,
         });
         cursor = await cursor.continue();
@@ -326,11 +327,11 @@ export async function validateAndQuarantineInvariantViolations(
         cursor = await cursor.continue();
         continue;
       }
-      if (!chainAccounts.has(chainAccountKey(profileId, chainId, accountAddress))) {
+      if (!chainAccounts.has(chainAccountKey(profileId, chainIdKey, accountAddress))) {
         addViolation({
           sourceStore: args.stores.accountSignersStore,
           sourcePrimaryKey: cursor.primaryKey,
-          reason: `Missing chain account dependency: ${profileId}/${chainId}/${accountAddress}`,
+          reason: `Missing chain account dependency: ${profileId}/${chainIdKey}/${accountAddress}`,
           record: row,
         });
         cursor = await cursor.continue();
@@ -362,20 +363,20 @@ export async function validateAndQuarantineInvariantViolations(
         profileSignerSlots.add(`${profileId}::${signerSlot}`);
       }
       if (status === 'active') {
-        const slotKey = signerSlotKey(profileId, chainId, accountAddress, signerSlot);
+        const slotKey = signerSlotKey(profileId, chainIdKey, accountAddress, signerSlot);
         const existingSlot = activeSignerByAccountSlot.get(slotKey);
         if (existingSlot && existingSlot.signerId !== signerId) {
           addViolation({
             sourceStore: args.stores.accountSignersStore,
             sourcePrimaryKey: cursor.primaryKey,
-            reason: `Duplicate active signerSlot ${signerSlot} for ${profileId}/${chainId}/${accountAddress}`,
+            reason: `Duplicate active signerSlot ${signerSlot} for ${profileId}/${chainIdKey}/${accountAddress}`,
             record: row,
           });
           cursor = await cursor.continue();
           continue;
         }
         activeSignerByAccountSlot.set(slotKey, { signerId });
-        const accountKey = chainAccountKey(profileId, chainId, accountAddress);
+        const accountKey = chainAccountKey(profileId, chainIdKey, accountAddress);
         const activeRows = activeSignerRowsByAccount.get(accountKey) || [];
         activeRows.push({ primaryKey: cursor.primaryKey, row });
         activeSignerRowsByAccount.set(accountKey, activeRows);
@@ -390,13 +391,11 @@ export async function validateAndQuarantineInvariantViolations(
       continue;
     }
     if (activeRows.length <= 1) continue;
-    const keep = activeRows
-      .slice()
-      .sort((a, b) => {
-        const addedAtDelta = Number(a.row.addedAt || 0) - Number(b.row.addedAt || 0);
-        if (addedAtDelta !== 0) return addedAtDelta;
-        return String(a.row.signerId || '').localeCompare(String(b.row.signerId || ''));
-      })[0];
+    const keep = activeRows.slice().sort((a, b) => {
+      const addedAtDelta = Number(a.row.addedAt || 0) - Number(b.row.addedAt || 0);
+      if (addedAtDelta !== 0) return addedAtDelta;
+      return String(a.row.signerId || '').localeCompare(String(b.row.signerId || ''));
+    })[0];
     for (const rowRef of activeRows) {
       if (rowRef.primaryKey === keep.primaryKey) continue;
       addViolation({
@@ -492,8 +491,8 @@ export async function validateAndQuarantineInvariantViolations(
       const row = cursor.value as AppStateEntry<unknown>;
       const key = toTrimmedString(row?.key || '');
       if (
-        key === args.lastProfileStateAppStateKey
-        || key.startsWith(`${args.lastProfileStateAppStateKey}::`)
+        key === args.lastProfileStateAppStateKey ||
+        key.startsWith(`${args.lastProfileStateAppStateKey}::`)
       ) {
         checked += 1;
         const parsed = args.parseLastProfileState(row?.value);

@@ -2,9 +2,7 @@ import { type ThresholdEd25519ParticipantV1 } from '@shared/threshold/participan
 
 export type ClientShareDerivation = 'prf_first_v1';
 
-export type PasskeyNearKeyMaterialKind =
-  | 'local_near_sk_v3'
-  | 'threshold_ed25519_2p_v1';
+export type PasskeyNearKeyMaterialKind = 'local_near_sk_v3' | 'threshold_ed25519_2p_v1';
 
 export interface BasePasskeyNearKeyMaterial {
   nearAccountId: string;
@@ -49,51 +47,42 @@ export interface ThresholdEd25519_2p_V1Material extends BasePasskeyNearKeyMateri
   participants: ThresholdEd25519ParticipantV1[];
 }
 
-export type PasskeyNearKeyMaterial =
-  | LocalNearSkV3Material
-  | ThresholdEd25519_2p_V1Material;
+export type PasskeyNearKeyMaterial = LocalNearSkV3Material | ThresholdEd25519_2p_V1Material;
 
-export type PasskeyChainKeyAlgorithm =
-  | 'ed25519'
-  | 'secp256k1'
-  | 'webauthn-p256'
-  | string;
+export type PasskeyChainIdKeyAlgorithm = 'ed25519' | 'secp256k1' | 'webauthn-p256' | string;
 
-export type PasskeyChainKeyKind =
-  | 'local_sk_encrypted_v1'
-  | 'threshold_share_v1'
-  | string;
+export type PasskeyChainIdKeyKind = 'local_sk_encrypted_v1' | 'threshold_share_v1' | string;
 
-export interface PasskeyChainKeyPayloadEnvelopeAAD {
+export interface PasskeyChainIdKeyPayloadEnvelopeAAD {
   profileId: string;
   deviceNumber: number;
-  chainId: string;
+  chainIdKey: string;
   keyKind: string;
   schemaVersion: number;
   signerId?: string;
   accountAddress?: string;
 }
 
-export interface PasskeyChainKeyPayloadEnvelope {
+export interface PasskeyChainIdKeyPayloadEnvelope {
   encVersion: number;
   alg: string;
   nonce: string;
   ciphertext: string;
   tag?: string;
-  aad: PasskeyChainKeyPayloadEnvelopeAAD;
+  aad: PasskeyChainIdKeyPayloadEnvelopeAAD;
 }
 
-export interface PasskeyChainKeyMaterial {
+export interface PasskeyChainIdKeyMaterial {
   profileId: string;
   deviceNumber: number;
-  chainId: string;
-  keyKind: PasskeyChainKeyKind;
-  algorithm: PasskeyChainKeyAlgorithm;
+  chainIdKey: string;
+  keyKind: PasskeyChainIdKeyKind;
+  algorithm: PasskeyChainIdKeyAlgorithm;
   publicKey: string;
   signerId?: string;
   wrapKeySalt?: string;
   payload?: Record<string, unknown>;
-  payloadEnvelope?: PasskeyChainKeyPayloadEnvelope;
+  payloadEnvelope?: PasskeyChainIdKeyPayloadEnvelope;
   timestamp: number;
   schemaVersion: number;
 }

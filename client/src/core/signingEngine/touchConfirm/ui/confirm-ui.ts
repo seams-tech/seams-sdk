@@ -1,7 +1,13 @@
 import { WalletIframeDomEvents } from '@/core/WalletIframe/events';
 import { __isWalletIframeHostMode } from '@/core/WalletIframe/host-mode';
 import type { UserConfirmSecurityContext, TransactionInputWasm } from '@/core/types';
-import { isActionArgsWasm, toActionArgsWasm, type ActionArgs, type ActionArgsWasm } from '@/core/types/actions';
+import {
+  isActionArgsWasm,
+  toActionArgsWasm,
+  type ActionArgs,
+  type ActionArgsWasm,
+} from '@/core/types/actions';
+import { resolveExplorerUrlForChainFamily } from '@/core/config/chains';
 import type { TxDisplayModel } from '@/core/signingEngine/touchConfirm/shared/displayModel';
 import { computeUiIntentDigestFromTxs, orderActionForDigest } from '@/utils/intentDigest';
 
@@ -86,7 +92,9 @@ function normalizeTxSigningRequestsForDigest(
   return (txSigningRequests || []).map((tx) => ({
     receiverId: tx.receiverId,
     actions: (tx.actions || [])
-      .map((action) => (isActionArgsWasm(action) ? action : toActionArgsWasm(action as unknown as ActionArgs)))
+      .map((action) =>
+        isActionArgsWasm(action) ? action : toActionArgsWasm(action as unknown as ActionArgs),
+      )
       .map((action) => orderActionForDigest(action as ActionArgsWasm) as ActionArgsWasm),
   }));
 }
@@ -136,12 +144,14 @@ function cleanupExistingConfirmers(): void {
   }
 
   const selectors = CONFIRM_UI_ELEMENT_SELECTORS as readonly string[];
-  const elements = selectors.flatMap((selector) =>
-    Array.from(document.querySelectorAll(selector)) as HTMLElement[]
+  const elements = selectors.flatMap(
+    (selector) => Array.from(document.querySelectorAll(selector)) as HTMLElement[],
   );
 
   for (const element of elements) {
-    element.dispatchEvent(new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, { bubbles: true, composed: true }));
+    element.dispatchEvent(
+      new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, { bubbles: true, composed: true }),
+    );
     element.remove();
   }
 }
@@ -172,7 +182,30 @@ function setErrorAttribute(element: HTMLElement, message: string): void {
   }
 }
 
-function applyHostElementProps(element: HostTxConfirmerElement, props?: ConfirmUIUpdate): void {
+function resolveExplorerUrlsFromModel(
+  ctx: TouchConfirmContext,
+  model?: TxDisplayModel,
+): Pick<ConfirmUIUpdate, 'nearExplorerUrl' | 'tempoExplorerUrl' | 'evmExplorerUrl'> {
+  const chain = model?.chain;
+  if (chain !== 'near' && chain !== 'tempo' && chain !== 'evm') return {};
+
+  const explorerUrl = resolveExplorerUrlForChainFamily({
+    chains: ctx.chains,
+    family: chain,
+    chainId: model?.chainId,
+  });
+  if (!explorerUrl) return {};
+
+  if (chain === 'near') return { nearExplorerUrl: explorerUrl };
+  if (chain === 'tempo') return { tempoExplorerUrl: explorerUrl };
+  return { evmExplorerUrl: explorerUrl };
+}
+
+function applyHostElementProps(
+  ctx: TouchConfirmContext,
+  element: HostTxConfirmerElement,
+  props?: ConfirmUIUpdate,
+): void {
   if (!props) return;
 
   const update = props as ConfirmUIInternalUpdate;
@@ -199,10 +232,28 @@ function applyHostElementProps(element: HostTxConfirmerElement, props?: ConfirmU
     element.evmExplorerUrl = update.evmExplorerUrl;
   }
 
+  if (
+    update.nearExplorerUrl == null &&
+    update.tempoExplorerUrl == null &&
+    update.evmExplorerUrl == null
+  ) {
+    const explorerOverrides = resolveExplorerUrlsFromModel(ctx, update.model ?? element.model);
+    if (explorerOverrides.nearExplorerUrl) {
+      element.nearExplorerUrl = explorerOverrides.nearExplorerUrl;
+    }
+    if (explorerOverrides.tempoExplorerUrl) {
+      element.tempoExplorerUrl = explorerOverrides.tempoExplorerUrl;
+    }
+    if (explorerOverrides.evmExplorerUrl) {
+      element.evmExplorerUrl = explorerOverrides.evmExplorerUrl;
+    }
+  }
+
   element.requestUpdate?.();
 }
 
 function createHostConfirmHandle(
+  ctx: TouchConfirmContext,
   element: HostTxConfirmerElement,
   onClose: () => void,
 ): ConfirmUIHandle {
@@ -212,18 +263,20 @@ function createHostConfirmHandle(
         // If closed programmatically before a user decision was emitted, dispatch a cancel
         // so awaiters can resolve and clean up listeners.
         if (!confirmed) {
-          element.dispatchEvent(new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
-            detail: { confirmed: false },
-            bubbles: true,
-            composed: true,
-          }));
+          element.dispatchEvent(
+            new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
+              detail: { confirmed: false },
+              bubbles: true,
+              composed: true,
+            }),
+          );
         }
         removeHostConfirmerElement(element);
       } finally {
         onClose();
       }
     },
-    update: (props: ConfirmUIUpdate) => applyHostElementProps(element, props),
+    update: (props: ConfirmUIUpdate) => applyHostElementProps(ctx, element, props),
   };
 }
 
@@ -238,15 +291,15 @@ export async function mountConfirmUI({
   uiMode,
   nearAccountIdOverride,
 }: {
-  ctx: TouchConfirmContext,
-  summary: TransactionSummary,
-  txSigningRequests?: TransactionInputWasm[],
-  model?: TxDisplayModel,
-  securityContext?: Partial<UserConfirmSecurityContext>,
-  loading?: boolean,
-  theme?: ThemeName,
-  uiMode: ConfirmationUIMode,
-  nearAccountIdOverride?: string,
+  ctx: TouchConfirmContext;
+  summary: TransactionSummary;
+  txSigningRequests?: TransactionInputWasm[];
+  model?: TxDisplayModel;
+  securityContext?: Partial<UserConfirmSecurityContext>;
+  loading?: boolean;
+  theme?: ThemeName;
+  uiMode: ConfirmationUIMode;
+  nearAccountIdOverride?: string;
 }): Promise<ConfirmUIHandle> {
   await ensureTxConfirmerElementDefined();
 
@@ -277,16 +330,16 @@ export async function awaitConfirmUIDecision({
   nearAccountIdOverride,
   onMounted,
 }: {
-  ctx: TouchConfirmContext,
-  summary: TransactionSummary,
-  txSigningRequests: TransactionInputWasm[],
-  model?: TxDisplayModel,
-  securityContext?: Partial<UserConfirmSecurityContext>,
-  loading?: boolean,
-  theme: ThemeName,
-  uiMode: ConfirmationUIMode,
-  nearAccountIdOverride: string,
-  onMounted?: (handle: ConfirmUIHandle) => void,
+  ctx: TouchConfirmContext;
+  summary: TransactionSummary;
+  txSigningRequests: TransactionInputWasm[];
+  model?: TxDisplayModel;
+  securityContext?: Partial<UserConfirmSecurityContext>;
+  loading?: boolean;
+  theme: ThemeName;
+  uiMode: ConfirmationUIMode;
+  nearAccountIdOverride: string;
+  onMounted?: (handle: ConfirmUIHandle) => void;
 }): Promise<{ confirmed: boolean; handle: ConfirmUIHandle; error?: string }> {
   await ensureTxConfirmerElementDefined();
 
@@ -354,7 +407,10 @@ export async function awaitConfirmUIDecision({
     };
 
     const cleanup = () => {
-      el.removeEventListener(WalletIframeDomEvents.TX_CONFIRMER_CONFIRM, onConfirm as EventListener);
+      el.removeEventListener(
+        WalletIframeDomEvents.TX_CONFIRMER_CONFIRM,
+        onConfirm as EventListener,
+      );
       el.removeEventListener(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, onCancel as EventListener);
     };
 
@@ -374,22 +430,23 @@ function mountHostElement({
   variant,
   nearAccountIdOverride,
 }: {
-  ctx: TouchConfirmContext,
-  summary: TransactionSummary,
-  txSigningRequests?: TransactionInputWasm[],
-  model?: TxDisplayModel,
-  securityContext?: Partial<UserConfirmSecurityContext>,
-  loading?: boolean,
-  theme?: ThemeName,
-  variant?: 'modal' | 'drawer',
-  nearAccountIdOverride?: string,
+  ctx: TouchConfirmContext;
+  summary: TransactionSummary;
+  txSigningRequests?: TransactionInputWasm[];
+  model?: TxDisplayModel;
+  securityContext?: Partial<UserConfirmSecurityContext>;
+  loading?: boolean;
+  theme?: ThemeName;
+  variant?: 'modal' | 'drawer';
+  nearAccountIdOverride?: string;
 }): { el: HostTxConfirmerElement; handle: ConfirmUIHandle } {
   const resolvedVariant: 'modal' | 'drawer' = variant || 'modal';
   cleanupExistingConfirmers();
 
   const element = document.createElement(W3A_TX_CONFIRMER_ID) as HostTxConfirmerElement;
   element.variant = resolvedVariant;
-  element.nearAccountId = nearAccountIdOverride || ctx.userPreferencesManager.getCurrentUserAccountId() || '';
+  element.nearAccountId =
+    nearAccountIdOverride || ctx.userPreferencesManager.getCurrentUserAccountId() || '';
   element.txSigningRequests = txSigningRequests;
   element.model = model;
 
@@ -401,6 +458,16 @@ function mountHostElement({
   }
   if (ctx.evmExplorerUrl) {
     element.evmExplorerUrl = ctx.evmExplorerUrl;
+  }
+  const explorerOverrides = resolveExplorerUrlsFromModel(ctx, model);
+  if (explorerOverrides.nearExplorerUrl) {
+    element.nearExplorerUrl = explorerOverrides.nearExplorerUrl;
+  }
+  if (explorerOverrides.tempoExplorerUrl) {
+    element.tempoExplorerUrl = explorerOverrides.tempoExplorerUrl;
+  }
+  if (explorerOverrides.evmExplorerUrl) {
+    element.evmExplorerUrl = explorerOverrides.evmExplorerUrl;
   }
 
   if ((txSigningRequests?.length || 0) > 0) {
@@ -433,9 +500,8 @@ function mountHostElement({
 
   postWalletUiMessage('WALLET_UI_OPENED');
 
-  const handle = createHostConfirmHandle(
-    element,
-    () => postWalletUiMessage('WALLET_UI_CLOSED')
+  const handle = createHostConfirmHandle(ctx, element, () =>
+    postWalletUiMessage('WALLET_UI_CLOSED'),
   );
 
   return { el: element, handle };

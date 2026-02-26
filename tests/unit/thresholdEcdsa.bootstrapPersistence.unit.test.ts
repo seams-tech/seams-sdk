@@ -11,7 +11,7 @@ function createIndexedDbPort(calls: UpsertCall[]): ThresholdEcdsaBootstrapIndexe
     clientDB: {
       resolveNearAccountContext: async () => ({
         profileId: 'profile-1',
-        sourceChainId: 'near:testnet',
+        sourceChainIdKey: 'near:testnet',
         sourceAccountAddress: 'alice.testnet',
       }),
     },
@@ -19,7 +19,7 @@ function createIndexedDbPort(calls: UpsertCall[]): ThresholdEcdsaBootstrapIndexe
       calls.push(input);
       return {
         profileId: String(input.profileId),
-        chainId: String(input.chainId),
+        chainIdKey: String(input.chainIdKey),
         accountAddress: String(input.accountAddress),
         accountModel: String(input.accountModel) as any,
         isPrimary: !!input.isPrimary,
@@ -40,7 +40,7 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
       chain: 'evm',
       bootstrap: {
         keygen: {
-          chainId: 'eip155:11155111',
+          chainId: 11155111,
           counterfactualAddress: `0x${'ab'.repeat(20)}`,
           ethereumAddress: `0x${'ab'.repeat(20)}`,
           factory: `0x${'cd'.repeat(20)}`,
@@ -53,21 +53,21 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
     expect(calls.length).toBe(2);
 
     const primary = calls[0]!;
-    expect(primary.chainId).toBe('eip155:11155111');
+    expect(primary.chainIdKey).toBe('evm:11155111');
     expect(primary.accountModel).toBe('erc4337');
     expect(primary.deployed).toBe(false);
     expect(primary.deploymentTxHash).toBeNull();
     expect(primary.lastDeploymentCheckAt).toBeNull();
 
     const mirror = calls[1]!;
-    expect(mirror.chainId).toBe('tempo:unknown');
+    expect(mirror.chainIdKey).toBe('tempo:42431');
     expect(mirror.accountModel).toBe('tempo-native');
     expect(mirror.deployed).toBe(false);
     expect(mirror.deploymentTxHash).toBeNull();
     expect(mirror.lastDeploymentCheckAt).toBeNull();
   });
 
-  test('falls back to unknown chain id when bootstrap chain id mismatches requested activation chain', async () => {
+  test('falls back to unknown chain id when bootstrap chain id is invalid', async () => {
     const calls: UpsertCall[] = [];
 
     await persistThresholdEcdsaBootstrapChainAccount({
@@ -76,17 +76,14 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
       chain: 'evm',
       bootstrap: {
         keygen: {
-          chainId: 'tempo:1337',
+          chainId: 'invalid',
           counterfactualAddress: `0x${'ab'.repeat(20)}`,
         },
       } as any,
-      smartAccount: {
-        chainId: 'tempo:42',
-      },
     });
 
     expect(calls.length).toBe(2);
-    expect(calls[0]?.chainId).toBe('eip155:unknown');
-    expect(calls[1]?.chainId).toBe('tempo:unknown');
+    expect(calls[0]?.chainIdKey).toBe('evm:unknown');
+    expect(calls[1]?.chainIdKey).toBe('tempo:42431');
   });
 });

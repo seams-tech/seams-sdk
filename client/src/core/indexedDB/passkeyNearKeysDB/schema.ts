@@ -9,34 +9,25 @@ export interface PasskeyNearKeysDBConfig {
 
 export const DB_CONFIG: PasskeyNearKeysDBConfig = {
   dbName: 'PasskeyNearKeys',
-  // v7: cutover to canonical key material store; drop obsolete keyMaterial store
-  dbVersion: 7,
+  // v8: rename chain key fields from chainId -> chainIdKey in key-material records
+  dbVersion: 8,
   storeName: 'keyMaterialV2',
-  storeKeyPath: ['profileId', 'deviceNumber', 'chainId', 'keyKind'],
+  storeKeyPath: ['profileId', 'deviceNumber', 'chainIdKey', 'keyKind'],
 } as const;
 
 function ensureStoreIndexes(store: any): void {
   try {
-    store.createIndex(
-      'profileId_deviceNumber',
-      ['profileId', 'deviceNumber'],
-      { unique: false },
-    );
+    store.createIndex('profileId_deviceNumber', ['profileId', 'deviceNumber'], { unique: false });
   } catch {}
   try {
-    store.createIndex(
-      'chainId_keyKind',
-      ['chainId', 'keyKind'],
-      { unique: false },
-    );
+    store.createIndex('chainIdKey_keyKind', ['chainIdKey', 'keyKind'], { unique: false });
   } catch {}
-  try { store.createIndex('publicKey', 'publicKey', { unique: false }); } catch {}
+  try {
+    store.createIndex('publicKey', 'publicKey', { unique: false });
+  } catch {}
 }
 
-export function upgradePasskeyNearKeysDBSchema(
-  db: IDBPDatabase,
-  transaction: any,
-): void {
+export function upgradePasskeyNearKeysDBSchema(db: IDBPDatabase, transaction: any): void {
   if (!db.objectStoreNames.contains(DB_CONFIG.storeName)) {
     const store = db.createObjectStore(DB_CONFIG.storeName, { keyPath: DB_CONFIG.storeKeyPath });
     ensureStoreIndexes(store);

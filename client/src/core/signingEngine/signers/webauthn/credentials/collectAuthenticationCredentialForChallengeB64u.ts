@@ -8,12 +8,17 @@ export type WebAuthnAllowCredential = {
   transports: AuthenticatorTransport[];
 };
 
-export type WebAuthnAuthenticatorRecord = Pick<ProfileAuthenticatorRecord, 'credentialId' | 'transports'>;
+export type WebAuthnAuthenticatorRecord = Pick<
+  ProfileAuthenticatorRecord,
+  'credentialId' | 'transports'
+>;
 
-export type WebAuthnIndexedDbClientPort<TAuth extends WebAuthnAuthenticatorRecord = ProfileAuthenticatorRecord> = {
+export type WebAuthnIndexedDbClientPort<
+  TAuth extends WebAuthnAuthenticatorRecord = ProfileAuthenticatorRecord,
+> = {
   resolveNearAccountContext: (
     nearAccountId: AccountId,
-  ) => Promise<{ profileId: string; sourceChainId: string; sourceAccountAddress: string } | null>;
+  ) => Promise<{ profileId: string; sourceChainIdKey: string; sourceAccountAddress: string } | null>;
   listProfileAuthenticators: (profileId: string) => Promise<TAuth[]>;
   selectProfileAuthenticatorsForPrompt: (args: {
     profileId: string;
@@ -26,7 +31,9 @@ export type WebAuthnIndexedDbClientPort<TAuth extends WebAuthnAuthenticatorRecor
   }>;
 };
 
-export type WebAuthnIndexedDbPort<TAuth extends WebAuthnAuthenticatorRecord = ProfileAuthenticatorRecord> = {
+export type WebAuthnIndexedDbPort<
+  TAuth extends WebAuthnAuthenticatorRecord = ProfileAuthenticatorRecord,
+> = {
   clientDB: WebAuthnIndexedDbClientPort<TAuth>;
 };
 
@@ -81,15 +88,20 @@ export async function collectAuthenticationCredentialForChallengeB64u<
     authenticatorsForPrompt = ensured.authenticatorsForPrompt;
   }
 
-  args.onBeforePrompt?.({ authenticators, authenticatorsForPrompt, challengeB64u: args.challengeB64u });
+  args.onBeforePrompt?.({
+    authenticators,
+    authenticatorsForPrompt,
+    challengeB64u: args.challengeB64u,
+  });
 
   const allowCredentials = authenticatorsToAllowCredentials(authenticatorsForPrompt);
-  const serialized = await args.touchIdPrompt.getAuthenticationCredentialsSerializedForChallengeB64u({
-    nearAccountId,
-    challengeB64u: args.challengeB64u,
-    allowCredentials,
-    includeSecondPrfOutput: args.includeSecondPrfOutput,
-  });
+  const serialized =
+    await args.touchIdPrompt.getAuthenticationCredentialsSerializedForChallengeB64u({
+      nearAccountId,
+      challengeB64u: args.challengeB64u,
+      allowCredentials,
+      includeSecondPrfOutput: args.includeSecondPrfOutput,
+    });
 
   if (authenticators.length > 0) {
     const ensured = await args.indexedDB.clientDB.selectProfileAuthenticatorsForPrompt({

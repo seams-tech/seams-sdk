@@ -7,8 +7,8 @@ import type {
 } from '../passkeyClientDB.types';
 import { SIGNER_OPS_OUTBOX_STATUS_NEXT_ATTEMPT_INDEX } from './schema';
 
-function normalizeChainId(chainId: unknown): string {
-  return toTrimmedString(chainId || '').toLowerCase();
+function normalizeChainIdKey(chainIdKey: unknown): string {
+  return toTrimmedString(chainIdKey || '').toLowerCase();
 }
 
 function normalizeAccountAddress(address: unknown): string {
@@ -28,20 +28,22 @@ export async function enqueueSignerOperationRecord(
 ): Promise<SignerOpOutboxRecord> {
   const opId = toTrimmedString(input.opId || '');
   const idempotencyKey = toTrimmedString(input.idempotencyKey || '');
-  const chainId = normalizeChainId(input.chainId);
+  const chainIdKey = normalizeChainIdKey(input.chainIdKey);
   const accountAddress = normalizeAccountAddress(input.accountAddress);
   const signerId = toTrimmedString(input.signerId || '');
-  if (!opId || !idempotencyKey || !chainId || !accountAddress || !signerId) {
-    throw new Error('PasskeyClientDB: opId, idempotencyKey, chainId, accountAddress, and signerId are required');
+  if (!opId || !idempotencyKey || !chainIdKey || !accountAddress || !signerId) {
+    throw new Error(
+      'PasskeyClientDB: opId, idempotencyKey, chainIdKey, accountAddress, and signerId are required',
+    );
   }
 
   const now = Date.now();
-  const existing = await db.get(signerOpsOutboxStore, opId) as SignerOpOutboxRecord | undefined;
+  const existing = (await db.get(signerOpsOutboxStore, opId)) as SignerOpOutboxRecord | undefined;
   if (!existing) {
     const txByIdempotency = db.transaction(signerOpsOutboxStore, 'readonly');
-    const byIdempotency = await txByIdempotency.store
+    const byIdempotency = (await txByIdempotency.store
       .index('idempotencyKey')
-      .get(idempotencyKey) as SignerOpOutboxRecord | undefined;
+      .get(idempotencyKey)) as SignerOpOutboxRecord | undefined;
     await txByIdempotency.done;
     if (byIdempotency) return byIdempotency;
   }
@@ -50,7 +52,7 @@ export async function enqueueSignerOperationRecord(
     opId,
     idempotencyKey,
     opType: input.opType,
-    chainId,
+    chainIdKey,
     accountAddress,
     signerId,
     payload: input.payload ?? existing?.payload,
@@ -70,9 +72,9 @@ export async function enqueueSignerOperationRecord(
     if (!isConstraint) throw error;
 
     const txByIdempotency = db.transaction(signerOpsOutboxStore, 'readonly');
-    const byIdempotency = await txByIdempotency.store
+    const byIdempotency = (await txByIdempotency.store
       .index('idempotencyKey')
-      .get(idempotencyKey) as SignerOpOutboxRecord | undefined;
+      .get(idempotencyKey)) as SignerOpOutboxRecord | undefined;
     await txByIdempotency.done;
     if (byIdempotency) return byIdempotency;
     throw error;
@@ -90,26 +92,23 @@ export async function listSignerOperationRecords(
     limit?: number;
   },
 ): Promise<SignerOpOutboxRecord[]> {
-  const statuses = (args?.statuses && args.statuses.length > 0)
-    ? args.statuses
-    : (['queued', 'submitted', 'failed'] as SignerOperationStatus[]);
+  const statuses =
+    args?.statuses && args.statuses.length > 0
+      ? args.statuses
+      : (['queued', 'submitted', 'failed'] as SignerOperationStatus[]);
   const dueBeforeRaw = typeof args?.dueBefore === 'number' ? args.dueBefore : Date.now();
   const dueBefore = Number.isFinite(dueBeforeRaw) ? dueBeforeRaw : Number.MAX_SAFE_INTEGER;
-  const limit = Number.isSafeInteger(args?.limit) && Number(args?.limit) > 0
-    ? Number(args?.limit)
-    : 100;
+  const limit =
+    Number.isSafeInteger(args?.limit) && Number(args?.limit) > 0 ? Number(args?.limit) : 100;
 
   const collected: SignerOpOutboxRecord[] = [];
   for (const status of statuses) {
     const tx = db.transaction(signerOpsOutboxStore, 'readonly');
-    const rows = await tx.store
+    const rows = (await tx.store
       .index(SIGNER_OPS_OUTBOX_STATUS_NEXT_ATTEMPT_INDEX)
       .getAll(
-        IDBKeyRange.bound(
-          [status, Number.MIN_SAFE_INTEGER],
-          [status, dueBefore],
-        ),
-      ) as SignerOpOutboxRecord[];
+        IDBKeyRange.bound([status, Number.MIN_SAFE_INTEGER], [status, dueBefore]),
+      )) as SignerOpOutboxRecord[];
     await tx.done;
     collected.push(...(rows || []));
   }
@@ -138,7 +137,7 @@ export async function setSignerOperationRecordStatus(
   const opId = toTrimmedString(args.opId || '');
   if (!opId) return null;
 
-  const existing = await db.get(signerOpsOutboxStore, opId) as SignerOpOutboxRecord | undefined;
+  const existing = (await db.get(signerOpsOutboxStore, opId)) as SignerOpOutboxRecord | undefined;
   if (!existing) return null;
 
   const attemptDelta = Number.isFinite(args.attemptDelta) ? Number(args.attemptDelta) : 0;
@@ -148,15 +147,17 @@ export async function setSignerOperationRecordStatus(
     status: args.status,
     attemptCount,
     nextAttemptAt:
-      typeof args.nextAttemptAt === 'number'
-        ? args.nextAttemptAt
-        : existing.nextAttemptAt,
+      typeof args.nextAttemptAt === 'number' ? args.nextAttemptAt : existing.nextAttemptAt,
     ...(args.lastError === null
       ? { lastError: undefined }
-      : (typeof args.lastError === 'string' ? { lastError: args.lastError } : { lastError: existing.lastError })),
+      : typeof args.lastError === 'string'
+        ? { lastError: args.lastError }
+        : { lastError: existing.lastError }),
     ...(args.txHash === null
       ? { txHash: undefined }
-      : (typeof args.txHash === 'string' ? { txHash: args.txHash } : { txHash: existing.txHash })),
+      : typeof args.txHash === 'string'
+        ? { txHash: args.txHash }
+        : { txHash: existing.txHash }),
     updatedAt: Date.now(),
   };
 

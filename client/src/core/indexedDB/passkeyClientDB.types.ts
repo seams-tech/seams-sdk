@@ -23,11 +23,13 @@ export interface ClientUserData {
   preferences?: UserPreferences;
 }
 
-export type StoreUserDataInput = Omit<ClientUserData, 'deviceNumber' | 'lastLogin' | 'registeredAt'>
-  & {
-    deviceNumber?: number;
-    version?: number;
-  };
+export type StoreUserDataInput = Omit<
+  ClientUserData,
+  'deviceNumber' | 'lastLogin' | 'registeredAt'
+> & {
+  deviceNumber?: number;
+  version?: number;
+};
 
 export interface UserPreferences {
   useRelayer: boolean;
@@ -98,12 +100,12 @@ export interface SignerMutationOptions {
 }
 
 export type ProfileId = string;
-export type ChainId = string;
+export type ChainIdKey = string;
 export type AccountAddress = string;
 export type SignerId = string;
 
 export interface AccountRef {
-  chainId: ChainId;
+  chainIdKey: ChainIdKey;
   accountAddress: AccountAddress;
 }
 
@@ -136,12 +138,7 @@ export type SignerOperationType =
   | 'revoke-signer'
   | 'activate-recovery-signer'
   | string;
-export type SignerOperationStatus =
-  | 'queued'
-  | 'submitted'
-  | 'confirmed'
-  | 'failed'
-  | 'dead-letter';
+export type SignerOperationStatus = 'queued' | 'submitted' | 'confirmed' | 'failed' | 'dead-letter';
 
 export interface ProfileRecord {
   profileId: ProfileId;
@@ -154,7 +151,7 @@ export interface ProfileRecord {
 
 export interface ChainAccountRecord {
   profileId: ProfileId;
-  chainId: ChainId;
+  chainIdKey: ChainIdKey;
   accountAddress: AccountAddress;
   accountModel: AccountModel;
   isPrimary?: boolean;
@@ -171,7 +168,7 @@ export interface ChainAccountRecord {
 
 export interface AccountSignerRecord {
   profileId: ProfileId;
-  chainId: ChainId;
+  chainIdKey: ChainIdKey;
   accountAddress: AccountAddress;
   signerId: SignerId;
   signerSlot: number;
@@ -187,7 +184,7 @@ export interface SignerOpOutboxRecord {
   opId: string;
   idempotencyKey: string;
   opType: SignerOperationType;
-  chainId: ChainId;
+  chainIdKey: ChainIdKey;
   accountAddress: AccountAddress;
   signerId: SignerId;
   payload?: Record<string, unknown>;
@@ -209,7 +206,7 @@ export type UpsertProfileInput = {
 
 export type UpsertChainAccountInput = {
   profileId: ProfileId;
-  chainId: ChainId;
+  chainIdKey: ChainIdKey;
   accountAddress: AccountAddress;
   accountModel: AccountModel;
   isPrimary?: boolean;
@@ -224,7 +221,7 @@ export type UpsertChainAccountInput = {
 
 export type UpsertAccountSignerInput = {
   profileId: ProfileId;
-  chainId: ChainId;
+  chainIdKey: ChainIdKey;
   accountAddress: AccountAddress;
   signerId: SignerId;
   signerSlot: number;
@@ -239,7 +236,7 @@ export type EnqueueSignerOperationInput = {
   opId: string;
   idempotencyKey: string;
   opType: SignerOperationType;
-  chainId: ChainId;
+  chainIdKey: ChainIdKey;
   accountAddress: AccountAddress;
   signerId: SignerId;
   payload?: Record<string, unknown>;

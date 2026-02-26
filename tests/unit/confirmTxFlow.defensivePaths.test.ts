@@ -14,173 +14,196 @@ test.describe('confirmTxFlow – defensive paths', () => {
   });
 
   test('Signing flow: cancel releases reserved nonces', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      const mod = await import(paths.handle);
-      const types = await import(paths.types);
-      const events = await import(paths.events);
-      const handle = mod.handlePromptFromWorker as Function;
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.handle);
+        const types = await import(paths.types);
+        const events = await import(paths.events);
+        const handle = mod.handlePromptFromWorker as Function;
 
-      const reserved: string[] = [];
-      const released: string[] = [];
-	    const ctx: any = {
-        userPreferencesManager: {
-          getConfirmationConfig: () => ({
-            uiMode: 'modal',
-            behavior: 'requireClick',
-            autoProceedDelay: 0}),
-        },
-        nonceManager: {
-          async getNonceBlockHashAndHeight() {
-            return {
-              nearPublicKeyStr: 'pk',
-              accessKeyInfo: { nonce: 300 },
-              nextNonce: '301',
-              txBlockHeight: '3000',
-              txBlockHash: 'h3000',
-            };
-          },
-          reserveNonces(count: number) {
-            const values = Array.from({ length: count }, (_, i) => String(301 + i));
-            reserved.push(...values);
-            return values;
-          },
-          releaseNonce(nonce: string) {
-            released.push(nonce);
-          },
-        },
-        nearClient: {},
-        touchIdPrompt: {
-          getRpId: () => 'example.localhost',
-          getAuthenticationCredentialsSerializedForChallengeB64u: async () => ({
-            id: 'cred',
-            rawId: 'AA',
-            type: 'public-key',
-            response: { clientDataJSON: 'AQ', authenticatorData: 'Ag', signature: 'Aw' },
-            clientExtensionResults: { prf: { results: { first: 'BQ', second: 'Bg' } } },
-          }) as any,
-        },
-        indexedDB: {
-          clientDB: {
-            resolveNearAccountContext: async (nearAccountId: string) => ({
-              profileId: `legacy-near:${String(nearAccountId)}`,
-              sourceChainId: 'near:testnet',
-              sourceAccountAddress: String(nearAccountId),
-            }),
-            listProfileAuthenticators: async () => [],
-            selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
-              authenticatorsForPrompt: authenticators,
-              wrongPasskeyError: undefined,
+        const reserved: string[] = [];
+        const released: string[] = [];
+        const ctx: any = {
+          userPreferencesManager: {
+            getConfirmationConfig: () => ({
+              uiMode: 'modal',
+              behavior: 'requireClick',
+              autoProceedDelay: 0,
             }),
           },
-        },
-      };
-
-      const request = {
-        requestId: 'cancel-sign',
-        type: types.UserConfirmationType.SIGN_TRANSACTION,
-        summary: {},
-        payload: {
-          intentDigest: 'intent-sign-cancel',
-          nearAccountId: 'cancel.testnet',
-          txSigningRequests: [{ receiverId: 'x', actions: [] }],
-          rpcCall: {
-            method: 'sign',
-            argsJson: {},
-            nearAccountId: 'cancel.testnet',
-            nearRpcUrl: 'https://rpc.testnet.near.org',
+          nonceManager: {
+            async getNonceBlockHashAndHeight() {
+              return {
+                nearPublicKeyStr: 'pk',
+                accessKeyInfo: { nonce: 300 },
+                nextNonce: '301',
+                txBlockHeight: '3000',
+                txBlockHash: 'h3000',
+              };
+            },
+            reserveNonces(count: number) {
+              const values = Array.from({ length: count }, (_, i) => String(301 + i));
+              reserved.push(...values);
+              return values;
+            },
+            releaseNonce(nonce: string) {
+              released.push(nonce);
+            },
           },
-        },
-      } as any;
-
-      const workerMessages: any[] = [];
-      const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
-
-      const triggerCancel = () => {
-        const attempt = () => {
-          const portal = document.getElementById('w3a-confirm-portal');
-          const host = portal?.firstElementChild as HTMLElement | null;
-          if (host) {
-            host.dispatchEvent(new CustomEvent(
-              events.WalletIframeDomEvents.TX_CONFIRMER_CANCEL,
-              { bubbles: true, composed: true } as any
-            ));
-          } else {
-            setTimeout(attempt, 20);
-          }
+          nearClient: {},
+          touchIdPrompt: {
+            getRpId: () => 'example.localhost',
+            getAuthenticationCredentialsSerializedForChallengeB64u: async () =>
+              ({
+                id: 'cred',
+                rawId: 'AA',
+                type: 'public-key',
+                response: { clientDataJSON: 'AQ', authenticatorData: 'Ag', signature: 'Aw' },
+                clientExtensionResults: { prf: { results: { first: 'BQ', second: 'Bg' } } },
+              }) as any,
+          },
+          indexedDB: {
+            clientDB: {
+              resolveNearAccountContext: async (nearAccountId: string) => ({
+                profileId: `legacy-near:${String(nearAccountId)}`,
+                sourceChainIdKey: 'near:testnet',
+                sourceAccountAddress: String(nearAccountId),
+              }),
+              listProfileAuthenticators: async () => [],
+              selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
+                authenticatorsForPrompt: authenticators,
+                wrongPasskeyError: undefined,
+              }),
+            },
+          },
         };
-        setTimeout(attempt, 60);
-      };
 
-      triggerCancel();
-      await handle(ctx, {
-        type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
-        data: request
-      }, worker);
-      const response = workerMessages[0]?.data;
-      return { reserved, released, response };
-    }, { paths: IMPORT_PATHS });
+        const request = {
+          requestId: 'cancel-sign',
+          type: types.UserConfirmationType.SIGN_TRANSACTION,
+          summary: {},
+          payload: {
+            intentDigest: 'intent-sign-cancel',
+            nearAccountId: 'cancel.testnet',
+            txSigningRequests: [{ receiverId: 'x', actions: [] }],
+            rpcCall: {
+              method: 'sign',
+              argsJson: {},
+              nearAccountId: 'cancel.testnet',
+              nearRpcUrl: 'https://rpc.testnet.near.org',
+            },
+          },
+        } as any;
+
+        const workerMessages: any[] = [];
+        const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
+
+        const triggerCancel = () => {
+          const attempt = () => {
+            const portal = document.getElementById('w3a-confirm-portal');
+            const host = portal?.firstElementChild as HTMLElement | null;
+            if (host) {
+              host.dispatchEvent(
+                new CustomEvent(events.WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
+                  bubbles: true,
+                  composed: true,
+                } as any),
+              );
+            } else {
+              setTimeout(attempt, 20);
+            }
+          };
+          setTimeout(attempt, 60);
+        };
+
+        triggerCancel();
+        await handle(
+          ctx,
+          {
+            type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+            data: request,
+          },
+          worker,
+        );
+        const response = workerMessages[0]?.data;
+        return { reserved, released, response };
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     expect(result.reserved.length).toBeGreaterThan(0);
     expect(result.released).toEqual(result.reserved);
     expect(result.response.confirmed).toBe(false);
   });
 
-  test('Signing flow: nonce manager failure is fail-fast (no synthetic tx-context fallback)', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      const mod = await import(paths.handle);
-      const types = await import(paths.types);
-      const handle = mod.handlePromptFromWorker as Function;
+  test('Signing flow: nonce manager failure is fail-fast (no synthetic tx-context fallback)', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.handle);
+        const types = await import(paths.types);
+        const handle = mod.handlePromptFromWorker as Function;
 
-      const ctx: any = {
-        userPreferencesManager: {
-          getConfirmationConfig: () => ({
-            uiMode: 'none',
-            behavior: 'skipClick',
-            autoProceedDelay: 0,
-          }),
-        },
-        nonceManager: {
-          async getNonceBlockHashAndHeight() {
-            throw new Error('nonce manager unavailable');
+        const ctx: any = {
+          userPreferencesManager: {
+            getConfirmationConfig: () => ({
+              uiMode: 'none',
+              behavior: 'skipClick',
+              autoProceedDelay: 0,
+            }),
           },
-          reserveNonces: () => ['never-used'],
-          releaseNonce: () => {},
-        },
-        // Would be used by fallback paths, but signing should not use it.
-        nearClient: {
-          async viewBlock() {
-            return { header: { height: 777, hash: 'h777' } };
+          nonceManager: {
+            async getNonceBlockHashAndHeight() {
+              throw new Error('nonce manager unavailable');
+            },
+            reserveNonces: () => ['never-used'],
+            releaseNonce: () => {},
           },
-        },
-      };
+          // Would be used by fallback paths, but signing should not use it.
+          nearClient: {
+            async viewBlock() {
+              return { header: { height: 777, hash: 'h777' } };
+            },
+          },
+          touchIdPrompt: {
+            getRpId: () => 'example.localhost',
+          },
+        };
 
-      const request = {
-        requestId: 'fail-fast-signing',
-        type: types.UserConfirmationType.SIGN_TRANSACTION,
-        summary: {},
-        payload: {
-          intentDigest: 'intent-fail-fast',
-          nearAccountId: 'alice.testnet',
-          txSigningRequests: [{ receiverId: 'x', actions: [] }],
-          rpcCall: {
-            method: 'sign',
-            argsJson: {},
+        const request = {
+          requestId: 'fail-fast-signing',
+          type: types.UserConfirmationType.SIGN_TRANSACTION,
+          summary: {},
+          payload: {
+            intentDigest: 'intent-fail-fast',
             nearAccountId: 'alice.testnet',
-            nearRpcUrl: 'https://rpc.testnet.near.org',
+            txSigningRequests: [{ receiverId: 'x', actions: [] }],
+            rpcCall: {
+              method: 'sign',
+              argsJson: {},
+              nearAccountId: 'alice.testnet',
+              nearRpcUrl: 'https://rpc.testnet.near.org',
+            },
           },
-        },
-      } as any;
+        } as any;
 
-      const workerMessages: any[] = [];
-      const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
+        const workerMessages: any[] = [];
+        const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
 
-      await handle(ctx, {
-        type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
-        data: request,
-      }, worker);
+        await handle(
+          ctx,
+          {
+            type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+            data: request,
+          },
+          worker,
+        );
 
-      return { response: workerMessages[0]?.data, messageCount: workerMessages.length };
-    }, { paths: IMPORT_PATHS });
+        return { response: workerMessages[0]?.data, messageCount: workerMessages.length };
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     expect(result.messageCount).toBe(1);
     expect(result.response.confirmed).toBe(false);
@@ -189,100 +212,110 @@ test.describe('confirmTxFlow – defensive paths', () => {
   });
 
   test('Registration flow: cancel releases reserved nonces', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      const mod = await import(paths.handle);
-      const types = await import(paths.types);
-      const events = await import(paths.events);
-      const handle = mod.handlePromptFromWorker as Function;
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.handle);
+        const types = await import(paths.types);
+        const events = await import(paths.events);
+        const handle = mod.handlePromptFromWorker as Function;
 
-      const reserved: string[] = [];
-      const released: string[] = [];
-      const ctx: any = {
-        userPreferencesManager: {
-          getConfirmationConfig: () => ({
-            uiMode: 'modal',
-            behavior: 'requireClick',
-            autoProceedDelay: 0}),
-        },
-        nonceManager: {
-          async getNonceBlockHashAndHeight() {
-            return {
-              nearPublicKeyStr: 'pk-reg',
-              accessKeyInfo: { nonce: 10 },
-              nextNonce: '11',
-              txBlockHeight: '500',
-              txBlockHash: 'h500',
-            };
-          },
-          reserveNonces(count: number) {
-            const values = Array.from({ length: count }, (_, i) => String(11 + i));
-            reserved.push(...values);
-            return values;
-          },
-          releaseNonce(nonce: string) {
-            released.push(nonce);
-          },
-        },
-        nearClient: {},
-        touchIdPrompt: {
-          getRpId: () => 'example.localhost',
-          generateRegistrationCredentialsInternal: async () => ({}) as any,
-        },
-        indexedDB: {
-          clientDB: {
-            resolveNearAccountContext: async (nearAccountId: string) => ({
-              profileId: `legacy-near:${String(nearAccountId)}`,
-              sourceChainId: 'near:testnet',
-              sourceAccountAddress: String(nearAccountId),
-            }),
-            listProfileAuthenticators: async () => [],
-            selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
-              authenticatorsForPrompt: authenticators,
-              wrongPasskeyError: undefined,
+        const reserved: string[] = [];
+        const released: string[] = [];
+        const ctx: any = {
+          userPreferencesManager: {
+            getConfirmationConfig: () => ({
+              uiMode: 'modal',
+              behavior: 'requireClick',
+              autoProceedDelay: 0,
             }),
           },
-        },
-      };
-
-	      const request = {
-	        requestId: 'cancel-reg',
-	        type: types.UserConfirmationType.REGISTER_ACCOUNT,
-	        summary: {},
-	        payload: {
-	          nearAccountId: 'cancel-reg.testnet',
-	          deviceNumber: 1,
-	          rpcCall: { method: 'register', argsJson: {} },
-	        },
-	        intentDigest: 'register:cancel-reg.testnet:1',
-	      } as any;
-
-      const workerMessages: any[] = [];
-      const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
-
-      const triggerCancel = () => {
-        const attempt = () => {
-          const portal = document.getElementById('w3a-confirm-portal');
-          const host = portal?.firstElementChild as HTMLElement | null;
-          if (host) {
-            host.dispatchEvent(new CustomEvent(
-              events.WalletIframeDomEvents.TX_CONFIRMER_CANCEL,
-              { bubbles: true, composed: true } as any
-            ));
-          } else {
-            setTimeout(attempt, 20);
-          }
+          nonceManager: {
+            async getNonceBlockHashAndHeight() {
+              return {
+                nearPublicKeyStr: 'pk-reg',
+                accessKeyInfo: { nonce: 10 },
+                nextNonce: '11',
+                txBlockHeight: '500',
+                txBlockHash: 'h500',
+              };
+            },
+            reserveNonces(count: number) {
+              const values = Array.from({ length: count }, (_, i) => String(11 + i));
+              reserved.push(...values);
+              return values;
+            },
+            releaseNonce(nonce: string) {
+              released.push(nonce);
+            },
+          },
+          nearClient: {},
+          touchIdPrompt: {
+            getRpId: () => 'example.localhost',
+            generateRegistrationCredentialsInternal: async () => ({}) as any,
+          },
+          indexedDB: {
+            clientDB: {
+              resolveNearAccountContext: async (nearAccountId: string) => ({
+                profileId: `legacy-near:${String(nearAccountId)}`,
+                sourceChainIdKey: 'near:testnet',
+                sourceAccountAddress: String(nearAccountId),
+              }),
+              listProfileAuthenticators: async () => [],
+              selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
+                authenticatorsForPrompt: authenticators,
+                wrongPasskeyError: undefined,
+              }),
+            },
+          },
         };
-        setTimeout(attempt, 60);
-      };
 
-      triggerCancel();
-      await handle(ctx, {
-        type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
-        data: request
-      }, worker);
-      const response = workerMessages[0]?.data;
-      return { reserved, released, response };
-    }, { paths: IMPORT_PATHS });
+        const request = {
+          requestId: 'cancel-reg',
+          type: types.UserConfirmationType.REGISTER_ACCOUNT,
+          summary: {},
+          payload: {
+            nearAccountId: 'cancel-reg.testnet',
+            deviceNumber: 1,
+            rpcCall: { method: 'register', argsJson: {} },
+          },
+          intentDigest: 'register:cancel-reg.testnet:1',
+        } as any;
+
+        const workerMessages: any[] = [];
+        const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
+
+        const triggerCancel = () => {
+          const attempt = () => {
+            const portal = document.getElementById('w3a-confirm-portal');
+            const host = portal?.firstElementChild as HTMLElement | null;
+            if (host) {
+              host.dispatchEvent(
+                new CustomEvent(events.WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
+                  bubbles: true,
+                  composed: true,
+                } as any),
+              );
+            } else {
+              setTimeout(attempt, 20);
+            }
+          };
+          setTimeout(attempt, 60);
+        };
+
+        triggerCancel();
+        await handle(
+          ctx,
+          {
+            type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+            data: request,
+          },
+          worker,
+        );
+        const response = workerMessages[0]?.data;
+        return { reserved, released, response };
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     expect(result.reserved.length).toBeGreaterThan(0);
     expect(result.released).toEqual(result.reserved);
@@ -290,310 +323,356 @@ test.describe('confirmTxFlow – defensive paths', () => {
   });
 
   test('NEP-413 flow: cancel releases reserved nonces', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      const mod = await import(paths.handle);
-      const types = await import(paths.types);
-      const events = await import(paths.events);
-      const handle = mod.handlePromptFromWorker as Function;
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.handle);
+        const types = await import(paths.types);
+        const events = await import(paths.events);
+        const handle = mod.handlePromptFromWorker as Function;
 
-      const reserved: string[] = [];
-      const released: string[] = [];
-      const ctx: any = {
-        userPreferencesManager: {
-          getConfirmationConfig: () => ({
-            uiMode: 'modal',
-            behavior: 'requireClick',
-            autoProceedDelay: 0}),
-        },
-        nonceManager: {
-          async getNonceBlockHashAndHeight() {
-            return {
-              nearPublicKeyStr: 'pk-nep',
-              accessKeyInfo: { nonce: 50 },
-              nextNonce: '51',
-              txBlockHeight: '1500',
-              txBlockHash: 'h-nep',
-            };
-          },
-          reserveNonces(count: number) {
-            const values = Array.from({ length: count }, (_, i) => String(51 + i));
-            reserved.push(...values);
-            return values;
-          },
-          releaseNonce(nonce: string) {
-            released.push(nonce);
-          },
-        },
-        nearClient: {},
-        touchIdPrompt: {
-          getRpId: () => 'example.localhost',
-          getAuthenticationCredentialsSerializedForChallengeB64u: async () => ({
-            id: 'cred',
-            rawId: 'AA',
-            type: 'public-key',
-            response: { clientDataJSON: 'AQ', authenticatorData: 'Ag', signature: 'Aw' },
-            clientExtensionResults: { prf: { results: { first: 'BQ', second: 'Bg' } } },
-          }) as any,
-        },
-        indexedDB: {
-          clientDB: {
-            resolveNearAccountContext: async (nearAccountId: string) => ({
-              profileId: `legacy-near:${String(nearAccountId)}`,
-              sourceChainId: 'near:testnet',
-              sourceAccountAddress: String(nearAccountId),
-            }),
-            listProfileAuthenticators: async () => [],
-            selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
-              authenticatorsForPrompt: authenticators,
-              wrongPasskeyError: undefined,
+        const reserved: string[] = [];
+        const released: string[] = [];
+        const ctx: any = {
+          userPreferencesManager: {
+            getConfirmationConfig: () => ({
+              uiMode: 'modal',
+              behavior: 'requireClick',
+              autoProceedDelay: 0,
             }),
           },
-        },
-      };
-
-      const request = {
-        requestId: 'cancel-nep',
-        type: types.UserConfirmationType.SIGN_NEP413_MESSAGE,
-        summary: {},
-        payload: {
-          nearAccountId: 'cancel-nep.testnet',
-          message: 'cancel-me',
-          recipient: 'receiver.testnet',
-        },
-      } as any;
-
-      const workerMessages: any[] = [];
-      const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
-
-      const triggerCancel = () => {
-        const attempt = () => {
-          const portal = document.getElementById('w3a-confirm-portal');
-          const host = portal?.firstElementChild as HTMLElement | null;
-          if (host) {
-            host.dispatchEvent(new CustomEvent(
-              events.WalletIframeDomEvents.TX_CONFIRMER_CANCEL,
-              { bubbles: true, composed: true } as any
-            ));
-          } else {
-            setTimeout(attempt, 20);
-          }
+          nonceManager: {
+            async getNonceBlockHashAndHeight() {
+              return {
+                nearPublicKeyStr: 'pk-nep',
+                accessKeyInfo: { nonce: 50 },
+                nextNonce: '51',
+                txBlockHeight: '1500',
+                txBlockHash: 'h-nep',
+              };
+            },
+            reserveNonces(count: number) {
+              const values = Array.from({ length: count }, (_, i) => String(51 + i));
+              reserved.push(...values);
+              return values;
+            },
+            releaseNonce(nonce: string) {
+              released.push(nonce);
+            },
+          },
+          nearClient: {},
+          touchIdPrompt: {
+            getRpId: () => 'example.localhost',
+            getAuthenticationCredentialsSerializedForChallengeB64u: async () =>
+              ({
+                id: 'cred',
+                rawId: 'AA',
+                type: 'public-key',
+                response: { clientDataJSON: 'AQ', authenticatorData: 'Ag', signature: 'Aw' },
+                clientExtensionResults: { prf: { results: { first: 'BQ', second: 'Bg' } } },
+              }) as any,
+          },
+          indexedDB: {
+            clientDB: {
+              resolveNearAccountContext: async (nearAccountId: string) => ({
+                profileId: `legacy-near:${String(nearAccountId)}`,
+                sourceChainIdKey: 'near:testnet',
+                sourceAccountAddress: String(nearAccountId),
+              }),
+              listProfileAuthenticators: async () => [],
+              selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
+                authenticatorsForPrompt: authenticators,
+                wrongPasskeyError: undefined,
+              }),
+            },
+          },
         };
-        setTimeout(attempt, 60);
-      };
 
-      triggerCancel();
-      await handle(ctx, {
-        type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
-        data: request
-      }, worker);
-      const response = workerMessages[0]?.data;
-      return { reserved, released, response };
-    }, { paths: IMPORT_PATHS });
+        const request = {
+          requestId: 'cancel-nep',
+          type: types.UserConfirmationType.SIGN_NEP413_MESSAGE,
+          summary: {},
+          payload: {
+            nearAccountId: 'cancel-nep.testnet',
+            message: 'cancel-me',
+            recipient: 'receiver.testnet',
+          },
+        } as any;
+
+        const workerMessages: any[] = [];
+        const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
+
+        const triggerCancel = () => {
+          const attempt = () => {
+            const portal = document.getElementById('w3a-confirm-portal');
+            const host = portal?.firstElementChild as HTMLElement | null;
+            if (host) {
+              host.dispatchEvent(
+                new CustomEvent(events.WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
+                  bubbles: true,
+                  composed: true,
+                } as any),
+              );
+            } else {
+              setTimeout(attempt, 20);
+            }
+          };
+          setTimeout(attempt, 60);
+        };
+
+        triggerCancel();
+        await handle(
+          ctx,
+          {
+            type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+            data: request,
+          },
+          worker,
+        );
+        const response = workerMessages[0]?.data;
+        return { reserved, released, response };
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     expect(result.reserved.length).toBeGreaterThan(0);
     expect(result.released).toEqual(result.reserved);
     expect(result.response.confirmed).toBe(false);
   });
 
-  test('SHOW_SECURE_PRIVATE_KEY_UI keeps viewer mounted and returns confirmed', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      const mod = await import(paths.handle);
-      const types = await import(paths.types);
-      const handle = mod.handlePromptFromWorker as Function;
+  test('SHOW_SECURE_PRIVATE_KEY_UI keeps viewer mounted and returns confirmed', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.handle);
+        const types = await import(paths.types);
+        const handle = mod.handlePromptFromWorker as Function;
 
-      const ctx: any = {
-        userPreferencesManager: {
-          getConfirmationConfig: () => ({
-            uiMode: 'drawer',
-            behavior: 'requireClick',
-            autoProceedDelay: 0}),
-        },
-        nonceManager: {
-          getNonceBlockHashAndHeight: async () => ({
-            nearPublicKeyStr: '',
-            accessKeyInfo: { nonce: 0 },
-            nextNonce: '0',
-            txBlockHeight: '1',
-            txBlockHash: 'h1'
-           }),
-          reserveNonces: () => [],
-          releaseNonce: () => {},
-        },
-        nearClient: {
-          viewBlock: async () => ({ header: { height: 1, hash: 'h1' } }),
-        },
-        touchIdPrompt: {
-          getRpId: () => 'example.localhost',
-        },
-        indexedDB: {
-          clientDB: {
-            resolveNearAccountContext: async (nearAccountId: string) => ({
-              profileId: `legacy-near:${String(nearAccountId)}`,
-              sourceChainId: 'near:testnet',
-              sourceAccountAddress: String(nearAccountId),
-            }),
-            listProfileAuthenticators: async () => [],
-            selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
-              authenticatorsForPrompt: authenticators,
-              wrongPasskeyError: undefined,
+        const ctx: any = {
+          userPreferencesManager: {
+            getConfirmationConfig: () => ({
+              uiMode: 'drawer',
+              behavior: 'requireClick',
+              autoProceedDelay: 0,
             }),
           },
-        },
-      };
+          nonceManager: {
+            getNonceBlockHashAndHeight: async () => ({
+              nearPublicKeyStr: '',
+              accessKeyInfo: { nonce: 0 },
+              nextNonce: '0',
+              txBlockHeight: '1',
+              txBlockHash: 'h1',
+            }),
+            reserveNonces: () => [],
+            releaseNonce: () => {},
+          },
+          nearClient: {
+            viewBlock: async () => ({ header: { height: 1, hash: 'h1' } }),
+          },
+          touchIdPrompt: {
+            getRpId: () => 'example.localhost',
+          },
+          indexedDB: {
+            clientDB: {
+              resolveNearAccountContext: async (nearAccountId: string) => ({
+                profileId: `legacy-near:${String(nearAccountId)}`,
+                sourceChainIdKey: 'near:testnet',
+                sourceAccountAddress: String(nearAccountId),
+              }),
+              listProfileAuthenticators: async () => [],
+              selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
+                authenticatorsForPrompt: authenticators,
+                wrongPasskeyError: undefined,
+              }),
+            },
+          },
+        };
 
-      const request = {
-        requestId: 'show-key',
-        type: types.UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
-        summary: {},
-        payload: {
-          nearAccountId: 'viewer.testnet',
-          publicKey: 'ed25519:dummy',
-          privateKey: 'ed25519:secret',
-        },
-      } as any;
+        const request = {
+          requestId: 'show-key',
+          type: types.UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
+          summary: {},
+          payload: {
+            nearAccountId: 'viewer.testnet',
+            publicKey: 'ed25519:dummy',
+            privateKey: 'ed25519:secret',
+          },
+        } as any;
 
-      const workerMessages: any[] = [];
-      const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
+        const workerMessages: any[] = [];
+        const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
 
-      await handle(ctx, {
-        type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
-        data: request
-      }, worker);
-      const response = workerMessages[0]?.data;
-      const viewer = document.querySelector('w3a-export-viewer-iframe');
-      const stillMounted = !!viewer;
-      viewer?.remove();
-      return { confirmed: response?.confirmed, stillMounted };
-    }, { paths: IMPORT_PATHS });
+        await handle(
+          ctx,
+          {
+            type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+            data: request,
+          },
+          worker,
+        );
+        const response = workerMessages[0]?.data;
+        const viewer = document.querySelector('w3a-export-viewer-iframe');
+        const stillMounted = !!viewer;
+        viewer?.remove();
+        return { confirmed: response?.confirmed, stillMounted };
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     expect(result.confirmed).toBe(true);
     expect(result.stillMounted).toBe(true);
   });
 
-  test('DECRYPT_PRIVATE_KEY_WITH_PRF uses filtered authenticators for the current device', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      const mod = await import(paths.localOnly);
-      const types = await import(paths.types);
-      const handleLocalOnlyFlow = mod.handleLocalOnlyFlow as Function;
+  test('DECRYPT_PRIVATE_KEY_WITH_PRF uses filtered authenticators for the current device', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.localOnly);
+        const types = await import(paths.types);
+        const handleLocalOnlyFlow = mod.handleLocalOnlyFlow as Function;
 
-      const authOld = { credentialId: 'cred-old', deviceNumber: 3, transports: [] };
-      const authNew = { credentialId: 'cred-new', deviceNumber: 6, transports: [] };
-      let capturedAllow: any[] | null = null;
+        const authOld = { credentialId: 'cred-old', deviceNumber: 3, transports: [] };
+        const authNew = { credentialId: 'cred-new', deviceNumber: 6, transports: [] };
+        let capturedAllow: any[] | null = null;
 
-      const ctx: any = {
-        indexedDB: {
-          clientDB: {
-            resolveNearAccountContext: async (nearAccountId: string) => ({
-              profileId: `legacy-near:${String(nearAccountId)}`,
-              sourceChainId: 'near:testnet',
-              sourceAccountAddress: String(nearAccountId),
-            }),
-            listProfileAuthenticators: async () => [authOld, authNew],
-            selectProfileAuthenticatorsForPrompt: async () => ({
-              authenticatorsForPrompt: [authNew],
-              wrongPasskeyError: undefined,
-            }),
-          }
-        },
-        touchIdPrompt: {
-          getRpId: () => 'example.localhost',
-          getAuthenticationCredentialsSerializedForChallengeB64u: async ({ allowCredentials, includeSecondPrfOutput }: any) => {
-            capturedAllow = allowCredentials;
-            return {
-              id: 'cred-new',
-              type: 'public-key',
-              rawId: 'cred-new',
-              response: {
-                clientDataJSON: 'AQ',
-                authenticatorData: 'Ag',
-                signature: 'Aw',
-                userHandle: undefined,
-              },
-              clientExtensionResults: {
-                prf: { results: { first: 'BQ', second: includeSecondPrfOutput ? 'Bg' : undefined } },
-              },
-            } as any;
+        const ctx: any = {
+          indexedDB: {
+            clientDB: {
+              resolveNearAccountContext: async (nearAccountId: string) => ({
+                profileId: `legacy-near:${String(nearAccountId)}`,
+                sourceChainIdKey: 'near:testnet',
+                sourceAccountAddress: String(nearAccountId),
+              }),
+              listProfileAuthenticators: async () => [authOld, authNew],
+              selectProfileAuthenticatorsForPrompt: async () => ({
+                authenticatorsForPrompt: [authNew],
+                wrongPasskeyError: undefined,
+              }),
+            },
           },
-        }
-      };
+          touchIdPrompt: {
+            getRpId: () => 'example.localhost',
+            getAuthenticationCredentialsSerializedForChallengeB64u: async ({
+              allowCredentials,
+              includeSecondPrfOutput,
+            }: any) => {
+              capturedAllow = allowCredentials;
+              return {
+                id: 'cred-new',
+                type: 'public-key',
+                rawId: 'cred-new',
+                response: {
+                  clientDataJSON: 'AQ',
+                  authenticatorData: 'Ag',
+                  signature: 'Aw',
+                  userHandle: undefined,
+                },
+                clientExtensionResults: {
+                  prf: {
+                    results: { first: 'BQ', second: includeSecondPrfOutput ? 'Bg' : undefined },
+                  },
+                },
+              } as any;
+            },
+          },
+        };
 
-      const request = {
-        requestId: 'decrypt-1',
-        type: types.UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
-        summary: {},
-        payload: { nearAccountId: 'alice.testnet' },
-      } as any;
+        const request = {
+          requestId: 'decrypt-1',
+          type: types.UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
+          summary: {},
+          payload: { nearAccountId: 'alice.testnet' },
+        } as any;
 
-      const workerMessages: any[] = [];
-      const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
+        const workerMessages: any[] = [];
+        const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
 
-      await handleLocalOnlyFlow(ctx, request, worker, {
-        confirmationConfig: { uiMode: 'none', behavior: 'requireClick', autoProceedDelay: 0},
-        transactionSummary: {},
-        theme: 'dark',
-      });
+        await handleLocalOnlyFlow(ctx, request, worker, {
+          confirmationConfig: { uiMode: 'none', behavior: 'requireClick', autoProceedDelay: 0 },
+          transactionSummary: {},
+          theme: 'dark',
+        });
 
-      const response = workerMessages[0]?.data;
-      return {
-        confirmed: response?.confirmed,
-        allowIds: (capturedAllow || []).map((c: any) => c.id),
-      };
-    }, { paths: IMPORT_PATHS });
+        const response = workerMessages[0]?.data;
+        return {
+          confirmed: response?.confirmed,
+          allowIds: (capturedAllow || []).map((c: any) => c.id),
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     expect(result.confirmed).toBe(true);
     expect(result.allowIds).toEqual(['cred-new']);
   });
 
   test('Signing flow: missing PRF output surfaces error', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      const mod = await import(paths.handle);
-      const types = await import(paths.types);
-      const handle = mod.handlePromptFromWorker as Function;
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.handle);
+        const types = await import(paths.types);
+        const handle = mod.handlePromptFromWorker as Function;
 
-      const ctx: any = {
-        userPreferencesManager: {
-          getConfirmationConfig: () => ({
-            uiMode: 'none',
-            behavior: 'skipClick',
-            autoProceedDelay: 0}),
-        },
-        nonceManager: {
-          async getNonceBlockHashAndHeight() {
-            return {
-              nearPublicKeyStr: 'pk',
-              accessKeyInfo: { nonce: 400 },
-              nextNonce: '401',
-              txBlockHeight: '4000',
-              txBlockHash: 'h4000',
-            };
-          },
-          reserveNonces: () => ['401'],
-          releaseNonce: () => {},
-        },
-        nearClient: {},
-	      touchIdPrompt: {
-	        getRpId: () => 'example.localhost',
-	        getAuthenticationCredentialsSerializedForChallengeB64u: async () => {
-	          throw new Error('Missing PRF result - PRF evaluation failed: results object is empty');
-	        },
-	      },
-        indexedDB: {
-          clientDB: {
-            resolveNearAccountContext: async (nearAccountId: string) => ({
-              profileId: `legacy-near:${String(nearAccountId)}`,
-              sourceChainId: 'near:testnet',
-              sourceAccountAddress: String(nearAccountId),
+        const ctx: any = {
+          userPreferencesManager: {
+            getConfirmationConfig: () => ({
+              uiMode: 'none',
+              behavior: 'skipClick',
+              autoProceedDelay: 0,
             }),
-            listProfileAuthenticators: async () => [],
-            selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
-              authenticatorsForPrompt: authenticators,
-              wrongPasskeyError: undefined,
-            }),
-            getLastUser: async () => ({ nearAccountId: 'error.testnet', deviceNumber: 1 }),
-            getUserByDevice: async () => ({ deviceNumber: 1 }),
           },
-          nearKeysDB: {
-            getKeyMaterial: async () => ({
+          nonceManager: {
+            async getNonceBlockHashAndHeight() {
+              return {
+                nearPublicKeyStr: 'pk',
+                accessKeyInfo: { nonce: 400 },
+                nextNonce: '401',
+                txBlockHeight: '4000',
+                txBlockHash: 'h4000',
+              };
+            },
+            reserveNonces: () => ['401'],
+            releaseNonce: () => {},
+          },
+          nearClient: {},
+          touchIdPrompt: {
+            getRpId: () => 'example.localhost',
+            getAuthenticationCredentialsSerializedForChallengeB64u: async () => {
+              throw new Error(
+                'Missing PRF result - PRF evaluation failed: results object is empty',
+              );
+            },
+          },
+          indexedDB: {
+            clientDB: {
+              resolveNearAccountContext: async (nearAccountId: string) => ({
+                profileId: `legacy-near:${String(nearAccountId)}`,
+                sourceChainIdKey: 'near:testnet',
+                sourceAccountAddress: String(nearAccountId),
+              }),
+              listProfileAuthenticators: async () => [],
+              selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
+                authenticatorsForPrompt: authenticators,
+                wrongPasskeyError: undefined,
+              }),
+              getLastUser: async () => ({ nearAccountId: 'error.testnet', deviceNumber: 1 }),
+              getUserByDevice: async () => ({ deviceNumber: 1 }),
+            },
+            nearKeysDB: {
+              getKeyMaterial: async () => ({
+                kind: 'local_near_sk_v3',
+                nearAccountId: 'error.testnet',
+                deviceNumber: 1,
+                publicKey: 'ed25519:pk',
+                encryptedSk: 'ciphertext-b64u',
+                chacha20NonceB64u: 'nonce-b64u',
+                wrapKeySalt: 'salt-missing-prf',
+                timestamp: Date.now(),
+              }),
+            },
+            getNearLocalKeyMaterialV2First: async () => ({
               kind: 'local_near_sk_v3',
               nearAccountId: 'error.testnet',
               deviceNumber: 1,
@@ -603,47 +682,42 @@ test.describe('confirmTxFlow – defensive paths', () => {
               wrapKeySalt: 'salt-missing-prf',
               timestamp: Date.now(),
             }),
+            getNearThresholdKeyMaterialV2First: async () => null,
           },
-          getNearLocalKeyMaterialV2First: async () => ({
-            kind: 'local_near_sk_v3',
-            nearAccountId: 'error.testnet',
-            deviceNumber: 1,
-            publicKey: 'ed25519:pk',
-            encryptedSk: 'ciphertext-b64u',
-            chacha20NonceB64u: 'nonce-b64u',
-            wrapKeySalt: 'salt-missing-prf',
-            timestamp: Date.now(),
-          }),
-          getNearThresholdKeyMaterialV2First: async () => null,
-        },
-      };
+        };
 
-      const request = {
-        requestId: 'prf-fail-sign',
-        type: types.UserConfirmationType.SIGN_TRANSACTION,
-        summary: {},
-        payload: {
-          intentDigest: 'intent-error',
-          nearAccountId: 'error.testnet',
-          txSigningRequests: [{ receiverId: 'x', actions: [] }],
-          rpcCall: {
-            method: 'sign',
-            argsJson: {},
+        const request = {
+          requestId: 'prf-fail-sign',
+          type: types.UserConfirmationType.SIGN_TRANSACTION,
+          summary: {},
+          payload: {
+            intentDigest: 'intent-error',
             nearAccountId: 'error.testnet',
-            nearRpcUrl: 'https://rpc.testnet.near.org',
+            txSigningRequests: [{ receiverId: 'x', actions: [] }],
+            rpcCall: {
+              method: 'sign',
+              argsJson: {},
+              nearAccountId: 'error.testnet',
+              nearRpcUrl: 'https://rpc.testnet.near.org',
+            },
           },
-        },
-      } as any;
+        } as any;
 
-      const workerMessages: any[] = [];
-      const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
-      await handle(ctx, {
-        type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
-        data: request
-      }, worker);
-      const response = workerMessages[0]?.data;
-      return { response, messageCount: workerMessages.length };
-    }, { paths: IMPORT_PATHS });
+        const workerMessages: any[] = [];
+        const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
+        await handle(
+          ctx,
+          {
+            type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+            data: request,
+          },
+          worker,
+        );
+        const response = workerMessages[0]?.data;
+        return { response, messageCount: workerMessages.length };
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     expect(result.messageCount).toBe(1);
     expect(result.response.confirmed).toBe(false);
@@ -651,174 +725,193 @@ test.describe('confirmTxFlow – defensive paths', () => {
   });
 
   test('Registration flow: missing PRF output surfaces error', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      const mod = await import(paths.handle);
-      const types = await import(paths.types);
-      const handle = mod.handlePromptFromWorker as Function;
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.handle);
+        const types = await import(paths.types);
+        const handle = mod.handlePromptFromWorker as Function;
 
-      const ctx: any = {
-        userPreferencesManager: {
-          getConfirmationConfig: () => ({
-            uiMode: 'none',
-            behavior: 'skipClick',
-            autoProceedDelay: 0}),
-        },
-        nonceManager: {
-          async getNonceBlockHashAndHeight() {
-            return {
-              nearPublicKeyStr: 'pk-reg',
-              accessKeyInfo: { nonce: 22 },
-              nextNonce: '23',
-              txBlockHeight: '2200',
-              txBlockHash: 'h2200',
-            };
+        const ctx: any = {
+          userPreferencesManager: {
+            getConfirmationConfig: () => ({
+              uiMode: 'none',
+              behavior: 'skipClick',
+              autoProceedDelay: 0,
+            }),
           },
-          reserveNonces: () => ['23'],
-          releaseNonce: () => {},
-        },
-        nearClient: {},
-        touchIdPrompt: {
-          getRpId: () => 'example.localhost',
-          generateRegistrationCredentialsInternal: async () => ({
-            id: 'reg-cred',
-            type: 'public-key',
-            rawId: new Uint8Array([1]).buffer,
-            response: {
-              clientDataJSON: new Uint8Array([1]).buffer,
-              attestationObject: new Uint8Array([2]).buffer,
-              getTransports: () => ['internal'],
+          nonceManager: {
+            async getNonceBlockHashAndHeight() {
+              return {
+                nearPublicKeyStr: 'pk-reg',
+                accessKeyInfo: { nonce: 22 },
+                nextNonce: '23',
+                txBlockHeight: '2200',
+                txBlockHash: 'h2200',
+              };
             },
-            getClientExtensionResults: () => ({ prf: { results: {} } }),
-          }) as any,
-        },
-        indexedDB: {
-          clientDB: {
-            resolveNearAccountContext: async (nearAccountId: string) => ({
-              profileId: `legacy-near:${String(nearAccountId)}`,
-              sourceChainId: 'near:testnet',
-              sourceAccountAddress: String(nearAccountId),
-            }),
-            listProfileAuthenticators: async () => [],
-            selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
-              authenticatorsForPrompt: authenticators,
-              wrongPasskeyError: undefined,
-            }),
+            reserveNonces: () => ['23'],
+            releaseNonce: () => {},
           },
-        },
-      };
+          nearClient: {},
+          touchIdPrompt: {
+            getRpId: () => 'example.localhost',
+            generateRegistrationCredentialsInternal: async () =>
+              ({
+                id: 'reg-cred',
+                type: 'public-key',
+                rawId: new Uint8Array([1]).buffer,
+                response: {
+                  clientDataJSON: new Uint8Array([1]).buffer,
+                  attestationObject: new Uint8Array([2]).buffer,
+                  getTransports: () => ['internal'],
+                },
+                getClientExtensionResults: () => ({ prf: { results: {} } }),
+              }) as any,
+          },
+          indexedDB: {
+            clientDB: {
+              resolveNearAccountContext: async (nearAccountId: string) => ({
+                profileId: `legacy-near:${String(nearAccountId)}`,
+                sourceChainIdKey: 'near:testnet',
+                sourceAccountAddress: String(nearAccountId),
+              }),
+              listProfileAuthenticators: async () => [],
+              selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
+                authenticatorsForPrompt: authenticators,
+                wrongPasskeyError: undefined,
+              }),
+            },
+          },
+        };
 
-	      const request = {
-	        requestId: 'prf-fail-reg',
-	        type: types.UserConfirmationType.REGISTER_ACCOUNT,
-	        summary: {},
-	        payload: {
-	          nearAccountId: 'error-reg.testnet',
-	          deviceNumber: 1,
-	          rpcCall: { method: 'register', argsJson: {} },
-	        },
-	        intentDigest: 'register:error-reg.testnet:1',
-	      } as any;
+        const request = {
+          requestId: 'prf-fail-reg',
+          type: types.UserConfirmationType.REGISTER_ACCOUNT,
+          summary: {},
+          payload: {
+            nearAccountId: 'error-reg.testnet',
+            deviceNumber: 1,
+            rpcCall: { method: 'register', argsJson: {} },
+          },
+          intentDigest: 'register:error-reg.testnet:1',
+        } as any;
 
-      const workerMessages: any[] = [];
-      const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
-      await handle(ctx, {
-        type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
-        data: request
-      }, worker);
-      const response = workerMessages[0]?.data;
-      return { response, messageCount: workerMessages.length };
-    }, { paths: IMPORT_PATHS });
+        const workerMessages: any[] = [];
+        const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
+        await handle(
+          ctx,
+          {
+            type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+            data: request,
+          },
+          worker,
+        );
+        const response = workerMessages[0]?.data;
+        return { response, messageCount: workerMessages.length };
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     expect(result.messageCount).toBe(1);
     expect(result.response.confirmed).toBe(false);
     expect(result.response.error).toContain('Missing PRF result');
   });
 
-	  test('Signing flow: credential collection error returns response and releases nonces', async ({ page }) => {
-	    const result = await page.evaluate(async ({ paths }) => {
-      const mod = await import(paths.handle);
-      const types = await import(paths.types);
-      const handle = mod.handlePromptFromWorker as Function;
+  test('Signing flow: credential collection error returns response and releases nonces', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.handle);
+        const types = await import(paths.types);
+        const handle = mod.handlePromptFromWorker as Function;
 
-      const reserved: string[] = [];
-      const released: string[] = [];
-	      const ctx: any = {
-	        userPreferencesManager: {
-	          getConfirmationConfig: () => ({
-	            uiMode: 'none',
-	            behavior: 'skipClick',
-	            autoProceedDelay: 0}),
-	        },
-        nonceManager: {
-          async getNonceBlockHashAndHeight() {
-            return {
-              nearPublicKeyStr: 'pk',
-              accessKeyInfo: { nonce: 500 },
-              nextNonce: '501',
-              txBlockHeight: '5000',
-              txBlockHash: 'h5000',
-            };
+        const reserved: string[] = [];
+        const released: string[] = [];
+        const ctx: any = {
+          userPreferencesManager: {
+            getConfirmationConfig: () => ({
+              uiMode: 'none',
+              behavior: 'skipClick',
+              autoProceedDelay: 0,
+            }),
           },
-          reserveNonces(count: number) {
-            const values = Array.from({ length: count }, (_, i) => String(501 + i));
-            reserved.push(...values);
-            return values;
+          nonceManager: {
+            async getNonceBlockHashAndHeight() {
+              return {
+                nearPublicKeyStr: 'pk',
+                accessKeyInfo: { nonce: 500 },
+                nextNonce: '501',
+                txBlockHeight: '5000',
+                txBlockHash: 'h5000',
+              };
+            },
+            reserveNonces(count: number) {
+              const values = Array.from({ length: count }, (_, i) => String(501 + i));
+              reserved.push(...values);
+              return values;
+            },
+            releaseNonce(nonce: string) {
+              released.push(nonce);
+            },
           },
-          releaseNonce(nonce: string) {
-            released.push(nonce);
+          nearClient: {},
+          touchIdPrompt: {
+            getRpId: () => 'example.localhost',
+            getAuthenticationCredentialsSerializedForChallengeB64u: async () => {
+              throw new Error('Credential collection failed: wrong passkey or user cancelled');
+            },
           },
-        },
-	        nearClient: {},
-	        touchIdPrompt: {
-	          getRpId: () => 'example.localhost',
-	          getAuthenticationCredentialsSerializedForChallengeB64u: async () => {
-	            throw new Error('Credential collection failed: wrong passkey or user cancelled');
-	          },
-	        },
-	        indexedDB: {
-	          clientDB: {
-	            resolveNearAccountContext: async (nearAccountId: string) => ({
-	              profileId: `legacy-near:${String(nearAccountId)}`,
-	              sourceChainId: 'near:testnet',
-	              sourceAccountAddress: String(nearAccountId),
-	            }),
-	            listProfileAuthenticators: async () => [],
-	            selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
-	              authenticatorsForPrompt: authenticators,
-	              wrongPasskeyError: undefined,
-	            }),
-	          },
-	        },
-	      };
+          indexedDB: {
+            clientDB: {
+              resolveNearAccountContext: async (nearAccountId: string) => ({
+                profileId: `legacy-near:${String(nearAccountId)}`,
+                sourceChainIdKey: 'near:testnet',
+                sourceAccountAddress: String(nearAccountId),
+              }),
+              listProfileAuthenticators: async () => [],
+              selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
+                authenticatorsForPrompt: authenticators,
+                wrongPasskeyError: undefined,
+              }),
+            },
+          },
+        };
 
-      const request = {
-        requestId: 'credential-collection-error',
-        type: types.UserConfirmationType.SIGN_TRANSACTION,
-        summary: {},
-        payload: {
-          intentDigest: 'intent-credential-error',
-          nearAccountId: 'error.testnet',
-          txSigningRequests: [{ receiverId: 'x', actions: [] }],
-          rpcCall: {
-            method: 'sign',
-            argsJson: {},
+        const request = {
+          requestId: 'credential-collection-error',
+          type: types.UserConfirmationType.SIGN_TRANSACTION,
+          summary: {},
+          payload: {
+            intentDigest: 'intent-credential-error',
             nearAccountId: 'error.testnet',
-            nearRpcUrl: 'https://rpc.testnet.near.org',
+            txSigningRequests: [{ receiverId: 'x', actions: [] }],
+            rpcCall: {
+              method: 'sign',
+              argsJson: {},
+              nearAccountId: 'error.testnet',
+              nearRpcUrl: 'https://rpc.testnet.near.org',
+            },
           },
-        },
-      } as any;
+        } as any;
 
-      const workerMessages: any[] = [];
-      const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
+        const workerMessages: any[] = [];
+        const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
 
-      await handle(ctx, {
-        type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
-        data: request
-      }, worker);
+        await handle(
+          ctx,
+          {
+            type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+            data: request,
+          },
+          worker,
+        );
 
-      const response = workerMessages[0]?.data;
-      return { reserved, released, response };
-    }, { paths: IMPORT_PATHS });
+        const response = workerMessages[0]?.data;
+        return { reserved, released, response };
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     expect(result.reserved.length).toBeGreaterThan(0);
     expect(result.released).toEqual(result.reserved);

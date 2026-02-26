@@ -6,6 +6,25 @@ on:
   merge_group:
 
 jobs:
+  formal-verification:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Coq toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y coq
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run formal verification checks
+        run: make -C formal-verification check
+
   build-and-test:
     runs-on: ubuntu-latest
     steps:
@@ -46,6 +65,9 @@ jobs:
 
       - name: Check (lint + format + type-check)
         run: pnpm check
+
+      - name: Enforce chain family naming guardrails
+        run: pnpm -C tests check:chain-family-naming
 
       - name: Setup Bun (for worker bundling)
         uses: oven-sh/setup-bun@v2
@@ -185,8 +207,8 @@ jobs:
       - name: Run threshold ECDSA benchmark SLO gates
         env:
           # CI VMs have noisier CPU scheduling than local; keep guardrails but avoid flakiness.
-          BENCH_SLO_PRESIGN_STEP_P95_MS: "1400"
-          BENCH_SLO_PRESIGN_STEP_P99_MS: "2000"
+          BENCH_SLO_PRESIGN_STEP_P95_MS: '1400'
+          BENCH_SLO_PRESIGN_STEP_P99_MS: '2000'
         run: pnpm benchmark:threshold-ecdsa
 
       - name: Upload threshold-core test artifacts on failure

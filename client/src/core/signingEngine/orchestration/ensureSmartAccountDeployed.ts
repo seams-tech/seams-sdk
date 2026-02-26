@@ -11,7 +11,7 @@ export type SmartAccountDeploymentChain = 'evm' | 'tempo';
 
 export type SmartAccountDeploymentTarget = {
   chain: SmartAccountDeploymentChain;
-  chainIdCandidates: string[];
+  chainIdCandidates: number[];
   accountModelCandidates: string[];
 };
 
@@ -25,20 +25,18 @@ export type SmartAccountDeployerResult = {
 export type SmartAccountDeployerInput = {
   nearAccountId: AccountId;
   chain: SmartAccountDeploymentChain;
-  chainId: string;
+  chainId: number;
   account: ChainAccountRecord;
 };
 
 export type SmartAccountStatePort = {
   resolveNearAccountContext: (
     nearAccountId: AccountId,
-  ) => Promise<{ profileId: string; sourceChainId: string; sourceAccountAddress: string } | null>;
-  listChainAccountsByProfile?: (
-    profileId: string,
-  ) => Promise<ChainAccountRecord[]>;
+  ) => Promise<{ profileId: string; sourceChainIdKey: string; sourceAccountAddress: string } | null>;
+  listChainAccountsByProfile?: (profileId: string) => Promise<ChainAccountRecord[]>;
   listChainAccountsByProfileAndChain: (
     profileId: string,
-    chainId: string,
+    chainIdKey: string,
   ) => Promise<ChainAccountRecord[]>;
   upsertChainAccount: (input: UpsertChainAccountInput) => Promise<ChainAccountRecord>;
 };
@@ -53,7 +51,7 @@ export type EnsureSmartAccountDeployedStatus =
 
 export type EnsureSmartAccountDeployedResult = {
   status: EnsureSmartAccountDeployedStatus;
-  chainId?: string;
+  chainId?: number;
   accountAddress?: string;
   deploymentTxHash?: string;
   failureCode?: string;
@@ -64,19 +62,38 @@ export type EnsureSmartAccountDeployedResult = {
 
 type DeploymentIdentity = {
   profileId: string;
-  chainId: string;
+  chainIdKey: string;
   accountModel: string;
   accountAddress: string;
 };
 
 const deploymentInFlightByIdentity = new Map<string, Promise<void>>();
 
-function normalizeChainId(value: unknown): string {
-  return String(value || '').trim().toLowerCase();
+function normalizeChainIdKey(value: unknown): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeOptionalChainIdNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) {
+    return value;
+  }
+  const raw = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (!raw) return undefined;
+  const suffix = raw.includes(':') ? raw.slice(raw.lastIndexOf(':') + 1) : raw;
+  if (!/^\d+$/.test(suffix)) return undefined;
+  const parsed = Number(suffix);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) return undefined;
+  return parsed;
 }
 
 function normalizeAccountModel(value: unknown): string {
-  return String(value || '').trim().toLowerCase();
+  return String(value || '')
+    .trim()
+    .toLowerCase();
 }
 
 function normalizeOptionalString(value: unknown): string | undefined {
@@ -85,7 +102,9 @@ function normalizeOptionalString(value: unknown): string | undefined {
 }
 
 function normalizeAccountAddress(value: unknown): string {
-  return String(value || '').trim().toLowerCase();
+  return String(value || '')
+    .trim()
+    .toLowerCase();
 }
 
 function normalizeRetryAttempts(value: unknown): number {
@@ -97,41 +116,45 @@ function normalizeRetryAttempts(value: unknown): number {
 }
 
 function isRetriableDeployFailure(codeRaw: unknown, messageRaw: unknown): boolean {
-  const code = String(codeRaw || '').trim().toLowerCase();
-  const message = String(messageRaw || '').trim().toLowerCase();
+  const code = String(codeRaw || '')
+    .trim()
+    .toLowerCase();
+  const message = String(messageRaw || '')
+    .trim()
+    .toLowerCase();
   if (
-    code === 'request_failed'
-    || code === 'timeout'
-    || code === 'timed_out'
-    || code === 'network_error'
-    || code === 'service_unavailable'
-    || code === 'temporarily_unavailable'
-    || code === 'rate_limited'
-    || code === 'http_429'
-    || code === 'http_503'
-    || code === 'http_504'
+    code === 'request_failed' ||
+    code === 'timeout' ||
+    code === 'timed_out' ||
+    code === 'network_error' ||
+    code === 'service_unavailable' ||
+    code === 'temporarily_unavailable' ||
+    code === 'rate_limited' ||
+    code === 'http_429' ||
+    code === 'http_503' ||
+    code === 'http_504'
   ) {
     return true;
   }
   return (
-    message.includes('timeout')
-    || message.includes('timed out')
-    || message.includes('network')
-    || message.includes('fetch')
-    || message.includes('temporar')
-    || message.includes('rate limit')
-    || message.includes('429')
-    || message.includes('503')
-    || message.includes('504')
+    message.includes('timeout') ||
+    message.includes('timed out') ||
+    message.includes('network') ||
+    message.includes('fetch') ||
+    message.includes('temporar') ||
+    message.includes('rate limit') ||
+    message.includes('429') ||
+    message.includes('503') ||
+    message.includes('504')
   );
 }
 
-function dedupeChainIds(chainIds: string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
+function dedupeChainIds(chainIds: number[]): number[] {
+  const seen = new Set<number>();
+  const out: number[] = [];
   for (const chainIdRaw of chainIds) {
-    const chainId = normalizeChainId(chainIdRaw);
-    if (!chainId || seen.has(chainId)) continue;
+    const chainId = normalizeOptionalChainIdNumber(chainIdRaw);
+    if (typeof chainId !== 'number' || seen.has(chainId)) continue;
     seen.add(chainId);
     out.push(chainId);
   }
@@ -141,7 +164,7 @@ function dedupeChainIds(chainIds: string[]): string[] {
 function toDeploymentIdentity(account: ChainAccountRecord): DeploymentIdentity {
   return {
     profileId: String(account.profileId || '').trim(),
-    chainId: normalizeChainId(account.chainId),
+    chainIdKey: normalizeChainIdKey(account.chainIdKey),
     accountModel: normalizeAccountModel(account.accountModel),
     accountAddress: normalizeAccountAddress(account.accountAddress),
   };
@@ -150,7 +173,7 @@ function toDeploymentIdentity(account: ChainAccountRecord): DeploymentIdentity {
 function deploymentIdentityKey(identity: DeploymentIdentity): string {
   return [
     identity.profileId,
-    identity.chainId,
+    identity.chainIdKey,
     identity.accountModel,
     identity.accountAddress,
   ].join('|');
@@ -159,18 +182,18 @@ function deploymentIdentityKey(identity: DeploymentIdentity): string {
 async function findChainAccountByIdentity(args: {
   clientDB: SmartAccountStatePort;
   profileId: string;
-  chainId: string;
+  chainIdKey: string;
   accountModel: string;
   accountAddress: string;
 }): Promise<ChainAccountRecord | null> {
   const rows = await args.clientDB
-    .listChainAccountsByProfileAndChain(args.profileId, args.chainId)
+    .listChainAccountsByProfileAndChain(args.profileId, args.chainIdKey)
     .catch(() => []);
   return (
     rows.find(
       (row) =>
-        normalizeAccountModel(row.accountModel) === args.accountModel
-        && normalizeAccountAddress(row.accountAddress) === args.accountAddress,
+        normalizeAccountModel(row.accountModel) === args.accountModel &&
+        normalizeAccountAddress(row.accountAddress) === args.accountAddress,
     ) || null
   );
 }
@@ -203,19 +226,19 @@ async function withDeploymentIdentityLock<T>(args: {
 }
 
 function deriveMirrorAccountDefaults(chain: SmartAccountDeploymentChain): {
-  mirrorChainId: string;
+  mirrorChainIdKey: string;
   mirrorAccountModel: string;
   seedAccountModelCandidates: string[];
 } {
   if (chain === 'evm') {
     return {
-      mirrorChainId: 'eip155:unknown',
+      mirrorChainIdKey: 'evm:unknown',
       mirrorAccountModel: 'erc4337',
       seedAccountModelCandidates: ['tempo-native'],
     };
   }
   return {
-    mirrorChainId: 'tempo:unknown',
+    mirrorChainIdKey: 'tempo:42431',
     mirrorAccountModel: 'tempo-native',
     seedAccountModelCandidates: ['erc4337'],
   };
@@ -254,26 +277,38 @@ async function mirrorMissingSmartAccountRowFromCounterpart(args: {
   });
   if (!seed) return null;
 
-  const seeded = await args.clientDB.upsertChainAccount({
-    profileId: args.profileId,
-    chainId: mirror.mirrorChainId,
-    accountAddress: seed.accountAddress,
-    accountModel: mirror.mirrorAccountModel,
-    isPrimary: true,
-    factory: seed.factory,
-    entryPoint: seed.entryPoint,
-    salt: seed.salt,
-    counterfactualAddress: seed.counterfactualAddress || seed.accountAddress,
-    deployed: false,
-    deploymentTxHash: null,
-    lastDeploymentCheckAt: null,
-  }).catch(() => null);
+  const seeded = await args.clientDB
+    .upsertChainAccount({
+      profileId: args.profileId,
+      chainIdKey: mirror.mirrorChainIdKey,
+      accountAddress: seed.accountAddress,
+      accountModel: mirror.mirrorAccountModel,
+      isPrimary: true,
+      factory: seed.factory,
+      entryPoint: seed.entryPoint,
+      salt: seed.salt,
+      counterfactualAddress: seed.counterfactualAddress || seed.accountAddress,
+      deployed: false,
+      deploymentTxHash: null,
+      lastDeploymentCheckAt: null,
+    })
+    .catch(() => null);
 
   return seeded;
 }
 
-function toChainIdFromNumber(prefix: 'eip155' | 'tempo', chainId: number): string {
-  return `${prefix}:${String(chainId)}`;
+function toChainIdKey(chain: SmartAccountDeploymentChain, chainId: number): string {
+  return `${chain}:${String(chainId)}`;
+}
+
+function resolveChainIdFromChainAccount(args: {
+  account: ChainAccountRecord;
+  chainIdCandidates: readonly number[];
+}): number | undefined {
+  const parsedFromAccount = normalizeOptionalChainIdNumber(args.account.chainIdKey);
+  if (typeof parsedFromAccount === 'number') return parsedFromAccount;
+  if (args.chainIdCandidates.length === 1) return args.chainIdCandidates[0];
+  return undefined;
 }
 
 export function deriveSmartAccountDeploymentTargetFromSigningRequest(
@@ -282,19 +317,13 @@ export function deriveSmartAccountDeploymentTargetFromSigningRequest(
   if (request.chain === 'evm') {
     return {
       chain: 'evm',
-      chainIdCandidates: [
-        toChainIdFromNumber('eip155', request.tx.chainId),
-        'eip155:unknown',
-      ],
+      chainIdCandidates: [request.tx.chainId],
       accountModelCandidates: ['erc4337'],
     };
   }
   return {
     chain: 'tempo',
-    chainIdCandidates: [
-      toChainIdFromNumber('tempo', request.tx.chainId),
-      'tempo:unknown',
-    ],
+    chainIdCandidates: [request.tx.chainId],
     accountModelCandidates: ['tempo-native'],
   };
 }
@@ -308,7 +337,7 @@ async function upsertDeploymentCheckState(args: {
 }): Promise<ChainAccountRecord> {
   return await args.clientDB.upsertChainAccount({
     profileId: args.account.profileId,
-    chainId: args.account.chainId,
+    chainIdKey: args.account.chainIdKey,
     accountAddress: args.account.accountAddress,
     accountModel: args.account.accountModel,
     isPrimary: args.account.isPrimary,
@@ -326,7 +355,7 @@ export async function ensureSmartAccountDeployed(args: {
   clientDB: SmartAccountStatePort;
   nearAccountId: AccountId | string;
   chain: SmartAccountDeploymentChain;
-  chainIdCandidates: string[];
+  chainIdCandidates: number[];
   accountModelCandidates: string[];
   deploy?: (input: SmartAccountDeployerInput) => Promise<SmartAccountDeployerResult>;
   enforce?: boolean;
@@ -338,6 +367,7 @@ export async function ensureSmartAccountDeployed(args: {
   const enforce = !!args.enforce;
   const maxDeployAttempts = normalizeRetryAttempts(args.maxDeployAttempts);
   const chainIds = dedupeChainIds(args.chainIdCandidates);
+  const chainIdKeys = chainIds.map((chainId) => toChainIdKey(args.chain, chainId));
 
   const context = await args.clientDB.resolveNearAccountContext(nearAccountId).catch(() => null);
   if (!context?.profileId) {
@@ -350,9 +380,9 @@ export async function ensureSmartAccountDeployed(args: {
   }
 
   const chainRows: ChainAccountRecord[] = [];
-  for (const chainId of chainIds) {
+  for (const chainIdKey of chainIdKeys) {
     const rows = await args.clientDB
-      .listChainAccountsByProfileAndChain(context.profileId, chainId)
+      .listChainAccountsByProfileAndChain(context.profileId, chainIdKey)
       .catch(() => []);
     if (rows.length) chainRows.push(...rows);
   }
@@ -379,7 +409,7 @@ export async function ensureSmartAccountDeployed(args: {
   if (!account) {
     if (enforce) {
       throw new Error(
-        `[deployment] no smart-account row found for profile ${context.profileId} (${chainIds.join(', ')})`,
+        `[deployment] no smart-account row found for profile ${context.profileId} (${chainIdKeys.join(', ')})`,
       );
     }
     return { status: 'skipped_missing_account', checkedAt, attempts: 0 };
@@ -392,9 +422,13 @@ export async function ensureSmartAccountDeployed(args: {
   });
 
   if (touched.deployed) {
+    const chainId = resolveChainIdFromChainAccount({
+      account: touched,
+      chainIdCandidates: chainIds,
+    });
     return {
       status: 'already_deployed',
-      chainId: touched.chainId,
+      ...(typeof chainId === 'number' ? { chainId } : {}),
       accountAddress: touched.accountAddress,
       deploymentTxHash: touched.deploymentTxHash,
       attempts: 0,
@@ -405,12 +439,16 @@ export async function ensureSmartAccountDeployed(args: {
   if (!args.deploy) {
     if (enforce) {
       throw new Error(
-        `[deployment] smart account ${touched.accountAddress} (${touched.chainId}) is undeployed and no deployer is configured`,
+        `[deployment] smart account ${touched.accountAddress} (${touched.chainIdKey}) is undeployed and no deployer is configured`,
       );
     }
+    const chainId = resolveChainIdFromChainAccount({
+      account: touched,
+      chainIdCandidates: chainIds,
+    });
     return {
       status: 'needs_deploy',
-      chainId: touched.chainId,
+      ...(typeof chainId === 'number' ? { chainId } : {}),
       accountAddress: touched.accountAddress,
       attempts: 0,
       checkedAt,
@@ -426,14 +464,18 @@ export async function ensureSmartAccountDeployed(args: {
         const refreshed = await findChainAccountByIdentity({
           clientDB: args.clientDB,
           profileId: identity.profileId,
-          chainId: identity.chainId,
+          chainIdKey: identity.chainIdKey,
           accountModel: identity.accountModel,
           accountAddress: identity.accountAddress,
         });
         if (refreshed?.deployed) {
+          const chainId = resolveChainIdFromChainAccount({
+            account: refreshed,
+            chainIdCandidates: chainIds,
+          });
           return {
             status: 'already_deployed',
-            chainId: refreshed.chainId,
+            ...(typeof chainId === 'number' ? { chainId } : {}),
             accountAddress: refreshed.accountAddress,
             deploymentTxHash: refreshed.deploymentTxHash,
             attempts: 0,
@@ -448,10 +490,28 @@ export async function ensureSmartAccountDeployed(args: {
       let failureCode: string | undefined;
       let failureMessage: string | undefined;
       for (let attempt = 1; attempt <= maxDeployAttempts; attempt += 1) {
+        const resolvedChainId = resolveChainIdFromChainAccount({
+          account: current,
+          chainIdCandidates: chainIds,
+        });
+        if (typeof resolvedChainId !== 'number') {
+          if (enforce) {
+            throw new Error(
+              `[deployment] unable to resolve numeric chainId for ${args.chain} deployment row (${String(current.chainIdKey || 'unknown')})`,
+            );
+          }
+          return {
+            status: 'deploy_failed',
+            accountAddress: current.accountAddress,
+            failureMessage: 'unable to resolve numeric chainId',
+            attempts: attempt,
+            checkedAt,
+          };
+        }
         const deployResult = await args.deploy!({
           nearAccountId,
           chain: args.chain,
-          chainId: current.chainId,
+          chainId: resolvedChainId,
           account: current,
         });
         if (deployResult.ok) {
@@ -462,9 +522,13 @@ export async function ensureSmartAccountDeployed(args: {
             deployed: true,
             deploymentTxHash: normalizeOptionalString(deployResult.deploymentTxHash),
           });
+          const chainId = resolveChainIdFromChainAccount({
+            account: deployed,
+            chainIdCandidates: chainIds,
+          });
           return {
             status: 'deployed',
-            chainId: deployed.chainId,
+            ...(typeof chainId === 'number' ? { chainId } : {}),
             accountAddress: deployed.accountAddress,
             deploymentTxHash: deployed.deploymentTxHash,
             attempts: attempt,
@@ -482,9 +546,13 @@ export async function ensureSmartAccountDeployed(args: {
               `[deployment] smart-account deployment failed${failureCode ? ` (${failureCode})` : ''} after ${attempt}/${maxDeployAttempts} attempt${maxDeployAttempts === 1 ? '' : 's'}: ${failureMessage}`,
             );
           }
+          const chainId = resolveChainIdFromChainAccount({
+            account: current,
+            chainIdCandidates: chainIds,
+          });
           return {
             status: 'deploy_failed',
-            chainId: current.chainId,
+            ...(typeof chainId === 'number' ? { chainId } : {}),
             accountAddress: current.accountAddress,
             ...(failureCode ? { failureCode } : {}),
             ...(failureMessage ? { failureMessage } : {}),
@@ -497,9 +565,13 @@ export async function ensureSmartAccountDeployed(args: {
       if (enforce) {
         throw new Error('[deployment] smart-account deployment failed after retries');
       }
+      const chainId = resolveChainIdFromChainAccount({
+        account: current,
+        chainIdCandidates: chainIds,
+      });
       return {
         status: 'deploy_failed',
-        chainId: current.chainId,
+        ...(typeof chainId === 'number' ? { chainId } : {}),
         accountAddress: current.accountAddress,
         ...(failureCode ? { failureCode } : {}),
         ...(failureMessage ? { failureMessage } : {}),

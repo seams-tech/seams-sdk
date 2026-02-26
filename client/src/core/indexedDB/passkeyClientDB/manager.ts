@@ -12,7 +12,7 @@ import type {
   AccountSignerStatus,
   AccountSignerType,
   ChainAccountRecord,
-  ChainId,
+  ChainIdKey,
   ClientAuthenticatorData,
   ClientUserData,
   DBConstraintErrorCode,
@@ -53,7 +53,7 @@ import {
 import {
   buildNearAccountProjection as buildNearAccountProjectionValue,
   getNearChainCandidates,
-  inferNearChainId,
+  inferNearChainIdKey,
   mapProfileAuthenticatorToClient as mapProfileAuthenticatorToClientValue,
   parseLastProfileState,
   upsertNearAccountProjectionRecords as upsertNearAccountProjectionRecordsValue,
@@ -77,7 +77,7 @@ export type {
   AccountSignerStatus,
   AccountSignerType,
   ChainAccountRecord,
-  ChainId,
+  ChainIdKey,
   ClientAuthenticatorData,
   ClientUserData,
   DBConstraintErrorCode,
@@ -119,8 +119,8 @@ function makeScopedAppStateKey(baseKey: string, scope: unknown): string | null {
   return `${baseKey}::${normalized}`;
 }
 
-function normalizeChainId(chainId: unknown): string {
-  return toTrimmedString(chainId || '').toLowerCase();
+function normalizeChainIdKey(chainIdKey: unknown): string {
+  return toTrimmedString(chainIdKey || '').toLowerCase();
 }
 
 function normalizeAccountAddress(address: unknown): string {
@@ -182,7 +182,10 @@ const ACCOUNT_MODEL_CAPABILITY_MATRIX: Record<string, AccountModelCapabilities> 
   },
 };
 
-const ALLOWED_SIGNER_STATUS_TRANSITIONS: Record<AccountSignerStatus, ReadonlySet<AccountSignerStatus>> = {
+const ALLOWED_SIGNER_STATUS_TRANSITIONS: Record<
+  AccountSignerStatus,
+  ReadonlySet<AccountSignerStatus>
+> = {
   pending: new Set<AccountSignerStatus>(['pending', 'active', 'revoked']),
   active: new Set<AccountSignerStatus>(['active', 'revoked']),
   revoked: new Set<AccountSignerStatus>(['revoked']),
@@ -206,7 +209,9 @@ export class PasskeyClientDBManager {
   setDbName(dbName: string): void {
     const next = toTrimmedString(dbName || '');
     if (!next || next === this.config.dbName) return;
-    try { (this.db as any)?.close?.(); } catch {}
+    try {
+      (this.db as any)?.close?.();
+    } catch {}
     this.db = null;
     this.config = { ...this.config, dbName: next };
   }
@@ -220,7 +225,9 @@ export class PasskeyClientDBManager {
     if (next === this.disabled) return;
     this.disabled = next;
     if (next) {
-      try { (this.db as any)?.close?.(); } catch {}
+      try {
+        (this.db as any)?.close?.();
+      } catch {}
       this.db = null;
     }
   }
@@ -235,7 +242,7 @@ export class PasskeyClientDBManager {
   }
 
   private emitEvent(event: IndexedDBEvent): void {
-    this.eventListeners.forEach(listener => {
+    this.eventListeners.forEach((listener) => {
       try {
         listener(event);
       } catch (error) {
@@ -270,8 +277,9 @@ export class PasskeyClientDBManager {
       });
 
       // Post-open migrations (non-blocking)
-      try { await this.runMigrationsIfNeeded(this.db); } catch {}
-
+      try {
+        await this.runMigrationsIfNeeded(this.db);
+      } catch {}
     } catch (err: any) {
       const msg = String(err?.message || '');
       if (err?.name === 'VersionError' || /less than the existing version/i.test(msg)) {
@@ -290,12 +298,19 @@ export class PasskeyClientDBManager {
     return this.db;
   }
 
-  private async getAppStateFromDb<T = unknown>(db: IDBPDatabase, key: string): Promise<T | undefined> {
+  private async getAppStateFromDb<T = unknown>(
+    db: IDBPDatabase,
+    key: string,
+  ): Promise<T | undefined> {
     const result = await db.get(DB_CONFIG.appStateStore, key);
     return result?.value as T | undefined;
   }
 
-  private async setAppStateInDb<T = unknown>(db: IDBPDatabase, key: string, value: T): Promise<void> {
+  private async setAppStateInDb<T = unknown>(
+    db: IDBPDatabase,
+    key: string,
+    value: T,
+  ): Promise<void> {
     const entry: AppStateEntry<T> = { key, value };
     await db.put(DB_CONFIG.appStateStore, entry);
   }
@@ -323,7 +338,7 @@ export class PasskeyClientDBManager {
   ): Promise<boolean> {
     const now = Date.now();
     const tx = db.transaction(DB_CONFIG.appStateStore, 'readwrite');
-    const existing = await tx.store.get(DB_MULTICHAIN_MIGRATION_LOCK_KEY) as
+    const existing = (await tx.store.get(DB_MULTICHAIN_MIGRATION_LOCK_KEY)) as
       | AppStateEntry<DbMultichainMigrationLock | null>
       | undefined;
     const lock = (existing?.value || null) as DbMultichainMigrationLock | null;
@@ -356,12 +371,9 @@ export class PasskeyClientDBManager {
     } satisfies DbMultichainMigrationLock);
   }
 
-  private async clearMigrationLeaseInAppState(
-    db: IDBPDatabase,
-    ownerTabId: string,
-  ): Promise<void> {
+  private async clearMigrationLeaseInAppState(db: IDBPDatabase, ownerTabId: string): Promise<void> {
     const tx = db.transaction(DB_CONFIG.appStateStore, 'readwrite');
-    const existing = await tx.store.get(DB_MULTICHAIN_MIGRATION_LOCK_KEY) as
+    const existing = (await tx.store.get(DB_MULTICHAIN_MIGRATION_LOCK_KEY)) as
       | AppStateEntry<DbMultichainMigrationLock | null>
       | undefined;
     const lock = (existing?.value || null) as DbMultichainMigrationLock | null;
@@ -374,9 +386,7 @@ export class PasskeyClientDBManager {
   private async tryRunWithNavigatorMigrationLock(
     runner: () => Promise<void>,
   ): Promise<'executed' | 'unavailable' | 'unsupported'> {
-    const lockManager = typeof navigator !== 'undefined'
-      ? (navigator as any)?.locks
-      : null;
+    const lockManager = typeof navigator !== 'undefined' ? (navigator as any)?.locks : null;
     if (!lockManager || typeof lockManager.request !== 'function') {
       return 'unsupported';
     }
@@ -484,7 +494,9 @@ export class PasskeyClientDBManager {
     }
     const db = await this.getDB();
     const now = Date.now();
-    const existing = await db.get(DB_CONFIG.profilesStore, profileId) as ProfileRecord | undefined;
+    const existing = (await db.get(DB_CONFIG.profilesStore, profileId)) as
+      | ProfileRecord
+      | undefined;
     const next: ProfileRecord = {
       profileId,
       defaultDeviceNumber: input.defaultDeviceNumber ?? existing?.defaultDeviceNumber ?? 1,
@@ -505,7 +517,7 @@ export class PasskeyClientDBManager {
   private assertSignerTypeCapability(
     signerType: AccountSignerType,
     accountModel: AccountModel,
-    accountRef: { chainId: string; accountAddress: string },
+    accountRef: { chainIdKey: string; accountAddress: string },
   ): void {
     const normalizedSignerType = toTrimmedString(signerType || '').toLowerCase();
     const capabilities = this.getAccountModelCapabilities(accountModel);
@@ -516,7 +528,7 @@ export class PasskeyClientDBManager {
         {
           signerType: normalizedSignerType,
           accountModel,
-          chainId: accountRef.chainId,
+          chainIdKey: accountRef.chainIdKey,
           accountAddress: accountRef.accountAddress,
         },
       );
@@ -528,7 +540,7 @@ export class PasskeyClientDBManager {
         {
           signerType: normalizedSignerType,
           accountModel,
-          chainId: accountRef.chainId,
+          chainIdKey: accountRef.chainIdKey,
           accountAddress: accountRef.accountAddress,
         },
       );
@@ -538,7 +550,7 @@ export class PasskeyClientDBManager {
   private assertSignerStatusTransition(args: {
     previousStatus: AccountSignerStatus;
     nextStatus: AccountSignerStatus;
-    chainId: string;
+    chainIdKey: string;
     accountAddress: string;
     signerId: string;
   }): void {
@@ -550,7 +562,7 @@ export class PasskeyClientDBManager {
       {
         previousStatus: args.previousStatus,
         nextStatus: args.nextStatus,
-        chainId: args.chainId,
+        chainIdKey: args.chainIdKey,
         accountAddress: args.accountAddress,
         signerId: args.signerId,
       },
@@ -560,19 +572,20 @@ export class PasskeyClientDBManager {
   private ensureRevokedSignerHasRemovedAt(args: {
     status: AccountSignerStatus;
     removedAt?: number;
-    chainId: string;
+    chainIdKey: string;
     accountAddress: string;
     signerId: string;
   }): number | undefined {
     if (args.status !== 'revoked') return undefined;
-    if (typeof args.removedAt === 'number' && Number.isFinite(args.removedAt)) return args.removedAt;
+    if (typeof args.removedAt === 'number' && Number.isFinite(args.removedAt))
+      return args.removedAt;
     const now = Date.now();
     if (!Number.isFinite(now)) {
       throw new DBConstraintError(
         'REVOKED_SIGNER_REQUIRES_REMOVED_AT',
         'Revoked signer requires removedAt timestamp',
         {
-          chainId: args.chainId,
+          chainIdKey: args.chainIdKey,
           accountAddress: args.accountAddress,
           signerId: args.signerId,
         },
@@ -591,10 +604,13 @@ export class PasskeyClientDBManager {
     },
   ): Promise<void> {
     const capabilities = this.getAccountModelCapabilities(args.accountModel);
-    const accountStatusIndex = store.index('chainId_accountAddress_status');
-    const accountIndex = store.index('chainId_accountAddress');
+    const accountStatusIndex = store.index('chainIdKey_accountAddress_status');
+    const accountIndex = store.index('chainIdKey_accountAddress');
 
-    const allForAccount = await accountIndex.getAll([args.next.chainId, args.next.accountAddress]) as AccountSignerRecord[];
+    const allForAccount = (await accountIndex.getAll([
+      args.next.chainIdKey,
+      args.next.accountAddress,
+    ])) as AccountSignerRecord[];
     const otherSigners = allForAccount.filter((row) => row.signerId !== args.next.signerId);
     if (!capabilities.supportsMultiSigner && !args.existingSignerId && otherSigners.length > 0) {
       throw new DBConstraintError(
@@ -602,7 +618,7 @@ export class PasskeyClientDBManager {
         `Account model ${String(args.accountModel || '')} does not support additional signers`,
         {
           accountModel: args.accountModel,
-          chainId: args.next.chainId,
+          chainIdKey: args.next.chainIdKey,
           accountAddress: args.next.accountAddress,
           signerId: args.next.signerId,
         },
@@ -610,16 +626,16 @@ export class PasskeyClientDBManager {
     }
 
     if (
-      !capabilities.supportsAddRemoveSigner
-      && !args.existingSignerId
-      && otherSigners.length > 0
+      !capabilities.supportsAddRemoveSigner &&
+      !args.existingSignerId &&
+      otherSigners.length > 0
     ) {
       throw new DBConstraintError(
         'SIGNER_MUTATION_NOT_SUPPORTED',
         `Account model ${String(args.accountModel || '')} does not support signer mutations`,
         {
           accountModel: args.accountModel,
-          chainId: args.next.chainId,
+          chainIdKey: args.next.chainIdKey,
           accountAddress: args.next.accountAddress,
           signerId: args.next.signerId,
         },
@@ -627,20 +643,20 @@ export class PasskeyClientDBManager {
     }
 
     if (args.next.status === 'active') {
-      const activeRows = await accountStatusIndex.getAll([
-        args.next.chainId,
+      const activeRows = (await accountStatusIndex.getAll([
+        args.next.chainIdKey,
         args.next.accountAddress,
         'active',
-      ]) as AccountSignerRecord[];
+      ])) as AccountSignerRecord[];
       const conflictingSlot = activeRows.find(
         (row) => row.signerId !== args.next.signerId && row.signerSlot === args.next.signerSlot,
       );
       if (conflictingSlot) {
         throw new DBConstraintError(
           'DUPLICATE_ACTIVE_SIGNER_SLOT',
-          `Active signer slot ${args.next.signerSlot} is already used for ${args.next.chainId}/${args.next.accountAddress}`,
+          `Active signer slot ${args.next.signerSlot} is already used for ${args.next.chainIdKey}/${args.next.accountAddress}`,
           {
-            chainId: args.next.chainId,
+            chainIdKey: args.next.chainIdKey,
             accountAddress: args.next.accountAddress,
             signerId: args.next.signerId,
             signerSlot: args.next.signerSlot,
@@ -656,7 +672,7 @@ export class PasskeyClientDBManager {
             'EOA_ACTIVE_SIGNER_LIMIT',
             'EOA accounts can have at most one active signer',
             {
-              chainId: args.next.chainId,
+              chainIdKey: args.next.chainIdKey,
               accountAddress: args.next.accountAddress,
               signerId: args.next.signerId,
             },
@@ -669,7 +685,7 @@ export class PasskeyClientDBManager {
       this.assertSignerStatusTransition({
         previousStatus: args.existingStatus,
         nextStatus: args.next.status,
-        chainId: args.next.chainId,
+        chainIdKey: args.next.chainIdKey,
         accountAddress: args.next.accountAddress,
         signerId: args.next.signerId,
       });
@@ -678,75 +694,80 @@ export class PasskeyClientDBManager {
 
   async upsertChainAccount(input: UpsertChainAccountInput): Promise<ChainAccountRecord> {
     const profileId = toTrimmedString(input.profileId || '');
-    const chainId = normalizeChainId(input.chainId);
+    const chainIdKey = normalizeChainIdKey(input.chainIdKey);
     const accountAddress = normalizeAccountAddress(input.accountAddress);
     const accountModel = normalizeAccountModel(input.accountModel);
-    if (!profileId || !chainId || !accountAddress) {
-      throw new Error('PasskeyClientDB: profileId, chainId, and accountAddress are required');
+    if (!profileId || !chainIdKey || !accountAddress) {
+      throw new Error('PasskeyClientDB: profileId, chainIdKey, and accountAddress are required');
     }
     if (!accountModel) {
       throw new Error('PasskeyClientDB: accountModel is required');
     }
     const db = await this.getDB();
     const now = Date.now();
-    const profile = await db.get(DB_CONFIG.profilesStore, profileId) as ProfileRecord | undefined;
+    const profile = (await db.get(DB_CONFIG.profilesStore, profileId)) as ProfileRecord | undefined;
     if (!profile) {
       throw new DBConstraintError(
         'MISSING_PROFILE',
         `Cannot upsert chain account for unknown profile: ${profileId}`,
-        { profileId, chainId, accountAddress },
+        { profileId, chainIdKey, accountAddress },
       );
     }
     const tx = db.transaction(DB_CONFIG.chainAccountsStore, 'readwrite');
     const store = tx.store;
-    const existing = await store.get([profileId, chainId, accountAddress]) as ChainAccountRecord | undefined;
-    const factory = input.factory === null
-      ? undefined
-      : normalizeOptionalString(input.factory ?? existing?.factory);
-    const entryPoint = input.entryPoint === null
-      ? undefined
-      : normalizeOptionalString(input.entryPoint ?? existing?.entryPoint);
-    const salt = input.salt === null
-      ? undefined
-      : normalizeOptionalString(input.salt ?? existing?.salt);
-    const counterfactualAddressInput = input.counterfactualAddress === null
-      ? undefined
-      : (input.counterfactualAddress ?? existing?.counterfactualAddress);
+    const existing = (await store.get([profileId, chainIdKey, accountAddress])) as
+      | ChainAccountRecord
+      | undefined;
+    const factory =
+      input.factory === null
+        ? undefined
+        : normalizeOptionalString(input.factory ?? existing?.factory);
+    const entryPoint =
+      input.entryPoint === null
+        ? undefined
+        : normalizeOptionalString(input.entryPoint ?? existing?.entryPoint);
+    const salt =
+      input.salt === null ? undefined : normalizeOptionalString(input.salt ?? existing?.salt);
+    const counterfactualAddressInput =
+      input.counterfactualAddress === null
+        ? undefined
+        : (input.counterfactualAddress ?? existing?.counterfactualAddress);
     const hasSmartAccountShape = Boolean(
-      factory
-      || entryPoint
-      || salt
-      || counterfactualAddressInput
-      || normalizeAccountModel(accountModel) === 'erc4337'
-      || normalizeAccountModel(accountModel) === 'tempo-native',
+      factory ||
+      entryPoint ||
+      salt ||
+      counterfactualAddressInput ||
+      normalizeAccountModel(accountModel) === 'erc4337' ||
+      normalizeAccountModel(accountModel) === 'tempo-native',
     );
     const counterfactualAddress = hasSmartAccountShape
       ? normalizeAccountAddress(counterfactualAddressInput || accountAddress)
       : undefined;
-    const deployed = typeof input.deployed === 'boolean'
-      ? input.deployed
-      : typeof existing?.deployed === 'boolean'
-        ? existing.deployed
-        : hasSmartAccountShape
-          ? false
-          : undefined;
-    const deploymentTxHash = input.deploymentTxHash === null
-      ? undefined
-      : normalizeOptionalString(input.deploymentTxHash ?? existing?.deploymentTxHash);
-    const deploymentCheckCandidate = input.lastDeploymentCheckAt === null
-      ? undefined
-      : (
-        typeof input.lastDeploymentCheckAt === 'number'
+    const deployed =
+      typeof input.deployed === 'boolean'
+        ? input.deployed
+        : typeof existing?.deployed === 'boolean'
+          ? existing.deployed
+          : hasSmartAccountShape
+            ? false
+            : undefined;
+    const deploymentTxHash =
+      input.deploymentTxHash === null
+        ? undefined
+        : normalizeOptionalString(input.deploymentTxHash ?? existing?.deploymentTxHash);
+    const deploymentCheckCandidate =
+      input.lastDeploymentCheckAt === null
+        ? undefined
+        : typeof input.lastDeploymentCheckAt === 'number'
           ? input.lastDeploymentCheckAt
-          : existing?.lastDeploymentCheckAt
-      );
+          : existing?.lastDeploymentCheckAt;
     const lastDeploymentCheckAt =
       typeof deploymentCheckCandidate === 'number' && Number.isFinite(deploymentCheckCandidate)
         ? deploymentCheckCandidate
         : undefined;
     const next: ChainAccountRecord = {
       profileId,
-      chainId,
+      chainIdKey,
       accountAddress,
       accountModel,
       isPrimary: input.isPrimary ?? existing?.isPrimary ?? false,
@@ -762,14 +783,11 @@ export class PasskeyClientDBManager {
     };
 
     if (next.isPrimary) {
-      const idx = store.index('profileId_chainId');
-      let cursor = await idx.openCursor([profileId, chainId]);
+      const idx = store.index('profileId_chainIdKey');
+      let cursor = await idx.openCursor([profileId, chainIdKey]);
       while (cursor) {
         const row = cursor.value as ChainAccountRecord;
-        if (
-          row.isPrimary
-          && normalizeAccountAddress(row.accountAddress) !== accountAddress
-        ) {
+        if (row.isPrimary && normalizeAccountAddress(row.accountAddress) !== accountAddress) {
           await cursor.update({
             ...row,
             isPrimary: false,
@@ -785,14 +803,19 @@ export class PasskeyClientDBManager {
     return next;
   }
 
-  async getProfileByAccount(chainId: string, accountAddress: string): Promise<ProfileRecord | null> {
-    const normalizedChainId = normalizeChainId(chainId);
+  async getProfileByAccount(
+    chainIdKey: string,
+    accountAddress: string,
+  ): Promise<ProfileRecord | null> {
+    const normalizedChainIdKey = normalizeChainIdKey(chainIdKey);
     const normalizedAddress = normalizeAccountAddress(accountAddress);
-    if (!normalizedChainId || !normalizedAddress) return null;
+    if (!normalizedChainIdKey || !normalizedAddress) return null;
     const db = await this.getDB();
     const tx = db.transaction(DB_CONFIG.chainAccountsStore, 'readonly');
-    const idx = tx.store.index('chainId_accountAddress');
-    const chainAccount = await idx.get([normalizedChainId, normalizedAddress]) as ChainAccountRecord | undefined;
+    const idx = tx.store.index('chainIdKey_accountAddress');
+    const chainAccount = (await idx.get([normalizedChainIdKey, normalizedAddress])) as
+      | ChainAccountRecord
+      | undefined;
     if (!chainAccount?.profileId) return null;
     const profile = await db.get(DB_CONFIG.profilesStore, chainAccount.profileId);
     return (profile as ProfileRecord) || null;
@@ -810,17 +833,16 @@ export class PasskeyClientDBManager {
 
   async listChainAccountsByProfileAndChain(
     profileId: string,
-    chainId: string,
+    chainIdKey: string,
   ): Promise<ChainAccountRecord[]> {
     const normalizedProfileId = toTrimmedString(profileId || '');
-    const normalizedChainId = normalizeChainId(chainId);
-    if (!normalizedProfileId || !normalizedChainId) return [];
+    const normalizedChainIdKey = normalizeChainIdKey(chainIdKey);
+    if (!normalizedProfileId || !normalizedChainIdKey) return [];
     const db = await this.getDB();
     const tx = db.transaction(DB_CONFIG.chainAccountsStore, 'readonly');
-    const rows = await tx.store.index('profileId_chainId').getAll([
-      normalizedProfileId,
-      normalizedChainId,
-    ]);
+    const rows = await tx.store
+      .index('profileId_chainIdKey')
+      .getAll([normalizedProfileId, normalizedChainIdKey]);
     await tx.done;
     return (rows as ChainAccountRecord[]) || [];
   }
@@ -837,15 +859,15 @@ export class PasskeyClientDBManager {
 
   async resolveNearAccountContext(
     nearAccountId: AccountId,
-  ): Promise<{ profileId: string; sourceChainId: string; sourceAccountAddress: string } | null> {
+  ): Promise<{ profileId: string; sourceChainIdKey: string; sourceAccountAddress: string } | null> {
     const accountId = toAccountId(nearAccountId);
     const sourceAccountAddress = normalizeAccountAddress(accountId);
     const db = await this.getDB();
 
     const tx = db.transaction(DB_CONFIG.chainAccountsStore, 'readonly');
-    const idx = tx.store.index('chainId_accountAddress');
-    for (const sourceChainId of getNearChainCandidates(accountId)) {
-      const chainAccount = await idx.get([sourceChainId, sourceAccountAddress]) as
+    const idx = tx.store.index('chainIdKey_accountAddress');
+    for (const sourceChainIdKey of getNearChainCandidates(accountId)) {
+      const chainAccount = (await idx.get([sourceChainIdKey, sourceAccountAddress])) as
         | ChainAccountRecord
         | undefined;
       const profileId = toTrimmedString(chainAccount?.profileId || '');
@@ -853,7 +875,7 @@ export class PasskeyClientDBManager {
         await tx.done;
         return {
           profileId,
-          sourceChainId,
+          sourceChainIdKey,
           sourceAccountAddress,
         };
       }
@@ -868,11 +890,13 @@ export class PasskeyClientDBManager {
 
     const db = await this.getDB();
     const tx = db.transaction(DB_CONFIG.chainAccountsStore, 'readonly');
-    const rows = await tx.store.index('profileId').getAll(normalizedProfileId) as ChainAccountRecord[];
+    const rows = (await tx.store
+      .index('profileId')
+      .getAll(normalizedProfileId)) as ChainAccountRecord[];
     await tx.done;
     if (!rows.length) return null;
 
-    const nearRows = rows.filter((row) => String(row.chainId || '').startsWith('near:'));
+    const nearRows = rows.filter((row) => String(row.chainIdKey || '').startsWith('near:'));
     if (!nearRows.length) return null;
     const selected = nearRows.find((row) => !!row.isPrimary) || nearRows[0];
     if (!selected) return null;
@@ -936,15 +960,21 @@ export class PasskeyClientDBManager {
     return this.buildNearAccountProjection(last.nearAccountId, last.deviceNumber);
   }
 
-  async getMostRecentNearAccountProjection(nearAccountId: AccountId): Promise<ClientUserData | null> {
+  async getMostRecentNearAccountProjection(
+    nearAccountId: AccountId,
+  ): Promise<ClientUserData | null> {
     return this.getNearAccountProjection(nearAccountId);
   }
 
   async listNearAccountProjections(): Promise<ClientUserData[]> {
     const db = await this.getDB();
     const tx = db.transaction(DB_CONFIG.chainAccountsStore, 'readonly');
-    const nearTestnetRows = await tx.store.index('chainId').getAll('near:testnet') as ChainAccountRecord[];
-    const nearMainnetRows = await tx.store.index('chainId').getAll('near:mainnet') as ChainAccountRecord[];
+    const nearTestnetRows = (await tx.store
+      .index('chainIdKey')
+      .getAll('near:testnet')) as ChainAccountRecord[];
+    const nearMainnetRows = (await tx.store
+      .index('chainIdKey')
+      .getAll('near:mainnet')) as ChainAccountRecord[];
     await tx.done;
 
     const accountCandidates = new Set<AccountId>();
@@ -981,7 +1011,7 @@ export class PasskeyClientDBManager {
       passkeyCredential: input.passkeyCredential,
       preferences: input.preferences ?? {
         useRelayer: false,
-        useNetwork: inferNearChainId(accountId).endsWith('mainnet') ? 'mainnet' : 'testnet',
+        useNetwork: inferNearChainIdKey(accountId).endsWith('mainnet') ? 'mainnet' : 'testnet',
         confirmationConfig: DEFAULT_CONFIRMATION_CONFIG,
       },
     };
@@ -1000,11 +1030,9 @@ export class PasskeyClientDBManager {
     const deviceNumber =
       lastProfileState?.profileId === context.profileId
         ? lastProfileState.deviceNumber
-        : (
-          Number.isSafeInteger(defaultDeviceNumber) && defaultDeviceNumber >= 1
-            ? defaultDeviceNumber
-            : 1
-        );
+        : Number.isSafeInteger(defaultDeviceNumber) && defaultDeviceNumber >= 1
+          ? defaultDeviceNumber
+          : 1;
     await this.setLastProfileStateForNearAccount(accountId, deviceNumber);
   }
 
@@ -1046,7 +1074,9 @@ export class PasskeyClientDBManager {
     const accountId = toAccountId(authenticatorData.nearAccountId);
     const context = await this.resolveNearAccountContext(accountId).catch(() => null);
     if (!context?.profileId) {
-      throw new Error(`PasskeyClientDB: Missing profile/account mapping for NEAR account ${accountId}`);
+      throw new Error(
+        `PasskeyClientDB: Missing profile/account mapping for NEAR account ${accountId}`,
+      );
     }
     await this.upsertProfileAuthenticator({
       profileId: context.profileId,
@@ -1080,7 +1110,7 @@ export class PasskeyClientDBManager {
     const updatedPreferences = {
       ...(profile.preferences || {
         useRelayer: false,
-        useNetwork: inferNearChainId(accountId).endsWith('mainnet') ? 'mainnet' : 'testnet',
+        useNetwork: inferNearChainIdKey(accountId).endsWith('mainnet') ? 'mainnet' : 'testnet',
         confirmationConfig: DEFAULT_CONFIRMATION_CONFIG,
       }),
       ...preferences,
@@ -1133,7 +1163,9 @@ export class PasskeyClientDBManager {
     const profileId = toTrimmedString(record.profileId || '');
     const credentialId = toTrimmedString(record.credentialId || '');
     if (!profileId || !credentialId) {
-      throw new Error('PasskeyClientDB: profileId and credentialId are required for profileAuthenticators');
+      throw new Error(
+        'PasskeyClientDB: profileId and credentialId are required for profileAuthenticators',
+      );
     }
     const db = await this.getDB();
     await db.put(DB_CONFIG.profileAuthenticatorStore, {
@@ -1152,9 +1184,11 @@ export class PasskeyClientDBManager {
     if (!normalizedProfileId || !normalizedCredentialId) return null;
     const db = await this.getDB();
     const tx = db.transaction(DB_CONFIG.profileAuthenticatorStore, 'readonly');
-    const row = await tx.store
+    const row = (await tx.store
       .index('profileId_credentialId')
-      .get([normalizedProfileId, normalizedCredentialId]) as ProfileAuthenticatorRecord | undefined;
+      .get([normalizedProfileId, normalizedCredentialId])) as
+      | ProfileAuthenticatorRecord
+      | undefined;
     await tx.done;
     return row || null;
   }
@@ -1165,7 +1199,9 @@ export class PasskeyClientDBManager {
     const db = await this.getDB();
     const tx = db.transaction(DB_CONFIG.profileAuthenticatorStore, 'readwrite');
     const profileStore = tx.store;
-    let cursor = await profileStore.index('profileId').openCursor(IDBKeyRange.only(normalizedProfileId));
+    let cursor = await profileStore
+      .index('profileId')
+      .openCursor(IDBKeyRange.only(normalizedProfileId));
     while (cursor) {
       await profileStore.delete(cursor.primaryKey);
       cursor = await cursor.continue();
@@ -1199,7 +1235,9 @@ export class PasskeyClientDBManager {
     if (!normalizedProfileId) return [];
     const db = await this.getDB();
     const tx = db.transaction(DB_CONFIG.recoveryEmailStore, 'readonly');
-    const rows = await tx.store.index('profileId').getAll(normalizedProfileId) as ProfileRecoveryEmailRecord[];
+    const rows = (await tx.store
+      .index('profileId')
+      .getAll(normalizedProfileId)) as ProfileRecoveryEmailRecord[];
     await tx.done;
     return rows || [];
   }
@@ -1235,17 +1273,19 @@ export class PasskeyClientDBManager {
     const authenticatorsForPrompt =
       byCredentialId.length > 0
         ? byCredentialId
-        : (byDeviceNumber.length > 0 ? byDeviceNumber : authenticators);
+        : byDeviceNumber.length > 0
+          ? byDeviceNumber
+          : authenticators;
 
     const selectedCredentialRawId = toTrimmedString(args.selectedCredentialRawId || '');
     const accountLabel = String(args.accountLabel || profileId).trim();
     const wrongPasskeyError =
-      selectedCredentialRawId && expectedCredentialId && selectedCredentialRawId !== expectedCredentialId
-        ? (
-          `You have multiple passkeys (deviceNumbers) for account ${accountLabel}, `
-          + 'but used a different passkey than the most recently logged-in one. '
-          + 'Please use the passkey for the most recently logged-in device.'
-        )
+      selectedCredentialRawId &&
+      expectedCredentialId &&
+      selectedCredentialRawId !== expectedCredentialId
+        ? `You have multiple passkeys (deviceNumbers) for account ${accountLabel}, ` +
+          'but used a different passkey than the most recently logged-in one. ' +
+          'Please use the passkey for the most recently logged-in device.'
         : undefined;
 
     return { authenticatorsForPrompt, wrongPasskeyError };
@@ -1255,59 +1295,66 @@ export class PasskeyClientDBManager {
     return createSignerOperationIdValue(prefix);
   }
 
-  private async upsertAccountSignerDirect(input: UpsertAccountSignerInput): Promise<AccountSignerRecord> {
+  private async upsertAccountSignerDirect(
+    input: UpsertAccountSignerInput,
+  ): Promise<AccountSignerRecord> {
     const profileId = toTrimmedString(input.profileId || '');
-    const chainId = normalizeChainId(input.chainId);
+    const chainIdKey = normalizeChainIdKey(input.chainIdKey);
     const accountAddress = normalizeAccountAddress(input.accountAddress);
     const signerId = toTrimmedString(input.signerId || '');
-    if (!profileId || !chainId || !accountAddress || !signerId) {
-      throw new Error('PasskeyClientDB: profileId, chainId, accountAddress, and signerId are required');
+    if (!profileId || !chainIdKey || !accountAddress || !signerId) {
+      throw new Error(
+        'PasskeyClientDB: profileId, chainIdKey, accountAddress, and signerId are required',
+      );
     }
     if (!Number.isSafeInteger(input.signerSlot) || input.signerSlot < 1) {
       throw new Error('PasskeyClientDB: signerSlot must be an integer >= 1');
     }
     const db = await this.getDB();
-    const chainAccount = await db.get(
-      DB_CONFIG.chainAccountsStore,
-      [profileId, chainId, accountAddress],
-    ) as ChainAccountRecord | undefined;
+    const chainAccount = (await db.get(DB_CONFIG.chainAccountsStore, [
+      profileId,
+      chainIdKey,
+      accountAddress,
+    ])) as ChainAccountRecord | undefined;
     if (!chainAccount) {
       throw new DBConstraintError(
         'MISSING_CHAIN_ACCOUNT',
-        `Cannot upsert signer without chain account row: ${profileId}/${chainId}/${accountAddress}`,
-        { profileId, chainId, accountAddress, signerId },
+        `Cannot upsert signer without chain account row: ${profileId}/${chainIdKey}/${accountAddress}`,
+        { profileId, chainIdKey, accountAddress, signerId },
       );
     }
     if (chainAccount.profileId !== profileId) {
       throw new DBConstraintError(
         'CHAIN_ACCOUNT_PROFILE_MISMATCH',
-        `Chain account profile mismatch for ${chainId}/${accountAddress}`,
+        `Chain account profile mismatch for ${chainIdKey}/${accountAddress}`,
         {
           expectedProfileId: profileId,
           chainAccountProfileId: chainAccount.profileId,
-          chainId,
+          chainIdKey,
           accountAddress,
           signerId,
         },
       );
     }
     this.assertSignerTypeCapability(input.signerType, chainAccount.accountModel, {
-      chainId,
+      chainIdKey,
       accountAddress,
     });
 
     const tx = db.transaction(DB_CONFIG.accountSignersStore, 'readwrite');
     const store = tx.store;
     const now = Date.now();
-    const existing = await store.get([chainId, accountAddress, signerId]) as AccountSignerRecord | undefined;
+    const existing = (await store.get([chainIdKey, accountAddress, signerId])) as
+      | AccountSignerRecord
+      | undefined;
     if (existing && existing.profileId !== profileId) {
       throw new DBConstraintError(
         'CHAIN_ACCOUNT_PROFILE_MISMATCH',
-        `Signer row belongs to a different profile for ${chainId}/${accountAddress}/${signerId}`,
+        `Signer row belongs to a different profile for ${chainIdKey}/${accountAddress}/${signerId}`,
         {
           expectedProfileId: profileId,
           existingProfileId: existing.profileId,
-          chainId,
+          chainIdKey,
           accountAddress,
           signerId,
         },
@@ -1316,13 +1363,13 @@ export class PasskeyClientDBManager {
     const removedAt = this.ensureRevokedSignerHasRemovedAt({
       status: input.status,
       removedAt: input.removedAt ?? existing?.removedAt,
-      chainId,
+      chainIdKey,
       accountAddress,
       signerId,
     });
     const next: AccountSignerRecord = {
       profileId,
-      chainId,
+      chainIdKey,
       accountAddress,
       signerId,
       signerSlot: input.signerSlot,
@@ -1331,7 +1378,11 @@ export class PasskeyClientDBManager {
       addedAt: existing?.addedAt ?? now,
       updatedAt: now,
       ...(removedAt != null ? { removedAt } : {}),
-      ...(input.metadata != null ? { metadata: input.metadata } : (existing?.metadata != null ? { metadata: existing.metadata } : {})),
+      ...(input.metadata != null
+        ? { metadata: input.metadata }
+        : existing?.metadata != null
+          ? { metadata: existing.metadata }
+          : {}),
     };
     await this.assertSignerWriteInvariants(store, {
       next,
@@ -1348,14 +1399,16 @@ export class PasskeyClientDBManager {
     const next = await this.upsertAccountSignerDirect(input);
     const routeThroughOutbox = input.mutation?.routeThroughOutbox ?? true;
     if (!routeThroughOutbox) return next;
-    const opId = toTrimmedString(input.mutation?.opId || '') || this.createSignerOperationId('add-signer');
-    const idempotencyKey = toTrimmedString(input.mutation?.idempotencyKey || '')
-      || `add-signer:${next.chainId}:${next.accountAddress}:${next.signerId}:${next.signerSlot}`;
+    const opId =
+      toTrimmedString(input.mutation?.opId || '') || this.createSignerOperationId('add-signer');
+    const idempotencyKey =
+      toTrimmedString(input.mutation?.idempotencyKey || '') ||
+      `add-signer:${next.chainIdKey}:${next.accountAddress}:${next.signerId}:${next.signerSlot}`;
     await this.enqueueSignerOperation({
       opId,
       idempotencyKey,
       opType: 'add-signer',
-      chainId: next.chainId,
+      chainIdKey: next.chainIdKey,
       accountAddress: next.accountAddress,
       signerId: next.signerId,
       payload: {
@@ -1370,67 +1423,75 @@ export class PasskeyClientDBManager {
     return next;
   }
 
-  async listAccountSigners(args: { chainId: string; accountAddress: string; status?: AccountSignerStatus }): Promise<AccountSignerRecord[]> {
-    const chainId = normalizeChainId(args.chainId);
+  async listAccountSigners(args: {
+    chainIdKey: string;
+    accountAddress: string;
+    status?: AccountSignerStatus;
+  }): Promise<AccountSignerRecord[]> {
+    const chainIdKey = normalizeChainIdKey(args.chainIdKey);
     const accountAddress = normalizeAccountAddress(args.accountAddress);
-    if (!chainId || !accountAddress) return [];
+    if (!chainIdKey || !accountAddress) return [];
     const db = await this.getDB();
     const tx = db.transaction(DB_CONFIG.accountSignersStore, 'readonly');
     const store = tx.store;
     if (args.status) {
-      const idx = store.index('chainId_accountAddress_status');
-      const rows = await idx.getAll([chainId, accountAddress, args.status]);
+      const idx = store.index('chainIdKey_accountAddress_status');
+      const rows = await idx.getAll([chainIdKey, accountAddress, args.status]);
       return (rows as AccountSignerRecord[]) || [];
     }
-    const idx = store.index('chainId_accountAddress');
-    const rows = await idx.getAll([chainId, accountAddress]);
+    const idx = store.index('chainIdKey_accountAddress');
+    const rows = await idx.getAll([chainIdKey, accountAddress]);
     return (rows as AccountSignerRecord[]) || [];
   }
 
   async getAccountSigner(args: {
-    chainId: string;
+    chainIdKey: string;
     accountAddress: string;
     signerId: string;
   }): Promise<AccountSignerRecord | null> {
-    const chainId = normalizeChainId(args.chainId);
+    const chainIdKey = normalizeChainIdKey(args.chainIdKey);
     const accountAddress = normalizeAccountAddress(args.accountAddress);
     const signerId = toTrimmedString(args.signerId || '');
-    if (!chainId || !accountAddress || !signerId) return null;
+    if (!chainIdKey || !accountAddress || !signerId) return null;
     const db = await this.getDB();
-    const row = await db.get(DB_CONFIG.accountSignersStore, [chainId, accountAddress, signerId]) as
-      | AccountSignerRecord
-      | undefined;
+    const row = (await db.get(DB_CONFIG.accountSignersStore, [
+      chainIdKey,
+      accountAddress,
+      signerId,
+    ])) as AccountSignerRecord | undefined;
     return row || null;
   }
 
   private async setAccountSignerStatusDirect(args: {
-    chainId: string;
+    chainIdKey: string;
     accountAddress: string;
     signerId: string;
     status: AccountSignerStatus;
     removedAt?: number;
   }): Promise<AccountSignerRecord | null> {
-    const chainId = normalizeChainId(args.chainId);
+    const chainIdKey = normalizeChainIdKey(args.chainIdKey);
     const accountAddress = normalizeAccountAddress(args.accountAddress);
     const signerId = toTrimmedString(args.signerId || '');
-    if (!chainId || !accountAddress || !signerId) return null;
+    if (!chainIdKey || !accountAddress || !signerId) return null;
     const db = await this.getDB();
-    const existing = await db.get(
-      DB_CONFIG.accountSignersStore,
-      [chainId, accountAddress, signerId],
-    ) as AccountSignerRecord | undefined;
+    const existing = (await db.get(DB_CONFIG.accountSignersStore, [
+      chainIdKey,
+      accountAddress,
+      signerId,
+    ])) as AccountSignerRecord | undefined;
     if (!existing) return null;
-    const chainAccount = await db.get(
-      DB_CONFIG.chainAccountsStore,
-      [existing.profileId, chainId, accountAddress],
-    ) as ChainAccountRecord | undefined;
+    const chainAccount = (await db.get(DB_CONFIG.chainAccountsStore, [
+      existing.profileId,
+      chainIdKey,
+      accountAddress,
+    ])) as ChainAccountRecord | undefined;
     if (!chainAccount) {
       throw new DBConstraintError(
         'MISSING_CHAIN_ACCOUNT',
-        `Cannot update signer status without chain account row: ${existing.profileId}/${chainId}/${accountAddress}`,
+        `Cannot update signer status without chain account row: ${existing.profileId}/${chainIdKey}/${accountAddress}`,
         {
           profileId: existing.profileId,
-          chainId,
+          chainIdKey,
           accountAddress,
           signerId,
         },
@@ -1440,14 +1501,16 @@ export class PasskeyClientDBManager {
     const removedAt = this.ensureRevokedSignerHasRemovedAt({
       status: args.status,
       removedAt: args.removedAt ?? existing.removedAt,
-      chainId,
+      chainIdKey,
       accountAddress,
       signerId,
     });
 
     const tx = db.transaction(DB_CONFIG.accountSignersStore, 'readwrite');
     const store = tx.store;
-    const latest = await store.get([chainId, accountAddress, signerId]) as AccountSignerRecord | undefined;
+    const latest = (await store.get([chainIdKey, accountAddress, signerId])) as
+      | AccountSignerRecord
+      | undefined;
     if (!latest) {
       await tx.done;
       return null;
@@ -1471,7 +1534,7 @@ export class PasskeyClientDBManager {
   }
 
   async setAccountSignerStatus(args: {
-    chainId: string;
+    chainIdKey: string;
     accountAddress: string;
     signerId: string;
     status: AccountSignerStatus;
@@ -1486,13 +1549,14 @@ export class PasskeyClientDBManager {
 
     const opType: SignerOperationType = args.status === 'revoked' ? 'revoke-signer' : 'add-signer';
     const opId = toTrimmedString(args.mutation?.opId || '') || this.createSignerOperationId(opType);
-    const idempotencyKey = toTrimmedString(args.mutation?.idempotencyKey || '')
-      || `signer-status:${args.status}:${updated.chainId}:${updated.accountAddress}:${updated.signerId}`;
+    const idempotencyKey =
+      toTrimmedString(args.mutation?.idempotencyKey || '') ||
+      `signer-status:${args.status}:${updated.chainIdKey}:${updated.accountAddress}:${updated.signerId}`;
     await this.enqueueSignerOperation({
       opId,
       idempotencyKey,
       opType,
-      chainId: updated.chainId,
+      chainIdKey: updated.chainIdKey,
       accountAddress: updated.accountAddress,
       signerId: updated.signerId,
       payload: {
@@ -1558,7 +1622,9 @@ export class PasskeyClientDBManager {
 
   private async assertLastProfileStateInvariant(state: LastProfileState): Promise<void> {
     const db = await this.getDB();
-    const profile = await db.get(DB_CONFIG.profilesStore, state.profileId) as ProfileRecord | undefined;
+    const profile = (await db.get(DB_CONFIG.profilesStore, state.profileId)) as
+      | ProfileRecord
+      | undefined;
     if (!profile) {
       throw new DBConstraintError(
         'INVALID_LAST_PROFILE_STATE',
@@ -1571,9 +1637,9 @@ export class PasskeyClientDBManager {
     }
 
     const signerTx = db.transaction(DB_CONFIG.accountSignersStore, 'readonly');
-    const signerRows = await signerTx.store
+    const signerRows = (await signerTx.store
       .index('profileId')
-      .getAll(state.profileId) as AccountSignerRecord[];
+      .getAll(state.profileId)) as AccountSignerRecord[];
     await signerTx.done;
     const hasMatchingSignerSlot = signerRows.some(
       (row) => row.signerSlot === state.deviceNumber && row.status !== 'revoked',
@@ -1702,5 +1768,4 @@ export class PasskeyClientDBManager {
       throw error;
     }
   }
-
 }

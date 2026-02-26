@@ -4,6 +4,9 @@ import type {
   TatchiChainConfigInput,
   TatchiChainFamily,
   TatchiChainNetwork,
+  TatchiEvmChainNetwork,
+  TatchiNearChainNetwork,
+  TatchiTempoChainNetwork,
 } from '../types/tatchi';
 
 type ChainLike = {
@@ -20,6 +23,8 @@ export const TATCHI_CHAIN_NETWORKS = [
   'tempo-testnet',
   'arc-mainnet',
   'arc-testnet',
+  'ethereum-mainnet',
+  'ethereum-sepolia',
 ] as const satisfies readonly TatchiChainNetwork[];
 
 const TATCHI_CHAIN_NETWORK_SET: ReadonlySet<string> = new Set<string>(TATCHI_CHAIN_NETWORKS);
@@ -28,14 +33,29 @@ export function isTatchiChainNetwork(value: unknown): value is TatchiChainNetwor
   return typeof value === 'string' && TATCHI_CHAIN_NETWORK_SET.has(value);
 }
 
+export function isNearChainNetwork(value: unknown): value is TatchiNearChainNetwork {
+  if (!isTatchiChainNetwork(value)) return false;
+  return value.startsWith('near-');
+}
+
+export function isTempoChainNetwork(value: unknown): value is TatchiTempoChainNetwork {
+  if (!isTatchiChainNetwork(value)) return false;
+  return value.startsWith('tempo-');
+}
+
+export function isEvmChainNetwork(value: unknown): value is TatchiEvmChainNetwork {
+  if (!isTatchiChainNetwork(value)) return false;
+  return !isNearChainNetwork(value) && !isTempoChainNetwork(value);
+}
+
 export function chainFamilyFromNetwork(network: TatchiChainNetwork): TatchiChainFamily {
-  if (network.startsWith('near-')) return 'near';
-  if (network.startsWith('tempo-')) return 'tempo';
-  return 'arc';
+  if (isNearChainNetwork(network)) return 'near';
+  if (isTempoChainNetwork(network)) return 'tempo';
+  return 'evm';
 }
 
 export function nearNetworkFromChainNetwork(
-  network: Extract<TatchiChainNetwork, `near-${string}`>,
+  network: TatchiNearChainNetwork,
 ): 'testnet' | 'mainnet' {
   return network === 'near-mainnet' ? 'mainnet' : 'testnet';
 }
@@ -70,7 +90,7 @@ export function resolvePrimaryNearRpcUrl(chains: readonly ChainLike[]): string {
 
 export function resolveNearNetwork(chains: readonly ChainLike[]): 'testnet' | 'mainnet' {
   const chain = requirePrimaryChainByFamily(chains, 'near');
-  return nearNetworkFromChainNetwork(chain.network as Extract<TatchiChainNetwork, `near-${string}`>);
+  return nearNetworkFromChainNetwork(chain.network as TatchiNearChainNetwork);
 }
 
 export function resolvePrimaryExplorerUrl(
@@ -80,6 +100,39 @@ export function resolvePrimaryExplorerUrl(
   const chain = findPrimaryChainByFamily(chains, family);
   if (!chain) return undefined;
   return toTrimmedString(chain.explorerUrl) || undefined;
+}
+
+function normalizeChainIdToken(chainId: number | bigint | undefined): string | undefined {
+  if (typeof chainId === 'bigint') {
+    return chainId >= 0n ? chainId.toString() : undefined;
+  }
+  if (typeof chainId === 'number') {
+    if (!Number.isSafeInteger(chainId) || chainId < 0) return undefined;
+    return String(chainId);
+  }
+  return undefined;
+}
+
+export function resolveExplorerUrlForChainFamily(args: {
+  chains: readonly ChainLike[] | undefined;
+  family: TatchiChainFamily;
+  chainId?: number | bigint;
+}): string | undefined {
+  const chains = args.chains;
+  if (!Array.isArray(chains) || chains.length === 0) return undefined;
+
+  const normalizedChainId = normalizeChainIdToken(args.chainId);
+  if (normalizedChainId) {
+    for (const chain of chains) {
+      if (chainFamilyFromNetwork(chain.network) !== args.family) continue;
+      const configuredChainId = normalizeChainIdToken(chain.chainId);
+      if (!configuredChainId || configuredChainId !== normalizedChainId) continue;
+      const explorerUrl = toTrimmedString(chain.explorerUrl);
+      if (explorerUrl) return explorerUrl;
+    }
+  }
+
+  return resolvePrimaryExplorerUrl(chains, args.family);
 }
 
 export function cloneChainConfig(

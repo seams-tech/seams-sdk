@@ -2,7 +2,7 @@ export {
   buildNearAccountProjection,
   buildNearProfileId,
   getNearChainCandidates,
-  inferNearChainId,
+  inferNearChainIdKey,
   mapProfileAuthenticatorToClient,
   parseLastProfileState,
   upsertNearAccountProjectionRecords,
