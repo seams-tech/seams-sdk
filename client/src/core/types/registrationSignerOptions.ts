@@ -1,6 +1,6 @@
 export interface RegistrationThresholdEcdsaSignerOptions {
   enabled: boolean;
-  participantIds: number[];
+  participantIds: readonly number[];
   sessionKind: 'jwt' | 'cookie';
   ttlMs: number;
   remainingUses: number;

@@ -38,9 +38,7 @@ import {
 } from '@/core/signingEngine/workerManager/validation';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { executeWorkerOperation } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import {
-  clearSigningSessionPrfFirstBestEffort,
-} from '@/core/signingEngine/api/session/signingSessionState';
+import { clearSigningSessionPrfFirstBestEffort } from '@/core/signingEngine/api/session/signingSessionState';
 import {
   generateSessionId,
   requirePrfFirstFromCredential,
@@ -85,7 +83,7 @@ export async function signDelegateAction({
   const resolvedRpcCall = {
     nearRpcUrl:
       rpcCall.nearRpcUrl ||
-      resolvePrimaryNearRpcUrl(PASSKEY_MANAGER_DEFAULT_CONFIGS.chains),
+      resolvePrimaryNearRpcUrl(PASSKEY_MANAGER_DEFAULT_CONFIGS.network.chains),
     nearAccountId,
   } as RpcCallPayload;
 
@@ -253,12 +251,14 @@ export async function signDelegateAction({
 
   if (!signingContext.threshold.thresholdSessionJwt) {
     signingContext.threshold.thresholdSessionJwt =
-      getCachedEd25519AuthSessionJwtBySessionId(sessionId)
-      || signingContext.threshold.thresholdSessionJwt;
+      getCachedEd25519AuthSessionJwtBySessionId(sessionId) ||
+      signingContext.threshold.thresholdSessionJwt;
   }
   if (!signingContext.threshold.thresholdSessionJwt) {
     clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
-    throw new Error('[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing');
+    throw new Error(
+      '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing',
+    );
   }
 
   const requestPayload: Omit<WasmSignDelegateActionRequest, 'sessionId'> = {

@@ -64,7 +64,7 @@ export type ThresholdSessionActivationDeps = {
 function resolveRelayerUrl(relayerUrlOverride: string | undefined, defaultRelayerUrl: string): string {
   const relayerUrl = String(relayerUrlOverride || defaultRelayerUrl || '').trim();
   if (!relayerUrl) {
-    throw new Error('Missing relayer url (configs.relayer.url)');
+    throw new Error('Missing relayer url (configs.network.relayer.url)');
   }
   return relayerUrl;
 }

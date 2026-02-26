@@ -55,7 +55,7 @@ export async function enrollEd25519KeyHandler(
 
   try {
     if (!sessionId) throw new Error('Missing sessionId');
-    if (!relayerUrl) throw new Error('Missing relayer url (configs.relayer.url)');
+    if (!relayerUrl) throw new Error('Missing relayer url (configs.network.relayer.url)');
     if (!args.webauthnAuthentication) throw new Error('Missing webauthnAuthentication for threshold keygen');
     if (!args.prfFirstB64u) throw new Error('Missing PRF.first output for threshold keygen');
     if (!args.wrapKeySalt) throw new Error('Missing wrapKeySalt for threshold keygen');

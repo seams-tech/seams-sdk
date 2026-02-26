@@ -178,7 +178,7 @@ export class EmailRecoveryDomain {
     const context = this.getContext();
     return this.emailRecoveryOptions?.pendingStore
       || new EmailRecoveryPendingStore({
-        getPendingTtlMs: () => Number(context.configs?.relayer?.emailRecovery?.pendingTtlMs || 30 * 60_000),
+        getPendingTtlMs: () => Number(context.configs?.network.relayer?.emailRecovery?.pendingTtlMs || 30 * 60_000),
       });
   }
 
@@ -195,7 +195,7 @@ export class EmailRecoveryDomain {
     const accountId = toAccountId(args.accountId);
     const nearPublicKey = String(args.nearPublicKey || this.pendingEmailRecovery?.nearPublicKey || '').trim();
     const requestId = String(this.pendingEmailRecovery?.requestId || '').trim();
-    const mailtoAddress = String(this.getContext().configs?.relayer?.emailRecovery?.mailtoAddress || '').trim();
+    const mailtoAddress = String(this.getContext().configs?.network.relayer?.emailRecovery?.mailtoAddress || '').trim();
     if (!mailtoAddress) return 'mailto:';
     if (!nearPublicKey || !requestId) return `mailto:${mailtoAddress}`;
 
@@ -210,8 +210,8 @@ export class EmailRecoveryDomain {
     try {
       const context = this.getContext();
       const nearAccountId = toAccountId(args.accountId);
-      const relayerUrl = String(context.configs?.relayer?.url || '').trim();
-      if (!relayerUrl) throw new Error('Missing relayer url (configs.relayer.url)');
+      const relayerUrl = String(context.configs?.network.relayer?.url || '').trim();
+      if (!relayerUrl) throw new Error('Missing relayer url (configs.network.relayer.url)');
 
       const rpId = context.signingEngine.getRpId();
       if (!rpId) throw new Error('Missing rpId for email recovery flow');
@@ -401,8 +401,8 @@ export class EmailRecoveryDomain {
         message: 'Waiting for AddKey on-chain...',
       });
 
-      const pollEveryMs = Number(context.configs?.relayer?.emailRecovery?.pollingIntervalMs || 4000);
-      const maxMs = Number(context.configs?.relayer?.emailRecovery?.maxPollingDurationMs || 30 * 60_000);
+      const pollEveryMs = Number(context.configs?.network.relayer?.emailRecovery?.pollingIntervalMs || 4000);
+      const maxMs = Number(context.configs?.network.relayer?.emailRecovery?.maxPollingDurationMs || 30 * 60_000);
       const startedAt = Date.now();
       let found = false;
 

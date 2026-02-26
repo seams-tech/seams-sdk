@@ -1,7 +1,7 @@
 import { TatchiPasskey } from '@/core/TatchiPasskey';
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
-import type { TatchiConfigs, TatchiConfigsInput } from '@/core/types/tatchi';
+import type { TatchiConfigsReadonly, TatchiConfigsInput } from '@/core/types/tatchi';
 
 // Singleton to prevent multiple manager instances in StrictMode and across HMR/module duplication.
 //
@@ -32,8 +32,9 @@ function isDevRuntime(): boolean {
   const env = (globalThis as any)?.process?.env?.NODE_ENV;
   if (env && env !== 'production') return true;
   try {
-    const h = typeof window !== 'undefined' ? (window.location.hostname || '') : '';
-    if (/localhost|127\.(?:0|[1-9]\d?)\.(?:0|[1-9]\d?)\.(?:0|[1-9]\d?)|\.local(?:host)?$/i.test(h)) return true;
+    const h = typeof window !== 'undefined' ? window.location.hostname || '' : '';
+    if (/localhost|127\.(?:0|[1-9]\d?)\.(?:0|[1-9]\d?)\.(?:0|[1-9]\d?)|\.local(?:host)?$/i.test(h))
+      return true;
   } catch {}
   return false;
 }
@@ -45,7 +46,8 @@ function stableStringify(value: unknown): string {
     if (input === null) return null;
     if (input === undefined) return undefined;
 
-    if (typeof input === 'string' || typeof input === 'number' || typeof input === 'boolean') return input;
+    if (typeof input === 'string' || typeof input === 'number' || typeof input === 'boolean')
+      return input;
     if (typeof input === 'bigint') return input.toString();
 
     if (Array.isArray(input)) {
@@ -76,13 +78,16 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(normalize(value));
 }
 
-function computeConfigKey(config: TatchiConfigs): string {
+function computeConfigKey(config: TatchiConfigsReadonly): string {
   // Theme is dynamic and controlled via `tatchi.setTheme`; avoid new instances for theme changes.
   return stableStringify(config);
 }
 
-export function getOrCreateTatchiManager(config: TatchiConfigsInput, nearClient: NearClient): TatchiPasskey {
-  const finalConfig: TatchiConfigs = buildConfigsFromEnv(config);
+export function getOrCreateTatchiManager(
+  config: TatchiConfigsInput,
+  nearClient: NearClient,
+): TatchiPasskey {
+  const finalConfig: TatchiConfigsReadonly = buildConfigsFromEnv(config);
   const nextKey = computeConfigKey(finalConfig);
   const state = getSingletonState();
 
@@ -90,7 +95,7 @@ export function getOrCreateTatchiManager(config: TatchiConfigsInput, nearClient:
     if (isDevRuntime()) {
       console.debug('[TatchiContextProvider] Creating manager with config:', finalConfig);
     }
-    state.manager = new TatchiPasskey(finalConfig, nearClient);
+    state.manager = new TatchiPasskey(config, nearClient);
     state.configKey = nextKey;
     return state.manager;
   }
@@ -100,7 +105,7 @@ export function getOrCreateTatchiManager(config: TatchiConfigsInput, nearClient:
   if (state.configKey && state.configKey !== nextKey && isDevRuntime()) {
     console.warn(
       '[TatchiContextProvider] Ignoring config changes after initialization. Ensure you pass a stable config object; theme changes should go through `tatchi.setTheme` or the provider theme prop.',
-      { previousKey: state.configKey, nextKey }
+      { previousKey: state.configKey, nextKey },
     );
   }
 

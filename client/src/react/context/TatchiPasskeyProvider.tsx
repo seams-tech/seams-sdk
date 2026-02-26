@@ -6,7 +6,10 @@ import { usePreconnectWalletAssets } from '../hooks/usePreconnectWalletAssets';
 import { useWalletIframeZIndex } from '../hooks/useWalletIframeZIndex';
 import type { TatchiContextProviderProps } from '../types';
 import { deepMerge } from '../components/theme/utils';
-import { createCspStylesheetManager, getDefaultCspNonce } from '../../core/WalletIframe/shared/csp-stylesheet';
+import {
+  createCspStylesheetManager,
+  getDefaultCspNonce,
+} from '../../core/WalletIframe/shared/csp-stylesheet';
 
 export type TatchiPasskeyProviderThemeProps = Omit<ThemeProps, 'children'> & {
   setTheme?: (theme: ThemeName) => void;
@@ -85,9 +88,9 @@ const APP_LIT_HOST_SELECTORS = [
   'w3a-export-key-viewer',
 ] as const;
 const APP_LIT_DARK_SELECTOR = APP_LIT_HOST_SELECTORS.join(',\n');
-const APP_LIT_LIGHT_SELECTOR = APP_LIT_HOST_SELECTORS
-  .map((selector) => `:root[data-w3a-theme="light"] ${selector}`)
-  .join(',\n');
+const APP_LIT_LIGHT_SELECTOR = APP_LIT_HOST_SELECTORS.map(
+  (selector) => `:root[data-w3a-theme="light"] ${selector}`,
+).join(',\n');
 let appLitThemeOverrideStyleManager: ReturnType<typeof createCspStylesheetManager> | null = null;
 
 function getAppLitThemeOverrideStyleManager(): ReturnType<typeof createCspStylesheetManager> {
@@ -181,7 +184,7 @@ export const TatchiPasskeyProvider: React.FC<TatchiPasskeyProviderProps> = ({
   theme,
   walletOverlayZIndex,
   eager,
-  children
+  children,
 }) => {
   // Internal: opportunistically add preconnect/prefetch hints for wallet + relayer
   usePreconnectWalletAssets(config);
@@ -236,7 +239,9 @@ export const TatchiPasskeyProvider: React.FC<TatchiPasskeyProviderProps> = ({
   const rootTheme = controlledTheme || config.appearance?.theme;
   React.useEffect(() => {
     if (rootTheme === 'light' || rootTheme === 'dark') {
-      try { document.documentElement.setAttribute('data-w3a-theme', rootTheme); } catch {}
+      try {
+        document.documentElement.setAttribute('data-w3a-theme', rootTheme);
+      } catch {}
     }
   }, [rootTheme]);
 
@@ -256,7 +261,11 @@ export const TatchiPasskeyProvider: React.FC<TatchiPasskeyProviderProps> = ({
     ...(themeOverrides as Omit<ThemeProps, 'children' | 'theme'>),
   };
   return (
-    <TatchiContextProvider config={providerConfig} eager={eager} theme={controlledTheme ? { theme: controlledTheme, setTheme } : undefined}>
+    <TatchiContextProvider
+      config={providerConfig}
+      eager={eager}
+      theme={controlledTheme ? { theme: controlledTheme, setTheme } : undefined}
+    >
       <Theme {...themeProps}>{children}</Theme>
     </TatchiContextProvider>
   );

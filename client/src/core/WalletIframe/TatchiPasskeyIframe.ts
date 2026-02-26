@@ -38,7 +38,7 @@ import type {
   SignDelegateActionResult,
   SignTransactionResult,
   ThemeName,
-  TatchiConfigs,
+  TatchiConfigsReadonly,
   TatchiConfigsInput,
 } from '../types/tatchi';
 import type {
@@ -55,13 +55,19 @@ import type {
 } from '../types/sdkSentEvents';
 
 import type { ActionArgs, TransactionInput, TxExecutionStatus } from '../types';
-import { type ConfirmationConfig, type SignerMode, type WasmSignedDelegate, DEFAULT_CONFIRMATION_CONFIG } from '../types/signer-worker';
+import {
+  type ConfirmationConfig,
+  type SignerMode,
+  type WasmSignedDelegate,
+  DEFAULT_CONFIRMATION_CONFIG,
+} from '../types/signer-worker';
 import type { SignNEP413MessageParams, SignNEP413MessageResult } from '../TatchiPasskey/near';
 import { toError } from '@shared/utils/errors';
 import { coerceThemeName } from '@shared/utils/theme';
 import type { WalletUIRegistry } from './host/lit-ui/iframe-lit-element-registry';
 import type { DelegateActionInput, SignedDelegate } from '../types/delegate';
 import { buildConfigsFromEnv } from '../config/defaultConfigs';
+import { cloneAuthenticatorOptions } from '../types/authenticatorOptions';
 import { configureIndexedDB } from '../indexedDB';
 import type { EvmSignedResult } from '../signingEngine/chainAdaptors/evm/evmAdapter';
 import type { TempoSignedResult } from '../signingEngine/chainAdaptors/tempo/tempoAdapter';
@@ -75,9 +81,8 @@ import type {
   TempoSignerCapability,
 } from '../TatchiPasskey';
 
-
 export class TatchiPasskeyIframe {
-  readonly configs: TatchiConfigs;
+  readonly configs: TatchiConfigsReadonly;
   theme: ThemeName;
   private router: WalletIframeRouter;
   private lastConfirmationConfig: ConfirmationConfig = DEFAULT_CONFIRMATION_CONFIG;
@@ -91,8 +96,12 @@ export class TatchiPasskeyIframe {
   // Expose a userPreferences shim so API matches TatchiPasskey
   get userPreferences() {
     return {
-      setConfirmBehavior: (b: 'requireClick' | 'skipClick') => { this.setConfirmBehavior(b); },
-      setConfirmationConfig: (c: ConfirmationConfig) => { this.setConfirmationConfig(c); },
+      setConfirmBehavior: (b: 'requireClick' | 'skipClick') => {
+        this.setConfirmBehavior(b);
+      },
+      setConfirmationConfig: (c: ConfirmationConfig) => {
+        this.setConfirmationConfig(c);
+      },
       getConfirmationConfig: () => this.getConfirmationConfig(),
     };
   }
@@ -103,22 +112,28 @@ export class TatchiPasskeyIframe {
     // Wallet iframe host uses canonical DB names within the wallet origin.
     configureIndexedDB({ mode: 'disabled' });
 
-    const walletOrigin = this.configs.iframeWallet?.walletOrigin;
+    const walletOrigin = this.configs.wallet.iframe?.origin;
     if (!walletOrigin) {
-      throw new Error('[TatchiPasskeyIframe] iframeWallet.walletOrigin is required to enable the wallet iframe. Configure it to a dedicated origin.');
+      throw new Error(
+        '[TatchiPasskeyIframe] wallet.iframe.origin is required to enable the wallet iframe. Configure it to a dedicated origin.',
+      );
     }
 
     let parsedWalletOrigin: URL;
     try {
       parsedWalletOrigin = new URL(walletOrigin);
     } catch (err) {
-      throw new Error(`[TatchiPasskeyIframe] Invalid iframeWallet.walletOrigin (${walletOrigin}). Provide an absolute URL.`);
+      throw new Error(
+        `[TatchiPasskeyIframe] Invalid wallet.iframe.origin (${walletOrigin}). Provide an absolute URL.`,
+      );
     }
 
     if (typeof window !== 'undefined') {
       const parentOrigin = window.location.origin;
       if (parsedWalletOrigin.origin === parentOrigin) {
-        console.warn('[TatchiPasskeyIframe] iframeWallet.walletOrigin matches the host origin. Isolation is reduced; consider serving the wallet from a dedicated origin.');
+        console.warn(
+          '[TatchiPasskeyIframe] wallet.iframe.origin matches the host origin. Isolation is reduced; consider serving the wallet from a dedicated origin.',
+        );
       }
     }
 
@@ -127,17 +142,19 @@ export class TatchiPasskeyIframe {
 
     this.router = new WalletIframeRouter({
       walletOrigin: parsedWalletOrigin.toString(),
-      servicePath: this.configs.iframeWallet?.walletServicePath || '/wallet-service',
+      servicePath: this.configs.wallet.iframe?.servicePath || '/wallet-service',
       // Lower connect timeout to reduce initial boot-wait window (25% of this).
       // With 3_000ms, boot wait caps at ~750ms; improves sub‑second readiness in dev.
       connectTimeoutMs: 3_000,
       requestTimeoutMs: 60_000,
-      signerMode: this.configs.signerMode,
-      chains: this.configs.chains,
-      relayerAccount: this.configs.relayerAccount,
-      // relayer: configs.relayer,
-      rpIdOverride: this.configs.iframeWallet?.rpIdOverride,
-      authenticatorOptions: this.configs.authenticatorOptions,
+      signerMode: this.configs.signing.mode,
+      chains: this.configs.network.chains,
+      relayerAccount: this.configs.network.relayer.accountId,
+      // relayer: configs.network.relayer,
+      rpIdOverride: this.configs.wallet.iframe?.rpIdOverride,
+      authenticatorOptions: cloneAuthenticatorOptions(
+        this.configs.auth.webauthn.authenticatorOptions,
+      ),
     });
 
     this.near = {
@@ -156,10 +173,12 @@ export class TatchiPasskeyIframe {
         });
         return results[0] as ActionResult;
       },
-      signTransactionsWithActions: async (args) => await this.signTransactionsWithActionsDomain(args),
+      signTransactionsWithActions: async (args) =>
+        await this.signTransactionsWithActionsDomain(args),
       sendTransaction: async (args) => await this.sendTransactionDomain(args),
       signDelegateAction: async (args) => await this.signDelegateActionDomain(args),
-      sendDelegateActionViaRelayer: async (args) => await this.sendDelegateActionViaRelayerDomain(args),
+      sendDelegateActionViaRelayer: async (args) =>
+        await this.sendDelegateActionViaRelayerDomain(args),
       signAndSendDelegateAction: async (args) => await this.signAndSendDelegateActionDomain(args),
       signNEP413Message: async (args) => await this.signNEP413MessageDomain(args),
     };
@@ -204,9 +223,7 @@ export class TatchiPasskeyIframe {
           accountId: args.accountId,
           onEvent: args.options?.onEvent,
           options: {
-            ...(args.options?.confirmerText
-              ? { confirmerText: args.options.confirmerText }
-              : {}),
+            ...(args.options?.confirmerText ? { confirmerText: args.options.confirmerText } : {}),
             ...(args.options?.confirmationConfig
               ? { confirmationConfig: args.options.confirmationConfig }
               : {}),
@@ -240,9 +257,7 @@ export class TatchiPasskeyIframe {
           fundingAmount: options.fundingAmount,
           options: {
             onEvent: options.onEvent,
-            ...(options.confirmerText
-              ? { confirmerText: options.confirmerText }
-              : {}),
+            ...(options.confirmerText ? { confirmerText: options.confirmerText } : {}),
             ...(options.confirmationConfig
               ? { confirmationConfig: options.confirmationConfig }
               : {}),
@@ -259,11 +274,12 @@ export class TatchiPasskeyIframe {
   async initWalletIframe(): Promise<void> {
     await this.router.init();
     if (!this.prefsUnsubscribe) {
-      this.prefsUnsubscribe = this.router.onPreferencesChanged?.((payload: PreferencesChangedPayload) => {
-        const cfg = payload.confirmationConfig;
-        if (!cfg) return;
-        this.applyRemoteConfirmationConfig(cfg);
-      }) || null;
+      this.prefsUnsubscribe =
+        this.router.onPreferencesChanged?.((payload: PreferencesChangedPayload) => {
+          const cfg = payload.confirmationConfig;
+          if (!cfg) return;
+          this.applyRemoteConfirmationConfig(cfg);
+        }) || null;
     }
     await this.refreshConfirmationConfig();
   }
@@ -278,25 +294,43 @@ export class TatchiPasskeyIframe {
     return this.router;
   }
 
-  isReady(): boolean { return this.router.isReady(); }
+  isReady(): boolean {
+    return this.router.isReady();
+  }
 
-  onReady(cb: () => void): () => void { return this.router.onReady(cb); }
+  onReady(cb: () => void): () => void {
+    return this.router.onReady(cb);
+  }
 
-  onLoginStatusChanged(cb: (status: { isLoggedIn: boolean; nearAccountId: string | null }) => void): () => void {
+  onLoginStatusChanged(
+    cb: (status: { isLoggedIn: boolean; nearAccountId: string | null }) => void,
+  ): () => void {
     return this.router.onLoginStatusChanged(cb);
   }
 
   // === Generic Wallet UI registration/mounting ===
-  registerWalletUI(types: WalletUIRegistry): void { this.router.registerUiTypes(types); }
-  mountWalletUI(params: { key: string; props?: Record<string, unknown>; targetSelector?: string; id?: string }): void {
+  registerWalletUI(types: WalletUIRegistry): void {
+    this.router.registerUiTypes(types);
+  }
+  mountWalletUI(params: {
+    key: string;
+    props?: Record<string, unknown>;
+    targetSelector?: string;
+    id?: string;
+  }): void {
     this.router.mountUiComponent(params);
   }
   updateWalletUI(id: string, props?: Record<string, unknown>): void {
     this.router.updateUiComponent({ id, props });
   }
-  unmountWalletUI(id: string): void { this.router.unmountUiComponent(id); }
+  unmountWalletUI(id: string): void {
+    this.router.unmountUiComponent(id);
+  }
 
-  async registerPasskey(nearAccountId: string, options: RegistrationHooksOptions = {}): Promise<RegistrationResult> {
+  async registerPasskey(
+    nearAccountId: string,
+    options: RegistrationHooksOptions = {},
+  ): Promise<RegistrationResult> {
     try {
       // Route the registration request to the iframe via WalletIframeRouter
       // This will:
@@ -310,26 +344,26 @@ export class TatchiPasskeyIframe {
         options: {
           onEvent: options?.onEvent,
           ...(options?.signerMode ? { signerMode: options.signerMode } : {}),
-          ...(typeof options?.backupLocalKey === 'boolean' ? { backupLocalKey: options.backupLocalKey } : {}),
-          ...(options?.signerOptions
-            ? { signerOptions: options.signerOptions }
+          ...(typeof options?.backupLocalKey === 'boolean'
+            ? { backupLocalKey: options.backupLocalKey }
             : {}),
-          ...(options?.confirmerText ? { confirmerText: options.confirmerText } : {})
-        } // Bridge progress events from iframe to parent
+          ...(options?.signerOptions ? { signerOptions: options.signerOptions } : {}),
+          ...(options?.confirmerText ? { confirmerText: options.confirmerText } : {}),
+        }, // Bridge progress events from iframe to parent
       });
       await options?.afterCall?.(true, res);
       return res;
     } catch (err: unknown) {
       const e = toError(err);
       await options?.onError?.(e);
-      await options?.afterCall?.(false);
+      await options?.afterCall?.(false, undefined, e);
       throw e;
     }
   }
 
   async enrollThresholdEd25519Key(
     nearAccountId: string,
-    options?: { deviceNumber?: number; relayerUrl?: string }
+    options?: { deviceNumber?: number; relayerUrl?: string },
   ): Promise<{
     success: boolean;
     publicKey: string;
@@ -350,7 +384,7 @@ export class TatchiPasskeyIframe {
 
   async rotateThresholdEd25519Key(
     nearAccountId: string,
-    options?: { deviceNumber?: number; relayerUrl?: string }
+    options?: { deviceNumber?: number; relayerUrl?: string },
   ): Promise<{
     success: boolean;
     oldPublicKey: string;
@@ -383,7 +417,10 @@ export class TatchiPasskeyIframe {
     }
   }
 
-  async loginAndCreateSession(nearAccountId: string, options?: LoginHooksOptions): Promise<LoginAndCreateSessionResult> {
+  async loginAndCreateSession(
+    nearAccountId: string,
+    options?: LoginHooksOptions,
+  ): Promise<LoginAndCreateSessionResult> {
     try {
       // Route login request to iframe - similar flow to registerPasskey
       // The iframe will handle WebAuthn authentication and session creation
@@ -394,14 +431,14 @@ export class TatchiPasskeyIframe {
           deviceNumber: options?.deviceNumber,
           session: options?.session,
           signingSession: options?.signingSession,
-        } // Progress events flow back to parent
+        }, // Progress events flow back to parent
       });
       await options?.afterCall?.(true, res);
       return res;
     } catch (err: unknown) {
       const e = toError(err);
       await options?.onError?.(e);
-      await options?.afterCall?.(false);
+      await options?.afterCall?.(false, undefined, e);
       throw e;
     }
   }
@@ -455,7 +492,7 @@ export class TatchiPasskeyIframe {
   private async signTransactionsWithActionsDomain(args: {
     nearAccountId: string;
     transactions: TransactionInput[];
-    options: SignTransactionHooksOptions
+    options: SignTransactionHooksOptions;
   }): Promise<SignTransactionResult[]> {
     try {
       // Route transaction signing to iframe
@@ -472,15 +509,15 @@ export class TatchiPasskeyIframe {
           deviceNumber: args.options?.deviceNumber,
           confirmerText: args.options?.confirmerText,
           confirmationConfig: args.options?.confirmationConfig,
-          onEvent: args.options?.onEvent // Progress events: user-confirmation, webauthn-authentication, etc.
-        }
+          onEvent: args.options?.onEvent, // Progress events: user-confirmation, webauthn-authentication, etc.
+        },
       });
       await args.options?.afterCall?.(true, res);
       return res;
     } catch (err: unknown) {
       const e = toError(err);
       await args.options?.onError?.(e);
-      await args.options?.afterCall?.(false);
+      await args.options?.afterCall?.(false, undefined, e);
       throw e;
     }
   }
@@ -488,7 +525,7 @@ export class TatchiPasskeyIframe {
   private async signNEP413MessageDomain(args: {
     nearAccountId: string;
     params: SignNEP413MessageParams;
-    options: SignNEP413HooksOptions
+    options: SignNEP413HooksOptions;
   }): Promise<SignNEP413MessageResult> {
     try {
       const res = await this.router.signNep413Message({
@@ -502,14 +539,14 @@ export class TatchiPasskeyIframe {
           onEvent: args.options?.onEvent,
           confirmerText: args.options?.confirmerText,
           confirmationConfig: args.options?.confirmationConfig,
-        }
+        },
       });
       await args.options?.afterCall?.(true, res);
       return res;
     } catch (err: unknown) {
       const e = toError(err);
       await args.options?.onError?.(e);
-      await args.options?.afterCall?.(false);
+      await args.options?.afterCall?.(false, undefined, e);
       throw e;
     }
   }
@@ -522,7 +559,7 @@ export class TatchiPasskeyIframe {
     const options = args.options;
     try {
       await this.requireRouterReady();
-      const res = await this.router.signDelegateAction({
+      const res = (await this.router.signDelegateAction({
         nearAccountId: args.nearAccountId,
         delegate: args.delegate,
         options: {
@@ -532,13 +569,13 @@ export class TatchiPasskeyIframe {
           confirmationConfig: options?.confirmationConfig,
           confirmerText: options?.confirmerText,
         },
-      }) as SignDelegateActionResult;
+      })) as SignDelegateActionResult;
       await options?.afterCall?.(true, res);
       return res;
     } catch (err: unknown) {
       const e = toError(err);
       await args.options?.onError?.(e);
-      await args.options?.afterCall?.(false);
+      await args.options?.afterCall?.(false, undefined, e);
       throw e;
     }
   }
@@ -551,10 +588,9 @@ export class TatchiPasskeyIframe {
     options?: DelegateRelayHooksOptions;
   }): Promise<DelegateRelayResult> {
     const base = args.relayerUrl.replace(/\/+$/, '');
-    const route = (this.configs.relayer?.delegateActionRoute || '/signed-delegate').replace(
-      /^\/?/,
-      '/',
-    );
+    const route = (
+      this.configs.network.relayer?.routes?.delegateAction || '/signed-delegate'
+    ).replace(/^\/?/, '/');
     const endpoint = `${base}${route}`;
     const { sendDelegateActionViaRelayer } = await import('../TatchiPasskey/near');
     return sendDelegateActionViaRelayer({
@@ -598,8 +634,9 @@ export class TatchiPasskeyIframe {
         options: signOptions as DelegateActionHooksOptions,
       });
     } catch (error) {
-      await options?.afterCall?.(false);
-      throw error;
+      const e = toError(error);
+      await options?.afterCall?.(false, undefined, e);
+      throw e;
     }
 
     const relayOptions: DelegateRelayHooksOptions | undefined = options
@@ -619,8 +656,9 @@ export class TatchiPasskeyIframe {
         options: relayOptions,
       });
     } catch (error) {
-      await options?.afterCall?.(false);
-      throw error;
+      const e = toError(error);
+      await options?.afterCall?.(false, undefined, e);
+      throw e;
     }
 
     const combined: SignAndSendDelegateActionResult = {
@@ -632,7 +670,8 @@ export class TatchiPasskeyIframe {
     if (success) {
       await options?.afterCall?.(true, combined);
     } else {
-      await options?.afterCall?.(false);
+      const relayError = toError(relayResult.error || 'Delegate relay failed');
+      await options?.afterCall?.(false, undefined, relayError);
     }
     return combined;
   }
@@ -666,7 +705,7 @@ export class TatchiPasskeyIframe {
   async registerPasskeyInternal(
     nearAccountId: string,
     options: RegistrationHooksOptions = {},
-    confirmationConfigOverride?: ConfirmationConfig
+    confirmationConfigOverride?: ConfirmationConfig,
   ): Promise<RegistrationResult> {
     try {
       await this.requireRouterReady();
@@ -677,26 +716,27 @@ export class TatchiPasskeyIframe {
         options: {
           onEvent: options?.onEvent,
           ...(options?.signerMode ? { signerMode: options.signerMode } : {}),
-          ...(typeof options?.backupLocalKey === 'boolean' ? { backupLocalKey: options.backupLocalKey } : {}),
-          ...(options?.signerOptions
-            ? { signerOptions: options.signerOptions }
+          ...(typeof options?.backupLocalKey === 'boolean'
+            ? { backupLocalKey: options.backupLocalKey }
             : {}),
-          ...(options?.confirmerText ? { confirmerText: options.confirmerText } : {})
-        }
+          ...(options?.signerOptions ? { signerOptions: options.signerOptions } : {}),
+          ...(options?.confirmerText ? { confirmerText: options.confirmerText } : {}),
+        },
       });
       await options?.afterCall?.(true, res);
       return res;
     } catch (err: unknown) {
       const e = toError(err);
       await options?.onError?.(e);
-      await options?.afterCall?.(false);
+      await options?.afterCall?.(false, undefined, e);
       throw e;
     }
   }
 
   // Parity with PasskeyManager API
   setConfirmBehavior(behavior: 'requireClick' | 'skipClick'): void {
-    void this.router.setConfirmBehavior(behavior)
+    void this.router
+      .setConfirmBehavior(behavior)
       .then(() => this.refreshConfirmationConfig())
       .catch(() => {});
   }
@@ -705,12 +745,14 @@ export class TatchiPasskeyIframe {
     if (!nextTheme) return;
     if (this.theme === nextTheme) return;
     this.theme = nextTheme;
-    void this.router.setTheme(nextTheme)
+    void this.router
+      .setTheme(nextTheme)
       .then(() => this.refreshConfirmationConfig())
       .catch(() => {});
   }
   setConfirmationConfig(config: ConfirmationConfig): void {
-    void this.router.setConfirmationConfig(config)
+    void this.router
+      .setConfirmationConfig(config)
       .then(() => this.refreshConfirmationConfig())
       .catch(() => {});
   }
@@ -734,7 +776,11 @@ export class TatchiPasskeyIframe {
   async viewAccessKeyList(accountId: string): Promise<AccessKeyList> {
     return this.router.viewAccessKeyList(accountId);
   }
-  async deleteDeviceKey(accountId: string, publicKeyToDelete: string, options: ActionHooksOptions): Promise<ActionResult> {
+  async deleteDeviceKey(
+    accountId: string,
+    publicKeyToDelete: string,
+    options: ActionHooksOptions,
+  ): Promise<ActionResult> {
     try {
       const res = await this.router.deleteDeviceKey({
         accountId,
@@ -749,7 +795,7 @@ export class TatchiPasskeyIframe {
     } catch (err: unknown) {
       const e = toError(err);
       await options?.onError?.(e);
-      await options?.afterCall?.(false);
+      await options?.afterCall?.(false, undefined, e);
       throw e;
     }
   }
@@ -757,27 +803,27 @@ export class TatchiPasskeyIframe {
     nearAccountId: string;
     receiverId: string;
     actionArgs: ActionArgs | ActionArgs[];
-    options: ActionHooksOptions
+    options: ActionHooksOptions;
   }): Promise<ActionResult> {
     try {
       const res = await this.router.executeAction({
         nearAccountId: args.nearAccountId,
         receiverId: args.receiverId,
         actionArgs: args.actionArgs,
-        options: args.options
+        options: args.options,
       });
       await args.options?.afterCall?.(true, res);
       return res;
     } catch (err: unknown) {
       const e = toError(err);
       await args.options?.onError?.(e);
-      await args.options?.afterCall?.(false);
+      await args.options?.afterCall?.(false, undefined, e);
       throw e;
     }
   }
   private async sendTransactionDomain(args: {
     signedTransaction: SignedTransaction;
-    options?: SendTransactionHooksOptions
+    options?: SendTransactionHooksOptions;
   }): Promise<ActionResult> {
     // Route via iframe router with PROGRESS bridging
     const options = args.options;
@@ -787,14 +833,14 @@ export class TatchiPasskeyIframe {
         options: {
           onEvent: options?.onEvent,
           waitUntil: options?.waitUntil,
-        }
+        },
       });
       await options?.afterCall?.(true, res);
       return res;
     } catch (err: unknown) {
       const e = toError(err);
       await options?.onError?.(e);
-      await options?.afterCall?.(false);
+      await options?.afterCall?.(false, undefined, e);
       throw e;
     }
   }
@@ -823,14 +869,14 @@ export class TatchiPasskeyIframe {
         nearAccountId: args.nearAccountId,
         transactions: args.transactions,
         // Default to sequential execution when executionWait is not provided
-        options
+        options,
       });
       await options?.afterCall?.(true, res);
       return res;
     } catch (err: unknown) {
       const e = toError(err);
       await options?.onError?.(e);
-      await options?.afterCall?.(false);
+      await options?.afterCall?.(false, undefined, e);
       throw e;
     }
   }
@@ -843,7 +889,8 @@ export class TatchiPasskeyIframe {
   }
 
   private async refreshConfirmationConfig(): Promise<void> {
-    await this.router.getConfirmationConfig()
+    await this.router
+      .getConfirmationConfig()
       .then((cfg) => this.applyRemoteConfirmationConfig(cfg))
       .catch(() => {});
   }

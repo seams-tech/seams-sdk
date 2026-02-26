@@ -15,7 +15,7 @@ import type { TatchiConfigsInput } from '../../types/tatchi';
 export function sanitizeWalletHostConfigs(input: TatchiConfigsInput): TatchiConfigsInput {
   const incoming = input.iframeWallet || {};
   const incomingWalletOrigin = incoming.walletOrigin;
-  const incomingServicePath = (incoming as { walletServicePath?: unknown }).walletServicePath as string | undefined;
+  const incomingServicePath = incoming.walletServicePath;
 
   if (incomingWalletOrigin) {
     console.warn(
@@ -46,8 +46,7 @@ export function assertWalletHostConfigsNoNestedIframeWallet(configs: TatchiConfi
   const walletOrigin = configs.iframeWallet?.walletOrigin;
   if (walletOrigin) {
     throw new Error(
-      `[WalletIframeHost] Invariant violated: iframeWallet.walletOrigin must be empty in wallet host mode (got "${walletOrigin}").`
+      `[WalletIframeHost] Invariant violated: iframeWallet.walletOrigin must be empty in wallet host mode (got "${walletOrigin}").`,
     );
   }
 }
-

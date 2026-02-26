@@ -202,8 +202,12 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
 
   const base = {
     chains: nextChains,
-    relayerAccount: payload?.relayerAccount || prev.relayerAccount || '',
-    signerMode: payload?.signerMode || prev.signerMode,
+    relayerAccount: payload?.relayerAccount ?? prev.relayerAccount ?? '',
+    signerMode: payload?.signerMode ?? prev.signerMode,
+    signingSessionDefaults: payload?.signingSessionDefaults ?? prev.signingSessionDefaults,
+    thresholdEcdsaPresignPool: payload?.thresholdEcdsaPresignPool ?? prev.thresholdEcdsaPresignPool,
+    registrationSignerDefaults:
+      payload?.registrationSignerDefaults ?? prev.registrationSignerDefaults,
     relayer:
       payload?.relayer || prev.relayer
         ? {
@@ -215,12 +219,12 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
             },
           }
         : undefined,
-    authenticatorOptions: payload?.authenticatorOptions || prev.authenticatorOptions,
+    authenticatorOptions: payload?.authenticatorOptions ?? prev.authenticatorOptions,
     iframeWallet: {
       ...(prev.iframeWallet || {}),
-      rpIdOverride: payload?.rpIdOverride || prev.iframeWallet?.rpIdOverride,
+      ...(payload?.iframeWallet || {}),
     },
-    ...(nextAppearance ? { appearance: nextAppearance } : {}),
+    appearance: nextAppearance ?? prev.appearance,
   } as TatchiConfigsInput;
   ctx.walletConfigs = sanitizeWalletHostConfigs(base);
 

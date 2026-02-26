@@ -13,7 +13,7 @@ export { PASSKEY_MANAGER_DEFAULT_CONFIGS } from './core/config/defaultConfigs';
 export { buildConfigsFromEnv } from './core/config/defaultConfigs';
 
 export type {
-  TatchiConfigs,
+  TatchiConfigsReadonly,
   TatchiConfigsInput,
   // Registration
   RegistrationResult,
@@ -41,6 +41,12 @@ export type {
 } from './core/types/sdkSentEvents';
 
 export { DEFAULT_WAIT_STATUS } from './core/types/rpc';
+export {
+  TEMPO_FEE_MANAGER_CONTRACT,
+  TEMPO_SET_USER_TOKEN_SELECTOR,
+  encodeTempoSetUserTokenCalldata,
+  buildTempoSetUserTokenCall,
+} from './core/signingEngine/chainAdaptors/tempo/feeToken';
 
 // === Device Linking Types ===
 export {

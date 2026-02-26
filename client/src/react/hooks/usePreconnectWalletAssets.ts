@@ -63,7 +63,9 @@ export function usePreconnectWalletAssets(config: TatchiContextProviderProps['co
           link.href = href;
           if (attrs) {
             for (const [k, v] of Object.entries(attrs)) {
-              try { link.setAttribute(k, v); } catch {}
+              try {
+                link.setAttribute(k, v);
+              } catch {}
             }
           }
           head.appendChild(link);
@@ -98,7 +100,11 @@ export function usePreconnectWalletAssets(config: TatchiContextProviderProps['co
           // Requires CORS + correct MIME (application/wasm) on the wallet origin
           try {
             const signerWasm = new URL('workers/wasm_signer_worker_bg.wasm', base).toString();
-            ensureLink('prefetch', signerWasm, { as: 'fetch', crossorigin: '', type: 'application/wasm' } as any);
+            ensureLink('prefetch', signerWasm, {
+              as: 'fetch',
+              crossorigin: '',
+              type: 'application/wasm',
+            } as any);
           } catch {}
 
           // // Preload core CSS used by confirmer to reduce first-paint FOUC

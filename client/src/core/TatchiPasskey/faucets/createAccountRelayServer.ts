@@ -1,9 +1,19 @@
-import { RegistrationSSEEvent, RegistrationPhase, RegistrationStatus } from '../../types/sdkSentEvents';
+import {
+  RegistrationSSEEvent,
+  RegistrationPhase,
+  RegistrationStatus,
+} from '../../types/sdkSentEvents';
 import { PasskeyManagerContext } from '..';
-import { serializeRegistrationCredential, normalizeRegistrationCredential } from '../../signingEngine/signers/webauthn/credentials/helpers';
+import {
+  serializeRegistrationCredential,
+  normalizeRegistrationCredential,
+} from '../../signingEngine/signers/webauthn/credentials/helpers';
 import { redactCredentialExtensionOutputs } from '../../signingEngine/signers/webauthn/credentials';
 import type { WebAuthnRegistrationCredential } from '../../types/webauthn';
-import type { AuthenticatorOptions } from '../../types/authenticatorOptions';
+import {
+  cloneAuthenticatorOptions,
+  type AuthenticatorOptions,
+} from '../../types/authenticatorOptions';
 import type { CreateAccountAndRegisterResult } from '@server/core/types';
 import type {
   EcdsaSessionPolicy,
@@ -31,7 +41,10 @@ function improveAtomicRegistrationError(args: {
   const relayUrl = String(args.relayUrl || '').trim();
 
   // Server validation: account creation can only create subaccounts under a specific namespace.
-  const mRelayer = /new_account_id must be a subaccount of relayer(?:\s+signer\s+)?account\s*\(([^)]+)\)/i.exec(raw);
+  const mRelayer =
+    /new_account_id must be a subaccount of relayer(?:\s+signer\s+)?account\s*\(([^)]+)\)/i.exec(
+      raw,
+    );
 
   const expectedRelayer = mRelayer?.[1] ? String(mRelayer[1]).trim() : '';
 
@@ -52,10 +65,12 @@ function improveAtomicRegistrationError(args: {
 /**
  * HTTP Request body for the relay server's /registration/bootstrap endpoint
  */
-type ThresholdEd25519RegistrationSessionPolicy =
-  Omit<Ed25519SessionPolicy, 'relayerKeyId'> & { relayerKeyId?: string };
-type ThresholdEcdsaRegistrationSessionPolicy =
-  Omit<EcdsaSessionPolicy, 'relayerKeyId'> & { relayerKeyId?: string };
+type ThresholdEd25519RegistrationSessionPolicy = Omit<Ed25519SessionPolicy, 'relayerKeyId'> & {
+  relayerKeyId?: string;
+};
+type ThresholdEcdsaRegistrationSessionPolicy = Omit<EcdsaSessionPolicy, 'relayerKeyId'> & {
+  relayerKeyId?: string;
+};
 
 export interface CreateAccountAndRegisterUserRequest {
   new_account_id: string;
@@ -145,7 +160,7 @@ export async function createAccountAndRegisterWithRelayServer(
 }> {
   const { configs } = context;
 
-  if (!configs.relayer.url) {
+  if (!configs.network.relayer.url) {
     throw new Error('Relay server URL is required for atomic registration');
   }
 
@@ -167,7 +182,8 @@ export async function createAccountAndRegisterWithRelayServer(
       : serializeRegistrationCredential(credential);
 
     // Strip PRF outputs before sending to relay/contract
-    const serializedCredential = redactCredentialExtensionOutputs<WebAuthnRegistrationCredential>(serialized);
+    const serializedCredential =
+      redactCredentialExtensionOutputs<WebAuthnRegistrationCredential>(serialized);
     // Normalize transports to an array (avoid null)
     if (!Array.isArray(serializedCredential?.response?.transports)) {
       serializedCredential.response.transports = [];
@@ -178,25 +194,27 @@ export async function createAccountAndRegisterWithRelayServer(
       device_number: 1, // First device gets device number 1 (1-indexed)
       ...(opts?.thresholdEd25519?.clientVerifyingShareB64u
         ? {
-          threshold_ed25519: {
-            client_verifying_share_b64u: opts.thresholdEd25519.clientVerifyingShareB64u,
-            session_policy: opts.thresholdEd25519.sessionPolicy,
-            session_kind: opts.thresholdEd25519.sessionKind,
-          },
-        }
+            threshold_ed25519: {
+              client_verifying_share_b64u: opts.thresholdEd25519.clientVerifyingShareB64u,
+              session_policy: opts.thresholdEd25519.sessionPolicy,
+              session_kind: opts.thresholdEd25519.sessionKind,
+            },
+          }
         : {}),
       ...(opts?.thresholdEcdsa?.clientVerifyingShareB64u
         ? {
-          threshold_ecdsa: {
-            client_verifying_share_b64u: opts.thresholdEcdsa.clientVerifyingShareB64u,
-            session_policy: opts.thresholdEcdsa.sessionPolicy,
-            session_kind: opts.thresholdEcdsa.sessionKind,
-          },
-        }
+            threshold_ecdsa: {
+              client_verifying_share_b64u: opts.thresholdEcdsa.clientVerifyingShareB64u,
+              session_policy: opts.thresholdEcdsa.sessionPolicy,
+              session_kind: opts.thresholdEcdsa.sessionKind,
+            },
+          }
         : {}),
       rp_id: String(rpId || '').trim(),
       webauthn_registration: serializedCredential,
-      authenticator_options: authenticatorOptions || context.configs.authenticatorOptions,
+      authenticator_options: cloneAuthenticatorOptions(
+        authenticatorOptions ?? context.configs.auth.webauthn.authenticatorOptions,
+      ),
     };
     const pk = String(publicKey || '').trim();
     if (pk) {
@@ -211,10 +229,10 @@ export async function createAccountAndRegisterWithRelayServer(
     });
 
     // Call the atomic endpoint
-    const response = await fetch(`${configs.relayer.url}/registration/bootstrap`, {
+    const response = await fetch(`${configs.network.relayer.url}/registration/bootstrap`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestData)
+      body: JSON.stringify(requestData),
     });
 
     // Handle both successful and failed responses
@@ -222,12 +240,15 @@ export async function createAccountAndRegisterWithRelayServer(
 
     if (!response.ok) {
       // Extract specific error message from relay server response
-      const msg = result.error || result.message || `HTTP ${response.status}: ${response.statusText}`;
-      throw new Error(improveAtomicRegistrationError({
-        raw: msg,
-        nearAccountId,
-        relayUrl: configs.relayer.url,
-      }));
+      const msg =
+        result.error || result.message || `HTTP ${response.status}: ${response.statusText}`;
+      throw new Error(
+        improveAtomicRegistrationError({
+          raw: msg,
+          nearAccountId,
+          relayUrl: configs.network.relayer.url,
+        }),
+      );
     }
 
     if (!result.success) {
@@ -246,47 +267,46 @@ export async function createAccountAndRegisterWithRelayServer(
       transactionId: result.transactionHash,
       thresholdEd25519: result.thresholdEd25519
         ? {
-          publicKey: result.thresholdEd25519.publicKey,
-          relayerKeyId: result.thresholdEd25519.relayerKeyId,
-          relayerVerifyingShareB64u: result.thresholdEd25519.relayerVerifyingShareB64u,
-          clientParticipantId: result.thresholdEd25519.clientParticipantId,
-          relayerParticipantId: result.thresholdEd25519.relayerParticipantId,
-          participantIds: result.thresholdEd25519.participantIds,
-          session: result.thresholdEd25519.session
-            ? {
-              sessionKind: result.thresholdEd25519.session.sessionKind,
-              sessionId: result.thresholdEd25519.session.sessionId,
-              expiresAtMs: result.thresholdEd25519.session.expiresAtMs,
-              expiresAt: result.thresholdEd25519.session.expiresAt,
-              participantIds: result.thresholdEd25519.session.participantIds,
-              remainingUses: result.thresholdEd25519.session.remainingUses,
-              jwt: result.thresholdEd25519.session.jwt,
-            }
-            : undefined,
-        }
+            publicKey: result.thresholdEd25519.publicKey,
+            relayerKeyId: result.thresholdEd25519.relayerKeyId,
+            relayerVerifyingShareB64u: result.thresholdEd25519.relayerVerifyingShareB64u,
+            clientParticipantId: result.thresholdEd25519.clientParticipantId,
+            relayerParticipantId: result.thresholdEd25519.relayerParticipantId,
+            participantIds: result.thresholdEd25519.participantIds,
+            session: result.thresholdEd25519.session
+              ? {
+                  sessionKind: result.thresholdEd25519.session.sessionKind,
+                  sessionId: result.thresholdEd25519.session.sessionId,
+                  expiresAtMs: result.thresholdEd25519.session.expiresAtMs,
+                  expiresAt: result.thresholdEd25519.session.expiresAt,
+                  participantIds: result.thresholdEd25519.session.participantIds,
+                  remainingUses: result.thresholdEd25519.session.remainingUses,
+                  jwt: result.thresholdEd25519.session.jwt,
+                }
+              : undefined,
+          }
         : undefined,
       thresholdEcdsa: result.thresholdEcdsa
         ? {
-          relayerKeyId: result.thresholdEcdsa.relayerKeyId,
-          groupPublicKeyB64u: result.thresholdEcdsa.groupPublicKeyB64u,
-          ethereumAddress: result.thresholdEcdsa.ethereumAddress,
-          relayerVerifyingShareB64u: result.thresholdEcdsa.relayerVerifyingShareB64u,
-          participantIds: result.thresholdEcdsa.participantIds,
-          session: result.thresholdEcdsa.session
-            ? {
-              sessionKind: result.thresholdEcdsa.session.sessionKind,
-              sessionId: result.thresholdEcdsa.session.sessionId,
-              expiresAtMs: result.thresholdEcdsa.session.expiresAtMs,
-              expiresAt: result.thresholdEcdsa.session.expiresAt,
-              participantIds: result.thresholdEcdsa.session.participantIds,
-              remainingUses: result.thresholdEcdsa.session.remainingUses,
-              jwt: result.thresholdEcdsa.session.jwt,
-            }
-            : undefined,
-        }
+            relayerKeyId: result.thresholdEcdsa.relayerKeyId,
+            groupPublicKeyB64u: result.thresholdEcdsa.groupPublicKeyB64u,
+            ethereumAddress: result.thresholdEcdsa.ethereumAddress,
+            relayerVerifyingShareB64u: result.thresholdEcdsa.relayerVerifyingShareB64u,
+            participantIds: result.thresholdEcdsa.participantIds,
+            session: result.thresholdEcdsa.session
+              ? {
+                  sessionKind: result.thresholdEcdsa.session.sessionKind,
+                  sessionId: result.thresholdEcdsa.session.sessionId,
+                  expiresAtMs: result.thresholdEcdsa.session.expiresAtMs,
+                  expiresAt: result.thresholdEcdsa.session.expiresAt,
+                  participantIds: result.thresholdEcdsa.session.participantIds,
+                  remainingUses: result.thresholdEcdsa.session.remainingUses,
+                  jwt: result.thresholdEcdsa.session.jwt,
+                }
+              : undefined,
+          }
         : undefined,
     };
-
   } catch (error: unknown) {
     console.error('Atomic registration failed:', error);
 

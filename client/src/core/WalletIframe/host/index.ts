@@ -28,7 +28,11 @@ import { WalletIframeDomEvents } from '../events';
 // handlers moved to dedicated module; host no longer imports per-call hook types
 import { createWalletIframeHandlers } from './wallet-iframe-handlers';
 import { applyWalletConfig, createHostContext, ensurePasskeyManager } from './context';
-import { addHostListeners, post as postMessage, postToParent as postToParentMessage } from './messaging';
+import {
+  addHostListeners,
+  post as postMessage,
+  postToParent as postToParentMessage,
+} from './messaging';
 import {
   resolveWalletBoundaryErrorCode,
   resolveWalletBoundaryErrorMessage,
@@ -49,9 +53,13 @@ export function initWalletIFrame(): void {
 
   // Track request-level cancellations
   const cancelledRequests = new Set<string>();
-  const markCancelled = (rid?: string) => { if (rid) cancelledRequests.add(rid); };
+  const markCancelled = (rid?: string) => {
+    if (rid) cancelledRequests.add(rid);
+  };
   const isCancelled = (rid?: string) => !!rid && cancelledRequests.has(rid);
-  const clearCancelled = (rid?: string) => { if (rid) cancelledRequests.delete(rid); };
+  const clearCancelled = (rid?: string) => {
+    if (rid) cancelledRequests.delete(rid);
+  };
 
   const post = (msg: ChildToParentEnvelope): void => {
     postMessage(ctx, msg);
@@ -68,8 +76,17 @@ export function initWalletIFrame(): void {
 
   const emitCancellationPayload = (requestId: string | undefined): void => {
     if (!requestId) return;
-    postProgress(requestId, { step: 0, phase: 'cancelled', status: 'error', message: 'Cancelled by user' });
-    post({ type: 'ERROR', requestId, payload: { code: 'cancelled', message: 'Request cancelled' } });
+    postProgress(requestId, {
+      step: 0,
+      phase: 'cancelled',
+      status: 'error',
+      message: 'Cancelled by user',
+    });
+    post({
+      type: 'ERROR',
+      requestId,
+      payload: { code: 'cancelled', message: 'Request cancelled' },
+    });
   };
 
   const respondIfCancelled = (requestId: string | undefined): boolean => {
@@ -104,12 +121,20 @@ export function initWalletIFrame(): void {
       const unsubSignerMode = up.onSignerModeChange?.(() => emitPreferencesChanged()) || null;
       const unsubCurrentUser = up.onCurrentUserChange?.(() => emitPreferencesChanged()) || null;
       ctx.prefsUnsubscribe = () => {
-        try { unsubCfg?.(); } catch {}
-        try { unsubSignerMode?.(); } catch {}
-        try { unsubCurrentUser?.(); } catch {}
+        try {
+          unsubCfg?.();
+        } catch {}
+        try {
+          unsubSignerMode?.();
+        } catch {}
+        try {
+          unsubCurrentUser?.();
+        } catch {}
       };
       // Emit a best-effort snapshot as soon as the host is ready.
-      Promise.resolve().then(() => emitPreferencesChanged()).catch(() => {});
+      Promise.resolve()
+        .then(() => emitPreferencesChanged())
+        .catch(() => {});
     }
     return pm;
   };
@@ -157,15 +182,19 @@ export function initWalletIFrame(): void {
       // Initialize TatchiPasskey and prewarm workers on wallet origin (non-blocking)
       let canInitOnPing = false;
       try {
-        canInitOnPing = !!ctx.walletConfigs?.relayerAccount && !!resolvePrimaryNearRpcUrl(ctx.walletConfigs?.chains || []);
+        canInitOnPing =
+          !!ctx.walletConfigs?.relayerAccount &&
+          !!resolvePrimaryNearRpcUrl(ctx.walletConfigs?.chains || []);
       } catch {
         canInitOnPing = false;
       }
       if (canInitOnPing) {
-        Promise.resolve().then(() => {
-          const pm = ensureTatchiPasskey();
-          return pm.initWalletIframe();
-        }).catch(() => {});
+        Promise.resolve()
+          .then(() => {
+            const pm = ensureTatchiPasskey();
+            return pm.initWalletIframe();
+          })
+          .catch(() => {});
       }
       post({ type: 'PONG', requestId });
       return;
@@ -184,11 +213,17 @@ export function initWalletIFrame(): void {
       const rid = req.payload?.requestId;
       markCancelled(rid);
       // Cover all possible confirmation hosts used inside the wallet iframe
-      const els = (CONFIRM_UI_ELEMENT_SELECTORS as readonly string[])
-        .flatMap((sel) => Array.from(document.querySelectorAll(sel)) as HTMLElement[]);
+      const els = (CONFIRM_UI_ELEMENT_SELECTORS as readonly string[]).flatMap(
+        (sel) => Array.from(document.querySelectorAll(sel)) as HTMLElement[],
+      );
       for (const el of els) {
         try {
-          el.dispatchEvent(new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, { bubbles: true, composed: true }));
+          el.dispatchEvent(
+            new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
+              bubbles: true,
+              composed: true,
+            }),
+          );
         } catch {}
       }
       if (rid) {
@@ -203,17 +238,21 @@ export function initWalletIFrame(): void {
     try {
       // Widen handler type for dynamic dispatch. HandlerMap is strongly typed at creation,
       // but when indexing with a runtime key, TS cannot correlate the specific envelope type.
-      const handler = handlers[req.type as ParentToChildType] as unknown as (r: ParentToChildEnvelope) => Promise<void>;
+      const handler = handlers[req.type as ParentToChildType] as unknown as (
+        r: ParentToChildEnvelope,
+      ) => Promise<void>;
       if (handler) {
         await handler(req);
       }
     } catch (err: unknown) {
-      const codeRaw = (err && typeof err === 'object' && 'code' in err)
-        ? (err as { code?: unknown }).code
-        : undefined;
-      const details = (err && typeof err === 'object' && 'details' in err)
-        ? (err as { details?: unknown }).details
-        : undefined;
+      const codeRaw =
+        err && typeof err === 'object' && 'code' in err
+          ? (err as { code?: unknown }).code
+          : undefined;
+      const details =
+        err && typeof err === 'object' && 'details' in err
+          ? (err as { details?: unknown }).details
+          : undefined;
       const message = errorMessage(err);
       const code = resolveWalletBoundaryErrorCode({
         requestType: req.type,

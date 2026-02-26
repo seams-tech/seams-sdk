@@ -36,9 +36,7 @@ import {
 } from '@/core/signingEngine/threshold/session/sessionPolicy';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { executeWorkerOperation } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import {
-  clearSigningSessionPrfFirstBestEffort,
-} from '@/core/signingEngine/api/session/signingSessionState';
+import { clearSigningSessionPrfFirstBestEffort } from '@/core/signingEngine/api/session/signingSessionState';
 import {
   generateSessionId,
   requirePrfFirstFromCredential,
@@ -155,7 +153,9 @@ export async function signTransactionsWithActions({
 
   // Normalize rpcCall to ensure required fields are present.
   const resolvedRpcCall = {
-    nearRpcUrl: rpcCall.nearRpcUrl || resolvePrimaryNearRpcUrl(PASSKEY_MANAGER_DEFAULT_CONFIGS.chains),
+    nearRpcUrl:
+      rpcCall.nearRpcUrl ||
+      resolvePrimaryNearRpcUrl(PASSKEY_MANAGER_DEFAULT_CONFIGS.network.chains),
     nearAccountId: rpcCall.nearAccountId,
   } as RpcCallPayload;
   const normalizedInputTransactions = Array.isArray(transactions) ? transactions : [];
@@ -207,9 +207,8 @@ export async function signTransactionsWithActions({
   const intentDigest = confirmation.intentDigest;
   const transactionContext = confirmation.transactionContext;
 
-  const credentialWithPrf: WebAuthnAuthenticationCredential | undefined = confirmation.credential as
-    | WebAuthnAuthenticationCredential
-    | undefined;
+  const credentialWithPrf: WebAuthnAuthenticationCredential | undefined =
+    confirmation.credential as WebAuthnAuthenticationCredential | undefined;
 
   const credentialForRelayJson = toCredentialForRelayJson(credentialWithPrf);
 
@@ -238,12 +237,14 @@ export async function signTransactionsWithActions({
   if (signingContext.threshold) {
     if (!signingContext.threshold.thresholdSessionJwt) {
       signingContext.threshold.thresholdSessionJwt =
-        getCachedEd25519AuthSessionJwtBySessionId(sessionId)
-        || signingContext.threshold.thresholdSessionJwt;
+        getCachedEd25519AuthSessionJwtBySessionId(sessionId) ||
+        signingContext.threshold.thresholdSessionJwt;
     }
     if (!signingContext.threshold.thresholdSessionJwt) {
       clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
-      throw new Error('[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing');
+      throw new Error(
+        '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing',
+      );
     }
     const requestPayload: Omit<WasmSignTransactionsWithActionsRequest, 'sessionId'> = {
       rpcCall: resolvedRpcCall,

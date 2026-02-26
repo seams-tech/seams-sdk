@@ -37,13 +37,13 @@ export async function syncAccount(
     } catch {}
   };
 
-  const relayerUrl = String(context.configs.relayer?.url || '').trim();
+  const relayerUrl = String(context.configs.network.relayer?.url || '').trim();
   if (!relayerUrl) {
     return {
       success: false,
       accountId: accountId ? String(accountId) : '',
       publicKey: '',
-      message: 'Missing relayer url (configs.relayer.url)',
+      message: 'Missing relayer url (configs.network.relayer.url)',
       error: 'missing_relayer_url',
       loginState: { isLoggedIn: false },
     };
@@ -208,7 +208,7 @@ export async function syncAccount(
             ? Math.floor(Number(thresholdEd25519.relayerParticipantId))
             : null,
           relayerKeyId,
-          relayerUrl: context.configs?.relayer?.url,
+          relayerUrl: context.configs?.network.relayer?.url,
           clientVerifyingShareB64u,
           relayerVerifyingShareB64u,
           clientShareDerivation: 'prf_first_v1',

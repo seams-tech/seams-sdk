@@ -2,13 +2,14 @@ import type { SigningEnginePublic } from '../signingEngine/SigningEngine';
 import type { UserPreferencesManager } from '../signingEngine/api/userPreferences';
 import type { AccountId } from '../types/accountIds';
 import { toAccountId } from '../types/accountIds';
-import type { ThemeName, TatchiConfigs } from '../types/tatchi';
+import type { ThemeName, TatchiConfigsReadonly } from '../types/tatchi';
+import { cloneAuthenticatorOptions } from '../types/authenticatorOptions';
 import type { WalletIframeRouter } from '../WalletIframe/client/router';
 import type { PreferencesChangedPayload } from '../WalletIframe/shared/messages';
 import { __isWalletIframeHostMode } from '../WalletIframe/host-mode';
 
 export interface WalletIframeCoordinatorDeps {
-  configs: TatchiConfigs;
+  configs: TatchiConfigsReadonly;
   signingEngine: SigningEnginePublic;
   userPreferences: UserPreferencesManager;
   getTheme: () => ThemeName;
@@ -22,7 +23,7 @@ let warnedAboutSameOriginWallet = false;
  * This keeps `TatchiPasskey` focused on business flows while preserving one cohesive iframe domain module.
  */
 export class WalletIframeCoordinator {
-  private readonly configs: TatchiConfigs;
+  private readonly configs: TatchiConfigsReadonly;
   private readonly signingEngine: SigningEnginePublic;
   private readonly userPreferences: UserPreferencesManager;
   private readonly getTheme: () => ThemeName;
@@ -45,7 +46,7 @@ export class WalletIframeCoordinator {
    * In this mode, sensitive persistence must live in the wallet-iframe origin.
    */
   shouldUseWalletIframe(): boolean {
-    return !!this.configs.iframeWallet?.walletOrigin && !__isWalletIframeHostMode();
+    return this.configs.wallet.mode === 'iframe' && !__isWalletIframeHostMode();
   }
 
   isReady(): boolean {
@@ -73,7 +74,7 @@ export class WalletIframeCoordinator {
   }
 
   async init(nearAccountId?: string): Promise<void> {
-    const walletOriginConfigured = !!this.configs.iframeWallet?.walletOrigin;
+    const walletOriginConfigured = this.configs.wallet.mode === 'iframe';
     // Warm local critical resources (NonceManager, workers) regardless of iframe usage.
     // In iframe mode, avoid persisting user state (lastUserAccountId, preferences) on the app origin.
     const shouldAvoidLocalUserState = walletOriginConfigured && !__isWalletIframeHostMode();
@@ -82,14 +83,14 @@ export class WalletIframeCoordinator {
     );
 
     // Guardrail: when running inside the wallet service iframe host, never attempt to
-    // initialize a nested wallet iframe client, even if configs accidentally include iframeWallet.
+    // initialize a nested wallet iframe client, even if configs accidentally set wallet.mode='iframe'.
     // The host runs the real TatchiPasskey instance and must remain self-contained.
     if (__isWalletIframeHostMode()) {
       return;
     }
 
-    const walletIframeConfig = this.configs.iframeWallet;
-    const walletOrigin = walletIframeConfig?.walletOrigin;
+    const walletIframeConfig = this.configs.wallet.iframe;
+    const walletOrigin = walletIframeConfig?.origin;
     if (!walletOrigin) {
       await this.refreshLoginSession(nearAccountId);
       return;
@@ -102,7 +103,7 @@ export class WalletIframeCoordinator {
         if (typeof window !== 'undefined' && parsed.origin === window.location.origin) {
           warnedAboutSameOriginWallet = true;
           console.warn(
-            '[TatchiPasskey] iframeWallet.walletOrigin matches the host origin. Consider moving the wallet to a dedicated origin for stronger isolation.',
+            '[TatchiPasskey] wallet.iframe.origin matches the host origin. Consider moving the wallet to a dedicated origin for stronger isolation.',
           );
         }
       } catch {
@@ -117,18 +118,20 @@ export class WalletIframeCoordinator {
           const { WalletIframeRouter } = await import('../WalletIframe/client/router');
           this.iframeRouter = new WalletIframeRouter({
             walletOrigin,
-            servicePath: walletIframeConfig?.walletServicePath || '/wallet-service',
+            servicePath: walletIframeConfig?.servicePath || '/wallet-service',
             connectTimeoutMs: 20_000,
             requestTimeoutMs: 60_000,
-            signerMode: this.configs.signerMode,
-            chains: this.configs.chains,
-            relayerAccount: this.configs.relayerAccount,
-            relayer: this.configs.relayer,
+            signerMode: this.configs.signing.mode,
+            chains: this.configs.network.chains,
+            relayerAccount: this.configs.network.relayer.accountId,
+            relayer: this.configs.network.relayer,
             rpIdOverride: walletIframeConfig?.rpIdOverride,
-            authenticatorOptions: this.configs.authenticatorOptions,
+            authenticatorOptions: cloneAuthenticatorOptions(
+              this.configs.auth.webauthn.authenticatorOptions,
+            ),
             appearance: {
               theme: this.getTheme(),
-              tokens: this.configs.appearance?.tokens,
+              tokens: this.configs.ui.appearance?.tokens,
             },
             // Allow apps/CI to control where embedded bundles are served from.
             sdkBasePath: walletIframeConfig?.sdkBasePath,

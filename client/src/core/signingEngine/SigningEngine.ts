@@ -8,7 +8,7 @@ import type { AuthenticatorOptions } from '../types/authenticatorOptions';
 import type {
   ConfirmationConfig,
 } from '../types/signer-worker';
-import type { SigningSessionStatus, TatchiConfigs, ThemeName } from '../types/tatchi';
+import type { SigningSessionStatus, TatchiConfigsReadonly, ThemeName } from '../types/tatchi';
 import type {
   WebAuthnAuthenticationCredential,
   WebAuthnRegistrationCredential,
@@ -141,9 +141,9 @@ export class SigningEngine {
     new Map();
   private readonly orchestrationDeps: OrchestrationDependencyBundle;
 
-  readonly tatchiPasskeyConfigs: TatchiConfigs;
+  readonly tatchiPasskeyConfigs: TatchiConfigsReadonly;
 
-  constructor(tatchiPasskeyConfigs: TatchiConfigs, nearClient: NearClient) {
+  constructor(tatchiPasskeyConfigs: TatchiConfigsReadonly, nearClient: NearClient) {
     this.tatchiPasskeyConfigs = tatchiPasskeyConfigs;
     this.nearClient = nearClient;
 
@@ -151,7 +151,7 @@ export class SigningEngine {
       tatchiPasskeyConfigs: this.tatchiPasskeyConfigs,
       nearClient: this.nearClient,
       getTheme: () => this.theme,
-      getAppearanceTokens: () => this.tatchiPasskeyConfigs.appearance?.tokens,
+      getAppearanceTokens: () => this.tatchiPasskeyConfigs.ui.appearance?.tokens,
     });
 
     this.touchIdPrompt = assembly.touchIdPrompt;
@@ -547,7 +547,7 @@ export class SigningEngine {
           this.touchConfirm.dispensePrfFirstForThresholdSession(payload),
         getSignerWorkerContext: () =>
           this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
-        thresholdEcdsaPresignPoolPolicy: this.tatchiPasskeyConfigs.thresholdEcdsaPresignPool,
+        thresholdEcdsaPresignPoolPolicy: this.tatchiPasskeyConfigs.signing.thresholdEcdsa.presignPool,
       },
       args,
     );

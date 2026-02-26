@@ -461,7 +461,7 @@ export async function signTransactionsWithActionsInternal({
       args: {
         transactions: transactionInputsWasm,
         rpcCall: {
-          nearRpcUrl: resolvePrimaryNearRpcUrl(context.configs.chains),
+          nearRpcUrl: resolvePrimaryNearRpcUrl(context.configs.network.chains),
           nearAccountId: nearAccountId, // caller account
         },
         deviceNumber,
@@ -567,6 +567,6 @@ function getBaseSignerMode(context: PasskeyManagerContext): SignerMode {
   try {
     return context.signingEngine.getUserPreferences().getSignerMode();
   } catch {
-    return context.configs.signerMode;
+    return context.configs.signing.mode;
   }
 }

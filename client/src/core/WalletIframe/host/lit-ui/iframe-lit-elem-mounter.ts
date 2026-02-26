@@ -1,4 +1,3 @@
-
 /**
  * Lit Element Mounter - Host-Side Execution Layer
  *
@@ -33,13 +32,23 @@ import {
   type ActionResult,
   type TatchiConfigsInput,
   type TransactionInput,
-  type TransactionInputWasm
+  type TransactionInputWasm,
 } from '@/core/types';
-import { uiBuiltinRegistry, type PmActionName, type WalletUIRegistry } from './iframe-lit-element-registry';
+import {
+  uiBuiltinRegistry,
+  type PmActionName,
+  type WalletUIRegistry,
+} from './iframe-lit-element-registry';
 import { errorMessage } from '@shared/utils/errors';
 import { isObject, isString, toTrimmedString } from '@shared/utils/validation';
 import { type SignerMode, coerceSignerMode } from '@/core/types/signer-worker';
-import { ensureHostBaseStyles, markContainer, setContainerAnchored, clearContainerRule, HostMounterClasses } from './mounter-styles';
+import {
+  ensureHostBaseStyles,
+  markContainer,
+  setContainerAnchored,
+  clearContainerRule,
+  HostMounterClasses,
+} from './mounter-styles';
 
 export type EnsureTatchiPasskey = () => void;
 export type GetPasskeyManager = () => TatchiPasskey | null;
@@ -90,7 +99,7 @@ type WalletUiInboundPayloadMap = {
 type WalletUiInboundType = keyof WalletUiInboundPayloadMap;
 
 type WalletUiInboundMessage = {
-  [K in WalletUiInboundType]: { type: K; payload?: WalletUiInboundPayloadMap[K] }
+  [K in WalletUiInboundType]: { type: K; payload?: WalletUiInboundPayloadMap[K] };
 }[WalletUiInboundType];
 
 type WalletUiActionResultPayload = {
@@ -135,14 +144,21 @@ type SetupLitElemMounterOptions = {
 type PostToParent = (message: WalletUiOutboundMessage) => void;
 type RunPmAction = <T extends PmActionName>(
   action: T,
-  args: PmActionArgsMap[T]
+  args: PmActionArgsMap[T],
 ) => Promise<PmActionResultMap[T]>;
 
-const isWasmTransactionInput = (tx: TransactionInput | TransactionInputWasm): tx is TransactionInputWasm => {
-  return Array.isArray(tx.actions) && tx.actions.some((action: unknown) => isObject(action) && 'action_type' in action);
+const isWasmTransactionInput = (
+  tx: TransactionInput | TransactionInputWasm,
+): tx is TransactionInputWasm => {
+  return (
+    Array.isArray(tx.actions) &&
+    tx.actions.some((action: unknown) => isObject(action) && 'action_type' in action)
+  );
 };
 
-const normalizeTransactions = (candidate?: TransactionInput[] | TransactionInputWasm[]): TransactionInput[] => {
+const normalizeTransactions = (
+  candidate?: TransactionInput[] | TransactionInputWasm[],
+): TransactionInput[] => {
   if (!Array.isArray(candidate) || candidate.length === 0) return [];
   if (candidate.every(isWasmTransactionInput)) {
     return fromTransactionInputsWasm(candidate as TransactionInputWasm[]);
@@ -175,7 +191,9 @@ const applyProps = (el: UiElement, props: UiProps, allowedProps?: Set<string>) =
   if (!props) return;
   for (const [k, v] of Object.entries(props)) {
     if (allowedProps && !allowedProps.has(k)) continue;
-    try { (el as Record<string, UiElementProp>)[k] = v; } catch {}
+    try {
+      (el as Record<string, UiElementProp>)[k] = v;
+    } catch {}
   }
 };
 
@@ -183,7 +201,10 @@ const resolveProps = (def: UiComponentDef, payload?: WalletUiMountPayload): UiPr
   return { ...(def.propDefaults || {}), ...(payload?.props || {}) } as UiProps;
 };
 
-const resolveTargetSelector = (payload: WalletUiMountPayload | undefined, props: UiProps): string | undefined => {
+const resolveTargetSelector = (
+  payload: WalletUiMountPayload | undefined,
+  props: UiProps,
+): string | undefined => {
   return isString(props.targetSelector) ? props.targetSelector : payload?.targetSelector;
 };
 
@@ -216,7 +237,12 @@ const resolveComponentDef = (uiRegistry: WalletUIRegistry, key?: string): UiComp
   return def;
 };
 
-const postActionError = (postToParent: PostToParent, binding: UiEventBinding, id: string, err: unknown) => {
+const postActionError = (
+  postToParent: PostToParent,
+  binding: UiEventBinding,
+  id: string,
+  err: unknown,
+) => {
   const type = binding.resultMessageType || 'UI_ACTION_RESULT';
   postToParent({ type, payload: { ok: false, id, error: errorMessage(err) } });
 };
@@ -227,13 +253,16 @@ const wireEventBindings = (
   componentKey: string,
   id: string,
   postToParent: PostToParent,
-  runPmAction: RunPmAction
+  runPmAction: RunPmAction,
 ) => {
   if (!Array.isArray(def.eventBindings)) return;
   for (const binding of def.eventBindings) {
     el.addEventListener(binding.event, async () => {
       try {
-        postToParent({ type: 'WALLET_UI_EVENT', payload: { id, key: componentKey, event: binding.event } });
+        postToParent({
+          type: 'WALLET_UI_EVENT',
+          payload: { id, key: componentKey, event: binding.event },
+        });
         const args = buildArgsFromProps(el, binding) as PmActionArgsMap[typeof binding.action];
         const result = await runPmAction(binding.action, args);
         if (binding.resultMessageType) {
@@ -250,11 +279,17 @@ const wirePropBindings = (el: UiElement, def: UiComponentDef, runPmAction: RunPm
   if (!Array.isArray(def.propBindings)) return;
   for (const binding of def.propBindings) {
     const action = binding.action;
-    el[binding.prop] = (args: UiActionArgs) => runPmAction(action, args as PmActionArgsMap[typeof action]);
+    el[binding.prop] = (args: UiActionArgs) =>
+      runPmAction(action, args as PmActionArgsMap[typeof action]);
   }
 };
 
-const wireBridgeProps = (el: UiElement, def: UiComponentDef, id: string, postToParent: PostToParent) => {
+const wireBridgeProps = (
+  el: UiElement,
+  def: UiComponentDef,
+  id: string,
+  postToParent: PostToParent,
+) => {
   const bridge = def.bridgeProps;
   if (!bridge) return;
   if (bridge.successProp) {
@@ -275,7 +310,7 @@ const mountAnchored = (
   rect: ViewportRect,
   anchorMode: 'iframe' | 'viewport',
   root: HTMLElement,
-  postToParent: PostToParent
+  postToParent: PostToParent,
 ): HTMLElement => {
   const container = document.createElement('div');
   markContainer(container);
@@ -305,7 +340,7 @@ export function setupLitElemMounter(opts: SetupLitElemMounterOptions) {
 
   const runPmAction = async <T extends PmActionName>(
     action: T,
-    args: PmActionArgsMap[T]
+    args: PmActionArgsMap[T],
   ): Promise<PmActionResultMap[T]> => {
     ensureTatchiPasskey();
     const pm = getTatchiPasskey();
@@ -318,8 +353,9 @@ export function setupLitElemMounter(opts: SetupLitElemMounterOptions) {
         const nearAccountId = toTrimmedString(input.nearAccountId);
         const transactions = normalizeTransactions(input.transactions || input.txSigningRequests);
         const options = (input.options || {}) as SignAndSendTransactionHooksOptions;
-        const signerModeInput = (options as { signerMode?: SignerMode | SignerMode['mode'] | null }).signerMode;
-        const signerMode = coerceSignerMode(signerModeInput, pm?.configs?.signerMode);
+        const signerModeInput = (options as { signerMode?: SignerMode | SignerMode['mode'] | null })
+          .signerMode;
+        const signerMode = coerceSignerMode(signerModeInput, pm?.configs?.signing.mode);
         if (!nearAccountId || transactions.length === 0) {
           throw new Error('nearAccountId and transactions required');
         }
@@ -367,7 +403,15 @@ export function setupLitElemMounter(opts: SetupLitElemMounterOptions) {
     const root = pickRoot(targetSelector);
     if (rect) {
       const container = mountAnchored(el, id, rect, anchorMode, root, opts.postToParent);
-      mountedById.set(id, { id, element: el, container, anchorMode, root, targetSelector, allowedProps });
+      mountedById.set(id, {
+        id,
+        element: el,
+        container,
+        anchorMode,
+        root,
+        targetSelector,
+        allowedProps,
+      });
     } else {
       root.appendChild(el);
       mountedById.set(id, { id, element: el, root, targetSelector, allowedProps });
@@ -382,11 +426,11 @@ export function setupLitElemMounter(opts: SetupLitElemMounterOptions) {
     const rect = coerceViewportRect(props.viewportRect);
     const anchorMode = resolveAnchorMode(props);
     const hasTargetSelector = Object.prototype.hasOwnProperty.call(props, 'targetSelector');
-    const nextTargetSelector = hasTargetSelector && isString(props.targetSelector)
-      ? props.targetSelector
-      : undefined;
+    const nextTargetSelector =
+      hasTargetSelector && isString(props.targetSelector) ? props.targetSelector : undefined;
     const nextRoot = hasTargetSelector ? pickRoot(nextTargetSelector) : entry.root;
-    const wantsUnanchor = Object.prototype.hasOwnProperty.call(props, 'viewportRect') && props.viewportRect === null;
+    const wantsUnanchor =
+      Object.prototype.hasOwnProperty.call(props, 'viewportRect') && props.viewportRect === null;
 
     // If entry is anchored, update container + child props
     if (entry.container) {
@@ -418,7 +462,14 @@ export function setupLitElemMounter(opts: SetupLitElemMounterOptions) {
       entry.targetSelector = nextTargetSelector;
     }
     if (rect) {
-      const container = mountAnchored(entry.element, payload.id, rect, anchorMode, nextRoot, opts.postToParent);
+      const container = mountAnchored(
+        entry.element,
+        payload.id,
+        rect,
+        anchorMode,
+        nextRoot,
+        opts.postToParent,
+      );
       entry.container = container;
       entry.anchorMode = anchorMode;
     }
@@ -439,7 +490,9 @@ export function setupLitElemMounter(opts: SetupLitElemMounterOptions) {
     return true;
   };
 
-  const messageHandlers: { [K in WalletUiInboundType]: (payload: WalletUiInboundPayloadMap[K] | undefined) => void } = {
+  const messageHandlers: {
+    [K in WalletUiInboundType]: (payload: WalletUiInboundPayloadMap[K] | undefined) => void;
+  } = {
     WALLET_SET_CONFIG: (payload) => {
       updateWalletConfigs(payload || {});
       // uiRegistry is no longer read from configs; register via WALLET_UI_REGISTER_TYPES or PM_SET_CONFIG

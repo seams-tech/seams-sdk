@@ -110,7 +110,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
       // This annotates access keys with device numbers and registration timestamps.
       const relayMetaByPublicKey = new Map<string, RelayAuthenticatorRow>();
       try {
-        const relayerUrl = String((tatchi as any)?.configs?.relayer?.url || '').trim().replace(/\/$/, '');
+        const relayerUrl = String((tatchi as any)?.configs?.network.relayer?.url || '').trim().replace(/\/$/, '');
         if (relayerUrl) {
           // Prefer the dedicated key metadata endpoint when available.
           try {

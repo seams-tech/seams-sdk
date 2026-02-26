@@ -1,10 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useNearClient } from '../hooks/useNearClient';
 import { useAccountInput } from '../hooks/useAccountInput';
 import { useEagerPrewarm } from './useEagerPrewarm';
@@ -48,14 +42,16 @@ export const TatchiContextProvider: React.FC<TatchiContextProviderProps> = ({
   });
 
   const hasExplicitAccountDomainOverride = Boolean(
-    (typeof config?.relayerAccount === 'string' && String(config.relayerAccount).trim())
+    typeof config?.relayerAccount === 'string' && String(config.relayerAccount).trim(),
   );
 
   const accountInputHook = useAccountInput({
     tatchi,
     // If the host app didn't explicitly provide a relayer account id/domain, allow the hook to
     // best-effort discover it from the relay `/healthz` endpoint (prevents postfix mismatches).
-    ...(hasExplicitAccountDomainOverride ? { accountDomain: tatchi.configs.relayerAccount } : {}),
+    ...(hasExplicitAccountDomainOverride
+      ? { accountDomain: tatchi.configs.network.relayer.accountId }
+      : {}),
     currentNearAccountId: loginState.nearAccountId,
     isLoggedIn: loginState.isLoggedIn,
   });
@@ -73,25 +69,28 @@ export const TatchiContextProvider: React.FC<TatchiContextProviderProps> = ({
     refreshAccountData,
   } = accountInputHook;
 
-  const accountInputState: AccountInputState = useMemo(() => ({
-    inputUsername,
-    lastLoggedInUsername,
-    lastLoggedInDomain,
-    targetAccountId,
-    displayPostfix,
-    isUsingExistingAccount,
-    accountExists,
-    indexDBAccounts,
-  }), [
-    inputUsername,
-    lastLoggedInUsername,
-    lastLoggedInDomain,
-    targetAccountId,
-    displayPostfix,
-    isUsingExistingAccount,
-    accountExists,
-    indexDBAccounts,
-  ]);
+  const accountInputState: AccountInputState = useMemo(
+    () => ({
+      inputUsername,
+      lastLoggedInUsername,
+      lastLoggedInDomain,
+      targetAccountId,
+      displayPostfix,
+      isUsingExistingAccount,
+      accountExists,
+      indexDBAccounts,
+    }),
+    [
+      inputUsername,
+      lastLoggedInUsername,
+      lastLoggedInDomain,
+      targetAccountId,
+      displayPostfix,
+      isUsingExistingAccount,
+      accountExists,
+      indexDBAccounts,
+    ],
+  );
 
   const refreshLoginState = useLoginStateRefresher({
     tatchi,
@@ -128,8 +127,4 @@ export const useTatchi = () => {
 };
 
 // Re-export types for convenience
-export type {
-  TatchiContextType,
-  RegistrationResult,
-  LoginResult,
-} from '../types';
+export type { TatchiContextType, RegistrationResult, LoginResult } from '../types';

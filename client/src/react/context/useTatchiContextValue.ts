@@ -1,9 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import {
-  LoginPhase,
-  LoginStatus,
-} from '@/core/types/sdkSentEvents';
+import { LoginPhase, LoginStatus } from '@/core/types/sdkSentEvents';
 import type {
   AccountInputState,
   LoginState,
@@ -57,7 +54,7 @@ export function useTatchiContextValue(args: {
       console.warn('Logout warning:', error);
     }
 
-    setLoginState(prevState => ({
+    setLoginState((prevState) => ({
       ...prevState,
       isLoggedIn: false,
       nearAccountId: null,
@@ -75,137 +72,174 @@ export function useTatchiContextValue(args: {
     [tatchiWithSdkFlow],
   );
 
-  const stopDevice2LinkingFlow: TatchiContextType['stopDevice2LinkingFlow'] = useCallback(async () => {
-    await tatchi.recovery.stopDevice2LinkingFlow();
-  }, [tatchi]);
+  const stopDevice2LinkingFlow: TatchiContextType['stopDevice2LinkingFlow'] =
+    useCallback(async () => {
+      await tatchi.recovery.stopDevice2LinkingFlow();
+    }, [tatchi]);
 
-  const loginAndCreateSession: TatchiContextType['loginAndCreateSession'] = useCallback(async (nearAccountId, options) => {
-    return tatchiWithSdkFlow.auth.login(nearAccountId, {
-      ...options,
-      onEvent: async (event) => {
-        if (event.phase === LoginPhase.STEP_4_LOGIN_COMPLETE && event.status === LoginStatus.SUCCESS) {
-          const session = await tatchi.auth.getSession(nearAccountId);
-          const { login } = session;
-          const isLoggedIn = isLoginSessionReadyForUi({
-            session,
-            signerMode: tatchi.configs?.signerMode,
-          });
-          setLoginState(prevState => ({
-            ...prevState,
-            isLoggedIn,
-            nearAccountId: isLoggedIn ? (login.nearAccountId || null) : null,
-            nearPublicKey: isLoggedIn ? (login.publicKey || null) : null,
-            thresholdEcdsaEthereumAddress: isLoggedIn
-              ? (login.thresholdEcdsaEthereumAddress || null)
-              : null,
-            thresholdEcdsaGroupPublicKeyB64u: isLoggedIn
-              ? (login.thresholdEcdsaGroupPublicKeyB64u || null)
-              : null,
-          }));
-        }
-        return options?.onEvent?.(event);
-      },
-      onError: (error) => {
-        logout();
-        return options?.onError?.(error);
+  const loginAndCreateSession: TatchiContextType['loginAndCreateSession'] = useCallback(
+    async (nearAccountId, options) => {
+      return tatchiWithSdkFlow.auth.login(nearAccountId, {
+        ...options,
+        onEvent: async (event) => {
+          if (
+            event.phase === LoginPhase.STEP_4_LOGIN_COMPLETE &&
+            event.status === LoginStatus.SUCCESS
+          ) {
+            const session = await tatchi.auth.getSession(nearAccountId);
+            const { login } = session;
+            const isLoggedIn = isLoginSessionReadyForUi({
+              session,
+              signerMode: tatchi.configs?.signing.mode,
+            });
+            setLoginState((prevState) => ({
+              ...prevState,
+              isLoggedIn,
+              nearAccountId: isLoggedIn ? login.nearAccountId || null : null,
+              nearPublicKey: isLoggedIn ? login.publicKey || null : null,
+              thresholdEcdsaEthereumAddress: isLoggedIn
+                ? login.thresholdEcdsaEthereumAddress || null
+                : null,
+              thresholdEcdsaGroupPublicKeyB64u: isLoggedIn
+                ? login.thresholdEcdsaGroupPublicKeyB64u || null
+                : null,
+            }));
+          }
+          return options?.onEvent?.(event);
+        },
+        onError: (error) => {
+          logout();
+          return options?.onError?.(error);
+        },
+      });
+    },
+    [logout, setLoginState, tatchi, tatchiWithSdkFlow],
+  );
+
+  const registerPasskey: TatchiContextType['registerPasskey'] = useCallback(
+    async (nearAccountId, options) => {
+      const result: RegistrationResult = await tatchiWithSdkFlow.registration.registerPasskey(
+        nearAccountId,
+        {
+          ...options,
+          onError: (error) => {
+            logout();
+            return options?.onError?.(error);
+          },
+        },
+      );
+
+      if (result?.success) {
+        await refreshLoginState(nearAccountId);
       }
-    });
-  }, [logout, setLoginState, tatchi, tatchiWithSdkFlow]);
+      return result;
+    },
+    [logout, refreshLoginState, tatchiWithSdkFlow],
+  );
 
-  const registerPasskey: TatchiContextType['registerPasskey'] = useCallback(async (nearAccountId, options) => {
-    const result: RegistrationResult = await tatchiWithSdkFlow.registration.registerPasskey(nearAccountId, {
-      ...options,
-      onError: (error) => {
-        logout();
-        return options?.onError?.(error);
-      }
-    });
+  const executeAction: TatchiContextType['executeAction'] = useCallback(
+    (args) => {
+      return tatchi.near.executeAction({ ...args, options: { ...(args.options || {}) } });
+    },
+    [tatchi],
+  );
 
-    if (result?.success) {
-      await refreshLoginState(nearAccountId);
-    }
-    return result;
-  }, [logout, refreshLoginState, tatchiWithSdkFlow]);
+  const signNEP413Message: TatchiContextType['signNEP413Message'] = useCallback(
+    (args) => {
+      return tatchi.near.signNEP413Message({ ...args, options: { ...(args.options || {}) } });
+    },
+    [tatchi],
+  );
 
-  const executeAction: TatchiContextType['executeAction'] = useCallback((args) => {
-    return tatchi.near.executeAction({ ...args, options: { ...(args.options || {}) } });
-  }, [tatchi]);
+  const signDelegateAction: TatchiContextType['signDelegateAction'] = useCallback(
+    (args) => {
+      return tatchi.near.signDelegateAction({ ...args, options: { ...(args.options || {}) } });
+    },
+    [tatchi],
+  );
 
-  const signNEP413Message: TatchiContextType['signNEP413Message'] = useCallback((args) => {
-    return tatchi.near.signNEP413Message({ ...args, options: { ...(args.options || {}) } });
-  }, [tatchi]);
+  const getLoginSession: TatchiContextType['getLoginSession'] = useCallback(
+    (nearAccountId?: string) => {
+      return tatchi.auth.getSession(nearAccountId);
+    },
+    [tatchi],
+  );
 
-  const signDelegateAction: TatchiContextType['signDelegateAction'] = useCallback((args) => {
-    return tatchi.near.signDelegateAction({ ...args, options: { ...(args.options || {}) } });
-  }, [tatchi]);
+  const setConfirmBehavior: TatchiContextType['setConfirmBehavior'] = useCallback(
+    (behavior) => {
+      tatchi.setConfirmBehavior(behavior);
+    },
+    [tatchi],
+  );
 
-  const getLoginSession: TatchiContextType['getLoginSession'] = useCallback((nearAccountId?: string) => {
-    return tatchi.auth.getSession(nearAccountId);
-  }, [tatchi]);
-
-  const setConfirmBehavior: TatchiContextType['setConfirmBehavior'] = useCallback((behavior) => {
-    tatchi.setConfirmBehavior(behavior);
-  }, [tatchi]);
-
-  const setConfirmationConfig: TatchiContextType['setConfirmationConfig'] = useCallback((config) => {
-    tatchi.setConfirmationConfig(config);
-  }, [tatchi]);
+  const setConfirmationConfig: TatchiContextType['setConfirmationConfig'] = useCallback(
+    (config) => {
+      tatchi.setConfirmationConfig(config);
+    },
+    [tatchi],
+  );
 
   const getConfirmationConfig: TatchiContextType['getConfirmationConfig'] = useCallback(() => {
     return tatchi.getConfirmationConfig();
   }, [tatchi]);
 
-  const viewAccessKeyList: TatchiContextType['viewAccessKeyList'] = useCallback((accountId: string) => {
-    return tatchi.viewAccessKeyList(accountId);
-  }, [tatchi]);
-
-  return useMemo(() => ({
-    tatchi: tatchiWithSdkFlow,
-    sdkFlow,
-    registerPasskey,
-    loginAndCreateSession,
-    logout,
-    startDevice2LinkingFlow,
-    stopDevice2LinkingFlow,
-    executeAction,
-    signNEP413Message,
-    signDelegateAction,
-    getLoginSession,
-    refreshLoginState,
-    loginState,
-    walletIframeConnected,
-    accountInputState,
-    setInputUsername,
-    refreshAccountData,
-    setConfirmBehavior,
-    setConfirmationConfig,
-    getConfirmationConfig,
-    viewAccessKeyList,
-    themeCapabilities: {
-      canSetHostTheme: typeof hostSetTheme === 'function',
+  const viewAccessKeyList: TatchiContextType['viewAccessKeyList'] = useCallback(
+    (accountId: string) => {
+      return tatchi.viewAccessKeyList(accountId);
     },
-  }), [
-    tatchiWithSdkFlow,
-    sdkFlow,
-    registerPasskey,
-    loginAndCreateSession,
-    logout,
-    startDevice2LinkingFlow,
-    stopDevice2LinkingFlow,
-    executeAction,
-    signNEP413Message,
-    signDelegateAction,
-    getLoginSession,
-    refreshLoginState,
-    loginState,
-    walletIframeConnected,
-    accountInputState,
-    setInputUsername,
-    refreshAccountData,
-    setConfirmBehavior,
-    setConfirmationConfig,
-    getConfirmationConfig,
-    viewAccessKeyList,
-    hostSetTheme,
-  ]);
+    [tatchi],
+  );
+
+  return useMemo(
+    () => ({
+      tatchi: tatchiWithSdkFlow,
+      sdkFlow,
+      registerPasskey,
+      loginAndCreateSession,
+      logout,
+      startDevice2LinkingFlow,
+      stopDevice2LinkingFlow,
+      executeAction,
+      signNEP413Message,
+      signDelegateAction,
+      getLoginSession,
+      refreshLoginState,
+      loginState,
+      walletIframeConnected,
+      accountInputState,
+      setInputUsername,
+      refreshAccountData,
+      setConfirmBehavior,
+      setConfirmationConfig,
+      getConfirmationConfig,
+      viewAccessKeyList,
+      themeCapabilities: {
+        canSetHostTheme: typeof hostSetTheme === 'function',
+      },
+    }),
+    [
+      tatchiWithSdkFlow,
+      sdkFlow,
+      registerPasskey,
+      loginAndCreateSession,
+      logout,
+      startDevice2LinkingFlow,
+      stopDevice2LinkingFlow,
+      executeAction,
+      signNEP413Message,
+      signDelegateAction,
+      getLoginSession,
+      refreshLoginState,
+      loginState,
+      walletIframeConnected,
+      accountInputState,
+      setInputUsername,
+      refreshAccountData,
+      setConfirmBehavior,
+      setConfirmationConfig,
+      getConfirmationConfig,
+      viewAccessKeyList,
+      hostSetTheme,
+    ],
+  );
 }

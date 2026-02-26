@@ -81,7 +81,7 @@ export async function linkDeviceWithScannedQRData(
     // Best-effort: claim the link-device session on the relay so Device2 can discover
     // the accountId without on-chain polling.
     const sessionId = String(qrData?.sessionId || '').trim();
-    const relayerUrl = String(context?.configs?.relayer?.url || '').trim();
+    const relayerUrl = String(context?.configs?.network.relayer?.url || '').trim();
     const addKeyTxHash = String(addKeyTxResult?.transaction?.hash || '').trim() || undefined;
     if (sessionId && relayerUrl) {
       try {

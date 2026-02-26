@@ -746,7 +746,7 @@ export async function executeDeviceLinkingContractCalls({
         ? `link-device-${crypto.randomUUID()}`
         : `link-device-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       rpcCall: {
-        nearRpcUrl: resolvePrimaryNearRpcUrl(context.signingEngine.tatchiPasskeyConfigs.chains),
+        nearRpcUrl: resolvePrimaryNearRpcUrl(context.signingEngine.tatchiPasskeyConfigs.network.chains),
         nearAccountId: device1AccountId
       },
       // Prefer threshold signing when available; fall back to local signing if the account

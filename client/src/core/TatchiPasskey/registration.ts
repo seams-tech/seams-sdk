@@ -4,7 +4,7 @@ import type {
   RegistrationHooksOptions,
   RegistrationSSEEvent,
 } from '../types/sdkSentEvents';
-import type { RegistrationResult, TatchiConfigs } from '../types/tatchi';
+import type { RegistrationResult, TatchiConfigsReadonly } from '../types/tatchi';
 import type { AuthenticatorOptions } from '../types/authenticatorOptions';
 import { RegistrationPhase, RegistrationStatus } from '../types/sdkSentEvents';
 import {
@@ -149,7 +149,7 @@ export async function registerPasskeyInternal(
       ? options?.backupLocalKey !== false
       : true;
     const registrationSignerOptions = requestedSignerModeStr === 'threshold-signer'
-      ? (options?.signerOptions || configs.registrationSignerDefaults)
+      ? (options?.signerOptions || configs.signing.registrationDefaults)
       : null;
     const thresholdEcdsaProvisionTargets = registrationSignerOptions
       ? listThresholdEcdsaProvisionTargets(registrationSignerOptions)
@@ -303,8 +303,8 @@ export async function registerPasskeyInternal(
         nearAccountId: String(nearAccountId),
         rpId,
         sessionId: thresholdEd25519SessionIdForRegistration,
-        ttlMs: coercePositiveInt(configs.signingSessionDefaults?.ttlMs, 24 * 60 * 60 * 1000),
-        remainingUses: coercePositiveInt(configs.signingSessionDefaults?.remainingUses, 10_000),
+        ttlMs: coercePositiveInt(configs.signing.sessionDefaults?.ttlMs, 24 * 60 * 60 * 1000),
+        remainingUses: coercePositiveInt(configs.signing.sessionDefaults?.remainingUses, 10_000),
       };
     }
 
@@ -323,7 +323,7 @@ export async function registerPasskeyInternal(
         userId: String(nearAccountId),
         rpId,
         sessionId: thresholdEcdsaSessionIdForRegistration,
-        participantIds: thresholdEcdsaPrimaryProvisionTarget.options.participantIds,
+        participantIds: [...thresholdEcdsaPrimaryProvisionTarget.options.participantIds],
         ttlMs: coercePositiveInt(
           thresholdEcdsaPrimaryProvisionTarget.options.ttlMs,
           24 * 60 * 60 * 1000,
@@ -501,12 +501,12 @@ export async function registerPasskeyInternal(
       requestedSignerModeStr === 'threshold-signer'
       && thresholdEcdsaClientVerifyingShareB64u
       && thresholdEcdsaRelayerKeyId
-      && context.configs.relayer.url
+      && context.configs.network.relayer.url
     )
       ? {
           type: 'threshold-ecdsa-secp256k1' as const,
           userId: String(nearAccountId),
-          relayerUrl: context.configs.relayer.url,
+          relayerUrl: context.configs.network.relayer.url,
           relayerKeyId: thresholdEcdsaRelayerKeyId,
           clientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u,
           ...(Array.isArray(thresholdEcdsaSession?.participantIds)
@@ -577,7 +577,7 @@ export async function registerPasskeyInternal(
           clientParticipantId: accountAndRegistrationResult?.thresholdEd25519?.clientParticipantId,
           relayerParticipantId: accountAndRegistrationResult?.thresholdEd25519?.relayerParticipantId,
           relayerKeyId,
-          relayerUrl: context.configs?.relayer?.url,
+          relayerUrl: context.configs?.network.relayer?.url,
           clientVerifyingShareB64u: thresholdClientVerifyingShareB64u,
           relayerVerifyingShareB64u,
           clientShareDerivation: 'prf_first_v1',
@@ -632,7 +632,7 @@ export async function registerPasskeyInternal(
         const edCacheKey = makeEd25519AuthSessionCacheKey({
           nearAccountId: String(nearAccountId),
           rpId,
-          relayerUrl: context.configs.relayer.url,
+          relayerUrl: context.configs.network.relayer.url,
           relayerKeyId,
           participantIds: edParticipantIds,
         });
@@ -696,7 +696,7 @@ export async function registerPasskeyInternal(
         const ecdsaCacheKey = makeEcdsaAuthSessionCacheKey({
           userId: String(nearAccountId),
           rpId,
-          relayerUrl: context.configs.relayer.url,
+          relayerUrl: context.configs.network.relayer.url,
           relayerKeyId: thresholdEcdsaRelayerKeyId,
           participantIds: ecdsaParticipantIds,
         });
@@ -850,7 +850,7 @@ export async function registerPasskey(
  */
 const validateRegistrationInputs = async (
   context: {
-    configs: TatchiConfigs,
+    configs: TatchiConfigsReadonly,
     signingEngine: SigningEnginePublic,
     nearClient: NearClient,
   },

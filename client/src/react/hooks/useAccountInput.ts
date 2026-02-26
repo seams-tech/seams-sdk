@@ -72,10 +72,10 @@ export function useAccountInput({
     const hasExplicitDomain = typeof accountDomain === 'string' && accountDomain.trim().length > 0;
     if (hasExplicitDomain) return;
 
-    const cfgRelayer = String(tatchi.configs.relayerAccount || '').trim().replace(/^\./, '').toLowerCase();
+    const cfgRelayer = String(tatchi.configs.network.relayer.accountId || '').trim().replace(/^\./, '').toLowerCase();
     if (cfgRelayer) return;
 
-    const relayUrl = String(tatchi.configs.relayer?.url || '').trim();
+    const relayUrl = String(tatchi.configs.network.relayer?.url || '').trim();
     if (!relayUrl) return;
 
     let cancelled = false;
@@ -89,7 +89,7 @@ export function useAccountInput({
     };
   }, [accountDomain, tatchi]);
 
-  const normalizedDomain = (accountDomain || discoveredRelayerAccount || tatchi.configs.relayerAccount || '')
+  const normalizedDomain = (accountDomain || discoveredRelayerAccount || tatchi.configs.network.relayer.accountId || '')
     .trim()
     .replace(/^\./, '')
     .toLowerCase();

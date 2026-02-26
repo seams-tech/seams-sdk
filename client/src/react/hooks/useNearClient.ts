@@ -4,7 +4,7 @@ import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 
 export const useNearClient = (
-  rpcNodeURL: string = resolvePrimaryNearRpcUrl(PASSKEY_MANAGER_DEFAULT_CONFIGS.chains),
+  rpcNodeURL: string = resolvePrimaryNearRpcUrl(PASSKEY_MANAGER_DEFAULT_CONFIGS.network.chains),
 ): NearClient => {
   const nearClient = useMemo(() => {
     return new MinimalNearClient(rpcNodeURL);

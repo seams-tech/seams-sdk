@@ -26,6 +26,7 @@ const KNOWN_FUNCTION_SIGNATURES: Readonly<Record<string, string>> = Object.freez
   '0xd505accf': 'permit(address,address,uint256,uint256,uint8,bytes32,bytes32)',
   '0xdd62ed3e': 'allowance(address,address)',
   '0xe985e9c5': 'isApprovedForAll(address,address)',
+  '0xe7897444': 'setUserToken(address)',
   '0xf2fde38b': 'transferOwnership(address)',
 });
 

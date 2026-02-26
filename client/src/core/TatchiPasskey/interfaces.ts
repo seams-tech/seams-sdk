@@ -16,7 +16,7 @@ import type {
   SignDelegateActionResult,
   SignTransactionResult,
   ThemeName,
-  TatchiConfigs,
+  TatchiConfigsReadonly,
 } from '../types/tatchi';
 import type {
   ActionHooksOptions,
@@ -270,6 +270,6 @@ export interface PreferencesCapability {
 export interface PasskeyManagerContext {
   signingEngine: SigningEnginePublic;
   nearClient: NearClient;
-  configs: TatchiConfigs;
+  configs: TatchiConfigsReadonly;
   theme: ThemeName;
 }

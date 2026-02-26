@@ -212,6 +212,74 @@ export type TatchiChainConfig =
   | TatchiTempoChainConfig
   | TatchiArcChainConfig;
 
+export type ReadonlyDeep<T> = T extends (...args: never[]) => unknown
+  ? T
+  : T extends readonly (infer U)[]
+    ? readonly ReadonlyDeep<U>[]
+    : T extends object
+      ? { readonly [K in keyof T]: ReadonlyDeep<T[K]> }
+      : T;
+
+export type TatchiWalletMode = 'direct' | 'iframe';
+
+export interface TatchiSigningSessionDefaultsInput {
+  /**
+   * Defaults for relay-minted warm signing sessions minted by `loginAndCreateSession()`.
+   * These can be overridden per-call via `LoginHooksOptions.signingSession`.
+   */
+  ttlMs?: number;
+  remainingUses?: number;
+}
+
+export interface TatchiIframeWalletConfigInput {
+  walletOrigin?: string; // e.g., https://wallet.example.com
+  walletServicePath?: string; // defaults to '/wallet-service'
+  // SDK assets base used by the parent app to tell the wallet
+  // where to load embedded bundles from.
+  sdkBasePath?: string; // defaults to '/sdk'
+  // Force WebAuthn rpId to a base domain so credentials work across subdomains
+  // Example: rpIdOverride = 'example.localhost' usable from wallet.example.localhost
+  rpIdOverride?: string;
+}
+
+export interface TatchiRelayerConfigInput {
+  url?: string;
+  /**
+   * Relative path on the relayer used for delegate action execution.
+   * Defaults to '/signed-delegate'.
+   */
+  delegateActionRoute?: string;
+  /**
+   * Relative path on the relayer used for smart-account deployment.
+   * Defaults to '/smart-account/deploy'.
+   */
+  smartAccountDeployRoute?: string;
+  /**
+   * Smart-account deployment gate mode for EVM/Tempo sends.
+   * - `observe`: stamp checks and continue signing without blocking undeployed accounts.
+   * - `enforce`: require successful deploy-on-first-use before signing proceeds.
+   *
+   * Defaults to `enforce`.
+   */
+  smartAccountDeploymentMode?: 'observe' | 'enforce';
+  /**
+   * Maximum deploy attempts for deploy-on-first-use in enforce mode.
+   * Values are clamped to [1, 5].
+   *
+   * Defaults to `2`.
+   */
+  smartAccountDeploymentMaxAttempts?: number;
+  emailRecovery?: {
+    minBalanceYocto?: string;
+    pollingIntervalMs?: number;
+    maxPollingDurationMs?: number;
+    pendingTtlMs?: number;
+    mailtoAddress?: string;
+    // Contract account that verifies DKIM signatures for email recovery.
+    emailDkimVerifierContract?: string;
+  };
+}
+
 export interface TatchiConfigsInput {
   chains?: TatchiChainConfigInput[];
   appearance?: AppearanceConfigInput;
@@ -232,14 +300,7 @@ export interface TatchiConfigsInput {
    *
    */
   signerMode?: SignerMode;
-  /**
-   * Defaults for relay-minted warm signing sessions minted by `loginAndCreateSession()`.
-   * These can be overridden per-call via `LoginHooksOptions.signingSession`.
-   */
-  signingSessionDefaults?: {
-    ttlMs?: number;
-    remainingUses?: number;
-  };
+  signingSessionDefaults?: TatchiSigningSessionDefaultsInput;
   /**
    * Client-side presign pool policy for threshold ECDSA.
    *
@@ -252,98 +313,104 @@ export interface TatchiConfigsInput {
    */
   registrationSignerDefaults?: RegistrationSignerOptions;
   // Iframe Wallet configuration (when using a separate wallet origin)
-  iframeWallet?: {
-    walletOrigin?: string; // e.g., https://wallet.example.com
-    walletServicePath?: string; // defaults to '/wallet-service'
-    // SDK assets base used by the parent app to tell the wallet
-    // where to load embedded bundles from.
-    sdkBasePath?: string; // defaults to '/sdk'
-    // Force WebAuthn rpId to a base domain so credentials work across subdomains
-    // Example: rpIdOverride = 'example.localhost' usable from wallet.example.localhost
-    rpIdOverride?: string;
-  };
+  iframeWallet?: TatchiIframeWalletConfigInput;
   // Relay Server is used to create new NEAR accounts
-  relayer?: {
-    // accountId: string;
-    url?: string;
-    /**
-     * Relative path on the relayer used for delegate action execution.
-     * Defaults to '/signed-delegate'.
-     */
-    delegateActionRoute?: string;
-    /**
-     * Relative path on the relayer used for smart-account deployment.
-     * Defaults to '/smart-account/deploy'.
-     */
-    smartAccountDeployRoute?: string;
-    /**
-     * Smart-account deployment gate mode for EVM/Tempo sends.
-     * - `observe`: stamp checks and continue signing without blocking undeployed accounts.
-     * - `enforce`: require successful deploy-on-first-use before signing proceeds.
-     *
-     * Defaults to `enforce`.
-     */
-    smartAccountDeploymentMode?: 'observe' | 'enforce';
-    /**
-     * Maximum deploy attempts for deploy-on-first-use in enforce mode.
-     * Values are clamped to [1, 5].
-     *
-     * Defaults to `2`.
-     */
-    smartAccountDeploymentMaxAttempts?: number;
-    emailRecovery?: {
-      minBalanceYocto?: string;
-      pollingIntervalMs?: number;
-      maxPollingDurationMs?: number;
-      pendingTtlMs?: number;
-      mailtoAddress?: string;
-      // Contract account that verifies DKIM signatures for email recovery.
-      emailDkimVerifierContract?: string;
-    };
-  };
+  relayer?: TatchiRelayerConfigInput;
   // authenticator options for registrations
   authenticatorOptions?: AuthenticatorOptions;
+}
+
+export interface TatchiRelayerRoutesConfig {
+  delegateAction: string;
+  smartAccountDeploy: string;
+}
+
+export interface TatchiSmartAccountDeploymentConfig {
+  mode: 'observe' | 'enforce';
+  maxAttempts: number;
+}
+
+export interface TatchiRelayerEmailRecoveryConfig {
+  minBalanceYocto: string;
+  pollingIntervalMs: number;
+  maxPollingDurationMs: number;
+  pendingTtlMs: number;
+  mailtoAddress: string;
+  // Contract account that verifies DKIM signatures for email recovery.
+  emailDkimVerifierContract: string;
+}
+
+export interface TatchiRelayerConfig {
+  accountId: string;
+  url: string;
+  routes: TatchiRelayerRoutesConfig;
+  smartAccountDeployment: TatchiSmartAccountDeploymentConfig;
+  emailRecovery: TatchiRelayerEmailRecoveryConfig;
+}
+
+export interface TatchiNetworkConfig {
+  chains: TatchiChainConfig[];
+  relayer: TatchiRelayerConfig;
+}
+
+export interface TatchiSigningSessionDefaults {
+  ttlMs: number;
+  remainingUses: number;
+}
+
+export interface TatchiThresholdEcdsaConfig {
+  presignPool: ThresholdEcdsaPresignPoolPolicy;
+}
+
+export interface TatchiSigningConfig {
+  mode: SignerMode;
+  sessionDefaults: TatchiSigningSessionDefaults;
+  thresholdEcdsa: TatchiThresholdEcdsaConfig;
+  registrationDefaults: RegistrationSignerOptions;
+}
+
+export interface TatchiWebauthnConfig {
+  authenticatorOptions?: AuthenticatorOptions;
+}
+
+export interface TatchiAuthConfig {
+  webauthn: TatchiWebauthnConfig;
+}
+
+export interface TatchiIframeWalletConfig {
+  origin?: string;
+  servicePath: string;
+  sdkBasePath: string;
+  rpIdOverride?: string;
+}
+
+export type TatchiWalletConfig =
+  | {
+      mode: 'direct';
+      iframe: TatchiIframeWalletConfig;
+    }
+  | {
+      mode: 'iframe';
+      iframe: TatchiIframeWalletConfig & { origin: string };
+    };
+
+export interface TatchiUiConfig {
+  appearance: AppearanceConfig;
 }
 
 /**
  * Resolved, internal config shape used by SDK classes after merging defaults and validation.
  * All fields that the SDK relies on at runtime are non-optional here.
  */
-export interface TatchiConfigs {
-  chains: TatchiChainConfig[];
-  appearance: AppearanceConfig;
-  relayerAccount: string;
-  signerMode: SignerMode;
-  signingSessionDefaults: {
-    ttlMs: number;
-    remainingUses: number;
-  };
-  thresholdEcdsaPresignPool: ThresholdEcdsaPresignPoolPolicy;
-  registrationSignerDefaults: RegistrationSignerOptions;
-  iframeWallet?: {
-    walletOrigin?: string;
-    walletServicePath: string;
-    sdkBasePath: string;
-    rpIdOverride?: string;
-  };
-  relayer: {
-    url: string;
-    delegateActionRoute: string;
-    smartAccountDeployRoute: string;
-    smartAccountDeploymentMode: 'observe' | 'enforce';
-    smartAccountDeploymentMaxAttempts: number;
-    emailRecovery: {
-      minBalanceYocto: string;
-      pollingIntervalMs: number;
-      maxPollingDurationMs: number;
-      pendingTtlMs: number;
-      mailtoAddress: string;
-      // Contract account that verifies DKIM signatures for email recovery.
-      emailDkimVerifierContract: string;
-    };
-  };
-  authenticatorOptions?: AuthenticatorOptions;
+export interface TatchiConfigsResolved {
+  network: TatchiNetworkConfig;
+  signing: TatchiSigningConfig;
+  auth: TatchiAuthConfig;
+  wallet: TatchiWalletConfig;
+  ui: TatchiUiConfig;
 }
+
+export type TatchiConfigsReadonly = ReadonlyDeep<TatchiConfigsResolved>;
 
 // === TRANSACTION TYPES ===
 export interface TransactionParams {

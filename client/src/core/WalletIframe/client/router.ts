@@ -153,7 +153,7 @@ export interface WalletIframeRouterOptions {
     autoMount?: boolean;
   };
   // Optional config forwarded to wallet host
-  chains?: TatchiChainConfig[];
+  chains?: readonly TatchiChainConfig[];
   relayerAccount?: string;
   relayer?: TatchiConfigsInput['relayer'];
   rpIdOverride?: string;
@@ -291,8 +291,8 @@ export class WalletIframeRouter {
       servicePath: normalizedServicePath,
       sdkBasePath: normalizedSdkBasePath,
       testOptions,
-      signerMode: options.signerMode ?? PASSKEY_MANAGER_DEFAULT_CONFIGS.signerMode,
-      chains: (options.chains ?? PASSKEY_MANAGER_DEFAULT_CONFIGS.chains).map(
+      signerMode: options.signerMode ?? PASSKEY_MANAGER_DEFAULT_CONFIGS.signing.mode,
+      chains: (options.chains ?? PASSKEY_MANAGER_DEFAULT_CONFIGS.network.chains).map(
         cloneResolvedChainConfig,
       ),
     } as Required<WalletIframeRouterOptions>;
@@ -464,7 +464,9 @@ export class WalletIframeRouter {
           chains: this.opts.chains,
           relayerAccount: this.opts.relayerAccount,
           relayer: this.opts.relayer,
-          rpIdOverride: this.opts.rpIdOverride,
+          iframeWallet: this.opts.rpIdOverride
+            ? { rpIdOverride: this.opts.rpIdOverride }
+            : undefined,
           authenticatorOptions: this.opts.authenticatorOptions,
           appearance: this.opts.appearance,
           uiRegistry: this.opts.uiRegistry,

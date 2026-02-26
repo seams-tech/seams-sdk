@@ -32,7 +32,7 @@ export {
 // === RE-EXPORT CORE TYPES ===
 export { TatchiPasskey } from '../core/TatchiPasskey';
 export { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../core/config/defaultConfigs';
-export type { TatchiConfigs, TatchiConfigsInput } from '../core/types/tatchi';
+export type { TatchiConfigsReadonly, TatchiConfigsInput } from '../core/types/tatchi';
 export type { StoreUserDataInput } from '../core/indexedDB/passkeyClientDB.types';
 
 // === RE-EXPORT ACTION TYPES ===

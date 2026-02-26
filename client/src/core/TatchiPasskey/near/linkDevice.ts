@@ -110,7 +110,7 @@ export class LinkDeviceFlow {
   }
 
   private async fetchClaimedSessionFromRelay(sessionId: string): Promise<{ accountId: string; deviceNumber?: number } | null> {
-    const relayerUrl = String(this.context?.configs?.relayer?.url || '').trim().replace(/\/$/, '');
+    const relayerUrl = String(this.context?.configs?.network.relayer?.url || '').trim().replace(/\/$/, '');
     if (!relayerUrl) {
       console.debug('[LinkDeviceFlow] relay polling skipped (missing relayer url)', { sessionId });
       return null;
@@ -153,7 +153,7 @@ export class LinkDeviceFlow {
   }
 
   private async registerSessionOnRelay(sessionId: string, device2PublicKey: string, expiresAtMs: number): Promise<void> {
-    const relayerUrl = String(this.context?.configs?.relayer?.url || '').trim().replace(/\/$/, '');
+    const relayerUrl = String(this.context?.configs?.network.relayer?.url || '').trim().replace(/\/$/, '');
     if (!relayerUrl) return;
     try {
       const resp = await fetch(`${relayerUrl}/link-device/session`, {
@@ -253,8 +253,8 @@ export class LinkDeviceFlow {
     });
 
     const nearAccountId = toAccountId(String(session.accountId));
-    const relayerUrl = String(this.context?.configs?.relayer?.url || '').trim();
-    if (!relayerUrl) throw new Error('Missing relayer url (configs.relayer.url)');
+    const relayerUrl = String(this.context?.configs?.network.relayer?.url || '').trim();
+    if (!relayerUrl) throw new Error('Missing relayer url (configs.network.relayer.url)');
     if (!session.tempPrivateKey) {
       throw new Error('LinkDeviceFlow: missing temporary private key for completion');
     }

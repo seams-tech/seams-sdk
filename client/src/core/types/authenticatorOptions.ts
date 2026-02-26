@@ -18,7 +18,7 @@ import * as wasmModule from '../../../../wasm/near_signer/pkg/wasm_signer_worker
 export enum UserVerificationPolicy {
   Required = 'required',
   Preferred = 'preferred',
-  Discouraged = 'discouraged'
+  Discouraged = 'discouraged',
 }
 
 /**
@@ -31,7 +31,9 @@ export interface OriginPolicyInput {
   multiple: string[] | undefined;
 }
 
-export const toEnumUserVerificationPolicy = (userVerification: UserVerificationPolicy | undefined): wasmModule.UserVerificationPolicy => {
+export const toEnumUserVerificationPolicy = (
+  userVerification: UserVerificationPolicy | undefined,
+): wasmModule.UserVerificationPolicy => {
   switch (userVerification) {
     case UserVerificationPolicy.Required:
       return wasmModule.UserVerificationPolicy.Required;
@@ -49,6 +51,17 @@ export interface AuthenticatorOptions {
   originPolicy: OriginPolicyInput;
 }
 
+type AuthenticatorOptionsLike =
+  | AuthenticatorOptions
+  | {
+      userVerification: UserVerificationPolicy;
+      originPolicy: {
+        single: boolean | undefined;
+        all_subdomains: boolean | undefined;
+        multiple: readonly string[] | string[] | undefined;
+      };
+    };
+
 /**
  * Default authenticator options (matches contract defaults)
  */
@@ -57,6 +70,21 @@ export const DEFAULT_AUTHENTICATOR_OPTIONS: AuthenticatorOptions = {
   originPolicy: {
     single: undefined,
     all_subdomains: true,
-    multiple: undefined
-  }
+    multiple: undefined,
+  },
 };
+
+export function cloneAuthenticatorOptions(
+  options: AuthenticatorOptionsLike | undefined,
+): AuthenticatorOptions | undefined {
+  if (!options) return undefined;
+  const multiple = options.originPolicy?.multiple;
+  return {
+    userVerification: options.userVerification,
+    originPolicy: {
+      single: options.originPolicy?.single,
+      all_subdomains: options.originPolicy?.all_subdomains,
+      multiple: Array.isArray(multiple) ? [...multiple] : undefined,
+    },
+  };
+}

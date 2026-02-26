@@ -1,7 +1,7 @@
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import { toAccountId } from '@/core/types/accountIds';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
-import type { TatchiConfigs } from '@/core/types/tatchi';
+import type { TatchiConfigsReadonly } from '@/core/types/tatchi';
 import type { EvmSigningRequest } from '../chainAdaptors/evm/types';
 import type { EvmSignedResult } from '../chainAdaptors/evm/evmAdapter';
 import type { TempoSigningRequest } from '../chainAdaptors/tempo/types';
@@ -32,7 +32,7 @@ import type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/thre
 
 export type EvmFamilySigningDeps = {
   indexedDB: UnifiedIndexedDBManager;
-  tatchiPasskeyConfigs: TatchiConfigs;
+  tatchiPasskeyConfigs: TatchiConfigsReadonly;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
   withThresholdEcdsaCommitQueue: <T>(args: {
     nearAccountId: string;
@@ -240,7 +240,7 @@ export async function signEvmFamily(
         getRpId: () => ctx.touchIdPrompt.getRpId(),
         workerCtx: signerWorkerCtx,
         shouldAbort: args.shouldAbort,
-        thresholdEcdsaPresignPoolPolicy: deps.tatchiPasskeyConfigs.thresholdEcdsaPresignPool,
+        thresholdEcdsaPresignPoolPolicy: deps.tatchiPasskeyConfigs.signing.thresholdEcdsa.presignPool,
         onThresholdEcdsaPresignRefillScheduled: ({ trigger, result }) => {
           try {
             args.onEvent?.({

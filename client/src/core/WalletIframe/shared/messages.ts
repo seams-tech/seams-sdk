@@ -1,5 +1,4 @@
 // Typed RPC messages for the wallet service iframe channel (TatchiPasskey-first)
-import type { AuthenticatorOptions } from '@server';
 import type { WalletUIRegistry } from '../host/lit-ui/iframe-lit-element-registry';
 import { SignedTransaction } from '../../rpcClients/near/NearClient';
 import { ActionArgs, TransactionInput } from '../../types';
@@ -8,7 +7,7 @@ import type { DelegateActionInput } from '../../types/delegate';
 import type { ConfirmationConfig } from '../../types/signer-worker';
 import type { SignerMode } from '../../types/signer-worker';
 import type { MultichainSigningRequest } from '../../signingEngine/chainAdaptors/tempo/types';
-import type { TatchiChainConfigInput } from '../../types/tatchi';
+import type { TatchiConfigsInput } from '../../types/tatchi';
 
 export type WalletProtocolVersion = '1.0.0';
 
@@ -85,40 +84,9 @@ export interface PreferencesChangedPayload {
   updatedAt: number;
 }
 
-export interface PMSetConfigPayload {
-  // TatchiConfigs subset for wallet host
-  chains?: TatchiChainConfigInput[];
-  relayerAccount?: string;
-  /**
-   * Default signing policy applied inside the wallet iframe when per-call `options.signerMode`
-   * is not provided (e.g., `registerPasskey()`).
-   */
-  signerMode?: SignerMode;
-  relayer?: {
-    initialUseRelayer?: boolean;
-    url: string;
-    emailRecovery?: {
-      minBalanceYocto?: string;
-      pollingIntervalMs?: number;
-      maxPollingDurationMs?: number;
-      pendingTtlMs?: number;
-      mailtoAddress?: string;
-      emailDkimVerifierContract?: string;
-    };
-  };
-  rpIdOverride?: string;
-  authenticatorOptions?: AuthenticatorOptions;
+export interface PMSetConfigPayload extends Partial<TatchiConfigsInput> {
   // Absolute base URL for SDK Lit component assets (e.g., https://app.example.com/sdk/)
   assetsBaseUrl?: string;
-  // Optional appearance defaults forwarded to the wallet host so Lit confirmer UI
-  // can consume the same theme mode + color token overrides as the app shell.
-  appearance?: {
-    theme?: 'dark' | 'light';
-    tokens?: {
-      light?: { colors?: Record<string, string> };
-      dark?: { colors?: Record<string, string> };
-    };
-  };
   // Optional: register wallet-host UI components (Lit tags + bindings)
   uiRegistry?: WalletUIRegistry;
 }

@@ -1,10 +1,10 @@
 import { __isWalletIframeHostMode } from '@/core/WalletIframe/host-mode';
 import { onEmbeddedBaseChange, resolveWorkerBaseOrigin } from '@/core/walletRuntimePaths';
-import type { TatchiConfigs } from '@/core/types/tatchi';
+import type { TatchiConfigsReadonly } from '@/core/types/tatchi';
 import type { UserPreferencesManager } from '../api/userPreferences';
 
 export type RuntimeBootstrapDeps = {
-  tatchiPasskeyConfigs: TatchiConfigs;
+  tatchiPasskeyConfigs: TatchiConfigsReadonly;
   userPreferencesManager: Pick<UserPreferencesManager, 'initFromIndexedDB'>;
   getWorkerBaseOrigin: () => string;
   setWorkerBaseOrigin: (origin: string) => void;
@@ -32,7 +32,7 @@ export function initializeRuntimeBootstrap(deps: RuntimeBootstrapDeps): void {
   // Best-effort: load persisted preferences unless we are in app-origin iframe mode,
   // where the wallet origin owns persistence and the app should avoid IndexedDB.
   const shouldAvoidAppOriginIndexedDB =
-    !!deps.tatchiPasskeyConfigs.iframeWallet?.walletOrigin && !__isWalletIframeHostMode();
+    deps.tatchiPasskeyConfigs.wallet.mode === 'iframe' && !__isWalletIframeHostMode();
   if (!shouldAvoidAppOriginIndexedDB) {
     void deps.userPreferencesManager.initFromIndexedDB().catch(() => undefined);
   }

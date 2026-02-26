@@ -10,11 +10,7 @@ export function useWalletIframeLifecycle(args: {
   setWalletIframeConnected: Dispatch<SetStateAction<boolean>>;
   setLoginState: Dispatch<SetStateAction<LoginState>>;
 }) {
-  const {
-    tatchi,
-    setWalletIframeConnected,
-    setLoginState,
-  } = args;
+  const { tatchi, setWalletIframeConnected, setLoginState } = args;
 
   useEffect(() => {
     let offReady: (() => void) | undefined;
@@ -24,8 +20,8 @@ export function useWalletIframeLifecycle(args: {
 
     (async () => {
       try {
-        const signerMode = tatchi.configs?.signerMode;
-        const useIframe = !!tatchi.configs.iframeWallet?.walletOrigin;
+        const signerMode = tatchi.configs?.signing.mode;
+        const useIframe = tatchi.configs.wallet.mode === 'iframe';
         if (!useIframe) {
           setWalletIframeConnected(false);
           return;
@@ -37,23 +33,34 @@ export function useWalletIframeLifecycle(args: {
         setWalletIframeConnected(tatchi.isWalletIframeReady());
         offReady = tatchi.onWalletIframeReady(() => setWalletIframeConnected(true));
 
-        offLogin = tatchi.onWalletIframeLoginStatusChanged(async (status: { isLoggedIn: boolean; nearAccountId: string | null }) => {
-          if (cancelled) return;
-          if (status?.isLoggedIn && status?.nearAccountId) {
-            const session = await tatchi.auth.getSession(status.nearAccountId);
-            const { login: state } = session;
-            if (isLoginSessionReadyForUi({ session, signerMode })) {
-              tatchi.preferences.setCurrentUser(toAccountId(status.nearAccountId));
-              setLoginState(prev => ({
-                ...prev,
-                isLoggedIn: true,
-                nearAccountId: status.nearAccountId,
-                nearPublicKey: state.publicKey || null,
-                thresholdEcdsaEthereumAddress: state.thresholdEcdsaEthereumAddress || null,
-                thresholdEcdsaGroupPublicKeyB64u: state.thresholdEcdsaGroupPublicKeyB64u || null,
-              }));
-            } else {
-              setLoginState(prev => ({
+        offLogin = tatchi.onWalletIframeLoginStatusChanged(
+          async (status: { isLoggedIn: boolean; nearAccountId: string | null }) => {
+            if (cancelled) return;
+            if (status?.isLoggedIn && status?.nearAccountId) {
+              const session = await tatchi.auth.getSession(status.nearAccountId);
+              const { login: state } = session;
+              if (isLoginSessionReadyForUi({ session, signerMode })) {
+                tatchi.preferences.setCurrentUser(toAccountId(status.nearAccountId));
+                setLoginState((prev) => ({
+                  ...prev,
+                  isLoggedIn: true,
+                  nearAccountId: status.nearAccountId,
+                  nearPublicKey: state.publicKey || null,
+                  thresholdEcdsaEthereumAddress: state.thresholdEcdsaEthereumAddress || null,
+                  thresholdEcdsaGroupPublicKeyB64u: state.thresholdEcdsaGroupPublicKeyB64u || null,
+                }));
+              } else {
+                setLoginState((prev) => ({
+                  ...prev,
+                  isLoggedIn: false,
+                  nearAccountId: null,
+                  nearPublicKey: null,
+                  thresholdEcdsaEthereumAddress: null,
+                  thresholdEcdsaGroupPublicKeyB64u: null,
+                }));
+              }
+            } else if (status && status.isLoggedIn === false) {
+              setLoginState((prev) => ({
                 ...prev,
                 isLoggedIn: false,
                 nearAccountId: null,
@@ -62,17 +69,8 @@ export function useWalletIframeLifecycle(args: {
                 thresholdEcdsaGroupPublicKeyB64u: null,
               }));
             }
-          } else if (status && status.isLoggedIn === false) {
-            setLoginState(prev => ({
-              ...prev,
-              isLoggedIn: false,
-              nearAccountId: null,
-              nearPublicKey: null,
-              thresholdEcdsaEthereumAddress: null,
-              thresholdEcdsaGroupPublicKeyB64u: null,
-            }));
-          }
-        });
+          },
+        );
 
         // Preferences changes (including current-user changes from wallet-host flows like device linking)
         // should update login state on the app origin as well.
@@ -85,7 +83,7 @@ export function useWalletIframeLifecycle(args: {
               const { login: state } = session;
               if (isLoginSessionReadyForUi({ session, signerMode }) && state?.nearAccountId) {
                 tatchi.preferences.setCurrentUser(toAccountId(state.nearAccountId));
-                setLoginState(prev => ({
+                setLoginState((prev) => ({
                   ...prev,
                   isLoggedIn: true,
                   nearAccountId: state.nearAccountId,
@@ -97,7 +95,7 @@ export function useWalletIframeLifecycle(args: {
               }
             } catch {}
           }
-          setLoginState(prev => ({
+          setLoginState((prev) => ({
             ...prev,
             isLoggedIn: false,
             nearAccountId: null,
@@ -110,7 +108,7 @@ export function useWalletIframeLifecycle(args: {
         const session = await tatchi.auth.getSession();
         const { login: st } = session;
         if (isLoginSessionReadyForUi({ session, signerMode })) {
-          setLoginState(prev => ({
+          setLoginState((prev) => ({
             ...prev,
             isLoggedIn: true,
             nearAccountId: st.nearAccountId,
@@ -119,7 +117,6 @@ export function useWalletIframeLifecycle(args: {
             thresholdEcdsaGroupPublicKeyB64u: st.thresholdEcdsaGroupPublicKeyB64u || null,
           }));
         }
-
       } catch (err) {
         console.warn('[TatchiContextProvider] WalletIframe init failed:', err);
       }

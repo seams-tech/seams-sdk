@@ -53,13 +53,13 @@ export enum LoginStatus {
 
 // Action Enums
 export enum ActionPhase {
-  STEP_1_PREPARATION = 'preparation',                                    // Rust WASM worker phase: Preparation = 100
-  STEP_2_USER_CONFIRMATION = 'user-confirmation',                        // Rust WASM worker phase: UserConfirmation = 101
-  STEP_3_WEBAUTHN_AUTHENTICATION = 'webauthn-authentication',            // Rust WASM worker phase: WebauthnAuthentication = 102
-  STEP_4_AUTHENTICATION_COMPLETE = 'authentication-complete',            // Rust WASM worker phase: AuthenticationComplete = 103
-  STEP_5_TRANSACTION_SIGNING_PROGRESS = 'transaction-signing-progress',  // Rust WASM worker phase: TransactionSigningProgress = 104
-  STEP_6_TRANSACTION_SIGNING_COMPLETE = 'transaction-signing-complete',  // Rust WASM worker phase: TransactionSigningComplete = 105
-  WASM_ERROR = 'wasm-error',                                             // Rust WASM worker phase: Error = 106
+  STEP_1_PREPARATION = 'preparation', // Rust WASM worker phase: Preparation = 100
+  STEP_2_USER_CONFIRMATION = 'user-confirmation', // Rust WASM worker phase: UserConfirmation = 101
+  STEP_3_WEBAUTHN_AUTHENTICATION = 'webauthn-authentication', // Rust WASM worker phase: WebauthnAuthentication = 102
+  STEP_4_AUTHENTICATION_COMPLETE = 'authentication-complete', // Rust WASM worker phase: AuthenticationComplete = 103
+  STEP_5_TRANSACTION_SIGNING_PROGRESS = 'transaction-signing-progress', // Rust WASM worker phase: TransactionSigningProgress = 104
+  STEP_6_TRANSACTION_SIGNING_COMPLETE = 'transaction-signing-complete', // Rust WASM worker phase: TransactionSigningComplete = 105
+  WASM_ERROR = 'wasm-error', // Rust WASM worker phase: Error = 106
   STEP_7_BROADCASTING = 'broadcasting',
   STEP_8_ACTION_COMPLETE = 'action-complete',
   ACTION_ERROR = 'action-error',
@@ -90,18 +90,18 @@ export enum SyncAccountStatus {
 
 // Device Linking Enums
 export enum DeviceLinkingPhase {
-  STEP_1_QR_CODE_GENERATED = 'qr-code-generated',   // Device2: QR code created and displayed
-  STEP_2_SCANNING = 'scanning',                     // Device1: Scanning QR code
-  STEP_3_AUTHORIZATION = 'authorization',           // Device1: TouchID authorization
-  STEP_4_POLLING = 'polling',                       // Device2: Polling contract for mapping
-  STEP_5_ADDKEY_DETECTED = 'addkey-detected',       // Device2: AddKey transaction detected
-  STEP_6_REGISTRATION = 'registration',             // Device2: Registration and credential storage
-  STEP_7_LINKING_COMPLETE = 'linking-complete',     // Final completion
-  STEP_8_AUTO_LOGIN = 'auto-login',                 // Auto-login after registration
-  IDLE = 'idle',                                    // Idle state
-  REGISTRATION_ERROR = 'registration-error',        // Error during registration
-  LOGIN_ERROR = 'login-error',                      // Error during login
-  DEVICE_LINKING_ERROR = 'error',                   // General error state
+  STEP_1_QR_CODE_GENERATED = 'qr-code-generated', // Device2: QR code created and displayed
+  STEP_2_SCANNING = 'scanning', // Device1: Scanning QR code
+  STEP_3_AUTHORIZATION = 'authorization', // Device1: TouchID authorization
+  STEP_4_POLLING = 'polling', // Device2: Polling contract for mapping
+  STEP_5_ADDKEY_DETECTED = 'addkey-detected', // Device2: AddKey transaction detected
+  STEP_6_REGISTRATION = 'registration', // Device2: Registration and credential storage
+  STEP_7_LINKING_COMPLETE = 'linking-complete', // Final completion
+  STEP_8_AUTO_LOGIN = 'auto-login', // Auto-login after registration
+  IDLE = 'idle', // Idle state
+  REGISTRATION_ERROR = 'registration-error', // Error during registration
+  LOGIN_ERROR = 'login-error', // Error during login
+  DEVICE_LINKING_ERROR = 'error', // General error state
 }
 export enum DeviceLinkingStatus {
   PROGRESS = 'progress',
@@ -133,14 +133,26 @@ export type EventCallback<T> = (event: T) => void;
 // Users can still supply a single implementation: (success: boolean, result?: T) => ...
 export interface AfterCall<T> {
   (success: true, result: T): void | Promise<void>;
-  (success: false): void | Promise<void>;
+  (success: false, result?: undefined, error?: Error): void | Promise<void>;
 }
 
 // Base SSE Event Types (unified for Registration and Actions)
 export interface BaseSSEEvent {
   step: number;
-  phase: RegistrationPhase | LoginPhase | ActionPhase | DeviceLinkingPhase | SyncAccountPhase | EmailRecoveryPhase;
-  status: RegistrationStatus | LoginStatus | ActionStatus | DeviceLinkingStatus | SyncAccountStatus | EmailRecoveryStatus;
+  phase:
+    | RegistrationPhase
+    | LoginPhase
+    | ActionPhase
+    | DeviceLinkingPhase
+    | SyncAccountPhase
+    | EmailRecoveryPhase;
+  status:
+    | RegistrationStatus
+    | LoginStatus
+    | ActionStatus
+    | DeviceLinkingStatus
+    | SyncAccountStatus
+    | EmailRecoveryStatus;
   message: string;
 }
 
@@ -471,9 +483,10 @@ export interface DeviceLinkingEventStep8 extends BaseDeviceLinkingSSEEvent {
 
 export interface DeviceLinkingErrorEvent extends BaseDeviceLinkingSSEEvent {
   step: 0;
-  phase: DeviceLinkingPhase.DEVICE_LINKING_ERROR
-  | DeviceLinkingPhase.LOGIN_ERROR
-  | DeviceLinkingPhase.REGISTRATION_ERROR;
+  phase:
+    | DeviceLinkingPhase.DEVICE_LINKING_ERROR
+    | DeviceLinkingPhase.LOGIN_ERROR
+    | DeviceLinkingPhase.REGISTRATION_ERROR;
   status: DeviceLinkingStatus.ERROR;
   error: string;
 }
@@ -560,7 +573,9 @@ export interface EmailRecoveryEventStep3 extends BaseEmailRecoveryEvent {
 
 export interface EmailRecoveryEventStep4 extends BaseEmailRecoveryEvent {
   step: 4;
-  phase: EmailRecoveryPhase.STEP_4_POLLING_ADD_KEY | EmailRecoveryPhase.STEP_4_POLLING_VERIFICATION_RESULT;
+  phase:
+    | EmailRecoveryPhase.STEP_4_POLLING_ADD_KEY
+    | EmailRecoveryPhase.STEP_4_POLLING_VERIFICATION_RESULT;
   data?: {
     accountId?: string;
     requestId?: string;
@@ -635,7 +650,7 @@ export interface RegistrationHooksOptions {
    */
   backupLocalKey?: boolean;
   // Signer provisioning options used during registration.
-  // When omitted, defaults are taken from `TatchiConfigs.registrationSignerDefaults`.
+  // When omitted, defaults are taken from `TatchiConfigsReadonly.signing.registrationDefaults`.
   signerOptions?: RegistrationSignerOptions;
   /**
    * Preferred grouping for per-call confirmer copy.
@@ -663,14 +678,14 @@ export interface LoginHooksOptions {
   session?: {
     // 'jwt' returns the token in the JSON body; 'cookie' sets HttpOnly cookie
     kind: 'jwt' | 'cookie';
-    // Optional: override relay URL; defaults to TatchiConfigs.relayer.url
+    // Optional: override relay URL; defaults to TatchiConfigsReadonly.network.relayer.url
     relayUrl?: string;
     // Optional: override route path; defaults to '/auth/passkey/verify'
     route?: string;
   };
   /**
    * Optional: override the warm signing session policy minted during login.
-   * Defaults come from `TatchiConfigs.signingSessionDefaults`.
+   * Defaults come from `TatchiConfigsReadonly.signing.sessionDefaults`.
    */
   signingSession?: {
     ttlMs?: number;
@@ -800,10 +815,12 @@ export interface DelegateRelayHooksOptions {
   afterCall?: AfterCall<DelegateRelayResult>;
 }
 
-export type SignAndSendDelegateActionHooksOptions =
-  Omit<DelegateActionHooksOptions, 'afterCall'> & {
-    afterCall?: AfterCall<SignAndSendDelegateActionResult>;
-  };
+export type SignAndSendDelegateActionHooksOptions = Omit<
+  DelegateActionHooksOptions,
+  'afterCall'
+> & {
+  afterCall?: AfterCall<SignAndSendDelegateActionResult>;
+};
 
 export interface SyncAccountHooksOptions {
   onEvent?: EventCallback<SyncAccountSSEEvent>;
@@ -814,7 +831,14 @@ export interface SyncAccountHooksOptions {
 }
 
 export interface SignNEP413HooksOptions {
-  onEvent?: EventCallback<RegistrationSSEEvent | LoginSSEvent | ActionSSEEvent | DeviceLinkingSSEEvent | SyncAccountSSEEvent | EmailRecoverySSEEvent>;
+  onEvent?: EventCallback<
+    | RegistrationSSEEvent
+    | LoginSSEvent
+    | ActionSSEEvent
+    | DeviceLinkingSSEEvent
+    | SyncAccountSSEEvent
+    | EmailRecoverySSEEvent
+  >;
   onError?: (error: Error) => void;
 
   afterCall?: AfterCall<SignNEP413MessageResult>;

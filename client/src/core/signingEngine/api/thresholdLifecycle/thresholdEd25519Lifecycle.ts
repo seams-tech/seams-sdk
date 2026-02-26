@@ -258,7 +258,7 @@ export async function enrollThresholdEd25519Key(
   const relayerUrl = deps.relayerUrl;
 
   try {
-    if (!relayerUrl) throw new Error('Missing relayer url (configs.relayer.url)');
+    if (!relayerUrl) throw new Error('Missing relayer url (configs.network.relayer.url)');
     if (!args.credential) throw new Error('Missing credential');
 
     const resolvedDeviceNumber = await resolveDeviceNumber({

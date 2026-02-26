@@ -3,11 +3,12 @@ import type {
   TatchiChainConfig,
   TatchiChainConfigInput,
   TatchiChainNetwork,
+  TatchiConfigsReadonly,
+  TatchiConfigsInput,
   TatchiNearChainNetwork,
+  TatchiWalletMode,
   TatchiTempoChainNetwork,
   ThresholdEcdsaPresignPoolPolicy,
-  TatchiConfigs,
-  TatchiConfigsInput,
 } from '../types/tatchi';
 import type { RegistrationSignerOptions } from '../types/registrationSignerOptions';
 import { coerceSignerMode } from '../types/signer-worker';
@@ -29,7 +30,7 @@ import {
 } from './utils/configHelpers';
 
 // Default SDK configs suitable for local dev.
-// Cross-origin wallet isolation is recommended; set iframeWallet in your app config when you have a dedicated origin.
+// Cross-origin wallet isolation is recommended; set `iframeWallet.walletOrigin` in your app config when you have a dedicated origin.
 // Consumers can shallow-merge overrides by field.
 
 export const DEFAULT_REGISTRATION_SIGNER_OPTIONS: RegistrationSignerOptions = {
@@ -78,55 +79,74 @@ export const DEFAULT_CHAIN_CONFIGS: TatchiChainConfig[] = [
   },
 ];
 
-export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigs = {
-  chains: DEFAULT_CHAIN_CONFIGS.map(cloneResolvedChainConfig),
-  relayerAccount: 'w3a-relayer.testnet',
-  appearance: {
-    theme: 'dark',
-    palette: 'default',
-    tokens: {
-      light: { colors: {} },
-      dark: { colors: {} },
+export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigsReadonly = {
+  network: {
+    chains: DEFAULT_CHAIN_CONFIGS.map(cloneResolvedChainConfig),
+    relayer: {
+      accountId: 'w3a-relayer.testnet',
+      // No default relayer URL. Force apps to configure via env/overrides.
+      // Using an empty string triggers early validation errors in code paths that require it.
+      url: '',
+      routes: {
+        delegateAction: '/signed-delegate',
+        smartAccountDeploy: '/smart-account/deploy',
+      },
+      smartAccountDeployment: {
+        mode: 'enforce',
+        maxAttempts: 2,
+      },
+      emailRecovery: {
+        // Require at least 0.01 NEAR available to start email recovery.
+        minBalanceYocto: '10000000000000000000000', // 0.01 NEAR
+        // Poll every 4 seconds for verification status / access key.
+        pollingIntervalMs: 4000,
+        // Stop polling after 30 minutes.
+        maxPollingDurationMs: 30 * 60 * 1000,
+        // Expire pending recovery records after 30 minutes.
+        pendingTtlMs: 30 * 60 * 1000,
+        // Default recovery mailbox for examples / docs.
+        mailtoAddress: 'recover@web3authn.org',
+        emailDkimVerifierContract: 'email-dkim-verifier-v1.testnet',
+      },
     },
   },
-  signerMode: { mode: 'local-signer' },
-  // Warm signing session defaults used by login/unlock flows.
-  // Enforcement (TTL/uses) is owned by the UserConfirm worker (wallet origin); signer workers remain one-shot.
-  signingSessionDefaults: {
-    ttlMs: 24 * 60 * 60 * 1000, // 1 day
-    remainingUses: 10_000,
+  signing: {
+    mode: { mode: 'local-signer' },
+    // Warm signing session defaults used by login/unlock flows.
+    // Enforcement (TTL/uses) is owned by the UserConfirm worker (wallet origin); signer workers remain one-shot.
+    sessionDefaults: {
+      ttlMs: 24 * 60 * 60 * 1000, // 1 day
+      remainingUses: 10_000,
+    },
+    thresholdEcdsa: {
+      presignPool: DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY,
+    },
+    registrationDefaults: DEFAULT_REGISTRATION_SIGNER_OPTIONS,
   },
-  thresholdEcdsaPresignPool: DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY,
-  registrationSignerDefaults: DEFAULT_REGISTRATION_SIGNER_OPTIONS,
-  relayer: {
-    // accountId: 'w3a-relayer.testnet',
-    // No default relayer URL. Force apps to configure via env/overrides.
-    // Using an empty string triggers early validation errors in code paths that require it.
-    url: '',
-    delegateActionRoute: '/signed-delegate',
-    smartAccountDeployRoute: '/smart-account/deploy',
-    smartAccountDeploymentMode: 'enforce',
-    smartAccountDeploymentMaxAttempts: 2,
-    emailRecovery: {
-      // Require at least 0.01 NEAR available to start email recovery.
-      minBalanceYocto: '10000000000000000000000', // 0.01 NEAR
-      // Poll every 4 seconds for verification status / access key.
-      pollingIntervalMs: 4000,
-      // Stop polling after 30 minutes.
-      maxPollingDurationMs: 30 * 60 * 1000,
-      // Expire pending recovery records after 30 minutes.
-      pendingTtlMs: 30 * 60 * 1000,
-      // Default recovery mailbox for examples / docs.
-      mailtoAddress: 'recover@web3authn.org',
-      emailDkimVerifierContract: 'email-dkim-verifier-v1.testnet',
+  auth: {
+    webauthn: {
+      authenticatorOptions: undefined,
     },
   },
   // Configure iframeWallet in application code to point at your dedicated wallet origin when available.
-  iframeWallet: {
-    walletOrigin: 'https://wallet.example.localhost',
-    walletServicePath: '/wallet-service',
-    sdkBasePath: '/sdk',
-    rpIdOverride: 'example.localhost',
+  wallet: {
+    mode: 'direct',
+    iframe: {
+      origin: 'https://wallet.example.localhost',
+      servicePath: '/wallet-service',
+      sdkBasePath: '/sdk',
+      rpIdOverride: 'example.localhost',
+    },
+  },
+  ui: {
+    appearance: {
+      theme: 'dark',
+      palette: 'default',
+      tokens: {
+        light: { colors: {} },
+        dark: { colors: {} },
+      },
+    },
   },
 };
 
@@ -237,34 +257,35 @@ function mergeChainConfigs(
 }
 
 // Merge defaults with overrides
-export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiConfigs {
+export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiConfigsReadonly {
   const defaults = PASSKEY_MANAGER_DEFAULT_CONFIGS;
-  const relayerUrl = overrides.relayer?.url ?? defaults.relayer?.url ?? '';
-  const chains = mergeChainConfigs(defaults.chains, overrides.chains);
+
+  const chains = mergeChainConfigs(defaults.network.chains, overrides.chains);
+  const relayerUrl = overrides.relayer?.url ?? defaults.network.relayer.url ?? '';
   const relayerAccount =
-    toTrimmedString(overrides.relayerAccount) || toTrimmedString(defaults.relayerAccount);
-  const signerMode = coerceSignerMode(overrides.signerMode, defaults.signerMode);
+    toTrimmedString(overrides.relayerAccount) ||
+    toTrimmedString(defaults.network.relayer.accountId);
+  const relayerDelegateActionRoute =
+    overrides.relayer?.delegateActionRoute ?? defaults.network.relayer.routes.delegateAction;
+  const relayerSmartAccountDeployRoute =
+    overrides.relayer?.smartAccountDeployRoute ??
+    defaults.network.relayer.routes.smartAccountDeploy;
   const smartAccountDeploymentMode =
     overrides.relayer?.smartAccountDeploymentMode === 'observe' ? 'observe' : 'enforce';
   const smartAccountDeploymentMaxAttempts = coercePositiveIntInRange(
     overrides.relayer?.smartAccountDeploymentMaxAttempts,
-    defaults.relayer?.smartAccountDeploymentMaxAttempts ?? 2,
+    defaults.network.relayer.smartAccountDeployment.maxAttempts ?? 2,
     1,
     5,
   );
-  const appearanceTheme = coerceThemeName(overrides.appearance?.theme) ?? defaults.appearance.theme;
-  const appearancePalette =
-    coerceThemePaletteName(overrides.appearance?.palette) ?? defaults.appearance.palette;
-  const defaultLightColors = toStringRecord(defaults.appearance.tokens.light.colors);
-  const defaultDarkColors = toStringRecord(defaults.appearance.tokens.dark.colors);
-  const overrideLightColors = toStringRecord(overrides.appearance?.tokens?.light?.colors);
-  const overrideDarkColors = toStringRecord(overrides.appearance?.tokens?.dark?.colors);
+
+  const signerMode = coerceSignerMode(overrides.signerMode, defaults.signing.mode);
   const registrationSignerDefaults = cloneRegistrationSignerOptions(
-    overrides.registrationSignerDefaults ?? defaults.registrationSignerDefaults,
+    overrides.registrationSignerDefaults ?? defaults.signing.registrationDefaults,
   );
   const thresholdEcdsaPresignPoolDefaults =
     overrides.thresholdEcdsaPresignPool ??
-    defaults.thresholdEcdsaPresignPool ??
+    defaults.signing.thresholdEcdsa.presignPool ??
     DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY;
   const thresholdEcdsaPresignPoolEnabledDefault =
     thresholdEcdsaPresignPoolDefaults.enabled ??
@@ -294,109 +315,169 @@ export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiC
     0,
     thresholdEcdsaPresignPoolTargetDepth,
   );
-  const merged: TatchiConfigs = {
-    chains,
-    appearance: {
-      theme: appearanceTheme,
-      palette: appearancePalette,
-      tokens: {
-        light: {
-          colors: {
-            ...defaultLightColors,
-            ...overrideLightColors,
-          },
-        },
-        dark: {
-          colors: {
-            ...defaultDarkColors,
-            ...overrideDarkColors,
-          },
-        },
-      },
-    },
-    relayerAccount,
-    signerMode,
-    signingSessionDefaults: {
-      ttlMs: overrides.signingSessionDefaults?.ttlMs ?? defaults.signingSessionDefaults?.ttlMs,
-      remainingUses:
-        overrides.signingSessionDefaults?.remainingUses ??
-        defaults.signingSessionDefaults?.remainingUses,
-    },
-    thresholdEcdsaPresignPool: {
-      enabled: coerceBoolean(
-        overrides.thresholdEcdsaPresignPool?.enabled,
-        thresholdEcdsaPresignPoolEnabledDefault,
-      ),
-      targetDepth: thresholdEcdsaPresignPoolTargetDepth,
-      lowWatermark: thresholdEcdsaPresignPoolLowWatermark,
-      maxRefillInFlight: coercePositiveIntInRange(
-        overrides.thresholdEcdsaPresignPool?.maxRefillInFlight ??
-          thresholdEcdsaPresignPoolMaxRefillInFlightDefault,
-        thresholdEcdsaPresignPoolMaxRefillInFlightDefault,
-        1,
-        8,
-      ),
-      refillAttemptTimeoutMs: coercePositiveIntInRange(
-        overrides.thresholdEcdsaPresignPool?.refillAttemptTimeoutMs ??
-          thresholdEcdsaPresignPoolRefillAttemptTimeoutMsDefault,
-        thresholdEcdsaPresignPoolRefillAttemptTimeoutMsDefault,
-        5_000,
-        120_000,
-      ),
-    },
-    registrationSignerDefaults,
-    relayer: {
-      url: relayerUrl,
-      delegateActionRoute:
-        overrides.relayer?.delegateActionRoute ?? defaults.relayer?.delegateActionRoute,
-      smartAccountDeployRoute:
-        overrides.relayer?.smartAccountDeployRoute ?? defaults.relayer?.smartAccountDeployRoute,
-      smartAccountDeploymentMode,
-      smartAccountDeploymentMaxAttempts,
-      emailRecovery: {
-        minBalanceYocto:
-          overrides.relayer?.emailRecovery?.minBalanceYocto ??
-          defaults.relayer?.emailRecovery?.minBalanceYocto,
-        pollingIntervalMs:
-          overrides.relayer?.emailRecovery?.pollingIntervalMs ??
-          defaults.relayer?.emailRecovery?.pollingIntervalMs,
-        maxPollingDurationMs:
-          overrides.relayer?.emailRecovery?.maxPollingDurationMs ??
-          defaults.relayer?.emailRecovery?.maxPollingDurationMs,
-        pendingTtlMs:
-          overrides.relayer?.emailRecovery?.pendingTtlMs ??
-          defaults.relayer?.emailRecovery?.pendingTtlMs,
-        mailtoAddress:
-          overrides.relayer?.emailRecovery?.mailtoAddress ??
-          defaults.relayer?.emailRecovery?.mailtoAddress,
-        emailDkimVerifierContract:
-          overrides.relayer?.emailRecovery?.emailDkimVerifierContract ??
-          defaults.relayer?.emailRecovery?.emailDkimVerifierContract,
-      },
-    },
-    authenticatorOptions: overrides.authenticatorOptions ?? defaults.authenticatorOptions,
-    iframeWallet: {
-      // Preserve explicit empty-string walletOrigin ("") because it is used as a sentinel
-      // to disable iframe-wallet mode in tests and some apps.
-      walletOrigin: overrides.iframeWallet?.walletOrigin ?? defaults.iframeWallet?.walletOrigin,
-      rpIdOverride: overrides.iframeWallet?.rpIdOverride ?? defaults.iframeWallet?.rpIdOverride,
-      // IMPORTANT: the following fields are often wired from CI env vars like `VITE_SDK_BASE_PATH`.
-      // When a GitHub Actions env var is missing, expressions like `${{ vars.VITE_SDK_BASE_PATH }}`
-      // frequently become the empty string at build-time. Treat empty strings as "unset" so we
-      // fall back to SDK defaults instead of accidentally generating root-relative URLs like:
-      //   https://wallet.example.com/w3a-components.css  (wrong; should be /sdk/w3a-components.css)
-      walletServicePath:
-        toTrimmedString(overrides.iframeWallet?.walletServicePath) ||
-        toTrimmedString(defaults.iframeWallet?.walletServicePath) ||
-        '/wallet-service',
-      sdkBasePath:
-        toTrimmedString(overrides.iframeWallet?.sdkBasePath) ||
-        toTrimmedString(defaults.iframeWallet?.sdkBasePath) ||
-        '/sdk',
-    },
-  };
-  if (!merged.relayer.url) {
+
+  const appearanceTheme =
+    coerceThemeName(overrides.appearance?.theme) ?? defaults.ui.appearance.theme;
+  const appearancePalette =
+    coerceThemePaletteName(overrides.appearance?.palette) ?? defaults.ui.appearance.palette;
+  const defaultLightColors = toStringRecord(defaults.ui.appearance.tokens.light.colors);
+  const defaultDarkColors = toStringRecord(defaults.ui.appearance.tokens.dark.colors);
+  const overrideLightColors = toStringRecord(overrides.appearance?.tokens?.light?.colors);
+  const overrideDarkColors = toStringRecord(overrides.appearance?.tokens?.dark?.colors);
+
+  const walletOriginOverrideProvided =
+    !!overrides.iframeWallet &&
+    Object.prototype.hasOwnProperty.call(overrides.iframeWallet, 'walletOrigin');
+  const walletOriginRaw = overrides.iframeWallet?.walletOrigin ?? defaults.wallet.iframe.origin;
+  const walletOrigin = toTrimmedString(walletOriginRaw);
+  const walletMode: TatchiWalletMode = walletOriginOverrideProvided
+    ? walletOrigin
+      ? 'iframe'
+      : 'direct'
+    : defaults.wallet.mode;
+
+  const walletRpIdOverride =
+    overrides.iframeWallet?.rpIdOverride ?? defaults.wallet.iframe.rpIdOverride;
+  // IMPORTANT: the following fields are often wired from CI env vars like `VITE_SDK_BASE_PATH`.
+  // When a GitHub Actions env var is missing, expressions like `${{ vars.VITE_SDK_BASE_PATH }}`
+  // frequently become the empty string at build-time. Treat empty strings as "unset" so we
+  // fall back to SDK defaults instead of accidentally generating root-relative URLs like:
+  //   https://wallet.example.com/w3a-components.css  (wrong; should be /sdk/w3a-components.css)
+  const walletServicePath =
+    toTrimmedString(overrides.iframeWallet?.walletServicePath) ||
+    toTrimmedString(defaults.wallet.iframe.servicePath) ||
+    '/wallet-service';
+  const walletSdkBasePath =
+    toTrimmedString(overrides.iframeWallet?.sdkBasePath) ||
+    toTrimmedString(defaults.wallet.iframe.sdkBasePath) ||
+    '/sdk';
+
+  if (!relayerUrl) {
     throw new Error('[configPresets] Missing required config: relayer.url');
   }
+  if (walletMode === 'iframe' && !walletOrigin) {
+    throw new Error(
+      '[configPresets] Missing required config: iframeWallet.walletOrigin (iframe mode enabled)',
+    );
+  }
+
+  const merged: TatchiConfigsReadonly = {
+    network: {
+      chains,
+      relayer: {
+        accountId: relayerAccount,
+        url: relayerUrl,
+        routes: {
+          delegateAction: relayerDelegateActionRoute,
+          smartAccountDeploy: relayerSmartAccountDeployRoute,
+        },
+        smartAccountDeployment: {
+          mode: smartAccountDeploymentMode,
+          maxAttempts: smartAccountDeploymentMaxAttempts,
+        },
+        emailRecovery: {
+          minBalanceYocto:
+            overrides.relayer?.emailRecovery?.minBalanceYocto ??
+            defaults.network.relayer.emailRecovery.minBalanceYocto,
+          pollingIntervalMs:
+            overrides.relayer?.emailRecovery?.pollingIntervalMs ??
+            defaults.network.relayer.emailRecovery.pollingIntervalMs,
+          maxPollingDurationMs:
+            overrides.relayer?.emailRecovery?.maxPollingDurationMs ??
+            defaults.network.relayer.emailRecovery.maxPollingDurationMs,
+          pendingTtlMs:
+            overrides.relayer?.emailRecovery?.pendingTtlMs ??
+            defaults.network.relayer.emailRecovery.pendingTtlMs,
+          mailtoAddress:
+            overrides.relayer?.emailRecovery?.mailtoAddress ??
+            defaults.network.relayer.emailRecovery.mailtoAddress,
+          emailDkimVerifierContract:
+            overrides.relayer?.emailRecovery?.emailDkimVerifierContract ??
+            defaults.network.relayer.emailRecovery.emailDkimVerifierContract,
+        },
+      },
+    },
+    signing: {
+      mode: signerMode,
+      sessionDefaults: {
+        ttlMs: overrides.signingSessionDefaults?.ttlMs ?? defaults.signing.sessionDefaults.ttlMs,
+        remainingUses:
+          overrides.signingSessionDefaults?.remainingUses ??
+          defaults.signing.sessionDefaults.remainingUses,
+      },
+      thresholdEcdsa: {
+        presignPool: {
+          enabled: coerceBoolean(
+            overrides.thresholdEcdsaPresignPool?.enabled,
+            thresholdEcdsaPresignPoolEnabledDefault,
+          ),
+          targetDepth: thresholdEcdsaPresignPoolTargetDepth,
+          lowWatermark: thresholdEcdsaPresignPoolLowWatermark,
+          maxRefillInFlight: coercePositiveIntInRange(
+            overrides.thresholdEcdsaPresignPool?.maxRefillInFlight ??
+              thresholdEcdsaPresignPoolMaxRefillInFlightDefault,
+            thresholdEcdsaPresignPoolMaxRefillInFlightDefault,
+            1,
+            8,
+          ),
+          refillAttemptTimeoutMs: coercePositiveIntInRange(
+            overrides.thresholdEcdsaPresignPool?.refillAttemptTimeoutMs ??
+              thresholdEcdsaPresignPoolRefillAttemptTimeoutMsDefault,
+            thresholdEcdsaPresignPoolRefillAttemptTimeoutMsDefault,
+            5_000,
+            120_000,
+          ),
+        },
+      },
+      registrationDefaults: registrationSignerDefaults,
+    },
+    auth: {
+      webauthn: {
+        authenticatorOptions:
+          overrides.authenticatorOptions ?? defaults.auth.webauthn.authenticatorOptions,
+      },
+    },
+    wallet:
+      walletMode === 'iframe'
+        ? {
+            mode: 'iframe',
+            iframe: {
+              origin: walletOrigin,
+              servicePath: walletServicePath,
+              sdkBasePath: walletSdkBasePath,
+              rpIdOverride: walletRpIdOverride,
+            },
+          }
+        : {
+            mode: 'direct',
+            iframe: {
+              ...(walletOrigin ? { origin: walletOrigin } : {}),
+              servicePath: walletServicePath,
+              sdkBasePath: walletSdkBasePath,
+              rpIdOverride: walletRpIdOverride,
+            },
+          },
+    ui: {
+      appearance: {
+        theme: appearanceTheme,
+        palette: appearancePalette,
+        tokens: {
+          light: {
+            colors: {
+              ...defaultLightColors,
+              ...overrideLightColors,
+            },
+          },
+          dark: {
+            colors: {
+              ...defaultDarkColors,
+              ...overrideDarkColors,
+            },
+          },
+        },
+      },
+    },
+  };
+
   return merged;
 }

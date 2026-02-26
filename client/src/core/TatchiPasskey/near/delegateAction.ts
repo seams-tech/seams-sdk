@@ -63,7 +63,7 @@ export async function signDelegateAction(args: {
       args: {
         delegate: resolvedDelegate,
         rpcCall: {
-          nearRpcUrl: resolvePrimaryNearRpcUrl(context.configs.chains),
+          nearRpcUrl: resolvePrimaryNearRpcUrl(context.configs.network.chains),
           nearAccountId: String(nearAccountId),
         },
         signerMode,

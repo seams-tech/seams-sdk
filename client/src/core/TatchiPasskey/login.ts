@@ -1,8 +1,4 @@
-import type {
-  AfterCall,
-  LoginHooksOptions,
-  LoginSSEvent,
-} from '../types/sdkSentEvents';
+import type { AfterCall, LoginHooksOptions, LoginSSEvent } from '../types/sdkSentEvents';
 import { LoginPhase, LoginStatus } from '../types/sdkSentEvents';
 import type {
   GetRecentLoginsResult,
@@ -35,7 +31,7 @@ import { clearAllCachedEcdsaAuthSessions } from '../signingEngine/threshold/sess
 export async function loginAndCreateSession(
   context: PasskeyManagerContext,
   nearAccountId: AccountId,
-  options?: LoginHooksOptions
+  options?: LoginHooksOptions,
 ): Promise<LoginAndCreateSessionResult> {
   const { onEvent, onError, afterCall } = options || {};
   const { signingEngine } = context;
@@ -75,7 +71,9 @@ export async function loginAndCreateSession(
     ]);
 
     if (authenticators.length === 0) {
-      throw new Error(`No authenticators found for account ${nearAccountId}. Please register an account.`);
+      throw new Error(
+        `No authenticators found for account ${nearAccountId}. Please register an account.`,
+      );
     }
 
     let userData: ClientUserData | null = null;
@@ -90,7 +88,9 @@ export async function loginAndCreateSession(
     }
 
     if (!userData) {
-      throw new Error(`User data not found for ${nearAccountId} in IndexedDB. Please register an account.`);
+      throw new Error(
+        `User data not found for ${nearAccountId} in IndexedDB. Please register an account.`,
+      );
     }
     if (!userData.clientNearPublicKey) {
       throw new Error(`No NEAR public key found for ${nearAccountId}. Please register an account.`);
@@ -98,15 +98,22 @@ export async function loginAndCreateSession(
 
     const baseDeviceNumber =
       deviceNumberHint ??
-      (Number.isFinite(userData.deviceNumber) && userData.deviceNumber >= 1 ? userData.deviceNumber : 1);
+      (Number.isFinite(userData.deviceNumber) && userData.deviceNumber >= 1
+        ? userData.deviceNumber
+        : 1);
 
     const signingSessionPolicy = (() => {
-      const ttlMsRaw = options?.signingSession?.ttlMs ?? context.configs?.signingSessionDefaults?.ttlMs;
-      const remainingUsesRaw = options?.signingSession?.remainingUses ?? context.configs?.signingSessionDefaults?.remainingUses;
-      const ttlMs = typeof ttlMsRaw === 'number' ? Math.floor(ttlMsRaw) : Math.floor(Number(ttlMsRaw) || 0);
-      const remainingUses = typeof remainingUsesRaw === 'number'
-        ? Math.floor(remainingUsesRaw)
-        : Math.floor(Number(remainingUsesRaw) || 0);
+      const ttlMsRaw =
+        options?.signingSession?.ttlMs ?? context.configs?.signing.sessionDefaults?.ttlMs;
+      const remainingUsesRaw =
+        options?.signingSession?.remainingUses ??
+        context.configs?.signing.sessionDefaults?.remainingUses;
+      const ttlMs =
+        typeof ttlMsRaw === 'number' ? Math.floor(ttlMsRaw) : Math.floor(Number(ttlMsRaw) || 0);
+      const remainingUses =
+        typeof remainingUsesRaw === 'number'
+          ? Math.floor(remainingUsesRaw)
+          : Math.floor(Number(remainingUsesRaw) || 0);
       return {
         ttlMs: Math.max(0, ttlMs),
         remainingUses: Math.max(0, remainingUses),
@@ -114,7 +121,7 @@ export async function loginAndCreateSession(
     })();
 
     let signingSession: LoginAndCreateSessionResult['signingSession'] | undefined;
-    const isThresholdSignerMode = context.configs?.signerMode?.mode === 'threshold-signer';
+    const isThresholdSignerMode = context.configs?.signing.mode?.mode === 'threshold-signer';
     // Warm sessions are enabled when policy budgets are non-zero.
     const shouldWarmThresholdSigningSession =
       signingSessionPolicy.ttlMs > 0 && signingSessionPolicy.remainingUses > 0;
@@ -124,13 +131,15 @@ export async function loginAndCreateSession(
     const requireActiveWarmSession = (source: string): void => {
       if (signingSession?.status === 'active') return;
       const status = String(signingSession?.status || 'not_found');
-      throw new Error(`[login] ${source} did not produce an active warm signing session (status=${status})`);
+      throw new Error(
+        `[login] ${source} did not produce an active warm signing session (status=${status})`,
+      );
     };
 
     const maybeWarmThresholdSigningSessions = async (deviceNumber: number): Promise<void> => {
       if (!requireThresholdWarmup) return;
 
-      const relayerUrl = String(context.configs?.relayer?.url || '').trim();
+      const relayerUrl = String(context.configs?.network.relayer?.url || '').trim();
       if (!relayerUrl) {
         throw new Error('[login] threshold warm session requires relayer.url to be configured');
       }
@@ -142,9 +151,10 @@ export async function loginAndCreateSession(
         message: 'Preparing a threshold signing session...',
       });
 
-      const thresholdKeyMaterial = await IndexedDBManager
-        .getNearThresholdKeyMaterial(nearAccountId, deviceNumber)
-        .catch(() => null);
+      const thresholdKeyMaterial = await IndexedDBManager.getNearThresholdKeyMaterial(
+        nearAccountId,
+        deviceNumber,
+      ).catch(() => null);
       if (!thresholdKeyMaterial) {
         throw new Error(
           `[login] threshold warm-up requires threshold key material for ${nearAccountId} device ${deviceNumber}`,
@@ -168,11 +178,15 @@ export async function loginAndCreateSession(
         ...(canonicalThresholdSessionId ? { sessionId: canonicalThresholdSessionId } : {}),
       });
       if (!connected.ok) {
-        const details = String(connected.message || connected.code || 'Failed to connect threshold Ed25519 session');
+        const details = String(
+          connected.message || connected.code || 'Failed to connect threshold Ed25519 session',
+        );
         throw new Error(`[login] threshold Ed25519 warm-up failed: ${details}`);
       }
 
-      const warmStatus = await signingEngine.getWarmSigningSessionStatus(nearAccountId).catch(() => null);
+      const warmStatus = await signingEngine
+        .getWarmSigningSessionStatus(nearAccountId)
+        .catch(() => null);
       signingSession = warmStatus || signingSession;
       requireActiveWarmSession('threshold warm-up');
 
@@ -188,7 +202,8 @@ export async function loginAndCreateSession(
       source: string,
     ): Pick<ThresholdWarmLoginAndCreateSessionResult, 'signingSession'> => {
       requireActiveWarmSession(source);
-      const activeSigningSession = signingSession as ThresholdWarmLoginAndCreateSessionResult['signingSession'];
+      const activeSigningSession =
+        signingSession as ThresholdWarmLoginAndCreateSessionResult['signingSession'];
       return {
         signingSession: activeSigningSession,
       };
@@ -203,7 +218,7 @@ export async function loginAndCreateSession(
     const wantsServerSession = session !== undefined;
 
     if (wantsServerSession) {
-      const relayUrl = (session?.relayUrl || context.configs.relayer.url).trim();
+      const relayUrl = (session?.relayUrl || context.configs.network.relayer.url).trim();
       if (!relayUrl) {
         throw new Error('Missing relayUrl for session-style login');
       }
@@ -234,7 +249,10 @@ export async function loginAndCreateSession(
         message: 'Authenticating with passkey...',
       });
 
-      const authenticatorsForPrompt = prioritizeAuthenticatorsByDeviceNumber(authenticators, baseDeviceNumber);
+      const authenticatorsForPrompt = prioritizeAuthenticatorsByDeviceNumber(
+        authenticators,
+        baseDeviceNumber,
+      );
       const credential = await signingEngine.getAuthenticationCredentialsSerialized({
         nearAccountId,
         challengeB64u: loginOptions.challengeB64u,
@@ -402,12 +420,14 @@ function resolveDeviceNumberFromCredentialId(
   if (!rawId) return fallback;
   const matched = authenticators.find((a) => a.credentialId === rawId);
   const deviceNumber = matched?.deviceNumber;
-  return Number.isSafeInteger(deviceNumber) && (deviceNumber as number) >= 1 ? (deviceNumber as number) : fallback;
+  return Number.isSafeInteger(deviceNumber) && (deviceNumber as number) >= 1
+    ? (deviceNumber as number)
+    : fallback;
 }
 
 function prioritizeAuthenticatorsByDeviceNumber(
   authenticators: ClientAuthenticatorData[],
-  deviceNumber: number | null
+  deviceNumber: number | null,
 ): ClientAuthenticatorData[] {
   if (authenticators.length <= 1) return authenticators;
   if (deviceNumber === null) return authenticators;
@@ -427,7 +447,7 @@ function prioritizeAuthenticatorsByDeviceNumber(
  */
 export async function getLoginSession(
   context: PasskeyManagerContext,
-  nearAccountId?: AccountId
+  nearAccountId?: AccountId,
 ): Promise<LoginSession> {
   const login = await getLoginStateInternal(context, nearAccountId);
   const signingSession = login?.nearAccountId
@@ -449,14 +469,20 @@ async function resolveThresholdEcdsaEthereumAddress(
     if (!Array.isArray(chainAccounts) || chainAccounts.length === 0) return null;
 
     const thresholdRows = chainAccounts.filter((row) => {
-      const accountModel = String(row.accountModel || '').trim().toLowerCase();
+      const accountModel = String(row.accountModel || '')
+        .trim()
+        .toLowerCase();
       return accountModel === 'erc4337' || accountModel === 'tempo-native';
     });
     if (!thresholdRows.length) return null;
 
     const preferred = [
-      ...thresholdRows.filter((row) => row.isPrimary && String(row.chainId || '').startsWith('eip155:')),
-      ...thresholdRows.filter((row) => row.isPrimary && String(row.chainId || '').startsWith('tempo:')),
+      ...thresholdRows.filter(
+        (row) => row.isPrimary && String(row.chainId || '').startsWith('eip155:'),
+      ),
+      ...thresholdRows.filter(
+        (row) => row.isPrimary && String(row.chainId || '').startsWith('tempo:'),
+      ),
       ...thresholdRows.filter((row) => String(row.chainId || '').startsWith('eip155:')),
       ...thresholdRows.filter((row) => String(row.chainId || '').startsWith('tempo:')),
       ...thresholdRows,
@@ -477,12 +503,14 @@ function resolveCanonicalThresholdEcdsaSessionId(
   signingEngine: unknown,
   nearAccountId: AccountId,
 ): string | null {
-  const getRecord = (signingEngine as {
-    getThresholdEcdsaSessionRecordForSigning?: (args: {
-      nearAccountId: AccountId | string;
-      chain?: 'evm' | 'tempo';
-    }) => { thresholdSessionId?: string };
-  })?.getThresholdEcdsaSessionRecordForSigning;
+  const getRecord = (
+    signingEngine as {
+      getThresholdEcdsaSessionRecordForSigning?: (args: {
+        nearAccountId: AccountId | string;
+        chain?: 'evm' | 'tempo';
+      }) => { thresholdSessionId?: string };
+    }
+  )?.getThresholdEcdsaSessionRecordForSigning;
   if (typeof getRecord !== 'function') return null;
   try {
     const record = getRecord({ nearAccountId });
@@ -527,7 +555,7 @@ async function resolveThresholdEcdsaLoginMetadata(
 
 async function getLoginStateInternal(
   context: PasskeyManagerContext,
-  nearAccountId?: AccountId
+  nearAccountId?: AccountId,
 ): Promise<LoginState> {
   const { signingEngine } = context;
   try {
@@ -591,16 +619,16 @@ async function getLoginStateInternal(
   }
 }
 
-function shouldRequireActiveWarmSessionForLoginState(
-  context: PasskeyManagerContext,
-): boolean {
-  if (context.configs?.signerMode?.mode !== 'threshold-signer') return false;
-  const ttlMsRaw = context.configs?.signingSessionDefaults?.ttlMs;
-  const remainingUsesRaw = context.configs?.signingSessionDefaults?.remainingUses;
-  const ttlMs = typeof ttlMsRaw === 'number' ? Math.floor(ttlMsRaw) : Math.floor(Number(ttlMsRaw) || 0);
-  const remainingUses = typeof remainingUsesRaw === 'number'
-    ? Math.floor(remainingUsesRaw)
-    : Math.floor(Number(remainingUsesRaw) || 0);
+function shouldRequireActiveWarmSessionForLoginState(context: PasskeyManagerContext): boolean {
+  if (context.configs?.signing.mode?.mode !== 'threshold-signer') return false;
+  const ttlMsRaw = context.configs?.signing.sessionDefaults?.ttlMs;
+  const remainingUsesRaw = context.configs?.signing.sessionDefaults?.remainingUses;
+  const ttlMs =
+    typeof ttlMsRaw === 'number' ? Math.floor(ttlMsRaw) : Math.floor(Number(ttlMsRaw) || 0);
+  const remainingUses =
+    typeof remainingUsesRaw === 'number'
+      ? Math.floor(remainingUsesRaw)
+      : Math.floor(Number(remainingUsesRaw) || 0);
   return ttlMs > 0 && remainingUses > 0;
 }
 
@@ -610,11 +638,11 @@ function shouldRequireActiveWarmSessionForLoginState(
  * Used for account picker UIs and initial app bootstrap state.
  */
 export async function getRecentLogins(
-  context: PasskeyManagerContext
+  context: PasskeyManagerContext,
 ): Promise<GetRecentLoginsResult> {
   const { signingEngine } = context;
   const allUsersData = await signingEngine.getAllUsers();
-  const accountIds = allUsersData.map(user => user.nearAccountId);
+  const accountIds = allUsersData.map((user) => user.nearAccountId);
   const lastUsedAccount = await signingEngine.getLastUser();
   return {
     accountIds,
@@ -628,10 +656,22 @@ export async function getRecentLogins(
 export async function logoutAndClearSession(context: PasskeyManagerContext): Promise<void> {
   const { signingEngine } = context;
   await IndexedDBManager.clientDB.clearLastProfileSelection().catch(() => undefined);
-  try { signingEngine.getNonceManager().clear(); } catch {}
-  try { signingEngine.clearThresholdEcdsaCommitQueue(); } catch {}
-  try { signingEngine.clearAllThresholdEcdsaSessionRecords(); } catch {}
-  try { await signingEngine.clearWarmSigningSessions(); } catch {}
-  try { clearAllCachedEd25519AuthSessions(); } catch {}
-  try { clearAllCachedEcdsaAuthSessions(); } catch {}
+  try {
+    signingEngine.getNonceManager().clear();
+  } catch {}
+  try {
+    signingEngine.clearThresholdEcdsaCommitQueue();
+  } catch {}
+  try {
+    signingEngine.clearAllThresholdEcdsaSessionRecords();
+  } catch {}
+  try {
+    await signingEngine.clearWarmSigningSessions();
+  } catch {}
+  try {
+    clearAllCachedEd25519AuthSessions();
+  } catch {}
+  try {
+    clearAllCachedEcdsaAuthSessions();
+  } catch {}
 }

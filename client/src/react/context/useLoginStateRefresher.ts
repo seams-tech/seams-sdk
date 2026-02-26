@@ -12,55 +12,60 @@ export function useLoginStateRefresher(args: {
 }) {
   const { tatchi, walletIframeConnected, setLoginState } = args;
 
-  const refreshLoginState: TatchiContextType['refreshLoginState'] = useCallback(async (nearAccountId?: string) => {
-    try {
-      const signerMode = tatchi.configs?.signerMode;
-      if (walletIframeConnected) {
-        try {
-          const session = await tatchi.auth.getSession();
-          const { login: st } = session;
-          if (isLoginSessionReadyForUi({ session, signerMode })) {
-            setLoginState(prevState => ({
-              ...prevState,
-              nearAccountId: st.nearAccountId,
-              nearPublicKey: st.publicKey || null,
-              thresholdEcdsaEthereumAddress: st.thresholdEcdsaEthereumAddress || null,
-              thresholdEcdsaGroupPublicKeyB64u: st.thresholdEcdsaGroupPublicKeyB64u || null,
-              isLoggedIn: true,
-            }));
-            return;
-          }
-        } catch {}
-      }
-
-      const session = await tatchi.auth.getSession(nearAccountId);
-      const { login: ls } = session;
-      if (isLoginSessionReadyForUi({ session, signerMode })) {
-        if (ls.nearAccountId) {
-          try { tatchi.preferences.setCurrentUser(toAccountId(ls.nearAccountId)); } catch {}
+  const refreshLoginState: TatchiContextType['refreshLoginState'] = useCallback(
+    async (nearAccountId?: string) => {
+      try {
+        const signerMode = tatchi.configs?.signing.mode;
+        if (walletIframeConnected) {
+          try {
+            const session = await tatchi.auth.getSession();
+            const { login: st } = session;
+            if (isLoginSessionReadyForUi({ session, signerMode })) {
+              setLoginState((prevState) => ({
+                ...prevState,
+                nearAccountId: st.nearAccountId,
+                nearPublicKey: st.publicKey || null,
+                thresholdEcdsaEthereumAddress: st.thresholdEcdsaEthereumAddress || null,
+                thresholdEcdsaGroupPublicKeyB64u: st.thresholdEcdsaGroupPublicKeyB64u || null,
+                isLoggedIn: true,
+              }));
+              return;
+            }
+          } catch {}
         }
-        setLoginState(prevState => ({
-          ...prevState,
-          nearAccountId: ls.nearAccountId,
-          nearPublicKey: ls.publicKey || null,
-          thresholdEcdsaEthereumAddress: ls.thresholdEcdsaEthereumAddress || null,
-          thresholdEcdsaGroupPublicKeyB64u: ls.thresholdEcdsaGroupPublicKeyB64u || null,
-          isLoggedIn: true,
-        }));
-      } else {
-        setLoginState(prevState => ({
-          ...prevState,
-          nearAccountId: null,
-          nearPublicKey: null,
-          thresholdEcdsaEthereumAddress: null,
-          thresholdEcdsaGroupPublicKeyB64u: null,
-          isLoggedIn: false,
-        }));
+
+        const session = await tatchi.auth.getSession(nearAccountId);
+        const { login: ls } = session;
+        if (isLoginSessionReadyForUi({ session, signerMode })) {
+          if (ls.nearAccountId) {
+            try {
+              tatchi.preferences.setCurrentUser(toAccountId(ls.nearAccountId));
+            } catch {}
+          }
+          setLoginState((prevState) => ({
+            ...prevState,
+            nearAccountId: ls.nearAccountId,
+            nearPublicKey: ls.publicKey || null,
+            thresholdEcdsaEthereumAddress: ls.thresholdEcdsaEthereumAddress || null,
+            thresholdEcdsaGroupPublicKeyB64u: ls.thresholdEcdsaGroupPublicKeyB64u || null,
+            isLoggedIn: true,
+          }));
+        } else {
+          setLoginState((prevState) => ({
+            ...prevState,
+            nearAccountId: null,
+            nearPublicKey: null,
+            thresholdEcdsaEthereumAddress: null,
+            thresholdEcdsaGroupPublicKeyB64u: null,
+            isLoggedIn: false,
+          }));
+        }
+      } catch (error) {
+        console.error('Error refreshing login state:', error);
       }
-    } catch (error) {
-      console.error('Error refreshing login state:', error);
-    }
-  }, [setLoginState, tatchi, walletIframeConnected]);
+    },
+    [setLoginState, tatchi, walletIframeConnected],
+  );
 
   useEffect(() => {
     void refreshLoginState();

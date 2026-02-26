@@ -20,7 +20,7 @@ export class UserPreferencesManager {
   private confirmationConfig: ConfirmationConfig = DEFAULT_CONFIRMATION_CONFIG;
   private signerMode: SignerMode = DEFAULT_SIGNING_MODE;
 
-  // Optional app-provided default signer mode (e.g., configs.signerMode). This is NOT a per-user preference.
+  // Optional app-provided default signer mode (e.g., configs.signing.mode). This is NOT a per-user preference.
   private signerModeOverride: SignerMode | null = null;
   // Wallet-iframe app-origin: delegate signerMode persistence to the wallet host.
   private walletIframeSignerModeWriter: ((signerMode: SignerMode) => Promise<void>) | null = null;
@@ -31,7 +31,7 @@ export class UserPreferencesManager {
   }
 
   /**
-   * Apply an app-provided default signer mode (e.g., `configs.signerMode`) without
+   * Apply an app-provided default signer mode (e.g., `configs.signing.mode`) without
    * persisting it as a per-user preference in IndexedDB.
    */
   configureDefaultSignerMode(signerMode?: SignerMode | SignerMode['mode'] | null): void {

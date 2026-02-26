@@ -13,7 +13,7 @@ import type {
   LoginSession,
   RegistrationResult,
   ThemeName,
-  TatchiConfigs,
+  TatchiConfigsReadonly,
   TatchiConfigsInput,
 } from '../types/tatchi';
 import type {
@@ -26,7 +26,10 @@ import {
   type ConfirmationBehavior,
   type SignerMode,
 } from '../types/signer-worker';
-import { DEFAULT_AUTHENTICATOR_OPTIONS } from '../types/authenticatorOptions';
+import {
+  cloneAuthenticatorOptions,
+  DEFAULT_AUTHENTICATOR_OPTIONS,
+} from '../types/authenticatorOptions';
 import { toAccountId, type AccountId } from '../types/accountIds';
 import { configureIndexedDB } from '../indexedDB';
 import { ActionType } from '../types/actions';
@@ -78,7 +81,7 @@ import { EvmSigner } from './evm';
 export class TatchiPasskey {
   private readonly signingEngine: SigningEngine;
   private readonly nearClient: NearClient;
-  readonly configs: TatchiConfigs;
+  readonly configs: TatchiConfigsReadonly;
   theme: ThemeName;
   private readonly walletIframe: WalletIframeCoordinator;
   readonly recovery: RecoveryCapability;
@@ -90,23 +93,23 @@ export class TatchiPasskey {
   readonly tempo: TempoSignerCapability;
   readonly evm: EvmSignerCapability;
 
-  constructor(
-    configs: TatchiConfigsInput,
-    nearClient?: NearClient
-  ) {
+  constructor(configs: TatchiConfigsInput, nearClient?: NearClient) {
     this.configs = buildConfigsFromEnv(configs);
     // Configure IndexedDB naming before any local persistence is touched.
     // - Wallet iframe host keeps canonical DB names.
     // - App origin disables IndexedDB entirely when iframe mode is enabled.
     const mode = __isWalletIframeHostMode()
       ? 'wallet'
-      : (this.configs.iframeWallet?.walletOrigin ? 'disabled' : 'app');
+      : this.configs.wallet.mode === 'iframe'
+        ? 'disabled'
+        : 'app';
     configureIndexedDB({ mode });
     // Use provided client or create default one
-    this.nearClient = nearClient || new MinimalNearClient(resolvePrimaryNearRpcUrl(this.configs.chains));
+    this.nearClient =
+      nearClient || new MinimalNearClient(resolvePrimaryNearRpcUrl(this.configs.network.chains));
     this.signingEngine = new SigningEngine(this.configs, this.nearClient);
 
-    this.theme = coerceThemeName(this.configs.appearance?.theme) ?? 'dark';
+    this.theme = coerceThemeName(this.configs.ui.appearance?.theme) ?? 'dark';
     try {
       this.signingEngine.setTheme(this.theme);
     } catch {}
@@ -129,14 +132,15 @@ export class TatchiPasskey {
       onConfirmationConfigChange: (callback): (() => void) =>
         userPreferences.onConfirmationConfigChange(callback),
       onSignerModeChange: (callback): (() => void) => userPreferences.onSignerModeChange(callback),
-      onCurrentUserChange: (callback): (() => void) => userPreferences.onCurrentUserChange(callback),
+      onCurrentUserChange: (callback): (() => void) =>
+        userPreferences.onCurrentUserChange(callback),
       setConfirmBehavior: (behavior): void => {
         if (this.walletIframe.shouldUseWalletIframe()) {
           void (async () => {
             try {
               const router = await this.walletIframe.requireRouter();
               await router.setConfirmBehavior(behavior);
-            } catch { }
+            } catch {}
           })();
           return;
         }
@@ -148,7 +152,7 @@ export class TatchiPasskey {
             try {
               const router = await this.walletIframe.requireRouter();
               await router.setConfirmationConfig(config);
-            } catch { }
+            } catch {}
           })();
           return;
         }
@@ -163,14 +167,10 @@ export class TatchiPasskey {
     this.auth = {
       login: async (nearAccountId, options) =>
         await this.loginAndCreateSession(nearAccountId, options),
-      logout: async () =>
-        await this.logoutAndClearSession(),
-      getSession: async (nearAccountId) =>
-        await this.getLoginSession(nearAccountId),
-      getRecentLogins: async () =>
-        await this.getRecentLogins(),
-      hasPasskeyCredential: async (nearAccountId) =>
-        await this.hasPasskeyCredential(nearAccountId),
+      logout: async () => await this.logoutAndClearSession(),
+      getSession: async (nearAccountId) => await this.getLoginSession(nearAccountId),
+      getRecentLogins: async () => await this.getRecentLogins(),
+      hasPasskeyCredential: async (nearAccountId) => await this.hasPasskeyCredential(nearAccountId),
       prefillThresholdEcdsaPresignPool: async (args) =>
         await this.prefillThresholdEcdsaPresignPool(args),
     };
@@ -187,22 +187,14 @@ export class TatchiPasskey {
     const emailRecovery = new EmailRecoveryDomain(recoveryDeps);
     const deviceLinking = new DeviceLinkingDomain(recoveryDeps);
     this.recovery = {
-      getRecoveryEmails: async (accountId) =>
-        await emailRecovery.getRecoveryEmails(accountId),
-      setRecoveryEmails: async (args) =>
-        await emailRecovery.setRecoveryEmails(args),
-      syncAccount: async (args) =>
-        await emailRecovery.syncAccount(args),
-      startEmailRecovery: async (args) =>
-        await emailRecovery.startEmailRecovery(args),
-      finalizeEmailRecovery: async (args) =>
-        await emailRecovery.finalizeEmailRecovery(args),
-      cancelEmailRecovery: async (args) =>
-        await emailRecovery.cancelEmailRecovery(args),
-      startDevice2LinkingFlow: async (args) =>
-        await deviceLinking.startDevice2LinkingFlow(args),
-      stopDevice2LinkingFlow: async () =>
-        await deviceLinking.stopDevice2LinkingFlow(),
+      getRecoveryEmails: async (accountId) => await emailRecovery.getRecoveryEmails(accountId),
+      setRecoveryEmails: async (args) => await emailRecovery.setRecoveryEmails(args),
+      syncAccount: async (args) => await emailRecovery.syncAccount(args),
+      startEmailRecovery: async (args) => await emailRecovery.startEmailRecovery(args),
+      finalizeEmailRecovery: async (args) => await emailRecovery.finalizeEmailRecovery(args),
+      cancelEmailRecovery: async (args) => await emailRecovery.cancelEmailRecovery(args),
+      startDevice2LinkingFlow: async (args) => await deviceLinking.startDevice2LinkingFlow(args),
+      stopDevice2LinkingFlow: async () => await deviceLinking.stopDevice2LinkingFlow(),
       linkDeviceWithScannedQRData: async (qrData, options) =>
         await deviceLinking.linkDeviceWithScannedQRData(qrData, options),
     };
@@ -223,17 +215,17 @@ export class TatchiPasskey {
     userPreferences.configureWalletIframeSignerModeWriter(
       this.walletIframe.shouldUseWalletIframe()
         ? async (next) => {
-          const router = await this.walletIframe.requireRouter();
-          await router.setSignerMode(next);
-        }
-        : null
+            const router = await this.walletIframe.requireRouter();
+            await router.setSignerMode(next);
+          }
+        : null,
     );
     // UserConfirm worker initializes automatically in the constructor
   }
 
   /**
    * Initialize the hidden wallet service iframe client (optional) and warm critical resources.
-   * Always warms local resources; initializes iframe when `walletOrigin` is provided.
+   * Always warms local resources; initializes iframe when wallet mode is `iframe`.
    * Idempotent and safe to call multiple times.
    */
   async initWalletIframe(nearAccountId?: string): Promise<void> {
@@ -270,7 +262,7 @@ export class TatchiPasskey {
       nearClient: this.nearClient,
       configs: this.configs,
       theme: this.theme,
-    }
+    };
   }
 
   private getAuthSessionDeps(): AuthSessionDomainDeps {
@@ -325,7 +317,11 @@ export class TatchiPasskey {
    * - When workers=true, warms local critical resources (nonce, IndexedDB, workers) without touching iframe.
    * - When both are false/omitted, does nothing.
    */
-  async prewarm(opts?: { iframe?: boolean; workers?: boolean; nearAccountId?: string }): Promise<void> {
+  async prewarm(opts?: {
+    iframe?: boolean;
+    workers?: boolean;
+    nearAccountId?: string;
+  }): Promise<void> {
     const iframe = !!opts?.iframe;
     const workers = !!opts?.workers;
     const nearAccountId = opts?.nearAccountId;
@@ -339,7 +335,11 @@ export class TatchiPasskey {
       // Warm local-only resources without touching the iframe.
       // In iframe mode, avoid persisting user state (lastUserAccountId, preferences) on the app origin.
       const shouldAvoidLocalUserState = this.walletIframe.shouldUseWalletIframe();
-      tasks.push(this.signingEngine.warmCriticalResources(shouldAvoidLocalUserState ? undefined : nearAccountId));
+      tasks.push(
+        this.signingEngine.warmCriticalResources(
+          shouldAvoidLocalUserState ? undefined : nearAccountId,
+        ),
+      );
     }
 
     if (tasks.length === 0) return;
@@ -373,7 +373,7 @@ export class TatchiPasskey {
    */
   async registerPasskey(
     nearAccountId: string,
-    options: RegistrationHooksOptions = {}
+    options: RegistrationHooksOptions = {},
   ): Promise<RegistrationResult> {
     // In wallet-iframe mode, always run inside the wallet origin (no app-origin fallback).
     if (this.walletIframe.shouldUseWalletIframe()) {
@@ -386,15 +386,19 @@ export class TatchiPasskey {
           options: {
             onEvent: options?.onEvent,
             ...(options?.signerMode ? { signerMode: options.signerMode } : {}),
-            ...(typeof options?.backupLocalKey === 'boolean' ? { backupLocalKey: options.backupLocalKey } : {}),
-            ...(options?.signerOptions
-              ? { signerOptions: options.signerOptions }
+            ...(typeof options?.backupLocalKey === 'boolean'
+              ? { backupLocalKey: options.backupLocalKey }
               : {}),
-            ...(options?.confirmerText ? { confirmerText: options.confirmerText } : {})
-          }
+            ...(options?.signerOptions ? { signerOptions: options.signerOptions } : {}),
+            ...(options?.confirmerText ? { confirmerText: options.confirmerText } : {}),
+          },
         });
         // Opportunistically warm resources (non-blocking)
-        void (async () => { try { await this.initWalletIframe(nearAccountId); } catch { } })();
+        void (async () => {
+          try {
+            await this.initWalletIframe(nearAccountId);
+          } catch {}
+        })();
         await options?.afterCall?.(true, res);
         return res;
       } catch (error: unknown) {
@@ -408,7 +412,8 @@ export class TatchiPasskey {
       this.getContext(),
       toAccountId(nearAccountId),
       options,
-      this.configs.authenticatorOptions || DEFAULT_AUTHENTICATOR_OPTIONS,
+      cloneAuthenticatorOptions(this.configs.auth.webauthn.authenticatorOptions) ||
+        DEFAULT_AUTHENTICATOR_OPTIONS,
     );
   }
 
@@ -419,7 +424,7 @@ export class TatchiPasskey {
   async registerPasskeyInternal(
     nearAccountId: string,
     options: RegistrationHooksOptions = {},
-    confirmationConfigOverride?: ConfirmationConfig
+    confirmationConfigOverride?: ConfirmationConfig,
   ): Promise<RegistrationResult> {
     // In wallet-iframe mode, always run inside the wallet origin (no app-origin fallback).
     if (this.walletIframe.shouldUseWalletIframe()) {
@@ -432,14 +437,18 @@ export class TatchiPasskey {
           options: {
             onEvent: options?.onEvent,
             ...(options?.signerMode ? { signerMode: options.signerMode } : {}),
-            ...(typeof options?.backupLocalKey === 'boolean' ? { backupLocalKey: options.backupLocalKey } : {}),
-            ...(options?.signerOptions
-              ? { signerOptions: options.signerOptions }
+            ...(typeof options?.backupLocalKey === 'boolean'
+              ? { backupLocalKey: options.backupLocalKey }
               : {}),
-            ...(options?.confirmerText ? { confirmerText: options.confirmerText } : {})
-          }
+            ...(options?.signerOptions ? { signerOptions: options.signerOptions } : {}),
+            ...(options?.confirmerText ? { confirmerText: options.confirmerText } : {}),
+          },
         });
-        void (async () => { try { await this.initWalletIframe(nearAccountId); } catch { } })();
+        void (async () => {
+          try {
+            await this.initWalletIframe(nearAccountId);
+          } catch {}
+        })();
         await options?.afterCall?.(true, res);
         return res;
       } catch (error: unknown) {
@@ -454,7 +463,8 @@ export class TatchiPasskey {
       this.getContext(),
       toAccountId(nearAccountId),
       options,
-      this.configs.authenticatorOptions || DEFAULT_AUTHENTICATOR_OPTIONS,
+      cloneAuthenticatorOptions(this.configs.auth.webauthn.authenticatorOptions) ||
+        DEFAULT_AUTHENTICATOR_OPTIONS,
       confirmationConfigOverride,
     );
   }
@@ -469,7 +479,7 @@ export class TatchiPasskey {
     options?: {
       deviceNumber?: number;
       relayerUrl?: string;
-    }
+    },
   ): Promise<{
     success: boolean;
     publicKey: string;
@@ -499,7 +509,7 @@ export class TatchiPasskey {
     nearAccountId: string,
     options?: {
       deviceNumber?: number;
-    }
+    },
   ): Promise<{
     success: boolean;
     oldPublicKey: string;
@@ -536,7 +546,7 @@ export class TatchiPasskey {
    */
   async loginAndCreateSession(
     nearAccountId: string,
-    options?: LoginHooksOptions
+    options?: LoginHooksOptions,
   ): Promise<LoginAndCreateSessionResult> {
     return await loginAndCreateSessionDomain(this.getAuthSessionDeps(), nearAccountId, options);
   }
@@ -619,7 +629,9 @@ export class TatchiPasskey {
       await router.prefetchBlockheight();
       return;
     }
-    try { await this.signingEngine.getNonceManager().prefetchBlockheight(this.nearClient); } catch { }
+    try {
+      await this.signingEngine.getNonceManager().prefetchBlockheight(this.nearClient);
+    } catch {}
   }
 
   async getRecentLogins(): Promise<GetRecentLoginsResult> {
@@ -662,7 +674,7 @@ export class TatchiPasskey {
   async deleteDeviceKey(
     accountId: string,
     publicKeyToDelete: string,
-    options: ActionHooksOptions
+    options: ActionHooksOptions,
   ): Promise<ActionResult> {
     // Validate that we're not deleting the last key
     const keysView = await this.viewAccessKeyList(accountId);
@@ -671,7 +683,9 @@ export class TatchiPasskey {
     }
 
     // Find the key to delete
-    const keyToDelete = keysView.keys.find((k: { public_key: string }) => k.public_key === publicKeyToDelete);
+    const keyToDelete = keysView.keys.find(
+      (k: { public_key: string }) => k.public_key === publicKeyToDelete,
+    );
     if (!keyToDelete) {
       throw new Error(`Access key ${publicKeyToDelete} not found on account ${accountId}`);
     }
@@ -682,12 +696,11 @@ export class TatchiPasskey {
       receiverId: accountId,
       actionArgs: {
         type: ActionType.DeleteKey,
-        publicKey: publicKeyToDelete
+        publicKey: publicKeyToDelete,
       },
-      options: options
+      options: options,
     });
   }
-
 }
 
 // Re-export types for convenience
@@ -706,7 +719,7 @@ export type {
 } from './interfaces';
 
 export type {
-  TatchiConfigs,
+  TatchiConfigsReadonly,
   TatchiConfigsInput,
   RegistrationResult,
   LoginAndCreateSessionResult,
@@ -728,11 +741,16 @@ export type {
 } from '../types/sdkSentEvents';
 
 // Re-export NEP-413 types
-export type {
-  SignNEP413MessageParams,
-  SignNEP413MessageResult
-} from './near/signNEP413';
+export type { SignNEP413MessageParams, SignNEP413MessageResult } from './near/signNEP413';
 
-export type { DeviceLinkingQRData, DeviceLinkingSession, LinkDeviceResult } from '../types/linkDevice';
-export { DeviceLinkingPhase, DeviceLinkingError, DeviceLinkingErrorCode } from '../types/linkDevice';
+export type {
+  DeviceLinkingQRData,
+  DeviceLinkingSession,
+  LinkDeviceResult,
+} from '../types/linkDevice';
+export {
+  DeviceLinkingPhase,
+  DeviceLinkingError,
+  DeviceLinkingErrorCode,
+} from '../types/linkDevice';
 export type { SyncAccountResult } from './syncAccount';
