@@ -70,6 +70,7 @@ export const DEFAULT_CHAIN_CONFIGS: TatchiChainConfig[] = [
     network: 'tempo-testnet',
     rpcUrl: 'https://rpc.moderato.tempo.xyz',
     explorerUrl: 'https://explore.tempo.xyz',
+    chainId: 42_431,
   },
   {
     network: 'arc-testnet',
@@ -111,7 +112,7 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigsReadonly = {
     },
   },
   signing: {
-    mode: { mode: 'local-signer' },
+    mode: { mode: 'threshold-signer' },
     // Warm signing session defaults used by login/unlock flows.
     // Enforcement (TTL/uses) is owned by the UserConfirm worker (wallet origin); signer workers remain one-shot.
     sessionDefaults: {
@@ -200,10 +201,15 @@ function normalizeResolvedChainConfig(args: {
     };
   }
 
+  const chainId = coerceOptionalPositiveInt(
+    (args.input as { chainId?: unknown }).chainId,
+    (args.fallback as { chainId?: number } | undefined)?.chainId,
+  );
   return {
     network: network as TatchiTempoChainNetwork,
     rpcUrl,
     explorerUrl,
+    ...(typeof chainId === 'number' ? { chainId } : {}),
   };
 }
 
