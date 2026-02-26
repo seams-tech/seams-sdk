@@ -681,6 +681,12 @@ self.onmessage = (event: MessageEvent) => {
     return;
   }
 
+  if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_CLEAR_ALL') {
+    prfFirstSessionCache.clear();
+    postUserConfirmWorkerResponse(id, { success: true, data: { ok: true } });
+    return;
+  }
+
   // Unknown message types: respond with an explicit error (prevents sendMessage timeouts).
   if (typeof id === 'string' && id.trim()) {
     postUserConfirmWorkerResponse(id, { success: false, error: `Unsupported UserConfirm worker message type: ${String(eventType)}` });

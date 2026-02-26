@@ -234,6 +234,18 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     }
   }
 
+  async clearAllPrfFirstForThresholdSessions(): Promise<void> {
+    await this.ensureWorkerReady(false);
+    const res = await this.sendMessage({
+      type: 'THRESHOLD_PRF_FIRST_CACHE_CLEAR_ALL',
+      id: this.generateMessageId(),
+      payload: {},
+    });
+    if (!res?.success) {
+      throw new Error(String(res?.error || 'Failed to clear all PRF.first cache entries'));
+    }
+  }
+
   async requestUserConfirmation(
     request: UserConfirmRequest,
     options?: RequestUserConfirmationOptions,

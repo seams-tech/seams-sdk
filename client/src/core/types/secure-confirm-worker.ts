@@ -19,7 +19,8 @@ export type UserConfirmWorkerMessageType =
   | 'THRESHOLD_PRF_FIRST_CACHE_PUT'
   | 'THRESHOLD_PRF_FIRST_CACHE_PEEK'
   | 'THRESHOLD_PRF_FIRST_CACHE_DISPENSE'
-  | 'THRESHOLD_PRF_FIRST_CACHE_CLEAR';
+  | 'THRESHOLD_PRF_FIRST_CACHE_CLEAR'
+  | 'THRESHOLD_PRF_FIRST_CACHE_CLEAR_ALL';
 
 export type ExportPrivateKeyScheme = 'ed25519' | 'secp256k1';
 export type ExportKeypairChain = 'near' | 'evm' | 'tempo';

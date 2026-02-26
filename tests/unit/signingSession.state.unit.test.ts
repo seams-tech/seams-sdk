@@ -183,4 +183,14 @@ test.describe('signing session state', () => {
     expect(source).not.toContain('signingEngine.setActiveSigningSessionId(');
     expect(source).not.toContain('signingEngine.putPrfFirstForThresholdSession(');
   });
+
+  test('signing engine global clear path wipes all worker PRF cache entries', () => {
+    const source = fs.readFileSync(
+      path.resolve(process.cwd(), '../client/src/core/signingEngine/SigningEngine.ts'),
+      'utf8',
+    );
+
+    expect(source).toContain('if (nearAccountId == null && hasThresholdPrfFirstCacheClearAllPort(this.touchConfirm))');
+    expect(source).toContain('clearAllPrfFirstForThresholdSessions');
+  });
 });

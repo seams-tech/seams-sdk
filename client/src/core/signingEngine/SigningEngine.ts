@@ -21,7 +21,10 @@ import type {
 } from './orchestration/thresholdActivation';
 import type { SignerWorkerManager } from './workerManager';
 import type { RegistrationCredentialConfirmationPayload } from './workerManager/validation';
-import type { TouchConfirmRuntimeBridgePort } from './touchConfirm/types';
+import type {
+  TouchConfirmRuntimeBridgePort,
+  ThresholdPrfFirstCacheClearAllPort,
+} from './touchConfirm/types';
 import type { TouchIdPrompt } from './signers/webauthn/prompt/touchIdPrompt';
 import type { WebAuthnAllowCredential } from './signers/webauthn/credentials';
 import type { EvmSigningRequest } from './chainAdaptors/evm/types';
@@ -107,6 +110,13 @@ export type {
 } from './orchestration/thresholdActivation';
 export type { NearSignIntentRequest, NearSignIntentResult } from './api/nearSigning';
 export type { ThresholdEcdsaLoginPrefillResult } from './api/thresholdLifecycle/thresholdEcdsaLoginPrefill';
+
+function hasThresholdPrfFirstCacheClearAllPort(
+  value: unknown,
+): value is ThresholdPrfFirstCacheClearAllPort {
+  return typeof (value as { clearAllPrfFirstForThresholdSessions?: unknown })
+    ?.clearAllPrfFirstForThresholdSessions === 'function';
+}
 
 /**
  * SigningEngine is the signing composition root:
@@ -562,6 +572,11 @@ export class SigningEngine {
           return active ? [active] : [];
         })()
       : clearAllActiveSigningSessionIdsValue(this.orchestrationDeps.signingSessionStateDeps);
+
+    if (nearAccountId == null && hasThresholdPrfFirstCacheClearAllPort(this.touchConfirm)) {
+      await this.touchConfirm.clearAllPrfFirstForThresholdSessions().catch(() => undefined);
+      return;
+    }
 
     await Promise.all(
       sessionIds.map((sessionId) =>

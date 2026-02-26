@@ -40,6 +40,8 @@ export interface TouchConfirmContext {
   getAppearanceTokens?: () => ThemeTokenOverridesInput | undefined;
   rpIdOverride?: string;
   nearExplorerUrl?: string;
+  tempoExplorerUrl?: string;
+  evmExplorerUrl?: string;
 }
 
 export type ThresholdPrfCachePeekResult =
@@ -82,6 +84,10 @@ export interface ThresholdPrfFirstCacheDispensePort {
 
 export interface ThresholdPrfFirstCacheClearPort {
   clearPrfFirstForThresholdSession(args: { sessionId: string }): Promise<void>;
+}
+
+export interface ThresholdPrfFirstCacheClearAllPort {
+  clearAllPrfFirstForThresholdSessions(): Promise<void>;
 }
 
 export type ThresholdPrfFirstCachePort =

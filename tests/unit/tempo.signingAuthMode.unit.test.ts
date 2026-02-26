@@ -187,6 +187,90 @@ test.describe('tempo signing auth-mode resolution', () => {
     expect(result.kind).toBe('eip1559');
   });
 
+  test('ignores confirmation behavior for auth-mode and still uses warmSession when cache is available (EVM)', async ({ page }) => {
+    const result = await page.evaluate(async ({ paths }) => {
+      const { signEvmWithTouchConfirm } = await import(paths.signEvmWithTouchConfirm);
+      let capturedAuthMode: string | null = null;
+
+      const workerCtx = {
+        requestWorkerOperation: async ({ request }: { request: any }) => {
+          const type = String(request?.type || '');
+          if (type === 'computeEip1559TxHash') return new Uint8Array(32).buffer;
+          if (type === 'encodeEip1559SignedTxFromSignature65')
+            return new Uint8Array([0x02, 0xaa]).buffer;
+          throw new Error(`Unexpected worker operation: ${type}`);
+        },
+      };
+
+      const signed = await signEvmWithTouchConfirm({
+        ctx: { indexedDB: {} } as any,
+        workerCtx: workerCtx as any,
+        touchConfirm: {
+          peekPrfFirstForThresholdSession: async () => ({
+            ok: true,
+            remainingUses: 2,
+            expiresAtMs: Date.now() + 10_000,
+          }),
+          orchestrateSigningConfirmation: async (params: any) => {
+            capturedAuthMode = String(params?.signingAuthMode || '');
+            return {
+              sessionId: 'intent',
+              intentDigest: String(params?.intentDigest || ''),
+            };
+          },
+        } as any,
+        nearAccountId: 'alice.testnet',
+        request: {
+          chain: 'evm',
+          kind: 'eip1559',
+          senderSignatureAlgorithm: 'secp256k1',
+          tx: {
+            chainId: 11155111n,
+            nonce: 7n,
+            maxPriorityFeePerGas: 1_500_000_000n,
+            maxFeePerGas: 3_000_000_000n,
+            gasLimit: 21_000n,
+            to: '0x' + '22'.repeat(20),
+            value: 12_345n,
+            data: '0x',
+            accessList: [],
+          },
+        } as any,
+        confirmationConfigOverride: { behavior: 'requireClick' },
+        engines: {
+          secp256k1: {
+            algorithm: 'secp256k1',
+            sign: async () => {
+              const sig = new Uint8Array(65);
+              sig[64] = 0;
+              return sig;
+            },
+          },
+        } as any,
+        keyRefsByAlgorithm: {
+          secp256k1: {
+            type: 'threshold-ecdsa-secp256k1',
+            userId: 'alice.testnet',
+            relayerUrl: 'https://relayer.example',
+            relayerKeyId: 'rk-1',
+            clientVerifyingShareB64u: 'AQ',
+            thresholdSessionId: 'session-1',
+          },
+        } as any,
+      });
+
+      return {
+        capturedAuthMode,
+        kind: signed.kind,
+        chain: signed.chain,
+      };
+    }, { paths: IMPORT_PATHS });
+
+    expect(result.capturedAuthMode).toBe('warmSession');
+    expect(result.chain).toBe('evm');
+    expect(result.kind).toBe('eip1559');
+  });
+
   test('fails fast when threshold warm session cache is unavailable (Tempo)', async ({
     page,
   }) => {

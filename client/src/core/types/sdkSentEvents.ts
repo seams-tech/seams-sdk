@@ -671,11 +671,6 @@ export interface LoginHooksOptions {
   /**
    * Optional: override the warm signing session policy minted during login.
    * Defaults come from `TatchiConfigs.signingSessionDefaults`.
-   *
-   * Note:
-   * - If `session` is provided, login skips automatic warm-session minting by default
-   *   to avoid a second consecutive WebAuthn prompt.
-   * - Providing `signingSession` opts back into warm-session minting during login.
    */
   signingSession?: {
     ttlMs?: number;
