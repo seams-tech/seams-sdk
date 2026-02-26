@@ -121,6 +121,13 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     return blockHeight ? `block ${blockHeight}` : '';
   }
 
+  private _isSecurityDetailsLoading(): boolean {
+    const chainId = String(this.model?.chainId || '').trim();
+    if (chainId) return false;
+    const blockHeight = String(this.securityContext?.blockHeight || '').trim();
+    return this.loading && !blockHeight;
+  }
+
   constructor() {
     super();
     this.nearAccountId = '';
@@ -252,6 +259,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
 
   render() {
     const securityDetailsText = this._securityDetailsText();
+    const securityDetailsLoading = this._isSecurityDetailsLoading();
     return html`
       <w3a-drawer
         .open=${this._open}
@@ -289,23 +297,30 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
                     ? html`<span class="domain-text">${this.securityContext.rpId}</span>`
                     : ''}
                 </div>
-                ${securityDetailsText
+                ${securityDetailsText || securityDetailsLoading
                   ? html`
                     <span class="security-details">
-                      <svg xmlns="http://www.w3.org/2000/svg"
-                        class="block-height-icon"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>
-                        <path d="m3.3 7 8.7 5 8.7-5"/>
-                        <path d="M12 22V12"/>
-                      </svg>
-                      ${securityDetailsText}
+                      ${securityDetailsLoading
+                        ? html`
+                            <span class="loading-indicator security-loading-indicator" role="progressbar" aria-label="Loading block height"></span>
+                            <span>Loading block...</span>
+                          `
+                        : html`
+                            <svg xmlns="http://www.w3.org/2000/svg"
+                              class="block-height-icon"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                            >
+                              <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>
+                              <path d="m3.3 7 8.7 5 8.7-5"/>
+                              <path d="M12 22V12"/>
+                            </svg>
+                            ${securityDetailsText}
+                          `}
                     </span>`
                   : ''}
               </div>

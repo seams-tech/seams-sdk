@@ -261,7 +261,11 @@ export function createConfirmSession({
 }): {
   setReservedNonces: (nonces?: string[]) => void;
   updateUI: (props: ConfirmUIUpdate) => void;
-  promptUser: (args: { securityContext?: Partial<UserConfirmSecurityContext> }) => Promise<{ confirmed: boolean; error?: string }>;
+  promptUser: (args: {
+    securityContext?: Partial<UserConfirmSecurityContext>;
+    loading?: boolean;
+    onMounted?: (handle: ConfirmUIHandle) => void;
+  }) => Promise<{ confirmed: boolean; error?: string }>;
   /**
    * Send decision back to worker and perform standard cleanup.
    * - On `confirmed: false`, releases any reserved nonces.

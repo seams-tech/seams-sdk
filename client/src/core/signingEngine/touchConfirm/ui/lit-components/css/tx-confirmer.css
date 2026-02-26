@@ -840,6 +840,15 @@ w3a-drawer .above-fold > .drawer-tx-confirmer-root {
   justify-content: center;
   color: var(--w3a-colors-textSecondary);
 }
+.security-loading-indicator {
+  width: 0.9em;
+  height: 0.9em;
+  margin-inline-end: 0.5em;
+  margin-right: 0.5em;
+  border-width: 2px;
+  border-color: var(--w3a-colors-borderPrimary, rgba(255,255,255,0.25));
+  border-top-color: var(--w3a-colors-info, var(--w3a-blue600));
+}
 .block-height-icon {
   width: 1em;
   height: 1em;

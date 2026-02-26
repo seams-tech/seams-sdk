@@ -67,29 +67,52 @@ export async function handleTransactionSigningFlow(
         : undefined;
     const sessionPolicyDigest32 = request.payload.sessionPolicyDigest32;
 
-    // 1) NEAR context + nonce reservation
-    const nearRpc = await adapters.near.fetchNearContext({
+    // 1) Start NEAR context fetch + nonce reservation immediately.
+    const nearContextPromise = adapters.near.fetchNearContext({
       nearAccountId,
       txCount: usesNeeded,
       reserveNonces: true,
       allowFallback: false,
     });
+
+    // 2) Mount confirmer immediately (non-blocking) while NEAR context fetch is in flight.
+    const rpId = adapters.security.getRpId();
+    const baseSecurityContext: Partial<UserConfirmSecurityContext> | undefined = rpId ? { rpId } : undefined;
+    let resolvePromptReady: (() => void) | undefined;
+    const promptReady = new Promise<void>((resolve) => {
+      resolvePromptReady = resolve;
+    });
+    const markPromptReady = () => {
+      resolvePromptReady?.();
+      resolvePromptReady = undefined;
+    };
+    const promptDecisionPromise = session.promptUser({
+      securityContext: baseSecurityContext,
+      loading: true,
+      onMounted: () => {
+        markPromptReady();
+      },
+    });
+    void promptDecisionPromise.finally(markPromptReady);
+
+    // Ensure UI is mounted (or already resolved in `uiMode: none`) before updates.
+    await promptReady;
+
+    const nearRpc = await nearContextPromise;
     if (!nearRpc.transactionContext) {
       console.error('[SigningFlow] fetchNearContext failed', { error: nearRpc.error, details: nearRpc.details });
-      return session.confirmAndCloseModal({
+      session.confirmAndCloseModal({
         requestId: request.requestId,
         intentDigest: getIntentDigest(request),
         confirmed: false,
         error: nearRpc.details ? `${ERROR_MESSAGES.nearRpcFailed}: ${nearRpc.details}` : ERROR_MESSAGES.nearRpcFailed,
       });
+      await promptDecisionPromise.catch(() => undefined);
+      return;
     }
+
     session.setReservedNonces(nearRpc.reservedNonces);
     const transactionContext: TransactionContext = nearRpc.transactionContext;
-
-    // 2) Security context shown in the confirmer (rpId + block height).
-    // For warmSession signing we still want to show this context even though
-    // we won't collect a WebAuthn credential.
-    const rpId = adapters.security.getRpId();
     const securityContext: Partial<UserConfirmSecurityContext> | undefined = rpId
       ? {
           rpId,
@@ -98,8 +121,13 @@ export async function handleTransactionSigningFlow(
         }
       : undefined;
 
-    // 3) UI confirm
-    const { confirmed, error: uiError } = await session.promptUser({ securityContext });
+    // 3) Hydrate security context and re-enable confirm action once block metadata is ready.
+    session.updateUI({
+      securityContext,
+      loading: false,
+    });
+
+    const { confirmed, error: uiError } = await promptDecisionPromise;
     if (!confirmed) {
       return session.confirmAndCloseModal({
         requestId: request.requestId,
