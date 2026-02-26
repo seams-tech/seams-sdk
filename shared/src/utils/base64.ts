@@ -18,7 +18,7 @@ export const base64Encode = (value: ArrayBufferLike | ArrayBufferView): string =
     binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary);
-}
+};
 
 /**
  * Decodes a standard base64-encoded string into a Uint8Array.
@@ -62,11 +62,8 @@ export function base64Decode(base64: string): Uint8Array {
  * @returns A base64url-encoded string without padding
  */
 export const base64UrlEncode = (value: ArrayBufferLike | ArrayBufferView): string => {
-  return base64Encode(value)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=/g, "");
-}
+  return base64Encode(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+};
 
 /**
  * Decodes a base64url-encoded string into a Uint8Array.
@@ -77,7 +74,10 @@ export const base64UrlEncode = (value: ArrayBufferLike | ArrayBufferView): strin
  * @throws Error if decoding fails due to invalid base64url input
  */
 export function base64UrlDecode(base64Url: string): Uint8Array {
-  const normalized = String(base64Url || '').trim().replace(/-/g, '+').replace(/_/g, '/');
+  const normalized = String(base64Url || '')
+    .trim()
+    .replace(/-/g, '+')
+    .replace(/_/g, '/');
   if (!normalized) return new Uint8Array();
   const padding = '='.repeat((4 - (normalized.length % 4)) % 4);
   return base64Decode(normalized + padding);
@@ -93,4 +93,4 @@ export function base64UrlDecode(base64Url: string): Uint8Array {
  */
 export const toWasmByteArray = (buffer: ArrayBuffer | ArrayBufferLike): number[] => {
   return Array.from(new Uint8Array(buffer));
-}
+};

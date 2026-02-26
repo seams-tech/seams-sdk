@@ -77,7 +77,9 @@ export function areThresholdEd25519ParticipantIds2p(
   return ids.every((id, i) => id === expectedIds[i]);
 }
 
-export function parseThresholdEd25519ParticipantsV1(input: unknown): ThresholdEd25519ParticipantV1[] | null {
+export function parseThresholdEd25519ParticipantsV1(
+  input: unknown,
+): ThresholdEd25519ParticipantV1[] | null {
   if (!Array.isArray(input) || input.length === 0) return null;
 
   const out: ThresholdEd25519ParticipantV1[] = [];
@@ -105,10 +107,10 @@ export function parseThresholdEd25519ParticipantsV1(input: unknown): ThresholdEd
 
     const shareDerivation = toOptionalTrimmedString(rec.shareDerivation);
     if (
-      shareDerivation === 'prf_first_v1'
-      || shareDerivation === 'derived_master_secret_v1'
-      || shareDerivation === 'kv_random_v1'
-      || shareDerivation === 'unknown'
+      shareDerivation === 'prf_first_v1' ||
+      shareDerivation === 'derived_master_secret_v1' ||
+      shareDerivation === 'kv_random_v1' ||
+      shareDerivation === 'unknown'
     ) {
       participant.shareDerivation = shareDerivation;
     }
@@ -134,9 +136,11 @@ export function buildThresholdEd25519Participants2pV1(input: {
   const clientVerifyingShareB64u = toOptionalTrimmedString(input.clientVerifyingShareB64u);
   const relayerVerifyingShareB64u = toOptionalTrimmedString(input.relayerVerifyingShareB64u);
   const clientParticipantId =
-    normalizeThresholdEd25519ParticipantId(input.clientParticipantId) ?? THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID;
+    normalizeThresholdEd25519ParticipantId(input.clientParticipantId) ??
+    THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID;
   const relayerParticipantId =
-    normalizeThresholdEd25519ParticipantId(input.relayerParticipantId) ?? THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID;
+    normalizeThresholdEd25519ParticipantId(input.relayerParticipantId) ??
+    THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID;
 
   const client: ThresholdEd25519ParticipantV1 = {
     id: clientParticipantId,

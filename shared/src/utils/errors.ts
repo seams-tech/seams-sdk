@@ -33,7 +33,8 @@ export function toError(e: unknown): Error {
     if (typeof src?.name === 'string') err.name = src.name;
     if (typeof src?.stack === 'string') (err as { stack?: string }).stack = src.stack;
     if (src && typeof src.code !== 'undefined') (err as { code?: unknown }).code = src.code;
-    if (src && typeof src.details !== 'undefined') (err as { details?: unknown }).details = src.details;
+    if (src && typeof src.details !== 'undefined')
+      (err as { details?: unknown }).details = src.details;
   } catch {}
   return err;
 }
@@ -49,12 +50,14 @@ export function isTouchIdCancellationError(error: unknown): boolean {
   // Normalize for case-insensitive substring checks on user-facing phrases
   const lower = msg.toLowerCase();
 
-  return msg.includes('The operation either timed out or was not allowed') ||
-         msg.includes('NotAllowedError') ||
-         msg.includes('AbortError') ||
-         lower.includes('user cancelled') ||
-         lower.includes('user canceled') ||
-         lower.includes('user aborted');
+  return (
+    msg.includes('The operation either timed out or was not allowed') ||
+    msg.includes('NotAllowedError') ||
+    msg.includes('AbortError') ||
+    lower.includes('user cancelled') ||
+    lower.includes('user canceled') ||
+    lower.includes('user aborted')
+  );
 }
 
 /**
@@ -83,7 +86,7 @@ export function getTouchIdCancellationMessage(context: 'registration' | 'login')
 export function getUserFriendlyErrorMessage(
   error: unknown,
   context: 'registration' | 'login' = 'registration',
-  accountId?: string
+  accountId?: string,
 ): string {
   const msg = errorMessage(error);
 

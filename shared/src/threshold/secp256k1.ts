@@ -11,5 +11,6 @@
  * Used by the threshold-secp256k1 ECDSA stack to reduce HKDF-derived bytes into a
  * non-zero scalar in `[1, n-1]`.
  */
-export const SECP256K1_ORDER = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141');
-
+export const SECP256K1_ORDER = BigInt(
+  '0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141',
+);

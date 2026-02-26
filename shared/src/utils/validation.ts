@@ -1,4 +1,3 @@
-
 export interface ValidationResult {
   valid: boolean;
   error?: string;
@@ -40,7 +39,10 @@ export function ensureLeadingSlash(value: string): string {
 
 /** Normalize an app base path like `/sdk` (leading slash, no trailing slashes except `/`). */
 export function toBasePath(value?: string, fallback = '/sdk'): string {
-  const base = ensureLeadingSlash(typeof value === 'string' ? value : fallback) || ensureLeadingSlash(fallback) || '/';
+  const base =
+    ensureLeadingSlash(typeof value === 'string' ? value : fallback) ||
+    ensureLeadingSlash(fallback) ||
+    '/';
   if (base === '/') return '/';
   return base.replace(/\/+$/, '');
 }
@@ -114,7 +116,7 @@ export function isFiniteNumber(x: unknown): x is number {
   return typeof x === 'number' && Number.isFinite(x);
 }
 
-export function isFunction(x: unknown): x is Function {
+export function isFunction(x: unknown): x is (...args: unknown[]) => unknown {
   return typeof x === 'function';
 }
 
@@ -132,7 +134,8 @@ export function assertString(val: unknown, name = 'value'): string {
 }
 
 export function assertNumber(val: unknown, name = 'value'): number {
-  if (typeof val !== 'number' || !Number.isFinite(val)) throw new Error(`Invalid ${name}: expected finite number`);
+  if (typeof val !== 'number' || !Number.isFinite(val))
+    throw new Error(`Invalid ${name}: expected finite number`);
   return val;
 }
 
@@ -141,7 +144,10 @@ export function assertBoolean(val: unknown, name = 'value'): boolean {
   return val;
 }
 
-export function assertObject<T extends Record<string, unknown> = Record<string, unknown>>(val: unknown, name = 'value'): T {
+export function assertObject<T extends Record<string, unknown> = Record<string, unknown>>(
+  val: unknown,
+  name = 'value',
+): T {
   if (!isObject(val)) throw new Error(`Invalid ${name}: expected object`);
   return val as T;
 }
@@ -151,7 +157,9 @@ export function assertArray<T = unknown>(val: unknown, name = 'value'): T[] {
   return val as T[];
 }
 
-export function stripFunctionsShallow<T extends Record<string, unknown>>(obj?: T): Partial<T> | undefined {
+export function stripFunctionsShallow<T extends Record<string, unknown>>(
+  obj?: T,
+): Partial<T> | undefined {
   if (!obj || !isObject(obj)) return undefined;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
@@ -181,6 +189,6 @@ export function isPlainSignedTransactionLike(x: unknown): x is PlainSignedTransa
 export function extractBorshBytesFromPlainSignedTx(x: PlainSignedTransactionLike): number[] {
   const asArray = Array.isArray(x.borsh_bytes) ? (x.borsh_bytes as number[]) : undefined;
   if (asArray) return asArray;
-  const asU8 = (x.borshBytes instanceof Uint8Array) ? x.borshBytes : undefined;
+  const asU8 = x.borshBytes instanceof Uint8Array ? x.borshBytes : undefined;
   return Array.from(asU8 || new Uint8Array());
 }

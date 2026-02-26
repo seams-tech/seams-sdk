@@ -79,4 +79,3 @@ export function mapAdditiveShareToThresholdSignaturesShare2p(args: {
   if (mapped === 0n) throw new Error('mapped share is zero (unexpected)');
   return bigIntTo32BytesBE(mapped);
 }
-

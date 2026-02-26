@@ -40,8 +40,8 @@ export function validateNearAccountId(
   nearAccountId: string,
   options: NearAccountValidationOptions = {
     allowedSuffixes: ['testnet', 'near'],
-    requireTopLevelDomain: false
-  }
+    requireTopLevelDomain: false,
+  },
 ): { valid: boolean; error?: string } {
   if (!nearAccountId || typeof nearAccountId !== 'string') {
     return { valid: false, error: 'Account ID must be a non-empty string' };
@@ -49,7 +49,10 @@ export function validateNearAccountId(
 
   const parts = nearAccountId.split('.');
   if (parts.length < 2) {
-    return { valid: false, error: 'Account ID must contain at least one dot (e.g., username.testnet)' };
+    return {
+      valid: false,
+      error: 'Account ID must contain at least one dot (e.g., username.testnet)',
+    };
   }
 
   // Check for exact two parts requirement (e.g., server registration)
@@ -57,7 +60,7 @@ export function validateNearAccountId(
     const suffixList = options.allowedSuffixes?.join(', ') || 'valid suffixes';
     return {
       valid: false,
-      error: `Invalid NEAR account ID format. Expected format: <username>.<suffix> where suffix is one of: ${suffixList}`
+      error: `Invalid NEAR account ID format. Expected format: <username>.<suffix> where suffix is one of: ${suffixList}`,
     };
   }
 
@@ -69,8 +72,11 @@ export function validateNearAccountId(
     return { valid: false, error: 'Username part cannot be empty' };
   }
 
-  if (!/^[a-z0-9_\-]+$/.test(username)) {
-    return { valid: false, error: 'Username can only contain lowercase letters, numbers, underscores, and hyphens' };
+  if (!/^[a-z0-9_-]+$/.test(username)) {
+    return {
+      valid: false,
+      error: 'Username can only contain lowercase letters, numbers, underscores, and hyphens',
+    };
   }
 
   if (!domain || domain.length === 0) {
@@ -88,7 +94,7 @@ export function validateNearAccountId(
     if (!matchesAnySuffix) {
       return {
         valid: false,
-        error: `Invalid NEAR account ID suffix. Expected account to end with one of: ${options.allowedSuffixes.join(', ')}`
+        error: `Invalid NEAR account ID suffix. Expected account to end with one of: ${options.allowedSuffixes.join(', ')}`,
       };
     }
   }
@@ -116,18 +122,19 @@ export function isValidAccountId(accountId: unknown): accountId is string {
  */
 export function formatNearRpcError(
   operationName: string,
-  rpc: { error?: { code?: number; name?: string; message?: string; data?: unknown } }
+  rpc: { error?: { code?: number; name?: string; message?: string; data?: unknown } },
 ): { message: string; code?: number; name?: string; details?: unknown } {
   const err = rpc?.error || {};
   const details = err.data as unknown;
 
   const code = typeof err.code === 'number' ? err.code : undefined;
   const name = typeof err.name === 'string' ? err.name : undefined;
-  const generic = typeof err.message === 'string'
-    ? err.message
-    : (details && typeof (details as { message?: unknown }).message === 'string'
+  const generic =
+    typeof err.message === 'string'
+      ? err.message
+      : details && typeof (details as { message?: unknown }).message === 'string'
         ? (details as { message: string }).message
-        : 'RPC error');
+        : 'RPC error';
 
   const firstKey = (o: unknown): string | undefined => {
     if (!o || typeof o !== 'object') return undefined;
@@ -135,7 +142,8 @@ export function formatNearRpcError(
     return keys.length ? keys[0] : undefined;
   };
 
-  const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+  const isObj = (v: unknown): v is Record<string, unknown> =>
+    !!v && typeof v === 'object' && !Array.isArray(v);
 
   const d = details as Record<string, unknown> | undefined;
   const txExec = isObj(d) ? d.TxExecutionError : undefined;
@@ -152,20 +160,34 @@ export function formatNearRpcError(
       depth++;
     }
 
-    const actionError = (isObj(txExec) && isObj(txExec.ActionError)) ? txExec.ActionError as Record<string, unknown> : undefined;
-    const idx = (isObj(actionError) && typeof actionError.index === 'number') ? ` at action ${actionError.index}` : '';
+    const actionError =
+      isObj(txExec) && isObj(txExec.ActionError)
+        ? (txExec.ActionError as Record<string, unknown>)
+        : undefined;
+    const idx =
+      isObj(actionError) && typeof actionError.index === 'number'
+        ? ` at action ${actionError.index}`
+        : '';
 
     const payload = isObj(node) ? node : undefined;
     const suffix = payload && Object.keys(payload).length ? `: ${JSON.stringify(payload)}` : '';
-    const prefix = [name, typeof code === 'number' ? `code ${code}` : undefined].filter(Boolean).join(' ');
+    const prefix = [name, typeof code === 'number' ? `code ${code}` : undefined]
+      .filter(Boolean)
+      .join(' ');
     const kindPath = path.join('.');
-    const message = [prefix, `${operationName} failed${idx} (${kindPath}${suffix})`].filter(Boolean).join(' - ');
+    const message = [prefix, `${operationName} failed${idx} (${kindPath}${suffix})`]
+      .filter(Boolean)
+      .join(' - ');
     return { message, code, name, details };
   }
 
-  const prefix = [name, typeof code === 'number' ? `code ${code}` : undefined].filter(Boolean).join(' ');
+  const prefix = [name, typeof code === 'number' ? `code ${code}` : undefined]
+    .filter(Boolean)
+    .join(' ');
   const dataStr = isObj(details) ? ` Details: ${JSON.stringify(details)}` : '';
-  const message = [prefix, `${operationName} RPC error: ${generic}${dataStr}`].filter(Boolean).join(' - ');
+  const message = [prefix, `${operationName} RPC error: ${generic}${dataStr}`]
+    .filter(Boolean)
+    .join(' - ');
   return { message, code, name, details };
 }
 
@@ -178,7 +200,8 @@ export function getNearShortErrorMessage(error: unknown): string | undefined {
   try {
     const err = error as { details?: unknown; message?: string };
     const details = err?.details as Record<string, unknown> | undefined;
-    const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+    const isObj = (v: unknown): v is Record<string, unknown> =>
+      !!v && typeof v === 'object' && !Array.isArray(v);
     if (!isObj(details)) return undefined;
 
     const txExec = details.TxExecutionError as unknown;
