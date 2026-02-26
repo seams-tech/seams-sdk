@@ -17,6 +17,7 @@ export {
 
 export {
   createEd25519AuthSessionStore,
+  createEcdsaAuthSessionStore,
   type Ed25519AuthSessionStore,
   type Ed25519AuthSessionRecord,
 } from './stores/AuthSessionStore';

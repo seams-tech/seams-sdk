@@ -20,6 +20,11 @@ export interface RelayCloudflareWorkerEnv {
   EXPECTED_ORIGIN?: string;
   EXPECTED_WALLET_ORIGIN?: string;
   RECOVER_EMAIL_RECIPIENT?: string;
+  // Optional console billing monthly finalization
+  BILLING_FINALIZATION_ENABLED?: string;
+  BILLING_POSTGRES_URL?: string;
+  BILLING_NAMESPACE?: string;
+  BILLING_FINALIZATION_PERIOD_MONTH_UTC?: string;
 
   // Optional: Threshold signing (2-party FROST).
   // The SDK enables `/threshold-ed25519/*` endpoints when `thresholdEd25519KeyStore` is configured.

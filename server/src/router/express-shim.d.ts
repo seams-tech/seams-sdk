@@ -16,6 +16,8 @@ declare module 'express' {
     use: (...args: any[]) => Router;
     get: (...args: any[]) => Router;
     post: (...args: any[]) => Router;
+    patch: (...args: any[]) => Router;
+    delete: (...args: any[]) => Router;
     options: (...args: any[]) => Router;
   }
   export function Router(): Router;

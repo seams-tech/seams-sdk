@@ -126,6 +126,8 @@ export default {
 - GET `/session/auth` — returns `{ authenticated, claims? }` based on Authorization: Bearer or cookie
 - POST `/session/logout` — clears the session cookie
 - GET `/.well-known/webauthn` — Related Origin Requests manifest (wallet-scoped credentials)
+- POST `/threshold-ecdsa/prf-seal/apply-server-seal` — optional PRF sealed-session route
+- POST `/threshold-ecdsa/prf-seal/remove-server-seal` — optional PRF sealed-session route
 
 ## Sessions
 
@@ -189,6 +191,55 @@ Configurable session endpoints
 
 Cloudflare CORS note
 - The Cloudflare router will only set `Access-Control-Allow-Credentials: true` when echoing a specific Origin. If `corsOrigins` is `'*'`, credentials are not advertised (as required by Fetch/CORS rules). Use explicit origins when using cookie sessions.
+
+## PRF Session Seal Module (optional)
+
+`prfSessionSeal` routes are opt-in and can be composed with helper builders:
+
+```ts
+import { createRelayRouter } from '@tatchi-xyz/sdk/server/router/express';
+import {
+  createPrfSessionSealRoutesOptions,
+  createPrfSessionSealPolicyFromEcdsaAuthSessionStore,
+  createPrfSessionSealShamir3PassCipherAdapter,
+  resolvePrfSessionSealRateLimitFromEnv,
+} from '@tatchi-xyz/sdk/server';
+
+const ecdsaAuthSessionStore = /* your threshold-ecdsa auth session store */;
+const prfSessionSeal = createPrfSessionSealRoutesOptions({
+  sessionPolicy: createPrfSessionSealPolicyFromEcdsaAuthSessionStore(ecdsaAuthSessionStore),
+  cipher: createPrfSessionSealShamir3PassCipherAdapter({
+    currentKeyVersion: 'kek-s-2026-02',
+    keys: [{
+      keyVersion: 'kek-s-2026-02',
+      shamirPrimeB64u: process.env.SHAMIR_P_B64U!,
+      serverEncryptExponentB64u: process.env.SHAMIR_E_S_B64U!,
+      serverDecryptExponentB64u: process.env.SHAMIR_D_S_B64U!,
+    }],
+  }),
+  rateLimit: resolvePrfSessionSealRateLimitFromEnv({
+    limiterKind: 'upstash-redis-rest', // 'in-memory' | 'upstash-redis-rest' | 'redis-tcp'
+    upstashUrl: process.env.UPSTASH_REDIS_REST_URL,
+    upstashToken: process.env.UPSTASH_REDIS_REST_TOKEN,
+    redisUrl: process.env.REDIS_URL,
+    keyPrefix: 'threshold:prf-seal:rate:',
+    limit: 30,
+    windowMs: 60_000,
+  }),
+  logger: console,
+});
+
+app.use('/', createRelayRouter(service, {
+  session,
+  threshold,
+  prfSessionSeal,
+}));
+```
+
+Notes:
+- `createPrfSessionSealShamir3PassCipherAdapter(...)` supports pluggable runtimes; wire your `shamir-3-pass-rs` runtime in production.
+- Do not log raw ciphertexts; audit helpers intentionally avoid ciphertext fields.
+- Use `resolvePrfSessionSealRateLimitFromEnv(...)` to wire in-memory, Upstash REST, or Redis TCP rate limiting without changing route code.
 
 ## Config (required)
 
