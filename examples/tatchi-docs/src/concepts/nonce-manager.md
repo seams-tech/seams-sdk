@@ -32,6 +32,7 @@ await rpc.sendTransaction(transaction);
 ```
 
 This works fine for single transactions, but fails catastrophically when:
+
 - Multiple components trigger transactions at once
 - Users have your app open in multiple tabs
 - Transactions are sent in quick succession
@@ -57,6 +58,7 @@ The Nonce Manager provides a **concurrency-safe API** that eliminates these race
 #### 1. Prefetch Phase
 
 The manager proactively fetches:
+
 - Latest block height and hash (needed to build valid transactions)
 - Current nonce for your access key
 - Caches this data so concurrent operations don't trigger redundant RPC calls
@@ -64,6 +66,7 @@ The manager proactively fetches:
 #### 2. Reserve Phase
 
 When you request a nonce:
+
 - The manager calculates the next available value
 - Marks it as reserved in local state (isolated per browser tab)
 - For batches, call `reserveNonces(n)` to get `n` consecutive nonces atomically
@@ -71,6 +74,7 @@ When you request a nonce:
 #### 3. Update Phase
 
 After submitting a transaction:
+
 - The manager queries the blockchain to confirm the new state
 - Updates its internal pointer to reflect what actually happened on-chain
 - Handles edge cases where the blockchain moved ahead independently
@@ -84,7 +88,7 @@ Most developers never call the Nonce Manager directly. All high-level signing AP
 const signed = await tatchi.near.signTransactionsWithActions({
   nearAccountId: 'user.near',
   transactions: [tx1, tx2, tx3],
-})
+});
 // Nonces are assigned correctly, even for concurrent calls
 ```
 
@@ -101,6 +105,7 @@ The Nonce Manager is an internal component of the signing flow; the public API i
 ## Why This Matters
 
 Without proper nonce management, you'd need to:
+
 - Build your own queuing system for transactions
 - Handle race conditions manually
 - Deal with subtle timing bugs in production

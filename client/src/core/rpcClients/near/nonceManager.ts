@@ -64,7 +64,9 @@ export class NonceManager {
       if (this.inflightFetch) return; // already fetching
 
       const now = Date.now();
-      const isBlockStale = !this.lastBlockHeightUpdate || (now - this.lastBlockHeightUpdate) >= this.BLOCK_FRESHNESS_THRESHOLD;
+      const isBlockStale =
+        !this.lastBlockHeightUpdate ||
+        now - this.lastBlockHeightUpdate >= this.BLOCK_FRESHNESS_THRESHOLD;
       const missingContext = !this.transactionContext;
       if (!isBlockStale && !missingContext) return;
 
@@ -113,7 +115,10 @@ export class NonceManager {
    * Smart caching method for nonce and block height data
    * Returns cached data if fresh, otherwise fetches synchronously
    */
-  public async getNonceBlockHashAndHeight(nearClient: NearClient, opts?: { force?: boolean }): Promise<TransactionContext> {
+  public async getNonceBlockHashAndHeight(
+    nearClient: NearClient,
+    opts?: { force?: boolean },
+  ): Promise<TransactionContext> {
     // Always prefer a fresh fetch for critical paths; coalesced by fetchFreshData.
     // This minimizes subtle cache bugs after key rotations/linking and across devices.
     if (!this.nearAccountId || !this.nearPublicKeyStr) {
@@ -142,8 +147,9 @@ export class NonceManager {
     if (nonceAge >= halfNonceTtl || blockAge >= halfBlockTtl) {
       this.clearRefreshTimer();
       // Fire-and-forget refresh to keep cache warm
-      void this.fetchFreshData(nearClient)
-        .catch((error) => console.warn('[NonceManager]: Background refresh failed:', error));
+      void this.fetchFreshData(nearClient).catch((error) =>
+        console.warn('[NonceManager]: Background refresh failed:', error),
+      );
       return;
     }
 
@@ -157,15 +163,19 @@ export class NonceManager {
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = null;
       if (this.inflightFetch) return;
-      void this.fetchFreshData(nearClient)
-        .catch((error) => console.warn('[NonceManager]: Background refresh failed:', error));
+      void this.fetchFreshData(nearClient).catch((error) =>
+        console.warn('[NonceManager]: Background refresh failed:', error),
+      );
     }, delay);
   }
 
   /**
    * Fetch fresh transaction context data from NEAR RPC
    */
-  private async fetchFreshData(nearClient: NearClient, force: boolean = false): Promise<TransactionContext> {
+  private async fetchFreshData(
+    nearClient: NearClient,
+    force: boolean = false,
+  ): Promise<TransactionContext> {
     // Coalesce concurrent refreshes when not forced to reduce redundant network calls.
     // Force=true is used by latency-critical paths (e.g., just-in-time refresh before signing) to guarantee a fresh block height.
     if (this.inflightFetch && !force) {
@@ -175,13 +185,19 @@ export class NonceManager {
     const capturedAccountId = this.nearAccountId;
     const capturedPublicKey = this.nearPublicKeyStr;
     // Start a new fetch; assign a unique id to guard commit and cleanup
-    const requestId = (++this.inflightId);
+    const requestId = ++this.inflightId;
     const fetchPromise = (async () => {
       try {
         // Determine what is actually stale so we only fetch what we need
         const now = Date.now();
-        const isNonceStale = force || !this.lastNonceUpdate || (now - this.lastNonceUpdate) >= this.NONCE_FRESHNESS_THRESHOLD;
-        const isBlockStale = force || !this.lastBlockHeightUpdate || (now - this.lastBlockHeightUpdate) >= this.BLOCK_FRESHNESS_THRESHOLD;
+        const isNonceStale =
+          force ||
+          !this.lastNonceUpdate ||
+          now - this.lastNonceUpdate >= this.NONCE_FRESHNESS_THRESHOLD;
+        const isBlockStale =
+          force ||
+          !this.lastBlockHeightUpdate ||
+          now - this.lastBlockHeightUpdate >= this.BLOCK_FRESHNESS_THRESHOLD;
 
         let accessKeyInfo = this.transactionContext?.accessKeyInfo;
         let txBlockHeight = this.transactionContext?.txBlockHeight;
@@ -200,34 +216,42 @@ export class NonceManager {
         const tasks: Promise<void>[] = [];
 
         if (fetchAccessKey) {
-          tasks.push((async () => {
-            try {
-              maybeAccessKey = await nearClient.viewAccessKey(capturedAccountId!, capturedPublicKey!);
-            } catch (akErr: unknown) {
-              const msg = errorMessage(akErr);
-              const missingAk = msg.includes('does not exist while viewing')
-                || msg.includes('Access key not found')
-                || msg.includes('unknown public key')
-                || msg.includes('does not exist');
-              if (missingAk) {
-                // Non-fatal: proceed without live AK; compute nextNonce conservatively
-                maybeAccessKey = null;
-              } else {
-                accessKeyError = akErr;
+          tasks.push(
+            (async () => {
+              try {
+                maybeAccessKey = await nearClient.viewAccessKey(
+                  capturedAccountId!,
+                  capturedPublicKey!,
+                );
+              } catch (akErr: unknown) {
+                const msg = errorMessage(akErr);
+                const missingAk =
+                  msg.includes('does not exist while viewing') ||
+                  msg.includes('Access key not found') ||
+                  msg.includes('unknown public key') ||
+                  msg.includes('does not exist');
+                if (missingAk) {
+                  // Non-fatal: proceed without live AK; compute nextNonce conservatively
+                  maybeAccessKey = null;
+                } else {
+                  accessKeyError = akErr;
+                }
               }
-            }
-          })());
+            })(),
+          );
         }
 
         if (fetchBlock) {
-          tasks.push((async () => {
-            try {
-              maybeBlock = await nearClient.viewBlock({ finality: 'final' });
-            } catch (err: unknown) {
-              // Block info is required
-              blockError = err;
-            }
-          })());
+          tasks.push(
+            (async () => {
+              try {
+                maybeBlock = await nearClient.viewBlock({ finality: 'final' });
+              } catch (err: unknown) {
+                // Block info is required
+                blockError = err;
+              }
+            })(),
+          );
         }
 
         if (tasks.length > 0) {
@@ -261,9 +285,9 @@ export class NonceManager {
 
         // Derive nextNonce from access key info + current context + reservations
         let nextCandidate = this.maxBigInt(
-          accessKeyInfo?.nonce !== undefined ? (BigInt(accessKeyInfo.nonce) + 1n) : 0n,
+          accessKeyInfo?.nonce !== undefined ? BigInt(accessKeyInfo.nonce) + 1n : 0n,
           this.transactionContext?.nextNonce ? BigInt(this.transactionContext.nextNonce) : 0n,
-          this.lastReservedNonce ? BigInt(this.lastReservedNonce) + 1n : 0n
+          this.lastReservedNonce ? BigInt(this.lastReservedNonce) + 1n : 0n,
         );
         if (nextCandidate <= 0n) nextCandidate = 1n; // never use 0
         const nextNonce = nextCandidate.toString();
@@ -313,14 +337,16 @@ export class NonceManager {
    */
   public getTransactionContext(): TransactionContext {
     if (!this.transactionContext) {
-      throw new Error('Transaction context not available - call getNonceBlockHashAndHeight() first');
+      throw new Error(
+        'Transaction context not available - call getNonceBlockHashAndHeight() first',
+      );
     }
 
     // Check if data is stale (more than 30 seconds old)
     const now = Date.now();
     const maxAge = 30 * 1000; // 30 seconds
 
-    if (this.lastNonceUpdate && (now - this.lastNonceUpdate) > maxAge) {
+    if (this.lastNonceUpdate && now - this.lastNonceUpdate > maxAge) {
       console.warn('[NonceManager]: Transaction context is stale, consider refreshing');
     }
 
@@ -336,7 +362,7 @@ export class NonceManager {
     }
 
     const now = Date.now();
-    return (now - this.lastNonceUpdate) <= maxAgeMs;
+    return now - this.lastNonceUpdate <= maxAgeMs;
   }
 
   /**
@@ -358,9 +384,14 @@ export class NonceManager {
    * Useful after key rotations (e.g., link-device) or when encountering INVALID_NONCE.
    * Optionally clears any locally reserved nonces to avoid collisions.
    */
-  public async refreshNow(nearClient: NearClient, opts?: { clearReservations?: boolean }): Promise<TransactionContext> {
+  public async refreshNow(
+    nearClient: NearClient,
+    opts?: { clearReservations?: boolean },
+  ): Promise<TransactionContext> {
     if (opts?.clearReservations) {
-      try { this.releaseAllNonces(); } catch {}
+      try {
+        this.releaseAllNonces();
+      } catch {}
     }
     return await this.fetchFreshData(nearClient, true);
   }
@@ -373,7 +404,9 @@ export class NonceManager {
    */
   public reserveNonces(count: number = 1): string[] {
     if (!this.transactionContext) {
-      throw new Error('Transaction context not available - call getNonceBlockHashAndHeight() first');
+      throw new Error(
+        'Transaction context not available - call getNonceBlockHashAndHeight() first',
+      );
     }
 
     if (count <= 0) return [];
@@ -425,14 +458,20 @@ export class NonceManager {
    * @param nearClient - NEAR client for RPC calls
    * @param actualNonce - The actual nonce used in the completed transaction
    */
-  public async updateNonceFromBlockchain(nearClient: NearClient, actualNonce: string): Promise<void> {
+  public async updateNonceFromBlockchain(
+    nearClient: NearClient,
+    actualNonce: string,
+  ): Promise<void> {
     if (!this.nearAccountId || !this.nearPublicKeyStr) {
       throw new Error('NonceManager not initialized with user data');
     }
 
     try {
       // Fetch fresh access key info to get the latest nonce
-      const accessKeyInfo = await nearClient.viewAccessKey(this.nearAccountId, this.nearPublicKeyStr);
+      const accessKeyInfo = await nearClient.viewAccessKey(
+        this.nearAccountId,
+        this.nearPublicKeyStr,
+      );
 
       if (!accessKeyInfo || accessKeyInfo.nonce === undefined) {
         throw new Error(`Access key not found or invalid for account ${this.nearAccountId}`);
@@ -446,7 +485,7 @@ export class NonceManager {
       // - post-final: chainNonce >= actualNonce
       if (chainNonceBigInt < actualNonceBigInt - BigInt(1)) {
         console.warn(
-          `[NonceManager]: Chain nonce (${chainNonceBigInt}) behind expected (${actualNonceBigInt - BigInt(1)}). Updating...`
+          `[NonceManager]: Chain nonce (${chainNonceBigInt}) behind expected (${actualNonceBigInt - BigInt(1)}). Updating...`,
         );
       }
 
@@ -482,29 +521,31 @@ export class NonceManager {
 
       // Prune any reserved nonces that are now <= chain nonce (already used or invalid)
       if (this.reservedNonces.size > 0) {
-        const { set: prunedSet, lastReserved } = this.pruneReserved(chainNonceBigInt, this.reservedNonces);
+        const { set: prunedSet, lastReserved } = this.pruneReserved(
+          chainNonceBigInt,
+          this.reservedNonces,
+        );
         this.reservedNonces = prunedSet;
         this.lastReservedNonce = lastReserved;
       }
 
       console.debug(
-        `[NonceManager]: Updated from chain nonce=${chainNonceBigInt} actual=${actualNonceBigInt} next=${this.transactionContext!.nextNonce}`
+        `[NonceManager]: Updated from chain nonce=${chainNonceBigInt} actual=${actualNonceBigInt} next=${this.transactionContext!.nextNonce}`,
       );
-
-      } catch (error: unknown) {
-        const msg = errorMessage(error);
-        // Tolerate missing/rotated keys: avoid noisy error and advance nextNonce optimistically
-        if (msg.includes('does not exist while viewing') || msg.includes('Access key not found')) {
-          try {
-            const actualNonceBigInt = BigInt(actualNonce);
-            const candidateNext = this.maxBigInt(
-              actualNonceBigInt + 1n,
-              this.transactionContext?.nextNonce ? BigInt(this.transactionContext.nextNonce) : 0n,
-              this.lastReservedNonce ? BigInt(this.lastReservedNonce) + 1n : 0n,
-            );
-            if (this.transactionContext) {
-              this.transactionContext.nextNonce = candidateNext.toString();
-            } else {
+    } catch (error: unknown) {
+      const msg = errorMessage(error);
+      // Tolerate missing/rotated keys: avoid noisy error and advance nextNonce optimistically
+      if (msg.includes('does not exist while viewing') || msg.includes('Access key not found')) {
+        try {
+          const actualNonceBigInt = BigInt(actualNonce);
+          const candidateNext = this.maxBigInt(
+            actualNonceBigInt + 1n,
+            this.transactionContext?.nextNonce ? BigInt(this.transactionContext.nextNonce) : 0n,
+            this.lastReservedNonce ? BigInt(this.lastReservedNonce) + 1n : 0n,
+          );
+          if (this.transactionContext) {
+            this.transactionContext.nextNonce = candidateNext.toString();
+          } else {
             this.transactionContext = {
               nearPublicKeyStr: this.nearPublicKeyStr!,
               accessKeyInfo: makePlaceholderAccessKey(),
@@ -514,7 +555,10 @@ export class NonceManager {
             } as TransactionContext;
           }
           this.lastNonceUpdate = Date.now();
-          console.debug('[NonceManager]: Access key missing; advanced nextNonce optimistically to', this.transactionContext?.nextNonce);
+          console.debug(
+            '[NonceManager]: Access key missing; advanced nextNonce optimistically to',
+            this.transactionContext?.nextNonce,
+          );
           return;
         } catch {}
       }
@@ -553,7 +597,10 @@ export class NonceManager {
   }
 
   // Return a new reserved set that excludes entries <= chain nonce, and compute new lastReserved
-  private pruneReserved(chainNonceBigInt: bigint, reserved: Set<string>): { set: Set<string>, lastReserved: string | null } {
+  private pruneReserved(
+    chainNonceBigInt: bigint,
+    reserved: Set<string>,
+  ): { set: Set<string>; lastReserved: string | null } {
     const newSet = new Set<string>();
     let newLast: bigint | null = null;
     for (const r of reserved) {
@@ -569,10 +616,9 @@ export class NonceManager {
     }
     return {
       set: newSet,
-      lastReserved: newLast ? newLast.toString() : null
+      lastReserved: newLast ? newLast.toString() : null,
     };
   }
-
 }
 
 // ===== Type guards for NEAR RPC return shapes =====
@@ -596,8 +642,8 @@ function makePlaceholderAccessKey(): AccessKeyView {
     nonce: BigInt(0),
     permission: 'FullAccess',
     block_hash: '',
-    block_height: 0
-  }
+    block_height: 0,
+  };
 }
 
 // Create and export singleton instance

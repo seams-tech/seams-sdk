@@ -11,7 +11,6 @@ import { autoConfirmWalletIframeUntil } from '../setup/flows';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 
 test.describe('NonceManager Integration Tests', () => {
-
   test.beforeEach(async ({ page }) => {
     // Use a blank harness page so the example app does not configure wallet-iframe mode,
     // which disables IndexedDB on the app origin (NonceManager tests need app-origin IndexedDB).
@@ -31,7 +30,9 @@ test.describe('NonceManager Integration Tests', () => {
         const testAccountId = generateTestAccountId();
 
         // Ensure relay-server registration is mocked for deterministic success
-        try { (window as any).testUtils?.registrationFlowUtils?.setupRelayServerMock?.(true); } catch {}
+        try {
+          (window as any).testUtils?.registrationFlowUtils?.setupRelayServerMock?.(true);
+        } catch {}
 
         // Use a local (non-iframe) TatchiPasskey instance so NonceManager is initialized on the app origin.
         // Wallet-iframe mode keeps nonce/session state on the wallet origin.
@@ -41,12 +42,14 @@ test.describe('NonceManager Integration Tests', () => {
           nearNetwork: configs.nearNetwork,
           nearRpcUrl: configs.nearRpcUrl,
           relayer: configs.relayer,
+          signerMode: { mode: 'local-signer' },
           iframeWallet: { walletOrigin: '' },
         });
 
         // Register and login to get a working session
-        const cfg = ((window as any).testUtils?.confirmOverrides?.none)
-          || ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0} as const);
+        const cfg =
+          (window as any).testUtils?.confirmOverrides?.none ||
+          ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
         const registrationResult = await pm.registration.registerPasskeyInternal(
           testAccountId,
           { signerMode: { mode: 'local-signer' } },
@@ -62,7 +65,7 @@ test.describe('NonceManager Integration Tests', () => {
         }
 
         // Wait for session to settle
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise((resolve) => setTimeout(resolve, 2000));
 
         const ctx = pm.getContext();
 
@@ -88,12 +91,11 @@ test.describe('NonceManager Integration Tests', () => {
           hasFirstNonce: reservedNonces.has(nonces[0]),
           hasSecondNonce: reservedNonces.has(nonces[1]),
         };
-
       } catch (error: any) {
         return {
           success: false,
           error: error.message,
-          stack: error.stack
+          stack: error.stack,
         };
       }
     });
@@ -126,7 +128,9 @@ test.describe('NonceManager Integration Tests', () => {
         const testAccountId = generateTestAccountId();
 
         // Ensure relay-server registration is mocked for deterministic success
-        try { (window as any).testUtils?.registrationFlowUtils?.setupRelayServerMock?.(true); } catch {}
+        try {
+          (window as any).testUtils?.registrationFlowUtils?.setupRelayServerMock?.(true);
+        } catch {}
 
         // @ts-ignore - Runtime import
         const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
@@ -134,12 +138,14 @@ test.describe('NonceManager Integration Tests', () => {
           nearNetwork: configs.nearNetwork,
           nearRpcUrl: configs.nearRpcUrl,
           relayer: configs.relayer,
+          signerMode: { mode: 'local-signer' },
           iframeWallet: { walletOrigin: '' },
         });
 
         // Register and login
-        const cfg = ((window as any).testUtils?.confirmOverrides?.none)
-          || ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0} as const);
+        const cfg =
+          (window as any).testUtils?.confirmOverrides?.none ||
+          ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
         const registrationResult = await pm.registration.registerPasskeyInternal(
           testAccountId,
           { signerMode: { mode: 'local-signer' } },
@@ -154,7 +160,7 @@ test.describe('NonceManager Integration Tests', () => {
           throw new Error(`Login failed: ${loginResult.error}`);
         }
 
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise((resolve) => setTimeout(resolve, 2000));
 
         const ctx = pm.getContext();
         const nonceManager = ctx.signingEngine.getNonceManager();
@@ -170,7 +176,7 @@ test.describe('NonceManager Integration Tests', () => {
           transactionResults.push({
             transactionId: i + 1,
             nonce: nonce,
-            reserved: (nonceManager as any).reservedNonces.has(nonce)
+            reserved: (nonceManager as any).reservedNonces.has(nonce),
           });
         }
 
@@ -183,14 +189,14 @@ test.describe('NonceManager Integration Tests', () => {
           success: true,
           transactionResults: transactionResults,
           finalReservedCount: finalReservedCount,
-          allNoncesUnique: new Set(transactionResults.map(t => t.nonce)).size === transactionResults.length,
+          allNoncesUnique:
+            new Set(transactionResults.map((t) => t.nonce)).size === transactionResults.length,
         };
-
       } catch (error: any) {
         return {
           success: false,
           error: error.message,
-          stack: error.stack
+          stack: error.stack,
         };
       }
     });
@@ -211,7 +217,7 @@ test.describe('NonceManager Integration Tests', () => {
     expect(result.allNoncesUnique).toBe(true); // All nonces should be unique
 
     // Verify nonces are sequential
-    const nonces = result.transactionResults?.map(t => parseInt(t.nonce)) || [];
+    const nonces = result.transactionResults?.map((t) => parseInt(t.nonce)) || [];
     expect(nonces[1]).toBe(nonces[0] + 1);
     expect(nonces[2]).toBe(nonces[1] + 1);
 
@@ -226,7 +232,9 @@ test.describe('NonceManager Integration Tests', () => {
         const testAccountId = generateTestAccountId();
 
         // Ensure relay-server registration is mocked for deterministic success
-        try { (window as any).testUtils?.registrationFlowUtils?.setupRelayServerMock?.(true); } catch {}
+        try {
+          (window as any).testUtils?.registrationFlowUtils?.setupRelayServerMock?.(true);
+        } catch {}
 
         // @ts-ignore - Runtime import
         const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
@@ -234,12 +242,14 @@ test.describe('NonceManager Integration Tests', () => {
           nearNetwork: configs.nearNetwork,
           nearRpcUrl: configs.nearRpcUrl,
           relayer: configs.relayer,
+          signerMode: { mode: 'local-signer' },
           iframeWallet: { walletOrigin: '' },
         });
 
         // Register and login
-        const cfg = ((window as any).testUtils?.confirmOverrides?.none)
-          || ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0} as const);
+        const cfg =
+          (window as any).testUtils?.confirmOverrides?.none ||
+          ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
         const registrationResult = await pm.registration.registerPasskeyInternal(
           testAccountId,
           { signerMode: { mode: 'local-signer' } },
@@ -254,7 +264,7 @@ test.describe('NonceManager Integration Tests', () => {
           throw new Error(`Login failed: ${loginResult.error}`);
         }
 
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise((resolve) => setTimeout(resolve, 2000));
 
         const ctx = pm.getContext();
         const nonceManager = ctx.signingEngine.getNonceManager();
@@ -283,12 +293,11 @@ test.describe('NonceManager Integration Tests', () => {
           totalReserved: reservedNonces.size,
           allReserved: Array.from(reservedNonces),
         };
-
       } catch (error: any) {
         return {
           success: false,
           error: error.message,
-          stack: error.stack
+          stack: error.stack,
         };
       }
     });
@@ -313,12 +322,11 @@ test.describe('NonceManager Integration Tests', () => {
 
     // Verify nonces are sequential
     const allNonces = [...result.batch1, ...result.batch2, result.single, ...result.batch3];
-    const sortedNonces = allNonces.map(n => parseInt(n)).sort((a, b) => a - b);
+    const sortedNonces = allNonces.map((n) => parseInt(n)).sort((a, b) => a - b);
     for (let i = 1; i < sortedNonces.length; i++) {
-      expect(sortedNonces[i]).toBe(sortedNonces[i-1] + 1);
+      expect(sortedNonces[i]).toBe(sortedNonces[i - 1] + 1);
     }
 
     console.log('NonceManager batch transaction with real context test passed');
   });
-
 });

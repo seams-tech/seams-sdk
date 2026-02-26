@@ -13,67 +13,68 @@ const IMPORT_PATHS = {
 } as const;
 
 test.describe('NonceManager Pure Unit Tests', () => {
-
   test.beforeEach(async ({ page }) => {
     // Minimal bootstrap for pure unit tests: ensure origin is available for /sdk imports
     await page.goto('/');
   });
 
   test('NonceManager - Basic Nonce Reservation', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      try {
-        // @ts-ignore - Runtime import
-        const nonceManager = (await import(paths.nonceManager)).default;
-        nonceManager.clear();
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        try {
+          // @ts-ignore - Runtime import
+          const nonceManager = (await import(paths.nonceManager)).default;
+          nonceManager.clear();
 
-        // Initialize with test data
-        nonceManager.initializeUser('test-account', 'test-public-key');
+          // Initialize with test data
+          nonceManager.initializeUser('test-account', 'test-public-key');
 
-        // Mock transaction context
-        const mockTransactionContext = {
-          nearPublicKeyStr: 'test-public-key',
-          accessKeyInfo: { nonce: '100' },
-          nextNonce: '101',
-          txBlockHeight: '1000',
-          txBlockHash: 'test-block-hash',
-        };
+          // Mock transaction context
+          const mockTransactionContext = {
+            nearPublicKeyStr: 'test-public-key',
+            accessKeyInfo: { nonce: '100' },
+            nextNonce: '101',
+            txBlockHeight: '1000',
+            txBlockHash: 'test-block-hash',
+          };
 
-        // Set up the manager with test data
-        (nonceManager as any).transactionContext = mockTransactionContext;
-        (nonceManager as any).lastNonceUpdate = Date.now();
-        (nonceManager as any).lastBlockHeightUpdate = Date.now();
+          // Set up the manager with test data
+          (nonceManager as any).transactionContext = mockTransactionContext;
+          (nonceManager as any).lastNonceUpdate = Date.now();
+          (nonceManager as any).lastBlockHeightUpdate = Date.now();
 
-        // Test single nonce reservation
-        const nonce = nonceManager.getNextNonce(); // should be '101'
+          // Test single nonce reservation
+          const nonce = nonceManager.getNextNonce(); // should be '101'
 
-        // Test multiple nonce reservation (continues after last reserved)
-        const nonces = nonceManager.reserveNonces(3); // should be ['102','103','104']
+          // Test multiple nonce reservation (continues after last reserved)
+          const nonces = nonceManager.reserveNonces(3); // should be ['102','103','104']
 
-        // Test nonce release (release '102' only)
-        nonceManager.releaseNonce('102');
+          // Test nonce release (release '102' only)
+          nonceManager.releaseNonce('102');
 
-        // Check reserved nonces
-        const reservedNonces = (nonceManager as any).reservedNonces;
+          // Check reserved nonces
+          const reservedNonces = (nonceManager as any).reservedNonces;
 
-        return {
-          success: true as const,
-          singleNonce: nonce,
-          batchNonces: nonces,
-          reservedCount: reservedNonces.size,
-          hasNonce101: reservedNonces.has('101'),
-          hasNonce102: reservedNonces.has('102'),
-          hasNonce103: reservedNonces.has('103'),
-          hasNonce104: reservedNonces.has('104'),
-        };
-
-      } catch (error: any) {
-        return {
-          success: false as const,
-          error: error.message,
-          stack: error.stack
-        };
-      }
-    }, { paths: IMPORT_PATHS });
+          return {
+            success: true as const,
+            singleNonce: nonce,
+            batchNonces: nonces,
+            reservedCount: reservedNonces.size,
+            hasNonce101: reservedNonces.has('101'),
+            hasNonce102: reservedNonces.has('102'),
+            hasNonce103: reservedNonces.has('103'),
+            hasNonce104: reservedNonces.has('104'),
+          };
+        } catch (error: any) {
+          return {
+            success: false as const,
+            error: error.message,
+            stack: error.stack,
+          };
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     // Handle infrastructure errors
     if (!result.success) {
@@ -98,69 +99,72 @@ test.describe('NonceManager Pure Unit Tests', () => {
   });
 
   test('NonceManager - initializeUser is idempotent for same access key', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      try {
-        // @ts-ignore - Runtime import
-        const nonceManager = (await import(paths.nonceManager)).default;
-        nonceManager.clear();
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        try {
+          // @ts-ignore - Runtime import
+          const nonceManager = (await import(paths.nonceManager)).default;
+          nonceManager.clear();
 
-        // Initialize with test data
-        nonceManager.initializeUser('test-account', 'test-public-key');
+          // Initialize with test data
+          nonceManager.initializeUser('test-account', 'test-public-key');
 
-        // Mock transaction context
-        const mockTransactionContext = {
-          nearPublicKeyStr: 'test-public-key',
-          accessKeyInfo: { nonce: '10' },
-          nextNonce: '11',
-          txBlockHeight: '1000',
-          txBlockHash: 'test-block-hash',
-        };
+          // Mock transaction context
+          const mockTransactionContext = {
+            nearPublicKeyStr: 'test-public-key',
+            accessKeyInfo: { nonce: '10' },
+            nextNonce: '11',
+            txBlockHeight: '1000',
+            txBlockHash: 'test-block-hash',
+          };
 
-        // Seed cache + reservations
-        (nonceManager as any).transactionContext = mockTransactionContext;
-        (nonceManager as any).lastNonceUpdate = Date.now();
-        (nonceManager as any).lastBlockHeightUpdate = Date.now();
-        nonceManager.reserveNonces(2); // 11, 12
+          // Seed cache + reservations
+          (nonceManager as any).transactionContext = mockTransactionContext;
+          (nonceManager as any).lastNonceUpdate = Date.now();
+          (nonceManager as any).lastBlockHeightUpdate = Date.now();
+          nonceManager.reserveNonces(2); // 11, 12
 
-        const reservedBefore = (nonceManager as any).reservedNonces;
-        const before = {
-          hasContext: !!(nonceManager as any).transactionContext,
-          reservedCount: reservedBefore.size,
-          lastReservedNonce: (nonceManager as any).lastReservedNonce,
-        };
+          const reservedBefore = (nonceManager as any).reservedNonces;
+          const before = {
+            hasContext: !!(nonceManager as any).transactionContext,
+            reservedCount: reservedBefore.size,
+            lastReservedNonce: (nonceManager as any).lastReservedNonce,
+          };
 
-        // Re-initialize with the same identity; should be a no-op
-        nonceManager.initializeUser('test-account', 'test-public-key');
+          // Re-initialize with the same identity; should be a no-op
+          nonceManager.initializeUser('test-account', 'test-public-key');
 
-        const reservedAfter = (nonceManager as any).reservedNonces;
-        const after = {
-          hasContext: !!(nonceManager as any).transactionContext,
-          reservedCount: reservedAfter.size,
-          lastReservedNonce: (nonceManager as any).lastReservedNonce,
-        };
+          const reservedAfter = (nonceManager as any).reservedNonces;
+          const after = {
+            hasContext: !!(nonceManager as any).transactionContext,
+            reservedCount: reservedAfter.size,
+            lastReservedNonce: (nonceManager as any).lastReservedNonce,
+          };
 
-        // Sanity: switching keys should clear
-        nonceManager.initializeUser('test-account', 'different-public-key');
-        const switched = {
-          hasContext: !!(nonceManager as any).transactionContext,
-          reservedCount: (nonceManager as any).reservedNonces.size,
-          lastReservedNonce: (nonceManager as any).lastReservedNonce,
-        };
+          // Sanity: switching keys should clear
+          nonceManager.initializeUser('test-account', 'different-public-key');
+          const switched = {
+            hasContext: !!(nonceManager as any).transactionContext,
+            reservedCount: (nonceManager as any).reservedNonces.size,
+            lastReservedNonce: (nonceManager as any).lastReservedNonce,
+          };
 
-        return {
-          success: true as const,
-          before,
-          after,
-          switched,
-        };
-      } catch (error: any) {
-        return {
-          success: false as const,
-          error: error.message,
-          stack: error.stack
-        };
-      }
-    }, { paths: IMPORT_PATHS });
+          return {
+            success: true as const,
+            before,
+            after,
+            switched,
+          };
+        } catch (error: any) {
+          return {
+            success: false as const,
+            error: error.message,
+            stack: error.stack,
+          };
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     if (!result.success) {
       if (handleInfrastructureErrors(result)) {
@@ -186,58 +190,60 @@ test.describe('NonceManager Pure Unit Tests', () => {
   });
 
   test('NonceManager - Batch Transaction Scenarios', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      try {
-        // @ts-ignore - Runtime import
-        const nonceManager = (await import(paths.nonceManager)).default;
-        nonceManager.clear();
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        try {
+          // @ts-ignore - Runtime import
+          const nonceManager = (await import(paths.nonceManager)).default;
+          nonceManager.clear();
 
-        // Initialize with test data
-        nonceManager.initializeUser('test-account', 'test-public-key');
+          // Initialize with test data
+          nonceManager.initializeUser('test-account', 'test-public-key');
 
-        // Mock transaction context
-        const mockTransactionContext = {
-          nearPublicKeyStr: 'test-public-key',
-          accessKeyInfo: { nonce: '200' },
-          nextNonce: '201',
-          txBlockHeight: '2000',
-          txBlockHash: 'test-block-hash-2',
-        };
+          // Mock transaction context
+          const mockTransactionContext = {
+            nearPublicKeyStr: 'test-public-key',
+            accessKeyInfo: { nonce: '200' },
+            nextNonce: '201',
+            txBlockHeight: '2000',
+            txBlockHash: 'test-block-hash-2',
+          };
 
-        (nonceManager as any).transactionContext = mockTransactionContext;
-        (nonceManager as any).lastNonceUpdate = Date.now();
-        (nonceManager as any).lastBlockHeightUpdate = Date.now();
+          (nonceManager as any).transactionContext = mockTransactionContext;
+          (nonceManager as any).lastNonceUpdate = Date.now();
+          (nonceManager as any).lastBlockHeightUpdate = Date.now();
 
-        // Test consecutive batch transactions
-        const batch1 = nonceManager.reserveNonces(3);
-        batch1.forEach((nonce: string) => nonceManager.releaseNonce(nonce));
+          // Test consecutive batch transactions
+          const batch1 = nonceManager.reserveNonces(3);
+          batch1.forEach((nonce: string) => nonceManager.releaseNonce(nonce));
 
-        const batch2 = nonceManager.reserveNonces(2);
+          const batch2 = nonceManager.reserveNonces(2);
 
-        // Test mixed single and batch
-        const single = nonceManager.getNextNonce();
-        const batch3 = nonceManager.reserveNonces(2);
+          // Test mixed single and batch
+          const single = nonceManager.getNextNonce();
+          const batch3 = nonceManager.reserveNonces(2);
 
-        const reservedNonces = (nonceManager as any).reservedNonces;
+          const reservedNonces = (nonceManager as any).reservedNonces;
 
-        return {
-          success: true as const,
-          batch1: batch1,
-          batch2: batch2,
-          single: single,
-          batch3: batch3,
-          totalReserved: reservedNonces.size,
-          allReserved: Array.from(reservedNonces),
-        };
-
-      } catch (error: any) {
-        return {
-          success: false as const,
-          error: error.message,
-          stack: error.stack
-        };
-      }
-    }, { paths: IMPORT_PATHS });
+          return {
+            success: true as const,
+            batch1: batch1,
+            batch2: batch2,
+            single: single,
+            batch3: batch3,
+            totalReserved: reservedNonces.size,
+            allReserved: Array.from(reservedNonces),
+          };
+        } catch (error: any) {
+          return {
+            success: false as const,
+            error: error.message,
+            stack: error.stack,
+          };
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     if (!result.success) {
       if (handleInfrastructureErrors(result)) {
@@ -260,54 +266,56 @@ test.describe('NonceManager Pure Unit Tests', () => {
   });
 
   test('NonceManager - Error Handling', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      try {
-        // @ts-ignore - Runtime import
-        const nonceManager = (await import(paths.nonceManager)).default;
-        nonceManager.clear();
-
-        const errors: string[] = [];
-
-        // Test error when no transaction context
+    const result = await page.evaluate(
+      async ({ paths }) => {
         try {
-          nonceManager.initializeUser('test-account', 'test-public-key');
-          nonceManager.reserveNonces(1);
-        } catch (error: any) {
-          errors.push(`No context: ${error.message}`);
-        }
-
-        // Test graceful handling of releasing non-existent nonce
-        try {
-          nonceManager.releaseNonce('999');
-        } catch (error: any) {
-          errors.push(`Release error: ${error.message}`);
-        }
-
-        // Test clear functionality
-        try {
+          // @ts-ignore - Runtime import
+          const nonceManager = (await import(paths.nonceManager)).default;
           nonceManager.clear();
-          const reservedCount = (nonceManager as any).reservedNonces.size;
-          if (reservedCount !== 0) {
-            errors.push(`Clear failed: reserved count is ${reservedCount}`);
+
+          const errors: string[] = [];
+
+          // Test error when no transaction context
+          try {
+            nonceManager.initializeUser('test-account', 'test-public-key');
+            nonceManager.reserveNonces(1);
+          } catch (error: any) {
+            errors.push(`No context: ${error.message}`);
           }
+
+          // Test graceful handling of releasing non-existent nonce
+          try {
+            nonceManager.releaseNonce('999');
+          } catch (error: any) {
+            errors.push(`Release error: ${error.message}`);
+          }
+
+          // Test clear functionality
+          try {
+            nonceManager.clear();
+            const reservedCount = (nonceManager as any).reservedNonces.size;
+            if (reservedCount !== 0) {
+              errors.push(`Clear failed: reserved count is ${reservedCount}`);
+            }
+          } catch (error: any) {
+            errors.push(`Clear error: ${error.message}`);
+          }
+
+          return {
+            success: true as const,
+            errors: errors,
+            errorCount: errors.length,
+          };
         } catch (error: any) {
-          errors.push(`Clear error: ${error.message}`);
+          return {
+            success: false as const,
+            error: error.message,
+            stack: error.stack,
+          };
         }
-
-        return {
-          success: true as const,
-          errors: errors,
-          errorCount: errors.length,
-        };
-
-      } catch (error: any) {
-        return {
-          success: false as const,
-          error: error.message,
-          stack: error.stack
-        };
-      }
-    }, { paths: IMPORT_PATHS });
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     if (!result.success) {
       if (handleInfrastructureErrors(result)) {
@@ -326,60 +334,63 @@ test.describe('NonceManager Pure Unit Tests', () => {
   });
 
   test('NonceManager - Consecutive Transaction Simulation (Mocked)', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      try {
-        // @ts-ignore - Runtime import
-        const nonceManager = (await import(paths.nonceManager)).default;
-        nonceManager.clear();
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        try {
+          // @ts-ignore - Runtime import
+          const nonceManager = (await import(paths.nonceManager)).default;
+          nonceManager.clear();
 
-        // Test consecutive transaction simulation without requiring full TatchiPasskey setup
-        nonceManager.initializeUser('test-account', 'test-public-key');
+          // Test consecutive transaction simulation without requiring full TatchiPasskey setup
+          nonceManager.initializeUser('test-account', 'test-public-key');
 
-        // Mock transaction context for consecutive transaction testing
-        const mockTransactionContext = {
-          nearPublicKeyStr: 'test-public-key',
-          accessKeyInfo: { nonce: '600' },
-          nextNonce: '601',
-          txBlockHeight: '6000',
-          txBlockHash: 'test-block-hash-consecutive',
-        };
+          // Mock transaction context for consecutive transaction testing
+          const mockTransactionContext = {
+            nearPublicKeyStr: 'test-public-key',
+            accessKeyInfo: { nonce: '600' },
+            nextNonce: '601',
+            txBlockHeight: '6000',
+            txBlockHash: 'test-block-hash-consecutive',
+          };
 
-        (nonceManager as any).transactionContext = mockTransactionContext;
-        (nonceManager as any).lastNonceUpdate = Date.now();
-        (nonceManager as any).lastBlockHeightUpdate = Date.now();
+          (nonceManager as any).transactionContext = mockTransactionContext;
+          (nonceManager as any).lastNonceUpdate = Date.now();
+          (nonceManager as any).lastBlockHeightUpdate = Date.now();
 
-        // Simulate consecutive transactions
-        const transactionResults = [];
+          // Simulate consecutive transactions
+          const transactionResults = [];
 
-        for (let i = 0; i < 3; i++) {
-          const nonce = nonceManager.getNextNonce();
-          transactionResults.push({
-            transactionId: i + 1,
-            nonce: nonce,
-            reserved: (nonceManager as any).reservedNonces.has(nonce)
-          });
+          for (let i = 0; i < 3; i++) {
+            const nonce = nonceManager.getNextNonce();
+            transactionResults.push({
+              transactionId: i + 1,
+              nonce: nonce,
+              reserved: (nonceManager as any).reservedNonces.has(nonce),
+            });
+          }
+
+          // Release all nonces
+          nonceManager.releaseAllNonces();
+
+          const finalReservedCount = (nonceManager as any).reservedNonces.size;
+
+          return {
+            success: true as const,
+            transactionResults: transactionResults,
+            finalReservedCount: finalReservedCount,
+            allNoncesUnique:
+              new Set(transactionResults.map((t) => t.nonce)).size === transactionResults.length,
+          };
+        } catch (error: any) {
+          return {
+            success: false as const,
+            error: error.message,
+            stack: error.stack,
+          };
         }
-
-        // Release all nonces
-        nonceManager.releaseAllNonces();
-
-        const finalReservedCount = (nonceManager as any).reservedNonces.size;
-
-        return {
-          success: true as const,
-          transactionResults: transactionResults,
-          finalReservedCount: finalReservedCount,
-          allNoncesUnique: new Set(transactionResults.map(t => t.nonce)).size === transactionResults.length,
-        };
-
-      } catch (error: any) {
-        return {
-          success: false as const,
-          error: error.message,
-          stack: error.stack
-        };
-      }
-    }, { paths: IMPORT_PATHS });
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     if (!result.success) {
       if (handleInfrastructureErrors(result)) {
@@ -402,5 +413,4 @@ test.describe('NonceManager Pure Unit Tests', () => {
 
     console.log('NonceManager consecutive transaction test passed');
   });
-
 });
