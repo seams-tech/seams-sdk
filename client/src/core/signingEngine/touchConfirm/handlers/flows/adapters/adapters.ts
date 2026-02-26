@@ -139,14 +139,18 @@ async function renderConfirmUI({
   confirmationConfig,
   transactionSummary,
   securityContext,
+  loading,
   theme,
+  onMounted,
 }: {
   ctx: TouchConfirmContext;
   request: UserConfirmRequest;
   confirmationConfig: ConfirmationConfig;
   transactionSummary: TransactionSummary;
   securityContext?: Partial<UserConfirmSecurityContext>;
+  loading?: boolean;
   theme: ThemeName;
+  onMounted?: (handle: ConfirmUIHandle) => void;
 }): Promise<{ confirmed: boolean; confirmHandle?: ConfirmUIHandle; error?: string }> {
   const nearAccountIdForUi = getNearAccountId(request);
 
@@ -164,11 +168,12 @@ async function renderConfirmUI({
         txSigningRequests,
         model,
         securityContext,
-        loading: true,
+        loading: loading ?? true,
         theme,
         uiMode: mode,
         nearAccountIdOverride: nearAccountIdForUi,
       });
+      onMounted?.(handle);
       const delay = confirmationConfig.autoProceedDelay ?? 0;
       await new Promise((r) => setTimeout(r, delay));
       return { confirmed: true, confirmHandle: handle } as const;
@@ -180,9 +185,11 @@ async function renderConfirmUI({
       txSigningRequests,
       model,
       securityContext,
+      loading,
       theme,
       uiMode: mode,
       nearAccountIdOverride: nearAccountIdForUi,
+      onMounted,
     });
     return { confirmed, confirmHandle: handle, error } as const;
   };
@@ -273,13 +280,26 @@ export function createConfirmSession({
     confirmHandle?.update?.(props);
   };
 
-  const promptUser = async ({ securityContext }: { securityContext?: Partial<UserConfirmSecurityContext> }) => {
+  const promptUser = async ({
+    securityContext,
+    loading,
+    onMounted,
+  }: {
+    securityContext?: Partial<UserConfirmSecurityContext>;
+    loading?: boolean;
+    onMounted?: (handle: ConfirmUIHandle) => void;
+  }) => {
     const { confirmed, confirmHandle: handle, error } = await adapters.ui.renderConfirmUI({
       request,
       confirmationConfig,
       transactionSummary,
       securityContext,
+      loading,
       theme,
+      onMounted: (mountedHandle) => {
+        confirmHandle = mountedHandle;
+        onMounted?.(mountedHandle);
+      },
     });
     confirmHandle = handle;
     return { confirmed, error };
@@ -303,4 +323,3 @@ export function createConfirmSession({
     confirmAndCloseModal,
   };
 }
-

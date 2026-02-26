@@ -38,6 +38,9 @@ export const DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY: ThresholdEcdsaPresignP
   refillAttemptTimeoutMs: 30_000,
 };
 
+const TEMPO_L1_EXPLORER_URL = 'https://explore.tempo.xyz';
+const CIRCLE_ARC_L1_EXPLORER_URL = 'https://testnet.arcscan.app';
+
 export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigs = {
   // You can provide a single URL or a comma-separated list for failover.
   // First URL is treated as primary, subsequent URLs are fallbacks.
@@ -54,8 +57,8 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigs = {
   // Default account domain for newly created accounts (subaccounts under the relayer).
   relayerAccount: 'w3a-relayer.testnet',
   nearExplorerUrl: 'https://testnet.nearblocks.io',
-  tempoExplorerUrl: undefined,
-  evmExplorerUrl: undefined,
+  tempoExplorerUrl: TEMPO_L1_EXPLORER_URL,
+  evmExplorerUrl: CIRCLE_ARC_L1_EXPLORER_URL,
   signerMode: { mode: 'local-signer' },
   // Warm signing session defaults used by login/unlock flows.
   // Enforcement (TTL/uses) is owned by the UserConfirm worker (wallet origin); signer workers remain one-shot.
