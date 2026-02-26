@@ -28,14 +28,20 @@ function isExpired(session: PrfSessionSealThresholdSessionRecord, nowMs: number)
   return !Number.isFinite(session.expiresAtMs) || session.expiresAtMs <= nowMs;
 }
 
-function shouldConsume(policy: PrfSessionSealConsumePolicy, operation: PrfSessionSealOperation): boolean {
+function shouldConsume(
+  policy: PrfSessionSealConsumePolicy,
+  operation: PrfSessionSealOperation,
+): boolean {
   if (policy === 'always') return true;
   if (policy === 'apply-only') return operation === 'apply-server-seal';
   if (policy === 'remove-only') return operation === 'remove-server-seal';
   return false;
 }
 
-function mapConsumeFailure(input: PrfSessionSealConsumeUseResult & { ok: false }): { code: string; message: string } {
+function mapConsumeFailure(input: PrfSessionSealConsumeUseResult & { ok: false }): {
+  code: string;
+  message: string;
+} {
   const code = toCode(input.code, 'unauthorized');
   const message = toMessage(input.message, 'Threshold session rejected');
   const lowered = message.toLowerCase();
@@ -74,12 +80,21 @@ async function emitAudit(input: {
 async function runSealOperation(input: {
   options: CreatePrfSessionSealServiceOptions;
   operation: PrfSessionSealOperation;
-  request: { thresholdSessionId: string; ciphertext: string; keyVersion?: string; metadata?: Record<string, unknown> };
+  request: {
+    thresholdSessionId: string;
+    ciphertext: string;
+    keyVersion?: string;
+    metadata?: Record<string, unknown>;
+  };
   auth: { userId: string; claims: Record<string, unknown> };
 }): Promise<PrfSessionSealRouteResult> {
   const nowMs = input.options.nowMs || Date.now;
   const startedAtMs = nowMs();
-  let result: PrfSessionSealRouteResult = { ok: false, code: 'internal', message: 'Internal error' };
+  let result: PrfSessionSealRouteResult = {
+    ok: false,
+    code: 'internal',
+    message: 'Internal error',
+  };
 
   try {
     const session = await input.options.sessionPolicy.getSession(input.request.thresholdSessionId);
@@ -137,7 +152,9 @@ async function runSealOperation(input: {
         };
         return result;
       }
-      const consumed = await input.options.sessionPolicy.consumeUseCount(input.request.thresholdSessionId);
+      const consumed = await input.options.sessionPolicy.consumeUseCount(
+        input.request.thresholdSessionId,
+      );
       if (!consumed.ok) {
         const mapped = mapConsumeFailure(consumed);
         result = { ok: false, code: mapped.code, message: mapped.message };
@@ -191,7 +208,9 @@ async function runSealOperation(input: {
   }
 }
 
-export function createPrfSessionSealService(options: CreatePrfSessionSealServiceOptions): PrfSessionSealService {
+export function createPrfSessionSealService(
+  options: CreatePrfSessionSealServiceOptions,
+): PrfSessionSealService {
   return {
     applyServerSeal: async (request, auth) =>
       await runSealOperation({

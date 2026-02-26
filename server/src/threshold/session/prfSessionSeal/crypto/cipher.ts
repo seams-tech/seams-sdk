@@ -10,26 +10,24 @@ type HandlerInput = Omit<PrfSessionSealCipherOperationInput, 'operation'>;
 type HandlerResult = PrfSessionSealCipherOperationResult;
 
 export interface CreatePrfSessionSealCipherAdapterOptions {
-  applyServerSeal: (
-    input: HandlerInput,
-  ) => Promise<HandlerResult> | HandlerResult;
-  removeServerSeal: (
-    input: HandlerInput,
-  ) => Promise<HandlerResult> | HandlerResult;
+  applyServerSeal: (input: HandlerInput) => Promise<HandlerResult> | HandlerResult;
+  removeServerSeal: (input: HandlerInput) => Promise<HandlerResult> | HandlerResult;
 }
 
 function toErrorResult(error: unknown): { ok: false; code: string; message: string } {
   if (
-    error
-    && typeof error === 'object'
-    && !Array.isArray(error)
-    && (error as { code?: unknown }).code
+    error &&
+    typeof error === 'object' &&
+    !Array.isArray(error) &&
+    (error as { code?: unknown }).code
   ) {
     const code = String((error as { code?: unknown }).code || '').trim() || 'internal';
-    const message = String((error as { message?: unknown }).message || '').trim() || 'PRF seal cipher failed';
+    const message =
+      String((error as { message?: unknown }).message || '').trim() || 'PRF seal cipher failed';
     return { ok: false, code, message };
   }
-  const message = error instanceof Error ? error.message : String(error || 'PRF seal cipher failed');
+  const message =
+    error instanceof Error ? error.message : String(error || 'PRF seal cipher failed');
   return { ok: false, code: 'internal', message };
 }
 
@@ -54,7 +52,9 @@ export function createPrfSessionSealCipherAdapter(
   options: CreatePrfSessionSealCipherAdapterOptions,
 ): PrfSessionSealCipherAdapter {
   return {
-    run: async (input: PrfSessionSealCipherOperationInput): Promise<PrfSessionSealCipherOperationResult> => {
+    run: async (
+      input: PrfSessionSealCipherOperationInput,
+    ): Promise<PrfSessionSealCipherOperationResult> => {
       const handlerInput: HandlerInput = {
         thresholdSessionId: input.thresholdSessionId,
         ciphertext: input.ciphertext,
@@ -63,9 +63,10 @@ export function createPrfSessionSealCipherAdapter(
         auth: input.auth,
       };
       try {
-        const output = input.operation === 'apply-server-seal'
-          ? await options.applyServerSeal(handlerInput)
-          : await options.removeServerSeal(handlerInput);
+        const output =
+          input.operation === 'apply-server-seal'
+            ? await options.applyServerSeal(handlerInput)
+            : await options.removeServerSeal(handlerInput);
         return normalizeResult(output);
       } catch (error: unknown) {
         return toErrorResult(error);
@@ -96,12 +97,8 @@ export interface PrfSessionSealShamir3PassRuntimeInput {
 }
 
 export interface PrfSessionSealShamir3PassRuntime {
-  addServerSeal(
-    input: PrfSessionSealShamir3PassRuntimeInput,
-  ): Promise<string> | string;
-  removeServerSeal(
-    input: PrfSessionSealShamir3PassRuntimeInput,
-  ): Promise<string> | string;
+  addServerSeal(input: PrfSessionSealShamir3PassRuntimeInput): Promise<string> | string;
+  removeServerSeal(input: PrfSessionSealShamir3PassRuntimeInput): Promise<string> | string;
 }
 
 export interface PrfSessionSealShamir3PassKeyMaterial {
@@ -211,22 +208,28 @@ function cipherFailure(code: string, message: string): PrfSessionSealCipherOpera
 
 function mapCipherError(error: unknown, fallback: string): PrfSessionSealCipherOperationResult {
   if (
-    error
-    && typeof error === 'object'
-    && !Array.isArray(error)
-    && (error as { code?: unknown }).code
+    error &&
+    typeof error === 'object' &&
+    !Array.isArray(error) &&
+    (error as { code?: unknown }).code
   ) {
     const code = toOptionalTrimmedString((error as { code?: unknown }).code) || 'internal';
     const message = toOptionalTrimmedString((error as { message?: unknown }).message) || fallback;
     return cipherFailure(code, message);
   }
 
-  const message = toOptionalTrimmedString(error instanceof Error ? error.message : error) || fallback;
+  const message =
+    toOptionalTrimmedString(error instanceof Error ? error.message : error) || fallback;
   const lowered = message.toLowerCase();
   if (lowered.includes('keyversion')) {
     return cipherFailure('invalid_key_version', message);
   }
-  if (lowered.includes('ciphertext') || lowered.includes('exponent') || lowered.includes('base64url') || lowered.includes('prime')) {
+  if (
+    lowered.includes('ciphertext') ||
+    lowered.includes('exponent') ||
+    lowered.includes('base64url') ||
+    lowered.includes('prime')
+  ) {
     return cipherFailure('invalid_ciphertext', message);
   }
   return cipherFailure('internal', message);
@@ -260,7 +263,11 @@ export function createPrfSessionSealShamir3PassCipherAdapter(
   return createPrfSessionSealCipherAdapter({
     applyServerSeal: async (input) => {
       const requestedKeyVersion = toOptionalTrimmedString(input.keyVersion);
-      if (strictApplyKeyVersion && requestedKeyVersion && requestedKeyVersion !== currentKeyVersion) {
+      if (
+        strictApplyKeyVersion &&
+        requestedKeyVersion &&
+        requestedKeyVersion !== currentKeyVersion
+      ) {
         return {
           ok: false,
           code: 'invalid_key_version',

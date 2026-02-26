@@ -114,9 +114,7 @@ export interface PrfSessionSealGuardInput {
   auth: PrfSessionSealAuthContext;
 }
 
-export type PrfSessionSealGuardResult =
-  | { ok: true }
-  | { ok: false; code: string; message: string };
+export type PrfSessionSealGuardResult = { ok: true } | { ok: false; code: string; message: string };
 
 export type PrfSessionSealGuard = (
   input: PrfSessionSealGuardInput,
@@ -131,9 +129,7 @@ export interface PrfSessionSealAuditEvent {
   durationMs: number;
 }
 
-export type PrfSessionSealAuditSink = (
-  event: PrfSessionSealAuditEvent,
-) => Promise<void> | void;
+export type PrfSessionSealAuditSink = (event: PrfSessionSealAuditEvent) => Promise<void> | void;
 
 export interface CreatePrfSessionSealServiceOptions {
   sessionPolicy: PrfSessionSealThresholdSessionPolicy;

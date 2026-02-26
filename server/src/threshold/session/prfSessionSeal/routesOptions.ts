@@ -1,9 +1,6 @@
 import type { NormalizedLogger } from '../../../core/logger';
 import { createPrfSessionSealAuditLogger } from './observability/audit';
-import {
-  composePrfSessionSealGuards,
-  createPrfSessionSealRateLimitGuard,
-} from './guards';
+import { composePrfSessionSealGuards, createPrfSessionSealRateLimitGuard } from './guards';
 import { createPrfSessionSealService } from './service';
 import type {
   CreatePrfSessionSealServiceOptions,
@@ -16,12 +13,8 @@ import type {
   PrfSessionSealRoutesOptions,
   PrfSessionSealThresholdSessionPolicy,
 } from './types';
-import type {
-  CreatePrfSessionSealAuditLoggerOptions,
-} from './observability/audit';
-import type {
-  CreatePrfSessionSealRateLimitGuardOptions,
-} from './guards';
+import type { CreatePrfSessionSealAuditLoggerOptions } from './observability/audit';
+import type { CreatePrfSessionSealRateLimitGuardOptions } from './guards';
 
 export interface CreatePrfSessionSealRoutesOptionsInput {
   enabled?: boolean;
@@ -41,7 +34,9 @@ export interface CreatePrfSessionSealRoutesOptionsInput {
   nowMs?: () => number;
 }
 
-function buildAuditSink(input: CreatePrfSessionSealRoutesOptionsInput): PrfSessionSealAuditSink | undefined {
+function buildAuditSink(
+  input: CreatePrfSessionSealRoutesOptionsInput,
+): PrfSessionSealAuditSink | undefined {
   if (input.audit) return input.audit;
   if (!input.logger) return undefined;
   if (input.auditLogger === null) return undefined;
@@ -52,17 +47,21 @@ function buildAuditSink(input: CreatePrfSessionSealRoutesOptionsInput): PrfSessi
   });
 }
 
-function buildGuard(input: CreatePrfSessionSealRoutesOptionsInput): PrfSessionSealGuard | undefined {
+function buildGuard(
+  input: CreatePrfSessionSealRoutesOptionsInput,
+): PrfSessionSealGuard | undefined {
   const guardList: Array<PrfSessionSealGuard | null | undefined> = [];
 
   if (input.guard) guardList.push(input.guard);
   if (Array.isArray(input.guards)) guardList.push(...input.guards);
 
   if (input.rateLimit) {
-    guardList.push(createPrfSessionSealRateLimitGuard({
-      ...input.rateLimit,
-      ...(input.nowMs ? { nowMs: input.nowMs } : {}),
-    }));
+    guardList.push(
+      createPrfSessionSealRateLimitGuard({
+        ...input.rateLimit,
+        ...(input.nowMs ? { nowMs: input.nowMs } : {}),
+      }),
+    );
   }
 
   const nonNullGuards = guardList.filter(Boolean) as PrfSessionSealGuard[];

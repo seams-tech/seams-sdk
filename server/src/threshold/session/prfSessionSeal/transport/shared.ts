@@ -13,9 +13,7 @@ import type {
 const DEFAULT_BASE_PATH = '/threshold-ecdsa/prf-seal';
 const THRESHOLD_SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/;
 
-type ParseResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; code: 'invalid_body'; message: string };
+type ParseResult<T> = { ok: true; value: T } | { ok: false; code: 'invalid_body'; message: string };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -54,7 +52,8 @@ export function parsePrfSessionSealApplyBody(
   body: unknown,
 ): ParseResult<PrfSessionSealApplyServerSealRequest> {
   const obj = asRecord(body);
-  if (!obj) return { ok: false, code: 'invalid_body', message: 'Request body must be a JSON object' };
+  if (!obj)
+    return { ok: false, code: 'invalid_body', message: 'Request body must be a JSON object' };
 
   const thresholdSessionId = readRequiredString(obj, 'thresholdSessionId');
   const ciphertext = readRequiredString(obj, 'ciphertext');
@@ -88,7 +87,8 @@ export function parsePrfSessionSealRemoveBody(
   body: unknown,
 ): ParseResult<PrfSessionSealRemoveServerSealRequest> {
   const obj = asRecord(body);
-  if (!obj) return { ok: false, code: 'invalid_body', message: 'Request body must be a JSON object' };
+  if (!obj)
+    return { ok: false, code: 'invalid_body', message: 'Request body must be a JSON object' };
 
   const thresholdSessionId = readRequiredString(obj, 'thresholdSessionId');
   const ciphertext = readRequiredString(obj, 'ciphertext');
@@ -140,7 +140,8 @@ export async function authorizePrfSessionSealRequest(args: {
         session: args.session,
       });
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error || 'Authorization failed');
+      const message =
+        error instanceof Error ? error.message : String(error || 'Authorization failed');
       return { ok: false, code: 'internal', message };
     }
   }

@@ -78,11 +78,14 @@ export async function handlePrfSessionSealRoutes(
       session: ctx.session,
     });
     if (!authorized.ok) {
-      return json({
-        ok: false,
-        code: authorized.code || 'unauthorized',
-        message: authorized.message || 'Unauthorized',
-      }, prfSessionSealAuthorizeStatusCode(authorized));
+      return json(
+        {
+          ok: false,
+          code: authorized.code || 'unauthorized',
+          message: authorized.message || 'Unauthorized',
+        },
+        prfSessionSealAuthorizeStatusCode(authorized),
+      );
     }
 
     const result = isApply

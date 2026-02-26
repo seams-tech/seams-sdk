@@ -38,8 +38,9 @@ function buildPayload(event: PrfSessionSealAuditEvent): Record<string, unknown> 
 export function createPrfSessionSealAuditLogger(
   options: CreatePrfSessionSealAuditLoggerOptions,
 ): PrfSessionSealAuditSink {
-  const label = String(options.label || '[threshold-ecdsa-prf-seal] audit').trim()
-    || '[threshold-ecdsa-prf-seal] audit';
+  const label =
+    String(options.label || '[threshold-ecdsa-prf-seal] audit').trim() ||
+    '[threshold-ecdsa-prf-seal] audit';
   const failureLevel = options.failureLevel || 'warn';
   return (event) => {
     const payload = buildPayload(event);

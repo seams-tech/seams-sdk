@@ -62,9 +62,10 @@ class InMemoryPrfSessionSealRateLimiter implements PrfSessionSealRateLimiter {
 
   constructor(options: InMemoryPrfSessionSealRateLimiterOptions = {}) {
     const configuredMaxEntries = Number(options.maxEntries);
-    this.maxEntries = Number.isFinite(configuredMaxEntries) && configuredMaxEntries > 0
-      ? Math.floor(configuredMaxEntries)
-      : 10_000;
+    this.maxEntries =
+      Number.isFinite(configuredMaxEntries) && configuredMaxEntries > 0
+        ? Math.floor(configuredMaxEntries)
+        : 10_000;
   }
 
   private trim(nowMs: number): void {
@@ -92,9 +93,10 @@ class InMemoryPrfSessionSealRateLimiter implements PrfSessionSealRateLimiter {
     }
 
     const existing = this.buckets.get(key);
-    const bucket = !existing || existing.resetAtMs <= nowMs
-      ? { count: 0, resetAtMs: nowMs + windowMs }
-      : existing;
+    const bucket =
+      !existing || existing.resetAtMs <= nowMs
+        ? { count: 0, resetAtMs: nowMs + windowMs }
+        : existing;
     bucket.count += 1;
     this.buckets.set(key, bucket);
 
@@ -133,9 +135,7 @@ export interface CreatePrfSessionSealRateLimitGuardOptions {
   keyPrefix?: string;
   keyBy?: (input: PrfSessionSealGuardInput) => string;
   nowMs?: () => number;
-  onRejected?: (
-    event: PrfSessionSealRateLimitRejectedEvent,
-  ) => Promise<void> | void;
+  onRejected?: (event: PrfSessionSealRateLimitRejectedEvent) => Promise<void> | void;
 }
 
 function coercePositiveInt(value: unknown, fallback: number): number {

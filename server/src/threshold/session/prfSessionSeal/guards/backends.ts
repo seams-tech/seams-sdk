@@ -5,10 +5,7 @@ import {
   UpstashRedisRestClient,
 } from '../../../../core/ThresholdService/kv';
 import { createInMemoryPrfSessionSealRateLimiter } from './index';
-import type {
-  CreatePrfSessionSealRateLimitGuardOptions,
-  PrfSessionSealRateLimiter,
-} from './index';
+import type { CreatePrfSessionSealRateLimitGuardOptions, PrfSessionSealRateLimiter } from './index';
 
 const WINDOW_COUNTER_LUA = `
 local key = KEYS[1]
@@ -40,12 +37,7 @@ function parseCounterWindow(raw: unknown): { count: number; ttlMs: number } | nu
   };
 }
 
-function finalizeConsume(input: {
-  count: number;
-  ttlMs: number;
-  limit: number;
-  nowMs: number;
-}) {
+function finalizeConsume(input: { count: number; ttlMs: number; limit: number; nowMs: number }) {
   const remaining = Math.max(0, input.limit - input.count);
   const resetAtMs = input.nowMs + Math.max(0, input.ttlMs);
   if (input.count > input.limit) {
@@ -84,15 +76,14 @@ class UpstashPrfSessionSealRateLimiter implements PrfSessionSealRateLimiter {
     return this.keyPrefix ? `${this.keyPrefix}${key}` : key;
   }
 
-  async consume(input: {
-    key: string;
-    limit: number;
-    windowMs: number;
-    nowMs: number;
-  }) {
+  async consume(input: { key: string; limit: number; windowMs: number; nowMs: number }) {
     const key = this.withPrefix(toOptionalTrimmedString(input.key));
     if (!key) {
-      return { ok: false as const, code: 'invalid_rate_limit_key', message: 'Rate-limit key is required' };
+      return {
+        ok: false as const,
+        code: 'invalid_rate_limit_key',
+        message: 'Rate-limit key is required',
+      };
     }
     try {
       const evalResult = await this.client.eval(
@@ -102,7 +93,11 @@ class UpstashPrfSessionSealRateLimiter implements PrfSessionSealRateLimiter {
       );
       const parsed = parseCounterWindow(evalResult);
       if (!parsed) {
-        return { ok: false as const, code: 'internal', message: 'Invalid Upstash rate-limit response' };
+        return {
+          ok: false as const,
+          code: 'internal',
+          message: 'Invalid Upstash rate-limit response',
+        };
       }
       return finalizeConsume({
         count: parsed.count,
@@ -114,7 +109,8 @@ class UpstashPrfSessionSealRateLimiter implements PrfSessionSealRateLimiter {
       return {
         ok: false as const,
         code: 'internal',
-        message: error instanceof Error ? error.message : String(error || 'Upstash rate-limit failed'),
+        message:
+          error instanceof Error ? error.message : String(error || 'Upstash rate-limit failed'),
       };
     }
   }
@@ -146,15 +142,14 @@ class RedisTcpPrfSessionSealRateLimiter implements PrfSessionSealRateLimiter {
     return this.keyPrefix ? `${this.keyPrefix}${key}` : key;
   }
 
-  async consume(input: {
-    key: string;
-    limit: number;
-    windowMs: number;
-    nowMs: number;
-  }) {
+  async consume(input: { key: string; limit: number; windowMs: number; nowMs: number }) {
     const key = this.withPrefix(toOptionalTrimmedString(input.key));
     if (!key) {
-      return { ok: false as const, code: 'invalid_rate_limit_key', message: 'Rate-limit key is required' };
+      return {
+        ok: false as const,
+        code: 'invalid_rate_limit_key',
+        message: 'Rate-limit key is required',
+      };
     }
     try {
       const resp = await this.client.send([
@@ -170,7 +165,11 @@ class RedisTcpPrfSessionSealRateLimiter implements PrfSessionSealRateLimiter {
       const raw = redisRespToString(resp);
       const parsed = parseCounterWindow(raw);
       if (!parsed) {
-        return { ok: false as const, code: 'internal', message: 'Invalid Redis rate-limit response' };
+        return {
+          ok: false as const,
+          code: 'internal',
+          message: 'Invalid Redis rate-limit response',
+        };
       }
       return finalizeConsume({
         count: parsed.count,
@@ -182,7 +181,8 @@ class RedisTcpPrfSessionSealRateLimiter implements PrfSessionSealRateLimiter {
       return {
         ok: false as const,
         code: 'internal',
-        message: error instanceof Error ? error.message : String(error || 'Redis rate-limit failed'),
+        message:
+          error instanceof Error ? error.message : String(error || 'Redis rate-limit failed'),
       };
     }
   }
@@ -219,8 +219,9 @@ export function resolvePrfSessionSealRateLimitFromEnv(
   const redisUrl = toOptionalTrimmedString(input.redisUrl || '');
   const keyPrefix = toOptionalTrimmedString(input.keyPrefix || '') || undefined;
 
-  const selectedKind = limiterKind
-    || (upstashUrl || upstashToken ? 'upstash-redis-rest' : (redisUrl ? 'redis-tcp' : 'in-memory'));
+  const selectedKind =
+    limiterKind ||
+    (upstashUrl || upstashToken ? 'upstash-redis-rest' : redisUrl ? 'redis-tcp' : 'in-memory');
 
   if (selectedKind === 'upstash-redis-rest') {
     if (!upstashUrl || !upstashToken) {
