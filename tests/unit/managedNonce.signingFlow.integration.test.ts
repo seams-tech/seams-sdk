@@ -38,7 +38,7 @@ test.describe('managed nonce signing flow integration', () => {
         const reservationBase = {
           chain: 'evm' as const,
           networkKey: 'arc-testnet',
-          chainId: 11155111n,
+          chainId: 11155111,
           sender: `0x${'11'.repeat(20)}` as `0x${string}`,
           nearAccountId: 'alice.testnet',
         };
@@ -173,7 +173,7 @@ test.describe('managed nonce signing flow integration', () => {
         const reservationBase = {
           chain: 'tempo' as const,
           networkKey: 'tempo-testnet',
-          chainId: 42431n,
+          chainId: 42431,
           sender: `0x${'11'.repeat(20)}` as `0x${string}`,
           nonceKey: 1n,
           nearAccountId: 'alice.testnet',

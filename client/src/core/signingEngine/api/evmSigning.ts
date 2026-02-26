@@ -169,7 +169,7 @@ function inferNonceConflictReason(args: {
 function createEvmFamilySigningNonceConflictError(args: {
   chain: 'tempo' | 'evm';
   networkKey: string;
-  chainId: bigint;
+  chainId: number;
   reason: EvmFamilySigningNonceConflictError['details']['reason'];
   cause?: unknown;
 }): EvmFamilySigningNonceConflictError {
@@ -183,7 +183,7 @@ function createEvmFamilySigningNonceConflictError(args: {
     chain: args.chain,
     reason: args.reason,
     networkKey: args.networkKey,
-    chainId: Number(args.chainId),
+    chainId: args.chainId,
   };
   if (args.cause !== undefined) {
     try {
@@ -197,7 +197,7 @@ function mapToRetryableNonceConflictError(args: {
   error: unknown;
   chain: 'tempo' | 'evm';
   networkKey: string;
-  chainId: bigint;
+  chainId: number;
 }): unknown {
   if (!args.error || typeof args.error !== 'object') return args.error;
   const existingCode = extractErrorCode(args.error);
@@ -394,10 +394,10 @@ function tryResolveNonceNetworkKey(args: {
   configs: TatchiConfigsReadonly;
   request: EvmSigningRequest | TempoSigningRequest;
 }): string | null {
-  const chainIdBigInt = BigInt(args.request.tx.chainId);
+  const chainId = args.request.tx.chainId;
   const matchesByChainId = args.configs.network.chains.filter((chain) => {
     const configured = readOptionalChainId(chain);
-    return typeof configured === 'number' && BigInt(configured) === chainIdBigInt;
+    return typeof configured === 'number' && configured === chainId;
   });
   if (!matchesByChainId.length) return null;
 
@@ -507,7 +507,7 @@ async function reserveManagedNonceForRequest(args: {
       configs: args.deps.tatchiPasskeyConfigs,
       request: args.request,
     }),
-    chainId: BigInt(args.request.tx.chainId),
+    chainId: args.request.tx.chainId,
     sender,
     nearAccountId: args.nearAccountId,
   };
@@ -549,7 +549,7 @@ async function reserveManagedNonceForTempoRequest(args: {
       configs: args.deps.tatchiPasskeyConfigs,
       request: args.request,
     }),
-    chainId: BigInt(args.request.tx.chainId),
+    chainId: args.request.tx.chainId,
     sender,
     nonceKey: args.request.tx.nonceKey,
     nearAccountId: args.nearAccountId,

@@ -6,7 +6,7 @@ export type EvmNonceChain = 'evm' | 'tempo';
 export type ReserveNonceInput = {
   chain: EvmNonceChain;
   networkKey: string;
-  chainId: bigint;
+  chainId: number;
   sender: `0x${string}`;
   nonceKey?: bigint;
   nearAccountId?: string;
@@ -47,13 +47,15 @@ export type CreateEvmNonceManagerArgs = {
   refreshTtlMs?: number;
 };
 
+type ChainWithChainId = Extract<TatchiChainConfig, { chainId: number }>;
+
 export function toManagedNonceReservationSnapshot(
   input: ReserveNonceInput & { nonce: bigint },
 ): ManagedNonceReservationSnapshot {
   return {
     chain: input.chain,
     networkKey: String(input.networkKey || '').trim(),
-    chainId: normalizeChainIdNumber(input.chainId),
+    chainId: input.chainId,
     sender: normalizeSender(input.sender),
     ...(input.nonceKey != null
       ? { nonceKey: normalizeBigint(input.nonceKey, 'nonceKey').toString() }
@@ -73,7 +75,7 @@ export function fromManagedNonceReservationSnapshot(
   if (!networkKey) {
     throw new Error('[evmNonceManager] invalid managed nonce snapshot: networkKey');
   }
-  const chainId = BigInt(normalizeChainIdNumber(snapshot.chainId));
+  const chainId = snapshot.chainId;
   const sender = normalizeSender(snapshot.sender);
   const nonce = normalizeBigint(snapshot.nonce, 'nonce');
   const parsedNonceKey =
@@ -94,7 +96,7 @@ export function fromManagedNonceReservationSnapshot(
 type NormalizedInput = {
   chain: EvmNonceChain;
   networkKey: string;
-  chainId: bigint;
+  chainId: number;
   sender: `0x${string}`;
   nonceKey: bigint;
   nearAccountId?: string;
@@ -352,14 +354,14 @@ function resolveRpcUrlForInput(
   chains: readonly TatchiChainConfig[],
   input: ReserveNonceInput,
 ): string {
-  const targetChainId = normalizeBigint(input.chainId, 'chainId');
+  const targetChainId = input.chainId;
   const networkKey = String(input.networkKey || '')
     .trim()
     .toLowerCase();
   const byChainId = (source: readonly TatchiChainConfig[]): TatchiChainConfig[] =>
     source.filter((chain) => {
       const chainId = getOptionalConfigChainId(chain);
-      return typeof chainId === 'number' && BigInt(chainId) === targetChainId;
+      return typeof chainId === 'number' && chainId === targetChainId;
     });
   const byNetworkKey = (source: readonly TatchiChainConfig[]): TatchiChainConfig[] =>
     source.filter(
@@ -450,7 +452,7 @@ function isChainCompatibleWithRequestChain(
 
 function assertConfiguredChainIdMatchesInput(args: {
   chain: TatchiChainConfig;
-  chainId: bigint;
+  chainId: number;
   networkKey: string;
 }): void {
   const configuredChainId = getOptionalConfigChainId(args.chain);
@@ -459,7 +461,7 @@ function assertConfiguredChainIdMatchesInput(args: {
       `[evmNonceManager] configured network ${args.chain.network} is missing numeric chainId`,
     );
   }
-  if (BigInt(configuredChainId) !== args.chainId) {
+  if (configuredChainId !== args.chainId) {
     throw new Error(
       `[evmNonceManager] chainId mismatch for network ${args.networkKey}: expected ${configuredChainId}, received ${String(args.chainId)}`,
     );
@@ -470,7 +472,7 @@ function assertChainSupportsRequestedRoute(args: {
   chain: TatchiChainConfig;
   requestedChain: EvmNonceChain;
   networkKey: string;
-  chainId: bigint;
+  chainId: number;
 }): void {
   if (isChainCompatibleWithRequestChain(args.chain, args.requestedChain)) {
     return;
@@ -482,8 +484,11 @@ function assertChainSupportsRequestedRoute(args: {
 }
 
 function getOptionalConfigChainId(chain: TatchiChainConfig): number | undefined {
-  if (!('chainId' in chain)) return undefined;
-  return typeof chain.chainId === 'number' ? chain.chainId : undefined;
+  return isChainWithChainId(chain) ? chain.chainId : undefined;
+}
+
+function isChainWithChainId(chain: TatchiChainConfig): chain is ChainWithChainId {
+  return chainFamilyFromNetwork(chain.network) !== 'near';
 }
 
 function withTimeoutAbort(timeoutMs: number): { signal: AbortSignal; clear: () => void } {
@@ -524,7 +529,7 @@ function normalizeInput(input: ReserveNonceInput): NormalizedInput {
   if (!networkKey) {
     throw new Error('[evmNonceManager] networkKey is required');
   }
-  const chainId = normalizeBigint(input.chainId, 'chainId');
+  const chainId = input.chainId;
   const sender = normalizeAddress(input.sender, 'sender');
   const nonceKey = chain === 'tempo' ? normalizeBigint(input.nonceKey, 'nonceKey') : 0n;
   const nearAccountId = normalizeAccountId(input.nearAccountId);
@@ -563,15 +568,6 @@ function normalizeBigint(value: unknown, label: string): bigint {
   } catch {
     throw new Error(`[evmNonceManager] invalid ${label}: expected bigint-compatible value`);
   }
-}
-
-function normalizeChainIdNumber(value: unknown): number {
-  const parsed = normalizeBigint(value, 'chainId');
-  const asNumber = Number(parsed);
-  if (!Number.isSafeInteger(asNumber) || asNumber < 0) {
-    throw new Error('[evmNonceManager] invalid chainId: expected non-negative safe integer');
-  }
-  return asNumber;
 }
 
 function normalizeAccountId(value: unknown): string | undefined {

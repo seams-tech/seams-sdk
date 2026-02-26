@@ -37,7 +37,7 @@ test.describe('EvmNonceManager', () => {
         const baseInput = {
           chain: 'evm' as const,
           networkKey: 'evm:11155111',
-          chainId: 11155111n,
+          chainId: 11155111,
           sender: sender as `0x${string}`,
           nearAccountId: 'alice.testnet',
         };
@@ -92,7 +92,7 @@ test.describe('EvmNonceManager', () => {
         const input = {
           chain: 'evm' as const,
           networkKey: 'evm:1',
-          chainId: 1n,
+          chainId: 1,
           sender: sender as `0x${string}`,
         };
 
@@ -144,7 +144,7 @@ test.describe('EvmNonceManager', () => {
         const input = {
           chain: 'evm' as const,
           networkKey: 'evm:1',
-          chainId: 1n,
+          chainId: 1,
           sender: sender as `0x${string}`,
           nearAccountId: 'alice.testnet',
         };
@@ -208,12 +208,12 @@ test.describe('EvmNonceManager', () => {
         const arcInput = {
           ...base,
           networkKey: 'arc-testnet',
-          chainId: 5_042_002n,
+          chainId: 5_042_002,
         };
         const sepoliaInput = {
           ...base,
           networkKey: 'ethereum-sepolia',
-          chainId: 11_155_111n,
+          chainId: 11_155_111,
         };
 
         const arcNonce1 = await manager.reserveNextNonce(arcInput);
@@ -269,7 +269,7 @@ test.describe('EvmNonceManager', () => {
         const input = {
           chain: 'evm' as const,
           networkKey: 'evm:42431',
-          chainId: 42_431n,
+          chainId: 42_431,
           sender: sender as `0x${string}`,
           nearAccountId: 'alice.testnet',
         };
@@ -309,7 +309,7 @@ test.describe('EvmNonceManager', () => {
           await manager.reserveNextNonce({
             chain: 'evm' as const,
             networkKey: 'arc-testnet',
-            chainId: 11_155_111n,
+            chainId: 11_155_111,
             sender: sender as `0x${string}`,
           });
           return { ok: true, message: '' };
@@ -353,7 +353,7 @@ test.describe('EvmNonceManager', () => {
           await manager.reserveNextNonce({
             chain: 'evm' as const,
             networkKey: 'evm:42431',
-            chainId: 42_431n,
+            chainId: 42_431,
             sender: sender as `0x${string}`,
           });
           return { ok: true, message: '' };
