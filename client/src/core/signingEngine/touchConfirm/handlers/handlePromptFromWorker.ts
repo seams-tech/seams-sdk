@@ -27,6 +27,10 @@ import type {
 } from '../shared/confirmTypes';
 import { coerceThemeName } from '@shared/utils/theme';
 import type { ThemeName } from '@/core/types/tatchi';
+import {
+  handleIntentDigestSigningFlow,
+  handleTransactionSigningFlow,
+} from './flows/signing';
 
 /**
  * Handles secure confirmation requests from the worker with robust error handling
@@ -213,10 +217,6 @@ const HANDLERS: Partial<Record<UserConfirmationType, Handler>> = {
     transactionSummary,
     theme,
   }) => {
-    const { handleTransactionSigningFlow } = await importFlow(
-      'signing',
-      () => import('./flows/signing'),
-    );
     await handleTransactionSigningFlow(ctx, request as SigningUserConfirmRequest, worker, {
       confirmationConfig,
       transactionSummary,
@@ -231,10 +231,6 @@ const HANDLERS: Partial<Record<UserConfirmationType, Handler>> = {
     transactionSummary,
     theme,
   }) => {
-    const { handleTransactionSigningFlow } = await importFlow(
-      'signing',
-      () => import('./flows/signing'),
-    );
     await handleTransactionSigningFlow(ctx, request as SigningUserConfirmRequest, worker, {
       confirmationConfig,
       transactionSummary,
@@ -249,10 +245,6 @@ const HANDLERS: Partial<Record<UserConfirmationType, Handler>> = {
     transactionSummary,
     theme,
   }) => {
-    const { handleIntentDigestSigningFlow } = await importFlow(
-      'signing',
-      () => import('./flows/signing'),
-    );
     await handleIntentDigestSigningFlow(ctx, request as IntentDigestUserConfirmRequest, worker, {
       confirmationConfig,
       transactionSummary,

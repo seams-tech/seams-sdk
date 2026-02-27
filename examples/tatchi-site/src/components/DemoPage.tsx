@@ -25,19 +25,27 @@ import { DEMO_CONTRACT_ID, NEAR_EXPLORER_BASE_URL } from '../types';
 import { FRONTEND_CONFIG } from '../config';
 import './DemoPage.css';
 
-const TEMPO_GREETING_CONTRACT = '0x96cFE92241481954AdA6410409a86AcB6E76a00e' as `0x${string}`;
+const TEMPO_GREETING_CONTRACT = '0xbb85080E6953f25197ec68798360667140EbAf4b' as `0x${string}`;
 const ARC_TESTNET_GREETING_CONTRACT = '0xeB7aB5A6F761072C96147A54B8a15F012e836691' as `0x${string}`;
 const SET_GREETING_SELECTOR = '0xa4136862';
-const GREET_SELECTOR = '0xcfae3217';
-const TEMPO_VALIDATOR_TOKENS_SELECTOR = '0x6dc54a7a';
+const TEMPO_GREETING_SELECTOR = '0xef690cc0';
+const ARC_GREET_SELECTOR = '0xcfae3217';
+const TEMPO_DRIP_SELECTOR = '0x428dc451';
 const EVM_TX_FINALITY_TIMEOUT_MS = 90_000;
 const EVM_TX_RECEIPT_POLL_INTERVAL_MS = 1_250;
 const EVM_RPC_REQUEST_TIMEOUT_MS = 15_000;
+const EIP1559_FEE_CAP_REFRESH_INTERVAL_MS = 20_000;
+const EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS = 180_000;
+const EVM_SET_USER_TOKEN_POLL_INTERVAL_MS = 500;
 const DEFAULT_DEMO_MAX_PRIORITY_FEE_PER_GAS = 2_000_000_000n; // 2 gwei
 const DEFAULT_DEMO_MAX_FEE_PER_GAS = 40_000_000_000n; // 40 gwei
+const DEFAULT_DEMO_EIP1559_FEE_CAPS: Eip1559FeeCaps = {
+  maxPriorityFeePerGas: DEFAULT_DEMO_MAX_PRIORITY_FEE_PER_GAS,
+  maxFeePerGas: DEFAULT_DEMO_MAX_FEE_PER_GAS,
+};
 // `setUserToken` can trigger fee-token routing paths that exceed 350k gas.
 const TEMPO_SET_USER_TOKEN_GAS_LIMIT = 1_000_000n;
-const TEMPO_PATH_USD_FEE_TOKEN = '0x20c0000000000000000000000000000000000000' as `0x${string}`;
+const TEMPO_DRIP_GAS_LIMIT = 300_000n;
 
 type Eip1559FeeCaps = {
   maxPriorityFeePerGas: bigint;
@@ -70,6 +78,23 @@ function encodeSetGreetingInput(greeting: string): `0x${string}` {
   const lengthHex = messageBytesLength.toString(16).padStart(64, '0');
   const dataHex = messageHex.padEnd(dataWordLength, '0');
   return `0x${SET_GREETING_SELECTOR.slice(2)}${offsetHex}${lengthHex}${dataHex}` as `0x${string}`;
+}
+
+function encodeTempoDripInput(tokenAddresses: readonly `0x${string}`[]): `0x${string}` {
+  if (tokenAddresses.length === 0) {
+    throw new Error('drip(address[]) requires at least one token address');
+  }
+  const encodedAddresses = tokenAddresses
+    .map((address) => {
+      if (!isEvmAddress(address)) {
+        throw new Error(`Invalid drip token address: ${address}`);
+      }
+      return address.slice(2).toLowerCase().padStart(64, '0');
+    })
+    .join('');
+  const offsetHex = (32).toString(16).padStart(64, '0');
+  const lengthHex = tokenAddresses.length.toString(16).padStart(64, '0');
+  return `0x${TEMPO_DRIP_SELECTOR.slice(2)}${offsetHex}${lengthHex}${encodedAddresses}` as `0x${string}`;
 }
 
 function decodeStringResultData(rawHex: string): string {
@@ -123,6 +148,47 @@ type EvmTransactionResponse = {
   value?: string | null;
 };
 
+async function withPromiseTimeout<T>(args: {
+  promise: Promise<T>;
+  timeoutMs: number;
+  label: string;
+  onTimeout?: () => void;
+}): Promise<T> {
+  const timeoutMs = Math.max(1, Math.floor(Number(args.timeoutMs) || 0));
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  let settled = false;
+
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try {
+          args.onTimeout?.();
+        } catch {}
+        reject(new Error(`${args.label} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+
+      args.promise.then(
+        (value) => {
+          if (settled) return;
+          settled = true;
+          if (timeoutId) clearTimeout(timeoutId);
+          resolve(value);
+        },
+        (error: unknown) => {
+          if (settled) return;
+          settled = true;
+          if (timeoutId) clearTimeout(timeoutId);
+          reject(error);
+        },
+      );
+    });
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 async function callEvmJsonRpc<T>(args: {
   rpcUrl: string;
   method: string;
@@ -135,21 +201,31 @@ async function callEvmJsonRpc<T>(args: {
   }
 
   const timeoutMs = args.timeoutMs ?? EVM_RPC_REQUEST_TIMEOUT_MS;
+  const startedAt = Date.now();
+  const remainingTimeoutMs = (): number =>
+    Math.max(1, timeoutMs - Math.max(0, Date.now() - startedAt));
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const fetchPromise = fetch(rpcUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method,
+      params,
+    }),
+    signal: controller.signal,
+  });
 
   let response: Response;
   try {
-    response = await fetch(rpcUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: Date.now(),
-        method,
-        params,
-      }),
-      signal: controller.signal,
+    response = await withPromiseTimeout({
+      promise: fetchPromise,
+      timeoutMs: remainingTimeoutMs(),
+      label: `${method} request`,
+      onTimeout: () => {
+        controller.abort();
+      },
     });
   } catch (error: unknown) {
     const maybeAbort = error as { name?: string };
@@ -157,15 +233,32 @@ async function callEvmJsonRpc<T>(args: {
       throw new Error(`${method} request timed out after ${timeoutMs}ms`);
     }
     throw error;
-  } finally {
-    clearTimeout(timeoutId);
   }
 
   if (!response.ok) {
     throw new Error(`RPC HTTP ${response.status}`);
   }
 
-  const payload = (await response.json()) as {
+  const payload = (await withPromiseTimeout({
+    promise: response.json() as Promise<{
+      error?: EvmJsonRpcError;
+      result?: T;
+    }>,
+    timeoutMs: remainingTimeoutMs(),
+    label: `${method} response`,
+    onTimeout: () => {
+      controller.abort();
+      try {
+        response.body?.cancel();
+      } catch {}
+    },
+  }).catch((error: unknown) => {
+    const maybeAbort = error as { name?: string };
+    if (maybeAbort?.name === 'AbortError') {
+      throw new Error(`${method} response timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  })) as {
     error?: EvmJsonRpcError;
     result?: T;
   };
@@ -208,12 +301,15 @@ async function callEvmJsonRpc<T>(args: {
 async function readEvmGreeting(params: {
   rpcUrl: string;
   contract: `0x${string}`;
+  selector: `0x${string}`;
+  timeoutMs?: number;
 }): Promise<string> {
-  const { rpcUrl, contract } = params;
+  const { rpcUrl, contract, selector } = params;
   const result = await callEvmJsonRpc<string>({
     rpcUrl,
     method: 'eth_call',
-    params: [{ to: contract, data: GREET_SELECTOR }, 'latest'],
+    params: [{ to: contract, data: selector }, 'latest'],
+    timeoutMs: params.timeoutMs,
   });
 
   if (typeof result !== 'string' || !result.startsWith('0x')) {
@@ -242,6 +338,7 @@ async function waitForEvmTransactionFinalization(args: {
   rpcUrl: string;
   txHash: `0x${string}`;
   gasLimitHint?: bigint;
+  maxFeePerGasHint?: bigint;
   timeoutMs?: number;
   pollIntervalMs?: number;
 }): Promise<EvmTransactionReceipt> {
@@ -249,14 +346,17 @@ async function waitForEvmTransactionFinalization(args: {
   const pollIntervalMs = args.pollIntervalMs ?? EVM_TX_RECEIPT_POLL_INTERVAL_MS;
   const deadline = Date.now() + timeoutMs;
   let lastRpcError: string | null = null;
+  let underpricedSinceMs: number | null = null;
 
   while (Date.now() < deadline) {
     let receipt: EvmTransactionReceipt | null = null;
     try {
+      const remainingMs = Math.max(1, deadline - Date.now());
       receipt = await callEvmJsonRpc<EvmTransactionReceipt | null>({
         rpcUrl: args.rpcUrl,
         method: 'eth_getTransactionReceipt',
         params: [args.txHash],
+        timeoutMs: Math.min(EVM_RPC_REQUEST_TIMEOUT_MS, remainingMs),
       });
       lastRpcError = null;
     } catch (error: unknown) {
@@ -292,6 +392,38 @@ async function waitForEvmTransactionFinalization(args: {
       return receipt;
     }
 
+    if (typeof args.maxFeePerGasHint === 'bigint') {
+      const remainingMs = Math.max(1, deadline - Date.now());
+      const latestBlock = await callEvmJsonRpc<{ baseFeePerGas?: string | null }>({
+        rpcUrl: args.rpcUrl,
+        method: 'eth_getBlockByNumber',
+        params: ['latest', false],
+        timeoutMs: Math.min(EVM_RPC_REQUEST_TIMEOUT_MS, remainingMs),
+      }).catch(() => null);
+      const baseFeeHex = String(latestBlock?.baseFeePerGas || '').trim();
+      if (/^0x[0-9a-fA-F]+$/.test(baseFeeHex)) {
+        let baseFeePerGas: bigint | null = null;
+        try {
+          baseFeePerGas = parseRpcHexQuantity(baseFeeHex, 'baseFeePerGas');
+        } catch {
+          baseFeePerGas = null;
+        }
+        if (baseFeePerGas !== null && baseFeePerGas > args.maxFeePerGasHint) {
+          if (underpricedSinceMs === null) {
+            underpricedSinceMs = Date.now();
+          }
+          const requiredUnderpricedDurationMs = Math.min(30_000, Math.floor(timeoutMs / 3));
+          if (Date.now() - underpricedSinceMs >= requiredUnderpricedDurationMs) {
+            throw new Error(
+              `Transaction pending due to underpriced fees: maxFeePerGas=${formatWeiToGwei(args.maxFeePerGasHint)} gwei, latest baseFee=${formatWeiToGwei(baseFeePerGas)} gwei. Retry to re-sign with refreshed fee caps.`,
+            );
+          }
+        } else {
+          underpricedSinceMs = null;
+        }
+      }
+    }
+
     await new Promise<void>((resolve) => {
       window.setTimeout(resolve, pollIntervalMs);
     });
@@ -299,6 +431,92 @@ async function waitForEvmTransactionFinalization(args: {
 
   const details = lastRpcError ? `; last RPC error: ${lastRpcError}` : '';
   throw new Error(`Timed out waiting for tx finalization after ${timeoutMs}ms${details}`);
+}
+
+async function waitForTempoUserTokenMatch(args: {
+  rpcUrl: string;
+  userAddress: `0x${string}`;
+  expectedToken: `0x${string}`;
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+}): Promise<`0x${string}`> {
+  const timeoutMs = args.timeoutMs ?? EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS;
+  const pollIntervalMs = args.pollIntervalMs ?? EVM_SET_USER_TOKEN_POLL_INTERVAL_MS;
+  const deadline = Date.now() + timeoutMs;
+  let lastObservedToken: `0x${string}` | null = null;
+  let lastRpcError: string | null = null;
+
+  while (Date.now() < deadline) {
+    try {
+      const remainingMs = Math.max(1, deadline - Date.now());
+      const token = await readTempoUserFeeToken({
+        rpcUrl: args.rpcUrl,
+        userAddress: args.userAddress,
+        timeoutMs: Math.min(EVM_RPC_REQUEST_TIMEOUT_MS, remainingMs),
+      });
+      lastRpcError = null;
+      lastObservedToken = token;
+      if (token && token.toLowerCase() === args.expectedToken.toLowerCase()) {
+        return token;
+      }
+    } catch (error: unknown) {
+      lastRpcError = error instanceof Error ? error.message : String(error);
+    }
+
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, pollIntervalMs);
+    });
+  }
+
+  const observed = lastObservedToken ? compactHex(lastObservedToken) : 'not set';
+  const details = lastRpcError ? `; last RPC error: ${lastRpcError}` : '';
+  throw new Error(
+    `Timed out waiting for userTokens(address) to become ${compactHex(args.expectedToken)}; observed ${observed}${details}`,
+  );
+}
+
+async function waitForEvmGreetingMatch(args: {
+  rpcUrl: string;
+  contract: `0x${string}`;
+  selector: `0x${string}`;
+  expectedGreeting: string;
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+}): Promise<string> {
+  const timeoutMs = args.timeoutMs ?? EVM_TX_FINALITY_TIMEOUT_MS;
+  const pollIntervalMs = args.pollIntervalMs ?? EVM_TX_RECEIPT_POLL_INTERVAL_MS;
+  const deadline = Date.now() + timeoutMs;
+  let lastObservedGreeting: string | null = null;
+  let lastRpcError: string | null = null;
+
+  while (Date.now() < deadline) {
+    try {
+      const remainingMs = Math.max(1, deadline - Date.now());
+      const greeting = await readEvmGreeting({
+        rpcUrl: args.rpcUrl,
+        contract: args.contract,
+        selector: args.selector,
+        timeoutMs: Math.min(EVM_RPC_REQUEST_TIMEOUT_MS, remainingMs),
+      });
+      lastRpcError = null;
+      lastObservedGreeting = greeting;
+      if (greeting === args.expectedGreeting) {
+        return greeting;
+      }
+    } catch (error: unknown) {
+      lastRpcError = error instanceof Error ? error.message : String(error);
+    }
+
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, pollIntervalMs);
+    });
+  }
+
+  const observed = lastObservedGreeting == null ? 'unavailable' : `"${lastObservedGreeting}"`;
+  const details = lastRpcError ? `; last RPC error: ${lastRpcError}` : '';
+  throw new Error(
+    `Timed out waiting for greeting update to "${args.expectedGreeting}". Last observed ${observed}${details}`,
+  );
 }
 
 async function readEvmTransactionByHash(args: {
@@ -350,15 +568,6 @@ async function describeEvmRevert(args: {
   }
 }
 
-async function readEvmTransactionSender(args: {
-  rpcUrl: string;
-  txHash: `0x${string}`;
-}): Promise<`0x${string}` | null> {
-  const tx = await readEvmTransactionByHash(args);
-  const sender = String(tx?.from || '').trim();
-  return isEvmAddress(sender) ? sender : null;
-}
-
 function parseRpcHexQuantity(value: string, label: string): bigint {
   const normalized = String(value || '').trim();
   if (!/^0x[0-9a-fA-F]+$/.test(normalized)) {
@@ -369,26 +578,6 @@ function parseRpcHexQuantity(value: string, label: string): bigint {
 
 function isEvmAddress(value: string): value is `0x${string}` {
   return /^0x[0-9a-fA-F]{40}$/.test(String(value || '').trim());
-}
-
-function getPreferredTempoFeeToken(): `0x${string}` {
-  const token = String(FRONTEND_CONFIG.tempoFeeToken || '').trim();
-  if (isEvmAddress(token)) return token;
-  return TEMPO_ALPHA_USD_FEE_TOKEN;
-}
-
-async function resolveEvmAccountNonce(args: {
-  rpcUrl: string;
-  address: `0x${string}`;
-  blockTag?: 'latest' | 'pending' | 'safe' | 'finalized' | 'earliest';
-}): Promise<bigint> {
-  const blockTag = args.blockTag ?? 'pending';
-  const nonceHex = await callEvmJsonRpc<string>({
-    rpcUrl: args.rpcUrl,
-    method: 'eth_getTransactionCount',
-    params: [args.address, blockTag],
-  });
-  return parseRpcHexQuantity(nonceHex, 'eth_getTransactionCount');
 }
 
 async function readEvmNativeBalance(args: {
@@ -408,6 +597,7 @@ async function readEvmNativeBalance(args: {
 async function readTempoUserFeeToken(args: {
   rpcUrl: string;
   userAddress: `0x${string}`;
+  timeoutMs?: number;
 }): Promise<`0x${string}` | null> {
   const result = await callEvmJsonRpc<string>({
     rpcUrl: args.rpcUrl,
@@ -419,51 +609,13 @@ async function readTempoUserFeeToken(args: {
       },
       'latest',
     ],
+    timeoutMs: args.timeoutMs,
   });
 
   if (typeof result !== 'string' || !result.startsWith('0x')) {
     throw new Error('Invalid userTokens(address) eth_call response');
   }
 
-  return decodeTempoUserTokenResult(result);
-}
-
-function encodeSingleAddressCalldata(
-  selector: `0x${string}`,
-  address: `0x${string}`,
-): `0x${string}` {
-  const encodedAddress = address.slice(2).toLowerCase().padStart(64, '0');
-  return `${selector}${encodedAddress}` as `0x${string}`;
-}
-
-async function readLatestEvmBlockMiner(args: { rpcUrl: string }): Promise<`0x${string}` | null> {
-  const block = await callEvmJsonRpc<{ miner?: string | null }>({
-    rpcUrl: args.rpcUrl,
-    method: 'eth_getBlockByNumber',
-    params: ['latest', false],
-  });
-  const miner = String(block?.miner || '').trim();
-  return isEvmAddress(miner) ? miner : null;
-}
-
-async function readTempoValidatorFeeToken(args: {
-  rpcUrl: string;
-  validatorAddress: `0x${string}`;
-}): Promise<`0x${string}` | null> {
-  const result = await callEvmJsonRpc<string>({
-    rpcUrl: args.rpcUrl,
-    method: 'eth_call',
-    params: [
-      {
-        to: TEMPO_FEE_MANAGER_CONTRACT,
-        data: encodeSingleAddressCalldata(TEMPO_VALIDATOR_TOKENS_SELECTOR, args.validatorAddress),
-      },
-      'latest',
-    ],
-  });
-  if (typeof result !== 'string' || !result.startsWith('0x')) {
-    throw new Error('Invalid validatorTokens(address) eth_call response');
-  }
   return decodeTempoUserTokenResult(result);
 }
 
@@ -493,59 +645,120 @@ async function readTempoTokenBalanceRaw(args: {
 
 async function resolveEip1559FeeCaps(rpcUrl: string): Promise<Eip1559FeeCaps> {
   try {
-    const gasPriceHex = await callEvmJsonRpc<string>({
-      rpcUrl,
-      method: 'eth_gasPrice',
-      params: [],
-    });
-    const gasPrice = parseRpcHexQuantity(gasPriceHex, 'eth_gasPrice');
-    if (gasPrice <= 0n) {
-      throw new Error('eth_gasPrice returned non-positive value');
-    }
+    const [latestBlock, maxPriorityFeeHex, gasPriceHex] = await Promise.all([
+      callEvmJsonRpc<{ baseFeePerGas?: string | null }>({
+        rpcUrl,
+        method: 'eth_getBlockByNumber',
+        params: ['latest', false],
+        timeoutMs: Math.min(EVM_RPC_REQUEST_TIMEOUT_MS, 6_000),
+      }).catch(() => null),
+      callEvmJsonRpc<string>({
+        rpcUrl,
+        method: 'eth_maxPriorityFeePerGas',
+        params: [],
+        timeoutMs: Math.min(EVM_RPC_REQUEST_TIMEOUT_MS, 6_000),
+      }).catch(() => null),
+      callEvmJsonRpc<string>({
+        rpcUrl,
+        method: 'eth_gasPrice',
+        params: [],
+        timeoutMs: Math.min(EVM_RPC_REQUEST_TIMEOUT_MS, 6_000),
+      }).catch(() => null),
+    ]);
 
-    const maxFeePerGas =
-      gasPrice * 2n > DEFAULT_DEMO_MAX_FEE_PER_GAS ? gasPrice * 2n : DEFAULT_DEMO_MAX_FEE_PER_GAS;
-    const suggestedPriority =
-      gasPrice / 10n > DEFAULT_DEMO_MAX_PRIORITY_FEE_PER_GAS
-        ? gasPrice / 10n
-        : DEFAULT_DEMO_MAX_PRIORITY_FEE_PER_GAS;
+    const parsedBaseFee = (() => {
+      const raw = String(latestBlock?.baseFeePerGas || '').trim();
+      if (!/^0x[0-9a-fA-F]+$/.test(raw)) return null;
+      try {
+        return parseRpcHexQuantity(raw, 'baseFeePerGas');
+      } catch {
+        return null;
+      }
+    })();
+    const parsedGasPrice = (() => {
+      const raw = String(gasPriceHex || '').trim();
+      if (!/^0x[0-9a-fA-F]+$/.test(raw)) return null;
+      try {
+        return parseRpcHexQuantity(raw, 'eth_gasPrice');
+      } catch {
+        return null;
+      }
+    })();
+    const parsedPriority = (() => {
+      const raw = String(maxPriorityFeeHex || '').trim();
+      if (!/^0x[0-9a-fA-F]+$/.test(raw)) return null;
+      try {
+        return parseRpcHexQuantity(raw, 'eth_maxPriorityFeePerGas');
+      } catch {
+        return null;
+      }
+    })();
+
+    const baseCandidate = parsedBaseFee ?? parsedGasPrice;
+    const priorityCandidate =
+      parsedPriority ??
+      (parsedGasPrice && parsedGasPrice > 0n ? parsedGasPrice / 10n : DEFAULT_DEMO_MAX_PRIORITY_FEE_PER_GAS);
     const maxPriorityFeePerGas =
-      suggestedPriority < maxFeePerGas ? suggestedPriority : maxFeePerGas / 2n;
+      priorityCandidate > DEFAULT_DEMO_MAX_PRIORITY_FEE_PER_GAS
+        ? priorityCandidate
+        : DEFAULT_DEMO_MAX_PRIORITY_FEE_PER_GAS;
+    const dynamicMaxFeePerGas =
+      baseCandidate && baseCandidate > 0n
+        ? baseCandidate * 2n + maxPriorityFeePerGas
+        : parsedGasPrice && parsedGasPrice > 0n
+          ? parsedGasPrice * 2n
+          : 0n;
+    const maxFeePerGas =
+      dynamicMaxFeePerGas > DEFAULT_DEMO_MAX_FEE_PER_GAS
+        ? dynamicMaxFeePerGas
+        : DEFAULT_DEMO_MAX_FEE_PER_GAS;
     return {
-      maxPriorityFeePerGas,
+      maxPriorityFeePerGas:
+        maxPriorityFeePerGas < maxFeePerGas ? maxPriorityFeePerGas : maxFeePerGas / 2n,
       maxFeePerGas,
     };
   } catch {
-    return {
-      maxPriorityFeePerGas: DEFAULT_DEMO_MAX_PRIORITY_FEE_PER_GAS,
-      maxFeePerGas: DEFAULT_DEMO_MAX_FEE_PER_GAS,
-    };
+    return DEFAULT_DEMO_EIP1559_FEE_CAPS;
   }
 }
 
-function buildDemoTempoTransactionRequest(
-  greeting: string,
-  feeCaps: Eip1559FeeCaps,
-  feeToken: `0x${string}`,
-) {
-  const setGreetingInput = encodeSetGreetingInput(greeting);
+function buildTempoEip1559GreetingRequest(greeting: string, feeCaps: Eip1559FeeCaps) {
+  const data = encodeSetGreetingInput(greeting);
   return {
-    chain: 'tempo' as const,
-    kind: 'tempoTransaction' as const,
+    chain: 'evm' as const,
+    kind: 'eip1559' as const,
     senderSignatureAlgorithm: 'secp256k1' as const,
     tx: {
       chainId: 42431,
       maxPriorityFeePerGas: feeCaps.maxPriorityFeePerGas,
       maxFeePerGas: feeCaps.maxFeePerGas,
       gasLimit: 200_000n,
-      calls: [{ to: TEMPO_GREETING_CONTRACT, value: 0n, input: setGreetingInput }],
+      to: TEMPO_GREETING_CONTRACT,
+      value: 0n,
+      data,
       accessList: [],
-      nonceKey: 0n,
-      validBefore: null,
-      validAfter: null,
-      feeToken,
-      feePayerSignature: { kind: 'none' as const },
-      aaAuthorizationList: [],
+    },
+  };
+}
+
+function buildTempoEip1559DripRequest(args: {
+  feeCaps: Eip1559FeeCaps;
+  tokenAddresses: readonly `0x${string}`[];
+}) {
+  const data = encodeTempoDripInput(args.tokenAddresses);
+  return {
+    chain: 'evm' as const,
+    kind: 'eip1559' as const,
+    senderSignatureAlgorithm: 'secp256k1' as const,
+    tx: {
+      chainId: 42431,
+      maxPriorityFeePerGas: args.feeCaps.maxPriorityFeePerGas,
+      maxFeePerGas: args.feeCaps.maxFeePerGas,
+      gasLimit: TEMPO_DRIP_GAS_LIMIT,
+      to: TEMPO_GREETING_CONTRACT,
+      value: 0n,
+      data,
+      accessList: [],
     },
   };
 }
@@ -666,59 +879,14 @@ function formatWeiToEth(wei: bigint, precision = 6): string {
   return fractionTrimmed ? `${whole.toString()}.${fractionTrimmed}` : whole.toString();
 }
 
-type TxSendDebugContext = {
-  atIso: string;
-  flow: 'tempo-set-fee-token' | 'tempo-sign' | 'evm-sign';
-  sender: `0x${string}`;
-  chain: 'tempo' | 'evm';
-  requestKind: 'tempoTransaction' | 'eip1559';
-  nonce: bigint;
-  chainPendingNonce?: bigint;
-  gasLimit?: bigint;
-  feeToken?: `0x${string}` | null;
-  feeTokenSelectionReason?: string;
-  rawTxTypePrefix?: string;
-  txHashHint?: `0x${string}`;
-  txHash?: `0x${string}`;
-  recoveredSenderFromRaw?: `0x${string}` | null;
-  recoveredSenderMatchesSender?: boolean | null;
-  nodeReportedFrom?: `0x${string}` | null;
-  nodeReportedFromMatchesSender?: boolean | null;
-};
-
-type TempoFeeDiagnostics = {
-  atIso: string;
-  sender: `0x${string}`;
-  onChainFeeToken: `0x${string}`;
-  onChainFeeTokenBalanceRaw?: bigint | null;
-  alphaFeeTokenBalanceRaw?: bigint | null;
-  txFeeToken: `0x${string}`;
-  txFeeTokenBalanceRaw?: bigint | null;
-  txFeeTokenSelectionReason?: string;
-  preferredFeeToken?: `0x${string}` | null;
-  preferredFeeTokenBalanceRaw?: bigint | null;
-  validatorAddress?: `0x${string}` | null;
-  validatorFeeToken?: `0x${string}` | null;
-  validatorFeeTokenBalanceRaw?: bigint | null;
-  rpcUrl: string;
-  balanceRaw: bigint;
-  chainPendingNonce: bigint;
-  nonce?: bigint;
-  gasLimit: bigint;
-  maxPriorityFeePerGas: bigint;
-  maxFeePerGas: bigint;
-};
-
-function readManagedNonceFromSignedResult(signed: {
-  managedNonce?: { nonce?: string } | null | undefined;
-}): bigint | null {
-  const raw = String(signed.managedNonce?.nonce || '').trim();
-  if (!raw) return null;
-  try {
-    return BigInt(raw);
-  } catch {
-    return null;
-  }
+function formatWeiToGwei(wei: bigint, precision = 3): string {
+  const base = 10n ** 9n;
+  const whole = wei / base;
+  const fraction = wei % base;
+  if (fraction === 0n) return whole.toString();
+  const fractionRaw = fraction.toString().padStart(9, '0').slice(0, precision);
+  const fractionTrimmed = fractionRaw.replace(/0+$/, '');
+  return fractionTrimmed ? `${whole.toString()}.${fractionTrimmed}` : whole.toString();
 }
 
 function getRawTxTypePrefix(rawTxHex: string): string {
@@ -730,70 +898,16 @@ function getRawTxTypePrefix(rawTxHex: string): string {
 }
 
 function assertRawTxTypePrefix(args: {
-  requestKind: 'tempoTransaction' | 'eip1559';
+  requestKind: 'eip1559';
   rawTxHex: string;
 }): void {
-  const expected = args.requestKind === 'tempoTransaction' ? '0x76' : '0x02';
+  const expected = '0x02';
   const actual = getRawTxTypePrefix(args.rawTxHex);
   if (actual !== expected) {
     throw new Error(
       `Unexpected raw tx type prefix ${actual} for ${args.requestKind}; expected ${expected}.`,
     );
   }
-}
-
-function hexToBytes(hex: string): Uint8Array {
-  const normalized = String(hex || '')
-    .trim()
-    .replace(/^0x/i, '');
-  if (!/^[0-9a-fA-F]*$/.test(normalized) || normalized.length % 2 !== 0) {
-    throw new Error('Invalid hex bytes');
-  }
-  const out = new Uint8Array(normalized.length / 2);
-  for (let i = 0; i < normalized.length; i += 2) {
-    out[i / 2] = Number.parseInt(normalized.slice(i, i + 2), 16);
-  }
-  return out;
-}
-
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-function extractTempoSenderSignature65Hex(rawTxHex: string): `0x${string}` | null {
-  const normalized = String(rawTxHex || '')
-    .trim()
-    .toLowerCase()
-    .replace(/^0x/, '');
-  if (!normalized.startsWith('76')) return null;
-  const match = /b841([0-9a-f]{130})$/.exec(normalized);
-  if (!match?.[1]) return null;
-  return `0x${match[1]}` as `0x${string}`;
-}
-
-async function recoverEvmAddressFromDigestAndSignature(args: {
-  digest32Hex: `0x${string}`;
-  signature65Hex: `0x${string}`;
-}): Promise<`0x${string}` | null> {
-  const digest32 = hexToBytes(args.digest32Hex);
-  const signature = hexToBytes(args.signature65Hex);
-  if (digest32.length !== 32 || signature.length !== 65) return null;
-  const recoveryId = signature[64]!;
-  if (recoveryId !== 0 && recoveryId !== 1) return null;
-  const compact = signature.slice(0, 64);
-
-  const [{ secp256k1 }, { keccak_256 }] = await Promise.all([
-    import('@noble/curves/secp256k1'),
-    import('@noble/hashes/sha3'),
-  ]);
-  const publicKey = secp256k1.Signature.fromCompact(compact)
-    .addRecoveryBit(recoveryId)
-    .recoverPublicKey(digest32)
-    .toRawBytes(false);
-  if (publicKey.length !== 65 || publicKey[0] !== 0x04) return null;
-  const addressHash = keccak_256(publicKey.slice(1));
-  const addressHex = bytesToHex(addressHash.slice(-20));
-  return `0x${addressHex}` as `0x${string}`;
 }
 
 type DemoPageTestOverrides = {
@@ -843,10 +957,11 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
   } | null>(null);
 
   const [tempoThresholdSignLoading, setTempoThresholdSignLoading] = useState(false);
+  const [tempoDripLoading, setTempoDripLoading] = useState(false);
   const [tempoFeeTokenConfigLoading, setTempoFeeTokenConfigLoading] = useState(false);
-  const [tempoFeeTokenConfigTarget, setTempoFeeTokenConfigTarget] = useState<
-    'alpha' | 'path' | null
-  >(null);
+  const [tempoFeeTokenConfigTarget, setTempoFeeTokenConfigTarget] = useState<'alpha' | null>(
+    null,
+  );
   const [evmThresholdSignLoading, setEvmThresholdSignLoading] = useState(false);
   const [tempoGreeting, setTempoGreeting] = useState<string | null>(null);
   const [arcGreeting, setArcGreeting] = useState<string | null>(null);
@@ -856,18 +971,12 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
   const [arcGreetingError, setArcGreetingError] = useState<string | null>(null);
   const [thresholdEvmFundingAddress, setThresholdEvmFundingAddress] = useState<string | null>(null);
   const [tempoUserFeeToken, setTempoUserFeeToken] = useState<`0x${string}` | null>(null);
-  const [tempoUserFeeTokenLoading, setTempoUserFeeTokenLoading] = useState(false);
-  const [tempoUserFeeTokenError, setTempoUserFeeTokenError] = useState<string | null>(null);
-  const [tempoUserFeeTokenBalanceRaw, setTempoUserFeeTokenBalanceRaw] = useState<bigint | null>(
-    null,
+  const [tempoEip1559FeeCaps, setTempoEip1559FeeCaps] = useState<Eip1559FeeCaps>(
+    DEFAULT_DEMO_EIP1559_FEE_CAPS,
   );
-  const [tempoUserFeeTokenBalanceLoading, setTempoUserFeeTokenBalanceLoading] = useState(false);
-  const [tempoUserFeeTokenBalanceError, setTempoUserFeeTokenBalanceError] = useState<string | null>(
-    null,
+  const [arcEip1559FeeCaps, setArcEip1559FeeCaps] = useState<Eip1559FeeCaps>(
+    DEFAULT_DEMO_EIP1559_FEE_CAPS,
   );
-  const [lastTxSendDebug, setLastTxSendDebug] = useState<TxSendDebugContext | null>(null);
-  const [lastTempoFeeDiagnostics, setLastTempoFeeDiagnostics] =
-    useState<TempoFeeDiagnostics | null>(null);
 
   const refreshSessionStatus = useCallback(async () => {
     if (!nearAccountId) return;
@@ -885,6 +994,31 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     if (!isLoggedIn || !nearAccountId) return;
     void refreshSessionStatus();
   }, [isLoggedIn, nearAccountId, refreshSessionStatus]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshFeeCaps = async (): Promise<void> => {
+      const [tempoCaps, arcCaps] = await Promise.all([
+        resolveEip1559FeeCaps(FRONTEND_CONFIG.tempoRpcUrl).catch(
+          () => DEFAULT_DEMO_EIP1559_FEE_CAPS,
+        ),
+        resolveEip1559FeeCaps(FRONTEND_CONFIG.arcRpcUrl).catch(() => DEFAULT_DEMO_EIP1559_FEE_CAPS),
+      ]);
+      if (cancelled) return;
+      setTempoEip1559FeeCaps(tempoCaps);
+      setArcEip1559FeeCaps(arcCaps);
+    };
+
+    void refreshFeeCaps();
+    const intervalId = window.setInterval(() => {
+      void refreshFeeCaps();
+    }, EIP1559_FEE_CAP_REFRESH_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, []);
 
   const handleUnlockSession = useCallback(async () => {
     if (!nearAccountId) return;
@@ -1162,6 +1296,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       const greeting = await readEvmGreeting({
         rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
         contract: TEMPO_GREETING_CONTRACT,
+        selector: TEMPO_GREETING_SELECTOR,
       });
       setTempoGreeting(greeting);
       return greeting;
@@ -1184,6 +1319,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       const greeting = await readEvmGreeting({
         rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
         contract: ARC_TESTNET_GREETING_CONTRACT,
+        selector: ARC_GREET_SELECTOR,
       });
       setArcGreeting(greeting);
       return greeting;
@@ -1207,10 +1343,6 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     try {
       const session = await tatchi.auth.getSession(nearAccountId);
       const address = String(session.login.thresholdEcdsaEthereumAddress || '').trim();
-      console.log('[DemoPage][ThresholdAddressResolved]', {
-        nearAccountId,
-        thresholdEcdsaEthereumAddress: address || null,
-      });
       setThresholdEvmFundingAddress(address || null);
       return address || null;
     } catch {
@@ -1233,12 +1365,9 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       const maybeAddress = String(opts?.userAddress || thresholdEvmFundingAddress || '').trim();
       if (!isEvmAddress(maybeAddress)) {
         setTempoUserFeeToken(null);
-        setTempoUserFeeTokenError(null);
         return null;
       }
 
-      setTempoUserFeeTokenLoading(true);
-      setTempoUserFeeTokenError(null);
       try {
         const token = await readTempoUserFeeToken({
           rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
@@ -1249,13 +1378,10 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : String(e);
         setTempoUserFeeToken(null);
-        setTempoUserFeeTokenError(message);
         if (!opts?.silent) {
           toast.error(`Tempo fee-token check failed: ${message}`);
         }
         return null;
-      } finally {
-        setTempoUserFeeTokenLoading(false);
       }
     },
     [thresholdEvmFundingAddress],
@@ -1270,39 +1396,37 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       const maybeAddress = String(opts?.userAddress || thresholdEvmFundingAddress || '').trim();
       const maybeToken = String(opts?.feeToken || tempoUserFeeToken || '').trim();
       if (!isEvmAddress(maybeAddress) || !isEvmAddress(maybeToken)) {
-        setTempoUserFeeTokenBalanceRaw(null);
-        setTempoUserFeeTokenBalanceError(null);
         return null;
       }
-      setTempoUserFeeTokenBalanceLoading(true);
-      setTempoUserFeeTokenBalanceError(null);
       try {
         const balance = await readTempoTokenBalanceRaw({
           rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
           userAddress: maybeAddress,
           tokenAddress: maybeToken,
         });
-        setTempoUserFeeTokenBalanceRaw(balance);
         return balance;
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : String(e);
-        setTempoUserFeeTokenBalanceRaw(null);
-        setTempoUserFeeTokenBalanceError(message);
         if (!opts?.silent) {
           toast.error(`Tempo fee-token balance check failed: ${message}`);
         }
         return null;
-      } finally {
-        setTempoUserFeeTokenBalanceLoading(false);
       }
     },
     [tempoUserFeeToken, thresholdEvmFundingAddress],
   );
 
   const configureTempoFeeToken = useCallback(
-    async (args: { token: `0x${string}`; label: string; target: 'alpha' | 'path' }) => {
+    async (args: {
+      token: `0x${string}`;
+      label: string;
+      target: 'alpha';
+    }) => {
       if (!isLoggedIn || !nearAccountId) return;
       const toastId = 'tempo-set-fee-token';
+      try {
+        toast.dismiss(toastId);
+      } catch {}
       setTempoFeeTokenConfigLoading(true);
       setTempoFeeTokenConfigTarget(args.target);
       toast.loading(`Configuring Tempo fee token to ${args.label}…`, { id: toastId });
@@ -1311,54 +1435,33 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       let thresholdSenderForAttempt: `0x${string}` | null = null;
       let selectedFeeTokenBalanceRaw: bigint | null = null;
       let senderNativeBalanceRaw: bigint | null = null;
-      let latestValidatorAddress: `0x${string}` | null = null;
-      let latestValidatorFeeToken: `0x${string}` | null = null;
       try {
         const tempoFeeToken = args.token;
-        const thresholdSender = await resolveThresholdSenderForEvmFamily();
-        thresholdSenderForAttempt = thresholdSender;
-        latestValidatorAddress = await readLatestEvmBlockMiner({
-          rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-        }).catch(() => null);
-        latestValidatorFeeToken = latestValidatorAddress
-          ? await readTempoValidatorFeeToken({
-              rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-              validatorAddress: latestValidatorAddress,
-            }).catch(() => null)
-          : null;
-        selectedFeeTokenBalanceRaw = await readTempoTokenBalanceRaw({
-          rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-          userAddress: thresholdSender,
-          tokenAddress: tempoFeeToken,
-        }).catch(() => null);
-        senderNativeBalanceRaw = await readEvmNativeBalance({
-          rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-          address: thresholdSender,
-          blockTag: 'latest',
-        }).catch(() => null);
-        console.log('[DemoPage][TempoSetFeeTokenPreflight]', {
-          atIso: new Date().toISOString(),
-          sender: thresholdSender,
-          selectedFeeToken: tempoFeeToken,
-          selectedFeeTokenBalanceRaw,
-          senderNativeBalanceRaw,
-          latestValidatorAddress,
-          latestValidatorFeeToken,
-          rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-        });
-        if (selectedFeeTokenBalanceRaw === 0n) {
-          const validatorTokenHint = latestValidatorFeeToken
-            ? ` Latest validator token is ${latestValidatorFeeToken}.`
-            : '';
-          throw new Error(
-            `Selected fee token ${args.label} (${tempoFeeToken}) balance is 0 for ${thresholdSender}.${validatorTokenHint} Fund ${args.label} before setUserToken().`,
-          );
-        }
-        const feeCaps = await resolveEip1559FeeCaps(FRONTEND_CONFIG.tempoRpcUrl);
         const request = buildEip1559SetUserTokenRequest({
-          feeCaps,
+          feeCaps: tempoEip1559FeeCaps,
           feeToken: tempoFeeToken,
         });
+        const thresholdSenderPromise = resolveThresholdSenderForEvmFamily()
+          .then((sender) => {
+            thresholdSenderForAttempt = sender;
+            return sender;
+          })
+          .catch(() => null);
+        const diagnosticsPromise = (async () => {
+          const thresholdSender = await thresholdSenderPromise;
+          if (!thresholdSender) return;
+          selectedFeeTokenBalanceRaw = await readTempoTokenBalanceRaw({
+            rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+            userAddress: thresholdSender,
+            tokenAddress: tempoFeeToken,
+          }).catch(() => null);
+          senderNativeBalanceRaw = await readEvmNativeBalance({
+            rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+            address: thresholdSender,
+            blockTag: 'latest',
+          }).catch(() => null);
+        })().catch(() => undefined);
+
         const signed = await tatchi.tempo.signTempo({
           nearAccountId,
           request,
@@ -1368,26 +1471,6 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
           throw new Error(`Unexpected signing result kind: ${signed.kind}`);
         }
         assertRawTxTypePrefix({ requestKind: request.kind, rawTxHex: signed.rawTxHex });
-        const nonce = readManagedNonceFromSignedResult(signed) ?? 0n;
-        const recoveredSenderFromRaw: `0x${string}` | null = null;
-        const recoveredSenderMatchesSender: boolean | null = null;
-
-        const debugContext: TxSendDebugContext = {
-          atIso: new Date().toISOString(),
-          flow: 'tempo-set-fee-token',
-          sender: thresholdSender,
-          chain: request.chain,
-          requestKind: request.kind,
-          nonce,
-          gasLimit: request.tx.gasLimit,
-          feeToken: tempoFeeToken,
-          rawTxTypePrefix: getRawTxTypePrefix(signed.rawTxHex),
-          txHashHint: signed.txHashHex as `0x${string}`,
-          recoveredSenderFromRaw,
-          recoveredSenderMatchesSender,
-        };
-        setLastTxSendDebug(debugContext);
-        console.log('[DemoPage][TxSendContext]', debugContext);
 
         toast.loading('Dispatching setUserToken transaction…', { id: toastId });
         const txHash = await sendRawEvmTransaction({
@@ -1400,48 +1483,143 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
           status: 'success',
           txHash,
         });
-        const nodeReportedFrom = await readEvmTransactionSender({
-          rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-          txHash,
-        }).catch(() => null);
-        const nodeReportedFromMatchesSender = nodeReportedFrom
-          ? nodeReportedFrom.toLowerCase() === thresholdSender.toLowerCase()
-          : null;
-        const finalizedDebugContext: TxSendDebugContext = {
-          ...debugContext,
-          txHash,
-          nodeReportedFrom,
-          nodeReportedFromMatchesSender,
-        };
-        setLastTxSendDebug(finalizedDebugContext);
-        console.log('[DemoPage][TxSendContext]', finalizedDebugContext);
 
         toast.loading('Waiting for setUserToken finalization…', { id: toastId });
-        await waitForEvmTransactionFinalization({
+        const thresholdSender = await thresholdSenderPromise;
+        const receiptConfirmationResultPromise = waitForEvmTransactionFinalization({
           rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
           txHash,
           gasLimitHint: request.tx.gasLimit,
+          maxFeePerGasHint: request.tx.maxFeePerGas,
+          timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,
+          pollIntervalMs: EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
+        })
+          .then(
+            () =>
+              ({
+                ok: true as const,
+                mode: 'receipt' as const,
+              }) as const,
+          )
+          .catch(
+            (error: unknown) =>
+              ({
+                ok: false as const,
+                source: 'receipt' as const,
+                error,
+              }) as const,
+          );
+        const tokenConfirmationResultPromise = thresholdSender
+          ? waitForTempoUserTokenMatch({
+              rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+              userAddress: thresholdSender,
+              expectedToken: tempoFeeToken,
+              timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,
+              pollIntervalMs: EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
+            })
+              .then(
+                () =>
+                  ({
+                    ok: true as const,
+                    mode: 'userToken' as const,
+                  }) as const,
+              )
+              .catch(
+                (error: unknown) =>
+                  ({
+                    ok: false as const,
+                    source: 'userToken' as const,
+                    error,
+                  }) as const,
+              )
+          : Promise.resolve({
+              ok: false as const,
+              source: 'userToken' as const,
+              error: new Error('Threshold EVM sender unavailable for userTokens confirmation'),
+            });
+        const firstConfirmationResult = await withPromiseTimeout({
+          promise: Promise.race([
+            receiptConfirmationResultPromise,
+            tokenConfirmationResultPromise,
+          ]),
+          timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS + EVM_RPC_REQUEST_TIMEOUT_MS + 5_000,
+          label: 'setUserToken finalization confirmation',
         });
-        await refreshTempoUserFeeToken({ silent: true, userAddress: thresholdSender });
-        await refreshTempoUserFeeTokenBalance({
-          silent: true,
-          userAddress: thresholdSender,
-          feeToken: tempoFeeToken,
-        });
+        let confirmationMode: 'receipt' | 'userToken';
+        if (firstConfirmationResult.ok) {
+          confirmationMode = firstConfirmationResult.mode;
+        } else {
+          const secondConfirmationResult =
+            firstConfirmationResult.source === 'receipt'
+              ? await tokenConfirmationResultPromise
+              : await receiptConfirmationResultPromise;
+          if (secondConfirmationResult.ok) {
+            confirmationMode = secondConfirmationResult.mode;
+          } else {
+            const receiptError =
+              firstConfirmationResult.source === 'receipt'
+                ? firstConfirmationResult.error
+                : secondConfirmationResult.error;
+            const userTokenError =
+              firstConfirmationResult.source === 'userToken'
+                ? firstConfirmationResult.error
+                : secondConfirmationResult.error;
+            const receiptErrorMessage =
+              receiptError instanceof Error ? receiptError.message : String(receiptError);
+            const userTokenErrorMessage =
+              userTokenError instanceof Error ? userTokenError.message : String(userTokenError);
+            throw new Error(
+              `Unable to confirm setUserToken to ${args.label}. Receipt check failed: ${receiptErrorMessage}. userTokens(address) check failed: ${userTokenErrorMessage}.`,
+            );
+          }
+        }
+        const refreshedFeeToken = thresholdSender
+          ? await refreshTempoUserFeeToken({
+              silent: true,
+              userAddress: thresholdSender,
+            })
+          : null;
+        if (thresholdSender) {
+          await refreshTempoUserFeeTokenBalance({
+            silent: true,
+            userAddress: thresholdSender,
+            feeToken: tempoFeeToken,
+          });
+        }
+        const refreshedMatchesTarget =
+          !!refreshedFeeToken &&
+          refreshedFeeToken.toLowerCase() === tempoFeeToken.toLowerCase();
+        if (thresholdSender && !refreshedMatchesTarget) {
+          throw new Error(
+            `setUserToken confirmation (${confirmationMode}) completed, but refreshed userTokens(address) reports ${refreshedFeeToken ? compactHex(refreshedFeeToken) : 'not set'} instead of ${compactHex(tempoFeeToken)}. Tx hash: ${txHash}`,
+          );
+        }
+        await diagnosticsPromise;
 
-        toast.success('Tempo fee token configured', {
-          id: toastId,
-          description: (
-            <span>
-              Token:&nbsp;
-              <code>{args.label}</code>&nbsp;
-              <code>{compactHex(tempoFeeToken)}</code>
-              <br />
-              Tx hash:&nbsp;
-              <code>{compactHex(txHash)}</code>
-            </span>
-          ),
-        });
+        toast.success(
+          confirmationMode === 'userToken'
+            ? 'Tempo fee token configured (confirmed via userTokens)'
+            : 'Tempo fee token configured',
+          {
+            id: toastId,
+            description: (
+              <span>
+                Token:&nbsp;
+                <code>{args.label}</code>&nbsp;
+                <code>{compactHex(tempoFeeToken)}</code>
+                <br />
+                Tx hash:&nbsp;
+                <code>{compactHex(txHash)}</code>
+                {confirmationMode === 'userToken' ? (
+                  <>
+                    <br />
+                    Confirmed from `userTokens(address)` before receipt finalization.
+                  </>
+                ) : null}
+              </span>
+            ),
+          },
+        );
       } catch (e: unknown) {
         const resolvedError: unknown = e;
         if (signedResultForBroadcast) {
@@ -1483,9 +1661,13 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
             ? compactHex(thresholdSenderForAttempt)
             : 'unknown sender';
           const nativeBalanceText =
-            senderNativeBalanceRaw == null ? 'unknown' : senderNativeBalanceRaw.toString();
+            typeof senderNativeBalanceRaw === 'bigint'
+              ? (senderNativeBalanceRaw as bigint).toString()
+              : 'unknown';
           const selectedBalanceText =
-            selectedFeeTokenBalanceRaw == null ? 'unknown' : selectedFeeTokenBalanceRaw.toString();
+            typeof selectedFeeTokenBalanceRaw === 'bigint'
+              ? (selectedFeeTokenBalanceRaw as bigint).toString()
+              : 'unknown';
           toast.error(
             `Tempo fee token setup to ${args.label} failed: insufficient native gas for EIP-1559 bootstrap tx (have 0, need ${insufficient.wantWei.toString()}). Sender ${senderText} native balance is ${nativeBalanceText}; ${args.label} token balance is ${selectedBalanceText}.`,
             { id: toastId },
@@ -1505,6 +1687,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       refreshTempoUserFeeTokenBalance,
       resolveThresholdSenderForEvmFamily,
       tatchi,
+      tempoEip1559FeeCaps,
     ],
   );
 
@@ -1518,190 +1701,168 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     [configureTempoFeeToken],
   );
 
-  const handleSetTempoFeeTokenPathUsd = useCallback(
-    async () =>
-      await configureTempoFeeToken({
-        token: TEMPO_PATH_USD_FEE_TOKEN,
-        label: 'PathUSD',
-        target: 'path',
-      }),
-    [configureTempoFeeToken],
-  );
+  const handleTempoDripToken = useCallback(async () => {
+    if (!isLoggedIn || !nearAccountId) return;
+    const toastId = 'tempo-drip-token';
+    try {
+      toast.dismiss(toastId);
+    } catch {}
+    setTempoDripLoading(true);
+    toast.loading('Requesting Tempo token drip…', { id: toastId });
+    let signedResultForBroadcast: Awaited<ReturnType<typeof tatchi.tempo.signTempo>> | null = null;
+    let dripTokensForAttempt: `0x${string}`[] = [];
+    let senderNativeBalanceRaw: bigint | null = null;
+    try {
+      const configuredTokenRaw = String(tempoUserFeeToken || '').trim();
+      const dripToken = isEvmAddress(configuredTokenRaw)
+        ? configuredTokenRaw
+        : TEMPO_ALPHA_USD_FEE_TOKEN;
+      dripTokensForAttempt = [dripToken];
+      const thresholdSenderPromise = resolveThresholdSenderForEvmFamily().catch(() => null);
+      const senderNativeBalancePromise = thresholdSenderPromise.then(async (thresholdSender) => {
+        if (!thresholdSender) return null;
+        return await readEvmNativeBalance({
+          rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+          address: thresholdSender,
+          blockTag: 'latest',
+        }).catch(() => null);
+      });
+      const request = buildTempoEip1559DripRequest({
+        feeCaps: tempoEip1559FeeCaps,
+        tokenAddresses: dripTokensForAttempt,
+      });
+      const signed = await tatchi.tempo.signTempo({
+        nearAccountId,
+        request,
+      });
+      signedResultForBroadcast = signed;
+
+      if (signed.kind !== 'eip1559') {
+        throw new Error(`Unexpected signing result kind: ${signed.kind}`);
+      }
+      assertRawTxTypePrefix({ requestKind: request.kind, rawTxHex: signed.rawTxHex });
+
+      toast.loading('Dispatching Tempo drip transaction…', { id: toastId });
+      const txHash = await sendRawEvmTransaction({
+        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+        rawTxHex: signed.rawTxHex,
+      });
+      await tatchi.tempo.reportBroadcastResult({
+        nearAccountId,
+        signedResult: signed,
+        status: 'success',
+        txHash,
+      });
+
+      toast.loading('Tempo drip transaction broadcasted, waiting for finalization…', { id: toastId });
+      await waitForEvmTransactionFinalization({
+        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+        txHash,
+        gasLimitHint: request.tx.gasLimit,
+        maxFeePerGasHint: request.tx.maxFeePerGas,
+      });
+      const thresholdSender = await thresholdSenderPromise;
+      if (thresholdSender) {
+        await refreshTempoUserFeeTokenBalance({
+          silent: true,
+          userAddress: thresholdSender,
+          feeToken: dripToken,
+        });
+      }
+      senderNativeBalanceRaw = await senderNativeBalancePromise;
+
+      toast.success('Tempo drip finalized', {
+        id: toastId,
+        description: (
+          <span>
+            Token:&nbsp;
+            <code>{compactHex(dripToken)}</code>
+            <br />
+            Tx hash:&nbsp;
+            <code>{compactHex(txHash)}</code>
+          </span>
+        ),
+      });
+    } catch (e: unknown) {
+      const resolvedError: unknown = e;
+      if (signedResultForBroadcast) {
+        try {
+          await tatchi.tempo.reportBroadcastResult({
+            nearAccountId,
+            signedResult: signedResultForBroadcast,
+            status: 'failure',
+            error: resolvedError,
+          });
+        } catch (reportError: unknown) {
+          console.error('[DemoPage][BroadcastReportError]', {
+            atIso: new Date().toISOString(),
+            flow: 'tempo-drip-token',
+            originalError: resolvedError,
+            reportError,
+          });
+        }
+      }
+      if (isUserCancellationError(resolvedError)) {
+        toast.error('Tempo drip cancelled by user.', { id: toastId });
+        return;
+      }
+      const message =
+        resolvedError instanceof Error ? resolvedError.message : String(resolvedError);
+      const insufficient = parseInsufficientFundsError(message);
+      if (insufficient) {
+        toast.error(
+          `Tempo sender has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`,
+          { id: toastId },
+        );
+      } else {
+        toast.error(`Tempo drip failed: ${message}`, { id: toastId });
+      }
+      console.error('[DemoPage][TempoDripError]', {
+        atIso: new Date().toISOString(),
+        error: resolvedError,
+        message,
+        senderNativeBalanceRaw,
+        dripTokensForAttempt,
+      });
+    } finally {
+      setTempoDripLoading(false);
+    }
+  }, [
+    isLoggedIn,
+    nearAccountId,
+    refreshTempoUserFeeTokenBalance,
+    resolveThresholdSenderForEvmFamily,
+    tatchi,
+    tempoEip1559FeeCaps,
+    tempoUserFeeToken,
+  ]);
 
   const handleSignTempoThresholdTx = useCallback(async () => {
     if (!canExecuteGreeting(tempoGreetingInput, isLoggedIn, nearAccountId)) return;
     const toastId = 'tempo-threshold-sign';
+    try {
+      toast.dismiss(toastId);
+    } catch {}
     setTempoThresholdSignLoading(true);
     toast.loading('Signing Tempo transaction…', { id: toastId });
-    let onChainFeeToken: `0x${string}` | null = null;
-    let txFeeTokenForAttempt: `0x${string}` | null = null;
     let signedResultForBroadcast: Awaited<ReturnType<typeof tatchi.tempo.signTempo>> | null = null;
-    let feeDiagnosticsForAttempt: TempoFeeDiagnostics | null = null;
-    let txSendDebugForAttempt: TxSendDebugContext | null = null;
     try {
-      const thresholdSender = await resolveThresholdSenderForEvmFamily();
-      const feeCaps = await resolveEip1559FeeCaps(FRONTEND_CONFIG.tempoRpcUrl);
-      const chainPendingNonce = await resolveEvmAccountNonce({
-        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-        address: thresholdSender,
-        blockTag: 'pending',
-      });
-      onChainFeeToken = await refreshTempoUserFeeToken({
-        silent: true,
-        userAddress: thresholdSender,
-      });
-      if (!onChainFeeToken) {
-        throw new Error(
-          `Tempo on-chain fee token is not set for ${thresholdSender}; configure setUserToken(address) first.`,
-        );
-      }
-      const preferredFeeToken = getPreferredTempoFeeToken();
-      const preferredFeeTokenDiffers =
-        preferredFeeToken.toLowerCase() !== onChainFeeToken.toLowerCase();
-      const isModeratoRpc = FRONTEND_CONFIG.tempoRpcUrl.toLowerCase().includes('moderato.tempo.xyz');
-      const onChainIsPathUsd = onChainFeeToken.toLowerCase() === TEMPO_PATH_USD_FEE_TOKEN.toLowerCase();
-      const latestValidatorAddress = await readLatestEvmBlockMiner({
-        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-      }).catch(() => null);
-      const latestValidatorFeeToken = latestValidatorAddress
-        ? await readTempoValidatorFeeToken({
-            rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-            validatorAddress: latestValidatorAddress,
-          }).catch(() => null)
-        : null;
-      const latestValidatorFeeTokenBalanceRaw = latestValidatorFeeToken
-        ? await readTempoTokenBalanceRaw({
-            rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-            userAddress: thresholdSender,
-            tokenAddress: latestValidatorFeeToken,
-          }).catch(() => null)
-        : null;
-      const onChainFeeTokenBalanceRaw = await refreshTempoUserFeeTokenBalance({
-        silent: true,
-        userAddress: thresholdSender,
-        feeToken: onChainFeeToken,
-      });
-      if (onChainFeeTokenBalanceRaw == null) {
-        throw new Error(
-          `Unable to read configured fee-token balance for ${thresholdSender} on ${FRONTEND_CONFIG.tempoRpcUrl}.`,
-        );
-      }
-      const alphaFeeTokenBalanceRaw =
-        onChainFeeToken.toLowerCase() === TEMPO_ALPHA_USD_FEE_TOKEN.toLowerCase()
-          ? onChainFeeTokenBalanceRaw
-          : await readTempoTokenBalanceRaw({
-              rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-              userAddress: thresholdSender,
-              tokenAddress: TEMPO_ALPHA_USD_FEE_TOKEN,
-            }).catch(() => null);
-      const preferredFeeTokenBalanceRaw = preferredFeeTokenDiffers
-        ? await readTempoTokenBalanceRaw({
-            rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-            userAddress: thresholdSender,
-            tokenAddress: preferredFeeToken,
-          }).catch(() => null)
-        : onChainFeeTokenBalanceRaw;
-      let txFeeToken = onChainFeeToken;
-      let txFeeTokenBalanceRaw = onChainFeeTokenBalanceRaw;
-      let txFeeTokenSelectionReason = 'account-level fee token (userTokens(address))';
-      if (
-        isModeratoRpc &&
-        onChainIsPathUsd &&
-        typeof alphaFeeTokenBalanceRaw === 'bigint' &&
-        alphaFeeTokenBalanceRaw > 0n
-      ) {
-        txFeeToken = TEMPO_ALPHA_USD_FEE_TOKEN;
-        txFeeTokenBalanceRaw = alphaFeeTokenBalanceRaw;
-        txFeeTokenSelectionReason =
-          'moderato PathUSD spendability guard: using AlphaUSD as tx-level fee token';
-      } else if (
-        preferredFeeTokenDiffers &&
-        onChainFeeTokenBalanceRaw === 0n &&
-        typeof preferredFeeTokenBalanceRaw === 'bigint' &&
-        preferredFeeTokenBalanceRaw > 0n
-      ) {
-        txFeeToken = preferredFeeToken;
-        txFeeTokenBalanceRaw = preferredFeeTokenBalanceRaw;
-        txFeeTokenSelectionReason = `fallback to app-preferred fee token (${preferredFeeToken}) because on-chain token balance is zero`;
-      }
-      txFeeTokenForAttempt = txFeeToken;
-      const request = buildDemoTempoTransactionRequest(tempoGreetingInput.trim(), feeCaps, txFeeToken);
-      feeDiagnosticsForAttempt = {
-        atIso: new Date().toISOString(),
-        sender: thresholdSender,
-        onChainFeeToken,
-        onChainFeeTokenBalanceRaw,
-        alphaFeeTokenBalanceRaw,
-        txFeeToken,
-        txFeeTokenBalanceRaw,
-        txFeeTokenSelectionReason,
-        preferredFeeToken,
-        preferredFeeTokenBalanceRaw,
-        validatorAddress: latestValidatorAddress,
-        validatorFeeToken: latestValidatorFeeToken,
-        validatorFeeTokenBalanceRaw: latestValidatorFeeTokenBalanceRaw,
-        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-        balanceRaw: txFeeTokenBalanceRaw,
-        chainPendingNonce,
-        gasLimit: request.tx.gasLimit,
-        maxPriorityFeePerGas: request.tx.maxPriorityFeePerGas,
-        maxFeePerGas: request.tx.maxFeePerGas,
-      };
-      setLastTempoFeeDiagnostics(feeDiagnosticsForAttempt);
-      console.log('[DemoPage][TempoFeeDiagnostics]', feeDiagnosticsForAttempt);
-      if (txFeeTokenBalanceRaw === 0n) {
-        throw new Error(
-          `Selected transaction fee token ${txFeeToken} has zero balance on configured RPC ${FRONTEND_CONFIG.tempoRpcUrl}.`,
-        );
-      }
+      const requestedGreeting = tempoGreetingInput.trim();
+      const request = buildTempoEip1559GreetingRequest(
+        requestedGreeting,
+        tempoEip1559FeeCaps,
+      );
+
       const signed = await tatchi.tempo.signTempo({
         nearAccountId: nearAccountId!,
         request,
       });
       signedResultForBroadcast = signed;
 
-      if (signed.kind !== 'tempoTransaction') {
+      if (signed.kind !== 'eip1559') {
         throw new Error(`Unexpected signing result kind: ${signed.kind}`);
       }
       assertRawTxTypePrefix({ requestKind: request.kind, rawTxHex: signed.rawTxHex });
-      const nonce = readManagedNonceFromSignedResult(signed) ?? 0n;
-      const senderSignature65Hex = extractTempoSenderSignature65Hex(signed.rawTxHex);
-      const recoveredSenderFromRaw = senderSignature65Hex
-        ? await recoverEvmAddressFromDigestAndSignature({
-            digest32Hex: signed.senderHashHex as `0x${string}`,
-            signature65Hex: senderSignature65Hex,
-          }).catch(() => null)
-        : null;
-      const recoveredSenderMatchesSender = recoveredSenderFromRaw
-        ? recoveredSenderFromRaw.toLowerCase() === thresholdSender.toLowerCase()
-        : null;
-      if (feeDiagnosticsForAttempt) {
-        feeDiagnosticsForAttempt = {
-          ...feeDiagnosticsForAttempt,
-          nonce,
-        };
-        setLastTempoFeeDiagnostics(feeDiagnosticsForAttempt);
-      }
-
-      const debugContext: TxSendDebugContext = {
-        atIso: new Date().toISOString(),
-        flow: 'tempo-sign',
-        sender: thresholdSender,
-        chain: request.chain,
-        requestKind: request.kind,
-        nonce,
-        chainPendingNonce,
-        gasLimit: request.tx.gasLimit,
-        feeToken: txFeeToken,
-        feeTokenSelectionReason: txFeeTokenSelectionReason,
-        rawTxTypePrefix: getRawTxTypePrefix(signed.rawTxHex),
-        txHashHint: signed.senderHashHex as `0x${string}`,
-        recoveredSenderFromRaw,
-        recoveredSenderMatchesSender,
-      };
-      txSendDebugForAttempt = debugContext;
-      setLastTxSendDebug(debugContext);
-      console.log('[DemoPage][TxSendContext]', debugContext);
 
       toast.loading('Dispatching Tempo transaction…', { id: toastId });
       const txHash = await sendRawEvmTransaction({
@@ -1714,40 +1875,103 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
         status: 'success',
         txHash,
       });
-      const nodeReportedFrom = await readEvmTransactionSender({
-        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-        txHash,
-      }).catch(() => null);
-      const nodeReportedFromMatchesSender = nodeReportedFrom
-        ? nodeReportedFrom.toLowerCase() === thresholdSender.toLowerCase()
-        : null;
-      const finalizedDebugContext: TxSendDebugContext = {
-        ...debugContext,
-        txHash,
-        nodeReportedFrom,
-        nodeReportedFromMatchesSender,
-      };
-      setLastTxSendDebug(finalizedDebugContext);
-      console.log('[DemoPage][TxSendContext]', finalizedDebugContext);
 
       toast.loading('Tempo transaction broadcasted, waiting for finalization…', { id: toastId });
-      await waitForEvmTransactionFinalization({
+      const receiptConfirmationResultPromise = waitForEvmTransactionFinalization({
         rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
         txHash,
         gasLimitHint: request.tx.gasLimit,
+        maxFeePerGasHint: request.tx.maxFeePerGas,
+      })
+        .then(
+          () =>
+            ({
+              ok: true as const,
+              mode: 'receipt' as const,
+            }) as const,
+        )
+        .catch(
+          (error: unknown) =>
+            ({
+              ok: false as const,
+              source: 'receipt' as const,
+              error,
+            }) as const,
+        );
+      const greetingConfirmationResultPromise = waitForEvmGreetingMatch({
+        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+        contract: TEMPO_GREETING_CONTRACT,
+        selector: TEMPO_GREETING_SELECTOR,
+        expectedGreeting: requestedGreeting,
+      })
+        .then(
+          () =>
+            ({
+              ok: true as const,
+              mode: 'greeting' as const,
+            }) as const,
+        )
+        .catch(
+          (error: unknown) =>
+            ({
+              ok: false as const,
+              source: 'greeting' as const,
+              error,
+            }) as const,
+        );
+      const firstConfirmationResult = await withPromiseTimeout({
+        promise: Promise.race([
+          receiptConfirmationResultPromise,
+          greetingConfirmationResultPromise,
+        ]),
+        timeoutMs: EVM_TX_FINALITY_TIMEOUT_MS + EVM_RPC_REQUEST_TIMEOUT_MS + 5_000,
+        label: 'Tempo greeting finalization confirmation',
       });
+      let confirmationMode: 'receipt' | 'greeting';
+      if (firstConfirmationResult.ok) {
+        confirmationMode = firstConfirmationResult.mode;
+      } else {
+        const secondConfirmationResult =
+          firstConfirmationResult.source === 'receipt'
+            ? await greetingConfirmationResultPromise
+            : await receiptConfirmationResultPromise;
+        if (secondConfirmationResult.ok) {
+          confirmationMode = secondConfirmationResult.mode;
+        } else {
+          const receiptError =
+            firstConfirmationResult.source === 'receipt'
+              ? firstConfirmationResult.error
+              : secondConfirmationResult.error;
+          const greetingError =
+            firstConfirmationResult.source === 'greeting'
+              ? firstConfirmationResult.error
+              : secondConfirmationResult.error;
+          const receiptErrorMessage =
+            receiptError instanceof Error ? receiptError.message : String(receiptError);
+          const greetingErrorMessage =
+            greetingError instanceof Error ? greetingError.message : String(greetingError);
+          throw new Error(
+            `Unable to confirm Tempo transaction finalization. Receipt check failed: ${receiptErrorMessage}. Greeting check failed: ${greetingErrorMessage}. Tx hash: ${txHash}`,
+          );
+        }
+      }
       await fetchTempoGreeting({ silent: true });
       await refreshThresholdEvmFundingAddress();
 
-      toast.success('Tempo transaction finalized', {
-        id: toastId,
-        description: (
-          <span>
-            Tx hash:&nbsp;
-            <code>{compactHex(txHash)}</code>
-          </span>
-        ),
-      });
+      toast.success(
+        confirmationMode === 'greeting'
+          ? 'Tempo transaction confirmed (via greeting update)'
+          : 'Tempo transaction finalized',
+        {
+          id: toastId,
+          description: (
+            <span>
+              Tx hash:&nbsp;
+              <code>{compactHex(txHash)}</code>
+            </span>
+          ),
+        },
+      );
     } catch (e: unknown) {
       const resolvedError: unknown = e;
       if (signedResultForBroadcast && nearAccountId) {
@@ -1774,65 +1998,15 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       }
       const message =
         resolvedError instanceof Error ? resolvedError.message : String(resolvedError);
-      const feeDiagnostics = feeDiagnosticsForAttempt || lastTempoFeeDiagnostics;
-      const attemptedFeeToken = feeDiagnostics?.txFeeToken || txFeeTokenForAttempt || onChainFeeToken;
       console.error('[DemoPage][TempoSignError]', {
         atIso: new Date().toISOString(),
         message,
         error: resolvedError,
-        feeDiagnostics,
-        lastTxSendDebug: txSendDebugForAttempt || lastTxSendDebug,
       });
       const insufficient = parseInsufficientFundsError(message);
-      if (insufficient && insufficient.haveWei === 0n && insufficient.wantWei === 0n) {
-        const tokenHint = onChainFeeToken
-          ? `account fee token ${compactHex(onChainFeeToken)}`
-          : `fee token ${compactHex(getPreferredTempoFeeToken())}`;
+      if (insufficient) {
         toast.error(
-          `Tempo transaction failed: ${message}. Tempo has no native gas token; configure setUserToken(address) on ${compactHex(TEMPO_FEE_MANAGER_CONTRACT)} with ${tokenHint}.`,
-          { id: toastId },
-        );
-      } else if (insufficient && insufficient.haveWei === 0n && attemptedFeeToken) {
-        const validatorFeeToken = feeDiagnostics?.validatorFeeToken;
-        const validatorTokenDiffers =
-          !!validatorFeeToken && validatorFeeToken.toLowerCase() !== attemptedFeeToken.toLowerCase();
-        const attemptedIsPathUsd =
-          attemptedFeeToken.toLowerCase() === TEMPO_PATH_USD_FEE_TOKEN.toLowerCase();
-        const isModeratoRpc = FRONTEND_CONFIG.tempoRpcUrl.toLowerCase().includes('moderato.tempo.xyz');
-        if (attemptedIsPathUsd && isModeratoRpc) {
-          toast.error(
-            `Tempo fee precheck rejected PathUSD as spendable (have 0, need ${insufficient.wantWei.toString()}). This usually means validator-token conversion liquidity is unavailable for the current block proposer on Moderato. Try AlphaUSD as transaction fee token.`,
-            { id: toastId },
-          );
-        } else if (validatorTokenDiffers) {
-          const validatorAddressText = feeDiagnostics?.validatorAddress
-            ? compactHex(feeDiagnostics.validatorAddress)
-            : 'latest validator';
-          const validatorBalanceText =
-            typeof feeDiagnostics?.validatorFeeTokenBalanceRaw === 'bigint'
-              ? feeDiagnostics.validatorFeeTokenBalanceRaw.toString()
-              : 'unavailable';
-          toast.error(
-            `Tempo spendable fee balance is 0 for selected transaction token ${compactHex(attemptedFeeToken)} (need ${insufficient.wantWei.toString()}). Latest validator ${validatorAddressText} prefers ${compactHex(validatorFeeToken!)}; sender balance for that validator token is ${validatorBalanceText}. Cross-token fee conversion likely has no available route/liquidity right now.`,
-            { id: toastId },
-          );
-        } else if (feeDiagnostics && feeDiagnostics.balanceRaw > 0n) {
-          const selectionHint = feeDiagnostics.txFeeTokenSelectionReason
-            ? ` (${feeDiagnostics.txFeeTokenSelectionReason})`
-            : '';
-          toast.error(
-            `Tempo reported spendable fee balance 0 for selected transaction token ${compactHex(attemptedFeeToken)}${selectionHint} (need ${insufficient.wantWei.toString()}) even though balanceOf(${compactHex(feeDiagnostics.sender)}) on configured RPC is ${feeDiagnostics.balanceRaw.toString()}.`,
-            { id: toastId },
-          );
-        } else {
-          toast.error(
-            `Tempo reported zero spendable fee balance for selected transaction token ${compactHex(attemptedFeeToken)} (need ${insufficient.wantWei.toString()}).`,
-            { id: toastId },
-          );
-        }
-      } else if (insufficient) {
-        toast.error(
-          `Tempo sender has insufficient fee balance (have ${insufficient.haveWei.toString()}, need ${insufficient.wantWei.toString()}).`,
+          `Tempo sender has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`,
           { id: toastId },
         );
       } else {
@@ -1845,28 +2019,24 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     canExecuteGreeting,
     fetchTempoGreeting,
     isLoggedIn,
-    lastTempoFeeDiagnostics,
-    lastTxSendDebug,
     nearAccountId,
     refreshThresholdEvmFundingAddress,
-    refreshTempoUserFeeTokenBalance,
-    refreshTempoUserFeeToken,
-    resolveThresholdSenderForEvmFamily,
     tatchi,
+    tempoEip1559FeeCaps,
     tempoGreetingInput,
   ]);
 
   const handleSignEvmThresholdTx = useCallback(async () => {
     if (!canExecuteGreeting(arcGreetingInput, isLoggedIn, nearAccountId)) return;
     const toastId = 'evm-threshold-sign';
+    try {
+      toast.dismiss(toastId);
+    } catch {}
     setEvmThresholdSignLoading(true);
     toast.loading('Signing EVM transaction…', { id: toastId });
     let signedResultForBroadcast: Awaited<ReturnType<typeof tatchi.tempo.signTempo>> | null = null;
     try {
-      const thresholdSender = await resolveThresholdSenderForEvmFamily();
-
-      const feeCaps = await resolveEip1559FeeCaps(FRONTEND_CONFIG.arcRpcUrl);
-      const request = buildDemoEip1559Request(arcGreetingInput.trim(), feeCaps);
+      const request = buildDemoEip1559Request(arcGreetingInput.trim(), arcEip1559FeeCaps);
       const signed = await tatchi.tempo.signTempo({
         nearAccountId: nearAccountId!,
         request,
@@ -1877,22 +2047,6 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
         throw new Error(`Unexpected signing result kind: ${signed.kind}`);
       }
       assertRawTxTypePrefix({ requestKind: request.kind, rawTxHex: signed.rawTxHex });
-      const nonce = readManagedNonceFromSignedResult(signed) ?? 0n;
-
-      const debugContext: TxSendDebugContext = {
-        atIso: new Date().toISOString(),
-        flow: 'evm-sign',
-        sender: thresholdSender,
-        chain: request.chain,
-        requestKind: request.kind,
-        nonce,
-        gasLimit: request.tx.gasLimit,
-        feeToken: null,
-        rawTxTypePrefix: getRawTxTypePrefix(signed.rawTxHex),
-        txHashHint: signed.txHashHex as `0x${string}`,
-      };
-      setLastTxSendDebug(debugContext);
-      console.log('[DemoPage][TxSendContext]', debugContext);
 
       toast.loading('Dispatching EVM transaction…', { id: toastId });
       const txHash = await sendRawEvmTransaction({
@@ -1905,27 +2059,13 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
         status: 'success',
         txHash,
       });
-      const nodeReportedFrom = await readEvmTransactionSender({
-        rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
-        txHash,
-      }).catch(() => null);
-      const nodeReportedFromMatchesSender = nodeReportedFrom
-        ? nodeReportedFrom.toLowerCase() === thresholdSender.toLowerCase()
-        : null;
-      const finalizedDebugContext: TxSendDebugContext = {
-        ...debugContext,
-        txHash,
-        nodeReportedFrom,
-        nodeReportedFromMatchesSender,
-      };
-      setLastTxSendDebug(finalizedDebugContext);
-      console.log('[DemoPage][TxSendContext]', finalizedDebugContext);
 
       toast.loading('EVM transaction broadcasted, waiting for finalization…', { id: toastId });
       await waitForEvmTransactionFinalization({
         rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
         txHash,
         gasLimitHint: request.tx.gasLimit,
+        maxFeePerGasHint: request.tx.maxFeePerGas,
       });
       await fetchArcGreeting({ silent: true });
       await refreshThresholdEvmFundingAddress();
@@ -1978,12 +2118,13 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       setEvmThresholdSignLoading(false);
     }
   }, [
+    arcEip1559FeeCaps,
     arcGreetingInput,
     canExecuteGreeting,
     fetchArcGreeting,
     isLoggedIn,
     nearAccountId,
-    resolveThresholdSenderForEvmFamily,
+    refreshThresholdEvmFundingAddress,
     tatchi,
   ]);
 
@@ -2003,40 +2144,18 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
   useEffect(() => {
     if (!thresholdEvmFundingAddress || !isEvmAddress(thresholdEvmFundingAddress)) {
       setTempoUserFeeToken(null);
-      setTempoUserFeeTokenError(null);
-      setLastTempoFeeDiagnostics(null);
       return;
     }
     void refreshTempoUserFeeToken({ silent: true, userAddress: thresholdEvmFundingAddress });
   }, [refreshTempoUserFeeToken, thresholdEvmFundingAddress]);
-
-  useEffect(() => {
-    if (
-      !thresholdEvmFundingAddress ||
-      !isEvmAddress(thresholdEvmFundingAddress) ||
-      !tempoUserFeeToken
-    ) {
-      setTempoUserFeeTokenBalanceRaw(null);
-      setTempoUserFeeTokenBalanceError(null);
-      return;
-    }
-    void refreshTempoUserFeeTokenBalance({
-      silent: true,
-      userAddress: thresholdEvmFundingAddress,
-      feeToken: tempoUserFeeToken,
-    });
-  }, [refreshTempoUserFeeTokenBalance, tempoUserFeeToken, thresholdEvmFundingAddress]);
 
   if (!isLoggedIn || !nearAccountId) {
     return null;
   }
 
   const accountName = nearAccountId.split('.')?.[0];
-  const preferredTempoFeeToken = getPreferredTempoFeeToken();
   const tempoFeeTokenIsAlpha =
     String(tempoUserFeeToken || '').toLowerCase() === TEMPO_ALPHA_USD_FEE_TOKEN.toLowerCase();
-  const tempoFeeTokenIsPath =
-    String(tempoUserFeeToken || '').toLowerCase() === TEMPO_PATH_USD_FEE_TOKEN.toLowerCase();
   const expiresInSec =
     sessionStatus?.expiresAtMs != null
       ? Math.max(0, Math.ceil((sessionStatus.expiresAtMs - clockMs) / 1000))
@@ -2115,7 +2234,8 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
         <h2 className="demo-subtitle">Tempo + EVM Threshold Signers</h2>
         <div className="action-text funding-instructions">
           <span>
-            Fund this threshold EVM signer address with Arc native gas and a Tempo fee token.
+            Fund this threshold EVM signer address with Arc native gas. Tempo setUserToken is
+            configured via the buttons below.
           </span>
           <div className="funding-address-row">
             <span className="funding-address-text">
@@ -2136,175 +2256,37 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
               <span className="funding-address-copy-placeholder" aria-hidden="true" />
             )}
           </div>
-          <div style={{ fontSize: '0.85rem', color: 'var(--fe-text-secondary)' }}>
-            App-preferred Tempo fee token: <code>{preferredTempoFeeToken}</code>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 10,
+              marginTop: 10,
+            }}
+          >
+            <LoadingButton
+              onClick={handleSetTempoFeeTokenAlphaUsd}
+              loading={tempoFeeTokenConfigLoading && tempoFeeTokenConfigTarget === 'alpha'}
+              loadingText="Configuring..."
+              variant="secondary"
+              size="medium"
+              style={{ width: '100%' }}
+              disabled={tempoFeeTokenConfigLoading || tempoFeeTokenIsAlpha}
+            >
+              Set Tempo Fee Token
+            </LoadingButton>
+            <LoadingButton
+              onClick={handleTempoDripToken}
+              loading={tempoDripLoading}
+              loadingText="Dripping..."
+              variant="secondary"
+              size="medium"
+              style={{ width: '100%' }}
+              disabled={tempoDripLoading || tempoFeeTokenConfigLoading}
+            >
+              Drip Fee Tokens
+            </LoadingButton>
           </div>
-          <div style={{ fontSize: '0.85rem', color: 'var(--fe-text-secondary)' }}>
-            Tempo on-chain user fee token:{' '}
-            {tempoUserFeeTokenLoading ? (
-              'Checking…'
-            ) : tempoUserFeeToken ? (
-              <code>{tempoUserFeeToken}</code>
-            ) : (
-              'Not set'
-            )}
-          </div>
-          <div style={{ fontSize: '0.85rem', color: 'var(--fe-text-secondary)' }}>
-            Tempo fee-token balance on configured RPC ({compactHex(FRONTEND_CONFIG.tempoRpcUrl)}):{' '}
-            {tempoUserFeeTokenBalanceLoading ? (
-              'Checking…'
-            ) : tempoUserFeeTokenBalanceRaw != null ? (
-              <code>{tempoUserFeeTokenBalanceRaw.toString()}</code>
-            ) : (
-              'Unavailable'
-            )}
-          </div>
-          {lastTempoFeeDiagnostics ? (
-            <div style={{ fontSize: '0.8rem', color: 'var(--fe-text-secondary)' }}>
-              Last Tempo fee preflight:&nbsp;
-              <code>{lastTempoFeeDiagnostics.atIso}</code>
-              &nbsp;sender&nbsp;
-              <code>{lastTempoFeeDiagnostics.sender}</code>
-              &nbsp;onChainToken&nbsp;
-              <code>{lastTempoFeeDiagnostics.onChainFeeToken}</code>
-              &nbsp;txFeeToken&nbsp;
-              <code>{lastTempoFeeDiagnostics.txFeeToken}</code>
-              {lastTempoFeeDiagnostics.txFeeTokenSelectionReason ? (
-                <>
-                  &nbsp;selection&nbsp;
-                  <code>{lastTempoFeeDiagnostics.txFeeTokenSelectionReason}</code>
-                </>
-              ) : null}
-              {typeof lastTempoFeeDiagnostics.onChainFeeTokenBalanceRaw === 'bigint' ? (
-                <>
-                  &nbsp;onChainBalanceRaw&nbsp;
-                  <code>{lastTempoFeeDiagnostics.onChainFeeTokenBalanceRaw.toString()}</code>
-                </>
-              ) : null}
-              {typeof lastTempoFeeDiagnostics.alphaFeeTokenBalanceRaw === 'bigint' ? (
-                <>
-                  &nbsp;alphaBalanceRaw&nbsp;
-                  <code>{lastTempoFeeDiagnostics.alphaFeeTokenBalanceRaw.toString()}</code>
-                </>
-              ) : null}
-              {typeof lastTempoFeeDiagnostics.txFeeTokenBalanceRaw === 'bigint' ? (
-                <>
-                  &nbsp;txTokenBalanceRaw&nbsp;
-                  <code>{lastTempoFeeDiagnostics.txFeeTokenBalanceRaw.toString()}</code>
-                </>
-              ) : null}
-              &nbsp;balanceRaw&nbsp;
-              <code>{lastTempoFeeDiagnostics.balanceRaw.toString()}</code>
-              &nbsp;chainPendingNonce&nbsp;
-              <code>{lastTempoFeeDiagnostics.chainPendingNonce.toString()}</code>
-              {typeof lastTempoFeeDiagnostics.nonce === 'bigint' ? (
-                <>
-                  &nbsp;nonce&nbsp;
-                  <code>{lastTempoFeeDiagnostics.nonce.toString()}</code>
-                </>
-              ) : null}
-              &nbsp;gasLimit&nbsp;
-              <code>{lastTempoFeeDiagnostics.gasLimit.toString()}</code>
-              &nbsp;maxPriorityFeePerGas&nbsp;
-              <code>{lastTempoFeeDiagnostics.maxPriorityFeePerGas.toString()}</code>
-              &nbsp;maxFeePerGas&nbsp;
-              <code>{lastTempoFeeDiagnostics.maxFeePerGas.toString()}</code>
-              {lastTempoFeeDiagnostics.validatorAddress ? (
-                <>
-                  &nbsp;validator&nbsp;
-                  <code>{lastTempoFeeDiagnostics.validatorAddress}</code>
-                </>
-              ) : null}
-              {lastTempoFeeDiagnostics.validatorFeeToken ? (
-                <>
-                  &nbsp;validatorFeeToken&nbsp;
-                  <code>{lastTempoFeeDiagnostics.validatorFeeToken}</code>
-                </>
-              ) : null}
-              {typeof lastTempoFeeDiagnostics.validatorFeeTokenBalanceRaw === 'bigint' ? (
-                <>
-                  &nbsp;validatorTokenBalanceRaw&nbsp;
-                  <code>{lastTempoFeeDiagnostics.validatorFeeTokenBalanceRaw.toString()}</code>
-                </>
-              ) : null}
-            </div>
-          ) : null}
-          {tempoUserFeeTokenError ? (
-            <div style={{ fontSize: '0.8rem', color: 'var(--fe-text-secondary)' }}>
-              Fee-token check error: {tempoUserFeeTokenError}
-            </div>
-          ) : null}
-          {tempoUserFeeTokenBalanceError ? (
-            <div style={{ fontSize: '0.8rem', color: 'var(--fe-text-secondary)' }}>
-              Fee-token balance check error: {tempoUserFeeTokenBalanceError}
-            </div>
-          ) : null}
-          {lastTxSendDebug ? (
-            <div style={{ fontSize: '0.8rem', color: 'var(--fe-text-secondary)' }}>
-              Last send:&nbsp;
-              <code>{lastTxSendDebug.flow}</code>
-              &nbsp;from&nbsp;
-              <code>{lastTxSendDebug.sender}</code>
-              &nbsp;kind&nbsp;
-              <code>
-                {lastTxSendDebug.chain}:{lastTxSendDebug.requestKind}
-              </code>
-              &nbsp;nonce&nbsp;
-              <code>{lastTxSendDebug.nonce.toString()}</code>
-              {typeof lastTxSendDebug.chainPendingNonce === 'bigint' ? (
-                <>
-                  &nbsp;chainPendingNonce&nbsp;
-                  <code>{lastTxSendDebug.chainPendingNonce.toString()}</code>
-                </>
-              ) : null}
-              {typeof lastTxSendDebug.gasLimit === 'bigint' ? (
-                <>
-                  &nbsp;gasLimit&nbsp;
-                  <code>{lastTxSendDebug.gasLimit.toString()}</code>
-                </>
-              ) : null}
-              {lastTxSendDebug.feeToken ? (
-                <>
-                  &nbsp;feeToken&nbsp;
-                  <code>{lastTxSendDebug.feeToken}</code>
-                </>
-              ) : null}
-              {lastTxSendDebug.feeTokenSelectionReason ? (
-                <>
-                  &nbsp;selection&nbsp;
-                  <code>{lastTxSendDebug.feeTokenSelectionReason}</code>
-                </>
-              ) : null}
-              {lastTxSendDebug.rawTxTypePrefix ? (
-                <>
-                  &nbsp;rawType&nbsp;
-                  <code>{lastTxSendDebug.rawTxTypePrefix}</code>
-                </>
-              ) : null}
-              {lastTxSendDebug.recoveredSenderFromRaw ? (
-                <>
-                  &nbsp;recoveredFromRaw&nbsp;
-                  <code>{lastTxSendDebug.recoveredSenderFromRaw}</code>
-                  &nbsp;match&nbsp;
-                  <code>{String(lastTxSendDebug.recoveredSenderMatchesSender ?? false)}</code>
-                </>
-              ) : null}
-              {lastTxSendDebug.txHash ? (
-                <>
-                  &nbsp;txHash&nbsp;
-                  <code>{compactHex(lastTxSendDebug.txHash)}</code>
-                </>
-              ) : null}
-              {lastTxSendDebug.nodeReportedFrom ? (
-                <>
-                  &nbsp;nodeFrom&nbsp;
-                  <code>{lastTxSendDebug.nodeReportedFrom}</code>
-                  &nbsp;match&nbsp;
-                  <code>{String(lastTxSendDebug.nodeReportedFromMatchesSender ?? false)}</code>
-                </>
-              ) : null}
-            </div>
-          ) : null}
         </div>
 
         <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
@@ -2338,45 +2320,6 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
           </div>
           {tempoGreetingError ? (
             <div className="error-message">Tempo greeting error: {tempoGreetingError}</div>
-          ) : null}
-          <LoadingButton
-            onClick={handleSetTempoFeeTokenAlphaUsd}
-            loading={tempoFeeTokenConfigLoading && tempoFeeTokenConfigTarget === 'alpha'}
-            loadingText="Configuring..."
-            variant="secondary"
-            size="medium"
-            style={{ width: '100%' }}
-            disabled={tempoFeeTokenConfigLoading || tempoFeeTokenIsAlpha}
-          >
-            {tempoFeeTokenIsAlpha
-              ? 'Fee Token: AlphaUSD (Configured)'
-              : 'Set Tempo Fee Token to AlphaUSD'}
-          </LoadingButton>
-          <LoadingButton
-            onClick={handleSetTempoFeeTokenPathUsd}
-            loading={tempoFeeTokenConfigLoading && tempoFeeTokenConfigTarget === 'path'}
-            loadingText="Configuring..."
-            variant="secondary"
-            size="medium"
-            style={{ width: '100%' }}
-            disabled={tempoFeeTokenConfigLoading || tempoFeeTokenIsPath}
-          >
-            {tempoFeeTokenIsPath
-              ? 'Fee Token: PathUSD (Configured)'
-              : 'Set Tempo Fee Token to PathUSD'}
-          </LoadingButton>
-          {!tempoUserFeeTokenLoading && !tempoUserFeeToken ? (
-            <LoadingButton
-              onClick={handleSetTempoFeeTokenPathUsd}
-              loading={tempoFeeTokenConfigLoading && tempoFeeTokenConfigTarget === 'path'}
-              loadingText="Configuring..."
-              variant="secondary"
-              size="medium"
-              style={{ width: '100%' }}
-              disabled={tempoFeeTokenConfigLoading}
-            >
-              Recommended on Moderato: Set Fee Token to PathUSD
-            </LoadingButton>
           ) : null}
           <LoadingButton
             onClick={handleSignTempoThresholdTx}

@@ -10,13 +10,20 @@ export type WorkerResourceWarmupDeps = {
   nearClient: NearClient;
   nonceManager: Pick<NonceManager, 'prefetchBlockheight'>;
   prewarmWorkers: () => Promise<void>;
+  initializeTouchConfirm: () => Promise<void>;
+  prewarmTouchConfirmUi: () => Promise<void>;
   initializeCurrentUser: (nearAccountId: AccountId, nearClient?: NearClient) => Promise<void>;
 };
 
-export function prewarmSignerWorkers(deps: WorkerResourceWarmupDeps): void {
-  if (typeof window === 'undefined' || typeof window.Worker === 'undefined') return;
+function shouldPrewarmBrowserWorkers(deps: WorkerResourceWarmupDeps): boolean {
+  if (typeof window === 'undefined' || typeof window.Worker === 'undefined') return false;
   // Avoid noisy SecurityError in cross-origin dev: only prewarm when same-origin.
-  if (deps.workerBaseOrigin && deps.workerBaseOrigin !== window.location.origin) return;
+  if (deps.workerBaseOrigin && deps.workerBaseOrigin !== window.location.origin) return false;
+  return true;
+}
+
+export function prewarmSignerWorkers(deps: WorkerResourceWarmupDeps): void {
+  if (!shouldPrewarmBrowserWorkers(deps)) return;
   deps.prewarmWorkers().catch(() => {});
 }
 
@@ -45,6 +52,10 @@ export async function warmCriticalResources(
     ]).catch(() => null);
   }
 
-  // Warm signer workers in the background.
-  prewarmSignerWorkers(deps);
+  const warmupTasks: Promise<unknown>[] = [deps.prewarmTouchConfirmUi().catch(() => null)];
+  if (shouldPrewarmBrowserWorkers(deps)) {
+    warmupTasks.push(deps.prewarmWorkers().catch(() => null));
+    warmupTasks.push(deps.initializeTouchConfirm().catch(() => null));
+  }
+  await Promise.all(warmupTasks);
 }

@@ -69,6 +69,10 @@ async function ensureTxConfirmerElementDefined(): Promise<void> {
   );
 }
 
+export async function prewarmTxConfirmerUi(): Promise<void> {
+  await ensureTxConfirmerElementDefined();
+}
+
 function resolveTheme(_ctx: TouchConfirmContext, requested?: ThemeName): ThemeName {
   return coerceThemeName(requested) || 'dark';
 }

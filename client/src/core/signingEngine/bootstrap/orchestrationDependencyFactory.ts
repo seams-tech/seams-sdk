@@ -38,6 +38,7 @@ import {
   type WorkerResourceWarmupDeps,
 } from './workerResourceWarmup';
 import type { UserPreferencesManager } from '../api/userPreferences';
+import { prewarmTxConfirmerUi } from '../touchConfirm/ui/confirm-ui';
 
 export type OrchestrationSignTempoInput = {
   nearAccountId: string;
@@ -139,6 +140,8 @@ export function createOrchestrationDependencyBundle(
     nearClient: args.nearClient,
     nonceManager: args.nonceManager,
     prewarmWorkers: args.signerWorkerManager.prewarmWorkers.bind(args.signerWorkerManager),
+    initializeTouchConfirm: args.touchConfirm.initialize.bind(args.touchConfirm),
+    prewarmTouchConfirmUi: prewarmTxConfirmerUi,
     initializeCurrentUser: args.initializeCurrentUser,
   });
 
