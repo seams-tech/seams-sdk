@@ -203,7 +203,6 @@
     }
   },
   "dependencies": {
-    "@noble/hashes": "^2.0.1",
     "@lit/react": "^1.0.8",
     "@simplewebauthn/server": "^13.2.2",
     "bs58": "^6.0.0",

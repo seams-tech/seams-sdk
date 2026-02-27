@@ -1,6 +1,6 @@
 import type { EvmAbiParameter, EvmContractAbi } from '@/core/signingEngine/chainAdaptors/evm/types';
 import { bytesToHex, hexToBytes } from '@/core/signingEngine/chainAdaptors/evm/bytes';
-import { keccak_256 } from '@noble/hashes/sha3.js';
+import { keccak256Bytes } from '@shared/utils/keccak';
 
 type AbiDecodedValue =
   | string
@@ -37,7 +37,6 @@ type AbiComponentNode = {
 
 type AbiFunctionEntryNormalized = {
   name: string;
-  signature: string;
   selector: string;
   inputs: AbiComponentNode[];
 };
@@ -47,10 +46,9 @@ type AbiFunctionLookup = {
 };
 
 type AbiDecodeResult = {
-  functionSignature: string;
   functionLabel: string;
   selector: string;
-  decodedArgumentsText?: string;
+  decodedArgumentsJsonText?: string;
 };
 
 const SELECTOR_HEX_RE = /^0x[0-9a-f]{8}$/;
@@ -96,7 +94,6 @@ function buildAbiFunctionEntries(abi: EvmContractAbi): AbiFunctionEntryNormalize
     const normalizedInputs = normalizeAbiComponentNodes(inputs);
     out.push({
       name,
-      signature,
       selector,
       inputs: normalizedInputs,
     });
@@ -124,7 +121,7 @@ function resolveAbiFunctionLookup(abi: EvmContractAbi | undefined): AbiFunctionL
 function selectorFromSignature(signature: string): string | null {
   const normalized = String(signature || '').trim();
   if (!normalized) return null;
-  const digest = keccak_256(new TextEncoder().encode(normalized));
+  const digest = keccak256Bytes(new TextEncoder().encode(normalized));
   return bytesToHex(digest.slice(0, 4)).toLowerCase();
 }
 
@@ -422,34 +419,27 @@ function decodeTupleComponents(
   return out;
 }
 
-function formatDecodedValue(value: AbiDecodedValue): string {
-  if (typeof value === 'string') {
-    if (/^0x[0-9a-f]+$/i.test(value)) return value;
-    return JSON.stringify(value);
-  }
-  if (typeof value === 'boolean') {
-    return value ? 'true' : 'false';
+function formatDecodedArgumentsJsonText(
+  args: { key: string; value: AbiDecodedValue }[],
+): string | undefined {
+  if (!args.length) return undefined;
+  const payload: Record<string, AbiDecodedValue> = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    const baseKey = String(arg.key || '').trim() || `arg${index}`;
+    let nextKey = baseKey;
+    let suffix = 2;
+    while (Object.prototype.hasOwnProperty.call(payload, nextKey)) {
+      nextKey = `${baseKey}_${suffix}`;
+      suffix += 1;
+    }
+    payload[nextKey] = arg.value;
   }
   try {
-    return JSON.stringify(value, null, 2);
+    return JSON.stringify(payload, null, 2);
   } catch {
-    return String(value);
+    return undefined;
   }
-}
-
-function formatDecodedArgumentsText(args: {
-  name: string;
-  typeName: string;
-  value: AbiDecodedValue;
-}[]): string | undefined {
-  if (!args.length) return undefined;
-  return args
-    .map((arg, index) => {
-      const labelBase = String(arg.name || '').trim() || `arg${index}`;
-      const renderedValue = formatDecodedValue(arg.value);
-      return `${labelBase} (${arg.typeName}): ${renderedValue}`;
-    })
-    .join('\n');
 }
 
 export function decodeCallDataWithAbi(args: {
@@ -469,7 +459,6 @@ export function decodeCallDataWithAbi(args: {
     const bytes = hexToBytes(normalizedDataHex);
     if (bytes.length < 4) {
       return {
-        functionSignature: matched.signature,
         functionLabel: `${matched.name}()`,
         selector: matched.selector,
       };
@@ -477,7 +466,6 @@ export function decodeCallDataWithAbi(args: {
     argsBytes = bytes.slice(4);
   } catch {
     return {
-      functionSignature: matched.signature,
       functionLabel: `${matched.name}()`,
       selector: matched.selector,
     };
@@ -486,22 +474,19 @@ export function decodeCallDataWithAbi(args: {
   const decodedValues = decodeTupleComponents(matched.inputs, argsBytes, 0);
   if (!decodedValues) {
     return {
-      functionSignature: matched.signature,
       functionLabel: `${matched.name}()`,
       selector: matched.selector,
     };
   }
 
   const decodedArguments = matched.inputs.map((input, index) => ({
-    name: input.name,
-    typeName: input.typeNode.canonicalType,
+    key: String(input.name || '').trim() || `arg${index}`,
     value: decodedValues[index]!,
   }));
 
   return {
-    functionSignature: matched.signature,
     functionLabel: `${matched.name}()`,
     selector: matched.selector,
-    decodedArgumentsText: formatDecodedArgumentsText(decodedArguments),
+    decodedArgumentsJsonText: formatDecodedArgumentsJsonText(decodedArguments),
   };
 }

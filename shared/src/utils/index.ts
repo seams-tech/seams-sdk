@@ -4,3 +4,4 @@ export * from './errors';
 export * from './near';
 export * from './digests';
 export * from './theme';
+export * from './keccak';

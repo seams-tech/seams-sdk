@@ -1,8 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { createHash, hkdfSync } from 'node:crypto';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { bytesToNumberBE, numberToBytesBE } from '../../shared/src/utils/bigint';
-import { hkdf } from '@noble/hashes/hkdf.js';
-import { sha256 } from '@noble/hashes/sha2.js';
 import { alphabetizeStringify, sha256BytesUtf8 } from '../../shared/src/utils/digests';
 import { base64UrlDecode, base64UrlEncode } from '../../shared/src/utils/encoders';
 import { mapAdditiveShareToThresholdSignaturesShare2p } from '../../shared/src/threshold/secp256k1Ecdsa2pShareMapping';
@@ -19,6 +18,16 @@ import { ThresholdEcdsaPresignSession } from '../../wasm/eth_signer/pkg/eth_sign
 const TEST_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString('base64url');
 const TEST_THRESHOLD_EXPIRES_IN_MS = 10 * 60_000;
 
+function toUint8Array(value: ArrayBuffer | ArrayBufferView): Uint8Array {
+  if (value instanceof Uint8Array) return value;
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+}
+
+function sha256Bytes(input: Uint8Array): Uint8Array {
+  return new Uint8Array(createHash('sha256').update(input).digest());
+}
+
 function deriveRelayerSecp256k1SigningShare32(input: {
   masterSecretB64u: string;
   relayerKeyId: string;
@@ -28,7 +37,9 @@ function deriveRelayerSecp256k1SigningShare32(input: {
     'tatchi/lite/threshold-secp256k1-ecdsa/relayer-share:v1',
   );
   const relayerShareInfo = new TextEncoder().encode(input.relayerKeyId);
-  const okm64 = hkdf(sha256, masterSecretBytes, relayerShareSaltV1, relayerShareInfo, 64);
+  const okm64 = toUint8Array(
+    hkdfSync('sha256', masterSecretBytes, relayerShareSaltV1, relayerShareInfo, 64),
+  );
   const reduced = (bytesToNumberBE(okm64) % (SECP256K1_ORDER - 1n)) + 1n;
   return numberToBytesBE(reduced, 32);
 }
@@ -260,7 +271,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     expect(serverDone).toBe(true);
     expect(localPresignature97).not.toBeNull();
     const localBigR33 = localPresignature97!.slice(0, 33);
-    const expectedPresignatureId = `presig-${base64UrlEncode(sha256(localBigR33))}`;
+    const expectedPresignatureId = `presig-${base64UrlEncode(sha256Bytes(localBigR33))}`;
     expect(serverPresignatureId).toBe(expectedPresignatureId);
     expect(serverBigRB64u).toBe(base64UrlEncode(localBigR33));
 
