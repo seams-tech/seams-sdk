@@ -1,6 +1,6 @@
 # Dashboard + Backend Implementation Plan
 
-Date updated: February 26, 2026
+Date updated: February 27, 2026
 
 ## Objective
 
@@ -24,7 +24,7 @@ This plan assumes:
   - `docs/saas/import-threshold-keys.md`
   - `docs/saas/multichain-account-recovery.md`
 
-## Current State (as of February 19, 2026)
+## Current State (as of February 27, 2026)
 
 Frontend:
 
@@ -37,10 +37,10 @@ Frontend:
 
 Backend:
 
-- No dedicated SaaS console backend is finalized yet.
-- API surfaces are defined at requirements level, but not yet contract-locked.
+- Dedicated SaaS console backend modules are implemented for billing, webhooks, and API keys.
+- Org/project/environment and wallet-index console APIs are still pending.
 
-## Status Snapshot (as of February 26, 2026)
+## Status Snapshot (as of February 27, 2026)
 
 Completed:
 
@@ -86,8 +86,10 @@ Completed:
 
 In progress:
 
+- Org/project/environment read APIs are still pending.
 - Wallet index/search live console APIs and dashboard wiring are still pending.
-- RLS-specific CI gating remains to be explicitly documented/verified as complete.
+- API key storage is currently in-memory only; Postgres-backed API key persistence is still pending.
+- CI currently runs `test:threshold-core`; console Postgres tenant-isolation suites are not yet CI-gated.
 
 ## Route Namespace Convention
 
@@ -405,6 +407,7 @@ Backend:
 Status (backend):
 
 - [x] API key routes (`/console/api-keys`) are implemented.
+- [ ] API key Postgres persistence and cross-org isolation tests are implemented.
 - [x] Webhook CRUD + delivery/replay flows are implemented.
 - [x] Webhook attempts/dead-letter list endpoints with cursor pagination are implemented.
 - [x] Billing overview/invoice/usage/card/stablecoin route set is implemented.
@@ -678,8 +681,9 @@ Compliance:
 - [x] Lock API contract skeleton for Milestones 0-3 (including billing + payments).
 - [x] Create backend service scaffold and migration pipeline.
 - [ ] Implement org/project/environment read APIs first.
-- [ ] Wire dashboard wallets list route to live API behind feature flag.
-- [ ] Land RLS test harness and cross-tenant denial tests in CI.
+- [ ] Implement Postgres-backed API key persistence + org-isolation route tests.
+- [ ] Implement `/console/wallets` list/detail/search APIs and then wire dashboard route behind a feature flag.
+- [ ] Land RLS test harness and cross-tenant denial tests in CI (include console Postgres suites).
 - [x] Define payment provider adapter boundaries (Stripe + stablecoin watcher) before endpoint implementation.
 
 ## Open Decisions

@@ -367,6 +367,47 @@ test.describe('prf session seal routes', () => {
     }
   });
 
+  test('express shamir3pass adapter rejects out-of-range ciphertext on apply', async () => {
+    const service = makeFakeAuthService();
+    const primeB64u = encodePositiveBigIntB64u(257n);
+    const router = createRelayRouter(service, {
+      session: makeSession(),
+      prfSessionSeal: createPrfSessionSealRoutesOptions({
+        sessionPolicy: makePolicy(),
+        cipher: createPrfSessionSealShamir3PassCipherAdapter({
+          currentKeyVersion: 'kek-s-2026-02',
+          keys: [
+            {
+              keyVersion: 'kek-s-2026-02',
+              shamirPrimeB64u: primeB64u,
+              serverEncryptExponentB64u: encodePositiveBigIntB64u(3n),
+              serverDecryptExponentB64u: encodePositiveBigIntB64u(171n),
+            },
+          ],
+        }),
+      }),
+    });
+
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/prf-seal/apply-server-seal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          makeBody({
+            ciphertext: primeB64u,
+            keyVersion: 'kek-s-2026-02',
+          }),
+        ),
+      });
+      expect(res.status).toBe(400);
+      expect(res.json?.ok).toBe(false);
+      expect(res.json?.code).toBe('invalid_ciphertext');
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('rate-limit env resolver supports in-memory and validates upstash params', async () => {
     const fromMemory = resolvePrfSessionSealRateLimitFromEnv({
       limiterKind: 'in-memory',

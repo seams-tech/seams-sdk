@@ -14,6 +14,15 @@ export type {
 } from './service';
 export { createInMemoryConsoleApiKeyService } from './service';
 
+export type {
+  PostgresConsoleApiKeySchemaOptions,
+  PostgresConsoleApiKeyServiceOptions,
+} from './postgres';
+export {
+  ensureConsoleApiKeysPostgresSchema,
+  createPostgresConsoleApiKeyService,
+} from './postgres';
+
 export { parseCreateConsoleApiKeyRequest, parseRotateConsoleApiKeyRequest } from './requests';
 
 export { ConsoleApiKeyError, isConsoleApiKeyError } from './errors';

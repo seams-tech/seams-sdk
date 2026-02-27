@@ -17,6 +17,8 @@ export type {
   ConsoleApiKeysContext,
   ConsoleApiKeyService,
   InMemoryConsoleApiKeyServiceOptions,
+  PostgresConsoleApiKeySchemaOptions,
+  PostgresConsoleApiKeyServiceOptions,
 } from '../console/apiKeys';
 export type {
   ConsoleBillingContext,
@@ -67,6 +69,8 @@ export type {
 } from '../console/webhooks';
 export {
   createInMemoryConsoleApiKeyService,
+  ensureConsoleApiKeysPostgresSchema,
+  createPostgresConsoleApiKeyService,
   isConsoleApiKeyError,
   ConsoleApiKeyError,
 } from '../console/apiKeys';

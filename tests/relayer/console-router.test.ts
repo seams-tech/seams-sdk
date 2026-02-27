@@ -4,8 +4,10 @@ import {
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleBillingService,
   createInMemoryConsoleWebhookService,
+  createPostgresConsoleApiKeyService,
   createPostgresConsoleBillingService,
   createPostgresConsoleWebhookService,
+  type ConsoleApiKeyService,
   type ConsoleAuthAdapter,
   type ConsoleBillingService,
   type ConsoleWebhookService,
@@ -2400,6 +2402,147 @@ test.describe('console router (cloudflare)', () => {
     expect(pageTwo.status).toBe(200);
     const pageTwoRows = Array.isArray(pageTwo.json?.deliveries) ? pageTwo.json?.deliveries : [];
     expect(pageTwoRows.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+test.describe('console router (postgres api keys)', () => {
+  const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
+  const enabled = Boolean(postgresUrl);
+  const namespace = randomNamespace('test:console-router:api-keys:postgres');
+  const authOrgId = 'org-router-postgres-api-keys';
+  let apiKeys: ConsoleApiKeyService | null = null;
+
+  test.beforeAll(async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    apiKeys = await createPostgresConsoleApiKeyService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+  });
+
+  test.afterAll(async () => {
+    if (!enabled) return;
+    const pool = await getPostgresPool(postgresUrl);
+    await pool.query('DELETE FROM console_api_keys WHERE namespace = $1', [namespace]);
+  });
+
+  test('express API key routes enforce org isolation', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner`;
+    const attackerOrgId = `${authOrgId}:attacker`;
+
+    const ownerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-api-key-user'),
+      apiKeys: apiKeys!,
+    });
+    const ownerServer = await startExpressRouter(ownerRouter);
+    let keyId = '';
+    try {
+      const created = await fetchJson(`${ownerServer.baseUrl}/console/api-keys`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'owner-postgres-api-key',
+          environmentId: 'prod',
+          scopes: ['wallets:read', 'billing:read'],
+          ipAllowlist: ['203.0.113.20/32'],
+        }),
+      });
+      expect(created.status).toBe(201);
+      keyId = String(getPath(created.json, 'apiKey', 'id') || '');
+      expect(keyId).toBeTruthy();
+    } finally {
+      await ownerServer.close();
+    }
+
+    const attackerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-api-key-user'),
+      apiKeys: apiKeys!,
+    });
+    const attackerServer = await startExpressRouter(attackerRouter);
+    try {
+      const list = await fetchJson(`${attackerServer.baseUrl}/console/api-keys`, {
+        method: 'GET',
+      });
+      expect(list.status).toBe(200);
+      const attackerKeys = Array.isArray(list.json?.apiKeys) ? list.json?.apiKeys : [];
+      expect(attackerKeys.some((entry: any) => String(entry?.id || '') === keyId)).toBe(false);
+
+      const rotate = await fetchJson(
+        `${attackerServer.baseUrl}/console/api-keys/${encodeURIComponent(keyId)}/rotate`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'attacker rotate attempt' }),
+        },
+      );
+      expect(rotate.status).toBe(404);
+      expect(rotate.json?.code).toBe('api_key_not_found');
+
+      const deleted = await fetchJson(
+        `${attackerServer.baseUrl}/console/api-keys/${encodeURIComponent(keyId)}`,
+        { method: 'DELETE' },
+      );
+      expect(deleted.status).toBe(404);
+      expect(deleted.json?.code).toBe('api_key_not_found');
+    } finally {
+      await attackerServer.close();
+    }
+  });
+
+  test('cloudflare API key routes enforce org isolation', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner-cf`;
+    const attackerOrgId = `${authOrgId}:attacker-cf`;
+
+    const ownerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-api-key-user-cf'),
+      apiKeys: apiKeys!,
+    });
+    const created = await callCf(ownerHandler, {
+      method: 'POST',
+      path: '/console/api-keys',
+      body: {
+        name: 'owner-postgres-api-key-cf',
+        environmentId: 'prod',
+        scopes: ['wallets:read'],
+        ipAllowlist: ['198.51.100.25/32'],
+      },
+    });
+    expect(created.status).toBe(201);
+    const keyId = String(getPath(created.json, 'apiKey', 'id') || '');
+    expect(keyId).toBeTruthy();
+
+    const attackerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-api-key-user-cf'),
+      apiKeys: apiKeys!,
+    });
+    const list = await callCf(attackerHandler, {
+      method: 'GET',
+      path: '/console/api-keys',
+    });
+    expect(list.status).toBe(200);
+    const attackerKeys = Array.isArray(list.json?.apiKeys) ? list.json?.apiKeys : [];
+    expect(attackerKeys.some((entry: any) => String(entry?.id || '') === keyId)).toBe(false);
+
+    const rotate = await callCf(attackerHandler, {
+      method: 'POST',
+      path: `/console/api-keys/${encodeURIComponent(keyId)}/rotate`,
+      body: {
+        reason: 'attacker rotate attempt',
+      },
+    });
+    expect(rotate.status).toBe(404);
+    expect(rotate.json?.code).toBe('api_key_not_found');
+
+    const deleted = await callCf(attackerHandler, {
+      method: 'DELETE',
+      path: `/console/api-keys/${encodeURIComponent(keyId)}`,
+    });
+    expect(deleted.status).toBe(404);
+    expect(deleted.json?.code).toBe('api_key_not_found');
   });
 });
 
