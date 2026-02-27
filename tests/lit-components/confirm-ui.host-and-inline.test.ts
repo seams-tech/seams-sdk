@@ -16,21 +16,6 @@ const IMPORT_PATHS = {
   events: SDK_ESM_PATHS.walletEvents,
 } as const;
 
-function buildCtxStub(overrides: Record<string, unknown> = {}) {
-  return {
-    userPreferencesManager: {
-      getCurrentUserAccountId: () => 'alice.testnet',
-      getConfirmationConfig: () => ({
-        uiMode: 'modal',
-        behavior: 'requireClick',
-        autoProceedDelay: 0,
-        theme: 'dark',
-      }),
-    },
-    ...overrides,
-  } as any;
-}
-
 test.describe('confirm-ui inline confirmer', () => {
   test.describe.configure({ timeout: 20_000 });
 
