@@ -258,6 +258,11 @@ body {
   color: var(--fe-text-primary);
 }
 
+.hero-title-text {
+  position: relative;
+  z-index: 1;
+}
+
 .hero-subtitle {
   font-size: 1.25rem;
   font-weight: 600;
@@ -305,11 +310,29 @@ body {
 
 .touch-icon-pattern-position {
   position: absolute;
-  top: -2rem;
-  left: clamp(64px, 66vw, 400px);
-  transform: rotate(20deg);
+  top: -3.2rem;
+  right: clamp(-0.85rem, -0.25vw, 0.65rem);
+  transform: rotate(12deg);
+  color: color-mix(in srgb, var(--site-text-primary) 16%, transparent);
   vertical-align: middle;
-  z-index: -1;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@media (max-width: 1024px) {
+  .touch-icon-pattern-position {
+    top: -2.6rem;
+    right: clamp(-0.55rem, 1.5vw, 0.5rem);
+  }
+}
+
+@media (max-width: 768px) {
+  .touch-icon-pattern-position {
+    top: -1.8rem;
+    right: -0.3rem;
+    transform: rotate(10deg) scale(0.7);
+    transform-origin: top right;
+  }
 }
 
 .hero-tagline {

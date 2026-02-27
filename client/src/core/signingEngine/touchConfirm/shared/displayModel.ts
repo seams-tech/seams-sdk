@@ -35,6 +35,15 @@ export interface TxDisplayField {
   renderAs?: 'inline' | 'file-content';
   hideLabel?: boolean;
   hideChevron?: boolean;
+  contentVariants?: TxDisplayFileContentVariants;
+}
+
+export type TxDisplayFileContentMode = 'decoded' | 'raw';
+
+export interface TxDisplayFileContentVariants {
+  decoded: string;
+  raw: string;
+  defaultMode?: TxDisplayFileContentMode;
 }
 
 export interface TxDisplayAbiDecodeHint {

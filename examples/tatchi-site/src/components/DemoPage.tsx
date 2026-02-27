@@ -6,6 +6,7 @@ import {
   encodeTempoUserTokensCalldata,
   TEMPO_ALPHA_USD_FEE_TOKEN,
   TEMPO_FEE_MANAGER_CONTRACT,
+  TEMPO_FEE_MANAGER_ABI,
 } from '@tatchi-xyz/sdk';
 
 import {
@@ -786,6 +787,7 @@ function buildEip1559SetUserTokenRequest(args: {
       to: setUserTokenCall.to,
       value: 0n,
       data: setUserTokenCall.input || '0x',
+      abi: setUserTokenCall.abi || TEMPO_FEE_MANAGER_ABI,
       accessList: [],
     },
   };

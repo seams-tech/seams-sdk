@@ -30,6 +30,12 @@ test.describe('Tempo fee token helpers', () => {
         callTo: call.to,
         callValue: String(call.value),
         callInput: call.input,
+        callAbiName: Array.isArray(call.abi) ? call.abi[0]?.name : null,
+        callAbiType: Array.isArray(call.abi) ? call.abi[0]?.type : null,
+        callAbiInputType:
+          Array.isArray(call.abi) && Array.isArray(call.abi[0]?.inputs)
+            ? call.abi[0]?.inputs?.[0]?.type
+            : null,
         decodedToken,
         decodedUnset,
       };
@@ -49,6 +55,9 @@ test.describe('Tempo fee token helpers', () => {
     expect(result.callTo).toBe(result.feeManager);
     expect(result.callValue).toBe('0');
     expect(result.callInput).toBe(expectedCalldata);
+    expect(result.callAbiName).toBe('setUserToken');
+    expect(result.callAbiType).toBe('function');
+    expect(result.callAbiInputType).toBe('address');
     expect(result.decodedToken).toBe('0x20c0000000000000000000000000000000000001');
     expect(result.decodedUnset).toBeNull();
   });

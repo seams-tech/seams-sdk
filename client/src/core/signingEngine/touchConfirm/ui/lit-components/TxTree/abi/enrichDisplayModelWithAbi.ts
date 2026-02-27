@@ -19,17 +19,41 @@ function rewriteCallingLabel(label: string, functionLabel: string): string {
   return `Calling ${functionLabel} using ${match[1]}`;
 }
 
-function upsertField(fields: TxDisplayField[] | undefined, field: TxDisplayField): TxDisplayField[] {
-  const next = Array.isArray(fields) ? [...fields] : [];
-  const existingIndex = next.findIndex((entry) => entry.label === field.label);
-  if (existingIndex >= 0) {
-    next[existingIndex] = {
-      ...next[existingIndex],
-      ...field,
-    };
+function isDataField(field: TxDisplayField): boolean {
+  return String(field.label || '')
+    .trim()
+    .toLowerCase() === 'data';
+}
+
+function rewriteDataFieldWithDecodedArgs(args: {
+  fields: TxDisplayField[] | undefined;
+  decodedArgsJsonText: string;
+  fallbackRawDataHex: string;
+}): TxDisplayField[] {
+  const next = Array.isArray(args.fields) ? [...args.fields] : [];
+  const dataFieldIndex = next.findIndex((field) => isDataField(field));
+  const existingDataField = dataFieldIndex >= 0 ? next[dataFieldIndex] : undefined;
+  const rawFallbackValue =
+    String(existingDataField?.value || '').trim() || String(args.fallbackRawDataHex || '').trim();
+  const rewrittenDataField: TxDisplayField = {
+    ...(existingDataField || { label: 'Data' }),
+    value: args.decodedArgsJsonText,
+    renderAs: 'file-content',
+    hideChevron:
+      typeof existingDataField?.hideChevron === 'boolean' ? existingDataField.hideChevron : true,
+    contentVariants: {
+      decoded: args.decodedArgsJsonText,
+      raw: rawFallbackValue,
+      defaultMode: 'decoded',
+    },
+  };
+
+  if (dataFieldIndex >= 0) {
+    next[dataFieldIndex] = rewrittenDataField;
     return next;
   }
-  next.push(field);
+
+  next.push(rewrittenDataField);
   return next;
 }
 
@@ -47,21 +71,13 @@ function maybeDecodeOperationWithAbi(
   });
   if (!decoded) return operation;
 
-  let fields = upsertField(operation.fields, {
-    label: 'Function',
-    value: decoded.functionSignature,
-  });
-
-  if (decoded.decodedArgumentsText) {
-    const decodedArgsField: TxDisplayField = {
-      label: 'Decoded Args',
-      value: decoded.decodedArgumentsText,
-    };
-    if (decoded.decodedArgumentsText.includes('\n')) {
-      decodedArgsField.renderAs = 'file-content';
-    }
-    fields = upsertField(fields, decodedArgsField);
-  }
+  const fields = decoded.decodedArgumentsJsonText
+    ? rewriteDataFieldWithDecodedArgs({
+        fields: operation.fields,
+        decodedArgsJsonText: decoded.decodedArgumentsJsonText,
+        fallbackRawDataHex: hint.dataHex,
+      })
+    : operation.fields;
 
   return {
     ...operation,

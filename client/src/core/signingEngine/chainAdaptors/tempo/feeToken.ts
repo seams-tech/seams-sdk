@@ -1,4 +1,4 @@
-import type { EvmAddress, Hex } from '../evm/types';
+import type { EvmAddress, EvmContractAbi, Hex } from '../evm/types';
 import type { TempoCall } from './types';
 
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -25,6 +25,14 @@ export const TEMPO_USER_TOKENS_SELECTOR: Hex = '0xed498fa8';
  * AlphaUSD token on Tempo.
  */
 export const TEMPO_ALPHA_USD_FEE_TOKEN: EvmAddress = '0x20c0000000000000000000000000000000000001';
+
+export const TEMPO_FEE_MANAGER_ABI: EvmContractAbi = [
+  {
+    type: 'function',
+    name: 'setUserToken',
+    inputs: [{ name: 'token', type: 'address' }],
+  },
+];
 
 function assertEvmAddress(label: string, value: string): EvmAddress {
   const normalized = String(value || '').trim();
@@ -82,5 +90,6 @@ export function buildTempoSetUserTokenCall(args: {
     to: feeManager,
     value: 0n,
     input: encodeTempoSetUserTokenCalldata(token),
+    abi: TEMPO_FEE_MANAGER_ABI,
   };
 }

@@ -530,7 +530,8 @@
 :is(w3a-tx-tree, tx-tree) .file-content {
   box-sizing: border-box;
   margin: 0rem;
-  padding: var(--w3a-tree__file-content__padding, 0rem 0.25rem 0rem 0.25rem);
+  padding: var(--w3a-tree__file-content__padding, 0.5rem 0.25rem 0rem 0.25rem);
+  padding-left: var(--w3a-tree__file-content__padding-left, 0.25rem);
   border-radius: var(--w3a-tree__file-content__border-radius, 0.5rem);
   background: var(--w3a-tree__file-content__background, rgba(255, 255, 255, 0.06));
   max-height: 40vh;
@@ -555,8 +556,35 @@
   line-height: 1.3;
   font-size: 0.7rem;
   box-shadow: none;
-  white-space: pre;
-  text-wrap: auto;
+  overflow-wrap: anywhere;
+}
+
+:is(w3a-tx-tree, tx-tree) .file-content-shell {
+  position: relative;
+  width: 100%;
+}
+
+:is(w3a-tx-tree, tx-tree) .file-content-shell.has-mode-toggle .file-content {
+  padding-top: 0.5rem;
+}
+
+:is(w3a-tx-tree, tx-tree) .file-content-mode-toggle {
+  position: absolute;
+  top: 0.15rem;
+  right: 0.25rem;
+  z-index: 1;
+  border: 1px solid var(--w3a-color-border, #e2e8f0);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--w3a-tree__file-content__color, #e2e8f0);
+  font-size: 0.6rem;
+  line-height: 1;
+  padding: 0.12rem 0.4rem;
+  cursor: pointer;
+}
+
+:is(w3a-tx-tree, tx-tree) .file-content-mode-toggle:hover {
+  opacity: 0.85;
 }
 
 :is(w3a-tx-tree, tx-tree) .file-content::-webkit-scrollbar {

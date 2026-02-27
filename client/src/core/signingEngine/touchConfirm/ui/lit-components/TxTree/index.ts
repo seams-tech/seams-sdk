@@ -107,6 +107,7 @@ export class TxTree extends LitElementWithProps {
   // Track which node IDs have recently been copied
   private _copied: Set<string> = new Set();
   private _copyTimers: Map<string, number> = new Map();
+  private _fileContentModes: Map<string, 'decoded' | 'raw'> = new Map();
   private _animating: WeakSet<HTMLDetailsElement> = new WeakSet();
 
   private isCopied(id: string): boolean {
@@ -151,6 +152,43 @@ export class TxTree extends LitElementWithProps {
       // Swallow errors silently
     }
   }
+
+  private hasFileContentToggle(node: TreeNode): boolean {
+    const variants = node.contentVariants;
+    if (!variants) return false;
+    const decoded = String(variants.decoded || '');
+    const raw = String(variants.raw || '');
+    return !!decoded && !!raw && decoded !== raw;
+  }
+
+  private resolveFileContentMode(node: TreeNode): 'decoded' | 'raw' {
+    const variants = node.contentVariants;
+    if (!variants) return 'raw';
+    const existingMode = this._fileContentModes.get(node.id);
+    if (existingMode) return existingMode;
+    const mode = variants.defaultMode === 'raw' ? 'raw' : 'decoded';
+    this._fileContentModes.set(node.id, mode);
+    return mode;
+  }
+
+  private resolveNodeContent(node: TreeNode): string {
+    if (!this.hasFileContentToggle(node)) {
+      return String(node.content || '');
+    }
+    const variants = node.contentVariants!;
+    const mode = this.resolveFileContentMode(node);
+    return mode === 'raw' ? variants.raw : variants.decoded;
+  }
+
+  private onFileContentToggleClick = (e: Event, node: TreeNode) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!this.hasFileContentToggle(node)) return;
+    const currentMode = this.resolveFileContentMode(node);
+    const nextMode: 'decoded' | 'raw' = currentMode === 'decoded' ? 'raw' : 'decoded';
+    this._fileContentModes.set(node.id, nextMode);
+    this.requestUpdate();
+  };
 
   private handleToggle(detail?: { nodeId?: string; open?: boolean }) {
     // Notify parents that layout may have changed so they can re-measure
@@ -338,6 +376,9 @@ export class TxTree extends LitElementWithProps {
    */
   protected updated(changedProperties: Map<string | number | symbol, unknown>): void {
     super.updated(changedProperties);
+    if (changedProperties.has('node')) {
+      this._fileContentModes.clear();
+    }
     // 1) Apply explicit styles when provided and non-empty
     const hasExplicitStyles =
       !!this.styles && Object.keys(this.styles as Record<string, unknown>).length > 0;
@@ -602,6 +643,9 @@ export class TxTree extends LitElementWithProps {
 
     // If content exists, render a collapsible details with the content
     if (isString(node.content) && node.content.length > 0) {
+      const hasFileContentToggle = this.hasFileContentToggle(node);
+      const contentMode = hasFileContentToggle ? this.resolveFileContentMode(node) : undefined;
+      const toggleLabel = contentMode === 'decoded' ? 'bytes' : 'decoded';
       return html`
         <details class="tree-node file" ?open=${!!node.open} data-node-id=${node.id}>
           <summary
@@ -631,7 +675,20 @@ export class TxTree extends LitElementWithProps {
                 : ''}
             </span>
             <!-- Move file-content into .summary-row so we can collapse it by default -->
-            <div class="file-content">${node.content}</div>
+            <div class="file-content-shell${hasFileContentToggle ? ' has-mode-toggle' : ''}">
+              ${hasFileContentToggle
+                ? html`<button
+                    type="button"
+                    class="file-content-mode-toggle"
+                    title=${`Show ${toggleLabel}`}
+                    aria-label=${`Show ${toggleLabel}`}
+                    @click=${(e: Event) => this.onFileContentToggleClick(e, node)}
+                  >
+                    ${toggleLabel}
+                  </button>`
+                : ''}
+              <div class="file-content">${this.resolveNodeContent(node)}</div>
+            </div>
           </summary>
           <!-- Alternative rendering for file content kept for reference; no inline styles allowed -->
         </details>

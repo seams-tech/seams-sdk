@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { TouchIcon, useTheme } from '@tatchi-xyz/sdk/react';
+import { TouchIcon } from '@tatchi-xyz/sdk/react';
 import CopyButton from './CopyButton';
 import { ArrowRightAnim } from './ArrowRightAnim';
 import { useSiteRouter } from '../hooks/useSiteRouter';
@@ -31,7 +31,6 @@ function highlightInstallCommand(command: string): string {
 export function HomeHero(): React.JSX.Element {
   const [packageManager, setPackageManager] = useState<PackageManager>('npm');
   const { linkProps } = useSiteRouter();
-  const { theme } = useTheme();
 
   const installBlockCmd = getInstallCommand(packageManager);
   const highlightedInstall = highlightInstallCommand(installBlockCmd);
@@ -42,17 +41,9 @@ export function HomeHero(): React.JSX.Element {
     <>
       <section className="hero" aria-labelledby="hero-title">
         <h1 id="hero-title" className="hero-title">
-          Simple Embedded Wallets, Secured by Passkeys + MPC
+          <span className="hero-title-text">Simple Embedded Wallets, Secured by Passkeys + MPC</span>
           <span className="touch-icon-pattern-position" aria-hidden="true">
-            <TouchIcon
-              style={{
-                color:
-                  theme === 'dark' ? 'var(--w3a-colors-surface)' : 'var(--w3a-colors-surface2)',
-              }}
-              strokeWidth={11}
-              width={124}
-              height={124}
-            />
+            <TouchIcon style={{ color: 'currentColor' }} strokeWidth={10} width={220} height={220} />
           </span>
         </h1>
         <h2 className="hero-subtitle">

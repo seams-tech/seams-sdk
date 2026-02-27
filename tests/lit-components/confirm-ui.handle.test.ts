@@ -135,20 +135,29 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
                   label: 'Calling contract function using 200k gas',
                   to: contractAddress,
                   value: '0',
-                  selector: '0xef690cc0',
+                  selector: '0xa4136862',
                   fields: [
                     {
                       label: 'Data',
-                      value: 'data: 0xef690cc0',
-                      copyValue: '0xef690cc0',
+                      value:
+                        'data: 0xa41368620000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000d68656c6c6f2c20776f726c642100000000000000000000000000000000000000',
+                      copyValue:
+                        '0xa41368620000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000d68656c6c6f2c20776f726c642100000000000000000000000000000000000000',
                       renderAs: 'file-content',
                       hideLabel: true,
                       hideChevron: true,
                     },
                   ],
                   abiDecodeHint: {
-                    dataHex: '0xef690cc0',
-                    abi: [{ type: 'function', name: 'greeting', inputs: [] }],
+                    dataHex:
+                      '0xa41368620000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000d68656c6c6f2c20776f726c642100000000000000000000000000000000000000',
+                    abi: [
+                      {
+                        type: 'function',
+                        name: 'setGreeting',
+                        inputs: [{ name: 'greeting', type: 'string' }],
+                      },
+                    ],
                   },
                 },
               ],
@@ -196,36 +205,40 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
         await waitFor(() => {
           const root = contentEl?._treeNode;
           const callNode = findNode(root, (candidate) =>
-            String(candidate?.label || '').includes('Calling greeting() using 200k gas'),
+            String(candidate?.label || '').includes('Calling setGreeting() using 200k gas'),
           );
           if (!callNode || !Array.isArray(callNode.children)) return false;
-          return callNode.children.some((child: any) =>
-            String(child?.label || '').includes('Function: greeting()'),
-          );
+          const dataNode = callNode.children.find((child: any) => String(child?.label || '') === 'Data:');
+          return String(dataNode?.content || '').includes('"greeting": "hello, world!"');
         });
 
         const treeNode = contentEl?._treeNode;
         const callNode = findNode(treeNode, (candidate) =>
-          String(candidate?.label || '').includes('Calling greeting() using 200k gas'),
+          String(candidate?.label || '').includes('Calling setGreeting() using 200k gas'),
         );
         const fieldLabels = Array.isArray(callNode?.children)
           ? callNode.children.map((child: any) => String(child?.label || ''))
           : [];
+        const dataNode = Array.isArray(callNode?.children)
+          ? callNode.children.find((child: any) => String(child?.label || '') === 'Data:')
+          : null;
 
         handle.close(true);
 
         return {
           callLabel: String(callNode?.label || ''),
           fieldLabels,
+          decodedContent: String(dataNode?.content || ''),
+          rawContent: String(dataNode?.contentVariants?.raw || ''),
         };
       },
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.callLabel).toContain('Calling greeting() using 200k gas');
-    expect(result.fieldLabels.some((label: string) => label.includes('Function: greeting()'))).toBe(
-      true,
-    );
+    expect(result.callLabel).toContain('Calling setGreeting() using 200k gas');
+    expect(result.fieldLabels.some((label: string) => label.includes('Function:'))).toBe(false);
+    expect(result.decodedContent).toContain('"greeting": "hello, world!"');
+    expect(result.rawContent).toContain('0xa4136862');
   });
 
   test('same mountConfirmUI API renders NEAR, EVM, and Tempo display models', async ({ page }) => {

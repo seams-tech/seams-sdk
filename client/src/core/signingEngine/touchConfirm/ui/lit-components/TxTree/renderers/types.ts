@@ -1,5 +1,6 @@
 import type {
   TxDisplayField,
+  TxDisplayFileContentVariants,
   TxDisplayOperation,
 } from '@/core/signingEngine/touchConfirm/shared/displayModel';
 
@@ -11,11 +12,27 @@ export interface RenderTreeNode {
   type: RenderTreeNodeType;
   open?: boolean;
   content?: string;
+  contentVariants?: TxDisplayFileContentVariants;
   children?: RenderTreeNode[];
   copyValue?: string;
   contractAddress?: string;
   hideLabel?: boolean;
   hideChevron?: boolean;
+}
+
+function sanitizeContentVariants(
+  variants: TxDisplayField['contentVariants'],
+): TxDisplayFileContentVariants | undefined {
+  if (!variants) return undefined;
+  const decoded = String(variants.decoded || '');
+  const raw = String(variants.raw || '');
+  if (!decoded || !raw) return undefined;
+  if (decoded === raw) return undefined;
+  return {
+    decoded,
+    raw,
+    defaultMode: variants.defaultMode === 'raw' ? 'raw' : 'decoded',
+  };
 }
 
 export type RenderDisplayOperation = (args: {
@@ -46,13 +63,19 @@ export function buildFieldNodes(parentId: string, fields?: TxDisplayField[]): Re
     const renderAs = field.renderAs || 'inline';
     if (isZeroWeiDisplayField(label, value)) return [];
     if (renderAs === 'file-content') {
+      const contentVariants = sanitizeContentVariants(field.contentVariants);
+      const content =
+        contentVariants?.defaultMode === 'raw'
+          ? contentVariants.raw
+          : contentVariants?.decoded || value;
       return [
         {
           id: `${parentId}-field-${fieldIndex}`,
           label: label ? `${label}:` : '',
           type: 'file',
           open: false,
-          content: value,
+          content,
+          ...(contentVariants ? { contentVariants } : {}),
           copyValue: typeof field.copyValue === 'string' ? field.copyValue : undefined,
           hideLabel: Boolean(field.hideLabel),
           hideChevron: typeof field.hideChevron === 'boolean' ? field.hideChevron : true,

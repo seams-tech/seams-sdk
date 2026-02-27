@@ -3,6 +3,7 @@ import type {
   TxDisplayOperation,
   TxDisplayWarning,
   DisplayChain,
+  TxDisplayFileContentVariants,
 } from '@/core/signingEngine/touchConfirm/shared/displayModel';
 import type { ActionArgs, TransactionInput } from '@/core/types/actions';
 import { formatArgs, formatCodeSize, shortenPubkey } from '../common/formatters';
@@ -27,6 +28,7 @@ export interface TreeNode {
   chain?: DisplayChain;
   open?: boolean;
   content?: string;
+  contentVariants?: TxDisplayFileContentVariants;
   children?: TreeNode[];
   copyValue?: string;
   contractAddress?: string;
