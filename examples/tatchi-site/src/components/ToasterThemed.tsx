@@ -1,6 +1,7 @@
 import React from 'react';
 import { Toaster } from 'sonner';
 import { useTheme } from '@tatchi-xyz/sdk/react';
+import './Toaster.css';
 
 export const ToasterThemed: React.FC = () => {
   const { isDark } = useTheme();

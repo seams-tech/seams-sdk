@@ -1,20 +1,5 @@
 @import './layout.css';
-@import './components/DemoPage.css';
-@import './components/PasskeyLoginMenu.css';
-@import './components/GlassBorder.css';
-@import './components/Toaster.css';
-@import './components/LoadingButton.css';
-@import './components/Select.css';
-@import './components/EmailRecoveryFields.css';
-@import './components/ArrowRightAnim.css';
-@import './components/Footer.css';
-@import './components/Navbar/Navbar.css';
 @import './components/Carousel/CarouselStyles.css';
-@import './styles/site-pages.css';
-@import './styles/contact-page.css';
-@import './styles/pricing-page.css';
-@import './styles/dashboard-page.css';
-@import './styles/security-diagrams.css';
 @import './styles/gradient-utilities.css';
 
 :root,

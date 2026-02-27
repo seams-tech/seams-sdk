@@ -1,6 +1,6 @@
 import { Linkedin, Youtube } from 'lucide-react';
 import React from 'react';
-import { useSiteRouter } from '../hooks/useSiteRouter';
+import { useSiteRouter } from '@/app/router/useSiteRouter';
 import './Footer.css';
 import Github from './icons/Github';
 import TatchiLogo from './icons/TatchiLogo';

@@ -8,7 +8,7 @@ import {
   type DeviceLinkingSSEEvent,
 } from '@tatchi-xyz/sdk/react';
 import { AccountMenuButton } from '@tatchi-xyz/sdk/react/profile';
-import { useProfileMenuControl } from '../contexts/ProfileMenuControl';
+import { useProfileMenuControl } from '@/context/ProfileMenuControl';
 
 export interface TatchiProfileSettingsButtonProps {
   className?: string;

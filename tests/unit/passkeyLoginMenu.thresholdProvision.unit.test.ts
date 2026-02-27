@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  passkeyLoginMenu: '/src/components/PasskeyLoginMenu.tsx',
+  passkeyLoginMenu: '/src/flows/demo/PasskeyLoginMenu.tsx',
 } as const;
 
 type FlowMode = 'register' | 'login';

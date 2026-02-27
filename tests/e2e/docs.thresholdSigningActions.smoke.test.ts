@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  demoPage: '/src/components/DemoPage.tsx',
+  demoPage: '/src/flows/demo/DemoPage.tsx',
 } as const;
 
 const TEMPO_GREETING_CONTRACT = '0xbb85080E6953f25197ec68798360667140EbAf4b';
@@ -143,6 +143,19 @@ test.describe('docs frontend signing actions smoke', () => {
               { status: 200, headers: { 'content-type': 'application/json' } },
             );
           }
+          if (rpcMethod === 'eth_getBlockByNumber') {
+            return new Response(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  number: '0x1',
+                  baseFeePerGas: '0x3b9aca00',
+                },
+              }),
+              { status: 200, headers: { 'content-type': 'application/json' } },
+            );
+          }
 
           if (rpcMethod === 'eth_sendRawTransaction') {
             const rawTxHex = String(rpcParams[0] || '');
@@ -271,16 +284,30 @@ test.describe('docs frontend signing actions smoke', () => {
                 signTempo: async (args: any) => {
                   const kind = String(args?.request?.kind || '').trim();
                   const chain = String(args?.request?.chain || '').trim();
+                  const chainId = Number(args?.request?.tx?.chainId ?? 0);
+                  const to = String(args?.request?.tx?.to ?? '');
+                  const data = String(args?.request?.tx?.data ?? '');
 
                   if (kind === 'eip1559') {
-                    counters.evmSigns += 1;
-                    (window as any).__docsSigningSmokeRequests.evm = {
-                      chain,
-                      kind,
-                      chainId: String(args?.request?.tx?.chainId ?? ''),
-                      to: String(args?.request?.tx?.to ?? ''),
-                      data: String(args?.request?.tx?.data ?? ''),
-                    };
+                    if (chainId === 42431) {
+                      counters.tempoSigns += 1;
+                      (window as any).__docsSigningSmokeRequests.tempo = {
+                        chain,
+                        kind,
+                        chainId,
+                        to,
+                        data,
+                      };
+                    } else {
+                      counters.evmSigns += 1;
+                      (window as any).__docsSigningSmokeRequests.evm = {
+                        chain,
+                        kind,
+                        chainId,
+                        to,
+                        data,
+                      };
+                    }
                     return {
                       kind: 'eip1559',
                       txHashHex: `0x${'cd'.repeat(32)}`,
@@ -397,13 +424,12 @@ test.describe('docs frontend signing actions smoke', () => {
     });
     expect(requests.evm.data.startsWith(SET_GREETING_SELECTOR)).toBe(true);
     expect(requests.tempo).toMatchObject({
-      chain: 'tempo',
-      kind: 'tempoTransaction',
+      chain: 'evm',
+      kind: 'eip1559',
       chainId: 42431,
+      to: TEMPO_GREETING_CONTRACT,
     });
-    expect(requests.tempo.calls).toHaveLength(1);
-    expect(requests.tempo.calls[0]).toMatchObject({ to: TEMPO_GREETING_CONTRACT });
-    expect(requests.tempo.calls[0].input.startsWith(SET_GREETING_SELECTOR)).toBe(true);
+    expect(requests.tempo.data.startsWith(SET_GREETING_SELECTOR)).toBe(true);
     expect(String(requests.tempoRawTx || '').startsWith('0x')).toBe(true);
     expect(String(requests.evmRawTx || '').startsWith('0x')).toBe(true);
 

@@ -3,8 +3,8 @@ import type { Page } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  passkeyLoginMenu: '/src/components/PasskeyLoginMenu.tsx',
-  demoPage: '/src/components/DemoPage.tsx',
+  passkeyLoginMenu: '/src/flows/demo/PasskeyLoginMenu.tsx',
+  demoPage: '/src/flows/demo/DemoPage.tsx',
 } as const;
 
 async function mountRegisterToSigningHarness(page: Page): Promise<void> {
@@ -131,6 +131,19 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
               jsonrpc: '2.0',
               id,
               result: '0x4a817c800',
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (rpcMethod === 'eth_getBlockByNumber') {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              result: {
+                number: '0x1',
+                baseFeePerGas: '0x3b9aca00',
+              },
             }),
             { status: 200, headers: { 'content-type': 'application/json' } },
           );
@@ -306,14 +319,18 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
               }),
               signTempo: async (args: any) => {
                 if (args?.request?.kind === 'eip1559') {
-                  counters.evmSigns += 1;
+                  const chainId = Number(args?.request?.tx?.chainId ?? 0);
+                  if (chainId === 42431) {
+                    counters.tempoSigns += 1;
+                  } else {
+                    counters.evmSigns += 1;
+                  }
                   return {
                     kind: 'eip1559' as const,
                     txHashHex: `0x${'cd'.repeat(32)}`,
                     rawTxHex: `0x02${'34'.repeat(63)}`,
                   };
                 }
-                counters.tempoSigns += 1;
                 return {
                   kind: 'tempoTransaction' as const,
                   senderHashHex: `0x${'ab'.repeat(32)}`,

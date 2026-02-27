@@ -10,16 +10,16 @@ import { CarouselPrevButton } from './Carousel/CarouselPrevButton';
 
 // Lazily load the most common flows to shrink the initial bundle.
 const PasskeyLoginMenu = React.lazy(() =>
-  import('./PasskeyLoginMenu').then((m) => ({ default: m.PasskeyLoginMenu })),
+  import('@/flows/demo/PasskeyLoginMenu').then((m) => ({ default: m.PasskeyLoginMenu })),
 );
-const DemoPage = React.lazy(() => import('./DemoPage').then((m) => ({ default: m.DemoPage })));
+const DemoPage = React.lazy(() => import('@/flows/demo/DemoPage').then((m) => ({ default: m.DemoPage })));
 const SyncAccount = React.lazy(() =>
-  import('./SyncAccount').then((m) => ({ default: m.SyncAccount })),
+  import('@/flows/demo/SyncAccount').then((m) => ({ default: m.SyncAccount })),
 );
-const preloadDemoPage = () => import('./DemoPage').then(() => undefined);
-const preloadSyncAccount = () => import('./SyncAccount').then(() => undefined);
-import { AuthMenuControlProvider } from '../contexts/AuthMenuControl';
-import { ProfileMenuControlProvider } from '../contexts/ProfileMenuControl';
+const preloadDemoPage = () => import('@/flows/demo/DemoPage').then(() => undefined);
+const preloadSyncAccount = () => import('@/flows/demo/SyncAccount').then(() => undefined);
+import { AuthMenuControlProvider } from '@/context/AuthMenuControl';
+import { ProfileMenuControlProvider } from '@/context/ProfileMenuControl';
 
 export function DemoPasskeyColumn() {
   const { loginState } = useTatchi();

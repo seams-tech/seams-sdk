@@ -114,23 +114,37 @@ src/
 
 ## TODO
 
-- [ ] Move `App.tsx` and `main.tsx` under `src/app/` and update entry imports.
-- [ ] Convert top-level route files to `src/pages/<route>/page.tsx`.
-- [ ] Unify dashboard into `src/pages/dashboard/` (remove `src/components/dashboard`).
-- [ ] Preserve existing dashboard route slugs (`wallets-list`, `wallets-search`, `gas-smart-wallets`).
-- [ ] Move home-only sections into `src/pages/home/sections/`.
-- [ ] Keep only truly reusable UI in `src/components/`.
-- [ ] Create folder skeleton for `app`, `pages`, `flows`, `components`, `context`, `shared`.
-- [ ] Create `src/context/`, move `src/contexts/*` and `src/theme/*` into it.
-- [ ] Create `src/flows/demo/` and split `DemoPage.tsx`.
-- [ ] Move generic hooks into `src/shared/hooks/`.
-- [ ] Move generic utils into `src/shared/utils/`.
-- [ ] Move shared types into `src/shared/types/` (including `raw.d.ts` for `*?raw`).
-- [ ] Colocate page/flow/component CSS and trim `app.css` imports.
-- [ ] Delete `src/docs` (source of truth is `examples/tatchi-docs/src`).
-- [ ] Delete `.DS_Store` files under `src/`.
-- [ ] Run `pnpm -C examples/tatchi-site exec tsc --noEmit` and fix import/type errors.
-- [ ] Run `pnpm -C examples/tatchi-site build` and fix build-path issues.
+- [x] Move `App.tsx` and `main.tsx` under `src/app/` and update entry imports.
+- [x] Convert top-level route files to `src/pages/<route>/page.tsx`.
+- [x] Unify dashboard into `src/pages/dashboard/` (remove `src/components/dashboard`).
+- [x] Preserve existing dashboard route slugs (`wallets-list`, `wallets-search`, `gas-smart-wallets`).
+- [x] Move home-only sections into `src/pages/home/sections/`.
+- [x] Keep only truly reusable UI in `src/components/`.
+- [x] Create folder skeleton for `app`, `pages`, `flows`, `components`, `context`, `shared`.
+- [x] Create `src/context/`, move `src/contexts/*` and `src/theme/*` into it.
+- [x] Create `src/flows/demo/` and split `DemoPage.tsx`.
+  Status: `src/flows/demo/` created, demo flow files moved, EVM/RPC helper logic extracted to `src/flows/demo/demoEvmHelpers.ts`, major view sections extracted (`sections/NearGreetingSection.tsx`, `sections/ThresholdSignerSection.tsx`, `sections/SigningSessionSection.tsx`), and `DemoPage.tsx` orchestration split into flow hooks (`hooks/useDemoNearActions.tsx`, `hooks/useDemoSigningSession.ts`, `hooks/useDemoThresholdSigners.tsx`). `useDemoThresholdSigners.tsx` is now composition-only over focused flow hooks (`hooks/useDemoEip1559FeeCaps.ts`, `hooks/useDemoThresholdAccountState.ts`, `hooks/useDemoEvmGreetings.ts`, `hooks/useDemoTempoFeeTokenActions.tsx`, `hooks/useDemoTempoSigningActions.tsx`, `hooks/useDemoArcSigningActions.tsx`).
+- [x] Move generic hooks into `src/shared/hooks/`.
+- [x] Move generic utils into `src/shared/utils/`.
+- [x] Move shared types into `src/shared/types/` (including `raw.d.ts` for `*?raw`).
+- [x] Colocate page/flow/component CSS and trim `app.css` imports.
+- [x] Delete `src/docs` (source of truth is `examples/tatchi-docs/src`).
+- [x] Delete `.DS_Store` files under `src/`.
+- [x] Run `pnpm -C examples/tatchi-site exec tsc --noEmit` and fix import/type errors.
+- [x] Run `pnpm -C examples/tatchi-site build` and fix build-path issues.
+- [x] Re-run touched docs/unit Playwright specs after path + flow refactors and align mocks with current demo request shape.
+- [x] Add focused unit coverage for extracted threshold action hooks (`tests/unit/demoThresholdHooks.actions.unit.test.ts`), including success + failure/cancellation paths and cancellation classification semantics.
+- [x] Remove duplicated broadcast failure-reporting blocks from extracted threshold action hooks via shared helper (`hooks/reportTempoBroadcastFailure.ts`).
+
+## Next Steps
+
+1. Continue keeping docs/unit harnesses aligned with current demo request shape (`kind: 'eip1559'` for Tempo + Arc, differentiated by chain id / RPC) as flow internals evolve.
+2. Re-run on each refactor slice:
+   - `pnpm -C examples/tatchi-site exec tsc --noEmit`
+   - `pnpm -C examples/tatchi-site build`
+   - `pnpm -C tests exec playwright test ./unit/demoThresholdHooks.actions.unit.test.ts --reporter=line`
+   - `pnpm -C tests exec playwright test ./unit/passkeyLoginMenu.thresholdProvision.unit.test.ts --reporter=line`
+   - `pnpm -C tests exec playwright test ./e2e/docs.thresholdRegisterAndSigning.integration.test.ts ./e2e/docs.thresholdSigningActions.smoke.test.ts --reporter=line`
 
 ## Done Criteria
 

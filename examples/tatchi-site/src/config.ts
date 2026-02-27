@@ -1,3 +1,5 @@
+import type { TatchiConfigsInput } from '@tatchi-xyz/sdk/react';
+
 const DEFAULT_NEAR_RPC_URL = 'https://test.rpc.fastnear.com';
 const DEFAULT_NEAR_EXPLORER_URL = 'https://testnet.nearblocks.io';
 const DEFAULT_DOCS_ORIGIN = 'https://docs.example.localhost';
@@ -36,7 +38,8 @@ const env = import.meta.env;
 const docsOrigin = stripTrailingSlash(toTrimmedString(env.VITE_DOCS_ORIGIN)) || DEFAULT_DOCS_ORIGIN;
 const baseUrl = stripTrailingSlash(toTrimmedString(env.BASE_URL || '/')) || '/';
 const nearNetwork = env.VITE_NEAR_NETWORK === 'mainnet' ? 'mainnet' : 'testnet';
-const nearChainNetwork = nearNetwork === 'mainnet' ? 'near-mainnet' : 'near-testnet';
+const nearChainNetwork: 'near-mainnet' | 'near-testnet' =
+  nearNetwork === 'mainnet' ? 'near-mainnet' : 'near-testnet';
 const nearRpcUrl = toTrimmedString(env.VITE_NEAR_RPC_URL) || DEFAULT_NEAR_RPC_URL;
 const nearExplorerUrl = toTrimmedString(env.VITE_NEAR_EXPLORER) || DEFAULT_NEAR_EXPLORER_URL;
 const tempoRpcUrl = toTrimmedString(env.VITE_TEMPO_RPC_URL) || DEFAULT_TEMPO_RPC_URL;
@@ -45,6 +48,25 @@ const tempoFeeToken = toTrimmedString(env.VITE_TEMPO_FEE_TOKEN) || DEFAULT_TEMPO
 // Arc env keys stay Arc-branded because this demo config wires Arc testnet explicitly.
 const arcRpcUrl = toTrimmedString(env.VITE_ARC_RPC_URL) || DEFAULT_ARC_RPC_URL;
 const arcExplorerUrl = toTrimmedString(env.VITE_ARC_EXPLORER) || DEFAULT_ARC_EXPLORER_URL;
+const chains: NonNullable<TatchiConfigsInput['chains']> = [
+  {
+    network: nearChainNetwork,
+    rpcUrl: nearRpcUrl,
+    explorerUrl: nearExplorerUrl,
+  },
+  {
+    network: 'tempo-testnet',
+    rpcUrl: tempoRpcUrl,
+    explorerUrl: tempoExplorerUrl,
+    chainId: 42_431,
+  },
+  {
+    network: 'arc-testnet',
+    rpcUrl: arcRpcUrl,
+    explorerUrl: arcExplorerUrl,
+    chainId: 5_042_002,
+  },
+];
 
 export const FRONTEND_CONFIG = Object.freeze({
   relayerUrl: toOptionalString(env.VITE_RELAYER_URL),
@@ -57,24 +79,7 @@ export const FRONTEND_CONFIG = Object.freeze({
   tempoFeeToken,
   arcRpcUrl,
   arcExplorerUrl,
-  chains: [
-    {
-      network: nearChainNetwork,
-      rpcUrl: nearRpcUrl,
-      explorerUrl: nearExplorerUrl,
-    },
-    {
-      network: 'tempo-testnet',
-      rpcUrl: tempoRpcUrl,
-      explorerUrl: tempoExplorerUrl,
-    },
-    {
-      network: 'arc-testnet',
-      rpcUrl: arcRpcUrl,
-      explorerUrl: arcExplorerUrl,
-      chainId: 5_042_002,
-    },
-  ],
+  chains,
   walletOrigin: toOptionalString(env.VITE_WALLET_ORIGIN),
   walletServicePath: toOptionalString(env.VITE_WALLET_SERVICE_PATH),
   sdkBasePath: toOptionalString(env.VITE_SDK_BASE_PATH),

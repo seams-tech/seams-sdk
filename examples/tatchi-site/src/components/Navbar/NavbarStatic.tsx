@@ -3,7 +3,7 @@ import { ChevronDown, Menu, X } from 'lucide-react';
 import { MoonIcon, SunIcon, useTheme } from '@tatchi-xyz/sdk/react';
 import { ArrowRightAnim } from '../ArrowRightAnim';
 import TatchiLogo from '../icons/TatchiLogo';
-import { useSiteRouter } from '../../hooks/useSiteRouter';
+import { useSiteRouter } from '@/app/router/useSiteRouter';
 import './Navbar.css';
 
 type DropdownId = 'products' | 'solutions' | 'about';
