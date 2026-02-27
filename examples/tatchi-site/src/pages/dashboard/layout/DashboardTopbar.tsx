@@ -1,6 +1,6 @@
 import React from 'react';
 import TatchiLogo from '@/components/icons/TatchiLogo';
-import type { TopbarContextState, TopbarMenuKey } from '../types';
+import type { TopbarContextState, TopbarMenuKey, TopbarOption } from '../types';
 
 type HomeLinkProps = {
   href: string;
@@ -13,7 +13,7 @@ type DashboardTopbarProps = {
   homeProps: HomeLinkProps;
   selectedContext: TopbarContextState;
   onSelectContext: (menu: TopbarMenuKey, value: string) => void;
-  dropdownOptions: Record<TopbarMenuKey, string[]>;
+  dropdownOptions: Record<TopbarMenuKey, TopbarOption[]>;
 };
 
 export function DashboardTopbar({
@@ -52,12 +52,16 @@ export function DashboardTopbar({
     (
       menu: TopbarMenuKey,
       label: string,
-      options: string[],
+      options: TopbarOption[],
       optionsAreHighlighted: boolean = false,
       compact: boolean = false,
     ): React.JSX.Element => {
       const isOpen = activeTopbarMenu === menu;
       const currentValue = selectedContext[menu];
+      const currentLabel =
+        options.find((option) => option.value === currentValue)?.label ||
+        options[0]?.label ||
+        '';
       return (
         <div className="dashboard-context-dropdown">
           <button
@@ -68,7 +72,7 @@ export function DashboardTopbar({
             onClick={() => setActiveTopbarMenu((current) => (current === menu ? null : menu))}
           >
             {!compact ? <span className="dashboard-context-card__label">{label}</span> : null}
-            <span className="dashboard-context-card__value">{currentValue}</span>
+            <span className="dashboard-context-card__value">{currentLabel}</span>
             <span
               className={`dashboard-chevron${isOpen ? ' dashboard-chevron--open' : ''}`}
               aria-hidden="true"
@@ -82,20 +86,20 @@ export function DashboardTopbar({
               aria-label={`${label} options`}
             >
               {options.map((option) => {
-                const isSelected = option === currentValue;
+                const isSelected = option.value === currentValue;
                 return (
                   <button
-                    key={option}
+                    key={option.value}
                     type="button"
                     className={`dashboard-context-menu__item${isSelected ? ' is-active' : ''}`}
                     role="menuitemradio"
                     aria-checked={isSelected}
                     onClick={() => {
-                      onSelectContext(menu, option);
+                      onSelectContext(menu, option.value);
                       setActiveTopbarMenu(null);
                     }}
                   >
-                    {option}
+                    {option.label}
                   </button>
                 );
               })}
@@ -142,8 +146,18 @@ export function DashboardTopbar({
         aria-label="Environment id"
       >
         <span className="dashboard-context-card__label">Environment ID</span>
-        <span className="dashboard-context-card__value">7f5a014f-d3f2-4ac8-911e-12db113d20...</span>
-        <button type="button" className="dashboard-copy-button" aria-label="Copy environment id">
+        <span className="dashboard-context-card__value">{selectedContext.environment || '—'}</span>
+        <button
+          type="button"
+          className="dashboard-copy-button"
+          aria-label="Copy environment id"
+          disabled={!selectedContext.environment}
+          onClick={() => {
+            const value = String(selectedContext.environment || '').trim();
+            if (!value) return;
+            void window.navigator?.clipboard?.writeText(value);
+          }}
+        >
           <span aria-hidden="true" />
         </button>
       </div>

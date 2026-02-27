@@ -1,13 +1,12 @@
 import React from 'react';
 import {
-  DASHBOARD_TOPBAR_DROPDOWN_OPTIONS,
   DEFAULT_EXPANDED_SIDEBAR_GROUPS,
-  DEFAULT_TOPBAR_CONTEXT_STATE,
   SIDEBAR_GROUP_KEYS,
 } from './dashboardConfig';
 import type {
   ExpandedSidebarGroupsState,
   SidebarGroupKey,
+  TopbarOption,
   TopbarContextState,
   TopbarMenuKey,
 } from './types';
@@ -29,30 +28,44 @@ type PersistedUiState = {
   selectedContext: TopbarContextState;
 };
 
-function isTopbarOption(menu: TopbarMenuKey, value: string): boolean {
-  return DASHBOARD_TOPBAR_DROPDOWN_OPTIONS[menu].includes(value);
+type TopbarDropdownOptions = Record<TopbarMenuKey, TopbarOption[]>;
+
+type UseDashboardUiPreferencesInput = {
+  dropdownOptions: TopbarDropdownOptions;
+  defaultContext: TopbarContextState;
+};
+
+function hasTopbarOption(
+  menu: TopbarMenuKey,
+  value: string,
+  dropdownOptions: TopbarDropdownOptions,
+): boolean {
+  return dropdownOptions[menu].some((option) => option.value === value);
+}
+
+function resolveContextValue(
+  menu: TopbarMenuKey,
+  input: Partial<TopbarContextState> | undefined,
+  dropdownOptions: TopbarDropdownOptions,
+  defaults: TopbarContextState,
+): string {
+  const rawValue = String(input?.[menu] || '').trim();
+  if (rawValue && hasTopbarOption(menu, rawValue, dropdownOptions)) return rawValue;
+  const defaultValue = String(defaults[menu] || '').trim();
+  if (defaultValue && hasTopbarOption(menu, defaultValue, dropdownOptions)) return defaultValue;
+  return String(dropdownOptions[menu][0]?.value || '').trim();
 }
 
 function sanitizeSelectedContext(
   input: Partial<TopbarContextState> | undefined,
+  dropdownOptions: TopbarDropdownOptions,
+  defaults: TopbarContextState,
 ): TopbarContextState {
   return {
-    organization:
-      input?.organization && isTopbarOption('organization', input.organization)
-        ? input.organization
-        : DEFAULT_TOPBAR_CONTEXT_STATE.organization,
-    project:
-      input?.project && isTopbarOption('project', input.project)
-        ? input.project
-        : DEFAULT_TOPBAR_CONTEXT_STATE.project,
-    environment:
-      input?.environment && isTopbarOption('environment', input.environment)
-        ? input.environment
-        : DEFAULT_TOPBAR_CONTEXT_STATE.environment,
-    accountSettings:
-      input?.accountSettings && isTopbarOption('accountSettings', input.accountSettings)
-        ? input.accountSettings
-        : DEFAULT_TOPBAR_CONTEXT_STATE.accountSettings,
+    organization: resolveContextValue('organization', input, dropdownOptions, defaults),
+    project: resolveContextValue('project', input, dropdownOptions, defaults),
+    environment: resolveContextValue('environment', input, dropdownOptions, defaults),
+    accountSettings: resolveContextValue('accountSettings', input, dropdownOptions, defaults),
   };
 }
 
@@ -70,7 +83,10 @@ function sanitizeExpandedGroups(
   };
 }
 
-function readStoredState(): Partial<PersistedUiState> {
+function readStoredState(
+  dropdownOptions: TopbarDropdownOptions,
+  defaultContext: TopbarContextState,
+): Partial<PersistedUiState> {
   if (typeof window === 'undefined') return {};
   try {
     const raw = window.localStorage.getItem(UI_STATE_STORAGE_KEY);
@@ -80,7 +96,7 @@ function readStoredState(): Partial<PersistedUiState> {
       isSidebarExpanded:
         typeof parsed.isSidebarExpanded === 'boolean' ? parsed.isSidebarExpanded : undefined,
       expandedGroups: sanitizeExpandedGroups(parsed.expandedGroups),
-      selectedContext: sanitizeSelectedContext(parsed.selectedContext),
+      selectedContext: sanitizeSelectedContext(parsed.selectedContext, dropdownOptions, defaultContext),
     };
   } catch {
     return {};
@@ -104,7 +120,10 @@ function parseExpandedGroupsParam(
   return result;
 }
 
-function readUrlState(): Partial<PersistedUiState> {
+function readUrlState(
+  dropdownOptions: TopbarDropdownOptions,
+  defaultContext: TopbarContextState,
+): Partial<PersistedUiState> {
   if (typeof window === 'undefined') return {};
   const params = new URLSearchParams(window.location.search);
 
@@ -122,32 +141,35 @@ function readUrlState(): Partial<PersistedUiState> {
       project: params.get(QUERY_KEYS.project) || undefined,
       environment: params.get(QUERY_KEYS.environment) || undefined,
       accountSettings: params.get(QUERY_KEYS.accountSettings) || undefined,
-    }),
+    }, dropdownOptions, defaultContext),
   };
 }
 
-function readInitialState(): PersistedUiState {
-  const defaults: PersistedUiState = {
+function readInitialState(
+  dropdownOptions: TopbarDropdownOptions,
+  defaultContext: TopbarContextState,
+): PersistedUiState {
+  const baseState: PersistedUiState = {
     isSidebarExpanded: true,
     expandedGroups: { ...DEFAULT_EXPANDED_SIDEBAR_GROUPS },
-    selectedContext: { ...DEFAULT_TOPBAR_CONTEXT_STATE },
+    selectedContext: sanitizeSelectedContext(undefined, dropdownOptions, defaultContext),
   };
-  const stored = readStoredState();
-  const fromUrl = readUrlState();
+  const stored = readStoredState(dropdownOptions, defaultContext);
+  const fromUrl = readUrlState(dropdownOptions, defaultContext);
 
   return {
     isSidebarExpanded:
-      fromUrl.isSidebarExpanded ?? stored.isSidebarExpanded ?? defaults.isSidebarExpanded,
+      fromUrl.isSidebarExpanded ?? stored.isSidebarExpanded ?? baseState.isSidebarExpanded,
     expandedGroups: sanitizeExpandedGroups({
-      ...defaults.expandedGroups,
+      ...baseState.expandedGroups,
       ...stored.expandedGroups,
       ...fromUrl.expandedGroups,
     }),
     selectedContext: sanitizeSelectedContext({
-      ...defaults.selectedContext,
+      ...baseState.selectedContext,
       ...stored.selectedContext,
       ...fromUrl.selectedContext,
-    }),
+    }, dropdownOptions, defaultContext),
   };
 }
 
@@ -189,8 +211,15 @@ type UseDashboardUiPreferencesResult = {
   onSelectContext: (menu: TopbarMenuKey, value: string) => void;
 };
 
-export function useDashboardUiPreferences(pathname: string): UseDashboardUiPreferencesResult {
-  const initialState = React.useMemo(() => readInitialState(), []);
+export function useDashboardUiPreferences(
+  pathname: string,
+  input: UseDashboardUiPreferencesInput,
+): UseDashboardUiPreferencesResult {
+  const { dropdownOptions, defaultContext } = input;
+  const initialState = React.useMemo(
+    () => readInitialState(dropdownOptions, defaultContext),
+    [defaultContext, dropdownOptions],
+  );
 
   const [isSidebarExpanded, setIsSidebarExpanded] = React.useState<boolean>(
     initialState.isSidebarExpanded,
@@ -214,12 +243,27 @@ export function useDashboardUiPreferences(pathname: string): UseDashboardUiPrefe
   }, []);
 
   const onSelectContext = React.useCallback((menu: TopbarMenuKey, value: string) => {
-    if (!isTopbarOption(menu, value)) return;
+    if (!hasTopbarOption(menu, value, dropdownOptions)) return;
     setSelectedContext((current) => ({
       ...current,
       [menu]: value,
     }));
-  }, []);
+  }, [dropdownOptions]);
+
+  React.useEffect(() => {
+    setSelectedContext((current) => {
+      const sanitized = sanitizeSelectedContext(current, dropdownOptions, defaultContext);
+      if (
+        sanitized.organization === current.organization &&
+        sanitized.project === current.project &&
+        sanitized.environment === current.environment &&
+        sanitized.accountSettings === current.accountSettings
+      ) {
+        return current;
+      }
+      return sanitized;
+    });
+  }, [defaultContext, dropdownOptions]);
 
   React.useEffect(() => {
     const nextState: PersistedUiState = {

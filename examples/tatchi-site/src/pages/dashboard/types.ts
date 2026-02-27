@@ -11,12 +11,17 @@ export type DashboardRoute =
   | '/dashboard/wallets-search'
   | '/dashboard/policy-engine'
   | '/dashboard/gas-smart-wallets'
+  | '/dashboard/billing'
   | '/dashboard/app-settings'
   | '/dashboard/export-keys'
   | '/dashboard/api-keys'
   | '/dashboard/webhooks';
 
 export type TopbarMenuKey = 'organization' | 'project' | 'environment' | 'accountSettings';
+export type TopbarOption = {
+  value: string;
+  label: string;
+};
 
 export type DashboardViewComponent = () => React.JSX.Element;
 

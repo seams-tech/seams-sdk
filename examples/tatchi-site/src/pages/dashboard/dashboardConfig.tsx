@@ -1,25 +1,24 @@
 import { ApiKeyManagementPage } from './routes/api-keys/page';
 import { AppSettingsPage } from './routes/app-settings/page';
+import { BillingPage } from './routes/billing/page';
 import { ExportKeysSettingsPage } from './routes/export-keys/page';
 import { GasSponsorshipSmartWalletsPage } from './routes/gas-smart-wallets/page';
 import { PolicyEnginePage } from './routes/policy-engine/page';
 import { SearchUserWalletsPage } from './routes/wallets-search/page';
 import { UserWalletsListPage } from './routes/wallets-list/page';
 import { WebhooksPage } from './routes/webhooks/page';
+import { FRONTEND_CONFIG } from '@/config';
 import type {
   DashboardRoute,
   ExpandedSidebarGroupsState,
   SidebarGroup,
   SidebarItem,
-  TopbarContextState,
-  TopbarMenuKey,
 } from './types';
 
-export const SIDEBAR_GROUPS: SidebarGroup[] = [
-  {
-    key: 'walletInfrastructure',
-    label: 'Wallet Infrastructure',
-    items: [
+const walletsRoutesEnabled = FRONTEND_CONFIG.dashboardFlags.walletsRoutesEnabled;
+
+const walletInfrastructureItems: SidebarItem[] = walletsRoutesEnabled
+  ? [
       {
         key: 'wallets-list',
         label: 'User wallets list',
@@ -34,7 +33,14 @@ export const SIDEBAR_GROUPS: SidebarGroup[] = [
         iconClass: 'dashboard-nav-icon--wallet-search',
         component: SearchUserWalletsPage,
       },
-    ],
+    ]
+  : [];
+
+const sidebarGroups: SidebarGroup[] = [
+  {
+    key: 'walletInfrastructure',
+    label: 'Wallet Infrastructure',
+    items: walletInfrastructureItems,
   },
   {
     key: 'securityPolicy',
@@ -81,6 +87,13 @@ export const SIDEBAR_GROUPS: SidebarGroup[] = [
         iconClass: 'dashboard-nav-icon--webhooks',
         component: WebhooksPage,
       },
+      {
+        key: 'billing',
+        label: 'Billing',
+        path: '/dashboard/billing',
+        iconClass: 'dashboard-nav-icon--app-settings',
+        component: BillingPage,
+      },
     ],
   },
   {
@@ -98,19 +111,16 @@ export const SIDEBAR_GROUPS: SidebarGroup[] = [
   },
 ];
 
-export const DASHBOARD_TOPBAR_DROPDOWN_OPTIONS: Record<TopbarMenuKey, string[]> = {
-  organization: ['Game1', 'Arc Labs', 'Nova Studio'],
-  project: ['Game1', 'Wallet Ops', 'Payments Infra'],
-  environment: ['Sandbox', 'Staging', 'Production'],
-  accountSettings: ['Account & Settings', 'Team members', 'Roles and permissions', 'Audit logs'],
-};
+export const SIDEBAR_GROUPS: SidebarGroup[] = sidebarGroups.filter(
+  (group) => group.items.length > 0,
+);
 
-export const DEFAULT_TOPBAR_CONTEXT_STATE: TopbarContextState = {
-  organization: DASHBOARD_TOPBAR_DROPDOWN_OPTIONS.organization[0]!,
-  project: DASHBOARD_TOPBAR_DROPDOWN_OPTIONS.project[0]!,
-  environment: DASHBOARD_TOPBAR_DROPDOWN_OPTIONS.environment[0]!,
-  accountSettings: DASHBOARD_TOPBAR_DROPDOWN_OPTIONS.accountSettings[0]!,
-};
+export const DASHBOARD_ACCOUNT_SETTINGS_OPTIONS = [
+  'Account & Settings',
+  'Team members',
+  'Roles and permissions',
+  'Audit logs',
+];
 
 export const DEFAULT_EXPANDED_SIDEBAR_GROUPS: ExpandedSidebarGroupsState = {
   walletInfrastructure: true,
@@ -123,7 +133,14 @@ export const SIDEBAR_GROUP_KEYS = Object.keys(DEFAULT_EXPANDED_SIDEBAR_GROUPS) a
   keyof ExpandedSidebarGroupsState
 >;
 
-export const DEFAULT_DASHBOARD_ROUTE: DashboardRoute = '/dashboard/wallets-list';
+function resolveDefaultDashboardRoute(groups: SidebarGroup[]): DashboardRoute {
+  for (const group of groups) {
+    if (group.items[0]) return group.items[0].path;
+  }
+  return '/dashboard/policy-engine';
+}
+
+export const DEFAULT_DASHBOARD_ROUTE: DashboardRoute = resolveDefaultDashboardRoute(SIDEBAR_GROUPS);
 
 export function getRouteFromPathname(pathname: string): DashboardRoute | null {
   for (const group of SIDEBAR_GROUPS) {
@@ -140,5 +157,16 @@ export function getViewForRoute(route: DashboardRoute): SidebarItem {
       if (item.path === route) return item;
     }
   }
-  return SIDEBAR_GROUPS[0]!.items[0]!;
+  for (const group of SIDEBAR_GROUPS) {
+    for (const item of group.items) {
+      if (item.path === DEFAULT_DASHBOARD_ROUTE) return item;
+    }
+  }
+  return {
+    key: 'policy-engine',
+    label: 'Policy engine',
+    path: '/dashboard/policy-engine',
+    iconClass: 'dashboard-nav-icon--policy-engine',
+    component: PolicyEnginePage,
+  };
 }
