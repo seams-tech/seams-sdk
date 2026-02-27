@@ -41,6 +41,8 @@ export async function bootstrapEcdsaSession(args: {
   participantIds?: number[];
   sessionKind?: EcdsaSessionKind;
   sessionId?: string;
+  clientVerifyingShareB64u?: string;
+  bootstrapAuthorizationJwt?: string;
   ttlMs?: number;
   remainingUses?: number;
   workerCtx: WorkerOperationContext;
@@ -78,34 +80,62 @@ export async function bootstrapEcdsaSession(args: {
   }
 
   const keygenSessionId = generateKeygenSessionId();
-  const challengeB64u = await computeThresholdEcdsaKeygenIntentDigest({
-    userId,
-    rpId,
-    keygenSessionId,
-  });
-
-  const credential = await collectAuthenticationCredentialForChallengeB64u({
-    indexedDB: args.indexedDB,
-    touchIdPrompt: args.touchIdPrompt,
-    nearAccountId: userId,
-    challengeB64u,
-  });
-
-  const prfFirstB64u = getPrfFirstB64uFromCredential(credential);
-  if (!prfFirstB64u) {
+  const bootstrapAuthorizationJwt = String(args.bootstrapAuthorizationJwt || '').trim();
+  const providedClientVerifyingShareB64u = String(args.clientVerifyingShareB64u || '').trim();
+  const useAuthorizationBootstrap = bootstrapAuthorizationJwt.length > 0;
+  if (useAuthorizationBootstrap && !providedClientVerifyingShareB64u) {
     return {
       ok: false,
-      code: 'unsupported',
-      message: 'Missing PRF.first output from credential (requires a PRF-enabled passkey)',
+      code: 'invalid_args',
+      message:
+        'Missing threshold-ecdsa clientVerifyingShareB64u for authorization bootstrap; reconnect session priming and retry',
     };
+  }
+  let credential: Awaited<ReturnType<typeof collectAuthenticationCredentialForChallengeB64u>> | null =
+    null;
+  let prfFirstB64u: string | null = null;
+  if (!useAuthorizationBootstrap) {
+    const challengeB64u = await computeThresholdEcdsaKeygenIntentDigest({
+      userId,
+      rpId,
+      keygenSessionId,
+    });
+    credential = await collectAuthenticationCredentialForChallengeB64u({
+      indexedDB: args.indexedDB,
+      touchIdPrompt: args.touchIdPrompt,
+      nearAccountId: userId,
+      challengeB64u,
+    });
+
+    prfFirstB64u = getPrfFirstB64uFromCredential(credential);
+    if (!prfFirstB64u) {
+      return {
+        ok: false,
+        code: 'unsupported',
+        message: 'Missing PRF.first output from credential (requires a PRF-enabled passkey)',
+      };
+    }
   }
 
   try {
-    const derived = await deriveThresholdSecp256k1ClientShareWasm({
-      prfFirstB64u,
-      userId,
-      workerCtx: args.workerCtx,
-    });
+    const derived =
+      prfFirstB64u
+        ? await deriveThresholdSecp256k1ClientShareWasm({
+            prfFirstB64u,
+            userId,
+            workerCtx: args.workerCtx,
+          })
+        : null;
+    const clientVerifyingShareB64u =
+      derived?.clientVerifyingShareB64u || providedClientVerifyingShareB64u;
+    if (!clientVerifyingShareB64u) {
+      return {
+        ok: false,
+        code: 'invalid_args',
+        message:
+          'Missing threshold-ecdsa client share for bootstrap; reconnect with WebAuthn or provide canonical session material',
+      };
+    }
 
     const { ttlMs, remainingUses } = clampThresholdSessionPolicy({
       ttlMs: args.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
@@ -113,19 +143,22 @@ export async function bootstrapEcdsaSession(args: {
     });
     const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds);
     const sessionId = args.sessionId || generateThresholdSessionId();
+    const webauthnAuthentication = credential || undefined;
+    const authorizationJwt = useAuthorizationBootstrap ? bootstrapAuthorizationJwt : undefined;
 
     const bootstrap = await thresholdEcdsaBootstrap(args.relayerUrl, {
       userId,
       rpId,
       keygenSessionId,
-      clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
-      webauthnAuthentication: credential,
+      clientVerifyingShareB64u,
+      webauthnAuthentication,
+      authorizationJwt,
       sessionPolicy: {
         version: THRESHOLD_SESSION_POLICY_VERSION,
         userId,
         rpId,
         sessionId,
-        ...(participantIds ? { participantIds } : {}),
+        participantIds: participantIds || undefined,
         ttlMs,
         remainingUses,
       },
@@ -175,7 +208,7 @@ export async function bootstrapEcdsaSession(args: {
       : Date.now() + ttlMs;
 
     const prfFirstCache = args.prfFirstCache;
-    if (prfFirstCache) {
+    if (prfFirstCache && prfFirstB64u) {
       await cacheSigningSessionPrfFirstBestEffort(prfFirstCache, {
         sessionId: resolvedSessionId,
         prfFirstB64u,
@@ -213,7 +246,7 @@ export async function bootstrapEcdsaSession(args: {
       ok: true,
       keygenSessionId,
       rpId,
-      clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
+      clientVerifyingShareB64u,
       groupPublicKeyB64u: bootstrap.groupPublicKeyB64u,
       ethereumAddress: bootstrap.ethereumAddress,
       relayerKeyId,

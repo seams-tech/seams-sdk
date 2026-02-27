@@ -33,6 +33,9 @@ export type BootstrapEcdsaSessionArgs = {
   relayerUrl?: string;
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
+  sessionId?: string;
+  clientVerifyingShareB64u?: string;
+  authorizationJwt?: string;
   ttlMs?: number;
   remainingUses?: number;
   smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
@@ -81,6 +84,7 @@ export async function connectEd25519SessionValue(
 ): Promise<Awaited<ReturnType<typeof connectEd25519Session>>> {
   const nearAccountId = toAccountId(args.nearAccountId);
   const relayerUrl = resolveRelayerUrl(args.relayerUrl, deps.defaultRelayerUrl);
+  const workerCtx = deps.getSignerWorkerContext();
   const requestedSessionId = String(args.sessionId || '').trim();
   const sessionId = requestedSessionId || deps.getOrCreateActiveSigningSessionId(nearAccountId);
   const connected = await connectEd25519Session({
@@ -96,6 +100,7 @@ export async function connectEd25519SessionValue(
     sessionId,
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
+    workerCtx,
   });
   if (connected.ok) {
     const resolvedSessionId = String(connected.sessionId || sessionId).trim();
@@ -134,6 +139,9 @@ export async function bootstrapEcdsaSessionValue(
       relayerUrl,
       participantIds: args.participantIds,
       sessionKind: args.sessionKind,
+      sessionId: args.sessionId,
+      clientVerifyingShareB64u: args.clientVerifyingShareB64u,
+      authorizationJwt: args.authorizationJwt,
       ttlMs: args.ttlMs,
       remainingUses: args.remainingUses,
     },

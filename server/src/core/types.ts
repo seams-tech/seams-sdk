@@ -768,7 +768,12 @@ export interface ThresholdEcdsaBootstrapRequest {
    * This is derived deterministically on the client from passkey PRF.first.
    */
   clientVerifyingShareB64u: string;
-  webauthn_authentication: WebAuthnAuthenticationCredential;
+  webauthn_authentication?: WebAuthnAuthenticationCredential;
+  /**
+   * Internal relay field: optional validated threshold-ed25519 session claims
+   * extracted from bearer/cookie transport by the route layer.
+   */
+  ed25519SessionClaims?: Record<string, unknown>;
   sessionPolicy: ThresholdEcdsaBootstrapSessionPolicy;
   sessionKind?: 'jwt' | 'cookie';
 }

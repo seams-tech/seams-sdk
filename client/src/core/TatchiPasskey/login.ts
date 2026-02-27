@@ -162,27 +162,21 @@ export async function loginAndCreateSession(
       }
 
       const participantIds = thresholdKeyMaterial.participants.map((participant) => participant.id);
-      const canonicalThresholdSessionId = resolveCanonicalThresholdEcdsaSessionId(
+      const canonicalEcdsaContext = resolveCanonicalThresholdEcdsaWarmSessionContext(
         signingEngine as unknown,
         nearAccountId,
       );
       await signingEngine.clearWarmSigningSessions(nearAccountId).catch(() => undefined);
-      const connected = await signingEngine.connectEd25519Session({
+      await primeThresholdLoginWarmSigners({
+        signingEngine,
         nearAccountId,
         relayerUrl,
         relayerKeyId: thresholdKeyMaterial.relayerKeyId,
         participantIds,
-        sessionKind: 'jwt',
         ttlMs: signingSessionPolicy.ttlMs,
         remainingUses: signingSessionPolicy.remainingUses,
-        ...(canonicalThresholdSessionId ? { sessionId: canonicalThresholdSessionId } : {}),
+        canonicalEcdsaContext,
       });
-      if (!connected.ok) {
-        const details = String(
-          connected.message || connected.code || 'Failed to connect threshold Ed25519 session',
-        );
-        throw new Error(`[login] threshold Ed25519 warm-up failed: ${details}`);
-      }
 
       const warmStatus = await signingEngine
         .getWarmSigningSessionStatus(nearAccountId)
@@ -437,6 +431,175 @@ function prioritizeAuthenticatorsByDeviceNumber(
   return [...preferred, ...rest];
 }
 
+type CanonicalThresholdEcdsaWarmSessionContext = {
+  thresholdSessionId: string | null;
+  clientVerifyingShareB64u: string | null;
+};
+
+type ThresholdLoginWarmSigner = 'ed25519' | 'ecdsa';
+
+type ThresholdLoginWarmupTask = {
+  signer: ThresholdLoginWarmSigner;
+  dependencies: ThresholdLoginWarmSigner[];
+  run: () => Promise<void>;
+};
+
+function buildThresholdLoginWarmSignerSelection(
+  signersToWarm: ThresholdLoginWarmSigner[] | undefined,
+): ThresholdLoginWarmSigner[] {
+  const requested = Array.isArray(signersToWarm) && signersToWarm.length > 0
+    ? signersToWarm
+    : (['ed25519', 'ecdsa'] as ThresholdLoginWarmSigner[]);
+  const normalized: ThresholdLoginWarmSigner[] = [];
+  for (const signer of requested) {
+    if (signer !== 'ed25519' && signer !== 'ecdsa') continue;
+    if (normalized.includes(signer)) continue;
+    normalized.push(signer);
+  }
+  if (normalized.includes('ecdsa') && !normalized.includes('ed25519')) {
+    throw new Error('[login] threshold ECDSA warm-up requires Ed25519 session priming');
+  }
+  return normalized;
+}
+
+async function runThresholdLoginWarmupTasks(tasks: ThresholdLoginWarmupTask[]): Promise<void> {
+  const pendingBySigner = new Map<ThresholdLoginWarmSigner, ThresholdLoginWarmupTask>();
+  for (const task of tasks) {
+    pendingBySigner.set(task.signer, task);
+  }
+  const completed = new Set<ThresholdLoginWarmSigner>();
+
+  while (pendingBySigner.size > 0) {
+    const ready: ThresholdLoginWarmupTask[] = [];
+    for (const task of pendingBySigner.values()) {
+      if (task.dependencies.every((dep) => completed.has(dep))) {
+        ready.push(task);
+      }
+    }
+    if (ready.length === 0) {
+      throw new Error('[login] threshold warm-up task dependency graph is unsatisfied');
+    }
+    await Promise.all(
+      ready.map(async (task) => {
+        await task.run();
+        completed.add(task.signer);
+        pendingBySigner.delete(task.signer);
+      }),
+    );
+  }
+}
+
+async function primeThresholdLoginWarmSigners(args: {
+  signingEngine: PasskeyManagerContext['signingEngine'];
+  nearAccountId: AccountId;
+  relayerUrl: string;
+  relayerKeyId: string;
+  participantIds: number[];
+  ttlMs: number;
+  remainingUses: number;
+  canonicalEcdsaContext: CanonicalThresholdEcdsaWarmSessionContext;
+  signersToWarm?: ThresholdLoginWarmSigner[];
+}): Promise<void> {
+  const signersToWarm = buildThresholdLoginWarmSignerSelection(args.signersToWarm);
+  const warmState: {
+    sessionId: string;
+    jwt: string;
+    ecdsaClientVerifyingShareB64u: string;
+  } = {
+    sessionId: '',
+    jwt: '',
+    ecdsaClientVerifyingShareB64u: '',
+  };
+
+  const tasks: ThresholdLoginWarmupTask[] = [];
+  if (signersToWarm.includes('ed25519')) {
+    tasks.push({
+      signer: 'ed25519',
+      dependencies: [],
+      run: async () => {
+        const connected = await args.signingEngine.connectEd25519Session({
+          nearAccountId: args.nearAccountId,
+          relayerUrl: args.relayerUrl,
+          relayerKeyId: args.relayerKeyId,
+          participantIds: args.participantIds,
+          sessionKind: 'jwt',
+          ttlMs: args.ttlMs,
+          remainingUses: args.remainingUses,
+          sessionId: args.canonicalEcdsaContext.thresholdSessionId || undefined,
+        });
+        if (!connected.ok) {
+          const details = String(
+            connected.message || connected.code || 'Failed to connect threshold Ed25519 session',
+          );
+          throw new Error(`[login] threshold Ed25519 warm-up failed: ${details}`);
+        }
+
+        const connectedSessionId = String(
+          connected.sessionId || args.canonicalEcdsaContext.thresholdSessionId || '',
+        ).trim();
+        if (!connectedSessionId) {
+          throw new Error('[login] threshold Ed25519 warm-up did not return a sessionId');
+        }
+
+        const connectedJwt = String(connected.jwt || '').trim();
+        if (!connectedJwt) {
+          throw new Error('[login] threshold Ed25519 warm-up did not return a JWT session token');
+        }
+
+        const connectedEcdsaClientVerifyingShareB64u = String(
+          connected.ecdsaClientVerifyingShareB64u || '',
+        ).trim();
+        const canonicalEcdsaClientVerifyingShareB64u = String(
+          args.canonicalEcdsaContext.clientVerifyingShareB64u || '',
+        ).trim();
+        const ecdsaClientVerifyingShareB64u =
+          connectedEcdsaClientVerifyingShareB64u || canonicalEcdsaClientVerifyingShareB64u;
+        if (!ecdsaClientVerifyingShareB64u) {
+          throw new Error(
+            '[login] threshold ECDSA warm-up missing clientVerifyingShareB64u from canonical cache or primary prompt derivation',
+          );
+        }
+
+        warmState.sessionId = connectedSessionId;
+        warmState.jwt = connectedJwt;
+        warmState.ecdsaClientVerifyingShareB64u = ecdsaClientVerifyingShareB64u;
+      },
+    });
+  }
+  if (signersToWarm.includes('ecdsa')) {
+    tasks.push({
+      signer: 'ecdsa',
+      dependencies: ['ed25519'],
+      run: async () => {
+        try {
+          await args.signingEngine.bootstrapEcdsaSession({
+            nearAccountId: args.nearAccountId,
+            chain: 'tempo',
+            source: 'login',
+            relayerUrl: args.relayerUrl,
+            participantIds: args.participantIds,
+            sessionKind: 'jwt',
+            ttlMs: args.ttlMs,
+            remainingUses: args.remainingUses,
+            sessionId: warmState.sessionId,
+            clientVerifyingShareB64u: warmState.ecdsaClientVerifyingShareB64u,
+            authorizationJwt: warmState.jwt,
+          });
+        } catch (error: unknown) {
+          const details = String(
+            (error && typeof error === 'object' && 'message' in error
+              ? (error as { message?: unknown }).message
+              : error) || 'Failed to bootstrap threshold ECDSA session',
+          );
+          throw new Error(`[login] threshold ECDSA warm-up failed: ${details}`);
+        }
+      },
+    });
+  }
+
+  await runThresholdLoginWarmupTasks(tasks);
+}
+
 /**
  * High-level login snapshot used by React contexts/UI.
  *
@@ -499,25 +662,37 @@ async function resolveThresholdEcdsaEthereumAddress(
   }
 }
 
-function resolveCanonicalThresholdEcdsaSessionId(
+function resolveCanonicalThresholdEcdsaWarmSessionContext(
   signingEngine: unknown,
   nearAccountId: AccountId,
-): string | null {
+): CanonicalThresholdEcdsaWarmSessionContext {
   const getRecord = (
     signingEngine as {
       getThresholdEcdsaSessionRecordForSigning?: (args: {
         nearAccountId: AccountId | string;
         chain?: 'evm' | 'tempo';
-      }) => { thresholdSessionId?: string };
+      }) => { thresholdSessionId?: string; clientVerifyingShareB64u?: string };
     }
   )?.getThresholdEcdsaSessionRecordForSigning;
-  if (typeof getRecord !== 'function') return null;
+  if (typeof getRecord !== 'function') {
+    return {
+      thresholdSessionId: null,
+      clientVerifyingShareB64u: null,
+    };
+  }
   try {
     const record = getRecord({ nearAccountId });
-    const sessionId = String(record?.thresholdSessionId || '').trim();
-    return sessionId || null;
+    const thresholdSessionId = String(record?.thresholdSessionId || '').trim();
+    const clientVerifyingShareB64u = String(record?.clientVerifyingShareB64u || '').trim();
+    return {
+      thresholdSessionId: thresholdSessionId || null,
+      clientVerifyingShareB64u: clientVerifyingShareB64u || null,
+    };
   } catch {
-    return null;
+    return {
+      thresholdSessionId: null,
+      clientVerifyingShareB64u: null,
+    };
   }
 }
 

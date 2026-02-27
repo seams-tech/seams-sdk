@@ -96,6 +96,9 @@ export type ActivateEcdsaSessionRequest = {
   relayerUrl: string;
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
+  sessionId?: string;
+  clientVerifyingShareB64u?: string;
+  authorizationJwt?: string;
   ttlMs?: number;
   remainingUses?: number;
 };
@@ -114,7 +117,9 @@ export async function activateEcdsaSession(
     userId: nearAccountId,
     participantIds: args.participantIds,
     sessionKind: args.sessionKind,
-    sessionId: deps.getOrCreateActiveSigningSessionId(nearAccountId),
+    sessionId: String(args.sessionId || '').trim() || deps.getOrCreateActiveSigningSessionId(nearAccountId),
+    clientVerifyingShareB64u: args.clientVerifyingShareB64u,
+    bootstrapAuthorizationJwt: args.authorizationJwt,
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
     workerCtx: deps.workerCtx,

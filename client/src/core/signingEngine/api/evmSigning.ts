@@ -36,6 +36,10 @@ import {
   isThresholdSigningSessionReady,
 } from '../orchestration/shared/thresholdSigningSessionPlanner';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/thresholdActivation';
+import { Secp256k1Engine } from '../signers/algorithms/secp256k1';
+import { WebAuthnP256Engine } from '../signers/algorithms/webauthnP256';
+import { signEvmWithTouchConfirm } from '../orchestration/evm/evmSigningFlow';
+import { signTempoWithTouchConfirm } from '../orchestration/tempo/tempoSigningFlow';
 
 export type EvmFamilySigningDeps = {
   indexedDB: UnifiedIndexedDBManager;
@@ -744,6 +748,7 @@ export async function signEvmFamily(
   if (args.request.chain !== 'tempo' && args.request.chain !== 'evm') {
     throw new Error('[SigningEngine] invalid request: chain must be tempo or evm');
   }
+
   let thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef | undefined;
   if (args.request.senderSignatureAlgorithm === 'secp256k1') {
     thresholdEcdsaKeyRef =
@@ -755,11 +760,6 @@ export async function signEvmFamily(
   }
 
   throwIfEvmFamilySigningCancelled(args.shouldAbort);
-
-  const [{ Secp256k1Engine }, { WebAuthnP256Engine }] = await Promise.all([
-    import('../signers/algorithms/secp256k1'),
-    import('../signers/algorithms/webauthnP256'),
-  ]);
 
   const signerWorkerCtx = deps.getSignerWorkerContext();
   const ctx = deps.touchConfirm.getContext();
@@ -871,9 +871,8 @@ export async function signEvmFamily(
 
   if (args.request.chain === 'evm') {
     const request = args.request;
-    const { signEvmWithTouchConfirm } = await import('../orchestration/evm/evmSigningFlow');
     try {
-      return await signEvmWithTouchConfirm({
+      const result = await signEvmWithTouchConfirm({
         ...flowArgs,
         request,
         prepareRequestWithManagedNonce: async () =>
@@ -886,6 +885,7 @@ export async function signEvmFamily(
           deps.evmNonceManager.releaseReservation(reservation);
         },
       });
+      return result;
     } catch (error: unknown) {
       throw mapToRetryableNonceConflictError({
         error,
@@ -900,9 +900,8 @@ export async function signEvmFamily(
   }
 
   const request = args.request;
-  const { signTempoWithTouchConfirm } = await import('../orchestration/tempo/tempoSigningFlow');
   try {
-    return await signTempoWithTouchConfirm({
+    const result = await signTempoWithTouchConfirm({
       ...flowArgs,
       request,
       prepareRequestWithManagedNonce: async () =>
@@ -915,6 +914,7 @@ export async function signEvmFamily(
         deps.evmNonceManager.releaseReservation(reservation);
       },
     });
+    return result;
   } catch (error: unknown) {
     throw mapToRetryableNonceConflictError({
       error,

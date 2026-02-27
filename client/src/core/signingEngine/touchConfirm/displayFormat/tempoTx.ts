@@ -4,7 +4,6 @@ import type {
 } from '@/core/signingEngine/chainAdaptors/tempo/types';
 import {
   resolveFunctionDisplayName,
-  resolveFunctionSignature,
   selectorFromHexData,
 } from './functionSelectors';
 import { formatCalldataForDisplay } from './calldata';
@@ -75,7 +74,6 @@ function buildTempoCallDetailsOperation(args: {
 
   const selector = selectorFromHexData(input);
   const functionLabel = resolveFunctionDisplayName(selector, to) || 'contract function';
-  const functionSignature = resolveFunctionSignature(selector, to);
   const formattedGasLimit = formatCompactGas(tx.gasLimit);
   const inputField = makeField('Data', formatCalldataForDisplay(input), input);
   if (inputField) {
@@ -85,8 +83,6 @@ function buildTempoCallDetailsOperation(args: {
   }
   const fields: TxDisplayField[] = [
     inputField,
-    makeField('Function', functionSignature),
-    makeField('Selector', selector, selector),
     makeField('Value (wei)', call.value.toString()),
     makeField('Valid Before', tx.validBefore == null ? undefined : tx.validBefore.toString()),
     makeField('Valid After', tx.validAfter == null ? undefined : tx.validAfter.toString()),

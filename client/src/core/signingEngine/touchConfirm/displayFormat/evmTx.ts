@@ -469,13 +469,10 @@ function buildCallOperation(args: {
   call: DecodedContractCall;
 }): GenericContractCallOperation {
   const { call } = args;
-  const functionSignature = resolveFunctionSignature(call.selector, call.to);
   const fields: TxDisplayField[] = [
     makeField('To', call.to, call.to),
     makeField('Value (wei)', call.valueWei),
     makeField('Data', call.dataHex, call.dataHex),
-    makeField('Function', functionSignature),
-    makeField('Selector', call.selector, call.selector),
     makeField('Decoded Args', call.decodedArgs),
   ].filter(Boolean) as TxDisplayField[];
 
@@ -668,12 +665,9 @@ function buildDefaultContractCallOperation(args: {
     dataField.hideLabel = true;
     dataField.hideChevron = true;
   }
-  const functionSignature = resolveFunctionSignature(args.selector, args.to);
 
   const callFields: TxDisplayField[] = [
     dataField,
-    makeField('Function', functionSignature),
-    makeField('Selector', args.selector, args.selector),
     makeField('Value (wei)', args.valueWei),
   ].filter(Boolean) as TxDisplayField[];
 

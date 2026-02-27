@@ -10,6 +10,7 @@ import type {
   ThresholdEcdsaSignFinalizeRequest,
   ThresholdEcdsaSignInitRequest,
 } from '../../../core/types';
+import { parseThresholdEd25519SessionClaims } from '../../../core/ThresholdService/validation';
 import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../../core/ThresholdService/schemes/schemeIds';
 import { thresholdEcdsaStatusCode } from '../../../threshold/statusCodes';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
@@ -244,15 +245,25 @@ export function registerThresholdEcdsaRoutes(
           };
         }
 
-        const result = await scheme.bootstrap(body);
+        let ed25519SessionClaims: ReturnType<typeof parseThresholdEd25519SessionClaims> = null;
+        const parsedSession = await session.parse(req.headers || {});
+        if (parsedSession.ok) {
+          ed25519SessionClaims = parseThresholdEd25519SessionClaims(parsedSession.claims);
+        }
+        const bootstrapRequest: ThresholdEcdsaBootstrapRequest = {
+          ...body,
+          ed25519SessionClaims: ed25519SessionClaims || undefined,
+        };
+
+        const result = await scheme.bootstrap(bootstrapRequest);
         if (!result.ok) return result;
 
         const sessionId = String(result.sessionId || '').trim();
         if (!sessionId)
           return { ok: false, code: 'internal', message: 'threshold bootstrap missing sessionId' };
 
-        const userId = String(body.userId || body.sessionPolicy?.userId || '').trim();
-        const rpId = String(body.rpId || body.sessionPolicy?.rpId || '').trim();
+        const userId = String(bootstrapRequest.userId || bootstrapRequest.sessionPolicy?.userId || '').trim();
+        const rpId = String(bootstrapRequest.rpId || bootstrapRequest.sessionPolicy?.rpId || '').trim();
         const relayerKeyId = String(result.relayerKeyId || '').trim();
         const thresholdExpiresAtMs = Number(result.expiresAtMs);
         if (!userId)
@@ -289,7 +300,7 @@ export function registerThresholdEcdsaRoutes(
           exp: expSec,
         });
 
-        const sessionKind = parseSessionKind(body);
+        const sessionKind = parseSessionKind(bootstrapRequest);
         if (sessionKind === 'cookie') {
           res.set('Set-Cookie', session.buildSetCookie(token));
           const { jwt: _omit, ...rest } = result;

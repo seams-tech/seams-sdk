@@ -1,6 +1,8 @@
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { toAccountId } from '@/core/types/accountIds';
 import { cacheSigningSessionPrfFirstBestEffort } from '@/core/signingEngine/api/session/signingSessionState';
+import { deriveThresholdSecp256k1ClientShareWasm } from '../../signers/wasm/ethSignerWasm';
+import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
   collectAuthenticationCredentialForChallengeB64u,
   getPrfFirstB64uFromCredential,
@@ -43,6 +45,7 @@ export async function connectEd25519Session(args: {
   sessionId?: string;
   ttlMs?: number;
   remainingUses?: number;
+  workerCtx?: WorkerOperationContext;
 }): Promise<{
   ok: boolean;
   sessionId?: string;
@@ -50,6 +53,7 @@ export async function connectEd25519Session(args: {
   remainingUses?: number;
   jwt?: string;
   clientVerifyingShareB64u?: string;
+  ecdsaClientVerifyingShareB64u?: string;
   code?: string;
   message?: string;
 }> {
@@ -102,6 +106,20 @@ export async function connectEd25519Session(args: {
     };
   }
   const clientVerifyingShareB64u = derive.clientVerifyingShareB64u;
+  let ecdsaClientVerifyingShareB64u: string | undefined;
+  if (args.workerCtx) {
+    try {
+      const ecdsaDerived = await deriveThresholdSecp256k1ClientShareWasm({
+        prfFirstB64u,
+        userId: args.nearAccountId,
+        workerCtx: args.workerCtx,
+      });
+      const normalizedEcdsaShare = String(ecdsaDerived.clientVerifyingShareB64u || '').trim();
+      if (normalizedEcdsaShare) {
+        ecdsaClientVerifyingShareB64u = normalizedEcdsaShare;
+      }
+    } catch {}
+  }
 
   // 3) Mint threshold auth session token/cookie with standard WebAuthn verification.
   const minted = await mintEd25519AuthSession({
@@ -154,5 +172,6 @@ export async function connectEd25519Session(args: {
     remainingUses,
     jwt: minted.jwt,
     clientVerifyingShareB64u,
+    ecdsaClientVerifyingShareB64u,
   };
 }

@@ -10,6 +10,7 @@ import type {
   ThresholdEcdsaSignFinalizeRequest,
   ThresholdEcdsaSignInitRequest,
 } from '../../../core/types';
+import { parseThresholdEd25519SessionClaims } from '../../../core/ThresholdService/validation';
 import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../../core/ThresholdService/schemes/schemeIds';
 import { thresholdEcdsaStatusCode } from '../../../threshold/statusCodes';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
@@ -162,7 +163,18 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     }
 
     const reqBody = (body || {}) as ThresholdEcdsaBootstrapRequest;
-    const result = await scheme.bootstrap(reqBody);
+    const headers = Object.fromEntries(ctx.request.headers.entries());
+    let ed25519SessionClaims: ReturnType<typeof parseThresholdEd25519SessionClaims> = null;
+    const parsedSession = await session.parse(headers);
+    if (parsedSession.ok) {
+      ed25519SessionClaims = parseThresholdEd25519SessionClaims(parsedSession.claims);
+    }
+    const bootstrapRequest: ThresholdEcdsaBootstrapRequest = {
+      ...reqBody,
+      ed25519SessionClaims: ed25519SessionClaims || undefined,
+    };
+
+    const result = await scheme.bootstrap(bootstrapRequest);
     if (!result.ok) return json(result, { status: thresholdEcdsaStatusCode(result) });
 
     const sessionId = String(result.sessionId || '').trim();
@@ -172,8 +184,10 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
         { status: 500 },
       );
     }
-    const userId = String(reqBody.userId || reqBody.sessionPolicy?.userId || '').trim();
-    const rpId = String(reqBody.rpId || reqBody.sessionPolicy?.rpId || '').trim();
+    const userId = String(
+      bootstrapRequest.userId || bootstrapRequest.sessionPolicy?.userId || '',
+    ).trim();
+    const rpId = String(bootstrapRequest.rpId || bootstrapRequest.sessionPolicy?.rpId || '').trim();
     const relayerKeyId = String(result.relayerKeyId || '').trim();
     const thresholdExpiresAtMs = Number(result.expiresAtMs);
     if (!userId)
@@ -212,7 +226,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
       exp: expSec,
     });
 
-    const sessionKind = parseSessionKind(reqBody);
+    const sessionKind = parseSessionKind(bootstrapRequest);
     if (sessionKind === 'cookie') {
       const headers = { 'Set-Cookie': session.buildSetCookie(token) };
       const { jwt: _omit, ...rest } = result;

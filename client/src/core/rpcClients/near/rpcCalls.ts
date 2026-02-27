@@ -516,7 +516,8 @@ export async function thresholdEcdsaBootstrap(
     rpId: string;
     keygenSessionId: string;
     clientVerifyingShareB64u: string;
-    webauthnAuthentication: WebAuthnAuthenticationCredential;
+    webauthnAuthentication?: WebAuthnAuthenticationCredential;
+    authorizationJwt?: string;
     sessionPolicy: {
       version: 'threshold_session_v1';
       userId: string;
@@ -591,14 +592,26 @@ export async function thresholdEcdsaBootstrap(
     }
 
     const sessionKind = args.sessionKind === 'cookie' ? 'cookie' : 'jwt';
+    const authorizationJwt = String(args.authorizationJwt || '').trim();
+    if (!args.webauthnAuthentication && !authorizationJwt) {
+      throw new Error('Missing bootstrap authentication (WebAuthn or authorizationJwt)');
+    }
 
     // Never send PRF outputs to the relay.
-    const webauthn_authentication = redactCredentialExtensionOutputs(args.webauthnAuthentication);
+    const webauthn_authentication = args.webauthnAuthentication
+      ? redactCredentialExtensionOutputs(args.webauthnAuthentication)
+      : undefined;
 
     const url = `${base}/threshold-ecdsa/bootstrap`;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (authorizationJwt) {
+      headers.Authorization = `Bearer ${authorizationJwt}`;
+    }
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       credentials: sessionKind === 'cookie' ? 'include' : 'omit',
       body: JSON.stringify({
         userId,

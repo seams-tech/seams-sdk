@@ -62,6 +62,7 @@ import {
   extractAuthorizeSigningPublicKey,
   isObject,
   normalizeByteArray32,
+  parseThresholdEd25519SessionClaims,
   type ThresholdEd25519SessionClaims,
   type ThresholdEcdsaSessionClaims,
   verifyThresholdEd25519AuthorizeSigningPayloadSigningDigestOnly,
@@ -625,7 +626,13 @@ function parseThresholdEcdsaBootstrapRequest(
   ttlMsRaw: number;
   remainingUsesRaw: number;
   policyParticipantIds: number[] | null;
+  webauthnAuthentication?: WebAuthnAuthenticationCredential;
+  ed25519SessionClaims?: ThresholdEd25519SessionClaims;
 }> {
+  const hasSameParticipantIds = (left: number[], right: number[]): boolean => {
+    return left.length === right.length && left.every((id, index) => id === right[index]);
+  };
+
   const rec = (request || {}) as unknown as Record<string, unknown>;
   const userId = toOptionalTrimmedString(rec.userId);
   if (!userId) {
@@ -723,6 +730,72 @@ function parseThresholdEcdsaBootstrapRequest(
     };
   }
 
+  const parsedEd25519SessionClaims = parseThresholdEd25519SessionClaims(
+    (rec as { ed25519SessionClaims?: unknown }).ed25519SessionClaims,
+  );
+  if (parsedEd25519SessionClaims) {
+    if (parsedEd25519SessionClaims.sub !== userId) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'ed25519SessionClaims.sub must match userId',
+      };
+    }
+    if (parsedEd25519SessionClaims.rpId !== rpId) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'ed25519SessionClaims.rpId must match rpId',
+      };
+    }
+    if (parsedEd25519SessionClaims.sessionId !== sessionId) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'sessionPolicy.sessionId must match ed25519SessionClaims.sessionId',
+      };
+    }
+    if (Date.now() > parsedEd25519SessionClaims.thresholdExpiresAtMs) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'ed25519 session token expired',
+      };
+    }
+    for (const id of participantIds2p) {
+      if (!parsedEd25519SessionClaims.participantIds.includes(id)) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: `ed25519 session token does not include server signer set (expected to include participantIds=[${participantIds2p.join(',')}])`,
+        };
+      }
+    }
+    if (
+      policyParticipantIds &&
+      !hasSameParticipantIds(policyParticipantIds, parsedEd25519SessionClaims.participantIds)
+    ) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'sessionPolicy.participantIds must match ed25519 session token participantIds',
+      };
+    }
+  }
+
+  const webauthnAuthentication = (
+    rec as {
+      webauthn_authentication?: unknown;
+    }
+  ).webauthn_authentication as WebAuthnAuthenticationCredential | undefined;
+  if (!parsedEd25519SessionClaims && !webauthnAuthentication) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'webauthn_authentication is required when no ed25519 session claims are provided',
+    };
+  }
+
   return {
     ok: true,
     value: {
@@ -733,7 +806,9 @@ function parseThresholdEcdsaBootstrapRequest(
       sessionId,
       ttlMsRaw,
       remainingUsesRaw,
-      policyParticipantIds: policyParticipantIds || null,
+      policyParticipantIds: policyParticipantIds || parsedEd25519SessionClaims?.participantIds || null,
+      webauthnAuthentication: parsedEd25519SessionClaims ? undefined : webauthnAuthentication,
+      ed25519SessionClaims: parsedEd25519SessionClaims || undefined,
     },
   };
 }
@@ -1804,16 +1879,30 @@ export class ThresholdSigningService {
         ttlMsRaw,
         remainingUsesRaw,
         policyParticipantIds,
+        webauthnAuthentication,
+        ed25519SessionClaims,
       } = parsedRequest.value;
-      context = { userId, rpId, keygenSessionId, sessionId };
-
-      const keygen = await this.ecdsaKeygen({
+      context = {
         userId,
         rpId,
         keygenSessionId,
-        clientVerifyingShareB64u,
-        webauthn_authentication: request.webauthn_authentication,
-      });
+        sessionId,
+        authMode: ed25519SessionClaims ? 'ed25519-session' : 'webauthn',
+      };
+
+      const keygen = ed25519SessionClaims
+        ? await this.ecdsaRegistrationKeygenFromClientVerifyingShare({
+            userId,
+            rpId,
+            clientVerifyingShareB64u,
+          })
+        : await this.ecdsaKeygen({
+            userId,
+            rpId,
+            keygenSessionId,
+            clientVerifyingShareB64u,
+            webauthn_authentication: webauthnAuthentication as WebAuthnAuthenticationCredential,
+          });
       if (!keygen.ok) return keygen;
 
       const relayerKeyId = toOptionalTrimmedString(keygen.relayerKeyId);

@@ -1,7 +1,7 @@
 const SELECTOR_HEX_RE = /^0x[0-9a-f]{8}$/;
 const EVM_ADDRESS_RE = /^0x[0-9a-f]{40}$/;
 
-const TEMPO_GREETING_CONTRACT = '0x96cfe92241481954ada6410409a86acb6e76a00e';
+const TEMPO_GREETING_CONTRACT = '0xbb85080e6953f25197ec68798360667140ebaf4b';
 const ARC_GREETING_CONTRACT = '0xeb7ab5a6f761072c96147a54b8a15f012e836691';
 
 // Best-effort mapping for common EVM selectors.
@@ -36,7 +36,8 @@ const KNOWN_CONTRACT_FUNCTION_SIGNATURES: Readonly<
 > = Object.freeze({
   [TEMPO_GREETING_CONTRACT]: Object.freeze({
     '0xa4136862': 'setGreeting(string)',
-    '0xcfae3217': 'greet()',
+    '0xef690cc0': 'greeting()',
+    '0x428dc451': 'drip(address[])',
   }),
   [ARC_GREETING_CONTRACT]: Object.freeze({
     '0xa4136862': 'setGreeting(string)',

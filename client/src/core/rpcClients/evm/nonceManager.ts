@@ -173,6 +173,12 @@ class InMemoryEvmNonceManager implements EvmNonceManager {
     const state = this.states.get(key);
     if (!state) return;
     state.reserved.delete(nonce);
+    // If nothing is reserved, force the next reservation to refresh from chain.
+    // This prevents local nonce drift after a failed broadcast that released
+    // the last reservation (e.g. chain pending nonce=1 while local candidate=2).
+    if (state.reserved.size === 0) {
+      state.lastRefreshMs = null;
+    }
   }
 
   async refreshFromChain(input: ReserveNonceInput): Promise<bigint> {
