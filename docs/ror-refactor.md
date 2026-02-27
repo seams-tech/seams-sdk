@@ -176,7 +176,7 @@ Suggested files:
 
 Suggested files:
 
-- `examples/relay-server/env.example`
+- `examples/relay-server/.env.example`
 - `examples/relay-server/src/index.ts`
 - `examples/relay-cloudflare-worker/src/worker.ts`
 - `examples/relay-cloudflare-worker/wrangler.toml`
