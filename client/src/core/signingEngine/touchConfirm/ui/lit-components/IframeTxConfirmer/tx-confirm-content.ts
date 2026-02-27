@@ -152,7 +152,9 @@ export class TxConfirmContentElement extends LitElementWithProps {
       );
       this._stylesAwaiting = p.then(() => {
         this._stylesReady = true;
-        this.requestUpdate();
+        // While style gating is active, Lit can drop changed-property bookkeeping.
+        // Rebuild from the latest props once styles are ready so first render has TxTree.
+        this._rebuildTree();
       });
     }
     return false;

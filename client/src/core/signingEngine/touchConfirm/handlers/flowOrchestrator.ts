@@ -14,6 +14,10 @@ import {
 } from '../shared/confirmTypes';
 import type { TxDisplayModel } from '../shared/displayModel';
 import { buildNearDisplayModel } from '../displayFormat/nearTx';
+import {
+  PENDING_CHALLENGE_B64U,
+  PENDING_INTENT_DIGEST,
+} from '../intentDigestPreparationRegistry';
 
 export type SigningConfirmationChain = 'near' | 'evm' | 'tempo';
 
@@ -113,6 +117,68 @@ export interface SigningConfirmationResultIntentDigest {
   credential?: SerializableCredential;
 }
 
+function normalizeIntentDigestForUi(value: unknown): string {
+  const digest = String(value || '').trim();
+  if (!digest || digest === PENDING_INTENT_DIGEST) return '';
+  return digest;
+}
+
+function normalizeChallengeB64u(value: unknown): string {
+  const challenge = String(value || '').trim();
+  if (!challenge) return PENDING_CHALLENGE_B64U;
+  return challenge;
+}
+
+function buildPendingIntentDisplayModel(args: {
+  chain: SigningConfirmationChain;
+  signerAccountId: string;
+  title?: string;
+  body?: string;
+  intentDigest?: string;
+}): TxDisplayModel {
+  return {
+    chain: args.chain,
+    ...(args.intentDigest ? { intentDigest: args.intentDigest } : {}),
+    signerAccount: args.signerAccountId,
+    ...(args.title != null ? { title: args.title } : {}),
+    ...(args.body != null ? { subtitle: args.body } : {}),
+    operations: [
+      {
+        id: `${args.chain}.pending`,
+        kind: 'raw.fallback',
+        label: 'Loading transaction details...',
+        raw: '',
+      },
+    ],
+  };
+}
+
+function buildNearDisplayModelWithFallback(args: {
+  txSigningRequests: TransactionInputWasm[];
+  intentDigest?: string;
+  signerAccountId: string;
+  title?: string;
+  body?: string;
+}): TxDisplayModel {
+  try {
+    return buildNearDisplayModel({
+      txSigningRequests: args.txSigningRequests,
+      intentDigest: args.intentDigest || '',
+      signerAccount: args.signerAccountId,
+      title: args.title,
+      subtitle: args.body,
+    });
+  } catch {
+    return buildPendingIntentDisplayModel({
+      chain: 'near',
+      signerAccountId: args.signerAccountId,
+      title: args.title,
+      body: args.body,
+      intentDigest: args.intentDigest,
+    });
+  }
+}
+
 /**
  * Orchestrates chain-specific signing confirmation requests for UserConfirm.
  *
@@ -158,12 +224,12 @@ export async function orchestrateSigningConfirmation(
         ...(params.title != null ? { title: params.title } : {}),
         ...(params.body != null ? { body: params.body } : {}),
       };
-      const displayModel = buildNearDisplayModel({
+      const displayModel = buildNearDisplayModelWithFallback({
         txSigningRequests,
         intentDigest,
-        signerAccount: params.rpcCall.nearAccountId,
+        signerAccountId: params.rpcCall.nearAccountId,
         title: summary.title,
-        subtitle: summary.body,
+        body: summary.body,
       });
 
       request = {
@@ -214,12 +280,12 @@ export async function orchestrateSigningConfirmation(
           maxBlockHeight: String(params.delegate.maxBlockHeight),
         },
       };
-      const displayModel = buildNearDisplayModel({
+      const displayModel = buildNearDisplayModelWithFallback({
         txSigningRequests,
         intentDigest,
-        signerAccount: params.nearAccountId,
+        signerAccountId: params.nearAccountId,
         title: summary.title,
-        subtitle: summary.body,
+        body: summary.body,
       });
 
       request = {
@@ -270,17 +336,21 @@ export async function orchestrateSigningConfirmation(
       break;
     }
     case 'intentDigest': {
-      intentDigest = String(params.intentDigest || '').trim();
-      if (!intentDigest) {
-        throw new Error('Missing intentDigest for intent digest signing flow');
-      }
-      const challengeB64u = String(params.challengeB64u || '').trim();
-      if (!challengeB64u) {
-        throw new Error('Missing challengeB64u for intent digest signing flow');
-      }
+      const uiIntentDigest = normalizeIntentDigestForUi(params.intentDigest);
+      intentDigest = uiIntentDigest;
+      const challengeB64u = normalizeChallengeB64u(params.challengeB64u);
+      const displayModel =
+        params.displayModel ||
+        buildPendingIntentDisplayModel({
+          chain: params.chain,
+          signerAccountId: params.signerAccountId,
+          title: params.title,
+          body: params.body,
+          intentDigest: uiIntentDigest || undefined,
+        });
 
       const summary: TransactionSummary = {
-        intentDigest,
+        ...(uiIntentDigest ? { intentDigest: uiIntentDigest } : {}),
         ...(params.title != null ? { title: params.title } : {}),
         ...(params.body != null ? { body: params.body } : {}),
       };
@@ -292,11 +362,11 @@ export async function orchestrateSigningConfirmation(
         payload: {
           nearAccountId: params.signerAccountId,
           challengeB64u,
-          ...(params.displayModel ? { displayModel: params.displayModel } : {}),
+          displayModel,
           ...(params.signingAuthMode ? { signingAuthMode: params.signingAuthMode } : {}),
         },
         confirmationConfig: params.confirmationConfigOverride,
-        intentDigest,
+        ...(uiIntentDigest ? { intentDigest: uiIntentDigest } : {}),
       };
       break;
     }

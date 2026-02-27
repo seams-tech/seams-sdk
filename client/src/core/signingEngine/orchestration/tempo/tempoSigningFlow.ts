@@ -78,12 +78,17 @@ export async function signTempoWithTouchConfirm(args: {
 
   const title = 'Sign Tempo Transaction';
   const body = 'Review and approve signing the Tempo sender hash.';
-  const initialDisplayModel = buildTempoDisplayModel({
-    request: args.request,
-    signerAccount: args.nearAccountId,
-    title,
-    subtitle: body,
-  });
+  let eagerDisplayModel:
+    | ReturnType<typeof buildTempoDisplayModel>
+    | undefined;
+  try {
+    eagerDisplayModel = buildTempoDisplayModel({
+      request: args.request,
+      signerAccount: args.nearAccountId,
+      title,
+      subtitle: body,
+    });
+  } catch {}
   const needsWebAuthn = args.request.senderSignatureAlgorithm === 'webauthnP256';
   let thresholdEcdsaKeyRef = asThresholdEcdsaKeyRef(args.keyRefsByAlgorithm?.secp256k1);
   const signingAuthModePromise = resolveSigningAuthMode({
@@ -154,6 +159,7 @@ export async function signTempoWithTouchConfirm(args: {
       status: 'progress',
       message: 'Awaiting transaction confirmation',
     });
+    const signingAuthMode = await signingAuthModePromise;
     const confirmation = await args.touchConfirm.orchestrateSigningConfirmation({
       ctx: { touchConfirm: args.touchConfirm },
       sessionId,
@@ -162,10 +168,10 @@ export async function signTempoWithTouchConfirm(args: {
       signerAccountId: args.nearAccountId,
       challengeB64u: PENDING_CHALLENGE_B64U,
       intentDigest: PENDING_INTENT_DIGEST,
-      displayModel: initialDisplayModel,
+      ...(eagerDisplayModel ? { displayModel: eagerDisplayModel } : {}),
       title,
       body,
-      signingAuthMode: await signingAuthModePromise,
+      signingAuthMode,
       onProgress: args.onEvent,
       confirmationConfigOverride: args.confirmationConfigOverride,
     });
@@ -252,7 +258,9 @@ export async function signTempoWithTouchConfirm(args: {
       status: 'success',
       message: 'Transaction signed',
     });
-    if (!nonceReservation) return result;
+    if (!nonceReservation) {
+      return result;
+    }
     return {
       ...result,
       managedNonce: toManagedNonceReservationSnapshot(nonceReservation),

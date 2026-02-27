@@ -79,12 +79,17 @@ export async function signEvmWithTouchConfirm(args: {
 
   const title = 'Sign EVM Transaction';
   const body = 'Review and approve signing the transaction hash.';
-  const initialDisplayModel = buildEvmDisplayModel({
-    request: args.request,
-    signerAccount: args.nearAccountId,
-    title,
-    subtitle: body,
-  });
+  let eagerDisplayModel:
+    | ReturnType<typeof buildEvmDisplayModel>
+    | undefined;
+  try {
+    eagerDisplayModel = buildEvmDisplayModel({
+      request: args.request,
+      signerAccount: args.nearAccountId,
+      title,
+      subtitle: body,
+    });
+  } catch {}
   let thresholdEcdsaKeyRef = asThresholdEcdsaKeyRef(args.keyRefsByAlgorithm?.secp256k1);
   const signingAuthModePromise = resolveSigningAuthMode({
     needsWebAuthn: false,
@@ -158,7 +163,7 @@ export async function signEvmWithTouchConfirm(args: {
       signerAccountId: args.nearAccountId,
       challengeB64u: PENDING_CHALLENGE_B64U,
       intentDigest: PENDING_INTENT_DIGEST,
-      displayModel: initialDisplayModel,
+      ...(eagerDisplayModel ? { displayModel: eagerDisplayModel } : {}),
       title,
       body,
       signingAuthMode: await signingAuthModePromise,
