@@ -3,7 +3,6 @@
   "generatedBy": "sdk/scripts/check-site-css-colors.mjs",
   "files": {
     "examples/tatchi-site/src/app.css": ["#12161d", "#171b22", "#2a2f38", "#f3f5f8", "#fff"],
-    "examples/tatchi-site/src/components/ActionSection.css": [],
     "examples/tatchi-site/src/components/ArrowRightAnim.css": [],
     "examples/tatchi-site/src/components/Carousel/CarouselStyles.css": [],
     "examples/tatchi-site/src/components/DemoPage.css": [],

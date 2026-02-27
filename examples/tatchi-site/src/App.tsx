@@ -100,6 +100,7 @@ export const App: React.FC = () => {
 
   return (
     <TatchiPasskeyProvider
+      eager
       theme={{ theme, setTheme, tokens: SITE_THEME_TOKEN_OVERRIDES }}
       config={{
         appearance: SITE_APPEARANCE,

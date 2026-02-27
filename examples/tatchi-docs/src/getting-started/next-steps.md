@@ -152,7 +152,7 @@ Nonce management is engine-owned for default Tempo/EVM signing flows. Do not fet
 ```tsx
 import { useTatchi } from '@tatchi-xyz/sdk/react';
 
-const TEMPO_GREETING_CONTRACT = '0x96cFE92241481954AdA6410409a86AcB6E76a00e';
+const TEMPO_GREETING_CONTRACT = '0xbb85080E6953f25197ec68798360667140EbAf4b';
 const SET_GREETING_SELECTOR = '0xa4136862';
 
 function utf8ToHex(value: string): string {
