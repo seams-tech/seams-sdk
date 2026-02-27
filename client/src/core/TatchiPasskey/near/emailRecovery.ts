@@ -17,6 +17,12 @@ import { EmailRecoveryPendingStore } from '../../../utils/emailRecovery';
 import { errorMessage } from '@shared/utils/errors';
 import { isObject } from '@shared/utils/validation';
 import { prepareRecoveryEmails, getLocalRecoveryEmails } from '../../../utils/emailRecovery';
+import { getLoginSession } from '../login';
+import {
+  buildThresholdWarmSessionBootstrapPayload,
+  createThresholdWarmSessionPolicyDraft,
+  hydrateThresholdWarmSessionFromRelay,
+} from '../thresholdWarmSessionBootstrap';
 
 /**
  * TatchiPasskey email recovery call graph:
@@ -260,6 +266,10 @@ export class EmailRecoveryDomain {
       if (!derived.success || !derived.clientVerifyingShareB64u) {
         throw new Error(derived.error || 'Failed to derive threshold client verifying share');
       }
+      const thresholdWarmPolicyDraft = createThresholdWarmSessionPolicyDraft(context);
+      if (!thresholdWarmPolicyDraft) {
+        throw new Error('Threshold warm-session defaults are disabled for email recovery');
+      }
 
       const credentialForRelay = redactCredentialExtensionOutputs(
         normalizeRegistrationCredential(credential),
@@ -271,7 +281,12 @@ export class EmailRecoveryDomain {
           account_id: String(nearAccountId),
           request_id: requestId,
           device_number: deviceNumber,
-          threshold_ed25519: { client_verifying_share_b64u: derived.clientVerifyingShareB64u },
+          threshold_ed25519: buildThresholdWarmSessionBootstrapPayload({
+            clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
+            nearAccountId: String(nearAccountId),
+            rpId,
+            policy: thresholdWarmPolicyDraft,
+          }),
           rp_id: rpId,
           webauthn_registration: credentialForRelay,
         }),
@@ -299,6 +314,10 @@ export class EmailRecoveryDomain {
       ).trim();
       if (!thresholdPublicKey || !relayerKeyId || !relayerVerifyingShareB64u) {
         throw new Error('email-recovery/prepare returned incomplete threshold key material');
+      }
+      const thresholdSession = isObject(thresholdSection.session) ? thresholdSection.session : null;
+      if (!thresholdSession) {
+        throw new Error('email-recovery/prepare did not return threshold session bootstrap data');
       }
 
       const credentialId = String(credential.rawId || '').trim();
@@ -354,6 +373,20 @@ export class EmailRecoveryDomain {
           clientShareDerivation: 'prf_first_v1',
         }),
         timestamp: Date.now(),
+      });
+      await hydrateThresholdWarmSessionFromRelay({
+        context,
+        nearAccountId,
+        relayerUrl,
+        rpId,
+        relayerKeyId,
+        credential,
+        requestedPolicy: thresholdWarmPolicyDraft,
+        session: thresholdSession,
+        participantIdsHint: Array.isArray(thresholdSection.participantIds)
+          ? thresholdSection.participantIds
+          : undefined,
+        setActiveSigningSessionId: true,
       });
 
       this.pendingEmailRecovery = {
@@ -445,6 +478,11 @@ export class EmailRecoveryDomain {
         throw new Error('Timed out waiting for AddKey');
       }
 
+      const deviceNumber = Number.isFinite(Number(pending?.deviceNumber))
+        ? Math.floor(Number(pending?.deviceNumber))
+        : 1;
+      await this.tryAutoLoginAfterRecovery({ accountId, deviceNumber });
+
       this.emitEmailRecoveryEvent({
         step: 6,
         phase: EmailRecoveryPhase.STEP_6_COMPLETE,
@@ -468,6 +506,52 @@ export class EmailRecoveryDomain {
         error: message,
       });
       throw error;
+    }
+  }
+
+  private async tryAutoLoginAfterRecovery(args: {
+    accountId: string;
+    deviceNumber: number;
+  }): Promise<void> {
+    const context = this.getContext();
+    try {
+      const nearAccountId = toAccountId(String(args.accountId));
+      const deviceNumber = Number.isFinite(Number(args.deviceNumber))
+        ? Math.max(1, Math.floor(Number(args.deviceNumber)))
+        : 1;
+
+      this.emitEmailRecoveryEvent({
+        step: 5,
+        phase: EmailRecoveryPhase.STEP_5_FINALIZING_REGISTRATION,
+        status: EmailRecoveryStatus.PROGRESS,
+        message: 'Restoring local session...',
+      });
+
+      await context.signingEngine.setLastUser(nearAccountId, deviceNumber).catch(() => undefined);
+      await context.signingEngine.updateLastLogin(nearAccountId).catch(() => undefined);
+      await context.signingEngine
+        .initializeCurrentUser(nearAccountId, context.nearClient)
+        .catch(() => undefined);
+      const { login } = await getLoginSession(context, nearAccountId);
+      if (!login?.isLoggedIn) {
+        throw new Error(`Auto-login did not mark ${String(nearAccountId)} as logged in`);
+      }
+
+      this.emitEmailRecoveryEvent({
+        step: 5,
+        phase: EmailRecoveryPhase.STEP_5_FINALIZING_REGISTRATION,
+        status: EmailRecoveryStatus.SUCCESS,
+        message: `Welcome ${String(nearAccountId)}`,
+      });
+    } catch (error: unknown) {
+      const message = errorMessage(error) || 'Auto-login failed after email recovery';
+      this.emitEmailRecoveryEvent({
+        step: 5,
+        phase: EmailRecoveryPhase.STEP_5_FINALIZING_REGISTRATION,
+        status: EmailRecoveryStatus.ERROR,
+        message,
+        error: message,
+      });
     }
   }
 

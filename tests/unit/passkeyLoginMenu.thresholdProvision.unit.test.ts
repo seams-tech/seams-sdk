@@ -6,12 +6,18 @@ const IMPORT_PATHS = {
   passkeyLoginMenu: '/src/flows/demo/PasskeyLoginMenu.tsx',
 } as const;
 
-type FlowMode = 'register' | 'login';
+type FlowMode = 'register' | 'login' | 'sync';
 
 async function runFlow(
   page: Page,
   args: { flow: FlowMode },
-): Promise<{ loggedInCalls: string[]; loginError: string | null }> {
+): Promise<{
+  loggedInCalls: string[];
+  loginCalls: string[];
+  loginError: string | null;
+  syncCalls: string[];
+  syncError: string | null;
+}> {
   return page.evaluate(
     async ({ paths, flow }) => {
       const viteReactPath = '/node_modules/.vite/deps/react.js' as string;
@@ -35,7 +41,10 @@ async function runFlow(
 
       const counters = {
         loggedInCalls: [] as string[],
+        loginCalls: [] as string[],
         loginError: null as string | null,
+        syncCalls: [] as string[],
+        syncError: null as string | null,
       };
 
       const menuPropsRef: { current: Record<string, unknown> | null } = { current: null };
@@ -75,17 +84,33 @@ async function runFlow(
       function useTatchiHook() {
         return {
           accountInputState: { targetAccountId: 'alice.testnet', accountExists: true },
-          loginAndCreateSession: async () => ({
-            success: true,
-            nearAccountId: 'alice.testnet',
-            jwt: 'mock-jwt-token',
-          }),
+          loginAndCreateSession: async (nearAccountId: string) => {
+            counters.loginCalls.push(String(nearAccountId || ''));
+            return {
+              success: true,
+              nearAccountId: String(nearAccountId || 'alice.testnet'),
+              jwt: 'mock-jwt-token',
+            };
+          },
           registerPasskey: async () => ({
             success: true,
             nearAccountId: 'alice.testnet',
             transactionId: 'mock-registration-tx',
           }),
-          tatchi: {},
+          tatchi: {
+            recovery: {
+              syncAccount: async (args?: { accountId?: string }) => {
+                counters.syncCalls.push(String(args?.accountId || ''));
+                return {
+                  success: true,
+                  accountId: 'alice.testnet',
+                  publicKey: 'ed25519:mock-synced',
+                  message: 'synced',
+                  loginState: { isLoggedIn: true },
+                };
+              },
+            },
+          },
         };
       }
 
@@ -132,13 +157,25 @@ async function runFlow(
         const onRegister = menuProps.onRegister as (() => Promise<unknown>) | undefined;
         if (!onRegister) throw new Error('Missing onRegister callback');
         await onRegister();
-      } else {
+      } else if (flow === 'login') {
         const onLogin = menuProps.onLogin as (() => Promise<unknown>) | undefined;
         if (!onLogin) throw new Error('Missing onLogin callback');
         try {
           await onLogin();
         } catch (error: unknown) {
           counters.loginError = String(
+            error && typeof error === 'object' && 'message' in error
+              ? (error as { message?: unknown }).message
+              : error || '',
+          );
+        }
+      } else {
+        const onSyncAccount = menuProps.onSyncAccount as (() => Promise<unknown>) | undefined;
+        if (!onSyncAccount) throw new Error('Missing onSyncAccount callback');
+        try {
+          await onSyncAccount();
+        } catch (error: unknown) {
+          counters.syncError = String(
             error && typeof error === 'object' && 'message' in error
               ? (error as { message?: unknown }).message
               : error || '',
@@ -161,12 +198,27 @@ test.describe('PasskeyLoginMenu threshold signer auto-provision', () => {
   test('register flow does not auto-provision Tempo/EVM signers', async ({ page }) => {
     const result = await runFlow(page, { flow: 'register' });
     expect(result.loggedInCalls).toEqual([]);
+    expect(result.loginCalls).toEqual([]);
     expect(result.loginError).toBeNull();
+    expect(result.syncCalls).toEqual([]);
+    expect(result.syncError).toBeNull();
   });
 
   test('login flow succeeds with a basic successful login result', async ({ page }) => {
     const result = await runFlow(page, { flow: 'login' });
     expect(result.loggedInCalls).toEqual(['alice.testnet']);
+    expect(result.loginCalls).toEqual(['alice.testnet']);
     expect(result.loginError).toBeNull();
+    expect(result.syncCalls).toEqual([]);
+    expect(result.syncError).toBeNull();
+  });
+
+  test('sync flow is wired to recovery.syncAccount', async ({ page }) => {
+    const result = await runFlow(page, { flow: 'sync' });
+    expect(result.loggedInCalls).toEqual(['alice.testnet']);
+    expect(result.loginCalls).toEqual([]);
+    expect(result.loginError).toBeNull();
+    expect(result.syncCalls).toEqual(['alice.testnet']);
+    expect(result.syncError).toBeNull();
   });
 });

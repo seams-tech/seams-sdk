@@ -2236,6 +2236,7 @@ export class AuthService {
     challenge_id?: unknown;
     webauthn_authentication?: unknown;
     expected_origin?: string;
+    threshold_ed25519?: unknown;
   }): Promise<{
     ok: boolean;
     verified?: boolean;
@@ -2253,6 +2254,15 @@ export class AuthService {
       clientParticipantId?: number;
       relayerParticipantId?: number;
       participantIds?: number[];
+      session?: {
+        sessionKind: 'jwt' | 'cookie';
+        sessionId: string;
+        expiresAtMs: number;
+        expiresAt?: string;
+        participantIds?: number[];
+        remainingUses?: number;
+        jwt?: string;
+      };
     };
     code?: string;
     message?: string;
@@ -2270,6 +2280,44 @@ export class AuthService {
           code: 'challenge_expired_or_invalid',
           message: 'Sync challenge expired or invalid',
         };
+      }
+
+      const thresholdEd25519Body = isObject((request as any)?.threshold_ed25519)
+        ? ((request as any).threshold_ed25519 as Record<string, unknown>)
+        : null;
+      const thresholdEd25519ClientVerifyingShareB64u = String(
+        thresholdEd25519Body?.client_verifying_share_b64u || '',
+      ).trim();
+      const thresholdEd25519SessionPolicy = thresholdEd25519Body?.session_policy;
+      const thresholdEd25519SessionKind = String(thresholdEd25519Body?.session_kind || '')
+        .trim()
+        .toLowerCase();
+      if (!thresholdEd25519ClientVerifyingShareB64u && thresholdEd25519SessionPolicy) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message:
+            'threshold_ed25519.client_verifying_share_b64u is required when session_policy is provided',
+        };
+      }
+      if (thresholdEd25519ClientVerifyingShareB64u) {
+        if (!isObject(thresholdEd25519SessionPolicy)) {
+          return {
+            ok: false,
+            verified: false,
+            code: 'invalid_body',
+            message: 'threshold_ed25519.session_policy is required',
+          };
+        }
+        if (thresholdEd25519SessionKind && thresholdEd25519SessionKind !== 'jwt') {
+          return {
+            ok: false,
+            verified: false,
+            code: 'invalid_body',
+            message: 'threshold_ed25519.session_kind must be jwt',
+          };
+        }
       }
 
       const cred = request?.webauthn_authentication as any;
@@ -2346,6 +2394,99 @@ export class AuthService {
           }
         : undefined;
 
+      let thresholdEd25519Session:
+        | {
+            sessionKind: 'jwt' | 'cookie';
+            sessionId: string;
+            expiresAtMs: number;
+            expiresAt?: string;
+            participantIds?: number[];
+            remainingUses?: number;
+            jwt?: string;
+          }
+        | undefined;
+      if (thresholdEd25519ClientVerifyingShareB64u) {
+        const thresholdService = this.getThresholdSigningService();
+        if (!thresholdService) {
+          return {
+            ok: false,
+            verified: false,
+            code: 'not_configured',
+            message: 'Threshold signing is not configured on this server',
+          };
+        }
+        const relayerKeyId = String(binding.relayerKeyId || '').trim();
+        if (!relayerKeyId) {
+          return {
+            ok: false,
+            verified: false,
+            code: 'invalid_body',
+            message: 'Credential is not bound to threshold key material',
+          };
+        }
+        const requestedSessionPolicy = thresholdEd25519SessionPolicy as Record<string, unknown>;
+        const requestedPolicyRelayerKeyId = String(requestedSessionPolicy.relayerKeyId || '').trim();
+        if (requestedPolicyRelayerKeyId && requestedPolicyRelayerKeyId !== relayerKeyId) {
+          return {
+            ok: false,
+            verified: false,
+            code: 'invalid_body',
+            message: 'threshold_ed25519.session_policy.relayerKeyId mismatch',
+          };
+        }
+        const requestedPolicyNearAccountId = String(
+          requestedSessionPolicy.nearAccountId || '',
+        ).trim();
+        if (requestedPolicyNearAccountId && requestedPolicyNearAccountId !== binding.userId) {
+          return {
+            ok: false,
+            verified: false,
+            code: 'invalid_body',
+            message: 'threshold_ed25519.session_policy.nearAccountId mismatch',
+          };
+        }
+        const requestedPolicyRpId = String(requestedSessionPolicy.rpId || '').trim();
+        if (requestedPolicyRpId && requestedPolicyRpId !== binding.rpId) {
+          return {
+            ok: false,
+            verified: false,
+            code: 'invalid_body',
+            message: 'threshold_ed25519.session_policy.rpId mismatch',
+          };
+        }
+
+        const session = await thresholdService.mintEd25519SessionFromRegistration({
+          nearAccountId: binding.userId,
+          rpId: binding.rpId,
+          relayerKeyId,
+          clientVerifyingShareB64u: thresholdEd25519ClientVerifyingShareB64u,
+          sessionPolicy: {
+            ...requestedSessionPolicy,
+            nearAccountId: binding.userId,
+            rpId: binding.rpId,
+            relayerKeyId,
+          } as any,
+        });
+        if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
+          return {
+            ok: false,
+            verified: false,
+            code: session.code || 'internal',
+            message: session.message || 'threshold-ed25519 session bootstrap failed',
+          };
+        }
+        thresholdEd25519Session = {
+          sessionKind: 'jwt',
+          sessionId: session.sessionId,
+          expiresAtMs: Number(session.expiresAtMs),
+          ...(session.expiresAt ? { expiresAt: session.expiresAt } : {}),
+          ...(Array.isArray(session.participantIds) ? { participantIds: session.participantIds } : {}),
+          ...(Number.isFinite(Number(session.remainingUses))
+            ? { remainingUses: Number(session.remainingUses) }
+            : {}),
+        };
+      }
+
       return {
         ok: true,
         verified: true,
@@ -2356,7 +2497,14 @@ export class AuthService {
         ...(binding.relayerKeyId ? { relayerKeyId: binding.relayerKeyId } : {}),
         credentialIdB64u,
         credentialPublicKeyB64u: auth.credentialPublicKeyB64u,
-        ...(thresholdEd25519 ? { thresholdEd25519 } : {}),
+        ...(thresholdEd25519
+          ? {
+              thresholdEd25519: {
+                ...thresholdEd25519,
+                ...(thresholdEd25519Session ? { session: thresholdEd25519Session } : {}),
+              },
+            }
+          : {}),
       };
     } catch (e: unknown) {
       return {
@@ -2630,6 +2778,15 @@ export class AuthService {
           clientParticipantId?: number;
           relayerParticipantId?: number;
           participantIds?: number[];
+          session?: {
+            sessionKind: 'jwt' | 'cookie';
+            sessionId: string;
+            expiresAtMs: number;
+            expiresAt?: string;
+            participantIds?: number[];
+            remainingUses?: number;
+            jwt?: string;
+          };
         };
       }
     | { ok: false; code: string; message: string }
@@ -2669,6 +2826,33 @@ export class AuthService {
           ok: false,
           code: 'invalid_body',
           message: 'Missing threshold_ed25519.client_verifying_share_b64u',
+        };
+      }
+      const thresholdEd25519SessionPolicy = (request as any)?.threshold_ed25519?.session_policy;
+      if (thresholdEd25519SessionPolicy != null && !isObject(thresholdEd25519SessionPolicy)) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ed25519.session_policy must be an object',
+        };
+      }
+      const thresholdEd25519SessionKind = String(
+        (request as any)?.threshold_ed25519?.session_kind || '',
+      )
+        .trim()
+        .toLowerCase();
+      if (thresholdEd25519SessionKind && thresholdEd25519SessionKind !== 'jwt') {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ed25519.session_kind must be jwt',
+        };
+      }
+      if (!thresholdEd25519SessionPolicy && thresholdEd25519SessionKind) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ed25519.session_policy is required when session_kind is provided',
         };
       }
 
@@ -2748,6 +2932,76 @@ export class AuthService {
         clientVerifyingShareB64u: thresholdClientVerifyingShareB64u,
       });
       if (!keygen.ok) return { ok: false, code: keygen.code, message: keygen.message };
+      let thresholdEd25519Session:
+        | {
+            sessionKind: 'jwt' | 'cookie';
+            sessionId: string;
+            expiresAtMs: number;
+            expiresAt?: string;
+            participantIds?: number[];
+            remainingUses?: number;
+            jwt?: string;
+          }
+        | undefined;
+      if (thresholdEd25519SessionPolicy) {
+        const requestedSessionPolicy = thresholdEd25519SessionPolicy as Record<string, unknown>;
+        const requestedPolicyRelayerKeyId = String(requestedSessionPolicy.relayerKeyId || '').trim();
+        if (requestedPolicyRelayerKeyId && requestedPolicyRelayerKeyId !== keygen.relayerKeyId) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'threshold_ed25519.session_policy.relayerKeyId mismatch',
+          };
+        }
+        const requestedPolicyNearAccountId = String(
+          requestedSessionPolicy.nearAccountId || '',
+        ).trim();
+        if (requestedPolicyNearAccountId && requestedPolicyNearAccountId !== accountId) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'threshold_ed25519.session_policy.nearAccountId mismatch',
+          };
+        }
+        const requestedPolicyRpId = String(requestedSessionPolicy.rpId || '').trim();
+        if (requestedPolicyRpId && requestedPolicyRpId !== rpId) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'threshold_ed25519.session_policy.rpId mismatch',
+          };
+        }
+
+        const session = await threshold.mintEd25519SessionFromRegistration({
+          nearAccountId: accountId,
+          rpId,
+          relayerKeyId: keygen.relayerKeyId,
+          clientVerifyingShareB64u: thresholdClientVerifyingShareB64u,
+          sessionPolicy: {
+            ...requestedSessionPolicy,
+            nearAccountId: accountId,
+            rpId,
+            relayerKeyId: keygen.relayerKeyId,
+          } as any,
+        });
+        if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
+          return {
+            ok: false,
+            code: session.code || 'internal',
+            message: session.message || 'threshold-ed25519 link-device bootstrap failed',
+          };
+        }
+        thresholdEd25519Session = {
+          sessionKind: 'jwt',
+          sessionId: session.sessionId,
+          expiresAtMs: Number(session.expiresAtMs),
+          ...(session.expiresAt ? { expiresAt: session.expiresAt } : {}),
+          ...(Array.isArray(session.participantIds) ? { participantIds: session.participantIds } : {}),
+          ...(Number.isFinite(Number(session.remainingUses))
+            ? { remainingUses: Number(session.remainingUses) }
+            : {}),
+        };
+      }
 
       const credentialIdB64u = String(registration?.registrationInfo?.credential?.id || '').trim();
       const credentialPublicKey = registration?.registrationInfo?.credential?.publicKey as
@@ -2835,6 +3089,7 @@ export class AuthService {
           clientParticipantId: keygen.clientParticipantId,
           relayerParticipantId: keygen.relayerParticipantId,
           participantIds: keygen.participantIds,
+          ...(thresholdEd25519Session ? { session: thresholdEd25519Session } : {}),
         },
       };
     } catch (e: unknown) {
@@ -2871,6 +3126,15 @@ export class AuthService {
           clientParticipantId?: number;
           relayerParticipantId?: number;
           participantIds?: number[];
+          session?: {
+            sessionKind: 'jwt' | 'cookie';
+            sessionId: string;
+            expiresAtMs: number;
+            expiresAt?: string;
+            participantIds?: number[];
+            remainingUses?: number;
+            jwt?: string;
+          };
         };
       }
     | { ok: false; code: string; message: string }
@@ -2905,6 +3169,33 @@ export class AuthService {
           ok: false,
           code: 'invalid_body',
           message: 'Missing threshold_ed25519.client_verifying_share_b64u',
+        };
+      }
+      const thresholdEd25519SessionPolicy = (request as any)?.threshold_ed25519?.session_policy;
+      if (thresholdEd25519SessionPolicy != null && !isObject(thresholdEd25519SessionPolicy)) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ed25519.session_policy must be an object',
+        };
+      }
+      const thresholdEd25519SessionKind = String(
+        (request as any)?.threshold_ed25519?.session_kind || '',
+      )
+        .trim()
+        .toLowerCase();
+      if (thresholdEd25519SessionKind && thresholdEd25519SessionKind !== 'jwt') {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ed25519.session_kind must be jwt',
+        };
+      }
+      if (!thresholdEd25519SessionPolicy && thresholdEd25519SessionKind) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ed25519.session_policy is required when session_kind is provided',
         };
       }
 
@@ -2984,6 +3275,76 @@ export class AuthService {
         clientVerifyingShareB64u: thresholdClientVerifyingShareB64u,
       });
       if (!keygen.ok) return { ok: false, code: keygen.code, message: keygen.message };
+      let thresholdEd25519Session:
+        | {
+            sessionKind: 'jwt' | 'cookie';
+            sessionId: string;
+            expiresAtMs: number;
+            expiresAt?: string;
+            participantIds?: number[];
+            remainingUses?: number;
+            jwt?: string;
+          }
+        | undefined;
+      if (thresholdEd25519SessionPolicy) {
+        const requestedSessionPolicy = thresholdEd25519SessionPolicy as Record<string, unknown>;
+        const requestedPolicyRelayerKeyId = String(requestedSessionPolicy.relayerKeyId || '').trim();
+        if (requestedPolicyRelayerKeyId && requestedPolicyRelayerKeyId !== keygen.relayerKeyId) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'threshold_ed25519.session_policy.relayerKeyId mismatch',
+          };
+        }
+        const requestedPolicyNearAccountId = String(
+          requestedSessionPolicy.nearAccountId || '',
+        ).trim();
+        if (requestedPolicyNearAccountId && requestedPolicyNearAccountId !== accountId) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'threshold_ed25519.session_policy.nearAccountId mismatch',
+          };
+        }
+        const requestedPolicyRpId = String(requestedSessionPolicy.rpId || '').trim();
+        if (requestedPolicyRpId && requestedPolicyRpId !== rpId) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'threshold_ed25519.session_policy.rpId mismatch',
+          };
+        }
+
+        const session = await threshold.mintEd25519SessionFromRegistration({
+          nearAccountId: accountId,
+          rpId,
+          relayerKeyId: keygen.relayerKeyId,
+          clientVerifyingShareB64u: thresholdClientVerifyingShareB64u,
+          sessionPolicy: {
+            ...requestedSessionPolicy,
+            nearAccountId: accountId,
+            rpId,
+            relayerKeyId: keygen.relayerKeyId,
+          } as any,
+        });
+        if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
+          return {
+            ok: false,
+            code: session.code || 'internal',
+            message: session.message || 'threshold-ed25519 email-recovery bootstrap failed',
+          };
+        }
+        thresholdEd25519Session = {
+          sessionKind: 'jwt',
+          sessionId: session.sessionId,
+          expiresAtMs: Number(session.expiresAtMs),
+          ...(session.expiresAt ? { expiresAt: session.expiresAt } : {}),
+          ...(Array.isArray(session.participantIds) ? { participantIds: session.participantIds } : {}),
+          ...(Number.isFinite(Number(session.remainingUses))
+            ? { remainingUses: Number(session.remainingUses) }
+            : {}),
+        };
+      }
 
       const credentialIdB64u = String(registration?.registrationInfo?.credential?.id || '').trim();
       const credentialPublicKey = registration?.registrationInfo?.credential?.publicKey as
@@ -3041,6 +3402,7 @@ export class AuthService {
           clientParticipantId: keygen.clientParticipantId,
           relayerParticipantId: keygen.relayerParticipantId,
           participantIds: keygen.participantIds,
+          ...(thresholdEd25519Session ? { session: thresholdEd25519Session } : {}),
         },
       };
     } catch (e: unknown) {

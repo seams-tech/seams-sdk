@@ -11,6 +11,12 @@ import { errorMessage } from '@shared/utils/errors';
 import { isObject } from '@shared/utils/validation';
 import { IndexedDBManager } from '../indexedDB';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
+import { getLoginSession } from './login';
+import {
+  buildThresholdWarmSessionBootstrapPayload,
+  createThresholdWarmSessionPolicyDraft,
+  hydrateThresholdWarmSessionFromRelay,
+} from './thresholdWarmSessionBootstrap';
 
 export interface SyncAccountResult {
   success: boolean;
@@ -117,15 +123,50 @@ export async function syncAccount(
         includeSecondPrfOutput: false,
       }));
 
+    const normalizedRequestedAccountId = accountId ? toAccountId(String(accountId)) : null;
+    const thresholdWarmPolicyDraft = normalizedRequestedAccountId
+      ? createThresholdWarmSessionPolicyDraft(context)
+      : null;
+    let thresholdBootstrapClientVerifyingShareB64u = '';
+    if (thresholdWarmPolicyDraft && normalizedRequestedAccountId) {
+      const thresholdDerivedForBootstrap =
+        await context.signingEngine.deriveThresholdEd25519ClientVerifyingShareFromCredential({
+          credential,
+          nearAccountId: normalizedRequestedAccountId,
+        });
+      if (!thresholdDerivedForBootstrap.success || !thresholdDerivedForBootstrap.clientVerifyingShareB64u) {
+        throw new Error(
+          thresholdDerivedForBootstrap.error ||
+            'Failed to derive threshold client verifying share for sync bootstrap',
+        );
+      }
+      thresholdBootstrapClientVerifyingShareB64u = String(
+        thresholdDerivedForBootstrap.clientVerifyingShareB64u || '',
+      ).trim();
+      if (!thresholdBootstrapClientVerifyingShareB64u) {
+        throw new Error('Derived threshold client verifying share is empty');
+      }
+    }
+
     const credentialForRelay =
       redactCredentialExtensionOutputs<WebAuthnAuthenticationCredential>(credential);
+    const verifyRequestBody: Record<string, unknown> = {
+      challengeId,
+      webauthn_authentication: credentialForRelay,
+    };
+    if (thresholdWarmPolicyDraft && thresholdBootstrapClientVerifyingShareB64u) {
+      verifyRequestBody.threshold_ed25519 = buildThresholdWarmSessionBootstrapPayload({
+        clientVerifyingShareB64u: thresholdBootstrapClientVerifyingShareB64u,
+        nearAccountId: normalizedRequestedAccountId ? String(normalizedRequestedAccountId) : undefined,
+        rpId,
+        policy: thresholdWarmPolicyDraft,
+      });
+    }
+
     const verifyResp = await fetch(`${relayerUrl}/sync-account/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        challengeId,
-        webauthn_authentication: credentialForRelay,
-      }),
+      body: JSON.stringify(verifyRequestBody),
     });
     const verifyJsonUnknown: unknown = await verifyResp.json().catch(() => ({}));
     const verifyJson = isObject(verifyJsonUnknown) ? verifyJsonUnknown : {};
@@ -204,14 +245,21 @@ export async function syncAccount(
       const relayerVerifyingShareB64u = String(
         thresholdEd25519.relayerVerifyingShareB64u || '',
       ).trim();
-      const derived =
-        await context.signingEngine.deriveThresholdEd25519ClientVerifyingShareFromCredential({
-          credential,
-          nearAccountId: normalizedAccountId,
-        });
-      const clientVerifyingShareB64u = derived.success
-        ? String(derived.clientVerifyingShareB64u || '').trim()
-        : '';
+      const clientVerifyingShareB64u =
+        normalizedRequestedAccountId &&
+        String(normalizedRequestedAccountId) === String(normalizedAccountId) &&
+        thresholdBootstrapClientVerifyingShareB64u
+          ? thresholdBootstrapClientVerifyingShareB64u
+          : await (async () => {
+              const derived =
+                await context.signingEngine.deriveThresholdEd25519ClientVerifyingShareFromCredential(
+                  {
+                    credential,
+                    nearAccountId: normalizedAccountId,
+                  },
+                );
+              return derived.success ? String(derived.clientVerifyingShareB64u || '').trim() : '';
+            })();
 
       await IndexedDBManager.storeNearThresholdKeyMaterial({
         nearAccountId: normalizedAccountId,
@@ -234,7 +282,43 @@ export async function syncAccount(
         }),
         timestamp: Date.now(),
       });
+
+      if (
+        thresholdWarmPolicyDraft &&
+        thresholdBootstrapClientVerifyingShareB64u &&
+        normalizedRequestedAccountId &&
+        String(normalizedRequestedAccountId) === String(normalizedAccountId)
+      ) {
+        const thresholdSession = isObject((thresholdEd25519 as Record<string, unknown>).session)
+          ? ((thresholdEd25519 as Record<string, unknown>).session as Record<string, unknown>)
+          : null;
+        if (!thresholdSession) {
+          throw new Error('sync-account/verify did not return threshold session bootstrap data');
+        }
+        await hydrateThresholdWarmSessionFromRelay({
+          context,
+          nearAccountId: normalizedAccountId,
+          relayerUrl,
+          rpId,
+          relayerKeyId,
+          credential,
+          requestedPolicy: thresholdWarmPolicyDraft,
+          session: thresholdSession,
+          participantIdsHint: Array.isArray(thresholdEd25519.participantIds)
+            ? thresholdEd25519.participantIds
+            : undefined,
+          setActiveSigningSessionId: true,
+        });
+      }
     }
+
+    await context.signingEngine.setLastUser(normalizedAccountId, deviceNumber).catch(() => undefined);
+    await context.signingEngine.updateLastLogin(normalizedAccountId).catch(() => undefined);
+    await context.signingEngine
+      .initializeCurrentUser(normalizedAccountId, context.nearClient)
+      .catch(() => undefined);
+    const { login } = await getLoginSession(context, normalizedAccountId);
+    const isLoggedIn = Boolean(login?.isLoggedIn);
 
     emit({
       step: 5,
@@ -248,7 +332,7 @@ export async function syncAccount(
       accountId: syncedAccountId,
       publicKey,
       message: 'Account synced successfully',
-      loginState: { isLoggedIn: false },
+      loginState: { isLoggedIn },
     };
   } catch (e: unknown) {
     const msg = errorMessage(e) || 'syncAccount failed';

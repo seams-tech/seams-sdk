@@ -53,6 +53,10 @@ function createLocalDomain(options?: {
   const storeAuthenticatorCalls: any[] = [];
   const nearAccessKeys = options?.nearAccessKeys ?? [];
   const onViewAccessKeyList = options?.onViewAccessKeyList ?? (() => {});
+  const usersByAccount = new Map<string, any>();
+  let lastUser: any = null;
+  let warmSigningSession: { sessionId: string; expiresAtMs: number; remainingUses: number } | null =
+    null;
 
   const context = {
     configs: {
@@ -65,6 +69,10 @@ function createLocalDomain(options?: {
             maxPollingDurationMs: 10,
           },
         },
+      },
+      signing: {
+        mode: { mode: 'threshold-signer' },
+        sessionDefaults: { ttlMs: 300_000, remainingUses: 5 },
       },
     },
     signingEngine: {
@@ -89,13 +97,44 @@ function createLocalDomain(options?: {
         success: true,
         clientVerifyingShareB64u: 'client-verifying-share',
       }),
+      hydrateSigningSession: async (input: any) => {
+        warmSigningSession = {
+          sessionId: String(input?.sessionId || ''),
+          expiresAtMs: Number(input?.expiresAtMs || Date.now() + 60_000),
+          remainingUses: Number(input?.remainingUses || 1),
+        };
+      },
       extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
       storeUserData: async (input: any) => {
         storeUserDataCalls.push(input);
+        usersByAccount.set(String(input?.nearAccountId || ''), input);
       },
       storeAuthenticator: async (input: any) => {
         storeAuthenticatorCalls.push(input);
       },
+      setLastUser: async (nearAccountId: string, deviceNumber: number) => {
+        const accountId = String(nearAccountId || '');
+        const stored = usersByAccount.get(accountId) || {};
+        lastUser = {
+          nearAccountId: accountId,
+          deviceNumber,
+          clientNearPublicKey: String(
+            stored?.clientNearPublicKey || 'ed25519:recovery-key',
+          ),
+        };
+      },
+      updateLastLogin: async () => undefined,
+      initializeCurrentUser: async () => undefined,
+      getLastUser: async () => lastUser,
+      getWarmSigningSessionStatus: async () =>
+        warmSigningSession
+          ? {
+              sessionId: warmSigningSession.sessionId,
+              status: 'active',
+              remainingUses: warmSigningSession.remainingUses,
+              expiresAtMs: warmSigningSession.expiresAtMs,
+            }
+          : null,
     },
     nearClient: {
       viewAccessKeyList: async () => {
@@ -143,6 +182,15 @@ test.describe('EmailRecoveryDomain', () => {
               relayerVerifyingShareB64u: 'relayer-share',
               clientParticipantId: 1,
               relayerParticipantId: 2,
+              participantIds: [1, 2],
+              session: {
+                sessionKind: 'jwt',
+                sessionId: 'sync-session-1',
+                expiresAtMs: Date.now() + 60_000,
+                remainingUses: 5,
+                participantIds: [1, 2],
+                jwt: 'sync-jwt',
+              },
             },
           }),
           { status: 200 },
@@ -218,6 +266,8 @@ test.describe('EmailRecoveryDomain', () => {
     ]);
     expect(events.map((ev) => ev.phase)).toEqual([
       EmailRecoveryPhase.STEP_4_POLLING_ADD_KEY,
+      EmailRecoveryPhase.STEP_5_FINALIZING_REGISTRATION,
+      EmailRecoveryPhase.STEP_5_FINALIZING_REGISTRATION,
       EmailRecoveryPhase.STEP_6_COMPLETE,
     ]);
   });

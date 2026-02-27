@@ -3,11 +3,14 @@ import {
   RegistrationPhase,
   RegistrationStatus,
   LoginPhase,
+  SyncAccountPhase,
+  SyncAccountStatus,
   AuthMenuMode,
   DeviceLinkingPhase,
   EmailRecoveryPhase,
   EmailRecoveryStatus,
   type RegistrationSSEEvent,
+  type SyncAccountSSEEvent,
   type DeviceLinkingSSEEvent,
   type EmailRecoverySSEEvent,
   PasskeyAuthMenu,
@@ -96,8 +99,13 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     }
   };
 
-  const onLogin = async () => {
-    const result = await loginAndCreateSession(targetAccountId, {
+  const loginWithSession = async (accountId: string) => {
+    const loginTarget = String(accountId || '').trim();
+    if (!loginTarget) {
+      throw new Error('Missing accountId for login');
+    }
+
+    const result = await loginAndCreateSession(loginTarget, {
       // Mint a JWT session via the relay server if session.kind is provided
       // session: {
       //   kind: 'jwt',
@@ -105,7 +113,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
       onEvent: (event) => {
         switch (event.phase) {
           case LoginPhase.STEP_1_PREPARATION:
-            toast.loading(`Logging in as ${targetAccountId}...`, { id: 'login' });
+            toast.loading(`Logging in as ${loginTarget}...`, { id: 'login' });
             break;
           case LoginPhase.STEP_2_WEBAUTHN_ASSERTION:
             toast.loading(event.message, { id: 'login' });
@@ -135,6 +143,64 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
       }
       props.onLoggedIn?.(accountId);
     }
+    return result;
+  };
+
+  const onLogin = async () => {
+    return await loginWithSession(targetAccountId);
+  };
+
+  const onSyncAccount = async () => {
+    const result = await tatchi.recovery.syncAccount({
+      ...(targetAccountId ? { accountId: targetAccountId } : {}),
+      options: {
+        onEvent: (event: SyncAccountSSEEvent) => {
+          switch (event.phase) {
+            case SyncAccountPhase.STEP_1_PREPARATION:
+              toast.loading(event.message || 'Preparing account sync…', { id: 'sync' });
+              break;
+            case SyncAccountPhase.STEP_2_WEBAUTHN_AUTHENTICATION:
+              toast.loading(event.message || 'Authenticating with passkey…', { id: 'sync' });
+              break;
+            case SyncAccountPhase.STEP_4_AUTHENTICATOR_SAVED:
+              if (event.status === SyncAccountStatus.SUCCESS) {
+                toast.success(event.message || 'Passkey saved locally', { id: 'sync' });
+              }
+              break;
+            case SyncAccountPhase.STEP_5_SYNC_ACCOUNT_COMPLETE:
+              if (event.status === SyncAccountStatus.SUCCESS) {
+                toast.success(event.message || 'Account synced', { id: 'sync' });
+              }
+              break;
+            case SyncAccountPhase.ERROR:
+              toast.error((event as any)?.error || event.message || 'Account sync failed', {
+                id: 'sync',
+              });
+              break;
+            default:
+              break;
+          }
+        },
+      } as any,
+    });
+
+    if (!result?.success) {
+      throw new Error(result?.error || result?.message || 'Account sync failed');
+    }
+
+    const syncedAccountId = String(result.accountId || '').trim();
+    if (!syncedAccountId) {
+      throw new Error('Sync succeeded but accountId is missing');
+    }
+
+    if (result.loginState?.isLoggedIn) {
+      toast.success(`Synced and logged in as ${syncedAccountId}`, { id: 'sync' });
+      props.onLoggedIn?.(syncedAccountId);
+      return result;
+    }
+
+    toast.success(`Synced account ${syncedAccountId}. Logging in...`, { id: 'sync' });
+    await loginWithSession(syncedAccountId);
     return result;
   };
 
@@ -311,6 +377,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
         }}
         onLogin={onLogin}
         onRegister={onRegister}
+        onSyncAccount={onSyncAccount}
       />
     </div>
   );

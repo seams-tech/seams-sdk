@@ -23,6 +23,11 @@ import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/partici
 import { DEFAULT_WAIT_STATUS } from '../../types/rpc';
 import { ActionType, type ActionArgsWasm } from '../../types/actions';
 import type { WebAuthnRegistrationCredential } from '../../types/webauthn';
+import {
+  buildThresholdWarmSessionBootstrapPayload,
+  createThresholdWarmSessionPolicyDraft,
+  hydrateThresholdWarmSessionFromRelay,
+} from '../thresholdWarmSessionBootstrap';
 
 type DeterministicKeysResultLike = {
   nearPublicKey?: string;
@@ -343,6 +348,10 @@ export class LinkDeviceFlow {
     if (!derived.success || !derived.clientVerifyingShareB64u) {
       throw new Error(derived.error || 'Failed to derive threshold client verifying share');
     }
+    const thresholdWarmPolicyDraft = createThresholdWarmSessionPolicyDraft(this.context);
+    if (!thresholdWarmPolicyDraft) {
+      throw new Error('Threshold warm-session defaults are disabled for link-device');
+    }
 
     const localSignerEnabled = this.options?.localSignerEnabled !== false;
     let localPublicKey: string | null = null;
@@ -388,7 +397,12 @@ export class LinkDeviceFlow {
         account_id: String(nearAccountId),
         device_number: resolvedDeviceNumber,
         ...(localPublicKey ? { local_public_key: localPublicKey } : {}),
-        threshold_ed25519: { client_verifying_share_b64u: derived.clientVerifyingShareB64u },
+        threshold_ed25519: buildThresholdWarmSessionBootstrapPayload({
+          clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
+          nearAccountId: String(nearAccountId),
+          rpId,
+          policy: thresholdWarmPolicyDraft,
+        }),
         rp_id: rpId,
         webauthn_registration: credentialForRelay,
       }),
@@ -414,6 +428,10 @@ export class LinkDeviceFlow {
     ).trim();
     if (!thresholdPublicKey || !relayerKeyId || !relayerVerifyingShareB64u) {
       throw new Error('link-device/prepare returned incomplete threshold key material');
+    }
+    const thresholdSession = isObject(thresholdSection.session) ? thresholdSection.session : null;
+    if (!thresholdSession) {
+      throw new Error('link-device/prepare did not return threshold session bootstrap data');
     }
 
     this.safeOnEvent({
@@ -518,6 +536,20 @@ export class LinkDeviceFlow {
         clientShareDerivation: 'prf_first_v1',
       }),
       timestamp: Date.now(),
+    });
+    await hydrateThresholdWarmSessionFromRelay({
+      context: this.context,
+      nearAccountId,
+      relayerUrl,
+      rpId,
+      relayerKeyId,
+      credential,
+      requestedPolicy: thresholdWarmPolicyDraft,
+      session: thresholdSession,
+      participantIdsHint: Array.isArray(thresholdSection.participantIds)
+        ? thresholdSection.participantIds
+        : undefined,
+      setActiveSigningSessionId: true,
     });
 
     // Auto-login: set last-user + warm login state so the device is immediately usable.
