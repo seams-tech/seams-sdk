@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { encodeFunctionData, parseAbi } from 'viem';
 import { setupBasicPasskeyTest, SDK_ESM_PATHS, sdkEsmPath } from '../setup';
 
 const IMPORT_PATHS = {
@@ -239,6 +240,142 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
     expect(result.fieldLabels.some((label: string) => label.includes('Function:'))).toBe(false);
     expect(result.decodedContent).toContain('"greeting": "hello, world!"');
     expect(result.rawContent).toContain('0xa4136862');
+  });
+
+  test('ABI decoded address arrays keep 2-space indentation with no blank line', async ({ page }) => {
+    const faucetAbi = parseAbi(['function drip(address[] tokenAddresses)']);
+    const dripDataHex = encodeFunctionData({
+      abi: faucetAbi,
+      functionName: 'drip',
+      args: [['0x20c0000000000000000000000000000000000000']],
+    });
+
+    const result = await page.evaluate(
+      async ({ paths, dataHexArg, abiArg }) => {
+        const mod = await import(paths.confirmUi);
+        const { mountConfirmUI } =
+          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+
+        const ctx: any = {
+          userPreferencesManager: {
+            getCurrentUserAccountId: () => 'alice.testnet',
+          },
+        };
+
+        const contractAddress = '0xbb85080e6953f25197ec68798360667140ebaf4b';
+        const model = {
+          chain: 'evm',
+          intentDigest: '0x33',
+          title: 'Address Array Decode',
+          operations: [
+            {
+              id: 'evm.eip1559',
+              kind: 'generic.contractCall',
+              label: `Transaction to contract ${contractAddress}`,
+              to: contractAddress,
+              value: '0',
+              children: [
+                {
+                  id: 'evm.eip1559.call',
+                  kind: 'generic.contractCall',
+                  label: 'Calling contract function using 300k gas',
+                  to: contractAddress,
+                  value: '0',
+                  selector: '0x428dc451',
+                  fields: [
+                    {
+                      label: 'Data',
+                      value: dataHexArg,
+                      copyValue: dataHexArg,
+                      renderAs: 'file-content',
+                      hideLabel: true,
+                      hideChevron: true,
+                    },
+                  ],
+                  abiDecodeHint: {
+                    dataHex: dataHexArg,
+                    abi: abiArg,
+                  },
+                },
+              ],
+            },
+          ],
+        };
+
+        const handle = await mountConfirmUI({
+          ctx,
+          summary: { intentDigest: 'digest-address-array' } as any,
+          model: model as any,
+          securityContext: {
+            blockHeight: '1',
+            blockHash: 'h',
+          } as any,
+          loading: false,
+          theme: 'dark',
+          uiMode: 'modal',
+          nearAccountIdOverride: 'alice.testnet',
+        });
+
+        const waitFor = async (predicate: () => boolean, timeoutMs = 5000): Promise<void> => {
+          const start = Date.now();
+          while (!predicate()) {
+            if (Date.now() - start > timeoutMs) {
+              throw new Error('Timed out waiting for address-array ABI enrichment');
+            }
+            await new Promise((resolve) => setTimeout(resolve, 16));
+          }
+        };
+
+        const findNode = (node: any, predicate: (candidate: any) => boolean): any => {
+          if (!node) return null;
+          if (predicate(node)) return node;
+          const children = Array.isArray(node.children) ? node.children : [];
+          for (const child of children) {
+            const found = findNode(child, predicate);
+            if (found) return found;
+          }
+          return null;
+        };
+
+        await waitFor(() => !!document.querySelector('w3a-tx-confirm-content'));
+        const contentEl = document.querySelector('w3a-tx-confirm-content') as any;
+        await waitFor(() => {
+          const root = contentEl?._treeNode;
+          const callNode = findNode(root, (candidate) =>
+            String(candidate?.label || '').includes('Calling drip() using 300k gas'),
+          );
+          if (!callNode || !Array.isArray(callNode.children)) return false;
+          const dataNode = callNode.children.find((child: any) => String(child?.label || '') === 'Data:');
+          return String(dataNode?.content || '').includes('"tokenAddresses"');
+        });
+
+        const treeNode = contentEl?._treeNode;
+        const callNode = findNode(treeNode, (candidate) =>
+          String(candidate?.label || '').includes('Calling drip() using 300k gas'),
+        );
+        const dataNode = Array.isArray(callNode?.children)
+          ? callNode.children.find((child: any) => String(child?.label || '') === 'Data:')
+          : null;
+
+        handle.close(true);
+
+        return {
+          callLabel: String(callNode?.label || ''),
+          decodedContent: String(dataNode?.content || ''),
+        };
+      },
+      { paths: IMPORT_PATHS, dataHexArg: dripDataHex, abiArg: faucetAbi },
+    );
+
+    expect(result.callLabel).toContain('Calling drip() using 300k gas');
+    expect(result.decodedContent).toBe(
+      '{\n' +
+        '  "tokenAddresses": [\n' +
+        '    "0x20c0000000000000000000000000000000000000"\n' +
+        '  ]\n' +
+        '}',
+    );
+    expect(result.decodedContent).not.toContain('[\n\n');
   });
 
   test('same mountConfirmUI API renders NEAR, EVM, and Tempo display models', async ({ page }) => {

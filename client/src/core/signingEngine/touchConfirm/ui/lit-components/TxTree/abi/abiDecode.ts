@@ -436,32 +436,10 @@ function formatDecodedArgumentsJsonText(
     payload[nextKey] = arg.value;
   }
   try {
-    const json = JSON.stringify(payload, null, 2);
-    return alignTopLevelHexArrayItems(json);
+    return JSON.stringify(payload, null, 2);
   } catch {
     return undefined;
   }
-}
-
-function alignTopLevelHexArrayItems(jsonText: string): string {
-  const lines = jsonText.split('\n');
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i]!;
-    const trimmed = line.trim();
-    if (!/^"0x[0-9a-f]+",?$/i.test(trimmed)) continue;
-
-    let prevIndex = i - 1;
-    while (prevIndex >= 0 && lines[prevIndex]!.trim() === '') {
-      prevIndex -= 1;
-    }
-    if (prevIndex < 0) continue;
-    if (!lines[prevIndex]!.trim().endsWith('[')) continue;
-
-    if (line.startsWith(' ')) {
-      lines[i] = line.slice(1);
-    }
-  }
-  return lines.join('\n');
 }
 
 export function decodeCallDataWithAbi(args: {
