@@ -52,19 +52,24 @@ type ChainWithChainId = Extract<TatchiChainConfig, { chainId: number }>;
 export function toManagedNonceReservationSnapshot(
   input: ReserveNonceInput & { nonce: bigint },
 ): ManagedNonceReservationSnapshot {
-  return {
+  const nearAccountId = normalizeAccountId(input.nearAccountId);
+  const snapshot: ManagedNonceReservationSnapshot = {
     chain: input.chain,
     networkKey: String(input.networkKey || '').trim(),
     chainId: input.chainId,
     sender: normalizeSender(input.sender),
-    ...(input.nonceKey != null
-      ? { nonceKey: normalizeBigint(input.nonceKey, 'nonceKey').toString() }
-      : {}),
     nonce: normalizeBigint(input.nonce, 'nonce').toString(),
-    ...(normalizeAccountId(input.nearAccountId)
-      ? { nearAccountId: normalizeAccountId(input.nearAccountId) }
-      : {}),
   };
+
+  if (input.nonceKey != null) {
+    snapshot.nonceKey = normalizeBigint(input.nonceKey, 'nonceKey').toString();
+  }
+
+  if (nearAccountId) {
+    snapshot.nearAccountId = nearAccountId;
+  }
+
+  return snapshot;
 }
 
 export function fromManagedNonceReservationSnapshot(
