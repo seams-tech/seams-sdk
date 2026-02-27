@@ -44,13 +44,14 @@ export class PasskeyHaloLoadingElement extends LitElementWithProps {
   private _stylesReady = false;
   private _stylePromises: Promise<void>[] = [];
   private _stylesAwaiting: Promise<void> | null = null;
+  private static readonly _STYLE_MARKER = 'data-w3a-passkey-halo-loading-css';
 
   protected createRenderRoot(): HTMLElement | DocumentFragment {
     const root = super.createRenderRoot();
     const p = ensureExternalStyles(
       root as ShadowRoot | DocumentFragment | HTMLElement,
       'passkey-halo-loading.css',
-      'data-w3a-passkey-halo-loading-css',
+      PasskeyHaloLoadingElement._STYLE_MARKER,
     );
     this._stylePromises.push(p);
     p.catch(() => {});
@@ -60,6 +61,10 @@ export class PasskeyHaloLoadingElement extends LitElementWithProps {
   // Defer first render until external styles are adopted to avoid FOUC
   protected shouldUpdate(_changed: Map<string | number | symbol, unknown>): boolean {
     if (this._stylesReady) return true;
+    if (this._hasPreloadedDocumentStyles()) {
+      this._stylesReady = true;
+      return true;
+    }
     if (!this._stylesAwaiting) {
       const settle = Promise.all(this._stylePromises).then(
         () =>
@@ -71,6 +76,21 @@ export class PasskeyHaloLoadingElement extends LitElementWithProps {
       });
     }
     return false;
+  }
+
+  /**
+   * Returns true when the passkey loader stylesheet is already loaded on the
+   * document, so this element can render immediately without waiting again.
+   */
+  private _hasPreloadedDocumentStyles(): boolean {
+    const doc = this.ownerDocument ?? (typeof document !== 'undefined' ? document : null);
+    if (!doc?.head) return false;
+    const link = doc.head.querySelector(
+      `link[${PasskeyHaloLoadingElement._STYLE_MARKER}]`,
+    ) as HTMLLinkElement | null;
+    if (!link) return false;
+    const statefulLink = link as HTMLLinkElement & { _w3aLoaded?: boolean };
+    return !!(statefulLink._w3aLoaded || link.sheet);
   }
 
   protected updated(): void {

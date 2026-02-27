@@ -252,7 +252,7 @@ w3a-modal-tx-confirmer {
   z-index: 2147483647;
   background: oklch(0.2 0.01 240 / 0.4);
   backdrop-filter: blur(0px);
-  /* animation: var(--w3a-modal__modal-backdrop-blur__animation, backdrop-opacity 60ms ease-in); */
+  animation: var(--w3a-modal__modal-backdrop-blur__animation, backdrop-opacity 150ms ease-out);
   opacity: 1;
   will-change: opacity;
 }
@@ -322,7 +322,10 @@ w3a-modal-tx-confirmer {
     0 12px 24px rgba(0, 0, 0, 0.22),
     0 2px 8px rgba(0, 0, 0, 0.12);
   background: var(--w3a-colors-colorBackground);
-  animation: fadeIn 32ms ease-in;
+  animation: var(
+    --w3a-modal__modal-container__animation,
+    fadeIn 150ms cubic-bezier(0.2, 0.6, 0.2, 1)
+  );
   will-change: opacity, transform;
 }
 

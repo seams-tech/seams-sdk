@@ -34,13 +34,14 @@ export class HaloBorderElement extends LitElementWithProps {
   private _stylesReady = false;
   private _stylePromises: Promise<void>[] = [];
   private _stylesAwaiting: Promise<void> | null = null;
+  private static readonly _STYLE_MARKER = 'data-w3a-halo-border-css';
 
   protected createRenderRoot(): HTMLElement | DocumentFragment {
     const root = super.createRenderRoot();
     const p = ensureExternalStyles(
       root as ShadowRoot | DocumentFragment | HTMLElement,
       'halo-border.css',
-      'data-w3a-halo-border-css',
+      HaloBorderElement._STYLE_MARKER,
     );
     this._stylePromises.push(p);
     p.catch(() => {});
@@ -50,6 +51,10 @@ export class HaloBorderElement extends LitElementWithProps {
   // Defer first render until external styles are adopted to avoid FOUC
   protected shouldUpdate(_changed: Map<string | number | symbol, unknown>): boolean {
     if (this._stylesReady) return true;
+    if (this._hasPreloadedDocumentStyles()) {
+      this._stylesReady = true;
+      return true;
+    }
     if (!this._stylesAwaiting) {
       const settle = Promise.all(this._stylePromises).then(
         () =>
@@ -62,6 +67,22 @@ export class HaloBorderElement extends LitElementWithProps {
     }
     return false;
   }
+
+  /**
+   * Returns true when a document-level stylesheet link for this component is
+   * already present and loaded, allowing first render without extra gating.
+   */
+  private _hasPreloadedDocumentStyles(): boolean {
+    const doc = this.ownerDocument ?? (typeof document !== 'undefined' ? document : null);
+    if (!doc?.head) return false;
+    const link = doc.head.querySelector(
+      `link[${HaloBorderElement._STYLE_MARKER}]`,
+    ) as HTMLLinkElement | null;
+    if (!link) return false;
+    const statefulLink = link as HTMLLinkElement & { _w3aLoaded?: boolean };
+    return !!(statefulLink._w3aLoaded || link.sheet);
+  }
+
   private _rafId: number | null = null;
   private _startTs: number = 0;
   private _running: boolean = false;
@@ -86,11 +107,6 @@ export class HaloBorderElement extends LitElementWithProps {
       if (this.animated) this.start();
       else this.stop();
     }
-  }
-
-  connectedCallback(): void {
-    super.connectedCallback();
-    if (this.animated) this.start();
   }
 
   disconnectedCallback(): void {

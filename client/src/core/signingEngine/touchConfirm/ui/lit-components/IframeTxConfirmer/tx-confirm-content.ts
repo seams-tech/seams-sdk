@@ -76,6 +76,11 @@ export class TxConfirmContentElement extends LitElementWithProps {
   private _stylesReady = false;
   private _stylePromises: Promise<void>[] = [];
   private _stylesAwaiting: Promise<void> | null = null;
+  private static readonly _STYLE_MARKERS = [
+    'data-w3a-tx-tree-css',
+    'data-w3a-tx-confirmer-css',
+    'data-w3a-components-css',
+  ] as const;
   private _treeBuildVersion = 0;
   // Guard against "ghost" confirm clicks caused by the same user gesture that
   // mounted the confirmer. We arm confirm after initial paint frames.
@@ -125,8 +130,6 @@ export class TxConfirmContentElement extends LitElementWithProps {
     super.connectedCallback();
     // Reflect tooltip width var for nested components
     this._applyTooltipWidthVar();
-    // Build initial tree from any pre-set props (upgrade-safe)
-    this._rebuildTree();
     this._scheduleConfirmArm();
     // Prevent drawer drag initiation from content area
     this.addEventListener('pointerdown', this._stopDragStart as EventListener);
@@ -149,6 +152,10 @@ export class TxConfirmContentElement extends LitElementWithProps {
 
   protected shouldUpdate(_changed: PropertyValues): boolean {
     if (this._stylesReady) return true;
+    if (this._hasPreloadedDocumentStyles()) {
+      this._stylesReady = true;
+      return true;
+    }
     if (!this._stylesAwaiting) {
       const p = Promise.all(this._stylePromises).then(
         () =>
@@ -164,11 +171,29 @@ export class TxConfirmContentElement extends LitElementWithProps {
     return false;
   }
 
+  private _hasPreloadedDocumentStyles(): boolean {
+    const doc = this.ownerDocument ?? (typeof document !== 'undefined' ? document : null);
+    if (!doc?.head) return false;
+    for (const marker of TxConfirmContentElement._STYLE_MARKERS) {
+      const link = doc.head.querySelector(`link[${marker}]`) as HTMLLinkElement | null;
+      if (!link) return false;
+      const statefulLink = link as HTMLLinkElement & { _w3aLoaded?: boolean };
+      if (!(statefulLink._w3aLoaded || link.sheet)) return false;
+    }
+    return true;
+  }
+
+  protected willUpdate(changed: PropertyValues): void {
+    super.willUpdate(changed);
+    if (changed.has('txSigningRequests') || changed.has('model')) {
+      // Build the tree before render so the first painted frame already has
+      // the tx body and does not grow a frame later.
+      this._rebuildTree({ requestRender: false });
+    }
+  }
+
   updated(changed: PropertyValues) {
     super.updated(changed);
-    if (changed.has('txSigningRequests') || changed.has('model')) {
-      this._rebuildTree();
-    }
     if (changed.has('tooltipWidth')) {
       this._applyTooltipWidthVar();
     }
@@ -222,14 +247,18 @@ export class TxConfirmContentElement extends LitElementWithProps {
     }
   }
 
-  private _rebuildTree() {
+  private _rebuildTree(options?: { requestRender?: boolean }) {
+    const shouldRequestRender = options?.requestRender ?? true;
+    const maybeRequestUpdate = () => {
+      if (shouldRequestRender) this.requestUpdate();
+    };
     const buildVersion = ++this._treeBuildVersion;
     try {
       const txs = Array.isArray(this.txSigningRequests) ? this.txSigningRequests : [];
       if (txs.length > 0) {
         const uiTxs = fromTransactionInputsWasm(txs);
         this._treeNode = buildDisplayTreeFromTxPayloads(uiTxs);
-        this.requestUpdate();
+        maybeRequestUpdate();
         return;
       }
       if (this.model) {
@@ -237,11 +266,11 @@ export class TxConfirmContentElement extends LitElementWithProps {
         const warnings = Array.isArray(this.model.warnings) ? this.model.warnings : [];
         if (operations.length === 0 && warnings.length === 0) {
           this._treeNode = null;
-          this.requestUpdate();
+          maybeRequestUpdate();
           return;
         }
         this._treeNode = buildDisplayTreeFromModel(this.model);
-        this.requestUpdate();
+        maybeRequestUpdate();
         if (this._modelHasAbiDecodeHints(this.model)) {
           void this._enrichTreeWithAbi({
             model: this.model,
@@ -256,7 +285,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
       this._treeNode = null;
     }
     // Ensure view refreshes even if this runs in firstUpdated before Lit schedules next frame
-    this.requestUpdate();
+    maybeRequestUpdate();
   }
 
   private _stopDragStart = (e: Event) => {
