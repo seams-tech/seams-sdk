@@ -2,6 +2,7 @@ import type {
   EvmAccessListItem,
   EvmAddress,
   EvmBytes,
+  EvmContractAbi,
   Hex,
   EvmSecp256k1SigningRequest,
   EvmSigningRequest,
@@ -13,6 +14,7 @@ export type TempoCall = {
   to: EvmAddress; // 20 bytes
   value: bigint; // wei
   input?: EvmBytes; // calldata, defaults to 0x
+  abi?: EvmContractAbi; // optional ABI used for tx confirmer calldata decoding
 };
 
 export type TempoFeePayerSignature =

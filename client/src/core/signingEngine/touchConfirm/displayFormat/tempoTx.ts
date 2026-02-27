@@ -56,6 +56,19 @@ function normalizeHexData(input: string | undefined): string {
   return trimmed.startsWith('0x') ? trimmed : `0x${trimmed}`;
 }
 
+function buildAbiDecodeHint(args: {
+  input: string | undefined;
+  abi: TempoCall['abi'];
+}): GenericContractCallOperation['abiDecodeHint'] | undefined {
+  const dataHex = normalizeHexData(args.input);
+  if (dataHex === '0x') return undefined;
+  if (!Array.isArray(args.abi) || args.abi.length === 0) return undefined;
+  return {
+    dataHex,
+    abi: args.abi as readonly Record<string, unknown>[],
+  };
+}
+
 function shortenHexAddress(address: string): string {
   const normalized = String(address || '').trim();
   if (!/^0x[0-9a-fA-F]{40}$/.test(normalized)) return normalized;
@@ -88,7 +101,7 @@ function buildTempoCallDetailsOperation(args: {
     makeField('Valid After', tx.validAfter == null ? undefined : tx.validAfter.toString()),
   ].filter(Boolean) as TxDisplayField[];
 
-  return {
+  const operation: GenericContractCallOperation = {
     id: `${rootId}.call`,
     kind: 'generic.contractCall',
     label: `Calling ${functionLabel} using ${formattedGasLimit} gas`,
@@ -97,6 +110,14 @@ function buildTempoCallDetailsOperation(args: {
     selector,
     fields,
   };
+  const abiDecodeHint = buildAbiDecodeHint({
+    input,
+    abi: call.abi,
+  });
+  if (abiDecodeHint) {
+    operation.abiDecodeHint = abiDecodeHint;
+  }
+  return operation;
 }
 
 function buildTempoCallOperation(args: {

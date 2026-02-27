@@ -117,6 +117,19 @@ function normalizeHex(input: string | undefined): string {
   return raw.startsWith('0x') ? raw : `0x${raw}`;
 }
 
+function buildAbiDecodeHint(args: {
+  dataHex: string | undefined;
+  abi: EvmSigningRequest['tx']['abi'];
+}): GenericContractCallOperation['abiDecodeHint'] | undefined {
+  const normalizedDataHex = normalizeHex(args.dataHex);
+  if (normalizedDataHex === '0x') return undefined;
+  if (!Array.isArray(args.abi) || args.abi.length === 0) return undefined;
+  return {
+    dataHex: normalizedDataHex,
+    abi: args.abi as readonly Record<string, unknown>[],
+  };
+}
+
 function parseHexBytes(hex: string): Uint8Array | undefined {
   try {
     return hexToBytes(normalizeHex(hex));
@@ -467,16 +480,22 @@ function buildCallOperation(args: {
   id: string;
   label: string;
   call: DecodedContractCall;
+  abi: EvmSigningRequest['tx']['abi'];
 }): GenericContractCallOperation {
   const { call } = args;
+  const decodedArgsText = call.decodedArgs;
+  const decodedArgsField = makeField('Decoded Args', decodedArgsText);
+  if (decodedArgsField && decodedArgsText && decodedArgsText.includes('\n')) {
+    decodedArgsField.renderAs = 'file-content';
+  }
   const fields: TxDisplayField[] = [
     makeField('To', call.to, call.to),
     makeField('Value (wei)', call.valueWei),
     makeField('Data', call.dataHex, call.dataHex),
-    makeField('Decoded Args', call.decodedArgs),
+    decodedArgsField,
   ].filter(Boolean) as TxDisplayField[];
 
-  return {
+  const operation: GenericContractCallOperation = {
     id: args.id,
     kind: 'generic.contractCall',
     label: args.label,
@@ -485,11 +504,20 @@ function buildCallOperation(args: {
     selector: call.selector,
     fields,
   };
+  const abiDecodeHint = buildAbiDecodeHint({
+    dataHex: call.dataHex,
+    abi: args.abi,
+  });
+  if (abiDecodeHint) {
+    operation.abiDecodeHint = abiDecodeHint;
+  }
+  return operation;
 }
 
 function buildErc4337OperationFromHandleOps(args: {
   to?: string;
   dataHex: string;
+  abi: EvmSigningRequest['tx']['abi'];
 }): BuiltErc4337Operation | undefined {
   const decoded = decodeHandleOpsCallData(args.dataHex);
   if (!decoded) return undefined;
@@ -514,6 +542,7 @@ function buildErc4337OperationFromHandleOps(args: {
         id: `evm.erc4337.userop.${userOpIndex}.call.${callIndex}`,
         label: calls.length > 1 ? `Call ${callIndex + 1}` : 'Call',
         call,
+        abi: args.abi,
       }),
     );
 
@@ -592,6 +621,7 @@ function buildErc4337OperationFromHandleOps(args: {
 function buildErc4337OperationFromDirectSmartAccountCall(args: {
   to?: string;
   dataHex: string;
+  abi: EvmSigningRequest['tx']['abi'];
 }): BuiltErc4337Operation | undefined {
   const selector = selectorFromHexData(args.dataHex);
   if (selector !== EXECUTE_SELECTOR && selector !== EXECUTE_BATCH_SELECTOR) return undefined;
@@ -611,6 +641,7 @@ function buildErc4337OperationFromDirectSmartAccountCall(args: {
       id: `evm.erc4337.call.${callIndex}`,
       label: decodedCall.calls.length > 1 ? `Call ${callIndex + 1}` : 'Call',
       call,
+      abi: args.abi,
     }),
   );
 
@@ -666,24 +697,30 @@ function buildDefaultContractCallOperation(args: {
     dataField.hideChevron = true;
   }
 
-  const callFields: TxDisplayField[] = [
-    dataField,
-    makeField('Value (wei)', args.valueWei),
-  ].filter(Boolean) as TxDisplayField[];
+  const callFields: TxDisplayField[] = [dataField, makeField('Value (wei)', args.valueWei)].filter(
+    Boolean,
+  ) as TxDisplayField[];
 
-  const children = hasCallData
-    ? [
-        {
-          id: 'evm.eip1559.call',
-          kind: 'generic.contractCall' as const,
-          label: `Calling ${functionLabel || 'contract function'} using ${formattedGasLimit} gas`,
-          to: args.to,
-          value: args.valueWei,
-          selector: args.selector,
-          fields: callFields,
-        },
-      ]
-    : undefined;
+  let children: TxDisplayOperation[] | undefined;
+  if (hasCallData) {
+    const childOperation: GenericContractCallOperation = {
+      id: 'evm.eip1559.call',
+      kind: 'generic.contractCall',
+      label: `Calling ${functionLabel || 'contract function'} using ${formattedGasLimit} gas`,
+      to: args.to,
+      value: args.valueWei,
+      selector: args.selector,
+      fields: callFields,
+    };
+    const abiDecodeHint = buildAbiDecodeHint({
+      dataHex: args.dataHex,
+      abi: args.tx.abi,
+    });
+    if (abiDecodeHint) {
+      childOperation.abiDecodeHint = abiDecodeHint;
+    }
+    children = [childOperation];
+  }
 
   return {
     id: 'evm.eip1559',
@@ -727,8 +764,8 @@ export function buildEvmDisplayModel(args: BuildEvmDisplayModelArgs): TxDisplayM
   const selector = selectorFromHexData(dataHex);
 
   const erc4337Operation =
-    buildErc4337OperationFromHandleOps({ to, dataHex }) ||
-    buildErc4337OperationFromDirectSmartAccountCall({ to, dataHex });
+    buildErc4337OperationFromHandleOps({ to, dataHex, abi: tx.abi }) ||
+    buildErc4337OperationFromDirectSmartAccountCall({ to, dataHex, abi: tx.abi });
 
   const operation =
     erc4337Operation?.operation ||

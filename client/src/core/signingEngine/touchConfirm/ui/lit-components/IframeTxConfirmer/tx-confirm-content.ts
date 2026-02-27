@@ -10,7 +10,10 @@ import { buildDisplayTreeFromModel, buildDisplayTreeFromTxPayloads } from '../Tx
 import { ensureExternalStyles } from '../css/css-loader';
 import { W3A_TX_TREE_ID } from '../../registry';
 import type { ThemeName } from '../../confirm-ui-types';
-import type { TxDisplayModel } from '@/core/signingEngine/touchConfirm/shared/displayModel';
+import type {
+  TxDisplayModel,
+  TxDisplayOperation,
+} from '@/core/signingEngine/touchConfirm/shared/displayModel';
 
 /**
  * Shared confirmation content surface used by both Modal and Drawer containers.
@@ -73,6 +76,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
   private _stylesReady = false;
   private _stylePromises: Promise<void>[] = [];
   private _stylesAwaiting: Promise<void> | null = null;
+  private _treeBuildVersion = 0;
   // Guard against "ghost" confirm clicks caused by the same user gesture that
   // mounted the confirmer. We arm confirm after initial paint frames.
   private _confirmArmed = false;
@@ -184,7 +188,42 @@ export class TxConfirmContentElement extends LitElementWithProps {
     return s.length ? s : undefined;
   }
 
+  private _operationHasAbiDecodeHint(operation: TxDisplayOperation): boolean {
+    const hint = operation.abiDecodeHint;
+    if (hint && Array.isArray(hint.abi) && hint.abi.length > 0) {
+      const dataHex = String(hint.dataHex || '').trim();
+      if (dataHex && dataHex !== '0x') return true;
+    }
+    const children = Array.isArray(operation.children) ? operation.children : [];
+    for (const child of children) {
+      if (this._operationHasAbiDecodeHint(child)) return true;
+    }
+    return false;
+  }
+
+  private _modelHasAbiDecodeHints(model: TxDisplayModel): boolean {
+    const operations = Array.isArray(model.operations) ? model.operations : [];
+    for (const operation of operations) {
+      if (this._operationHasAbiDecodeHint(operation)) return true;
+    }
+    return false;
+  }
+
+  private async _enrichTreeWithAbi(args: { model: TxDisplayModel; buildVersion: number }) {
+    try {
+      const module = await import('../TxTree/abi/enrichDisplayModelWithAbi');
+      if (args.buildVersion !== this._treeBuildVersion) return;
+      const enrichedModel = module.enrichDisplayModelWithAbi(args.model);
+      if (args.buildVersion !== this._treeBuildVersion) return;
+      this._treeNode = buildDisplayTreeFromModel(enrichedModel);
+      this.requestUpdate();
+    } catch (error) {
+      console.warn('[TxConfirmContent] failed to lazy-load ABI display enrichment', error);
+    }
+  }
+
   private _rebuildTree() {
+    const buildVersion = ++this._treeBuildVersion;
     try {
       const txs = Array.isArray(this.txSigningRequests) ? this.txSigningRequests : [];
       if (txs.length > 0) {
@@ -203,6 +242,12 @@ export class TxConfirmContentElement extends LitElementWithProps {
         }
         this._treeNode = buildDisplayTreeFromModel(this.model);
         this.requestUpdate();
+        if (this._modelHasAbiDecodeHints(this.model)) {
+          void this._enrichTreeWithAbi({
+            model: this.model,
+            buildVersion,
+          });
+        }
         return;
       }
       this._treeNode = null;

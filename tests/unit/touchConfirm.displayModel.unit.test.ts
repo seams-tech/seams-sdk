@@ -18,6 +18,10 @@ const ENTRY_POINT_V06_ABI = parseAbi([
 ]);
 
 const ERC20_ABI = parseAbi(['function transfer(address to, uint256 amount)']);
+const FAUCET_ABI = parseAbi([
+  'function setGreeting(string newGreeting)',
+  'function drip(address[] tokenAddresses)',
+]);
 
 test.describe('touchConfirm display model fixtures', () => {
   test.beforeEach(async ({ page }) => {
@@ -273,6 +277,53 @@ test.describe('touchConfirm display model fixtures', () => {
     );
   });
 
+  test('keeps direct EIP-1559 ABI decode lazy with operation hints', async ({ page }) => {
+    const greetingContract = `0x${'42'.repeat(20)}` as const;
+    const greetingText = 'Hello ABI decode';
+    const callData = encodeFunctionData({
+      abi: FAUCET_ABI,
+      functionName: 'setGreeting',
+      args: [greetingText],
+    });
+
+    const model = await page.evaluate(
+      async ({ paths, greetingContractArg, callDataArg, abiArg }) => {
+        const { buildEvmDisplayModel } = await import(paths.evmBuilder);
+        return buildEvmDisplayModel({
+          request: {
+            chain: 'evm',
+            kind: 'eip1559',
+            senderSignatureAlgorithm: 'secp256k1',
+            tx: {
+              chainId: 42431,
+              nonce: 10n,
+              maxPriorityFeePerGas: 1n,
+              maxFeePerGas: 2n,
+              gasLimit: 210_000n,
+              to: greetingContractArg,
+              value: 0n,
+              data: callDataArg,
+              abi: abiArg,
+              accessList: [],
+            },
+          },
+        });
+      },
+      {
+        paths: IMPORT_PATHS,
+        greetingContractArg: greetingContract,
+        callDataArg: callData,
+        abiArg: FAUCET_ABI,
+      },
+    );
+
+    const callChild = model.operations[0].children?.[0];
+    const fields = Array.isArray(callChild?.fields) ? callChild.fields : [];
+    expect(fields.some((field: { label?: string }) => field.label === 'Function')).toBe(false);
+    expect(callChild?.abiDecodeHint?.dataHex).toBe(callData);
+    expect(Array.isArray(callChild?.abiDecodeHint?.abi)).toBe(true);
+  });
+
   test('normalizes Tempo typed transaction payloads', async ({ page }) => {
     const model = await page.evaluate(
       async ({ paths }) => {
@@ -365,6 +416,60 @@ test.describe('touchConfirm display model fixtures', () => {
     expect(child?.kind).toBe('generic.contractCall');
     expect(child?.label).toContain('setUserToken()');
     expect(child?.selector).toBe('0xe7897444');
+  });
+
+  test('keeps Tempo ABI decode lazy with operation hints', async ({ page }) => {
+    const tokenA = `0x${'11'.repeat(20)}` as const;
+    const tokenB = `0x${'22'.repeat(20)}` as const;
+    const calldata = encodeFunctionData({
+      abi: FAUCET_ABI,
+      functionName: 'drip',
+      args: [[tokenA, tokenB]],
+    });
+
+    const model = await page.evaluate(
+      async ({ paths, calldataArg, abiArg }) => {
+        const { buildTempoDisplayModel } = await import(paths.tempoBuilder);
+        return buildTempoDisplayModel({
+          request: {
+            chain: 'tempo',
+            kind: 'tempoTransaction',
+            senderSignatureAlgorithm: 'secp256k1',
+            tx: {
+              chainId: 42431,
+              nonce: 3n,
+              nonceKey: 1n,
+              maxPriorityFeePerGas: 10n,
+              maxFeePerGas: 20n,
+              gasLimit: 200_000n,
+              calls: [
+                {
+                  to: `0x${'99'.repeat(20)}`,
+                  value: 0n,
+                  input: calldataArg,
+                  abi: abiArg,
+                },
+              ],
+              accessList: [],
+              validBefore: null,
+              validAfter: null,
+              feePayerSignature: { kind: 'none' },
+            },
+          },
+        });
+      },
+      {
+        paths: IMPORT_PATHS,
+        calldataArg: calldata,
+        abiArg: FAUCET_ABI,
+      },
+    );
+
+    const child = model.operations[0].children?.[0];
+    const fields = Array.isArray(child?.fields) ? child.fields : [];
+    expect(fields.some((field: { label?: string }) => field.label === 'Function')).toBe(false);
+    expect(child?.abiDecodeHint?.dataHex).toBe(calldata);
+    expect(Array.isArray(child?.abiDecodeHint?.abi)).toBe(true);
   });
 
   test('falls back safely for partial ERC-4337 decode failures', async ({ page }) => {

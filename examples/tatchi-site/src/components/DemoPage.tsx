@@ -23,6 +23,7 @@ import { CopyButton } from './CopyButton';
 import { useSetGreeting } from '../hooks/useSetGreeting';
 import { DEMO_CONTRACT_ID, NEAR_EXPLORER_BASE_URL } from '../types';
 import { FRONTEND_CONFIG } from '../config';
+import faucetAbi from '../assets/abis/Faucet.json';
 import './DemoPage.css';
 
 const TEMPO_GREETING_CONTRACT = '0xbb85080E6953f25197ec68798360667140EbAf4b' as `0x${string}`;
@@ -736,6 +737,7 @@ function buildTempoEip1559GreetingRequest(greeting: string, feeCaps: Eip1559FeeC
       to: TEMPO_GREETING_CONTRACT,
       value: 0n,
       data,
+      abi: faucetAbi,
       accessList: [],
     },
   };
@@ -758,6 +760,7 @@ function buildTempoEip1559DripRequest(args: {
       to: TEMPO_GREETING_CONTRACT,
       value: 0n,
       data,
+      abi: faucetAbi,
       accessList: [],
     },
   };
@@ -802,6 +805,7 @@ function buildDemoEip1559Request(greeting: string, feeCaps: Eip1559FeeCaps) {
       to: ARC_TESTNET_GREETING_CONTRACT,
       value: 0n,
       data,
+      abi: faucetAbi,
       accessList: [],
     },
   };

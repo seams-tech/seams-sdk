@@ -103,6 +103,131 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
     expect(result.hasIntentDigestValue).toBe(false);
   });
 
+  test('lazily enriches ABI hints in tx-tree rendering', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.confirmUi);
+        const { mountConfirmUI } =
+          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+
+        const ctx: any = {
+          userPreferencesManager: {
+            getCurrentUserAccountId: () => 'alice.testnet',
+          },
+        };
+
+        const contractAddress = '0xbb85080e6953f25197ec68798360667140ebaf4b';
+        const model = {
+          chain: 'evm',
+          intentDigest: '0x22',
+          title: 'Lazy ABI Decode',
+          operations: [
+            {
+              id: 'evm.eip1559',
+              kind: 'generic.contractCall',
+              label: `Transaction to contract ${contractAddress}`,
+              to: contractAddress,
+              value: '0',
+              children: [
+                {
+                  id: 'evm.eip1559.call',
+                  kind: 'generic.contractCall',
+                  label: 'Calling contract function using 200k gas',
+                  to: contractAddress,
+                  value: '0',
+                  selector: '0xef690cc0',
+                  fields: [
+                    {
+                      label: 'Data',
+                      value: 'data: 0xef690cc0',
+                      copyValue: '0xef690cc0',
+                      renderAs: 'file-content',
+                      hideLabel: true,
+                      hideChevron: true,
+                    },
+                  ],
+                  abiDecodeHint: {
+                    dataHex: '0xef690cc0',
+                    abi: [{ type: 'function', name: 'greeting', inputs: [] }],
+                  },
+                },
+              ],
+            },
+          ],
+        };
+
+        const handle = await mountConfirmUI({
+          ctx,
+          summary: { intentDigest: 'digest-lazy-abi' } as any,
+          model: model as any,
+          securityContext: {
+            blockHeight: '1',
+            blockHash: 'h',
+          } as any,
+          loading: false,
+          theme: 'dark',
+          uiMode: 'modal',
+          nearAccountIdOverride: 'alice.testnet',
+        });
+
+        const waitFor = async (predicate: () => boolean, timeoutMs = 5000): Promise<void> => {
+          const start = Date.now();
+          while (!predicate()) {
+            if (Date.now() - start > timeoutMs) {
+              throw new Error('Timed out waiting for lazy ABI enrichment');
+            }
+            await new Promise((resolve) => setTimeout(resolve, 16));
+          }
+        };
+
+        const findNode = (node: any, predicate: (candidate: any) => boolean): any => {
+          if (!node) return null;
+          if (predicate(node)) return node;
+          const children = Array.isArray(node.children) ? node.children : [];
+          for (const child of children) {
+            const found = findNode(child, predicate);
+            if (found) return found;
+          }
+          return null;
+        };
+
+        await waitFor(() => !!document.querySelector('w3a-tx-confirm-content'));
+        const contentEl = document.querySelector('w3a-tx-confirm-content') as any;
+        await waitFor(() => {
+          const root = contentEl?._treeNode;
+          const callNode = findNode(root, (candidate) =>
+            String(candidate?.label || '').includes('Calling greeting() using 200k gas'),
+          );
+          if (!callNode || !Array.isArray(callNode.children)) return false;
+          return callNode.children.some((child: any) =>
+            String(child?.label || '').includes('Function: greeting()'),
+          );
+        });
+
+        const treeNode = contentEl?._treeNode;
+        const callNode = findNode(treeNode, (candidate) =>
+          String(candidate?.label || '').includes('Calling greeting() using 200k gas'),
+        );
+        const fieldLabels = Array.isArray(callNode?.children)
+          ? callNode.children.map((child: any) => String(child?.label || ''))
+          : [];
+
+        handle.close(true);
+
+        return {
+          callLabel: String(callNode?.label || ''),
+          fieldLabels,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.callLabel).toContain('Calling greeting() using 200k gas');
+    expect(result.fieldLabels.some((label: string) => label.includes('Function: greeting()'))).toBe(
+      true,
+    );
+  });
+
   test('same mountConfirmUI API renders NEAR, EVM, and Tempo display models', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {

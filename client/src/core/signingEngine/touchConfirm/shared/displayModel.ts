@@ -37,6 +37,11 @@ export interface TxDisplayField {
   hideChevron?: boolean;
 }
 
+export interface TxDisplayAbiDecodeHint {
+  dataHex: string;
+  abi?: readonly Record<string, unknown>[];
+}
+
 export interface BaseDisplayOperation {
   id: string;
   kind: string;
@@ -45,6 +50,7 @@ export interface BaseDisplayOperation {
   risk?: DisplaySeverity;
   fields?: TxDisplayField[];
   children?: TxDisplayOperation[];
+  abiDecodeHint?: TxDisplayAbiDecodeHint;
 }
 
 export interface NearActionOperation extends BaseDisplayOperation {
