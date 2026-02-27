@@ -1,5 +1,10 @@
 import type { NormalizedLogger } from '../../core/logger';
 import { getPostgresPool } from '../../storage/postgres';
+import {
+  ensureConsoleNamespace as ensureNamespace,
+  toConsoleIso as toIso,
+  toConsoleNumber as toNumber,
+} from '../shared/postgresNormalize';
 import { ConsoleOrgProjectEnvError } from './errors';
 import type {
   CreateConsoleEnvironmentRequest,
@@ -18,28 +23,10 @@ type PgPool = Awaited<ReturnType<typeof getPostgresPool>>;
 type Queryable = Pick<PgPool, 'query'>;
 type PgRow = Record<string, unknown>;
 
-const DEFAULT_NAMESPACE = 'console-default';
 const CONSOLE_ORG_PROJECT_ENV_MIGRATION_LOCK_ID = 9452360123586;
-
-function ensureNamespace(input?: string): string {
-  const value = String(input || '').trim();
-  return value || DEFAULT_NAMESPACE;
-}
 
 function nowMs(now: Date): number {
   return now.getTime();
-}
-
-function toIso(ms: number | null | undefined): string | null {
-  if (ms === null || ms === undefined) return null;
-  if (!Number.isFinite(ms)) return null;
-  return new Date(ms).toISOString();
-}
-
-function toNumber(value: unknown, fallback = 0): number {
-  if (typeof value === 'number') return value;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function slugify(value: string): string {
