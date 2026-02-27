@@ -104,6 +104,7 @@ export function useAccountInput({
 }: UseAccountInputOptions): UseAccountInputReturn {
   const [discoveredRelayerAccount, setDiscoveredRelayerAccount] = useState<string>('');
   const accountExistsCheckIdRef = useRef(0);
+  const suppressRefreshAutofillRef = useRef(false);
 
   // Best-effort: when the host app didn't explicitly configure `relayerAccount`, try to
   // discover it from the relay's `/healthz` response so atomic registration uses the
@@ -177,7 +178,11 @@ export function useAccountInput({
         lastLoggedInUsername: lastUsername,
         lastLoggedInDomain: lastDomain,
         inputUsername:
-          prevState.inputUsername.trim().length === 0 && lastUsername ? lastUsername : prevState.inputUsername,
+          !suppressRefreshAutofillRef.current &&
+          prevState.inputUsername.trim().length === 0 &&
+          lastUsername
+            ? lastUsername
+            : prevState.inputUsername,
       }));
     } catch (error) {
       console.warn('Error loading account data:', error);
@@ -310,6 +315,7 @@ export function useAccountInput({
   const setInputUsername = useCallback(
     (username: string) => {
       const uname = (username || '').toLowerCase();
+      suppressRefreshAutofillRef.current = uname.trim().length === 0;
       setState((prevState) => ({ ...prevState, inputUsername: uname }));
     },
     [],
