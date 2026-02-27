@@ -2,6 +2,12 @@ import type {
   ChainAccountRecord,
   UpsertChainAccountInput,
 } from '@/core/indexedDB/passkeyClientDB.types';
+import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
+import {
+  normalizeIndexedDbAccountAddress,
+  normalizeIndexedDbOptionalChainIdNumber,
+  toIndexedDbChainIdKey,
+} from '@/core/indexedDB/normalization';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type {
   ThresholdEcdsaActivationChain,
@@ -25,47 +31,8 @@ export type ThresholdEcdsaBootstrapIndexedDbPort = {
   upsertChainAccount: (input: UpsertChainAccountInput) => Promise<ChainAccountRecord>;
 };
 
-function normalizeOptionalAccountAddress(value: unknown): string | undefined {
-  const normalized = String(value || '')
-    .trim()
-    .toLowerCase();
-  return normalized || undefined;
-}
-
-function normalizeOptionalString(value: unknown): string | undefined {
-  const normalized = String(value || '').trim();
-  return normalized || undefined;
-}
-
-function normalizeOptionalChainIdNumber(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) {
-    return value;
-  }
-  const raw = String(value || '')
-    .trim()
-    .toLowerCase();
-  if (!raw) return undefined;
-  if (raw.includes(':')) return undefined;
-  if (!/^\d+$/.test(raw)) return undefined;
-  const parsed = Number(raw);
-  if (!Number.isSafeInteger(parsed) || parsed < 0) return undefined;
-  return parsed;
-}
-
 function getUnknownChainIdKeyForActivationChain(chain: ThresholdEcdsaActivationChain): string {
   return chain === 'evm' ? 'evm:unknown' : 'tempo:42431';
-}
-
-function toChainIdKey(chain: ThresholdEcdsaActivationChain, chainId: number): string {
-  return `${chain}:${String(chainId)}`;
-}
-
-function normalizeTargetChainIdForActivationChain(
-  chain: ThresholdEcdsaActivationChain,
-  value: unknown,
-): number | undefined {
-  void chain;
-  return normalizeOptionalChainIdNumber(value);
 }
 
 function resolveBootstrapTargetChainIdKey(args: {
@@ -73,16 +40,10 @@ function resolveBootstrapTargetChainIdKey(args: {
   smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
 }): string {
-  const explicitChainId = normalizeTargetChainIdForActivationChain(
-    args.chain,
-    args.smartAccount?.chainId,
-  );
-  if (typeof explicitChainId === 'number') return toChainIdKey(args.chain, explicitChainId);
-  const keygenChainId = normalizeTargetChainIdForActivationChain(
-    args.chain,
-    args.bootstrap.keygen.chainId,
-  );
-  if (typeof keygenChainId === 'number') return toChainIdKey(args.chain, keygenChainId);
+  const explicitChainId = normalizeIndexedDbOptionalChainIdNumber(args.smartAccount?.chainId);
+  if (typeof explicitChainId === 'number') return toIndexedDbChainIdKey(args.chain, explicitChainId);
+  const keygenChainId = normalizeIndexedDbOptionalChainIdNumber(args.bootstrap.keygen.chainId);
+  if (typeof keygenChainId === 'number') return toIndexedDbChainIdKey(args.chain, keygenChainId);
   return getUnknownChainIdKeyForActivationChain(args.chain);
 }
 
@@ -115,7 +76,7 @@ export async function persistThresholdEcdsaBootstrapChainAccount(args: {
     throw new Error(`[SigningEngine] missing profile/account mapping for ${String(nearAccountId)}`);
   }
 
-  const accountAddress = normalizeOptionalAccountAddress(
+  const accountAddress = normalizeIndexedDbAccountAddress(
     args.smartAccount?.counterfactualAddress ||
       args.bootstrap.keygen.counterfactualAddress ||
       args.bootstrap.keygen.ethereumAddress,
@@ -131,13 +92,13 @@ export async function persistThresholdEcdsaBootstrapChainAccount(args: {
     smartAccount: args.smartAccount,
     bootstrap: args.bootstrap,
   });
-  const factory = normalizeOptionalString(
+  const factory = normalizeOptionalNonEmptyString(
     args.smartAccount?.factory || args.bootstrap.keygen.factory,
   );
-  const entryPoint = normalizeOptionalString(
+  const entryPoint = normalizeOptionalNonEmptyString(
     args.smartAccount?.entryPoint || args.bootstrap.keygen.entryPoint,
   );
-  const salt = normalizeOptionalString(args.smartAccount?.salt || args.bootstrap.keygen.salt);
+  const salt = normalizeOptionalNonEmptyString(args.smartAccount?.salt || args.bootstrap.keygen.salt);
 
   await args.indexedDB.upsertChainAccount({
     profileId: nearContext.profileId,

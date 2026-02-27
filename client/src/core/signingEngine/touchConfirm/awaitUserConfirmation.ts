@@ -16,6 +16,7 @@ import { isObject, isString, isBoolean } from '@shared/utils/validation';
 import { errorMessage, toError } from '@shared/utils/errors';
 import { TransactionContext } from '@/core/types/rpc';
 import { validateUserConfirmRequest } from './handlers/flows/adapters/request';
+import { normalizeChannelToken } from './shared/normalization';
 
 type ConfirmResponsePayload = {
   requestId: string;
@@ -176,11 +177,6 @@ function createChannelToken(requestId: string): string {
     return `${Math.random().toString(16).slice(2)}${Date.now().toString(16)}`;
   })();
   return `${seed}:${randomPart}`;
-}
-
-function normalizeChannelToken(token: unknown): string {
-  if (!isString(token)) return '';
-  return token.trim();
 }
 
 function resolveEnvelopeRequestId(

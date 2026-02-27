@@ -1,6 +1,11 @@
 import type { EvmAbiParameter, EvmContractAbi } from '@/core/signingEngine/chainAdaptors/evm/types';
 import { bytesToHex, hexToBytes } from '@/core/signingEngine/chainAdaptors/evm/bytes';
 import { keccak256Bytes } from '@shared/utils/keccak';
+import {
+  deriveSelectorFromHexData,
+  normalizeHexData,
+  normalizeHexSelector,
+} from '../../../../displayFormat/normalization';
 
 type AbiDecodedValue =
   | string
@@ -51,31 +56,12 @@ type AbiDecodeResult = {
   decodedArgumentsJsonText?: string;
 };
 
-const SELECTOR_HEX_RE = /^0x[0-9a-f]{8}$/;
 const WORD_SIZE = 32;
 const MAX_DECODE_ARRAY_LENGTH = 256;
 const ABI_FUNCTION_LOOKUP_CACHE = new WeakMap<EvmContractAbi, AbiFunctionLookup>();
 
-function normalizeHexData(value: string | undefined): string {
-  const normalized = String(value || '')
-    .trim()
-    .toLowerCase();
-  if (!normalized) return '0x';
-  return normalized.startsWith('0x') ? normalized : `0x${normalized}`;
-}
-
-function normalizeSelector(value: string | undefined): string | null {
-  const normalized = String(value || '')
-    .trim()
-    .toLowerCase();
-  if (!SELECTOR_HEX_RE.test(normalized)) return null;
-  return normalized;
-}
-
 function selectorFromDataHex(dataHex: string | undefined): string | null {
-  const normalized = normalizeHexData(dataHex);
-  if (!normalized.startsWith('0x') || normalized.length < 10) return null;
-  return normalizeSelector(normalized.slice(0, 10));
+  return deriveSelectorFromHexData(dataHex) || null;
 }
 
 function buildAbiFunctionEntries(abi: EvmContractAbi): AbiFunctionEntryNormalized[] {
@@ -122,7 +108,7 @@ function selectorFromSignature(signature: string): string | null {
   const normalized = String(signature || '').trim();
   if (!normalized) return null;
   const digest = keccak256Bytes(new TextEncoder().encode(normalized));
-  return bytesToHex(digest.slice(0, 4)).toLowerCase();
+  return normalizeHexSelector(bytesToHex(digest.slice(0, 4))) || null;
 }
 
 function canonicalAbiTypeFromParameter(input: unknown): string {
@@ -453,7 +439,7 @@ export function decodeCallDataWithAbi(args: {
   const matched = abiLookup.bySelector.get(selector);
   if (!matched) return undefined;
 
-  const normalizedDataHex = normalizeHexData(args.dataHex);
+  const normalizedDataHex = normalizeHexData(args.dataHex, { lowercase: true });
   let argsBytes: Uint8Array;
   try {
     const bytes = hexToBytes(normalizedDataHex);

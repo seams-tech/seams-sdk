@@ -1,4 +1,5 @@
-const SELECTOR_HEX_RE = /^0x[0-9a-f]{8}$/;
+import { deriveSelectorFromHexData, normalizeHexSelector } from './normalization';
+
 const EVM_ADDRESS_RE = /^0x[0-9a-f]{40}$/;
 
 const TEMPO_GREETING_CONTRACT = '0xbb85080e6953f25197ec68798360667140ebaf4b';
@@ -46,11 +47,7 @@ const KNOWN_CONTRACT_FUNCTION_SIGNATURES: Readonly<
 });
 
 function normalizeSelector(selector: string | undefined): string | undefined {
-  const normalized = String(selector || '')
-    .trim()
-    .toLowerCase();
-  if (!SELECTOR_HEX_RE.test(normalized)) return undefined;
-  return normalized;
+  return normalizeHexSelector(selector);
 }
 
 function normalizeContractAddress(contractAddress: string | undefined): string | undefined {
@@ -62,12 +59,7 @@ function normalizeContractAddress(contractAddress: string | undefined): string |
 }
 
 export function selectorFromHexData(data: string | undefined): string | undefined {
-  const normalized = String(data || '')
-    .trim()
-    .toLowerCase();
-  if (!normalized.startsWith('0x') || normalized.length < 10) return undefined;
-  const selector = normalized.slice(0, 10);
-  return normalizeSelector(selector);
+  return deriveSelectorFromHexData(data);
 }
 
 export function resolveFunctionSignature(

@@ -5,6 +5,7 @@ import {
   resolveFunctionSignature,
   selectorFromHexData,
 } from './functionSelectors';
+import { normalizeHexData } from './normalization';
 import { formatCalldataForDisplay } from './calldata';
 import { formatCompactGas } from './gas';
 import type {
@@ -111,17 +112,11 @@ function shortenHexAddress(address: string | undefined): string {
   return `${normalized.slice(0, 8)}...${normalized.slice(-4)}`;
 }
 
-function normalizeHex(input: string | undefined): string {
-  const raw = String(input || '').trim();
-  if (!raw) return '0x';
-  return raw.startsWith('0x') ? raw : `0x${raw}`;
-}
-
 function buildAbiDecodeHint(args: {
   dataHex: string | undefined;
   abi: EvmSigningRequest['tx']['abi'];
 }): GenericContractCallOperation['abiDecodeHint'] | undefined {
-  const normalizedDataHex = normalizeHex(args.dataHex);
+  const normalizedDataHex = normalizeHexData(args.dataHex);
   if (normalizedDataHex === '0x') return undefined;
   if (!Array.isArray(args.abi) || args.abi.length === 0) return undefined;
   return {
@@ -132,7 +127,7 @@ function buildAbiDecodeHint(args: {
 
 function parseHexBytes(hex: string): Uint8Array | undefined {
   try {
-    return hexToBytes(normalizeHex(hex));
+    return hexToBytes(normalizeHexData(hex));
   } catch {
     return undefined;
   }
@@ -248,7 +243,7 @@ function decodeExecuteCallData(callDataHex: string): DecodedSmartAccountCall {
       selector: EXECUTE_SELECTOR,
       calls: [
         {
-          dataHex: normalizeHex(callDataHex),
+          dataHex: normalizeHexData(callDataHex),
           selector: EXECUTE_SELECTOR,
         },
       ],
@@ -269,7 +264,7 @@ function decodeExecuteCallData(callDataHex: string): DecodedSmartAccountCall {
       selector: EXECUTE_SELECTOR,
       calls: [
         {
-          dataHex: normalizeHex(callDataHex),
+          dataHex: normalizeHexData(callDataHex),
           selector: EXECUTE_SELECTOR,
         },
       ],
@@ -301,7 +296,7 @@ function decodeExecuteBatchCallData(callDataHex: string): DecodedSmartAccountCal
       selector: EXECUTE_BATCH_SELECTOR,
       calls: [
         {
-          dataHex: normalizeHex(callDataHex),
+          dataHex: normalizeHexData(callDataHex),
           selector: EXECUTE_BATCH_SELECTOR,
         },
       ],
@@ -320,7 +315,7 @@ function decodeExecuteBatchCallData(callDataHex: string): DecodedSmartAccountCal
       selector: EXECUTE_BATCH_SELECTOR,
       calls: [
         {
-          dataHex: normalizeHex(callDataHex),
+          dataHex: normalizeHexData(callDataHex),
           selector: EXECUTE_BATCH_SELECTOR,
         },
       ],
@@ -344,7 +339,7 @@ function decodeExecuteBatchCallData(callDataHex: string): DecodedSmartAccountCal
       selector: EXECUTE_BATCH_SELECTOR,
       calls: [
         {
-          dataHex: normalizeHex(callDataHex),
+          dataHex: normalizeHexData(callDataHex),
           selector: EXECUTE_BATCH_SELECTOR,
         },
       ],
@@ -369,7 +364,7 @@ function decodeExecuteBatchCallData(callDataHex: string): DecodedSmartAccountCal
 }
 
 function decodeSmartAccountCallData(callDataHex: string): DecodedSmartAccountCall {
-  const normalizedCallDataHex = normalizeHex(callDataHex);
+  const normalizedCallDataHex = normalizeHexData(callDataHex);
   const selector = selectorFromHexData(normalizedCallDataHex);
   if (selector === EXECUTE_SELECTOR) return decodeExecuteCallData(normalizedCallDataHex);
   if (selector === EXECUTE_BATCH_SELECTOR) return decodeExecuteBatchCallData(normalizedCallDataHex);
@@ -386,7 +381,7 @@ function decodeSmartAccountCallData(callDataHex: string): DecodedSmartAccountCal
 }
 
 function decodeHandleOpsCallData(callDataHex: string): DecodedHandleOps | undefined {
-  const normalizedCallDataHex = normalizeHex(callDataHex);
+  const normalizedCallDataHex = normalizeHexData(callDataHex);
   const selector = selectorFromHexData(normalizedCallDataHex);
   if (!selector || !HANDLE_OPS_SELECTORS.has(selector)) return undefined;
 
@@ -760,7 +755,7 @@ export function buildEvmDisplayModel(args: BuildEvmDisplayModelArgs): TxDisplayM
   const tx = request.tx;
   const to = tx.to == null ? undefined : String(tx.to).toLowerCase();
   const valueWei = tx.value.toString();
-  const dataHex = normalizeHex(String(tx.data || '0x'));
+  const dataHex = normalizeHexData(String(tx.data || '0x'));
   const selector = selectorFromHexData(dataHex);
 
   const erc4337Operation =

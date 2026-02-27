@@ -6,6 +6,7 @@ import {
   resolveFunctionDisplayName,
   selectorFromHexData,
 } from './functionSelectors';
+import { normalizeHexData } from './normalization';
 import { formatCalldataForDisplay } from './calldata';
 import { formatCompactGas } from './gas';
 import type {
@@ -48,12 +49,6 @@ function makeField(
     value: normalized,
     ...(typeof copyValue === 'string' && copyValue.trim() ? { copyValue } : {}),
   };
-}
-
-function normalizeHexData(input: string | undefined): string {
-  const trimmed = String(input || '').trim();
-  if (!trimmed) return '0x';
-  return trimmed.startsWith('0x') ? trimmed : `0x${trimmed}`;
 }
 
 function buildAbiDecodeHint(args: {

@@ -8,6 +8,7 @@ import type {
 import { UserConfirmMessageType } from './confirmTypes';
 import { isObject, isFunction, isString } from '@shared/utils/validation';
 import { toError, isTouchIdCancellationError } from '@shared/utils/errors';
+import { normalizeOptionalChannelToken } from './normalization';
 
 export function parseTransactionSummary(summaryData: unknown): TransactionSummary {
   if (typeof summaryData === 'string') {
@@ -68,14 +69,8 @@ type UserConfirmWorkerChannelProxy = Worker & {
   [WORKER_CHANNEL_TOKEN_FIELD]?: string;
 };
 
-function normalizeChannelToken(channelToken: unknown): string | undefined {
-  if (!isString(channelToken)) return undefined;
-  const trimmed = channelToken.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
 function getWorkerChannelToken(worker: Worker): string | undefined {
-  return normalizeChannelToken(
+  return normalizeOptionalChannelToken(
     (worker as UserConfirmWorkerChannelProxy)[WORKER_CHANNEL_TOKEN_FIELD],
   );
 }
@@ -84,7 +79,7 @@ export function createUserConfirmScopedWorker(
   worker: Worker,
   options?: { channelToken?: string },
 ): Worker {
-  const channelToken = normalizeChannelToken(options?.channelToken);
+  const channelToken = normalizeOptionalChannelToken(options?.channelToken);
   if (!channelToken) {
     return worker;
   }
@@ -108,7 +103,7 @@ export function sendConfirmResponse(
   const sanitized = sanitizeForPostMessage(response);
   const requestId = isString(sanitized?.requestId) ? sanitized.requestId : response.requestId;
   const channelToken =
-    normalizeChannelToken(options?.channelToken) ?? getWorkerChannelToken(worker);
+    normalizeOptionalChannelToken(options?.channelToken) ?? getWorkerChannelToken(worker);
   const envelope: UserConfirmResponseEnvelope = {
     type: UserConfirmMessageType.USER_PASSKEY_CONFIRM_RESPONSE,
     requestId,
@@ -126,7 +121,7 @@ export function sendConfirmProgress(
   const sanitized = sanitizeForPostMessage(progress);
   const requestId = isString(sanitized?.requestId) ? sanitized.requestId : progress.requestId;
   const channelToken =
-    normalizeChannelToken(options?.channelToken) ?? getWorkerChannelToken(worker);
+    normalizeOptionalChannelToken(options?.channelToken) ?? getWorkerChannelToken(worker);
   const envelope: UserConfirmProgressEnvelope = {
     type: UserConfirmMessageType.USER_PASSKEY_CONFIRM_PROGRESS,
     requestId,

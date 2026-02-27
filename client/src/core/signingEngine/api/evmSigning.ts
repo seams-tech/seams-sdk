@@ -1,4 +1,5 @@
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
+import { normalizeIndexedDbAccountModel } from '@/core/indexedDB/normalization';
 import { toAccountId } from '@/core/types/accountIds';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import { chainFamilyFromNetwork } from '@/core/config/chains';
@@ -356,12 +357,6 @@ function toOptionalEvmAddress(value: unknown): `0x${string}` | undefined {
   return normalized as `0x${string}`;
 }
 
-function normalizeModel(value: unknown): string {
-  return String(value || '')
-    .trim()
-    .toLowerCase();
-}
-
 function readOptionalChainId(chain: TatchiChainConfig): number | undefined {
   if (!('chainId' in chain)) return undefined;
   return typeof chain.chainId === 'number' ? chain.chainId : undefined;
@@ -441,8 +436,10 @@ function pickPreferredSmartAccountRow(args: {
   rows: ChainAccountRecord[];
   accountModelCandidates: readonly string[];
 }): ChainAccountRecord | null {
-  const modelSet = new Set(args.accountModelCandidates.map(normalizeModel));
-  const filtered = args.rows.filter((row) => modelSet.has(normalizeModel(row.accountModel)));
+  const modelSet = new Set(args.accountModelCandidates.map(normalizeIndexedDbAccountModel));
+  const filtered = args.rows.filter((row) =>
+    modelSet.has(normalizeIndexedDbAccountModel(row.accountModel)),
+  );
   const source = filtered.length ? filtered : args.rows;
   if (!source.length) return null;
   return source.find((row) => !!row.isPrimary) || source[0] || null;

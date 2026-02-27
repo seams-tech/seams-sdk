@@ -1,5 +1,13 @@
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
+import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
+import {
+  normalizeIndexedDbAccountAddress as normalizeAccountAddress,
+  normalizeIndexedDbAccountModel as normalizeAccountModel,
+  normalizeIndexedDbChainIdKey as normalizeChainIdKey,
+  normalizeIndexedDbOptionalChainIdNumber as normalizeOptionalChainIdNumber,
+  toIndexedDbChainIdKey as toChainIdKey,
+} from '@/core/indexedDB/normalization';
 import type {
   ChainAccountRecord,
   UpsertChainAccountInput,
@@ -68,44 +76,6 @@ type DeploymentIdentity = {
 };
 
 const deploymentInFlightByIdentity = new Map<string, Promise<void>>();
-
-function normalizeChainIdKey(value: unknown): string {
-  return String(value || '')
-    .trim()
-    .toLowerCase();
-}
-
-function normalizeOptionalChainIdNumber(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) {
-    return value;
-  }
-  const raw = String(value || '')
-    .trim()
-    .toLowerCase();
-  if (!raw) return undefined;
-  const suffix = raw.includes(':') ? raw.slice(raw.lastIndexOf(':') + 1) : raw;
-  if (!/^\d+$/.test(suffix)) return undefined;
-  const parsed = Number(suffix);
-  if (!Number.isSafeInteger(parsed) || parsed < 0) return undefined;
-  return parsed;
-}
-
-function normalizeAccountModel(value: unknown): string {
-  return String(value || '')
-    .trim()
-    .toLowerCase();
-}
-
-function normalizeOptionalString(value: unknown): string | undefined {
-  const normalized = String(value || '').trim();
-  return normalized || undefined;
-}
-
-function normalizeAccountAddress(value: unknown): string {
-  return String(value || '')
-    .trim()
-    .toLowerCase();
-}
 
 function normalizeRetryAttempts(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 1;
@@ -297,15 +267,13 @@ async function mirrorMissingSmartAccountRowFromCounterpart(args: {
   return seeded;
 }
 
-function toChainIdKey(chain: SmartAccountDeploymentChain, chainId: number): string {
-  return `${chain}:${String(chainId)}`;
-}
-
 function resolveChainIdFromChainAccount(args: {
   account: ChainAccountRecord;
   chainIdCandidates: readonly number[];
 }): number | undefined {
-  const parsedFromAccount = normalizeOptionalChainIdNumber(args.account.chainIdKey);
+  const parsedFromAccount = normalizeOptionalChainIdNumber(args.account.chainIdKey, {
+    allowChainIdKeySuffix: true,
+  });
   if (typeof parsedFromAccount === 'number') return parsedFromAccount;
   if (args.chainIdCandidates.length === 1) return args.chainIdCandidates[0];
   return undefined;
@@ -520,7 +488,7 @@ export async function ensureSmartAccountDeployed(args: {
             account: current,
             checkedAt,
             deployed: true,
-            deploymentTxHash: normalizeOptionalString(deployResult.deploymentTxHash),
+            deploymentTxHash: normalizeOptionalNonEmptyString(deployResult.deploymentTxHash),
           });
           const chainId = resolveChainIdFromChainAccount({
             account: deployed,
@@ -536,8 +504,9 @@ export async function ensureSmartAccountDeployed(args: {
           };
         }
 
-        failureCode = normalizeOptionalString(deployResult.code);
-        failureMessage = normalizeOptionalString(deployResult.message) || 'deployment failed';
+        failureCode = normalizeOptionalNonEmptyString(deployResult.code);
+        failureMessage =
+          normalizeOptionalNonEmptyString(deployResult.message) || 'deployment failed';
         const retriable = isRetriableDeployFailure(failureCode, failureMessage);
         const isLastAttempt = attempt >= maxDeployAttempts;
         if (!retriable || isLastAttempt) {

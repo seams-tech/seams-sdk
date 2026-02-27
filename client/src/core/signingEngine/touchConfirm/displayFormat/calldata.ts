@@ -1,10 +1,4 @@
-function normalizeHex(dataHex: string | undefined): string {
-  const raw = String(dataHex || '')
-    .trim()
-    .toLowerCase();
-  if (!raw || raw === '0x') return '0x';
-  return raw.startsWith('0x') ? raw : `0x${raw}`;
-}
+import { normalizeHexData } from './normalization';
 
 function splitIntoRows(hexWithoutPrefix: string, charsPerRow: number): string[] {
   const rows: string[] = [];
@@ -19,7 +13,7 @@ function splitIntoRows(hexWithoutPrefix: string, charsPerRow: number): string[] 
  * Render selector on the first line and then split remaining bytes into 32-byte rows.
  */
 export function formatCalldataForDisplay(dataHex: string | undefined): string {
-  const normalized = normalizeHex(dataHex);
+  const normalized = normalizeHexData(dataHex, { lowercase: true });
   if (normalized === '0x') return 'data: 0x';
 
   const hex = normalized.slice(2);
