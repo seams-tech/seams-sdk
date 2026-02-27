@@ -10,6 +10,7 @@ export interface PasskeyInputProps {
   placeholder: string;
   postfixText?: string;
   isUsingExistingAccount?: boolean;
+  accountExists?: boolean;
   canProceed: boolean;
   onProceed: () => void;
   /** Current signup mode for status badge */
@@ -26,6 +27,7 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
   placeholder,
   postfixText,
   isUsingExistingAccount,
+  accountExists,
   canProceed,
   onProceed,
   mode,
@@ -122,6 +124,7 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
           <AccountExistsBadge
             id={statusId}
             isUsingExistingAccount={isUsingExistingAccount}
+            accountExists={accountExists}
             mode={mode}
             secure={secure}
           />

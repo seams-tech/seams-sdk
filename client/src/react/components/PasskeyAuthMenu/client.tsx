@@ -179,6 +179,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
           }
           postfixText={controller.postfixText}
           isUsingExistingAccount={controller.isUsingExistingAccount}
+          accountExists={runtime.accountExists}
           canProceed={controller.canShowContinue}
           onProceed={controller.onProceed}
           mode={controller.mode}

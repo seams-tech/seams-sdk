@@ -62,22 +62,9 @@ type AuthenticatorOptionsLike =
       };
     };
 
-/**
- * Default authenticator options (matches contract defaults)
- */
-export const DEFAULT_AUTHENTICATOR_OPTIONS: AuthenticatorOptions = {
-  userVerification: UserVerificationPolicy.Preferred,
-  originPolicy: {
-    single: undefined,
-    all_subdomains: true,
-    multiple: undefined,
-  },
-};
-
 export function cloneAuthenticatorOptions(
-  options: AuthenticatorOptionsLike | undefined,
-): AuthenticatorOptions | undefined {
-  if (!options) return undefined;
+  options: AuthenticatorOptionsLike,
+): AuthenticatorOptions {
   const multiple = options.originPolicy?.multiple;
   return {
     userVerification: options.userVerification,

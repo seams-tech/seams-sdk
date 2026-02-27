@@ -486,7 +486,7 @@ export interface TatchiRelayerConfigInput {
   smartAccountDeploymentMode?: 'observe' | 'enforce';
   /**
    * Maximum deploy attempts for deploy-on-first-use in enforce mode.
-   * Values are clamped to [1, 5].
+   * Must be an integer in [1, 5]; invalid values fail config resolution.
    *
    * Defaults to `2`.
    */
@@ -552,7 +552,7 @@ export interface TatchiSigningConfig {
 }
 
 export interface TatchiWebauthnConfig {
-  authenticatorOptions?: AuthenticatorOptions;
+  authenticatorOptions: AuthenticatorOptions;
 }
 
 export interface TatchiAuthConfig {

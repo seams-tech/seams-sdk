@@ -894,7 +894,7 @@ export async function signEvmFamily(
           configs: deps.tatchiPasskeyConfigs,
           request,
         }),
-        chainId: BigInt(request.tx.chainId),
+        chainId: request.tx.chainId,
       });
     }
   }
@@ -923,7 +923,7 @@ export async function signEvmFamily(
         configs: deps.tatchiPasskeyConfigs,
         request,
       }),
-      chainId: BigInt(request.tx.chainId),
+      chainId: request.tx.chainId,
     });
   }
 }

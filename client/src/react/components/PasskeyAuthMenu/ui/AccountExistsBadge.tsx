@@ -4,6 +4,8 @@ import { AuthMenuMode } from '../authMenuTypes';
 export interface AccountExistsBadgeProps {
   /** Whether the account domain/postfix corresponds to an existing account */
   isUsingExistingAccount?: boolean;
+  /** Whether a passkey credential exists for the current target account */
+  accountExists?: boolean;
   /** Current signup mode */
   mode?: AuthMenuMode;
   /** Whether the current context is secure (HTTPS) */
@@ -19,6 +21,7 @@ export interface AccountExistsBadgeProps {
  */
 export const AccountExistsBadge: React.FC<AccountExistsBadgeProps> = ({
   isUsingExistingAccount,
+  accountExists = false,
   mode = AuthMenuMode.Register,
   secure = true,
   className,
@@ -28,11 +31,11 @@ export const AccountExistsBadge: React.FC<AccountExistsBadgeProps> = ({
   const getStatus = (): { message: string; tone: Tone } => {
     if (mode === AuthMenuMode.Register) {
       if (!secure) return { message: 'HTTPS required', tone: 'error' };
-      if (isUsingExistingAccount) return { message: 'name taken', tone: 'error' };
+      if (accountExists || isUsingExistingAccount) return { message: 'name taken', tone: 'error' };
       return { message: '', tone: 'neutral' };
     }
     if (mode === AuthMenuMode.Login) {
-      if (isUsingExistingAccount) return { message: '', tone: 'success' };
+      if (accountExists) return { message: '', tone: 'success' };
       return { message: 'Account not found', tone: 'error' };
     }
     if (mode === AuthMenuMode.Sync) {

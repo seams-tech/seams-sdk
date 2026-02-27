@@ -691,6 +691,7 @@ type TempoFeeDiagnostics = {
   sender: `0x${string}`;
   onChainFeeToken: `0x${string}`;
   onChainFeeTokenBalanceRaw?: bigint | null;
+  alphaFeeTokenBalanceRaw?: bigint | null;
   txFeeToken: `0x${string}`;
   txFeeTokenBalanceRaw?: bigint | null;
   txFeeTokenSelectionReason?: string;
@@ -1557,6 +1558,8 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       const preferredFeeToken = getPreferredTempoFeeToken();
       const preferredFeeTokenDiffers =
         preferredFeeToken.toLowerCase() !== onChainFeeToken.toLowerCase();
+      const isModeratoRpc = FRONTEND_CONFIG.tempoRpcUrl.toLowerCase().includes('moderato.tempo.xyz');
+      const onChainIsPathUsd = onChainFeeToken.toLowerCase() === TEMPO_PATH_USD_FEE_TOKEN.toLowerCase();
       const latestValidatorAddress = await readLatestEvmBlockMiner({
         rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
       }).catch(() => null);
@@ -1583,6 +1586,14 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
           `Unable to read configured fee-token balance for ${thresholdSender} on ${FRONTEND_CONFIG.tempoRpcUrl}.`,
         );
       }
+      const alphaFeeTokenBalanceRaw =
+        onChainFeeToken.toLowerCase() === TEMPO_ALPHA_USD_FEE_TOKEN.toLowerCase()
+          ? onChainFeeTokenBalanceRaw
+          : await readTempoTokenBalanceRaw({
+              rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+              userAddress: thresholdSender,
+              tokenAddress: TEMPO_ALPHA_USD_FEE_TOKEN,
+            }).catch(() => null);
       const preferredFeeTokenBalanceRaw = preferredFeeTokenDiffers
         ? await readTempoTokenBalanceRaw({
             rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
@@ -1594,6 +1605,16 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       let txFeeTokenBalanceRaw = onChainFeeTokenBalanceRaw;
       let txFeeTokenSelectionReason = 'account-level fee token (userTokens(address))';
       if (
+        isModeratoRpc &&
+        onChainIsPathUsd &&
+        typeof alphaFeeTokenBalanceRaw === 'bigint' &&
+        alphaFeeTokenBalanceRaw > 0n
+      ) {
+        txFeeToken = TEMPO_ALPHA_USD_FEE_TOKEN;
+        txFeeTokenBalanceRaw = alphaFeeTokenBalanceRaw;
+        txFeeTokenSelectionReason =
+          'moderato PathUSD spendability guard: using AlphaUSD as tx-level fee token';
+      } else if (
         preferredFeeTokenDiffers &&
         onChainFeeTokenBalanceRaw === 0n &&
         typeof preferredFeeTokenBalanceRaw === 'bigint' &&
@@ -1610,6 +1631,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
         sender: thresholdSender,
         onChainFeeToken,
         onChainFeeTokenBalanceRaw,
+        alphaFeeTokenBalanceRaw,
         txFeeToken,
         txFeeTokenBalanceRaw,
         txFeeTokenSelectionReason,
@@ -2157,6 +2179,12 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
                 <>
                   &nbsp;onChainBalanceRaw&nbsp;
                   <code>{lastTempoFeeDiagnostics.onChainFeeTokenBalanceRaw.toString()}</code>
+                </>
+              ) : null}
+              {typeof lastTempoFeeDiagnostics.alphaFeeTokenBalanceRaw === 'bigint' ? (
+                <>
+                  &nbsp;alphaBalanceRaw&nbsp;
+                  <code>{lastTempoFeeDiagnostics.alphaFeeTokenBalanceRaw.toString()}</code>
                 </>
               ) : null}
               {typeof lastTempoFeeDiagnostics.txFeeTokenBalanceRaw === 'bigint' ? (

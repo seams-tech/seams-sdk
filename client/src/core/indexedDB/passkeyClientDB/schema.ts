@@ -17,7 +17,7 @@ export const SIGNER_OPS_OUTBOX_STATUS_NEXT_ATTEMPT_INDEX = 'status_nextAttemptAt
 
 export const DB_CONFIG: PasskeyClientDBConfig = {
   dbName: 'PasskeyClientDB',
-  dbVersion: 25, // v25: chain key fields renamed from chainId -> chainIdKey
+  dbVersion: 27, // v27: full IndexedDB reset on upgrade; canonical stores only
   appStateStore: 'appState',
   profileAuthenticatorStore: 'profileAuthenticators',
   profilesStore: 'profiles',
@@ -38,7 +38,8 @@ export const DB_MULTICHAIN_MIGRATION_LOCK_NAME =
   'passkey-client-db-multichain-migration-v1' as const;
 export const DB_MULTICHAIN_MIGRATION_LOCK_TTL_MS = 2 * 60_000;
 export const DB_MULTICHAIN_MIGRATION_HEARTBEAT_INTERVAL_MS = 5_000;
-export const DB_MULTICHAIN_MIGRATION_SCHEMA_VERSION = 6 as const;
+export const DB_MULTICHAIN_MIGRATION_SCHEMA_VERSION = 8 as const;
+const DB_FULL_RESET_ON_UPGRADE_VERSION = 27 as const;
 
 const OBSOLETE_CLIENT_STORES_TO_DROP = [
   'users',
@@ -53,6 +54,13 @@ export function upgradePasskeyClientDBSchema(
   oldVersion: number,
   transaction: any,
 ): void {
+  if (oldVersion > 0 && oldVersion < DB_FULL_RESET_ON_UPGRADE_VERSION) {
+    // Breaking cutover: wipe all legacy/mixed-shape data and recreate canonical stores.
+    for (const storeName of Array.from(db.objectStoreNames)) {
+      db.deleteObjectStore(storeName);
+    }
+  }
+
   if (!db.objectStoreNames.contains(DB_CONFIG.appStateStore)) {
     db.createObjectStore(DB_CONFIG.appStateStore, { keyPath: 'key' });
   }

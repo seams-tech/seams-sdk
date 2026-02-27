@@ -26,10 +26,7 @@ import {
   type ConfirmationBehavior,
   type SignerMode,
 } from '../types/signer-worker';
-import {
-  cloneAuthenticatorOptions,
-  DEFAULT_AUTHENTICATOR_OPTIONS,
-} from '../types/authenticatorOptions';
+import { cloneAuthenticatorOptions } from '../types/authenticatorOptions';
 import { toAccountId, type AccountId } from '../types/accountIds';
 import { configureIndexedDB } from '../indexedDB';
 import { ActionType } from '../types/actions';
@@ -412,8 +409,7 @@ export class TatchiPasskey {
       this.getContext(),
       toAccountId(nearAccountId),
       options,
-      cloneAuthenticatorOptions(this.configs.auth.webauthn.authenticatorOptions) ||
-        DEFAULT_AUTHENTICATOR_OPTIONS,
+      cloneAuthenticatorOptions(this.configs.auth.webauthn.authenticatorOptions),
     );
   }
 
@@ -463,8 +459,7 @@ export class TatchiPasskey {
       this.getContext(),
       toAccountId(nearAccountId),
       options,
-      cloneAuthenticatorOptions(this.configs.auth.webauthn.authenticatorOptions) ||
-        DEFAULT_AUTHENTICATOR_OPTIONS,
+      cloneAuthenticatorOptions(this.configs.auth.webauthn.authenticatorOptions),
       confirmationConfigOverride,
     );
   }
