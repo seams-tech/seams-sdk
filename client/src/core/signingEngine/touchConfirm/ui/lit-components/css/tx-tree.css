@@ -531,7 +531,7 @@
   box-sizing: border-box;
   margin: 0rem;
   padding: var(--w3a-tree__file-content__padding, 0.5rem 0.25rem 0rem 0.25rem);
-  padding-left: var(--w3a-tree__file-content__padding-left, 0.25rem);
+  padding-left: var(--w3a-tree__file-content__padding-left, 0.125rem);
   border-radius: var(--w3a-tree__file-content__border-radius, 0.5rem);
   background: var(--w3a-tree__file-content__background, rgba(255, 255, 255, 0.06));
   max-height: 40vh;

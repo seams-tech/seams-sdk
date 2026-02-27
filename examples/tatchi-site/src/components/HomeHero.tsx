@@ -43,7 +43,7 @@ export function HomeHero(): React.JSX.Element {
         <h1 id="hero-title" className="hero-title">
           <span className="hero-title-text">Simple Embedded Wallets, Secured by Passkeys + MPC</span>
           <span className="touch-icon-pattern-position" aria-hidden="true">
-            <TouchIcon style={{ color: 'currentColor' }} strokeWidth={10} width={220} height={220} />
+            <TouchIcon style={{ color: 'currentColor' }} strokeWidth={12} width={120} height={120} />
           </span>
         </h1>
         <h2 className="hero-subtitle">
