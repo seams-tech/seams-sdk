@@ -123,92 +123,99 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
 
         toast.loading('Waiting for setUserToken finalization…', { id: toastId });
         const thresholdSender = await thresholdSenderPromise;
-        const receiptConfirmationResultPromise = waitForEvmTransactionFinalization({
-          rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-          txHash,
-          gasLimitHint: request.tx.gasLimit,
-          maxFeePerGasHint: request.tx.maxFeePerGas,
-          timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,
-          pollIntervalMs: EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
-        })
-          .then(
-            () =>
-              ({
-                ok: true as const,
-                mode: 'receipt' as const,
-              }) as const,
-          )
-          .catch(
-            (error: unknown) =>
-              ({
-                ok: false as const,
-                source: 'receipt' as const,
-                error,
-              }) as const,
-          );
-        const tokenConfirmationResultPromise = thresholdSender
-          ? waitForTempoUserTokenMatch({
-              rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-              userAddress: thresholdSender,
-              expectedToken: tempoFeeToken,
-              timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,
-              pollIntervalMs: EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
-            })
-              .then(
-                () =>
-                  ({
-                    ok: true as const,
-                    mode: 'userToken' as const,
-                  }) as const,
-              )
-              .catch(
-                (error: unknown) =>
-                  ({
-                    ok: false as const,
-                    source: 'userToken' as const,
-                    error,
-                  }) as const,
-              )
-          : Promise.resolve({
-              ok: false as const,
-              source: 'userToken' as const,
-              error: new Error('Threshold EVM sender unavailable for userTokens confirmation'),
-            });
-        const firstConfirmationResult = await withPromiseTimeout({
-          promise: Promise.race([
-            receiptConfirmationResultPromise,
-            tokenConfirmationResultPromise,
-          ]),
-          timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS + EVM_RPC_REQUEST_TIMEOUT_MS + 5_000,
-          label: 'setUserToken finalization confirmation',
-        });
+        const confirmationAbort = new AbortController();
         let confirmationMode: 'receipt' | 'userToken';
-        if (firstConfirmationResult.ok) {
-          confirmationMode = firstConfirmationResult.mode;
-        } else {
-          const secondConfirmationResult =
-            firstConfirmationResult.source === 'receipt'
-              ? await tokenConfirmationResultPromise
-              : await receiptConfirmationResultPromise;
-          if (secondConfirmationResult.ok) {
-            confirmationMode = secondConfirmationResult.mode;
-          } else {
-            const receiptError =
-              firstConfirmationResult.source === 'receipt'
-                ? firstConfirmationResult.error
-                : secondConfirmationResult.error;
-            const userTokenError =
-              firstConfirmationResult.source === 'userToken'
-                ? firstConfirmationResult.error
-                : secondConfirmationResult.error;
-            const receiptErrorMessage =
-              receiptError instanceof Error ? receiptError.message : String(receiptError);
-            const userTokenErrorMessage =
-              userTokenError instanceof Error ? userTokenError.message : String(userTokenError);
-            throw new Error(
-              `Unable to confirm setUserToken to ${config.label}. Receipt check failed: ${receiptErrorMessage}. userTokens(address) check failed: ${userTokenErrorMessage}.`,
+        try {
+          const receiptConfirmationResultPromise = waitForEvmTransactionFinalization({
+            rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+            txHash,
+            gasLimitHint: request.tx.gasLimit,
+            maxFeePerGasHint: request.tx.maxFeePerGas,
+            timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,
+            pollIntervalMs: EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
+            signal: confirmationAbort.signal,
+          })
+            .then(
+              () =>
+                ({
+                  ok: true as const,
+                  mode: 'receipt' as const,
+                }) as const,
+            )
+            .catch(
+              (error: unknown) =>
+                ({
+                  ok: false as const,
+                  source: 'receipt' as const,
+                  error,
+                }) as const,
             );
+          const tokenConfirmationResultPromise = thresholdSender
+            ? waitForTempoUserTokenMatch({
+                rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+                userAddress: thresholdSender,
+                expectedToken: tempoFeeToken,
+                timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,
+                pollIntervalMs: EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
+                signal: confirmationAbort.signal,
+              })
+                .then(
+                  () =>
+                    ({
+                      ok: true as const,
+                      mode: 'userToken' as const,
+                    }) as const,
+                )
+                .catch(
+                  (error: unknown) =>
+                    ({
+                      ok: false as const,
+                      source: 'userToken' as const,
+                      error,
+                    }) as const,
+                )
+            : Promise.resolve({
+                ok: false as const,
+                source: 'userToken' as const,
+                error: new Error('Threshold EVM sender unavailable for userTokens confirmation'),
+              });
+          const firstConfirmationResult = await withPromiseTimeout({
+            promise: Promise.race([
+              receiptConfirmationResultPromise,
+              tokenConfirmationResultPromise,
+            ]),
+            timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS + EVM_RPC_REQUEST_TIMEOUT_MS + 5_000,
+            label: 'setUserToken finalization confirmation',
+          });
+          if (firstConfirmationResult.ok) {
+            confirmationMode = firstConfirmationResult.mode;
+          } else {
+            const secondConfirmationResult =
+              firstConfirmationResult.source === 'receipt'
+                ? await tokenConfirmationResultPromise
+                : await receiptConfirmationResultPromise;
+            if (secondConfirmationResult.ok) {
+              confirmationMode = secondConfirmationResult.mode;
+            } else {
+              const receiptError =
+                firstConfirmationResult.source === 'receipt'
+                  ? firstConfirmationResult.error
+                  : secondConfirmationResult.error;
+              const userTokenError =
+                firstConfirmationResult.source === 'userToken'
+                  ? firstConfirmationResult.error
+                  : secondConfirmationResult.error;
+              const receiptErrorMessage =
+                receiptError instanceof Error ? receiptError.message : String(receiptError);
+              const userTokenErrorMessage =
+                userTokenError instanceof Error ? userTokenError.message : String(userTokenError);
+              throw new Error(
+                `Unable to confirm setUserToken to ${config.label}. Receipt check failed: ${receiptErrorMessage}. userTokens(address) check failed: ${userTokenErrorMessage}.`,
+              );
+            }
           }
+        } finally {
+          confirmationAbort.abort(new Error('setUserToken finalization confirmation settled'));
         }
         const refreshedFeeToken = thresholdSender
           ? await refreshTempoUserFeeToken({

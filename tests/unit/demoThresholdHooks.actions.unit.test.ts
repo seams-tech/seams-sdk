@@ -423,6 +423,15 @@ test.describe('demo threshold action hooks', () => {
         requestTo: '',
       };
       const txHash = `0x${'44'.repeat(32)}`;
+      const expectedArcGreeting = 'Hello from arc hook';
+      const encodeAbiString = (value: string): string => {
+        const bytes = new TextEncoder().encode(value);
+        const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+        const paddedHexLength = Math.ceil(bytes.length / 32) * 64;
+        return `0x${(32).toString(16).padStart(64, '0')}${bytes.length
+          .toString(16)
+          .padStart(64, '0')}${hex.padEnd(paddedHexLength, '0')}`;
+      };
 
       const originalFetch = window.fetch.bind(window);
       window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -471,6 +480,16 @@ test.describe('demo threshold action hooks', () => {
             { status: 200, headers: { 'content-type': 'application/json' } },
           );
         }
+        if (method === 'eth_call') {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              result: encodeAbiString(expectedArcGreeting),
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
         return await originalFetch(input, init);
       }) as typeof fetch;
 
@@ -499,7 +518,7 @@ test.describe('demo threshold action hooks', () => {
               },
             },
           },
-          arcGreetingInput: 'Hello from arc hook',
+          arcGreetingInput: expectedArcGreeting,
           arcEip1559FeeCaps: {
             maxPriorityFeePerGas: 2_000_000_000n,
             maxFeePerGas: 40_000_000_000n,
@@ -541,6 +560,160 @@ test.describe('demo threshold action hooks', () => {
     expect(result.counters.requestKind).toBe('eip1559');
     expect(result.counters.requestChainId).toBe(5042002);
     expect(result.counters.requestTo).toBe(ARC_TESTNET_GREETING_CONTRACT);
+    expect(result.stateAfter.evmThresholdSignLoading).toBe(false);
+  });
+
+  test('useDemoArcSigningActions confirms via greeting fallback when receipt remains pending', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(async ({ paths, arcRpcHost }) => {
+      const viteReactPath = '/node_modules/.vite/deps/react.js' as string;
+      const viteReactDomClientPath = '/node_modules/.vite/deps/react-dom_client.js' as string;
+      const viteReactDomPath = '/node_modules/.vite/deps/react-dom.js' as string;
+      const React =
+        ((await import(viteReactPath).catch(() => null)) as any) || (await import('react'));
+      const ReactRuntime = (React as any).default || React;
+      const ReactDOMClient =
+        ((await import(viteReactDomClientPath).catch(() => null)) as any) ||
+        (await import('react-dom/client'));
+      const ReactDOMClientRuntime = (ReactDOMClient as any).default || ReactDOMClient;
+      const ReactDOM =
+        ((await import(viteReactDomPath).catch(() => null)) as any) || (await import('react-dom'));
+      const ReactDOMRuntime = (ReactDOM as any).default || ReactDOM;
+      const mod = await import(paths.arcSigningHook);
+      const useDemoArcSigningActions = (mod as any).useDemoArcSigningActions;
+      if (!useDemoArcSigningActions) {
+        throw new Error('Failed to load useDemoArcSigningActions export');
+      }
+
+      const counters = {
+        signTempoCalls: 0,
+        reportSuccessCalls: 0,
+        reportFailureCalls: 0,
+        dispatchCalls: 0,
+        receiptCalls: 0,
+        ethCallCalls: 0,
+      };
+      const txHash = `0x${'55'.repeat(32)}`;
+      const expectedArcGreeting = 'Hello from arc fallback test';
+      const encodeAbiString = (value: string): string => {
+        const bytes = new TextEncoder().encode(value);
+        const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+        const paddedHexLength = Math.ceil(bytes.length / 32) * 64;
+        return `0x${(32).toString(16).padStart(64, '0')}${bytes.length
+          .toString(16)
+          .padStart(64, '0')}${hex.padEnd(paddedHexLength, '0')}`;
+      };
+
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (!url.includes(arcRpcHost) || String(init?.method || 'GET').toUpperCase() !== 'POST') {
+          return await originalFetch(input, init);
+        }
+
+        let body: Record<string, unknown> = {};
+        try {
+          body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+        } catch {}
+        const id = body.id ?? Date.now();
+        const method = String(body.method || '');
+
+        if (method === 'eth_sendRawTransaction') {
+          counters.dispatchCalls += 1;
+          return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: txHash }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (method === 'eth_getTransactionReceipt') {
+          counters.receiptCalls += 1;
+          return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: null }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (method === 'eth_getBlockByNumber') {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              result: { number: '0x1', baseFeePerGas: '0x3b9aca00' },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (method === 'eth_call') {
+          counters.ethCallCalls += 1;
+          return new Response(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              result: encodeAbiString(expectedArcGreeting),
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        return await originalFetch(input, init);
+      }) as typeof fetch;
+
+      let hookApi: any = null;
+      function Harness() {
+        hookApi = useDemoArcSigningActions({
+          canSignEvm: true,
+          nearAccountId: 'alice.testnet',
+          tatchi: {
+            tempo: {
+              signTempo: async () => {
+                counters.signTempoCalls += 1;
+                return {
+                  kind: 'eip1559',
+                  txHashHex: `0x${'ab'.repeat(32)}`,
+                  rawTxHex: `0x02${'78'.repeat(31)}`,
+                };
+              },
+              reportBroadcastResult: async (args: any) => {
+                if (String(args?.status || '') === 'success') counters.reportSuccessCalls += 1;
+                else counters.reportFailureCalls += 1;
+                return { ok: true };
+              },
+            },
+          },
+          arcGreetingInput: expectedArcGreeting,
+          arcEip1559FeeCaps: {
+            maxPriorityFeePerGas: 2_000_000_000n,
+            maxFeePerGas: 40_000_000_000n,
+          },
+          fetchArcGreeting: async () => expectedArcGreeting,
+          refreshThresholdEvmFundingAddress: async () =>
+            '0x1111111111111111111111111111111111111111',
+        });
+        return ReactRuntime.createElement('div', null);
+      }
+
+      const mount = document.createElement('div');
+      document.body.appendChild(mount);
+      const root = ReactDOMClientRuntime.createRoot(mount);
+      ReactDOMRuntime.flushSync(() => {
+        root.render(ReactRuntime.createElement(Harness));
+      });
+
+      await hookApi.handleSignEvmThresholdTx();
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+      const stateAfter = {
+        evmThresholdSignLoading: Boolean(hookApi.evmThresholdSignLoading),
+      };
+      root.unmount();
+      return { counters, stateAfter };
+    }, { paths: IMPORT_PATHS, arcRpcHost: ARC_RPC });
+
+    expect(result.counters.signTempoCalls).toBe(1);
+    expect(result.counters.reportSuccessCalls).toBe(1);
+    expect(result.counters.reportFailureCalls).toBe(0);
+    expect(result.counters.dispatchCalls).toBe(1);
+    expect(result.counters.ethCallCalls).toBeGreaterThan(0);
+    expect(result.counters.receiptCalls).toBeGreaterThan(0);
     expect(result.stateAfter.evmThresholdSignLoading).toBe(false);
   });
 
@@ -863,6 +1036,86 @@ test.describe('demo threshold action hooks', () => {
     expect(result.counters.reportCalls).toBe(1);
     expect(result.counters.consoleErrors).toBeGreaterThanOrEqual(1);
     expect(result.stateAfter.loading).toBe(false);
+  });
+
+  test('waitForEvmTransactionFinalization supports aborting stale pollers', async ({ page }) => {
+    const result = await page.evaluate(async ({ tempoRpcHost }) => {
+      const mod = await import('/src/flows/demo/demoEvmHelpers.ts');
+      const waitForEvmTransactionFinalization = (mod as any)
+        .waitForEvmTransactionFinalization as (args: {
+        rpcUrl: string;
+        txHash: `0x${string}`;
+        maxFeePerGasHint?: bigint;
+        timeoutMs?: number;
+        pollIntervalMs?: number;
+        signal?: AbortSignal;
+      }) => Promise<unknown>;
+
+      const counters = {
+        receiptCalls: 0,
+      };
+
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (!url.includes(tempoRpcHost) || String(init?.method || 'GET').toUpperCase() !== 'POST') {
+          return await originalFetch(input, init);
+        }
+
+        let body: Record<string, unknown> = {};
+        try {
+          body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+        } catch {}
+        const id = body.id ?? Date.now();
+        const method = String(body.method || '');
+
+        if (method === 'eth_getTransactionReceipt') {
+          counters.receiptCalls += 1;
+          return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: null }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (method === 'eth_getBlockByNumber') {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              result: { number: '0x1', baseFeePerGas: '0x3b9aca00' },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        return await originalFetch(input, init);
+      }) as typeof fetch;
+
+      const controller = new AbortController();
+      const pending = waitForEvmTransactionFinalization({
+        rpcUrl: `https://${tempoRpcHost}`,
+        txHash: `0x${'11'.repeat(32)}`,
+        maxFeePerGasHint: 40_000_000_000n,
+        timeoutMs: 10_000,
+        pollIntervalMs: 5_000,
+        signal: controller.signal,
+      });
+      await new Promise((resolve) => window.setTimeout(resolve, 25));
+      controller.abort('poller-cancelled');
+
+      let errorMessage = '';
+      try {
+        await pending;
+      } catch (error: unknown) {
+        errorMessage = error instanceof Error ? error.message : String(error);
+      } finally {
+        window.fetch = originalFetch;
+      }
+
+      return { counters, errorMessage };
+    }, { tempoRpcHost: TEMPO_RPC });
+
+    expect(result.counters.receiptCalls).toBeGreaterThan(0);
+    expect(result.errorMessage).toContain('poller-cancelled');
   });
 
   test('isUserCancellationError classifies cancellation signals', async ({ page }) => {

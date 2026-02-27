@@ -226,83 +226,90 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       });
 
       toast.loading('Tempo transaction broadcasted, waiting for finalization…', { id: toastId });
-      const receiptConfirmationResultPromise = waitForEvmTransactionFinalization({
-        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-        txHash,
-        gasLimitHint: request.tx.gasLimit,
-        maxFeePerGasHint: request.tx.maxFeePerGas,
-      })
-        .then(
-          () =>
-            ({
-              ok: true as const,
-              mode: 'receipt' as const,
-            }) as const,
-        )
-        .catch(
-          (error: unknown) =>
-            ({
-              ok: false as const,
-              source: 'receipt' as const,
-              error,
-            }) as const,
-        );
-      const greetingConfirmationResultPromise = waitForEvmGreetingMatch({
-        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-        contract: TEMPO_GREETING_CONTRACT,
-        selector: TEMPO_GREETING_SELECTOR,
-        expectedGreeting: requestedGreeting,
-      })
-        .then(
-          () =>
-            ({
-              ok: true as const,
-              mode: 'greeting' as const,
-            }) as const,
-        )
-        .catch(
-          (error: unknown) =>
-            ({
-              ok: false as const,
-              source: 'greeting' as const,
-              error,
-            }) as const,
-        );
-      const firstConfirmationResult = await withPromiseTimeout({
-        promise: Promise.race([
-          receiptConfirmationResultPromise,
-          greetingConfirmationResultPromise,
-        ]),
-        timeoutMs: EVM_TX_FINALITY_TIMEOUT_MS + EVM_RPC_REQUEST_TIMEOUT_MS + 5_000,
-        label: 'Tempo greeting finalization confirmation',
-      });
+      const confirmationAbort = new AbortController();
       let confirmationMode: 'receipt' | 'greeting';
-      if (firstConfirmationResult.ok) {
-        confirmationMode = firstConfirmationResult.mode;
-      } else {
-        const secondConfirmationResult =
-          firstConfirmationResult.source === 'receipt'
-            ? await greetingConfirmationResultPromise
-            : await receiptConfirmationResultPromise;
-        if (secondConfirmationResult.ok) {
-          confirmationMode = secondConfirmationResult.mode;
-        } else {
-          const receiptError =
-            firstConfirmationResult.source === 'receipt'
-              ? firstConfirmationResult.error
-              : secondConfirmationResult.error;
-          const greetingError =
-            firstConfirmationResult.source === 'greeting'
-              ? firstConfirmationResult.error
-              : secondConfirmationResult.error;
-          const receiptErrorMessage =
-            receiptError instanceof Error ? receiptError.message : String(receiptError);
-          const greetingErrorMessage =
-            greetingError instanceof Error ? greetingError.message : String(greetingError);
-          throw new Error(
-            `Unable to confirm Tempo transaction finalization. Receipt check failed: ${receiptErrorMessage}. Greeting check failed: ${greetingErrorMessage}. Tx hash: ${txHash}`,
+      try {
+        const receiptConfirmationResultPromise = waitForEvmTransactionFinalization({
+          rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+          txHash,
+          gasLimitHint: request.tx.gasLimit,
+          maxFeePerGasHint: request.tx.maxFeePerGas,
+          signal: confirmationAbort.signal,
+        })
+          .then(
+            () =>
+              ({
+                ok: true as const,
+                mode: 'receipt' as const,
+              }) as const,
+          )
+          .catch(
+            (error: unknown) =>
+              ({
+                ok: false as const,
+                source: 'receipt' as const,
+                error,
+              }) as const,
           );
+        const greetingConfirmationResultPromise = waitForEvmGreetingMatch({
+          rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+          contract: TEMPO_GREETING_CONTRACT,
+          selector: TEMPO_GREETING_SELECTOR,
+          expectedGreeting: requestedGreeting,
+          signal: confirmationAbort.signal,
+        })
+          .then(
+            () =>
+              ({
+                ok: true as const,
+                mode: 'greeting' as const,
+              }) as const,
+          )
+          .catch(
+            (error: unknown) =>
+              ({
+                ok: false as const,
+                source: 'greeting' as const,
+                error,
+              }) as const,
+          );
+        const firstConfirmationResult = await withPromiseTimeout({
+          promise: Promise.race([
+            receiptConfirmationResultPromise,
+            greetingConfirmationResultPromise,
+          ]),
+          timeoutMs: EVM_TX_FINALITY_TIMEOUT_MS + EVM_RPC_REQUEST_TIMEOUT_MS + 5_000,
+          label: 'Tempo greeting finalization confirmation',
+        });
+        if (firstConfirmationResult.ok) {
+          confirmationMode = firstConfirmationResult.mode;
+        } else {
+          const secondConfirmationResult =
+            firstConfirmationResult.source === 'receipt'
+              ? await greetingConfirmationResultPromise
+              : await receiptConfirmationResultPromise;
+          if (secondConfirmationResult.ok) {
+            confirmationMode = secondConfirmationResult.mode;
+          } else {
+            const receiptError =
+              firstConfirmationResult.source === 'receipt'
+                ? firstConfirmationResult.error
+                : secondConfirmationResult.error;
+            const greetingError =
+              firstConfirmationResult.source === 'greeting'
+                ? firstConfirmationResult.error
+                : secondConfirmationResult.error;
+            const receiptErrorMessage =
+              receiptError instanceof Error ? receiptError.message : String(receiptError);
+            const greetingErrorMessage =
+              greetingError instanceof Error ? greetingError.message : String(greetingError);
+            throw new Error(
+              `Unable to confirm Tempo transaction finalization. Receipt check failed: ${receiptErrorMessage}. Greeting check failed: ${greetingErrorMessage}. Tx hash: ${txHash}`,
+            );
+          }
         }
+      } finally {
+        confirmationAbort.abort(new Error('Tempo finalization confirmation settled'));
       }
       await fetchTempoGreeting({ silent: true });
       await refreshThresholdEvmFundingAddress();

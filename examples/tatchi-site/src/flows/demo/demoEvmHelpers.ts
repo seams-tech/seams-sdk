@@ -321,6 +321,45 @@ export async function sendRawEvmTransaction(args: {
   return txHash as `0x${string}`;
 }
 
+function toAbortError(signal?: AbortSignal): Error {
+  const reason = signal?.reason;
+  if (reason instanceof Error) return reason;
+  const message = String(reason || '').trim() || 'Operation aborted';
+  const error = new Error(message) as Error & { code?: string };
+  error.code = 'aborted';
+  return error;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw toAbortError(signal);
+  }
+}
+
+async function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  const delayMs = Math.max(0, Math.floor(Number(ms) || 0));
+  await new Promise<void>((resolve, reject) => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const cleanup = () => {
+      if (timeoutId) {
+        globalThis.clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      signal?.removeEventListener('abort', onAbort);
+    };
+    const onAbort = () => {
+      cleanup();
+      reject(toAbortError(signal));
+    };
+    timeoutId = globalThis.setTimeout(() => {
+      cleanup();
+      resolve();
+    }, delayMs);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 export async function waitForEvmTransactionFinalization(args: {
   rpcUrl: string;
   txHash: `0x${string}`;
@@ -328,6 +367,7 @@ export async function waitForEvmTransactionFinalization(args: {
   maxFeePerGasHint?: bigint;
   timeoutMs?: number;
   pollIntervalMs?: number;
+  signal?: AbortSignal;
 }): Promise<EvmTransactionReceipt> {
   const timeoutMs = args.timeoutMs ?? EVM_TX_FINALITY_TIMEOUT_MS;
   const pollIntervalMs = args.pollIntervalMs ?? EVM_TX_RECEIPT_POLL_INTERVAL_MS;
@@ -336,6 +376,7 @@ export async function waitForEvmTransactionFinalization(args: {
   let underpricedSinceMs: number | null = null;
 
   while (Date.now() < deadline) {
+    throwIfAborted(args.signal);
     let receipt: EvmTransactionReceipt | null = null;
     try {
       const remainingMs = Math.max(1, deadline - Date.now());
@@ -411,11 +452,10 @@ export async function waitForEvmTransactionFinalization(args: {
       }
     }
 
-    await new Promise<void>((resolve) => {
-      window.setTimeout(resolve, pollIntervalMs);
-    });
+    await sleepWithAbort(pollIntervalMs, args.signal);
   }
 
+  throwIfAborted(args.signal);
   const details = lastRpcError ? `; last RPC error: ${lastRpcError}` : '';
   throw new Error(`Timed out waiting for tx finalization after ${timeoutMs}ms${details}`);
 }
@@ -426,6 +466,7 @@ export async function waitForTempoUserTokenMatch(args: {
   expectedToken: `0x${string}`;
   timeoutMs?: number;
   pollIntervalMs?: number;
+  signal?: AbortSignal;
 }): Promise<`0x${string}`> {
   const timeoutMs = args.timeoutMs ?? EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS;
   const pollIntervalMs = args.pollIntervalMs ?? EVM_SET_USER_TOKEN_POLL_INTERVAL_MS;
@@ -434,6 +475,7 @@ export async function waitForTempoUserTokenMatch(args: {
   let lastRpcError: string | null = null;
 
   while (Date.now() < deadline) {
+    throwIfAborted(args.signal);
     try {
       const remainingMs = Math.max(1, deadline - Date.now());
       const token = await readTempoUserFeeToken({
@@ -450,11 +492,10 @@ export async function waitForTempoUserTokenMatch(args: {
       lastRpcError = error instanceof Error ? error.message : String(error);
     }
 
-    await new Promise<void>((resolve) => {
-      window.setTimeout(resolve, pollIntervalMs);
-    });
+    await sleepWithAbort(pollIntervalMs, args.signal);
   }
 
+  throwIfAborted(args.signal);
   const observed = lastObservedToken ? compactHex(lastObservedToken) : 'not set';
   const details = lastRpcError ? `; last RPC error: ${lastRpcError}` : '';
   throw new Error(
@@ -469,6 +510,7 @@ export async function waitForEvmGreetingMatch(args: {
   expectedGreeting: string;
   timeoutMs?: number;
   pollIntervalMs?: number;
+  signal?: AbortSignal;
 }): Promise<string> {
   const timeoutMs = args.timeoutMs ?? EVM_TX_FINALITY_TIMEOUT_MS;
   const pollIntervalMs = args.pollIntervalMs ?? EVM_TX_RECEIPT_POLL_INTERVAL_MS;
@@ -477,6 +519,7 @@ export async function waitForEvmGreetingMatch(args: {
   let lastRpcError: string | null = null;
 
   while (Date.now() < deadline) {
+    throwIfAborted(args.signal);
     try {
       const remainingMs = Math.max(1, deadline - Date.now());
       const greeting = await readEvmGreeting({
@@ -494,11 +537,10 @@ export async function waitForEvmGreetingMatch(args: {
       lastRpcError = error instanceof Error ? error.message : String(error);
     }
 
-    await new Promise<void>((resolve) => {
-      window.setTimeout(resolve, pollIntervalMs);
-    });
+    await sleepWithAbort(pollIntervalMs, args.signal);
   }
 
+  throwIfAborted(args.signal);
   const observed = lastObservedGreeting == null ? 'unavailable' : `"${lastObservedGreeting}"`;
   const details = lastRpcError ? `; last RPC error: ${lastRpcError}` : '';
   throw new Error(
