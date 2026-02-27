@@ -16,7 +16,6 @@ import {
 import {
   clearCachedEd25519AuthSession,
   getCachedEd25519AuthSessionJwt,
-  getCachedEd25519AuthSessionJwtBySessionId,
   makeEd25519AuthSessionCacheKey,
 } from '@/core/signingEngine/threshold/session/ed25519AuthSession';
 import {
@@ -34,6 +33,7 @@ import {
   resolveNearSigningMaterials,
   toCredentialForRelayJson,
 } from './shared/signingMaterials';
+import { resolveThresholdSessionJwt } from './shared/thresholdSessionAuth';
 import { assertThresholdSigningSessionReady } from '@/core/signingEngine/orchestration/shared/thresholdSigningSessionPlanner';
 import { buildNearWorkerSigningEnvelope } from './shared/workerRequestAssembly';
 
@@ -158,9 +158,10 @@ export async function signNep413Message({
     }
 
     if (signingContext.threshold && !signingContext.threshold.thresholdSessionJwt) {
-      signingContext.threshold.thresholdSessionJwt =
-        getCachedEd25519AuthSessionJwtBySessionId(sessionId) ||
-        signingContext.threshold.thresholdSessionJwt;
+      signingContext.threshold.thresholdSessionJwt = resolveThresholdSessionJwt({
+        thresholdSessionCacheKey: signingContext.threshold.thresholdSessionCacheKey,
+        thresholdSessionId: sessionId,
+      });
     }
     if (signingContext.threshold && !signingContext.threshold.thresholdSessionJwt) {
       clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);

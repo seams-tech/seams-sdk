@@ -24,16 +24,33 @@ This plan intentionally skips and removes plaintext persistence paths.
     - `client/src/core/types/secure-confirm-worker.ts`
     - `client/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts`
     - `client/src/core/signingEngine/touchConfirm/TouchConfirmManager.ts`
+- Sealed refresh main-thread storage adapter is now present:
+  - `client/src/core/signingEngine/api/session/prfSessionSealedStore.ts`
+  - records are keyed by `thresholdSessionId` in wallet-origin `sessionStorage`
+  - touchConfirm now wires best-effort persist/rehydrate hooks around `peek/dispense/clear`
 - Active signing session IDs are in-memory only (`Map`) in:
   - `client/src/core/signingEngine/api/session/signingSessionState.ts`
+  - now with canonical fallback restore via threshold session record lookup in:
+    - `client/src/core/signingEngine/bootstrap/orchestrationDependencyFactory.ts`
+- Threshold Ed25519 auth session JWT is now persisted by `thresholdSessionId` in wallet-origin `sessionStorage`
+  and reused after refresh:
+  - `client/src/core/signingEngine/threshold/session/ed25519AuthSession.ts`
+  - `client/src/core/signingEngine/orchestration/near/shared/thresholdSessionAuth.ts`
 - Canonical threshold ECDSA session record is already persisted in `sessionStorage`:
   - `client/src/core/signingEngine/api/thresholdLifecycle/thresholdEcdsaSessionStore.ts`
 - Login state in threshold mode currently requires an active warm session:
   - `client/src/core/TatchiPasskey/login.ts`
-- There is no current config surface for PRF session persistence mode in:
+- `signingSessionPersistenceMode` config surface is now wired (`none` | `sealed_refresh_v1`):
   - `client/src/core/types/tatchi.ts`
   - `client/src/core/config/configBuilder.ts`
   - `client/src/core/config/defaultConfigs.ts`
+- Shamir runtime backend now uses dedicated Rust WASM wrapper crate:
+  - `wasm/shamir3pass_runtime/`
+  - lazy-loaded in worker via:
+    - `client/src/core/signingEngine/workerManager/workers/shamir3pass/runtime.ts`
+  - build/copy pipeline updated to emit:
+    - `dist/workers/shamir3pass_runtime.js`
+    - `dist/workers/shamir3pass_runtime_bg.wasm`
 
 ### Server state today
 
@@ -108,14 +125,15 @@ Rules:
 
 ### Phase 1 — Config + Contracts
 
-- [ ] Add config mode surface:
+- [x] Add config mode surface:
   - `TatchiConfigsInput.signingSessionPersistenceMode?: 'none' | 'sealed_refresh_v1'`
+  - `TatchiConfigsInput.signingSessionSeal?: { keyVersion?: string; shamirPrimeB64u?: string }`
   - resolved config under signing domain (default `none`)
   - files:
     - `client/src/core/types/tatchi.ts`
     - `client/src/core/config/configBuilder.ts`
     - `client/src/core/config/defaultConfigs.ts`
-- [ ] Thread mode into touchConfirm manager construction:
+- [x] Thread mode into touchConfirm manager construction:
   - `client/src/core/signingEngine/bootstrap/managerAssembly.ts`
   - `client/src/core/types/secure-confirm-worker.ts`
   - `client/src/core/signingEngine/touchConfirm/types.ts`
@@ -123,53 +141,61 @@ Rules:
 
 ### Phase 2 — Worker Sealed Runtime + Message Surface
 
-- [ ] Add worker-only lazy-loaded `shamir-3-pass-rs` runtime wrapper.
-- [ ] Add worker message types:
+- [x] Add worker-only lazy runtime wrapper for Shamir 3-pass operations.
+- [x] Swap runtime backend to `shamir-3-pass-rs` WASM crate/package.
+- [x] Add worker message types:
   - `THRESHOLD_PRF_FIRST_CACHE_SEAL_AND_PERSIST`
   - `THRESHOLD_PRF_FIRST_CACHE_REHYDRATE`
   - `THRESHOLD_PRF_FIRST_CACHE_DELETE_PERSISTED`
-- [ ] Implement handlers in:
+- [x] Implement full handlers in:
   - `client/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts`
-- [ ] Keep existing `PUT/PEEK/DISPENSE/CLEAR` semantics as canonical cache operations (no duplicate legacy APIs).
+- [x] Add worker route fetch integration:
+  - `POST /threshold-ecdsa/prf-seal/apply-server-seal`
+  - `POST /threshold-ecdsa/prf-seal/remove-server-seal`
+- [x] Keep existing `PUT/PEEK/DISPENSE/CLEAR` semantics as canonical cache operations (no duplicate legacy APIs).
 
 ### Phase 3 — Main-Thread Sealed Adapter + Session Restore
 
-- [ ] Add sealed storage adapter module for `shamir3pass-v1` read/write/delete.
+- [x] Add sealed storage adapter module for `shamir3pass-v1` read/write/delete.
   - suggested location: `client/src/core/signingEngine/api/session/prfSessionSealedStore.ts`
-- [ ] Integrate adapter into `TouchConfirmManager`:
-  - seal+persist on successful PRF cache put/bootstrap
+- [x] Integrate adapter plumbing into `TouchConfirmManager`:
+  - best-effort seal-on-peek (when active cache exists)
+  - rehydrate-on-peek miss from sealed record
   - update persisted `remainingUses/expiresAtMs` after dispense
-  - delete on clear/clearAll/failure paths
-- [ ] Restore active session ID after refresh using canonical threshold session record:
+  - delete on clear/clearAll/terminal failure paths
+- [x] Finalize seal+rehydrate integration path (no worker placeholder path remains).
+- [x] Restore active session ID after refresh for warm-session status checks:
   - read `thresholdSessionId` from `thresholdEcdsaSessionStore`
-  - set active signing session ID before first threshold sign or warm-session status check
+  - lazily set active signing session ID when `getWarmSigningSessionStatus(...)` runs
   - files:
     - `client/src/core/signingEngine/api/session/signingSessionState.ts`
     - `client/src/core/signingEngine/bootstrap/orchestrationDependencyFactory.ts`
     - `client/src/core/signingEngine/api/thresholdLifecycle/thresholdEcdsaSessionStore.ts`
-    - `client/src/core/TatchiPasskey/login.ts`
 
 ### Phase 4 — Build + Packaging for New WASM Runtime
 
-- [ ] Add wasm runtime crate/package for `shamir-3-pass-rs` worker use.
-- [ ] Wire SDK build scripts to compile and copy new wasm artifact(s):
+- [x] Add wasm runtime crate/package for `shamir-3-pass-rs` worker use (replace current BigInt runtime backend).
+- [x] Wire SDK build scripts to compile and copy new wasm artifact(s):
   - `sdk/build-paths.ts`
   - `sdk/scripts/build/build-dev.sh`
   - `sdk/scripts/build/build-prod.sh`
-- [ ] Ensure runtime is lazy-loaded only when `sealed_refresh_v1` is enabled.
+- [x] Ensure runtime is lazy-loaded only when `sealed_refresh_v1` is enabled.
 
 ### Phase 5 — Tests + Rollout
 
-- [ ] Extend worker router/unit tests for new message routes:
+- [x] Extend worker router/unit tests for new message routes:
   - `tests/unit/touchConfirm.workerRouter.unit.test.ts`
-- [ ] Keep/extend server route tests:
+  - includes sealed rehydrate flow, non-sealed gating, and expired-record fail-closed coverage
+- [x] Keep/extend server route tests:
   - `tests/relayer/prf-session-seal-router.test.ts`
+  - includes out-of-range Shamir ciphertext rejection on `apply-server-seal`
 - [ ] Add integration tests for:
-  - login -> refresh -> sign without TouchID re-prompt
-  - tab close -> TouchID required
-  - malformed/expired/mismatched sealed record -> fail closed
-  - no plaintext PRF in persistent storage snapshots
-- [ ] Verify lazy-load gating for sealed runtime.
+  - [x] login -> refresh -> sign without TouchID re-prompt
+  - [x] tab close -> TouchID required
+  - [x] malformed/expired/mismatched sealed record -> fail closed (unit-level coverage in place)
+  - [x] no plaintext PRF in persistent storage snapshots (unit-level coverage in place)
+- [x] Verify lazy-load gating for sealed runtime.
+  - `tests/unit/touchConfirm.workerRouter.unit.test.ts` covers `signingSessionPersistenceMode: 'none'` path with no rehydrate attempt
 
 ## Server Module Status (Already Done)
 
@@ -188,8 +214,8 @@ Rules:
 
 ## Exit Criteria
 
-- [ ] `sealed_refresh_v1` works end-to-end in wallet-iframe mode.
-- [ ] Refresh in same tab does not require TouchID re-prompt.
-- [ ] Tab close still requires TouchID re-auth.
-- [ ] Plaintext PRF is never persisted at rest.
+- [x] `sealed_refresh_v1` works end-to-end in wallet-iframe mode.
+- [x] Refresh in same tab does not require TouchID re-prompt.
+- [x] Tab close still requires TouchID re-auth.
+- [x] Plaintext PRF is never persisted at rest.
 - [ ] All new client/server tests pass in CI.
