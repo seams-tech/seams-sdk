@@ -16,6 +16,7 @@ import { bytesToHex } from '../../chainAdaptors/evm/bytes';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { awaitUserConfirmationV2 } from '../../touchConfirm/awaitUserConfirmation';
+import { getShamir3PassRuntime } from './shamir3pass/runtime';
 import {
   UserConfirmationType,
   UserConfirmMessageType,
@@ -45,12 +46,31 @@ type ThresholdPrfFirstCacheEntry = {
 };
 
 type OkResult = { ok: true; remainingUses: number; expiresAtMs: number };
+type OkSealResult = OkResult & { sealedPrfFirstB64u: string; keyVersion?: string };
 type OkDispenseResult = OkResult & { prfFirstB64u: string };
 type ErrResult = { ok: false; code: string; message: string };
+
+type PrfSessionSealTransport = {
+  relayerUrl: string;
+  thresholdSessionJwt?: string;
+  keyVersion?: string;
+  shamirPrimeB64u?: string;
+};
+
+type PrfSessionSealRouteResult =
+  | {
+      ok: true;
+      ciphertext: string;
+      keyVersion?: string;
+      expiresAtMs?: number;
+      remainingUses?: number;
+    }
+  | ErrResult;
 
 const prfFirstSessionCache = new Map<string, ThresholdPrfFirstCacheEntry>();
 const nearSignerWasmUrl = resolveWasmUrl('wasm_signer_worker_bg.wasm', 'Signer Worker');
 const ethSignerWasmUrl = resolveWasmUrl('eth_signer.wasm', 'Eth Signer');
+const PRF_SESSION_SEAL_BASE_PATH = '/threshold-ecdsa/prf-seal';
 
 let nearSignerWasmInitPromise: Promise<void> | null = null;
 let ethSignerWasmInitPromise: Promise<void> | null = null;
@@ -163,6 +183,168 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
       ? { publicKeyHint: payload.publicKeyHint.trim() }
       : {}),
   };
+}
+
+function normalizeOptionalString(input: unknown): string | undefined {
+  const value = typeof input === 'string' ? input.trim() : '';
+  return value || undefined;
+}
+
+function normalizePositiveInteger(input: unknown): number | null {
+  const value = Math.floor(Number(input));
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return value;
+}
+
+function normalizeNonNegativeInteger(input: unknown): number | null {
+  const value = Math.floor(Number(input));
+  if (!Number.isFinite(value) || value < 0) return null;
+  return value;
+}
+
+function parsePrfSessionSealTransport(value: unknown): PrfSessionSealTransport | null {
+  const transport = asRecord(value);
+  if (!transport) return null;
+  const relayerUrl = normalizeOptionalString(transport.relayerUrl);
+  if (!relayerUrl) return null;
+  return {
+    relayerUrl,
+    ...(normalizeOptionalString(transport.thresholdSessionJwt)
+      ? { thresholdSessionJwt: normalizeOptionalString(transport.thresholdSessionJwt) }
+      : {}),
+    ...(normalizeOptionalString(transport.keyVersion)
+      ? { keyVersion: normalizeOptionalString(transport.keyVersion) }
+      : {}),
+    ...(normalizeOptionalString(transport.shamirPrimeB64u)
+      ? { shamirPrimeB64u: normalizeOptionalString(transport.shamirPrimeB64u) }
+      : {}),
+  };
+}
+
+function normalizeJoinUrl(baseUrlRaw: string, pathRaw: string): string {
+  const baseUrl = String(baseUrlRaw || '').trim().replace(/\/+$/g, '');
+  const path = String(pathRaw || '').trim().replace(/^\/+/g, '');
+  if (!baseUrl) throw new Error('Missing relayer URL');
+  return `${baseUrl}/${path}`;
+}
+
+function parsePrfSessionSealRouteResult(value: unknown): PrfSessionSealRouteResult {
+  const result = asRecord(value);
+  if (!result || typeof result.ok !== 'boolean') {
+    return { ok: false, code: 'invalid_response', message: 'Invalid PRF session seal response' };
+  }
+  if (!result.ok) {
+    return {
+      ok: false,
+      code: typeof result.code === 'string' ? result.code : 'request_failed',
+      message:
+        typeof result.message === 'string'
+          ? result.message
+          : 'PRF session seal request failed',
+    };
+  }
+  const ciphertext = normalizeB64u(result.ciphertext);
+  if (!ciphertext) {
+    return {
+      ok: false,
+      code: 'invalid_response',
+      message: 'Missing ciphertext in PRF session seal response',
+    };
+  }
+  return {
+    ok: true,
+    ciphertext,
+    ...(normalizeOptionalString(result.keyVersion)
+      ? { keyVersion: normalizeOptionalString(result.keyVersion) }
+      : {}),
+    ...(normalizePositiveInteger(result.expiresAtMs) != null
+      ? { expiresAtMs: normalizePositiveInteger(result.expiresAtMs) || undefined }
+      : {}),
+    ...(normalizeNonNegativeInteger(result.remainingUses) != null
+      ? { remainingUses: normalizeNonNegativeInteger(result.remainingUses) || undefined }
+      : {}),
+  };
+}
+
+async function callPrfSessionSealRoute(args: {
+  operation: 'apply-server-seal' | 'remove-server-seal';
+  transport: PrfSessionSealTransport;
+  thresholdSessionId: string;
+  ciphertext: string;
+  keyVersion?: string;
+}): Promise<PrfSessionSealRouteResult> {
+  const routePath =
+    args.operation === 'apply-server-seal' ? 'apply-server-seal' : 'remove-server-seal';
+  const url = normalizeJoinUrl(args.transport.relayerUrl, `${PRF_SESSION_SEAL_BASE_PATH}/${routePath}`);
+
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    const thresholdSessionJwt = normalizeOptionalString(args.transport.thresholdSessionJwt);
+    if (thresholdSessionJwt) {
+      headers.Authorization = `Bearer ${thresholdSessionJwt}`;
+    }
+    const response = await fetch(url, {
+      method: 'POST',
+      credentials: thresholdSessionJwt ? 'omit' : 'include',
+      headers,
+      body: JSON.stringify({
+        thresholdSessionId: args.thresholdSessionId,
+        ciphertext: args.ciphertext,
+        ...(normalizeOptionalString(args.keyVersion)
+          ? { keyVersion: normalizeOptionalString(args.keyVersion) }
+          : {}),
+      }),
+    });
+    const data = await response.json().catch(() => null);
+    const parsed = parsePrfSessionSealRouteResult(data);
+    if (!response.ok && parsed.ok) {
+      return {
+        ok: false,
+        code: 'http_error',
+        message: `PRF session seal route returned HTTP ${response.status}`,
+      };
+    }
+    if (!parsed.ok) return parsed;
+    return parsed;
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      code: 'network_error',
+      message: error instanceof Error ? error.message : String(error || 'PRF session seal request failed'),
+    };
+  }
+}
+
+function resolvePolicyFromServerAndLocal(args: {
+  localRemainingUses: number;
+  localExpiresAtMs: number;
+  serverRemainingUses?: number;
+  serverExpiresAtMs?: number;
+}): OkResult | ErrResult {
+  const localRemainingUses = Math.max(0, Math.floor(Number(args.localRemainingUses) || 0));
+  const localExpiresAtMs = Math.max(0, Math.floor(Number(args.localExpiresAtMs) || 0));
+  const serverRemainingUses =
+    normalizeNonNegativeInteger(args.serverRemainingUses) ?? localRemainingUses;
+  const serverExpiresAtMs = normalizePositiveInteger(args.serverExpiresAtMs) || localExpiresAtMs;
+  const remainingUses = Math.min(localRemainingUses, serverRemainingUses);
+  const expiresAtMs = Math.min(localExpiresAtMs, serverExpiresAtMs);
+  if (remainingUses <= 0) {
+    return {
+      ok: false,
+      code: 'exhausted',
+      message: 'PRF.first cache exhausted for threshold session',
+    };
+  }
+  if (expiresAtMs <= nowMs()) {
+    return {
+      ok: false,
+      code: 'expired',
+      message: 'PRF.first cache expired for threshold session',
+    };
+  }
+  return { ok: true, remainingUses, expiresAtMs };
 }
 
 function randomWrapKeySaltB64u(): string {
@@ -571,6 +753,165 @@ function dispensePrfFirstEntry(sessionId: string, uses: number): OkDispenseResul
   };
 }
 
+async function runPrfSessionSealAndPersist(args: {
+  sessionId: string;
+  transport: PrfSessionSealTransport;
+}): Promise<OkSealResult | ErrResult> {
+  const sessionId = normalizeSessionId(args.sessionId);
+  if (!sessionId) {
+    return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
+  }
+  const shamirPrimeB64u = normalizeOptionalString(args.transport.shamirPrimeB64u);
+  if (!shamirPrimeB64u) {
+    return {
+      ok: false,
+      code: 'invalid_args',
+      message: 'Missing shamirPrimeB64u for PRF session seal',
+    };
+  }
+  const peek = peekPrfFirstEntry(sessionId);
+  if (!peek.ok) return peek;
+  const entry = prfFirstSessionCache.get(sessionId);
+  if (!entry) {
+    return { ok: false, code: 'not_found', message: 'PRF.first not cached for threshold session' };
+  }
+
+  try {
+    const runtime = await getShamir3PassRuntime();
+    const clientKeypair = runtime.generateClientKeypair({ shamirPrimeB64u });
+    const clientEncryptedCiphertext = runtime.addClientSeal({
+      ciphertextB64u: entry.prfFirstB64u,
+      exponentB64u: clientKeypair.clientEncryptExponentB64u,
+      shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
+    });
+
+    const applied = await callPrfSessionSealRoute({
+      operation: 'apply-server-seal',
+      transport: args.transport,
+      thresholdSessionId: sessionId,
+      ciphertext: clientEncryptedCiphertext,
+      keyVersion: args.transport.keyVersion,
+    });
+    if (!applied.ok) return applied;
+
+    const sealedPrfFirstB64u = runtime.removeClientSeal({
+      ciphertextB64u: applied.ciphertext,
+      exponentB64u: clientKeypair.clientDecryptExponentB64u,
+      shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
+    });
+    const policy = resolvePolicyFromServerAndLocal({
+      localRemainingUses: entry.remainingUses,
+      localExpiresAtMs: entry.expiresAtMs,
+      serverRemainingUses: applied.remainingUses,
+      serverExpiresAtMs: applied.expiresAtMs,
+    });
+    if (!policy.ok) {
+      prfFirstSessionCache.delete(sessionId);
+      return policy;
+    }
+    prfFirstSessionCache.set(sessionId, {
+      prfFirstB64u: entry.prfFirstB64u,
+      remainingUses: policy.remainingUses,
+      expiresAtMs: policy.expiresAtMs,
+    });
+    return {
+      ok: true,
+      sealedPrfFirstB64u,
+      ...(normalizeOptionalString(applied.keyVersion)
+        ? { keyVersion: normalizeOptionalString(applied.keyVersion) }
+        : {}),
+      remainingUses: policy.remainingUses,
+      expiresAtMs: policy.expiresAtMs,
+    };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error || 'Failed to apply server seal'),
+    };
+  }
+}
+
+async function runPrfSessionRehydrate(args: {
+  sessionId: string;
+  sealedPrfFirstB64u: string;
+  keyVersion?: string;
+  remainingUses: number;
+  expiresAtMs: number;
+  transport: PrfSessionSealTransport;
+}): Promise<OkResult | ErrResult> {
+  const sessionId = normalizeSessionId(args.sessionId);
+  if (!sessionId) {
+    return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
+  }
+  const sealedPrfFirstB64u = normalizeB64u(args.sealedPrfFirstB64u);
+  if (!sealedPrfFirstB64u) {
+    return { ok: false, code: 'invalid_args', message: 'Missing sealedPrfFirstB64u' };
+  }
+  const localRemainingUses = Math.max(0, Math.floor(Number(args.remainingUses) || 0));
+  const localExpiresAtMs = Math.max(0, Math.floor(Number(args.expiresAtMs) || 0));
+  if (localRemainingUses <= 0) {
+    return { ok: false, code: 'exhausted', message: 'PRF.first cache exhausted for threshold session' };
+  }
+  if (localExpiresAtMs <= nowMs()) {
+    return { ok: false, code: 'expired', message: 'PRF.first cache expired for threshold session' };
+  }
+  const shamirPrimeB64u = normalizeOptionalString(args.transport.shamirPrimeB64u);
+  if (!shamirPrimeB64u) {
+    return {
+      ok: false,
+      code: 'invalid_args',
+      message: 'Missing shamirPrimeB64u for PRF session rehydrate',
+    };
+  }
+
+  try {
+    const runtime = await getShamir3PassRuntime();
+    const clientKeypair = runtime.generateClientKeypair({ shamirPrimeB64u });
+    const clientEncryptedCiphertext = runtime.addClientSeal({
+      ciphertextB64u: sealedPrfFirstB64u,
+      exponentB64u: clientKeypair.clientEncryptExponentB64u,
+      shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
+    });
+
+    const removed = await callPrfSessionSealRoute({
+      operation: 'remove-server-seal',
+      transport: args.transport,
+      thresholdSessionId: sessionId,
+      ciphertext: clientEncryptedCiphertext,
+      keyVersion: normalizeOptionalString(args.keyVersion) || args.transport.keyVersion,
+    });
+    if (!removed.ok) return removed;
+
+    const prfFirstB64u = runtime.removeClientSeal({
+      ciphertextB64u: removed.ciphertext,
+      exponentB64u: clientKeypair.clientDecryptExponentB64u,
+      shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
+    });
+    const policy = resolvePolicyFromServerAndLocal({
+      localRemainingUses,
+      localExpiresAtMs,
+      serverRemainingUses: removed.remainingUses,
+      serverExpiresAtMs: removed.expiresAtMs,
+    });
+    if (!policy.ok) return policy;
+
+    prfFirstSessionCache.set(sessionId, {
+      prfFirstB64u,
+      remainingUses: policy.remainingUses,
+      expiresAtMs: policy.expiresAtMs,
+    });
+    return policy;
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      code: 'internal',
+      message:
+        error instanceof Error ? error.message : String(error || 'Failed to remove server seal'),
+    };
+  }
+}
+
 function postUserConfirmWorkerResponse(
   id: unknown,
   payload: { success: boolean; data?: unknown; error?: string },
@@ -729,6 +1070,66 @@ self.onmessage = (event: MessageEvent) => {
 
   if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_CLEAR_ALL') {
     prfFirstSessionCache.clear();
+    postUserConfirmWorkerResponse(id, { success: true, data: { ok: true } });
+    return;
+  }
+
+  if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_SEAL_AND_PERSIST') {
+    void (async () => {
+      const payload = asRecord(incoming.payload);
+      const sessionId = normalizeSessionId(payload?.sessionId);
+      const transport = parsePrfSessionSealTransport(payload?.transport);
+      if (!sessionId || !transport) {
+        postUserConfirmWorkerResponse(id, {
+          success: true,
+          data: {
+            ok: false,
+            code: 'invalid_args',
+            message: 'Invalid THRESHOLD_PRF_FIRST_CACHE_SEAL_AND_PERSIST payload',
+          } satisfies ErrResult,
+        });
+        return;
+      }
+      const result = await runPrfSessionSealAndPersist({ sessionId, transport });
+      postUserConfirmWorkerResponse(id, { success: true, data: result });
+    })();
+    return;
+  }
+
+  if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_REHYDRATE') {
+    void (async () => {
+      const payload = asRecord(incoming.payload);
+      const sessionId = normalizeSessionId(payload?.sessionId);
+      const sealedPrfFirstB64u = normalizeB64u(payload?.sealedPrfFirstB64u);
+      const expiresAtMs = Math.floor(Number(payload?.expiresAtMs) || 0);
+      const remainingUses = Math.floor(Number(payload?.remainingUses) || 0);
+      const keyVersion = normalizeOptionalString(payload?.keyVersion);
+      const transport = parsePrfSessionSealTransport(payload?.transport);
+      if (!sessionId || !sealedPrfFirstB64u || !transport || expiresAtMs <= 0 || remainingUses <= 0) {
+        postUserConfirmWorkerResponse(id, {
+          success: true,
+          data: {
+            ok: false,
+            code: 'invalid_args',
+            message: 'Invalid THRESHOLD_PRF_FIRST_CACHE_REHYDRATE payload',
+          } satisfies ErrResult,
+        });
+        return;
+      }
+      const result = await runPrfSessionRehydrate({
+        sessionId,
+        sealedPrfFirstB64u,
+        expiresAtMs,
+        remainingUses,
+        ...(keyVersion ? { keyVersion } : {}),
+        transport,
+      });
+      postUserConfirmWorkerResponse(id, { success: true, data: result });
+    })();
+    return;
+  }
+
+  if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_DELETE_PERSISTED') {
     postUserConfirmWorkerResponse(id, { success: true, data: { ok: true } });
     return;
   }

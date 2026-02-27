@@ -197,6 +197,31 @@ Rules:
 - [x] Verify lazy-load gating for sealed runtime.
   - `tests/unit/touchConfirm.workerRouter.unit.test.ts` covers `signingSessionPersistenceMode: 'none'` path with no rehydrate attempt
 
+### Phase 6 — Opt-in Hardening + API Polish
+
+- [x] Require explicit seal material when enabled:
+  - fail fast if `signingSessionPersistenceMode === 'sealed_refresh_v1'` without `signingSessionSeal.shamirPrimeB64u`
+  - reject non-base64url `shamirPrimeB64u`
+  - file:
+    - `client/src/core/config/configBuilder.ts`
+- [x] Strip seal config when mode is disabled:
+  - do not forward `signingSessionSeal` to wallet host when mode is `none`
+  - file:
+    - `client/src/core/WalletIframe/client/router.ts`
+    - `client/src/core/TatchiPasskey/walletIframeCoordinator.ts`
+    - `client/src/core/WalletIframe/TatchiPasskeyIframe.ts`
+    - `client/src/core/WalletIframe/host/context.ts`
+- [x] Hard-block sealed worker paths when mode is disabled:
+  - `sealAndPersist` / `rehydrate` return `not_enabled` without posting worker messages
+  - file:
+    - `client/src/core/signingEngine/touchConfirm/TouchConfirmManager.ts`
+- [x] Add tests for mode-gated behavior + fail-fast config:
+  - `tests/unit/touchConfirm.workerRouter.unit.test.ts`
+  - `tests/unit/walletIframe.signerModeConfigPropagation.unit.test.ts`
+- [x] Scoped validation passes for sealed refresh + opt-in hardening:
+  - `pnpm -C tests exec playwright test ./unit/touchConfirm.workerRouter.unit.test.ts ./unit/walletIframe.signerModeConfigPropagation.unit.test.ts ./e2e/thresholdEcdsa.sealedRefresh.walletIframe.test.ts`
+  - `pnpm -C sdk build`
+
 ## Server Module Status (Already Done)
 
 - [x] Standalone PRF seal module and route wiring.

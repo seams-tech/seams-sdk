@@ -6,6 +6,18 @@ import type { ClientUserData } from '../indexedDB/passkeyClientDB.types';
 import type { SignerMode, WasmSignedDelegate } from './signer-worker';
 import type { RegistrationSignerOptions } from './registrationSignerOptions';
 
+export type SigningSessionPersistenceMode = 'none' | 'sealed_refresh_v1';
+
+export interface SigningSessionSealConfigInput {
+  keyVersion?: string;
+  shamirPrimeB64u?: string;
+}
+
+export interface SigningSessionSealConfig {
+  keyVersion?: string;
+  shamirPrimeB64u?: string;
+}
+
 /**
  * Public SDK configuration overrides accepted by `new TatchiPasskey(config)`.
  *
@@ -43,6 +55,11 @@ import type { RegistrationSignerOptions } from './registrationSignerOptions';
  *   signingSessionDefaults?: {
  *     ttlMs?: number;
  *     remainingUses?: number;
+ *   };
+ *   signingSessionPersistenceMode?: 'none' | 'sealed_refresh_v1';
+ *   signingSessionSeal?: {
+ *     keyVersion?: string;
+ *     shamirPrimeB64u?: string;
  *   };
  *   thresholdEcdsaPresignPool?: {
  *     enabled?: boolean;
@@ -137,6 +154,24 @@ export interface TatchiConfigsInput {
   signerMode?: SignerMode;
   signingSessionDefaults?: TatchiSigningSessionDefaultsInput;
   /**
+   * Warm signing session persistence mode.
+   *
+   * - `none`: no refresh-time persistence (default).
+   * - `sealed_refresh_v1`: sealed refresh persistence via worker + server PRF seal module.
+   */
+  signingSessionPersistenceMode?: SigningSessionPersistenceMode;
+  /**
+   * Optional seal transport hints for `sealed_refresh_v1`.
+   *
+   * - `keyVersion`: preferred server key version for apply/remove routes.
+   * - `shamirPrimeB64u`: shared Shamir prime (base64url-encoded positive bigint).
+   *
+   * Notes:
+   * - Ignored when `signingSessionPersistenceMode !== 'sealed_refresh_v1'`.
+   * - `shamirPrimeB64u` is required when `signingSessionPersistenceMode === 'sealed_refresh_v1'`.
+   */
+  signingSessionSeal?: SigningSessionSealConfigInput;
+  /**
    * Client-side presign pool policy for threshold ECDSA.
    *
    * Controls best-effort background refill behavior only; signing correctness does not depend on refill success.
@@ -205,6 +240,8 @@ export interface TatchiConfigsInput {
  *   signing: {
  *     mode: SignerMode;
  *     sessionDefaults: { ttlMs: number; remainingUses: number };
+ *     sessionPersistenceMode: SigningSessionPersistenceMode;
+ *     sessionSeal: SigningSessionSealConfig;
  *     thresholdEcdsa: { presignPool: ThresholdEcdsaPresignPoolPolicy };
  *     registrationDefaults: RegistrationSignerOptions;
  *   };
@@ -547,6 +584,8 @@ export interface TatchiThresholdEcdsaConfig {
 export interface TatchiSigningConfig {
   mode: SignerMode;
   sessionDefaults: TatchiSigningSessionDefaults;
+  sessionPersistenceMode: SigningSessionPersistenceMode;
+  sessionSeal: SigningSessionSealConfig;
   thresholdEcdsa: TatchiThresholdEcdsaConfig;
   registrationDefaults: RegistrationSignerOptions;
 }

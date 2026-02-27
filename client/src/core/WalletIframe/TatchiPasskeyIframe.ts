@@ -140,6 +140,11 @@ export class TatchiPasskeyIframe {
 
     this.theme = 'dark';
     this.lastConfirmationConfig = { ...DEFAULT_CONFIRMATION_CONFIG } as ConfirmationConfig;
+    const signingSessionPersistenceMode = this.configs.signing.sessionPersistenceMode;
+    const signingSessionSeal =
+      signingSessionPersistenceMode === 'sealed_refresh_v1'
+        ? this.configs.signing.sessionSeal
+        : undefined;
 
     this.router = new WalletIframeRouter({
       walletOrigin: parsedWalletOrigin.toString(),
@@ -151,6 +156,8 @@ export class TatchiPasskeyIframe {
       signerMode: this.configs.signing.mode,
       chains: this.configs.network.chains,
       relayerAccount: this.configs.network.relayer.accountId,
+      signingSessionPersistenceMode,
+      ...(signingSessionSeal ? { signingSessionSeal } : {}),
       // relayer: configs.network.relayer,
       rpIdOverride: this.configs.wallet.iframe?.rpIdOverride,
       authenticatorOptions: cloneAuthenticatorOptions(

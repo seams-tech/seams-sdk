@@ -156,6 +156,8 @@ export interface WalletIframeRouterOptions {
   chains?: readonly TatchiChainConfig[];
   relayerAccount?: string;
   relayer?: TatchiConfigsInput['relayer'];
+  signingSessionPersistenceMode?: TatchiConfigsInput['signingSessionPersistenceMode'];
+  signingSessionSeal?: TatchiConfigsInput['signingSessionSeal'];
   rpIdOverride?: string;
   authenticatorOptions?: AuthenticatorOptions;
   // SDK asset base path for embedded bundles when mounting same‑origin via srcdoc
@@ -458,6 +460,11 @@ export class WalletIframeRouter {
         '[WalletIframeRouter] init: %s',
         this.state.ready ? 'connected' : 'deferred (autoMount=false)',
       );
+      const signingSessionPersistenceMode = this.opts.signingSessionPersistenceMode;
+      const signingSessionSeal =
+        signingSessionPersistenceMode === 'sealed_refresh_v1'
+          ? this.opts.signingSessionSeal
+          : undefined;
       await this.post({
         type: 'PM_SET_CONFIG',
         payload: {
@@ -465,6 +472,8 @@ export class WalletIframeRouter {
           chains: this.opts.chains,
           relayerAccount: this.opts.relayerAccount,
           relayer: this.opts.relayer,
+          signingSessionPersistenceMode,
+          ...(signingSessionSeal ? { signingSessionSeal } : {}),
           iframeWallet: this.opts.rpIdOverride
             ? { rpIdOverride: this.opts.rpIdOverride }
             : undefined,

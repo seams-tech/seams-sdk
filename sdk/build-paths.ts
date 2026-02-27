@@ -18,6 +18,7 @@ export const BUILD_PATHS = {
     WASM_SIGNER: '../wasm/near_signer',
     WASM_ETH_SIGNER: '../wasm/eth_signer',
     WASM_TEMPO_SIGNER: '../wasm/tempo_signer',
+    WASM_SHAMIR3PASS_RUNTIME: '../wasm/shamir3pass_runtime',
     CRITICAL_DIRS: [
       '../client/src/core',
       '../client/src/react',
@@ -27,6 +28,7 @@ export const BUILD_PATHS = {
       '../wasm/near_signer',
       '../wasm/eth_signer',
       '../wasm/tempo_signer',
+      '../wasm/shamir3pass_runtime',
     ],
   },
 

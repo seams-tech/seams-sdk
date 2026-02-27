@@ -113,6 +113,8 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigsReadonly = {
       ttlMs: 24 * 60 * 60 * 1000, // 1 day
       remainingUses: 10_000,
     },
+    sessionPersistenceMode: 'none',
+    sessionSeal: {},
     thresholdEcdsa: {
       presignPool: DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY,
     },

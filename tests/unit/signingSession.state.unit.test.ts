@@ -130,8 +130,10 @@ test.describe('signing session state', () => {
       async ({ paths }) => {
         const mod = await import(paths.signingSessionState);
 
+        let canonicalSessionId: string | null = null;
         const deps = {
           activeSigningSessionIds: new Map<string, string>([['alice.testnet', 'session-1']]),
+          resolveCanonicalSigningSessionId: (_nearAccountId: string) => canonicalSessionId,
           touchConfirm: {
             peekPrfFirstForThresholdSession: async ({ sessionId }: { sessionId: string }) => {
               if (sessionId === 'session-active') {
@@ -166,7 +168,11 @@ test.describe('signing session state', () => {
         deps.activeSigningSessionIds.clear();
         const absent = await mod.getWarmSigningSessionStatus(deps as any, 'alice.testnet');
 
-        return { active, expired, exhausted, notFound, absent };
+        canonicalSessionId = 'session-active';
+        const restored = await mod.getWarmSigningSessionStatus(deps as any, 'alice.testnet');
+        const restoredPointer = deps.activeSigningSessionIds.get('alice.testnet') || null;
+
+        return { active, expired, exhausted, notFound, absent, restored, restoredPointer };
       },
       { paths: IMPORT_PATHS },
     );
@@ -190,6 +196,13 @@ test.describe('signing session state', () => {
       status: 'not_found',
     });
     expect(result.absent).toBeNull();
+    expect(result.restored).toEqual({
+      sessionId: 'session-active',
+      status: 'active',
+      remainingUses: 5,
+      expiresAtMs: 999_999,
+    });
+    expect(result.restoredPointer).toBe('session-active');
   });
 
   test('registration uses high-level signing session hydrate API', () => {

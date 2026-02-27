@@ -8,12 +8,26 @@
 import type {
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
+  ThresholdPrfSessionSealTransportInput,
+  ThresholdPrfFirstCacheDeletePersistedPayload,
+  ThresholdPrfFirstCacheRehydratePayload,
+  ThresholdPrfFirstCacheRehydrateResult,
+  ThresholdPrfFirstCacheSealAndPersistPayload,
+  ThresholdPrfFirstCacheSealAndPersistResult,
   TouchConfirmManagerConfig,
   UserConfirmWorkerMessage,
   UserConfirmWorkerResponse,
 } from '../../types/secure-confirm-worker';
 import { BUILD_PATHS } from '../../../../../sdk/build-paths';
 import { resolveWorkerUrl } from '../../walletRuntimePaths';
+import {
+  clearAllPrfSessionSealedRecords,
+  deletePrfSessionSealedRecord,
+  readPrfSessionSealedRecord,
+  updatePrfSessionSealedRecordPolicy,
+  writePrfSessionSealedRecord,
+} from '../api/session/prfSessionSealedStore';
+import { getStoredThresholdEcdsaSessionRecordByThresholdSessionId } from '../api/thresholdLifecycle/thresholdEcdsaSessionStore';
 import {
   UserConfirmMessageType,
   type UserConfirmDecision,
@@ -63,6 +77,36 @@ function parseThresholdPrfCachePeekResult(data: unknown): ThresholdPrfCachePeekR
   if (typeof data.remainingUses !== 'number' || typeof data.expiresAtMs !== 'number') return null;
   return {
     ok: true,
+    remainingUses: data.remainingUses,
+    expiresAtMs: data.expiresAtMs,
+  };
+}
+
+function parseThresholdPrfCacheSealAndPersistResult(
+  data: unknown,
+): ThresholdPrfFirstCacheSealAndPersistResult | null {
+  if (!isObjectRecord(data) || typeof data.ok !== 'boolean') return null;
+  if (!data.ok) {
+    return {
+      ok: false,
+      code: typeof data.code === 'string' ? data.code : 'worker_error',
+      message:
+        typeof data.message === 'string' ? data.message : 'PRF.first seal and persist failed',
+    };
+  }
+  if (
+    typeof data.sealedPrfFirstB64u !== 'string' ||
+    typeof data.remainingUses !== 'number' ||
+    typeof data.expiresAtMs !== 'number'
+  ) {
+    return null;
+  }
+  return {
+    ok: true,
+    sealedPrfFirstB64u: data.sealedPrfFirstB64u,
+    ...(typeof data.keyVersion === 'string' && data.keyVersion.trim()
+      ? { keyVersion: data.keyVersion.trim() }
+      : {}),
     remainingUses: data.remainingUses,
     expiresAtMs: data.expiresAtMs,
   };
@@ -163,6 +207,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       workerUrl: BUILD_PATHS.RUNTIME.TOUCH_CONFIRM_WORKER,
       workerTimeout: 60_000,
       debug: false,
+      signingSessionPersistenceMode: 'none',
       ...config,
     };
     this.context = {
@@ -173,6 +218,123 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
   /** Context used by touchConfirm confirmation flows. */
   getContext(): TouchConfirmContext {
     return this.context;
+  }
+
+  private isSealedRefreshModeEnabled(): boolean {
+    return this.config.signingSessionPersistenceMode === 'sealed_refresh_v1';
+  }
+
+  private getSealedRefreshNotEnabledError(context: string): {
+    ok: false;
+    code: string;
+    message: string;
+  } {
+    return {
+      ok: false,
+      code: 'not_enabled',
+      message: `[TouchConfirm] ${context} requires signingSessionPersistenceMode="sealed_refresh_v1"`,
+    };
+  }
+
+  private resolveSealTransportInput(
+    thresholdSessionIdRaw: string,
+  ): ThresholdPrfSessionSealTransportInput | null {
+    const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
+    if (!thresholdSessionId) return null;
+    const record = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
+    if (!record) return null;
+    const relayerUrl = String(record.relayerUrl || '').trim();
+    if (!relayerUrl) return null;
+    const thresholdSessionJwt = String(record.thresholdSessionJwt || '').trim();
+    const keyVersion = String(this.config.prfSessionSealKeyVersion || '').trim();
+    const shamirPrimeB64u = String(this.config.prfSessionSealShamirPrimeB64u || '').trim();
+    return {
+      relayerUrl,
+      ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+      ...(keyVersion ? { keyVersion } : {}),
+      ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
+    };
+  }
+
+  private async ensureSealedRecordPersistedBestEffort(
+    thresholdSessionIdRaw: string,
+  ): Promise<void> {
+    if (!this.isSealedRefreshModeEnabled()) return;
+    const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
+    if (!thresholdSessionId) return;
+    const existingRecord = readPrfSessionSealedRecord(thresholdSessionId);
+    if (existingRecord) return;
+    const transport = this.resolveSealTransportInput(thresholdSessionId);
+    if (!transport) return;
+    if (!transport.shamirPrimeB64u) return;
+
+    const sealed = await this.sealAndPersistPrfFirstForThresholdSession({
+      sessionId: thresholdSessionId,
+      transport,
+    });
+    if (!sealed.ok) return;
+    writePrfSessionSealedRecord({
+      thresholdSessionId,
+      sealedPrfFirstB64u: sealed.sealedPrfFirstB64u,
+      keyVersion: sealed.keyVersion,
+      expiresAtMs: sealed.expiresAtMs,
+      remainingUses: sealed.remainingUses,
+      updatedAtMs: Date.now(),
+    });
+  }
+
+  private async tryRehydrateFromSealedRecord(
+    thresholdSessionIdRaw: string,
+  ): Promise<ThresholdPrfCachePeekResult | null> {
+    if (!this.isSealedRefreshModeEnabled()) return null;
+    const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
+    if (!thresholdSessionId) return null;
+
+    const sealedRecord = readPrfSessionSealedRecord(thresholdSessionId);
+    if (!sealedRecord) return null;
+    if (sealedRecord.remainingUses <= 0 || Date.now() >= sealedRecord.expiresAtMs) {
+      deletePrfSessionSealedRecord(thresholdSessionId);
+      return { ok: false, code: 'expired', message: 'PRF.first cache expired for threshold session' };
+    }
+
+    const transport = this.resolveSealTransportInput(thresholdSessionId);
+    if (!transport) return null;
+    if (!transport.shamirPrimeB64u) return null;
+
+    const rehydrated = await this.rehydratePrfFirstForThresholdSession({
+      sessionId: thresholdSessionId,
+      sealedPrfFirstB64u: sealedRecord.sealedPrfFirstB64u,
+      keyVersion: sealedRecord.keyVersion,
+      expiresAtMs: sealedRecord.expiresAtMs,
+      remainingUses: sealedRecord.remainingUses,
+      transport,
+    });
+    if (!rehydrated.ok) {
+      deletePrfSessionSealedRecord(thresholdSessionId);
+      return { ok: false, code: rehydrated.code, message: rehydrated.message };
+    }
+
+    updatePrfSessionSealedRecordPolicy({
+      thresholdSessionId,
+      expiresAtMs: rehydrated.expiresAtMs,
+      remainingUses: rehydrated.remainingUses,
+      updatedAtMs: Date.now(),
+    });
+
+    const rehydratedPeek = await this.sendMessage({
+      type: 'THRESHOLD_PRF_FIRST_CACHE_PEEK',
+      id: this.generateMessageId(),
+      payload: { sessionId: thresholdSessionId },
+    });
+    const parsed = parseThresholdPrfCachePeekResult(rehydratedPeek?.data);
+    if (rehydratedPeek?.success !== true || !parsed) {
+      return {
+        ok: false,
+        code: 'worker_error',
+        message: String(rehydratedPeek?.error || 'PRF.first cache peek failed after rehydrate'),
+      };
+    }
+    return parsed;
   }
 
   async putPrfFirstForThresholdSession(args: {
@@ -190,6 +352,53 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     if (!res?.success) {
       throw new Error(String(res?.error || 'Failed to cache PRF.first for threshold session'));
     }
+    await this.ensureSealedRecordPersistedBestEffort(args.sessionId);
+  }
+
+  async sealAndPersistPrfFirstForThresholdSession(
+    args: ThresholdPrfFirstCacheSealAndPersistPayload,
+  ): Promise<ThresholdPrfFirstCacheSealAndPersistResult> {
+    if (!this.isSealedRefreshModeEnabled()) {
+      return this.getSealedRefreshNotEnabledError('PRF.first seal and persist');
+    }
+    await this.ensureWorkerReady(false);
+    const res = await this.sendMessage({
+      type: 'THRESHOLD_PRF_FIRST_CACHE_SEAL_AND_PERSIST',
+      id: this.generateMessageId(),
+      payload: args,
+    });
+    const parsed = parseThresholdPrfCacheSealAndPersistResult(res?.data);
+    if (res?.success !== true || !parsed) {
+      return {
+        ok: false,
+        code: 'worker_error',
+        message: String(res?.error || 'PRF.first seal and persist failed'),
+      };
+    }
+    return parsed;
+  }
+
+  async rehydratePrfFirstForThresholdSession(
+    args: ThresholdPrfFirstCacheRehydratePayload,
+  ): Promise<ThresholdPrfFirstCacheRehydrateResult> {
+    if (!this.isSealedRefreshModeEnabled()) {
+      return this.getSealedRefreshNotEnabledError('PRF.first rehydrate');
+    }
+    await this.ensureWorkerReady(false);
+    const res = await this.sendMessage({
+      type: 'THRESHOLD_PRF_FIRST_CACHE_REHYDRATE',
+      id: this.generateMessageId(),
+      payload: args,
+    });
+    const parsed = parseThresholdPrfCachePeekResult(res?.data);
+    if (res?.success !== true || !parsed) {
+      return {
+        ok: false,
+        code: 'worker_error',
+        message: String(res?.error || 'PRF.first rehydrate failed'),
+      };
+    }
+    return parsed;
   }
 
   async peekPrfFirstForThresholdSession(args: {
@@ -208,6 +417,24 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         code: 'worker_error',
         message: String(res?.error || 'PRF.first cache peek failed'),
       };
+    }
+    if (parsed.ok) {
+      void this.ensureSealedRecordPersistedBestEffort(args.sessionId);
+      return parsed;
+    }
+    if (parsed.code !== 'not_found') {
+      if (parsed.code === 'expired' || parsed.code === 'exhausted') {
+        deletePrfSessionSealedRecord(args.sessionId);
+      }
+      return parsed;
+    }
+
+    const rehydrated = await this.tryRehydrateFromSealedRecord(args.sessionId);
+    if (rehydrated) {
+      if (!rehydrated.ok && (rehydrated.code === 'expired' || rehydrated.code === 'exhausted')) {
+        deletePrfSessionSealedRecord(args.sessionId);
+      }
+      return rehydrated;
     }
     return parsed;
   }
@@ -230,6 +457,24 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         message: String(res?.error || 'PRF.first cache dispense failed'),
       };
     }
+    if (parsed.ok) {
+      if (parsed.remainingUses <= 0 || Date.now() >= parsed.expiresAtMs) {
+        deletePrfSessionSealedRecord(args.sessionId);
+      } else {
+        updatePrfSessionSealedRecordPolicy({
+          thresholdSessionId: args.sessionId,
+          expiresAtMs: parsed.expiresAtMs,
+          remainingUses: parsed.remainingUses,
+          updatedAtMs: Date.now(),
+        });
+      }
+    } else if (
+      parsed.code === 'expired' ||
+      parsed.code === 'exhausted' ||
+      parsed.code === 'not_found'
+    ) {
+      deletePrfSessionSealedRecord(args.sessionId);
+    }
     return parsed;
   }
 
@@ -245,6 +490,34 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         String(res?.error || 'Failed to clear PRF.first cache for threshold session'),
       );
     }
+    deletePrfSessionSealedRecord(args.sessionId);
+  }
+
+  async deletePersistedPrfFirstForThresholdSession(
+    args: ThresholdPrfFirstCacheDeletePersistedPayload,
+  ): Promise<void> {
+    if (!this.isSealedRefreshModeEnabled()) {
+      deletePrfSessionSealedRecord(args.sessionId);
+      return;
+    }
+    await this.ensureWorkerReady(false);
+    const res = await this.sendMessage({
+      type: 'THRESHOLD_PRF_FIRST_CACHE_DELETE_PERSISTED',
+      id: this.generateMessageId(),
+      payload: args,
+    });
+    if (!res?.success) {
+      throw new Error(String(res?.error || 'Failed to delete persisted PRF.first session seal'));
+    }
+    const data = isObjectRecord(res.data) ? res.data : null;
+    if (data && data.ok === false) {
+      const message =
+        typeof data.message === 'string'
+          ? data.message
+          : 'Failed to delete persisted PRF.first session seal';
+      throw new Error(message);
+    }
+    deletePrfSessionSealedRecord(args.sessionId);
   }
 
   async clearAllPrfFirstForThresholdSessions(): Promise<void> {
@@ -257,6 +530,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     if (!res?.success) {
       throw new Error(String(res?.error || 'Failed to clear all PRF.first cache entries'));
     }
+    clearAllPrfSessionSealedRecords();
   }
 
   async requestUserConfirmation(

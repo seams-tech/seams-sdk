@@ -35,6 +35,8 @@ wasm/near_signer/pkg
 wasm/near_signer/target
 wasm/tempo_signer/pkg
 wasm/tempo_signer/target
+wasm/shamir3pass_runtime/pkg
+wasm/shamir3pass_runtime/target
 crates/*/target
 
 # Local tooling caches

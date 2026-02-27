@@ -358,3 +358,24 @@ export function clearAllThresholdEcdsaSessionRecords(deps: ThresholdEcdsaSession
     clearAllStoredRecords(storage);
   }
 }
+
+export function getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
+  thresholdSessionIdRaw: string,
+): ThresholdEcdsaSessionRecord | null {
+  const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
+  if (!thresholdSessionId) return null;
+  const storage = getSessionStorageSafe();
+  if (!storage) return null;
+  const accountIds = readStorageIndex(storage);
+  for (const accountIdRaw of accountIds) {
+    try {
+      const nearAccountId = toAccountId(accountIdRaw);
+      const record = readStoredRecord(storage, nearAccountId);
+      if (!record) continue;
+      if (String(record.thresholdSessionId || '').trim() === thresholdSessionId) {
+        return record;
+      }
+    } catch {}
+  }
+  return null;
+}

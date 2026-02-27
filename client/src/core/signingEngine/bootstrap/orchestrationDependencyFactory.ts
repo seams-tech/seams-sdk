@@ -118,11 +118,25 @@ export function createOrchestrationDependencyBundle(
 ): OrchestrationDependencyBundle {
   const nearRpcUrl = resolvePrimaryNearRpcUrl(args.tatchiPasskeyConfigs.network.chains);
   const activeSigningSessionIds = new Map<string, string>();
+  const resolveCanonicalSigningSessionId = (nearAccountId: AccountId | string): string | null => {
+    const chains: Array<'tempo' | 'evm'> = ['tempo', 'evm'];
+    for (const chain of chains) {
+      try {
+        const keyRef = args.getThresholdEcdsaKeyRefForSigning({ nearAccountId, chain });
+        const thresholdSessionId = String(keyRef.thresholdSessionId || '').trim();
+        if (thresholdSessionId) {
+          return thresholdSessionId;
+        }
+      } catch {}
+    }
+    return null;
+  };
   const signingSessionStateDeps: SigningSessionStateDeps = {
     activeSigningSessionIds,
     touchConfirm: args.touchConfirm,
     createSessionId: (prefix: string): string => generateSessionIdValue(prefix),
     signingSessionDefaults: args.tatchiPasskeyConfigs.signing.sessionDefaults,
+    resolveCanonicalSigningSessionId,
   };
   const getOrCreateActiveSigningSessionId = (nearAccountId: AccountId): string =>
     getOrCreateActiveSigningSessionIdValue(signingSessionStateDeps, nearAccountId);

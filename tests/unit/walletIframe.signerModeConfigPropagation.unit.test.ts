@@ -22,6 +22,12 @@ const WALLET_STUB_CAPTURE_SCRIPT = String.raw`
           window.__capturedSignerMode = (data.payload && typeof data.payload === 'object')
             ? data.payload.signerMode
             : undefined;
+          window.__capturedSigningSessionPersistenceMode = (data.payload && typeof data.payload === 'object')
+            ? data.payload.signingSessionPersistenceMode
+            : undefined;
+          window.__capturedSigningSessionSeal = (data.payload && typeof data.payload === 'object')
+            ? data.payload.signingSessionSeal
+            : undefined;
           window.__capturedAppearance = (data.payload && typeof data.payload === 'object')
             ? data.payload.appearance
             : undefined;
@@ -94,6 +100,11 @@ test.describe('Wallet iframe config propagation', () => {
         const pm = new TatchiPasskey({
           relayer: { url: 'http://localhost:3000' },
           signerMode: { mode: 'threshold-signer', behavior: 'fallback' },
+          signingSessionPersistenceMode: 'sealed_refresh_v1',
+          signingSessionSeal: {
+            keyVersion: 'kek-s-2026-02',
+            shamirPrimeB64u: '_____________________________________v___C8',
+          },
           iframeWallet: {
             walletOrigin,
             walletServicePath: '/wallet-service',
@@ -115,7 +126,90 @@ test.describe('Wallet iframe config propagation', () => {
     const capturedSignerMode = await walletFrame!.evaluate(() => {
       return (window as any).__capturedSignerMode ?? null;
     });
+    const capturedSigningSessionPersistenceMode = await walletFrame!.evaluate(() => {
+      return (window as any).__capturedSigningSessionPersistenceMode ?? null;
+    });
+    const capturedSigningSessionSeal = await walletFrame!.evaluate(() => {
+      return (window as any).__capturedSigningSessionSeal ?? null;
+    });
     expect(capturedSignerMode).toEqual({ mode: 'threshold-signer', behavior: 'fallback' });
+    expect(capturedSigningSessionPersistenceMode).toBe('sealed_refresh_v1');
+    expect(capturedSigningSessionSeal).toEqual({
+      keyVersion: 'kek-s-2026-02',
+      shamirPrimeB64u: '_____________________________________v___C8',
+    });
+  });
+
+  test('does not forward signingSessionSeal when sealed refresh mode is disabled', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ walletOrigin }) => {
+        const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+        const { TatchiPasskey } = mod as any;
+
+        const pm = new TatchiPasskey({
+          relayer: { url: 'http://localhost:3000' },
+          signerMode: { mode: 'threshold-signer' },
+          signingSessionPersistenceMode: 'none',
+          signingSessionSeal: {
+            keyVersion: 'should-not-forward',
+            shamirPrimeB64u: '_____________________________________v___C8',
+          },
+          iframeWallet: {
+            walletOrigin,
+            walletServicePath: '/wallet-service',
+            sdkBasePath: '/sdk',
+          },
+        });
+
+        await pm.initWalletIframe();
+      },
+      { walletOrigin: WALLET_ORIGIN },
+    );
+
+    const walletFrame = page.frames().find((frame) => {
+      const url = frame.url();
+      return url.startsWith(WALLET_ORIGIN) && url.includes('/wallet-service');
+    });
+    expect(walletFrame, 'wallet iframe should be mounted').toBeTruthy();
+
+    const capturedSigningSessionPersistenceMode = await walletFrame!.evaluate(() => {
+      return (window as any).__capturedSigningSessionPersistenceMode ?? null;
+    });
+    const capturedSigningSessionSeal = await walletFrame!.evaluate(() => {
+      return (window as any).__capturedSigningSessionSeal ?? null;
+    });
+    expect(capturedSigningSessionPersistenceMode).toBe('none');
+    expect(capturedSigningSessionSeal).toBe(null);
+  });
+
+  test('fails fast when sealed refresh is enabled without shamirPrimeB64u', async ({ page }) => {
+    const result = await page.evaluate(async () => {
+      try {
+        const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+        const { TatchiPasskey } = mod as any;
+        new TatchiPasskey({
+          relayer: { url: 'http://localhost:3000' },
+          signingSessionPersistenceMode: 'sealed_refresh_v1',
+          signingSessionSeal: {
+            keyVersion: 'kek-s-2026-02',
+          },
+        });
+        return { ok: true, error: '' };
+      } catch (error: unknown) {
+        return {
+          ok: false,
+          error: String(
+            error && typeof error === 'object' && 'message' in error
+              ? (error as { message?: unknown }).message
+              : error || 'unknown error',
+          ),
+        };
+      }
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('signingSessionSeal.shamirPrimeB64u');
   });
 
   test('forwards appearance theme/tokens in PM_SET_CONFIG for Lit confirmer theming', async ({

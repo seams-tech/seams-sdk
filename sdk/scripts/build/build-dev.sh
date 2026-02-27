@@ -72,6 +72,16 @@ else
 fi
 popd >/dev/null
 
+print_step "Building WASM shamir3pass runtime (dev)..."
+pushd "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME" >/dev/null
+if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name shamir3pass_runtime --dev --no-opt; then
+  print_success "WASM shamir3pass runtime built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
+else
+  print_error "WASM shamir3pass runtime build failed"
+  exit 1
+fi
+popd >/dev/null
+
 print_step "Optimizing wasm-pack metadata for tree-shaking..."
 if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg"; then
   print_success "WASM package metadata optimized"
@@ -87,6 +97,11 @@ if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOUR
   print_success "Tempo WASM package metadata optimized"
 else
   print_warning "Failed to optimize Tempo WASM package metadata"
+fi
+if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg" 2>/dev/null; then
+  print_success "Shamir3Pass runtime WASM package metadata optimized"
+else
+  print_warning "Failed to optimize Shamir3Pass runtime WASM package metadata"
 fi
 
 print_step "Building TypeScript..."
@@ -137,5 +152,7 @@ if cp "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm" "$BUILD_WOR
 if cp "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm" "$BUILD_WORKERS/near_signer.wasm" 2>/dev/null; then print_success "near_signer.wasm copied"; else print_warning "near_signer.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg/eth_signer_bg.wasm" "$BUILD_WORKERS/eth_signer.wasm" 2>/dev/null; then print_success "eth_signer.wasm copied"; else print_warning "eth_signer.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer_bg.wasm" "$BUILD_WORKERS/tempo_signer.wasm" 2>/dev/null; then print_success "tempo_signer.wasm copied"; else print_warning "tempo_signer.wasm not found"; fi
+if cp "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime.js" "$BUILD_WORKERS/shamir3pass_runtime.js" 2>/dev/null; then print_success "shamir3pass_runtime.js copied"; else print_warning "shamir3pass_runtime.js not found"; fi
+if cp "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime_bg.wasm" "$BUILD_WORKERS/shamir3pass_runtime_bg.wasm" 2>/dev/null; then print_success "shamir3pass_runtime_bg.wasm copied"; else print_warning "shamir3pass_runtime_bg.wasm not found"; fi
 
 print_success "Development build completed successfully!"

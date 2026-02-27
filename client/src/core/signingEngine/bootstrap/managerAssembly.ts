@@ -45,9 +45,20 @@ export function createManagerAssembly(args: {
   const nearExplorerUrl = resolvePrimaryExplorerUrl(chains, 'near');
   const tempoExplorerUrl = resolvePrimaryExplorerUrl(chains, 'tempo');
   const evmExplorerUrl = resolvePrimaryExplorerUrl(chains, 'evm');
+  const isSealedRefreshMode =
+    args.tatchiPasskeyConfigs.signing.sessionPersistenceMode === 'sealed_refresh_v1';
 
   const touchConfirm: TouchConfirmRuntimeBridgePort = createTouchConfirmManager(
-    {},
+    {
+      signingSessionPersistenceMode: args.tatchiPasskeyConfigs.signing.sessionPersistenceMode,
+      ...(isSealedRefreshMode
+        ? {
+            prfSessionSealKeyVersion: args.tatchiPasskeyConfigs.signing.sessionSeal.keyVersion,
+            prfSessionSealShamirPrimeB64u:
+              args.tatchiPasskeyConfigs.signing.sessionSeal.shamirPrimeB64u,
+          }
+        : {}),
+    },
     {
       touchIdPrompt: touchIdPrompt,
       nearClient: args.nearClient,

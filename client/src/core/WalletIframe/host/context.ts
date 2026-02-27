@@ -168,6 +168,12 @@ export function updateThemeBridge(ctx: HostContext): void {
 
 export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload): void {
   const prev = ctx.walletConfigs || ({} as TatchiConfigsInput);
+  const nextSigningSessionPersistenceMode =
+    payload?.signingSessionPersistenceMode ?? prev.signingSessionPersistenceMode;
+  const nextSigningSessionSeal =
+    nextSigningSessionPersistenceMode === 'sealed_refresh_v1'
+      ? payload?.signingSessionSeal ?? prev.signingSessionSeal
+      : undefined;
   const nextChains = Array.isArray(payload?.chains)
     ? payload.chains.map(cloneChainConfig)
     : Array.isArray(prev.chains)
@@ -205,6 +211,8 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
     relayerAccount: payload?.relayerAccount ?? prev.relayerAccount ?? '',
     signerMode: payload?.signerMode ?? prev.signerMode,
     signingSessionDefaults: payload?.signingSessionDefaults ?? prev.signingSessionDefaults,
+    signingSessionPersistenceMode: nextSigningSessionPersistenceMode,
+    ...(nextSigningSessionSeal ? { signingSessionSeal: nextSigningSessionSeal } : {}),
     thresholdEcdsaPresignPool: payload?.thresholdEcdsaPresignPool ?? prev.thresholdEcdsaPresignPool,
     registrationSignerDefaults:
       payload?.registrationSignerDefaults ?? prev.registrationSignerDefaults,

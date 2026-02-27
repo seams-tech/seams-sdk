@@ -33,6 +33,7 @@ handle_error() {
     echo "     - cd ../wasm/near_signer && cargo check"
     echo "     - cd ../wasm/eth_signer && cargo check"
     echo "     - cd ../wasm/tempo_signer && cargo check"
+    echo "     - cd ../wasm/shamir3pass_runtime && cargo check"
     echo "  2. Verify wasm-pack is installed: wasm-pack --version"
     echo "  3. Check for WASM compilation errors in the output above"
     echo "  4. Ensure all Rust dependencies are properly declared"
@@ -121,10 +122,19 @@ echo "Running wasm-pack build..."
 run with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name tempo_signer "${WASM_PACK_PROFILE_ARGS[@]}"
 popd >/dev/null
 
+echo "Building shamir3pass runtime WASM..."
+pushd "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME" >/dev/null
+echo "Running cargo check first..."
+run cargo check
+echo "Running wasm-pack build..."
+run with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name shamir3pass_runtime "${WASM_PACK_PROFILE_ARGS[@]}"
+popd >/dev/null
+
 # 2. Check if wasm-bindgen generated types exist
 SIGNER_TYPES="$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker.d.ts"
 ETH_TYPES="$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg/eth_signer.d.ts"
 TEMPO_TYPES="$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer.d.ts"
+SHAMIR3PASS_TYPES="$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime.d.ts"
 
 if [ ! -f "$SIGNER_TYPES" ]; then
     echo "❌ Signer worker TypeScript definitions not found at $SIGNER_TYPES"
@@ -147,6 +157,13 @@ if [ ! -f "$TEMPO_TYPES" ]; then
     exit 1
 fi
 
+if [ ! -f "$SHAMIR3PASS_TYPES" ]; then
+    echo "❌ Shamir3Pass runtime TypeScript definitions not found at $SHAMIR3PASS_TYPES"
+    echo "This usually means wasm-pack build failed for the Shamir3Pass runtime."
+    echo "Check the output above for compilation errors."
+    exit 1
+fi
+
 echo "✅ TypeScript definitions generated successfully by wasm-bindgen"
 
 # 3. Run type checking to ensure consistency
@@ -165,6 +182,7 @@ echo "Generated files:"
 echo "  - $SIGNER_TYPES (Signer worker types from wasm-bindgen)"
 echo "  - $ETH_TYPES (Eth signer types from wasm-bindgen)"
 echo "  - $TEMPO_TYPES (Tempo signer types from wasm-bindgen)"
+echo "  - $SHAMIR3PASS_TYPES (Shamir3Pass runtime types from wasm-bindgen)"
 echo "  - Validated against existing TypeScript codebase"
 echo ""
 

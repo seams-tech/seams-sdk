@@ -1,5 +1,6 @@
 import { toTrimmedString } from '@shared/utils/validation';
 import type {
+  SigningSessionPersistenceMode,
   TatchiConfigsInput,
   TatchiConfigsReadonly,
   TatchiWalletMode,
@@ -28,6 +29,58 @@ const THRESHOLD_ECDSA_PRESIGN_POOL_LIMITS = {
   maxRefillInFlight: { min: 1, max: 8 } satisfies IntRange,
   refillAttemptTimeoutMs: { min: 5_000, max: 120_000 } satisfies IntRange,
 };
+
+function resolveSigningSessionPersistenceMode(args: {
+  value: unknown;
+  fallback: SigningSessionPersistenceMode;
+}): SigningSessionPersistenceMode {
+  const raw = String(args.value || '')
+    .trim()
+    .toLowerCase();
+  if (!raw) return args.fallback;
+  if (raw === 'none') return 'none';
+  if (raw === 'sealed_refresh_v1') return 'sealed_refresh_v1';
+  throw new Error(
+    `[configPresets] Invalid config: signingSessionPersistenceMode (${raw}); expected "none" or "sealed_refresh_v1"`,
+  );
+}
+
+function isBase64UrlNoPadding(value: string): boolean {
+  return /^[A-Za-z0-9_-]+$/.test(value);
+}
+
+function resolveSigningSessionSeal(args: {
+  mode: SigningSessionPersistenceMode;
+  overrides: TatchiConfigsInput;
+  defaults: TatchiConfigsReadonly;
+}): TatchiConfigsReadonly['signing']['sessionSeal'] {
+  if (args.mode !== 'sealed_refresh_v1') {
+    return {};
+  }
+
+  const keyVersion =
+    toTrimmedString(args.overrides.signingSessionSeal?.keyVersion) ||
+    toTrimmedString(args.defaults.signing.sessionSeal.keyVersion);
+  const shamirPrimeB64u =
+    toTrimmedString(args.overrides.signingSessionSeal?.shamirPrimeB64u) ||
+    toTrimmedString(args.defaults.signing.sessionSeal.shamirPrimeB64u);
+
+  if (!shamirPrimeB64u) {
+    throw new Error(
+      '[configPresets] Missing required config: signingSessionSeal.shamirPrimeB64u when signingSessionPersistenceMode="sealed_refresh_v1"',
+    );
+  }
+  if (!isBase64UrlNoPadding(shamirPrimeB64u)) {
+    throw new Error(
+      '[configPresets] Invalid config: signingSessionSeal.shamirPrimeB64u must be base64url (no padding)',
+    );
+  }
+
+  return {
+    ...(keyVersion ? { keyVersion } : {}),
+    shamirPrimeB64u,
+  };
+}
 
 export function buildConfigsFromDefaults(args: {
   defaults: TatchiConfigsReadonly;
@@ -59,6 +112,15 @@ export function buildConfigsFromDefaults(args: {
   });
 
   const signerMode = resolveSignerMode(overrides.signerMode, defaults.signing.mode);
+  const signingSessionPersistenceMode = resolveSigningSessionPersistenceMode({
+    value: overrides.signingSessionPersistenceMode,
+    fallback: defaults.signing.sessionPersistenceMode,
+  });
+  const signingSessionSeal = resolveSigningSessionSeal({
+    mode: signingSessionPersistenceMode,
+    overrides,
+    defaults,
+  });
   const registrationSignerDefaults = copyRegistrationSignerOptions(
     overrides.registrationSignerDefaults ?? defaults.signing.registrationDefaults,
   );
@@ -171,6 +233,8 @@ export function buildConfigsFromDefaults(args: {
           overrides.signingSessionDefaults?.remainingUses ??
           defaults.signing.sessionDefaults.remainingUses,
       },
+      sessionPersistenceMode: signingSessionPersistenceMode,
+      sessionSeal: signingSessionSeal,
       thresholdEcdsa: {
         presignPool: {
           enabled: resolveBoolean({

@@ -24,6 +24,7 @@ export type SigningSessionStateDeps = {
     ThresholdPrfFirstCacheClearPort;
   createSessionId: (prefix: string) => string;
   signingSessionDefaults: SigningSessionPolicy;
+  resolveCanonicalSigningSessionId?: (nearAccountId: AccountId | string) => string | null;
 };
 
 export type HydrateSigningSessionArgs = SigningSessionCacheEntry & {
@@ -102,6 +103,13 @@ export function getOrCreateActiveSigningSessionId(
   const key = String(toAccountId(nearAccountId));
   const existing = deps.activeSigningSessionIds.get(key);
   if (existing) return existing;
+  if (typeof deps.resolveCanonicalSigningSessionId === 'function') {
+    const canonicalSessionId = String(deps.resolveCanonicalSigningSessionId(nearAccountId) || '').trim();
+    if (canonicalSessionId) {
+      deps.activeSigningSessionIds.set(key, canonicalSessionId);
+      return canonicalSessionId;
+    }
+  }
   const sessionId = deps.createSessionId('signing-session');
   deps.activeSigningSessionIds.set(key, sessionId);
   return sessionId;
@@ -159,7 +167,16 @@ export async function getWarmSigningSessionStatus(
 ): Promise<SigningSessionStatus | null> {
   try {
     const key = String(toAccountId(nearAccountId));
-    const sessionId = deps.activeSigningSessionIds.get(key);
+    let sessionId = deps.activeSigningSessionIds.get(key);
+    if (!sessionId && typeof deps.resolveCanonicalSigningSessionId === 'function') {
+      const canonicalSessionId = String(
+        deps.resolveCanonicalSigningSessionId(nearAccountId) || '',
+      ).trim();
+      if (canonicalSessionId) {
+        deps.activeSigningSessionIds.set(key, canonicalSessionId);
+        sessionId = canonicalSessionId;
+      }
+    }
     if (!sessionId) return null;
 
     const peek = await deps.touchConfirm.peekPrfFirstForThresholdSession({ sessionId });

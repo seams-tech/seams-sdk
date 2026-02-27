@@ -16,6 +16,7 @@ SOURCE_SIGNING_WORKERS="../client/src/core/signingEngine/workerManager/workers"
 SOURCE_WASM_SIGNER="../wasm/near_signer"
 SOURCE_WASM_ETH_SIGNER="../wasm/eth_signer"
 SOURCE_WASM_TEMPO_SIGNER="../wasm/tempo_signer"
+SOURCE_WASM_SHAMIR3PASS_RUNTIME="../wasm/shamir3pass_runtime"
 
 # Critical directories for build freshness checking
 CRITICAL_DIRS=(
@@ -27,6 +28,7 @@ CRITICAL_DIRS=(
     "../wasm/near_signer"
     "../wasm/eth_signer"
     "../wasm/tempo_signer"
+    "../wasm/shamir3pass_runtime"
 )
 
 # Frontend deployment paths (used only for local dev/test copying)
@@ -49,6 +51,8 @@ WORKER_WASM_SIGNER_JS="wasm_signer_worker.js"
 WORKER_WASM_SIGNER_WASM="wasm_signer_worker_bg.wasm"
 WORKER_WASM_ETH_SIGNER_WASM="eth_signer.wasm"
 WORKER_WASM_TEMPO_SIGNER_WASM="tempo_signer.wasm"
+WORKER_SHAMIR3PASS_RUNTIME_JS="shamir3pass_runtime.js"
+WORKER_SHAMIR3PASS_RUNTIME_WASM="shamir3pass_runtime_bg.wasm"
 
 # Critical files to check for build freshness
 CRITICAL_FILES=(

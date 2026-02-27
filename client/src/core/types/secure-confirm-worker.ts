@@ -5,11 +5,15 @@
  * - the UserConfirm bridge (`awaitUserConfirmationV2`) used by confirmTxFlow, and
  * - a small PRF.first cache for threshold warm sessions.
  */
+import type { SigningSessionPersistenceMode } from './tatchi';
 
 export interface TouchConfirmManagerConfig {
   workerUrl?: string;
   workerTimeout?: number;
   debug?: boolean;
+  signingSessionPersistenceMode?: SigningSessionPersistenceMode;
+  prfSessionSealKeyVersion?: string;
+  prfSessionSealShamirPrimeB64u?: string;
 }
 
 export type UserConfirmWorkerMessageType =
@@ -20,7 +24,49 @@ export type UserConfirmWorkerMessageType =
   | 'THRESHOLD_PRF_FIRST_CACHE_PEEK'
   | 'THRESHOLD_PRF_FIRST_CACHE_DISPENSE'
   | 'THRESHOLD_PRF_FIRST_CACHE_CLEAR'
-  | 'THRESHOLD_PRF_FIRST_CACHE_CLEAR_ALL';
+  | 'THRESHOLD_PRF_FIRST_CACHE_CLEAR_ALL'
+  | 'THRESHOLD_PRF_FIRST_CACHE_SEAL_AND_PERSIST'
+  | 'THRESHOLD_PRF_FIRST_CACHE_REHYDRATE'
+  | 'THRESHOLD_PRF_FIRST_CACHE_DELETE_PERSISTED';
+
+export interface ThresholdPrfSessionSealTransportInput {
+  relayerUrl: string;
+  thresholdSessionJwt?: string;
+  keyVersion?: string;
+  shamirPrimeB64u?: string;
+}
+
+export interface ThresholdPrfFirstCacheSealAndPersistPayload {
+  sessionId: string;
+  transport: ThresholdPrfSessionSealTransportInput;
+}
+
+export interface ThresholdPrfFirstCacheRehydratePayload {
+  sessionId: string;
+  sealedPrfFirstB64u: string;
+  expiresAtMs: number;
+  remainingUses: number;
+  keyVersion?: string;
+  transport: ThresholdPrfSessionSealTransportInput;
+}
+
+export interface ThresholdPrfFirstCacheDeletePersistedPayload {
+  sessionId: string;
+}
+
+export type ThresholdPrfFirstCacheSealAndPersistResult =
+  | {
+      ok: true;
+      sealedPrfFirstB64u: string;
+      keyVersion?: string;
+      remainingUses: number;
+      expiresAtMs: number;
+    }
+  | { ok: false; code: string; message: string };
+
+export type ThresholdPrfFirstCacheRehydrateResult =
+  | { ok: true; remainingUses: number; expiresAtMs: number }
+  | { ok: false; code: string; message: string };
 
 export type ExportPrivateKeyScheme = 'ed25519' | 'secp256k1';
 export type ExportKeypairChain = 'near' | 'evm' | 'tempo';

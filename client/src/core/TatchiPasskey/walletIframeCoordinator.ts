@@ -116,6 +116,11 @@ export class WalletIframeCoordinator {
       if (!this.walletIframeInitInFlight) {
         this.walletIframeInitInFlight = (async () => {
           const { WalletIframeRouter } = await import('../WalletIframe/client/router');
+          const signingSessionPersistenceMode = this.configs.signing.sessionPersistenceMode;
+          const signingSessionSeal =
+            signingSessionPersistenceMode === 'sealed_refresh_v1'
+              ? this.configs.signing.sessionSeal
+              : undefined;
           this.iframeRouter = new WalletIframeRouter({
             walletOrigin,
             servicePath: walletIframeConfig?.servicePath || '/wallet-service',
@@ -125,6 +130,8 @@ export class WalletIframeCoordinator {
             chains: this.configs.network.chains,
             relayerAccount: this.configs.network.relayer.accountId,
             relayer: this.configs.network.relayer,
+            signingSessionPersistenceMode,
+            ...(signingSessionSeal ? { signingSessionSeal } : {}),
             rpIdOverride: walletIframeConfig?.rpIdOverride,
             authenticatorOptions: cloneAuthenticatorOptions(
               this.configs.auth.webauthn.authenticatorOptions,

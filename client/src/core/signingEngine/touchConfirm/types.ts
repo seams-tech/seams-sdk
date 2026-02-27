@@ -23,6 +23,11 @@ import type {
 import type {
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
+  ThresholdPrfFirstCacheDeletePersistedPayload,
+  ThresholdPrfFirstCacheRehydratePayload,
+  ThresholdPrfFirstCacheRehydrateResult,
+  ThresholdPrfFirstCacheSealAndPersistPayload,
+  ThresholdPrfFirstCacheSealAndPersistResult,
 } from '@/core/types/secure-confirm-worker';
 
 export type RequestUserConfirmationOptions = {
@@ -91,10 +96,31 @@ export interface ThresholdPrfFirstCacheClearAllPort {
   clearAllPrfFirstForThresholdSessions(): Promise<void>;
 }
 
+export interface ThresholdPrfFirstCacheSealPersistPort {
+  sealAndPersistPrfFirstForThresholdSession(
+    args: ThresholdPrfFirstCacheSealAndPersistPayload,
+  ): Promise<ThresholdPrfFirstCacheSealAndPersistResult>;
+}
+
+export interface ThresholdPrfFirstCacheRehydratePort {
+  rehydratePrfFirstForThresholdSession(
+    args: ThresholdPrfFirstCacheRehydratePayload,
+  ): Promise<ThresholdPrfFirstCacheRehydrateResult>;
+}
+
+export interface ThresholdPrfFirstCacheDeletePersistedPort {
+  deletePersistedPrfFirstForThresholdSession(
+    args: ThresholdPrfFirstCacheDeletePersistedPayload,
+  ): Promise<void>;
+}
+
 export type ThresholdPrfFirstCachePort = ThresholdPrfFirstCacheWriterPort &
   ThresholdPrfFirstCachePeekPort &
   ThresholdPrfFirstCacheDispensePort &
-  ThresholdPrfFirstCacheClearPort;
+  ThresholdPrfFirstCacheClearPort &
+  ThresholdPrfFirstCacheSealPersistPort &
+  ThresholdPrfFirstCacheRehydratePort &
+  ThresholdPrfFirstCacheDeletePersistedPort;
 
 export type TouchConfirmSigningSessionPort = TouchConfirmSigningPort &
   TouchConfirmSecureConfirmationPort &
