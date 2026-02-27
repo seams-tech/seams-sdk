@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { buildCorsOrigins, parseCsvList } from '@server/core/SessionService';
+import { buildCorsOrigins, normalizeCorsOrigin, parseCsvList } from '@server/core/SessionService';
 
 test.describe('CORS origin helpers (server)', () => {
   test('parseCsvList normalizes URLs and dedupes', async () => {
@@ -18,5 +18,23 @@ test.describe('CORS origin helpers (server)', () => {
   test('buildCorsOrigins merges CSV lists', async () => {
     const out = buildCorsOrigins('https://a.com, https://b.com', 'https://a.com/');
     expect(out).toEqual(['https://a.com', 'https://b.com']);
+  });
+
+  test('parseCsvList canonicalizes default ports', async () => {
+    const out = parseCsvList(
+      'https://wallet.example.localhost:443,https://wallet.example.localhost,http://localhost:80',
+    );
+    expect(out).toContain('https://wallet.example.localhost');
+    expect(out).toContain('http://localhost');
+    expect(out).not.toContain('https://wallet.example.localhost:443');
+    expect(out).not.toContain('http://localhost:80');
+  });
+
+  test('normalizeCorsOrigin canonicalizes default ports', async () => {
+    expect(normalizeCorsOrigin('https://wallet.example.localhost:443')).toBe(
+      'https://wallet.example.localhost',
+    );
+    expect(normalizeCorsOrigin('http://localhost:80')).toBe('http://localhost');
+    expect(normalizeCorsOrigin('not-a-url')).toBe(null);
   });
 });

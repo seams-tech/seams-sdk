@@ -1,5 +1,10 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import { normalizeInteger } from '@shared/utils/normalize';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import {
+  normalizeThresholdEcdsaSessionKind,
+  type ThresholdEcdsaSessionKind as EcdsaSessionKind,
+} from './normalization';
 import type {
   SigningSessionStatus,
   ThresholdEcdsaPresignPoolPolicy,
@@ -15,8 +20,6 @@ import {
 import { deriveThresholdSecp256k1ClientShareWasm } from '../../signers/wasm/ethSignerWasm';
 import type { ThresholdPrfCacheDispenseResult } from '../../touchConfirm';
 import type { SignerWorkerManagerContext } from '../../workerManager';
-
-type EcdsaSessionKind = 'jwt' | 'cookie';
 
 const LOGIN_PREFILL_TARGET_DEPTH = 1;
 const LOGIN_PREFILL_TRIGGER_DEPTH = 0;
@@ -73,20 +76,6 @@ export type ThresholdEcdsaLoginPrefillDeps = {
     | ThresholdEcdsaPresignPoolPolicy;
 };
 
-function normalizeSessionKind(value: unknown): EcdsaSessionKind {
-  return String(value || '')
-    .trim()
-    .toLowerCase() === 'cookie'
-    ? 'cookie'
-    : 'jwt';
-}
-
-function normalizeRemainingUses(value: unknown): number | null {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return null;
-  return Math.floor(n);
-}
-
 function isWarmSessionActive(
   status: SigningSessionStatus | null,
 ): status is SigningSessionStatus & { status: 'active'; remainingUses: number } {
@@ -135,7 +124,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
       };
     }
 
-    const sessionKind = normalizeSessionKind(keyRef.thresholdSessionKind);
+    const sessionKind = normalizeThresholdEcdsaSessionKind(keyRef.thresholdSessionKind);
     const thresholdSessionJwt = String(keyRef.thresholdSessionJwt || '').trim();
     if (sessionKind === 'jwt' && !thresholdSessionJwt) {
       return {
@@ -189,7 +178,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
       LOGIN_PREFILL_MIN_REMAINING_USES,
       Math.floor(Number(args.minRemainingUsesBeforePrefill ?? LOGIN_PREFILL_MIN_REMAINING_USES)),
     );
-    const remainingUsesBefore = normalizeRemainingUses(warmStatus.remainingUses);
+    const remainingUsesBefore = normalizeInteger(warmStatus.remainingUses);
     if (remainingUsesBefore == null || remainingUsesBefore < minimumUses) {
       return {
         status: 'skipped',
@@ -257,7 +246,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
         status: 'skipped',
         reason: 'refill_not_scheduled',
         thresholdSessionId,
-        remainingUses: normalizeRemainingUses(dispensed.remainingUses) ?? undefined,
+        remainingUses: normalizeInteger(dispensed.remainingUses) ?? undefined,
         schedule,
       };
     }

@@ -3,6 +3,7 @@ import type {
   ThresholdPrfCachePeekResult,
   ThresholdPrfFirstCachePeekPort,
 } from '@/core/signingEngine/touchConfirm';
+import { normalizeBoundedPositiveInteger } from '@shared/utils/normalize';
 
 export const THRESHOLD_SESSION_MISSING_ERROR =
   '[chains] Missing threshold signingSessionId; reconnect threshold session before signing';
@@ -14,8 +15,10 @@ function toThresholdSessionStatusError(code: string): string {
 }
 
 function normalizeUsesNeeded(usesNeeded?: number): number {
-  if (typeof usesNeeded !== 'number' || !Number.isFinite(usesNeeded)) return 1;
-  return Math.max(1, Math.floor(usesNeeded));
+  return normalizeBoundedPositiveInteger(usesNeeded, {
+    fallback: 1,
+    min: 1,
+  });
 }
 
 function toSessionId(value: unknown): string {

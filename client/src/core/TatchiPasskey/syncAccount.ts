@@ -7,11 +7,12 @@ import { toAccountId } from '../types/accountIds';
 import { redactCredentialExtensionOutputs } from '../signingEngine/signers/webauthn/credentials';
 import type { WebAuthnAllowCredential } from '../signingEngine/signers/webauthn/credentials';
 import { base64UrlDecode } from '@shared/utils/base64';
+import { coerceDeviceNumber } from '@shared/utils/deviceNumber';
 import { errorMessage } from '@shared/utils/errors';
 import { isObject } from '@shared/utils/validation';
 import { IndexedDBManager } from '../indexedDB';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
-import { getLoginSession } from './login';
+import { restoreLocalLoginState } from './restoreLocalLoginState';
 import {
   buildThresholdWarmSessionBootstrapPayload,
   createThresholdWarmSessionPolicyDraft,
@@ -188,10 +189,10 @@ export async function syncAccount(
       throw new Error(`Selected passkey is not registered for account ${String(accountId)}`);
     }
 
-    const deviceNumber = (() => {
-      const n = Number(verifyJson.deviceNumber);
-      return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
-    })();
+    const deviceNumber = coerceDeviceNumber(verifyJson.deviceNumber, {
+      min: 1,
+      fallback: 1,
+    });
     const publicKey = String(verifyJson.publicKey || '').trim();
     if (!publicKey) {
       throw new Error('sync-account/verify returned missing publicKey');
@@ -312,13 +313,12 @@ export async function syncAccount(
       }
     }
 
-    await context.signingEngine.setLastUser(normalizedAccountId, deviceNumber).catch(() => undefined);
-    await context.signingEngine.updateLastLogin(normalizedAccountId).catch(() => undefined);
-    await context.signingEngine
-      .initializeCurrentUser(normalizedAccountId, context.nearClient)
-      .catch(() => undefined);
-    const { login } = await getLoginSession(context, normalizedAccountId);
-    const isLoggedIn = Boolean(login?.isLoggedIn);
+    const restoredLogin = await restoreLocalLoginState({
+      context,
+      nearAccountId: normalizedAccountId,
+      deviceNumber,
+    });
+    const isLoggedIn = restoredLogin.isLoggedIn;
 
     emit({
       step: 5,

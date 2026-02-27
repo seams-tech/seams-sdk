@@ -204,6 +204,9 @@ jobs:
       - name: Run threshold signing core suites
         run: pnpm test:threshold-core
 
+      - name: Run console Postgres isolation suites
+        run: pnpm -C tests test:relayer:console-postgres
+
       - name: Run threshold ECDSA benchmark SLO gates
         env:
           # CI VMs have noisier CPU scheduling than local; keep guardrails but avoid flakiness.

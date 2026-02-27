@@ -1,4 +1,4 @@
-import { buildCorsOrigins } from '../../core/SessionService';
+import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService';
 import type { RelayRouterOptions } from '../relay';
 
 export function json(
@@ -45,10 +45,11 @@ export function withCors(headers: Headers, opts?: RelayRouterOptions, request?: 
     allowedOrigin = '*';
     headers.set('Access-Control-Allow-Origin', '*');
   } else if (Array.isArray(normalized)) {
-    const origin = request?.headers.get('Origin') || '';
-    if (origin && normalized.includes(origin)) {
-      allowedOrigin = origin;
-      headers.set('Access-Control-Allow-Origin', origin);
+    const originRaw = String(request?.headers.get('Origin') || '').trim();
+    const originNormalized = normalizeCorsOrigin(originRaw);
+    if (originRaw && originNormalized && normalized.includes(originNormalized)) {
+      allowedOrigin = originRaw;
+      headers.set('Access-Control-Allow-Origin', originRaw);
       headers.append('Vary', 'Origin');
     }
   }

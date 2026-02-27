@@ -13,6 +13,7 @@ import type {
   WebAuthnRegistrationCredential,
 } from '@/core/types/webauthn';
 import { computeThresholdEd25519KeygenIntentDigest } from '@/utils/intentDigest';
+import { parseDeviceNumber } from '@shared/utils/deviceNumber';
 import {
   activateNearThresholdKeyNoPrompt,
   activateThresholdKeyForChain,
@@ -103,9 +104,9 @@ async function resolveDeviceNumber(args: {
   nearAccountId: AccountId;
   deviceNumber?: number;
 }): Promise<number> {
-  const numeric = Number(args.deviceNumber);
-  if (Number.isSafeInteger(numeric) && numeric >= 1) {
-    return numeric;
+  const parsed = parseDeviceNumber(args.deviceNumber, { min: 1 });
+  if (parsed != null) {
+    return parsed;
   }
   return await getLastLoggedInDeviceNumber(args.nearAccountId, args.indexedDB.clientDB);
 }

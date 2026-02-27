@@ -5,17 +5,17 @@ import type {
   AccountId,
 } from '../types';
 import { THRESHOLD_ED25519_2P_PARTICIPANT_IDS } from '../config/defaultConfigs';
-import { getPrfResultsFromCredential } from '../signingEngine/signers/webauthn/credentials/credentialExtensions';
+import {
+  buildAndCacheEd25519AuthSession,
+  type Ed25519SessionKind,
+} from '../signingEngine/threshold/session/ed25519AuthSession';
+import { getPrfFirstB64uFromCredential } from '../signingEngine/threshold/webauthn';
 import {
   THRESHOLD_SESSION_POLICY_VERSION,
-  buildEd25519SessionPolicy,
   generateThresholdSessionId,
 } from '../signingEngine/threshold/session/sessionPolicy';
-import {
-  makeEd25519AuthSessionCacheKey,
-  putCachedEd25519AuthSession,
-} from '../signingEngine/threshold/session/ed25519AuthSession';
 import type { PasskeyManagerContext } from './index';
+import { resolveThresholdWarmSessionDefaults } from './thresholdWarmSessionDefaults';
 
 export type ThresholdWarmSessionPolicyDraft = {
   sessionId: string;
@@ -54,22 +54,11 @@ function parsePositiveInt(value: unknown): number {
   return Math.floor(n);
 }
 
-function resolveWarmSessionDefaults(context: PasskeyManagerContext): {
-  ttlMs: number;
-  remainingUses: number;
-} | null {
-  if (context.configs?.signing.mode?.mode !== 'threshold-signer') return null;
-  const ttlMs = parsePositiveInt(context.configs?.signing.sessionDefaults?.ttlMs);
-  const remainingUses = parsePositiveInt(context.configs?.signing.sessionDefaults?.remainingUses);
-  if (ttlMs <= 0 || remainingUses <= 0) return null;
-  return { ttlMs, remainingUses };
-}
-
 export function createThresholdWarmSessionPolicyDraft(
   context: PasskeyManagerContext,
   input?: { sessionId?: string; participantIds?: number[] },
 ): ThresholdWarmSessionPolicyDraft | null {
-  const defaults = resolveWarmSessionDefaults(context);
+  const defaults = resolveThresholdWarmSessionDefaults(context);
   if (!defaults) return null;
   const sessionId = String(input?.sessionId || '').trim() || generateThresholdSessionId();
   const participantIds = normalizeThresholdEd25519ParticipantIds(input?.participantIds);
@@ -125,7 +114,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
 }> {
   const sessionKind = String(args.session?.sessionKind || 'jwt')
     .trim()
-    .toLowerCase();
+    .toLowerCase() as Ed25519SessionKind;
   if (sessionKind !== 'jwt') {
     throw new Error('threshold-ed25519 bootstrap sessionKind must be jwt');
   }
@@ -150,7 +139,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     normalizeThresholdEd25519ParticipantIds(args.requestedPolicy.participantIds) ||
     normalizeThresholdEd25519ParticipantIds(args.participantIdsHint) ||
     [...THRESHOLD_ED25519_2P_PARTICIPANT_IDS];
-  const prfFirstB64u = String(getPrfResultsFromCredential(args.credential).first || '').trim();
+  const prfFirstB64u = String(getPrfFirstB64uFromCredential(args.credential) || '').trim();
   if (!prfFirstB64u) {
     throw new Error('Missing PRF.first output from credential for threshold session hydration');
   }
@@ -163,32 +152,17 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     remainingUses,
     setActiveSigningSessionId: args.setActiveSigningSessionId !== false,
   });
-
-  const ttlMsForPolicy = Math.max(1, Math.floor(expiresAtMs - Date.now()));
-  const { policy, policyJson, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
-    nearAccountId: String(args.nearAccountId),
-    rpId: String(args.rpId || '').trim(),
-    relayerKeyId: String(args.relayerKeyId || '').trim(),
-    participantIds,
-    sessionId,
-    ttlMs: ttlMsForPolicy,
-    remainingUses,
-  });
-
-  const cacheKey = makeEd25519AuthSessionCacheKey({
+  await buildAndCacheEd25519AuthSession({
     nearAccountId: String(args.nearAccountId),
     rpId: String(args.rpId || '').trim(),
     relayerUrl: String(args.relayerUrl || '').trim(),
     relayerKeyId: String(args.relayerKeyId || '').trim(),
     participantIds,
-  });
-  putCachedEd25519AuthSession(cacheKey, {
     sessionKind: 'jwt',
-    policy,
-    policyJson,
-    sessionPolicyDigest32,
-    jwt: sessionJwt,
+    sessionId,
     expiresAtMs: Math.floor(expiresAtMs),
+    remainingUses,
+    jwt: sessionJwt,
   });
 
   return {

@@ -98,12 +98,12 @@ Recommended post-export policy:
 
 ### Shared Rust HE Stack
 
-- Create a shared Rust crate for HE primitives (for example `crates/he-core`) with:
+- Create a shared Rust crate for HE primitives (for example `crates/homo-enc-core`) with:
   - HE key generation,
   - encrypt/decrypt for client runtime,
   - add-constant operation primitives,
   - strict serialization/deserialization and domain validation.
-- Build a WASM wrapper package (for example `wasm/he_runtime`) that imports `he-core`.
+- Build a WASM wrapper package (for example `wasm/homo-enc-runtime`) that imports `homo-enc-core`.
 - Use this WASM package from:
   - client secure-confirm worker (full keygen/encrypt/decrypt),
   - server export module (ciphertext validation + add-constant only).
@@ -112,7 +112,7 @@ Recommended post-export policy:
 ### Server Placement
 
 - Implement HE export as a standalone module under threshold export namespace:
-  - `server/src/threshold/export/heKeyExport/`
+  - `server/src/threshold/export/homoEncKeyExport/`
 - Keep this module separate from `prfSessionSeal` and separate from core threshold signing routes.
 - Use the same modular structure style already used in `prfSessionSeal`:
   - `crypto/`
@@ -128,7 +128,7 @@ Recommended post-export policy:
 ### Router + SDK Integration
 
 - Add optional router option in server SDK:
-  - `RelayRouterOptions.heKeyExport?: HeKeyExportRoutesOptions | null`
+  - `RelayRouterOptions.homoEncKeyExport?: HomoEncKeyExportRoutesOptions | null`
 - Register routes conditionally in both router stacks:
   - `server/src/router/express/createRelayRouter.ts`
   - `server/src/router/cloudflare/createCloudflareRouter.ts`
@@ -150,14 +150,14 @@ Recommended post-export policy:
 
 ### Phase B — Rust HE Runtime Foundation
 
-- [ ] Create `crates/he-core` with minimal HE interfaces and deterministic serialization rules.
-- [ ] Add WASM wrapper package (for example `wasm/he_runtime`) for browser/server runtimes.
+- [ ] Create `crates/homo-enc-core` with minimal HE interfaces and deterministic serialization rules.
+- [ ] Add WASM wrapper package (for example `wasm/homo-enc-runtime`) for browser/server runtimes.
 - [ ] Add runtime guards for domain/range/encoding validation.
 - [ ] Add fixture vectors shared by client and server tests.
 
 ### Phase C — Export Server Module
 
-- [ ] Add standalone module at `server/src/threshold/export/heKeyExport/`.
+- [ ] Add standalone module at `server/src/threshold/export/homoEncKeyExport/`.
 - [ ] Implement `init` + `combine` endpoints first; keep finalize client-side.
 - [ ] Add ticket issuance + one-time consume semantics.
 - [ ] Add HE adapter interface with server-safe boundary (`parse/validate/add-const`; no decrypt).
@@ -183,19 +183,19 @@ Recommended post-export policy:
 
 ### Phase 1 — Architecture Freeze
 
-- [ ] Freeze placement: client in secure-confirm worker, server in `threshold/export/heKeyExport`, shared Rust HE crate.
+- [ ] Freeze placement: client in secure-confirm worker, server in `threshold/export/homoEncKeyExport`, shared Rust HE crate.
 - [ ] Freeze route names, payload schema, and ticket lifecycle states.
 - [ ] Freeze Ed25519 export representation (`scalar` vs `seed`) and document non-convertibility constraints.
 
 ### Phase 2 — Shared HE Crate + WASM
 
-- [ ] Implement `crates/he-core` with serialization, domain checks, and add-constant primitives.
-- [ ] Build `wasm/he_runtime` and expose minimal JS bindings.
+- [ ] Implement `crates/homo-enc-core` with serialization, domain checks, and add-constant primitives.
+- [ ] Build `wasm/homo-enc-runtime` and expose minimal JS bindings.
 - [ ] Add baseline cross-runtime test vectors.
 
 ### Phase 3 — Server Module + Routing
 
-- [ ] Scaffold `heKeyExport` module folders and types.
+- [ ] Scaffold `homoEncKeyExport` module folders and types.
 - [ ] Implement `POST /export/init` and `POST /export/combine`.
 - [ ] Wire optional module config into `RelayRouterOptions` and both router implementations.
 - [ ] Add audit/rate-limit/replay protections and KMS-backed per-account share loading.
@@ -216,11 +216,11 @@ Recommended post-export policy:
 
 ## Suggested Touchpoints
 
-- `server/src/threshold/export/heKeyExport/`
+- `server/src/threshold/export/homoEncKeyExport/`
 - `server/src/router/relay.ts`
 - `server/src/router/express/createRelayRouter.ts`
 - `server/src/router/cloudflare/createCloudflareRouter.ts`
 - `client/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts`
 - `client/src/core/types/secure-confirm-worker.ts`
-- `crates/he-core/`
-- `wasm/he_runtime/`
+- `crates/homo-enc-core/`
+- `wasm/homo-enc-runtime/`

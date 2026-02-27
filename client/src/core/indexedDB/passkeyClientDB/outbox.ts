@@ -5,15 +5,11 @@ import type {
   SignerOperationStatus,
   SignerOpOutboxRecord,
 } from '../passkeyClientDB.types';
+import {
+  normalizeIndexedDbAccountAddress as normalizeAccountAddress,
+  normalizeIndexedDbChainIdKey as normalizeChainIdKey,
+} from '../normalization';
 import { SIGNER_OPS_OUTBOX_STATUS_NEXT_ATTEMPT_INDEX } from './schema';
-
-function normalizeChainIdKey(chainIdKey: unknown): string {
-  return toTrimmedString(chainIdKey || '').toLowerCase();
-}
-
-function normalizeAccountAddress(address: unknown): string {
-  return toTrimmedString(address || '').toLowerCase();
-}
 
 export function createSignerOperationId(prefix: string): string {
   return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'

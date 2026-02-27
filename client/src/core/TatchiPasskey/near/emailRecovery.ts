@@ -15,9 +15,10 @@ import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/partici
 import { IndexedDBManager } from '../../indexedDB';
 import { EmailRecoveryPendingStore } from '../../../utils/emailRecovery';
 import { errorMessage } from '@shared/utils/errors';
+import { coerceDeviceNumber } from '@shared/utils/deviceNumber';
 import { isObject } from '@shared/utils/validation';
 import { prepareRecoveryEmails, getLocalRecoveryEmails } from '../../../utils/emailRecovery';
-import { getLoginSession } from '../login';
+import { restoreLocalLoginState } from '../restoreLocalLoginState';
 import {
   buildThresholdWarmSessionBootstrapPayload,
   createThresholdWarmSessionPolicyDraft,
@@ -478,9 +479,10 @@ export class EmailRecoveryDomain {
         throw new Error('Timed out waiting for AddKey');
       }
 
-      const deviceNumber = Number.isFinite(Number(pending?.deviceNumber))
-        ? Math.floor(Number(pending?.deviceNumber))
-        : 1;
+      const deviceNumber = coerceDeviceNumber(pending?.deviceNumber, {
+        min: 1,
+        fallback: 1,
+      });
       await this.tryAutoLoginAfterRecovery({ accountId, deviceNumber });
 
       this.emitEmailRecoveryEvent({
@@ -516,9 +518,10 @@ export class EmailRecoveryDomain {
     const context = this.getContext();
     try {
       const nearAccountId = toAccountId(String(args.accountId));
-      const deviceNumber = Number.isFinite(Number(args.deviceNumber))
-        ? Math.max(1, Math.floor(Number(args.deviceNumber)))
-        : 1;
+      const deviceNumber = coerceDeviceNumber(args.deviceNumber, {
+        min: 1,
+        fallback: 1,
+      });
 
       this.emitEmailRecoveryEvent({
         step: 5,
@@ -527,13 +530,12 @@ export class EmailRecoveryDomain {
         message: 'Restoring local session...',
       });
 
-      await context.signingEngine.setLastUser(nearAccountId, deviceNumber).catch(() => undefined);
-      await context.signingEngine.updateLastLogin(nearAccountId).catch(() => undefined);
-      await context.signingEngine
-        .initializeCurrentUser(nearAccountId, context.nearClient)
-        .catch(() => undefined);
-      const { login } = await getLoginSession(context, nearAccountId);
-      if (!login?.isLoggedIn) {
+      const restored = await restoreLocalLoginState({
+        context,
+        nearAccountId,
+        deviceNumber,
+      });
+      if (!restored.isLoggedIn) {
         throw new Error(`Auto-login did not mark ${String(nearAccountId)} as logged in`);
       }
 

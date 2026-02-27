@@ -19,6 +19,7 @@ import { TransactionContext } from '../../types/rpc';
 import { DEFAULT_WAIT_STATUS } from '../../types/rpc';
 import { redactCredentialExtensionOutputs } from '../../signingEngine/signers/webauthn/credentials';
 import { errorMessage } from '@shared/utils/errors';
+import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { ensureEd25519Prefix, isObject } from '@shared/utils/validation';
 import { ActionType } from '../../types/actions';
 import { resolvePrimaryNearRpcUrl } from '../../config/chains';
@@ -591,7 +592,7 @@ export async function thresholdEcdsaBootstrap(
       throw new Error('Missing sessionPolicy');
     }
 
-    const sessionKind = args.sessionKind === 'cookie' ? 'cookie' : 'jwt';
+    const sessionKind = normalizeJwtCookieSessionKind(args.sessionKind);
     const authorizationJwt = String(args.authorizationJwt || '').trim();
     if (!args.webauthnAuthentication && !authorizationJwt) {
       throw new Error('Missing bootstrap authentication (WebAuthn or authorizationJwt)');

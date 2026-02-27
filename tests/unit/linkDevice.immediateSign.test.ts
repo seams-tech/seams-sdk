@@ -29,7 +29,7 @@ test.describe('Link device → immediate sign (regression)', () => {
           const nearAccountId = 'linkdev1.w3a-v1.testnet';
           const deviceNumber = 2;
           const profileId = `legacy-near:${nearAccountId.toLowerCase()}`;
-          const chainId = nearAccountId.toLowerCase().endsWith('.testnet')
+          const chainIdKey = nearAccountId.toLowerCase().endsWith('.testnet')
             ? 'near:testnet'
             : 'near:mainnet';
 
@@ -121,7 +121,7 @@ test.describe('Link device → immediate sign (regression)', () => {
           await nearKeysDB.storeKeyMaterial({
             profileId,
             deviceNumber,
-            chainId,
+            chainIdKey,
             keyKind: 'local_sk_encrypted_v1',
             algorithm: 'ed25519',
             publicKey: 'ed25519:pk-device2',
@@ -139,7 +139,7 @@ test.describe('Link device → immediate sign (regression)', () => {
           const key = await nearKeysDB.getKeyMaterial(
             profileId,
             deviceFromHelper,
-            chainId,
+            chainIdKey,
             'local_sk_encrypted_v1',
           );
           const authenticators = await clientDB.listNearAuthenticators(nearAccountId);
@@ -156,13 +156,13 @@ test.describe('Link device → immediate sign (regression)', () => {
                   .trim()
                   .toLowerCase();
                 const localProfileId = `legacy-near:${normalizedAccountId}`;
-                const localChainId = normalizedAccountId.endsWith('.testnet')
+                const localChainIdKey = normalizedAccountId.endsWith('.testnet')
                   ? 'near:testnet'
                   : 'near:mainnet';
                 const row = await nearKeysDB.getKeyMaterial(
                   localProfileId,
                   deviceNum,
-                  localChainId,
+                  localChainIdKey,
                   'local_sk_encrypted_v1',
                 );
                 if (!row) return null;
@@ -283,7 +283,7 @@ test.describe('Link device → immediate sign (regression)', () => {
           const nearAccountId = 'linkdev2.w3a-v1.testnet';
           const deviceNumber: any = '2';
           const profileId = `legacy-near:${nearAccountId.toLowerCase()}`;
-          const chainId = nearAccountId.toLowerCase().endsWith('.testnet')
+          const chainIdKey = nearAccountId.toLowerCase().endsWith('.testnet')
             ? 'near:testnet'
             : 'near:mainnet';
 
@@ -374,7 +374,7 @@ test.describe('Link device → immediate sign (regression)', () => {
           await nearKeysDB.storeKeyMaterial({
             profileId,
             deviceNumber: 2,
-            chainId,
+            chainIdKey,
             keyKind: 'local_sk_encrypted_v1',
             algorithm: 'ed25519',
             publicKey: 'ed25519:pk-device2',
@@ -392,7 +392,7 @@ test.describe('Link device → immediate sign (regression)', () => {
           const key = await nearKeysDB.getKeyMaterial(
             profileId,
             deviceFromHelper,
-            chainId,
+            chainIdKey,
             'local_sk_encrypted_v1',
           );
           const authenticators = await clientDB.listNearAuthenticators(nearAccountId);
@@ -409,13 +409,13 @@ test.describe('Link device → immediate sign (regression)', () => {
                   .trim()
                   .toLowerCase();
                 const localProfileId = `legacy-near:${normalizedAccountId}`;
-                const localChainId = normalizedAccountId.endsWith('.testnet')
+                const localChainIdKey = normalizedAccountId.endsWith('.testnet')
                   ? 'near:testnet'
                   : 'near:mainnet';
                 const row = await nearKeysDB.getKeyMaterial(
                   localProfileId,
                   deviceNum,
-                  localChainId,
+                  localChainIdKey,
                   'local_sk_encrypted_v1',
                 );
                 if (!row) return null;

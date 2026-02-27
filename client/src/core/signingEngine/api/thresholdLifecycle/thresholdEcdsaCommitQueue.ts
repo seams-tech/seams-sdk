@@ -1,4 +1,5 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import { normalizeBoundedPositiveInteger } from '@shared/utils/normalize';
 
 export type ThresholdEcdsaCommitQueueErrorCode =
   | 'commit_queue_overflow'
@@ -66,9 +67,10 @@ export function createThresholdEcdsaCommitQueueCancelledError(
 }
 
 function normalizeQueueLimit(value: unknown, fallback: number): number {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(1, Math.floor(n));
+  return normalizeBoundedPositiveInteger(value, {
+    fallback,
+    min: 1,
+  });
 }
 
 function getOrCreateQueueState(

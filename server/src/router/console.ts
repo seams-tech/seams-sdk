@@ -1,6 +1,9 @@
 import type { RouterLogger } from './logger';
 import type { ConsoleBillingService } from '../console/billing';
 import type { ConsoleApiKeyService } from '../console/apiKeys';
+import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
+import type { ConsolePolicyService } from '../console/policies';
+import type { ConsoleWalletService } from '../console/wallets';
 import type { ConsoleWebhookService } from '../console/webhooks';
 
 export type ConsoleRole =
@@ -45,6 +48,12 @@ export interface ConsoleRouterOptions {
   readyCheck?: (() => Promise<void> | void) | null;
   // Optional billing adapter for console billing endpoints.
   billing?: ConsoleBillingService | null;
+  // Optional org/project/environment metadata adapter for console routes.
+  orgProjectEnv?: ConsoleOrgProjectEnvService | null;
+  // Optional policy adapter for console policy lifecycle routes.
+  policies?: ConsolePolicyService | null;
+  // Optional wallet adapter for console wallet list/search/detail routes.
+  wallets?: ConsoleWalletService | null;
   // Optional API key adapter for console API key management endpoints.
   apiKeys?: ConsoleApiKeyService | null;
   // Optional webhook adapter for console webhook management endpoints.

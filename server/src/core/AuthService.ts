@@ -9,6 +9,7 @@ import { toPublicKeyStringFromSecretKey } from './nearKeys';
 import { createAuthServiceConfig } from './config';
 import { formatGasToTGas, formatYoctoToNear } from './utils';
 import { parseContractExecutionError } from './errors';
+import { coerceDeviceNumber } from '@shared/utils/deviceNumber';
 import { isValidAccountId, toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   coerceThresholdEd25519ShareMode,
@@ -143,12 +144,6 @@ function isHostWithinRpId(host: string, rpId: string): boolean {
   return h === r || h.endsWith(`.${r}`);
 }
 
-function coerceDeviceNumber(input: unknown, fallback: number): number {
-  const n = typeof input === 'number' ? input : Number(input);
-  if (!Number.isFinite(n) || n < 1) return fallback;
-  return Math.floor(n);
-}
-
 function parseCacheControlMaxAgeSec(cacheControl: string | null): number | null {
   const s = String(cacheControl || '').trim();
   if (!s) return null;
@@ -157,6 +152,80 @@ function parseCacheControlMaxAgeSec(cacheControl: string | null): number | null 
   const n = Number(m[1]);
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.floor(n);
+}
+
+type ThresholdEd25519BootstrapInput = {
+  clientVerifyingShareB64u: string;
+  sessionPolicy: Record<string, unknown> | null;
+  sessionKind: string;
+};
+
+type ThresholdEd25519BootstrapSession = {
+  sessionKind: 'jwt' | 'cookie';
+  sessionId: string;
+  expiresAtMs: number;
+  expiresAt?: string;
+  participantIds?: number[];
+  remainingUses?: number;
+  jwt?: string;
+};
+
+function parseThresholdEd25519BootstrapInput(raw: unknown): ThresholdEd25519BootstrapInput {
+  const body = isObject(raw) ? (raw as Record<string, unknown>) : null;
+  return {
+    clientVerifyingShareB64u: String(body?.client_verifying_share_b64u || '').trim(),
+    sessionPolicy: isObject(body?.session_policy) ? (body!.session_policy as Record<string, unknown>) : null,
+    sessionKind: String(body?.session_kind || '')
+      .trim()
+      .toLowerCase(),
+  };
+}
+
+function validateThresholdEd25519SessionPolicyBindings(args: {
+  requestedSessionPolicy: Record<string, unknown>;
+  expectedRelayerKeyId: string;
+  expectedNearAccountId: string;
+  expectedRpId: string;
+}): string | null {
+  const requestedPolicyRelayerKeyId = String(args.requestedSessionPolicy.relayerKeyId || '').trim();
+  if (requestedPolicyRelayerKeyId && requestedPolicyRelayerKeyId !== args.expectedRelayerKeyId) {
+    return 'threshold_ed25519.session_policy.relayerKeyId mismatch';
+  }
+  const requestedPolicyNearAccountId = String(args.requestedSessionPolicy.nearAccountId || '').trim();
+  if (requestedPolicyNearAccountId && requestedPolicyNearAccountId !== args.expectedNearAccountId) {
+    return 'threshold_ed25519.session_policy.nearAccountId mismatch';
+  }
+  const requestedPolicyRpId = String(args.requestedSessionPolicy.rpId || '').trim();
+  if (requestedPolicyRpId && requestedPolicyRpId !== args.expectedRpId) {
+    return 'threshold_ed25519.session_policy.rpId mismatch';
+  }
+  return null;
+}
+
+function toThresholdEd25519BootstrapSession(
+  session: {
+    sessionId?: unknown;
+    expiresAtMs?: unknown;
+    expiresAt?: unknown;
+    participantIds?: unknown;
+    remainingUses?: unknown;
+  },
+): ThresholdEd25519BootstrapSession | null {
+  const sessionId = String(session.sessionId || '').trim();
+  const expiresAtMs = Number(session.expiresAtMs);
+  if (!sessionId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) return null;
+  return {
+    sessionKind: 'jwt',
+    sessionId,
+    expiresAtMs: Number(expiresAtMs),
+    ...(typeof session.expiresAt === 'string' && session.expiresAt.trim()
+      ? { expiresAt: session.expiresAt.trim() }
+      : {}),
+    ...(Array.isArray(session.participantIds) ? { participantIds: session.participantIds } : {}),
+    ...(Number.isFinite(Number(session.remainingUses))
+      ? { remainingUses: Number(session.remainingUses) }
+      : {}),
+  };
 }
 
 // =============================
@@ -2282,16 +2351,13 @@ export class AuthService {
         };
       }
 
-      const thresholdEd25519Body = isObject((request as any)?.threshold_ed25519)
-        ? ((request as any).threshold_ed25519 as Record<string, unknown>)
-        : null;
-      const thresholdEd25519ClientVerifyingShareB64u = String(
-        thresholdEd25519Body?.client_verifying_share_b64u || '',
-      ).trim();
-      const thresholdEd25519SessionPolicy = thresholdEd25519Body?.session_policy;
-      const thresholdEd25519SessionKind = String(thresholdEd25519Body?.session_kind || '')
-        .trim()
-        .toLowerCase();
+      const thresholdEd25519Bootstrap = parseThresholdEd25519BootstrapInput(
+        (request as any)?.threshold_ed25519,
+      );
+      const thresholdEd25519ClientVerifyingShareB64u =
+        thresholdEd25519Bootstrap.clientVerifyingShareB64u;
+      const thresholdEd25519SessionPolicy = thresholdEd25519Bootstrap.sessionPolicy;
+      const thresholdEd25519SessionKind = thresholdEd25519Bootstrap.sessionKind;
       if (!thresholdEd25519ClientVerifyingShareB64u && thresholdEd25519SessionPolicy) {
         return {
           ok: false,
@@ -2425,33 +2491,18 @@ export class AuthService {
           };
         }
         const requestedSessionPolicy = thresholdEd25519SessionPolicy as Record<string, unknown>;
-        const requestedPolicyRelayerKeyId = String(requestedSessionPolicy.relayerKeyId || '').trim();
-        if (requestedPolicyRelayerKeyId && requestedPolicyRelayerKeyId !== relayerKeyId) {
+        const policyBindingError = validateThresholdEd25519SessionPolicyBindings({
+          requestedSessionPolicy,
+          expectedRelayerKeyId: relayerKeyId,
+          expectedNearAccountId: binding.userId,
+          expectedRpId: binding.rpId,
+        });
+        if (policyBindingError) {
           return {
             ok: false,
             verified: false,
             code: 'invalid_body',
-            message: 'threshold_ed25519.session_policy.relayerKeyId mismatch',
-          };
-        }
-        const requestedPolicyNearAccountId = String(
-          requestedSessionPolicy.nearAccountId || '',
-        ).trim();
-        if (requestedPolicyNearAccountId && requestedPolicyNearAccountId !== binding.userId) {
-          return {
-            ok: false,
-            verified: false,
-            code: 'invalid_body',
-            message: 'threshold_ed25519.session_policy.nearAccountId mismatch',
-          };
-        }
-        const requestedPolicyRpId = String(requestedSessionPolicy.rpId || '').trim();
-        if (requestedPolicyRpId && requestedPolicyRpId !== binding.rpId) {
-          return {
-            ok: false,
-            verified: false,
-            code: 'invalid_body',
-            message: 'threshold_ed25519.session_policy.rpId mismatch',
+            message: policyBindingError,
           };
         }
 
@@ -2475,16 +2526,16 @@ export class AuthService {
             message: session.message || 'threshold-ed25519 session bootstrap failed',
           };
         }
-        thresholdEd25519Session = {
-          sessionKind: 'jwt',
-          sessionId: session.sessionId,
-          expiresAtMs: Number(session.expiresAtMs),
-          ...(session.expiresAt ? { expiresAt: session.expiresAt } : {}),
-          ...(Array.isArray(session.participantIds) ? { participantIds: session.participantIds } : {}),
-          ...(Number.isFinite(Number(session.remainingUses))
-            ? { remainingUses: Number(session.remainingUses) }
-            : {}),
-        };
+        const normalizedSession = toThresholdEd25519BootstrapSession(session);
+        if (!normalizedSession) {
+          return {
+            ok: false,
+            verified: false,
+            code: 'internal',
+            message: 'threshold-ed25519 session bootstrap failed',
+          };
+        }
+        thresholdEd25519Session = normalizedSession;
       }
 
       return {
@@ -2686,7 +2737,7 @@ export class AuthService {
 
       const fallbackDeviceNumber = coerceDeviceNumber(
         request?.device_number ?? request?.deviceNumber ?? existing?.deviceNumber ?? 2,
-        2,
+        { min: 1, fallback: 2 },
       );
       let deviceNumber = fallbackDeviceNumber;
       try {
@@ -2818,9 +2869,10 @@ export class AuthService {
         };
       }
 
-      const thresholdClientVerifyingShareB64u = String(
-        (request as any)?.threshold_ed25519?.client_verifying_share_b64u || '',
-      ).trim();
+      const thresholdEd25519Bootstrap = parseThresholdEd25519BootstrapInput(
+        (request as any)?.threshold_ed25519,
+      );
+      const thresholdClientVerifyingShareB64u = thresholdEd25519Bootstrap.clientVerifyingShareB64u;
       if (!thresholdClientVerifyingShareB64u) {
         return {
           ok: false,
@@ -2828,19 +2880,15 @@ export class AuthService {
           message: 'Missing threshold_ed25519.client_verifying_share_b64u',
         };
       }
-      const thresholdEd25519SessionPolicy = (request as any)?.threshold_ed25519?.session_policy;
-      if (thresholdEd25519SessionPolicy != null && !isObject(thresholdEd25519SessionPolicy)) {
+      const thresholdEd25519SessionPolicy = thresholdEd25519Bootstrap.sessionPolicy;
+      if ((request as any)?.threshold_ed25519?.session_policy != null && !thresholdEd25519SessionPolicy) {
         return {
           ok: false,
           code: 'invalid_body',
           message: 'threshold_ed25519.session_policy must be an object',
         };
       }
-      const thresholdEd25519SessionKind = String(
-        (request as any)?.threshold_ed25519?.session_kind || '',
-      )
-        .trim()
-        .toLowerCase();
+      const thresholdEd25519SessionKind = thresholdEd25519Bootstrap.sessionKind;
       if (thresholdEd25519SessionKind && thresholdEd25519SessionKind !== 'jwt') {
         return {
           ok: false,
@@ -2945,30 +2993,17 @@ export class AuthService {
         | undefined;
       if (thresholdEd25519SessionPolicy) {
         const requestedSessionPolicy = thresholdEd25519SessionPolicy as Record<string, unknown>;
-        const requestedPolicyRelayerKeyId = String(requestedSessionPolicy.relayerKeyId || '').trim();
-        if (requestedPolicyRelayerKeyId && requestedPolicyRelayerKeyId !== keygen.relayerKeyId) {
+        const policyBindingError = validateThresholdEd25519SessionPolicyBindings({
+          requestedSessionPolicy,
+          expectedRelayerKeyId: keygen.relayerKeyId,
+          expectedNearAccountId: accountId,
+          expectedRpId: rpId,
+        });
+        if (policyBindingError) {
           return {
             ok: false,
             code: 'invalid_body',
-            message: 'threshold_ed25519.session_policy.relayerKeyId mismatch',
-          };
-        }
-        const requestedPolicyNearAccountId = String(
-          requestedSessionPolicy.nearAccountId || '',
-        ).trim();
-        if (requestedPolicyNearAccountId && requestedPolicyNearAccountId !== accountId) {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'threshold_ed25519.session_policy.nearAccountId mismatch',
-          };
-        }
-        const requestedPolicyRpId = String(requestedSessionPolicy.rpId || '').trim();
-        if (requestedPolicyRpId && requestedPolicyRpId !== rpId) {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'threshold_ed25519.session_policy.rpId mismatch',
+            message: policyBindingError,
           };
         }
 
@@ -2991,16 +3026,15 @@ export class AuthService {
             message: session.message || 'threshold-ed25519 link-device bootstrap failed',
           };
         }
-        thresholdEd25519Session = {
-          sessionKind: 'jwt',
-          sessionId: session.sessionId,
-          expiresAtMs: Number(session.expiresAtMs),
-          ...(session.expiresAt ? { expiresAt: session.expiresAt } : {}),
-          ...(Array.isArray(session.participantIds) ? { participantIds: session.participantIds } : {}),
-          ...(Number.isFinite(Number(session.remainingUses))
-            ? { remainingUses: Number(session.remainingUses) }
-            : {}),
-        };
+        const normalizedSession = toThresholdEd25519BootstrapSession(session);
+        if (!normalizedSession) {
+          return {
+            ok: false,
+            code: 'internal',
+            message: 'threshold-ed25519 link-device bootstrap failed',
+          };
+        }
+        thresholdEd25519Session = normalizedSession;
       }
 
       const credentialIdB64u = String(registration?.registrationInfo?.credential?.id || '').trim();
@@ -3161,9 +3195,10 @@ export class AuthService {
         return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
       })();
 
-      const thresholdClientVerifyingShareB64u = String(
-        (request as any)?.threshold_ed25519?.client_verifying_share_b64u || '',
-      ).trim();
+      const thresholdEd25519Bootstrap = parseThresholdEd25519BootstrapInput(
+        (request as any)?.threshold_ed25519,
+      );
+      const thresholdClientVerifyingShareB64u = thresholdEd25519Bootstrap.clientVerifyingShareB64u;
       if (!thresholdClientVerifyingShareB64u) {
         return {
           ok: false,
@@ -3171,19 +3206,15 @@ export class AuthService {
           message: 'Missing threshold_ed25519.client_verifying_share_b64u',
         };
       }
-      const thresholdEd25519SessionPolicy = (request as any)?.threshold_ed25519?.session_policy;
-      if (thresholdEd25519SessionPolicy != null && !isObject(thresholdEd25519SessionPolicy)) {
+      const thresholdEd25519SessionPolicy = thresholdEd25519Bootstrap.sessionPolicy;
+      if ((request as any)?.threshold_ed25519?.session_policy != null && !thresholdEd25519SessionPolicy) {
         return {
           ok: false,
           code: 'invalid_body',
           message: 'threshold_ed25519.session_policy must be an object',
         };
       }
-      const thresholdEd25519SessionKind = String(
-        (request as any)?.threshold_ed25519?.session_kind || '',
-      )
-        .trim()
-        .toLowerCase();
+      const thresholdEd25519SessionKind = thresholdEd25519Bootstrap.sessionKind;
       if (thresholdEd25519SessionKind && thresholdEd25519SessionKind !== 'jwt') {
         return {
           ok: false,
@@ -3288,30 +3319,17 @@ export class AuthService {
         | undefined;
       if (thresholdEd25519SessionPolicy) {
         const requestedSessionPolicy = thresholdEd25519SessionPolicy as Record<string, unknown>;
-        const requestedPolicyRelayerKeyId = String(requestedSessionPolicy.relayerKeyId || '').trim();
-        if (requestedPolicyRelayerKeyId && requestedPolicyRelayerKeyId !== keygen.relayerKeyId) {
+        const policyBindingError = validateThresholdEd25519SessionPolicyBindings({
+          requestedSessionPolicy,
+          expectedRelayerKeyId: keygen.relayerKeyId,
+          expectedNearAccountId: accountId,
+          expectedRpId: rpId,
+        });
+        if (policyBindingError) {
           return {
             ok: false,
             code: 'invalid_body',
-            message: 'threshold_ed25519.session_policy.relayerKeyId mismatch',
-          };
-        }
-        const requestedPolicyNearAccountId = String(
-          requestedSessionPolicy.nearAccountId || '',
-        ).trim();
-        if (requestedPolicyNearAccountId && requestedPolicyNearAccountId !== accountId) {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'threshold_ed25519.session_policy.nearAccountId mismatch',
-          };
-        }
-        const requestedPolicyRpId = String(requestedSessionPolicy.rpId || '').trim();
-        if (requestedPolicyRpId && requestedPolicyRpId !== rpId) {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'threshold_ed25519.session_policy.rpId mismatch',
+            message: policyBindingError,
           };
         }
 
@@ -3334,16 +3352,15 @@ export class AuthService {
             message: session.message || 'threshold-ed25519 email-recovery bootstrap failed',
           };
         }
-        thresholdEd25519Session = {
-          sessionKind: 'jwt',
-          sessionId: session.sessionId,
-          expiresAtMs: Number(session.expiresAtMs),
-          ...(session.expiresAt ? { expiresAt: session.expiresAt } : {}),
-          ...(Array.isArray(session.participantIds) ? { participantIds: session.participantIds } : {}),
-          ...(Number.isFinite(Number(session.remainingUses))
-            ? { remainingUses: Number(session.remainingUses) }
-            : {}),
-        };
+        const normalizedSession = toThresholdEd25519BootstrapSession(session);
+        if (!normalizedSession) {
+          return {
+            ok: false,
+            code: 'internal',
+            message: 'threshold-ed25519 email-recovery bootstrap failed',
+          };
+        }
+        thresholdEd25519Session = normalizedSession;
       }
 
       const credentialIdB64u = String(registration?.registrationInfo?.credential?.id || '').trim();

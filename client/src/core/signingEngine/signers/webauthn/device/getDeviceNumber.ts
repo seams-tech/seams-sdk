@@ -1,14 +1,8 @@
 import type { PasskeyClientDBManager } from '@/core/indexedDB';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import { parseDeviceNumber } from '@shared/utils/deviceNumber';
 
-export function parseDeviceNumber(value: unknown, options: { min?: number } = {}): number | null {
-  const deviceNumber = Number(value);
-  const min = options.min ?? 1;
-  if (!Number.isSafeInteger(deviceNumber) || deviceNumber < min) {
-    return null;
-  }
-  return deviceNumber;
-}
+export { parseDeviceNumber } from '@shared/utils/deviceNumber';
 
 /**
  * Return the deviceNumber for the last logged-in user for the given account.

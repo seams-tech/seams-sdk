@@ -6,6 +6,66 @@ export type {
   ConsoleRole,
 } from './console';
 export type {
+  ConsoleOrganizationStatus,
+  ConsoleProjectStatus,
+  ConsoleEnvironmentStatus,
+  ConsoleOrganization,
+  ConsoleProject,
+  ConsoleEnvironment,
+  ListConsoleEnvironmentsRequest,
+  CreateConsoleProjectRequest,
+  UpdateConsoleProjectRequest,
+  CreateConsoleEnvironmentRequest,
+  UpdateConsoleEnvironmentRequest,
+} from '../console/orgProjectEnv';
+export type {
+  ConsoleOrgProjectEnvContext,
+  ConsoleOrgProjectEnvService,
+  InMemoryConsoleOrgProjectEnvServiceOptions,
+  PostgresConsoleOrgProjectEnvSchemaOptions,
+  PostgresConsoleOrgProjectEnvServiceOptions,
+} from '../console/orgProjectEnv';
+export type {
+  ConsoleWalletChain,
+  ConsoleWalletType,
+  ConsoleWalletStatus,
+  ConsoleWalletSortBy,
+  ConsoleWalletSortOrder,
+  ConsoleWallet,
+  ListConsoleWalletsRequest,
+  SearchConsoleWalletsRequest,
+  ConsoleWalletPage,
+} from '../console/wallets';
+export type {
+  ConsoleWalletsContext,
+  ConsoleWalletService,
+  InMemoryConsoleWalletServiceOptions,
+  PostgresConsoleWalletSchemaOptions,
+  PostgresConsoleWalletServiceOptions,
+} from '../console/wallets';
+export type {
+  ConsolePolicyStatus,
+  ConsolePolicyDecision,
+  ConsolePolicyAssignmentScopeType,
+  ConsolePolicy,
+  CreateConsolePolicyRequest,
+  UpdateConsolePolicyRequest,
+  SimulateConsolePolicyRequest,
+  SimulateConsolePolicyResult,
+  PublishConsolePolicyResult,
+  ConsolePolicyAssignment,
+  ListConsolePolicyAssignmentsRequest,
+  UpsertConsolePolicyAssignmentRequest,
+  ConsolePolicyWalletScopeRef,
+} from '../console/policies';
+export type {
+  ConsolePoliciesContext,
+  ConsolePolicyService,
+  InMemoryConsolePolicyServiceOptions,
+  PostgresConsolePolicySchemaOptions,
+  PostgresConsolePolicyServiceOptions,
+} from '../console/policies';
+export type {
   ConsoleApiKeyStatus,
   ConsoleApiKey,
   CreateConsoleApiKeyRequest,
@@ -67,6 +127,27 @@ export type {
   PostgresConsoleWebhookServiceOptions,
   ConsoleWebhookService,
 } from '../console/webhooks';
+export {
+  createInMemoryConsoleOrgProjectEnvService,
+  ensureConsoleOrgProjectEnvPostgresSchema,
+  createPostgresConsoleOrgProjectEnvService,
+  isConsoleOrgProjectEnvError,
+  ConsoleOrgProjectEnvError,
+} from '../console/orgProjectEnv';
+export {
+  createInMemoryConsoleWalletService,
+  ensureConsoleWalletsPostgresSchema,
+  createPostgresConsoleWalletService,
+  isConsoleWalletError,
+  ConsoleWalletError,
+} from '../console/wallets';
+export {
+  createInMemoryConsolePolicyService,
+  ensureConsolePoliciesPostgresSchema,
+  createPostgresConsolePolicyService,
+  isConsolePolicyError,
+  ConsolePolicyError,
+} from '../console/policies';
 export {
   createInMemoryConsoleApiKeyService,
   ensureConsoleApiKeysPostgresSchema,

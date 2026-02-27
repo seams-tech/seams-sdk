@@ -1,4 +1,5 @@
 import { openDB, type IDBPDatabase } from 'idb';
+import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
 import { toTrimmedString } from '@shared/utils/validation';
 import type { AccountId } from '../../types/accountIds';
 import { toAccountId } from '../../types/accountIds';
@@ -67,6 +68,12 @@ import {
   runMigrationsIfNeeded as runMigrationsIfNeededValue,
 } from './migrations';
 import { deleteProfileData as deleteProfileDataValue } from './profileCleanup';
+import {
+  normalizeIndexedDbAccountAddress as normalizeAccountAddress,
+  normalizeIndexedDbAccountModel as normalizeAccountModel,
+  normalizeIndexedDbChainIdKey as normalizeChainIdKey,
+  normalizeLastUserScope,
+} from '../normalization';
 
 export type {
   AccountAddress,
@@ -107,33 +114,10 @@ interface AppStateEntry<T = unknown> {
   value: T;
 }
 
-function normalizeLastUserScope(scope: unknown): string | null {
-  const normalized = typeof scope === 'string' ? scope.trim() : '';
-  if (!normalized || normalized === 'null') return null;
-  return normalized;
-}
-
 function makeScopedAppStateKey(baseKey: string, scope: unknown): string | null {
   const normalized = normalizeLastUserScope(scope);
   if (!normalized) return null;
   return `${baseKey}::${normalized}`;
-}
-
-function normalizeChainIdKey(chainIdKey: unknown): string {
-  return toTrimmedString(chainIdKey || '').toLowerCase();
-}
-
-function normalizeAccountAddress(address: unknown): string {
-  return toTrimmedString(address || '').toLowerCase();
-}
-
-function normalizeAccountModel(model: unknown): AccountModel {
-  return toTrimmedString(model || '').toLowerCase();
-}
-
-function normalizeOptionalString(value: unknown): string | undefined {
-  const next = toTrimmedString(value || '');
-  return next || undefined;
 }
 
 export class DBConstraintError extends Error {
@@ -721,24 +705,27 @@ export class PasskeyClientDBManager {
     const factory =
       input.factory === null
         ? undefined
-        : normalizeOptionalString(input.factory ?? existing?.factory);
+        : normalizeOptionalNonEmptyString(input.factory ?? existing?.factory);
     const entryPoint =
       input.entryPoint === null
         ? undefined
-        : normalizeOptionalString(input.entryPoint ?? existing?.entryPoint);
+        : normalizeOptionalNonEmptyString(input.entryPoint ?? existing?.entryPoint);
     const salt =
-      input.salt === null ? undefined : normalizeOptionalString(input.salt ?? existing?.salt);
+      input.salt === null
+        ? undefined
+        : normalizeOptionalNonEmptyString(input.salt ?? existing?.salt);
     const counterfactualAddressInput =
       input.counterfactualAddress === null
         ? undefined
         : (input.counterfactualAddress ?? existing?.counterfactualAddress);
+    const isSmartAccountModel =
+      accountModel === 'erc4337' || accountModel === 'tempo-native';
     const hasSmartAccountShape = Boolean(
       factory ||
       entryPoint ||
       salt ||
       counterfactualAddressInput ||
-      normalizeAccountModel(accountModel) === 'erc4337' ||
-      normalizeAccountModel(accountModel) === 'tempo-native',
+      isSmartAccountModel,
     );
     const counterfactualAddress = hasSmartAccountShape
       ? normalizeAccountAddress(counterfactualAddressInput || accountAddress)
@@ -754,7 +741,7 @@ export class PasskeyClientDBManager {
     const deploymentTxHash =
       input.deploymentTxHash === null
         ? undefined
-        : normalizeOptionalString(input.deploymentTxHash ?? existing?.deploymentTxHash);
+        : normalizeOptionalNonEmptyString(input.deploymentTxHash ?? existing?.deploymentTxHash);
     const deploymentCheckCandidate =
       input.lastDeploymentCheckAt === null
         ? undefined

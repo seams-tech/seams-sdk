@@ -1,5 +1,7 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import { normalizeInteger, normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import { normalizeThresholdEcdsaSessionKind } from './normalization';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type {
   ThresholdEcdsaActivationChain,
@@ -135,17 +137,6 @@ function clearAllStoredRecords(storage: SessionStoragePort): void {
   } catch {}
 }
 
-function normalizeOptionalString(value: unknown): string | undefined {
-  const normalized = String(value || '').trim();
-  return normalized || undefined;
-}
-
-function normalizeOptionalNumber(value: unknown): number | undefined {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return undefined;
-  return Math.floor(n);
-}
-
 function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSessionRecord {
   const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   const nearAccountId = toAccountId(String(obj.nearAccountId || '').trim());
@@ -155,20 +146,19 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   const relayerKeyId = String(obj.relayerKeyId || '').trim();
   const clientVerifyingShareB64u = String(obj.clientVerifyingShareB64u || '').trim();
   const participantIds = normalizeThresholdEd25519ParticipantIds(obj.participantIds);
-  const thresholdSessionKind =
-    String(obj.thresholdSessionKind || '')
-      .trim()
-      .toLowerCase() === 'cookie'
-      ? 'cookie'
-      : 'jwt';
+  const thresholdSessionKind = normalizeThresholdEcdsaSessionKind(obj.thresholdSessionKind);
   const thresholdSessionId = String(obj.thresholdSessionId || '').trim();
-  const thresholdSessionJwt = normalizeOptionalString(obj.thresholdSessionJwt);
+  const thresholdSessionJwt = normalizeOptionalNonEmptyString(obj.thresholdSessionJwt);
   const sourceRaw = String(obj.source || '').trim();
   const source: ThresholdEcdsaSessionStoreSource =
     sourceRaw === 'login' || sourceRaw === 'registration' || sourceRaw === 'manual-bootstrap'
       ? sourceRaw
       : 'manual-bootstrap';
-  const updatedAtMs = normalizeOptionalNumber(obj.updatedAtMs) || Date.now();
+  const updatedAtMs = normalizeInteger(obj.updatedAtMs) || Date.now();
+  const expiresAtMs = normalizeInteger(obj.expiresAtMs);
+  const remainingUses = normalizeInteger(obj.remainingUses);
+  const groupPublicKeyB64u = normalizeOptionalNonEmptyString(obj.groupPublicKeyB64u);
+  const relayerVerifyingShareB64u = normalizeOptionalNonEmptyString(obj.relayerVerifyingShareB64u);
 
   if (
     !relayerUrl ||
@@ -193,18 +183,10 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     thresholdSessionKind,
     thresholdSessionId,
     ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
-    ...(normalizeOptionalNumber(obj.expiresAtMs) != null
-      ? { expiresAtMs: normalizeOptionalNumber(obj.expiresAtMs) }
-      : {}),
-    ...(normalizeOptionalNumber(obj.remainingUses) != null
-      ? { remainingUses: normalizeOptionalNumber(obj.remainingUses) }
-      : {}),
-    ...(normalizeOptionalString(obj.groupPublicKeyB64u)
-      ? { groupPublicKeyB64u: normalizeOptionalString(obj.groupPublicKeyB64u) }
-      : {}),
-    ...(normalizeOptionalString(obj.relayerVerifyingShareB64u)
-      ? { relayerVerifyingShareB64u: normalizeOptionalString(obj.relayerVerifyingShareB64u) }
-      : {}),
+    ...(expiresAtMs != null ? { expiresAtMs } : {}),
+    ...(remainingUses != null ? { remainingUses } : {}),
+    ...(groupPublicKeyB64u ? { groupPublicKeyB64u } : {}),
+    ...(relayerVerifyingShareB64u ? { relayerVerifyingShareB64u } : {}),
     updatedAtMs,
     source,
   };
@@ -229,13 +211,8 @@ function buildRecordFromBootstrap(args: {
   if (!thresholdSessionId) {
     throw new Error('[SigningEngine] threshold ECDSA bootstrap did not provide thresholdSessionId');
   }
-  const thresholdSessionKind =
-    String(keyRef.thresholdSessionKind || 'jwt')
-      .trim()
-      .toLowerCase() === 'cookie'
-      ? 'cookie'
-      : 'jwt';
-  const thresholdSessionJwt = normalizeOptionalString(
+  const thresholdSessionKind = normalizeThresholdEcdsaSessionKind(keyRef.thresholdSessionKind || 'jwt');
+  const thresholdSessionJwt = normalizeOptionalNonEmptyString(
     keyRef.thresholdSessionJwt || args.bootstrap.session.jwt,
   );
   if (thresholdSessionKind === 'jwt' && !thresholdSessionJwt) {

@@ -16,16 +16,10 @@ import type {
   UserPreferences,
 } from '../passkeyClientDB.types';
 import { NEAR_PROFILE_PREFIX } from '../passkeyClientDB/schema';
-
-function normalizeLastUserScope(scope: unknown): string | null {
-  const normalized = typeof scope === 'string' ? scope.trim() : '';
-  if (!normalized || normalized === 'null') return null;
-  return normalized;
-}
-
-function normalizeAccountAddress(address: unknown): string {
-  return toTrimmedString(address || '').toLowerCase();
-}
+import {
+  normalizeIndexedDbAccountAddress as normalizeAccountAddress,
+  normalizeLastUserScope,
+} from '../normalization';
 
 export function buildNearProfileId(accountId: AccountId): string {
   return `${NEAR_PROFILE_PREFIX}:${String(accountId)}`;

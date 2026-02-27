@@ -13,9 +13,8 @@ import {
 } from '../webauthn';
 import { buildEd25519SessionPolicy } from '../session/sessionPolicy';
 import {
-  makeEd25519AuthSessionCacheKey,
+  buildAndCacheEd25519AuthSession,
   mintEd25519AuthSession,
-  putCachedEd25519AuthSession,
 } from '../session/ed25519AuthSession';
 import type { Ed25519SessionKind } from '../session/ed25519AuthSession';
 
@@ -63,7 +62,7 @@ export async function connectEd25519Session(args: {
     return { ok: false, code: 'invalid_args', message: 'Missing rpId for WebAuthn' };
   }
 
-  const { policy, policyJson, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
+  const { policy, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
     nearAccountId: args.nearAccountId,
     rpId,
     relayerKeyId: args.relayerKeyId,
@@ -133,6 +132,7 @@ export async function connectEd25519Session(args: {
   if (!minted.ok) {
     return minted;
   }
+  const resolvedSessionId = String(minted.sessionId || sessionId).trim() || sessionId;
 
   // Cache PRF.first in-memory for the session TTL/uses window so subsequent signing can
   // dispense the client share seed without prompting again (wallet-origin only).
@@ -141,7 +141,7 @@ export async function connectEd25519Session(args: {
   const prfFirstCache = args.prfFirstCache;
   if (prfFirstCache) {
     await cacheSigningSessionPrfFirstBestEffort(prfFirstCache, {
-      sessionId,
+      sessionId: resolvedSessionId,
       prfFirstB64u,
       expiresAtMs,
       remainingUses,
@@ -149,25 +149,24 @@ export async function connectEd25519Session(args: {
   }
 
   // 4) Cache for on-demand `/threshold-ed25519/authorize` usage.
-  const cacheKey = makeEd25519AuthSessionCacheKey({
+  await buildAndCacheEd25519AuthSession({
     nearAccountId: args.nearAccountId,
     rpId,
     relayerUrl: args.relayerUrl,
     relayerKeyId: args.relayerKeyId,
     participantIds: args.participantIds,
-  });
-  putCachedEd25519AuthSession(cacheKey, {
     sessionKind,
-    policy,
-    policyJson,
-    sessionPolicyDigest32,
-    jwt: minted.jwt,
+    sessionId: resolvedSessionId,
     expiresAtMs,
+    remainingUses,
+    jwt: minted.jwt,
+    policyTtlMs: policy.ttlMs,
+    policyRemainingUses: policy.remainingUses,
   });
 
   return {
     ok: true,
-    sessionId: minted.sessionId,
+    sessionId: resolvedSessionId,
     expiresAtMs,
     remainingUses,
     jwt: minted.jwt,

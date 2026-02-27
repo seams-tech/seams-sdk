@@ -1,3 +1,5 @@
+import { normalizeInteger, normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
+
 type SessionStoragePort = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
 export type PrfSessionSealedStoreRecord = {
@@ -28,17 +30,6 @@ function getSessionStorageSafe(): SessionStoragePort | null {
   } catch {
     return null;
   }
-}
-
-function normalizeOptionalString(value: unknown): string | undefined {
-  const normalized = String(value || '').trim();
-  return normalized || undefined;
-}
-
-function normalizeFiniteNumber(value: unknown): number | null {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return null;
-  return Math.floor(n);
 }
 
 function readStorageIndex(storage: SessionStoragePort): string[] {
@@ -86,9 +77,10 @@ function normalizePrfSessionSealedStoreRecord(value: unknown): PrfSessionSealedS
   if (String(obj.alg || '').trim() !== 'shamir3pass-v1') return null;
   const thresholdSessionId = String(obj.thresholdSessionId || '').trim();
   const sealedPrfFirstB64u = String(obj.sealedPrfFirstB64u || '').trim();
-  const expiresAtMs = normalizeFiniteNumber(obj.expiresAtMs);
-  const remainingUses = normalizeFiniteNumber(obj.remainingUses);
-  const updatedAtMs = normalizeFiniteNumber(obj.updatedAtMs);
+  const expiresAtMs = normalizeInteger(obj.expiresAtMs);
+  const remainingUses = normalizeInteger(obj.remainingUses);
+  const updatedAtMs = normalizeInteger(obj.updatedAtMs);
+  const keyVersion = normalizeOptionalNonEmptyString(obj.keyVersion);
   if (!thresholdSessionId || !sealedPrfFirstB64u) return null;
   if (expiresAtMs == null || expiresAtMs <= 0) return null;
   if (remainingUses == null || remainingUses < 0) return null;
@@ -98,9 +90,7 @@ function normalizePrfSessionSealedStoreRecord(value: unknown): PrfSessionSealedS
     alg: 'shamir3pass-v1',
     thresholdSessionId,
     sealedPrfFirstB64u,
-    ...(normalizeOptionalString(obj.keyVersion)
-      ? { keyVersion: normalizeOptionalString(obj.keyVersion) }
-      : {}),
+    ...(keyVersion ? { keyVersion } : {}),
     expiresAtMs,
     remainingUses,
     updatedAtMs,
@@ -142,9 +132,10 @@ export function writePrfSessionSealedRecord(args: {
   if (!storage) return;
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   const sealedPrfFirstB64u = String(args.sealedPrfFirstB64u || '').trim();
-  const expiresAtMs = normalizeFiniteNumber(args.expiresAtMs);
-  const remainingUses = normalizeFiniteNumber(args.remainingUses);
-  const updatedAtMs = normalizeFiniteNumber(args.updatedAtMs ?? Date.now());
+  const expiresAtMs = normalizeInteger(args.expiresAtMs);
+  const remainingUses = normalizeInteger(args.remainingUses);
+  const updatedAtMs = normalizeInteger(args.updatedAtMs ?? Date.now());
+  const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion);
   if (!thresholdSessionId || !sealedPrfFirstB64u) return;
   if (expiresAtMs == null || expiresAtMs <= 0) return;
   if (remainingUses == null || remainingUses < 0) return;
@@ -155,9 +146,7 @@ export function writePrfSessionSealedRecord(args: {
     alg: 'shamir3pass-v1',
     thresholdSessionId,
     sealedPrfFirstB64u,
-    ...(normalizeOptionalString(args.keyVersion)
-      ? { keyVersion: normalizeOptionalString(args.keyVersion) }
-      : {}),
+    ...(keyVersion ? { keyVersion } : {}),
     expiresAtMs,
     remainingUses,
     updatedAtMs,
@@ -174,9 +163,9 @@ export function updatePrfSessionSealedRecordPolicy(args: {
   if (!thresholdSessionId) return;
   const existing = readPrfSessionSealedRecord(thresholdSessionId);
   if (!existing) return;
-  const expiresAtMs = normalizeFiniteNumber(args.expiresAtMs ?? existing.expiresAtMs);
-  const remainingUses = normalizeFiniteNumber(args.remainingUses ?? existing.remainingUses);
-  const updatedAtMs = normalizeFiniteNumber(args.updatedAtMs ?? Date.now());
+  const expiresAtMs = normalizeInteger(args.expiresAtMs ?? existing.expiresAtMs);
+  const remainingUses = normalizeInteger(args.remainingUses ?? existing.remainingUses);
+  const updatedAtMs = normalizeInteger(args.updatedAtMs ?? Date.now());
   if (expiresAtMs == null || expiresAtMs <= 0) return;
   if (remainingUses == null || remainingUses < 0) return;
   if (updatedAtMs == null || updatedAtMs <= 0) return;

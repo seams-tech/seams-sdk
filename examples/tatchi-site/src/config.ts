@@ -28,6 +28,16 @@ function parseNonNegativeInt(value: unknown, fallback: number): number {
   return Math.max(0, Math.floor(parsed));
 }
 
+function parseBooleanFlag(value: unknown, fallback: boolean): boolean {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  if (!normalized) return fallback;
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+}
+
 function stripTrailingSlash(path: string): string {
   if (path.length <= 1) return path;
   return path.endsWith('/') ? path.slice(0, -1) : path;
@@ -70,6 +80,7 @@ const chains: NonNullable<TatchiConfigsInput['chains']> = [
 
 export const FRONTEND_CONFIG = Object.freeze({
   relayerUrl: toOptionalString(env.VITE_RELAYER_URL),
+  consoleBaseUrl: toOptionalString(env.VITE_CONSOLE_BASE_URL),
   relayerAccountId: toOptionalString(env.VITE_RELAYER_ACCOUNT_ID),
   nearNetwork,
   nearRpcUrl,
@@ -93,6 +104,9 @@ export const FRONTEND_CONFIG = Object.freeze({
       env.VITE_SIGNING_SESSION_REMAINING_USES,
       DEFAULT_SIGNING_SESSION_REMAINING_USES,
     ),
+  },
+  dashboardFlags: {
+    walletsRoutesEnabled: parseBooleanFlag(env.VITE_DASHBOARD_WALLETS_ROUTES_ENABLED, true),
   },
 });
 

@@ -32,6 +32,16 @@ export interface SessionConfig {
   };
 }
 
+function normalizeParsedCorsOrigin(url: URL): string {
+  const host = url.hostname.toLowerCase();
+  const proto = url.protocol === 'http:' || url.protocol === 'https:' ? url.protocol : 'https:';
+  const rawPort = String(url.port || '').trim();
+  const isDefaultHttpsPort = proto === 'https:' && rawPort === '443';
+  const isDefaultHttpPort = proto === 'http:' && rawPort === '80';
+  const port = rawPort && !isDefaultHttpsPort && !isDefaultHttpPort ? `:${rawPort}` : '';
+  return `${proto}//${host}${port}`;
+}
+
 export class SessionService<TClaims extends Record<string, unknown> = Record<string, unknown>> {
   private cfg: NonNullable<SessionConfig>;
 
@@ -237,16 +247,27 @@ export function parseCsvList(input?: string): string[] {
     if (!s) continue;
     try {
       const u = new URL(s);
-      const host = u.hostname.toLowerCase();
-      const port = u.port ? `:${u.port}` : '';
-      const proto = u.protocol === 'http:' || u.protocol === 'https:' ? u.protocol : 'https:';
-      out.add(`${proto}//${host}${port}`);
+      out.add(normalizeParsedCorsOrigin(u));
     } catch {
       const stripped = s.replace(/\/$/, '');
       if (stripped) out.add(stripped);
     }
   }
   return Array.from(out);
+}
+
+/**
+ * Normalize a single origin for CORS comparisons.
+ * Returns null when the input is empty or not URL-like.
+ */
+export function normalizeCorsOrigin(input?: string): string | null {
+  const raw = String(input || '').trim();
+  if (!raw) return null;
+  try {
+    return normalizeParsedCorsOrigin(new URL(raw));
+  } catch {
+    return null;
+  }
 }
 
 /*

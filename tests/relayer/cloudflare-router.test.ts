@@ -32,6 +32,23 @@ function validSmartAccountDeployBody(overrides?: Partial<any>): any {
 }
 
 test.describe('relayer router (cloudflare) – P0', () => {
+  test('CORS preflight: default HTTPS port in allowlist still matches origin without explicit port', async () => {
+    const service = makeFakeAuthService();
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://wallet.example.localhost:443'],
+    });
+
+    const res = await callCf(handler, {
+      method: 'OPTIONS',
+      path: '/sync-account/verify',
+      origin: 'https://wallet.example.localhost',
+    });
+
+    expect(res.status).toBe(204);
+    expect(res.headers.get('access-control-allow-origin')).toBe('https://wallet.example.localhost');
+    expect(res.headers.get('access-control-allow-credentials')).toBe('true');
+  });
+
   test('CORS preflight: allowlist echoes Origin + allows credentials', async () => {
     const service = makeFakeAuthService();
     const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'] });

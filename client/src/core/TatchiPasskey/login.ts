@@ -18,6 +18,7 @@ import { createWebAuthnLoginOptions, verifyWebAuthnLogin } from '../rpcClients/n
 import { parseDeviceNumber } from '../signingEngine/signers/webauthn/device/getDeviceNumber';
 import { clearAllCachedEd25519AuthSessions } from '../signingEngine/threshold/session/ed25519AuthSession';
 import { clearAllCachedEcdsaAuthSessions } from '../signingEngine/threshold/session/ecdsaAuthSession';
+import { shouldRequireThresholdWarmSession } from './thresholdWarmSessionDefaults';
 
 /**
  * Core login function (standard WebAuthn; relay-issued sessions).
@@ -753,7 +754,7 @@ async function getLoginStateInternal(
     const isLoggedIn = !!(userData && userData.clientNearPublicKey);
     const resolvedNearAccountId = targetAccountId ?? null;
 
-    if (isLoggedIn && shouldRequireActiveWarmSessionForLoginState(context)) {
+    if (isLoggedIn && shouldRequireThresholdWarmSession(context)) {
       const warmStatus = resolvedNearAccountId
         ? await signingEngine.getWarmSigningSessionStatus(resolvedNearAccountId).catch(() => null)
         : null;
@@ -792,19 +793,6 @@ async function getLoginStateInternal(
       thresholdEcdsaGroupPublicKeyB64u: null,
     };
   }
-}
-
-function shouldRequireActiveWarmSessionForLoginState(context: PasskeyManagerContext): boolean {
-  if (context.configs?.signing.mode?.mode !== 'threshold-signer') return false;
-  const ttlMsRaw = context.configs?.signing.sessionDefaults?.ttlMs;
-  const remainingUsesRaw = context.configs?.signing.sessionDefaults?.remainingUses;
-  const ttlMs =
-    typeof ttlMsRaw === 'number' ? Math.floor(ttlMsRaw) : Math.floor(Number(ttlMsRaw) || 0);
-  const remainingUses =
-    typeof remainingUsesRaw === 'number'
-      ? Math.floor(remainingUsesRaw)
-      : Math.floor(Number(remainingUsesRaw) || 0);
-  return ttlMs > 0 && remainingUses > 0;
 }
 
 /**

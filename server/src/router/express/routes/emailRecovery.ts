@@ -1,5 +1,6 @@
 import type { Router as ExpressRouter } from 'express';
 import type { ExpressRelayContext } from '../createRelayRouter';
+import { signThresholdSessionJwt } from '../../commonRouterUtils';
 
 export function registerEmailRecoveryRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
   router.post('/email-recovery/prepare', async (req: any, res: any) => {
@@ -22,64 +23,24 @@ export function registerEmailRecoveryRoutes(router: ExpressRouter, ctx: ExpressR
 
       const thresholdSession = result.thresholdEd25519?.session;
       if (thresholdSession) {
-        if (!ctx.opts.session) {
-          res.status(500).json({
-            ok: false,
-            code: 'sessions_disabled',
-            message: 'Session signing is not configured on this server',
-          });
-          return;
-        }
-        const sessionKind = String(thresholdSession.sessionKind || '')
-          .trim()
-          .toLowerCase();
-        if (sessionKind !== 'jwt') {
-          res.status(400).json({
-            ok: false,
-            code: 'invalid_body',
-            message: 'threshold_ed25519.session_kind must be jwt',
-          });
-          return;
-        }
-        const accountId = String(result.accountId || '').trim();
-        const rpId = String((req.body || {}).rp_id || '').trim();
-        const relayerKeyId = String(result.thresholdEd25519?.relayerKeyId || '').trim();
-        const sessionId = String(thresholdSession.sessionId || '').trim();
-        const thresholdExpiresAtMs = Number(thresholdSession.expiresAtMs);
-        const participantIds = Array.isArray(thresholdSession.participantIds)
-          ? thresholdSession.participantIds
-          : Array.isArray(result.thresholdEd25519?.participantIds)
-            ? result.thresholdEd25519!.participantIds
-            : [];
-        if (
-          !accountId ||
-          !rpId ||
-          !relayerKeyId ||
-          !sessionId ||
-          !Number.isFinite(thresholdExpiresAtMs) ||
-          thresholdExpiresAtMs <= 0 ||
-          participantIds.length < 2
-        ) {
-          res.status(500).json({
-            ok: false,
-            code: 'internal',
-            message: 'invalid thresholdEd25519 session payload for jwt signing',
-          });
-          return;
-        }
-        const nowSec = Math.floor(Date.now() / 1000);
-        const expSec = Math.floor(thresholdExpiresAtMs / 1000);
-        const jwt = await ctx.opts.session.signJwt(accountId, {
+        const signed = await signThresholdSessionJwt({
+          session: ctx.opts.session,
           kind: 'threshold_ed25519_session_v1',
-          sessionId,
-          relayerKeyId,
-          rpId,
-          participantIds,
-          thresholdExpiresAtMs,
-          iat: nowSec,
-          exp: expSec,
+          userId: result.accountId,
+          rpId: (req.body || {}).rp_id,
+          relayerKeyId: result.thresholdEd25519?.relayerKeyId,
+          sessionInfo: thresholdSession,
+          fallbackParticipantIds: result.thresholdEd25519?.participantIds,
+          requireJwtErrorMessage: 'threshold_ed25519.session_kind must be jwt',
+          invalidPayloadErrorMessage: 'invalid thresholdEd25519 session payload for jwt signing',
         });
-        result.thresholdEd25519!.session!.jwt = jwt;
+        if (!signed.ok) {
+          res
+            .status(signed.status)
+            .json({ ok: false, code: signed.code, message: signed.message });
+          return;
+        }
+        result.thresholdEd25519!.session!.jwt = signed.jwt;
       }
 
       res.status(200).json(result);

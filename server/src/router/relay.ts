@@ -4,6 +4,7 @@ import type { ThresholdAnySchemeModule } from '../core/ThresholdService/schemes/
 import type { ThresholdSchemeId } from '../core/ThresholdService/schemes/schemeIds';
 import type { RelayRouterRorOptions } from './ror/provider';
 import type { PrfSessionSealRoutesOptions } from '../threshold/session/prfSessionSeal/types';
+import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 
 // Minimal session adapter interface expected by the routers.
 export type SessionClaims = Record<string, unknown>;
@@ -16,7 +17,7 @@ export function parseSessionKind(body: unknown): SessionKind {
       ? (body as Record<string, unknown>)
       : {};
   const raw = v.sessionKind ?? v.session_kind;
-  return raw === 'cookie' ? 'cookie' : 'jwt';
+  return normalizeJwtCookieSessionKind(raw);
 }
 
 export interface SessionAdapter {

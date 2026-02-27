@@ -1,4 +1,13 @@
 import { ConsoleWebhookError } from './errors';
+import {
+  readOptionalQueryBooleanField as readOptionalQueryBoolean,
+  readOptionalQueryPositiveIntegerField as readOptionalQueryInteger,
+  readOptionalQueryStringField as readOptionalQueryString,
+  readOptionalStringField as readOptionalString,
+  readRequiredStringField as readRequiredString,
+  requireBodyObject as requireObject,
+  requireQueryObject,
+} from '../shared/requestParse';
 import type {
   ConsoleWebhookEndpointStatus,
   ConsoleWebhookSubscription,
@@ -23,82 +32,8 @@ const WEBHOOK_ENDPOINT_STATUSES: Set<ConsoleWebhookEndpointStatus> = new Set([
   'DISABLED',
 ]);
 
-function requireObject(body: unknown): Record<string, unknown> {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    throw new ConsoleWebhookError('invalid_body', 400, 'Expected JSON object request body');
-  }
-  return body as Record<string, unknown>;
-}
-
-function readRequiredString(body: Record<string, unknown>, key: string): string {
-  const value = String(body[key] ?? '').trim();
-  if (!value) {
-    throw new ConsoleWebhookError('invalid_body', 400, `Missing required field: ${key}`);
-  }
-  return value;
-}
-
-function readOptionalString(body: Record<string, unknown>, key: string): string | undefined {
-  const raw = body[key];
-  if (raw === undefined || raw === null) return undefined;
-  const value = String(raw).trim();
-  return value || undefined;
-}
-
-function readOptionalQueryString(query: Record<string, unknown>, key: string): string | undefined {
-  const raw = query[key];
-  if (raw === undefined || raw === null) return undefined;
-  const first = Array.isArray(raw) ? raw[0] : raw;
-  const value = String(first).trim();
-  return value || undefined;
-}
-
-function readOptionalQueryBoolean(
-  query: Record<string, unknown>,
-  key: string,
-): boolean | undefined {
-  const raw = query[key];
-  if (raw === undefined || raw === null) return undefined;
-  const first = Array.isArray(raw) ? raw[0] : raw;
-  if (typeof first === 'boolean') return first;
-
-  const value = String(first).trim().toLowerCase();
-  if (!value) return undefined;
-  if (value === 'true' || value === '1') return true;
-  if (value === 'false' || value === '0') return false;
-  throw new ConsoleWebhookError('invalid_query', 400, `Query parameter ${key} must be true/false`);
-}
-
-function readOptionalQueryInteger(query: Record<string, unknown>, key: string): number | undefined {
-  const raw = query[key];
-  if (raw === undefined || raw === null) return undefined;
-  const first = Array.isArray(raw) ? raw[0] : raw;
-  const text = String(first).trim();
-  if (!text) return undefined;
-  if (!/^\d+$/.test(text)) {
-    throw new ConsoleWebhookError(
-      'invalid_query',
-      400,
-      `Query parameter ${key} must be a positive integer`,
-    );
-  }
-  const value = Number.parseInt(text, 10);
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new ConsoleWebhookError(
-      'invalid_query',
-      400,
-      `Query parameter ${key} must be a positive integer`,
-    );
-  }
-  return value;
-}
-
-function requireQueryObject(query: unknown): Record<string, unknown> {
-  if (query === undefined || query === null) return {};
-  if (!query || typeof query !== 'object' || Array.isArray(query)) {
-    throw new ConsoleWebhookError('invalid_query', 400, 'Expected query params object');
-  }
-  return query as Record<string, unknown>;
+function createParseError(code: string, status: number, message: string): ConsoleWebhookError {
+  return new ConsoleWebhookError(code, status, message);
 }
 
 function normalizeWebhookUrlOrThrow(value: string, fieldName: string): string {
@@ -163,8 +98,8 @@ function parseWebhookStatusOrThrow(
 export function parseCreateConsoleWebhookEndpointRequest(
   body: unknown,
 ): CreateConsoleWebhookEndpointRequest {
-  const obj = requireObject(body);
-  const url = normalizeWebhookUrlOrThrow(readRequiredString(obj, 'url'), 'url');
+  const obj = requireObject(body, createParseError);
+  const url = normalizeWebhookUrlOrThrow(readRequiredString(obj, 'url', createParseError), 'url');
   const subscriptions = parseWebhookSubscriptionsOrThrow(obj.subscriptions);
   const statusRaw = obj.status;
   const status =
@@ -179,7 +114,7 @@ export function parseCreateConsoleWebhookEndpointRequest(
 export function parseUpdateConsoleWebhookEndpointRequest(
   body: unknown,
 ): UpdateConsoleWebhookEndpointRequest {
-  const obj = requireObject(body);
+  const obj = requireObject(body, createParseError);
   const urlRaw = readOptionalString(obj, 'url');
   const statusRaw = obj.status;
   const subscriptionsRaw = obj.subscriptions;
@@ -208,7 +143,7 @@ export function parseReplayConsoleWebhookDeliveryRequest(
   body: unknown,
 ): ReplayConsoleWebhookDeliveryRequest {
   if (body === undefined || body === null) return {};
-  const obj = requireObject(body);
+  const obj = requireObject(body, createParseError);
   return {
     deliveryId: readOptionalString(obj, 'deliveryId'),
   };
@@ -217,9 +152,9 @@ export function parseReplayConsoleWebhookDeliveryRequest(
 export function parseListConsoleWebhookDeliveriesRequest(
   query: unknown,
 ): ListConsoleWebhookDeliveriesRequest {
-  const obj = requireQueryObject(query);
+  const obj = requireQueryObject(query, createParseError);
   return {
-    limit: readOptionalQueryInteger(obj, 'limit'),
+    limit: readOptionalQueryInteger(obj, 'limit', createParseError),
     cursor: readOptionalQueryString(obj, 'cursor'),
   };
 }
@@ -227,10 +162,10 @@ export function parseListConsoleWebhookDeliveriesRequest(
 export function parseListConsoleWebhookAttemptsRequest(
   query: unknown,
 ): ListConsoleWebhookAttemptsRequest {
-  const obj = requireQueryObject(query);
+  const obj = requireQueryObject(query, createParseError);
   return {
     deliveryId: readOptionalQueryString(obj, 'deliveryId'),
-    limit: readOptionalQueryInteger(obj, 'limit'),
+    limit: readOptionalQueryInteger(obj, 'limit', createParseError),
     cursor: readOptionalQueryString(obj, 'cursor'),
   };
 }
@@ -238,11 +173,11 @@ export function parseListConsoleWebhookAttemptsRequest(
 export function parseListConsoleWebhookDeadLettersRequest(
   query: unknown,
 ): ListConsoleWebhookDeadLettersRequest {
-  const obj = requireQueryObject(query);
+  const obj = requireQueryObject(query, createParseError);
   return {
     deliveryId: readOptionalQueryString(obj, 'deliveryId'),
-    includeResolved: readOptionalQueryBoolean(obj, 'includeResolved'),
-    limit: readOptionalQueryInteger(obj, 'limit'),
+    includeResolved: readOptionalQueryBoolean(obj, 'includeResolved', createParseError),
+    limit: readOptionalQueryInteger(obj, 'limit', createParseError),
     cursor: readOptionalQueryString(obj, 'cursor'),
   };
 }

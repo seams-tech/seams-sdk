@@ -1,6 +1,10 @@
 import type { IDBPDatabase } from 'idb';
 import { toTrimmedString } from '@shared/utils/validation';
 import type { ChainAccountRecord } from '../passkeyClientDB.types';
+import {
+  normalizeIndexedDbAccountAddress as normalizeAccountAddress,
+  normalizeIndexedDbAccountModel as normalizeAccountModel,
+} from '../normalization';
 import type { DbMultichainSchemaParity, InvariantValidationSummary } from './invariants';
 import {
   DB_CONFIG,
@@ -83,14 +87,6 @@ function buildDefaultMigrationCounts(): DbMultichainMigrationCounts {
     invariantViolationsFound: 0,
     invariantRowsQuarantined: 0,
   };
-}
-
-function normalizeAccountModel(value: unknown): string {
-  return toTrimmedString(value || '').toLowerCase();
-}
-
-function normalizeAccountAddress(value: unknown): string {
-  return toTrimmedString(value || '').toLowerCase();
 }
 
 function hasSmartAccountShape(row: ChainAccountRecord): boolean {

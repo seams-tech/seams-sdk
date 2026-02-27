@@ -22,12 +22,10 @@ import { getPrfResultsFromCredential } from '../signingEngine/signers/webauthn/c
 import {
   THRESHOLD_SESSION_POLICY_VERSION,
   buildEcdsaSessionPolicy,
-  buildEd25519SessionPolicy,
   generateThresholdSessionId,
 } from '../signingEngine/threshold/session/sessionPolicy';
 import {
-  makeEd25519AuthSessionCacheKey,
-  putCachedEd25519AuthSession,
+  buildAndCacheEd25519AuthSession,
 } from '../signingEngine/threshold/session/ed25519AuthSession';
 import {
   makeEcdsaAuthSessionCacheKey,
@@ -684,31 +682,19 @@ export async function registerPasskeyInternal(
           setActiveSigningSessionId: true,
         });
 
-        const edPolicy = await buildEd25519SessionPolicy({
-          nearAccountId: String(nearAccountId),
-          rpId,
-          relayerKeyId,
-          participantIds: edParticipantIds,
-          sessionId: edSessionId,
-          ttlMs: thresholdEd25519SessionPolicyForRegistration.ttlMs,
-          remainingUses: thresholdEd25519SessionPolicyForRegistration.remainingUses,
-        });
-
-        const edCacheKey = makeEd25519AuthSessionCacheKey({
+        await buildAndCacheEd25519AuthSession({
           nearAccountId: String(nearAccountId),
           rpId,
           relayerUrl: context.configs.network.relayer.url,
           relayerKeyId,
           participantIds: edParticipantIds,
-        });
-
-        putCachedEd25519AuthSession(edCacheKey, {
           sessionKind: 'jwt',
-          policy: edPolicy.policy,
-          policyJson: edPolicy.policyJson,
-          sessionPolicyDigest32: edPolicy.sessionPolicyDigest32,
-          jwt: edSessionJwt,
+          sessionId: edSessionId,
           expiresAtMs: edExpiresAtMs,
+          remainingUses: edRemainingUses,
+          jwt: edSessionJwt,
+          policyTtlMs: thresholdEd25519SessionPolicyForRegistration.ttlMs,
+          policyRemainingUses: thresholdEd25519SessionPolicyForRegistration.remainingUses,
         });
       }
 

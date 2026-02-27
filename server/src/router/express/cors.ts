@@ -1,5 +1,5 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
-import { buildCorsOrigins } from '../../core/SessionService';
+import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService';
 import type { RelayRouterOptions } from '../relay';
 
 function withCors(res: Response, opts?: RelayRouterOptions, req?: Request): void {
@@ -24,10 +24,11 @@ function withCors(res: Response, opts?: RelayRouterOptions, req?: Request): void
     allowedOrigin = '*';
     res.set('Access-Control-Allow-Origin', '*');
   } else if (Array.isArray(normalized)) {
-    const origin = String((req as any)?.headers?.origin || '').trim();
-    if (origin && normalized.includes(origin)) {
-      allowedOrigin = origin;
-      res.set('Access-Control-Allow-Origin', origin);
+    const originRaw = String((req as any)?.headers?.origin || '').trim();
+    const originNormalized = normalizeCorsOrigin(originRaw);
+    if (originRaw && originNormalized && normalized.includes(originNormalized)) {
+      allowedOrigin = originRaw;
+      res.set('Access-Control-Allow-Origin', originRaw);
       res.set('Vary', 'Origin');
     }
   }

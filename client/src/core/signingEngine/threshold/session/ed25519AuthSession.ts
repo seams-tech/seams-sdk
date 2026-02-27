@@ -1,5 +1,11 @@
 import { stripTrailingSlashes, toTrimmedString } from '@shared/utils/validation';
-import type { Ed25519SessionPolicy } from './sessionPolicy';
+import {
+  normalizeInteger,
+  normalizeJwtCookieSessionKind,
+  normalizeOptionalNonEmptyString,
+  normalizePositiveInteger,
+} from '@shared/utils/normalize';
+import { buildEd25519SessionPolicy, type Ed25519SessionPolicy } from './sessionPolicy';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { redactCredentialExtensionOutputs } from '../webauthn';
@@ -47,15 +53,9 @@ function getSessionStorageSafe(): SessionStoragePort | null {
   }
 }
 
-function toOptionalTrimmedString(value: unknown): string | undefined {
-  const normalized = String(value || '').trim();
-  return normalized || undefined;
-}
-
 function toOptionalFiniteNumber(value: unknown): number | undefined {
-  const normalized = Number(value);
-  if (!Number.isFinite(normalized)) return undefined;
-  return Math.floor(normalized);
+  const normalized = normalizeInteger(value);
+  return normalized == null ? undefined : normalized;
 }
 
 function readStorageIndex(storage: SessionStoragePort): string[] {
@@ -197,7 +197,7 @@ function clearAuthSessionBySessionId(entry: Ed25519AuthSessionCacheEntry | undef
 function persistAuthSessionBySessionId(entry: Ed25519AuthSessionCacheEntry): void {
   if (entry.sessionKind !== 'jwt') return;
   const sessionId = toSessionId(entry?.policy?.sessionId);
-  const jwt = toOptionalTrimmedString(entry?.jwt);
+  const jwt = normalizeOptionalNonEmptyString(entry?.jwt);
   if (!sessionId || !jwt) return;
   writePersistedEd25519AuthSessionJwt({
     sessionId,
@@ -254,6 +254,74 @@ export function putCachedEd25519AuthSession(cacheKey: string, entry: Ed25519Auth
   persistAuthSessionBySessionId(entry);
 }
 
+export async function buildAndCacheEd25519AuthSession(args: {
+  nearAccountId: string;
+  rpId: string;
+  relayerUrl: string;
+  relayerKeyId: string;
+  participantIds?: number[];
+  sessionKind?: Ed25519SessionKind;
+  sessionId: string;
+  expiresAtMs: number;
+  remainingUses: number;
+  jwt?: string;
+  policyTtlMs?: number;
+  policyRemainingUses?: number;
+}): Promise<Ed25519AuthSession> {
+  const sessionId = String(args.sessionId || '').trim();
+  const expiresAtMs = Math.floor(Number(args.expiresAtMs));
+  const remainingUses = normalizePositiveInteger(args.remainingUses) ?? 0;
+  if (!sessionId) throw new Error('Missing sessionId for Ed25519 auth-session cache');
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
+    throw new Error('Invalid expiresAtMs for Ed25519 auth-session cache');
+  }
+  if (remainingUses <= 0) {
+    throw new Error('Invalid remainingUses for Ed25519 auth-session cache');
+  }
+
+  const policyTtlMs = (() => {
+    const explicit = normalizePositiveInteger(args.policyTtlMs) ?? 0;
+    if (explicit > 0) return explicit;
+    return Math.max(1, Math.floor(expiresAtMs - Date.now()));
+  })();
+  const policyRemainingUses = (() => {
+    const explicit = normalizePositiveInteger(args.policyRemainingUses) ?? 0;
+    if (explicit > 0) return explicit;
+    return remainingUses;
+  })();
+  const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds) || undefined;
+
+  const { policy, policyJson, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
+    nearAccountId: String(args.nearAccountId || '').trim(),
+    rpId: String(args.rpId || '').trim(),
+    relayerKeyId: String(args.relayerKeyId || '').trim(),
+    participantIds,
+    sessionId,
+    ttlMs: policyTtlMs,
+    remainingUses: policyRemainingUses,
+  });
+
+  const entry: Ed25519AuthSession = {
+    sessionKind: normalizeJwtCookieSessionKind(args.sessionKind),
+    policy,
+    policyJson,
+    sessionPolicyDigest32,
+    ...(String(args.jwt || '').trim() ? { jwt: String(args.jwt || '').trim() } : {}),
+    expiresAtMs,
+  };
+
+  const cacheKey = makeEd25519AuthSessionCacheKey({
+    nearAccountId: String(args.nearAccountId || '').trim(),
+    rpId: String(args.rpId || '').trim(),
+    relayerUrl: String(args.relayerUrl || '').trim(),
+    relayerKeyId: String(args.relayerKeyId || '').trim(),
+    participantIds,
+  });
+  putCachedEd25519AuthSession(cacheKey, entry);
+
+  return entry;
+}
+
 export function clearCachedEd25519AuthSession(cacheKey: string): void {
   const entry = authSessionCache.get(cacheKey);
   authSessionCache.delete(cacheKey);
@@ -306,7 +374,7 @@ export function getCachedEd25519AuthSessionJwtBySessionId(
 ): string | undefined {
   const cached = getCachedEd25519AuthSessionBySessionId(sessionIdRaw);
   const jwt = cached?.jwt;
-  const trimmedCachedJwt = toOptionalTrimmedString(jwt);
+  const trimmedCachedJwt = normalizeOptionalNonEmptyString(jwt);
   if (trimmedCachedJwt) return trimmedCachedJwt;
 
   const persisted = readPersistedEd25519AuthSessionJwt(sessionIdRaw);
@@ -319,7 +387,7 @@ export function getCachedEd25519AuthSessionJwtBySessionId(
     deletePersistedEd25519AuthSessionJwt(sessionIdRaw);
     return undefined;
   }
-  return toOptionalTrimmedString(persisted.jwt);
+  return normalizeOptionalNonEmptyString(persisted.jwt);
 }
 
 /**

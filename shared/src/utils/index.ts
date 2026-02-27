@@ -1,4 +1,6 @@
 export * from './encoders';
+export * from './deviceNumber';
+export * from './normalize';
 export * from './validation';
 export * from './errors';
 export * from './near';

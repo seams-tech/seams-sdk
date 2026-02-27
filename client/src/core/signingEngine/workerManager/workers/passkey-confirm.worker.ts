@@ -15,6 +15,13 @@ import { WorkerRequestType, WorkerResponseType } from '@/core/types/signer-worke
 import { bytesToHex } from '../../chainAdaptors/evm/bytes';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
+import {
+  joinNormalizedUrl,
+  normalizeNonNegativeInteger,
+  normalizeOptionalTrimmedString,
+  normalizeOptionalNonEmptyString,
+  normalizePositiveInteger,
+} from '@shared/utils/normalize';
 import { awaitUserConfirmationV2 } from '../../touchConfirm/awaitUserConfirmation';
 import { getShamir3PassRuntime } from './shamir3pass/runtime';
 import {
@@ -94,14 +101,6 @@ function nowMs(): number {
   return Date.now();
 }
 
-function normalizeSessionId(input: unknown): string {
-  return typeof input === 'string' ? input.trim() : '';
-}
-
-function normalizeB64u(input: unknown): string {
-  return typeof input === 'string' ? input.trim() : '';
-}
-
 function toSessionId(prefix: string): string {
   const value = String(prefix || '').trim() || 'session';
   return `${value}:${Date.now()}:${Math.floor(Math.random() * 1_000_000)}`;
@@ -146,9 +145,9 @@ function parseExportLocalKeyMaterial(
 ): ExportPrivateKeysWithUiWorkerPayload['localKeyMaterial'] | undefined {
   const material = asRecord(value);
   if (!material) return undefined;
-  const encryptedSk = normalizeB64u(material.encryptedSk);
-  const chacha20NonceB64u = normalizeB64u(material.chacha20NonceB64u);
-  const wrapKeySalt = normalizeB64u(material.wrapKeySalt);
+  const encryptedSk = normalizeOptionalTrimmedString(material.encryptedSk);
+  const chacha20NonceB64u = normalizeOptionalTrimmedString(material.chacha20NonceB64u);
+  const wrapKeySalt = normalizeOptionalTrimmedString(material.wrapKeySalt);
   if (!encryptedSk || !chacha20NonceB64u || !wrapKeySalt) return undefined;
   return {
     encryptedSk,
@@ -163,7 +162,7 @@ function parseExportLocalKeyMaterial(
 function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorkerPayload | null {
   const payload = asRecord(value);
   if (!payload) return null;
-  const nearAccountId = normalizeSessionId(payload.nearAccountId);
+  const nearAccountId = normalizeOptionalTrimmedString(payload.nearAccountId);
   const deviceNumber = Math.floor(Number(payload.deviceNumber));
   const chain = coerceExportChain(payload.chain);
   if (!nearAccountId || !Number.isFinite(deviceNumber) || deviceNumber < 1) return null;
@@ -185,47 +184,20 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
   };
 }
 
-function normalizeOptionalString(input: unknown): string | undefined {
-  const value = typeof input === 'string' ? input.trim() : '';
-  return value || undefined;
-}
-
-function normalizePositiveInteger(input: unknown): number | null {
-  const value = Math.floor(Number(input));
-  if (!Number.isFinite(value) || value <= 0) return null;
-  return value;
-}
-
-function normalizeNonNegativeInteger(input: unknown): number | null {
-  const value = Math.floor(Number(input));
-  if (!Number.isFinite(value) || value < 0) return null;
-  return value;
-}
-
 function parsePrfSessionSealTransport(value: unknown): PrfSessionSealTransport | null {
   const transport = asRecord(value);
   if (!transport) return null;
-  const relayerUrl = normalizeOptionalString(transport.relayerUrl);
+  const relayerUrl = normalizeOptionalNonEmptyString(transport.relayerUrl);
+  const thresholdSessionJwt = normalizeOptionalNonEmptyString(transport.thresholdSessionJwt);
+  const keyVersion = normalizeOptionalNonEmptyString(transport.keyVersion);
+  const shamirPrimeB64u = normalizeOptionalNonEmptyString(transport.shamirPrimeB64u);
   if (!relayerUrl) return null;
   return {
     relayerUrl,
-    ...(normalizeOptionalString(transport.thresholdSessionJwt)
-      ? { thresholdSessionJwt: normalizeOptionalString(transport.thresholdSessionJwt) }
-      : {}),
-    ...(normalizeOptionalString(transport.keyVersion)
-      ? { keyVersion: normalizeOptionalString(transport.keyVersion) }
-      : {}),
-    ...(normalizeOptionalString(transport.shamirPrimeB64u)
-      ? { shamirPrimeB64u: normalizeOptionalString(transport.shamirPrimeB64u) }
-      : {}),
+    ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+    ...(keyVersion ? { keyVersion } : {}),
+    ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
   };
-}
-
-function normalizeJoinUrl(baseUrlRaw: string, pathRaw: string): string {
-  const baseUrl = String(baseUrlRaw || '').trim().replace(/\/+$/g, '');
-  const path = String(pathRaw || '').trim().replace(/^\/+/g, '');
-  if (!baseUrl) throw new Error('Missing relayer URL');
-  return `${baseUrl}/${path}`;
 }
 
 function parsePrfSessionSealRouteResult(value: unknown): PrfSessionSealRouteResult {
@@ -243,7 +215,10 @@ function parsePrfSessionSealRouteResult(value: unknown): PrfSessionSealRouteResu
           : 'PRF session seal request failed',
     };
   }
-  const ciphertext = normalizeB64u(result.ciphertext);
+  const ciphertext = normalizeOptionalTrimmedString(result.ciphertext);
+  const keyVersion = normalizeOptionalNonEmptyString(result.keyVersion);
+  const expiresAtMs = normalizePositiveInteger(result.expiresAtMs);
+  const remainingUses = normalizeNonNegativeInteger(result.remainingUses);
   if (!ciphertext) {
     return {
       ok: false,
@@ -254,15 +229,9 @@ function parsePrfSessionSealRouteResult(value: unknown): PrfSessionSealRouteResu
   return {
     ok: true,
     ciphertext,
-    ...(normalizeOptionalString(result.keyVersion)
-      ? { keyVersion: normalizeOptionalString(result.keyVersion) }
-      : {}),
-    ...(normalizePositiveInteger(result.expiresAtMs) != null
-      ? { expiresAtMs: normalizePositiveInteger(result.expiresAtMs) || undefined }
-      : {}),
-    ...(normalizeNonNegativeInteger(result.remainingUses) != null
-      ? { remainingUses: normalizeNonNegativeInteger(result.remainingUses) || undefined }
-      : {}),
+    ...(keyVersion ? { keyVersion } : {}),
+    ...(expiresAtMs != null ? { expiresAtMs } : {}),
+    ...(remainingUses != null ? { remainingUses } : {}),
   };
 }
 
@@ -275,13 +244,14 @@ async function callPrfSessionSealRoute(args: {
 }): Promise<PrfSessionSealRouteResult> {
   const routePath =
     args.operation === 'apply-server-seal' ? 'apply-server-seal' : 'remove-server-seal';
-  const url = normalizeJoinUrl(args.transport.relayerUrl, `${PRF_SESSION_SEAL_BASE_PATH}/${routePath}`);
+  const url = joinNormalizedUrl(args.transport.relayerUrl, `${PRF_SESSION_SEAL_BASE_PATH}/${routePath}`);
 
   try {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
-    const thresholdSessionJwt = normalizeOptionalString(args.transport.thresholdSessionJwt);
+    const thresholdSessionJwt = normalizeOptionalNonEmptyString(args.transport.thresholdSessionJwt);
+    const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion);
     if (thresholdSessionJwt) {
       headers.Authorization = `Bearer ${thresholdSessionJwt}`;
     }
@@ -292,9 +262,7 @@ async function callPrfSessionSealRoute(args: {
       body: JSON.stringify({
         thresholdSessionId: args.thresholdSessionId,
         ciphertext: args.ciphertext,
-        ...(normalizeOptionalString(args.keyVersion)
-          ? { keyVersion: normalizeOptionalString(args.keyVersion) }
-          : {}),
+        ...(keyVersion ? { keyVersion } : {}),
       }),
     });
     const data = await response.json().catch(() => null);
@@ -368,7 +336,7 @@ function requirePrfB64uFromCredential(
   );
   const prf = asRecord(results?.prf);
   const prfResults = asRecord(prf?.results);
-  const value = normalizeB64u(prfResults?.[output]);
+  const value = normalizeOptionalTrimmedString(prfResults?.[output]);
   if (!value) {
     throw new Error(
       `Missing PRF.${output} output from credential (requires a PRF-enabled passkey)`,
@@ -757,11 +725,11 @@ async function runPrfSessionSealAndPersist(args: {
   sessionId: string;
   transport: PrfSessionSealTransport;
 }): Promise<OkSealResult | ErrResult> {
-  const sessionId = normalizeSessionId(args.sessionId);
+  const sessionId = normalizeOptionalTrimmedString(args.sessionId);
   if (!sessionId) {
     return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
   }
-  const shamirPrimeB64u = normalizeOptionalString(args.transport.shamirPrimeB64u);
+  const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.transport.shamirPrimeB64u);
   if (!shamirPrimeB64u) {
     return {
       ok: false,
@@ -814,12 +782,11 @@ async function runPrfSessionSealAndPersist(args: {
       remainingUses: policy.remainingUses,
       expiresAtMs: policy.expiresAtMs,
     });
+    const keyVersion = normalizeOptionalNonEmptyString(applied.keyVersion);
     return {
       ok: true,
       sealedPrfFirstB64u,
-      ...(normalizeOptionalString(applied.keyVersion)
-        ? { keyVersion: normalizeOptionalString(applied.keyVersion) }
-        : {}),
+      ...(keyVersion ? { keyVersion } : {}),
       remainingUses: policy.remainingUses,
       expiresAtMs: policy.expiresAtMs,
     };
@@ -840,11 +807,11 @@ async function runPrfSessionRehydrate(args: {
   expiresAtMs: number;
   transport: PrfSessionSealTransport;
 }): Promise<OkResult | ErrResult> {
-  const sessionId = normalizeSessionId(args.sessionId);
+  const sessionId = normalizeOptionalTrimmedString(args.sessionId);
   if (!sessionId) {
     return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
   }
-  const sealedPrfFirstB64u = normalizeB64u(args.sealedPrfFirstB64u);
+  const sealedPrfFirstB64u = normalizeOptionalTrimmedString(args.sealedPrfFirstB64u);
   if (!sealedPrfFirstB64u) {
     return { ok: false, code: 'invalid_args', message: 'Missing sealedPrfFirstB64u' };
   }
@@ -856,7 +823,7 @@ async function runPrfSessionRehydrate(args: {
   if (localExpiresAtMs <= nowMs()) {
     return { ok: false, code: 'expired', message: 'PRF.first cache expired for threshold session' };
   }
-  const shamirPrimeB64u = normalizeOptionalString(args.transport.shamirPrimeB64u);
+  const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.transport.shamirPrimeB64u);
   if (!shamirPrimeB64u) {
     return {
       ok: false,
@@ -879,7 +846,7 @@ async function runPrfSessionRehydrate(args: {
       transport: args.transport,
       thresholdSessionId: sessionId,
       ciphertext: clientEncryptedCiphertext,
-      keyVersion: normalizeOptionalString(args.keyVersion) || args.transport.keyVersion,
+      keyVersion: normalizeOptionalNonEmptyString(args.keyVersion) || args.transport.keyVersion,
     });
     if (!removed.ok) return removed;
 
@@ -1004,8 +971,8 @@ self.onmessage = (event: MessageEvent) => {
   if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_PUT') {
     try {
       const payload = asRecord(incoming.payload);
-      const sessionId = normalizeSessionId(payload?.sessionId);
-      const prfFirstB64u = normalizeB64u(payload?.prfFirstB64u);
+      const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
+      const prfFirstB64u = normalizeOptionalTrimmedString(payload?.prfFirstB64u);
       const expiresAtMs = Math.floor(Number(payload?.expiresAtMs) || 0);
       const remainingUses = Math.floor(Number(payload?.remainingUses) || 0);
       if (!sessionId || !prfFirstB64u) {
@@ -1044,14 +1011,14 @@ self.onmessage = (event: MessageEvent) => {
 
   if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_PEEK') {
     const payload = asRecord(incoming.payload);
-    const sessionId = normalizeSessionId(payload?.sessionId);
+    const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
     postUserConfirmWorkerResponse(id, { success: true, data: peekPrfFirstEntry(sessionId) });
     return;
   }
 
   if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_DISPENSE') {
     const payload = asRecord(incoming.payload);
-    const sessionId = normalizeSessionId(payload?.sessionId);
+    const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
     const uses = Math.max(1, Math.floor(Number(payload?.uses) || 1));
     postUserConfirmWorkerResponse(id, {
       success: true,
@@ -1062,7 +1029,7 @@ self.onmessage = (event: MessageEvent) => {
 
   if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_CLEAR') {
     const payload = asRecord(incoming.payload);
-    const sessionId = normalizeSessionId(payload?.sessionId);
+    const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
     if (sessionId) prfFirstSessionCache.delete(sessionId);
     postUserConfirmWorkerResponse(id, { success: true, data: { ok: true } });
     return;
@@ -1077,7 +1044,7 @@ self.onmessage = (event: MessageEvent) => {
   if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_SEAL_AND_PERSIST') {
     void (async () => {
       const payload = asRecord(incoming.payload);
-      const sessionId = normalizeSessionId(payload?.sessionId);
+      const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
       const transport = parsePrfSessionSealTransport(payload?.transport);
       if (!sessionId || !transport) {
         postUserConfirmWorkerResponse(id, {
@@ -1099,11 +1066,11 @@ self.onmessage = (event: MessageEvent) => {
   if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_REHYDRATE') {
     void (async () => {
       const payload = asRecord(incoming.payload);
-      const sessionId = normalizeSessionId(payload?.sessionId);
-      const sealedPrfFirstB64u = normalizeB64u(payload?.sealedPrfFirstB64u);
+      const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
+      const sealedPrfFirstB64u = normalizeOptionalTrimmedString(payload?.sealedPrfFirstB64u);
       const expiresAtMs = Math.floor(Number(payload?.expiresAtMs) || 0);
       const remainingUses = Math.floor(Number(payload?.remainingUses) || 0);
-      const keyVersion = normalizeOptionalString(payload?.keyVersion);
+      const keyVersion = normalizeOptionalNonEmptyString(payload?.keyVersion);
       const transport = parsePrfSessionSealTransport(payload?.transport);
       if (!sessionId || !sealedPrfFirstB64u || !transport || expiresAtMs <= 0 || remainingUses <= 0) {
         postUserConfirmWorkerResponse(id, {

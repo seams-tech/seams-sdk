@@ -1,5 +1,10 @@
 import type { NormalizedLogger } from '../../core/logger';
 import { getPostgresPool } from '../../storage/postgres';
+import {
+  ensureConsoleNamespace as ensureNamespace,
+  toConsoleIso as toIso,
+  toConsoleNumber as toNumber,
+} from '../shared/postgresNormalize';
 import { ConsoleWebhookError } from './errors';
 import {
   coerceIsoDate,
@@ -44,7 +49,6 @@ type PgPool = Awaited<ReturnType<typeof getPostgresPool>>;
 type Queryable = Pick<PgPool, 'query'>;
 type PgRow = Record<string, unknown>;
 
-const DEFAULT_NAMESPACE = 'console-default';
 const CONSOLE_WEBHOOKS_MIGRATION_LOCK_ID = 9452360123584;
 
 interface StoredWebhookEndpoint extends ConsoleWebhookEndpoint {
@@ -71,31 +75,14 @@ interface DeliveryAttemptResult {
   attemptedAtMs: number;
 }
 
-function ensureNamespace(input?: string): string {
-  const value = String(input || '').trim();
-  return value || DEFAULT_NAMESPACE;
-}
-
 function nowMs(now: Date): number {
   return now.getTime();
-}
-
-function toNumber(v: unknown, fallback = 0): number {
-  if (typeof v === 'number') return v;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
 }
 
 function toNullableNumber(v: unknown): number | null {
   if (v === null || v === undefined) return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
-}
-
-function toIso(ms: number | null | undefined): string | null {
-  if (ms === null || ms === undefined) return null;
-  if (!Number.isFinite(ms)) return null;
-  return new Date(ms).toISOString();
 }
 
 function parseBigintCursorId(id: string): string {

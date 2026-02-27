@@ -1,27 +1,10 @@
 import { ConsoleApiKeyError } from './errors';
+import {
+  readOptionalStringField as readOptionalString,
+  readRequiredStringField as readRequiredString,
+  requireBodyObject as requireObject,
+} from '../shared/requestParse';
 import type { CreateConsoleApiKeyRequest, RotateConsoleApiKeyRequest } from './types';
-
-function requireObject(body: unknown): Record<string, unknown> {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    throw new ConsoleApiKeyError('invalid_body', 400, 'Expected JSON object request body');
-  }
-  return body as Record<string, unknown>;
-}
-
-function readRequiredString(body: Record<string, unknown>, key: string): string {
-  const value = String(body[key] ?? '').trim();
-  if (!value) {
-    throw new ConsoleApiKeyError('invalid_body', 400, `Missing required field: ${key}`);
-  }
-  return value;
-}
-
-function readOptionalString(body: Record<string, unknown>, key: string): string | undefined {
-  const raw = body[key];
-  if (raw === undefined || raw === null) return undefined;
-  const value = String(raw).trim();
-  return value || undefined;
-}
 
 function parseScopesOrThrow(raw: unknown): string[] {
   if (!Array.isArray(raw) || raw.length === 0) {
@@ -75,9 +58,17 @@ function parseIpAllowlistOrThrow(raw: unknown): string[] | undefined {
 }
 
 export function parseCreateConsoleApiKeyRequest(body: unknown): CreateConsoleApiKeyRequest {
-  const obj = requireObject(body);
-  const name = readRequiredString(obj, 'name');
-  const environmentId = readRequiredString(obj, 'environmentId');
+  const obj = requireObject(body, (code, status, message) => new ConsoleApiKeyError(code, status, message));
+  const name = readRequiredString(
+    obj,
+    'name',
+    (code, status, message) => new ConsoleApiKeyError(code, status, message),
+  );
+  const environmentId = readRequiredString(
+    obj,
+    'environmentId',
+    (code, status, message) => new ConsoleApiKeyError(code, status, message),
+  );
   const scopes = parseScopesOrThrow(obj.scopes);
   const ipAllowlist = parseIpAllowlistOrThrow(obj.ipAllowlist);
   return {
@@ -90,7 +81,7 @@ export function parseCreateConsoleApiKeyRequest(body: unknown): CreateConsoleApi
 
 export function parseRotateConsoleApiKeyRequest(body: unknown): RotateConsoleApiKeyRequest {
   if (body === undefined || body === null) return {};
-  const obj = requireObject(body);
+  const obj = requireObject(body, (code, status, message) => new ConsoleApiKeyError(code, status, message));
   return {
     reason: readOptionalString(obj, 'reason'),
   };

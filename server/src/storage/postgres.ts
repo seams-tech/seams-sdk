@@ -2,7 +2,7 @@ import type { NormalizedLogger } from '../core/logger';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 
 type PgPool = {
-  query: (text: string, values?: unknown[]) => Promise<{ rows: any[] }>;
+  query: (text: string, values?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }>;
   end?: () => Promise<void>;
 };
 

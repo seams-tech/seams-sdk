@@ -1,13 +1,10 @@
 import type { TatchiConfigsReadonly } from '@/core/types/tatchi';
+import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
+import { normalizeSmartAccountDeploymentAttempts } from './smartAccountNormalization';
 import type {
   SmartAccountDeployerInput,
   SmartAccountDeployerResult,
 } from './ensureSmartAccountDeployed';
-
-function normalizeOptionalString(value: unknown): string | undefined {
-  const normalized = String(value || '').trim();
-  return normalized || undefined;
-}
 
 function resolveSmartAccountDeployEndpoint(configs: TatchiConfigsReadonly): string {
   const relayerUrl = String(configs.network.relayer?.url || '').trim();
@@ -30,12 +27,10 @@ export function resolveSmartAccountDeploymentMode(
 }
 
 export function resolveSmartAccountDeploymentMaxAttempts(configs: TatchiConfigsReadonly): number {
-  const candidate = configs.network.relayer?.smartAccountDeployment?.maxAttempts;
-  if (typeof candidate !== 'number' || !Number.isFinite(candidate)) return 2;
-  const rounded = Math.trunc(candidate);
-  if (rounded < 1) return 1;
-  if (rounded > 5) return 5;
-  return rounded;
+  return normalizeSmartAccountDeploymentAttempts(
+    configs.network.relayer?.smartAccountDeployment?.maxAttempts,
+    2,
+  );
 }
 
 export async function deploySmartAccountForChain(
@@ -67,11 +62,11 @@ export async function deploySmartAccountForChain(
     const resultOk =
       (json && json.ok === true) || (json && json.success === true) || (!json && response.ok);
     if (!response.ok || !resultOk) {
-      const code = normalizeOptionalString(
+      const code = normalizeOptionalNonEmptyString(
         json?.code || json?.errorCode || json?.statusCode || `http_${response.status}`,
       );
       const message =
-        normalizeOptionalString(
+        normalizeOptionalNonEmptyString(
           json?.message || json?.error || response.statusText || 'deployment failed',
         ) || 'deployment failed';
       return {
@@ -81,7 +76,7 @@ export async function deploySmartAccountForChain(
       };
     }
 
-    const deploymentTxHash = normalizeOptionalString(
+    const deploymentTxHash = normalizeOptionalNonEmptyString(
       json?.deploymentTxHash || json?.txHash || json?.transactionHash || json?.hash,
     );
     return {
@@ -90,7 +85,7 @@ export async function deploySmartAccountForChain(
     };
   } catch (error: unknown) {
     const message =
-      normalizeOptionalString((error as { message?: unknown })?.message || error) ||
+      normalizeOptionalNonEmptyString((error as { message?: unknown })?.message || error) ||
       'deployment request failed';
     return {
       ok: false,

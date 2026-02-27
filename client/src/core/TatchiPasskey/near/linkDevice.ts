@@ -10,11 +10,12 @@ import type {
 import { DeviceLinkingPhase, DeviceLinkingStatus } from '../../types/sdkSentEvents';
 import type { DeviceLinkingSSEEvent } from '../../types/sdkSentEvents';
 import { toAccountId } from '../../types/accountIds';
+import { coerceDeviceNumber } from '@shared/utils/deviceNumber';
 import { errorMessage } from '@shared/utils/errors';
 import { IndexedDBManager } from '../../indexedDB';
 import { ensureEd25519Prefix, isObject } from '@shared/utils/validation';
 import type { WalletIframeCoordinator } from '../walletIframeCoordinator';
-import { getLoginSession } from '../login';
+import { restoreLocalLoginState } from '../restoreLocalLoginState';
 import { linkDeviceWithScannedQRData as linkDeviceWithScannedQRDataDevice1 } from '../scanDevice';
 import { DEVICE_LINKING_CONFIG } from '../../../config';
 import { normalizeRegistrationCredential } from '../../signingEngine/signers/webauthn/credentials/helpers';
@@ -40,11 +41,6 @@ function nowMs(): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function coerceDeviceNumber(input: unknown): number {
-  const n = typeof input === 'number' ? input : Number(input);
-  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
 }
 
 function parseDeviceNumberFromIntentDigest(intentDigest: string, fallback: number): number {
@@ -597,16 +593,12 @@ export class LinkDeviceFlow {
         message: 'Logging in…',
       });
 
-      await this.context.signingEngine
-        .setLastUser(nearAccountId, deviceNumber)
-        .catch(() => undefined);
-      await this.context.signingEngine.updateLastLogin(nearAccountId).catch(() => undefined);
-      await this.context.signingEngine.initializeCurrentUser(
+      const restored = await restoreLocalLoginState({
+        context: this.context,
         nearAccountId,
-        this.context.nearClient,
-      );
-      const { login } = await getLoginSession(this.context, nearAccountId);
-      if (!login?.isLoggedIn) {
+        deviceNumber,
+      });
+      if (!restored.isLoggedIn) {
         throw new Error(`Auto-login did not mark ${String(nearAccountId)} as logged in`);
       }
 

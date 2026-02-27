@@ -1,4 +1,5 @@
 import { ConsoleWebhookError } from './errors';
+import { normalizeBoundedPositiveInteger } from '@shared/utils/normalize';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -44,10 +45,10 @@ export function parsePaginationCursor(cursor: string | undefined): PaginationCur
 }
 
 export function normalizePaginationLimit(limit: number | undefined): number {
-  if (!Number.isFinite(limit)) return DEFAULT_LIMIT;
-  const value = Math.floor(Number(limit));
-  if (value <= 0) return DEFAULT_LIMIT;
-  return Math.min(value, MAX_LIMIT);
+  return normalizeBoundedPositiveInteger(limit, {
+    fallback: DEFAULT_LIMIT,
+    max: MAX_LIMIT,
+  });
 }
 
 export function encodePaginationCursor(sortMs: number, id: string): string {

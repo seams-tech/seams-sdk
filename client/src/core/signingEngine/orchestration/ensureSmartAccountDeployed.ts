@@ -14,6 +14,7 @@ import type {
 } from '@/core/indexedDB/passkeyClientDB.types';
 import type { EvmSigningRequest } from '../chainAdaptors/evm/types';
 import type { TempoSigningRequest } from '../chainAdaptors/tempo/types';
+import { normalizeSmartAccountDeploymentAttempts } from './smartAccountNormalization';
 
 export type SmartAccountDeploymentChain = 'evm' | 'tempo';
 
@@ -76,14 +77,6 @@ type DeploymentIdentity = {
 };
 
 const deploymentInFlightByIdentity = new Map<string, Promise<void>>();
-
-function normalizeRetryAttempts(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return 1;
-  const rounded = Math.trunc(value);
-  if (rounded < 1) return 1;
-  if (rounded > 5) return 5;
-  return rounded;
-}
 
 function isRetriableDeployFailure(codeRaw: unknown, messageRaw: unknown): boolean {
   const code = String(codeRaw || '')
@@ -333,7 +326,7 @@ export async function ensureSmartAccountDeployed(args: {
   const checkedAt = (args.now || Date.now)();
   const nearAccountId = toAccountId(args.nearAccountId);
   const enforce = !!args.enforce;
-  const maxDeployAttempts = normalizeRetryAttempts(args.maxDeployAttempts);
+  const maxDeployAttempts = normalizeSmartAccountDeploymentAttempts(args.maxDeployAttempts, 1);
   const chainIds = dedupeChainIds(args.chainIdCandidates);
   const chainIdKeys = chainIds.map((chainId) => toChainIdKey(args.chain, chainId));
 

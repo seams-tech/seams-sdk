@@ -1,5 +1,11 @@
 import { ConsoleBillingError } from './errors';
 import { isStablecoinAssetSymbol, isStablecoinSettlementChain } from './stablecoinAssets';
+import {
+  readOptionalStringField as readOptionalString,
+  readRequiredIntegerField as readRequiredInteger,
+  readRequiredStringField as readRequiredString,
+  requireBodyObject as requireObject,
+} from '../shared/requestParse';
 import type {
   AddCardPaymentMethodRequest,
   BillingUsageEventRequest,
@@ -13,44 +19,17 @@ import type {
   StripeSetupIntentRequest,
 } from './types';
 
-function requireObject(body: unknown): Record<string, unknown> {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    throw new ConsoleBillingError('invalid_body', 400, 'Expected JSON object request body');
-  }
-  return body as Record<string, unknown>;
-}
-
-function readRequiredString(body: Record<string, unknown>, key: string): string {
-  const value = String(body[key] ?? '').trim();
-  if (!value) {
-    throw new ConsoleBillingError('invalid_body', 400, `Missing required field: ${key}`);
-  }
-  return value;
-}
-
-function readOptionalString(body: Record<string, unknown>, key: string): string | undefined {
-  const raw = body[key];
-  if (raw === undefined || raw === null) return undefined;
-  const value = String(raw).trim();
-  return value || undefined;
-}
-
-function readRequiredInteger(body: Record<string, unknown>, key: string): number {
-  const raw = body[key];
-  const n = typeof raw === 'number' ? raw : Number(raw);
-  if (!Number.isInteger(n)) {
-    throw new ConsoleBillingError('invalid_body', 400, `Field ${key} must be an integer`);
-  }
-  return n;
+function createParseError(code: string, status: number, message: string): ConsoleBillingError {
+  return new ConsoleBillingError(code, status, message);
 }
 
 export function parseAddCardPaymentMethodRequest(body: unknown): AddCardPaymentMethodRequest {
-  const obj = requireObject(body);
-  const providerRef = readRequiredString(obj, 'providerRef');
-  const brand = readRequiredString(obj, 'brand');
-  const last4 = readRequiredString(obj, 'last4');
-  const expMonth = readRequiredInteger(obj, 'expMonth');
-  const expYear = readRequiredInteger(obj, 'expYear');
+  const obj = requireObject(body, createParseError);
+  const providerRef = readRequiredString(obj, 'providerRef', createParseError);
+  const brand = readRequiredString(obj, 'brand', createParseError);
+  const last4 = readRequiredString(obj, 'last4', createParseError);
+  const expMonth = readRequiredInteger(obj, 'expMonth', createParseError);
+  const expYear = readRequiredInteger(obj, 'expYear', createParseError);
 
   if (!/^\d{4}$/.test(last4)) {
     throw new ConsoleBillingError('invalid_body', 400, 'Field last4 must be 4 digits');
@@ -73,16 +52,16 @@ export function parseAddCardPaymentMethodRequest(body: unknown): AddCardPaymentM
 
 export function parseStripeSetupIntentRequest(body: unknown): StripeSetupIntentRequest {
   if (body === undefined || body === null) return {};
-  const obj = requireObject(body);
+  const obj = requireObject(body, createParseError);
   return {
     returnUrl: readOptionalString(obj, 'returnUrl'),
   };
 }
 
 export function parseStripePaymentIntentRequest(body: unknown): StripePaymentIntentRequest {
-  const obj = requireObject(body);
+  const obj = requireObject(body, createParseError);
   return {
-    invoiceId: readRequiredString(obj, 'invoiceId'),
+    invoiceId: readRequiredString(obj, 'invoiceId', createParseError),
     paymentMethodId: readOptionalString(obj, 'paymentMethodId'),
   };
 }
@@ -90,8 +69,8 @@ export function parseStripePaymentIntentRequest(body: unknown): StripePaymentInt
 export function parseStripePaymentIntentReconcileRequest(
   body: unknown,
 ): StripePaymentIntentReconcileRequest {
-  const obj = requireObject(body);
-  const providerStatus = readRequiredString(obj, 'providerStatus').toUpperCase();
+  const obj = requireObject(body, createParseError);
+  const providerStatus = readRequiredString(obj, 'providerStatus', createParseError).toUpperCase();
   const settledAmountMinorRaw = obj.settledAmountMinor;
   const sourceEventId = readOptionalString(obj, 'sourceEventId');
   const validStatuses = new Set(['ACTION_REQUIRED', 'PENDING', 'SUCCEEDED', 'FAILED', 'CANCELED']);
@@ -126,10 +105,10 @@ export function parseStripePaymentIntentReconcileRequest(
 }
 
 export function parseStripeWebhookEventRequest(body: unknown): StripeWebhookEventRequest {
-  const obj = requireObject(body);
-  const eventId = readRequiredString(obj, 'eventId');
-  const providerRef = readRequiredString(obj, 'providerRef');
-  const providerStatus = readRequiredString(obj, 'providerStatus').toUpperCase();
+  const obj = requireObject(body, createParseError);
+  const eventId = readRequiredString(obj, 'eventId', createParseError);
+  const providerRef = readRequiredString(obj, 'providerRef', createParseError);
+  const providerStatus = readRequiredString(obj, 'providerStatus', createParseError).toUpperCase();
   const settledAmountMinorRaw = obj.settledAmountMinor;
   const validStatuses = new Set(['ACTION_REQUIRED', 'PENDING', 'SUCCEEDED', 'FAILED', 'CANCELED']);
   if (!validStatuses.has(providerStatus)) {
@@ -164,10 +143,10 @@ export function parseStripeWebhookEventRequest(body: unknown): StripeWebhookEven
 }
 
 export function parseStablecoinQuoteRequest(body: unknown): StablecoinQuoteRequest {
-  const obj = requireObject(body);
-  const invoiceId = readRequiredString(obj, 'invoiceId');
-  const asset = readRequiredString(obj, 'asset');
-  const chain = readRequiredString(obj, 'chain');
+  const obj = requireObject(body, createParseError);
+  const invoiceId = readRequiredString(obj, 'invoiceId', createParseError);
+  const asset = readRequiredString(obj, 'asset', createParseError);
+  const chain = readRequiredString(obj, 'chain', createParseError);
 
   if (!isStablecoinAssetSymbol(asset)) {
     throw new ConsoleBillingError('invalid_body', 400, `Unsupported stablecoin asset: ${asset}`);
@@ -184,19 +163,23 @@ export function parseStablecoinQuoteRequest(body: unknown): StablecoinQuoteReque
 }
 
 export function parseStablecoinPaymentIntentRequest(body: unknown): StablecoinPaymentIntentRequest {
-  const obj = requireObject(body);
+  const obj = requireObject(body, createParseError);
   return {
-    invoiceId: readRequiredString(obj, 'invoiceId'),
-    quoteId: readRequiredString(obj, 'quoteId'),
+    invoiceId: readRequiredString(obj, 'invoiceId', createParseError),
+    quoteId: readRequiredString(obj, 'quoteId', createParseError),
   };
 }
 
 export function parseStablecoinPaymentIntentReconcileRequest(
   body: unknown,
 ): StablecoinPaymentIntentReconcileRequest {
-  const obj = requireObject(body);
-  const observedAmountMinor = readRequiredInteger(obj, 'observedAmountMinor');
-  const observedConfirmations = readRequiredInteger(obj, 'observedConfirmations');
+  const obj = requireObject(body, createParseError);
+  const observedAmountMinor = readRequiredInteger(obj, 'observedAmountMinor', createParseError);
+  const observedConfirmations = readRequiredInteger(
+    obj,
+    'observedConfirmations',
+    createParseError,
+  );
   const confirmationTimedOutRaw = obj.confirmationTimedOut;
   const sourceEventId = readOptionalString(obj, 'sourceEventId');
 
@@ -223,9 +206,9 @@ export function parseStablecoinPaymentIntentReconcileRequest(
 }
 
 export function parseBillingUsageEventRequest(body: unknown): BillingUsageEventRequest {
-  const obj = requireObject(body);
-  const walletId = readRequiredString(obj, 'walletId');
-  const action = readRequiredString(obj, 'action').toLowerCase();
+  const obj = requireObject(body, createParseError);
+  const walletId = readRequiredString(obj, 'walletId', createParseError);
+  const action = readRequiredString(obj, 'action', createParseError).toLowerCase();
   const succeededRaw = obj.succeeded;
   const isSimulationRaw = obj.isSimulation;
   const isInternalRetryRaw = obj.isInternalRetry;
@@ -276,8 +259,8 @@ export function parseBillingUsageEventRequest(body: unknown): BillingUsageEventR
 }
 
 export function parseGenerateMonthlyInvoiceRequest(body: unknown): GenerateMonthlyInvoiceRequest {
-  const obj = requireObject(body);
-  const periodMonthUtc = readRequiredString(obj, 'periodMonthUtc');
+  const obj = requireObject(body, createParseError);
+  const periodMonthUtc = readRequiredString(obj, 'periodMonthUtc', createParseError);
   if (!/^\d{4}-\d{2}$/.test(periodMonthUtc)) {
     throw new ConsoleBillingError(
       'invalid_body',

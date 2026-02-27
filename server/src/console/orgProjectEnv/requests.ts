@@ -1,4 +1,11 @@
 import { ConsoleOrgProjectEnvError } from './errors';
+import {
+  readOptionalQueryStringField as readOptionalQueryString,
+  readOptionalStringField as readOptionalString,
+  readRequiredStringField as readRequiredString,
+  requireBodyObject,
+  requireQueryObject,
+} from '../shared/requestParse';
 import type {
   CreateConsoleEnvironmentRequest,
   CreateConsoleProjectRequest,
@@ -10,26 +17,18 @@ import type {
 
 const RESOURCE_ID_PATTERN = /^[A-Za-z0-9:_-]+$/;
 
-function requireQueryObject(query: unknown): Record<string, unknown> {
-  if (query === undefined || query === null) return {};
-  if (!query || typeof query !== 'object' || Array.isArray(query)) {
-    throw new ConsoleOrgProjectEnvError('invalid_query', 400, 'Expected query params object');
-  }
-  return query as Record<string, unknown>;
-}
-
-function readOptionalQueryString(query: Record<string, unknown>, key: string): string | undefined {
-  const raw = query[key];
-  if (raw === undefined || raw === null) return undefined;
-  const first = Array.isArray(raw) ? raw[0] : raw;
-  const value = String(first).trim();
-  return value || undefined;
+function createParseError(
+  code: string,
+  status: number,
+  message: string,
+): ConsoleOrgProjectEnvError {
+  return new ConsoleOrgProjectEnvError(code, status, message);
 }
 
 export function parseListConsoleEnvironmentsRequest(
   query: unknown,
 ): ListConsoleEnvironmentsRequest {
-  const obj = requireQueryObject(query);
+  const obj = requireQueryObject(query, createParseError);
   const statusRaw = readOptionalQueryString(obj, 'status');
   const status = statusRaw ? statusRaw.toUpperCase() : undefined;
   if (status && status !== 'ACTIVE' && status !== 'ARCHIVED') {
@@ -46,7 +45,7 @@ export function parseListConsoleEnvironmentsRequest(
 }
 
 export function parseListConsoleProjectsRequest(query: unknown): ListConsoleProjectsRequest {
-  const obj = requireQueryObject(query);
+  const obj = requireQueryObject(query, createParseError);
   const statusRaw = readOptionalQueryString(obj, 'status');
   const status = statusRaw ? statusRaw.toUpperCase() : undefined;
   if (status && status !== 'ACTIVE' && status !== 'ARCHIVED') {
@@ -61,30 +60,8 @@ export function parseListConsoleProjectsRequest(query: unknown): ListConsoleProj
   };
 }
 
-function requireBodyObject(body: unknown): Record<string, unknown> {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    throw new ConsoleOrgProjectEnvError('invalid_body', 400, 'Expected JSON object request body');
-  }
-  return body as Record<string, unknown>;
-}
-
-function readRequiredBodyString(body: Record<string, unknown>, key: string): string {
-  const value = String(body[key] ?? '').trim();
-  if (!value) {
-    throw new ConsoleOrgProjectEnvError('invalid_body', 400, `Missing required field: ${key}`);
-  }
-  return value;
-}
-
-function readOptionalBodyString(body: Record<string, unknown>, key: string): string | undefined {
-  const raw = body[key];
-  if (raw === undefined || raw === null) return undefined;
-  const value = String(raw).trim();
-  return value || undefined;
-}
-
 function readOptionalResourceId(body: Record<string, unknown>, key: string): string | undefined {
-  const value = readOptionalBodyString(body, key);
+  const value = readOptionalString(body, key);
   if (!value) return undefined;
   if (!RESOURCE_ID_PATTERN.test(value)) {
     throw new ConsoleOrgProjectEnvError(
@@ -97,8 +74,8 @@ function readOptionalResourceId(body: Record<string, unknown>, key: string): str
 }
 
 export function parseCreateConsoleProjectRequest(body: unknown): CreateConsoleProjectRequest {
-  const obj = requireBodyObject(body);
-  const name = readRequiredBodyString(obj, 'name');
+  const obj = requireBodyObject(body, createParseError);
+  const name = readRequiredString(obj, 'name', createParseError);
   const id = readOptionalResourceId(obj, 'id');
   return {
     ...(id ? { id } : {}),
@@ -107,8 +84,8 @@ export function parseCreateConsoleProjectRequest(body: unknown): CreateConsolePr
 }
 
 export function parseUpdateConsoleProjectRequest(body: unknown): UpdateConsoleProjectRequest {
-  const obj = requireBodyObject(body);
-  const name = readOptionalBodyString(obj, 'name');
+  const obj = requireBodyObject(body, createParseError);
+  const name = readOptionalString(obj, 'name');
   if (!name) {
     throw new ConsoleOrgProjectEnvError(
       'invalid_body',
@@ -120,7 +97,7 @@ export function parseUpdateConsoleProjectRequest(body: unknown): UpdateConsolePr
 }
 
 function parseEnvironmentKey(body: Record<string, unknown>): CreateConsoleEnvironmentRequest['key'] {
-  const key = readRequiredBodyString(body, 'key').toLowerCase();
+  const key = readRequiredString(body, 'key', createParseError).toLowerCase();
   if (key === 'dev' || key === 'staging' || key === 'prod') {
     return key;
   }
@@ -132,10 +109,10 @@ function parseEnvironmentKey(body: Record<string, unknown>): CreateConsoleEnviro
 }
 
 export function parseCreateConsoleEnvironmentRequest(body: unknown): CreateConsoleEnvironmentRequest {
-  const obj = requireBodyObject(body);
+  const obj = requireBodyObject(body, createParseError);
   const id = readOptionalResourceId(obj, 'id');
-  const name = readOptionalBodyString(obj, 'name');
-  const projectId = readRequiredBodyString(obj, 'projectId');
+  const name = readOptionalString(obj, 'name');
+  const projectId = readRequiredString(obj, 'projectId', createParseError);
   if (!RESOURCE_ID_PATTERN.test(projectId)) {
     throw new ConsoleOrgProjectEnvError(
       'invalid_body',
@@ -152,8 +129,8 @@ export function parseCreateConsoleEnvironmentRequest(body: unknown): CreateConso
 }
 
 export function parseUpdateConsoleEnvironmentRequest(body: unknown): UpdateConsoleEnvironmentRequest {
-  const obj = requireBodyObject(body);
-  const name = readOptionalBodyString(obj, 'name');
+  const obj = requireBodyObject(body, createParseError);
+  const name = readOptionalString(obj, 'name');
   if (!name) {
     throw new ConsoleOrgProjectEnvError(
       'invalid_body',

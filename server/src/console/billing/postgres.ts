@@ -1,5 +1,10 @@
 import type { NormalizedLogger } from '../../core/logger';
 import { getPostgresPool } from '../../storage/postgres';
+import {
+  ensureConsoleNamespace as ensureNamespace,
+  toConsoleIso as toIso,
+  toConsoleNumber as toNumber,
+} from '../shared/postgresNormalize';
 import { canTransitionPaymentState, type PaymentState } from './paymentStateMachine';
 import { ConsoleBillingError } from './errors';
 import { getChainFinalityPolicy } from './stablecoinAssets';
@@ -38,7 +43,6 @@ type Queryable = Pick<PgPool, 'query'>;
 type PgRow = Record<string, unknown>;
 type PaymentTransitionActorType = 'USER' | 'SYSTEM' | 'PROVIDER';
 
-const DEFAULT_NAMESPACE = 'console-default';
 const CONSOLE_BILLING_MIGRATION_LOCK_ID = 9452360123582;
 const DEFAULT_MONTHLY_PLAN_AMOUNT_MINOR = 4900;
 const PLAN_BASE_FEE_MINOR = 1900;
@@ -77,11 +81,6 @@ function monthUtc(now: Date): string {
 
 function previousMonthUtc(now: Date): string {
   return monthUtc(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)));
-}
-
-function ensureNamespace(input?: string): string {
-  const value = String(input || '').trim();
-  return value || DEFAULT_NAMESPACE;
 }
 
 function parseMonthUtcOrThrow(input: string): string {
@@ -124,18 +123,6 @@ function makeBootstrapInvoiceId(orgId: string, periodMonthUtc: string): string {
       .slice(0, 8) || 'org';
   const orgHashPart = stableHash32(orgId).toString(36);
   return `inv_${monthPart}_${orgPrefix}_${orgHashPart}`;
-}
-
-function toIso(ms: number | null | undefined): string | null {
-  if (ms === null || ms === undefined) return null;
-  if (!Number.isFinite(ms)) return null;
-  return new Date(ms).toISOString();
-}
-
-function toNumber(v: unknown, fallback = 0): number {
-  if (typeof v === 'number') return v;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
 }
 
 function toOptionalFiniteNumber(v: unknown): number | null {

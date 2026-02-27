@@ -38,6 +38,31 @@ function validSmartAccountDeployBody(overrides?: Partial<any>): any {
 }
 
 test.describe('relayer router (express) – P0', () => {
+  test('CORS preflight: default HTTPS port in allowlist still matches origin without explicit port', async () => {
+    const service = makeFakeAuthService();
+    const router = createRelayRouter(service, {
+      corsOrigins: ['https://wallet.example.localhost:443'],
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetch(`${srv.baseUrl}/sync-account/verify`, {
+        method: 'OPTIONS',
+        headers: {
+          Origin: 'https://wallet.example.localhost',
+          'Access-Control-Request-Method': 'POST',
+          'Access-Control-Request-Headers': 'content-type',
+        },
+      });
+      expect(res.status).toBe(204);
+      expect(res.headers.get('access-control-allow-origin')).toBe(
+        'https://wallet.example.localhost',
+      );
+      expect(res.headers.get('access-control-allow-credentials')).toBe('true');
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('POST /auth/passkey/options: invalid body', async () => {
     const service = makeFakeAuthService({
       createWebAuthnLoginOptions: async () => ({

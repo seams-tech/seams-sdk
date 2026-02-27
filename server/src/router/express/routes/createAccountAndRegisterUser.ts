@@ -4,6 +4,7 @@ import type {
   CreateAccountAndRegisterRequest,
   CreateAccountAndRegisterResult,
 } from '../../../core/types';
+import { signThresholdSessionJwt } from '../../commonRouterUtils';
 
 export function registerCreateAccountAndRegisterUser(
   router: ExpressRouter,
@@ -57,29 +58,6 @@ export function registerCreateAccountAndRegisterUser(
         return;
       }
 
-      const signThresholdSessionJwt = async (args: {
-        kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v1';
-        userId: string;
-        sessionId: string;
-        relayerKeyId: string;
-        rpId: string;
-        participantIds: number[];
-        thresholdExpiresAtMs: number;
-      }): Promise<string> => {
-        const nowSec = Math.floor(Date.now() / 1000);
-        const expSec = Math.floor(args.thresholdExpiresAtMs / 1000);
-        return await session.signJwt(args.userId, {
-          kind: args.kind,
-          sessionId: args.sessionId,
-          relayerKeyId: args.relayerKeyId,
-          rpId: args.rpId,
-          participantIds: args.participantIds,
-          thresholdExpiresAtMs: args.thresholdExpiresAtMs,
-          iat: nowSec,
-          exp: expSec,
-        });
-      };
-
       const rpId = String(body.rp_id || '').trim();
       if (!rpId) {
         res
@@ -89,91 +67,41 @@ export function registerCreateAccountAndRegisterUser(
       }
 
       if (response.thresholdEd25519?.session) {
-        const sessionInfo = response.thresholdEd25519.session;
-        const sessionKind = String(sessionInfo.sessionKind || '')
-          .trim()
-          .toLowerCase();
-        if (sessionKind !== 'jwt') {
-          res
-            .status(400)
-            .json({ success: false, error: 'threshold_ed25519.session_kind must be jwt' });
-          return;
-        }
-        const sessionId = String(sessionInfo.sessionId || '').trim();
-        const relayerKeyId = String(response.thresholdEd25519.relayerKeyId || '').trim();
-        const thresholdExpiresAtMs = Number(sessionInfo.expiresAtMs);
-        const participantIds = Array.isArray(sessionInfo.participantIds)
-          ? sessionInfo.participantIds
-          : Array.isArray(response.thresholdEd25519.participantIds)
-            ? response.thresholdEd25519.participantIds
-            : [];
-        if (
-          !sessionId ||
-          !relayerKeyId ||
-          !Number.isFinite(thresholdExpiresAtMs) ||
-          thresholdExpiresAtMs <= 0 ||
-          participantIds.length < 2
-        ) {
-          res.status(500).json({
-            success: false,
-            error: 'invalid thresholdEd25519 session payload for jwt signing',
-          });
-          return;
-        }
-        const jwt = await signThresholdSessionJwt({
+        const signed = await signThresholdSessionJwt({
+          session,
           kind: 'threshold_ed25519_session_v1',
           userId: new_account_id,
-          sessionId,
-          relayerKeyId,
           rpId,
-          participantIds,
-          thresholdExpiresAtMs,
+          relayerKeyId: response.thresholdEd25519.relayerKeyId,
+          sessionInfo: response.thresholdEd25519.session,
+          fallbackParticipantIds: response.thresholdEd25519.participantIds,
+          requireJwtErrorMessage: 'threshold_ed25519.session_kind must be jwt',
+          invalidPayloadErrorMessage: 'invalid thresholdEd25519 session payload for jwt signing',
         });
-        response.thresholdEd25519.session.jwt = jwt;
+        if (!signed.ok) {
+          res.status(signed.status).json({ success: false, error: signed.message });
+          return;
+        }
+        response.thresholdEd25519.session.jwt = signed.jwt;
       }
 
       if (response.thresholdEcdsa?.session) {
-        const sessionInfo = response.thresholdEcdsa.session;
-        const sessionKind = String(sessionInfo.sessionKind || '')
-          .trim()
-          .toLowerCase();
-        if (sessionKind !== 'jwt') {
-          res
-            .status(400)
-            .json({ success: false, error: 'threshold_ecdsa.session_kind must be jwt' });
-          return;
-        }
-        const sessionId = String(sessionInfo.sessionId || '').trim();
-        const relayerKeyId = String(response.thresholdEcdsa.relayerKeyId || '').trim();
-        const thresholdExpiresAtMs = Number(sessionInfo.expiresAtMs);
-        const participantIds = Array.isArray(sessionInfo.participantIds)
-          ? sessionInfo.participantIds
-          : Array.isArray(response.thresholdEcdsa.participantIds)
-            ? response.thresholdEcdsa.participantIds
-            : [];
-        if (
-          !sessionId ||
-          !relayerKeyId ||
-          !Number.isFinite(thresholdExpiresAtMs) ||
-          thresholdExpiresAtMs <= 0 ||
-          participantIds.length < 2
-        ) {
-          res.status(500).json({
-            success: false,
-            error: 'invalid thresholdEcdsa session payload for jwt signing',
-          });
-          return;
-        }
-        const jwt = await signThresholdSessionJwt({
+        const signed = await signThresholdSessionJwt({
+          session,
           kind: 'threshold_ecdsa_session_v1',
           userId: new_account_id,
-          sessionId,
-          relayerKeyId,
           rpId,
-          participantIds,
-          thresholdExpiresAtMs,
+          relayerKeyId: response.thresholdEcdsa.relayerKeyId,
+          sessionInfo: response.thresholdEcdsa.session,
+          fallbackParticipantIds: response.thresholdEcdsa.participantIds,
+          requireJwtErrorMessage: 'threshold_ecdsa.session_kind must be jwt',
+          invalidPayloadErrorMessage: 'invalid thresholdEcdsa session payload for jwt signing',
         });
-        response.thresholdEcdsa.session.jwt = jwt;
+        if (!signed.ok) {
+          res.status(signed.status).json({ success: false, error: signed.message });
+          return;
+        }
+        response.thresholdEcdsa.session.jwt = signed.jwt;
       }
 
       res.status(200).json(response);

@@ -10,87 +10,17 @@ export { ensureEd25519Prefix, validateNearAccountId, isValidAccountId } from './
 // Normalization helpers (shared)
 // ==============================
 
-/** Strict string coercion: returns the value only when it's already a string. */
-export function toOptionalString(value: unknown): string {
-  return typeof value === 'string' ? value : '';
-}
-
-/** Strict string coercion + trimming. */
-export function toOptionalTrimmedString(value: unknown): string {
-  return toOptionalString(value).trim();
-}
-
-/** String coercion + trimming (useful at IO boundaries). */
-export function toTrimmedString(value: unknown): string {
-  return String(value ?? '').trim();
-}
-
-/** Remove trailing `/` characters (e.g. base URL normalization). */
-export function stripTrailingSlashes(value: string): string {
-  return String(value ?? '').replace(/\/+$/, '');
-}
-
-/** Ensure a non-empty string starts with `/` (path normalization). */
-export function ensureLeadingSlash(value: string): string {
-  const trimmed = toTrimmedString(value);
-  if (!trimmed) return '';
-  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
-}
-
-/** Normalize an app base path like `/sdk` (leading slash, no trailing slashes except `/`). */
-export function toBasePath(value?: string, fallback = '/sdk'): string {
-  const base =
-    ensureLeadingSlash(typeof value === 'string' ? value : fallback) ||
-    ensureLeadingSlash(fallback) ||
-    '/';
-  if (base === '/') return '/';
-  return base.replace(/\/+$/, '');
-}
-
-/** Best-effort origin normalization (used by CSP/Permissions-Policy helpers). */
-export function toOriginOrUndefined(input?: string): string | undefined {
-  try {
-    const v = toTrimmedString(input);
-    if (!v) return undefined;
-    // Next/Caddy/etc. expect an origin, not a path
-    return new URL(v, 'http://dummy').origin === 'http://dummy' ? new URL(v).origin : v;
-  } catch {
-    return toTrimmedString(input) || undefined;
-  }
-}
-
-/**
- * Strict origin sanitizer for Related Origin Requests (ROR).
- * - Allows `https://<host>[:port]` and `http://localhost[:port]` only.
- * - Rejects paths (except `/`), queries, and hashes.
- * - Normalizes hostname casing.
- */
-export function toRorOriginOrNull(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const raw = toTrimmedString(value);
-  if (!raw) return null;
-  try {
-    const u = new URL(raw);
-    const scheme = u.protocol;
-    const host = u.hostname.toLowerCase();
-    const port = u.port ? `:${u.port}` : '';
-    const isHttps = scheme === 'https:';
-    const isLocalhostHttp = scheme === 'http:' && host === 'localhost';
-    if (!isHttps && !isLocalhostHttp) return null;
-    if ((u.pathname && u.pathname !== '/') || u.search || u.hash) return null;
-    return `${scheme}//${host}${port}`;
-  } catch {
-    return null;
-  }
-}
-
-/** Collapse a string into a single line by normalizing whitespace. */
-export function toSingleLine(value: unknown): string {
-  return String(value ?? '')
-    .replace(/[\r\n]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+export {
+  normalizeOptionalString as toOptionalString,
+  normalizeOptionalTrimmedString as toOptionalTrimmedString,
+  normalizeTrimmedString as toTrimmedString,
+  stripTrailingSlashes,
+  ensureLeadingSlash,
+  toBasePath,
+  toOriginOrUndefined,
+  toRorOriginOrNull,
+  toSingleLine,
+} from './normalize';
 
 // ===========================
 // Runtime validation helpers

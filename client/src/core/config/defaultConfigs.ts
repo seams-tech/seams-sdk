@@ -16,7 +16,7 @@ const DEFAULT_AUTHENTICATOR_OPTIONS: AuthenticatorOptions = {
   userVerification: UserVerificationPolicy.Preferred,
   originPolicy: {
     single: undefined,
-    all_subdomains: undefined,
+    all_subdomains: true,
     multiple: undefined,
   },
 };

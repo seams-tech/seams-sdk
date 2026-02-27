@@ -1,5 +1,6 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import { isObject, json, readJson } from '../http';
+import { signThresholdSessionJwt } from '../../commonRouterUtils';
 
 export async function handleEmailRecoveryPrepare(
   ctx: CloudflareRelayContext,
@@ -20,74 +21,24 @@ export async function handleEmailRecoveryPrepare(
     ...(origin ? { expected_origin: origin } : {}),
   });
   if (result.ok && result.thresholdEd25519?.session) {
-    const sessionAdapter = ctx.opts.session;
-    if (!sessionAdapter) {
-      return json(
-        {
-          ok: false,
-          code: 'sessions_disabled',
-          message: 'Session signing is not configured on this server',
-        },
-        { status: 500 },
-      );
-    }
-
-    const thresholdSession = result.thresholdEd25519.session;
-    const sessionKind = String(thresholdSession.sessionKind || '')
-      .trim()
-      .toLowerCase();
-    if (sessionKind !== 'jwt') {
-      return json(
-        {
-          ok: false,
-          code: 'invalid_body',
-          message: 'threshold_ed25519.session_kind must be jwt',
-        },
-        { status: 400 },
-      );
-    }
-
-    const accountId = String(result.accountId || '').trim();
-    const rpId = String((body as Record<string, unknown>).rp_id || '').trim();
-    const relayerKeyId = String(result.thresholdEd25519.relayerKeyId || '').trim();
-    const sessionId = String(thresholdSession.sessionId || '').trim();
-    const thresholdExpiresAtMs = Number(thresholdSession.expiresAtMs);
-    const participantIds = Array.isArray(thresholdSession.participantIds)
-      ? thresholdSession.participantIds
-      : Array.isArray(result.thresholdEd25519.participantIds)
-        ? result.thresholdEd25519.participantIds
-        : [];
-    if (
-      !accountId ||
-      !rpId ||
-      !relayerKeyId ||
-      !sessionId ||
-      !Number.isFinite(thresholdExpiresAtMs) ||
-      thresholdExpiresAtMs <= 0 ||
-      participantIds.length < 2
-    ) {
-      return json(
-        {
-          ok: false,
-          code: 'internal',
-          message: 'invalid thresholdEd25519 session payload for jwt signing',
-        },
-        { status: 500 },
-      );
-    }
-    const nowSec = Math.floor(Date.now() / 1000);
-    const expSec = Math.floor(thresholdExpiresAtMs / 1000);
-    const jwt = await sessionAdapter.signJwt(accountId, {
+    const signed = await signThresholdSessionJwt({
+      session: ctx.opts.session,
       kind: 'threshold_ed25519_session_v1',
-      sessionId,
-      relayerKeyId,
-      rpId,
-      participantIds,
-      thresholdExpiresAtMs,
-      iat: nowSec,
-      exp: expSec,
+      userId: result.accountId,
+      rpId: (body as Record<string, unknown>).rp_id,
+      relayerKeyId: result.thresholdEd25519.relayerKeyId,
+      sessionInfo: result.thresholdEd25519.session,
+      fallbackParticipantIds: result.thresholdEd25519.participantIds,
+      requireJwtErrorMessage: 'threshold_ed25519.session_kind must be jwt',
+      invalidPayloadErrorMessage: 'invalid thresholdEd25519 session payload for jwt signing',
     });
-    result.thresholdEd25519.session.jwt = jwt;
+    if (!signed.ok) {
+      return json(
+        { ok: false, code: signed.code, message: signed.message },
+        { status: signed.status },
+      );
+    }
+    result.thresholdEd25519.session.jwt = signed.jwt;
   }
   return json(result, { status: result.ok ? 200 : result.code === 'internal' ? 500 : 400 });
 }

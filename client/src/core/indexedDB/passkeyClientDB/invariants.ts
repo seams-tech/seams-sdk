@@ -11,6 +11,11 @@ import type {
   ProfileRecord,
   ProfileRecoveryEmailRecord,
 } from '../passkeyClientDB.types';
+import {
+  normalizeIndexedDbAccountAddress as normalizeAccountAddress,
+  normalizeIndexedDbAccountModel as normalizeAccountModel,
+  normalizeIndexedDbChainIdKey as normalizeChainIdKey,
+} from '../normalization';
 
 interface AppStateEntry<T = unknown> {
   key: string;
@@ -47,18 +52,6 @@ export interface InvariantStores {
   accountSignersStore: string;
   recoveryEmailStore: string;
   migrationQuarantineStore: string;
-}
-
-function normalizeChainIdKey(chainIdKey: unknown): string {
-  return toTrimmedString(chainIdKey || '').toLowerCase();
-}
-
-function normalizeAccountAddress(address: unknown): string {
-  return toTrimmedString(address || '').toLowerCase();
-}
-
-function normalizeAccountModel(model: unknown): AccountModel {
-  return toTrimmedString(model || '').toLowerCase();
 }
 
 function encodeDbPrimaryKey(primaryKey: unknown): string {
