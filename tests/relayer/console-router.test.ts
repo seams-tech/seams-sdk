@@ -3,13 +3,22 @@ import {
   createConsoleRouter,
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleBillingService,
+  createInMemoryConsoleOrgProjectEnvService,
+  createInMemoryConsolePolicyService,
+  createInMemoryConsoleWalletService,
   createInMemoryConsoleWebhookService,
   createPostgresConsoleApiKeyService,
   createPostgresConsoleBillingService,
+  createPostgresConsoleOrgProjectEnvService,
+  createPostgresConsolePolicyService,
+  createPostgresConsoleWalletService,
   createPostgresConsoleWebhookService,
   type ConsoleApiKeyService,
   type ConsoleAuthAdapter,
   type ConsoleBillingService,
+  type ConsoleOrgProjectEnvService,
+  type ConsolePolicyService,
+  type ConsoleWalletService,
   type ConsoleWebhookService,
 } from '@server/router/express-adaptor';
 import { createCloudflareConsoleRouter } from '@server/router/cloudflare-adaptor';
@@ -82,6 +91,715 @@ test.describe('console router (express)', () => {
       expect(res.json?.code).toBe('api_keys_not_configured');
     } finally {
       await srv.close();
+    }
+  });
+
+  test('GET /console/org returns org_project_env_not_configured without org/project/env service', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/org`, { method: 'GET' });
+      expect(res.status).toBe(501);
+      expect(res.json?.code).toBe('org_project_env_not_configured');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('org/project/environment routes return hierarchical metadata', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-meta-1', 'user-meta-1'),
+      orgProjectEnv,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const org = await fetchJson(`${srv.baseUrl}/console/org`, { method: 'GET' });
+      expect(org.status).toBe(200);
+      expect(getPath(org.json, 'org', 'id')).toBe('org-meta-1');
+
+      const projects = await fetchJson(`${srv.baseUrl}/console/projects`, { method: 'GET' });
+      expect(projects.status).toBe(200);
+      const projectRows = Array.isArray(projects.json?.projects) ? projects.json?.projects : [];
+      expect(projectRows.length).toBeGreaterThanOrEqual(1);
+      const projectId = String(getPath(projects.json, 'projects', 0, 'id') || '');
+      expect(projectId).toBeTruthy();
+      expect(Number(getPath(projects.json, 'projects', 0, 'environmentCount') || 0)).toBeGreaterThanOrEqual(
+        1,
+      );
+
+      const environments = await fetchJson(`${srv.baseUrl}/console/environments`, {
+        method: 'GET',
+      });
+      expect(environments.status).toBe(200);
+      const environmentRows = Array.isArray(environments.json?.environments)
+        ? environments.json?.environments
+        : [];
+      expect(environmentRows.length).toBeGreaterThanOrEqual(1);
+      expect(String(getPath(environments.json, 'environments', 0, 'projectId') || '')).toBe(
+        projectId,
+      );
+
+      const scoped = await fetchJson(
+        `${srv.baseUrl}/console/environments?projectId=${encodeURIComponent(projectId)}`,
+        {
+          method: 'GET',
+        },
+      );
+      expect(scoped.status).toBe(200);
+      const scopedRows = Array.isArray(scoped.json?.environments) ? scoped.json?.environments : [];
+      expect(scopedRows.length).toBeGreaterThanOrEqual(1);
+      expect(scopedRows.every((entry: any) => String(entry?.projectId || '') === projectId)).toBe(
+        true,
+      );
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('org/project/environment mutation routes enforce role and lifecycle rules', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const adminRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-meta-mutate-1', 'user-meta-mutate-1'),
+      orgProjectEnv,
+    });
+    const adminServer = await startExpressRouter(adminRouter);
+    try {
+      const createdProject = await fetchJson(`${adminServer.baseUrl}/console/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'project-mutate-1',
+          name: 'Project Mutate',
+        }),
+      });
+      expect(createdProject.status).toBe(201);
+      expect(getPath(createdProject.json, 'project', 'id')).toBe('project-mutate-1');
+      expect(getPath(createdProject.json, 'project', 'status')).toBe('ACTIVE');
+      expect(Number(getPath(createdProject.json, 'project', 'environmentCount') || 0)).toBe(0);
+
+      const createdEnvironment = await fetchJson(`${adminServer.baseUrl}/console/environments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'env-mutate-1',
+          projectId: 'project-mutate-1',
+          key: 'staging',
+        }),
+      });
+      expect(createdEnvironment.status).toBe(201);
+      expect(getPath(createdEnvironment.json, 'environment', 'id')).toBe('env-mutate-1');
+
+      const updatedProject = await fetchJson(
+        `${adminServer.baseUrl}/console/projects/project-mutate-1`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'Project Mutate Renamed' }),
+        },
+      );
+      expect(updatedProject.status).toBe(200);
+      expect(getPath(updatedProject.json, 'project', 'name')).toBe('Project Mutate Renamed');
+
+      const updatedEnvironment = await fetchJson(
+        `${adminServer.baseUrl}/console/environments/env-mutate-1`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'Staging Renamed' }),
+        },
+      );
+      expect(updatedEnvironment.status).toBe(200);
+      expect(getPath(updatedEnvironment.json, 'environment', 'name')).toBe('Staging Renamed');
+
+      const archivedProject = await fetchJson(
+        `${adminServer.baseUrl}/console/projects/project-mutate-1/archive`,
+        {
+          method: 'POST',
+        },
+      );
+      expect(archivedProject.status).toBe(200);
+      expect(getPath(archivedProject.json, 'project', 'status')).toBe('ARCHIVED');
+
+      const archivedProjects = await fetchJson(
+        `${adminServer.baseUrl}/console/projects?status=ARCHIVED`,
+        { method: 'GET' },
+      );
+      expect(archivedProjects.status).toBe(200);
+      const archivedProjectRows = Array.isArray(archivedProjects.json?.projects)
+        ? archivedProjects.json?.projects
+        : [];
+      expect(archivedProjectRows.length).toBeGreaterThanOrEqual(1);
+      expect(archivedProjectRows.every((entry: any) => String(entry?.status || '') === 'ARCHIVED')).toBe(
+        true,
+      );
+
+      const activeProjects = await fetchJson(`${adminServer.baseUrl}/console/projects?status=ACTIVE`, {
+        method: 'GET',
+      });
+      expect(activeProjects.status).toBe(200);
+      const activeProjectRows = Array.isArray(activeProjects.json?.projects)
+        ? activeProjects.json?.projects
+        : [];
+      expect(activeProjectRows.every((entry: any) => String(entry?.status || '') === 'ACTIVE')).toBe(true);
+
+      const invalidProjectStatus = await fetchJson(
+        `${adminServer.baseUrl}/console/projects?status=INVALID`,
+        {
+          method: 'GET',
+        },
+      );
+      expect(invalidProjectStatus.status).toBe(400);
+      expect(invalidProjectStatus.json?.code).toBe('invalid_query');
+
+      const archivedOnly = await fetchJson(
+        `${adminServer.baseUrl}/console/environments?projectId=project-mutate-1&status=ARCHIVED`,
+        { method: 'GET' },
+      );
+      expect(archivedOnly.status).toBe(200);
+      const archivedRows = Array.isArray(archivedOnly.json?.environments)
+        ? archivedOnly.json?.environments
+        : [];
+      expect(archivedRows.length).toBeGreaterThanOrEqual(1);
+      expect(archivedRows.every((entry: any) => String(entry?.status || '') === 'ARCHIVED')).toBe(true);
+
+      const activeOnly = await fetchJson(
+        `${adminServer.baseUrl}/console/environments?projectId=project-mutate-1&status=ACTIVE`,
+        { method: 'GET' },
+      );
+      expect(activeOnly.status).toBe(200);
+      const activeRows = Array.isArray(activeOnly.json?.environments) ? activeOnly.json?.environments : [];
+      expect(activeRows.length).toBe(0);
+
+      const invalidStatus = await fetchJson(`${adminServer.baseUrl}/console/environments?status=INVALID`, {
+        method: 'GET',
+      });
+      expect(invalidStatus.status).toBe(400);
+      expect(invalidStatus.json?.code).toBe('invalid_query');
+
+      const createOnArchived = await fetchJson(`${adminServer.baseUrl}/console/environments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: 'project-mutate-1',
+          key: 'prod',
+        }),
+      });
+      expect(createOnArchived.status).toBe(409);
+      expect(createOnArchived.json?.code).toBe('project_archived');
+    } finally {
+      await adminServer.close();
+    }
+
+    const devRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['developer'], 'org-meta-mutate-1', 'user-meta-dev-1'),
+      orgProjectEnv,
+    });
+    const devServer = await startExpressRouter(devRouter);
+    try {
+      const forbidden = await fetchJson(`${devServer.baseUrl}/console/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Forbidden Project',
+        }),
+      });
+      expect(forbidden.status).toBe(403);
+      expect(forbidden.json?.code).toBe('forbidden');
+    } finally {
+      await devServer.close();
+    }
+  });
+
+  test('GET /console/wallets returns wallets_not_configured without wallet service', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/wallets`, { method: 'GET' });
+      expect(res.status).toBe(501);
+      expect(res.json?.code).toBe('wallets_not_configured');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/policies returns policies_not_configured without policy service', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/policies`, { method: 'GET' });
+      expect(res.status).toBe(501);
+      expect(res.json?.code).toBe('policies_not_configured');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/policy/coverage returns wallets_not_configured without wallet service', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/policy/coverage`, { method: 'GET' });
+      expect(res.status).toBe(501);
+      expect(res.json?.code).toBe('wallets_not_configured');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/export/governance returns api_keys_not_configured without API key service', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      wallets: createInMemoryConsoleWalletService(),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/export/governance`, { method: 'GET' });
+      expect(res.status).toBe(501);
+      expect(res.json?.code).toBe('api_keys_not_configured');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('wallet routes support list/search/detail', async () => {
+    const wallets = createInMemoryConsoleWalletService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-wallet-express-1', 'user-wallet-express-1'),
+      wallets,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const listed = await fetchJson(`${srv.baseUrl}/console/wallets?limit=5&chain=Ethereum`, {
+        method: 'GET',
+      });
+      expect(listed.status).toBe(200);
+      const rows = Array.isArray(listed.json?.wallets) ? listed.json?.wallets : [];
+      expect(rows.length).toBeGreaterThanOrEqual(1);
+      const walletId = String(getPath(listed.json, 'wallets', 0, 'id') || '');
+      expect(walletId).toBeTruthy();
+
+      const searched = await fetchJson(
+        `${srv.baseUrl}/console/wallets/search?q=${encodeURIComponent(walletId.slice(0, 10))}`,
+        { method: 'GET' },
+      );
+      expect(searched.status).toBe(200);
+      const searchedRows = Array.isArray(searched.json?.wallets) ? searched.json?.wallets : [];
+      expect(searchedRows.some((entry: any) => String(entry?.id || '') === walletId)).toBe(true);
+
+      const detail = await fetchJson(
+        `${srv.baseUrl}/console/wallets/${encodeURIComponent(walletId)}`,
+        { method: 'GET' },
+      );
+      expect(detail.status).toBe(200);
+      expect(String(getPath(detail.json, 'wallet', 'id') || '')).toBe(walletId);
+
+      const missing = await fetchJson(`${srv.baseUrl}/console/wallets/wallet_missing`, {
+        method: 'GET',
+      });
+      expect(missing.status).toBe(404);
+      expect(missing.json?.code).toBe('wallet_not_found');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('policy/gas/export insight routes return aggregated views', async () => {
+    const wallets = createInMemoryConsoleWalletService();
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-insights-express-1', 'user-insights-express-1'),
+      wallets,
+      apiKeys,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const createdExportKey = await fetchJson(`${srv.baseUrl}/console/api-keys`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'export-key',
+          environmentId: 'prod',
+          scopes: ['wallets:read', 'keys:export'],
+        }),
+      });
+      expect(createdExportKey.status).toBe(201);
+
+      const createdNonExportKey = await fetchJson(`${srv.baseUrl}/console/api-keys`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'non-export-key',
+          environmentId: 'staging',
+          scopes: ['wallets:read'],
+        }),
+      });
+      expect(createdNonExportKey.status).toBe(201);
+
+      const coverage = await fetchJson(`${srv.baseUrl}/console/policy/coverage`, { method: 'GET' });
+      expect(coverage.status).toBe(200);
+      expect(Number(getPath(coverage.json, 'coverage', 'totals', 'walletCount') || 0)).toBeGreaterThanOrEqual(1);
+      const policyRows = Array.isArray(getPath(coverage.json, 'coverage', 'policies'))
+        ? getPath(coverage.json, 'coverage', 'policies')
+        : [];
+      expect(policyRows.length).toBeGreaterThanOrEqual(1);
+
+      const readiness = await fetchJson(`${srv.baseUrl}/console/gas/readiness`, { method: 'GET' });
+      expect(readiness.status).toBe(200);
+      expect(Number(getPath(readiness.json, 'readiness', 'totals', 'walletCount') || 0)).toBeGreaterThanOrEqual(1);
+      const chainRows = Array.isArray(getPath(readiness.json, 'readiness', 'chains'))
+        ? getPath(readiness.json, 'readiness', 'chains')
+        : [];
+      expect(chainRows.length).toBeGreaterThanOrEqual(1);
+
+      const governance = await fetchJson(
+        `${srv.baseUrl}/console/export/governance?environmentId=prod`,
+        {
+          method: 'GET',
+        },
+      );
+      expect(governance.status).toBe(200);
+      expect(Number(getPath(governance.json, 'governance', 'totals', 'apiKeyCount') || 0)).toBe(2);
+      expect(
+        Number(getPath(governance.json, 'governance', 'totals', 'exportScopedKeyCount') || 0),
+      ).toBe(1);
+      expect(
+        Number(
+          getPath(
+            governance.json,
+            'governance',
+            'totals',
+            'selectedEnvironmentExportScopedKeyCount',
+          ) || 0,
+        ),
+      ).toBe(1);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('policy routes support draft/update/simulate/publish lifecycle with role gates', async () => {
+    const policies = createInMemoryConsolePolicyService();
+    const adminRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-policy-express-1', 'user-policy-admin-1'),
+      policies,
+    });
+    const adminServer = await startExpressRouter(adminRouter);
+    try {
+      const listed = await fetchJson(`${adminServer.baseUrl}/console/policies`, { method: 'GET' });
+      expect(listed.status).toBe(200);
+      const policiesBefore = Array.isArray(listed.json?.policies) ? listed.json?.policies : [];
+      expect(policiesBefore.length).toBeGreaterThanOrEqual(1);
+
+      const created = await fetchJson(`${adminServer.baseUrl}/console/policies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'policy-express-lifecycle-1',
+          name: 'Policy Express Lifecycle',
+          rules: {
+            blockedActions: [],
+            allowedChains: ['ethereum'],
+            maxAmountMinor: 5000,
+          },
+        }),
+      });
+      expect(created.status).toBe(201);
+      expect(getPath(created.json, 'policy', 'id')).toBe('policy-express-lifecycle-1');
+      expect(getPath(created.json, 'policy', 'status')).toBe('DRAFT');
+      expect(Number(getPath(created.json, 'policy', 'version') || 0)).toBe(0);
+
+      const allowedSimulation = await fetchJson(
+        `${adminServer.baseUrl}/console/policies/policy-express-lifecycle-1/simulate`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'transfer',
+            chain: 'ethereum',
+            amountMinor: 4000,
+          }),
+        },
+      );
+      expect(allowedSimulation.status).toBe(200);
+      expect(getPath(allowedSimulation.json, 'simulation', 'decision')).toBe('ALLOW');
+
+      const patched = await fetchJson(
+        `${adminServer.baseUrl}/console/policies/policy-express-lifecycle-1`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            rules: {
+              blockedActions: ['transfer'],
+              allowedChains: ['ethereum'],
+            },
+          }),
+        },
+      );
+      expect(patched.status).toBe(200);
+      expect(getPath(patched.json, 'policy', 'status')).toBe('DRAFT');
+
+      const deniedSimulation = await fetchJson(
+        `${adminServer.baseUrl}/console/policies/policy-express-lifecycle-1/simulate`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'transfer',
+            chain: 'ethereum',
+            amountMinor: 1,
+          }),
+        },
+      );
+      expect(deniedSimulation.status).toBe(200);
+      expect(getPath(deniedSimulation.json, 'simulation', 'decision')).toBe('DENY');
+
+      const published = await fetchJson(
+        `${adminServer.baseUrl}/console/policies/policy-express-lifecycle-1/publish`,
+        {
+          method: 'POST',
+        },
+      );
+      expect(published.status).toBe(200);
+      expect(getPath(published.json, 'result', 'published')).toBe(true);
+      expect(getPath(published.json, 'result', 'policy', 'status')).toBe('PUBLISHED');
+      expect(Number(getPath(published.json, 'result', 'policy', 'version') || 0)).toBe(1);
+    } finally {
+      await adminServer.close();
+    }
+
+    const developerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['developer'], 'org-policy-express-1', 'user-policy-dev-1'),
+      policies,
+    });
+    const developerServer = await startExpressRouter(developerRouter);
+    try {
+      const forbiddenCreate = await fetchJson(`${developerServer.baseUrl}/console/policies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'policy-express-forbidden-1',
+          name: 'Forbidden policy',
+        }),
+      });
+      expect(forbiddenCreate.status).toBe(403);
+      expect(forbiddenCreate.json?.code).toBe('forbidden');
+    } finally {
+      await developerServer.close();
+    }
+  });
+
+  test('policy routes enforce org isolation', async () => {
+    const policies = createInMemoryConsolePolicyService();
+    const ownerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-policy-owner-express', 'owner-policy-user'),
+      policies,
+    });
+    const ownerServer = await startExpressRouter(ownerRouter);
+    const ownerPolicyId = 'policy-owner-express-isolation-1';
+    try {
+      const created = await fetchJson(`${ownerServer.baseUrl}/console/policies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: ownerPolicyId,
+          name: 'Owner Policy',
+        }),
+      });
+      expect(created.status).toBe(201);
+    } finally {
+      await ownerServer.close();
+    }
+
+    const attackerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-policy-attacker-express',
+        'attacker-policy-user',
+      ),
+      policies,
+    });
+    const attackerServer = await startExpressRouter(attackerRouter);
+    try {
+      const listed = await fetchJson(`${attackerServer.baseUrl}/console/policies`, { method: 'GET' });
+      expect(listed.status).toBe(200);
+      const attackerPolicies = Array.isArray(listed.json?.policies) ? listed.json?.policies : [];
+      expect(
+        attackerPolicies.some((entry: any) => String(entry?.id || '') === ownerPolicyId),
+      ).toBe(false);
+
+      const patched = await fetchJson(
+        `${attackerServer.baseUrl}/console/policies/${encodeURIComponent(ownerPolicyId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'attacker update' }),
+        },
+      );
+      expect(patched.status).toBe(404);
+      expect(patched.json?.code).toBe('policy_not_found');
+
+      const simulated = await fetchJson(
+        `${attackerServer.baseUrl}/console/policies/${encodeURIComponent(ownerPolicyId)}/simulate`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'transfer' }),
+        },
+      );
+      expect(simulated.status).toBe(404);
+      expect(simulated.json?.code).toBe('policy_not_found');
+    } finally {
+      await attackerServer.close();
+    }
+  });
+
+  test('policy assignments support precedence and drive policy coverage', async () => {
+    const policies = createInMemoryConsolePolicyService();
+    const wallets = createInMemoryConsoleWalletService();
+    const adminRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-policy-assign-express', 'policy-assign-admin'),
+      policies,
+      wallets,
+    });
+    const adminServer = await startExpressRouter(adminRouter);
+    try {
+      const listedWallets = await fetchJson(`${adminServer.baseUrl}/console/wallets`, {
+        method: 'GET',
+      });
+      expect(listedWallets.status).toBe(200);
+      const walletId = String(getPath(listedWallets.json, 'wallets', 0, 'id') || '');
+      const projectId = String(getPath(listedWallets.json, 'wallets', 0, 'projectId') || '');
+      const environmentId = String(getPath(listedWallets.json, 'wallets', 0, 'environmentId') || '');
+      expect(walletId).toBeTruthy();
+      expect(projectId).toBeTruthy();
+      expect(environmentId).toBeTruthy();
+
+      const createProjectPolicy = await fetchJson(`${adminServer.baseUrl}/console/policies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'policy-project-express-1',
+          name: 'Project Policy Express',
+        }),
+      });
+      expect(createProjectPolicy.status).toBe(201);
+      const createWalletPolicy = await fetchJson(`${adminServer.baseUrl}/console/policies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'policy-wallet-express-1',
+          name: 'Wallet Policy Express',
+        }),
+      });
+      expect(createWalletPolicy.status).toBe(201);
+
+      const projectAssignment = await fetchJson(`${adminServer.baseUrl}/console/policies/assignments`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scopeType: 'PROJECT',
+          scopeId: projectId,
+          policyId: 'policy-project-express-1',
+        }),
+      });
+      expect(projectAssignment.status).toBe(200);
+
+      const walletAssignment = await fetchJson(`${adminServer.baseUrl}/console/policies/assignments`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scopeType: 'WALLET',
+          scopeId: walletId,
+          policyId: 'policy-wallet-express-1',
+        }),
+      });
+      expect(walletAssignment.status).toBe(200);
+      const walletAssignmentId = String(getPath(walletAssignment.json, 'assignment', 'id') || '');
+      expect(walletAssignmentId).toBeTruthy();
+
+      const listedAssignments = await fetchJson(
+        `${adminServer.baseUrl}/console/policies/assignments?scopeType=WALLET&scopeId=${encodeURIComponent(walletId)}`,
+        { method: 'GET' },
+      );
+      expect(listedAssignments.status).toBe(200);
+      const assignmentRows = Array.isArray(listedAssignments.json?.assignments)
+        ? listedAssignments.json?.assignments
+        : [];
+      expect(assignmentRows.length).toBe(1);
+      expect(String(getPath(listedAssignments.json, 'assignments', 0, 'policyId') || '')).toBe(
+        'policy-wallet-express-1',
+      );
+
+      const walletCoverage = await fetchJson(
+        `${adminServer.baseUrl}/console/policy/coverage?projectId=${encodeURIComponent(projectId)}&environmentId=${encodeURIComponent(environmentId)}`,
+        { method: 'GET' },
+      );
+      expect(walletCoverage.status).toBe(200);
+      const policyRows = Array.isArray(getPath(walletCoverage.json, 'coverage', 'policies'))
+        ? (getPath(walletCoverage.json, 'coverage', 'policies') as any[])
+        : [];
+      expect(policyRows.some((entry) => String(entry?.policyId || '') === 'policy-wallet-express-1')).toBe(
+        true,
+      );
+
+      const removedWalletAssignment = await fetchJson(
+        `${adminServer.baseUrl}/console/policies/assignments/${encodeURIComponent(walletAssignmentId)}`,
+        {
+          method: 'DELETE',
+        },
+      );
+      expect(removedWalletAssignment.status).toBe(200);
+      expect(getPath(removedWalletAssignment.json, 'removed')).toBe(true);
+
+      const projectCoverage = await fetchJson(
+        `${adminServer.baseUrl}/console/policy/coverage?projectId=${encodeURIComponent(projectId)}&environmentId=${encodeURIComponent(environmentId)}`,
+        { method: 'GET' },
+      );
+      expect(projectCoverage.status).toBe(200);
+      const projectPolicyRows = Array.isArray(getPath(projectCoverage.json, 'coverage', 'policies'))
+        ? (getPath(projectCoverage.json, 'coverage', 'policies') as any[])
+        : [];
+      expect(projectPolicyRows.some((entry) => String(entry?.policyId || '') === 'policy-project-express-1')).toBe(
+        true,
+      );
+    } finally {
+      await adminServer.close();
+    }
+
+    const developerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['developer'],
+        'org-policy-assign-express',
+        'policy-assign-developer',
+      ),
+      policies,
+      wallets,
+    });
+    const developerServer = await startExpressRouter(developerRouter);
+    try {
+      const forbiddenAssignment = await fetchJson(`${developerServer.baseUrl}/console/policies/assignments`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scopeType: 'ORG',
+          scopeId: 'org-policy-assign-express',
+          policyId: 'org-policy-assign-express:policy:default',
+        }),
+      });
+      expect(forbiddenAssignment.status).toBe(403);
+      expect(forbiddenAssignment.json?.code).toBe('forbidden');
+    } finally {
+      await developerServer.close();
     }
   });
 
@@ -1397,6 +2115,653 @@ test.describe('console router (cloudflare)', () => {
     expect(res.json?.code).toBe('api_keys_not_configured');
   });
 
+  test('GET /console/org returns org_project_env_not_configured without org/project/env service', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/org',
+    });
+    expect(res.status).toBe(501);
+    expect(res.json?.code).toBe('org_project_env_not_configured');
+  });
+
+  test('cloudflare org/project/environment routes return hierarchical metadata', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-meta-cf-1', 'user-meta-cf-1'),
+      orgProjectEnv,
+    });
+
+    const org = await callCf(handler, {
+      method: 'GET',
+      path: '/console/org',
+    });
+    expect(org.status).toBe(200);
+    expect(getPath(org.json, 'org', 'id')).toBe('org-meta-cf-1');
+
+    const projects = await callCf(handler, {
+      method: 'GET',
+      path: '/console/projects',
+    });
+    expect(projects.status).toBe(200);
+    const projectRows = Array.isArray(projects.json?.projects) ? projects.json?.projects : [];
+    expect(projectRows.length).toBeGreaterThanOrEqual(1);
+    const projectId = String(getPath(projects.json, 'projects', 0, 'id') || '');
+    expect(projectId).toBeTruthy();
+    expect(Number(getPath(projects.json, 'projects', 0, 'environmentCount') || 0)).toBeGreaterThanOrEqual(
+      1,
+    );
+
+    const environments = await callCf(handler, {
+      method: 'GET',
+      path: '/console/environments',
+    });
+    expect(environments.status).toBe(200);
+    const environmentRows = Array.isArray(environments.json?.environments)
+      ? environments.json?.environments
+      : [];
+    expect(environmentRows.length).toBeGreaterThanOrEqual(1);
+    expect(String(getPath(environments.json, 'environments', 0, 'projectId') || '')).toBe(
+      projectId,
+    );
+
+    const scoped = await callCf(handler, {
+      method: 'GET',
+      path: `/console/environments?projectId=${encodeURIComponent(projectId)}`,
+    });
+    expect(scoped.status).toBe(200);
+    const scopedRows = Array.isArray(scoped.json?.environments) ? scoped.json?.environments : [];
+    expect(scopedRows.length).toBeGreaterThanOrEqual(1);
+    expect(scopedRows.every((entry: any) => String(entry?.projectId || '') === projectId)).toBe(
+      true,
+    );
+  });
+
+  test('cloudflare org/project/environment mutation routes enforce role and lifecycle rules', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const adminHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-meta-cf-mutate-1', 'user-meta-cf-mutate-1'),
+      orgProjectEnv,
+    });
+
+    const createdProject = await callCf(adminHandler, {
+      method: 'POST',
+      path: '/console/projects',
+      body: {
+        id: 'project-cf-mutate-1',
+        name: 'Project CF Mutate',
+      },
+    });
+    expect(createdProject.status).toBe(201);
+    expect(getPath(createdProject.json, 'project', 'id')).toBe('project-cf-mutate-1');
+    expect(Number(getPath(createdProject.json, 'project', 'environmentCount') || 0)).toBe(0);
+
+    const createdEnvironment = await callCf(adminHandler, {
+      method: 'POST',
+      path: '/console/environments',
+      body: {
+        id: 'env-cf-mutate-1',
+        projectId: 'project-cf-mutate-1',
+        key: 'dev',
+      },
+    });
+    expect(createdEnvironment.status).toBe(201);
+    expect(getPath(createdEnvironment.json, 'environment', 'id')).toBe('env-cf-mutate-1');
+
+    const updatedProject = await callCf(adminHandler, {
+      method: 'PATCH',
+      path: '/console/projects/project-cf-mutate-1',
+      body: { name: 'Project CF Mutate Renamed' },
+    });
+    expect(updatedProject.status).toBe(200);
+    expect(getPath(updatedProject.json, 'project', 'name')).toBe('Project CF Mutate Renamed');
+
+    const archivedEnvironment = await callCf(adminHandler, {
+      method: 'POST',
+      path: '/console/environments/env-cf-mutate-1/archive',
+    });
+    expect(archivedEnvironment.status).toBe(200);
+    expect(getPath(archivedEnvironment.json, 'environment', 'status')).toBe('ARCHIVED');
+
+    const archivedProject = await callCf(adminHandler, {
+      method: 'POST',
+      path: '/console/projects/project-cf-mutate-1/archive',
+    });
+    expect(archivedProject.status).toBe(200);
+    expect(getPath(archivedProject.json, 'project', 'status')).toBe('ARCHIVED');
+
+    const archivedProjects = await callCf(adminHandler, {
+      method: 'GET',
+      path: '/console/projects?status=ARCHIVED',
+    });
+    expect(archivedProjects.status).toBe(200);
+    const archivedProjectRows = Array.isArray(archivedProjects.json?.projects)
+      ? archivedProjects.json?.projects
+      : [];
+    expect(archivedProjectRows.length).toBeGreaterThanOrEqual(1);
+    expect(archivedProjectRows.every((entry: any) => String(entry?.status || '') === 'ARCHIVED')).toBe(
+      true,
+    );
+
+    const activeProjects = await callCf(adminHandler, {
+      method: 'GET',
+      path: '/console/projects?status=ACTIVE',
+    });
+    expect(activeProjects.status).toBe(200);
+    const activeProjectRows = Array.isArray(activeProjects.json?.projects)
+      ? activeProjects.json?.projects
+      : [];
+    expect(activeProjectRows.every((entry: any) => String(entry?.status || '') === 'ACTIVE')).toBe(true);
+
+    const invalidProjectStatus = await callCf(adminHandler, {
+      method: 'GET',
+      path: '/console/projects?status=INVALID',
+    });
+    expect(invalidProjectStatus.status).toBe(400);
+    expect(invalidProjectStatus.json?.code).toBe('invalid_query');
+
+    const archivedOnly = await callCf(adminHandler, {
+      method: 'GET',
+      path: '/console/environments?projectId=project-cf-mutate-1&status=ARCHIVED',
+    });
+    expect(archivedOnly.status).toBe(200);
+    const archivedRows = Array.isArray(archivedOnly.json?.environments)
+      ? archivedOnly.json?.environments
+      : [];
+    expect(archivedRows.length).toBeGreaterThanOrEqual(1);
+    expect(archivedRows.every((entry: any) => String(entry?.status || '') === 'ARCHIVED')).toBe(true);
+
+    const activeOnly = await callCf(adminHandler, {
+      method: 'GET',
+      path: '/console/environments?projectId=project-cf-mutate-1&status=ACTIVE',
+    });
+    expect(activeOnly.status).toBe(200);
+    const activeRows = Array.isArray(activeOnly.json?.environments) ? activeOnly.json?.environments : [];
+    expect(activeRows.length).toBe(0);
+
+    const invalidStatus = await callCf(adminHandler, {
+      method: 'GET',
+      path: '/console/environments?status=INVALID',
+    });
+    expect(invalidStatus.status).toBe(400);
+    expect(invalidStatus.json?.code).toBe('invalid_query');
+
+    const createOnArchived = await callCf(adminHandler, {
+      method: 'POST',
+      path: '/console/environments',
+      body: {
+        projectId: 'project-cf-mutate-1',
+        key: 'prod',
+      },
+    });
+    expect(createOnArchived.status).toBe(409);
+    expect(createOnArchived.json?.code).toBe('project_archived');
+
+    const devHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['developer'], 'org-meta-cf-mutate-1', 'user-meta-cf-dev-1'),
+      orgProjectEnv,
+    });
+    const forbidden = await callCf(devHandler, {
+      method: 'POST',
+      path: '/console/projects',
+      body: {
+        name: 'Forbidden CF Project',
+      },
+    });
+    expect(forbidden.status).toBe(403);
+    expect(forbidden.json?.code).toBe('forbidden');
+  });
+
+  test('GET /console/wallets returns wallets_not_configured without wallet service', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/wallets',
+    });
+    expect(res.status).toBe(501);
+    expect(res.json?.code).toBe('wallets_not_configured');
+  });
+
+  test('GET /console/policies returns policies_not_configured without policy service', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/policies',
+    });
+    expect(res.status).toBe(501);
+    expect(res.json?.code).toBe('policies_not_configured');
+  });
+
+  test('GET /console/policy/coverage returns wallets_not_configured without wallet service', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/policy/coverage',
+    });
+    expect(res.status).toBe(501);
+    expect(res.json?.code).toBe('wallets_not_configured');
+  });
+
+  test('GET /console/export/governance returns api_keys_not_configured without API key service', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      wallets: createInMemoryConsoleWalletService(),
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/export/governance',
+    });
+    expect(res.status).toBe(501);
+    expect(res.json?.code).toBe('api_keys_not_configured');
+  });
+
+  test('cloudflare wallet routes support list/search/detail', async () => {
+    const wallets = createInMemoryConsoleWalletService();
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-wallet-cf-1', 'user-wallet-cf-1'),
+      wallets,
+    });
+
+    const listed = await callCf(handler, {
+      method: 'GET',
+      path: '/console/wallets?limit=5&chain=Ethereum',
+    });
+    expect(listed.status).toBe(200);
+    const rows = Array.isArray(listed.json?.wallets) ? listed.json?.wallets : [];
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    const walletId = String(getPath(listed.json, 'wallets', 0, 'id') || '');
+    expect(walletId).toBeTruthy();
+
+    const searched = await callCf(handler, {
+      method: 'GET',
+      path: `/console/wallets/search?q=${encodeURIComponent(walletId.slice(0, 10))}`,
+    });
+    expect(searched.status).toBe(200);
+    const searchedRows = Array.isArray(searched.json?.wallets) ? searched.json?.wallets : [];
+    expect(searchedRows.some((entry: any) => String(entry?.id || '') === walletId)).toBe(true);
+
+    const detail = await callCf(handler, {
+      method: 'GET',
+      path: `/console/wallets/${encodeURIComponent(walletId)}`,
+    });
+    expect(detail.status).toBe(200);
+    expect(String(getPath(detail.json, 'wallet', 'id') || '')).toBe(walletId);
+
+    const missing = await callCf(handler, {
+      method: 'GET',
+      path: '/console/wallets/wallet_missing',
+    });
+    expect(missing.status).toBe(404);
+    expect(missing.json?.code).toBe('wallet_not_found');
+  });
+
+  test('cloudflare policy/gas/export insight routes return aggregated views', async () => {
+    const wallets = createInMemoryConsoleWalletService();
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-insights-cloudflare-1',
+        'user-insights-cloudflare-1',
+      ),
+      wallets,
+      apiKeys,
+    });
+
+    const createdExportKey = await callCf(handler, {
+      method: 'POST',
+      path: '/console/api-keys',
+      body: {
+        name: 'export-key-cf',
+        environmentId: 'prod',
+        scopes: ['wallets:read', 'keys:export'],
+      },
+    });
+    expect(createdExportKey.status).toBe(201);
+
+    const createdNonExportKey = await callCf(handler, {
+      method: 'POST',
+      path: '/console/api-keys',
+      body: {
+        name: 'non-export-key-cf',
+        environmentId: 'staging',
+        scopes: ['wallets:read'],
+      },
+    });
+    expect(createdNonExportKey.status).toBe(201);
+
+    const coverage = await callCf(handler, {
+      method: 'GET',
+      path: '/console/policy/coverage',
+    });
+    expect(coverage.status).toBe(200);
+    expect(Number(getPath(coverage.json, 'coverage', 'totals', 'walletCount') || 0)).toBeGreaterThanOrEqual(1);
+    const policyRows = Array.isArray(getPath(coverage.json, 'coverage', 'policies'))
+      ? getPath(coverage.json, 'coverage', 'policies')
+      : [];
+    expect(policyRows.length).toBeGreaterThanOrEqual(1);
+
+    const readiness = await callCf(handler, {
+      method: 'GET',
+      path: '/console/gas/readiness',
+    });
+    expect(readiness.status).toBe(200);
+    expect(Number(getPath(readiness.json, 'readiness', 'totals', 'walletCount') || 0)).toBeGreaterThanOrEqual(1);
+    const chainRows = Array.isArray(getPath(readiness.json, 'readiness', 'chains'))
+      ? getPath(readiness.json, 'readiness', 'chains')
+      : [];
+    expect(chainRows.length).toBeGreaterThanOrEqual(1);
+
+    const governance = await callCf(handler, {
+      method: 'GET',
+      path: '/console/export/governance?environmentId=prod',
+    });
+    expect(governance.status).toBe(200);
+    expect(Number(getPath(governance.json, 'governance', 'totals', 'apiKeyCount') || 0)).toBe(2);
+    expect(Number(getPath(governance.json, 'governance', 'totals', 'exportScopedKeyCount') || 0)).toBe(1);
+    expect(
+      Number(
+        getPath(
+          governance.json,
+          'governance',
+          'totals',
+          'selectedEnvironmentExportScopedKeyCount',
+        ) || 0,
+      ),
+    ).toBe(1);
+  });
+
+  test('cloudflare policy routes support draft/update/simulate/publish lifecycle with role gates', async () => {
+    const policies = createInMemoryConsolePolicyService();
+    const adminHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-policy-cf-1', 'user-policy-admin-cf-1'),
+      policies,
+    });
+
+    const listed = await callCf(adminHandler, {
+      method: 'GET',
+      path: '/console/policies',
+    });
+    expect(listed.status).toBe(200);
+    const policiesBefore = Array.isArray(listed.json?.policies) ? listed.json?.policies : [];
+    expect(policiesBefore.length).toBeGreaterThanOrEqual(1);
+
+    const created = await callCf(adminHandler, {
+      method: 'POST',
+      path: '/console/policies',
+      body: {
+        id: 'policy-cf-lifecycle-1',
+        name: 'Policy Cloudflare Lifecycle',
+        rules: {
+          blockedActions: [],
+          allowedChains: ['ethereum'],
+          maxAmountMinor: 5000,
+        },
+      },
+    });
+    expect(created.status).toBe(201);
+    expect(getPath(created.json, 'policy', 'id')).toBe('policy-cf-lifecycle-1');
+    expect(getPath(created.json, 'policy', 'status')).toBe('DRAFT');
+    expect(Number(getPath(created.json, 'policy', 'version') || 0)).toBe(0);
+
+    const allowedSimulation = await callCf(adminHandler, {
+      method: 'POST',
+      path: '/console/policies/policy-cf-lifecycle-1/simulate',
+      body: {
+        action: 'transfer',
+        chain: 'ethereum',
+        amountMinor: 4000,
+      },
+    });
+    expect(allowedSimulation.status).toBe(200);
+    expect(getPath(allowedSimulation.json, 'simulation', 'decision')).toBe('ALLOW');
+
+    const patched = await callCf(adminHandler, {
+      method: 'PATCH',
+      path: '/console/policies/policy-cf-lifecycle-1',
+      body: {
+        rules: {
+          blockedActions: ['transfer'],
+          allowedChains: ['ethereum'],
+        },
+      },
+    });
+    expect(patched.status).toBe(200);
+    expect(getPath(patched.json, 'policy', 'status')).toBe('DRAFT');
+
+    const deniedSimulation = await callCf(adminHandler, {
+      method: 'POST',
+      path: '/console/policies/policy-cf-lifecycle-1/simulate',
+      body: {
+        action: 'transfer',
+        chain: 'ethereum',
+        amountMinor: 1,
+      },
+    });
+    expect(deniedSimulation.status).toBe(200);
+    expect(getPath(deniedSimulation.json, 'simulation', 'decision')).toBe('DENY');
+
+    const published = await callCf(adminHandler, {
+      method: 'POST',
+      path: '/console/policies/policy-cf-lifecycle-1/publish',
+    });
+    expect(published.status).toBe(200);
+    expect(getPath(published.json, 'result', 'published')).toBe(true);
+    expect(getPath(published.json, 'result', 'policy', 'status')).toBe('PUBLISHED');
+    expect(Number(getPath(published.json, 'result', 'policy', 'version') || 0)).toBe(1);
+
+    const developerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['developer'], 'org-policy-cf-1', 'user-policy-dev-cf-1'),
+      policies,
+    });
+    const forbiddenCreate = await callCf(developerHandler, {
+      method: 'POST',
+      path: '/console/policies',
+      body: {
+        id: 'policy-cf-forbidden-1',
+        name: 'Forbidden policy',
+      },
+    });
+    expect(forbiddenCreate.status).toBe(403);
+    expect(forbiddenCreate.json?.code).toBe('forbidden');
+  });
+
+  test('cloudflare policy routes enforce org isolation', async () => {
+    const policies = createInMemoryConsolePolicyService();
+    const ownerPolicyId = 'policy-owner-cf-isolation-1';
+
+    const ownerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-policy-owner-cf', 'owner-policy-user-cf'),
+      policies,
+    });
+    const created = await callCf(ownerHandler, {
+      method: 'POST',
+      path: '/console/policies',
+      body: {
+        id: ownerPolicyId,
+        name: 'Owner Policy CF',
+      },
+    });
+    expect(created.status).toBe(201);
+
+    const attackerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-policy-attacker-cf', 'attacker-policy-user-cf'),
+      policies,
+    });
+    const listed = await callCf(attackerHandler, {
+      method: 'GET',
+      path: '/console/policies',
+    });
+    expect(listed.status).toBe(200);
+    const attackerPolicies = Array.isArray(listed.json?.policies) ? listed.json?.policies : [];
+    expect(attackerPolicies.some((entry: any) => String(entry?.id || '') === ownerPolicyId)).toBe(
+      false,
+    );
+
+    const patched = await callCf(attackerHandler, {
+      method: 'PATCH',
+      path: `/console/policies/${encodeURIComponent(ownerPolicyId)}`,
+      body: {
+        name: 'attacker update cf',
+      },
+    });
+    expect(patched.status).toBe(404);
+    expect(patched.json?.code).toBe('policy_not_found');
+
+    const simulated = await callCf(attackerHandler, {
+      method: 'POST',
+      path: `/console/policies/${encodeURIComponent(ownerPolicyId)}/simulate`,
+      body: {
+        action: 'transfer',
+      },
+    });
+    expect(simulated.status).toBe(404);
+    expect(simulated.json?.code).toBe('policy_not_found');
+  });
+
+  test('cloudflare policy assignments support precedence and drive policy coverage', async () => {
+    const policies = createInMemoryConsolePolicyService();
+    const wallets = createInMemoryConsoleWalletService();
+    const adminHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-policy-assign-cloudflare',
+        'policy-assign-admin-cf',
+      ),
+      policies,
+      wallets,
+    });
+
+    const listedWallets = await callCf(adminHandler, {
+      method: 'GET',
+      path: '/console/wallets',
+    });
+    expect(listedWallets.status).toBe(200);
+    const walletId = String(getPath(listedWallets.json, 'wallets', 0, 'id') || '');
+    const projectId = String(getPath(listedWallets.json, 'wallets', 0, 'projectId') || '');
+    const environmentId = String(getPath(listedWallets.json, 'wallets', 0, 'environmentId') || '');
+    expect(walletId).toBeTruthy();
+    expect(projectId).toBeTruthy();
+    expect(environmentId).toBeTruthy();
+
+    const createProjectPolicy = await callCf(adminHandler, {
+      method: 'POST',
+      path: '/console/policies',
+      body: {
+        id: 'policy-project-cloudflare-1',
+        name: 'Project Policy Cloudflare',
+      },
+    });
+    expect(createProjectPolicy.status).toBe(201);
+
+    const createWalletPolicy = await callCf(adminHandler, {
+      method: 'POST',
+      path: '/console/policies',
+      body: {
+        id: 'policy-wallet-cloudflare-1',
+        name: 'Wallet Policy Cloudflare',
+      },
+    });
+    expect(createWalletPolicy.status).toBe(201);
+
+    const projectAssignment = await callCf(adminHandler, {
+      method: 'PUT',
+      path: '/console/policies/assignments',
+      body: {
+        scopeType: 'PROJECT',
+        scopeId: projectId,
+        policyId: 'policy-project-cloudflare-1',
+      },
+    });
+    expect(projectAssignment.status).toBe(200);
+
+    const walletAssignment = await callCf(adminHandler, {
+      method: 'PUT',
+      path: '/console/policies/assignments',
+      body: {
+        scopeType: 'WALLET',
+        scopeId: walletId,
+        policyId: 'policy-wallet-cloudflare-1',
+      },
+    });
+    expect(walletAssignment.status).toBe(200);
+    const walletAssignmentId = String(getPath(walletAssignment.json, 'assignment', 'id') || '');
+    expect(walletAssignmentId).toBeTruthy();
+
+    const listedAssignments = await callCf(adminHandler, {
+      method: 'GET',
+      path: `/console/policies/assignments?scopeType=WALLET&scopeId=${encodeURIComponent(walletId)}`,
+    });
+    expect(listedAssignments.status).toBe(200);
+    const assignmentRows = Array.isArray(listedAssignments.json?.assignments)
+      ? listedAssignments.json?.assignments
+      : [];
+    expect(assignmentRows.length).toBe(1);
+    expect(String(getPath(listedAssignments.json, 'assignments', 0, 'policyId') || '')).toBe(
+      'policy-wallet-cloudflare-1',
+    );
+
+    const walletCoverage = await callCf(adminHandler, {
+      method: 'GET',
+      path: `/console/policy/coverage?projectId=${encodeURIComponent(projectId)}&environmentId=${encodeURIComponent(environmentId)}`,
+    });
+    expect(walletCoverage.status).toBe(200);
+    const walletPolicyRows = Array.isArray(getPath(walletCoverage.json, 'coverage', 'policies'))
+      ? (getPath(walletCoverage.json, 'coverage', 'policies') as any[])
+      : [];
+    expect(
+      walletPolicyRows.some((entry) => String(entry?.policyId || '') === 'policy-wallet-cloudflare-1'),
+    ).toBe(true);
+
+    const removedWalletAssignment = await callCf(adminHandler, {
+      method: 'DELETE',
+      path: `/console/policies/assignments/${encodeURIComponent(walletAssignmentId)}`,
+    });
+    expect(removedWalletAssignment.status).toBe(200);
+    expect(getPath(removedWalletAssignment.json, 'removed')).toBe(true);
+
+    const projectCoverage = await callCf(adminHandler, {
+      method: 'GET',
+      path: `/console/policy/coverage?projectId=${encodeURIComponent(projectId)}&environmentId=${encodeURIComponent(environmentId)}`,
+    });
+    expect(projectCoverage.status).toBe(200);
+    const projectPolicyRows = Array.isArray(getPath(projectCoverage.json, 'coverage', 'policies'))
+      ? (getPath(projectCoverage.json, 'coverage', 'policies') as any[])
+      : [];
+    expect(
+      projectPolicyRows.some((entry) => String(entry?.policyId || '') === 'policy-project-cloudflare-1'),
+    ).toBe(true);
+
+    const developerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['developer'],
+        'org-policy-assign-cloudflare',
+        'policy-assign-developer-cf',
+      ),
+      policies,
+      wallets,
+    });
+    const forbiddenAssignment = await callCf(developerHandler, {
+      method: 'PUT',
+      path: '/console/policies/assignments',
+      body: {
+        scopeType: 'ORG',
+        scopeId: 'org-policy-assign-cloudflare',
+        policyId: 'org-policy-assign-cloudflare:policy:default',
+      },
+    });
+    expect(forbiddenAssignment.status).toBe(403);
+    expect(forbiddenAssignment.json?.code).toBe('forbidden');
+  });
+
   test('cloudflare API key lifecycle works and secrets are reveal-once on create/rotate', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const handler = createCloudflareConsoleRouter({
@@ -2405,6 +3770,717 @@ test.describe('console router (cloudflare)', () => {
   });
 });
 
+test.describe('console router (postgres org-project-env)', () => {
+  const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
+  const enabled = Boolean(postgresUrl);
+  const namespace = randomNamespace('test:console-router:org-project-env:postgres');
+  const authOrgId = 'org-router-postgres-org-project-env';
+  let orgProjectEnv: ConsoleOrgProjectEnvService | null = null;
+
+  test.beforeAll(async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    orgProjectEnv = await createPostgresConsoleOrgProjectEnvService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+  });
+
+  test.afterAll(async () => {
+    if (!enabled) return;
+    const pool = await getPostgresPool(postgresUrl);
+    await pool.query('DELETE FROM console_environments WHERE namespace = $1', [namespace]);
+    await pool.query('DELETE FROM console_projects WHERE namespace = $1', [namespace]);
+    await pool.query('DELETE FROM console_organizations WHERE namespace = $1', [namespace]);
+  });
+
+  test('express org/project/environment routes enforce org isolation', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner`;
+    const attackerOrgId = `${authOrgId}:attacker`;
+    const ownerManagedProjectId = `${ownerOrgId}:managed-project`;
+    const ownerManagedEnvironmentId = `${ownerOrgId}:managed-env`;
+
+    const ownerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-org-project-env-user'),
+      orgProjectEnv: orgProjectEnv!,
+    });
+    const ownerServer = await startExpressRouter(ownerRouter);
+    let ownerProjectId = '';
+    try {
+      const projects = await fetchJson(`${ownerServer.baseUrl}/console/projects`, {
+        method: 'GET',
+      });
+      expect(projects.status).toBe(200);
+      ownerProjectId = String(getPath(projects.json, 'projects', 0, 'id') || '');
+      expect(ownerProjectId).toBeTruthy();
+      expect(Number(getPath(projects.json, 'projects', 0, 'environmentCount') || 0)).toBeGreaterThanOrEqual(
+        1,
+      );
+
+      const createdProject = await fetchJson(`${ownerServer.baseUrl}/console/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: ownerManagedProjectId,
+          name: 'Owner Managed Project',
+        }),
+      });
+      expect(createdProject.status).toBe(201);
+      expect(Number(getPath(createdProject.json, 'project', 'environmentCount') || 0)).toBe(0);
+
+      const createdEnvironment = await fetchJson(`${ownerServer.baseUrl}/console/environments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: ownerManagedEnvironmentId,
+          projectId: ownerManagedProjectId,
+          key: 'staging',
+        }),
+      });
+      expect(createdEnvironment.status).toBe(201);
+
+      const environments = await fetchJson(
+        `${ownerServer.baseUrl}/console/environments?projectId=${encodeURIComponent(ownerProjectId)}`,
+        { method: 'GET' },
+      );
+      expect(environments.status).toBe(200);
+      const ownerEnvRows = Array.isArray(environments.json?.environments)
+        ? environments.json?.environments
+        : [];
+      expect(ownerEnvRows.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      await ownerServer.close();
+    }
+
+    const attackerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-org-project-env-user'),
+      orgProjectEnv: orgProjectEnv!,
+    });
+    const attackerServer = await startExpressRouter(attackerRouter);
+    try {
+      const org = await fetchJson(`${attackerServer.baseUrl}/console/org`, {
+        method: 'GET',
+      });
+      expect(org.status).toBe(200);
+      expect(String(getPath(org.json, 'org', 'id') || '')).toBe(attackerOrgId);
+      expect(String(getPath(org.json, 'org', 'id') || '')).not.toBe(ownerOrgId);
+
+      const projects = await fetchJson(`${attackerServer.baseUrl}/console/projects`, {
+        method: 'GET',
+      });
+      expect(projects.status).toBe(200);
+      const attackerProjects = Array.isArray(projects.json?.projects) ? projects.json?.projects : [];
+      expect(
+        attackerProjects.some((entry: any) => String(entry?.id || '') === ownerProjectId),
+      ).toBe(false);
+      expect(
+        attackerProjects.some((entry: any) => String(entry?.id || '') === ownerManagedProjectId),
+      ).toBe(false);
+
+      const scopedEnvironments = await fetchJson(
+        `${attackerServer.baseUrl}/console/environments?projectId=${encodeURIComponent(ownerProjectId)}`,
+        {
+          method: 'GET',
+        },
+      );
+      expect(scopedEnvironments.status).toBe(200);
+      const attackerScopedRows = Array.isArray(scopedEnvironments.json?.environments)
+        ? scopedEnvironments.json?.environments
+        : [];
+      expect(attackerScopedRows.length).toBe(0);
+
+      const patchOwnerProject = await fetchJson(
+        `${attackerServer.baseUrl}/console/projects/${encodeURIComponent(ownerManagedProjectId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'attacker rename' }),
+        },
+      );
+      expect(patchOwnerProject.status).toBe(404);
+      expect(patchOwnerProject.json?.code).toBe('project_not_found');
+
+      const archiveOwnerEnvironment = await fetchJson(
+        `${attackerServer.baseUrl}/console/environments/${encodeURIComponent(ownerManagedEnvironmentId)}/archive`,
+        {
+          method: 'POST',
+        },
+      );
+      expect(archiveOwnerEnvironment.status).toBe(404);
+      expect(archiveOwnerEnvironment.json?.code).toBe('environment_not_found');
+    } finally {
+      await attackerServer.close();
+    }
+  });
+
+  test('cloudflare org/project/environment routes enforce org isolation', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner-cf`;
+    const attackerOrgId = `${authOrgId}:attacker-cf`;
+    const ownerManagedProjectId = `${ownerOrgId}:managed-project`;
+    const ownerManagedEnvironmentId = `${ownerOrgId}:managed-env`;
+
+    const ownerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-org-project-env-user-cf'),
+      orgProjectEnv: orgProjectEnv!,
+    });
+    const ownerProjects = await callCf(ownerHandler, {
+      method: 'GET',
+      path: '/console/projects',
+    });
+    expect(ownerProjects.status).toBe(200);
+    const ownerProjectId = String(getPath(ownerProjects.json, 'projects', 0, 'id') || '');
+    expect(ownerProjectId).toBeTruthy();
+    expect(Number(getPath(ownerProjects.json, 'projects', 0, 'environmentCount') || 0)).toBeGreaterThanOrEqual(
+      1,
+    );
+
+    const ownerCreatedProject = await callCf(ownerHandler, {
+      method: 'POST',
+      path: '/console/projects',
+      body: {
+        id: ownerManagedProjectId,
+        name: 'Owner Managed Project CF',
+      },
+    });
+    expect(ownerCreatedProject.status).toBe(201);
+    expect(Number(getPath(ownerCreatedProject.json, 'project', 'environmentCount') || 0)).toBe(0);
+
+    const ownerCreatedEnvironment = await callCf(ownerHandler, {
+      method: 'POST',
+      path: '/console/environments',
+      body: {
+        id: ownerManagedEnvironmentId,
+        projectId: ownerManagedProjectId,
+        key: 'staging',
+      },
+    });
+    expect(ownerCreatedEnvironment.status).toBe(201);
+
+    const ownerEnvironments = await callCf(ownerHandler, {
+      method: 'GET',
+      path: `/console/environments?projectId=${encodeURIComponent(ownerProjectId)}`,
+    });
+    expect(ownerEnvironments.status).toBe(200);
+    const ownerEnvRows = Array.isArray(ownerEnvironments.json?.environments)
+      ? ownerEnvironments.json?.environments
+      : [];
+    expect(ownerEnvRows.length).toBeGreaterThanOrEqual(1);
+
+    const attackerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-org-project-env-user-cf'),
+      orgProjectEnv: orgProjectEnv!,
+    });
+    const org = await callCf(attackerHandler, {
+      method: 'GET',
+      path: '/console/org',
+    });
+    expect(org.status).toBe(200);
+    expect(String(getPath(org.json, 'org', 'id') || '')).toBe(attackerOrgId);
+    expect(String(getPath(org.json, 'org', 'id') || '')).not.toBe(ownerOrgId);
+
+    const projects = await callCf(attackerHandler, {
+      method: 'GET',
+      path: '/console/projects',
+    });
+    expect(projects.status).toBe(200);
+    const attackerProjects = Array.isArray(projects.json?.projects) ? projects.json?.projects : [];
+    expect(
+      attackerProjects.some((entry: any) => String(entry?.id || '') === ownerProjectId),
+    ).toBe(false);
+    expect(
+      attackerProjects.some((entry: any) => String(entry?.id || '') === ownerManagedProjectId),
+    ).toBe(false);
+
+    const scopedEnvironments = await callCf(attackerHandler, {
+      method: 'GET',
+      path: `/console/environments?projectId=${encodeURIComponent(ownerProjectId)}`,
+    });
+    expect(scopedEnvironments.status).toBe(200);
+    const attackerScopedRows = Array.isArray(scopedEnvironments.json?.environments)
+      ? scopedEnvironments.json?.environments
+      : [];
+    expect(attackerScopedRows.length).toBe(0);
+
+    const patchOwnerProject = await callCf(attackerHandler, {
+      method: 'PATCH',
+      path: `/console/projects/${encodeURIComponent(ownerManagedProjectId)}`,
+      body: { name: 'attacker rename cf' },
+    });
+    expect(patchOwnerProject.status).toBe(404);
+    expect(patchOwnerProject.json?.code).toBe('project_not_found');
+
+    const archiveOwnerEnvironment = await callCf(attackerHandler, {
+      method: 'POST',
+      path: `/console/environments/${encodeURIComponent(ownerManagedEnvironmentId)}/archive`,
+    });
+    expect(archiveOwnerEnvironment.status).toBe(404);
+    expect(archiveOwnerEnvironment.json?.code).toBe('environment_not_found');
+  });
+});
+
+test.describe('console router (postgres wallets)', () => {
+  const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
+  const enabled = Boolean(postgresUrl);
+  const namespace = randomNamespace('test:console-router:wallets:postgres');
+  const authOrgId = 'org-router-postgres-wallets';
+  let wallets: ConsoleWalletService | null = null;
+
+  test.beforeAll(async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    wallets = await createPostgresConsoleWalletService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+  });
+
+  test.afterAll(async () => {
+    if (!enabled) return;
+    const pool = await getPostgresPool(postgresUrl);
+    await pool.query('DELETE FROM console_wallet_index WHERE namespace = $1', [namespace]);
+  });
+
+  test('express wallet routes enforce org isolation', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner`;
+    const attackerOrgId = `${authOrgId}:attacker`;
+
+    const ownerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-wallet-user'),
+      wallets: wallets!,
+    });
+    const ownerServer = await startExpressRouter(ownerRouter);
+    let ownerWalletId = '';
+    try {
+      const listed = await fetchJson(`${ownerServer.baseUrl}/console/wallets`, {
+        method: 'GET',
+      });
+      expect(listed.status).toBe(200);
+      ownerWalletId = String(getPath(listed.json, 'wallets', 0, 'id') || '');
+      expect(ownerWalletId).toBeTruthy();
+    } finally {
+      await ownerServer.close();
+    }
+
+    const attackerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-wallet-user'),
+      wallets: wallets!,
+    });
+    const attackerServer = await startExpressRouter(attackerRouter);
+    try {
+      const detail = await fetchJson(
+        `${attackerServer.baseUrl}/console/wallets/${encodeURIComponent(ownerWalletId)}`,
+        {
+          method: 'GET',
+        },
+      );
+      expect(detail.status).toBe(404);
+      expect(detail.json?.code).toBe('wallet_not_found');
+
+      const searched = await fetchJson(
+        `${attackerServer.baseUrl}/console/wallets/search?q=${encodeURIComponent(ownerWalletId)}`,
+        { method: 'GET' },
+      );
+      expect(searched.status).toBe(200);
+      const attackerRows = Array.isArray(searched.json?.wallets) ? searched.json?.wallets : [];
+      expect(attackerRows.some((entry: any) => String(entry?.id || '') === ownerWalletId)).toBe(
+        false,
+      );
+    } finally {
+      await attackerServer.close();
+    }
+  });
+
+  test('cloudflare wallet routes enforce org isolation', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner-cf`;
+    const attackerOrgId = `${authOrgId}:attacker-cf`;
+
+    const ownerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-wallet-user-cf'),
+      wallets: wallets!,
+    });
+    const ownerList = await callCf(ownerHandler, {
+      method: 'GET',
+      path: '/console/wallets',
+    });
+    expect(ownerList.status).toBe(200);
+    const ownerWalletId = String(getPath(ownerList.json, 'wallets', 0, 'id') || '');
+    expect(ownerWalletId).toBeTruthy();
+
+    const attackerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-wallet-user-cf'),
+      wallets: wallets!,
+    });
+    const detail = await callCf(attackerHandler, {
+      method: 'GET',
+      path: `/console/wallets/${encodeURIComponent(ownerWalletId)}`,
+    });
+    expect(detail.status).toBe(404);
+    expect(detail.json?.code).toBe('wallet_not_found');
+
+    const searched = await callCf(attackerHandler, {
+      method: 'GET',
+      path: `/console/wallets/search?q=${encodeURIComponent(ownerWalletId)}`,
+    });
+    expect(searched.status).toBe(200);
+    const attackerRows = Array.isArray(searched.json?.wallets) ? searched.json?.wallets : [];
+    expect(attackerRows.some((entry: any) => String(entry?.id || '') === ownerWalletId)).toBe(
+      false,
+    );
+  });
+
+  test('express policy/gas insight routes enforce org isolation', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner-insights`;
+    const attackerOrgId = `${authOrgId}:attacker-insights`;
+
+    const ownerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-wallet-insights-user'),
+      wallets: wallets!,
+    });
+    const ownerServer = await startExpressRouter(ownerRouter);
+    let ownerProjectId = '';
+    let ownerEnvironmentId = '';
+    try {
+      const ownerList = await fetchJson(`${ownerServer.baseUrl}/console/wallets`, { method: 'GET' });
+      expect(ownerList.status).toBe(200);
+      ownerProjectId = String(getPath(ownerList.json, 'wallets', 0, 'projectId') || '');
+      ownerEnvironmentId = String(getPath(ownerList.json, 'wallets', 0, 'environmentId') || '');
+      expect(ownerProjectId).toBeTruthy();
+      expect(ownerEnvironmentId).toBeTruthy();
+
+      const ownerCoverage = await fetchJson(
+        `${ownerServer.baseUrl}/console/policy/coverage?projectId=${encodeURIComponent(ownerProjectId)}&environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+        { method: 'GET' },
+      );
+      expect(ownerCoverage.status).toBe(200);
+      expect(
+        Number(getPath(ownerCoverage.json, 'coverage', 'totals', 'walletCount') || 0),
+      ).toBeGreaterThanOrEqual(1);
+    } finally {
+      await ownerServer.close();
+    }
+
+    const attackerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-wallet-insights-user'),
+      wallets: wallets!,
+    });
+    const attackerServer = await startExpressRouter(attackerRouter);
+    try {
+      const coverage = await fetchJson(
+        `${attackerServer.baseUrl}/console/policy/coverage?projectId=${encodeURIComponent(ownerProjectId)}&environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+        { method: 'GET' },
+      );
+      expect(coverage.status).toBe(200);
+      expect(Number(getPath(coverage.json, 'coverage', 'totals', 'walletCount') || 0)).toBe(0);
+
+      const readiness = await fetchJson(
+        `${attackerServer.baseUrl}/console/gas/readiness?projectId=${encodeURIComponent(ownerProjectId)}&environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+        { method: 'GET' },
+      );
+      expect(readiness.status).toBe(200);
+      expect(Number(getPath(readiness.json, 'readiness', 'totals', 'walletCount') || 0)).toBe(0);
+    } finally {
+      await attackerServer.close();
+    }
+  });
+
+  test('cloudflare policy/gas insight routes enforce org isolation', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner-insights-cf`;
+    const attackerOrgId = `${authOrgId}:attacker-insights-cf`;
+
+    const ownerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-wallet-insights-user-cf'),
+      wallets: wallets!,
+    });
+    const ownerList = await callCf(ownerHandler, {
+      method: 'GET',
+      path: '/console/wallets',
+    });
+    expect(ownerList.status).toBe(200);
+    const ownerProjectId = String(getPath(ownerList.json, 'wallets', 0, 'projectId') || '');
+    const ownerEnvironmentId = String(
+      getPath(ownerList.json, 'wallets', 0, 'environmentId') || '',
+    );
+    expect(ownerProjectId).toBeTruthy();
+    expect(ownerEnvironmentId).toBeTruthy();
+
+    const ownerCoverage = await callCf(ownerHandler, {
+      method: 'GET',
+      path: `/console/policy/coverage?projectId=${encodeURIComponent(ownerProjectId)}&environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+    });
+    expect(ownerCoverage.status).toBe(200);
+    expect(Number(getPath(ownerCoverage.json, 'coverage', 'totals', 'walletCount') || 0)).toBeGreaterThanOrEqual(1);
+
+    const attackerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-wallet-insights-user-cf'),
+      wallets: wallets!,
+    });
+    const attackerCoverage = await callCf(attackerHandler, {
+      method: 'GET',
+      path: `/console/policy/coverage?projectId=${encodeURIComponent(ownerProjectId)}&environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+    });
+    expect(attackerCoverage.status).toBe(200);
+    expect(Number(getPath(attackerCoverage.json, 'coverage', 'totals', 'walletCount') || 0)).toBe(0);
+
+    const attackerReadiness = await callCf(attackerHandler, {
+      method: 'GET',
+      path: `/console/gas/readiness?projectId=${encodeURIComponent(ownerProjectId)}&environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+    });
+    expect(attackerReadiness.status).toBe(200);
+    expect(Number(getPath(attackerReadiness.json, 'readiness', 'totals', 'walletCount') || 0)).toBe(0);
+  });
+});
+
+test.describe('console router (postgres policies)', () => {
+  const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
+  const enabled = Boolean(postgresUrl);
+  const namespace = randomNamespace('test:console-router:policies:postgres');
+  const authOrgId = 'org-router-postgres-policies';
+  let policies: ConsolePolicyService | null = null;
+
+  test.beforeAll(async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    policies = await createPostgresConsolePolicyService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+  });
+
+  test.afterAll(async () => {
+    if (!enabled) return;
+    const pool = await getPostgresPool(postgresUrl);
+    await pool.query('DELETE FROM console_policy_assignments WHERE namespace = $1', [namespace]);
+    await pool.query('DELETE FROM console_policy_versions WHERE namespace = $1', [namespace]);
+    await pool.query('DELETE FROM console_policies WHERE namespace = $1', [namespace]);
+  });
+
+  test('express policy routes enforce org isolation', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner`;
+    const attackerOrgId = `${authOrgId}:attacker`;
+    const ownerPolicyId = `${ownerOrgId}:managed-policy`;
+    let ownerAssignmentId = '';
+
+    const ownerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-policy-user'),
+      policies: policies!,
+    });
+    const ownerServer = await startExpressRouter(ownerRouter);
+    try {
+      const created = await fetchJson(`${ownerServer.baseUrl}/console/policies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: ownerPolicyId,
+          name: 'Owner Managed Policy',
+        }),
+      });
+      expect(created.status).toBe(201);
+
+      const published = await fetchJson(
+        `${ownerServer.baseUrl}/console/policies/${encodeURIComponent(ownerPolicyId)}/publish`,
+        {
+          method: 'POST',
+        },
+      );
+      expect(published.status).toBe(200);
+
+      const listed = await fetchJson(`${ownerServer.baseUrl}/console/policies`, { method: 'GET' });
+      expect(listed.status).toBe(200);
+      const ownerPolicies = Array.isArray(listed.json?.policies) ? listed.json?.policies : [];
+      expect(ownerPolicies.some((entry: any) => String(entry?.id || '') === ownerPolicyId)).toBe(true);
+
+      const upsertedAssignment = await fetchJson(
+        `${ownerServer.baseUrl}/console/policies/assignments`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scopeType: 'ORG',
+            scopeId: ownerOrgId,
+            policyId: ownerPolicyId,
+          }),
+        },
+      );
+      expect(upsertedAssignment.status).toBe(200);
+      ownerAssignmentId = String(getPath(upsertedAssignment.json, 'assignment', 'id') || '');
+      expect(ownerAssignmentId).toBeTruthy();
+    } finally {
+      await ownerServer.close();
+    }
+
+    const attackerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-policy-user'),
+      policies: policies!,
+    });
+    const attackerServer = await startExpressRouter(attackerRouter);
+    try {
+      const listed = await fetchJson(`${attackerServer.baseUrl}/console/policies`, { method: 'GET' });
+      expect(listed.status).toBe(200);
+      const attackerPolicies = Array.isArray(listed.json?.policies) ? listed.json?.policies : [];
+      expect(attackerPolicies.some((entry: any) => String(entry?.id || '') === ownerPolicyId)).toBe(
+        false,
+      );
+
+      const listedAssignments = await fetchJson(
+        `${attackerServer.baseUrl}/console/policies/assignments?scopeType=ORG&scopeId=${encodeURIComponent(ownerOrgId)}`,
+        { method: 'GET' },
+      );
+      expect(listedAssignments.status).toBe(200);
+      const attackerAssignments = Array.isArray(listedAssignments.json?.assignments)
+        ? listedAssignments.json?.assignments
+        : [];
+      expect(attackerAssignments.length).toBe(0);
+
+      const patched = await fetchJson(
+        `${attackerServer.baseUrl}/console/policies/${encodeURIComponent(ownerPolicyId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'attacker rename' }),
+        },
+      );
+      expect(patched.status).toBe(404);
+      expect(patched.json?.code).toBe('policy_not_found');
+
+      const published = await fetchJson(
+        `${attackerServer.baseUrl}/console/policies/${encodeURIComponent(ownerPolicyId)}/publish`,
+        { method: 'POST' },
+      );
+      expect(published.status).toBe(404);
+      expect(published.json?.code).toBe('policy_not_found');
+
+      const simulated = await fetchJson(
+        `${attackerServer.baseUrl}/console/policies/${encodeURIComponent(ownerPolicyId)}/simulate`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'transfer' }),
+        },
+      );
+      expect(simulated.status).toBe(404);
+      expect(simulated.json?.code).toBe('policy_not_found');
+
+      const deletedAssignment = await fetchJson(
+        `${attackerServer.baseUrl}/console/policies/assignments/${encodeURIComponent(ownerAssignmentId)}`,
+        { method: 'DELETE' },
+      );
+      expect(deletedAssignment.status).toBe(404);
+      expect(deletedAssignment.json?.code).toBe('assignment_not_found');
+    } finally {
+      await attackerServer.close();
+    }
+  });
+
+  test('cloudflare policy routes enforce org isolation', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner-cf`;
+    const attackerOrgId = `${authOrgId}:attacker-cf`;
+    const ownerPolicyId = `${ownerOrgId}:managed-policy`;
+    let ownerAssignmentId = '';
+
+    const ownerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-policy-user-cf'),
+      policies: policies!,
+    });
+    const created = await callCf(ownerHandler, {
+      method: 'POST',
+      path: '/console/policies',
+      body: {
+        id: ownerPolicyId,
+        name: 'Owner Managed Policy CF',
+      },
+    });
+    expect(created.status).toBe(201);
+
+    const ownerPublished = await callCf(ownerHandler, {
+      method: 'POST',
+      path: `/console/policies/${encodeURIComponent(ownerPolicyId)}/publish`,
+    });
+    expect(ownerPublished.status).toBe(200);
+
+    const ownerAssignment = await callCf(ownerHandler, {
+      method: 'PUT',
+      path: '/console/policies/assignments',
+      body: {
+        scopeType: 'ORG',
+        scopeId: ownerOrgId,
+        policyId: ownerPolicyId,
+      },
+    });
+    expect(ownerAssignment.status).toBe(200);
+    ownerAssignmentId = String(getPath(ownerAssignment.json, 'assignment', 'id') || '');
+    expect(ownerAssignmentId).toBeTruthy();
+
+    const attackerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-policy-user-cf'),
+      policies: policies!,
+    });
+    const listed = await callCf(attackerHandler, {
+      method: 'GET',
+      path: '/console/policies',
+    });
+    expect(listed.status).toBe(200);
+    const attackerPolicies = Array.isArray(listed.json?.policies) ? listed.json?.policies : [];
+    expect(attackerPolicies.some((entry: any) => String(entry?.id || '') === ownerPolicyId)).toBe(
+      false,
+    );
+
+    const listedAssignments = await callCf(attackerHandler, {
+      method: 'GET',
+      path: `/console/policies/assignments?scopeType=ORG&scopeId=${encodeURIComponent(ownerOrgId)}`,
+    });
+    expect(listedAssignments.status).toBe(200);
+    const attackerAssignments = Array.isArray(listedAssignments.json?.assignments)
+      ? listedAssignments.json?.assignments
+      : [];
+    expect(attackerAssignments.length).toBe(0);
+
+    const patched = await callCf(attackerHandler, {
+      method: 'PATCH',
+      path: `/console/policies/${encodeURIComponent(ownerPolicyId)}`,
+      body: {
+        name: 'attacker rename cf',
+      },
+    });
+    expect(patched.status).toBe(404);
+    expect(patched.json?.code).toBe('policy_not_found');
+
+    const published = await callCf(attackerHandler, {
+      method: 'POST',
+      path: `/console/policies/${encodeURIComponent(ownerPolicyId)}/publish`,
+    });
+    expect(published.status).toBe(404);
+    expect(published.json?.code).toBe('policy_not_found');
+
+    const simulated = await callCf(attackerHandler, {
+      method: 'POST',
+      path: `/console/policies/${encodeURIComponent(ownerPolicyId)}/simulate`,
+      body: {
+        action: 'transfer',
+      },
+    });
+    expect(simulated.status).toBe(404);
+    expect(simulated.json?.code).toBe('policy_not_found');
+
+    const deletedAssignment = await callCf(attackerHandler, {
+      method: 'DELETE',
+      path: `/console/policies/assignments/${encodeURIComponent(ownerAssignmentId)}`,
+    });
+    expect(deletedAssignment.status).toBe(404);
+    expect(deletedAssignment.json?.code).toBe('assignment_not_found');
+  });
+});
+
 test.describe('console router (postgres api keys)', () => {
   const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
   const enabled = Boolean(postgresUrl);
@@ -2543,6 +4619,132 @@ test.describe('console router (postgres api keys)', () => {
     });
     expect(deleted.status).toBe(404);
     expect(deleted.json?.code).toBe('api_key_not_found');
+  });
+
+  test('express export governance route enforces org isolation', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner-export`;
+    const attackerOrgId = `${authOrgId}:attacker-export`;
+    const ownerEnvironmentId = `${ownerOrgId}:prod`;
+
+    const ownerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-export-user'),
+      apiKeys: apiKeys!,
+    });
+    const ownerServer = await startExpressRouter(ownerRouter);
+    try {
+      const created = await fetchJson(`${ownerServer.baseUrl}/console/api-keys`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'owner-export-governance-key',
+          environmentId: ownerEnvironmentId,
+          scopes: ['wallets:read', 'keys:export'],
+        }),
+      });
+      expect(created.status).toBe(201);
+
+      const ownerGovernance = await fetchJson(
+        `${ownerServer.baseUrl}/console/export/governance?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+        { method: 'GET' },
+      );
+      expect(ownerGovernance.status).toBe(200);
+      expect(
+        Number(
+          getPath(
+            ownerGovernance.json,
+            'governance',
+            'totals',
+            'selectedEnvironmentExportScopedKeyCount',
+          ) || 0,
+        ),
+      ).toBeGreaterThanOrEqual(1);
+    } finally {
+      await ownerServer.close();
+    }
+
+    const attackerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-export-user'),
+      apiKeys: apiKeys!,
+    });
+    const attackerServer = await startExpressRouter(attackerRouter);
+    try {
+      const attackerGovernance = await fetchJson(
+        `${attackerServer.baseUrl}/console/export/governance?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+        { method: 'GET' },
+      );
+      expect(attackerGovernance.status).toBe(200);
+      expect(
+        Number(
+          getPath(
+            attackerGovernance.json,
+            'governance',
+            'totals',
+            'selectedEnvironmentExportScopedKeyCount',
+          ) || 0,
+        ),
+      ).toBe(0);
+    } finally {
+      await attackerServer.close();
+    }
+  });
+
+  test('cloudflare export governance route enforces org isolation', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner-export-cf`;
+    const attackerOrgId = `${authOrgId}:attacker-export-cf`;
+    const ownerEnvironmentId = `${ownerOrgId}:prod`;
+
+    const ownerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-export-user-cf'),
+      apiKeys: apiKeys!,
+    });
+    const created = await callCf(ownerHandler, {
+      method: 'POST',
+      path: '/console/api-keys',
+      body: {
+        name: 'owner-export-governance-key-cf',
+        environmentId: ownerEnvironmentId,
+        scopes: ['wallets:read', 'keys:export'],
+      },
+    });
+    expect(created.status).toBe(201);
+
+    const ownerGovernance = await callCf(ownerHandler, {
+      method: 'GET',
+      path: `/console/export/governance?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+    });
+    expect(ownerGovernance.status).toBe(200);
+    expect(
+      Number(
+        getPath(
+          ownerGovernance.json,
+          'governance',
+          'totals',
+          'selectedEnvironmentExportScopedKeyCount',
+        ) || 0,
+      ),
+    ).toBeGreaterThanOrEqual(1);
+
+    const attackerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-export-user-cf'),
+      apiKeys: apiKeys!,
+    });
+    const attackerGovernance = await callCf(attackerHandler, {
+      method: 'GET',
+      path: `/console/export/governance?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+    });
+    expect(attackerGovernance.status).toBe(200);
+    expect(
+      Number(
+        getPath(
+          attackerGovernance.json,
+          'governance',
+          'totals',
+          'selectedEnvironmentExportScopedKeyCount',
+        ) || 0,
+      ),
+    ).toBe(0);
   });
 });
 

@@ -225,6 +225,7 @@ export default defineConfig({
     env: {
       VITE_WALLET_DEV_CSP: process.env.VITE_WALLET_DEV_CSP ?? 'strict',
       VITE_COEP_MODE: process.env.VITE_COEP_MODE ?? 'strict',
+      VITE_CONSOLE_BASE_URL: process.env.VITE_CONSOLE_BASE_URL ?? DEV_SERVER_URL,
     },
   },
 });

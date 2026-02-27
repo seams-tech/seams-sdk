@@ -1,6 +1,6 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
 import express from 'express';
-import { buildCorsOrigins } from '../../core/SessionService';
+import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService';
 import {
   CHAIN_FINALITY_POLICY_VERSION,
   isConsoleBillingError,
@@ -24,6 +24,31 @@ import {
   type ConsoleApiKeyService,
 } from '../../console/apiKeys';
 import {
+  isConsoleOrgProjectEnvError,
+  parseCreateConsoleEnvironmentRequest,
+  parseCreateConsoleProjectRequest,
+  parseListConsoleProjectsRequest,
+  parseListConsoleEnvironmentsRequest,
+  parseUpdateConsoleEnvironmentRequest,
+  parseUpdateConsoleProjectRequest,
+  type ConsoleOrgProjectEnvService,
+} from '../../console/orgProjectEnv';
+import {
+  isConsoleWalletError,
+  parseListConsoleWalletsRequest,
+  parseSearchConsoleWalletsRequest,
+  type ConsoleWalletService,
+} from '../../console/wallets';
+import {
+  isConsolePolicyError,
+  parseCreateConsolePolicyRequest,
+  parseListConsolePolicyAssignmentsRequest,
+  parseSimulateConsolePolicyRequest,
+  parseUpsertConsolePolicyAssignmentRequest,
+  parseUpdateConsolePolicyRequest,
+  type ConsolePolicyService,
+} from '../../console/policies';
+import {
   isConsoleWebhookError,
   parseCreateConsoleWebhookEndpointRequest,
   parseListConsoleWebhookDeliveriesRequest,
@@ -35,6 +60,12 @@ import {
 } from '../../console/webhooks';
 import type { ConsoleAuthClaims, ConsoleAuthResult, ConsoleRouterOptions } from '../console';
 import { authenticateConsoleRequest, hasConsoleRole } from '../console';
+import {
+  buildConsoleExportGovernanceView,
+  buildConsoleGasReadinessView,
+  buildConsolePolicyCoverageView,
+  resolveConsoleInsightsScope,
+} from '../consoleInsights';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 
@@ -42,6 +73,9 @@ export interface ExpressConsoleContext {
   opts: ConsoleRouterOptions;
   logger: NormalizedRouterLogger;
   billing: ConsoleBillingService | null;
+  orgProjectEnv: ConsoleOrgProjectEnvService | null;
+  wallets: ConsoleWalletService | null;
+  policies: ConsolePolicyService | null;
   apiKeys: ConsoleApiKeyService | null;
   webhooks: ConsoleWebhookService | null;
 }
@@ -55,15 +89,16 @@ function withConsoleCors(res: Response, opts?: ConsoleRouterOptions, req?: Reque
     allowedOrigin = '*';
     res.set('Access-Control-Allow-Origin', '*');
   } else if (Array.isArray(normalized)) {
-    const origin = String((req as any)?.headers?.origin || '').trim();
-    if (origin && normalized.includes(origin)) {
-      allowedOrigin = origin;
-      res.set('Access-Control-Allow-Origin', origin);
+    const originRaw = String((req as any)?.headers?.origin || '').trim();
+    const originNormalized = normalizeCorsOrigin(originRaw);
+    if (originRaw && originNormalized && normalized.includes(originNormalized)) {
+      allowedOrigin = originRaw;
+      res.set('Access-Control-Allow-Origin', originRaw);
       res.set('Vary', 'Origin');
     }
   }
 
-  res.set('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+  res.set('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.set(
     'Access-Control-Allow-Headers',
     'Content-Type,Authorization,X-Console-Stripe-Webhook-Secret',
@@ -113,6 +148,60 @@ function sendBillingError(res: Response, error: unknown): void {
 
 function sendApiKeyError(res: Response, error: unknown): void {
   if (isConsoleApiKeyError(error)) {
+    res.status(error.status).json({
+      ok: false,
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {}),
+    });
+    return;
+  }
+
+  res.status(500).json({
+    ok: false,
+    code: 'internal',
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
+function sendOrgProjectEnvError(res: Response, error: unknown): void {
+  if (isConsoleOrgProjectEnvError(error)) {
+    res.status(error.status).json({
+      ok: false,
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {}),
+    });
+    return;
+  }
+
+  res.status(500).json({
+    ok: false,
+    code: 'internal',
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
+function sendWalletError(res: Response, error: unknown): void {
+  if (isConsoleWalletError(error)) {
+    res.status(error.status).json({
+      ok: false,
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {}),
+    });
+    return;
+  }
+
+  res.status(500).json({
+    ok: false,
+    code: 'internal',
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
+function sendPolicyError(res: Response, error: unknown): void {
+  if (isConsolePolicyError(error)) {
     res.status(error.status).json({
       ok: false,
       code: error.code,
@@ -189,6 +278,45 @@ function requireApiKeyService(
   return null;
 }
 
+function requireOrgProjectEnvService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsoleOrgProjectEnvService | null {
+  if (ctx.orgProjectEnv) return ctx.orgProjectEnv;
+  res.status(501).json({
+    ok: false,
+    code: 'org_project_env_not_configured',
+    message: 'Org/project/environment service is not configured on this server',
+  });
+  return null;
+}
+
+function requireWalletService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsoleWalletService | null {
+  if (ctx.wallets) return ctx.wallets;
+  res.status(501).json({
+    ok: false,
+    code: 'wallets_not_configured',
+    message: 'Wallet service is not configured on this server',
+  });
+  return null;
+}
+
+function requirePolicyService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsolePolicyService | null {
+  if (ctx.policies) return ctx.policies;
+  res.status(501).json({
+    ok: false,
+    code: 'policies_not_configured',
+    message: 'Policy service is not configured on this server',
+  });
+  return null;
+}
+
 function requireWebhookService(
   res: Response,
   ctx: ExpressConsoleContext,
@@ -241,6 +369,38 @@ function toBillingContext(claims: ConsoleAuthClaims): {
   };
 }
 
+function toOrgProjectEnvContext(claims: ConsoleAuthClaims): {
+  orgId: string;
+  actorUserId: string;
+  roles: string[];
+  projectId?: string;
+  environmentId?: string;
+} {
+  return {
+    orgId: claims.orgId,
+    actorUserId: claims.userId,
+    roles: claims.roles,
+    ...(claims.projectId ? { projectId: claims.projectId } : {}),
+    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+  };
+}
+
+function toWalletContext(claims: ConsoleAuthClaims): {
+  orgId: string;
+  actorUserId: string;
+  roles: string[];
+  projectId?: string;
+  environmentId?: string;
+} {
+  return {
+    orgId: claims.orgId,
+    actorUserId: claims.userId,
+    roles: claims.roles,
+    ...(claims.projectId ? { projectId: claims.projectId } : {}),
+    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+  };
+}
+
 function readPathParam(req: Request, key: string): string {
   return String((req as any)?.params?.[key] || '').trim();
 }
@@ -271,6 +431,32 @@ function requireInvoiceGenerationRole(claims: ConsoleAuthClaims, res: Response):
     ok: false,
     code: 'forbidden',
     message: 'Only admin or ops can generate monthly invoices',
+  });
+  return false;
+}
+
+function requireOrgProjectEnvMutationRole(claims: ConsoleAuthClaims, res: Response): boolean {
+  if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'owner')) return true;
+  res.status(403).json({
+    ok: false,
+    code: 'forbidden',
+    message: 'Only admin or owner can mutate projects and environments',
+  });
+  return false;
+}
+
+function requirePolicyMutationRole(claims: ConsoleAuthClaims, res: Response): boolean {
+  if (
+    hasConsoleRole(claims, 'owner') ||
+    hasConsoleRole(claims, 'admin') ||
+    hasConsoleRole(claims, 'security_admin')
+  ) {
+    return true;
+  }
+  res.status(403).json({
+    ok: false,
+    code: 'forbidden',
+    message: 'Only owner, admin, or security_admin can mutate policies',
   });
   return false;
 }
@@ -395,6 +581,518 @@ function registerConsoleSessionRoute(router: ExpressRouter, ctx: ExpressConsoleC
       ok: true,
       claims,
     });
+  });
+}
+
+function registerConsoleOrgProjectEnvRoutes(
+  router: ExpressRouter,
+  ctx: ExpressConsoleContext,
+): void {
+  router.get('/console/org', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
+    if (!orgProjectEnv) return;
+    try {
+      const org = await orgProjectEnv.getOrganization(toOrgProjectEnvContext(claims));
+      res.status(200).json({ ok: true, org });
+    } catch (error: unknown) {
+      sendOrgProjectEnvError(res, error);
+    }
+  });
+
+  router.get('/console/projects', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
+    if (!orgProjectEnv) return;
+    try {
+      const request = parseListConsoleProjectsRequest((req as any).query || {});
+      const projects = await orgProjectEnv.listProjects(toOrgProjectEnvContext(claims), request);
+      res.status(200).json({ ok: true, projects });
+    } catch (error: unknown) {
+      sendOrgProjectEnvError(res, error);
+    }
+  });
+
+  router.post('/console/projects', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    if (!requireOrgProjectEnvMutationRole(claims, res)) return;
+    const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
+    if (!orgProjectEnv) return;
+    try {
+      const request = parseCreateConsoleProjectRequest((req as any).body || {});
+      const project = await orgProjectEnv.createProject(toOrgProjectEnvContext(claims), request);
+      res.status(201).json({ ok: true, project });
+    } catch (error: unknown) {
+      sendOrgProjectEnvError(res, error);
+    }
+  });
+
+  router.patch('/console/projects/:id', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    if (!requireOrgProjectEnvMutationRole(claims, res)) return;
+    const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
+    if (!orgProjectEnv) return;
+    const projectId = readPathParam(req, 'id');
+    if (!projectId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing project id' });
+      return;
+    }
+    try {
+      const request = parseUpdateConsoleProjectRequest((req as any).body || {});
+      const project = await orgProjectEnv.updateProject(
+        toOrgProjectEnvContext(claims),
+        projectId,
+        request,
+      );
+      if (!project) {
+        res.status(404).json({
+          ok: false,
+          code: 'project_not_found',
+          message: `Project ${projectId} was not found`,
+        });
+        return;
+      }
+      res.status(200).json({ ok: true, project });
+    } catch (error: unknown) {
+      sendOrgProjectEnvError(res, error);
+    }
+  });
+
+  router.post('/console/projects/:id/archive', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    if (!requireOrgProjectEnvMutationRole(claims, res)) return;
+    const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
+    if (!orgProjectEnv) return;
+    const projectId = readPathParam(req, 'id');
+    if (!projectId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing project id' });
+      return;
+    }
+    try {
+      const project = await orgProjectEnv.archiveProject(toOrgProjectEnvContext(claims), projectId);
+      if (!project) {
+        res.status(404).json({
+          ok: false,
+          code: 'project_not_found',
+          message: `Project ${projectId} was not found`,
+        });
+        return;
+      }
+      res.status(200).json({ ok: true, project });
+    } catch (error: unknown) {
+      sendOrgProjectEnvError(res, error);
+    }
+  });
+
+  router.get('/console/environments', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
+    if (!orgProjectEnv) return;
+    try {
+      const request = parseListConsoleEnvironmentsRequest((req as any).query || {});
+      const environments = await orgProjectEnv.listEnvironments(
+        toOrgProjectEnvContext(claims),
+        request,
+      );
+      res.status(200).json({ ok: true, environments });
+    } catch (error: unknown) {
+      sendOrgProjectEnvError(res, error);
+    }
+  });
+
+  router.post('/console/environments', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    if (!requireOrgProjectEnvMutationRole(claims, res)) return;
+    const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
+    if (!orgProjectEnv) return;
+    try {
+      const request = parseCreateConsoleEnvironmentRequest((req as any).body || {});
+      const environment = await orgProjectEnv.createEnvironment(
+        toOrgProjectEnvContext(claims),
+        request,
+      );
+      res.status(201).json({ ok: true, environment });
+    } catch (error: unknown) {
+      sendOrgProjectEnvError(res, error);
+    }
+  });
+
+  router.patch('/console/environments/:id', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    if (!requireOrgProjectEnvMutationRole(claims, res)) return;
+    const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
+    if (!orgProjectEnv) return;
+    const environmentId = readPathParam(req, 'id');
+    if (!environmentId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing environment id' });
+      return;
+    }
+    try {
+      const request = parseUpdateConsoleEnvironmentRequest((req as any).body || {});
+      const environment = await orgProjectEnv.updateEnvironment(
+        toOrgProjectEnvContext(claims),
+        environmentId,
+        request,
+      );
+      if (!environment) {
+        res.status(404).json({
+          ok: false,
+          code: 'environment_not_found',
+          message: `Environment ${environmentId} was not found`,
+        });
+        return;
+      }
+      res.status(200).json({ ok: true, environment });
+    } catch (error: unknown) {
+      sendOrgProjectEnvError(res, error);
+    }
+  });
+
+  router.post('/console/environments/:id/archive', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    if (!requireOrgProjectEnvMutationRole(claims, res)) return;
+    const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
+    if (!orgProjectEnv) return;
+    const environmentId = readPathParam(req, 'id');
+    if (!environmentId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing environment id' });
+      return;
+    }
+    try {
+      const environment = await orgProjectEnv.archiveEnvironment(
+        toOrgProjectEnvContext(claims),
+        environmentId,
+      );
+      if (!environment) {
+        res.status(404).json({
+          ok: false,
+          code: 'environment_not_found',
+          message: `Environment ${environmentId} was not found`,
+        });
+        return;
+      }
+      res.status(200).json({ ok: true, environment });
+    } catch (error: unknown) {
+      sendOrgProjectEnvError(res, error);
+    }
+  });
+}
+
+function registerConsoleWalletRoutes(router: ExpressRouter, ctx: ExpressConsoleContext): void {
+  router.get('/console/wallets', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const wallets = requireWalletService(res, ctx);
+    if (!wallets) return;
+    try {
+      const request = parseListConsoleWalletsRequest((req as any).query || {});
+      const page = await wallets.listWallets(toWalletContext(claims), request);
+      res.status(200).json({
+        ok: true,
+        wallets: page.items,
+        ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+      });
+    } catch (error: unknown) {
+      sendWalletError(res, error);
+    }
+  });
+
+  router.get('/console/wallets/search', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const wallets = requireWalletService(res, ctx);
+    if (!wallets) return;
+    try {
+      const request = parseSearchConsoleWalletsRequest((req as any).query || {});
+      const page = await wallets.searchWallets(toWalletContext(claims), request);
+      res.status(200).json({
+        ok: true,
+        wallets: page.items,
+        ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+      });
+    } catch (error: unknown) {
+      sendWalletError(res, error);
+    }
+  });
+
+  router.get('/console/wallets/:id', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const wallets = requireWalletService(res, ctx);
+    if (!wallets) return;
+    const walletId = readPathParam(req, 'id');
+    if (!walletId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing wallet id' });
+      return;
+    }
+    try {
+      const wallet = await wallets.getWallet(toWalletContext(claims), walletId);
+      if (!wallet) {
+        res.status(404).json({
+          ok: false,
+          code: 'wallet_not_found',
+          message: `Wallet ${walletId} was not found`,
+        });
+        return;
+      }
+      res.status(200).json({ ok: true, wallet });
+    } catch (error: unknown) {
+      sendWalletError(res, error);
+    }
+  });
+}
+
+function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleContext): void {
+  router.get('/console/policies', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const policies = requirePolicyService(res, ctx);
+    if (!policies) return;
+    try {
+      const out = await policies.listPolicies(toBillingContext(claims));
+      res.status(200).json({ ok: true, policies: out });
+    } catch (error: unknown) {
+      sendPolicyError(res, error);
+    }
+  });
+
+  router.get('/console/policies/assignments', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const policies = requirePolicyService(res, ctx);
+    if (!policies) return;
+    try {
+      const request = parseListConsolePolicyAssignmentsRequest((req as any).query || {});
+      const assignments = await policies.listAssignments(toBillingContext(claims), request);
+      res.status(200).json({ ok: true, assignments });
+    } catch (error: unknown) {
+      sendPolicyError(res, error);
+    }
+  });
+
+  router.post('/console/policies', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requirePolicyMutationRole(claims, res)) return;
+    const policies = requirePolicyService(res, ctx);
+    if (!policies) return;
+    try {
+      const request = parseCreateConsolePolicyRequest((req as any).body || {});
+      const policy = await policies.createPolicy(toBillingContext(claims), request);
+      res.status(201).json({ ok: true, policy });
+    } catch (error: unknown) {
+      sendPolicyError(res, error);
+    }
+  });
+
+  router.put('/console/policies/assignments', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requirePolicyMutationRole(claims, res)) return;
+    const policies = requirePolicyService(res, ctx);
+    if (!policies) return;
+    try {
+      const request = parseUpsertConsolePolicyAssignmentRequest((req as any).body || {});
+      const assignment = await policies.upsertAssignment(toBillingContext(claims), request);
+      res.status(200).json({ ok: true, assignment });
+    } catch (error: unknown) {
+      sendPolicyError(res, error);
+    }
+  });
+
+  router.delete('/console/policies/assignments/:id', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requirePolicyMutationRole(claims, res)) return;
+    const policies = requirePolicyService(res, ctx);
+    if (!policies) return;
+    const assignmentId = readPathParam(req, 'id');
+    if (!assignmentId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing assignment id' });
+      return;
+    }
+    try {
+      const out = await policies.deleteAssignment(toBillingContext(claims), assignmentId);
+      if (!out.removed || !out.assignment) {
+        res.status(404).json({
+          ok: false,
+          code: 'assignment_not_found',
+          message: `Assignment ${assignmentId} was not found`,
+        });
+        return;
+      }
+      res.status(200).json({ ok: true, removed: true, assignment: out.assignment });
+    } catch (error: unknown) {
+      sendPolicyError(res, error);
+    }
+  });
+
+  router.patch('/console/policies/:id', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requirePolicyMutationRole(claims, res)) return;
+    const policies = requirePolicyService(res, ctx);
+    if (!policies) return;
+    const policyId = readPathParam(req, 'id');
+    if (!policyId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing policy id' });
+      return;
+    }
+    try {
+      const request = parseUpdateConsolePolicyRequest((req as any).body || {});
+      const policy = await policies.updatePolicy(toBillingContext(claims), policyId, request);
+      if (!policy) {
+        res.status(404).json({
+          ok: false,
+          code: 'policy_not_found',
+          message: `Policy ${policyId} was not found`,
+        });
+        return;
+      }
+      res.status(200).json({ ok: true, policy });
+    } catch (error: unknown) {
+      sendPolicyError(res, error);
+    }
+  });
+
+  router.post('/console/policies/:id/publish', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requirePolicyMutationRole(claims, res)) return;
+    const policies = requirePolicyService(res, ctx);
+    if (!policies) return;
+    const policyId = readPathParam(req, 'id');
+    if (!policyId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing policy id' });
+      return;
+    }
+    try {
+      const result = await policies.publishPolicy(toBillingContext(claims), policyId);
+      if (!result) {
+        res.status(404).json({
+          ok: false,
+          code: 'policy_not_found',
+          message: `Policy ${policyId} was not found`,
+        });
+        return;
+      }
+      res.status(200).json({ ok: true, result });
+    } catch (error: unknown) {
+      sendPolicyError(res, error);
+    }
+  });
+
+  router.post('/console/policies/:id/simulate', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const policies = requirePolicyService(res, ctx);
+    if (!policies) return;
+    const policyId = readPathParam(req, 'id');
+    if (!policyId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing policy id' });
+      return;
+    }
+    try {
+      const request = parseSimulateConsolePolicyRequest((req as any).body || {});
+      const simulation = await policies.simulatePolicy(toBillingContext(claims), policyId, request);
+      if (!simulation) {
+        res.status(404).json({
+          ok: false,
+          code: 'policy_not_found',
+          message: `Policy ${policyId} was not found`,
+        });
+        return;
+      }
+      res.status(200).json({ ok: true, simulation });
+    } catch (error: unknown) {
+      sendPolicyError(res, error);
+    }
+  });
+}
+
+function registerConsoleInsightsRoutes(router: ExpressRouter, ctx: ExpressConsoleContext): void {
+  router.get('/console/policy/coverage', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const wallets = requireWalletService(res, ctx);
+    if (!wallets) return;
+    const scope = resolveConsoleInsightsScope({
+      projectIdRaw: (req as any)?.query?.projectId,
+      environmentIdRaw: (req as any)?.query?.environmentId,
+      claimsProjectId: claims.projectId,
+      claimsEnvironmentId: claims.environmentId,
+    });
+    try {
+      const coverage = await buildConsolePolicyCoverageView({
+        wallets,
+        walletCtx: toWalletContext(claims),
+        scope,
+        ...(ctx.policies
+          ? {
+              resolvePolicyIds: async (walletRows) =>
+                await ctx.policies!.resolvePoliciesForWallets(
+                  toBillingContext(claims),
+                  walletRows.map((wallet) => ({
+                    walletId: wallet.id,
+                    projectId: wallet.projectId,
+                    environmentId: wallet.environmentId,
+                    fallbackPolicyId: wallet.policyId,
+                  })),
+                ),
+            }
+          : {}),
+      });
+      res.status(200).json({ ok: true, coverage });
+    } catch (error: unknown) {
+      sendWalletError(res, error);
+    }
+  });
+
+  router.get('/console/gas/readiness', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const wallets = requireWalletService(res, ctx);
+    if (!wallets) return;
+    const scope = resolveConsoleInsightsScope({
+      projectIdRaw: (req as any)?.query?.projectId,
+      environmentIdRaw: (req as any)?.query?.environmentId,
+      claimsProjectId: claims.projectId,
+      claimsEnvironmentId: claims.environmentId,
+    });
+    try {
+      const readiness = await buildConsoleGasReadinessView({
+        wallets,
+        walletCtx: toWalletContext(claims),
+        scope,
+        recentWindowDays: 7,
+      });
+      res.status(200).json({ ok: true, readiness });
+    } catch (error: unknown) {
+      sendWalletError(res, error);
+    }
+  });
+
+  router.get('/console/export/governance', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const apiKeys = requireApiKeyService(res, ctx);
+    if (!apiKeys) return;
+    const environmentIdRaw = String((req as any)?.query?.environmentId || '').trim();
+    const environmentIdFilter = environmentIdRaw || claims.environmentId || undefined;
+    try {
+      const governance = await buildConsoleExportGovernanceView({
+        apiKeys,
+        apiKeyCtx: toBillingContext(claims),
+        environmentIdFilter,
+      });
+      res.status(200).json({ ok: true, governance });
+    } catch (error: unknown) {
+      sendApiKeyError(res, error);
+    }
   });
 }
 
@@ -1244,6 +1942,9 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
   const router = express.Router();
   const logger = coerceRouterLogger(opts.logger);
   const billing = opts.billing === undefined ? null : opts.billing;
+  const orgProjectEnv = opts.orgProjectEnv === undefined ? null : opts.orgProjectEnv;
+  const wallets = opts.wallets === undefined ? null : opts.wallets;
+  const policies = opts.policies === undefined ? null : opts.policies;
   const apiKeys = opts.apiKeys === undefined ? null : opts.apiKeys;
   const webhooks = opts.webhooks === undefined ? null : opts.webhooks;
 
@@ -1253,12 +1954,19 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
     opts,
     logger,
     billing,
+    orgProjectEnv,
+    wallets,
+    policies,
     apiKeys,
     webhooks,
   };
 
   registerConsoleHealthRoutes(router, ctx);
   registerConsoleSessionRoute(router, ctx);
+  registerConsoleOrgProjectEnvRoutes(router, ctx);
+  registerConsoleWalletRoutes(router, ctx);
+  registerConsolePolicyRoutes(router, ctx);
+  registerConsoleInsightsRoutes(router, ctx);
   registerConsoleApiKeyRoutes(router, ctx);
   registerConsoleWebhookRoutes(router, ctx);
   registerConsoleBillingRoutes(router, ctx);

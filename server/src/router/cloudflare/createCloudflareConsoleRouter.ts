@@ -1,4 +1,4 @@
-import { buildCorsOrigins } from '../../core/SessionService';
+import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService';
 import {
   CHAIN_FINALITY_POLICY_VERSION,
   isConsoleBillingError,
@@ -22,6 +22,31 @@ import {
   type ConsoleApiKeyService,
 } from '../../console/apiKeys';
 import {
+  parseCreateConsoleEnvironmentRequest,
+  parseCreateConsoleProjectRequest,
+  isConsoleOrgProjectEnvError,
+  parseListConsoleProjectsRequest,
+  parseListConsoleEnvironmentsRequest,
+  parseUpdateConsoleEnvironmentRequest,
+  parseUpdateConsoleProjectRequest,
+  type ConsoleOrgProjectEnvService,
+} from '../../console/orgProjectEnv';
+import {
+  isConsoleWalletError,
+  parseListConsoleWalletsRequest,
+  parseSearchConsoleWalletsRequest,
+  type ConsoleWalletService,
+} from '../../console/wallets';
+import {
+  isConsolePolicyError,
+  parseCreateConsolePolicyRequest,
+  parseListConsolePolicyAssignmentsRequest,
+  parseSimulateConsolePolicyRequest,
+  parseUpsertConsolePolicyAssignmentRequest,
+  parseUpdateConsolePolicyRequest,
+  type ConsolePolicyService,
+} from '../../console/policies';
+import {
   isConsoleWebhookError,
   parseCreateConsoleWebhookEndpointRequest,
   parseListConsoleWebhookDeliveriesRequest,
@@ -33,6 +58,12 @@ import {
 } from '../../console/webhooks';
 import type { ConsoleAuthClaims, ConsoleAuthResult, ConsoleRouterOptions } from '../console';
 import { authenticateConsoleRequest, hasConsoleRole } from '../console';
+import {
+  buildConsoleExportGovernanceView,
+  buildConsoleGasReadinessView,
+  buildConsolePolicyCoverageView,
+  resolveConsoleInsightsScope,
+} from '../consoleInsights';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 import type { CfEnv, CfExecutionContext, FetchHandler } from './types';
@@ -49,6 +80,9 @@ export interface CloudflareConsoleContext {
   opts: ConsoleRouterOptions;
   logger: NormalizedRouterLogger;
   billing: ConsoleBillingService | null;
+  orgProjectEnv: ConsoleOrgProjectEnvService | null;
+  wallets: ConsoleWalletService | null;
+  policies: ConsolePolicyService | null;
   apiKeys: ConsoleApiKeyService | null;
   webhooks: ConsoleWebhookService | null;
 }
@@ -62,15 +96,16 @@ function withConsoleCors(headers: Headers, opts?: ConsoleRouterOptions, request?
     allowedOrigin = '*';
     headers.set('Access-Control-Allow-Origin', '*');
   } else if (Array.isArray(normalized)) {
-    const origin = request?.headers.get('Origin') || '';
-    if (origin && normalized.includes(origin)) {
-      allowedOrigin = origin;
-      headers.set('Access-Control-Allow-Origin', origin);
+    const originRaw = String(request?.headers.get('Origin') || '').trim();
+    const originNormalized = normalizeCorsOrigin(originRaw);
+    if (originRaw && originNormalized && normalized.includes(originNormalized)) {
+      allowedOrigin = originRaw;
+      headers.set('Access-Control-Allow-Origin', originRaw);
       headers.append('Vary', 'Origin');
     }
   }
 
-  headers.set('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+  headers.set('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   headers.set(
     'Access-Control-Allow-Headers',
     'Content-Type,Authorization,X-Console-Stripe-Webhook-Secret',
@@ -116,6 +151,75 @@ function sendBillingError(error: unknown): Response {
 
 function sendApiKeyError(error: unknown): Response {
   if (isConsoleApiKeyError(error)) {
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+      { status: error.status },
+    );
+  }
+
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
+}
+
+function sendOrgProjectEnvError(error: unknown): Response {
+  if (isConsoleOrgProjectEnvError(error)) {
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+      { status: error.status },
+    );
+  }
+
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
+}
+
+function sendWalletError(error: unknown): Response {
+  if (isConsoleWalletError(error)) {
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+      { status: error.status },
+    );
+  }
+
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
+}
+
+function sendPolicyError(error: unknown): Response {
+  if (isConsolePolicyError(error)) {
     return json(
       {
         ok: false,
@@ -197,6 +301,44 @@ function requireApiKeyService(ctx: CloudflareConsoleContext): ConsoleApiKeyServi
   );
 }
 
+function requireOrgProjectEnvService(
+  ctx: CloudflareConsoleContext,
+): ConsoleOrgProjectEnvService | Response {
+  if (ctx.orgProjectEnv) return ctx.orgProjectEnv;
+  return json(
+    {
+      ok: false,
+      code: 'org_project_env_not_configured',
+      message: 'Org/project/environment service is not configured on this server',
+    },
+    { status: 501 },
+  );
+}
+
+function requireWalletService(ctx: CloudflareConsoleContext): ConsoleWalletService | Response {
+  if (ctx.wallets) return ctx.wallets;
+  return json(
+    {
+      ok: false,
+      code: 'wallets_not_configured',
+      message: 'Wallet service is not configured on this server',
+    },
+    { status: 501 },
+  );
+}
+
+function requirePolicyService(ctx: CloudflareConsoleContext): ConsolePolicyService | Response {
+  if (ctx.policies) return ctx.policies;
+  return json(
+    {
+      ok: false,
+      code: 'policies_not_configured',
+      message: 'Policy service is not configured on this server',
+    },
+    { status: 501 },
+  );
+}
+
 function requireWebhookService(ctx: CloudflareConsoleContext): ConsoleWebhookService | Response {
   if (ctx.webhooks) return ctx.webhooks;
   return json(
@@ -247,6 +389,38 @@ function toBillingContext(claims: ConsoleAuthClaims): {
   };
 }
 
+function toOrgProjectEnvContext(claims: ConsoleAuthClaims): {
+  orgId: string;
+  actorUserId: string;
+  roles: string[];
+  projectId?: string;
+  environmentId?: string;
+} {
+  return {
+    orgId: claims.orgId,
+    actorUserId: claims.userId,
+    roles: claims.roles,
+    ...(claims.projectId ? { projectId: claims.projectId } : {}),
+    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+  };
+}
+
+function toWalletContext(claims: ConsoleAuthClaims): {
+  orgId: string;
+  actorUserId: string;
+  roles: string[];
+  projectId?: string;
+  environmentId?: string;
+} {
+  return {
+    orgId: claims.orgId,
+    actorUserId: claims.userId,
+    roles: claims.roles,
+    ...(claims.projectId ? { projectId: claims.projectId } : {}),
+    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+  };
+}
+
 function requireAdminRoleForCardActions(claims: ConsoleAuthClaims): Response | null {
   if (hasConsoleRole(claims, 'admin')) return null;
   return json(
@@ -278,6 +452,36 @@ function requireInvoiceGenerationRole(claims: ConsoleAuthClaims): Response | nul
       ok: false,
       code: 'forbidden',
       message: 'Only admin or ops can generate monthly invoices',
+    },
+    { status: 403 },
+  );
+}
+
+function requireOrgProjectEnvMutationRole(claims: ConsoleAuthClaims): Response | null {
+  if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'owner')) return null;
+  return json(
+    {
+      ok: false,
+      code: 'forbidden',
+      message: 'Only admin or owner can mutate projects and environments',
+    },
+    { status: 403 },
+  );
+}
+
+function requirePolicyMutationRole(claims: ConsoleAuthClaims): Response | null {
+  if (
+    hasConsoleRole(claims, 'owner') ||
+    hasConsoleRole(claims, 'admin') ||
+    hasConsoleRole(claims, 'security_admin')
+  ) {
+    return null;
+  }
+  return json(
+    {
+      ok: false,
+      code: 'forbidden',
+      message: 'Only owner, admin, or security_admin can mutate policies',
     },
     { status: 403 },
   );
@@ -428,6 +632,36 @@ function isConsoleBillingPath(pathname: string): boolean {
   return pathname.startsWith('/console/billing/');
 }
 
+function isConsoleOrgProjectEnvPath(pathname: string): boolean {
+  return (
+    pathname === '/console/org' ||
+    pathname === '/console/projects' ||
+    pathname === '/console/environments' ||
+    pathname.startsWith('/console/projects/') ||
+    pathname.startsWith('/console/environments/')
+  );
+}
+
+function isConsoleWalletPath(pathname: string): boolean {
+  return (
+    pathname === '/console/wallets' ||
+    pathname === '/console/wallets/search' ||
+    pathname.startsWith('/console/wallets/')
+  );
+}
+
+function isConsolePolicyPath(pathname: string): boolean {
+  return pathname === '/console/policies' || pathname.startsWith('/console/policies/');
+}
+
+function isConsoleInsightsPath(pathname: string): boolean {
+  return (
+    pathname === '/console/policy/coverage' ||
+    pathname === '/console/gas/readiness' ||
+    pathname === '/console/export/governance'
+  );
+}
+
 function isConsoleApiKeyPath(pathname: string): boolean {
   return pathname.startsWith('/console/api-keys');
 }
@@ -517,6 +751,424 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
     }
   } catch (error: unknown) {
     return sendApiKeyError(error);
+  }
+
+  return new Response('Not Found', { status: 404 });
+}
+
+async function handleConsoleOrgProjectEnv(ctx: CloudflareConsoleContext): Promise<Response | null> {
+  if (!isConsoleOrgProjectEnvPath(ctx.pathname)) return null;
+
+  const auth = await requireConsoleAuth(ctx);
+  if (!auth.ok) return auth.response;
+
+  const orgProjectEnvOrResponse = requireOrgProjectEnvService(ctx);
+  if (orgProjectEnvOrResponse instanceof Response) return orgProjectEnvOrResponse;
+  const orgProjectEnv = orgProjectEnvOrResponse;
+  const orgProjectEnvCtx = toOrgProjectEnvContext(auth.claims);
+  const projectPatchMatch = ctx.pathname.match(/^\/console\/projects\/([^/]+)$/);
+  const projectArchiveMatch = ctx.pathname.match(/^\/console\/projects\/([^/]+)\/archive$/);
+  const environmentPatchMatch = ctx.pathname.match(/^\/console\/environments\/([^/]+)$/);
+  const environmentArchiveMatch = ctx.pathname.match(/^\/console\/environments\/([^/]+)\/archive$/);
+
+  try {
+    if (ctx.method === 'GET' && ctx.pathname === '/console/org') {
+      const org = await orgProjectEnv.getOrganization(orgProjectEnvCtx);
+      return json({ ok: true, org }, { status: 200 });
+    }
+
+    if (ctx.method === 'GET' && ctx.pathname === '/console/projects') {
+      const request = parseListConsoleProjectsRequest({
+        status: ctx.url.searchParams.get('status') || undefined,
+      });
+      const projects = await orgProjectEnv.listProjects(orgProjectEnvCtx, request);
+      return json({ ok: true, projects }, { status: 200 });
+    }
+
+    if (ctx.method === 'GET' && ctx.pathname === '/console/environments') {
+      const request = parseListConsoleEnvironmentsRequest({
+        projectId: ctx.url.searchParams.get('projectId') || undefined,
+        status: ctx.url.searchParams.get('status') || undefined,
+      });
+      const environments = await orgProjectEnv.listEnvironments(orgProjectEnvCtx, request);
+      return json({ ok: true, environments }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/projects') {
+      const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
+      if (forbidden) return forbidden;
+      const request = parseCreateConsoleProjectRequest(await readJson(ctx.request));
+      const project = await orgProjectEnv.createProject(orgProjectEnvCtx, request);
+      return json({ ok: true, project }, { status: 201 });
+    }
+
+    if (ctx.method === 'PATCH' && projectPatchMatch) {
+      const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
+      if (forbidden) return forbidden;
+      const projectId = decodePathPart(projectPatchMatch[1]);
+      const request = parseUpdateConsoleProjectRequest(await readJson(ctx.request));
+      const project = await orgProjectEnv.updateProject(orgProjectEnvCtx, projectId, request);
+      if (!project) {
+        return json(
+          {
+            ok: false,
+            code: 'project_not_found',
+            message: `Project ${projectId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      return json({ ok: true, project }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && projectArchiveMatch) {
+      const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
+      if (forbidden) return forbidden;
+      const projectId = decodePathPart(projectArchiveMatch[1]);
+      const project = await orgProjectEnv.archiveProject(orgProjectEnvCtx, projectId);
+      if (!project) {
+        return json(
+          {
+            ok: false,
+            code: 'project_not_found',
+            message: `Project ${projectId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      return json({ ok: true, project }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/environments') {
+      const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
+      if (forbidden) return forbidden;
+      const request = parseCreateConsoleEnvironmentRequest(await readJson(ctx.request));
+      const environment = await orgProjectEnv.createEnvironment(orgProjectEnvCtx, request);
+      return json({ ok: true, environment }, { status: 201 });
+    }
+
+    if (ctx.method === 'PATCH' && environmentPatchMatch) {
+      const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
+      if (forbidden) return forbidden;
+      const environmentId = decodePathPart(environmentPatchMatch[1]);
+      const request = parseUpdateConsoleEnvironmentRequest(await readJson(ctx.request));
+      const environment = await orgProjectEnv.updateEnvironment(
+        orgProjectEnvCtx,
+        environmentId,
+        request,
+      );
+      if (!environment) {
+        return json(
+          {
+            ok: false,
+            code: 'environment_not_found',
+            message: `Environment ${environmentId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      return json({ ok: true, environment }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && environmentArchiveMatch) {
+      const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
+      if (forbidden) return forbidden;
+      const environmentId = decodePathPart(environmentArchiveMatch[1]);
+      const environment = await orgProjectEnv.archiveEnvironment(orgProjectEnvCtx, environmentId);
+      if (!environment) {
+        return json(
+          {
+            ok: false,
+            code: 'environment_not_found',
+            message: `Environment ${environmentId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      return json({ ok: true, environment }, { status: 200 });
+    }
+  } catch (error: unknown) {
+    return sendOrgProjectEnvError(error);
+  }
+
+  return new Response('Not Found', { status: 404 });
+}
+
+async function handleConsoleWallets(ctx: CloudflareConsoleContext): Promise<Response | null> {
+  if (!isConsoleWalletPath(ctx.pathname)) return null;
+
+  const auth = await requireConsoleAuth(ctx);
+  if (!auth.ok) return auth.response;
+
+  const walletsOrResponse = requireWalletService(ctx);
+  if (walletsOrResponse instanceof Response) return walletsOrResponse;
+  const wallets = walletsOrResponse;
+  const walletCtx = toWalletContext(auth.claims);
+  const walletMatch = ctx.pathname.match(/^\/console\/wallets\/([^/]+)$/);
+
+  const query = {
+    limit: ctx.url.searchParams.get('limit') || undefined,
+    cursor: ctx.url.searchParams.get('cursor') || undefined,
+    projectId: ctx.url.searchParams.get('projectId') || undefined,
+    environmentId: ctx.url.searchParams.get('environmentId') || undefined,
+    chain: ctx.url.searchParams.get('chain') || undefined,
+    walletType: ctx.url.searchParams.get('walletType') || undefined,
+    status: ctx.url.searchParams.get('status') || undefined,
+    policyId: ctx.url.searchParams.get('policyId') || undefined,
+    userId: ctx.url.searchParams.get('userId') || undefined,
+    externalRefId: ctx.url.searchParams.get('externalRefId') || undefined,
+    sortBy: ctx.url.searchParams.get('sortBy') || undefined,
+    sortOrder: ctx.url.searchParams.get('sortOrder') || undefined,
+  };
+
+  try {
+    if (ctx.method === 'GET' && ctx.pathname === '/console/wallets') {
+      const request = parseListConsoleWalletsRequest(query);
+      const page = await wallets.listWallets(walletCtx, request);
+      return json(
+        {
+          ok: true,
+          wallets: page.items,
+          ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+        },
+        { status: 200 },
+      );
+    }
+
+    if (ctx.method === 'GET' && ctx.pathname === '/console/wallets/search') {
+      const request = parseSearchConsoleWalletsRequest({
+        ...query,
+        q: ctx.url.searchParams.get('q') || undefined,
+      });
+      const page = await wallets.searchWallets(walletCtx, request);
+      return json(
+        {
+          ok: true,
+          wallets: page.items,
+          ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+        },
+        { status: 200 },
+      );
+    }
+
+    if (ctx.method === 'GET' && walletMatch) {
+      const walletId = decodePathPart(walletMatch[1]);
+      const wallet = await wallets.getWallet(walletCtx, walletId);
+      if (!wallet) {
+        return json(
+          {
+            ok: false,
+            code: 'wallet_not_found',
+            message: `Wallet ${walletId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      return json({ ok: true, wallet }, { status: 200 });
+    }
+  } catch (error: unknown) {
+    return sendWalletError(error);
+  }
+
+  return new Response('Not Found', { status: 404 });
+}
+
+async function handleConsolePolicies(ctx: CloudflareConsoleContext): Promise<Response | null> {
+  if (!isConsolePolicyPath(ctx.pathname)) return null;
+
+  const auth = await requireConsoleAuth(ctx);
+  if (!auth.ok) return auth.response;
+
+  const policiesOrResponse = requirePolicyService(ctx);
+  if (policiesOrResponse instanceof Response) return policiesOrResponse;
+  const policies = policiesOrResponse;
+  const policyCtx = toBillingContext(auth.claims);
+
+  const assignmentDeleteMatch = ctx.pathname.match(/^\/console\/policies\/assignments\/([^/]+)$/);
+  const policyPatchMatch = ctx.pathname.match(/^\/console\/policies\/([^/]+)$/);
+  const policyPublishMatch = ctx.pathname.match(/^\/console\/policies\/([^/]+)\/publish$/);
+  const policySimulateMatch = ctx.pathname.match(/^\/console\/policies\/([^/]+)\/simulate$/);
+
+  try {
+    if (ctx.method === 'GET' && ctx.pathname === '/console/policies') {
+      const out = await policies.listPolicies(policyCtx);
+      return json({ ok: true, policies: out }, { status: 200 });
+    }
+
+    if (ctx.method === 'GET' && ctx.pathname === '/console/policies/assignments') {
+      const request = parseListConsolePolicyAssignmentsRequest({
+        scopeType: ctx.url.searchParams.get('scopeType') || undefined,
+        scopeId: ctx.url.searchParams.get('scopeId') || undefined,
+      });
+      const assignments = await policies.listAssignments(policyCtx, request);
+      return json({ ok: true, assignments }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/policies') {
+      const roleRequired = requirePolicyMutationRole(auth.claims);
+      if (roleRequired) return roleRequired;
+      const request = parseCreateConsolePolicyRequest(await readJson(ctx.request));
+      const policy = await policies.createPolicy(policyCtx, request);
+      return json({ ok: true, policy }, { status: 201 });
+    }
+
+    if (ctx.method === 'PUT' && ctx.pathname === '/console/policies/assignments') {
+      const roleRequired = requirePolicyMutationRole(auth.claims);
+      if (roleRequired) return roleRequired;
+      const request = parseUpsertConsolePolicyAssignmentRequest(await readJson(ctx.request));
+      const assignment = await policies.upsertAssignment(policyCtx, request);
+      return json({ ok: true, assignment }, { status: 200 });
+    }
+
+    if (ctx.method === 'DELETE' && assignmentDeleteMatch) {
+      const roleRequired = requirePolicyMutationRole(auth.claims);
+      if (roleRequired) return roleRequired;
+      const assignmentId = decodePathPart(assignmentDeleteMatch[1]);
+      const out = await policies.deleteAssignment(policyCtx, assignmentId);
+      if (!out.removed || !out.assignment) {
+        return json(
+          {
+            ok: false,
+            code: 'assignment_not_found',
+            message: `Assignment ${assignmentId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      return json({ ok: true, removed: true, assignment: out.assignment }, { status: 200 });
+    }
+
+    if (ctx.method === 'PATCH' && policyPatchMatch) {
+      const roleRequired = requirePolicyMutationRole(auth.claims);
+      if (roleRequired) return roleRequired;
+      const policyId = decodePathPart(policyPatchMatch[1]);
+      const request = parseUpdateConsolePolicyRequest(await readJson(ctx.request));
+      const policy = await policies.updatePolicy(policyCtx, policyId, request);
+      if (!policy) {
+        return json(
+          {
+            ok: false,
+            code: 'policy_not_found',
+            message: `Policy ${policyId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      return json({ ok: true, policy }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && policyPublishMatch) {
+      const roleRequired = requirePolicyMutationRole(auth.claims);
+      if (roleRequired) return roleRequired;
+      const policyId = decodePathPart(policyPublishMatch[1]);
+      const result = await policies.publishPolicy(policyCtx, policyId);
+      if (!result) {
+        return json(
+          {
+            ok: false,
+            code: 'policy_not_found',
+            message: `Policy ${policyId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      return json({ ok: true, result }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && policySimulateMatch) {
+      const policyId = decodePathPart(policySimulateMatch[1]);
+      const request = parseSimulateConsolePolicyRequest(await readJson(ctx.request));
+      const simulation = await policies.simulatePolicy(policyCtx, policyId, request);
+      if (!simulation) {
+        return json(
+          {
+            ok: false,
+            code: 'policy_not_found',
+            message: `Policy ${policyId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      return json({ ok: true, simulation }, { status: 200 });
+    }
+  } catch (error: unknown) {
+    return sendPolicyError(error);
+  }
+
+  return new Response('Not Found', { status: 404 });
+}
+
+async function handleConsoleInsights(ctx: CloudflareConsoleContext): Promise<Response | null> {
+  if (!isConsoleInsightsPath(ctx.pathname)) return null;
+
+  const auth = await requireConsoleAuth(ctx);
+  if (!auth.ok) return auth.response;
+
+  try {
+    if (ctx.method === 'GET' && ctx.pathname === '/console/policy/coverage') {
+      const walletsOrResponse = requireWalletService(ctx);
+      if (walletsOrResponse instanceof Response) return walletsOrResponse;
+      const scope = resolveConsoleInsightsScope({
+        projectIdRaw: ctx.url.searchParams.get('projectId') || undefined,
+        environmentIdRaw: ctx.url.searchParams.get('environmentId') || undefined,
+        claimsProjectId: auth.claims.projectId,
+        claimsEnvironmentId: auth.claims.environmentId,
+      });
+      const coverage = await buildConsolePolicyCoverageView({
+        wallets: walletsOrResponse,
+        walletCtx: toWalletContext(auth.claims),
+        scope,
+        ...(ctx.policies
+          ? {
+              resolvePolicyIds: async (walletRows) =>
+                await ctx.policies!.resolvePoliciesForWallets(
+                  toBillingContext(auth.claims),
+                  walletRows.map((wallet) => ({
+                    walletId: wallet.id,
+                    projectId: wallet.projectId,
+                    environmentId: wallet.environmentId,
+                    fallbackPolicyId: wallet.policyId,
+                  })),
+                ),
+            }
+          : {}),
+      });
+      return json({ ok: true, coverage }, { status: 200 });
+    }
+
+    if (ctx.method === 'GET' && ctx.pathname === '/console/gas/readiness') {
+      const walletsOrResponse = requireWalletService(ctx);
+      if (walletsOrResponse instanceof Response) return walletsOrResponse;
+      const scope = resolveConsoleInsightsScope({
+        projectIdRaw: ctx.url.searchParams.get('projectId') || undefined,
+        environmentIdRaw: ctx.url.searchParams.get('environmentId') || undefined,
+        claimsProjectId: auth.claims.projectId,
+        claimsEnvironmentId: auth.claims.environmentId,
+      });
+      const readiness = await buildConsoleGasReadinessView({
+        wallets: walletsOrResponse,
+        walletCtx: toWalletContext(auth.claims),
+        scope,
+        recentWindowDays: 7,
+      });
+      return json({ ok: true, readiness }, { status: 200 });
+    }
+
+    if (ctx.method === 'GET' && ctx.pathname === '/console/export/governance') {
+      const apiKeysOrResponse = requireApiKeyService(ctx);
+      if (apiKeysOrResponse instanceof Response) return apiKeysOrResponse;
+      const environmentIdRaw = String(ctx.url.searchParams.get('environmentId') || '').trim();
+      const environmentIdFilter = environmentIdRaw || auth.claims.environmentId || undefined;
+      const governance = await buildConsoleExportGovernanceView({
+        apiKeys: apiKeysOrResponse,
+        apiKeyCtx: toBillingContext(auth.claims),
+        environmentIdFilter,
+      });
+      return json({ ok: true, governance }, { status: 200 });
+    }
+  } catch (error: unknown) {
+    if (ctx.pathname.startsWith('/console/export/')) return sendApiKeyError(error);
+    return sendWalletError(error);
   }
 
   return new Response('Not Found', { status: 404 });
@@ -1070,6 +1722,9 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
   const notFound = () => new Response('Not Found', { status: 404 });
   const logger = coerceRouterLogger(opts.logger);
   const billing = opts.billing === undefined ? null : opts.billing;
+  const orgProjectEnv = opts.orgProjectEnv === undefined ? null : opts.orgProjectEnv;
+  const wallets = opts.wallets === undefined ? null : opts.wallets;
+  const policies = opts.policies === undefined ? null : opts.policies;
   const apiKeys = opts.apiKeys === undefined ? null : opts.apiKeys;
   const webhooks = opts.webhooks === undefined ? null : opts.webhooks;
 
@@ -1077,6 +1732,10 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
     handleConsoleHealth,
     handleConsoleReady,
     handleConsoleSession,
+    handleConsoleOrgProjectEnv,
+    handleConsoleWallets,
+    handleConsolePolicies,
+    handleConsoleInsights,
     handleConsoleApiKeys,
     handleConsoleWebhooks,
     handleConsoleBilling,
@@ -1107,6 +1766,9 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
       opts,
       logger,
       billing,
+      orgProjectEnv,
+      wallets,
+      policies,
       apiKeys,
       webhooks,
     };

@@ -38,7 +38,8 @@ Frontend:
 Backend:
 
 - Dedicated SaaS console backend modules are implemented for billing, webhooks, and API keys.
-- Org/project/environment and wallet-index console APIs are still pending.
+- Org/project/environment metadata APIs are implemented.
+- Wallet-index console APIs are implemented.
 
 ## Status Snapshot (as of February 27, 2026)
 
@@ -82,14 +83,130 @@ Completed:
   - `GET/POST/DELETE /console/api-keys`
   - `POST /console/api-keys/:id/rotate`
   - create/rotate reveal-once secret semantics are implemented.
+- API key Postgres persistence is implemented with Postgres-backed org-isolation route tests for Express and Cloudflare adapters.
+- Org/project/environment metadata backend slice is implemented:
+  - `GET /console/org`
+  - `GET /console/projects` (`status=ACTIVE|ARCHIVED` filter supported)
+  - `GET /console/environments` (`projectId` and `status=ACTIVE|ARCHIVED` filters supported)
+  - `POST /console/projects`
+  - `PATCH /console/projects/:id`
+  - `POST /console/projects/:id/archive`
+  - `POST /console/environments`
+  - `PATCH /console/environments/:id`
+  - `POST /console/environments/:id/archive`
+  - relationship model enforced: one org has many projects; each project has many environments.
+  - `GET /console/projects` now includes per-project `environmentCount` aggregate.
+  - Postgres constraints now enforce org-consistent project->environment linkage.
+  - mutation RBAC enforced (`admin` or `owner` for project/environment mutations).
+  - focused parser/service tests cover status-filter normalization/validation and in-memory filter semantics.
+  - Postgres-backed org-isolation route tests are implemented for Express and Cloudflare adapters.
+- Wallet backend slice is implemented:
+  - `GET /console/wallets`
+  - `GET /console/wallets/search`
+  - `GET /console/wallets/:id`
+  - wallet rows are now constrained to valid org/project/environment lineage via Postgres FK enforcement.
+  - Postgres-backed org-isolation route tests are implemented for Express and Cloudflare adapters.
+- Policy backend lifecycle slice is implemented:
+  - `GET /console/policies`
+  - `POST /console/policies`
+  - `PATCH /console/policies/:id`
+  - `POST /console/policies/:id/simulate`
+  - `POST /console/policies/:id/publish`
+  - `GET /console/policies/assignments`
+  - `PUT /console/policies/assignments`
+  - `DELETE /console/policies/assignments/:id`
+  - mutation RBAC is enforced for policy create/update/publish (`owner`, `admin`, `security_admin`).
+  - route coverage now includes policy lifecycle and org-isolation tests for Express and Cloudflare adapters.
+  - Postgres policy persistence is implemented (`console_policies`, `console_policy_versions`), including default-policy bootstrap and publish-version snapshots.
+  - policy assignment persistence is implemented (`console_policy_assignments`) with precedence resolver (`WALLET` > `ENVIRONMENT` > `PROJECT` > `ORG`).
+  - policy coverage now resolves canonical assignments from policy service (with wallet `policyId` fallback when policy service is absent).
+  - Postgres-backed org-isolation route tests are implemented for Express and Cloudflare policy endpoints.
+- Dashboard wallet list/search routes are now wired behind a frontend feature flag:
+  - `VITE_DASHBOARD_WALLETS_ROUTES_ENABLED` (default `true`).
+- Dashboard wallet list/search pages now consume live console APIs:
+  - `GET /console/wallets`
+  - `GET /console/wallets/search`
+  - row-level wallet detail fetch via `GET /console/wallets/:id`.
+  - cursor pagination controls are wired (`Load more` via `nextCursor`).
+- Dashboard wallet list/search queries now inherit selected topbar context and send `projectId` / `environmentId` filters to `/console/wallets*`.
+- Dashboard API keys page now consumes live console APIs:
+  - `GET /console/api-keys`
+  - `POST /console/api-keys`
+  - `POST /console/api-keys/:id/rotate`
+  - `DELETE /console/api-keys/:id`
+  - create/rotate secret reveal-once handling is surfaced in UI.
+  - selected topbar environment is used as the API key environment scope default/filter.
+- Dashboard webhooks page now consumes live console APIs:
+  - `GET/POST/PATCH/DELETE /console/webhooks`
+  - `GET /console/webhooks/:id/deliveries`
+  - `POST /console/webhooks/:id/replay`
+  - endpoint status toggles, delivery history pagination, and replay actions are wired in UI.
+- Dashboard billing page now consumes live console APIs:
+  - `GET /console/billing/overview`
+  - `GET /console/billing/usage/monthly-active-wallets`
+  - `GET /console/billing/invoices`
+  - `GET /console/billing/invoices/:id/line-items`
+  - `GET /console/billing/payment-methods`
+  - `POST /console/billing/payment-methods`
+  - `POST /console/billing/payment-methods/:id/default`
+  - `DELETE /console/billing/payment-methods/:id`
+  - `GET /console/billing/stablecoins/assets`
+  - `POST /console/billing/stripe/setup-intent`
+  - `POST /console/billing/stripe/payment-intent`
+  - `POST /console/billing/stablecoins/quotes`
+  - `POST /console/billing/stablecoins/payment-intents`
+  - `GET /console/billing/stablecoins/payment-intents/:id`
+  - `POST /console/billing/stablecoins/payment-intents/:id/cancel`
+  - invoices, line-item drilldown, payment methods, payment execution actions, and chain finality policy tables are wired in UI.
+  - single-rail semantics are surfaced in UI via invoice rail-lock and outstanding-balance guidance per payment rail.
+  - card management actions in UI are gated to `admin` role to match backend RBAC.
+- Dashboard console frontend clients now share a common HTTP helper for base URL resolution, headers, JSON parsing, and API error normalization (session/context/wallet/api-keys/webhooks/billing).
+- Dashboard now bootstraps console auth state via `GET /console/session` and gates wallet page API calls on active session claims.
+- Dashboard topbar org/project/environment selectors are now wired to live console APIs:
+  - `GET /console/org`
+  - `GET /console/projects?status=ACTIVE`
+  - `GET /console/environments?projectId=...&status=ACTIVE`
+  - project selection now drives environment option loading and keeps selected context aligned to the org->project->environment hierarchy.
+- Dashboard app settings page now consumes live context APIs for org/project/environment management:
+  - `POST/PATCH /console/projects`
+  - `POST /console/projects/:id/archive`
+  - `POST/PATCH /console/environments`
+  - `POST /console/environments/:id/archive`
+  - project/environment create/update/archive flows are wired in UI with `owner`/`admin` mutation gating.
+  - environment rename/archive controls are project-scoped in UI to mirror org -> project -> environment hierarchy.
+  - project list defaults to active rows and supports archived visibility toggle via `status` filtering.
+  - environment management now loads server-filtered rows via `GET /console/environments?projectId=...` for selected project scope, with an explicit all-projects scope option.
+  - environment list defaults to active rows and supports archived visibility toggle via `status` filtering.
+  - project environment counts are sourced from `/console/projects` aggregate fields (`environmentCount`), avoiding extra all-environments scans for count-only rendering.
+  - app-settings hierarchy decision logic (project/environment scope resolution + active-project-only environment creation guard) is covered by dedicated unit tests.
+  - browser-level app-settings flow coverage validates archived toggles and active-project-only environment creation selection/guard behavior.
+- Dedicated console insight APIs are implemented for policy/gas/export workflows:
+  - `GET /console/policy/coverage`
+  - `GET /console/gas/readiness`
+  - `GET /console/export/governance`
+  - responses are org-scoped and support context filtering (`projectId` / `environmentId` where applicable).
+- Dashboard policy engine page now consumes `GET /console/policy/coverage` for policy assignment coverage and unassigned wallet sampling.
+- Dashboard policy engine page now consumes policy lifecycle APIs:
+  - `GET /console/policies`
+  - `POST /console/policies`
+  - `PATCH /console/policies/:id`
+  - `POST /console/policies/:id/simulate`
+  - `POST /console/policies/:id/publish`
+  - `GET /console/policies/assignments`
+  - `PUT /console/policies/assignments`
+  - `DELETE /console/policies/assignments/:id`
+  - draft creation, rule updates, simulation, publish, assignment upsert, and assignment delete actions are wired while keeping coverage insights.
+- Dashboard gas sponsorship page now consumes `GET /console/gas/readiness` for chain readiness and recent-activity telemetry.
+- Dashboard export keys page now consumes `GET /console/export/governance` for export-scope key governance and selected-environment filtering.
 - Cross-org isolation coverage is implemented for webhook and billing routes (including invoice, payment-intent, overview, and MAW usage paths) with Postgres-backed integration tests.
+- CI now executes Postgres-backed console isolation coverage (`console-router`) in `threshold-signing-core`.
+- Dedicated Postgres tenant-isolation harness tests are implemented at the console service layer (org/project/environment, wallets, API keys, webhooks, billing) and wired into the CI-gated console Postgres suite.
+- Cross-org mutation denial coverage is implemented for org/project/environment services and routes.
+- Direct Postgres FK denial coverage is implemented for invalid cross-org wallet lineage inserts.
 
 In progress:
 
-- Org/project/environment read APIs are still pending.
-- Wallet index/search live console APIs and dashboard wiring are still pending.
-- API key storage is currently in-memory only; Postgres-backed API key persistence is still pending.
-- CI currently runs `test:threshold-core`; console Postgres tenant-isolation suites are not yet CI-gated.
+- Full table-by-table RLS policy enforcement remains pending until DB-level tenant context variables and policies are introduced.
 
 ## Route Namespace Convention
 
@@ -193,9 +310,12 @@ Key outputs:
 ### `/dashboard/policy-engine`
 
 - APIs:
-  - `GET/POST/PATCH /console/policies`
-  - `POST /console/policies/:id/simulate`
-  - `POST /console/policies/:id/publish`
+  - `GET /console/policy/coverage` (implemented)
+  - `GET/POST/PATCH /console/policies` (implemented)
+  - `POST /console/policies/:id/simulate` (implemented)
+  - `POST /console/policies/:id/publish` (implemented)
+  - `GET/PUT /console/policies/assignments` (implemented)
+  - `DELETE /console/policies/assignments/:id` (implemented)
 - Data:
   - `policies`
   - `policy_versions`
@@ -207,8 +327,9 @@ Key outputs:
 ### `/dashboard/gas-smart-wallets`
 
 - APIs:
-  - `GET/POST/PATCH /console/gas-sponsorship`
-  - `GET/POST/PATCH /console/smart-wallets`
+  - `GET /console/gas/readiness` (implemented)
+  - `GET/POST/PATCH /console/gas-sponsorship` (planned)
+  - `GET/POST/PATCH /console/smart-wallets` (planned)
 - Data:
   - sponsorship budget and telemetry tables
   - smart-wallet configuration tables
@@ -218,8 +339,14 @@ Key outputs:
 ### `/dashboard/app-settings`
 
 - APIs:
-  - `GET/PATCH /console/settings/app`
-  - `GET/PATCH /console/settings/security`
+  - `GET /console/org` (implemented)
+  - `GET /console/projects` (`status=ACTIVE|ARCHIVED` query supported)
+  - `POST/PATCH /console/projects`
+  - `POST /console/projects/:id/archive`
+  - `GET/POST/PATCH /console/environments`
+  - `POST /console/environments/:id/archive`
+  - `GET/PATCH /console/settings/app` (planned)
+  - `GET/PATCH /console/settings/security` (planned)
 - Data:
   - `project_settings`
   - `environment_settings`
@@ -230,8 +357,9 @@ Key outputs:
 ### `/dashboard/export-keys`
 
 - APIs:
-  - `GET/POST /console/key-exports`
-  - `POST /console/key-exports/:id/approve`
+  - `GET /console/export/governance` (implemented)
+  - `GET/POST /console/key-exports` (planned)
+  - `POST /console/key-exports/:id/approve` (planned)
 - Data:
   - export request and approval tables
   - immutable export audit log
@@ -407,7 +535,7 @@ Backend:
 Status (backend):
 
 - [x] API key routes (`/console/api-keys`) are implemented.
-- [ ] API key Postgres persistence and cross-org isolation tests are implemented.
+- [x] API key Postgres persistence and cross-org isolation tests are implemented.
 - [x] Webhook CRUD + delivery/replay flows are implemented.
 - [x] Webhook attempts/dead-letter list endpoints with cursor pagination are implemented.
 - [x] Billing overview/invoice/usage/card/stablecoin route set is implemented.
@@ -680,11 +808,16 @@ Compliance:
 
 - [x] Lock API contract skeleton for Milestones 0-3 (including billing + payments).
 - [x] Create backend service scaffold and migration pipeline.
-- [ ] Implement org/project/environment read APIs first.
-- [ ] Implement Postgres-backed API key persistence + org-isolation route tests.
-- [ ] Implement `/console/wallets` list/detail/search APIs and then wire dashboard route behind a feature flag.
-- [ ] Land RLS test harness and cross-tenant denial tests in CI (include console Postgres suites).
+- [x] Implement org/project/environment read APIs first.
+- [x] Implement org/project/environment mutation APIs with RBAC + cross-org denial tests.
+- [x] Implement Postgres-backed API key persistence + org-isolation route tests.
+- [x] Implement `/console/wallets` list/detail/search APIs.
+- [x] Wire dashboard route behind a feature flag for wallet list/search/detail pages.
+- [x] Land RLS test harness and cross-tenant denial tests in CI (include console Postgres suites).
 - [x] Define payment provider adapter boundaries (Stripe + stablecoin watcher) before endpoint implementation.
+- [x] Implement dedicated console insight contracts for policy/gas/export (`/console/policy/coverage`, `/console/gas/readiness`, `/console/export/governance`).
+- [x] Wire policy/gas/export dashboard pages to dedicated insight contracts.
+- [x] Extend console router tests to cover insight contracts (express/cloudflare + Postgres org isolation).
 
 ## Open Decisions
 
