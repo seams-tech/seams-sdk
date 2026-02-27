@@ -29,6 +29,34 @@ function createBaseContext(args?: {
         jwt: 'jwt-ed25519',
         remainingUses: 3,
         expiresAtMs: now + 60_000,
+        ecdsaClientVerifyingShareB64u: 'AQ',
+      }),
+      bootstrapEcdsaSession: async () => ({
+        thresholdEcdsaKeyRef: {
+          type: 'threshold-ecdsa-secp256k1',
+          userId: 'alice.testnet',
+          relayerUrl: 'https://relay.example',
+          relayerKeyId: 'rk-1',
+          clientVerifyingShareB64u: 'AQ',
+          participantIds: [1, 2],
+          thresholdSessionKind: 'jwt',
+          thresholdSessionId: 'session-1',
+          thresholdSessionJwt: 'jwt-ecdsa',
+        },
+        keygen: {
+          ok: true,
+          relayerKeyId: 'rk-1',
+          clientVerifyingShareB64u: 'AQ',
+          participantIds: [1, 2],
+        },
+        session: {
+          ok: true,
+          sessionId: 'session-1',
+          jwt: 'jwt-ecdsa',
+          remainingUses: 3,
+          expiresAtMs: now + 60_000,
+          clientVerifyingShareB64u: 'AQ',
+        },
       }),
       clearWarmSigningSessions: async () => undefined,
       getWarmSigningSessionStatus: async () => ({
@@ -82,9 +110,42 @@ async function withMockedMostRecentProjection<T>(fn: () => Promise<T>): Promise<
 
 test.describe('loginAndCreateSession threshold warm-session requirements', () => {
   test('returns active signingSession in threshold-signer warm mode', async () => {
+    let bootstrapCalls = 0;
+    let bootstrapArgs: Record<string, unknown> | null = null;
     let prefillCalls = 0;
     const context = createBaseContext({
       signingEngine: {
+        bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
+          bootstrapCalls += 1;
+          bootstrapArgs = args;
+          return {
+            thresholdEcdsaKeyRef: {
+              type: 'threshold-ecdsa-secp256k1',
+              userId: 'alice.testnet',
+              relayerUrl: 'https://relay.example',
+              relayerKeyId: 'rk-1',
+              clientVerifyingShareB64u: 'AQ',
+              participantIds: [1, 2],
+              thresholdSessionKind: 'jwt',
+              thresholdSessionId: 'session-1',
+              thresholdSessionJwt: 'jwt-ecdsa',
+            },
+            keygen: {
+              ok: true,
+              relayerKeyId: 'rk-1',
+              clientVerifyingShareB64u: 'AQ',
+              participantIds: [1, 2],
+            },
+            session: {
+              ok: true,
+              sessionId: 'session-1',
+              jwt: 'jwt-ecdsa',
+              remainingUses: 3,
+              expiresAtMs: Date.now() + 60_000,
+              clientVerifyingShareB64u: 'AQ',
+            },
+          };
+        },
         scheduleThresholdEcdsaLoginPresignPrefill: async () => {
           prefillCalls += 1;
           return { status: 'scheduled', reason: 'scheduled' };
@@ -98,12 +159,18 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
     expect(result.success).toBe(true);
     expect(result.signingSession?.status).toBe('active');
     expect('thresholdEcdsaKeyRef' in (result as unknown as Record<string, unknown>)).toBe(false);
+    expect(bootstrapCalls).toBe(1);
+    expect(String(bootstrapArgs?.['source'] || '')).toBe('login');
+    expect(String(bootstrapArgs?.['sessionId'] || '')).toBe('session-1');
+    expect(String(bootstrapArgs?.['authorizationJwt'] || '')).toBe('jwt-ed25519');
+    expect(String(bootstrapArgs?.['clientVerifyingShareB64u'] || '')).toBe('AQ');
     expect(prefillCalls).toBe(0);
   });
 
   test('fails closed when threshold warm-up cannot connect Ed25519 session', async () => {
     let setLastUserCalls = 0;
     let updateLastLoginCalls = 0;
+    let bootstrapCalls = 0;
     let prefillCalls = 0;
     const context = createBaseContext({
       signingEngine: {
@@ -112,6 +179,10 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
           code: 'unauthorized',
           message: 'session bootstrap rejected',
         }),
+        bootstrapEcdsaSession: async () => {
+          bootstrapCalls += 1;
+          throw new Error('should not be called');
+        },
         setLastUser: async () => {
           setLastUserCalls += 1;
         },
@@ -133,7 +204,35 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
     expect(String(result.error || '')).toContain('threshold Ed25519 warm-up failed');
     expect(setLastUserCalls).toBe(0);
     expect(updateLastLoginCalls).toBe(0);
+    expect(bootstrapCalls).toBe(0);
     expect(prefillCalls).toBe(0);
+  });
+
+  test('fails closed when threshold warm-up cannot bootstrap ECDSA session', async () => {
+    let setLastUserCalls = 0;
+    let updateLastLoginCalls = 0;
+    const context = createBaseContext({
+      signingEngine: {
+        bootstrapEcdsaSession: async () => {
+          throw new Error('ecdsa bootstrap rejected');
+        },
+        setLastUser: async () => {
+          setLastUserCalls += 1;
+        },
+        updateLastLogin: async () => {
+          updateLastLoginCalls += 1;
+        },
+      },
+    });
+
+    const result = await withMockedMostRecentProjection(
+      async () => await loginAndCreateSession(context, ACCOUNT_ID),
+    );
+
+    expect(result.success).toBe(false);
+    expect(String(result.error || '')).toContain('threshold ECDSA warm-up failed');
+    expect(setLastUserCalls).toBe(0);
+    expect(updateLastLoginCalls).toBe(0);
   });
 
   test('login does not invoke ECDSA presign prefill automatically', async () => {
@@ -159,12 +258,42 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
     expect(prefillArgs).toBeNull();
   });
 
+  test('fails closed when one-prompt ECDSA bootstrap share is unavailable', async () => {
+    let bootstrapCalls = 0;
+    const context = createBaseContext({
+      signingEngine: {
+        connectEd25519Session: async () => ({
+          ok: true,
+          sessionId: 'session-1',
+          jwt: 'jwt-ed25519',
+          remainingUses: 3,
+          expiresAtMs: Date.now() + 60_000,
+        }),
+        bootstrapEcdsaSession: async () => {
+          bootstrapCalls += 1;
+          throw new Error('should not be called');
+        },
+      },
+    });
+
+    const result = await withMockedMostRecentProjection(
+      async () => await loginAndCreateSession(context, ACCOUNT_ID),
+    );
+
+    expect(result.success).toBe(false);
+    expect(String(result.error || '')).toContain(
+      'threshold ECDSA warm-up missing clientVerifyingShareB64u',
+    );
+    expect(bootstrapCalls).toBe(0);
+  });
+
   test('login warm-up reuses canonical ECDSA threshold session id when available', async () => {
     let capturedConnectArgs: Record<string, unknown> | null = null;
     const context = createBaseContext({
       signingEngine: {
         getThresholdEcdsaSessionRecordForSigning: () => ({
           thresholdSessionId: 'canonical-ecdsa-session-1',
+          clientVerifyingShareB64u: 'AQ',
         }),
         connectEd25519Session: async (args: Record<string, unknown>) => {
           capturedConnectArgs = args;

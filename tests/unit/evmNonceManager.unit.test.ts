@@ -117,6 +117,58 @@ test.describe('EvmNonceManager', () => {
     expect(result.next).toBe('12');
   });
 
+  test('releasing last reservation forces next reserve to refresh chain nonce', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths, sender }) => {
+        const mod = await import(paths.nonceManager);
+        let fetchCalls = 0;
+
+        const manager = mod.createEvmNonceManager({
+          chains: [
+            {
+              network: 'tempo-testnet',
+              rpcUrl: 'https://tempo-rpc.example.test',
+              explorerUrl: 'https://tempo-explorer.example.test',
+              chainId: 42_431,
+            },
+          ],
+          fetchImpl: async () => {
+            fetchCalls += 1;
+            // Simulate chain still reporting the same pending nonce after rejection.
+            return new Response(JSON.stringify({ jsonrpc: '2.0', id: '1', result: '0x1' }), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            });
+          },
+        });
+
+        const input = {
+          chain: 'tempo' as const,
+          networkKey: 'tempo-testnet',
+          chainId: 42_431,
+          sender: sender as `0x${string}`,
+          nonceKey: 0n,
+          nearAccountId: 'alice.testnet',
+        };
+
+        const first = await manager.reserveNextNonce(input);
+        manager.releaseReservation({ ...input, nonce: first });
+        const second = await manager.reserveNextNonce(input);
+
+        return {
+          fetchCalls,
+          first: first.toString(),
+          second: second.toString(),
+        };
+      },
+      { paths: IMPORT_PATHS, sender: TEST_SENDER },
+    );
+
+    expect(result.fetchCalls).toBe(2);
+    expect(result.first).toBe('1');
+    expect(result.second).toBe('1');
+  });
+
   test('clearForAccount drops cached reservation state for that account', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths, sender }) => {

@@ -146,10 +146,12 @@ test.describe('touchConfirm display model fixtures', () => {
     const nestedCallFields = Array.isArray(model.operations[0].children[0].children[0].fields)
       ? model.operations[0].children[0].children[0].fields
       : [];
-    const nestedCallFunction = nestedCallFields.find(
-      (field: { label?: string; value?: string }) => field.label === 'Function',
-    );
-    expect(nestedCallFunction?.value).toBe('transfer(address,uint256)');
+    expect(
+      nestedCallFields.some((field: { label?: string; value?: string }) => field.label === 'Function'),
+    ).toBe(false);
+    expect(
+      nestedCallFields.some((field: { label?: string; value?: string }) => field.label === 'Selector'),
+    ).toBe(false);
   });
 
   test('decodes executeBatch callData for direct smart-account calls', async ({ page }) => {
@@ -263,10 +265,12 @@ test.describe('touchConfirm display model fixtures', () => {
     const callChild = model.operations[0].children[0];
     expect(callChild.label).toContain('Calling transfer()');
     const fields = Array.isArray(callChild.fields) ? callChild.fields : [];
-    const functionField = fields.find(
-      (field: { label?: string; value?: string }) => field.label === 'Function',
+    expect(fields.some((field: { label?: string; value?: string }) => field.label === 'Function')).toBe(
+      false,
     );
-    expect(functionField?.value).toBe('transfer(address,uint256)');
+    expect(fields.some((field: { label?: string; value?: string }) => field.label === 'Selector')).toBe(
+      false,
+    );
   });
 
   test('normalizes Tempo typed transaction payloads', async ({ page }) => {
@@ -312,10 +316,12 @@ test.describe('touchConfirm display model fixtures', () => {
     const fields = Array.isArray(model.operations[0].children?.[0]?.fields)
       ? model.operations[0].children[0].fields
       : [];
-    const selectorField = fields.find(
-      (field: { label?: string; value?: string }) => field.label === 'Selector',
+    expect(fields.some((field: { label?: string; value?: string }) => field.label === 'Function')).toBe(
+      false,
     );
-    expect(selectorField?.value).toBe('0xabcdef12');
+    expect(fields.some((field: { label?: string; value?: string }) => field.label === 'Selector')).toBe(
+      false,
+    );
   });
 
   test('recognizes Tempo fee-manager setUserToken calldata', async ({ page }) => {
