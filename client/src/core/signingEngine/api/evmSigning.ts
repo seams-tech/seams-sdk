@@ -496,13 +496,13 @@ async function resolveManagedNonceSender(args: {
   );
 }
 
-async function reserveManagedNonceForRequest(args: {
+async function resolveManagedEvmNonceReservationInput(args: {
   deps: EvmFamilySigningDeps;
   nearAccountId: string;
   request: EvmSigningRequest;
-}): Promise<{ request: EvmSigningRequest; reservation: ManagedNonceReservation }> {
+}): Promise<ReserveNonceInput> {
   const sender = await resolveManagedNonceSender(args);
-  const reservationInput: ReserveNonceInput = {
+  return {
     chain: 'evm',
     networkKey: resolveNonceNetworkKey({
       configs: args.deps.tatchiPasskeyConfigs,
@@ -512,6 +512,14 @@ async function reserveManagedNonceForRequest(args: {
     sender,
     nearAccountId: args.nearAccountId,
   };
+}
+
+async function reserveManagedNonceForRequest(args: {
+  deps: EvmFamilySigningDeps;
+  request: EvmSigningRequest;
+  reservationInput: ReserveNonceInput;
+}): Promise<{ request: EvmSigningRequest; reservation: ManagedNonceReservation }> {
+  const reservationInput = args.reservationInput;
   let nonce: bigint;
   try {
     nonce = await args.deps.evmNonceManager.reserveNextNonce(reservationInput);
@@ -868,6 +876,15 @@ export async function signEvmFamily(
 
   if (args.request.chain === 'evm') {
     const request = args.request;
+    const reservationInputPromise = resolveManagedEvmNonceReservationInput({
+      deps,
+      nearAccountId: args.nearAccountId,
+      request,
+    });
+    // Warm nonce state as soon as sender/network are known; keep non-fatal and non-blocking.
+    void reservationInputPromise
+      .then(reservationInput => deps.evmNonceManager.refreshFromChain(reservationInput))
+      .catch(() => null);
     try {
       const result = await signEvmWithTouchConfirm({
         ...flowArgs,
@@ -875,8 +892,8 @@ export async function signEvmFamily(
         prepareRequestWithManagedNonce: async () =>
           await reserveManagedNonceForRequest({
             deps,
-            nearAccountId: args.nearAccountId,
             request,
+            reservationInput: await reservationInputPromise,
           }),
         releaseNonceReservation: (reservation) => {
           deps.evmNonceManager.releaseReservation(reservation);
