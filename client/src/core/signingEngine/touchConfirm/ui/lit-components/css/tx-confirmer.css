@@ -44,8 +44,8 @@ w3a-modal-tx-confirmer {
   --w3a-modal__rpid__flex-direction: column;
   /* Keep registration/confirm modal from collapsing too narrow on desktop */
   --w3a-modal__container-min-width: 25rem; /* 400px */
-  /* Keep modal width deterministic during tx-tree expand/collapse */
-  --w3a-modal__container-max-width: 25rem; /* 400px */
+  /* Prefer a wider confirmation surface so calldata is easier to inspect. */
+  --w3a-modal__container-max-width: 26rem; /* 416px */
 }
 
 w3a-drawer-tx-confirmer {
@@ -766,7 +766,7 @@ w3a-drawer-tx-confirmer {
 /* Narrower sheet for tx confirmer drawer */
 w3a-drawer {
   /* Scale with viewport and base font size for better zoom behavior */
-  --w3a-drawer__max-width: min(100vw, 28rem);
+  --w3a-drawer__max-width: min(100vw, 29rem);
 }
 .drawer-tx-confirmer-root {
   display: block;
@@ -815,14 +815,14 @@ w3a-drawer {
 }
 .section {
   margin: 8px 0;
-  max-width: clamp(20rem, 90vw, 26rem);
+  max-width: clamp(20rem, 90vw, 27rem);
   min-width: 0;
 }
 .responsive-card {
   position: relative;
   justify-content: flex-end;
   /* Scales with viewport and root font size under text zoom */
-  max-width: clamp(20rem, 90vw, 26rem);
+  max-width: clamp(20rem, 90vw, 27rem);
   min-width: 0;
   overflow: visible;
   border-radius: 1rem;
