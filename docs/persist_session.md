@@ -222,6 +222,14 @@ Rules:
   - `pnpm -C tests exec playwright test ./unit/touchConfirm.workerRouter.unit.test.ts ./unit/walletIframe.signerModeConfigPropagation.unit.test.ts ./e2e/thresholdEcdsa.sealedRefresh.walletIframe.test.ts`
   - `pnpm -C sdk build`
 
+### Phase 7 — Consumer Integration Polish
+
+- [x] Add SDK-facing sealed refresh integration guidance and config snippet:
+  - `docs/signing-sessions.md`
+- [x] Document explicit rollout + failure semantics:
+  - same-tab refresh reuse, new-tab re-auth, fail-closed on invalid sealed state
+  - `docs/signing-sessions.md`
+
 ## Server Module Status (Already Done)
 
 - [x] Standalone PRF seal module and route wiring.

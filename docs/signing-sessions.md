@@ -99,3 +99,39 @@ Critical rules:
 3. Second transaction in the same UI flow never shows previous tx hash in loading toast.
 4. Broadcast reporting always calls success/failure hooks so nonce reservations cannot leak.
 5. Finalization wait always terminates with either confirmed state or typed timeout/underpriced guidance.
+
+## 8. Sealed Refresh (`sealed_refresh_v1`) Integration
+
+Use this only when the server-side PRF seal module is enabled.
+
+Client config (opt-in):
+
+```ts
+const tatchi = createTatchiPasskey({
+  signingSessionPersistenceMode: 'sealed_refresh_v1',
+  signingSessionSeal: {
+    keyVersion: 'kek-s-2026-02',
+    shamirPrimeB64u: '<base64url-prime-no-padding>',
+  },
+});
+```
+
+Requirements:
+
+1. `signingSessionSeal.shamirPrimeB64u` must be valid base64url without padding.
+2. Server exposes authenticated PRF seal routes:
+   - `POST /threshold-ecdsa/prf-seal/apply-server-seal`
+   - `POST /threshold-ecdsa/prf-seal/remove-server-seal`
+3. Wallet iframe and touchConfirm worker run under wallet origin with sessionStorage available.
+
+Behavior:
+
+1. Same-tab refresh rehydrates from sealed session record and avoids an extra TouchID prompt.
+2. New tab/window still requires TouchID (sessionStorage scope is per-tab).
+3. If sealed record is missing/expired/exhausted/invalid, flow fails closed and requests normal re-auth.
+
+Operational guidance:
+
+1. Keep default mode as `none`; enable `sealed_refresh_v1` per app or per cohort.
+2. Monitor sealed apply/remove failure rates before broad rollout.
+3. Runtime is lazy-loaded only when `sealed_refresh_v1` is enabled.
