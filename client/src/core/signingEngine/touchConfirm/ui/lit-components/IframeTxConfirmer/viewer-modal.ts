@@ -390,7 +390,6 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   }
 
   private _handleCancel() {
-    if (this.loading) return;
     // Canonical event (include a consistent detail payload)
     this.dispatchEvent(
       new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {

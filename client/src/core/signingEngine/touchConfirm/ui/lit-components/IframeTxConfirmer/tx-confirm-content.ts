@@ -270,7 +270,6 @@ export class TxConfirmContentElement extends LitElementWithProps {
   };
 
   private onCancel = () => {
-    if (this.loading) return;
     dispatchLitCancel(this);
   };
 
@@ -294,7 +293,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
             </div>`
           : null}
         <div class="actions">
-          <button class="cancel" @click=${this.onCancel} ?disabled=${this.loading}>
+          <button class="cancel" @click=${this.onCancel}>
             ${this.cancelText}
           </button>
           <button

@@ -164,6 +164,114 @@ test.describe('confirm-ui inline confirmer', () => {
     expect(result.confirmed).toBe(false);
   });
 
+  test('modal loading state still allows cancel button click', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ securityContext, summary, waitForSource, paths }) => {
+        const waitFor = eval(waitForSource) as typeof harnessWaitFor;
+        const mod = await import(paths.confirmUi);
+        const { awaitConfirmUIDecision } =
+          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+        const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
+          userPreferencesManager: {
+            getCurrentUserAccountId: () => 'alice.testnet',
+            getConfirmationConfig: () => ({
+              uiMode: 'modal',
+              behavior: 'requireClick',
+              autoProceedDelay: 0,
+              theme: 'dark',
+            }),
+          },
+          ...overrides,
+        });
+        const ctx = (window as any).ctxStub || ((window as any).ctxStub = buildCtxStub());
+
+        const decisionPromise = awaitConfirmUIDecision({
+          ctx: ctx as any,
+          summary,
+          txSigningRequests: [],
+          securityContext: securityContext as any,
+          loading: true,
+          theme: 'dark',
+          uiMode: 'modal',
+          nearAccountIdOverride: 'alice.testnet',
+        });
+
+        await waitFor(() => !!document.querySelector('w3a-tx-confirm-content .cancel'));
+        const cancelButton = document.querySelector(
+          'w3a-tx-confirm-content .cancel',
+        ) as HTMLButtonElement | null;
+        const cancelDisabled = cancelButton?.disabled ?? null;
+
+        cancelButton?.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
+
+        const { confirmed, handle } = await decisionPromise;
+        handle?.close?.(confirmed);
+        return { confirmed, cancelDisabled };
+      },
+      {
+        securityContext: SECURITY_CONTEXT,
+        summary: SUMMARY,
+        waitForSource: WAIT_FOR_SOURCE,
+        paths: IMPORT_PATHS,
+      },
+    );
+
+    expect(result.cancelDisabled).toBe(false);
+    expect(result.confirmed).toBe(false);
+  });
+
+  test('modal backdrop click resolves as cancel', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ securityContext, summary, waitForSource, paths }) => {
+        const waitFor = eval(waitForSource) as typeof harnessWaitFor;
+        const mod = await import(paths.confirmUi);
+        const { awaitConfirmUIDecision } =
+          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+        const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
+          userPreferencesManager: {
+            getCurrentUserAccountId: () => 'alice.testnet',
+            getConfirmationConfig: () => ({
+              uiMode: 'modal',
+              behavior: 'requireClick',
+              autoProceedDelay: 0,
+              theme: 'dark',
+            }),
+          },
+          ...overrides,
+        });
+        const ctx = (window as any).ctxStub || ((window as any).ctxStub = buildCtxStub());
+
+        const decisionPromise = awaitConfirmUIDecision({
+          ctx: ctx as any,
+          summary,
+          txSigningRequests: [],
+          securityContext: securityContext as any,
+          theme: 'dark',
+          uiMode: 'modal',
+          nearAccountIdOverride: 'alice.testnet',
+        });
+
+        await waitFor(() => !!document.querySelector('w3a-modal-tx-confirmer'));
+        const modalEl = document.querySelector('w3a-modal-tx-confirmer') as any;
+        await waitFor(() => Boolean(modalEl && modalEl._backdropArmed === true));
+        const backdrop = modalEl?.querySelector?.('.modal-backdrop-blur') as HTMLElement | null;
+        backdrop?.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
+
+        const { confirmed, handle } = await decisionPromise;
+        handle?.close?.(confirmed);
+        return { confirmed };
+      },
+      {
+        securityContext: SECURITY_CONTEXT,
+        summary: SUMMARY,
+        waitForSource: WAIT_FOR_SOURCE,
+        paths: IMPORT_PATHS,
+      },
+    );
+
+    expect(result.confirmed).toBe(false);
+  });
+
   test('drawer confirm renders inline wrapper (no iframe fallback)', async ({ page }) => {
     const result = await page.evaluate(
       async ({ securityContext, summary, waitForSource, paths }) => {
