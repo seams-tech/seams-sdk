@@ -110,31 +110,6 @@ export interface PrfSessionSealCipherAdapter {
 
 export type PrfSessionSealConsumePolicy = 'never' | 'apply-only' | 'remove-only' | 'always';
 
-export interface PrfSessionSealIdempotencyBeginResult {
-  acquired: boolean;
-  result?: PrfSessionSealRouteResult;
-  pending?: boolean;
-}
-
-export interface PrfSessionSealIdempotencyStore {
-  begin(input: { key: string; nowMs: number; pendingTtlMs: number }): Promise<PrfSessionSealIdempotencyBeginResult>;
-  getResult(input: { key: string; nowMs: number }): Promise<PrfSessionSealRouteResult | null>;
-  complete(input: {
-    key: string;
-    nowMs: number;
-    resultTtlMs: number;
-    result: PrfSessionSealRouteResult;
-  }): Promise<void>;
-}
-
-export interface PrfSessionSealIdempotencyOptions {
-  store: PrfSessionSealIdempotencyStore;
-  pendingTtlMs?: number;
-  resultTtlMs?: number;
-  waitForPendingMs?: number;
-  pollIntervalMs?: number;
-}
-
 export interface PrfSessionSealGuardInput {
   operation: PrfSessionSealOperation;
   thresholdSessionId: string;
@@ -164,9 +139,6 @@ export interface CreatePrfSessionSealServiceOptions {
   consumePolicy?: PrfSessionSealConsumePolicy;
   guard?: PrfSessionSealGuard;
   audit?: PrfSessionSealAuditSink;
-  idempotency?: PrfSessionSealIdempotencyOptions;
-  requiredRequestKeyVersion?: string;
-  requiredRequestShamirPrimeB64u?: string;
   logger?: NormalizedLogger;
   nowMs?: () => number;
 }

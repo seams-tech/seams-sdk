@@ -44,6 +44,11 @@ export type Eip1559FeeCaps = {
   maxFeePerGas: bigint;
 };
 
+export type ManagedNonceHints = {
+  senderHint?: `0x${string}`;
+  nonceHint?: bigint;
+};
+
 export function utf8ToHex(value: string): string {
   return Array.from(new TextEncoder().encode(value), (byte) =>
     byte.toString(16).padStart(2, '0'),
@@ -225,6 +230,8 @@ export async function waitForEvmTransactionFinalization(args: {
   txHash: `0x${string}`;
   gasLimitHint?: bigint;
   maxFeePerGasHint?: bigint;
+  senderHint?: `0x${string}`;
+  nonceHint?: bigint;
   timeoutMs?: number;
   pollIntervalMs?: number;
   signal?: AbortSignal;
@@ -236,6 +243,8 @@ export async function waitForEvmTransactionFinalization(args: {
     pollIntervalMs: args.pollIntervalMs ?? EVM_TX_RECEIPT_POLL_INTERVAL_MS,
     confirmations: EVM_TX_FINALITY_CONFIRMATIONS,
     signal: args.signal,
+    ...(args.senderHint ? { senderHint: args.senderHint } : {}),
+    ...(typeof args.nonceHint === 'bigint' ? { nonceHint: args.nonceHint } : {}),
     ...(typeof args.maxFeePerGasHint === 'bigint'
       ? { maxFeePerGasHint: args.maxFeePerGasHint }
       : {}),
@@ -319,6 +328,30 @@ export async function describeEvmRevert(args: {
 
 export function isEvmAddress(value: string): value is `0x${string}` {
   return /^0x[0-9a-fA-F]{40}$/.test(String(value || '').trim());
+}
+
+export function extractManagedNonceHints(
+  signedResult:
+    | { managedNonce?: { sender?: string; nonce?: string } | null }
+    | null
+    | undefined,
+): ManagedNonceHints {
+  const senderRaw = String(signedResult?.managedNonce?.sender || '').trim();
+  const senderHint = isEvmAddress(senderRaw) ? senderRaw : undefined;
+  let nonceHint: bigint | undefined;
+  try {
+    const nonceRaw = String(signedResult?.managedNonce?.nonce || '').trim();
+    if (nonceRaw) {
+      const parsed = BigInt(nonceRaw);
+      if (parsed >= 0n) {
+        nonceHint = parsed;
+      }
+    }
+  } catch {}
+  return {
+    ...(senderHint ? { senderHint } : {}),
+    ...(typeof nonceHint === 'bigint' ? { nonceHint } : {}),
+  };
 }
 
 export async function readEvmNativeBalance(args: {

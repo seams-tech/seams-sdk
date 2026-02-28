@@ -10,7 +10,6 @@ import type {
   PrfSessionSealCipherAdapter,
   PrfSessionSealConsumePolicy,
   PrfSessionSealGuard,
-  PrfSessionSealIdempotencyOptions,
   PrfSessionSealRoutesOptions,
   PrfSessionSealThresholdSessionPolicy,
 } from './types';
@@ -27,9 +26,6 @@ export interface CreatePrfSessionSealRoutesOptionsInput {
   guards?: Array<PrfSessionSealGuard | null | undefined>;
   rateLimit?: Omit<CreatePrfSessionSealRateLimitGuardOptions, 'nowMs'>;
   audit?: PrfSessionSealAuditSink | null;
-  idempotency?: PrfSessionSealIdempotencyOptions;
-  requiredRequestKeyVersion?: string;
-  requiredRequestShamirPrimeB64u?: string;
   logger?: NormalizedLogger | null;
   auditLogger?: Omit<CreatePrfSessionSealAuditLoggerOptions, 'logger'> | null;
   authorize?: (
@@ -44,11 +40,16 @@ function buildAuditSink(
   if (input.audit) return input.audit;
   if (!input.logger) return undefined;
   if (input.auditLogger === null) return undefined;
-  return createPrfSessionSealAuditLogger({
+  const options: CreatePrfSessionSealAuditLoggerOptions = {
     logger: input.logger,
-    ...(input.auditLogger?.label ? { label: input.auditLogger.label } : {}),
-    ...(input.auditLogger?.failureLevel ? { failureLevel: input.auditLogger.failureLevel } : {}),
-  });
+  };
+  if (input.auditLogger?.label) {
+    options.label = input.auditLogger.label;
+  }
+  if (input.auditLogger?.failureLevel) {
+    options.failureLevel = input.auditLogger.failureLevel;
+  }
+  return createPrfSessionSealAuditLogger(options);
 }
 
 function buildGuard(
@@ -60,11 +61,12 @@ function buildGuard(
   if (Array.isArray(input.guards)) guardList.push(...input.guards);
 
   if (input.rateLimit) {
+    const rateLimitOptions: CreatePrfSessionSealRateLimitGuardOptions = { ...input.rateLimit };
+    if (input.nowMs) {
+      rateLimitOptions.nowMs = input.nowMs;
+    }
     guardList.push(
-      createPrfSessionSealRateLimitGuard({
-        ...input.rateLimit,
-        ...(input.nowMs ? { nowMs: input.nowMs } : {}),
-      }),
+      createPrfSessionSealRateLimitGuard(rateLimitOptions),
     );
   }
 
@@ -81,23 +83,34 @@ export function createPrfSessionSealRoutesOptions(
   const serviceOptions: CreatePrfSessionSealServiceOptions = {
     sessionPolicy: input.sessionPolicy,
     cipher: input.cipher,
-    ...(input.consumePolicy ? { consumePolicy: input.consumePolicy } : {}),
-    ...(guard ? { guard } : {}),
-    ...(audit ? { audit } : {}),
-    ...(input.idempotency ? { idempotency: input.idempotency } : {}),
-    ...(input.requiredRequestKeyVersion
-      ? { requiredRequestKeyVersion: input.requiredRequestKeyVersion }
-      : {}),
-    ...(input.requiredRequestShamirPrimeB64u
-      ? { requiredRequestShamirPrimeB64u: input.requiredRequestShamirPrimeB64u }
-      : {}),
-    ...(input.logger ? { logger: input.logger } : {}),
-    ...(input.nowMs ? { nowMs: input.nowMs } : {}),
   };
-  return {
-    ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
-    ...(input.basePath ? { basePath: input.basePath } : {}),
+  if (input.consumePolicy) {
+    serviceOptions.consumePolicy = input.consumePolicy;
+  }
+  if (guard) {
+    serviceOptions.guard = guard;
+  }
+  if (audit) {
+    serviceOptions.audit = audit;
+  }
+  if (input.logger) {
+    serviceOptions.logger = input.logger;
+  }
+  if (input.nowMs) {
+    serviceOptions.nowMs = input.nowMs;
+  }
+
+  const options: PrfSessionSealRoutesOptions = {
     service: createPrfSessionSealService(serviceOptions),
-    ...(input.authorize ? { authorize: input.authorize } : {}),
   };
+  if (input.enabled !== undefined) {
+    options.enabled = input.enabled;
+  }
+  if (input.basePath) {
+    options.basePath = input.basePath;
+  }
+  if (input.authorize) {
+    options.authorize = input.authorize;
+  }
+  return options;
 }
