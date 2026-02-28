@@ -71,29 +71,49 @@ export type SignTempoArgs = {
   };
 };
 
-export type TempoBroadcastResultStatus = 'success' | 'failure';
-
-export type TempoBroadcastErrorData = {
-  code?: string;
+type TempoNonceLifecycleEvent = {
+  step: number;
+  phase: string;
+  status: 'progress' | 'success' | 'error';
   message?: string;
-  details?: unknown;
+  data?: unknown;
 };
 
-export type ReportTempoBroadcastResultArgs = {
+type TempoNonceLifecycleOptions = {
+  onEvent?: (event: TempoNonceLifecycleEvent) => void;
+};
+
+type ReportTempoNonceLifecycleBaseArgs = {
   nearAccountId: string;
   signedResult: TempoSignedResult | EvmSignedResult;
-  status: TempoBroadcastResultStatus;
+  options?: TempoNonceLifecycleOptions;
+};
+
+export type ReportTempoBroadcastAcceptedArgs = ReportTempoNonceLifecycleBaseArgs & {
   txHash?: `0x${string}`;
+};
+
+export type ReportTempoBroadcastRejectedArgs = ReportTempoNonceLifecycleBaseArgs & {
   error?: unknown;
-  options?: {
-    onEvent?: (event: {
-      step: number;
-      phase: string;
-      status: 'progress' | 'success' | 'error';
-      message?: string;
-      data?: unknown;
-    }) => void;
-  };
+};
+
+export type ReportTempoFinalizedArgs = ReportTempoNonceLifecycleBaseArgs & {
+  txHash?: `0x${string}`;
+  receiptStatus?: 'success' | 'reverted';
+};
+
+export type ReportTempoDroppedOrReplacedArgs = ReportTempoNonceLifecycleBaseArgs & {
+  reason: 'dropped' | 'replaced';
+  txHash?: `0x${string}`;
+};
+
+export type ReconcileTempoNonceLaneArgs = ReportTempoNonceLifecycleBaseArgs;
+
+export type TempoNonceLaneStatus = {
+  chainNextNonce: string;
+  unresolvedInFlightNonces: string[];
+  blocked: boolean;
+  blockedNonce?: string;
 };
 
 export type BootstrapThresholdEcdsaSessionArgs = {
@@ -206,7 +226,11 @@ export interface NearSignerCapability {
 
 export interface TempoSignerCapability {
   signTempo(args: SignTempoArgs): Promise<TempoSignedResult | EvmSignedResult>;
-  reportBroadcastResult(args: ReportTempoBroadcastResultArgs): Promise<void>;
+  reportBroadcastAccepted(args: ReportTempoBroadcastAcceptedArgs): Promise<void>;
+  reportBroadcastRejected(args: ReportTempoBroadcastRejectedArgs): Promise<void>;
+  reportFinalized(args: ReportTempoFinalizedArgs): Promise<void>;
+  reportDroppedOrReplaced(args: ReportTempoDroppedOrReplacedArgs): Promise<void>;
+  reconcileNonceLane(args: ReconcileTempoNonceLaneArgs): Promise<TempoNonceLaneStatus>;
   bootstrapEcdsaSession(
     args: BootstrapThresholdEcdsaSessionArgs,
   ): Promise<ThresholdEcdsaSessionBootstrapResult>;

@@ -12,17 +12,13 @@ import {
   type ThresholdWebAuthnPromptPort,
 } from '../webauthn';
 import {
-  buildEcdsaSessionPolicy,
   clampThresholdSessionPolicy,
   DEFAULT_THRESHOLD_SESSION_POLICY,
   generateThresholdSessionId,
   THRESHOLD_SESSION_POLICY_VERSION,
 } from '../session/sessionPolicy';
-import {
-  makeEcdsaAuthSessionCacheKey,
-  putCachedEcdsaAuthSession,
-} from '../session/ecdsaAuthSession';
-import type { EcdsaSessionKind } from '../session/ecdsaAuthSession';
+
+type EcdsaSessionKind = 'jwt' | 'cookie';
 
 function generateKeygenSessionId(): string {
   const id =
@@ -216,31 +212,6 @@ export async function bootstrapEcdsaSession(args: {
         remainingUses: resolvedRemainingUses,
       });
     }
-
-    const { policy, policyJson, sessionPolicyDigest32 } = await buildEcdsaSessionPolicy({
-      userId,
-      rpId,
-      relayerKeyId,
-      participantIds: resolvedParticipantIds,
-      sessionId: resolvedSessionId,
-      ttlMs,
-      remainingUses: resolvedRemainingUses,
-    });
-    const cacheKey = makeEcdsaAuthSessionCacheKey({
-      userId,
-      rpId,
-      relayerUrl: args.relayerUrl,
-      relayerKeyId,
-      participantIds: resolvedParticipantIds,
-    });
-    putCachedEcdsaAuthSession(cacheKey, {
-      sessionKind,
-      policy,
-      policyJson,
-      sessionPolicyDigest32,
-      jwt: bootstrap.jwt,
-      expiresAtMs,
-    });
 
     return {
       ok: true,

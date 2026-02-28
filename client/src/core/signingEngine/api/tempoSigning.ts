@@ -4,14 +4,28 @@ import type { TempoSigningRequest } from '../chainAdaptors/tempo/types';
 import type { TempoSignedResult } from '../chainAdaptors/tempo/tempoAdapter';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import {
-  reportEvmFamilyBroadcastResult,
+  reconcileEvmFamilyNonceLane,
+  reportEvmFamilyBroadcastAccepted,
+  reportEvmFamilyBroadcastRejected,
+  reportEvmFamilyDroppedOrReplaced,
+  reportEvmFamilyFinalized,
   signEvmFamily,
-  type EvmFamilyBroadcastResultArgs,
+  type EvmFamilyBroadcastAcceptedArgs,
+  type EvmFamilyBroadcastRejectedArgs,
+  type EvmFamilyDroppedOrReplacedArgs,
+  type EvmFamilyFinalizedArgs,
+  type EvmFamilyNonceLaneStatus,
+  type EvmFamilyReconcileLaneArgs,
   type EvmFamilySigningDeps,
 } from './evmSigning';
 
 export type TempoSigningDeps = EvmFamilySigningDeps;
-export type ReportTempoBroadcastResultArgs = EvmFamilyBroadcastResultArgs;
+export type ReportTempoBroadcastAcceptedArgs = EvmFamilyBroadcastAcceptedArgs;
+export type ReportTempoBroadcastRejectedArgs = EvmFamilyBroadcastRejectedArgs;
+export type ReportTempoFinalizedArgs = EvmFamilyFinalizedArgs;
+export type ReportTempoDroppedOrReplacedArgs = EvmFamilyDroppedOrReplacedArgs;
+export type ReconcileTempoNonceLaneArgs = EvmFamilyReconcileLaneArgs;
+export type TempoNonceLaneStatus = EvmFamilyNonceLaneStatus;
 
 export async function signTempo(
   deps: TempoSigningDeps,
@@ -32,9 +46,37 @@ export async function signTempo(
   return await signEvmFamily(deps, args);
 }
 
-export async function reportTempoBroadcastResult(
+export async function reportTempoBroadcastAccepted(
   deps: TempoSigningDeps,
-  args: ReportTempoBroadcastResultArgs,
+  args: ReportTempoBroadcastAcceptedArgs,
 ): Promise<void> {
-  await reportEvmFamilyBroadcastResult(deps, args);
+  await reportEvmFamilyBroadcastAccepted(deps, args);
+}
+
+export async function reportTempoBroadcastRejected(
+  deps: TempoSigningDeps,
+  args: ReportTempoBroadcastRejectedArgs,
+): Promise<void> {
+  await reportEvmFamilyBroadcastRejected(deps, args);
+}
+
+export async function reportTempoFinalized(
+  deps: TempoSigningDeps,
+  args: ReportTempoFinalizedArgs,
+): Promise<void> {
+  await reportEvmFamilyFinalized(deps, args);
+}
+
+export async function reportTempoDroppedOrReplaced(
+  deps: TempoSigningDeps,
+  args: ReportTempoDroppedOrReplacedArgs,
+): Promise<void> {
+  await reportEvmFamilyDroppedOrReplaced(deps, args);
+}
+
+export async function reconcileTempoNonceLane(
+  deps: TempoSigningDeps,
+  args: ReconcileTempoNonceLaneArgs,
+): Promise<TempoNonceLaneStatus> {
+  return await reconcileEvmFamilyNonceLane(deps, args);
 }

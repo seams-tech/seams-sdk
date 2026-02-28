@@ -7,15 +7,6 @@ import type {
 import { deriveThresholdSecp256k1ClientShareWasm } from '../wasm/ethSignerWasm';
 import { authorizeEcdsaWithSession } from '../../threshold/workflows/authorizeEcdsa';
 import {
-  getCachedEcdsaAuthSession,
-  getCachedEcdsaAuthSessionBySessionId,
-  getCachedEcdsaAuthSessionJwt,
-  getCachedEcdsaAuthSessionJwtBySessionId,
-  makeEcdsaAuthSessionCacheKey,
-  putCachedEcdsaAuthSession,
-} from '../../threshold/session/ecdsaAuthSession';
-import { buildEcdsaSessionPolicy } from '../../threshold/session/sessionPolicy';
-import {
   getThresholdEcdsaClientPresignaturePoolDepth,
   resolveThresholdEcdsaPresignPoolPolicy,
   scheduleThresholdEcdsaClientPresignaturePoolRefill,
@@ -23,7 +14,11 @@ import {
 } from '../../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import type { ThresholdEcdsaClientPresignatureRefillScheduleResult } from '../../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import { getStoredThresholdEcdsaSessionRecordByThresholdSessionId } from '../../api/thresholdLifecycle/thresholdSessionStore';
+import {
+  getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
+  getStoredThresholdEd25519SessionRecordForAccount,
+} from '../../api/thresholdLifecycle/thresholdSessionStore';
+import { emitThresholdSessionMetric } from '../../api/thresholdLifecycle/thresholdSessionMetrics';
 
 type EcdsaSessionKind = 'jwt' | 'cookie';
 
@@ -115,14 +110,6 @@ export class Secp256k1Engine implements Signer {
         );
       }
 
-      const cacheKey = makeEcdsaAuthSessionCacheKey({
-        userId: keyRef.userId,
-        rpId,
-        relayerUrl: keyRef.relayerUrl,
-        relayerKeyId: keyRef.relayerKeyId,
-        participantIds,
-      });
-
       const keyRefThresholdSessionId = String(keyRef.thresholdSessionId || '').trim();
       if (!keyRefThresholdSessionId) {
         throw new Error(
@@ -130,88 +117,94 @@ export class Secp256k1Engine implements Signer {
         );
       }
 
-      let cachedThresholdSession =
-        getCachedEcdsaAuthSession(cacheKey) ||
-        getCachedEcdsaAuthSessionBySessionId(keyRefThresholdSessionId);
-      if (!cachedThresholdSession) {
-        const sessionKind: EcdsaSessionKind = keyRef.thresholdSessionKind || 'jwt';
-        const thresholdSessionJwt = String(keyRef.thresholdSessionJwt || '').trim();
-        const canonicalRecord = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
-          keyRefThresholdSessionId,
-        );
-        const nowMs = Date.now();
-        const ttlMs =
-          typeof canonicalRecord?.expiresAtMs === 'number' &&
-          Number.isFinite(canonicalRecord.expiresAtMs) &&
-          canonicalRecord.expiresAtMs > nowMs
-            ? Math.floor(canonicalRecord.expiresAtMs - nowMs)
-            : undefined;
-        const remainingUses =
-          typeof canonicalRecord?.remainingUses === 'number' &&
-          Number.isFinite(canonicalRecord.remainingUses) &&
-          canonicalRecord.remainingUses >= 0
-            ? Math.floor(canonicalRecord.remainingUses)
-            : undefined;
-        const built = await buildEcdsaSessionPolicy({
-          userId: keyRef.userId,
-          rpId,
-          relayerKeyId: keyRef.relayerKeyId,
-          participantIds,
+      const canonicalRecord = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
+        keyRefThresholdSessionId,
+      );
+      const hasCanonicalRecord = !!canonicalRecord;
+      if (hasCanonicalRecord) {
+        emitThresholdSessionMetric({
+          metric: 'cache_hit',
+          curve: 'ecdsa',
+          source: 'canonical-session-record',
           sessionId: keyRefThresholdSessionId,
-          ...(ttlMs != null ? { ttlMs } : {}),
-          ...(remainingUses != null ? { remainingUses } : {}),
         });
-        putCachedEcdsaAuthSession(cacheKey, {
-          sessionKind,
-          policy: built.policy,
-          policyJson: built.policyJson,
-          sessionPolicyDigest32: built.sessionPolicyDigest32,
-          ...(sessionKind === 'jwt' && thresholdSessionJwt ? { jwt: thresholdSessionJwt } : {}),
-          ...(typeof canonicalRecord?.expiresAtMs === 'number' &&
-          Number.isFinite(canonicalRecord.expiresAtMs)
-            ? { expiresAtMs: Math.floor(canonicalRecord.expiresAtMs) }
-            : {}),
+      } else {
+        emitThresholdSessionMetric({
+          metric: 'rehydrate_fail',
+          curve: 'ecdsa',
+          source: 'canonical-session-record',
+          sessionId: keyRefThresholdSessionId,
+          reason: 'canonical_record_missing_keyref_fallback',
         });
-        cachedThresholdSession =
-          getCachedEcdsaAuthSession(cacheKey) ||
-          getCachedEcdsaAuthSessionBySessionId(keyRefThresholdSessionId);
-      }
-      if (!cachedThresholdSession) {
-        throw new Error(
-          '[multichain] threshold-ecdsa session record not available; reconnect threshold session via bootstrapEcdsaSession',
-        );
       }
 
       const keyRefSessionKind = keyRef.thresholdSessionKind;
-      if (keyRefSessionKind && keyRefSessionKind !== cachedThresholdSession.sessionKind) {
+      const recordSessionKind: EcdsaSessionKind = canonicalRecord?.thresholdSessionKind || 'jwt';
+      if (hasCanonicalRecord && keyRefSessionKind && keyRefSessionKind !== recordSessionKind) {
+        emitThresholdSessionMetric({
+          metric: 'session_mismatch',
+          curve: 'ecdsa',
+          source: 'session-kind',
+          sessionId: keyRefThresholdSessionId,
+          reason: 'keyref_vs_record_session_kind',
+        });
         throw new Error(
           '[multichain] threshold-ecdsa session kind mismatch; reconnect threshold session',
         );
       }
-      const sessionKind: EcdsaSessionKind =
-        keyRefSessionKind || cachedThresholdSession.sessionKind || 'jwt';
+      const sessionKind: EcdsaSessionKind = keyRefSessionKind || recordSessionKind || 'jwt';
 
-      const cachedSessionId = String(cachedThresholdSession.policy?.sessionId || '').trim();
-      if (!cachedSessionId || cachedSessionId !== keyRefThresholdSessionId) {
+      const recordSessionId = String(canonicalRecord?.thresholdSessionId || keyRefThresholdSessionId).trim();
+      if (hasCanonicalRecord && (!recordSessionId || recordSessionId !== keyRefThresholdSessionId)) {
+        emitThresholdSessionMetric({
+          metric: 'session_mismatch',
+          curve: 'ecdsa',
+          source: 'session-id',
+          sessionId: keyRefThresholdSessionId,
+          reason: 'keyref_vs_record_session_id',
+        });
         throw new Error(
           '[multichain] threshold-ecdsa sessionId mismatch; reconnect threshold session via bootstrapEcdsaSession',
         );
       }
 
+      const keyRefJwt = String(keyRef.thresholdSessionJwt || '').trim();
+      const recordJwt = String(canonicalRecord?.thresholdSessionJwt || '').trim();
+      const ed25519RecordJwt = (() => {
+        try {
+          const edRecord = getStoredThresholdEd25519SessionRecordForAccount(
+            String(canonicalRecord?.nearAccountId || keyRef.userId || '').trim(),
+          );
+          if (!edRecord || edRecord.thresholdSessionKind !== 'jwt') return '';
+          return String(edRecord.thresholdSessionJwt || '').trim();
+        } catch {
+          return '';
+        }
+      })();
       const thresholdSessionJwt =
-        sessionKind === 'jwt'
-          ? getCachedEcdsaAuthSessionJwt(cacheKey) ||
-            getCachedEcdsaAuthSessionJwtBySessionId(keyRefThresholdSessionId)
-          : undefined;
+        keyRefJwt || recordJwt || ed25519RecordJwt || undefined;
 
       if (sessionKind === 'jwt' && !thresholdSessionJwt) {
+        emitThresholdSessionMetric({
+          metric: 'rehydrate_fail',
+          curve: 'ecdsa',
+          source: 'session-jwt',
+          sessionId: keyRefThresholdSessionId,
+          reason: 'jwt_unavailable',
+        });
         throw new Error(
           '[multichain] threshold-ecdsa session token unavailable; reconnect threshold session via bootstrapEcdsaSession',
         );
       }
       if (sessionKind === 'jwt') {
-        const keyRefJwt = String(keyRef.thresholdSessionJwt || '').trim();
-        if (keyRefJwt && keyRefJwt !== thresholdSessionJwt) {
+        if (hasCanonicalRecord && keyRefJwt && recordJwt && keyRefJwt !== recordJwt) {
+          emitThresholdSessionMetric({
+            metric: 'session_mismatch',
+            curve: 'ecdsa',
+            source: 'session-jwt',
+            sessionId: keyRefThresholdSessionId,
+            reason: 'keyref_vs_record_jwt',
+          });
           throw new Error(
             '[multichain] threshold-ecdsa keyRef JWT does not match session record; reconnect threshold session',
           );

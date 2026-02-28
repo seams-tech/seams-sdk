@@ -132,6 +132,31 @@ function emitOperationResultLog(input: {
   logger.warn(`${PRF_SEAL_LOG_LABEL} ${input.operation} failure`, payload);
 }
 
+type PrfSessionSealRequestInput = {
+  thresholdSessionId: string;
+  ciphertext: string;
+  keyVersion?: string;
+  metadata?: Record<string, unknown>;
+};
+
+type PrfSessionSealAuthInput = {
+  userId: string;
+  claims: Record<string, unknown>;
+};
+
+function makeSingleFlightKey(args: {
+  operation: PrfSessionSealOperation;
+  request: PrfSessionSealRequestInput;
+  auth: PrfSessionSealAuthInput;
+}): string {
+  const thresholdSessionId = String(args.request.thresholdSessionId || '').trim();
+  const userId = String(args.auth.userId || '').trim();
+  const ciphertext = String(args.request.ciphertext || '').trim();
+  if (!thresholdSessionId || !userId || !ciphertext) return '';
+  const keyVersion = String(args.request.keyVersion || '').trim();
+  return [args.operation, userId, thresholdSessionId, keyVersion, ciphertext].join('|');
+}
+
 async function runSealOperation(input: {
   options: CreatePrfSessionSealServiceOptions;
   operation: PrfSessionSealOperation;
@@ -284,20 +309,49 @@ async function runSealOperation(input: {
 export function createPrfSessionSealService(
   options: CreatePrfSessionSealServiceOptions,
 ): PrfSessionSealService {
+  const singleFlight = new Map<string, Promise<PrfSessionSealRouteResult>>();
+
+  const runWithSingleFlight = async (
+    operation: PrfSessionSealOperation,
+    request: PrfSessionSealRequestInput,
+    auth: PrfSessionSealAuthInput,
+  ): Promise<PrfSessionSealRouteResult> => {
+    const singleFlightKey = makeSingleFlightKey({ operation, request, auth });
+    if (!singleFlightKey) {
+      return await runSealOperation({
+        options,
+        operation,
+        request,
+        auth,
+      });
+    }
+
+    const inFlight = singleFlight.get(singleFlightKey);
+    if (inFlight) {
+      options.logger?.info(`${PRF_SEAL_LOG_LABEL} single_flight_hit`, {
+        operation,
+        thresholdSessionId: request.thresholdSessionId,
+        userId: auth.userId,
+      });
+      return await inFlight;
+    }
+
+    const task = runSealOperation({
+      options,
+      operation,
+      request,
+      auth,
+    }).finally(() => {
+      singleFlight.delete(singleFlightKey);
+    });
+    singleFlight.set(singleFlightKey, task);
+    return await task;
+  };
+
   return {
     applyServerSeal: async (request, auth) =>
-      await runSealOperation({
-        options,
-        operation: 'apply-server-seal',
-        request,
-        auth,
-      }),
+      await runWithSingleFlight('apply-server-seal', request, auth),
     removeServerSeal: async (request, auth) =>
-      await runSealOperation({
-        options,
-        operation: 'remove-server-seal',
-        request,
-        auth,
-      }),
+      await runWithSingleFlight('remove-server-seal', request, auth),
   };
 }

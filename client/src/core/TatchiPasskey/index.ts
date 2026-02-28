@@ -709,9 +709,13 @@ export type {
   PreferencesCapability,
   RegistrationCapability,
   RecoveryCapability,
-  ReportTempoBroadcastResultArgs,
+  ReconcileTempoNonceLaneArgs,
+  ReportTempoBroadcastAcceptedArgs,
+  ReportTempoBroadcastRejectedArgs,
+  ReportTempoDroppedOrReplacedArgs,
+  ReportTempoFinalizedArgs,
   SignTempoArgs,
-  TempoBroadcastResultStatus,
+  TempoNonceLaneStatus,
   TempoSignerCapability,
 } from './interfaces';
 

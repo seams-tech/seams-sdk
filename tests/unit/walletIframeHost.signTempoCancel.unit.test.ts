@@ -152,9 +152,27 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
     expect(code).toBe('nonce_conflict_retryable');
   });
 
+  test('maps nonce-lane-blocked raw code to canonical code', async () => {
+    const code = resolveWalletBoundaryErrorCode({
+      requestType: 'PM_SIGN_TEMPO',
+      rawCode: 'nonce_lane_blocked',
+      message:
+        '[SigningEngine] EVM nonce lane blocked on arc-testnet (nonce=15). Reconcile lane and retry.',
+    });
+    expect(code).toBe('nonce_lane_blocked');
+  });
+
+  test('maps nonce-lane-blocked message to canonical code', async () => {
+    const code = resolveWalletBoundaryErrorCode({
+      requestType: 'PM_RECONCILE_TEMPO_NONCE_LANE',
+      message: 'nonce lane blocked',
+    });
+    expect(code).toBe('nonce_lane_blocked');
+  });
+
   test('maps nonce-conflict message for broadcast-report boundary request', async () => {
     const code = resolveWalletBoundaryErrorCode({
-      requestType: 'PM_REPORT_TEMPO_BROADCAST_RESULT',
+      requestType: 'PM_REPORT_TEMPO_BROADCAST_REJECTED',
       message: 'nonce too low',
     });
     expect(code).toBe('nonce_conflict_retryable');
@@ -239,6 +257,16 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
     });
     expect(message).toContain('Nonce conflict detected');
     expect(message).toContain('retry');
+  });
+
+  test('normalizes signer boundary nonce_lane_blocked message', async () => {
+    const message = resolveWalletBoundaryErrorMessage({
+      requestType: 'PM_SIGN_TEMPO',
+      code: 'nonce_lane_blocked',
+      message: 'nonce lane blocked',
+    });
+    expect(message).toContain('Nonce lane is blocked');
+    expect(message).toContain('Reconcile');
   });
 
   test('normalizes signer boundary cancelled message', async () => {

@@ -212,13 +212,13 @@ test.describe('TatchiPasskey chain signer modules', () => {
     expect(evmCalls[0]?.options?.chain).toBe('evm');
   });
 
-  test('TempoSigner.reportBroadcastResult forwards args in non-iframe mode', async () => {
+  test('TempoSigner.reportBroadcastRejected forwards args in non-iframe mode', async () => {
     let capturedArgs: any = null;
     const signer = new TempoSigner({
       getContext: () =>
         ({
           signingEngine: {
-            reportTempoBroadcastResult: async (args: any) => {
+            reportTempoBroadcastRejected: async (args: any) => {
               capturedArgs = args;
             },
           },
@@ -239,22 +239,20 @@ test.describe('TatchiPasskey chain signer modules', () => {
     } as any;
     const onEvent = () => undefined;
 
-    await signer.reportBroadcastResult({
+    await signer.reportBroadcastRejected({
       nearAccountId: 'alice.testnet',
       signedResult,
-      status: 'failure',
       error: { code: 'nonce too low', message: 'nonce too low' },
       options: { onEvent },
     });
 
     expect(capturedArgs?.nearAccountId).toBe('alice.testnet');
     expect(capturedArgs?.signedResult).toEqual(signedResult);
-    expect(capturedArgs?.status).toBe('failure');
     expect(capturedArgs?.error?.code).toContain('nonce');
     expect(capturedArgs?.onEvent).toBe(onEvent);
   });
 
-  test('TempoSigner.reportBroadcastResult serializes errors in iframe mode', async () => {
+  test('TempoSigner.reportBroadcastRejected serializes errors in iframe mode', async () => {
     const routerCalls: any[] = [];
     const signer = new TempoSigner({
       getContext: () => ({}) as any,
@@ -262,7 +260,7 @@ test.describe('TatchiPasskey chain signer modules', () => {
         shouldUseWalletIframe: () => true,
         requireRouter: async () =>
           ({
-            reportTempoBroadcastResult: async (args: any) => {
+            reportTempoBroadcastRejected: async (args: any) => {
               routerCalls.push(args);
             },
           }) as any,
@@ -272,7 +270,7 @@ test.describe('TatchiPasskey chain signer modules', () => {
     const error: any = new Error('replacement transaction underpriced');
     error.code = 'nonce_conflict_retryable';
 
-    await signer.reportBroadcastResult({
+    await signer.reportBroadcastRejected({
       nearAccountId: 'alice.testnet',
       signedResult: {
         chain: 'tempo',
@@ -280,13 +278,11 @@ test.describe('TatchiPasskey chain signer modules', () => {
         senderHashHex: '0x3',
         rawTxHex: '0x4',
       } as any,
-      status: 'failure',
       error,
     });
 
     expect(routerCalls).toHaveLength(1);
     expect(routerCalls[0]?.nearAccountId).toBe('alice.testnet');
-    expect(routerCalls[0]?.status).toBe('failure');
     expect(routerCalls[0]?.error?.code).toBe('nonce_conflict_retryable');
     expect(String(routerCalls[0]?.error?.message || '')).toContain('underpriced');
   });

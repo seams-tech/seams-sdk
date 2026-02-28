@@ -75,6 +75,8 @@ type PrfSessionSealRouteResult =
   | ErrResult;
 
 const prfFirstSessionCache = new Map<string, ThresholdPrfFirstCacheEntry>();
+const prfSessionSealApplyInFlight = new Map<string, Promise<OkSealResult | ErrResult>>();
+const prfSessionSealRemoveInFlight = new Map<string, Promise<OkResult | ErrResult>>();
 const nearSignerWasmUrl = resolveWasmUrl('wasm_signer_worker_bg.wasm', 'Signer Worker');
 const ethSignerWasmUrl = resolveWasmUrl('eth_signer.wasm', 'Eth Signer');
 const PRF_SESSION_SEAL_BASE_PATH = '/threshold-ecdsa/prf-seal';
@@ -233,6 +235,23 @@ function parsePrfSessionSealRouteResult(value: unknown): PrfSessionSealRouteResu
     ...(expiresAtMs != null ? { expiresAtMs } : {}),
     ...(remainingUses != null ? { remainingUses } : {}),
   };
+}
+
+function makePrfSessionSealSingleFlightKey(args: {
+  operation: 'apply-server-seal' | 'remove-server-seal';
+  sessionId: string;
+  relayerUrl: string;
+  keyVersion?: string;
+  shamirPrimeB64u?: string;
+  payloadB64u?: string;
+}): string {
+  const operation = args.operation === 'apply-server-seal' ? 'apply-server-seal' : 'remove-server-seal';
+  const sessionId = normalizeOptionalTrimmedString(args.sessionId) || '';
+  const relayerUrl = normalizeOptionalTrimmedString(args.relayerUrl) || '';
+  const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion) || '';
+  const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.shamirPrimeB64u) || '';
+  const payloadB64u = normalizeOptionalNonEmptyString(args.payloadB64u) || '';
+  return `${operation}|${sessionId}|${relayerUrl}|${keyVersion}|${shamirPrimeB64u}|${payloadB64u}`;
 }
 
 async function callPrfSessionSealRoute(args: {
@@ -776,60 +795,77 @@ async function runPrfSessionSealAndPersist(args: {
   if (!entry) {
     return { ok: false, code: 'not_found', message: 'PRF.first not cached for threshold session' };
   }
+  const singleFlightKey = makePrfSessionSealSingleFlightKey({
+    operation: 'apply-server-seal',
+    sessionId,
+    relayerUrl: args.transport.relayerUrl,
+    keyVersion: args.transport.keyVersion,
+    shamirPrimeB64u,
+    payloadB64u: entry.prfFirstB64u,
+  });
+  const inFlight = prfSessionSealApplyInFlight.get(singleFlightKey);
+  if (inFlight) return await inFlight;
 
-  try {
-    const runtime = await getShamir3PassRuntime();
-    const clientKeypair = await runtime.generateClientKeypair({ shamirPrimeB64u });
-    const clientEncryptedCiphertext = await runtime.addClientSeal({
-      ciphertextB64u: entry.prfFirstB64u,
-      exponentB64u: clientKeypair.clientEncryptExponentB64u,
-      shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
-    });
+  const task = (async (): Promise<OkSealResult | ErrResult> => {
+    try {
+      const runtime = await getShamir3PassRuntime();
+      const clientKeypair = await runtime.generateClientKeypair({ shamirPrimeB64u });
+      const clientEncryptedCiphertext = await runtime.addClientSeal({
+        ciphertextB64u: entry.prfFirstB64u,
+        exponentB64u: clientKeypair.clientEncryptExponentB64u,
+        shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
+      });
 
-    const applied = await callPrfSessionSealRoute({
-      operation: 'apply-server-seal',
-      transport: args.transport,
-      thresholdSessionId: sessionId,
-      ciphertext: clientEncryptedCiphertext,
-      keyVersion: args.transport.keyVersion,
-    });
-    if (!applied.ok) return applied;
+      const applied = await callPrfSessionSealRoute({
+        operation: 'apply-server-seal',
+        transport: args.transport,
+        thresholdSessionId: sessionId,
+        ciphertext: clientEncryptedCiphertext,
+        keyVersion: args.transport.keyVersion,
+      });
+      if (!applied.ok) return applied;
 
-    const sealedPrfFirstB64u = await runtime.removeClientSeal({
-      ciphertextB64u: applied.ciphertext,
-      exponentB64u: clientKeypair.clientDecryptExponentB64u,
-      shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
-    });
-    const policy = resolvePolicyFromServerAndLocal({
-      localRemainingUses: entry.remainingUses,
-      localExpiresAtMs: entry.expiresAtMs,
-      serverRemainingUses: applied.remainingUses,
-      serverExpiresAtMs: applied.expiresAtMs,
-    });
-    if (!policy.ok) {
-      prfFirstSessionCache.delete(sessionId);
-      return policy;
+      const sealedPrfFirstB64u = await runtime.removeClientSeal({
+        ciphertextB64u: applied.ciphertext,
+        exponentB64u: clientKeypair.clientDecryptExponentB64u,
+        shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
+      });
+      const policy = resolvePolicyFromServerAndLocal({
+        localRemainingUses: entry.remainingUses,
+        localExpiresAtMs: entry.expiresAtMs,
+        serverRemainingUses: applied.remainingUses,
+        serverExpiresAtMs: applied.expiresAtMs,
+      });
+      if (!policy.ok) {
+        prfFirstSessionCache.delete(sessionId);
+        return policy;
+      }
+      prfFirstSessionCache.set(sessionId, {
+        prfFirstB64u: entry.prfFirstB64u,
+        remainingUses: policy.remainingUses,
+        expiresAtMs: policy.expiresAtMs,
+      });
+      const keyVersion = normalizeOptionalNonEmptyString(applied.keyVersion);
+      return {
+        ok: true,
+        sealedPrfFirstB64u,
+        ...(keyVersion ? { keyVersion } : {}),
+        remainingUses: policy.remainingUses,
+        expiresAtMs: policy.expiresAtMs,
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: error instanceof Error ? error.message : String(error || 'Failed to apply server seal'),
+      };
     }
-    prfFirstSessionCache.set(sessionId, {
-      prfFirstB64u: entry.prfFirstB64u,
-      remainingUses: policy.remainingUses,
-      expiresAtMs: policy.expiresAtMs,
-    });
-    const keyVersion = normalizeOptionalNonEmptyString(applied.keyVersion);
-    return {
-      ok: true,
-      sealedPrfFirstB64u,
-      ...(keyVersion ? { keyVersion } : {}),
-      remainingUses: policy.remainingUses,
-      expiresAtMs: policy.expiresAtMs,
-    };
-  } catch (error: unknown) {
-    return {
-      ok: false,
-      code: 'internal',
-      message: error instanceof Error ? error.message : String(error || 'Failed to apply server seal'),
-    };
-  }
+  })().finally(() => {
+    prfSessionSealApplyInFlight.delete(singleFlightKey);
+  });
+
+  prfSessionSealApplyInFlight.set(singleFlightKey, task);
+  return await task;
 }
 
 async function runPrfSessionRehydrate(args: {
@@ -864,52 +900,69 @@ async function runPrfSessionRehydrate(args: {
       message: 'Missing shamirPrimeB64u for PRF session rehydrate',
     };
   }
+  const singleFlightKey = makePrfSessionSealSingleFlightKey({
+    operation: 'remove-server-seal',
+    sessionId,
+    relayerUrl: args.transport.relayerUrl,
+    keyVersion: args.keyVersion || args.transport.keyVersion,
+    shamirPrimeB64u,
+    payloadB64u: sealedPrfFirstB64u,
+  });
+  const inFlight = prfSessionSealRemoveInFlight.get(singleFlightKey);
+  if (inFlight) return await inFlight;
 
-  try {
-    const runtime = await getShamir3PassRuntime();
-    const clientKeypair = await runtime.generateClientKeypair({ shamirPrimeB64u });
-    const clientEncryptedCiphertext = await runtime.addClientSeal({
-      ciphertextB64u: sealedPrfFirstB64u,
-      exponentB64u: clientKeypair.clientEncryptExponentB64u,
-      shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
-    });
+  const task = (async (): Promise<OkResult | ErrResult> => {
+    try {
+      const runtime = await getShamir3PassRuntime();
+      const clientKeypair = await runtime.generateClientKeypair({ shamirPrimeB64u });
+      const clientEncryptedCiphertext = await runtime.addClientSeal({
+        ciphertextB64u: sealedPrfFirstB64u,
+        exponentB64u: clientKeypair.clientEncryptExponentB64u,
+        shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
+      });
 
-    const removed = await callPrfSessionSealRoute({
-      operation: 'remove-server-seal',
-      transport: args.transport,
-      thresholdSessionId: sessionId,
-      ciphertext: clientEncryptedCiphertext,
-      keyVersion: normalizeOptionalNonEmptyString(args.keyVersion) || args.transport.keyVersion,
-    });
-    if (!removed.ok) return removed;
+      const removed = await callPrfSessionSealRoute({
+        operation: 'remove-server-seal',
+        transport: args.transport,
+        thresholdSessionId: sessionId,
+        ciphertext: clientEncryptedCiphertext,
+        keyVersion: normalizeOptionalNonEmptyString(args.keyVersion) || args.transport.keyVersion,
+      });
+      if (!removed.ok) return removed;
 
-    const prfFirstB64u = await runtime.removeClientSeal({
-      ciphertextB64u: removed.ciphertext,
-      exponentB64u: clientKeypair.clientDecryptExponentB64u,
-      shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
-    });
-    const policy = resolvePolicyFromServerAndLocal({
-      localRemainingUses,
-      localExpiresAtMs,
-      serverRemainingUses: removed.remainingUses,
-      serverExpiresAtMs: removed.expiresAtMs,
-    });
-    if (!policy.ok) return policy;
+      const prfFirstB64u = await runtime.removeClientSeal({
+        ciphertextB64u: removed.ciphertext,
+        exponentB64u: clientKeypair.clientDecryptExponentB64u,
+        shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
+      });
+      const policy = resolvePolicyFromServerAndLocal({
+        localRemainingUses,
+        localExpiresAtMs,
+        serverRemainingUses: removed.remainingUses,
+        serverExpiresAtMs: removed.expiresAtMs,
+      });
+      if (!policy.ok) return policy;
 
-    prfFirstSessionCache.set(sessionId, {
-      prfFirstB64u,
-      remainingUses: policy.remainingUses,
-      expiresAtMs: policy.expiresAtMs,
-    });
-    return policy;
-  } catch (error: unknown) {
-    return {
-      ok: false,
-      code: 'internal',
-      message:
-        error instanceof Error ? error.message : String(error || 'Failed to remove server seal'),
-    };
-  }
+      prfFirstSessionCache.set(sessionId, {
+        prfFirstB64u,
+        remainingUses: policy.remainingUses,
+        expiresAtMs: policy.expiresAtMs,
+      });
+      return policy;
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message:
+          error instanceof Error ? error.message : String(error || 'Failed to remove server seal'),
+      };
+    }
+  })().finally(() => {
+    prfSessionSealRemoveInFlight.delete(singleFlightKey);
+  });
+
+  prfSessionSealRemoveInFlight.set(singleFlightKey, task);
+  return await task;
 }
 
 function postUserConfirmWorkerResponse(

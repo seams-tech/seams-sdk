@@ -988,11 +988,34 @@ export class WalletIframeRouter {
     return res.result;
   }
 
-  async reportTempoBroadcastResult(payload: {
+  async reportTempoBroadcastAccepted(payload: {
     nearAccountId: string;
     signedResult: TempoSignedResult | EvmSignedResult;
-    status: 'success' | 'failure';
     txHash?: `0x${string}`;
+    options?: {
+      onEvent?: (ev: {
+        step: number;
+        phase: string;
+        status: 'progress' | 'success' | 'error';
+        message?: string;
+        data?: unknown;
+      }) => void;
+    };
+  }): Promise<void> {
+    await this.post<void>({
+      type: 'PM_REPORT_TEMPO_BROADCAST_ACCEPTED',
+      payload: {
+        nearAccountId: payload.nearAccountId,
+        signedResult: payload.signedResult,
+        ...(payload.txHash ? { txHash: payload.txHash } : {}),
+      },
+      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isActionSSEEvent) },
+    });
+  }
+
+  async reportTempoBroadcastRejected(payload: {
+    nearAccountId: string;
+    signedResult: TempoSignedResult | EvmSignedResult;
     error?: { code?: string; message?: string; details?: unknown };
     options?: {
       onEvent?: (ev: {
@@ -1005,16 +1028,102 @@ export class WalletIframeRouter {
     };
   }): Promise<void> {
     await this.post<void>({
-      type: 'PM_REPORT_TEMPO_BROADCAST_RESULT',
+      type: 'PM_REPORT_TEMPO_BROADCAST_REJECTED',
       payload: {
         nearAccountId: payload.nearAccountId,
         signedResult: payload.signedResult,
-        status: payload.status,
-        ...(payload.txHash ? { txHash: payload.txHash } : {}),
         ...(payload.error ? { error: payload.error } : {}),
       },
       options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isActionSSEEvent) },
     });
+  }
+
+  async reportTempoFinalized(payload: {
+    nearAccountId: string;
+    signedResult: TempoSignedResult | EvmSignedResult;
+    txHash?: `0x${string}`;
+    receiptStatus?: 'success' | 'reverted';
+    options?: {
+      onEvent?: (ev: {
+        step: number;
+        phase: string;
+        status: 'progress' | 'success' | 'error';
+        message?: string;
+        data?: unknown;
+      }) => void;
+    };
+  }): Promise<void> {
+    await this.post<void>({
+      type: 'PM_REPORT_TEMPO_FINALIZED',
+      payload: {
+        nearAccountId: payload.nearAccountId,
+        signedResult: payload.signedResult,
+        ...(payload.txHash ? { txHash: payload.txHash } : {}),
+        ...(payload.receiptStatus ? { receiptStatus: payload.receiptStatus } : {}),
+      },
+      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isActionSSEEvent) },
+    });
+  }
+
+  async reportTempoDroppedOrReplaced(payload: {
+    nearAccountId: string;
+    signedResult: TempoSignedResult | EvmSignedResult;
+    reason: 'dropped' | 'replaced';
+    txHash?: `0x${string}`;
+    options?: {
+      onEvent?: (ev: {
+        step: number;
+        phase: string;
+        status: 'progress' | 'success' | 'error';
+        message?: string;
+        data?: unknown;
+      }) => void;
+    };
+  }): Promise<void> {
+    await this.post<void>({
+      type: 'PM_REPORT_TEMPO_DROPPED_OR_REPLACED',
+      payload: {
+        nearAccountId: payload.nearAccountId,
+        signedResult: payload.signedResult,
+        reason: payload.reason,
+        ...(payload.txHash ? { txHash: payload.txHash } : {}),
+      },
+      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isActionSSEEvent) },
+    });
+  }
+
+  async reconcileTempoNonceLane(payload: {
+    nearAccountId: string;
+    signedResult: TempoSignedResult | EvmSignedResult;
+    options?: {
+      onEvent?: (ev: {
+        step: number;
+        phase: string;
+        status: 'progress' | 'success' | 'error';
+        message?: string;
+        data?: unknown;
+      }) => void;
+    };
+  }): Promise<{
+    chainNextNonce: string;
+    unresolvedInFlightNonces: string[];
+    blocked: boolean;
+    blockedNonce?: string;
+  }> {
+    const res = await this.post<{
+      chainNextNonce: string;
+      unresolvedInFlightNonces: string[];
+      blocked: boolean;
+      blockedNonce?: string;
+    }>({
+      type: 'PM_RECONCILE_TEMPO_NONCE_LANE',
+      payload: {
+        nearAccountId: payload.nearAccountId,
+        signedResult: payload.signedResult,
+      },
+      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isActionSSEEvent) },
+    });
+    return res.result;
   }
 
   async signTransactionWithKeyPair(payload: {

@@ -7,6 +7,7 @@ export type CanonicalWalletSignerErrorCode =
   | 'deployment_in_progress'
   | 'deployment_failed'
   | 'nonce_conflict_retryable'
+  | 'nonce_lane_blocked'
   | 'cancelled';
 
 const CANONICAL_SIGNER_CODES = new Set<CanonicalWalletSignerErrorCode>([
@@ -16,12 +17,17 @@ const CANONICAL_SIGNER_CODES = new Set<CanonicalWalletSignerErrorCode>([
   'deployment_in_progress',
   'deployment_failed',
   'nonce_conflict_retryable',
+  'nonce_lane_blocked',
   'cancelled',
 ]);
 
 const SIGNER_BOUNDARY_REQUEST_TYPES = new Set<ParentToChildType>([
   'PM_SIGN_TEMPO',
-  'PM_REPORT_TEMPO_BROADCAST_RESULT',
+  'PM_REPORT_TEMPO_BROADCAST_ACCEPTED',
+  'PM_REPORT_TEMPO_BROADCAST_REJECTED',
+  'PM_REPORT_TEMPO_FINALIZED',
+  'PM_REPORT_TEMPO_DROPPED_OR_REPLACED',
+  'PM_RECONCILE_TEMPO_NONCE_LANE',
   'PM_SIGN_TXS_WITH_ACTIONS',
   'PM_SIGN_AND_SEND_TXS',
   'PM_SEND_TRANSACTION',
@@ -39,6 +45,8 @@ const CANONICAL_SIGNER_ERROR_MESSAGES: Record<CanonicalWalletSignerErrorCode, st
   deployment_in_progress: 'Smart-account deployment is already in progress.',
   deployment_failed: 'Smart-account deployment failed before signing.',
   nonce_conflict_retryable: 'Nonce conflict detected. Refresh nonce state and retry the request.',
+  nonce_lane_blocked:
+    'Nonce lane is blocked by unresolved in-flight transaction(s). Reconcile lane state and retry.',
   cancelled: 'Request cancelled.',
 };
 
@@ -151,6 +159,13 @@ function inferCanonicalCodeFromRawCode(rawCode: string): CanonicalWalletSignerEr
     return 'nonce_conflict_retryable';
   }
 
+  if (
+    rawCode === 'nonce_lane_blocked' ||
+    (rawCode.includes('nonce') && rawCode.includes('lane') && rawCode.includes('blocked'))
+  ) {
+    return 'nonce_lane_blocked';
+  }
+
   return null;
 }
 
@@ -180,6 +195,13 @@ function inferCanonicalCodeFromMessage(message: string): CanonicalWalletSignerEr
       return 'deployment_in_progress';
     }
     return 'deployment_failed';
+  }
+
+  if (
+    message.includes('nonce lane blocked') ||
+    (message.includes('nonce lane') && message.includes('blocked'))
+  ) {
+    return 'nonce_lane_blocked';
   }
 
   if (

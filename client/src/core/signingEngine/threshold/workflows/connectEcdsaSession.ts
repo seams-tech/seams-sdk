@@ -5,7 +5,8 @@ import type {
 } from '../webauthn';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import { bootstrapEcdsaSession } from './bootstrapEcdsaSession';
-import type { EcdsaSessionKind } from '../session/ecdsaAuthSession';
+
+type EcdsaSessionKind = 'jwt' | 'cookie';
 
 /**
  * Wallet-origin helper for threshold-ECDSA session bootstrap.

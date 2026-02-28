@@ -48,7 +48,10 @@ test.describe('TatchiPasskey namespaced signing surface', () => {
         const hasTempo =
           !!tatchi.tempo &&
           typeof tatchi.tempo.signTempo === 'function' &&
-          typeof tatchi.tempo.reportBroadcastResult === 'function' &&
+          typeof tatchi.tempo.reportBroadcastAccepted === 'function' &&
+          typeof tatchi.tempo.reportBroadcastRejected === 'function' &&
+          typeof tatchi.tempo.reportFinalized === 'function' &&
+          typeof tatchi.tempo.reconcileNonceLane === 'function' &&
           typeof tatchi.tempo.bootstrapEcdsaSession === 'function';
         const hasEvm = !!tatchi.evm && typeof tatchi.evm.bootstrapEcdsaSession === 'function';
         const noFlatMethods = flatMethods.every((name: string) => !(name in tatchi));

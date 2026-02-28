@@ -751,3 +751,381 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
     }
   });
 });
+
+type ThresholdRefreshCurve = 'ed25519' | 'ecdsa';
+type ThresholdRefreshSessionKind = 'jwt' | 'cookie';
+
+const THRESHOLD_REFRESH_MATRIX: ReadonlyArray<{
+  curve: ThresholdRefreshCurve;
+  sessionKind: ThresholdRefreshSessionKind;
+}> = [
+  { curve: 'ed25519', sessionKind: 'jwt' },
+  { curve: 'ed25519', sessionKind: 'cookie' },
+  { curve: 'ecdsa', sessionKind: 'jwt' },
+  { curve: 'ecdsa', sessionKind: 'cookie' },
+];
+
+for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
+  test.describe('threshold refresh matrix (wallet iframe)', () => {
+    test.setTimeout(240_000);
+
+    test(`rehydrates ${matrixCase.curve} with sessionKind=${matrixCase.sessionKind} after refresh`, async ({
+      page,
+    }) => {
+      const harness = await setupThresholdEcdsaSealedRefreshHarness(page);
+      const webauthnGetCounter = { calls: 0 };
+      const detachCounter = attachWebAuthnGetCounter(page, webauthnGetCounter);
+      try {
+        const firstPhasePromise = page.evaluate(
+          async ({ relayerUrl, keyVersion, shamirPrimeB64u, curve, sessionKind }) => {
+            try {
+              const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+              const actionsMod = await import('/sdk/esm/core/types/actions.js');
+              const indexedDbMod = await import('/sdk/esm/core/indexedDB/index.js');
+              const { TatchiPasskey } = sdkMod as any;
+              const { ActionType } = actionsMod as any;
+              const { IndexedDBManager } = indexedDbMod as any;
+
+              const confirmationConfig = {
+                uiMode: 'none' as const,
+                behavior: 'skipClick' as const,
+                autoProceedDelay: 0,
+              };
+              const accountId =
+                `refreshmatrix-${curve}-${sessionKind}-${Date.now()}.w3a-v1.testnet`.toLowerCase();
+              const tatchi = new TatchiPasskey({
+                nearNetwork: 'testnet',
+                nearRpcUrl: 'https://test.rpc.fastnear.com',
+                relayerAccount: 'web3-authn-v4.testnet',
+                relayer: {
+                  url: relayerUrl,
+                  smartAccountDeploymentMode: 'observe',
+                },
+                signerMode: { mode: 'threshold-signer' },
+                signingSessionPersistenceMode: 'sealed_refresh_v1',
+                signingSessionSeal: {
+                  keyVersion,
+                  shamirPrimeB64u,
+                },
+              });
+
+              tatchi.setConfirmationConfig(confirmationConfig as any);
+
+              const registration = await tatchi.registration.registerPasskeyInternal(
+                accountId,
+                {
+                  signerMode: { mode: 'threshold-signer' },
+                },
+                confirmationConfig as any,
+              );
+              if (!registration?.success) {
+                return {
+                  ok: false,
+                  error: String(registration?.error || 'registration failed'),
+                };
+              }
+
+              const login = await tatchi.loginAndCreateSession(accountId);
+              if (!login?.success) {
+                return {
+                  ok: false,
+                  error: String(login?.error || 'loginAndCreateSession failed'),
+                };
+              }
+
+              const signingEngine = tatchi.getContext().signingEngine as any;
+              const lastUser = await IndexedDBManager.clientDB
+                .getNearAccountProjection(accountId)
+                .catch(() => null);
+              const deviceNumber = Number.isFinite(Number(lastUser?.deviceNumber))
+                ? Math.max(1, Math.floor(Number(lastUser.deviceNumber)))
+                : 1;
+              const thresholdKeyMaterial = await IndexedDBManager.getNearThresholdKeyMaterial(
+                accountId,
+                deviceNumber,
+              );
+              const relayerKeyId = String(thresholdKeyMaterial?.relayerKeyId || '').trim();
+              const participantIds = Array.isArray(thresholdKeyMaterial?.participants)
+                ? thresholdKeyMaterial.participants
+                    .map((participant: any) => Number(participant?.id))
+                    .filter((id: number) => Number.isFinite(id) && id > 0)
+                    .map((id: number) => Math.floor(id))
+                : [];
+              if (!relayerKeyId || participantIds.length < 2) {
+                return {
+                  ok: false,
+                  error: 'Missing threshold key material after login',
+                };
+              }
+
+              const ecdsaBootstrap = await signingEngine.bootstrapEcdsaSession({
+                nearAccountId: accountId,
+                chain: 'tempo',
+                source: 'manual-bootstrap',
+                relayerUrl,
+                participantIds,
+                sessionKind: curve === 'ecdsa' ? sessionKind : 'jwt',
+                ttlMs: 120_000,
+                remainingUses: 8,
+              });
+              const thresholdSessionId = String(
+                ecdsaBootstrap?.thresholdEcdsaKeyRef?.thresholdSessionId ||
+                  ecdsaBootstrap?.session?.sessionId ||
+                  '',
+              ).trim();
+              if (!thresholdSessionId) {
+                return {
+                  ok: false,
+                  error: 'bootstrapEcdsaSession did not return thresholdSessionId',
+                };
+              }
+
+              if (curve === 'ed25519') {
+                const connected = await signingEngine.connectEd25519Session({
+                  nearAccountId: accountId,
+                  relayerUrl,
+                  relayerKeyId,
+                  participantIds,
+                  sessionKind,
+                  ttlMs: 120_000,
+                  remainingUses: 8,
+                  sessionId: thresholdSessionId,
+                });
+                if (!connected?.ok) {
+                  return {
+                    ok: false,
+                    error: String(
+                      connected?.message || connected?.code || 'connectEd25519Session failed',
+                    ),
+                  };
+                }
+                if (sessionKind === 'jwt') {
+                  const firstSign = await tatchi.near.executeAction({
+                    nearAccountId: accountId,
+                    receiverId: 'w3a-v1.testnet',
+                    actionArgs: {
+                      type: ActionType.FunctionCall,
+                      methodName: 'set_greeting',
+                      args: { greeting: `hello-first-${curve}-${sessionKind}-${Date.now()}` },
+                      gas: '30000000000000',
+                      deposit: '0',
+                    },
+                    options: {
+                      waitUntil: 'EXECUTED_OPTIMISTIC' as any,
+                      confirmationConfig,
+                    },
+                  });
+                  if (!firstSign?.success) {
+                    return {
+                      ok: false,
+                      error: String(firstSign?.error || 'first near sign failed'),
+                    };
+                  }
+                }
+              } else {
+                if (sessionKind === 'jwt') {
+                  const firstSign = await tatchi.tempo.signTempo({
+                    nearAccountId: accountId,
+                    request: {
+                      chain: 'tempo' as const,
+                      kind: 'tempoTransaction' as const,
+                      senderSignatureAlgorithm: 'secp256k1' as const,
+                      tx: {
+                        chainId: 42431,
+                        maxPriorityFeePerGas: 1n,
+                        maxFeePerGas: 2n,
+                        gasLimit: 21_000n,
+                        calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
+                        accessList: [],
+                        nonceKey: 0n,
+                        validBefore: null,
+                        validAfter: null,
+                        feePayerSignature: { kind: 'none' as const },
+                        aaAuthorizationList: [],
+                      },
+                    },
+                    options: { confirmationConfig },
+                  });
+                  if (!firstSign || firstSign.kind !== 'tempoTransaction') {
+                    return {
+                      ok: false,
+                      error: 'first tempo sign failed',
+                    };
+                  }
+                }
+              }
+
+              const session = await tatchi.auth.getSession(accountId);
+              return {
+                ok: true,
+                accountId,
+                sessionStatus: String(session?.signingSession?.status || ''),
+              };
+            } catch (error: unknown) {
+              return {
+                ok: false,
+                error: String(
+                  error && typeof error === 'object' && 'message' in error
+                    ? (error as { message?: unknown }).message
+                    : error || 'first phase failed',
+                ),
+              };
+            }
+          },
+          {
+            relayerUrl: harness.relayerUrl,
+            keyVersion: TEST_KEY_VERSION,
+            shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
+            curve: matrixCase.curve,
+            sessionKind: matrixCase.sessionKind,
+          },
+        );
+        const firstPhase = await autoConfirmWalletIframeUntil(page, firstPhasePromise, {
+          timeoutMs: 150_000,
+          intervalMs: 250,
+        });
+
+        expect(firstPhase.ok, firstPhase.error || JSON.stringify(firstPhase)).toBe(true);
+        expect(firstPhase.sessionStatus).toBe('active');
+        const getCallsAfterFirstPhase = webauthnGetCounter.calls;
+
+        await page.reload();
+        await page.waitForTimeout(300);
+
+        const secondPhasePromise = page.evaluate(
+          async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u, curve, sessionKind }) => {
+            try {
+              const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+              const actionsMod = await import('/sdk/esm/core/types/actions.js');
+              const { TatchiPasskey } = sdkMod as any;
+              const { ActionType } = actionsMod as any;
+
+              const confirmationConfig = {
+                uiMode: 'none' as const,
+                behavior: 'skipClick' as const,
+                autoProceedDelay: 0,
+              };
+              const tatchi = new TatchiPasskey({
+                nearNetwork: 'testnet',
+                nearRpcUrl: 'https://test.rpc.fastnear.com',
+                relayerAccount: 'web3-authn-v4.testnet',
+                relayer: {
+                  url: relayerUrl,
+                  smartAccountDeploymentMode: 'observe',
+                },
+                signerMode: { mode: 'threshold-signer' },
+                signingSessionPersistenceMode: 'sealed_refresh_v1',
+                signingSessionSeal: {
+                  keyVersion,
+                  shamirPrimeB64u,
+                },
+              });
+
+              tatchi.setConfirmationConfig(confirmationConfig as any);
+
+              if (curve === 'ed25519') {
+                if (sessionKind === 'jwt') {
+                  const refreshedSign = await tatchi.near.executeAction({
+                    nearAccountId: accountId,
+                    receiverId: 'w3a-v1.testnet',
+                    actionArgs: {
+                      type: ActionType.FunctionCall,
+                      methodName: 'set_greeting',
+                      args: { greeting: `hello-refresh-${curve}-${Date.now()}` },
+                      gas: '30000000000000',
+                      deposit: '0',
+                    },
+                    options: {
+                      waitUntil: 'EXECUTED_OPTIMISTIC' as any,
+                      confirmationConfig,
+                    },
+                  });
+                  if (!refreshedSign?.success) {
+                    return {
+                      ok: false,
+                      error: String(refreshedSign?.error || 'near sign after refresh failed'),
+                    };
+                  }
+                }
+              } else {
+                if (sessionKind === 'jwt') {
+                  const refreshedSign = await tatchi.tempo.signTempo({
+                    nearAccountId: accountId,
+                    request: {
+                      chain: 'tempo' as const,
+                      kind: 'tempoTransaction' as const,
+                      senderSignatureAlgorithm: 'secp256k1' as const,
+                      tx: {
+                        chainId: 42431,
+                        maxPriorityFeePerGas: 1n,
+                        maxFeePerGas: 2n,
+                        gasLimit: 21_000n,
+                        calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
+                        accessList: [],
+                        nonceKey: 0n,
+                        validBefore: null,
+                        validAfter: null,
+                        feePayerSignature: { kind: 'none' as const },
+                        aaAuthorizationList: [],
+                      },
+                    },
+                    options: { confirmationConfig },
+                  });
+                  if (!refreshedSign || refreshedSign.kind !== 'tempoTransaction') {
+                    return {
+                      ok: false,
+                      error: 'tempo sign after refresh failed',
+                    };
+                  }
+                }
+              }
+
+              const session = await tatchi.auth.getSession(accountId);
+              return {
+                ok: true,
+                sessionStatus: String(session?.signingSession?.status || ''),
+              };
+            } catch (error: unknown) {
+              return {
+                ok: false,
+                error: String(
+                  error && typeof error === 'object' && 'message' in error
+                    ? (error as { message?: unknown }).message
+                    : error || 'second phase failed',
+                ),
+              };
+            }
+          },
+          {
+            relayerUrl: harness.relayerUrl,
+            accountId: firstPhase.accountId,
+            keyVersion: TEST_KEY_VERSION,
+            shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
+            curve: matrixCase.curve,
+            sessionKind: matrixCase.sessionKind,
+          },
+        );
+        const secondPhase = await autoConfirmWalletIframeUntil(page, secondPhasePromise, {
+          timeoutMs: 120_000,
+          intervalMs: 250,
+        });
+
+        expect(secondPhase.ok, secondPhase.error || JSON.stringify(secondPhase)).toBe(true);
+        expect(secondPhase.sessionStatus).toBe('active');
+        expect(
+          webauthnGetCounter.calls,
+          JSON.stringify({
+            matrixCase,
+            getCallsAfterFirstPhase,
+            finalGetCalls: webauthnGetCounter.calls,
+            firstPhase,
+            secondPhase,
+          }),
+        ).toBe(getCallsAfterFirstPhase);
+      } finally {
+        detachCounter();
+        await harness.close();
+      }
+    });
+  });
+}

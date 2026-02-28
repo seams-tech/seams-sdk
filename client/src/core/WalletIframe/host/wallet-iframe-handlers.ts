@@ -279,15 +279,35 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOkResult(req.requestId, result);
     },
 
-    PM_REPORT_TEMPO_BROADCAST_RESULT: async (req: Req<'PM_REPORT_TEMPO_BROADCAST_RESULT'>) => {
+    PM_REPORT_TEMPO_BROADCAST_ACCEPTED: async (
+      req: Req<'PM_REPORT_TEMPO_BROADCAST_ACCEPTED'>,
+    ) => {
       const pm = getTatchiPasskey();
-      const { nearAccountId, signedResult, status, txHash, error } = req.payload!;
+      const { nearAccountId, signedResult, txHash } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
-      await pm.tempo.reportBroadcastResult({
+      await pm.tempo.reportBroadcastAccepted({
         nearAccountId,
         signedResult,
-        status,
         ...(txHash ? { txHash } : {}),
+        options: {
+          onEvent: (ev) => {
+            postProgress(req.requestId, ev as unknown as ProgressPayload);
+          },
+        },
+      });
+      if (respondIfCancelled(req.requestId)) return;
+      respondOk(req.requestId);
+    },
+
+    PM_REPORT_TEMPO_BROADCAST_REJECTED: async (
+      req: Req<'PM_REPORT_TEMPO_BROADCAST_REJECTED'>,
+    ) => {
+      const pm = getTatchiPasskey();
+      const { nearAccountId, signedResult, error } = req.payload!;
+      if (respondIfCancelled(req.requestId)) return;
+      await pm.tempo.reportBroadcastRejected({
+        nearAccountId,
+        signedResult,
         ...(error ? { error } : {}),
         options: {
           onEvent: (ev) => {
@@ -297,6 +317,63 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       });
       if (respondIfCancelled(req.requestId)) return;
       respondOk(req.requestId);
+    },
+
+    PM_REPORT_TEMPO_FINALIZED: async (req: Req<'PM_REPORT_TEMPO_FINALIZED'>) => {
+      const pm = getTatchiPasskey();
+      const { nearAccountId, signedResult, txHash, receiptStatus } = req.payload!;
+      if (respondIfCancelled(req.requestId)) return;
+      await pm.tempo.reportFinalized({
+        nearAccountId,
+        signedResult,
+        ...(txHash ? { txHash } : {}),
+        ...(receiptStatus ? { receiptStatus } : {}),
+        options: {
+          onEvent: (ev) => {
+            postProgress(req.requestId, ev as unknown as ProgressPayload);
+          },
+        },
+      });
+      if (respondIfCancelled(req.requestId)) return;
+      respondOk(req.requestId);
+    },
+
+    PM_REPORT_TEMPO_DROPPED_OR_REPLACED: async (
+      req: Req<'PM_REPORT_TEMPO_DROPPED_OR_REPLACED'>,
+    ) => {
+      const pm = getTatchiPasskey();
+      const { nearAccountId, signedResult, reason, txHash } = req.payload!;
+      if (respondIfCancelled(req.requestId)) return;
+      await pm.tempo.reportDroppedOrReplaced({
+        nearAccountId,
+        signedResult,
+        reason,
+        ...(txHash ? { txHash } : {}),
+        options: {
+          onEvent: (ev) => {
+            postProgress(req.requestId, ev as unknown as ProgressPayload);
+          },
+        },
+      });
+      if (respondIfCancelled(req.requestId)) return;
+      respondOk(req.requestId);
+    },
+
+    PM_RECONCILE_TEMPO_NONCE_LANE: async (req: Req<'PM_RECONCILE_TEMPO_NONCE_LANE'>) => {
+      const pm = getTatchiPasskey();
+      const { nearAccountId, signedResult } = req.payload!;
+      if (respondIfCancelled(req.requestId)) return;
+      const result = await pm.tempo.reconcileNonceLane({
+        nearAccountId,
+        signedResult,
+        options: {
+          onEvent: (ev) => {
+            postProgress(req.requestId, ev as unknown as ProgressPayload);
+          },
+        },
+      });
+      if (respondIfCancelled(req.requestId)) return;
+      respondOkResult(req.requestId, result);
     },
 
     PM_EXPORT_KEYPAIR_UI: async (req: Req<'PM_EXPORT_KEYPAIR_UI'>) => {

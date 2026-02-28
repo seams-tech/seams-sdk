@@ -7,6 +7,7 @@ import type { ChainAccountRecord } from '@/core/indexedDB/passkeyClientDB.types'
 import type { TatchiChainConfig, TatchiConfigsReadonly } from '@/core/types/tatchi';
 import {
   fromManagedNonceReservationSnapshot,
+  type NonceLaneStatus,
   type EvmNonceManager,
   type ReserveNonceInput,
 } from '@/core/rpcClients/evm/nonceManager';
@@ -15,6 +16,7 @@ import type { EvmSignedResult } from '../chainAdaptors/evm/evmAdapter';
 import type { TempoSigningRequest } from '../chainAdaptors/tempo/types';
 import type { TempoSignedResult } from '../chainAdaptors/tempo/tempoAdapter';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../interfaces/signing';
+import { emitNonceLifecycleMetric } from './evmNonceLifecycleMetrics';
 import {
   deriveSmartAccountDeploymentTargetFromSigningRequest,
   ensureSmartAccountDeployed,
@@ -70,20 +72,47 @@ export type EvmFamilySigningDeps = {
     ThresholdPrfFirstCacheDispensePort;
 };
 
-export type EvmFamilyBroadcastStatus = 'success' | 'failure';
-export type EvmFamilyBroadcastResultArgs = {
+type EvmFamilyLifecycleEvent = {
+  step: number;
+  phase: string;
+  status: 'progress' | 'success' | 'error';
+  message?: string;
+  data?: unknown;
+};
+
+type EvmFamilyLifecycleEventCallback = (event: EvmFamilyLifecycleEvent) => void;
+
+type EvmFamilyLifecycleArgsBase = {
   nearAccountId: string;
   signedResult: TempoSignedResult | EvmSignedResult;
-  status: EvmFamilyBroadcastStatus;
+  onEvent?: EvmFamilyLifecycleEventCallback;
+};
+
+export type EvmFamilyBroadcastAcceptedArgs = EvmFamilyLifecycleArgsBase & {
   txHash?: `0x${string}`;
+};
+
+export type EvmFamilyBroadcastRejectedArgs = EvmFamilyLifecycleArgsBase & {
   error?: unknown;
-  onEvent?: (event: {
-    step: number;
-    phase: string;
-    status: 'progress' | 'success' | 'error';
-    message?: string;
-    data?: unknown;
-  }) => void;
+};
+
+export type EvmFamilyFinalizedArgs = EvmFamilyLifecycleArgsBase & {
+  txHash?: `0x${string}`;
+  receiptStatus?: 'success' | 'reverted';
+};
+
+export type EvmFamilyDroppedOrReplacedArgs = EvmFamilyLifecycleArgsBase & {
+  reason: 'dropped' | 'replaced';
+  txHash?: `0x${string}`;
+};
+
+export type EvmFamilyReconcileLaneArgs = EvmFamilyLifecycleArgsBase;
+
+export type EvmFamilyNonceLaneStatus = {
+  chainNextNonce: string;
+  unresolvedInFlightNonces: string[];
+  blocked: boolean;
+  blockedNonce?: string;
 };
 
 type EvmFamilySigningCancelledError = Error & { code: 'cancelled' };
@@ -100,6 +129,17 @@ type EvmFamilySigningNonceConflictError = Error & {
       | 'nonce_conflict';
     networkKey: string;
     chainId: number;
+  };
+};
+type EvmFamilySigningNonceLaneBlockedError = Error & {
+  code: 'nonce_lane_blocked';
+  retryable: true;
+  details: {
+    chain: 'tempo' | 'evm';
+    networkKey: string;
+    chainId: number;
+    blockedNonce: string;
+    ageMs?: number;
   };
 };
 type ManagedNonceReservation = ReserveNonceInput & { nonce: bigint };
@@ -198,6 +238,35 @@ function createEvmFamilySigningNonceConflictError(args: {
   return err;
 }
 
+function createEvmFamilySigningNonceLaneBlockedError(args: {
+  chain: 'tempo' | 'evm';
+  networkKey: string;
+  chainId: number;
+  blockedNonce: string;
+  ageMs?: number;
+  cause?: unknown;
+}): EvmFamilySigningNonceLaneBlockedError {
+  const chainLabel = args.chain === 'tempo' ? 'Tempo' : 'EVM';
+  const err = new Error(
+    `[SigningEngine] ${chainLabel} nonce lane blocked on ${args.networkKey} (nonce=${args.blockedNonce}). Reconcile lane and retry.`,
+  ) as EvmFamilySigningNonceLaneBlockedError;
+  err.code = 'nonce_lane_blocked';
+  err.retryable = true;
+  err.details = {
+    chain: args.chain,
+    networkKey: args.networkKey,
+    chainId: args.chainId,
+    blockedNonce: args.blockedNonce,
+    ...(typeof args.ageMs === 'number' ? { ageMs: args.ageMs } : {}),
+  };
+  if (args.cause !== undefined) {
+    try {
+      (err as Error & { cause?: unknown }).cause = args.cause;
+    } catch {}
+  }
+  return err;
+}
+
 function mapToRetryableNonceConflictError(args: {
   error: unknown;
   chain: 'tempo' | 'evm';
@@ -221,6 +290,60 @@ function mapToRetryableNonceConflictError(args: {
   });
 }
 
+function mapToRetryableNonceLaneBlockedError(args: {
+  error: unknown;
+  chain: 'tempo' | 'evm';
+  networkKey: string;
+  chainId: number;
+}): unknown {
+  if (!args.error || typeof args.error !== 'object') return args.error;
+  const existingCode = extractErrorCode(args.error);
+  if (existingCode === 'nonce_lane_blocked') {
+    const details =
+      typeof (args.error as { details?: unknown }).details === 'object'
+        ? ((args.error as { details?: Record<string, unknown> }).details || {})
+        : {};
+    const blockedNonceRaw = String(details?.blockedNonce || '').trim();
+    const ageRaw = Number(details?.ageMs);
+    return createEvmFamilySigningNonceLaneBlockedError({
+      chain: args.chain,
+      networkKey: args.networkKey,
+      chainId: args.chainId,
+      blockedNonce: blockedNonceRaw || 'unknown',
+      ...(Number.isFinite(ageRaw) ? { ageMs: ageRaw } : {}),
+      cause: args.error,
+    });
+  }
+
+  const message = extractErrorMessage(args.error).toLowerCase();
+  if (
+    message.includes('nonce lane blocked') ||
+    (message.includes('nonce') && message.includes('blocked'))
+  ) {
+    return createEvmFamilySigningNonceLaneBlockedError({
+      chain: args.chain,
+      networkKey: args.networkKey,
+      chainId: args.chainId,
+      blockedNonce: 'unknown',
+      cause: args.error,
+    });
+  }
+  return args.error;
+}
+
+function mapToRetryableNonceStateError(args: {
+  error: unknown;
+  chain: 'tempo' | 'evm';
+  networkKey: string;
+  chainId: number;
+}): unknown {
+  const mappedConflict = mapToRetryableNonceConflictError(args);
+  return mapToRetryableNonceLaneBlockedError({
+    ...args,
+    error: mappedConflict,
+  });
+}
+
 function toManagedNonceReservationFromSignedResult(args: {
   signedResult: TempoSignedResult | EvmSignedResult;
   nearAccountId: string;
@@ -240,15 +363,25 @@ function toManagedNonceReservationFromSignedResult(args: {
   }
 }
 
+function toNonceLifecycleMetricBase(
+  reservation: ManagedNonceReservation,
+): Omit<Parameters<typeof emitNonceLifecycleMetric>[0], 'metric'> {
+  const base = {
+    chain: reservation.chain,
+    networkKey: reservation.networkKey,
+    chainId: reservation.chainId,
+    sender: reservation.sender,
+    nonce: reservation.nonce.toString(),
+    ...(reservation.nearAccountId ? { nearAccountId: reservation.nearAccountId } : {}),
+  };
+  return reservation.nonceKey != null
+    ? { ...base, nonceKey: reservation.nonceKey.toString() }
+    : base;
+}
+
 function emitEvmFamilyBroadcastEvent(
-  onEvent: EvmFamilyBroadcastResultArgs['onEvent'],
-  event: {
-    step: number;
-    phase: string;
-    status: 'progress' | 'success' | 'error';
-    message?: string;
-    data?: unknown;
-  },
+  onEvent: EvmFamilyLifecycleEventCallback | undefined,
+  event: EvmFamilyLifecycleEvent,
 ): void {
   try {
     onEvent?.(event);
@@ -260,6 +393,13 @@ function isNonceConflictRetryableError(
 ): error is EvmFamilySigningNonceConflictError {
   if (!error || typeof error !== 'object') return false;
   return extractErrorCode(error) === 'nonce_conflict_retryable';
+}
+
+function isNonceLaneBlockedRetryableError(
+  error: unknown,
+): error is EvmFamilySigningNonceLaneBlockedError {
+  if (!error || typeof error !== 'object') return false;
+  return extractErrorCode(error) === 'nonce_lane_blocked';
 }
 
 function tryGetThresholdEcdsaKeyRefForSigning(args: {
@@ -524,7 +664,7 @@ async function reserveManagedNonceForRequest(args: {
   try {
     nonce = await args.deps.evmNonceManager.reserveNextNonce(reservationInput);
   } catch (error: unknown) {
-    throw mapToRetryableNonceConflictError({
+    throw mapToRetryableNonceStateError({
       error,
       chain: 'evm',
       networkKey: reservationInput.networkKey,
@@ -567,7 +707,7 @@ async function reserveManagedNonceForTempoRequest(args: {
   try {
     nonce = await args.deps.evmNonceManager.reserveNextNonce(reservationInput);
   } catch (error: unknown) {
-    throw mapToRetryableNonceConflictError({
+    throw mapToRetryableNonceStateError({
       error,
       chain: 'tempo',
       networkKey: reservationInput.networkKey,
@@ -589,9 +729,18 @@ async function reserveManagedNonceForTempoRequest(args: {
   };
 }
 
-export async function reportEvmFamilyBroadcastResult(
+function formatNonceLaneStatus(status: NonceLaneStatus): EvmFamilyNonceLaneStatus {
+  return {
+    chainNextNonce: status.chainNextNonce.toString(),
+    unresolvedInFlightNonces: status.unresolvedInFlightNonces.map((value) => value.toString()),
+    blocked: status.blocked,
+    ...(status.blockedNonce != null ? { blockedNonce: status.blockedNonce.toString() } : {}),
+  };
+}
+
+export async function reportEvmFamilyBroadcastAccepted(
   deps: EvmFamilySigningDeps,
-  args: EvmFamilyBroadcastResultArgs,
+  args: EvmFamilyBroadcastAcceptedArgs,
 ): Promise<void> {
   const reservation = toManagedNonceReservationFromSignedResult({
     signedResult: args.signedResult,
@@ -599,49 +748,11 @@ export async function reportEvmFamilyBroadcastResult(
   });
   if (!reservation) return;
 
-  if (args.status === 'success') {
-    emitEvmFamilyBroadcastEvent(args.onEvent, {
-      step: 7,
-      phase: 'nonce-commit',
-      status: 'progress',
-      message: 'Committing managed nonce reservation after broadcast',
-      data: {
-        chain: reservation.chain,
-        networkKey: reservation.networkKey,
-        chainId: reservation.chainId.toString(),
-        nonce: reservation.nonce.toString(),
-      },
-    });
-    const txHash =
-      args.txHash ||
-      (args.signedResult.chain === 'evm'
-        ? (args.signedResult.txHashHex as `0x${string}`)
-        : undefined);
-    await deps.evmNonceManager.commitBroadcast({
-      ...reservation,
-      ...(txHash ? { txHash } : {}),
-    });
-    emitEvmFamilyBroadcastEvent(args.onEvent, {
-      step: 7,
-      phase: 'nonce-commit',
-      status: 'success',
-      message: 'Managed nonce reservation committed',
-      data: {
-        chain: reservation.chain,
-        networkKey: reservation.networkKey,
-        chainId: reservation.chainId.toString(),
-        nonce: reservation.nonce.toString(),
-        ...(txHash ? { txHash } : {}),
-      },
-    });
-    return;
-  }
-
   emitEvmFamilyBroadcastEvent(args.onEvent, {
     step: 7,
-    phase: 'nonce-release',
+    phase: 'nonce-broadcast-accepted',
     status: 'progress',
-    message: 'Releasing managed nonce reservation after broadcast failure',
+    message: 'Marking managed nonce lane as in-flight',
     data: {
       chain: reservation.chain,
       networkKey: reservation.networkKey,
@@ -649,12 +760,49 @@ export async function reportEvmFamilyBroadcastResult(
       nonce: reservation.nonce.toString(),
     },
   });
-  deps.evmNonceManager.releaseReservation(reservation);
+  const txHash =
+    args.txHash ||
+    (args.signedResult.chain === 'evm'
+      ? (args.signedResult.txHashHex as `0x${string}`)
+      : undefined);
+  await deps.evmNonceManager.markBroadcastAccepted({
+    ...reservation,
+    ...(txHash ? { txHash } : {}),
+  });
+  emitNonceLifecycleMetric({
+    metric: 'broadcast_accepted',
+    ...toNonceLifecycleMetricBase(reservation),
+    ...(txHash ? { txHash } : {}),
+  });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
     step: 7,
-    phase: 'nonce-release',
+    phase: 'nonce-broadcast-accepted',
     status: 'success',
-    message: 'Managed nonce reservation released',
+    message: 'Managed nonce lane marked in-flight',
+    data: {
+      chain: reservation.chain,
+      networkKey: reservation.networkKey,
+      chainId: reservation.chainId.toString(),
+      nonce: reservation.nonce.toString(),
+      ...(txHash ? { txHash } : {}),
+    },
+  });
+}
+
+export async function reportEvmFamilyBroadcastRejected(
+  deps: EvmFamilySigningDeps,
+  args: EvmFamilyBroadcastRejectedArgs,
+): Promise<void> {
+  const reservation = toManagedNonceReservationFromSignedResult({
+    signedResult: args.signedResult,
+    nearAccountId: args.nearAccountId,
+  });
+  if (!reservation) return;
+  emitEvmFamilyBroadcastEvent(args.onEvent, {
+    step: 7,
+    phase: 'nonce-broadcast-rejected',
+    status: 'progress',
+    message: 'Marking managed nonce reservation rejected',
     data: {
       chain: reservation.chain,
       networkKey: reservation.networkKey,
@@ -662,42 +810,234 @@ export async function reportEvmFamilyBroadcastResult(
       nonce: reservation.nonce.toString(),
     },
   });
-
-  const mappedError = mapToRetryableNonceConflictError({
+  deps.evmNonceManager.markBroadcastRejected(reservation);
+  const mappedError = mapToRetryableNonceStateError({
     error: args.error,
     chain: reservation.chain,
     networkKey: reservation.networkKey,
     chainId: reservation.chainId,
   });
-  if (!isNonceConflictRetryableError(mappedError)) return;
-
+  emitNonceLifecycleMetric({
+    metric: 'broadcast_rejected',
+    ...toNonceLifecycleMetricBase(reservation),
+    errorCode: extractErrorCode(mappedError) || extractErrorCode(args.error),
+  });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
     step: 7,
-    phase: 'nonce-refresh',
-    status: 'progress',
-    message: 'Refreshing managed nonce state after broadcast conflict',
+    phase: 'nonce-broadcast-rejected',
+    status: 'success',
+    message: 'Managed nonce reservation marked rejected',
     data: {
       chain: reservation.chain,
       networkKey: reservation.networkKey,
       chainId: reservation.chainId.toString(),
       nonce: reservation.nonce.toString(),
-      conflictType: mappedError.details.reason,
     },
   });
-  await deps.evmNonceManager.refreshFromChain(reservation).catch(() => null);
+  if (!isNonceConflictRetryableError(mappedError) && !isNonceLaneBlockedRetryableError(mappedError)) {
+    return;
+  }
+
   emitEvmFamilyBroadcastEvent(args.onEvent, {
     step: 7,
-    phase: 'nonce-refresh',
-    status: 'success',
-    message: 'Managed nonce state refreshed',
+    phase: 'nonce-reconcile',
+    status: 'progress',
+    message: 'Reconciling managed nonce lane after broadcast error',
     data: {
       chain: reservation.chain,
       networkKey: reservation.networkKey,
       chainId: reservation.chainId.toString(),
-      conflictType: mappedError.details.reason,
+      nonce: reservation.nonce.toString(),
+      errorCode: extractErrorCode(mappedError),
     },
   });
+  const laneStatus = await deps.evmNonceManager.reconcileLane(reservation).catch(() => null);
+  emitEvmFamilyBroadcastEvent(args.onEvent, {
+    step: 7,
+    phase: 'nonce-reconcile',
+    status: 'success',
+    message: 'Managed nonce lane reconciled',
+    data: {
+      chain: reservation.chain,
+      networkKey: reservation.networkKey,
+      chainId: reservation.chainId.toString(),
+      ...(laneStatus ? { laneStatus: formatNonceLaneStatus(laneStatus) } : {}),
+    },
+  });
+  emitNonceLifecycleMetric({
+    metric: 'reconciled',
+    ...toNonceLifecycleMetricBase(reservation),
+    errorCode: extractErrorCode(mappedError) || undefined,
+  });
   throw mappedError;
+}
+
+export async function reportEvmFamilyFinalized(
+  deps: EvmFamilySigningDeps,
+  args: EvmFamilyFinalizedArgs,
+): Promise<void> {
+  void args.receiptStatus;
+  const reservation = toManagedNonceReservationFromSignedResult({
+    signedResult: args.signedResult,
+    nearAccountId: args.nearAccountId,
+  });
+  if (!reservation) return;
+  const txHash =
+    args.txHash ||
+    (args.signedResult.chain === 'evm'
+      ? (args.signedResult.txHashHex as `0x${string}`)
+      : undefined);
+  emitEvmFamilyBroadcastEvent(args.onEvent, {
+    step: 7,
+    phase: 'nonce-finalized',
+    status: 'progress',
+    message: 'Finalizing managed nonce lane',
+    data: {
+      chain: reservation.chain,
+      networkKey: reservation.networkKey,
+      chainId: reservation.chainId.toString(),
+      nonce: reservation.nonce.toString(),
+      ...(txHash ? { txHash } : {}),
+    },
+  });
+  await deps.evmNonceManager.markFinalized({
+    ...reservation,
+    ...(txHash ? { txHash } : {}),
+  });
+  emitNonceLifecycleMetric({
+    metric: 'finalized',
+    ...toNonceLifecycleMetricBase(reservation),
+    ...(txHash ? { txHash } : {}),
+  });
+  emitEvmFamilyBroadcastEvent(args.onEvent, {
+    step: 7,
+    phase: 'nonce-finalized',
+    status: 'success',
+    message: 'Managed nonce lane finalized',
+    data: {
+      chain: reservation.chain,
+      networkKey: reservation.networkKey,
+      chainId: reservation.chainId.toString(),
+      nonce: reservation.nonce.toString(),
+      ...(txHash ? { txHash } : {}),
+    },
+  });
+}
+
+export async function reportEvmFamilyDroppedOrReplaced(
+  deps: EvmFamilySigningDeps,
+  args: EvmFamilyDroppedOrReplacedArgs,
+): Promise<void> {
+  const reservation = toManagedNonceReservationFromSignedResult({
+    signedResult: args.signedResult,
+    nearAccountId: args.nearAccountId,
+  });
+  if (!reservation) return;
+  emitEvmFamilyBroadcastEvent(args.onEvent, {
+    step: 7,
+    phase: 'nonce-dropped-or-replaced',
+    status: 'progress',
+    message:
+      args.reason === 'replaced'
+        ? 'Marking managed nonce lane replaced'
+        : 'Marking managed nonce lane dropped',
+    data: {
+      chain: reservation.chain,
+      networkKey: reservation.networkKey,
+      chainId: reservation.chainId.toString(),
+      nonce: reservation.nonce.toString(),
+      reason: args.reason,
+      ...(args.txHash ? { txHash: args.txHash } : {}),
+    },
+  });
+  await deps.evmNonceManager.markDroppedOrReplaced({
+    ...reservation,
+    reason: args.reason,
+    ...(args.txHash ? { txHash: args.txHash } : {}),
+  });
+  emitNonceLifecycleMetric({
+    metric: args.reason === 'replaced' ? 'replaced' : 'dropped',
+    ...toNonceLifecycleMetricBase(reservation),
+    ...(args.txHash ? { txHash: args.txHash } : {}),
+  });
+  emitEvmFamilyBroadcastEvent(args.onEvent, {
+    step: 7,
+    phase: 'nonce-dropped-or-replaced',
+    status: 'success',
+    message:
+      args.reason === 'replaced'
+        ? 'Managed nonce lane marked replaced'
+        : 'Managed nonce lane marked dropped',
+    data: {
+      chain: reservation.chain,
+      networkKey: reservation.networkKey,
+      chainId: reservation.chainId.toString(),
+      nonce: reservation.nonce.toString(),
+      reason: args.reason,
+      ...(args.txHash ? { txHash: args.txHash } : {}),
+    },
+  });
+}
+
+export async function reconcileEvmFamilyNonceLane(
+  deps: EvmFamilySigningDeps,
+  args: EvmFamilyReconcileLaneArgs,
+): Promise<EvmFamilyNonceLaneStatus> {
+  const reservation = toManagedNonceReservationFromSignedResult({
+    signedResult: args.signedResult,
+    nearAccountId: args.nearAccountId,
+  });
+  if (!reservation) {
+    return {
+      chainNextNonce: '0',
+      unresolvedInFlightNonces: [],
+      blocked: false,
+    };
+  }
+  emitEvmFamilyBroadcastEvent(args.onEvent, {
+    step: 7,
+    phase: 'nonce-reconcile',
+    status: 'progress',
+    message: 'Reconciling managed nonce lane',
+    data: {
+      chain: reservation.chain,
+      networkKey: reservation.networkKey,
+      chainId: reservation.chainId.toString(),
+    },
+  });
+  const laneStatus = await deps.evmNonceManager.reconcileLane(reservation);
+  const formatted = formatNonceLaneStatus(laneStatus);
+  emitNonceLifecycleMetric({
+    metric: 'reconciled',
+    ...toNonceLifecycleMetricBase(reservation),
+    ...(formatted.blockedNonce ? { blockedNonce: formatted.blockedNonce } : {}),
+  });
+  emitEvmFamilyBroadcastEvent(args.onEvent, {
+    step: 7,
+    phase: 'nonce-reconcile',
+    status: 'success',
+    message: 'Managed nonce lane reconciled',
+    data: {
+      chain: reservation.chain,
+      networkKey: reservation.networkKey,
+      chainId: reservation.chainId.toString(),
+      laneStatus: formatted,
+    },
+  });
+  if (laneStatus.blocked) {
+    emitNonceLifecycleMetric({
+      metric: 'lane_blocked',
+      ...toNonceLifecycleMetricBase(reservation),
+      blockedNonce: String(formatted.blockedNonce || 'unknown'),
+    });
+    throw createEvmFamilySigningNonceLaneBlockedError({
+      chain: reservation.chain,
+      networkKey: reservation.networkKey,
+      chainId: reservation.chainId,
+      blockedNonce: String(formatted.blockedNonce || 'unknown'),
+    });
+  }
+  return formatted;
 }
 
 async function ensureSmartAccountDeploymentReady(args: {
@@ -883,7 +1223,7 @@ export async function signEvmFamily(
     });
     // Warm nonce state as soon as sender/network are known; keep non-fatal and non-blocking.
     void reservationInputPromise
-      .then(reservationInput => deps.evmNonceManager.refreshFromChain(reservationInput))
+      .then(reservationInput => deps.evmNonceManager.reconcileLane(reservationInput))
       .catch(() => null);
     try {
       const result = await signEvmWithTouchConfirm({
@@ -896,12 +1236,12 @@ export async function signEvmFamily(
             reservationInput: await reservationInputPromise,
           }),
         releaseNonceReservation: (reservation) => {
-          deps.evmNonceManager.releaseReservation(reservation);
+          deps.evmNonceManager.markBroadcastRejected(reservation);
         },
       });
       return result;
     } catch (error: unknown) {
-      throw mapToRetryableNonceConflictError({
+      throw mapToRetryableNonceStateError({
         error,
         chain: 'evm',
         networkKey: resolveNonceNetworkKeyForError({
@@ -925,12 +1265,12 @@ export async function signEvmFamily(
           request,
         }),
       releaseNonceReservation: (reservation) => {
-        deps.evmNonceManager.releaseReservation(reservation);
+        deps.evmNonceManager.markBroadcastRejected(reservation);
       },
     });
     return result;
   } catch (error: unknown) {
-    throw mapToRetryableNonceConflictError({
+    throw mapToRetryableNonceStateError({
       error,
       chain: 'tempo',
       networkKey: resolveNonceNetworkKeyForError({

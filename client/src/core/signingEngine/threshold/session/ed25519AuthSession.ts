@@ -13,6 +13,7 @@ import {
   upsertStoredThresholdEd25519SessionRecord,
   type ThresholdEd25519SessionStoreSource,
 } from '../../api/thresholdLifecycle/thresholdSessionStore';
+import { emitThresholdSessionMetric } from '../../api/thresholdLifecycle/thresholdSessionMetrics';
 
 export type Ed25519SessionKind = 'jwt' | 'cookie';
 
@@ -26,6 +27,11 @@ export type Ed25519AuthSession = {
 };
 
 type Ed25519AuthSessionCacheEntry = Ed25519AuthSession;
+
+export type Ed25519ResolvedAuthSession = {
+  sessionKind: Ed25519SessionKind;
+  jwt?: string;
+};
 
 const authSessionCache = new Map<string, Ed25519AuthSessionCacheEntry>();
 const authSessionBySessionId = new Map<string, Ed25519AuthSessionCacheEntry>();
@@ -214,26 +220,77 @@ export function getCachedEd25519AuthSessionBySessionId(
   return entry;
 }
 
-export async function getCachedEd25519AuthSessionJwtBySessionId(
-  sessionIdRaw: string,
-): Promise<string | undefined> {
-  const cached = getCachedEd25519AuthSessionBySessionId(sessionIdRaw);
-  const jwt = cached?.jwt;
-  const trimmedCachedJwt = normalizeOptionalNonEmptyString(jwt);
-  if (trimmedCachedJwt) return trimmedCachedJwt;
+function toResolvedEd25519AuthSession(
+  entry: Ed25519AuthSession | null | undefined,
+): Ed25519ResolvedAuthSession | null {
+  if (!entry) return null;
+  const sessionKind: Ed25519SessionKind = entry.sessionKind === 'cookie' ? 'cookie' : 'jwt';
+  if (sessionKind === 'cookie') {
+    return { sessionKind: 'cookie' };
+  }
+  const jwt = normalizeOptionalNonEmptyString(entry.jwt);
+  if (!jwt) return null;
+  return {
+    sessionKind: 'jwt',
+    jwt,
+  };
+}
 
-  const record = getStoredThresholdEd25519SessionRecordByThresholdSessionId(sessionIdRaw);
-  if (!record) return undefined;
-  if (record.thresholdSessionKind !== 'jwt') return undefined;
+export async function resolveEd25519AuthSessionBySessionId(
+  sessionIdRaw: string,
+): Promise<Ed25519ResolvedAuthSession | null> {
+  const sessionId = toSessionId(sessionIdRaw);
+  if (!sessionId) return null;
+
+  const cached = toResolvedEd25519AuthSession(getCachedEd25519AuthSessionBySessionId(sessionId));
+  if (cached) {
+    emitThresholdSessionMetric({
+      metric: 'cache_hit',
+      curve: 'ed25519',
+      source: 'auth-session',
+      sessionId,
+    });
+    return cached;
+  }
+
+  const record = getStoredThresholdEd25519SessionRecordByThresholdSessionId(sessionId);
+  if (!record) {
+    emitThresholdSessionMetric({
+      metric: 'rehydrate_fail',
+      curve: 'ed25519',
+      source: 'auth-session',
+      sessionId,
+      reason: 'canonical_record_missing',
+    });
+    return null;
+  }
+  const recordSessionKind: Ed25519SessionKind =
+    record.thresholdSessionKind === 'cookie' ? 'cookie' : 'jwt';
   const recordJwt = normalizeOptionalNonEmptyString(record.thresholdSessionJwt);
-  if (!recordJwt) return undefined;
+  if (recordSessionKind === 'jwt' && !recordJwt) {
+    emitThresholdSessionMetric({
+      metric: 'rehydrate_fail',
+      curve: 'ed25519',
+      source: 'auth-session',
+      sessionId,
+      reason: 'jwt_missing',
+    });
+    return null;
+  }
   if (
     typeof record.expiresAtMs !== 'number' ||
     !Number.isFinite(record.expiresAtMs) ||
     record.expiresAtMs <= 0 ||
     Date.now() >= record.expiresAtMs
   ) {
-    return undefined;
+    emitThresholdSessionMetric({
+      metric: 'rehydrate_fail',
+      curve: 'ed25519',
+      source: 'auth-session',
+      sessionId,
+      reason: 'expired',
+    });
+    return null;
   }
 
   const rehydratedTtlMs = Math.max(1, Math.floor(record.expiresAtMs - Date.now()));
@@ -241,25 +298,60 @@ export async function getCachedEd25519AuthSessionJwtBySessionId(
     1,
     normalizePositiveInteger(record.remainingUses) || 1,
   );
-  await buildAndCacheEd25519AuthSession({
-    nearAccountId: String(record.nearAccountId || '').trim(),
-    rpId: String(record.rpId || '').trim(),
-    relayerUrl: String(record.relayerUrl || '').trim(),
-    relayerKeyId: String(record.relayerKeyId || '').trim(),
-    participantIds: record.participantIds,
-    sessionKind: record.thresholdSessionKind,
-    sessionId: String(record.thresholdSessionId || '').trim(),
-    expiresAtMs: Math.floor(record.expiresAtMs),
-    remainingUses: rehydratedRemainingUses,
-    jwt: recordJwt,
-    policyTtlMs: rehydratedTtlMs,
-    policyRemainingUses: rehydratedRemainingUses,
-    source: record.source,
-  });
+  try {
+    await buildAndCacheEd25519AuthSession({
+      nearAccountId: String(record.nearAccountId || '').trim(),
+      rpId: String(record.rpId || '').trim(),
+      relayerUrl: String(record.relayerUrl || '').trim(),
+      relayerKeyId: String(record.relayerKeyId || '').trim(),
+      participantIds: record.participantIds,
+      sessionKind: recordSessionKind,
+      sessionId: String(record.thresholdSessionId || '').trim(),
+      expiresAtMs: Math.floor(record.expiresAtMs),
+      remainingUses: rehydratedRemainingUses,
+      jwt: recordJwt,
+      policyTtlMs: rehydratedTtlMs,
+      policyRemainingUses: rehydratedRemainingUses,
+      source: record.source,
+    });
+  } catch {
+    emitThresholdSessionMetric({
+      metric: 'rehydrate_fail',
+      curve: 'ed25519',
+      source: 'auth-session',
+      sessionId,
+      reason: 'build_cache_failed',
+    });
+    return null;
+  }
 
-  const hydrated = getCachedEd25519AuthSessionBySessionId(record.thresholdSessionId);
-  const hydratedJwt = normalizeOptionalNonEmptyString(hydrated?.jwt);
-  return hydratedJwt || recordJwt;
+  const hydrated = toResolvedEd25519AuthSession(
+    getCachedEd25519AuthSessionBySessionId(record.thresholdSessionId),
+  );
+  const resolved: Ed25519ResolvedAuthSession | null =
+    hydrated ||
+    (recordSessionKind === 'cookie'
+      ? { sessionKind: 'cookie' }
+      : recordJwt
+        ? { sessionKind: 'jwt', jwt: recordJwt }
+        : null);
+  if (resolved) {
+    emitThresholdSessionMetric({
+      metric: 'rehydrate_hit',
+      curve: 'ed25519',
+      source: 'auth-session',
+      sessionId,
+    });
+    return resolved;
+  }
+  emitThresholdSessionMetric({
+    metric: 'rehydrate_fail',
+    curve: 'ed25519',
+    source: 'auth-session',
+    sessionId,
+    reason: 'auth_unavailable_after_rehydrate',
+  });
+  return null;
 }
 
 /**

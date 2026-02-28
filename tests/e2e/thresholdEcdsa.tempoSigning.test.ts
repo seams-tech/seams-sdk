@@ -32,7 +32,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
     }
   });
 
-  test('back-to-back managed EVM sends reserve distinct nonces after broadcast commit', async ({
+  test('back-to-back managed EVM sends reserve distinct nonces after broadcast acceptance', async ({
     page,
   }) => {
     const harness = await setupThresholdEcdsaTempoHarness(page);
@@ -136,10 +136,9 @@ test.describe('threshold-ecdsa tempo signing', () => {
               };
             }
 
-            await pm.tempo.reportBroadcastResult({
+            await pm.tempo.reportBroadcastAccepted({
               nearAccountId: accountId,
               signedResult: signed1,
-              status: 'success',
               txHash: ('0x' + '11'.repeat(32)) as `0x${string}`,
             });
 
@@ -157,10 +156,9 @@ test.describe('threshold-ecdsa tempo signing', () => {
               };
             }
 
-            await pm.tempo.reportBroadcastResult({
+            await pm.tempo.reportBroadcastAccepted({
               nearAccountId: accountId,
               signedResult: signed2,
-              status: 'success',
               txHash: ('0x' + '12'.repeat(32)) as `0x${string}`,
             });
 
@@ -188,6 +186,425 @@ test.describe('threshold-ecdsa tempo signing', () => {
       expect(result.nonce1).toBeTruthy();
       expect(result.nonce2).toBeTruthy();
       expect(Number(result.delta || '0')).toBeGreaterThanOrEqual(1);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('dropped nonce-gap recovers deterministically on ARC and Tempo lanes', async ({ page }) => {
+    const harness = await setupThresholdEcdsaTempoHarness(page);
+    try {
+      const result = await page.evaluate(
+        async ({ relayerUrl }) => {
+          try {
+            const sdkMod = await import('/sdk/esm/index.js');
+            const { TatchiPasskey } = sdkMod as any;
+
+            const accountId = `tempononcegap${Date.now()}.w3a-v1.testnet`;
+            const confirmationConfig = {
+              uiMode: 'none' as const,
+              behavior: 'skipClick' as const,
+              autoProceedDelay: 0,
+            };
+
+            const pm = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayerAccount: 'web3-authn-v4.testnet',
+              relayer: {
+                url: relayerUrl,
+                smartAccountDeploymentMode: 'observe',
+              },
+              iframeWallet: {
+                walletOrigin: '',
+                walletServicePath: '/wallet-service',
+                sdkBasePath: '/sdk',
+                rpIdOverride: 'example.localhost',
+              },
+            });
+
+            const registration = await pm.registration.registerPasskeyInternal(
+              accountId,
+              {
+                signerOptions: {
+                  tempo: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                  evm: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                },
+              },
+              confirmationConfig,
+            );
+            if (!registration?.success) {
+              return {
+                ok: false,
+                error: String(registration?.error || 'registerPasskeyInternal failed'),
+              };
+            }
+
+            const bootstrap = await pm.tempo.bootstrapEcdsaSession({
+              nearAccountId: accountId,
+              options: {
+                relayerUrl,
+                ttlMs: 120_000,
+                remainingUses: 8,
+              },
+            });
+            if (!bootstrap?.session?.ok) {
+              return {
+                ok: false,
+                error: String(bootstrap?.session?.message || 'bootstrapEcdsaSession failed'),
+              };
+            }
+
+            const baseTx = {
+              kind: 'eip1559' as const,
+              senderSignatureAlgorithm: 'secp256k1' as const,
+              tx: {
+                maxPriorityFeePerGas: 1_500_000_000n,
+                maxFeePerGas: 3_000_000_000n,
+                gasLimit: 21_000n,
+                value: 12_345n,
+                data: '0x',
+                accessList: [],
+              },
+            };
+
+            const requests = [
+              {
+                lane: 'arc',
+                request: {
+                  chain: 'evm' as const,
+                  ...baseTx,
+                  tx: {
+                    ...baseTx.tx,
+                    chainId: 11155111,
+                    to: '0x' + '22'.repeat(20),
+                  },
+                },
+                txHash: ('0x' + '11'.repeat(32)) as `0x${string}`,
+              },
+              {
+                lane: 'tempo',
+                request: {
+                  chain: 'evm' as const,
+                  ...baseTx,
+                  tx: {
+                    ...baseTx.tx,
+                    chainId: 42431,
+                    to: '0x' + '33'.repeat(20),
+                  },
+                },
+                txHash: ('0x' + '22'.repeat(32)) as `0x${string}`,
+              },
+            ];
+
+            const laneResults: Array<{
+              lane: string;
+              nonce1: string;
+              nonce2: string;
+              reused: boolean;
+              reconciledBlocked: boolean;
+            }> = [];
+
+            for (const lane of requests) {
+              const signed1 = await pm.tempo.signTempo({
+                nearAccountId: accountId,
+                request: lane.request,
+                options: { confirmationConfig },
+              });
+              const nonce1Raw = String((signed1 as any)?.managedNonce?.nonce || '');
+              const nonce1 = nonce1Raw ? BigInt(nonce1Raw) : null;
+              if (signed1?.kind !== 'eip1559' || nonce1 === null) {
+                return {
+                  ok: false,
+                  error: `${lane.lane} first sign missing managed nonce snapshot`,
+                };
+              }
+
+              await pm.tempo.reportBroadcastAccepted({
+                nearAccountId: accountId,
+                signedResult: signed1,
+                txHash: lane.txHash,
+              });
+
+              const reconciled = await pm.tempo.reconcileNonceLane({
+                nearAccountId: accountId,
+                signedResult: signed1,
+              });
+
+              await pm.tempo.reportDroppedOrReplaced({
+                nearAccountId: accountId,
+                signedResult: signed1,
+                reason: 'dropped',
+                txHash: lane.txHash,
+              });
+
+              const signed2 = await pm.tempo.signTempo({
+                nearAccountId: accountId,
+                request: lane.request,
+                options: { confirmationConfig },
+              });
+              const nonce2Raw = String((signed2 as any)?.managedNonce?.nonce || '');
+              const nonce2 = nonce2Raw ? BigInt(nonce2Raw) : null;
+              if (signed2?.kind !== 'eip1559' || nonce2 === null) {
+                return {
+                  ok: false,
+                  error: `${lane.lane} second sign missing managed nonce snapshot`,
+                };
+              }
+
+              laneResults.push({
+                lane: lane.lane,
+                nonce1: nonce1.toString(),
+                nonce2: nonce2.toString(),
+                reused: nonce1 === nonce2,
+                reconciledBlocked: Boolean(reconciled?.blocked),
+              });
+            }
+
+            return {
+              ok: laneResults.every((entry) => entry.reused && !entry.reconciledBlocked),
+              laneResults,
+            };
+          } catch (error: unknown) {
+            return {
+              ok: false,
+              error: String(
+                error && typeof error === 'object' && 'message' in error
+                  ? (error as { message?: unknown }).message
+                  : error || 'nonce-gap recovery flow failed',
+              ),
+            };
+          }
+        },
+        { relayerUrl: harness.baseUrl },
+      );
+
+      expect(result.ok, result.error || JSON.stringify(result)).toBe(true);
+      expect(Array.isArray(result.laneResults)).toBe(true);
+      expect(result.laneResults).toHaveLength(2);
+      for (const laneResult of result.laneResults as Array<{
+        lane: string;
+        nonce1: string;
+        nonce2: string;
+        reused: boolean;
+      }>) {
+        expect(laneResult.reused, `${laneResult.lane} did not recover dropped nonce`).toBe(true);
+        expect(laneResult.nonce1).toBe(laneResult.nonce2);
+      }
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('unresolved nonce-gap is detectable and recovers after explicit drop resolution', async ({
+    page,
+  }) => {
+    const harness = await setupThresholdEcdsaTempoHarness(page);
+    try {
+      const result = await page.evaluate(
+        async ({ relayerUrl }) => {
+          try {
+            const sdkMod = await import('/sdk/esm/index.js');
+            const { TatchiPasskey } = sdkMod as any;
+
+            const accountId = `tempounresolvedgap${Date.now()}.w3a-v1.testnet`;
+            const confirmationConfig = {
+              uiMode: 'none' as const,
+              behavior: 'skipClick' as const,
+              autoProceedDelay: 0,
+            };
+
+            const pm = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayerAccount: 'web3-authn-v4.testnet',
+              relayer: {
+                url: relayerUrl,
+                smartAccountDeploymentMode: 'observe',
+              },
+              iframeWallet: {
+                walletOrigin: '',
+                walletServicePath: '/wallet-service',
+                sdkBasePath: '/sdk',
+                rpIdOverride: 'example.localhost',
+              },
+            });
+
+            const registration = await pm.registration.registerPasskeyInternal(
+              accountId,
+              {
+                signerOptions: {
+                  tempo: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                  evm: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                },
+              },
+              confirmationConfig,
+            );
+            if (!registration?.success) {
+              return {
+                ok: false,
+                error: String(registration?.error || 'registerPasskeyInternal failed'),
+              };
+            }
+
+            const bootstrap = await pm.tempo.bootstrapEcdsaSession({
+              nearAccountId: accountId,
+              options: {
+                relayerUrl,
+                ttlMs: 120_000,
+                remainingUses: 8,
+              },
+            });
+            if (!bootstrap?.session?.ok) {
+              return {
+                ok: false,
+                error: String(bootstrap?.session?.message || 'bootstrapEcdsaSession failed'),
+              };
+            }
+
+            const request = {
+              chain: 'evm' as const,
+              kind: 'eip1559' as const,
+              senderSignatureAlgorithm: 'secp256k1' as const,
+              tx: {
+                chainId: 42431,
+                maxPriorityFeePerGas: 1_500_000_000n,
+                maxFeePerGas: 3_000_000_000n,
+                gasLimit: 21_000n,
+                to: '0x' + '44'.repeat(20),
+                value: 12_345n,
+                data: '0x',
+                accessList: [],
+              },
+            };
+
+            const signed1 = await pm.tempo.signTempo({
+              nearAccountId: accountId,
+              request,
+              options: { confirmationConfig },
+            });
+            const nonce1Raw = String((signed1 as any)?.managedNonce?.nonce || '');
+            const nonce1 = nonce1Raw ? BigInt(nonce1Raw) : null;
+            if (signed1?.kind !== 'eip1559' || nonce1 === null) {
+              return {
+                ok: false,
+                error: 'first sign missing managed nonce snapshot',
+              };
+            }
+
+            const txHash1 = ('0x' + '77'.repeat(32)) as `0x${string}`;
+            await pm.tempo.reportBroadcastAccepted({
+              nearAccountId: accountId,
+              signedResult: signed1,
+              txHash: txHash1,
+            });
+
+            const laneBefore = await pm.tempo.reconcileNonceLane({
+              nearAccountId: accountId,
+              signedResult: signed1,
+            });
+
+            const signed2 = await pm.tempo.signTempo({
+              nearAccountId: accountId,
+              request,
+              options: { confirmationConfig },
+            });
+            const nonce2Raw = String((signed2 as any)?.managedNonce?.nonce || '');
+            const nonce2 = nonce2Raw ? BigInt(nonce2Raw) : null;
+            if (signed2?.kind !== 'eip1559' || nonce2 === null) {
+              return {
+                ok: false,
+                error: 'second sign missing managed nonce snapshot',
+              };
+            }
+
+            await pm.tempo.reportBroadcastRejected({
+              nearAccountId: accountId,
+              signedResult: signed2,
+              error: { message: 'manual test rejection before broadcast' },
+            });
+
+            await pm.tempo.reportDroppedOrReplaced({
+              nearAccountId: accountId,
+              signedResult: signed1,
+              reason: 'dropped',
+              txHash: txHash1,
+            });
+
+            const laneAfter = await pm.tempo.reconcileNonceLane({
+              nearAccountId: accountId,
+              signedResult: signed1,
+            });
+
+            const signed3 = await pm.tempo.signTempo({
+              nearAccountId: accountId,
+              request,
+              options: { confirmationConfig },
+            });
+            const nonce3Raw = String((signed3 as any)?.managedNonce?.nonce || '');
+            const nonce3 = nonce3Raw ? BigInt(nonce3Raw) : null;
+            if (signed3?.kind !== 'eip1559' || nonce3 === null) {
+              return {
+                ok: false,
+                error: 'third sign missing managed nonce snapshot',
+              };
+            }
+
+            const unresolvedBefore = Array.isArray(laneBefore?.unresolvedInFlightNonces)
+              ? laneBefore.unresolvedInFlightNonces.map((value: unknown) => String(value || ''))
+              : [];
+            const unresolvedAfter = Array.isArray(laneAfter?.unresolvedInFlightNonces)
+              ? laneAfter.unresolvedInFlightNonces.map((value: unknown) => String(value || ''))
+              : [];
+
+            return {
+              ok:
+                unresolvedBefore.includes(nonce1.toString()) &&
+                !Boolean(laneBefore?.blocked) &&
+                nonce2 > nonce1 &&
+                !unresolvedAfter.includes(nonce1.toString()) &&
+                nonce3 === nonce1,
+              nonce1: nonce1.toString(),
+              nonce2: nonce2.toString(),
+              nonce3: nonce3.toString(),
+              laneBefore,
+              laneAfter,
+            };
+          } catch (error: unknown) {
+            return {
+              ok: false,
+              error: String(
+                error && typeof error === 'object' && 'message' in error
+                  ? (error as { message?: unknown }).message
+                  : error || 'unresolved nonce-gap flow failed',
+              ),
+            };
+          }
+        },
+        { relayerUrl: harness.baseUrl },
+      );
+
+      expect(result.ok, result.error || JSON.stringify(result)).toBe(true);
+      expect(result.nonce1).toBeTruthy();
+      expect(result.nonce2).toBeTruthy();
+      expect(result.nonce3).toBeTruthy();
+      expect(result.nonce3).toBe(result.nonce1);
     } finally {
       await harness.close();
     }

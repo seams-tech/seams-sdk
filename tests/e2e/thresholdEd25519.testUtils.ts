@@ -90,6 +90,17 @@ export function makeAuthServiceForThreshold(
 
 export function createInMemoryJwtSessionAdapter(): ReturnType<typeof makeSessionAdapter> {
   const issuedTokens = new Map<string, Record<string, unknown>>();
+  const extractCookieToken = (cookieHeader: string | undefined): string => {
+    const raw = String(cookieHeader || '').trim();
+    if (!raw) return '';
+    const parts = raw.split(';');
+    for (const part of parts) {
+      const [nameRaw, valueRaw] = part.split('=');
+      if (String(nameRaw || '').trim() !== 'w3a_session') continue;
+      return String(valueRaw || '').trim();
+    }
+    return '';
+  };
   return makeSessionAdapter({
     signJwt: async (sub: string, extra?: Record<string, unknown>) => {
       const id =
@@ -103,8 +114,11 @@ export function createInMemoryJwtSessionAdapter(): ReturnType<typeof makeSession
     parse: async (headers: Record<string, string | string[] | undefined>) => {
       const authHeaderRaw = headers['authorization'] ?? headers['Authorization'];
       const authHeader = Array.isArray(authHeaderRaw) ? authHeaderRaw[0] : authHeaderRaw;
-      const token =
+      const cookieHeaderRaw = headers['cookie'] ?? headers['Cookie'];
+      const cookieHeader = Array.isArray(cookieHeaderRaw) ? cookieHeaderRaw[0] : cookieHeaderRaw;
+      const tokenFromAuthorization =
         typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '').trim() : '';
+      const token = tokenFromAuthorization || extractCookieToken(cookieHeader);
       const claims = token ? issuedTokens.get(token) : undefined;
       return claims ? { ok: true as const, claims } : { ok: false as const };
     },

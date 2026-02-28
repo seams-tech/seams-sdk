@@ -9,12 +9,6 @@ import {
   signThresholdEcdsaDigestWithPool,
 } from '@/core/signingEngine/orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import { Secp256k1Engine } from '@/core/signingEngine/signers/algorithms/secp256k1';
-import {
-  clearAllCachedEcdsaAuthSessions,
-  getCachedEcdsaAuthSessionBySessionId,
-  makeEcdsaAuthSessionCacheKey,
-  putCachedEcdsaAuthSession,
-} from '@/core/signingEngine/threshold/session/ecdsaAuthSession';
 
 const RELAYER_URL = 'https://relay.example';
 const RELAYER_KEY_ID = 'rk-1';
@@ -298,7 +292,6 @@ async function waitForPredicate(predicate: () => boolean, timeoutMs = 1_000): Pr
 test.describe('threshold ECDSA presign pool refill behavior', () => {
   test.beforeEach(async () => {
     clearAllThresholdEcdsaClientPresignatures();
-    clearAllCachedEcdsaAuthSessions();
   });
 
   test('second sign consumes pooled presignature without inline presign in steady state', async () => {
@@ -386,30 +379,6 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
     const fetchMock = installThresholdEcdsaFetchMock();
 
     try {
-      const cacheKey = makeEcdsaAuthSessionCacheKey({
-        userId: USER_ID,
-        rpId: RP_ID,
-        relayerUrl: RELAYER_URL,
-        relayerKeyId: RELAYER_KEY_ID,
-        participantIds: PARTICIPANT_IDS,
-      });
-      putCachedEcdsaAuthSession(cacheKey, {
-        sessionKind: 'cookie',
-        policy: {
-          version: 'threshold_session_v1',
-          userId: USER_ID,
-          rpId: RP_ID,
-          relayerKeyId: RELAYER_KEY_ID,
-          sessionId: SESSION_ID,
-          participantIds: PARTICIPANT_IDS,
-          ttlMs: 60_000,
-          remainingUses: 10,
-        },
-        policyJson: '{}',
-        sessionPolicyDigest32: 'digest',
-        expiresAtMs: Date.now() + 60_000,
-      });
-
       const refillEvents: Array<{
         trigger: 'commit_start' | 'post_sign_success';
         result: { scheduled: boolean; reason: string };
@@ -506,30 +475,6 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
         workerCtx,
       });
       expect(warmed.ok).toBe(true);
-
-      const cacheKey = makeEcdsaAuthSessionCacheKey({
-        userId: USER_ID,
-        rpId: RP_ID,
-        relayerUrl: RELAYER_URL,
-        relayerKeyId: RELAYER_KEY_ID,
-        participantIds: PARTICIPANT_IDS,
-      });
-      putCachedEcdsaAuthSession(cacheKey, {
-        sessionKind: 'cookie',
-        policy: {
-          version: 'threshold_session_v1',
-          userId: USER_ID,
-          rpId: RP_ID,
-          relayerKeyId: RELAYER_KEY_ID,
-          sessionId: SESSION_ID,
-          participantIds: PARTICIPANT_IDS,
-          ttlMs: 60_000,
-          remainingUses: 10,
-        },
-        policyJson: '{}',
-        sessionPolicyDigest32: 'digest',
-        expiresAtMs: Date.now() + 60_000,
-      });
 
       const refillEvents: Array<{
         trigger: 'commit_start' | 'post_sign_success';
@@ -657,7 +602,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
     }
   });
 
-  test('jwt keyRef self-heals missing ECDSA auth cache and signs successfully', async () => {
+  test('jwt keyRef fallback signs successfully when canonical ECDSA session record is unavailable', async () => {
     const presignature97 = concatBytes([
       PRESIGN_BIG_R_33,
       PRESIGN_K_SHARE_32,
@@ -714,10 +659,6 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
 
       expect(signed.length).toBe(65);
       expect(fetchMock.counters.authorize).toBe(1);
-      const cachedAfterSign = getCachedEcdsaAuthSessionBySessionId(SESSION_ID);
-      expect(cachedAfterSign).not.toBeNull();
-      expect(cachedAfterSign?.sessionKind).toBe('jwt');
-      expect(cachedAfterSign?.jwt).toBe(thresholdSessionJwt);
     } finally {
       fetchMock.restore();
     }

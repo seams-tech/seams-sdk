@@ -108,6 +108,81 @@ test.describe('prf session seal routes', () => {
     }
   });
 
+  test('express PRF seal routes single-flight dedupe identical concurrent apply/remove requests', async () => {
+    const service = makeFakeAuthService();
+    let applyCalls = 0;
+    let removeCalls = 0;
+    const router = createRelayRouter(service, {
+      session: makeSession(),
+      prfSessionSeal: createPrfSessionSealRoutesOptions({
+        sessionPolicy: makePolicy(),
+        cipher: createPrfSessionSealCipherAdapter({
+          applyServerSeal: async (input) => {
+            applyCalls += 1;
+            await new Promise((resolve) => setTimeout(resolve, 25));
+            return {
+              ok: true,
+              ciphertext: `sealed:${input.ciphertext}`,
+            };
+          },
+          removeServerSeal: async (input) => {
+            removeCalls += 1;
+            await new Promise((resolve) => setTimeout(resolve, 25));
+            return {
+              ok: true,
+              ciphertext: `unsealed:${input.ciphertext}`,
+            };
+          },
+        }),
+      }),
+    });
+
+    const srv = await startExpressRouter(router);
+    try {
+      const [applyA, applyB] = await Promise.all([
+        fetchJson(`${srv.baseUrl}/threshold-ecdsa/prf-seal/apply-server-seal`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(makeBody()),
+        }),
+        fetchJson(`${srv.baseUrl}/threshold-ecdsa/prf-seal/apply-server-seal`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(makeBody()),
+        }),
+      ]);
+      expect(applyA.status).toBe(200);
+      expect(applyB.status).toBe(200);
+      expect(applyA.json?.ok).toBe(true);
+      expect(applyB.json?.ok).toBe(true);
+      expect(applyA.json?.ciphertext).toBe('sealed:ciphertext-b64u');
+      expect(applyB.json?.ciphertext).toBe('sealed:ciphertext-b64u');
+      expect(applyCalls).toBe(1);
+
+      const [removeA, removeB] = await Promise.all([
+        fetchJson(`${srv.baseUrl}/threshold-ecdsa/prf-seal/remove-server-seal`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(makeBody()),
+        }),
+        fetchJson(`${srv.baseUrl}/threshold-ecdsa/prf-seal/remove-server-seal`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(makeBody()),
+        }),
+      ]);
+      expect(removeA.status).toBe(200);
+      expect(removeB.status).toBe(200);
+      expect(removeA.json?.ok).toBe(true);
+      expect(removeB.json?.ok).toBe(true);
+      expect(removeA.json?.ciphertext).toBe('unsealed:ciphertext-b64u');
+      expect(removeB.json?.ciphertext).toBe('unsealed:ciphertext-b64u');
+      expect(removeCalls).toBe(1);
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('express apply-server-seal rejects cross-user threshold session', async () => {
     const service = makeFakeAuthService();
     const router = createRelayRouter(service, {

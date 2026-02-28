@@ -1,10 +1,14 @@
 import {
   buildTempoSetUserTokenCall,
+  createEvmPublicClient,
   decodeTempoUserTokenResult,
   encodeTempoUserTokensCalldata,
+  parseEvmRpcHexQuantity,
   TEMPO_ALPHA_USD_FEE_TOKEN,
   TEMPO_FEE_MANAGER_CONTRACT,
   TEMPO_FEE_MANAGER_ABI,
+  type EvmPublicClient,
+  type EvmPublicTransactionReceipt,
 } from '@tatchi-xyz/sdk';
 
 import { FRONTEND_CONFIG } from '@/config';
@@ -116,17 +120,7 @@ export function decodeStringResultData(rawHex: string): string {
   return hexToUtf8(resultHex.slice(dataStart, dataEnd));
 }
 
-export type EvmJsonRpcError = {
-  code?: number | string;
-  message?: string;
-  data?: unknown;
-};
-
-export type EvmTransactionReceipt = {
-  blockNumber?: string | null;
-  status?: string | null;
-  gasUsed?: string | null;
-};
+export type EvmTransactionReceipt = EvmPublicTransactionReceipt;
 
 export type EvmTransactionResponse = {
   from?: string | null;
@@ -134,6 +128,16 @@ export type EvmTransactionResponse = {
   input?: string | null;
   value?: string | null;
 };
+
+function createDemoEvmPublicClient(args: {
+  rpcUrl: string;
+  requestTimeoutMs?: number;
+}): EvmPublicClient {
+  return createEvmPublicClient({
+    rpcUrl: args.rpcUrl,
+    requestTimeoutMs: args.requestTimeoutMs ?? EVM_RPC_REQUEST_TIMEOUT_MS,
+  });
+}
 
 export async function withPromiseTimeout<T>(args: {
   promise: Promise<T>;
@@ -176,115 +180,6 @@ export async function withPromiseTimeout<T>(args: {
   }
 }
 
-export async function callEvmJsonRpc<T>(args: {
-  rpcUrl: string;
-  method: string;
-  params: unknown[];
-  timeoutMs?: number;
-}): Promise<T> {
-  const { rpcUrl, method, params } = args;
-  if (!rpcUrl) {
-    throw new Error('RPC URL is not configured');
-  }
-
-  const timeoutMs = args.timeoutMs ?? EVM_RPC_REQUEST_TIMEOUT_MS;
-  const startedAt = Date.now();
-  const remainingTimeoutMs = (): number =>
-    Math.max(1, timeoutMs - Math.max(0, Date.now() - startedAt));
-  const controller = new AbortController();
-  const fetchPromise = fetch(rpcUrl, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: Date.now(),
-      method,
-      params,
-    }),
-    signal: controller.signal,
-  });
-
-  let response: Response;
-  try {
-    response = await withPromiseTimeout({
-      promise: fetchPromise,
-      timeoutMs: remainingTimeoutMs(),
-      label: `${method} request`,
-      onTimeout: () => {
-        controller.abort();
-      },
-    });
-  } catch (error: unknown) {
-    const maybeAbort = error as { name?: string };
-    if (maybeAbort?.name === 'AbortError') {
-      throw new Error(`${method} request timed out after ${timeoutMs}ms`);
-    }
-    throw error;
-  }
-
-  if (!response.ok) {
-    throw new Error(`RPC HTTP ${response.status}`);
-  }
-
-  const payload = (await withPromiseTimeout({
-    promise: response.json() as Promise<{
-      error?: EvmJsonRpcError;
-      result?: T;
-    }>,
-    timeoutMs: remainingTimeoutMs(),
-    label: `${method} response`,
-    onTimeout: () => {
-      controller.abort();
-      try {
-        response.body?.cancel();
-      } catch {}
-    },
-  }).catch((error: unknown) => {
-    const maybeAbort = error as { name?: string };
-    if (maybeAbort?.name === 'AbortError') {
-      throw new Error(`${method} response timed out after ${timeoutMs}ms`);
-    }
-    throw error;
-  })) as {
-    error?: EvmJsonRpcError;
-    result?: T;
-  };
-  if (payload.error) {
-    const message = String(payload.error.message || `${method} failed`).trim();
-    const code =
-      payload.error.code !== undefined && payload.error.code !== null
-        ? String(payload.error.code).trim()
-        : '';
-    const data =
-      payload.error.data !== undefined
-        ? (() => {
-            try {
-              return JSON.stringify(payload.error.data);
-            } catch {
-              return String(payload.error.data);
-            }
-          })()
-        : '';
-    const parts = [message];
-    if (code) parts.push(`code=${code}`);
-    if (data) parts.push(`data=${data}`);
-    const err = new Error(parts.join(' | ')) as Error & {
-      code?: string;
-      data?: unknown;
-      rpcMethod?: string;
-    };
-    if (code) err.code = code;
-    if (payload.error.data !== undefined) err.data = payload.error.data;
-    err.rpcMethod = method;
-    throw err;
-  }
-  if (!('result' in payload)) {
-    throw new Error(`Invalid ${method} response`);
-  }
-
-  return payload.result as T;
-}
-
 export async function readEvmGreeting(params: {
   rpcUrl: string;
   contract: `0x${string}`;
@@ -292,11 +187,14 @@ export async function readEvmGreeting(params: {
   timeoutMs?: number;
 }): Promise<string> {
   const { rpcUrl, contract, selector } = params;
-  const result = await callEvmJsonRpc<string>({
+  const client = createDemoEvmPublicClient({
     rpcUrl,
+    ...(params.timeoutMs != null ? { requestTimeoutMs: params.timeoutMs } : {}),
+  });
+  const result = await client.request<string>({
     method: 'eth_call',
     params: [{ to: contract, data: selector }, 'latest'],
-    timeoutMs: params.timeoutMs,
+    ...(params.timeoutMs != null ? { timeoutMs: params.timeoutMs } : {}),
   });
 
   if (typeof result !== 'string' || !result.startsWith('0x')) {
@@ -310,8 +208,8 @@ export async function sendRawEvmTransaction(args: {
   rpcUrl: string;
   rawTxHex: string;
 }): Promise<`0x${string}`> {
-  const txHash = await callEvmJsonRpc<string>({
-    rpcUrl: args.rpcUrl,
+  const client = createDemoEvmPublicClient({ rpcUrl: args.rpcUrl });
+  const txHash = await client.request<string>({
     method: 'eth_sendRawTransaction',
     params: [args.rawTxHex],
   });
@@ -369,95 +267,42 @@ export async function waitForEvmTransactionFinalization(args: {
   pollIntervalMs?: number;
   signal?: AbortSignal;
 }): Promise<EvmTransactionReceipt> {
-  const timeoutMs = args.timeoutMs ?? EVM_TX_FINALITY_TIMEOUT_MS;
-  const pollIntervalMs = args.pollIntervalMs ?? EVM_TX_RECEIPT_POLL_INTERVAL_MS;
-  const deadline = Date.now() + timeoutMs;
-  let lastRpcError: string | null = null;
-  let underpricedSinceMs: number | null = null;
-
-  while (Date.now() < deadline) {
-    throwIfAborted(args.signal);
-    let receipt: EvmTransactionReceipt | null = null;
-    try {
-      const remainingMs = Math.max(1, deadline - Date.now());
-      receipt = await callEvmJsonRpc<EvmTransactionReceipt | null>({
-        rpcUrl: args.rpcUrl,
-        method: 'eth_getTransactionReceipt',
-        params: [args.txHash],
-        timeoutMs: Math.min(EVM_RPC_REQUEST_TIMEOUT_MS, remainingMs),
-      });
-      lastRpcError = null;
-    } catch (error: unknown) {
-      lastRpcError = error instanceof Error ? error.message : String(error);
-    }
-
-    if (receipt && typeof receipt === 'object' && typeof receipt.blockNumber === 'string') {
-      const status = String(receipt.status || '').toLowerCase();
-      if (status && status !== '0x1' && status !== '0x01') {
-        const revertMessage = await describeEvmRevert({
-          rpcUrl: args.rpcUrl,
-          txHash: args.txHash,
-          receipt,
-        }).catch(() => null);
-        const gasUsedInfo = String(receipt.gasUsed || '').trim();
-        const gasUsed = (() => {
-          try {
-            return gasUsedInfo ? parseRpcHexQuantity(gasUsedInfo, 'receipt.gasUsed') : null;
-          } catch {
-            return null;
-          }
-        })();
-        const gasUsedSuffix = gasUsedInfo ? `, gasUsed=${gasUsedInfo}` : '';
-        const outOfGasSuffix =
-          typeof args.gasLimitHint === 'bigint' && gasUsed !== null && gasUsed >= args.gasLimitHint
-            ? '; likely out of gas (gasUsed reached gasLimit)'
-            : '';
-        const revertSuffix = revertMessage ? `; ${revertMessage}` : '';
-        throw new Error(
-          `Transaction reverted with status ${receipt.status}${gasUsedSuffix}${outOfGasSuffix}${revertSuffix}`,
-        );
+  const client = createDemoEvmPublicClient({ rpcUrl: args.rpcUrl });
+  const receipt = await client.waitForTransactionReceipt({
+    txHash: args.txHash,
+    timeoutMs: args.timeoutMs ?? EVM_TX_FINALITY_TIMEOUT_MS,
+    pollIntervalMs: args.pollIntervalMs ?? EVM_TX_RECEIPT_POLL_INTERVAL_MS,
+    signal: args.signal,
+    ...(typeof args.maxFeePerGasHint === 'bigint'
+      ? { maxFeePerGasHint: args.maxFeePerGasHint }
+      : {}),
+  });
+  const status = String(receipt.status || '').toLowerCase();
+  if (status && status !== '0x1' && status !== '0x01') {
+    const revertMessage = await describeEvmRevert({
+      rpcUrl: args.rpcUrl,
+      txHash: args.txHash,
+      receipt,
+    }).catch(() => null);
+    const gasUsedInfo = String(receipt.gasUsed || '').trim();
+    const gasUsed = (() => {
+      try {
+        return gasUsedInfo ? parseEvmRpcHexQuantity(gasUsedInfo, 'receipt.gasUsed') : null;
+      } catch {
+        return null;
       }
-      return receipt;
-    }
-
-    if (typeof args.maxFeePerGasHint === 'bigint') {
-      const remainingMs = Math.max(1, deadline - Date.now());
-      const latestBlock = await callEvmJsonRpc<{ baseFeePerGas?: string | null }>({
-        rpcUrl: args.rpcUrl,
-        method: 'eth_getBlockByNumber',
-        params: ['latest', false],
-        timeoutMs: Math.min(EVM_RPC_REQUEST_TIMEOUT_MS, remainingMs),
-      }).catch(() => null);
-      const baseFeeHex = String(latestBlock?.baseFeePerGas || '').trim();
-      if (/^0x[0-9a-fA-F]+$/.test(baseFeeHex)) {
-        let baseFeePerGas: bigint | null = null;
-        try {
-          baseFeePerGas = parseRpcHexQuantity(baseFeeHex, 'baseFeePerGas');
-        } catch {
-          baseFeePerGas = null;
-        }
-        if (baseFeePerGas !== null && baseFeePerGas > args.maxFeePerGasHint) {
-          if (underpricedSinceMs === null) {
-            underpricedSinceMs = Date.now();
-          }
-          const requiredUnderpricedDurationMs = Math.min(30_000, Math.floor(timeoutMs / 3));
-          if (Date.now() - underpricedSinceMs >= requiredUnderpricedDurationMs) {
-            throw new Error(
-              `Transaction pending due to underpriced fees: maxFeePerGas=${formatWeiToGwei(args.maxFeePerGasHint)} gwei, latest baseFee=${formatWeiToGwei(baseFeePerGas)} gwei. Retry to re-sign with refreshed fee caps.`,
-            );
-          }
-        } else {
-          underpricedSinceMs = null;
-        }
-      }
-    }
-
-    await sleepWithAbort(pollIntervalMs, args.signal);
+    })();
+    const gasUsedSuffix = gasUsedInfo ? `, gasUsed=${gasUsedInfo}` : '';
+    const outOfGasSuffix =
+      typeof args.gasLimitHint === 'bigint' && gasUsed !== null && gasUsed >= args.gasLimitHint
+        ? '; likely out of gas (gasUsed reached gasLimit)'
+        : '';
+    const revertSuffix = revertMessage ? `; ${revertMessage}` : '';
+    throw new Error(
+      `Transaction reverted with status ${receipt.status}${gasUsedSuffix}${outOfGasSuffix}${revertSuffix}`,
+    );
   }
-
-  throwIfAborted(args.signal);
-  const details = lastRpcError ? `; last RPC error: ${lastRpcError}` : '';
-  throw new Error(`Timed out waiting for tx finalization after ${timeoutMs}ms${details}`);
+  return receipt;
 }
 
 export async function waitForTempoUserTokenMatch(args: {
@@ -552,8 +397,8 @@ export async function readEvmTransactionByHash(args: {
   rpcUrl: string;
   txHash: `0x${string}`;
 }): Promise<EvmTransactionResponse | null> {
-  return await callEvmJsonRpc<EvmTransactionResponse | null>({
-    rpcUrl: args.rpcUrl,
+  const client = createDemoEvmPublicClient({ rpcUrl: args.rpcUrl });
+  return await client.request<EvmTransactionResponse | null>({
     method: 'eth_getTransactionByHash',
     params: [args.txHash],
   });
@@ -577,8 +422,8 @@ export async function describeEvmRevert(args: {
     return null;
   }
   try {
-    await callEvmJsonRpc<string>({
-      rpcUrl: args.rpcUrl,
+    const client = createDemoEvmPublicClient({ rpcUrl: args.rpcUrl });
+    await client.request<string>({
       method: 'eth_call',
       params: [
         {
@@ -597,14 +442,6 @@ export async function describeEvmRevert(args: {
   }
 }
 
-export function parseRpcHexQuantity(value: string, label: string): bigint {
-  const normalized = String(value || '').trim();
-  if (!/^0x[0-9a-fA-F]+$/.test(normalized)) {
-    throw new Error(`Invalid ${label} quantity`);
-  }
-  return BigInt(normalized);
-}
-
 export function isEvmAddress(value: string): value is `0x${string}` {
   return /^0x[0-9a-fA-F]{40}$/.test(String(value || '').trim());
 }
@@ -615,12 +452,12 @@ export async function readEvmNativeBalance(args: {
   blockTag?: 'latest' | 'pending' | 'safe' | 'finalized' | 'earliest';
 }): Promise<bigint> {
   const blockTag = args.blockTag ?? 'latest';
-  const balanceHex = await callEvmJsonRpc<string>({
-    rpcUrl: args.rpcUrl,
+  const client = createDemoEvmPublicClient({ rpcUrl: args.rpcUrl });
+  const balanceHex = await client.request<string>({
     method: 'eth_getBalance',
     params: [args.address, blockTag],
   });
-  return parseRpcHexQuantity(balanceHex, 'eth_getBalance');
+  return parseEvmRpcHexQuantity(balanceHex, 'eth_getBalance');
 }
 
 export async function readTempoUserFeeToken(args: {
@@ -628,8 +465,11 @@ export async function readTempoUserFeeToken(args: {
   userAddress: `0x${string}`;
   timeoutMs?: number;
 }): Promise<`0x${string}` | null> {
-  const result = await callEvmJsonRpc<string>({
+  const client = createDemoEvmPublicClient({
     rpcUrl: args.rpcUrl,
+    ...(args.timeoutMs != null ? { requestTimeoutMs: args.timeoutMs } : {}),
+  });
+  const result = await client.request<string>({
     method: 'eth_call',
     params: [
       {
@@ -638,7 +478,7 @@ export async function readTempoUserFeeToken(args: {
       },
       'latest',
     ],
-    timeoutMs: args.timeoutMs,
+    ...(args.timeoutMs != null ? { timeoutMs: args.timeoutMs } : {}),
   });
 
   if (typeof result !== 'string' || !result.startsWith('0x')) {
@@ -655,8 +495,8 @@ export async function readTempoTokenBalanceRaw(args: {
 }): Promise<bigint> {
   const balanceOfSelector = '0x70a08231';
   const encodedUser = args.userAddress.slice(2).toLowerCase().padStart(64, '0');
-  const result = await callEvmJsonRpc<string>({
-    rpcUrl: args.rpcUrl,
+  const client = createDemoEvmPublicClient({ rpcUrl: args.rpcUrl });
+  const result = await client.request<string>({
     method: 'eth_call',
     params: [
       {
@@ -674,32 +514,38 @@ export async function readTempoTokenBalanceRaw(args: {
 
 export async function resolveEip1559FeeCaps(rpcUrl: string): Promise<Eip1559FeeCaps> {
   try {
+    const client = createDemoEvmPublicClient({
+      rpcUrl,
+      requestTimeoutMs: Math.min(EVM_RPC_REQUEST_TIMEOUT_MS, 6_000),
+    });
     const [latestBlock, maxPriorityFeeHex, gasPriceHex] = await Promise.all([
-      callEvmJsonRpc<{ baseFeePerGas?: string | null }>({
-        rpcUrl,
-        method: 'eth_getBlockByNumber',
-        params: ['latest', false],
-        timeoutMs: Math.min(EVM_RPC_REQUEST_TIMEOUT_MS, 6_000),
-      }).catch(() => null),
-      callEvmJsonRpc<string>({
-        rpcUrl,
-        method: 'eth_maxPriorityFeePerGas',
-        params: [],
-        timeoutMs: Math.min(EVM_RPC_REQUEST_TIMEOUT_MS, 6_000),
-      }).catch(() => null),
-      callEvmJsonRpc<string>({
-        rpcUrl,
-        method: 'eth_gasPrice',
-        params: [],
-        timeoutMs: Math.min(EVM_RPC_REQUEST_TIMEOUT_MS, 6_000),
-      }).catch(() => null),
+      client
+        .getBlockByNumber({
+          blockTag: 'latest',
+          timeoutMs: Math.min(EVM_RPC_REQUEST_TIMEOUT_MS, 6_000),
+        })
+        .catch(() => null),
+      client
+        .request<string>({
+          method: 'eth_maxPriorityFeePerGas',
+          params: [],
+          timeoutMs: Math.min(EVM_RPC_REQUEST_TIMEOUT_MS, 6_000),
+        })
+        .catch(() => null),
+      client
+        .request<string>({
+          method: 'eth_gasPrice',
+          params: [],
+          timeoutMs: Math.min(EVM_RPC_REQUEST_TIMEOUT_MS, 6_000),
+        })
+        .catch(() => null),
     ]);
 
     const parsedBaseFee = (() => {
       const raw = String(latestBlock?.baseFeePerGas || '').trim();
       if (!/^0x[0-9a-fA-F]+$/.test(raw)) return null;
       try {
-        return parseRpcHexQuantity(raw, 'baseFeePerGas');
+        return parseEvmRpcHexQuantity(raw, 'baseFeePerGas');
       } catch {
         return null;
       }
@@ -708,7 +554,7 @@ export async function resolveEip1559FeeCaps(rpcUrl: string): Promise<Eip1559FeeC
       const raw = String(gasPriceHex || '').trim();
       if (!/^0x[0-9a-fA-F]+$/.test(raw)) return null;
       try {
-        return parseRpcHexQuantity(raw, 'eth_gasPrice');
+        return parseEvmRpcHexQuantity(raw, 'eth_gasPrice');
       } catch {
         return null;
       }
@@ -717,7 +563,7 @@ export async function resolveEip1559FeeCaps(rpcUrl: string): Promise<Eip1559FeeC
       const raw = String(maxPriorityFeeHex || '').trim();
       if (!/^0x[0-9a-fA-F]+$/.test(raw)) return null;
       try {
-        return parseRpcHexQuantity(raw, 'eth_maxPriorityFeePerGas');
+        return parseEvmRpcHexQuantity(raw, 'eth_maxPriorityFeePerGas');
       } catch {
         return null;
       }

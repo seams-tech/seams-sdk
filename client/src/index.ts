@@ -4,6 +4,15 @@ export {
   MinimalNearClient,
   encodeSignedTransactionBase64,
 } from './core/rpcClients/near/NearClient';
+export {
+  createEvmPublicClient,
+  parseRpcHexQuantity as parseEvmRpcHexQuantity,
+  type EvmPublicClient,
+  type EvmTransactionReceipt as EvmPublicTransactionReceipt,
+  type EvmBlockHeader as EvmPublicBlockHeader,
+  type EvmJsonRpcError as EvmPublicJsonRpcError,
+  type WaitForEvmTransactionReceiptArgs,
+} from './core/rpcClients/evm/publicClient';
 export { createWebAuthnLoginOptions, verifyWebAuthnLogin } from './core/rpcClients/near/rpcCalls';
 
 export * from './config';

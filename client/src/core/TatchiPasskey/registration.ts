@@ -21,16 +21,11 @@ import { checkNearAccountExistsBestEffort } from '../rpcClients/near/rpcCalls';
 import { getPrfResultsFromCredential } from '../signingEngine/signers/webauthn/credentials/credentialExtensions';
 import {
   THRESHOLD_SESSION_POLICY_VERSION,
-  buildEcdsaSessionPolicy,
   generateThresholdSessionId,
 } from '../signingEngine/threshold/session/sessionPolicy';
 import {
   buildAndCacheEd25519AuthSession,
 } from '../signingEngine/threshold/session/ed25519AuthSession';
-import {
-  makeEcdsaAuthSessionCacheKey,
-  putCachedEcdsaAuthSession,
-} from '../signingEngine/threshold/session/ecdsaAuthSession';
 import type {
   EcdsaSignerProvisioningDefaults,
   EcdsaSignerProvisioningPolicy,
@@ -733,33 +728,6 @@ export async function registerPasskeyInternal(
           expiresAtMs: ecdsaExpiresAtMs,
           remainingUses: ecdsaRemainingUses,
           setActiveSigningSessionId: false,
-        });
-
-        const ecdsaPolicy = await buildEcdsaSessionPolicy({
-          userId: String(nearAccountId),
-          rpId,
-          relayerKeyId: thresholdEcdsaRelayerKeyId,
-          participantIds: ecdsaParticipantIds,
-          sessionId: ecdsaSessionId,
-          ttlMs: thresholdEcdsaSessionPolicyForRegistration.ttlMs,
-          remainingUses: thresholdEcdsaSessionPolicyForRegistration.remainingUses,
-        });
-
-        const ecdsaCacheKey = makeEcdsaAuthSessionCacheKey({
-          userId: String(nearAccountId),
-          rpId,
-          relayerUrl: context.configs.network.relayer.url,
-          relayerKeyId: thresholdEcdsaRelayerKeyId,
-          participantIds: ecdsaParticipantIds,
-        });
-
-        putCachedEcdsaAuthSession(ecdsaCacheKey, {
-          sessionKind: 'jwt',
-          policy: ecdsaPolicy.policy,
-          policyJson: ecdsaPolicy.policyJson,
-          sessionPolicyDigest32: ecdsaPolicy.sessionPolicyDigest32,
-          jwt: ecdsaSessionJwt,
-          expiresAtMs: ecdsaExpiresAtMs,
         });
 
         const primarySmartAccountBootstrap = thresholdEcdsaPrimaryProvisionTarget

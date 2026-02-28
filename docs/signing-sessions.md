@@ -1,6 +1,6 @@
 # Threshold Signing Warm Sessions
 
-Last updated: 2026-02-27
+Last updated: 2026-02-28
 
 ## 1. Core Contract
 
@@ -85,9 +85,9 @@ Primary implementation:
 
 Critical rules:
 
-1. Always reserve nonce before signing and commit only after successful broadcast.
-2. Always release reservation on sign/broadcast failure or user cancellation.
-3. On nonce-conflict broadcast errors, map to retryable typed error and refresh nonce state from chain.
+1. Always reserve nonce before signing and transition lifecycle explicitly (`markBroadcastAccepted` -> `markFinalized|markDroppedOrReplaced`).
+2. Always mark reservation rejected on sign/broadcast failure or user cancellation.
+3. On nonce-conflict or blocked-lane broadcast errors, map to retryable typed error and reconcile lane state from chain.
 4. Keep nonce scope concrete and deterministic: `chain + networkKey + chainId + sender (+ nonceKey for tempo)`.
 5. Fail closed on ambiguous/misconfigured chain routing; do not guess network mapping.
 6. Do not reintroduce caller-managed nonce injection as default behavior.
@@ -97,8 +97,9 @@ Critical rules:
 1. Login warmup with threshold mode enabled results in one TouchID prompt and active warm session.
 2. EVM and Tempo signer confirms open immediately while nonce/intent work continues in background.
 3. Second transaction in the same UI flow never shows previous tx hash in loading toast.
-4. Broadcast reporting always calls success/failure hooks so nonce reservations cannot leak.
-5. Finalization wait always terminates with either confirmed state or typed timeout/underpriced guidance.
+4. Broadcast reporting always calls lifecycle hooks (`accepted`/`rejected`/`finalized`/`dropped|replaced`) so nonce lanes cannot drift silently.
+5. Reconcile surfaces unresolved nonce gaps deterministically and dropped/replaced transitions recover lane progress.
+6. Finalization wait always terminates with either confirmed state or typed timeout/underpriced guidance.
 
 ## 8. Sealed Refresh (`sealed_refresh_v1`) Integration
 

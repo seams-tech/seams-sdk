@@ -77,8 +77,13 @@ import type {
   EvmSignerCapability,
   KeyExportCapability,
   NearSignerCapability,
-  ReportTempoBroadcastResultArgs,
+  ReconcileTempoNonceLaneArgs,
+  ReportTempoBroadcastAcceptedArgs,
+  ReportTempoBroadcastRejectedArgs,
+  ReportTempoDroppedOrReplacedArgs,
+  ReportTempoFinalizedArgs,
   SignTempoArgs,
+  TempoNonceLaneStatus,
   TempoSignerCapability,
 } from '../TatchiPasskey';
 
@@ -192,7 +197,12 @@ export class TatchiPasskeyIframe {
     };
     this.tempo = {
       signTempo: async (args) => await this.signTempoDomain(args),
-      reportBroadcastResult: async (args) => await this.reportTempoBroadcastResultDomain(args),
+      reportBroadcastAccepted: async (args) => await this.reportTempoBroadcastAcceptedDomain(args),
+      reportBroadcastRejected: async (args) => await this.reportTempoBroadcastRejectedDomain(args),
+      reportFinalized: async (args) => await this.reportTempoFinalizedDomain(args),
+      reportDroppedOrReplaced: async (args) =>
+        await this.reportTempoDroppedOrReplacedDomain(args),
+      reconcileNonceLane: async (args) => await this.reconcileTempoNonceLaneDomain(args),
       bootstrapEcdsaSession: async (args) =>
         await this.bootstrapEcdsaSessionDomain({
           nearAccountId: args.nearAccountId,
@@ -697,15 +707,27 @@ export class TatchiPasskeyIframe {
     });
   }
 
-  private async reportTempoBroadcastResultDomain(
-    args: ReportTempoBroadcastResultArgs,
+  private async reportTempoBroadcastAcceptedDomain(
+    args: ReportTempoBroadcastAcceptedArgs,
   ): Promise<void> {
     await this.requireRouterReady();
-    await this.router.reportTempoBroadcastResult({
+    await this.router.reportTempoBroadcastAccepted({
       nearAccountId: args.nearAccountId,
       signedResult: args.signedResult,
-      status: args.status,
       ...(args.txHash ? { txHash: args.txHash } : {}),
+      options: {
+        onEvent: args.options?.onEvent,
+      },
+    });
+  }
+
+  private async reportTempoBroadcastRejectedDomain(
+    args: ReportTempoBroadcastRejectedArgs,
+  ): Promise<void> {
+    await this.requireRouterReady();
+    await this.router.reportTempoBroadcastRejected({
+      nearAccountId: args.nearAccountId,
+      signedResult: args.signedResult,
       ...(args.error == null
         ? {}
         : {
@@ -735,6 +757,47 @@ export class TatchiPasskeyIframe {
               return { message: String(args.error) };
             })(),
           }),
+      options: {
+        onEvent: args.options?.onEvent,
+      },
+    });
+  }
+
+  private async reportTempoFinalizedDomain(args: ReportTempoFinalizedArgs): Promise<void> {
+    await this.requireRouterReady();
+    await this.router.reportTempoFinalized({
+      nearAccountId: args.nearAccountId,
+      signedResult: args.signedResult,
+      ...(args.txHash ? { txHash: args.txHash } : {}),
+      ...(args.receiptStatus ? { receiptStatus: args.receiptStatus } : {}),
+      options: {
+        onEvent: args.options?.onEvent,
+      },
+    });
+  }
+
+  private async reportTempoDroppedOrReplacedDomain(
+    args: ReportTempoDroppedOrReplacedArgs,
+  ): Promise<void> {
+    await this.requireRouterReady();
+    await this.router.reportTempoDroppedOrReplaced({
+      nearAccountId: args.nearAccountId,
+      signedResult: args.signedResult,
+      reason: args.reason,
+      ...(args.txHash ? { txHash: args.txHash } : {}),
+      options: {
+        onEvent: args.options?.onEvent,
+      },
+    });
+  }
+
+  private async reconcileTempoNonceLaneDomain(
+    args: ReconcileTempoNonceLaneArgs,
+  ): Promise<TempoNonceLaneStatus> {
+    await this.requireRouterReady();
+    return await this.router.reconcileTempoNonceLane({
+      nearAccountId: args.nearAccountId,
+      signedResult: args.signedResult,
       options: {
         onEvent: args.options?.onEvent,
       },

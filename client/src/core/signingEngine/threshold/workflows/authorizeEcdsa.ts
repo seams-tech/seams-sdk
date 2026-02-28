@@ -108,15 +108,15 @@ export async function authorizeEcdsaWithSession(args: {
 
   const sessionKind: 'jwt' | 'cookie' = args.sessionKind || 'jwt';
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (sessionKind === 'jwt') {
-    const jwt = String(args.thresholdSessionJwt || '').trim();
-    if (!jwt) {
-      return {
-        ok: false,
-        code: 'invalid_args',
-        message: 'Missing thresholdSessionJwt for threshold-ecdsa authorize (jwt sessionKind)',
-      };
-    }
+  const jwt = String(args.thresholdSessionJwt || '').trim();
+  if (sessionKind === 'jwt' && !jwt) {
+    return {
+      ok: false,
+      code: 'invalid_args',
+      message: 'Missing thresholdSessionJwt for threshold-ecdsa authorize (jwt sessionKind)',
+    };
+  }
+  if (jwt) {
     headers.Authorization = `Bearer ${jwt}`;
   }
 
@@ -138,7 +138,7 @@ export async function authorizeEcdsaWithSession(args: {
       init: {
         method: 'POST',
         headers,
-        credentials: sessionKind === 'cookie' ? 'include' : 'omit',
+        credentials: jwt ? 'omit' : sessionKind === 'cookie' ? 'include' : 'omit',
         body: JSON.stringify({
           relayerKeyId,
           clientVerifyingShareB64u,

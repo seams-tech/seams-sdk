@@ -62,9 +62,18 @@ import {
   type SignTransactionsWithActionsInput,
 } from './api/nearSigning';
 import {
-  reportTempoBroadcastResult as reportTempoBroadcastResultValue,
+  reconcileTempoNonceLane as reconcileTempoNonceLaneValue,
+  reportTempoBroadcastAccepted as reportTempoBroadcastAcceptedValue,
+  reportTempoBroadcastRejected as reportTempoBroadcastRejectedValue,
+  reportTempoDroppedOrReplaced as reportTempoDroppedOrReplacedValue,
+  reportTempoFinalized as reportTempoFinalizedValue,
   signTempo as signTempoValue,
-  type ReportTempoBroadcastResultArgs,
+  type ReconcileTempoNonceLaneArgs,
+  type ReportTempoBroadcastAcceptedArgs,
+  type ReportTempoBroadcastRejectedArgs,
+  type ReportTempoDroppedOrReplacedArgs,
+  type ReportTempoFinalizedArgs,
+  type TempoNonceLaneStatus,
 } from './api/tempoSigning';
 import {
   clearSigningSessionPrfFirstBestEffort as clearSigningSessionPrfFirstBestEffortValue,
@@ -282,8 +291,26 @@ export class SigningEngine {
     return await signTempoValue(this.orchestrationDeps.tempoSigningDeps, args);
   }
 
-  async reportTempoBroadcastResult(args: ReportTempoBroadcastResultArgs): Promise<void> {
-    await reportTempoBroadcastResultValue(this.orchestrationDeps.tempoSigningDeps, args);
+  async reportTempoBroadcastAccepted(args: ReportTempoBroadcastAcceptedArgs): Promise<void> {
+    await reportTempoBroadcastAcceptedValue(this.orchestrationDeps.tempoSigningDeps, args);
+  }
+
+  async reportTempoBroadcastRejected(args: ReportTempoBroadcastRejectedArgs): Promise<void> {
+    await reportTempoBroadcastRejectedValue(this.orchestrationDeps.tempoSigningDeps, args);
+  }
+
+  async reportTempoFinalized(args: ReportTempoFinalizedArgs): Promise<void> {
+    await reportTempoFinalizedValue(this.orchestrationDeps.tempoSigningDeps, args);
+  }
+
+  async reportTempoDroppedOrReplaced(args: ReportTempoDroppedOrReplacedArgs): Promise<void> {
+    await reportTempoDroppedOrReplacedValue(this.orchestrationDeps.tempoSigningDeps, args);
+  }
+
+  async reconcileTempoNonceLane(
+    args: ReconcileTempoNonceLaneArgs,
+  ): Promise<TempoNonceLaneStatus> {
+    return await reconcileTempoNonceLaneValue(this.orchestrationDeps.tempoSigningDeps, args);
   }
 
   storeUserData(userData: StoreUserDataInput): Promise<void> {
@@ -738,7 +765,11 @@ export type SigningEnginePublic = Pick<
   | 'warmCriticalResources'
   | 'signNear'
   | 'signTempo'
-  | 'reportTempoBroadcastResult'
+  | 'reportTempoBroadcastAccepted'
+  | 'reportTempoBroadcastRejected'
+  | 'reportTempoFinalized'
+  | 'reportTempoDroppedOrReplaced'
+  | 'reconcileTempoNonceLane'
   | 'storeUserData'
   | 'getAllUsers'
   | 'getUserByDevice'

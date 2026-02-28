@@ -3,7 +3,7 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   ed25519AuthSession: '/sdk/esm/core/signingEngine/threshold/session/ed25519AuthSession.js',
-  thresholdEd25519SessionStore:
+  thresholdSessionStore:
     '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js',
 } as const;
 
@@ -16,7 +16,7 @@ test.describe('threshold Ed25519 auth-session rehydrate', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const authMod = await import(paths.ed25519AuthSession);
-        const storeMod = await import(paths.thresholdEd25519SessionStore);
+        const storeMod = await import(paths.thresholdSessionStore);
 
         const nearAccountId = 'alice.testnet';
         const rpId = 'example.localhost';
@@ -43,9 +43,8 @@ test.describe('threshold Ed25519 auth-session rehydrate', () => {
           source: 'login',
         });
 
-        const rehydratedJwt = await authMod.getCachedEd25519AuthSessionJwtBySessionId(
-          thresholdSessionId,
-        );
+        const resolved = await authMod.resolveEd25519AuthSessionBySessionId(thresholdSessionId);
+        const rehydratedJwt = resolved?.sessionKind === 'jwt' ? resolved.jwt : undefined;
         const cacheKey = authMod.makeEd25519AuthSessionCacheKey({
           nearAccountId,
           rpId,

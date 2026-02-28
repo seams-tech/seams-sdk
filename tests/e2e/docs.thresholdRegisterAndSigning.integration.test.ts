@@ -337,7 +337,15 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
                   rawTxHex: `0x76${'12'.repeat(63)}`,
                 };
               },
-              reportBroadcastResult: async () => ({ ok: true }),
+              reportBroadcastAccepted: async () => ({ ok: true }),
+              reportBroadcastRejected: async () => ({ ok: true }),
+              reportFinalized: async () => ({ ok: true }),
+              reportDroppedOrReplaced: async () => ({ ok: true }),
+              reconcileNonceLane: async () => ({
+                chainNextNonce: '0',
+                unresolvedInFlightNonces: [],
+                blocked: false,
+              }),
             },
             evm: {
               bootstrapEcdsaSession: async () => ({

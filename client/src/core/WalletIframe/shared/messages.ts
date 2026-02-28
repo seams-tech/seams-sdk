@@ -34,7 +34,11 @@ export type ParentToChildType =
   | 'PM_SIGN_DELEGATE_ACTION'
   | 'PM_SIGN_NEP413'
   | 'PM_SIGN_TEMPO'
-  | 'PM_REPORT_TEMPO_BROADCAST_RESULT'
+  | 'PM_REPORT_TEMPO_BROADCAST_ACCEPTED'
+  | 'PM_REPORT_TEMPO_BROADCAST_REJECTED'
+  | 'PM_REPORT_TEMPO_FINALIZED'
+  | 'PM_REPORT_TEMPO_DROPPED_OR_REPLACED'
+  | 'PM_RECONCILE_TEMPO_NONCE_LANE'
   | 'PM_EXPORT_KEYPAIR_UI'
   | 'PM_GET_RECENT_LOGINS'
   | 'PM_PREFETCH_BLOCKHEIGHT'
@@ -230,17 +234,34 @@ export interface PMSignTempoPayload {
   };
 }
 
-export interface PMReportTempoBroadcastResultPayload {
+export interface PMTempoNonceLifecyclePayloadBase {
   nearAccountId: string;
   signedResult: TempoSignedResult | EvmSignedResult;
-  status: 'success' | 'failure';
+}
+
+export interface PMReportTempoBroadcastAcceptedPayload extends PMTempoNonceLifecyclePayloadBase {
   txHash?: `0x${string}`;
+}
+
+export interface PMReportTempoBroadcastRejectedPayload extends PMTempoNonceLifecyclePayloadBase {
   error?: {
     code?: string;
     message?: string;
     details?: unknown;
   };
 }
+
+export interface PMReportTempoFinalizedPayload extends PMTempoNonceLifecyclePayloadBase {
+  txHash?: `0x${string}`;
+  receiptStatus?: 'success' | 'reverted';
+}
+
+export interface PMReportTempoDroppedOrReplacedPayload extends PMTempoNonceLifecyclePayloadBase {
+  reason: 'dropped' | 'replaced';
+  txHash?: `0x${string}`;
+}
+
+export interface PMReconcileTempoNonceLanePayload extends PMTempoNonceLifecyclePayloadBase {}
 
 export interface PMExportKeypairUiPayload {
   nearAccountId: string;
@@ -373,7 +394,11 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_SIGN_DELEGATE_ACTION', PMSignDelegateActionPayload>
   | RpcEnvelope<'PM_SIGN_NEP413', PMSignNep413Payload>
   | RpcEnvelope<'PM_SIGN_TEMPO', PMSignTempoPayload>
-  | RpcEnvelope<'PM_REPORT_TEMPO_BROADCAST_RESULT', PMReportTempoBroadcastResultPayload>
+  | RpcEnvelope<'PM_REPORT_TEMPO_BROADCAST_ACCEPTED', PMReportTempoBroadcastAcceptedPayload>
+  | RpcEnvelope<'PM_REPORT_TEMPO_BROADCAST_REJECTED', PMReportTempoBroadcastRejectedPayload>
+  | RpcEnvelope<'PM_REPORT_TEMPO_FINALIZED', PMReportTempoFinalizedPayload>
+  | RpcEnvelope<'PM_REPORT_TEMPO_DROPPED_OR_REPLACED', PMReportTempoDroppedOrReplacedPayload>
+  | RpcEnvelope<'PM_RECONCILE_TEMPO_NONCE_LANE', PMReconcileTempoNonceLanePayload>
   | RpcEnvelope<'PM_EXPORT_KEYPAIR_UI', PMExportKeypairUiPayload>
   | RpcEnvelope<'PM_GET_RECENT_LOGINS'>
   | RpcEnvelope<'PM_PREFETCH_BLOCKHEIGHT'>

@@ -24,13 +24,30 @@ export type ManagedNonceReservationSnapshot = {
 
 export interface EvmNonceManager {
   reserveNextNonce(input: ReserveNonceInput): Promise<bigint>;
-  commitBroadcast(
+  markBroadcastAccepted(
     input: ReserveNonceInput & { nonce: bigint; txHash?: `0x${string}` },
   ): Promise<void>;
-  releaseReservation(input: ReserveNonceInput & { nonce: bigint }): void;
-  refreshFromChain(input: ReserveNonceInput): Promise<bigint>;
+  markBroadcastRejected(input: ReserveNonceInput & { nonce: bigint }): void;
+  markFinalized(
+    input: ReserveNonceInput & { nonce: bigint; txHash?: `0x${string}` },
+  ): Promise<void>;
+  markDroppedOrReplaced(
+    input: ReserveNonceInput & {
+      nonce: bigint;
+      reason: 'dropped' | 'replaced';
+      txHash?: `0x${string}`;
+    },
+  ): Promise<void>;
+  reconcileLane(input: ReserveNonceInput): Promise<NonceLaneStatus>;
   clearForAccount(nearAccountId: string): void;
 }
+
+export type NonceLaneStatus = {
+  chainNextNonce: bigint;
+  unresolvedInFlightNonces: bigint[];
+  blocked: boolean;
+  blockedNonce?: bigint;
+};
 
 export type FetchChainNoncePort = (input: ReserveNonceInput) => Promise<bigint>;
 
@@ -38,6 +55,7 @@ export type CreateEvmNonceManagerWithFetcherArgs = {
   fetchChainNonce: FetchChainNoncePort;
   now?: () => number;
   refreshTtlMs?: number;
+  staleInFlightThresholdMs?: number;
 };
 
 export type CreateEvmNonceManagerArgs = {
@@ -45,6 +63,7 @@ export type CreateEvmNonceManagerArgs = {
   fetchImpl?: typeof fetch;
   now?: () => number;
   refreshTtlMs?: number;
+  staleInFlightThresholdMs?: number;
 };
 
 type ChainWithChainId = Extract<TatchiChainConfig, { chainId: number }>;
@@ -111,12 +130,22 @@ type NonceState = {
   chainNonce: bigint | null;
   nextCandidate: bigint | null;
   reserved: Set<string>;
+  inFlight: Map<string, InFlightNonceRecord>;
   lastRefreshMs: number | null;
   inflightRefresh: Promise<bigint> | null;
 };
 
+type InFlightNonceRecord = {
+  nonce: bigint;
+  txHash?: `0x${string}`;
+  status: 'accepted' | 'replaced';
+  acceptedAtMs: number;
+  updatedAtMs: number;
+};
+
 const DEFAULT_REFRESH_TTL_MS = 5_000;
 const DEFAULT_RPC_TIMEOUT_MS = 15_000;
+const DEFAULT_STALE_INFLIGHT_THRESHOLD_MS = 45_000;
 
 class InMemoryEvmNonceManager implements EvmNonceManager {
   private readonly states = new Map<string, NonceState>();
@@ -126,11 +155,16 @@ class InMemoryEvmNonceManager implements EvmNonceManager {
   private readonly fetchChainNonce: FetchChainNoncePort;
   private readonly now: () => number;
   private readonly refreshTtlMs: number;
+  private readonly staleInFlightThresholdMs: number;
 
   constructor(args: CreateEvmNonceManagerWithFetcherArgs) {
     this.fetchChainNonce = args.fetchChainNonce;
     this.now = args.now || Date.now;
     this.refreshTtlMs = normalizePositiveInt(args.refreshTtlMs, DEFAULT_REFRESH_TTL_MS);
+    this.staleInFlightThresholdMs = normalizePositiveInt(
+      args.staleInFlightThresholdMs,
+      DEFAULT_STALE_INFLIGHT_THRESHOLD_MS,
+    );
   }
 
   async reserveNextNonce(input: ReserveNonceInput): Promise<bigint> {
@@ -144,8 +178,20 @@ class InMemoryEvmNonceManager implements EvmNonceManager {
         await this.refreshFromChainLocked(normalized, state);
       }
 
+      const blocked = this.readBlockedInFlight(state);
+      if (blocked) {
+        throw createNonceLaneBlockedError({
+          input: normalized,
+          blockedNonce: blocked.blockedNonce,
+          ageMs: blocked.ageMs,
+        });
+      }
+
       let candidate = state.nextCandidate ?? 0n;
-      while (state.reserved.has(candidate.toString())) {
+      while (
+        state.reserved.has(candidate.toString()) ||
+        state.inFlight.has(candidate.toString())
+      ) {
         candidate += 1n;
       }
       state.reserved.add(candidate.toString());
@@ -154,7 +200,42 @@ class InMemoryEvmNonceManager implements EvmNonceManager {
     });
   }
 
-  async commitBroadcast(
+  async markBroadcastAccepted(
+    input: ReserveNonceInput & { nonce: bigint; txHash?: `0x${string}` },
+  ): Promise<void> {
+    const normalized = normalizeInput(input);
+    const key = toReservationKey(normalized);
+    const nonce = normalizeBigint(input.nonce, 'nonce');
+    await this.withKeyLock(key, async () => {
+      const state = this.getOrCreateState(key);
+      state.reserved.delete(nonce.toString());
+      state.inFlight.set(nonce.toString(), {
+        nonce,
+        ...(input.txHash ? { txHash: input.txHash } : {}),
+        status: 'accepted',
+        acceptedAtMs: this.now(),
+        updatedAtMs: this.now(),
+      });
+      const minNext = nonce + 1n;
+      if (state.nextCandidate == null || state.nextCandidate < minNext) {
+        state.nextCandidate = minNext;
+      }
+    });
+  }
+
+  markBroadcastRejected(input: ReserveNonceInput & { nonce: bigint }): void {
+    const normalized = normalizeInput(input);
+    const key = toReservationKey(normalized);
+    const nonce = normalizeBigint(input.nonce, 'nonce').toString();
+    const state = this.states.get(key);
+    if (!state) return;
+    state.reserved.delete(nonce);
+    if (state.reserved.size === 0 && state.inFlight.size === 0) {
+      state.lastRefreshMs = null;
+    }
+  }
+
+  async markFinalized(
     input: ReserveNonceInput & { nonce: bigint; txHash?: `0x${string}` },
   ): Promise<void> {
     void input.txHash;
@@ -164,34 +245,67 @@ class InMemoryEvmNonceManager implements EvmNonceManager {
     await this.withKeyLock(key, async () => {
       const state = this.getOrCreateState(key);
       state.reserved.delete(nonce.toString());
+      state.inFlight.delete(nonce.toString());
       const minNext = nonce + 1n;
+      state.chainNonce = state.chainNonce == null ? minNext : maxBigInt(state.chainNonce, minNext);
       if (state.nextCandidate == null || state.nextCandidate < minNext) {
         state.nextCandidate = minNext;
       }
+      state.lastRefreshMs = this.now();
     });
   }
 
-  releaseReservation(input: ReserveNonceInput & { nonce: bigint }): void {
+  async markDroppedOrReplaced(
+    input: ReserveNonceInput & {
+      nonce: bigint;
+      reason: 'dropped' | 'replaced';
+      txHash?: `0x${string}`;
+    },
+  ): Promise<void> {
     const normalized = normalizeInput(input);
     const key = toReservationKey(normalized);
-    const nonce = normalizeBigint(input.nonce, 'nonce').toString();
-    const state = this.states.get(key);
-    if (!state) return;
-    state.reserved.delete(nonce);
-    // If nothing is reserved, force the next reservation to refresh from chain.
-    // This prevents local nonce drift after a failed broadcast that released
-    // the last reservation (e.g. chain pending nonce=1 while local candidate=2).
-    if (state.reserved.size === 0) {
+    const nonce = normalizeBigint(input.nonce, 'nonce');
+    await this.withKeyLock(key, async () => {
+      const state = this.getOrCreateState(key);
+      state.reserved.delete(nonce.toString());
+      if (input.reason === 'dropped') {
+        state.inFlight.delete(nonce.toString());
+        if (state.chainNonce == null || state.chainNonce <= nonce) {
+          state.nextCandidate =
+            state.nextCandidate == null ? nonce : minBigInt(state.nextCandidate, nonce);
+        }
+      } else {
+        const prev = state.inFlight.get(nonce.toString());
+        state.inFlight.set(nonce.toString(), {
+          nonce,
+          ...(input.txHash ? { txHash: input.txHash } : prev?.txHash ? { txHash: prev.txHash } : {}),
+          status: 'replaced',
+          acceptedAtMs: prev?.acceptedAtMs ?? this.now(),
+          updatedAtMs: this.now(),
+        });
+      }
       state.lastRefreshMs = null;
-    }
+    });
   }
 
-  async refreshFromChain(input: ReserveNonceInput): Promise<bigint> {
+  async reconcileLane(input: ReserveNonceInput): Promise<NonceLaneStatus> {
     const normalized = normalizeInput(input);
     const key = toReservationKey(normalized);
-    const state = this.getOrCreateState(key);
-    this.indexKeyByAccount(normalized.nearAccountId, key);
-    return await this.refreshFromChainLocked(normalized, state);
+    return await this.withKeyLock(key, async () => {
+      const state = this.getOrCreateState(key);
+      this.indexKeyByAccount(normalized.nearAccountId, key);
+      const chainNextNonce = await this.refreshFromChainLocked(normalized, state);
+      const unresolvedInFlightNonces = Array.from(state.inFlight.values())
+        .map((entry) => entry.nonce)
+        .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      const blockedState = this.readBlockedInFlight(state);
+      return {
+        chainNextNonce,
+        unresolvedInFlightNonces,
+        blocked: !!blockedState,
+        ...(blockedState ? { blockedNonce: blockedState.blockedNonce } : {}),
+      };
+    });
   }
 
   clearForAccount(nearAccountId: string): void {
@@ -226,10 +340,26 @@ class InMemoryEvmNonceManager implements EvmNonceManager {
       }
       state.reserved = prunedReserved;
 
+      let highestInFlight = 0n;
+      const prunedInFlight = new Map<string, InFlightNonceRecord>();
+      for (const [key, record] of state.inFlight.entries()) {
+        if (record.nonce < chainNextNonce) continue;
+        prunedInFlight.set(key, record);
+        if (record.nonce > highestInFlight) highestInFlight = record.nonce;
+      }
+      state.inFlight = prunedInFlight;
+
       const nextFromChain = chainNextNonce;
       const nextFromCurrent = state.nextCandidate || 0n;
       const nextFromReserved = highestReserved > 0n ? highestReserved + 1n : 0n;
-      state.nextCandidate = maxBigInt(0n, nextFromChain, nextFromCurrent, nextFromReserved);
+      const nextFromInFlight = highestInFlight > 0n ? highestInFlight + 1n : 0n;
+      state.nextCandidate = maxBigInt(
+        0n,
+        nextFromChain,
+        nextFromCurrent,
+        nextFromReserved,
+        nextFromInFlight,
+      );
       state.chainNonce = chainNextNonce;
       state.lastRefreshMs = this.now();
 
@@ -249,6 +379,7 @@ class InMemoryEvmNonceManager implements EvmNonceManager {
   private shouldRefresh(state: NonceState): boolean {
     if (state.nextCandidate == null) return true;
     if (state.lastRefreshMs == null) return true;
+    if (state.inFlight.size > 0) return true;
     if (state.reserved.size > 0) return false;
     return this.now() - state.lastRefreshMs >= this.refreshTtlMs;
   }
@@ -260,6 +391,7 @@ class InMemoryEvmNonceManager implements EvmNonceManager {
       chainNonce: null,
       nextCandidate: null,
       reserved: new Set<string>(),
+      inFlight: new Map<string, InFlightNonceRecord>(),
       lastRefreshMs: null,
       inflightRefresh: null,
     };
@@ -297,6 +429,31 @@ class InMemoryEvmNonceManager implements EvmNonceManager {
       }
     }
   }
+
+  private readBlockedInFlight(
+    state: NonceState,
+  ): { blockedNonce: bigint; ageMs: number } | null {
+    if (state.inFlight.size === 0) return null;
+    if (state.chainNonce == null) return null;
+
+    let oldestNonce: bigint | null = null;
+    let oldestUpdatedAtMs: number | null = null;
+    for (const record of state.inFlight.values()) {
+      if (oldestNonce == null || record.nonce < oldestNonce) {
+        oldestNonce = record.nonce;
+        oldestUpdatedAtMs = record.updatedAtMs;
+      }
+    }
+    if (oldestNonce == null || oldestUpdatedAtMs == null) return null;
+    if (state.chainNonce > oldestNonce) return null;
+
+    const ageMs = Math.max(0, this.now() - oldestUpdatedAtMs);
+    if (ageMs < this.staleInFlightThresholdMs) return null;
+    return {
+      blockedNonce: oldestNonce,
+      ageMs,
+    };
+  }
 }
 
 export function createEvmNonceManagerWithFetcher(
@@ -310,6 +467,7 @@ export function createEvmNonceManager(args: CreateEvmNonceManagerArgs): EvmNonce
   return createEvmNonceManagerWithFetcher({
     now: args.now,
     refreshTtlMs: args.refreshTtlMs,
+    staleInFlightThresholdMs: args.staleInFlightThresholdMs,
     fetchChainNonce: async (input) =>
       await fetchChainNonceFromRpc({
         chains: args.chains,
@@ -617,4 +775,48 @@ function maxBigInt(...values: bigint[]): bigint {
     if (values[i] > max) max = values[i];
   }
   return max;
+}
+
+function minBigInt(a: bigint, b: bigint): bigint {
+  return a < b ? a : b;
+}
+
+function createNonceLaneBlockedError(args: {
+  input: NormalizedInput;
+  blockedNonce: bigint;
+  ageMs: number;
+}): Error & {
+  code: 'nonce_lane_blocked';
+  retryable: true;
+  details: {
+    chain: EvmNonceChain;
+    networkKey: string;
+    chainId: number;
+    blockedNonce: string;
+    ageMs: number;
+  };
+} {
+  const error = new Error(
+    `[evmNonceManager] nonce lane blocked on ${args.input.networkKey} (nonce=${args.blockedNonce.toString()}) for ${args.ageMs}ms; reconcile or replace/dropped report required`,
+  ) as Error & {
+    code: 'nonce_lane_blocked';
+    retryable: true;
+    details: {
+      chain: EvmNonceChain;
+      networkKey: string;
+      chainId: number;
+      blockedNonce: string;
+      ageMs: number;
+    };
+  };
+  error.code = 'nonce_lane_blocked';
+  error.retryable = true;
+  error.details = {
+    chain: args.input.chain,
+    networkKey: args.input.networkKey,
+    chainId: args.input.chainId,
+    blockedNonce: args.blockedNonce.toString(),
+    ageMs: args.ageMs,
+  };
+  return error;
 }

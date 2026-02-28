@@ -17,7 +17,6 @@ import type { ClientAuthenticatorData, ClientUserData } from '../indexedDB';
 import { createWebAuthnLoginOptions, verifyWebAuthnLogin } from '../rpcClients/near/rpcCalls';
 import { parseDeviceNumber } from '../signingEngine/signers/webauthn/device/getDeviceNumber';
 import { clearAllCachedEd25519AuthSessions } from '../signingEngine/threshold/session/ed25519AuthSession';
-import { clearAllCachedEcdsaAuthSessions } from '../signingEngine/threshold/session/ecdsaAuthSession';
 import { clearAllStoredThresholdEd25519SessionRecords } from '../signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import { shouldRequireThresholdWarmSession } from './thresholdWarmSessionDefaults';
 
@@ -837,8 +836,5 @@ export async function logoutAndClearSession(context: PasskeyManagerContext): Pro
   } catch {}
   try {
     clearAllStoredThresholdEd25519SessionRecords();
-  } catch {}
-  try {
-    clearAllCachedEcdsaAuthSessions();
   } catch {}
 }

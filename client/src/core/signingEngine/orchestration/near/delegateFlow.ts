@@ -22,6 +22,7 @@ import {
 } from '@/core/indexedDB/passkeyNearKeysDB.types';
 import {
   clearCachedEd25519AuthSession,
+  getCachedEd25519AuthSession,
   getCachedEd25519AuthSessionJwt,
   makeEd25519AuthSessionCacheKey,
 } from '@/core/signingEngine/threshold/session/ed25519AuthSession';
@@ -44,7 +45,7 @@ import {
   resolveNearSigningMaterials,
   toCredentialForRelayJson,
 } from './shared/signingMaterials';
-import { resolveThresholdSessionJwt } from './shared/thresholdSessionAuth';
+import { resolveThresholdSessionAuth } from './shared/thresholdSessionAuth';
 import { assertThresholdSigningSessionReady } from '@/core/signingEngine/orchestration/shared/thresholdSigningSessionPlanner';
 import { buildNearWorkerSigningEnvelope } from './shared/workerRequestAssembly';
 
@@ -248,13 +249,24 @@ export async function signDelegateAction({
     };
   }
 
-  if (!signingContext.threshold.thresholdSessionJwt) {
-    signingContext.threshold.thresholdSessionJwt = await resolveThresholdSessionJwt({
+  if (
+    (signingContext.threshold.thresholdSessionKind === 'jwt' &&
+      !signingContext.threshold.thresholdSessionJwt) ||
+    signingContext.threshold.thresholdSessionKind === 'cookie'
+  ) {
+    const auth = await resolveThresholdSessionAuth({
       thresholdSessionCacheKey: signingContext.threshold.thresholdSessionCacheKey,
       thresholdSessionId: sessionId,
     });
+    if (auth) {
+      signingContext.threshold.thresholdSessionKind = auth.sessionKind;
+      signingContext.threshold.thresholdSessionJwt = auth.thresholdSessionJwt;
+    }
   }
-  if (!signingContext.threshold.thresholdSessionJwt) {
+  if (
+    signingContext.threshold.thresholdSessionKind === 'jwt' &&
+    !signingContext.threshold.thresholdSessionJwt
+  ) {
     clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
     throw new Error(
       '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing',
@@ -271,6 +283,7 @@ export async function signDelegateAction({
       threshold: {
         relayerUrl: signingContext.threshold.relayerUrl,
         thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+        thresholdSessionKind: signingContext.threshold.thresholdSessionKind,
         thresholdSessionJwt: signingContext.threshold.thresholdSessionJwt,
       },
     }),
@@ -334,6 +347,7 @@ type ThresholdDelegateSigningContext = {
     relayerUrl: string;
     thresholdKeyMaterial: ThresholdEd25519_2p_V1Material;
     thresholdSessionCacheKey: string;
+    thresholdSessionKind: 'jwt' | 'cookie';
     thresholdSessionJwt: string | undefined;
   };
 };
@@ -424,6 +438,9 @@ function validateAndPrepareDelegateSigningContext(args: {
     relayerKeyId: thresholdKeyMaterial.relayerKeyId,
     participantIds,
   });
+  const cachedAuthSession = getCachedEd25519AuthSession(thresholdSessionCacheKey);
+  const thresholdSessionKind: 'jwt' | 'cookie' =
+    cachedAuthSession?.sessionKind === 'cookie' ? 'cookie' : 'jwt';
 
   return {
     resolvedSignerMode: 'threshold-signer',
@@ -433,7 +450,11 @@ function validateAndPrepareDelegateSigningContext(args: {
       relayerUrl,
       thresholdKeyMaterial,
       thresholdSessionCacheKey,
-      thresholdSessionJwt: getCachedEd25519AuthSessionJwt(thresholdSessionCacheKey),
+      thresholdSessionKind,
+      thresholdSessionJwt:
+        thresholdSessionKind === 'jwt'
+          ? getCachedEd25519AuthSessionJwt(thresholdSessionCacheKey)
+          : undefined,
     },
   };
 }

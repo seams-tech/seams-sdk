@@ -581,6 +581,568 @@ test.describe('UserConfirm worker router', () => {
     expect(result.persistedPolicy.remainingUses).toBe(8);
   });
 
+  test('sealed mode dedupes concurrent seal persistence requests (apply-server-seal single-flight)', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.touchConfirmManager);
+        const manager = mod.createTouchConfirmManager(
+          {
+            signingSessionPersistenceMode: 'sealed_refresh_v1',
+          },
+          {
+            touchIdPrompt: {},
+            nearClient: {},
+            indexedDB: {},
+            userPreferencesManager: {},
+            nonceManager: {},
+          } as any,
+        );
+
+        const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
+          message: [],
+          error: [],
+        };
+        const postedMessages: any[] = [];
+
+        const fakeWorker: Worker = {
+          addEventListener: ((type: string, handler: (event: any) => void) => {
+            if (type === 'message' || type === 'error') listeners[type].push(handler);
+          }) as any,
+          removeEventListener: ((type: string, handler: (event: any) => void) => {
+            if (type !== 'message' && type !== 'error') return;
+            listeners[type] = listeners[type].filter((fn) => fn !== handler);
+          }) as any,
+          postMessage: ((message: unknown) => {
+            postedMessages.push(message);
+          }) as any,
+          terminate: (() => {}) as any,
+        } as unknown as Worker;
+
+        const emitMessage = (data: unknown) => {
+          for (const handler of [...listeners.message]) {
+            handler({ data, currentTarget: fakeWorker, target: fakeWorker });
+          }
+        };
+
+        const waitForPosted = async (index: number) => {
+          for (let i = 0; i < 100; i += 1) {
+            if (postedMessages[index]) return postedMessages[index];
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          }
+          throw new Error(`No worker message posted at index ${index}`);
+        };
+
+        (manager as any).worker = fakeWorker;
+        (manager as any).attachWorkerRouter(fakeWorker);
+
+        const p1 = manager.persistPrfFirstSealForThresholdSession({
+          sessionId: 'session-single-flight-apply',
+          transport: {
+            relayerUrl: 'https://relay.example',
+            thresholdSessionJwt: 'jwt-session',
+            keyVersion: 'kek-v1',
+            shamirPrimeB64u: 'AQAB',
+          },
+        });
+        const p2 = manager.persistPrfFirstSealForThresholdSession({
+          sessionId: 'session-single-flight-apply',
+          transport: {
+            relayerUrl: 'https://relay.example',
+            thresholdSessionJwt: 'jwt-session',
+            keyVersion: 'kek-v1',
+            shamirPrimeB64u: 'AQAB',
+          },
+        });
+
+        const posted = await waitForPosted(0);
+        emitMessage({
+          id: posted?.id,
+          success: true,
+          data: {
+            ok: true,
+            sealedPrfFirstB64u: 'sealed-b64u',
+            keyVersion: 'kek-v1',
+            remainingUses: 9,
+            expiresAtMs: Date.now() + 45_000,
+          },
+        });
+
+        const [r1, r2] = await Promise.all([p1, p2]);
+        return {
+          postedTypes: postedMessages.map((entry) => entry?.type),
+          r1,
+          r2,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.postedTypes).toEqual(['THRESHOLD_PRF_FIRST_CACHE_SEAL_AND_PERSIST']);
+    expect(result.r1).toEqual(result.r2);
+    expect(result.r1.ok).toBe(true);
+  });
+
+  test('sealed mode dedupes concurrent seal persistence across manager instances', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.touchConfirmManager);
+        const baseConfig = {
+          signingSessionPersistenceMode: 'sealed_refresh_v1' as const,
+        };
+        const baseContext = {
+          touchIdPrompt: {},
+          nearClient: {},
+          indexedDB: {},
+          userPreferencesManager: {},
+          nonceManager: {},
+        } as any;
+
+        const managerA = mod.createTouchConfirmManager(baseConfig, baseContext);
+        const managerB = mod.createTouchConfirmManager(baseConfig, baseContext);
+
+        const listenersA: Record<'message' | 'error', Array<(event: any) => void>> = {
+          message: [],
+          error: [],
+        };
+        const listenersB: Record<'message' | 'error', Array<(event: any) => void>> = {
+          message: [],
+          error: [],
+        };
+        const postedA: any[] = [];
+        const postedB: any[] = [];
+
+        const makeWorker = (
+          listeners: Record<'message' | 'error', Array<(event: any) => void>>,
+          postedMessages: any[],
+        ): Worker =>
+          ({
+            addEventListener: ((type: string, handler: (event: any) => void) => {
+              if (type === 'message' || type === 'error') listeners[type].push(handler);
+            }) as any,
+            removeEventListener: ((type: string, handler: (event: any) => void) => {
+              if (type !== 'message' && type !== 'error') return;
+              listeners[type] = listeners[type].filter((fn) => fn !== handler);
+            }) as any,
+            postMessage: ((message: unknown) => {
+              postedMessages.push(message);
+            }) as any,
+            terminate: (() => {}) as any,
+          }) as unknown as Worker;
+
+        const workerA = makeWorker(listenersA, postedA);
+        const workerB = makeWorker(listenersB, postedB);
+
+        const emitMessage = (
+          listeners: Record<'message' | 'error', Array<(event: any) => void>>,
+          worker: Worker,
+          data: unknown,
+        ) => {
+          for (const handler of [...listeners.message]) {
+            handler({ data, currentTarget: worker, target: worker });
+          }
+        };
+
+        const waitForPosted = async (postedMessages: any[], index: number) => {
+          for (let i = 0; i < 100; i += 1) {
+            if (postedMessages[index]) return postedMessages[index];
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          }
+          throw new Error(`No worker message posted at index ${index}`);
+        };
+
+        (managerA as any).worker = workerA;
+        (managerA as any).attachWorkerRouter(workerA);
+        (managerB as any).worker = workerB;
+        (managerB as any).attachWorkerRouter(workerB);
+
+        const p1 = managerA.persistPrfFirstSealForThresholdSession({
+          sessionId: 'session-cross-manager-apply',
+          transport: {
+            relayerUrl: 'https://relay.example',
+            thresholdSessionJwt: 'jwt-session',
+            keyVersion: 'kek-v1',
+            shamirPrimeB64u: 'AQAB',
+          },
+        });
+        const p2 = managerB.persistPrfFirstSealForThresholdSession({
+          sessionId: 'session-cross-manager-apply',
+          transport: {
+            relayerUrl: 'https://relay.example',
+            thresholdSessionJwt: 'jwt-session',
+            keyVersion: 'kek-v1',
+            shamirPrimeB64u: 'AQAB',
+          },
+        });
+
+        const posted = await waitForPosted(postedA, 0);
+        emitMessage(listenersA, workerA, {
+          id: posted?.id,
+          success: true,
+          data: {
+            ok: true,
+            sealedPrfFirstB64u: 'sealed-b64u',
+            keyVersion: 'kek-v1',
+            remainingUses: 9,
+            expiresAtMs: Date.now() + 45_000,
+          },
+        });
+
+        const [r1, r2] = await Promise.all([p1, p2]);
+        return {
+          postedTypesA: postedA.map((entry) => entry?.type),
+          postedTypesB: postedB.map((entry) => entry?.type),
+          r1,
+          r2,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.postedTypesA).toEqual(['THRESHOLD_PRF_FIRST_CACHE_SEAL_AND_PERSIST']);
+    expect(result.postedTypesB).toEqual([]);
+    expect(result.r1).toEqual(result.r2);
+    expect(result.r1.ok).toBe(true);
+  });
+
+  test('sealed mode dedupes concurrent rehydrate on cache miss (remove-server-seal single-flight)', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.touchConfirmManager);
+        const manager = mod.createTouchConfirmManager(
+          {
+            signingSessionPersistenceMode: 'sealed_refresh_v1',
+          },
+          {
+            touchIdPrompt: {},
+            nearClient: {},
+            indexedDB: {},
+            userPreferencesManager: {},
+            nonceManager: {},
+          } as any,
+        );
+
+        const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
+          message: [],
+          error: [],
+        };
+        const postedMessages: any[] = [];
+
+        const fakeWorker: Worker = {
+          addEventListener: ((type: string, handler: (event: any) => void) => {
+            if (type === 'message' || type === 'error') listeners[type].push(handler);
+          }) as any,
+          removeEventListener: ((type: string, handler: (event: any) => void) => {
+            if (type !== 'message' && type !== 'error') return;
+            listeners[type] = listeners[type].filter((fn) => fn !== handler);
+          }) as any,
+          postMessage: ((message: unknown) => {
+            postedMessages.push(message);
+          }) as any,
+          terminate: (() => {}) as any,
+        } as unknown as Worker;
+
+        const emitMessage = (data: unknown) => {
+          for (const handler of [...listeners.message]) {
+            handler({ data, currentTarget: fakeWorker, target: fakeWorker });
+          }
+        };
+
+        const waitForPosted = async (index: number) => {
+          for (let i = 0; i < 100; i += 1) {
+            if (postedMessages[index]) return postedMessages[index];
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          }
+          throw new Error(`No worker message posted at index ${index}`);
+        };
+
+        sessionStorage.setItem(
+          'tatchi:threshold-prf-sealed:v1:session-single-flight-remove',
+          JSON.stringify({
+            v: 1,
+            alg: 'shamir3pass-v1',
+            thresholdSessionId: 'session-single-flight-remove',
+            sealedPrfFirstB64u: 'sealed-prf',
+            keyVersion: 'kek-v1',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 10,
+            updatedAtMs: Date.now(),
+          }),
+        );
+        sessionStorage.setItem(
+          'tatchi:threshold-prf-sealed:v1:index',
+          JSON.stringify(['session-single-flight-remove']),
+        );
+
+        (manager as any).worker = fakeWorker;
+        (manager as any).attachWorkerRouter(fakeWorker);
+        (manager as any).resolveSealTransportInput = () => ({
+          relayerUrl: 'https://relay.example',
+          thresholdSessionJwt: 'jwt-session',
+          shamirPrimeB64u: 'AQAB',
+          keyVersion: 'kek-v1',
+        });
+
+        const p1 = manager.peekPrfFirstForThresholdSession({
+          sessionId: 'session-single-flight-remove',
+        });
+        const p2 = manager.peekPrfFirstForThresholdSession({
+          sessionId: 'session-single-flight-remove',
+        });
+
+        const firstPeek = await waitForPosted(0);
+        const secondPeek = await waitForPosted(1);
+
+        emitMessage({
+          id: firstPeek?.id,
+          success: true,
+          data: {
+            ok: false,
+            code: 'not_found',
+            message: 'PRF.first not cached for threshold session',
+          },
+        });
+        emitMessage({
+          id: secondPeek?.id,
+          success: true,
+          data: {
+            ok: false,
+            code: 'not_found',
+            message: 'PRF.first not cached for threshold session',
+          },
+        });
+
+        const rehydrate = await waitForPosted(2);
+        emitMessage({
+          id: rehydrate?.id,
+          success: true,
+          data: {
+            ok: true,
+            remainingUses: 8,
+            expiresAtMs: Date.now() + 45_000,
+          },
+        });
+
+        const finalPeek = await waitForPosted(3);
+        emitMessage({
+          id: finalPeek?.id,
+          success: true,
+          data: {
+            ok: true,
+            remainingUses: 8,
+            expiresAtMs: Date.now() + 45_000,
+          },
+        });
+
+        const [r1, r2] = await Promise.all([p1, p2]);
+        return {
+          postedTypes: postedMessages.map((entry) => entry?.type),
+          rehydrateMessageCount: postedMessages.filter(
+            (entry) => entry?.type === 'THRESHOLD_PRF_FIRST_CACHE_REHYDRATE',
+          ).length,
+          r1,
+          r2,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.rehydrateMessageCount).toBe(1);
+    expect(result.postedTypes).toEqual([
+      'THRESHOLD_PRF_FIRST_CACHE_PEEK',
+      'THRESHOLD_PRF_FIRST_CACHE_PEEK',
+      'THRESHOLD_PRF_FIRST_CACHE_REHYDRATE',
+      'THRESHOLD_PRF_FIRST_CACHE_PEEK',
+    ]);
+    expect(result.r1).toEqual(result.r2);
+    expect(result.r1.ok).toBe(true);
+  });
+
+  test('sealed mode dedupes concurrent rehydrate across manager instances', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.touchConfirmManager);
+        const baseConfig = {
+          signingSessionPersistenceMode: 'sealed_refresh_v1' as const,
+        };
+        const baseContext = {
+          touchIdPrompt: {},
+          nearClient: {},
+          indexedDB: {},
+          userPreferencesManager: {},
+          nonceManager: {},
+        } as any;
+
+        const managerA = mod.createTouchConfirmManager(baseConfig, baseContext);
+        const managerB = mod.createTouchConfirmManager(baseConfig, baseContext);
+
+        const listenersA: Record<'message' | 'error', Array<(event: any) => void>> = {
+          message: [],
+          error: [],
+        };
+        const listenersB: Record<'message' | 'error', Array<(event: any) => void>> = {
+          message: [],
+          error: [],
+        };
+        const postedA: any[] = [];
+        const postedB: any[] = [];
+
+        const makeWorker = (
+          listeners: Record<'message' | 'error', Array<(event: any) => void>>,
+          postedMessages: any[],
+        ): Worker =>
+          ({
+            addEventListener: ((type: string, handler: (event: any) => void) => {
+              if (type === 'message' || type === 'error') listeners[type].push(handler);
+            }) as any,
+            removeEventListener: ((type: string, handler: (event: any) => void) => {
+              if (type !== 'message' && type !== 'error') return;
+              listeners[type] = listeners[type].filter((fn) => fn !== handler);
+            }) as any,
+            postMessage: ((message: unknown) => {
+              postedMessages.push(message);
+            }) as any,
+            terminate: (() => {}) as any,
+          }) as unknown as Worker;
+
+        const workerA = makeWorker(listenersA, postedA);
+        const workerB = makeWorker(listenersB, postedB);
+
+        const emitMessage = (
+          listeners: Record<'message' | 'error', Array<(event: any) => void>>,
+          worker: Worker,
+          data: unknown,
+        ) => {
+          for (const handler of [...listeners.message]) {
+            handler({ data, currentTarget: worker, target: worker });
+          }
+        };
+
+        const waitForPosted = async (postedMessages: any[], index: number) => {
+          for (let i = 0; i < 100; i += 1) {
+            if (postedMessages[index]) return postedMessages[index];
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          }
+          throw new Error(`No worker message posted at index ${index}`);
+        };
+
+        sessionStorage.setItem(
+          'tatchi:threshold-prf-sealed:v1:session-cross-manager-remove',
+          JSON.stringify({
+            v: 1,
+            alg: 'shamir3pass-v1',
+            thresholdSessionId: 'session-cross-manager-remove',
+            sealedPrfFirstB64u: 'sealed-prf',
+            keyVersion: 'kek-v1',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 10,
+            updatedAtMs: Date.now(),
+          }),
+        );
+        sessionStorage.setItem(
+          'tatchi:threshold-prf-sealed:v1:index',
+          JSON.stringify(['session-cross-manager-remove']),
+        );
+
+        (managerA as any).worker = workerA;
+        (managerA as any).attachWorkerRouter(workerA);
+        (managerA as any).resolveSealTransportInput = () => ({
+          relayerUrl: 'https://relay.example',
+          thresholdSessionJwt: 'jwt-session',
+          shamirPrimeB64u: 'AQAB',
+          keyVersion: 'kek-v1',
+        });
+        (managerB as any).worker = workerB;
+        (managerB as any).attachWorkerRouter(workerB);
+        (managerB as any).resolveSealTransportInput = () => ({
+          relayerUrl: 'https://relay.example',
+          thresholdSessionJwt: 'jwt-session',
+          shamirPrimeB64u: 'AQAB',
+          keyVersion: 'kek-v1',
+        });
+
+        const p1 = managerA.peekPrfFirstForThresholdSession({
+          sessionId: 'session-cross-manager-remove',
+        });
+        const p2 = managerB.peekPrfFirstForThresholdSession({
+          sessionId: 'session-cross-manager-remove',
+        });
+
+        const firstPeekA = await waitForPosted(postedA, 0);
+        const firstPeekB = await waitForPosted(postedB, 0);
+        emitMessage(listenersA, workerA, {
+          id: firstPeekA?.id,
+          success: true,
+          data: {
+            ok: false,
+            code: 'not_found',
+            message: 'PRF.first not cached for threshold session',
+          },
+        });
+        emitMessage(listenersB, workerB, {
+          id: firstPeekB?.id,
+          success: true,
+          data: {
+            ok: false,
+            code: 'not_found',
+            message: 'PRF.first not cached for threshold session',
+          },
+        });
+
+        const rehydrateA = await waitForPosted(postedA, 1);
+        emitMessage(listenersA, workerA, {
+          id: rehydrateA?.id,
+          success: true,
+          data: {
+            ok: true,
+            remainingUses: 8,
+            expiresAtMs: Date.now() + 45_000,
+          },
+        });
+
+        const finalPeekA = await waitForPosted(postedA, 2);
+        emitMessage(listenersA, workerA, {
+          id: finalPeekA?.id,
+          success: true,
+          data: {
+            ok: true,
+            remainingUses: 8,
+            expiresAtMs: Date.now() + 45_000,
+          },
+        });
+
+        const [r1, r2] = await Promise.all([p1, p2]);
+        return {
+          postedTypesA: postedA.map((entry) => entry?.type),
+          postedTypesB: postedB.map((entry) => entry?.type),
+          totalRehydrateCount:
+            postedA.filter((entry) => entry?.type === 'THRESHOLD_PRF_FIRST_CACHE_REHYDRATE')
+              .length +
+            postedB.filter((entry) => entry?.type === 'THRESHOLD_PRF_FIRST_CACHE_REHYDRATE')
+              .length,
+          r1,
+          r2,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.postedTypesA).toEqual([
+      'THRESHOLD_PRF_FIRST_CACHE_PEEK',
+      'THRESHOLD_PRF_FIRST_CACHE_REHYDRATE',
+      'THRESHOLD_PRF_FIRST_CACHE_PEEK',
+    ]);
+    expect(result.postedTypesB).toEqual(['THRESHOLD_PRF_FIRST_CACHE_PEEK']);
+    expect(result.totalRehydrateCount).toBe(1);
+    expect(result.r1).toEqual(result.r2);
+    expect(result.r1.ok).toBe(true);
+  });
+
   test('non-sealed mode does not rehydrate from persisted record on cache miss', async ({
     page,
   }) => {

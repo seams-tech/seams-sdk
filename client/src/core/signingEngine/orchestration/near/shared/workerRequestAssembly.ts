@@ -13,6 +13,7 @@ type NearWorkerDecryptionPayload = WasmSignTransactionsWithActionsRequest['decry
 type NearThresholdSignerConfigInput = {
   relayerUrl: string;
   thresholdKeyMaterial: ThresholdEd25519_2p_V1Material;
+  thresholdSessionKind?: 'jwt' | 'cookie';
   thresholdSessionJwt?: string;
 };
 
@@ -35,6 +36,9 @@ export function localNearWorkerDecryptionPayload(
 export function buildNearThresholdSignerConfig(
   args: NearThresholdSignerConfigInput,
 ): ThresholdSignerConfig {
+  const thresholdSessionKind = args.thresholdSessionKind === 'cookie' ? 'cookie' : 'jwt';
+  const thresholdSessionJwt =
+    thresholdSessionKind === 'jwt' ? String(args.thresholdSessionJwt || '').trim() || undefined : undefined;
   return {
     relayerUrl: args.relayerUrl,
     relayerKeyId: args.thresholdKeyMaterial.relayerKeyId,
@@ -43,8 +47,8 @@ export function buildNearThresholdSignerConfig(
     relayerParticipantId: args.thresholdKeyMaterial.participants.find((p) => p.role === 'relayer')
       ?.id,
     participantIds: args.thresholdKeyMaterial.participants.map((p) => p.id),
-    thresholdSessionKind: 'jwt',
-    thresholdSessionJwt: args.thresholdSessionJwt,
+    thresholdSessionKind,
+    ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
   };
 }
 
