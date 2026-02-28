@@ -21,6 +21,7 @@ export type WebAuthnSyncChallengeRecord = {
   version: 'webauthn_sync_challenge_v1';
   challengeId: string;
   rpId: string;
+  expectedUserId?: string;
   challengeB64u: string;
   createdAtMs: number;
   expiresAtMs: number;
@@ -56,6 +57,9 @@ function parseWebAuthnSyncChallengeRecord(raw: unknown): WebAuthnSyncChallengeRe
   const version = toOptionalTrimmedString(raw.version);
   const challengeId = toOptionalTrimmedString(raw.challengeId);
   const rpId = toOptionalTrimmedString(raw.rpId);
+  const expectedUserId = toOptionalTrimmedString(
+    (raw as { expectedUserId?: unknown }).expectedUserId,
+  );
   const challengeB64u = toOptionalTrimmedString(raw.challengeB64u);
   const createdAtMsRaw = (raw as { createdAtMs?: unknown }).createdAtMs;
   const expiresAtMsRaw = (raw as { expiresAtMs?: unknown }).expiresAtMs;
@@ -69,6 +73,7 @@ function parseWebAuthnSyncChallengeRecord(raw: unknown): WebAuthnSyncChallengeRe
     version: 'webauthn_sync_challenge_v1',
     challengeId,
     rpId,
+    ...(expectedUserId ? { expectedUserId } : {}),
     challengeB64u,
     createdAtMs: Math.floor(createdAtMs),
     expiresAtMs: Math.floor(expiresAtMs),

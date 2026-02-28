@@ -174,7 +174,9 @@ function parseThresholdEd25519BootstrapInput(raw: unknown): ThresholdEd25519Boot
   const body = isObject(raw) ? (raw as Record<string, unknown>) : null;
   return {
     clientVerifyingShareB64u: String(body?.client_verifying_share_b64u || '').trim(),
-    sessionPolicy: isObject(body?.session_policy) ? (body!.session_policy as Record<string, unknown>) : null,
+    sessionPolicy: isObject(body?.session_policy)
+      ? (body!.session_policy as Record<string, unknown>)
+      : null,
     sessionKind: String(body?.session_kind || '')
       .trim()
       .toLowerCase(),
@@ -191,7 +193,9 @@ function validateThresholdEd25519SessionPolicyBindings(args: {
   if (requestedPolicyRelayerKeyId && requestedPolicyRelayerKeyId !== args.expectedRelayerKeyId) {
     return 'threshold_ed25519.session_policy.relayerKeyId mismatch';
   }
-  const requestedPolicyNearAccountId = String(args.requestedSessionPolicy.nearAccountId || '').trim();
+  const requestedPolicyNearAccountId = String(
+    args.requestedSessionPolicy.nearAccountId || '',
+  ).trim();
   if (requestedPolicyNearAccountId && requestedPolicyNearAccountId !== args.expectedNearAccountId) {
     return 'threshold_ed25519.session_policy.nearAccountId mismatch';
   }
@@ -202,15 +206,13 @@ function validateThresholdEd25519SessionPolicyBindings(args: {
   return null;
 }
 
-function toThresholdEd25519BootstrapSession(
-  session: {
-    sessionId?: unknown;
-    expiresAtMs?: unknown;
-    expiresAt?: unknown;
-    participantIds?: unknown;
-    remainingUses?: unknown;
-  },
-): ThresholdEd25519BootstrapSession | null {
+function toThresholdEd25519BootstrapSession(session: {
+  sessionId?: unknown;
+  expiresAtMs?: unknown;
+  expiresAt?: unknown;
+  participantIds?: unknown;
+  remainingUses?: unknown;
+}): ThresholdEd25519BootstrapSession | null {
   const sessionId = String(session.sessionId || '').trim();
   const expiresAtMs = Number(session.expiresAtMs);
   if (!sessionId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) return null;
@@ -2245,12 +2247,14 @@ export class AuthService {
 
   async createWebAuthnSyncAccountOptions(request: {
     rp_id?: unknown;
+    account_id?: unknown;
     ttl_ms?: unknown;
     ttlMs?: unknown;
   }): Promise<{
     ok: boolean;
     challengeId?: string;
     challengeB64u?: string;
+    credentialIds?: string[];
     expiresAtMs?: number;
     code?: string;
     message?: string;
@@ -2258,6 +2262,10 @@ export class AuthService {
     try {
       const rpId = String(request?.rp_id || '').trim();
       if (!rpId) return { ok: false, code: 'invalid_body', message: 'Missing rp_id' };
+      const expectedUserId = toOptionalTrimmedString(request?.account_id);
+      if (expectedUserId && !isValidAccountId(expectedUserId)) {
+        return { ok: false, code: 'invalid_body', message: 'Invalid account_id' };
+      }
 
       const ttlMsRaw = request?.ttlMs ?? request?.ttl_ms;
       const ttlMs = (() => {
@@ -2279,18 +2287,46 @@ export class AuthService {
       const expiresAtMs = createdAtMs + ttlMsClamped;
       const challengeId = base64UrlEncode(crypto.getRandomValues(new Uint8Array(16)));
       const challengeB64u = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)));
+      let credentialIds: string[] | undefined;
+
+      if (expectedUserId) {
+        const bindingStore = this.getWebAuthnCredentialBindingStore();
+        if (typeof bindingStore.listByUserId !== 'function') {
+          return {
+            ok: false,
+            code: 'not_supported',
+            message: 'Credential listing is not supported by this store',
+          };
+        }
+        const bindings = await bindingStore.listByUserId({ userId: expectedUserId, rpId });
+        const seen = new Set<string>();
+        credentialIds = [];
+        for (const binding of bindings) {
+          const credentialId = String(binding.credentialIdB64u || '').trim();
+          if (!credentialId || seen.has(credentialId)) continue;
+          seen.add(credentialId);
+          credentialIds.push(credentialId);
+        }
+      }
 
       const store = this.getWebAuthnSyncChallengeStore();
       await store.put({
         version: 'webauthn_sync_challenge_v1',
         challengeId,
         rpId,
+        ...(expectedUserId ? { expectedUserId } : {}),
         challengeB64u,
         createdAtMs,
         expiresAtMs,
       });
 
-      return { ok: true, challengeId, challengeB64u, expiresAtMs };
+      return {
+        ok: true,
+        challengeId,
+        challengeB64u,
+        ...(credentialIds ? { credentialIds } : {}),
+        expiresAtMs,
+      };
     } catch (e: unknown) {
       return {
         ok: false,
@@ -2410,6 +2446,14 @@ export class AuthService {
           verified: false,
           code: 'unknown_credential',
           message: 'Credential is not registered on this relay',
+        };
+      }
+      if (challenge.expectedUserId && binding.userId !== challenge.expectedUserId) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'unknown_credential',
+          message: `Credential is not registered for account ${challenge.expectedUserId}`,
         };
       }
 
@@ -2881,7 +2925,10 @@ export class AuthService {
         };
       }
       const thresholdEd25519SessionPolicy = thresholdEd25519Bootstrap.sessionPolicy;
-      if ((request as any)?.threshold_ed25519?.session_policy != null && !thresholdEd25519SessionPolicy) {
+      if (
+        (request as any)?.threshold_ed25519?.session_policy != null &&
+        !thresholdEd25519SessionPolicy
+      ) {
         return {
           ok: false,
           code: 'invalid_body',
@@ -3207,7 +3254,10 @@ export class AuthService {
         };
       }
       const thresholdEd25519SessionPolicy = thresholdEd25519Bootstrap.sessionPolicy;
-      if ((request as any)?.threshold_ed25519?.session_policy != null && !thresholdEd25519SessionPolicy) {
+      if (
+        (request as any)?.threshold_ed25519?.session_policy != null &&
+        !thresholdEd25519SessionPolicy
+      ) {
         return {
           ok: false,
           code: 'invalid_body',

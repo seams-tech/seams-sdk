@@ -34,8 +34,6 @@ export async function syncAccount(
   context: PasskeyManagerContext,
   accountId: AccountId | null,
   options?: SyncAccountHooksOptions,
-  reuseCredential?: WebAuthnAuthenticationCredential,
-  allowedCredentialIds?: string[],
 ): Promise<SyncAccountResult> {
   const onEvent = options?.onEvent;
   const emit = (event: SyncAccountEventPayload): void => {
@@ -69,6 +67,8 @@ export async function syncAccount(
   }
 
   try {
+    const normalizedRequestedAccountId = accountId ? toAccountId(String(accountId)) : null;
+
     emit({
       step: 1,
       phase: SyncAccountPhase.STEP_1_PREPARATION,
@@ -80,7 +80,12 @@ export async function syncAccount(
     const optionsResp = await fetch(`${relayerUrl}/sync-account/options`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rp_id: rpId }),
+      body: JSON.stringify({
+        rp_id: rpId,
+        ...(normalizedRequestedAccountId
+          ? { account_id: String(normalizedRequestedAccountId) }
+          : {}),
+      }),
     });
     const optionsJsonUnknown: unknown = await optionsResp.json().catch(() => ({}));
     const optionsJson = isObject(optionsJsonUnknown) ? optionsJsonUnknown : {};
@@ -101,6 +106,19 @@ export async function syncAccount(
       throw new Error('sync-account/options returned invalid challenge');
     }
 
+    const credentialIdsFromOptions = Array.isArray(
+      (optionsJson as { credentialIds?: unknown }).credentialIds,
+    )
+      ? (optionsJson as { credentialIds: unknown[] }).credentialIds
+          .map((id) => String(id || '').trim())
+          .filter((id) => id.length > 0)
+      : [];
+    if (normalizedRequestedAccountId && credentialIdsFromOptions.length === 0) {
+      throw new Error(
+        `No passkeys found for account ${String(normalizedRequestedAccountId)} on this relay`,
+      );
+    }
+
     emit({
       step: 2,
       phase: SyncAccountPhase.STEP_2_WEBAUTHN_AUTHENTICATION,
@@ -108,23 +126,18 @@ export async function syncAccount(
       message: 'Authenticating with passkey...',
     });
 
-    const allowCredentials: WebAuthnAllowCredential[] =
-      Array.isArray(allowedCredentialIds) && allowedCredentialIds.length
-        ? allowedCredentialIds.map((id) => ({ id, type: 'public-key', transports: [] }))
-        : [];
+    const allowCredentials: WebAuthnAllowCredential[] = normalizedRequestedAccountId
+      ? credentialIdsFromOptions.map((id) => ({ id, type: 'public-key', transports: [] }))
+      : [];
 
-    // NOTE: We intentionally avoid requiring a known accountId for discovery. When `allowCredentials`
-    // is empty, the browser prompts the user to select any passkey for `rpId`.
-    const credential =
-      reuseCredential ||
-      (await context.signingEngine.getAuthenticationCredentialsSerialized({
-        nearAccountId: accountId || toAccountId('dummy.testnet'),
-        challengeB64u,
-        allowCredentials,
-        includeSecondPrfOutput: false,
-      }));
-
-    const normalizedRequestedAccountId = accountId ? toAccountId(String(accountId)) : null;
+    // Discovery mode intentionally uses an empty `allowCredentials`, letting the browser ask
+    // the user to choose any passkey for this `rpId`.
+    const credential = await context.signingEngine.getAuthenticationCredentialsSerialized({
+      nearAccountId: accountId || toAccountId('dummy.testnet'),
+      challengeB64u,
+      allowCredentials,
+      includeSecondPrfOutput: false,
+    });
     const thresholdWarmPolicyDraft = normalizedRequestedAccountId
       ? createThresholdWarmSessionPolicyDraft(context)
       : null;
@@ -135,7 +148,10 @@ export async function syncAccount(
           credential,
           nearAccountId: normalizedRequestedAccountId,
         });
-      if (!thresholdDerivedForBootstrap.success || !thresholdDerivedForBootstrap.clientVerifyingShareB64u) {
+      if (
+        !thresholdDerivedForBootstrap.success ||
+        !thresholdDerivedForBootstrap.clientVerifyingShareB64u
+      ) {
         throw new Error(
           thresholdDerivedForBootstrap.error ||
             'Failed to derive threshold client verifying share for sync bootstrap',
@@ -158,7 +174,9 @@ export async function syncAccount(
     if (thresholdWarmPolicyDraft && thresholdBootstrapClientVerifyingShareB64u) {
       verifyRequestBody.threshold_ed25519 = buildThresholdWarmSessionBootstrapPayload({
         clientVerifyingShareB64u: thresholdBootstrapClientVerifyingShareB64u,
-        nearAccountId: normalizedRequestedAccountId ? String(normalizedRequestedAccountId) : undefined,
+        nearAccountId: normalizedRequestedAccountId
+          ? String(normalizedRequestedAccountId)
+          : undefined,
         rpId,
         policy: thresholdWarmPolicyDraft,
       });
@@ -185,8 +203,10 @@ export async function syncAccount(
     if (!syncedAccountId) {
       throw new Error('sync-account/verify returned missing accountId');
     }
-    if (accountId && String(accountId) !== syncedAccountId) {
-      throw new Error(`Selected passkey is not registered for account ${String(accountId)}`);
+    if (normalizedRequestedAccountId && String(normalizedRequestedAccountId) !== syncedAccountId) {
+      throw new Error(
+        `Selected passkey is not registered for account ${String(normalizedRequestedAccountId)}`,
+      );
     }
 
     const deviceNumber = coerceDeviceNumber(verifyJson.deviceNumber, {

@@ -110,6 +110,38 @@ test.describe('relayer router (express) – P0', () => {
     }
   });
 
+  test('POST /sync-account/options: forwards account_id and returns credentialIds', async () => {
+    let receivedBody: Record<string, unknown> | null = null;
+    const service = makeFakeAuthService({
+      createWebAuthnSyncAccountOptions: async (body) => {
+        receivedBody = (body || {}) as Record<string, unknown>;
+        return {
+          ok: true,
+          challengeId: 'sync-cid-123',
+          challengeB64u: 'sync-challenge-b64u',
+          credentialIds: ['cred-a', 'cred-b'],
+          expiresAtMs: 123,
+        };
+      },
+    });
+    const router = createRelayRouter(service, {});
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/sync-account/options`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rp_id: 'example.localhost', account_id: 'bob.testnet' }),
+      });
+      expect(res.status).toBe(200);
+      expect(res.json?.challengeId).toBe('sync-cid-123');
+      expect(res.json?.credentialIds).toEqual(['cred-a', 'cred-b']);
+      expect(receivedBody?.rp_id).toBe('example.localhost');
+      expect(receivedBody?.account_id).toBe('bob.testnet');
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('POST /auth/passkey/verify: invalid body', async () => {
     const service = makeFakeAuthService();
     const router = createRelayRouter(service, {});

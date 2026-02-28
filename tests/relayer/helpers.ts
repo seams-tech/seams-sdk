@@ -172,6 +172,8 @@ export function makeFakeAuthService(
     getRelayerAccount: AuthService['getRelayerAccount'];
     createWebAuthnLoginOptions: AuthService['createWebAuthnLoginOptions'];
     verifyWebAuthnLogin: AuthService['verifyWebAuthnLogin'];
+    createWebAuthnSyncAccountOptions: AuthService['createWebAuthnSyncAccountOptions'];
+    verifyWebAuthnSyncAccount: AuthService['verifyWebAuthnSyncAccount'];
     createAccountAndRegisterUser: AuthService['createAccountAndRegisterUser'];
     getOrCreateAppSessionVersion: AuthService['getOrCreateAppSessionVersion'];
     validateAppSessionVersion: AuthService['validateAppSessionVersion'];
@@ -194,6 +196,17 @@ export function makeFakeAuthService(
       (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
     verifyWebAuthnLogin:
       overrides.verifyWebAuthnLogin ||
+      (async () => ({
+        ok: false,
+        verified: false,
+        code: 'not_implemented',
+        message: 'not implemented',
+      })),
+    createWebAuthnSyncAccountOptions:
+      overrides.createWebAuthnSyncAccountOptions ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    verifyWebAuthnSyncAccount:
+      overrides.verifyWebAuthnSyncAccount ||
       (async () => ({
         ok: false,
         verified: false,
