@@ -124,6 +124,19 @@ Requirements:
    - `POST /threshold-ecdsa/prf-seal/remove-server-seal`
 3. Wallet iframe and touchConfirm worker run under wallet origin with sessionStorage available.
 
+Key material generation:
+
+1. Run `pnpm prf-seal:keygen` from the repo root.
+2. Copy server outputs into relay env:
+   - `PRF_SESSION_SEAL_KEY_VERSION`
+   - `SHAMIR_P_B64U`
+   - `SHAMIR_E_S_B64U`
+   - `SHAMIR_D_S_B64U`
+3. Copy client outputs into app env:
+   - `VITE_SIGNING_SESSION_PERSISTENCE_MODE=sealed_refresh_v1`
+   - `VITE_SIGNING_SESSION_SEAL_KEY_VERSION`
+   - `VITE_SIGNING_SESSION_SHAMIR_P_B64U`
+
 Behavior:
 
 1. Same-tab refresh rehydrates from sealed session record and avoids an extra TouchID prompt.

@@ -29,6 +29,7 @@
     "server": "pnpm -s server:prepare-sdk && pnpm -C examples/relay-server postgres:up && HOST=127.0.0.1 EXPECTED_ORIGIN=https://example.localhost EXPECTED_WALLET_ORIGIN=https://wallet.example.localhost pnpm -C examples/relay-server dev",
     "server:3-relays": "pnpm -s server:prepare-sdk && pnpm -C examples/relay-server postgres:up && HOST=127.0.0.1 EXPECTED_ORIGIN=https://example.localhost EXPECTED_WALLET_ORIGIN=https://wallet.example.localhost pnpm -C examples/relay-server dev:threshold:3relays",
     "server:iphone": "pnpm -s server:prepare-sdk && pnpm -C examples/relay-server postgres:up && HOST=0.0.0.0 EXPECTED_ORIGIN=https://pta-m4.local EXPECTED_WALLET_ORIGIN=https://pta-m4.local:8443 pnpm -C examples/relay-server dev",
+    "prf-seal:keygen": "pnpm -C examples/relay-server prf-seal:keygen",
     "docs:dev": "pnpm -C examples/tatchi-docs dev",
     "docs:build": "pnpm -C examples/tatchi-docs build",
     "docs:preview": "pnpm -C examples/tatchi-docs preview",

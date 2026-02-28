@@ -1,4 +1,10 @@
-import { AuthService } from '@tatchi-xyz/sdk/server';
+import {
+  AuthService,
+  createEcdsaAuthSessionStore,
+  createPrfSessionSealPolicyFromEcdsaAuthSessionStore,
+  createPrfSessionSealRoutesOptions,
+  createPrfSessionSealShamir3PassCipherAdapter,
+} from '@tatchi-xyz/sdk/server';
 import {
   createCloudflareCron,
   createCloudflareEmailHandler,
@@ -29,6 +35,8 @@ type Env = RelayCloudflareWorkerEnv & {
   SHAMIR_P_B64U: string;
   SHAMIR_E_S_B64U: string;
   SHAMIR_D_S_B64U: string;
+  PRF_SESSION_SEAL_ENABLED?: string;
+  PRF_SESSION_SEAL_KEY_VERSION?: string;
   EXPECTED_ORIGIN?: string;
   EXPECTED_WALLET_ORIGIN?: string;
   ENABLE_ROTATION?: string;
@@ -78,7 +86,32 @@ function sanitizeOrigins(values: string[]): string[] {
   return Array.from(out);
 }
 
+function parseBooleanFlag(value: unknown, fallback: boolean): boolean {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  if (!normalized) return fallback;
+  if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on')
+    return true;
+  if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off') {
+    return false;
+  }
+  return fallback;
+}
+
+function createThresholdKeyStoreConfig(env: Env) {
+  return {
+    kind: 'cloudflare-do' as const,
+    namespace: env.THRESHOLD_STORE,
+    name: 'threshold-ed25519-store',
+    THRESHOLD_PREFIX: env.THRESHOLD_PREFIX,
+    THRESHOLD_ED25519_SHARE_MODE: env.THRESHOLD_ED25519_SHARE_MODE,
+    THRESHOLD_ED25519_MASTER_SECRET_B64U: env.THRESHOLD_ED25519_MASTER_SECRET_B64U,
+  };
+}
+
 function createAuthService(env: Env): AuthService {
+  const thresholdEd25519KeyStore = createThresholdKeyStoreConfig(env);
   return new AuthService({
     relayerAccount: env.RELAYER_ACCOUNT_ID,
     relayerPrivateKey: env.RELAYER_PRIVATE_KEY,
@@ -91,14 +124,7 @@ function createAuthService(env: Env): AuthService {
       GOOGLE_OIDC_CLIENT_IDS: env.GOOGLE_OIDC_CLIENT_IDS,
       GOOGLE_OIDC_HOSTED_DOMAINS: env.GOOGLE_OIDC_HOSTED_DOMAINS,
     },
-    thresholdEd25519KeyStore: {
-      kind: 'cloudflare-do',
-      namespace: env.THRESHOLD_STORE,
-      name: 'threshold-ed25519-store',
-      THRESHOLD_PREFIX: env.THRESHOLD_PREFIX,
-      THRESHOLD_ED25519_SHARE_MODE: env.THRESHOLD_ED25519_SHARE_MODE,
-      THRESHOLD_ED25519_MASTER_SECRET_B64U: env.THRESHOLD_ED25519_MASTER_SECRET_B64U,
-    },
+    thresholdEd25519KeyStore,
     shamir: {
       SHAMIR_P_B64U: env.SHAMIR_P_B64U,
       SHAMIR_E_S_B64U: env.SHAMIR_E_S_B64U,
@@ -112,6 +138,41 @@ function createAuthService(env: Env): AuthService {
   });
 }
 
+function createPrfSessionSealOptions(env: Env) {
+  const enabled = parseBooleanFlag(env.PRF_SESSION_SEAL_ENABLED, true);
+  if (!enabled) return null;
+
+  const keyVersion = String(env.PRF_SESSION_SEAL_KEY_VERSION || 'kek-s-2026-02').trim();
+  if (!keyVersion) {
+    throw new Error(
+      'PRF_SESSION_SEAL_KEY_VERSION must be a non-empty string when PRF_SESSION_SEAL_ENABLED is enabled',
+    );
+  }
+
+  const thresholdEd25519KeyStore = createThresholdKeyStoreConfig(env);
+  const ecdsaAuthSessionStore = createEcdsaAuthSessionStore({
+    config: thresholdEd25519KeyStore,
+    logger: console,
+    isNode: false,
+  });
+
+  return createPrfSessionSealRoutesOptions({
+    sessionPolicy: createPrfSessionSealPolicyFromEcdsaAuthSessionStore(ecdsaAuthSessionStore),
+    cipher: createPrfSessionSealShamir3PassCipherAdapter({
+      currentKeyVersion: keyVersion,
+      keys: [
+        {
+          keyVersion,
+          shamirPrimeB64u: env.SHAMIR_P_B64U,
+          serverEncryptExponentB64u: env.SHAMIR_E_S_B64U,
+          serverDecryptExponentB64u: env.SHAMIR_D_S_B64U,
+        },
+      ],
+    }),
+    logger: console,
+  });
+}
+
 export default {
   /**
    * HTTP entrypoint
@@ -120,6 +181,7 @@ export default {
    */
   async fetch(request: Request, env: Env, ctx: Ctx): Promise<Response> {
     const authService = createAuthService(env);
+    const prfSessionSeal = createPrfSessionSealOptions(env);
     const expectedOrigin = String(env.EXPECTED_ORIGIN || '').trim();
     const expectedWalletOrigin = String(env.EXPECTED_WALLET_ORIGIN || '').trim();
     const rorRpId = String(env.ROR_RP_ID || hostnameFromOrigin(expectedWalletOrigin))
@@ -151,6 +213,7 @@ export default {
         : {}),
       signedDelegate: { route: '/signed-delegate' },
       session: jwtSession,
+      prfSessionSeal,
     });
     return router(request, env, ctx);
   },

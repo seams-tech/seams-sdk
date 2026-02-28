@@ -38,6 +38,16 @@ function parseBooleanFlag(value: unknown, fallback: boolean): boolean {
   return fallback;
 }
 
+function parseSigningSessionPersistenceMode(
+  value: unknown,
+): NonNullable<TatchiConfigsInput['signingSessionPersistenceMode']> {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  if (normalized === 'sealed_refresh_v1') return 'sealed_refresh_v1';
+  return 'none';
+}
+
 function stripTrailingSlash(path: string): string {
   if (path.length <= 1) return path;
   return path.endsWith('/') ? path.slice(0, -1) : path;
@@ -58,6 +68,11 @@ const tempoFeeToken = toTrimmedString(env.VITE_TEMPO_FEE_TOKEN) || DEFAULT_TEMPO
 // Arc env keys stay Arc-branded because this demo config wires Arc testnet explicitly.
 const arcRpcUrl = toTrimmedString(env.VITE_ARC_RPC_URL) || DEFAULT_ARC_RPC_URL;
 const arcExplorerUrl = toTrimmedString(env.VITE_ARC_EXPLORER) || DEFAULT_ARC_EXPLORER_URL;
+const signingSessionPersistenceMode = parseSigningSessionPersistenceMode(
+  env.VITE_SIGNING_SESSION_PERSISTENCE_MODE,
+);
+const signingSessionSealKeyVersion = toOptionalString(env.VITE_SIGNING_SESSION_SEAL_KEY_VERSION);
+const signingSessionSealShamirPrimeB64u = toOptionalString(env.VITE_SIGNING_SESSION_SHAMIR_P_B64U);
 const chains: NonNullable<TatchiConfigsInput['chains']> = [
   {
     network: nearChainNetwork,
@@ -105,6 +120,9 @@ export const FRONTEND_CONFIG = Object.freeze({
       DEFAULT_SIGNING_SESSION_REMAINING_USES,
     ),
   },
+  signingSessionPersistenceMode,
+  signingSessionSealKeyVersion,
+  signingSessionSealShamirPrimeB64u,
   dashboardFlags: {
     walletsRoutesEnabled: parseBooleanFlag(env.VITE_DASHBOARD_WALLETS_ROUTES_ENABLED, true),
   },

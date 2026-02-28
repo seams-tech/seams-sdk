@@ -34,6 +34,8 @@ CREATE_ACCOUNT_AND_REGISTER_GAS = "85000000000000"  # 85 TGas
 RELAYER_URL = "https://relay.tatchi.xyz"
 THRESHOLD_PREFIX = "tatchi:prod:w3a"
 THRESHOLD_ED25519_SHARE_MODE = "derived"
+PRF_SESSION_SEAL_ENABLED = "1"
+PRF_SESSION_SEAL_KEY_VERSION = "kek-s-2026-02"
 
 # Secrets are NOT defined here. Set them via Wrangler secrets (they persist across deploys):
 #   wrangler secret put RELAYER_PRIVATE_KEY
@@ -62,6 +64,8 @@ EXPECTED_ORIGIN = "https://tatchi.xyz"
 EXPECTED_WALLET_ORIGIN = "https://wallet.web3authn.org"
 THRESHOLD_PREFIX = "tatchi:prod:w3a"
 THRESHOLD_ED25519_SHARE_MODE = "derived"
+PRF_SESSION_SEAL_ENABLED = "1"
+PRF_SESSION_SEAL_KEY_VERSION = "kek-s-2026-02"
 
 # Durable Object binding (explicit per-env to avoid any inheritance ambiguity).
 [[env.production.durable_objects.bindings]]
@@ -84,6 +88,8 @@ EXPECTED_ORIGIN = "https://staging.tatchi.xyz"
 EXPECTED_WALLET_ORIGIN = "https://wallet-staging.web3authn.org"
 THRESHOLD_PREFIX = "tatchi:staging:w3a"
 THRESHOLD_ED25519_SHARE_MODE = "derived"
+PRF_SESSION_SEAL_ENABLED = "1"
+PRF_SESSION_SEAL_KEY_VERSION = "kek-s-2026-02"
 
 # Durable Object binding (explicit per-env to avoid any inheritance ambiguity).
 [[env.staging.durable_objects.bindings]]

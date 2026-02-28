@@ -49,6 +49,8 @@ extra requirements and limitations compared to the Express example.
     - `ROR_ALLOWED_ORIGINS` (optional comma-separated extra origins)
 - If you enable Shamir rotation, configure the cron schedule in `[triggers]`
   and set `ENABLE_ROTATION="1"`.
+- Generate matching Shamir values for server + client config:
+  - `pnpm prf-seal:keygen`
 - Optional billing monthly finalization (SaaS console):
   - `BILLING_FINALIZATION_ENABLED="1"`
   - `BILLING_POSTGRES_URL=<postgres url>`
@@ -105,6 +107,18 @@ const session = new SessionService({
   cookie: { name: 'w3a_session' },
 });
 ```
+
+## PRF session seal routes (`/threshold-ecdsa/prf-seal/*`)
+
+This worker mounts:
+
+- `POST /threshold-ecdsa/prf-seal/apply-server-seal`
+- `POST /threshold-ecdsa/prf-seal/remove-server-seal`
+
+Configure with vars:
+
+- `PRF_SESSION_SEAL_ENABLED` (`"1"` or `"0"`, defaults to enabled)
+- `PRF_SESSION_SEAL_KEY_VERSION` (defaults to `kek-s-2026-02`)
 
 Custom cookie headers (optional):
 

@@ -60,6 +60,18 @@ Enable with `PRF_SESSION_SEAL_ENABLED=1` and provide:
 - `SHAMIR_E_S_B64U`
 - `SHAMIR_D_S_B64U`
 
+Generate matching server/client values:
+
+```bash
+# from repo root
+pnpm prf-seal:keygen
+```
+
+The command prints:
+
+- server env values: `SHAMIR_P_B64U`, `SHAMIR_E_S_B64U`, `SHAMIR_D_S_B64U`, `PRF_SESSION_SEAL_KEY_VERSION`
+- client env values: `VITE_SIGNING_SESSION_PERSISTENCE_MODE`, `VITE_SIGNING_SESSION_SEAL_KEY_VERSION`, `VITE_SIGNING_SESSION_SHAMIR_P_B64U`
+
 Optional limiter config:
 
 - `PRF_SESSION_SEAL_RATE_LIMIT_KIND` (`in-memory` | `upstash-redis-rest` | `redis-tcp`)
@@ -117,6 +129,7 @@ CONSOLE_DEV_TOKEN=dev-console-token
 # Optional PRF seal/unseal routes for refresh rehydrate.
 # PRF_SESSION_SEAL_ENABLED=1
 # PRF_SESSION_SEAL_KEY_VERSION=kek-s-2026-02
+# Generate values with: pnpm prf-seal:keygen
 # SHAMIR_P_B64U=...
 # SHAMIR_E_S_B64U=...
 # SHAMIR_D_S_B64U=...
