@@ -163,6 +163,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     expiresAtMs: Math.floor(expiresAtMs),
     remainingUses,
     jwt: sessionJwt,
+    source: 'bootstrap',
   });
 
   return {

@@ -1,3 +1,6 @@
+use getrandom::getrandom;
+use num_bigint::{BigInt, BigUint, ToBigInt};
+use num_traits::{One, Zero};
 use serde::Serialize;
 use shamir_3_pass::{decode_biguint_b64u, encode_biguint_b64u, Shamir3Pass};
 use wasm_bindgen::prelude::*;
@@ -28,6 +31,95 @@ fn decode_positive_operand(input: &str, label: &str) -> Result<num_bigint::BigUi
     Ok(value)
 }
 
+fn gcd(mut a: BigUint, mut b: BigUint) -> BigUint {
+    while b != BigUint::zero() {
+        let remainder = &a % &b;
+        a = b;
+        b = remainder;
+    }
+    a
+}
+
+fn mod_inverse(a: &BigUint, modulus: &BigUint) -> Result<BigUint, JsValue> {
+    let mut t = BigInt::zero();
+    let mut next_t = BigInt::one();
+    let mut r = modulus
+        .to_bigint()
+        .ok_or_else(|| js_error("Failed to convert modulus to BigInt"))?;
+    let mut next_r = (a % modulus)
+        .to_bigint()
+        .ok_or_else(|| js_error("Failed to convert exponent to BigInt"))?;
+
+    while next_r != BigInt::zero() {
+        let q = &r / &next_r;
+        let temp_t = &t - &q * &next_t;
+        t = next_t;
+        next_t = temp_t;
+        let temp_r = &r - &q * &next_r;
+        r = next_r;
+        next_r = temp_r;
+    }
+
+    if r != BigInt::one() {
+        return Err(js_error(
+            "Failed to generate lock keys: client exponent is not invertible mod (p-1)",
+        ));
+    }
+
+    if t < BigInt::zero() {
+        t += modulus
+            .to_bigint()
+            .ok_or_else(|| js_error("Failed to convert modulus to BigInt"))?;
+    }
+
+    t.to_biguint()
+        .ok_or_else(|| js_error("Failed to convert modular inverse to BigUint"))
+}
+
+fn random_biguint_below(limit: &BigUint) -> Result<BigUint, JsValue> {
+    if *limit <= BigUint::one() {
+        return Ok(BigUint::zero());
+    }
+    let bit_length = limit.bits();
+    let byte_length = ((bit_length + 7) / 8) as usize;
+
+    loop {
+        let mut bytes = vec![0u8; byte_length];
+        getrandom(&mut bytes)
+            .map_err(|error| js_error(format!("Failed to gather random bytes: {error}")))?;
+        let candidate = BigUint::from_bytes_be(&bytes);
+        if &candidate < limit {
+            return Ok(candidate);
+        }
+    }
+}
+
+fn pick_client_encrypt_exponent(phi: &BigUint) -> Result<BigUint, JsValue> {
+    let preferred = BigUint::from(65_537u32);
+    if &preferred < phi && gcd(preferred.clone(), phi.clone()) == BigUint::one() {
+        return Ok(preferred);
+    }
+
+    let min = BigUint::from(3u8);
+    if phi <= &min {
+        return Err(js_error("Invalid shamirPrimeB64u: prime too small"));
+    }
+
+    let span = phi - &min;
+    loop {
+        let mut candidate = &min + random_biguint_below(&span)?;
+        if !candidate.bit(0) {
+            candidate += BigUint::one();
+        }
+        if &candidate >= phi {
+            continue;
+        }
+        if gcd(candidate.clone(), phi.clone()) == BigUint::one() {
+            return Ok(candidate);
+        }
+    }
+}
+
 #[wasm_bindgen]
 pub fn init_shamir3pass_runtime() {
     // Reserved for future logger/metrics initialization.
@@ -38,13 +130,14 @@ pub fn shamir3pass_generate_client_lock_keys(
     shamir_prime_b64u: String,
 ) -> Result<JsValue, JsValue> {
     let protocol = parse_protocol(&shamir_prime_b64u)?;
-    let keys = protocol
-        .generate_lock_keys()
-        .map_err(|error| js_error(format!("Failed to generate lock keys: {error}")))?;
+    let mut phi = protocol.p().clone();
+    phi -= BigUint::one();
+    let client_encrypt_exponent = pick_client_encrypt_exponent(&phi)?;
+    let client_decrypt_exponent = mod_inverse(&client_encrypt_exponent, &phi)?;
     let payload = ClientLockKeypairPayload {
         shamir_prime_b64u,
-        client_encrypt_exponent_b64u: encode_biguint_b64u(&keys.e),
-        client_decrypt_exponent_b64u: encode_biguint_b64u(&keys.d),
+        client_encrypt_exponent_b64u: encode_biguint_b64u(&client_encrypt_exponent),
+        client_decrypt_exponent_b64u: encode_biguint_b64u(&client_decrypt_exponent),
     };
     serde_wasm_bindgen::to_value(&payload)
         .map_err(|error| js_error(format!("Failed to serialize lock keys: {error}")))

@@ -1,3 +1,5 @@
+import type { NormalizedLogger } from '../../../core/logger';
+
 export type PrfSessionSealRouteHeaders = Record<string, string | string[] | undefined>;
 
 export type PrfSessionSealSessionClaims = Record<string, unknown>;
@@ -137,5 +139,6 @@ export interface CreatePrfSessionSealServiceOptions {
   consumePolicy?: PrfSessionSealConsumePolicy;
   guard?: PrfSessionSealGuard;
   audit?: PrfSessionSealAuditSink;
+  logger?: NormalizedLogger;
   nowMs?: () => number;
 }

@@ -1,19 +1,15 @@
 import type { LoginSession } from '@/core/types/tatchi';
 
-type SignerModeName = 'threshold-signer' | 'local-signer' | string;
-
-function resolveSignerModeName(mode: unknown): SignerModeName {
-  if (!mode || typeof mode !== 'object') return 'local-signer';
-  const value = (mode as { mode?: unknown }).mode;
-  return typeof value === 'string' && value.trim().length > 0
-    ? (value.trim() as SignerModeName)
-    : 'local-signer';
+function isThresholdSignerMode(signerMode: unknown): boolean {
+  if (!signerMode || typeof signerMode !== 'object') return false;
+  const mode = String((signerMode as { mode?: unknown }).mode || '').trim().toLowerCase();
+  return mode === 'threshold-signer';
 }
 
 /**
  * UI login readiness gate:
- * - For threshold-signer mode, login requires active warm signing session.
- * - For other modes, login snapshot alone is sufficient.
+ * - For threshold signer mode, login is ready only when warm signing session is active.
+ * - For other signer modes, login readiness follows the canonical login snapshot only.
  */
 export function isLoginSessionReadyForUi(args: {
   session: Pick<LoginSession, 'login' | 'signingSession'>;
@@ -21,6 +17,6 @@ export function isLoginSessionReadyForUi(args: {
 }): boolean {
   const { session, signerMode } = args;
   if (!session?.login?.isLoggedIn || !session?.login?.nearAccountId) return false;
-  if (resolveSignerModeName(signerMode) !== 'threshold-signer') return true;
-  return session.signingSession?.status === 'active';
+  if (!isThresholdSignerMode(signerMode)) return true;
+  return session?.signingSession?.status === 'active';
 }

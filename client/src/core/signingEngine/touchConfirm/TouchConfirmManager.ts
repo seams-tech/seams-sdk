@@ -14,6 +14,7 @@ import type {
   ThresholdPrfFirstCacheRehydrateResult,
   ThresholdPrfFirstCacheSealAndPersistPayload,
   ThresholdPrfFirstCacheSealAndPersistResult,
+  ThresholdPrfFirstCacheTransferPayload,
   TouchConfirmManagerConfig,
   UserConfirmWorkerMessage,
   UserConfirmWorkerResponse,
@@ -198,6 +199,10 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     string,
     (progress: UserConfirmProgressEvent) => void
   >();
+  private readonly thresholdPrfRehydrateInFlight = new Map<
+    string,
+    Promise<ThresholdPrfCachePeekResult | null>
+  >();
   private readonly boundHandleWorkerMessage = this.handleWorkerMessage.bind(this);
   private readonly boundHandleWorkerError = this.handleWorkerError.bind(this);
 
@@ -262,25 +267,9 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     if (!this.isSealedRefreshModeEnabled()) return;
     const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
     if (!thresholdSessionId) return;
-    const existingRecord = readPrfSessionSealedRecord(thresholdSessionId);
-    if (existingRecord) return;
-    const transport = this.resolveSealTransportInput(thresholdSessionId);
-    if (!transport) return;
-    if (!transport.shamirPrimeB64u) return;
-
-    const sealed = await this.sealAndPersistPrfFirstForThresholdSession({
-      sessionId: thresholdSessionId,
-      transport,
-    });
-    if (!sealed.ok) return;
-    writePrfSessionSealedRecord({
-      thresholdSessionId,
-      sealedPrfFirstB64u: sealed.sealedPrfFirstB64u,
-      keyVersion: sealed.keyVersion,
-      expiresAtMs: sealed.expiresAtMs,
-      remainingUses: sealed.remainingUses,
-      updatedAtMs: Date.now(),
-    });
+    await this.persistPrfFirstSealForThresholdSession({ sessionId: thresholdSessionId }).catch(
+      () => undefined,
+    );
   }
 
   private async tryRehydrateFromSealedRecord(
@@ -290,51 +279,65 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
     if (!thresholdSessionId) return null;
 
-    const sealedRecord = readPrfSessionSealedRecord(thresholdSessionId);
-    if (!sealedRecord) return null;
-    if (sealedRecord.remainingUses <= 0 || Date.now() >= sealedRecord.expiresAtMs) {
-      deletePrfSessionSealedRecord(thresholdSessionId);
-      return { ok: false, code: 'expired', message: 'PRF.first cache expired for threshold session' };
-    }
+    const inFlight = this.thresholdPrfRehydrateInFlight.get(thresholdSessionId);
+    if (inFlight) return await inFlight;
 
-    const transport = this.resolveSealTransportInput(thresholdSessionId);
-    if (!transport) return null;
-    if (!transport.shamirPrimeB64u) return null;
+    const task = (async (): Promise<ThresholdPrfCachePeekResult | null> => {
+      const sealedRecord = readPrfSessionSealedRecord(thresholdSessionId);
+      if (!sealedRecord) return null;
+      if (sealedRecord.remainingUses <= 0 || Date.now() >= sealedRecord.expiresAtMs) {
+        deletePrfSessionSealedRecord(thresholdSessionId);
+        return {
+          ok: false,
+          code: 'expired',
+          message: 'PRF.first cache expired for threshold session',
+        };
+      }
 
-    const rehydrated = await this.rehydratePrfFirstForThresholdSession({
-      sessionId: thresholdSessionId,
-      sealedPrfFirstB64u: sealedRecord.sealedPrfFirstB64u,
-      keyVersion: sealedRecord.keyVersion,
-      expiresAtMs: sealedRecord.expiresAtMs,
-      remainingUses: sealedRecord.remainingUses,
-      transport,
+      const transport = this.resolveSealTransportInput(thresholdSessionId);
+      if (!transport) return null;
+      if (!transport.shamirPrimeB64u) return null;
+
+      const rehydrated = await this.rehydratePrfFirstForThresholdSession({
+        sessionId: thresholdSessionId,
+        sealedPrfFirstB64u: sealedRecord.sealedPrfFirstB64u,
+        keyVersion: sealedRecord.keyVersion,
+        expiresAtMs: sealedRecord.expiresAtMs,
+        remainingUses: sealedRecord.remainingUses,
+        transport,
+      });
+      if (!rehydrated.ok) {
+        deletePrfSessionSealedRecord(thresholdSessionId);
+        return { ok: false, code: rehydrated.code, message: rehydrated.message };
+      }
+
+      updatePrfSessionSealedRecordPolicy({
+        thresholdSessionId,
+        expiresAtMs: rehydrated.expiresAtMs,
+        remainingUses: rehydrated.remainingUses,
+        updatedAtMs: Date.now(),
+      });
+
+      const rehydratedPeek = await this.sendMessage({
+        type: 'THRESHOLD_PRF_FIRST_CACHE_PEEK',
+        id: this.generateMessageId(),
+        payload: { sessionId: thresholdSessionId },
+      });
+      const parsed = parseThresholdPrfCachePeekResult(rehydratedPeek?.data);
+      if (rehydratedPeek?.success !== true || !parsed) {
+        return {
+          ok: false,
+          code: 'worker_error',
+          message: String(rehydratedPeek?.error || 'PRF.first cache peek failed after rehydrate'),
+        };
+      }
+      return parsed;
+    })().finally(() => {
+      this.thresholdPrfRehydrateInFlight.delete(thresholdSessionId);
     });
-    if (!rehydrated.ok) {
-      deletePrfSessionSealedRecord(thresholdSessionId);
-      return { ok: false, code: rehydrated.code, message: rehydrated.message };
-    }
 
-    updatePrfSessionSealedRecordPolicy({
-      thresholdSessionId,
-      expiresAtMs: rehydrated.expiresAtMs,
-      remainingUses: rehydrated.remainingUses,
-      updatedAtMs: Date.now(),
-    });
-
-    const rehydratedPeek = await this.sendMessage({
-      type: 'THRESHOLD_PRF_FIRST_CACHE_PEEK',
-      id: this.generateMessageId(),
-      payload: { sessionId: thresholdSessionId },
-    });
-    const parsed = parseThresholdPrfCachePeekResult(rehydratedPeek?.data);
-    if (rehydratedPeek?.success !== true || !parsed) {
-      return {
-        ok: false,
-        code: 'worker_error',
-        message: String(rehydratedPeek?.error || 'PRF.first cache peek failed after rehydrate'),
-      };
-    }
-    return parsed;
+    this.thresholdPrfRehydrateInFlight.set(thresholdSessionId, task);
+    return await task;
   }
 
   async putPrfFirstForThresholdSession(args: {
@@ -419,7 +422,9 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       };
     }
     if (parsed.ok) {
-      void this.ensureSealedRecordPersistedBestEffort(args.sessionId);
+      // Guarantee refresh persistence before returning readiness.
+      // A fire-and-forget seal can race with page refresh and lose warm-session continuity.
+      await this.ensureSealedRecordPersistedBestEffort(args.sessionId).catch(() => undefined);
       return parsed;
     }
     if (parsed.code !== 'not_found') {
@@ -437,6 +442,139 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       return rehydrated;
     }
     return parsed;
+  }
+
+  async transferPrfFirstForThresholdSession(
+    args: ThresholdPrfFirstCacheTransferPayload,
+  ): Promise<ThresholdPrfCachePeekResult> {
+    const fromSessionId = String(args?.fromSessionId || '').trim();
+    const toSessionId = String(args?.toSessionId || '').trim();
+    if (!fromSessionId || !toSessionId) {
+      return {
+        ok: false,
+        code: 'invalid_args',
+        message: 'Missing fromSessionId or toSessionId',
+      };
+    }
+    if (fromSessionId === toSessionId) {
+      return await this.peekPrfFirstForThresholdSession({ sessionId: toSessionId });
+    }
+
+    await this.ensureWorkerReady(false);
+    const res = await this.sendMessage({
+      type: 'THRESHOLD_PRF_FIRST_CACHE_TRANSFER',
+      id: this.generateMessageId(),
+      payload: { fromSessionId, toSessionId },
+    });
+    const parsed = parseThresholdPrfCachePeekResult(res?.data);
+    if (res?.success !== true || !parsed) {
+      return {
+        ok: false,
+        code: 'worker_error',
+        message: String(res?.error || 'PRF.first cache transfer failed'),
+      };
+    }
+    if (!parsed.ok) return parsed;
+
+    const sourceRecord = readPrfSessionSealedRecord(fromSessionId);
+    if (sourceRecord) {
+      writePrfSessionSealedRecord({
+        thresholdSessionId: toSessionId,
+        sealedPrfFirstB64u: sourceRecord.sealedPrfFirstB64u,
+        keyVersion: sourceRecord.keyVersion,
+        expiresAtMs: sourceRecord.expiresAtMs,
+        remainingUses: sourceRecord.remainingUses,
+        updatedAtMs: Date.now(),
+      });
+      deletePrfSessionSealedRecord(fromSessionId);
+    }
+
+    return parsed;
+  }
+
+  async persistPrfFirstSealForThresholdSession(args: {
+    sessionId: string;
+    transport?: {
+      relayerUrl?: string;
+      thresholdSessionJwt?: string;
+      keyVersion?: string;
+      shamirPrimeB64u?: string;
+    };
+  }): Promise<ThresholdPrfFirstCacheSealAndPersistResult> {
+    if (!this.isSealedRefreshModeEnabled()) {
+      return this.getSealedRefreshNotEnabledError('PRF.first seal persistence');
+    }
+    const thresholdSessionId = String(args?.sessionId || '').trim();
+    if (!thresholdSessionId) {
+      return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
+    }
+
+    const existingRecord = readPrfSessionSealedRecord(thresholdSessionId);
+    if (existingRecord) {
+      return {
+        ok: true,
+        sealedPrfFirstB64u: existingRecord.sealedPrfFirstB64u,
+        ...(existingRecord.keyVersion ? { keyVersion: existingRecord.keyVersion } : {}),
+        remainingUses: existingRecord.remainingUses,
+        expiresAtMs: existingRecord.expiresAtMs,
+      };
+    }
+
+    const inferredTransport = this.resolveSealTransportInput(thresholdSessionId) || null;
+    const relayerUrl = String(
+      args?.transport?.relayerUrl || inferredTransport?.relayerUrl || '',
+    ).trim();
+    const thresholdSessionJwt = String(
+      args?.transport?.thresholdSessionJwt || inferredTransport?.thresholdSessionJwt || '',
+    ).trim();
+    const keyVersion = String(
+      args?.transport?.keyVersion ||
+        inferredTransport?.keyVersion ||
+        this.config.prfSessionSealKeyVersion ||
+        '',
+    ).trim();
+    const shamirPrimeB64u = String(
+      args?.transport?.shamirPrimeB64u ||
+        inferredTransport?.shamirPrimeB64u ||
+        this.config.prfSessionSealShamirPrimeB64u ||
+        '',
+    ).trim();
+
+    if (!relayerUrl) {
+      return {
+        ok: false,
+        code: 'invalid_args',
+        message: 'Missing relayerUrl for PRF session seal persistence',
+      };
+    }
+    if (!shamirPrimeB64u) {
+      return {
+        ok: false,
+        code: 'invalid_args',
+        message: 'Missing shamirPrimeB64u for PRF session seal persistence',
+      };
+    }
+
+    const sealed = await this.sealAndPersistPrfFirstForThresholdSession({
+      sessionId: thresholdSessionId,
+      transport: {
+        relayerUrl,
+        ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+        ...(keyVersion ? { keyVersion } : {}),
+        shamirPrimeB64u,
+      },
+    });
+    if (!sealed.ok) return sealed;
+
+    writePrfSessionSealedRecord({
+      thresholdSessionId,
+      sealedPrfFirstB64u: sealed.sealedPrfFirstB64u,
+      keyVersion: sealed.keyVersion,
+      expiresAtMs: sealed.expiresAtMs,
+      remainingUses: sealed.remainingUses,
+      updatedAtMs: Date.now(),
+    });
+    return sealed;
   }
 
   async dispensePrfFirstForThresholdSession(args: {

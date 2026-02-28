@@ -180,11 +180,32 @@ Completed:
   - project environment counts are sourced from `/console/projects` aggregate fields (`environmentCount`), avoiding extra all-environments scans for count-only rendering.
   - app-settings hierarchy decision logic (project/environment scope resolution + active-project-only environment creation guard) is covered by dedicated unit tests.
   - browser-level app-settings flow coverage validates archived toggles and active-project-only environment creation selection/guard behavior.
+  - page now also consumes environment-scoped settings APIs:
+    - `GET /console/settings/app`
+    - `PATCH /console/settings/app`
+    - `GET /console/settings/security`
+    - `PATCH /console/settings/security`
+  - app/security settings forms are wired for allowed origins/domains, cookie/JWT controls, and risky-change security policy updates.
+  - settings mutation controls are gated in UI to `owner`/`admin`/`security_admin` roles to match backend RBAC.
 - Dedicated console insight APIs are implemented for policy/gas/export workflows:
   - `GET /console/policy/coverage`
   - `GET /console/gas/readiness`
   - `GET /console/export/governance`
   - responses are org-scoped and support context filtering (`projectId` / `environmentId` where applicable).
+- Console router coverage now includes the new config modules (`gas-sponsorship`, `smart-wallets`, `settings`, `key-exports`, `runtime-snapshots`) across:
+  - service-not-wired (`*_not_configured`) behavior,
+  - scaffold CRUD success paths,
+  - mutation RBAC denies (`forbidden`) by role,
+  - validation and domain error paths (`invalid_query`, `invalid_body`, `invalid_scope`, `mfa_required`),
+  - cross-org isolation behavior for list/read/mutate/approve paths
+  for both Express and Cloudflare adapters.
+- Runtime snapshot contract backend slice is now scaffolded and versioned:
+  - `GET /console/runtime-snapshots`
+  - `GET /console/runtime-snapshots/latest`
+  - `POST /console/runtime-snapshots/publish`
+  - `POST /console/runtime-snapshots/publish-current`
+  - snapshots include `snapshotId`, monotonically increasing `version` per environment scope, `effectiveAt`, `checksum`, and resolved payload envelope.
+  - `publish-current` generates payload server-side from currently configured policy/settings/gas/smart-wallet modules (with explicit `not_configured` module markers when optional services are absent).
 - Dashboard policy engine page now consumes `GET /console/policy/coverage` for policy assignment coverage and unassigned wallet sampling.
 - Dashboard policy engine page now consumes policy lifecycle APIs:
   - `GET /console/policies`
@@ -196,11 +217,22 @@ Completed:
   - `PUT /console/policies/assignments`
   - `DELETE /console/policies/assignments/:id`
   - draft creation, rule updates, simulation, publish, assignment upsert, and assignment delete actions are wired while keeping coverage insights.
-- Dashboard gas sponsorship page now consumes `GET /console/gas/readiness` for chain readiness and recent-activity telemetry.
-- Dashboard export keys page now consumes `GET /console/export/governance` for export-scope key governance and selected-environment filtering.
+- Dashboard gas sponsorship and smart-wallet page now consumes live config APIs:
+  - `GET/POST/PATCH /console/gas-sponsorship`
+  - `GET/POST/PATCH /console/smart-wallets`
+  - create forms and mutation controls are wired with role-gated actions plus scope-aware payloads.
+- Dashboard export keys page now consumes live key export workflow APIs:
+  - `GET /console/key-exports`
+  - `POST /console/key-exports`
+  - `POST /console/key-exports/:id/approve`
+  - create request and admin approval controls are wired with status/environment filtering.
+- Browser-level dashboard API wiring coverage now validates the new page flows:
+  - `/dashboard/gas-smart-wallets`: gas config create + mutation flow against mocked `/console/gas-sponsorship` endpoints.
+  - `/dashboard/export-keys`: key export create + MFA-gated approval flow against mocked `/console/key-exports` endpoints.
+  - `/dashboard/app-settings`: app/security settings read + patch flows against mocked `/console/settings/*` endpoints.
 - Cross-org isolation coverage is implemented for webhook and billing routes (including invoice, payment-intent, overview, and MAW usage paths) with Postgres-backed integration tests.
 - CI now executes Postgres-backed console isolation coverage (`console-router`) in `threshold-signing-core`.
-- Dedicated Postgres tenant-isolation harness tests are implemented at the console service layer (org/project/environment, wallets, API keys, webhooks, billing) and wired into the CI-gated console Postgres suite.
+- Dedicated Postgres tenant-isolation harness tests are implemented at the console service layer (org/project/environment, wallets, API keys, webhooks, billing, gas sponsorship, smart wallets, settings, key exports, runtime snapshots) and wired into the CI-gated console Postgres suite.
 - Cross-org mutation denial coverage is implemented for org/project/environment services and routes.
 - Direct Postgres FK denial coverage is implemented for invalid cross-org wallet lineage inserts.
 
@@ -328,8 +360,8 @@ Key outputs:
 
 - APIs:
   - `GET /console/gas/readiness` (implemented)
-  - `GET/POST/PATCH /console/gas-sponsorship` (planned)
-  - `GET/POST/PATCH /console/smart-wallets` (planned)
+  - `GET/POST/PATCH /console/gas-sponsorship` (scaffolded; in-memory + postgres service + router wiring)
+  - `GET/POST/PATCH /console/smart-wallets` (scaffolded; in-memory + postgres service + router wiring)
 - Data:
   - sponsorship budget and telemetry tables
   - smart-wallet configuration tables
@@ -345,8 +377,11 @@ Key outputs:
   - `POST /console/projects/:id/archive`
   - `GET/POST/PATCH /console/environments`
   - `POST /console/environments/:id/archive`
-  - `GET/PATCH /console/settings/app` (planned)
-  - `GET/PATCH /console/settings/security` (planned)
+  - `GET/PATCH /console/settings/app` (scaffolded; in-memory + postgres service + router wiring)
+  - `GET/PATCH /console/settings/security` (scaffolded; in-memory + postgres service + router wiring)
+  - `GET /console/runtime-snapshots/latest` (scaffolded; in-memory + postgres service + router wiring)
+  - `POST /console/runtime-snapshots/publish` (scaffolded; in-memory + postgres service + router wiring)
+  - `POST /console/runtime-snapshots/publish-current` (scaffolded; server-resolved payload + in-memory/postgres persistence)
 - Data:
   - `project_settings`
   - `environment_settings`
@@ -358,8 +393,8 @@ Key outputs:
 
 - APIs:
   - `GET /console/export/governance` (implemented)
-  - `GET/POST /console/key-exports` (planned)
-  - `POST /console/key-exports/:id/approve` (planned)
+  - `GET/POST /console/key-exports` (scaffolded; in-memory + postgres service + router wiring)
+  - `POST /console/key-exports/:id/approve` (scaffolded; in-memory + postgres service + router wiring)
 - Data:
   - export request and approval tables
   - immutable export audit log

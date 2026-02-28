@@ -22,6 +22,7 @@ export type UserConfirmWorkerMessageType =
   | 'EXPORT_PRIVATE_KEYS_WITH_UI'
   | 'THRESHOLD_PRF_FIRST_CACHE_PUT'
   | 'THRESHOLD_PRF_FIRST_CACHE_PEEK'
+  | 'THRESHOLD_PRF_FIRST_CACHE_TRANSFER'
   | 'THRESHOLD_PRF_FIRST_CACHE_DISPENSE'
   | 'THRESHOLD_PRF_FIRST_CACHE_CLEAR'
   | 'THRESHOLD_PRF_FIRST_CACHE_CLEAR_ALL'
@@ -52,6 +53,11 @@ export interface ThresholdPrfFirstCacheRehydratePayload {
 
 export interface ThresholdPrfFirstCacheDeletePersistedPayload {
   sessionId: string;
+}
+
+export interface ThresholdPrfFirstCacheTransferPayload {
+  fromSessionId: string;
+  toSessionId: string;
 }
 
 export type ThresholdPrfFirstCacheSealAndPersistResult =

@@ -23,11 +23,54 @@ import {
   filterActiveProjects,
   resolveCreateEnvironmentProjectId,
 } from './contextHierarchyModel';
+import {
+  getDashboardAppSettings,
+  getDashboardSecuritySettings,
+  updateDashboardAppSettings,
+  updateDashboardSecuritySettings,
+  type DashboardAppSettings,
+  type DashboardSecuritySettings,
+} from './consoleSettingsApi';
 
 function formatTimestamp(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
   return date.toLocaleString();
+}
+
+function normalizeString(value: string): string {
+  return String(value || '').trim();
+}
+
+function parseCsvList(raw: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of String(raw || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)) {
+    const key = entry.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(entry);
+  }
+  return out;
+}
+
+function joinCsv(values: string[]): string {
+  return Array.isArray(values) ? values.join(', ') : '';
+}
+
+function parsePositiveInteger(raw: string, field: string): number {
+  const value = normalizeString(raw);
+  if (!/^\d+$/.test(value)) {
+    throw new Error(`${field} must be a positive integer.`);
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${field} must be a positive integer.`);
+  }
+  return parsed;
 }
 
 export function AppSettingsPage(): React.JSX.Element {
@@ -56,6 +99,36 @@ export function AppSettingsPage(): React.JSX.Element {
   const [showArchivedEnvironments, setShowArchivedEnvironments] = React.useState<boolean>(false);
   const [environmentActionId, setEnvironmentActionId] = React.useState<string>('');
   const [environmentRenameName, setEnvironmentRenameName] = React.useState<string>('');
+  const [settingsEnvironmentId, setSettingsEnvironmentId] = React.useState<string>('');
+  const [settingsLoading, setSettingsLoading] = React.useState<boolean>(false);
+  const [settingsError, setSettingsError] = React.useState<string>('');
+  const [settingsMutationError, setSettingsMutationError] = React.useState<string>('');
+  const [settingsMutating, setSettingsMutating] = React.useState<boolean>(false);
+  const [appSettings, setAppSettings] = React.useState<DashboardAppSettings | null>(null);
+  const [securitySettings, setSecuritySettings] = React.useState<DashboardSecuritySettings | null>(null);
+  const [allowedOriginsInput, setAllowedOriginsInput] = React.useState<string>('');
+  const [allowedDomainsInput, setAllowedDomainsInput] = React.useState<string>('');
+  const [cookieHttpOnlyInput, setCookieHttpOnlyInput] = React.useState<boolean>(true);
+  const [cookieSecureInput, setCookieSecureInput] = React.useState<boolean>(true);
+  const [cookieSameSiteInput, setCookieSameSiteInput] = React.useState<'LAX' | 'STRICT' | 'NONE'>(
+    'LAX',
+  );
+  const [cookieDomainInput, setCookieDomainInput] = React.useState<string>('');
+  const [cookiePathInput, setCookiePathInput] = React.useState<string>('/');
+  const [cookieMaxAgeInput, setCookieMaxAgeInput] = React.useState<string>('86400');
+  const [jwtIssuerInput, setJwtIssuerInput] = React.useState<string>('');
+  const [jwtAudienceInput, setJwtAudienceInput] = React.useState<string>('');
+  const [jwtKeyIdsInput, setJwtKeyIdsInput] = React.useState<string>('');
+  const [jwtAccessTtlInput, setJwtAccessTtlInput] = React.useState<string>('900');
+  const [jwtRefreshTtlInput, setJwtRefreshTtlInput] = React.useState<string>('2592000');
+  const [ssoMetadataUrlInput, setSsoMetadataUrlInput] = React.useState<string>('');
+  const [ipAllowlistInput, setIpAllowlistInput] = React.useState<string>('');
+  const [enforceIpAllowlistInput, setEnforceIpAllowlistInput] = React.useState<boolean>(false);
+  const [requireMfaForRiskyChangesInput, setRequireMfaForRiskyChangesInput] =
+    React.useState<boolean>(true);
+  const [riskyApprovalsRequiredInput, setRiskyApprovalsRequiredInput] = React.useState<string>('1');
+  const [riskyRequireAdminInput, setRiskyRequireAdminInput] = React.useState<boolean>(true);
+  const [riskyRequireMfaInput, setRiskyRequireMfaInput] = React.useState<boolean>(true);
 
   const canMutateContext = React.useMemo(
     () =>
@@ -63,6 +136,16 @@ export function AppSettingsPage(): React.JSX.Element {
       session.claims.roles.some((role) => {
         const normalized = String(role || '').toLowerCase();
         return normalized === 'admin' || normalized === 'owner';
+      }),
+    [session.claims?.roles],
+  );
+
+  const canMutateConsoleSettings = React.useMemo(
+    () =>
+      Array.isArray(session.claims?.roles) &&
+      session.claims.roles.some((role) => {
+        const normalized = String(role || '').toLowerCase();
+        return normalized === 'owner' || normalized === 'admin' || normalized === 'security_admin';
       }),
     [session.claims?.roles],
   );
@@ -226,6 +309,110 @@ export function AppSettingsPage(): React.JSX.Element {
     });
     return map;
   }, [projects]);
+
+  React.useEffect(() => {
+    if (environments.length === 0) {
+      setSettingsEnvironmentId('');
+      return;
+    }
+    const selectedEnvironment = normalizeString(selectedContext.environment || '');
+    if (selectedEnvironment && environments.some((entry) => entry.id === selectedEnvironment)) {
+      if (settingsEnvironmentId !== selectedEnvironment) {
+        setSettingsEnvironmentId(selectedEnvironment);
+      }
+      return;
+    }
+    if (!settingsEnvironmentId || !environments.some((entry) => entry.id === settingsEnvironmentId)) {
+      setSettingsEnvironmentId(environments[0]?.id || '');
+    }
+  }, [environments, selectedContext.environment, settingsEnvironmentId]);
+
+  const applyAppSettingsToForm = React.useCallback((input: DashboardAppSettings) => {
+    setAllowedOriginsInput(joinCsv(input.allowedOrigins));
+    setAllowedDomainsInput(joinCsv(input.allowedDomains));
+    setCookieHttpOnlyInput(input.cookie.httpOnly);
+    setCookieSecureInput(input.cookie.secure);
+    setCookieSameSiteInput(
+      input.cookie.sameSite === 'STRICT' || input.cookie.sameSite === 'NONE'
+        ? input.cookie.sameSite
+        : 'LAX',
+    );
+    setCookieDomainInput(input.cookie.domain || '');
+    setCookiePathInput(input.cookie.path || '/');
+    setCookieMaxAgeInput(String(input.cookie.maxAgeSeconds || 0));
+    setJwtIssuerInput(input.jwt.issuer || '');
+    setJwtAudienceInput(joinCsv(input.jwt.audience));
+    setJwtKeyIdsInput(joinCsv(input.jwt.keyIds));
+    setJwtAccessTtlInput(String(input.jwt.accessTokenTtlSeconds || 0));
+    setJwtRefreshTtlInput(String(input.jwt.refreshTokenTtlSeconds || 0));
+    setSsoMetadataUrlInput(input.ssoMetadataUrl || '');
+  }, []);
+
+  const applySecuritySettingsToForm = React.useCallback((input: DashboardSecuritySettings) => {
+    setIpAllowlistInput(joinCsv(input.ipAllowlist));
+    setEnforceIpAllowlistInput(input.enforceIpAllowlist);
+    setRequireMfaForRiskyChangesInput(input.requireMfaForRiskyChanges);
+    setRiskyApprovalsRequiredInput(String(input.riskyChangeApproval.approvalsRequired || 1));
+    setRiskyRequireAdminInput(input.riskyChangeApproval.requireAdmin);
+    setRiskyRequireMfaInput(input.riskyChangeApproval.requireMfa);
+  }, []);
+
+  const loadSettingsData = React.useCallback(() => {
+    if (!session.claims) {
+      setSettingsLoading(false);
+      setSettingsError(session.errorMessage || 'Console session is unavailable');
+      setAppSettings(null);
+      setSecuritySettings(null);
+      return;
+    }
+    const environmentId = normalizeString(settingsEnvironmentId);
+    if (!environmentId) {
+      setSettingsLoading(false);
+      setSettingsError('Select an environment to manage app/security settings.');
+      setAppSettings(null);
+      setSecuritySettings(null);
+      return;
+    }
+    let cancelled = false;
+    setSettingsLoading(true);
+    setSettingsError('');
+    Promise.all([
+      getDashboardAppSettings(environmentId),
+      getDashboardSecuritySettings(environmentId),
+    ])
+      .then(([nextAppSettings, nextSecuritySettings]) => {
+        if (cancelled) return;
+        setAppSettings(nextAppSettings);
+        setSecuritySettings(nextSecuritySettings);
+        applyAppSettingsToForm(nextAppSettings);
+        applySecuritySettingsToForm(nextSecuritySettings);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setAppSettings(null);
+        setSecuritySettings(null);
+        setSettingsError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setSettingsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    applyAppSettingsToForm,
+    applySecuritySettingsToForm,
+    session.claims,
+    session.errorMessage,
+    settingsEnvironmentId,
+  ]);
+
+  React.useEffect(() => {
+    if (session.loading || loading) return;
+    const cleanup = loadSettingsData();
+    return cleanup;
+  }, [loadSettingsData, loading, session.loading]);
 
   const onCreateProject = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -442,6 +629,144 @@ export function AppSettingsPage(): React.JSX.Element {
       setMutating(false);
     }
   }, [canMutateContext, environmentActionId, loadContextData, session.claims, session.errorMessage]);
+
+  const onUpdateAppSettings = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!session.claims) {
+        setSettingsMutationError(session.errorMessage || 'Console session is unavailable');
+        return;
+      }
+      if (!canMutateConsoleSettings) {
+        setSettingsMutationError(
+          'Only owner/admin/security_admin can update app and security settings.',
+        );
+        return;
+      }
+      const environmentId = normalizeString(settingsEnvironmentId);
+      if (!environmentId) {
+        setSettingsMutationError('Environment is required.');
+        return;
+      }
+      setSettingsMutating(true);
+      setSettingsMutationError('');
+      try {
+        const cookiePath = normalizeString(cookiePathInput);
+        if (!cookiePath) {
+          throw new Error('Cookie path is required.');
+        }
+        const updated = await updateDashboardAppSettings({
+          environmentId,
+          allowedOrigins: parseCsvList(allowedOriginsInput),
+          allowedDomains: parseCsvList(allowedDomainsInput),
+          cookie: {
+            httpOnly: cookieHttpOnlyInput,
+            secure: cookieSecureInput,
+            sameSite: cookieSameSiteInput,
+            domain: normalizeString(cookieDomainInput) || null,
+            path: cookiePath,
+            maxAgeSeconds: parsePositiveInteger(cookieMaxAgeInput, 'Cookie max age'),
+          },
+          jwt: {
+            issuer: normalizeString(jwtIssuerInput),
+            audience: parseCsvList(jwtAudienceInput),
+            keyIds: parseCsvList(jwtKeyIdsInput),
+            accessTokenTtlSeconds: parsePositiveInteger(jwtAccessTtlInput, 'JWT access token TTL'),
+            refreshTokenTtlSeconds: parsePositiveInteger(
+              jwtRefreshTtlInput,
+              'JWT refresh token TTL',
+            ),
+          },
+          ssoMetadataUrl: normalizeString(ssoMetadataUrlInput) || null,
+        });
+        setAppSettings(updated);
+        applyAppSettingsToForm(updated);
+      } catch (error: unknown) {
+        setSettingsMutationError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setSettingsMutating(false);
+      }
+    },
+    [
+      allowedDomainsInput,
+      allowedOriginsInput,
+      applyAppSettingsToForm,
+      canMutateConsoleSettings,
+      cookieDomainInput,
+      cookieHttpOnlyInput,
+      cookieMaxAgeInput,
+      cookiePathInput,
+      cookieSameSiteInput,
+      cookieSecureInput,
+      jwtAccessTtlInput,
+      jwtAudienceInput,
+      jwtIssuerInput,
+      jwtKeyIdsInput,
+      jwtRefreshTtlInput,
+      session.claims,
+      session.errorMessage,
+      settingsEnvironmentId,
+      ssoMetadataUrlInput,
+    ],
+  );
+
+  const onUpdateSecuritySettings = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!session.claims) {
+        setSettingsMutationError(session.errorMessage || 'Console session is unavailable');
+        return;
+      }
+      if (!canMutateConsoleSettings) {
+        setSettingsMutationError(
+          'Only owner/admin/security_admin can update app and security settings.',
+        );
+        return;
+      }
+      const environmentId = normalizeString(settingsEnvironmentId);
+      if (!environmentId) {
+        setSettingsMutationError('Environment is required.');
+        return;
+      }
+      setSettingsMutating(true);
+      setSettingsMutationError('');
+      try {
+        const updated = await updateDashboardSecuritySettings({
+          environmentId,
+          ipAllowlist: parseCsvList(ipAllowlistInput),
+          enforceIpAllowlist: enforceIpAllowlistInput,
+          requireMfaForRiskyChanges: requireMfaForRiskyChangesInput,
+          riskyChangeApproval: {
+            approvalsRequired: parsePositiveInteger(
+              riskyApprovalsRequiredInput,
+              'Risky change approvals required',
+            ),
+            requireAdmin: riskyRequireAdminInput,
+            requireMfa: riskyRequireMfaInput,
+          },
+        });
+        setSecuritySettings(updated);
+        applySecuritySettingsToForm(updated);
+      } catch (error: unknown) {
+        setSettingsMutationError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setSettingsMutating(false);
+      }
+    },
+    [
+      applySecuritySettingsToForm,
+      canMutateConsoleSettings,
+      enforceIpAllowlistInput,
+      ipAllowlistInput,
+      requireMfaForRiskyChangesInput,
+      riskyApprovalsRequiredInput,
+      riskyRequireAdminInput,
+      riskyRequireMfaInput,
+      session.claims,
+      session.errorMessage,
+      settingsEnvironmentId,
+    ],
+  );
 
   return (
     <div className="dashboard-view" aria-label="App settings page">
@@ -825,6 +1150,301 @@ export function AppSettingsPage(): React.JSX.Element {
               </>
             )}
           </section>
+
+          <section className="dashboard-view__section" aria-label="App and security settings controls">
+            <h2>App and security settings</h2>
+            <p>
+              Backed by `GET/PATCH /console/settings/app` and `GET/PATCH /console/settings/security`.
+              Choose an environment to manage origin, cookie, JWT, and security policy settings.
+            </p>
+            <div className="dashboard-view-grid dashboard-view-grid--two">
+              <label className="dashboard-form-field">
+                <span>Settings environment</span>
+                <select
+                  className="dashboard-input"
+                  value={settingsEnvironmentId}
+                  onChange={(event) => setSettingsEnvironmentId(event.target.value)}
+                >
+                  {environments.length === 0 ? <option value="">No environments</option> : null}
+                  {environments.map((environment) => (
+                    <option key={environment.id} value={environment.id}>
+                      {environment.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <button type="button" className="dashboard-pagination-button" onClick={() => loadSettingsData()}>
+              Refresh app/security settings
+            </button>
+            <p className="dashboard-pagination-note">
+              {canMutateConsoleSettings
+                ? 'Owner/admin/security_admin role enabled for settings mutations.'
+                : 'Only owner/admin/security_admin can mutate settings.'}
+            </p>
+            {settingsMutationError ? (
+              <p className="dashboard-pagination-note">{settingsMutationError}</p>
+            ) : null}
+          </section>
+
+          {settingsLoading ? (
+            <section className="dashboard-view__section">
+              <p>Loading app/security settings...</p>
+            </section>
+          ) : settingsError ? (
+            <section className="dashboard-view__section">
+              <p>App/security settings unavailable: {settingsError}</p>
+            </section>
+          ) : !appSettings || !securitySettings ? (
+            <section className="dashboard-view__section">
+              <p>App/security settings unavailable for selected environment.</p>
+            </section>
+          ) : (
+            <>
+              <section className="dashboard-table-wrapper" aria-label="Update app settings">
+                <div className="dashboard-table-limit">
+                  <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onUpdateAppSettings}>
+                    <label className="dashboard-form-field">
+                      <span>Allowed origins (csv)</span>
+                      <input
+                        className="dashboard-input"
+                        value={allowedOriginsInput}
+                        onChange={(event) => setAllowedOriginsInput(event.target.value)}
+                        placeholder="https://app.example.com, https://admin.example.com"
+                      />
+                    </label>
+                    <label className="dashboard-form-field">
+                      <span>Allowed domains (csv)</span>
+                      <input
+                        className="dashboard-input"
+                        value={allowedDomainsInput}
+                        onChange={(event) => setAllowedDomainsInput(event.target.value)}
+                        placeholder="example.com, example.org"
+                      />
+                    </label>
+                    <label className="dashboard-form-field">
+                      <span>Cookie sameSite</span>
+                      <select
+                        className="dashboard-input"
+                        value={cookieSameSiteInput}
+                        onChange={(event) =>
+                          setCookieSameSiteInput(event.target.value as 'LAX' | 'STRICT' | 'NONE')
+                        }
+                      >
+                        <option value="LAX">LAX</option>
+                        <option value="STRICT">STRICT</option>
+                        <option value="NONE">NONE</option>
+                      </select>
+                    </label>
+                    <label className="dashboard-form-field">
+                      <span>Cookie domain (optional)</span>
+                      <input
+                        className="dashboard-input"
+                        value={cookieDomainInput}
+                        onChange={(event) => setCookieDomainInput(event.target.value)}
+                        placeholder=".example.com"
+                      />
+                    </label>
+                    <label className="dashboard-form-field">
+                      <span>Cookie path</span>
+                      <input
+                        className="dashboard-input"
+                        value={cookiePathInput}
+                        onChange={(event) => setCookiePathInput(event.target.value)}
+                        placeholder="/"
+                      />
+                    </label>
+                    <label className="dashboard-form-field">
+                      <span>Cookie max age (seconds)</span>
+                      <input
+                        className="dashboard-input"
+                        value={cookieMaxAgeInput}
+                        onChange={(event) => setCookieMaxAgeInput(event.target.value)}
+                        placeholder="86400"
+                      />
+                    </label>
+                    <label className="dashboard-form-field">
+                      <span>JWT issuer</span>
+                      <input
+                        className="dashboard-input"
+                        value={jwtIssuerInput}
+                        onChange={(event) => setJwtIssuerInput(event.target.value)}
+                        placeholder="https://console.example.com/org/env"
+                      />
+                    </label>
+                    <label className="dashboard-form-field">
+                      <span>JWT audience (csv)</span>
+                      <input
+                        className="dashboard-input"
+                        value={jwtAudienceInput}
+                        onChange={(event) => setJwtAudienceInput(event.target.value)}
+                        placeholder="dashboard, api"
+                      />
+                    </label>
+                    <label className="dashboard-form-field">
+                      <span>JWT key IDs (csv)</span>
+                      <input
+                        className="dashboard-input"
+                        value={jwtKeyIdsInput}
+                        onChange={(event) => setJwtKeyIdsInput(event.target.value)}
+                        placeholder="kid-1, kid-2"
+                      />
+                    </label>
+                    <label className="dashboard-form-field">
+                      <span>JWT access TTL (seconds)</span>
+                      <input
+                        className="dashboard-input"
+                        value={jwtAccessTtlInput}
+                        onChange={(event) => setJwtAccessTtlInput(event.target.value)}
+                        placeholder="900"
+                      />
+                    </label>
+                    <label className="dashboard-form-field">
+                      <span>JWT refresh TTL (seconds)</span>
+                      <input
+                        className="dashboard-input"
+                        value={jwtRefreshTtlInput}
+                        onChange={(event) => setJwtRefreshTtlInput(event.target.value)}
+                        placeholder="2592000"
+                      />
+                    </label>
+                    <label className="dashboard-form-field">
+                      <span>SSO metadata URL (optional)</span>
+                      <input
+                        className="dashboard-input"
+                        value={ssoMetadataUrlInput}
+                        onChange={(event) => setSsoMetadataUrlInput(event.target.value)}
+                        placeholder="https://idp.example.com/metadata"
+                      />
+                    </label>
+                    <label className="dashboard-form-field">
+                      <span>Cookie httpOnly</span>
+                      <input
+                        className="dashboard-input"
+                        type="checkbox"
+                        checked={cookieHttpOnlyInput}
+                        onChange={(event) => setCookieHttpOnlyInput(event.target.checked)}
+                      />
+                    </label>
+                    <label className="dashboard-form-field">
+                      <span>Cookie secure</span>
+                      <input
+                        className="dashboard-input"
+                        type="checkbox"
+                        checked={cookieSecureInput}
+                        onChange={(event) => setCookieSecureInput(event.target.checked)}
+                      />
+                    </label>
+                    <div className="dashboard-form-actions">
+                      <button
+                        type="submit"
+                        className="dashboard-pagination-button"
+                        disabled={!canMutateConsoleSettings || settingsMutating}
+                      >
+                        {settingsMutating ? 'Applying...' : 'Update app settings'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </section>
+
+              <section className="dashboard-table-wrapper" aria-label="Update security settings">
+                <div className="dashboard-table-limit">
+                  <form
+                    className="dashboard-view-grid dashboard-view-grid--two"
+                    onSubmit={onUpdateSecuritySettings}
+                  >
+                    <label className="dashboard-form-field">
+                      <span>IP allowlist (csv)</span>
+                      <input
+                        className="dashboard-input"
+                        value={ipAllowlistInput}
+                        onChange={(event) => setIpAllowlistInput(event.target.value)}
+                        placeholder="192.168.1.1, 10.0.0.0/24"
+                      />
+                    </label>
+                    <label className="dashboard-form-field">
+                      <span>Risky change approvals required</span>
+                      <input
+                        className="dashboard-input"
+                        value={riskyApprovalsRequiredInput}
+                        onChange={(event) => setRiskyApprovalsRequiredInput(event.target.value)}
+                        placeholder="1"
+                      />
+                    </label>
+                    <label className="dashboard-form-field">
+                      <span>Enforce IP allowlist</span>
+                      <input
+                        className="dashboard-input"
+                        type="checkbox"
+                        checked={enforceIpAllowlistInput}
+                        onChange={(event) => setEnforceIpAllowlistInput(event.target.checked)}
+                      />
+                    </label>
+                    <label className="dashboard-form-field">
+                      <span>Require MFA for risky changes</span>
+                      <input
+                        className="dashboard-input"
+                        type="checkbox"
+                        checked={requireMfaForRiskyChangesInput}
+                        onChange={(event) => setRequireMfaForRiskyChangesInput(event.target.checked)}
+                      />
+                    </label>
+                    <label className="dashboard-form-field">
+                      <span>Risky changes require admin</span>
+                      <input
+                        className="dashboard-input"
+                        type="checkbox"
+                        checked={riskyRequireAdminInput}
+                        onChange={(event) => setRiskyRequireAdminInput(event.target.checked)}
+                      />
+                    </label>
+                    <label className="dashboard-form-field">
+                      <span>Risky changes require MFA</span>
+                      <input
+                        className="dashboard-input"
+                        type="checkbox"
+                        checked={riskyRequireMfaInput}
+                        onChange={(event) => setRiskyRequireMfaInput(event.target.checked)}
+                      />
+                    </label>
+                    <div className="dashboard-form-actions">
+                      <button
+                        type="submit"
+                        className="dashboard-pagination-button"
+                        disabled={!canMutateConsoleSettings || settingsMutating}
+                      >
+                        {settingsMutating ? 'Applying...' : 'Update security settings'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </section>
+
+              <section className="dashboard-table-wrapper" aria-label="Current settings snapshot">
+                <div className="dashboard-table-header" role="row">
+                  <span>Environment</span>
+                  <span>App updated</span>
+                  <span>Security updated</span>
+                  <span>Allowed origins</span>
+                  <span>Allowed domains</span>
+                  <span>IP allowlist entries</span>
+                  <span>Require risky-change MFA</span>
+                  <span>Approvals required</span>
+                </div>
+                <div className="dashboard-table-row" role="row">
+                  <span>{settingsEnvironmentId || '-'}</span>
+                  <span>{formatTimestamp(appSettings.updatedAt)}</span>
+                  <span>{formatTimestamp(securitySettings.updatedAt)}</span>
+                  <span>{appSettings.allowedOrigins.length}</span>
+                  <span>{appSettings.allowedDomains.length}</span>
+                  <span>{securitySettings.ipAllowlist.length}</span>
+                  <span>{securitySettings.requireMfaForRiskyChanges ? 'true' : 'false'}</span>
+                  <span>{securitySettings.riskyChangeApproval.approvalsRequired}</span>
+                </div>
+              </section>
+            </>
+          )}
         </>
       )}
     </div>

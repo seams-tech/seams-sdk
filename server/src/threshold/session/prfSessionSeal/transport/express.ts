@@ -39,8 +39,19 @@ export function registerPrfSessionSealRoutes(
   router.post(applyPath, async (req: Request, res: Response) => {
     const startedAtMs = Date.now();
     try {
+      ctx.logger.info('[threshold-ecdsa-prf-seal] request', {
+        route: applyPath,
+        operation: 'apply-server-seal',
+      });
       const parsed = parsePrfSessionSealApplyBody(req.body || {});
       if (!parsed.ok) {
+        ctx.logger.warn('[threshold-ecdsa-prf-seal] invalid_body', {
+          route: applyPath,
+          operation: 'apply-server-seal',
+          code: parsed.code,
+          message: parsed.message,
+          durationMs: Math.max(0, Date.now() - startedAtMs),
+        });
         res.status(400).json({ ok: false, code: parsed.code, message: parsed.message });
         return;
       }
@@ -51,6 +62,13 @@ export function registerPrfSessionSealRoutes(
         session: ctx.session,
       });
       if (!authorized.ok) {
+        ctx.logger.warn('[threshold-ecdsa-prf-seal] unauthorized', {
+          route: applyPath,
+          operation: 'apply-server-seal',
+          code: authorized.code || 'unauthorized',
+          message: authorized.message || 'Unauthorized',
+          durationMs: Math.max(0, Date.now() - startedAtMs),
+        });
         res.status(prfSessionSealAuthorizeStatusCode(authorized)).json({
           ok: false,
           code: authorized.code || 'unauthorized',
@@ -83,8 +101,19 @@ export function registerPrfSessionSealRoutes(
   router.post(removePath, async (req: Request, res: Response) => {
     const startedAtMs = Date.now();
     try {
+      ctx.logger.info('[threshold-ecdsa-prf-seal] request', {
+        route: removePath,
+        operation: 'remove-server-seal',
+      });
       const parsed = parsePrfSessionSealRemoveBody(req.body || {});
       if (!parsed.ok) {
+        ctx.logger.warn('[threshold-ecdsa-prf-seal] invalid_body', {
+          route: removePath,
+          operation: 'remove-server-seal',
+          code: parsed.code,
+          message: parsed.message,
+          durationMs: Math.max(0, Date.now() - startedAtMs),
+        });
         res.status(400).json({ ok: false, code: parsed.code, message: parsed.message });
         return;
       }
@@ -95,6 +124,13 @@ export function registerPrfSessionSealRoutes(
         session: ctx.session,
       });
       if (!authorized.ok) {
+        ctx.logger.warn('[threshold-ecdsa-prf-seal] unauthorized', {
+          route: removePath,
+          operation: 'remove-server-seal',
+          code: authorized.code || 'unauthorized',
+          message: authorized.message || 'Unauthorized',
+          durationMs: Math.max(0, Date.now() - startedAtMs),
+        });
         res.status(prfSessionSealAuthorizeStatusCode(authorized)).json({
           ok: false,
           code: authorized.code || 'unauthorized',

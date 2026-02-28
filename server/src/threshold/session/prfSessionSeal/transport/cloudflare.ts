@@ -63,12 +63,24 @@ export async function handlePrfSessionSealRoutes(
   if (!isApply && !isRemove) return null;
 
   const startedAtMs = Date.now();
+  const operation = isApply ? 'apply-server-seal' : 'remove-server-seal';
   try {
+    ctx.logger.info('[threshold-ecdsa-prf-seal] request', {
+      route: isApply ? applyPath : removePath,
+      operation,
+    });
     const body = await readJsonSafe(ctx.request);
     const parsed = isApply
       ? parsePrfSessionSealApplyBody(body)
       : parsePrfSessionSealRemoveBody(body);
     if (!parsed.ok) {
+      ctx.logger.warn('[threshold-ecdsa-prf-seal] invalid_body', {
+        route: isApply ? applyPath : removePath,
+        operation,
+        code: parsed.code,
+        message: parsed.message,
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+      });
       return json({ ok: false, code: parsed.code, message: parsed.message }, 400);
     }
 
@@ -78,6 +90,13 @@ export async function handlePrfSessionSealRoutes(
       session: ctx.session,
     });
     if (!authorized.ok) {
+      ctx.logger.warn('[threshold-ecdsa-prf-seal] unauthorized', {
+        route: isApply ? applyPath : removePath,
+        operation,
+        code: authorized.code || 'unauthorized',
+        message: authorized.message || 'Unauthorized',
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+      });
       return json(
         {
           ok: false,
@@ -94,6 +113,7 @@ export async function handlePrfSessionSealRoutes(
     const status = prfSessionSealStatusCode(result);
     ctx.logger.info('[threshold-ecdsa-prf-seal] response', {
       route: isApply ? applyPath : removePath,
+      operation,
       status,
       ok: result.ok,
       durationMs: Math.max(0, Date.now() - startedAtMs),

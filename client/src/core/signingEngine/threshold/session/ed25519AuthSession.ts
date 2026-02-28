@@ -1,6 +1,5 @@
 import { stripTrailingSlashes, toTrimmedString } from '@shared/utils/validation';
 import {
-  normalizeInteger,
   normalizeJwtCookieSessionKind,
   normalizeOptionalNonEmptyString,
   normalizePositiveInteger,
@@ -9,6 +8,11 @@ import { buildEd25519SessionPolicy, type Ed25519SessionPolicy } from './sessionP
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { redactCredentialExtensionOutputs } from '../webauthn';
+import {
+  getStoredThresholdEd25519SessionRecordByThresholdSessionId,
+  upsertStoredThresholdEd25519SessionRecord,
+  type ThresholdEd25519SessionStoreSource,
+} from '../../api/thresholdLifecycle/thresholdEd25519SessionStore';
 
 export type Ed25519SessionKind = 'jwt' | 'cookie';
 
@@ -25,163 +29,6 @@ type Ed25519AuthSessionCacheEntry = Ed25519AuthSession;
 
 const authSessionCache = new Map<string, Ed25519AuthSessionCacheEntry>();
 const authSessionBySessionId = new Map<string, Ed25519AuthSessionCacheEntry>();
-type SessionStoragePort = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
-type PersistedEd25519AuthSessionRecord = {
-  v: 1;
-  sessionId: string;
-  jwt: string;
-  expiresAtMs?: number;
-  updatedAtMs: number;
-};
-
-const STORAGE_KEY_PREFIX = 'tatchi:threshold-ed25519-auth-session:v1';
-const STORAGE_INDEX_KEY = `${STORAGE_KEY_PREFIX}:index`;
-
-function storageKeyForSessionId(sessionId: string): string {
-  return `${STORAGE_KEY_PREFIX}:${sessionId}`;
-}
-
-function getSessionStorageSafe(): SessionStoragePort | null {
-  const globalObj = globalThis as { sessionStorage?: SessionStoragePort };
-  if (!globalObj?.sessionStorage) return null;
-  try {
-    const storage = globalObj.sessionStorage;
-    storage.getItem('__tatchi_threshold_ed25519_auth_session_probe__');
-    return storage;
-  } catch {
-    return null;
-  }
-}
-
-function toOptionalFiniteNumber(value: unknown): number | undefined {
-  const normalized = normalizeInteger(value);
-  return normalized == null ? undefined : normalized;
-}
-
-function readStorageIndex(storage: SessionStoragePort): string[] {
-  try {
-    const raw = storage.getItem(STORAGE_INDEX_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map((value) => String(value || '').trim()).filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-function writeStorageIndex(storage: SessionStoragePort, sessionIds: string[]): void {
-  try {
-    storage.setItem(STORAGE_INDEX_KEY, JSON.stringify(sessionIds));
-  } catch {}
-}
-
-function addToStorageIndex(storage: SessionStoragePort, sessionId: string): void {
-  const normalizedSessionId = String(sessionId || '').trim();
-  if (!normalizedSessionId) return;
-  const current = readStorageIndex(storage);
-  if (current.includes(normalizedSessionId)) return;
-  writeStorageIndex(storage, [...current, normalizedSessionId]);
-}
-
-function removeFromStorageIndex(storage: SessionStoragePort, sessionId: string): void {
-  const normalizedSessionId = String(sessionId || '').trim();
-  if (!normalizedSessionId) return;
-  const current = readStorageIndex(storage);
-  const next = current.filter((entry) => entry !== normalizedSessionId);
-  if (next.length === current.length) return;
-  writeStorageIndex(storage, next);
-}
-
-function normalizePersistedEd25519AuthSessionRecord(
-  value: unknown,
-): PersistedEd25519AuthSessionRecord | null {
-  const obj =
-    value && typeof value === 'object' && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : null;
-  if (!obj) return null;
-  if (Number(obj.v) !== 1) return null;
-  const sessionId = String(obj.sessionId || '').trim();
-  const jwt = String(obj.jwt || '').trim();
-  const updatedAtMs = toOptionalFiniteNumber(obj.updatedAtMs);
-  const expiresAtMs = toOptionalFiniteNumber(obj.expiresAtMs);
-  if (!sessionId || !jwt || !updatedAtMs || updatedAtMs <= 0) return null;
-  if (expiresAtMs != null && expiresAtMs <= 0) return null;
-  return {
-    v: 1,
-    sessionId,
-    jwt,
-    ...(expiresAtMs != null ? { expiresAtMs } : {}),
-    updatedAtMs,
-  };
-}
-
-function writePersistedEd25519AuthSessionJwt(args: {
-  sessionId: string;
-  jwt: string;
-  expiresAtMs?: number;
-}): void {
-  const storage = getSessionStorageSafe();
-  if (!storage) return;
-  const sessionId = String(args.sessionId || '').trim();
-  const jwt = String(args.jwt || '').trim();
-  const expiresAtMs = toOptionalFiniteNumber(args.expiresAtMs);
-  if (!sessionId || !jwt) return;
-  if (expiresAtMs != null && expiresAtMs <= 0) return;
-  try {
-    const record: PersistedEd25519AuthSessionRecord = {
-      v: 1,
-      sessionId,
-      jwt,
-      ...(expiresAtMs != null ? { expiresAtMs } : {}),
-      updatedAtMs: Date.now(),
-    };
-    storage.setItem(storageKeyForSessionId(sessionId), JSON.stringify(record));
-    addToStorageIndex(storage, sessionId);
-  } catch {}
-}
-
-function readPersistedEd25519AuthSessionJwt(
-  sessionIdRaw: string,
-): PersistedEd25519AuthSessionRecord | null {
-  const sessionId = String(sessionIdRaw || '').trim();
-  if (!sessionId) return null;
-  const storage = getSessionStorageSafe();
-  if (!storage) return null;
-  try {
-    const raw = storage.getItem(storageKeyForSessionId(sessionId));
-    if (!raw) return null;
-    return normalizePersistedEd25519AuthSessionRecord(JSON.parse(raw));
-  } catch {
-    return null;
-  }
-}
-
-function deletePersistedEd25519AuthSessionJwt(sessionIdRaw: string): void {
-  const sessionId = String(sessionIdRaw || '').trim();
-  if (!sessionId) return;
-  const storage = getSessionStorageSafe();
-  if (!storage) return;
-  try {
-    storage.removeItem(storageKeyForSessionId(sessionId));
-  } catch {}
-  removeFromStorageIndex(storage, sessionId);
-}
-
-function clearAllPersistedEd25519AuthSessionJwts(): void {
-  const storage = getSessionStorageSafe();
-  if (!storage) return;
-  const sessionIds = readStorageIndex(storage);
-  for (const sessionId of sessionIds) {
-    try {
-      storage.removeItem(storageKeyForSessionId(sessionId));
-    } catch {}
-  }
-  try {
-    storage.removeItem(STORAGE_INDEX_KEY);
-  } catch {}
-}
 
 function toSessionId(value: unknown): string {
   return String(value || '').trim();
@@ -191,21 +38,6 @@ function clearAuthSessionBySessionId(entry: Ed25519AuthSessionCacheEntry | undef
   const sessionId = toSessionId(entry?.policy?.sessionId);
   if (!sessionId) return;
   authSessionBySessionId.delete(sessionId);
-  deletePersistedEd25519AuthSessionJwt(sessionId);
-}
-
-function persistAuthSessionBySessionId(entry: Ed25519AuthSessionCacheEntry): void {
-  if (entry.sessionKind !== 'jwt') return;
-  const sessionId = toSessionId(entry?.policy?.sessionId);
-  const jwt = normalizeOptionalNonEmptyString(entry?.jwt);
-  if (!sessionId || !jwt) return;
-  writePersistedEd25519AuthSessionJwt({
-    sessionId,
-    jwt,
-    ...(typeof entry.expiresAtMs === 'number' && Number.isFinite(entry.expiresAtMs)
-      ? { expiresAtMs: entry.expiresAtMs }
-      : {}),
-  });
 }
 
 export function makeEd25519AuthSessionCacheKey(args: {
@@ -251,7 +83,6 @@ export function putCachedEd25519AuthSession(cacheKey: string, entry: Ed25519Auth
   if (sessionId) {
     authSessionBySessionId.set(sessionId, entry);
   }
-  persistAuthSessionBySessionId(entry);
 }
 
 export async function buildAndCacheEd25519AuthSession(args: {
@@ -267,6 +98,7 @@ export async function buildAndCacheEd25519AuthSession(args: {
   jwt?: string;
   policyTtlMs?: number;
   policyRemainingUses?: number;
+  source?: ThresholdEd25519SessionStoreSource;
 }): Promise<Ed25519AuthSession> {
   const sessionId = String(args.sessionId || '').trim();
   const expiresAtMs = Math.floor(Number(args.expiresAtMs));
@@ -318,6 +150,20 @@ export async function buildAndCacheEd25519AuthSession(args: {
     participantIds,
   });
   putCachedEd25519AuthSession(cacheKey, entry);
+  upsertStoredThresholdEd25519SessionRecord({
+    nearAccountId: String(args.nearAccountId || '').trim(),
+    rpId: String(args.rpId || '').trim(),
+    relayerUrl: String(args.relayerUrl || '').trim(),
+    relayerKeyId: String(args.relayerKeyId || '').trim(),
+    participantIds: participantIds || [],
+    thresholdSessionKind: entry.sessionKind,
+    thresholdSessionId: sessionId,
+    ...(String(entry.jwt || '').trim() ? { thresholdSessionJwt: String(entry.jwt || '').trim() } : {}),
+    expiresAtMs,
+    remainingUses,
+    source: args.source || 'manual-connect',
+    updatedAtMs: Date.now(),
+  });
 
   return entry;
 }
@@ -331,7 +177,6 @@ export function clearCachedEd25519AuthSession(cacheKey: string): void {
 export function clearAllCachedEd25519AuthSessions(): void {
   authSessionCache.clear();
   authSessionBySessionId.clear();
-  clearAllPersistedEd25519AuthSessionJwts();
 }
 
 export function getCachedEd25519AuthSessionJwt(cacheKey: string): string | undefined {
@@ -369,25 +214,52 @@ export function getCachedEd25519AuthSessionBySessionId(
   return entry;
 }
 
-export function getCachedEd25519AuthSessionJwtBySessionId(
+export async function getCachedEd25519AuthSessionJwtBySessionId(
   sessionIdRaw: string,
-): string | undefined {
+): Promise<string | undefined> {
   const cached = getCachedEd25519AuthSessionBySessionId(sessionIdRaw);
   const jwt = cached?.jwt;
   const trimmedCachedJwt = normalizeOptionalNonEmptyString(jwt);
   if (trimmedCachedJwt) return trimmedCachedJwt;
 
-  const persisted = readPersistedEd25519AuthSessionJwt(sessionIdRaw);
-  if (!persisted) return undefined;
+  const record = getStoredThresholdEd25519SessionRecordByThresholdSessionId(sessionIdRaw);
+  if (!record) return undefined;
+  if (record.thresholdSessionKind !== 'jwt') return undefined;
+  const recordJwt = normalizeOptionalNonEmptyString(record.thresholdSessionJwt);
+  if (!recordJwt) return undefined;
   if (
-    typeof persisted.expiresAtMs === 'number' &&
-    Number.isFinite(persisted.expiresAtMs) &&
-    Date.now() >= persisted.expiresAtMs
+    typeof record.expiresAtMs !== 'number' ||
+    !Number.isFinite(record.expiresAtMs) ||
+    record.expiresAtMs <= 0 ||
+    Date.now() >= record.expiresAtMs
   ) {
-    deletePersistedEd25519AuthSessionJwt(sessionIdRaw);
     return undefined;
   }
-  return normalizeOptionalNonEmptyString(persisted.jwt);
+
+  const rehydratedTtlMs = Math.max(1, Math.floor(record.expiresAtMs - Date.now()));
+  const rehydratedRemainingUses = Math.max(
+    1,
+    normalizePositiveInteger(record.remainingUses) || 1,
+  );
+  await buildAndCacheEd25519AuthSession({
+    nearAccountId: String(record.nearAccountId || '').trim(),
+    rpId: String(record.rpId || '').trim(),
+    relayerUrl: String(record.relayerUrl || '').trim(),
+    relayerKeyId: String(record.relayerKeyId || '').trim(),
+    participantIds: record.participantIds,
+    sessionKind: record.thresholdSessionKind,
+    sessionId: String(record.thresholdSessionId || '').trim(),
+    expiresAtMs: Math.floor(record.expiresAtMs),
+    remainingUses: rehydratedRemainingUses,
+    jwt: recordJwt,
+    policyTtlMs: rehydratedTtlMs,
+    policyRemainingUses: rehydratedRemainingUses,
+    source: record.source,
+  });
+
+  const hydrated = getCachedEd25519AuthSessionBySessionId(record.thresholdSessionId);
+  const hydratedJwt = normalizeOptionalNonEmptyString(hydrated?.jwt);
+  return hydratedJwt || recordJwt;
 }
 
 /**

@@ -30,6 +30,7 @@ import {
 } from '../api/session/signingSessionState';
 import type { TempoSigningDeps } from '../api/tempoSigning';
 import type { ThresholdEd25519LifecycleDeps } from '../api/thresholdLifecycle/thresholdEd25519Lifecycle';
+import { getStoredThresholdEd25519SessionRecordForAccount } from '../api/thresholdLifecycle/thresholdEd25519SessionStore';
 import type { ThresholdSessionActivationDeps } from '../api/thresholdLifecycle/thresholdSessionActivation';
 import type { NearSigningKeyOps } from '../interfaces/nearKeyOps';
 import {
@@ -129,6 +130,11 @@ export function createOrchestrationDependencyBundle(
         }
       } catch {}
     }
+    try {
+      const ed25519Record = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
+      const thresholdSessionId = String(ed25519Record?.thresholdSessionId || '').trim();
+      if (thresholdSessionId) return thresholdSessionId;
+    } catch {}
     return null;
   };
   const signingSessionStateDeps: SigningSessionStateDeps = {

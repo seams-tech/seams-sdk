@@ -27,6 +27,9 @@ import {
 import type { EvmAddress } from './demoThresholdTypes';
 import { reportTempoBroadcastFailure } from './reportTempoBroadcastFailure';
 
+const CONFIRMATION_TIMEOUT_PADDING_MS = EVM_RPC_REQUEST_TIMEOUT_MS + 5_000;
+const SECONDARY_CONFIRMATION_TIMEOUT_MS = EVM_RPC_REQUEST_TIMEOUT_MS + 5_000;
+
 type UseDemoTempoSigningActionsArgs = {
   isLoggedIn: boolean;
   nearAccountId?: string | null;
@@ -117,11 +120,15 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       });
 
       toast.loading('Tempo drip transaction broadcasted, waiting for finalization…', { id: toastId });
-      await waitForEvmTransactionFinalization({
-        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-        txHash,
-        gasLimitHint: request.tx.gasLimit,
-        maxFeePerGasHint: request.tx.maxFeePerGas,
+      await withPromiseTimeout({
+        promise: waitForEvmTransactionFinalization({
+          rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+          txHash,
+          gasLimitHint: request.tx.gasLimit,
+          maxFeePerGasHint: request.tx.maxFeePerGas,
+        }),
+        timeoutMs: EVM_TX_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS,
+        label: 'Tempo drip finalization confirmation',
       });
       const thresholdSender = await thresholdSenderPromise;
       if (thresholdSender) {
@@ -228,6 +235,10 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       toast.loading('Tempo transaction broadcasted, waiting for finalization…', { id: toastId });
       const confirmationAbort = new AbortController();
       let confirmationMode: 'receipt' | 'greeting';
+      const confirmationDeadlineMs =
+        Date.now() + EVM_TX_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS;
+      const remainingConfirmationMs = (): number =>
+        Math.max(1, confirmationDeadlineMs - Date.now());
       try {
         const receiptConfirmationResultPromise = waitForEvmTransactionFinalization({
           rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
@@ -278,16 +289,43 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
             receiptConfirmationResultPromise,
             greetingConfirmationResultPromise,
           ]),
-          timeoutMs: EVM_TX_FINALITY_TIMEOUT_MS + EVM_RPC_REQUEST_TIMEOUT_MS + 5_000,
+          timeoutMs: remainingConfirmationMs(),
           label: 'Tempo greeting finalization confirmation',
+          onTimeout: () => {
+            confirmationAbort.abort(new Error('Tempo finalization confirmation timed out'));
+          },
         });
         if (firstConfirmationResult.ok) {
           confirmationMode = firstConfirmationResult.mode;
         } else {
           const secondConfirmationResult =
             firstConfirmationResult.source === 'receipt'
-              ? await greetingConfirmationResultPromise
-              : await receiptConfirmationResultPromise;
+              ? await withPromiseTimeout({
+                  promise: greetingConfirmationResultPromise,
+                  timeoutMs: Math.min(
+                    SECONDARY_CONFIRMATION_TIMEOUT_MS,
+                    remainingConfirmationMs(),
+                  ),
+                  label: 'Tempo greeting secondary confirmation',
+                  onTimeout: () => {
+                    confirmationAbort.abort(
+                      new Error('Tempo secondary finalization confirmation timed out'),
+                    );
+                  },
+                })
+              : await withPromiseTimeout({
+                  promise: receiptConfirmationResultPromise,
+                  timeoutMs: Math.min(
+                    SECONDARY_CONFIRMATION_TIMEOUT_MS,
+                    remainingConfirmationMs(),
+                  ),
+                  label: 'Tempo receipt secondary confirmation',
+                  onTimeout: () => {
+                    confirmationAbort.abort(
+                      new Error('Tempo secondary finalization confirmation timed out'),
+                    );
+                  },
+                });
           if (secondConfirmationResult.ok) {
             confirmationMode = secondConfirmationResult.mode;
           } else {

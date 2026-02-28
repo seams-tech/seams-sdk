@@ -109,6 +109,7 @@ export default {
     const router = createCloudflareRouter(authService, {
       healthz: true,
       readyz: true,
+      logger: console,
       // Pass raw env strings; router normalizes CSV/duplicates internally
       corsOrigins: [env.EXPECTED_ORIGIN, env.EXPECTED_WALLET_ORIGIN],
       ror: createRorOptions({

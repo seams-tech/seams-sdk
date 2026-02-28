@@ -158,7 +158,7 @@ export async function signNep413Message({
     }
 
     if (signingContext.threshold && !signingContext.threshold.thresholdSessionJwt) {
-      signingContext.threshold.thresholdSessionJwt = resolveThresholdSessionJwt({
+      signingContext.threshold.thresholdSessionJwt = await resolveThresholdSessionJwt({
         thresholdSessionCacheKey: signingContext.threshold.thresholdSessionCacheKey,
         thresholdSessionId: sessionId,
       });

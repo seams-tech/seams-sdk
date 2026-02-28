@@ -249,7 +249,7 @@ export async function signDelegateAction({
   }
 
   if (!signingContext.threshold.thresholdSessionJwt) {
-    signingContext.threshold.thresholdSessionJwt = resolveThresholdSessionJwt({
+    signingContext.threshold.thresholdSessionJwt = await resolveThresholdSessionJwt({
       thresholdSessionCacheKey: signingContext.threshold.thresholdSessionCacheKey,
       thresholdSessionId: sessionId,
     });

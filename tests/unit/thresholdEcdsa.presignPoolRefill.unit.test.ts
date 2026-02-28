@@ -11,6 +11,7 @@ import {
 import { Secp256k1Engine } from '@/core/signingEngine/signers/algorithms/secp256k1';
 import {
   clearAllCachedEcdsaAuthSessions,
+  getCachedEcdsaAuthSessionBySessionId,
   makeEcdsaAuthSessionCacheKey,
   putCachedEcdsaAuthSession,
 } from '@/core/signingEngine/threshold/session/ecdsaAuthSession';
@@ -651,6 +652,72 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       expect(fetchMock.counters.presignStep).toBe(1);
       expect(fetchMock.counters.signInit).toBe(1);
       expect(fetchMock.counters.signFinalize).toBe(1);
+    } finally {
+      fetchMock.restore();
+    }
+  });
+
+  test('jwt keyRef self-heals missing ECDSA auth cache and signs successfully', async () => {
+    const presignature97 = concatBytes([
+      PRESIGN_BIG_R_33,
+      PRESIGN_K_SHARE_32,
+      PRESIGN_SIGMA_SHARE_32,
+    ]);
+    const workerCtx = makeWorkerCtx({
+      clientSigningShare32: CLIENT_SIGNING_SHARE_32,
+      clientVerifyingShare33: CLIENT_VERIFYING_SHARE_33,
+      presignature97,
+      clientSignatureShare32: CLIENT_SIGNATURE_SHARE_32,
+    });
+    const fetchMock = installThresholdEcdsaFetchMock();
+
+    try {
+      const thresholdSessionJwt = 'jwt-refresh-self-heal';
+      const engine = new Secp256k1Engine({
+        getRpId: () => RP_ID,
+        workerCtx,
+        thresholdEcdsaPresignPoolPolicy: {
+          enabled: true,
+          targetDepth: 1,
+          lowWatermark: 0,
+          maxRefillInFlight: 1,
+          refillAttemptTimeoutMs: 250,
+        },
+        dispenseThresholdEcdsaPrfFirstForSession: async () => ({
+          ok: true,
+          prfFirstB64u: PRF_FIRST_B64U,
+          remainingUses: 9,
+          expiresAtMs: Date.now() + 60_000,
+        }),
+      });
+
+      const signed = await engine.sign(
+        {
+          kind: 'digest',
+          algorithm: 'secp256k1',
+          digest32: DIGEST_32,
+          label: 'evm',
+        },
+        {
+          type: 'threshold-ecdsa-secp256k1',
+          userId: USER_ID,
+          relayerUrl: RELAYER_URL,
+          relayerKeyId: RELAYER_KEY_ID,
+          clientVerifyingShareB64u: CLIENT_VERIFYING_SHARE_B64U,
+          participantIds: PARTICIPANT_IDS,
+          groupPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+          thresholdSessionKind: 'jwt',
+          thresholdSessionId: SESSION_ID,
+          thresholdSessionJwt,
+        },
+      );
+
+      expect(signed.length).toBe(65);
+      expect(fetchMock.counters.authorize).toBe(1);
+      const cachedAfterSign = getCachedEcdsaAuthSessionBySessionId(SESSION_ID);
+      expect(cachedAfterSign).not.toBeNull();
+      expect(cachedAfterSign?.sessionKind).toBe('jwt');
+      expect(cachedAfterSign?.jwt).toBe(thresholdSessionJwt);
     } finally {
       fetchMock.restore();
     }

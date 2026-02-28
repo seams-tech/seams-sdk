@@ -42,6 +42,40 @@ export type ThresholdPrfFirstCachePort = {
     expiresAtMs: number;
     remainingUses: number;
   }) => Promise<void>;
+  peekPrfFirstForThresholdSession?: (args: { sessionId: string }) => Promise<{
+    ok: boolean;
+    code?: string;
+    message?: string;
+    remainingUses?: number;
+    expiresAtMs?: number;
+  }>;
+  transferPrfFirstForThresholdSession?: (args: {
+    fromSessionId: string;
+    toSessionId: string;
+  }) => Promise<{
+    ok: boolean;
+    code?: string;
+    message?: string;
+    remainingUses?: number;
+    expiresAtMs?: number;
+  }>;
+  persistPrfFirstSealForThresholdSession?: (args: {
+    sessionId: string;
+    transport?: {
+      relayerUrl?: string;
+      thresholdSessionJwt?: string;
+      keyVersion?: string;
+      shamirPrimeB64u?: string;
+    };
+  }) => Promise<{
+    ok: boolean;
+    code?: string;
+    message?: string;
+    keyVersion?: string;
+    sealedPrfFirstB64u?: string;
+    remainingUses?: number;
+    expiresAtMs?: number;
+  }>;
 };
 export type ThresholdSigningKeyOpsPort = ThresholdEd25519ClientShareDeriverPort;
 

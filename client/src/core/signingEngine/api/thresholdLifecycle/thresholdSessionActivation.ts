@@ -147,6 +147,38 @@ export async function bootstrapEcdsaSessionValue(
     },
   });
 
+  const requestedThresholdSessionId = String(args.sessionId || '').trim();
+  const canonicalThresholdSessionId = String(
+    bootstrap.thresholdEcdsaKeyRef?.thresholdSessionId || '',
+  ).trim();
+
+  if (
+    requestedThresholdSessionId &&
+    canonicalThresholdSessionId &&
+    requestedThresholdSessionId !== canonicalThresholdSessionId &&
+    typeof deps.touchConfirm.transferPrfFirstForThresholdSession === 'function'
+  ) {
+    const transferred = await deps.touchConfirm.transferPrfFirstForThresholdSession({
+      fromSessionId: requestedThresholdSessionId,
+      toSessionId: canonicalThresholdSessionId,
+    });
+
+    if (!transferred.ok && typeof deps.touchConfirm.peekPrfFirstForThresholdSession === 'function') {
+      const canonicalPeek = await deps.touchConfirm.peekPrfFirstForThresholdSession({
+        sessionId: canonicalThresholdSessionId,
+      });
+      if (!canonicalPeek.ok && String(args.authorizationJwt || '').trim()) {
+        throw new Error(
+          `[SigningEngine] threshold PRF session transfer failed (${transferred.code}); reconnect threshold session via bootstrapEcdsaSession`,
+        );
+      }
+    }
+  }
+
+  if (canonicalThresholdSessionId) {
+    deps.setActiveSigningSessionId(nearAccountId, canonicalThresholdSessionId);
+  }
+
   await deps.persistThresholdEcdsaBootstrapChainAccount({
     nearAccountId,
     chain,
@@ -159,5 +191,46 @@ export async function bootstrapEcdsaSessionValue(
     bootstrap,
     source: args.source || 'manual-bootstrap',
   });
+
+  // Force PRF seal persistence during bootstrap/login using canonical transport data.
+  // This avoids relying on lazy peek-only sealing and makes server apply-seal visible
+  // during the login/bootstrap path.
+  if (
+    canonicalThresholdSessionId &&
+    typeof deps.touchConfirm.persistPrfFirstSealForThresholdSession === 'function'
+  ) {
+    const persisted = await deps.touchConfirm.persistPrfFirstSealForThresholdSession({
+      sessionId: canonicalThresholdSessionId,
+      transport: {
+        relayerUrl: String(
+          bootstrap.thresholdEcdsaKeyRef?.relayerUrl || relayerUrl || '',
+        ).trim(),
+        thresholdSessionJwt: String(
+          bootstrap.thresholdEcdsaKeyRef?.thresholdSessionJwt || bootstrap.session?.jwt || '',
+        ).trim(),
+      },
+    });
+    if (
+      !persisted.ok &&
+      persisted.code !== 'not_enabled' &&
+      String(args.authorizationJwt || '').trim()
+    ) {
+      throw new Error(
+        `[SigningEngine] threshold PRF seal persistence failed (${persisted.code}): ${persisted.message}`,
+      );
+    }
+  }
+
+  // Ensure PRF seal persistence happens during login/bootstrap as soon as canonical
+  // threshold session metadata exists. Without this, sealing can still be deferred to
+  // a later peek/sign path in partial implementations.
+  if (
+    canonicalThresholdSessionId &&
+    typeof deps.touchConfirm.peekPrfFirstForThresholdSession === 'function'
+  ) {
+    await deps.touchConfirm
+      .peekPrfFirstForThresholdSession({ sessionId: canonicalThresholdSessionId })
+      .catch(() => undefined);
+  }
   return bootstrap;
 }

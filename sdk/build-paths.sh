@@ -45,6 +45,7 @@ RUNTIME_SIGNER_WORKER="/sdk/workers/near-signer.worker.js"
 # Worker file names
 WORKER_TOUCH_CONFIRM="passkey-confirm.worker.js"
 WORKER_SIGNER="near-signer.worker.js"
+WORKER_SHAMIR3PASS="shamir3pass.worker.js"
 WORKER_ETH_SIGNER="eth-signer.worker.js"
 WORKER_TEMPO_SIGNER="tempo-signer.worker.js"
 WORKER_WASM_SIGNER_JS="wasm_signer_worker.js"

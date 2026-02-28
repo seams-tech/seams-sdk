@@ -194,6 +194,7 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - `GET /console/wallets/search`
 - `GET/POST/PATCH /console/policies`, `POST /console/policies/:id/simulate`, `POST /console/policies/:id/publish`
 - `GET/PATCH /console/settings/app`, `GET/PATCH /console/settings/security`
+- `GET /console/runtime-snapshots`, `GET /console/runtime-snapshots/latest`, `POST /console/runtime-snapshots/publish`, `POST /console/runtime-snapshots/publish-current`
 - `GET/POST/PATCH /console/gas-sponsorship`, `GET/POST/PATCH /console/smart-wallets`
 - `GET/POST /console/key-exports`, `POST /console/key-exports/:id/approve`
 - `GET/POST/DELETE /console/api-keys`, `POST /console/api-keys/:id/rotate`

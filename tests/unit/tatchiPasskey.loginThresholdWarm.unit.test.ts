@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { loginAndCreateSession } from '@/core/TatchiPasskey/login';
+import {
+  loginAndCreateSession,
+} from '@/core/TatchiPasskey/login';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { toAccountId } from '@/core/types/accountIds';
 
@@ -317,4 +319,5 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
     expect(capturedConnectArgs).not.toBeNull();
     expect(String(capturedConnectArgs?.['sessionId'] || '')).toBe('canonical-ecdsa-session-1');
   });
+
 });

@@ -51,6 +51,7 @@ export const BUILD_PATHS = {
   WORKERS: {
     TOUCH_CONFIRM: 'passkey-confirm.worker.js',
     SIGNER: 'near-signer.worker.js',
+    SHAMIR3PASS: 'shamir3pass.worker.js',
     WASM_SIGNER_JS: 'wasm_signer_worker.js',
     WASM_SIGNER_WASM: 'wasm_signer_worker_bg.wasm',
   },
@@ -59,6 +60,7 @@ export const BUILD_PATHS = {
   TEST_WORKERS: {
     TOUCH_CONFIRM: '/sdk/workers/passkey-confirm.worker.js',
     SIGNER: '/sdk/workers/near-signer.worker.js',
+    SHAMIR3PASS: '/sdk/workers/shamir3pass.worker.js',
     WASM_SIGNER_JS: '/sdk/workers/wasm_signer_worker.js',
     WASM_SIGNER_WASM: '/sdk/workers/wasm_signer_worker_bg.wasm',
   },

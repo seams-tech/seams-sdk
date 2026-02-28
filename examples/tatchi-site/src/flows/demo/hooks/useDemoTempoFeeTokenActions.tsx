@@ -25,6 +25,9 @@ import {
 import type { EvmAddress, TempoFeeTokenConfigTarget } from './demoThresholdTypes';
 import { reportTempoBroadcastFailure } from './reportTempoBroadcastFailure';
 
+const CONFIRMATION_TIMEOUT_PADDING_MS = EVM_RPC_REQUEST_TIMEOUT_MS + 5_000;
+const SECONDARY_CONFIRMATION_TIMEOUT_MS = EVM_RPC_REQUEST_TIMEOUT_MS + 5_000;
+
 type UseDemoTempoFeeTokenActionsArgs = {
   isLoggedIn: boolean;
   nearAccountId?: string | null;
@@ -125,6 +128,10 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
         const thresholdSender = await thresholdSenderPromise;
         const confirmationAbort = new AbortController();
         let confirmationMode: 'receipt' | 'userToken';
+        const confirmationDeadlineMs =
+          Date.now() + EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS;
+        const remainingConfirmationMs = (): number =>
+          Math.max(1, confirmationDeadlineMs - Date.now());
         try {
           const receiptConfirmationResultPromise = waitForEvmTransactionFinalization({
             rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
@@ -184,16 +191,43 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
               receiptConfirmationResultPromise,
               tokenConfirmationResultPromise,
             ]),
-            timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS + EVM_RPC_REQUEST_TIMEOUT_MS + 5_000,
+            timeoutMs: remainingConfirmationMs(),
             label: 'setUserToken finalization confirmation',
+            onTimeout: () => {
+              confirmationAbort.abort(new Error('setUserToken finalization confirmation timed out'));
+            },
           });
           if (firstConfirmationResult.ok) {
             confirmationMode = firstConfirmationResult.mode;
           } else {
             const secondConfirmationResult =
               firstConfirmationResult.source === 'receipt'
-                ? await tokenConfirmationResultPromise
-                : await receiptConfirmationResultPromise;
+                ? await withPromiseTimeout({
+                    promise: tokenConfirmationResultPromise,
+                    timeoutMs: Math.min(
+                      SECONDARY_CONFIRMATION_TIMEOUT_MS,
+                      remainingConfirmationMs(),
+                    ),
+                    label: 'setUserToken userTokens secondary confirmation',
+                    onTimeout: () => {
+                      confirmationAbort.abort(
+                        new Error('setUserToken secondary finalization confirmation timed out'),
+                      );
+                    },
+                  })
+                : await withPromiseTimeout({
+                    promise: receiptConfirmationResultPromise,
+                    timeoutMs: Math.min(
+                      SECONDARY_CONFIRMATION_TIMEOUT_MS,
+                      remainingConfirmationMs(),
+                    ),
+                    label: 'setUserToken receipt secondary confirmation',
+                    onTimeout: () => {
+                      confirmationAbort.abort(
+                        new Error('setUserToken secondary finalization confirmation timed out'),
+                      );
+                    },
+                  });
             if (secondConfirmationResult.ok) {
               confirmationMode = secondConfirmationResult.mode;
             } else {

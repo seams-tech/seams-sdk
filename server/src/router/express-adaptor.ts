@@ -127,6 +127,95 @@ export type {
   PostgresConsoleWebhookServiceOptions,
   ConsoleWebhookService,
 } from '../console/webhooks';
+export type {
+  ConsoleGasSponsorshipScopeType,
+  ConsoleGasSponsorshipBudgetPeriod,
+  ConsoleGasSponsorshipPaymasterMode,
+  ConsoleGasSponsorshipFallbackBehavior,
+  ConsoleGasSponsorshipChainBudget,
+  ConsoleGasSponsorshipTelemetry,
+  ConsoleGasSponsorshipConfig,
+  ListConsoleGasSponsorshipRequest,
+  CreateConsoleGasSponsorshipRequest,
+  UpdateConsoleGasSponsorshipRequest,
+} from '../console/gasSponsorship';
+export type {
+  ConsoleGasSponsorshipContext,
+  ConsoleGasSponsorshipService,
+  InMemoryConsoleGasSponsorshipServiceOptions,
+  PostgresConsoleGasSponsorshipSchemaOptions,
+  PostgresConsoleGasSponsorshipServiceOptions,
+} from '../console/gasSponsorship';
+export type {
+  ConsoleSmartWalletScopeType,
+  ConsoleSmartWalletMode,
+  ConsoleSmartWalletAccountType,
+  ConsoleSmartWalletPaymasterMode,
+  ConsoleSmartWalletFallbackBehavior,
+  ConsoleSmartWalletEntryPointVersion,
+  ConsoleSmartWalletBundlerConfig,
+  ConsoleSmartWalletConfig,
+  ListConsoleSmartWalletRequest,
+  CreateConsoleSmartWalletRequest,
+  UpdateConsoleSmartWalletRequest,
+} from '../console/smartWallets';
+export type {
+  ConsoleSmartWalletContext,
+  ConsoleSmartWalletService,
+  InMemoryConsoleSmartWalletServiceOptions,
+  PostgresConsoleSmartWalletSchemaOptions,
+  PostgresConsoleSmartWalletServiceOptions,
+} from '../console/smartWallets';
+export type {
+  ConsoleCookieSameSite,
+  ConsoleCookieSettings,
+  ConsoleJwtSettings,
+  ConsoleAppSettings,
+  ConsoleSecurityApprovalPolicy,
+  ConsoleSecuritySettings,
+  GetConsoleSettingsRequest,
+  UpdateConsoleAppSettingsRequest,
+  UpdateConsoleSecuritySettingsRequest,
+} from '../console/settings';
+export type {
+  ConsoleSettingsContext,
+  ConsoleSettingsService,
+  InMemoryConsoleSettingsServiceOptions,
+  PostgresConsoleSettingsSchemaOptions,
+  PostgresConsoleSettingsServiceOptions,
+} from '../console/settings';
+export type {
+  ConsoleKeyExportMode,
+  ConsoleKeyExportStatus,
+  ConsoleKeyExportConstraints,
+  ConsoleKeyExportApproval,
+  ConsoleKeyExportRequestRecord,
+  ListConsoleKeyExportsRequest,
+  CreateConsoleKeyExportRequest,
+  ApproveConsoleKeyExportRequest,
+} from '../console/keyExports';
+export type {
+  ConsoleKeyExportsContext,
+  ConsoleKeyExportService,
+  InMemoryConsoleKeyExportServiceOptions,
+  PostgresConsoleKeyExportSchemaOptions,
+  PostgresConsoleKeyExportServiceOptions,
+} from '../console/keyExports';
+export type {
+  ConsoleRuntimeSnapshotPayload,
+  ConsoleRuntimeSnapshot,
+  ListConsoleRuntimeSnapshotsRequest,
+  GetLatestConsoleRuntimeSnapshotRequest,
+  PublishConsoleRuntimeSnapshotRequest,
+  PublishCurrentConsoleRuntimeSnapshotRequest,
+} from '../console/runtimeSnapshots';
+export type {
+  ConsoleRuntimeSnapshotContext,
+  ConsoleRuntimeSnapshotService,
+  InMemoryConsoleRuntimeSnapshotServiceOptions,
+  PostgresConsoleRuntimeSnapshotSchemaOptions,
+  PostgresConsoleRuntimeSnapshotServiceOptions,
+} from '../console/runtimeSnapshots';
 export {
   createInMemoryConsoleOrgProjectEnvService,
   ensureConsoleOrgProjectEnvPostgresSchema,
@@ -172,5 +261,56 @@ export {
   isConsoleWebhookError,
   ConsoleWebhookError,
 } from '../console/webhooks';
+export {
+  createInMemoryConsoleGasSponsorshipService,
+  ensureConsoleGasSponsorshipPostgresSchema,
+  createPostgresConsoleGasSponsorshipService,
+  parseListConsoleGasSponsorshipRequest,
+  parseCreateConsoleGasSponsorshipRequest,
+  parseUpdateConsoleGasSponsorshipRequest,
+  isConsoleGasSponsorshipError,
+  ConsoleGasSponsorshipError,
+} from '../console/gasSponsorship';
+export {
+  createInMemoryConsoleSmartWalletService,
+  ensureConsoleSmartWalletsPostgresSchema,
+  createPostgresConsoleSmartWalletService,
+  parseListConsoleSmartWalletRequest,
+  parseCreateConsoleSmartWalletRequest,
+  parseUpdateConsoleSmartWalletRequest,
+  isConsoleSmartWalletError,
+  ConsoleSmartWalletError,
+} from '../console/smartWallets';
+export {
+  createInMemoryConsoleSettingsService,
+  ensureConsoleSettingsPostgresSchema,
+  createPostgresConsoleSettingsService,
+  parseGetConsoleSettingsRequest,
+  parseUpdateConsoleAppSettingsRequest,
+  parseUpdateConsoleSecuritySettingsRequest,
+  isConsoleSettingsError,
+  ConsoleSettingsError,
+} from '../console/settings';
+export {
+  createInMemoryConsoleKeyExportService,
+  ensureConsoleKeyExportsPostgresSchema,
+  createPostgresConsoleKeyExportService,
+  parseListConsoleKeyExportsRequest,
+  parseCreateConsoleKeyExportRequest,
+  parseApproveConsoleKeyExportRequest,
+  isConsoleKeyExportError,
+  ConsoleKeyExportError,
+} from '../console/keyExports';
+export {
+  createInMemoryConsoleRuntimeSnapshotService,
+  ensureConsoleRuntimeSnapshotsPostgresSchema,
+  createPostgresConsoleRuntimeSnapshotService,
+  parseListConsoleRuntimeSnapshotsRequest,
+  parseGetLatestConsoleRuntimeSnapshotRequest,
+  parsePublishConsoleRuntimeSnapshotRequest,
+  parsePublishCurrentConsoleRuntimeSnapshotRequest,
+  isConsoleRuntimeSnapshotError,
+  ConsoleRuntimeSnapshotError,
+} from '../console/runtimeSnapshots';
 export { createRelayRouter } from './express/createRelayRouter';
 export { createConsoleRouter } from './express/createConsoleRouter';

@@ -332,7 +332,9 @@ dependencies = [
 name = "shamir3pass_runtime"
 version = "0.1.0"
 dependencies = [
+ "getrandom",
  "num-bigint",
+ "num-traits",
  "serde",
  "serde-wasm-bindgen",
  "shamir-3-pass",

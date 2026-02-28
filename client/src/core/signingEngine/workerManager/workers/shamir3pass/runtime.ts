@@ -13,28 +13,42 @@ export type Shamir3PassClientKeypair = {
 };
 
 export interface Shamir3PassRuntime {
-  generateClientKeypair(args: { shamirPrimeB64u: string }): Shamir3PassClientKeypair;
-  addClientSeal(input: Shamir3PassCipherInput): string;
-  removeClientSeal(input: Shamir3PassCipherInput): string;
+  generateClientKeypair(args: { shamirPrimeB64u: string }): Promise<Shamir3PassClientKeypair>;
+  addClientSeal(input: Shamir3PassCipherInput): Promise<string>;
+  removeClientSeal(input: Shamir3PassCipherInput): Promise<string>;
 }
 
-type Shamir3PassWasmModuleShape = {
-  default: (module_or_path?: unknown) => Promise<unknown>;
-  init_shamir3pass_runtime?: () => void;
-  shamir3pass_generate_client_lock_keys: (shamirPrimeB64u: string) => unknown;
-  shamir3pass_add_lock: (
-    ciphertextB64u: string,
-    exponentB64u: string,
-    shamirPrimeB64u: string,
-  ) => string;
-  shamir3pass_remove_lock: (
-    ciphertextB64u: string,
-    exponentB64u: string,
-    shamirPrimeB64u: string,
-  ) => string;
+let runtimeSingletonPromise: Promise<Shamir3PassRuntime> | null = null;
+let shamirWorkerSingleton: Worker | null = null;
+let requestCounter = 0;
+
+type Shamir3PassWorkerRequestType = 'generateClientKeypair' | 'addClientSeal' | 'removeClientSeal';
+type Shamir3PassWorkerRequest = {
+  id: string;
+  type: Shamir3PassWorkerRequestType;
+  payload: Record<string, unknown>;
+};
+type Shamir3PassWorkerResponse =
+  | {
+      id: string;
+      ok: true;
+      result: unknown;
+    }
+  | {
+      id: string;
+      ok: false;
+      error: string;
+      code?: string;
+    };
+
+type PendingWorkerRequest = {
+  resolve: (result: unknown) => void;
+  reject: (error: Error) => void;
+  timeoutId: ReturnType<typeof setTimeout>;
 };
 
-let runtimeSingletonPromise: Promise<Shamir3PassRuntime> | null = null;
+const pendingByRequestId = new Map<string, PendingWorkerRequest>();
+const WORKER_REQUEST_TIMEOUT_MS = 15_000;
 
 function normalizeNonEmptyString(input: unknown, label: string): string {
   const value = typeof input === 'string' ? input.trim() : '';
@@ -42,62 +56,182 @@ function normalizeNonEmptyString(input: unknown, label: string): string {
   return value;
 }
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 function normalizeClientKeypair(value: unknown): Shamir3PassClientKeypair {
-  if (!value || typeof value !== 'object') {
+  if (!isObjectRecord(value)) {
     throw new Error('Invalid Shamir3Pass keypair response');
   }
-  const record = value as Record<string, unknown>;
   return {
-    shamirPrimeB64u: normalizeNonEmptyString(record.shamirPrimeB64u, 'shamirPrimeB64u'),
+    shamirPrimeB64u: normalizeNonEmptyString(value.shamirPrimeB64u, 'shamirPrimeB64u'),
     clientEncryptExponentB64u: normalizeNonEmptyString(
-      record.clientEncryptExponentB64u,
+      value.clientEncryptExponentB64u,
       'clientEncryptExponentB64u',
     ),
     clientDecryptExponentB64u: normalizeNonEmptyString(
-      record.clientDecryptExponentB64u,
+      value.clientDecryptExponentB64u,
       'clientDecryptExponentB64u',
     ),
   };
 }
 
-async function loadShamir3PassWasmModule(): Promise<Shamir3PassWasmModuleShape> {
-  const jsUrl = resolveWasmUrl('shamir3pass_runtime.js', 'Shamir3Pass Runtime');
-  const wasmUrl = resolveWasmUrl('shamir3pass_runtime_bg.wasm', 'Shamir3Pass Runtime');
-
-  const moduleCandidate = (await import(
-    /* @vite-ignore */
-    jsUrl.href
-  )) as Partial<Shamir3PassWasmModuleShape>;
-  if (typeof moduleCandidate.default !== 'function') {
-    throw new Error('Invalid Shamir3Pass runtime module: missing wasm init function');
-  }
-
-  await moduleCandidate.default(wasmUrl);
-  if (typeof moduleCandidate.init_shamir3pass_runtime === 'function') {
-    moduleCandidate.init_shamir3pass_runtime();
-  }
-  if (
-    typeof moduleCandidate.shamir3pass_generate_client_lock_keys !== 'function' ||
-    typeof moduleCandidate.shamir3pass_add_lock !== 'function' ||
-    typeof moduleCandidate.shamir3pass_remove_lock !== 'function'
-  ) {
-    throw new Error('Invalid Shamir3Pass runtime module: missing lock operations');
-  }
-  return moduleCandidate as Shamir3PassWasmModuleShape;
+function toWorkerError(
+  response: Extract<Shamir3PassWorkerResponse, { ok: false }>,
+): Error {
+  const code = String(response.code || '').trim();
+  const message = normalizeNonEmptyString(response.error, 'error');
+  return new Error(
+    code
+      ? `[shamir3pass-worker] ${code}: ${message}`
+      : `[shamir3pass-worker] ${message}`,
+  );
 }
 
-function createShamir3PassRuntime(module: Shamir3PassWasmModuleShape): Shamir3PassRuntime {
+function normalizeWorkerResponse(value: unknown): Shamir3PassWorkerResponse | null {
+  if (!isObjectRecord(value)) return null;
+  const id = String(value.id || '').trim();
+  if (!id || typeof value.ok !== 'boolean') return null;
+  if (value.ok) {
+    return { id, ok: true, result: value.result };
+  }
   return {
-    generateClientKeypair: ({ shamirPrimeB64u }) =>
-      normalizeClientKeypair(module.shamir3pass_generate_client_lock_keys(shamirPrimeB64u)),
-    addClientSeal: ({ ciphertextB64u, exponentB64u, shamirPrimeB64u }) =>
+    id,
+    ok: false,
+    error: String(value.error || 'Worker request failed'),
+    ...(String(value.code || '').trim() ? { code: String(value.code).trim() } : {}),
+  };
+}
+
+function nextRequestId(): string {
+  requestCounter += 1;
+  return `shamir3pass-${Date.now()}-${requestCounter}`;
+}
+
+function rejectAllPending(reason: string): void {
+  const pending = Array.from(pendingByRequestId.values());
+  pendingByRequestId.clear();
+  for (const entry of pending) {
+    clearTimeout(entry.timeoutId);
+    try {
+      entry.reject(new Error(reason));
+    } catch {}
+  }
+}
+
+function resetWorker(reason: string): void {
+  const worker = shamirWorkerSingleton;
+  shamirWorkerSingleton = null;
+  if (worker) {
+    try {
+      worker.terminate();
+    } catch {}
+  }
+  rejectAllPending(reason);
+}
+
+function resolveWorkerConstructor(): typeof Worker {
+  const workerCtor = (globalThis as { Worker?: typeof Worker }).Worker;
+  if (typeof workerCtor !== 'function') {
+    throw new Error('Shamir3Pass worker is unavailable in this runtime');
+  }
+  return workerCtor;
+}
+
+function getOrCreateShamirWorker(): Worker {
+  if (shamirWorkerSingleton) return shamirWorkerSingleton;
+  const WorkerCtor = resolveWorkerConstructor();
+  const workerUrl = resolveWasmUrl('shamir3pass.worker.js', 'Shamir3Pass Worker');
+  const worker = new WorkerCtor(workerUrl, { type: 'module', name: 'shamir3pass-worker' });
+
+  worker.onmessage = (event: MessageEvent) => {
+    const parsed = normalizeWorkerResponse(event.data);
+    if (!parsed) return;
+    const pending = pendingByRequestId.get(parsed.id);
+    if (!pending) return;
+    pendingByRequestId.delete(parsed.id);
+    clearTimeout(pending.timeoutId);
+    if (parsed.ok) {
+      pending.resolve(parsed.result);
+      return;
+    }
+    pending.reject(toWorkerError(parsed));
+  };
+
+  worker.onerror = (event: ErrorEvent) => {
+    const message = String(event?.message || 'Unknown worker error').trim();
+    resetWorker(`[shamir3pass-worker] ${message || 'Worker crashed'}`);
+  };
+  worker.onmessageerror = () => {
+    resetWorker('[shamir3pass-worker] Failed to deserialize worker message');
+  };
+
+  shamirWorkerSingleton = worker;
+  return worker;
+}
+
+function sendWorkerRequest(
+  type: Shamir3PassWorkerRequestType,
+  payload: Record<string, unknown>,
+): Promise<unknown> {
+  const requestId = nextRequestId();
+  const worker = getOrCreateShamirWorker();
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      pendingByRequestId.delete(requestId);
+      reject(new Error(`[shamir3pass-worker] Request timed out after ${WORKER_REQUEST_TIMEOUT_MS}ms`));
+    }, WORKER_REQUEST_TIMEOUT_MS);
+
+    pendingByRequestId.set(requestId, {
+      resolve,
+      reject,
+      timeoutId,
+    });
+
+    const request: Shamir3PassWorkerRequest = {
+      id: requestId,
+      type,
+      payload,
+    };
+
+    try {
+      worker.postMessage(request);
+    } catch (error: unknown) {
+      const pending = pendingByRequestId.get(requestId);
+      if (pending) {
+        pendingByRequestId.delete(requestId);
+        clearTimeout(pending.timeoutId);
+      }
+      reject(error instanceof Error ? error : new Error(String(error || 'Worker postMessage failed')));
+    }
+  });
+}
+
+function createShamir3PassRuntime(): Shamir3PassRuntime {
+  return {
+    generateClientKeypair: async ({ shamirPrimeB64u }) =>
+      normalizeClientKeypair(
+        await sendWorkerRequest('generateClientKeypair', {
+          shamirPrimeB64u,
+        }),
+      ),
+    addClientSeal: async ({ ciphertextB64u, exponentB64u, shamirPrimeB64u }) =>
       normalizeNonEmptyString(
-        module.shamir3pass_add_lock(ciphertextB64u, exponentB64u, shamirPrimeB64u),
+        await sendWorkerRequest('addClientSeal', {
+          ciphertextB64u,
+          exponentB64u,
+          shamirPrimeB64u,
+        }),
         'ciphertextB64u',
       ),
-    removeClientSeal: ({ ciphertextB64u, exponentB64u, shamirPrimeB64u }) =>
+    removeClientSeal: async ({ ciphertextB64u, exponentB64u, shamirPrimeB64u }) =>
       normalizeNonEmptyString(
-        module.shamir3pass_remove_lock(ciphertextB64u, exponentB64u, shamirPrimeB64u),
+        await sendWorkerRequest('removeClientSeal', {
+          ciphertextB64u,
+          exponentB64u,
+          shamirPrimeB64u,
+        }),
         'ciphertextB64u',
       ),
   };
@@ -105,12 +239,10 @@ function createShamir3PassRuntime(module: Shamir3PassWasmModuleShape): Shamir3Pa
 
 export async function getShamir3PassRuntime(): Promise<Shamir3PassRuntime> {
   if (!runtimeSingletonPromise) {
-    runtimeSingletonPromise = loadShamir3PassWasmModule()
-      .then((module) => createShamir3PassRuntime(module))
-      .catch((error) => {
-        runtimeSingletonPromise = null;
-        throw error;
-      });
+    runtimeSingletonPromise = Promise.resolve(createShamir3PassRuntime()).catch((error) => {
+      runtimeSingletonPromise = null;
+      throw error;
+    });
   }
   return runtimeSingletonPromise;
 }

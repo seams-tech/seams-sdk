@@ -22,6 +22,9 @@ import {
 } from '../demoEvmHelpers';
 import { reportTempoBroadcastFailure } from './reportTempoBroadcastFailure';
 
+const CONFIRMATION_TIMEOUT_PADDING_MS = EVM_RPC_REQUEST_TIMEOUT_MS + 5_000;
+const SECONDARY_CONFIRMATION_TIMEOUT_MS = EVM_RPC_REQUEST_TIMEOUT_MS + 5_000;
+
 type UseDemoArcSigningActionsArgs = {
   canSignEvm: boolean;
   nearAccountId?: string | null;
@@ -83,6 +86,10 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
       toast.loading('EVM transaction broadcasted, waiting for finalization…', { id: toastId });
       const confirmationAbort = new AbortController();
       let confirmationMode: 'receipt' | 'greeting';
+      const confirmationDeadlineMs =
+        Date.now() + EVM_TX_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS;
+      const remainingConfirmationMs = (): number =>
+        Math.max(1, confirmationDeadlineMs - Date.now());
       try {
         const receiptConfirmationResultPromise = waitForEvmTransactionFinalization({
           rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
@@ -133,16 +140,43 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
             receiptConfirmationResultPromise,
             greetingConfirmationResultPromise,
           ]),
-          timeoutMs: EVM_TX_FINALITY_TIMEOUT_MS + EVM_RPC_REQUEST_TIMEOUT_MS + 5_000,
+          timeoutMs: remainingConfirmationMs(),
           label: 'EVM greeting finalization confirmation',
+          onTimeout: () => {
+            confirmationAbort.abort(new Error('EVM finalization confirmation timed out'));
+          },
         });
         if (firstConfirmationResult.ok) {
           confirmationMode = firstConfirmationResult.mode;
         } else {
           const secondConfirmationResult =
             firstConfirmationResult.source === 'receipt'
-              ? await greetingConfirmationResultPromise
-              : await receiptConfirmationResultPromise;
+              ? await withPromiseTimeout({
+                  promise: greetingConfirmationResultPromise,
+                  timeoutMs: Math.min(
+                    SECONDARY_CONFIRMATION_TIMEOUT_MS,
+                    remainingConfirmationMs(),
+                  ),
+                  label: 'EVM greeting secondary confirmation',
+                  onTimeout: () => {
+                    confirmationAbort.abort(
+                      new Error('EVM secondary finalization confirmation timed out'),
+                    );
+                  },
+                })
+              : await withPromiseTimeout({
+                  promise: receiptConfirmationResultPromise,
+                  timeoutMs: Math.min(
+                    SECONDARY_CONFIRMATION_TIMEOUT_MS,
+                    remainingConfirmationMs(),
+                  ),
+                  label: 'EVM receipt secondary confirmation',
+                  onTimeout: () => {
+                    confirmationAbort.abort(
+                      new Error('EVM secondary finalization confirmation timed out'),
+                    );
+                  },
+                });
           if (secondConfirmationResult.ok) {
             confirmationMode = secondConfirmationResult.mode;
           } else {

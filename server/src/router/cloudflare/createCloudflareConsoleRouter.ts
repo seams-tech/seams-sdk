@@ -56,6 +56,42 @@ import {
   parseUpdateConsoleWebhookEndpointRequest,
   type ConsoleWebhookService,
 } from '../../console/webhooks';
+import {
+  isConsoleGasSponsorshipError,
+  parseCreateConsoleGasSponsorshipRequest,
+  parseListConsoleGasSponsorshipRequest,
+  parseUpdateConsoleGasSponsorshipRequest,
+  type ConsoleGasSponsorshipService,
+} from '../../console/gasSponsorship';
+import {
+  isConsoleSmartWalletError,
+  parseCreateConsoleSmartWalletRequest,
+  parseListConsoleSmartWalletRequest,
+  parseUpdateConsoleSmartWalletRequest,
+  type ConsoleSmartWalletService,
+} from '../../console/smartWallets';
+import {
+  isConsoleSettingsError,
+  parseGetConsoleSettingsRequest,
+  parseUpdateConsoleAppSettingsRequest,
+  parseUpdateConsoleSecuritySettingsRequest,
+  type ConsoleSettingsService,
+} from '../../console/settings';
+import {
+  isConsoleKeyExportError,
+  parseApproveConsoleKeyExportRequest,
+  parseCreateConsoleKeyExportRequest,
+  parseListConsoleKeyExportsRequest,
+  type ConsoleKeyExportService,
+} from '../../console/keyExports';
+import {
+  isConsoleRuntimeSnapshotError,
+  parseGetLatestConsoleRuntimeSnapshotRequest,
+  parseListConsoleRuntimeSnapshotsRequest,
+  parsePublishCurrentConsoleRuntimeSnapshotRequest,
+  parsePublishConsoleRuntimeSnapshotRequest,
+  type ConsoleRuntimeSnapshotService,
+} from '../../console/runtimeSnapshots';
 import type { ConsoleAuthClaims, ConsoleAuthResult, ConsoleRouterOptions } from '../console';
 import { authenticateConsoleRequest, hasConsoleRole } from '../console';
 import {
@@ -64,6 +100,7 @@ import {
   buildConsolePolicyCoverageView,
   resolveConsoleInsightsScope,
 } from '../consoleInsights';
+import { resolveConsoleRuntimeSnapshotPayload } from '../runtimeSnapshotPayload';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 import type { CfEnv, CfExecutionContext, FetchHandler } from './types';
@@ -85,6 +122,11 @@ export interface CloudflareConsoleContext {
   policies: ConsolePolicyService | null;
   apiKeys: ConsoleApiKeyService | null;
   webhooks: ConsoleWebhookService | null;
+  gasSponsorship: ConsoleGasSponsorshipService | null;
+  smartWallets: ConsoleSmartWalletService | null;
+  settings: ConsoleSettingsService | null;
+  keyExports: ConsoleKeyExportService | null;
+  runtimeSnapshots: ConsoleRuntimeSnapshotService | null;
 }
 
 function withConsoleCors(headers: Headers, opts?: ConsoleRouterOptions, request?: Request): void {
@@ -264,6 +306,121 @@ function sendWebhookError(error: unknown): Response {
   );
 }
 
+function sendGasSponsorshipError(error: unknown): Response {
+  if (isConsoleGasSponsorshipError(error)) {
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+      { status: error.status },
+    );
+  }
+
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
+}
+
+function sendSmartWalletError(error: unknown): Response {
+  if (isConsoleSmartWalletError(error)) {
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+      { status: error.status },
+    );
+  }
+
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
+}
+
+function sendSettingsError(error: unknown): Response {
+  if (isConsoleSettingsError(error)) {
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+      { status: error.status },
+    );
+  }
+
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
+}
+
+function sendKeyExportError(error: unknown): Response {
+  if (isConsoleKeyExportError(error)) {
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+      { status: error.status },
+    );
+  }
+
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
+}
+
+function sendRuntimeSnapshotError(error: unknown): Response {
+  if (isConsoleRuntimeSnapshotError(error)) {
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+      { status: error.status },
+    );
+  }
+
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
+}
+
 async function requireConsoleAuth(
   ctx: CloudflareConsoleContext,
 ): Promise<{ ok: true; claims: ConsoleAuthClaims } | { ok: false; response: Response }> {
@@ -346,6 +503,72 @@ function requireWebhookService(ctx: CloudflareConsoleContext): ConsoleWebhookSer
       ok: false,
       code: 'webhooks_not_configured',
       message: 'Webhook service is not configured on this server',
+    },
+    { status: 501 },
+  );
+}
+
+function requireGasSponsorshipService(
+  ctx: CloudflareConsoleContext,
+): ConsoleGasSponsorshipService | Response {
+  if (ctx.gasSponsorship) return ctx.gasSponsorship;
+  return json(
+    {
+      ok: false,
+      code: 'gas_sponsorship_not_configured',
+      message: 'Gas sponsorship service is not configured on this server',
+    },
+    { status: 501 },
+  );
+}
+
+function requireSmartWalletService(
+  ctx: CloudflareConsoleContext,
+): ConsoleSmartWalletService | Response {
+  if (ctx.smartWallets) return ctx.smartWallets;
+  return json(
+    {
+      ok: false,
+      code: 'smart_wallets_not_configured',
+      message: 'Smart wallet service is not configured on this server',
+    },
+    { status: 501 },
+  );
+}
+
+function requireSettingsService(ctx: CloudflareConsoleContext): ConsoleSettingsService | Response {
+  if (ctx.settings) return ctx.settings;
+  return json(
+    {
+      ok: false,
+      code: 'settings_not_configured',
+      message: 'Settings service is not configured on this server',
+    },
+    { status: 501 },
+  );
+}
+
+function requireKeyExportService(ctx: CloudflareConsoleContext): ConsoleKeyExportService | Response {
+  if (ctx.keyExports) return ctx.keyExports;
+  return json(
+    {
+      ok: false,
+      code: 'key_exports_not_configured',
+      message: 'Key export service is not configured on this server',
+    },
+    { status: 501 },
+  );
+}
+
+function requireRuntimeSnapshotService(
+  ctx: CloudflareConsoleContext,
+): ConsoleRuntimeSnapshotService | Response {
+  if (ctx.runtimeSnapshots) return ctx.runtimeSnapshots;
+  return json(
+    {
+      ok: false,
+      code: 'runtime_snapshots_not_configured',
+      message: 'Runtime snapshot service is not configured on this server',
     },
     { status: 501 },
   );
@@ -482,6 +705,36 @@ function requirePolicyMutationRole(claims: ConsoleAuthClaims): Response | null {
       ok: false,
       code: 'forbidden',
       message: 'Only owner, admin, or security_admin can mutate policies',
+    },
+    { status: 403 },
+  );
+}
+
+function requireConsoleConfigMutationRole(claims: ConsoleAuthClaims): Response | null {
+  if (
+    hasConsoleRole(claims, 'owner') ||
+    hasConsoleRole(claims, 'admin') ||
+    hasConsoleRole(claims, 'security_admin')
+  ) {
+    return null;
+  }
+  return json(
+    {
+      ok: false,
+      code: 'forbidden',
+      message: 'Only owner, admin, or security_admin can mutate console configuration',
+    },
+    { status: 403 },
+  );
+}
+
+function requireKeyExportApprovalRole(claims: ConsoleAuthClaims): Response | null {
+  if (hasConsoleRole(claims, 'admin')) return null;
+  return json(
+    {
+      ok: false,
+      code: 'forbidden',
+      message: 'Only admin can approve key export requests',
     },
     { status: 403 },
   );
@@ -668,6 +921,312 @@ function isConsoleApiKeyPath(pathname: string): boolean {
 
 function isConsoleWebhookPath(pathname: string): boolean {
   return pathname.startsWith('/console/webhooks');
+}
+
+function isConsoleGasSponsorshipPath(pathname: string): boolean {
+  return pathname === '/console/gas-sponsorship' || pathname.startsWith('/console/gas-sponsorship/');
+}
+
+function isConsoleSmartWalletPath(pathname: string): boolean {
+  return pathname === '/console/smart-wallets' || pathname.startsWith('/console/smart-wallets/');
+}
+
+function isConsoleSettingsPath(pathname: string): boolean {
+  return pathname === '/console/settings/app' || pathname === '/console/settings/security';
+}
+
+function isConsoleKeyExportPath(pathname: string): boolean {
+  return pathname === '/console/key-exports' || pathname.startsWith('/console/key-exports/');
+}
+
+function isConsoleRuntimeSnapshotPath(pathname: string): boolean {
+  return pathname === '/console/runtime-snapshots' || pathname.startsWith('/console/runtime-snapshots/');
+}
+
+async function handleConsoleGasSponsorship(ctx: CloudflareConsoleContext): Promise<Response | null> {
+  if (!isConsoleGasSponsorshipPath(ctx.pathname)) return null;
+
+  const auth = await requireConsoleAuth(ctx);
+  if (!auth.ok) return auth.response;
+
+  const gasSponsorshipOrResponse = requireGasSponsorshipService(ctx);
+  if (gasSponsorshipOrResponse instanceof Response) return gasSponsorshipOrResponse;
+  const gasSponsorship = gasSponsorshipOrResponse;
+  const configMatch = ctx.pathname.match(/^\/console\/gas-sponsorship\/([^/]+)$/);
+
+  try {
+    if (ctx.method === 'GET' && ctx.pathname === '/console/gas-sponsorship') {
+      const request = parseListConsoleGasSponsorshipRequest({
+        scopeType: ctx.url.searchParams.get('scopeType') || undefined,
+        projectId: ctx.url.searchParams.get('projectId') || undefined,
+        environmentId: ctx.url.searchParams.get('environmentId') || undefined,
+        policyId: ctx.url.searchParams.get('policyId') || undefined,
+        walletSegmentId: ctx.url.searchParams.get('walletSegmentId') || undefined,
+      });
+      const configs = await gasSponsorship.listConfigs(toBillingContext(auth.claims), request);
+      return json({ ok: true, configs }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/gas-sponsorship') {
+      const roleRequired = requireConsoleConfigMutationRole(auth.claims);
+      if (roleRequired) return roleRequired;
+      const request = parseCreateConsoleGasSponsorshipRequest(await readJson(ctx.request));
+      const config = await gasSponsorship.createConfig(toBillingContext(auth.claims), request);
+      return json({ ok: true, config }, { status: 201 });
+    }
+
+    if (ctx.method === 'PATCH' && configMatch) {
+      const roleRequired = requireConsoleConfigMutationRole(auth.claims);
+      if (roleRequired) return roleRequired;
+      const configId = decodePathPart(configMatch[1]);
+      const request = parseUpdateConsoleGasSponsorshipRequest(await readJson(ctx.request));
+      const config = await gasSponsorship.updateConfig(toBillingContext(auth.claims), configId, request);
+      if (!config) {
+        return json(
+          {
+            ok: false,
+            code: 'gas_sponsorship_not_found',
+            message: `Gas sponsorship config ${configId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      return json({ ok: true, config }, { status: 200 });
+    }
+  } catch (error: unknown) {
+    return sendGasSponsorshipError(error);
+  }
+
+  return new Response('Not Found', { status: 404 });
+}
+
+async function handleConsoleSmartWallets(ctx: CloudflareConsoleContext): Promise<Response | null> {
+  if (!isConsoleSmartWalletPath(ctx.pathname)) return null;
+
+  const auth = await requireConsoleAuth(ctx);
+  if (!auth.ok) return auth.response;
+
+  const smartWalletsOrResponse = requireSmartWalletService(ctx);
+  if (smartWalletsOrResponse instanceof Response) return smartWalletsOrResponse;
+  const smartWallets = smartWalletsOrResponse;
+  const configMatch = ctx.pathname.match(/^\/console\/smart-wallets\/([^/]+)$/);
+
+  try {
+    if (ctx.method === 'GET' && ctx.pathname === '/console/smart-wallets') {
+      const request = parseListConsoleSmartWalletRequest({
+        scopeType: ctx.url.searchParams.get('scopeType') || undefined,
+        projectId: ctx.url.searchParams.get('projectId') || undefined,
+        environmentId: ctx.url.searchParams.get('environmentId') || undefined,
+        policyId: ctx.url.searchParams.get('policyId') || undefined,
+        walletSegmentId: ctx.url.searchParams.get('walletSegmentId') || undefined,
+      });
+      const configs = await smartWallets.listConfigs(toBillingContext(auth.claims), request);
+      return json({ ok: true, configs }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/smart-wallets') {
+      const roleRequired = requireConsoleConfigMutationRole(auth.claims);
+      if (roleRequired) return roleRequired;
+      const request = parseCreateConsoleSmartWalletRequest(await readJson(ctx.request));
+      const config = await smartWallets.createConfig(toBillingContext(auth.claims), request);
+      return json({ ok: true, config }, { status: 201 });
+    }
+
+    if (ctx.method === 'PATCH' && configMatch) {
+      const roleRequired = requireConsoleConfigMutationRole(auth.claims);
+      if (roleRequired) return roleRequired;
+      const configId = decodePathPart(configMatch[1]);
+      const request = parseUpdateConsoleSmartWalletRequest(await readJson(ctx.request));
+      const config = await smartWallets.updateConfig(toBillingContext(auth.claims), configId, request);
+      if (!config) {
+        return json(
+          {
+            ok: false,
+            code: 'smart_wallet_config_not_found',
+            message: `Smart-wallet config ${configId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      return json({ ok: true, config }, { status: 200 });
+    }
+  } catch (error: unknown) {
+    return sendSmartWalletError(error);
+  }
+
+  return new Response('Not Found', { status: 404 });
+}
+
+async function handleConsoleSettings(ctx: CloudflareConsoleContext): Promise<Response | null> {
+  if (!isConsoleSettingsPath(ctx.pathname)) return null;
+
+  const auth = await requireConsoleAuth(ctx);
+  if (!auth.ok) return auth.response;
+
+  const settingsOrResponse = requireSettingsService(ctx);
+  if (settingsOrResponse instanceof Response) return settingsOrResponse;
+  const settings = settingsOrResponse;
+
+  try {
+    if (ctx.method === 'GET' && ctx.pathname === '/console/settings/app') {
+      const request = parseGetConsoleSettingsRequest({
+        environmentId: ctx.url.searchParams.get('environmentId') || undefined,
+      });
+      const appSettings = await settings.getAppSettings(toBillingContext(auth.claims), request);
+      return json({ ok: true, appSettings }, { status: 200 });
+    }
+
+    if (ctx.method === 'PATCH' && ctx.pathname === '/console/settings/app') {
+      const roleRequired = requireConsoleConfigMutationRole(auth.claims);
+      if (roleRequired) return roleRequired;
+      const request = parseUpdateConsoleAppSettingsRequest(await readJson(ctx.request));
+      const appSettings = await settings.updateAppSettings(toBillingContext(auth.claims), request);
+      return json({ ok: true, appSettings }, { status: 200 });
+    }
+
+    if (ctx.method === 'GET' && ctx.pathname === '/console/settings/security') {
+      const request = parseGetConsoleSettingsRequest({
+        environmentId: ctx.url.searchParams.get('environmentId') || undefined,
+      });
+      const securitySettings = await settings.getSecuritySettings(toBillingContext(auth.claims), request);
+      return json({ ok: true, securitySettings }, { status: 200 });
+    }
+
+    if (ctx.method === 'PATCH' && ctx.pathname === '/console/settings/security') {
+      const roleRequired = requireConsoleConfigMutationRole(auth.claims);
+      if (roleRequired) return roleRequired;
+      const request = parseUpdateConsoleSecuritySettingsRequest(await readJson(ctx.request));
+      const securitySettings = await settings.updateSecuritySettings(
+        toBillingContext(auth.claims),
+        request,
+      );
+      return json({ ok: true, securitySettings }, { status: 200 });
+    }
+  } catch (error: unknown) {
+    return sendSettingsError(error);
+  }
+
+  return new Response('Not Found', { status: 404 });
+}
+
+async function handleConsoleKeyExports(ctx: CloudflareConsoleContext): Promise<Response | null> {
+  if (!isConsoleKeyExportPath(ctx.pathname)) return null;
+
+  const auth = await requireConsoleAuth(ctx);
+  if (!auth.ok) return auth.response;
+
+  const keyExportsOrResponse = requireKeyExportService(ctx);
+  if (keyExportsOrResponse instanceof Response) return keyExportsOrResponse;
+  const keyExports = keyExportsOrResponse;
+  const approveMatch = ctx.pathname.match(/^\/console\/key-exports\/([^/]+)\/approve$/);
+
+  try {
+    if (ctx.method === 'GET' && ctx.pathname === '/console/key-exports') {
+      const request = parseListConsoleKeyExportsRequest({
+        environmentId: ctx.url.searchParams.get('environmentId') || undefined,
+        status: ctx.url.searchParams.get('status') || undefined,
+      });
+      const keyExportRows = await keyExports.listKeyExports(toBillingContext(auth.claims), request);
+      return json({ ok: true, exports: keyExportRows }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/key-exports') {
+      const request = parseCreateConsoleKeyExportRequest(await readJson(ctx.request));
+      const keyExport = await keyExports.createKeyExport(toBillingContext(auth.claims), request);
+      return json({ ok: true, keyExport }, { status: 201 });
+    }
+
+    if (ctx.method === 'POST' && approveMatch) {
+      const roleRequired = requireKeyExportApprovalRole(auth.claims);
+      if (roleRequired) return roleRequired;
+      const exportId = decodePathPart(approveMatch[1]);
+      const request = parseApproveConsoleKeyExportRequest(await readJson(ctx.request));
+      const keyExport = await keyExports.approveKeyExport(toBillingContext(auth.claims), exportId, request);
+      if (!keyExport) {
+        return json(
+          {
+            ok: false,
+            code: 'key_export_not_found',
+            message: `Key export request ${exportId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      return json({ ok: true, keyExport }, { status: 200 });
+    }
+  } catch (error: unknown) {
+    return sendKeyExportError(error);
+  }
+
+  return new Response('Not Found', { status: 404 });
+}
+
+async function handleConsoleRuntimeSnapshots(
+  ctx: CloudflareConsoleContext,
+): Promise<Response | null> {
+  if (!isConsoleRuntimeSnapshotPath(ctx.pathname)) return null;
+
+  const auth = await requireConsoleAuth(ctx);
+  if (!auth.ok) return auth.response;
+
+  const runtimeSnapshotsOrResponse = requireRuntimeSnapshotService(ctx);
+  if (runtimeSnapshotsOrResponse instanceof Response) return runtimeSnapshotsOrResponse;
+  const runtimeSnapshots = runtimeSnapshotsOrResponse;
+
+  try {
+    if (ctx.method === 'GET' && ctx.pathname === '/console/runtime-snapshots') {
+      const request = parseListConsoleRuntimeSnapshotsRequest({
+        environmentId: ctx.url.searchParams.get('environmentId') || undefined,
+        projectId: ctx.url.searchParams.get('projectId') || undefined,
+        limit: ctx.url.searchParams.get('limit') || undefined,
+      });
+      const snapshots = await runtimeSnapshots.listSnapshots(toBillingContext(auth.claims), request);
+      return json({ ok: true, snapshots }, { status: 200 });
+    }
+
+    if (ctx.method === 'GET' && ctx.pathname === '/console/runtime-snapshots/latest') {
+      const request = parseGetLatestConsoleRuntimeSnapshotRequest({
+        environmentId: ctx.url.searchParams.get('environmentId') || undefined,
+        projectId: ctx.url.searchParams.get('projectId') || undefined,
+      });
+      const snapshot = await runtimeSnapshots.getLatestSnapshot(toBillingContext(auth.claims), request);
+      return json({ ok: true, snapshot }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/runtime-snapshots/publish') {
+      const roleRequired = requireConsoleConfigMutationRole(auth.claims);
+      if (roleRequired) return roleRequired;
+      const request = parsePublishConsoleRuntimeSnapshotRequest(await readJson(ctx.request));
+      const snapshot = await runtimeSnapshots.publishSnapshot(toBillingContext(auth.claims), request);
+      return json({ ok: true, snapshot }, { status: 201 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/runtime-snapshots/publish-current') {
+      const roleRequired = requireConsoleConfigMutationRole(auth.claims);
+      if (roleRequired) return roleRequired;
+      const request = parsePublishCurrentConsoleRuntimeSnapshotRequest(await readJson(ctx.request));
+      const payload = await resolveConsoleRuntimeSnapshotPayload({
+        orgId: auth.claims.orgId,
+        actorUserId: auth.claims.userId,
+        roles: auth.claims.roles,
+        environmentId: request.environmentId,
+        ...(request.projectId ? { projectId: request.projectId } : {}),
+        policies: ctx.policies,
+        settings: ctx.settings,
+        gasSponsorship: ctx.gasSponsorship,
+        smartWallets: ctx.smartWallets,
+      });
+      const snapshot = await runtimeSnapshots.publishSnapshot(toBillingContext(auth.claims), {
+        ...request,
+        payload,
+      });
+      return json({ ok: true, snapshot }, { status: 201 });
+    }
+  } catch (error: unknown) {
+    return sendRuntimeSnapshotError(error);
+  }
+
+  return new Response('Not Found', { status: 404 });
 }
 
 async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Response | null> {
@@ -1727,6 +2286,11 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
   const policies = opts.policies === undefined ? null : opts.policies;
   const apiKeys = opts.apiKeys === undefined ? null : opts.apiKeys;
   const webhooks = opts.webhooks === undefined ? null : opts.webhooks;
+  const gasSponsorship = opts.gasSponsorship === undefined ? null : opts.gasSponsorship;
+  const smartWallets = opts.smartWallets === undefined ? null : opts.smartWallets;
+  const settings = opts.settings === undefined ? null : opts.settings;
+  const keyExports = opts.keyExports === undefined ? null : opts.keyExports;
+  const runtimeSnapshots = opts.runtimeSnapshots === undefined ? null : opts.runtimeSnapshots;
 
   const handlers: Array<(ctx: CloudflareConsoleContext) => Promise<Response | null>> = [
     handleConsoleHealth,
@@ -1736,6 +2300,11 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
     handleConsoleWallets,
     handleConsolePolicies,
     handleConsoleInsights,
+    handleConsoleGasSponsorship,
+    handleConsoleSmartWallets,
+    handleConsoleSettings,
+    handleConsoleKeyExports,
+    handleConsoleRuntimeSnapshots,
     handleConsoleApiKeys,
     handleConsoleWebhooks,
     handleConsoleBilling,
@@ -1771,6 +2340,11 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
       policies,
       apiKeys,
       webhooks,
+      gasSponsorship,
+      smartWallets,
+      settings,
+      keyExports,
+      runtimeSnapshots,
     };
 
     try {

@@ -8,6 +8,8 @@ import type {
   PrfSessionSealThresholdSessionRecord,
 } from './types';
 
+const PRF_SEAL_LOG_LABEL = '[threshold-ecdsa-prf-seal]';
+
 function toMessage(input: unknown, fallback: string): string {
   const value = String(input || '').trim();
   return value || fallback;
@@ -77,6 +79,59 @@ async function emitAudit(input: {
   } catch {}
 }
 
+function emitOperationRequestLog(input: {
+  options: CreatePrfSessionSealServiceOptions;
+  operation: PrfSessionSealOperation;
+  thresholdSessionId: string;
+  userId: string;
+  keyVersion?: string;
+  metadata?: Record<string, unknown>;
+}): void {
+  const logger = input.options.logger;
+  if (!logger) return;
+  const metadataKeys = input.metadata ? Object.keys(input.metadata) : [];
+  logger.info(`${PRF_SEAL_LOG_LABEL} ${input.operation} request`, {
+    operation: input.operation,
+    thresholdSessionId: input.thresholdSessionId,
+    userId: input.userId,
+    ...(input.keyVersion ? { keyVersion: input.keyVersion } : {}),
+    metadataKeys,
+  });
+}
+
+function emitOperationResultLog(input: {
+  options: CreatePrfSessionSealServiceOptions;
+  operation: PrfSessionSealOperation;
+  thresholdSessionId: string;
+  userId: string;
+  result: PrfSessionSealRouteResult;
+  durationMs: number;
+}): void {
+  const logger = input.options.logger;
+  if (!logger) return;
+  const payload = {
+    operation: input.operation,
+    thresholdSessionId: input.thresholdSessionId,
+    userId: input.userId,
+    durationMs: input.durationMs,
+    ...(input.result.ok
+      ? {
+          keyVersion: input.result.keyVersion,
+          expiresAtMs: input.result.expiresAtMs,
+          remainingUses: input.result.remainingUses,
+        }
+      : {
+          code: input.result.code,
+          message: input.result.message,
+        }),
+  };
+  if (input.result.ok) {
+    logger.info(`${PRF_SEAL_LOG_LABEL} ${input.operation} success`, payload);
+    return;
+  }
+  logger.warn(`${PRF_SEAL_LOG_LABEL} ${input.operation} failure`, payload);
+}
+
 async function runSealOperation(input: {
   options: CreatePrfSessionSealServiceOptions;
   operation: PrfSessionSealOperation;
@@ -97,6 +152,15 @@ async function runSealOperation(input: {
   };
 
   try {
+    emitOperationRequestLog({
+      options: input.options,
+      operation: input.operation,
+      thresholdSessionId: input.request.thresholdSessionId,
+      userId: input.auth.userId,
+      keyVersion: input.request.keyVersion,
+      metadata: input.request.metadata,
+    });
+
     const session = await input.options.sessionPolicy.getSession(input.request.thresholdSessionId);
     if (!session) {
       result = {
@@ -196,6 +260,15 @@ async function runSealOperation(input: {
     };
     return result;
   } finally {
+    const durationMs = Math.max(0, nowMs() - startedAtMs);
+    emitOperationResultLog({
+      options: input.options,
+      operation: input.operation,
+      thresholdSessionId: input.request.thresholdSessionId,
+      userId: input.auth.userId,
+      result,
+      durationMs,
+    });
     await emitAudit({
       options: input.options,
       operation: input.operation,

@@ -58,6 +58,42 @@ import {
   parseUpdateConsoleWebhookEndpointRequest,
   type ConsoleWebhookService,
 } from '../../console/webhooks';
+import {
+  isConsoleGasSponsorshipError,
+  parseCreateConsoleGasSponsorshipRequest,
+  parseListConsoleGasSponsorshipRequest,
+  parseUpdateConsoleGasSponsorshipRequest,
+  type ConsoleGasSponsorshipService,
+} from '../../console/gasSponsorship';
+import {
+  isConsoleSmartWalletError,
+  parseCreateConsoleSmartWalletRequest,
+  parseListConsoleSmartWalletRequest,
+  parseUpdateConsoleSmartWalletRequest,
+  type ConsoleSmartWalletService,
+} from '../../console/smartWallets';
+import {
+  isConsoleSettingsError,
+  parseGetConsoleSettingsRequest,
+  parseUpdateConsoleAppSettingsRequest,
+  parseUpdateConsoleSecuritySettingsRequest,
+  type ConsoleSettingsService,
+} from '../../console/settings';
+import {
+  isConsoleKeyExportError,
+  parseApproveConsoleKeyExportRequest,
+  parseCreateConsoleKeyExportRequest,
+  parseListConsoleKeyExportsRequest,
+  type ConsoleKeyExportService,
+} from '../../console/keyExports';
+import {
+  isConsoleRuntimeSnapshotError,
+  parseGetLatestConsoleRuntimeSnapshotRequest,
+  parseListConsoleRuntimeSnapshotsRequest,
+  parsePublishCurrentConsoleRuntimeSnapshotRequest,
+  parsePublishConsoleRuntimeSnapshotRequest,
+  type ConsoleRuntimeSnapshotService,
+} from '../../console/runtimeSnapshots';
 import type { ConsoleAuthClaims, ConsoleAuthResult, ConsoleRouterOptions } from '../console';
 import { authenticateConsoleRequest, hasConsoleRole } from '../console';
 import {
@@ -66,6 +102,7 @@ import {
   buildConsolePolicyCoverageView,
   resolveConsoleInsightsScope,
 } from '../consoleInsights';
+import { resolveConsoleRuntimeSnapshotPayload } from '../runtimeSnapshotPayload';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 
@@ -78,6 +115,11 @@ export interface ExpressConsoleContext {
   policies: ConsolePolicyService | null;
   apiKeys: ConsoleApiKeyService | null;
   webhooks: ConsoleWebhookService | null;
+  gasSponsorship: ConsoleGasSponsorshipService | null;
+  smartWallets: ConsoleSmartWalletService | null;
+  settings: ConsoleSettingsService | null;
+  keyExports: ConsoleKeyExportService | null;
+  runtimeSnapshots: ConsoleRuntimeSnapshotService | null;
 }
 
 function withConsoleCors(res: Response, opts?: ConsoleRouterOptions, req?: Request): void {
@@ -236,6 +278,96 @@ function sendWebhookError(res: Response, error: unknown): void {
   });
 }
 
+function sendGasSponsorshipError(res: Response, error: unknown): void {
+  if (isConsoleGasSponsorshipError(error)) {
+    res.status(error.status).json({
+      ok: false,
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {}),
+    });
+    return;
+  }
+
+  res.status(500).json({
+    ok: false,
+    code: 'internal',
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
+function sendSmartWalletError(res: Response, error: unknown): void {
+  if (isConsoleSmartWalletError(error)) {
+    res.status(error.status).json({
+      ok: false,
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {}),
+    });
+    return;
+  }
+
+  res.status(500).json({
+    ok: false,
+    code: 'internal',
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
+function sendSettingsError(res: Response, error: unknown): void {
+  if (isConsoleSettingsError(error)) {
+    res.status(error.status).json({
+      ok: false,
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {}),
+    });
+    return;
+  }
+
+  res.status(500).json({
+    ok: false,
+    code: 'internal',
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
+function sendKeyExportError(res: Response, error: unknown): void {
+  if (isConsoleKeyExportError(error)) {
+    res.status(error.status).json({
+      ok: false,
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {}),
+    });
+    return;
+  }
+
+  res.status(500).json({
+    ok: false,
+    code: 'internal',
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
+function sendRuntimeSnapshotError(res: Response, error: unknown): void {
+  if (isConsoleRuntimeSnapshotError(error)) {
+    res.status(error.status).json({
+      ok: false,
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {}),
+    });
+    return;
+  }
+
+  res.status(500).json({
+    ok: false,
+    code: 'internal',
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
 async function requireConsoleAuth(
   req: Request,
   res: Response,
@@ -326,6 +458,71 @@ function requireWebhookService(
     ok: false,
     code: 'webhooks_not_configured',
     message: 'Webhook service is not configured on this server',
+  });
+  return null;
+}
+
+function requireGasSponsorshipService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsoleGasSponsorshipService | null {
+  if (ctx.gasSponsorship) return ctx.gasSponsorship;
+  res.status(501).json({
+    ok: false,
+    code: 'gas_sponsorship_not_configured',
+    message: 'Gas sponsorship service is not configured on this server',
+  });
+  return null;
+}
+
+function requireSmartWalletService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsoleSmartWalletService | null {
+  if (ctx.smartWallets) return ctx.smartWallets;
+  res.status(501).json({
+    ok: false,
+    code: 'smart_wallets_not_configured',
+    message: 'Smart wallet service is not configured on this server',
+  });
+  return null;
+}
+
+function requireSettingsService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsoleSettingsService | null {
+  if (ctx.settings) return ctx.settings;
+  res.status(501).json({
+    ok: false,
+    code: 'settings_not_configured',
+    message: 'Settings service is not configured on this server',
+  });
+  return null;
+}
+
+function requireKeyExportService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsoleKeyExportService | null {
+  if (ctx.keyExports) return ctx.keyExports;
+  res.status(501).json({
+    ok: false,
+    code: 'key_exports_not_configured',
+    message: 'Key export service is not configured on this server',
+  });
+  return null;
+}
+
+function requireRuntimeSnapshotService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsoleRuntimeSnapshotService | null {
+  if (ctx.runtimeSnapshots) return ctx.runtimeSnapshots;
+  res.status(501).json({
+    ok: false,
+    code: 'runtime_snapshots_not_configured',
+    message: 'Runtime snapshot service is not configured on this server',
   });
   return null;
 }
@@ -457,6 +654,32 @@ function requirePolicyMutationRole(claims: ConsoleAuthClaims, res: Response): bo
     ok: false,
     code: 'forbidden',
     message: 'Only owner, admin, or security_admin can mutate policies',
+  });
+  return false;
+}
+
+function requireConsoleConfigMutationRole(claims: ConsoleAuthClaims, res: Response): boolean {
+  if (
+    hasConsoleRole(claims, 'owner') ||
+    hasConsoleRole(claims, 'admin') ||
+    hasConsoleRole(claims, 'security_admin')
+  ) {
+    return true;
+  }
+  res.status(403).json({
+    ok: false,
+    code: 'forbidden',
+    message: 'Only owner, admin, or security_admin can mutate console configuration',
+  });
+  return false;
+}
+
+function requireKeyExportApprovalRole(claims: ConsoleAuthClaims, res: Response): boolean {
+  if (hasConsoleRole(claims, 'admin')) return true;
+  res.status(403).json({
+    ok: false,
+    code: 'forbidden',
+    message: 'Only admin can approve key export requests',
   });
   return false;
 }
@@ -1092,6 +1315,313 @@ function registerConsoleInsightsRoutes(router: ExpressRouter, ctx: ExpressConsol
       res.status(200).json({ ok: true, governance });
     } catch (error: unknown) {
       sendApiKeyError(res, error);
+    }
+  });
+}
+
+function registerConsoleGasSponsorshipRoutes(
+  router: ExpressRouter,
+  ctx: ExpressConsoleContext,
+): void {
+  router.get('/console/gas-sponsorship', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const gasSponsorship = requireGasSponsorshipService(res, ctx);
+    if (!gasSponsorship) return;
+    try {
+      const request = parseListConsoleGasSponsorshipRequest((req as any).query || {});
+      const configs = await gasSponsorship.listConfigs(toBillingContext(claims), request);
+      res.status(200).json({ ok: true, configs });
+    } catch (error: unknown) {
+      sendGasSponsorshipError(res, error);
+    }
+  });
+
+  router.post('/console/gas-sponsorship', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireConsoleConfigMutationRole(claims, res)) return;
+    const gasSponsorship = requireGasSponsorshipService(res, ctx);
+    if (!gasSponsorship) return;
+    try {
+      const request = parseCreateConsoleGasSponsorshipRequest((req as any).body);
+      const config = await gasSponsorship.createConfig(toBillingContext(claims), request);
+      res.status(201).json({ ok: true, config });
+    } catch (error: unknown) {
+      sendGasSponsorshipError(res, error);
+    }
+  });
+
+  router.patch('/console/gas-sponsorship/:id', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireConsoleConfigMutationRole(claims, res)) return;
+    const gasSponsorship = requireGasSponsorshipService(res, ctx);
+    if (!gasSponsorship) return;
+    const configId = readPathParam(req, 'id');
+    if (!configId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing gas sponsorship id' });
+      return;
+    }
+    try {
+      const request = parseUpdateConsoleGasSponsorshipRequest((req as any).body);
+      const config = await gasSponsorship.updateConfig(toBillingContext(claims), configId, request);
+      if (!config) {
+        res.status(404).json({
+          ok: false,
+          code: 'gas_sponsorship_not_found',
+          message: `Gas sponsorship config ${configId} was not found`,
+        });
+        return;
+      }
+      res.status(200).json({ ok: true, config });
+    } catch (error: unknown) {
+      sendGasSponsorshipError(res, error);
+    }
+  });
+}
+
+function registerConsoleSmartWalletRoutes(router: ExpressRouter, ctx: ExpressConsoleContext): void {
+  router.get('/console/smart-wallets', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const smartWallets = requireSmartWalletService(res, ctx);
+    if (!smartWallets) return;
+    try {
+      const request = parseListConsoleSmartWalletRequest((req as any).query || {});
+      const configs = await smartWallets.listConfigs(toBillingContext(claims), request);
+      res.status(200).json({ ok: true, configs });
+    } catch (error: unknown) {
+      sendSmartWalletError(res, error);
+    }
+  });
+
+  router.post('/console/smart-wallets', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireConsoleConfigMutationRole(claims, res)) return;
+    const smartWallets = requireSmartWalletService(res, ctx);
+    if (!smartWallets) return;
+    try {
+      const request = parseCreateConsoleSmartWalletRequest((req as any).body);
+      const config = await smartWallets.createConfig(toBillingContext(claims), request);
+      res.status(201).json({ ok: true, config });
+    } catch (error: unknown) {
+      sendSmartWalletError(res, error);
+    }
+  });
+
+  router.patch('/console/smart-wallets/:id', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireConsoleConfigMutationRole(claims, res)) return;
+    const smartWallets = requireSmartWalletService(res, ctx);
+    if (!smartWallets) return;
+    const configId = readPathParam(req, 'id');
+    if (!configId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing smart-wallet config id' });
+      return;
+    }
+    try {
+      const request = parseUpdateConsoleSmartWalletRequest((req as any).body);
+      const config = await smartWallets.updateConfig(toBillingContext(claims), configId, request);
+      if (!config) {
+        res.status(404).json({
+          ok: false,
+          code: 'smart_wallet_config_not_found',
+          message: `Smart-wallet config ${configId} was not found`,
+        });
+        return;
+      }
+      res.status(200).json({ ok: true, config });
+    } catch (error: unknown) {
+      sendSmartWalletError(res, error);
+    }
+  });
+}
+
+function registerConsoleSettingsRoutes(router: ExpressRouter, ctx: ExpressConsoleContext): void {
+  router.get('/console/settings/app', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const settings = requireSettingsService(res, ctx);
+    if (!settings) return;
+    try {
+      const request = parseGetConsoleSettingsRequest((req as any).query || {});
+      const appSettings = await settings.getAppSettings(toBillingContext(claims), request);
+      res.status(200).json({ ok: true, appSettings });
+    } catch (error: unknown) {
+      sendSettingsError(res, error);
+    }
+  });
+
+  router.patch('/console/settings/app', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireConsoleConfigMutationRole(claims, res)) return;
+    const settings = requireSettingsService(res, ctx);
+    if (!settings) return;
+    try {
+      const request = parseUpdateConsoleAppSettingsRequest((req as any).body);
+      const appSettings = await settings.updateAppSettings(toBillingContext(claims), request);
+      res.status(200).json({ ok: true, appSettings });
+    } catch (error: unknown) {
+      sendSettingsError(res, error);
+    }
+  });
+
+  router.get('/console/settings/security', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const settings = requireSettingsService(res, ctx);
+    if (!settings) return;
+    try {
+      const request = parseGetConsoleSettingsRequest((req as any).query || {});
+      const securitySettings = await settings.getSecuritySettings(toBillingContext(claims), request);
+      res.status(200).json({ ok: true, securitySettings });
+    } catch (error: unknown) {
+      sendSettingsError(res, error);
+    }
+  });
+
+  router.patch('/console/settings/security', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireConsoleConfigMutationRole(claims, res)) return;
+    const settings = requireSettingsService(res, ctx);
+    if (!settings) return;
+    try {
+      const request = parseUpdateConsoleSecuritySettingsRequest((req as any).body);
+      const securitySettings = await settings.updateSecuritySettings(toBillingContext(claims), request);
+      res.status(200).json({ ok: true, securitySettings });
+    } catch (error: unknown) {
+      sendSettingsError(res, error);
+    }
+  });
+}
+
+function registerConsoleKeyExportRoutes(router: ExpressRouter, ctx: ExpressConsoleContext): void {
+  router.get('/console/key-exports', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const keyExports = requireKeyExportService(res, ctx);
+    if (!keyExports) return;
+    try {
+      const request = parseListConsoleKeyExportsRequest((req as any).query || {});
+      const keyExportRows = await keyExports.listKeyExports(toBillingContext(claims), request);
+      res.status(200).json({ ok: true, exports: keyExportRows });
+    } catch (error: unknown) {
+      sendKeyExportError(res, error);
+    }
+  });
+
+  router.post('/console/key-exports', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const keyExports = requireKeyExportService(res, ctx);
+    if (!keyExports) return;
+    try {
+      const request = parseCreateConsoleKeyExportRequest((req as any).body);
+      const keyExport = await keyExports.createKeyExport(toBillingContext(claims), request);
+      res.status(201).json({ ok: true, keyExport });
+    } catch (error: unknown) {
+      sendKeyExportError(res, error);
+    }
+  });
+
+  router.post('/console/key-exports/:id/approve', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireKeyExportApprovalRole(claims, res)) return;
+    const keyExports = requireKeyExportService(res, ctx);
+    if (!keyExports) return;
+    const exportId = readPathParam(req, 'id');
+    if (!exportId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing key export id' });
+      return;
+    }
+    try {
+      const request = parseApproveConsoleKeyExportRequest((req as any).body);
+      const keyExport = await keyExports.approveKeyExport(toBillingContext(claims), exportId, request);
+      if (!keyExport) {
+        res.status(404).json({
+          ok: false,
+          code: 'key_export_not_found',
+          message: `Key export request ${exportId} was not found`,
+        });
+        return;
+      }
+      res.status(200).json({ ok: true, keyExport });
+    } catch (error: unknown) {
+      sendKeyExportError(res, error);
+    }
+  });
+}
+
+function registerConsoleRuntimeSnapshotRoutes(
+  router: ExpressRouter,
+  ctx: ExpressConsoleContext,
+): void {
+  router.get('/console/runtime-snapshots', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const runtimeSnapshots = requireRuntimeSnapshotService(res, ctx);
+    if (!runtimeSnapshots) return;
+    try {
+      const request = parseListConsoleRuntimeSnapshotsRequest((req as any).query || {});
+      const snapshots = await runtimeSnapshots.listSnapshots(toBillingContext(claims), request);
+      res.status(200).json({ ok: true, snapshots });
+    } catch (error: unknown) {
+      sendRuntimeSnapshotError(res, error);
+    }
+  });
+
+  router.get('/console/runtime-snapshots/latest', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const runtimeSnapshots = requireRuntimeSnapshotService(res, ctx);
+    if (!runtimeSnapshots) return;
+    try {
+      const request = parseGetLatestConsoleRuntimeSnapshotRequest((req as any).query || {});
+      const snapshot = await runtimeSnapshots.getLatestSnapshot(toBillingContext(claims), request);
+      res.status(200).json({ ok: true, snapshot });
+    } catch (error: unknown) {
+      sendRuntimeSnapshotError(res, error);
+    }
+  });
+
+  router.post('/console/runtime-snapshots/publish', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireConsoleConfigMutationRole(claims, res)) return;
+    const runtimeSnapshots = requireRuntimeSnapshotService(res, ctx);
+    if (!runtimeSnapshots) return;
+    try {
+      const request = parsePublishConsoleRuntimeSnapshotRequest((req as any).body);
+      const snapshot = await runtimeSnapshots.publishSnapshot(toBillingContext(claims), request);
+      res.status(201).json({ ok: true, snapshot });
+    } catch (error: unknown) {
+      sendRuntimeSnapshotError(res, error);
+    }
+  });
+
+  router.post('/console/runtime-snapshots/publish-current', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireConsoleConfigMutationRole(claims, res)) return;
+    const runtimeSnapshots = requireRuntimeSnapshotService(res, ctx);
+    if (!runtimeSnapshots) return;
+    try {
+      const request = parsePublishCurrentConsoleRuntimeSnapshotRequest((req as any).body);
+      const payload = await resolveConsoleRuntimeSnapshotPayload({
+        orgId: claims.orgId,
+        actorUserId: claims.userId,
+        roles: claims.roles,
+        environmentId: request.environmentId,
+        ...(request.projectId ? { projectId: request.projectId } : {}),
+        policies: ctx.policies,
+        settings: ctx.settings,
+        gasSponsorship: ctx.gasSponsorship,
+        smartWallets: ctx.smartWallets,
+      });
+      const snapshot = await runtimeSnapshots.publishSnapshot(toBillingContext(claims), {
+        ...request,
+        payload,
+      });
+      res.status(201).json({ ok: true, snapshot });
+    } catch (error: unknown) {
+      sendRuntimeSnapshotError(res, error);
     }
   });
 }
@@ -1947,6 +2477,11 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
   const policies = opts.policies === undefined ? null : opts.policies;
   const apiKeys = opts.apiKeys === undefined ? null : opts.apiKeys;
   const webhooks = opts.webhooks === undefined ? null : opts.webhooks;
+  const gasSponsorship = opts.gasSponsorship === undefined ? null : opts.gasSponsorship;
+  const smartWallets = opts.smartWallets === undefined ? null : opts.smartWallets;
+  const settings = opts.settings === undefined ? null : opts.settings;
+  const keyExports = opts.keyExports === undefined ? null : opts.keyExports;
+  const runtimeSnapshots = opts.runtimeSnapshots === undefined ? null : opts.runtimeSnapshots;
 
   installConsoleCors(router, opts);
 
@@ -1959,6 +2494,11 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
     policies,
     apiKeys,
     webhooks,
+    gasSponsorship,
+    smartWallets,
+    settings,
+    keyExports,
+    runtimeSnapshots,
   };
 
   registerConsoleHealthRoutes(router, ctx);
@@ -1967,6 +2507,11 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
   registerConsoleWalletRoutes(router, ctx);
   registerConsolePolicyRoutes(router, ctx);
   registerConsoleInsightsRoutes(router, ctx);
+  registerConsoleGasSponsorshipRoutes(router, ctx);
+  registerConsoleSmartWalletRoutes(router, ctx);
+  registerConsoleSettingsRoutes(router, ctx);
+  registerConsoleKeyExportRoutes(router, ctx);
+  registerConsoleRuntimeSnapshotRoutes(router, ctx);
   registerConsoleApiKeyRoutes(router, ctx);
   registerConsoleWebhookRoutes(router, ctx);
   registerConsoleBillingRoutes(router, ctx);

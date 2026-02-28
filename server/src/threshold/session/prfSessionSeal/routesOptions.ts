@@ -80,6 +80,7 @@ export function createPrfSessionSealRoutesOptions(
     ...(input.consumePolicy ? { consumePolicy: input.consumePolicy } : {}),
     ...(guard ? { guard } : {}),
     ...(audit ? { audit } : {}),
+    ...(input.logger ? { logger: input.logger } : {}),
     ...(input.nowMs ? { nowMs: input.nowMs } : {}),
   };
   return {

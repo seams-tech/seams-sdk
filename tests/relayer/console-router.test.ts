@@ -3,8 +3,13 @@ import {
   createConsoleRouter,
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleBillingService,
+  createInMemoryConsoleGasSponsorshipService,
+  createInMemoryConsoleKeyExportService,
   createInMemoryConsoleOrgProjectEnvService,
   createInMemoryConsolePolicyService,
+  createInMemoryConsoleRuntimeSnapshotService,
+  createInMemoryConsoleSettingsService,
+  createInMemoryConsoleSmartWalletService,
   createInMemoryConsoleWalletService,
   createInMemoryConsoleWebhookService,
   createPostgresConsoleApiKeyService,
@@ -370,6 +375,636 @@ test.describe('console router (express)', () => {
     }
   });
 
+  test('new console endpoints return *_not_configured when services are not wired', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const gas = await fetchJson(`${srv.baseUrl}/console/gas-sponsorship`, { method: 'GET' });
+      expect(gas.status).toBe(501);
+      expect(gas.json?.code).toBe('gas_sponsorship_not_configured');
+
+      const smartWallets = await fetchJson(`${srv.baseUrl}/console/smart-wallets`, { method: 'GET' });
+      expect(smartWallets.status).toBe(501);
+      expect(smartWallets.json?.code).toBe('smart_wallets_not_configured');
+
+      const settings = await fetchJson(
+        `${srv.baseUrl}/console/settings/app?environmentId=${encodeURIComponent('env-test')}`,
+        { method: 'GET' },
+      );
+      expect(settings.status).toBe(501);
+      expect(settings.json?.code).toBe('settings_not_configured');
+
+      const keyExports = await fetchJson(`${srv.baseUrl}/console/key-exports`, { method: 'GET' });
+      expect(keyExports.status).toBe(501);
+      expect(keyExports.json?.code).toBe('key_exports_not_configured');
+
+      const runtimeSnapshots = await fetchJson(
+        `${srv.baseUrl}/console/runtime-snapshots?environmentId=${encodeURIComponent('env-test')}`,
+        { method: 'GET' },
+      );
+      expect(runtimeSnapshots.status).toBe(501);
+      expect(runtimeSnapshots.json?.code).toBe('runtime_snapshots_not_configured');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('new console endpoints support scaffold CRUD flows', async () => {
+    const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    const smartWallets = createInMemoryConsoleSmartWalletService();
+    const settings = createInMemoryConsoleSettingsService();
+    const keyExports = createInMemoryConsoleKeyExportService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-scaffold-express-1', 'user-scaffold-express-1'),
+      gasSponsorship,
+      smartWallets,
+      settings,
+      keyExports,
+      runtimeSnapshots,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const createdGas = await fetchJson(`${srv.baseUrl}/console/gas-sponsorship`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'gs-express-1',
+          scopeType: 'ENVIRONMENT',
+          environmentId: 'prod',
+          enabled: true,
+          chainBudgets: [
+            {
+              chain: 'Ethereum',
+              period: 'MONTHLY',
+              budgetMinor: 500000,
+              quotaTransactions: 2000,
+            },
+          ],
+        }),
+      });
+      expect(createdGas.status).toBe(201);
+      expect(getPath(createdGas.json, 'config', 'id')).toBe('gs-express-1');
+
+      const listedGas = await fetchJson(
+        `${srv.baseUrl}/console/gas-sponsorship?environmentId=${encodeURIComponent('prod')}`,
+        { method: 'GET' },
+      );
+      expect(listedGas.status).toBe(200);
+      const listedGasRows: unknown[] = Array.isArray(listedGas.json?.configs)
+        ? (listedGas.json?.configs as unknown[])
+        : [];
+      expect(listedGasRows.length).toBeGreaterThanOrEqual(1);
+
+      const patchedGas = await fetchJson(`${srv.baseUrl}/console/gas-sponsorship/gs-express-1`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: false }),
+      });
+      expect(patchedGas.status).toBe(200);
+      expect(getPath(patchedGas.json, 'config', 'enabled')).toBe(false);
+
+      const createdSmartWallet = await fetchJson(`${srv.baseUrl}/console/smart-wallets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'sw-express-1',
+          scopeType: 'ENVIRONMENT',
+          environmentId: 'prod',
+          mode: 'REQUIRED',
+          accountType: 'SMART_ACCOUNT',
+        }),
+      });
+      expect(createdSmartWallet.status).toBe(201);
+      expect(getPath(createdSmartWallet.json, 'config', 'id')).toBe('sw-express-1');
+
+      const listedSmartWallets = await fetchJson(
+        `${srv.baseUrl}/console/smart-wallets?environmentId=${encodeURIComponent('prod')}`,
+        { method: 'GET' },
+      );
+      expect(listedSmartWallets.status).toBe(200);
+      const listedSmartWalletRows: unknown[] = Array.isArray(listedSmartWallets.json?.configs)
+        ? (listedSmartWallets.json?.configs as unknown[])
+        : [];
+      expect(listedSmartWalletRows.length).toBeGreaterThanOrEqual(1);
+
+      const updatedAppSettings = await fetchJson(`${srv.baseUrl}/console/settings/app`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          environmentId: 'prod',
+          allowedOrigins: ['https://dashboard.example.com'],
+        }),
+      });
+      expect(updatedAppSettings.status).toBe(200);
+      expect(getPath(updatedAppSettings.json, 'appSettings', 'environmentId')).toBe('prod');
+      expect(getPath(updatedAppSettings.json, 'appSettings', 'allowedOrigins', 0)).toBe(
+        'https://dashboard.example.com',
+      );
+
+      const fetchedSecuritySettings = await fetchJson(
+        `${srv.baseUrl}/console/settings/security?environmentId=${encodeURIComponent('prod')}`,
+        { method: 'GET' },
+      );
+      expect(fetchedSecuritySettings.status).toBe(200);
+      expect(getPath(fetchedSecuritySettings.json, 'securitySettings', 'environmentId')).toBe('prod');
+
+      const createdKeyExport = await fetchJson(`${srv.baseUrl}/console/key-exports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'ke-express-1',
+          environmentId: 'prod',
+          reason: 'Emergency rotation',
+          requiredApprovals: 1,
+        }),
+      });
+      expect(createdKeyExport.status).toBe(201);
+      expect(getPath(createdKeyExport.json, 'keyExport', 'status')).toBe('PENDING_APPROVAL');
+
+      const approvedKeyExport = await fetchJson(
+        `${srv.baseUrl}/console/key-exports/ke-express-1/approve`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: 'Approved with MFA',
+            mfaVerified: true,
+          }),
+        },
+      );
+      expect(approvedKeyExport.status).toBe(200);
+      expect(getPath(approvedKeyExport.json, 'keyExport', 'status')).toBe('APPROVED');
+
+      const publishedSnapshot = await fetchJson(
+        `${srv.baseUrl}/console/runtime-snapshots/publish-current`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            environmentId: 'prod',
+          }),
+        },
+      );
+      expect(publishedSnapshot.status).toBe(201);
+      expect(Number(getPath(publishedSnapshot.json, 'snapshot', 'version') || 0)).toBe(1);
+      expect(String(getPath(publishedSnapshot.json, 'snapshot', 'checksum') || '')).toContain(
+        'fnv1a32:',
+      );
+      expect(getPath(publishedSnapshot.json, 'snapshot', 'payload', 'settings', 'status')).toBe(
+        'resolved',
+      );
+      expect(getPath(publishedSnapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'status')).toBe(
+        'resolved',
+      );
+      expect(getPath(publishedSnapshot.json, 'snapshot', 'payload', 'smartWallets', 'status')).toBe(
+        'resolved',
+      );
+      expect(
+        getPath(
+          publishedSnapshot.json,
+          'snapshot',
+          'payload',
+          'settings',
+          'appSettings',
+          'allowedOrigins',
+          0,
+        ),
+      ).toBe('https://dashboard.example.com');
+
+      const latestSnapshot = await fetchJson(
+        `${srv.baseUrl}/console/runtime-snapshots/latest?environmentId=${encodeURIComponent('prod')}`,
+        { method: 'GET' },
+      );
+      expect(latestSnapshot.status).toBe(200);
+      expect(getPath(latestSnapshot.json, 'snapshot', 'environmentId')).toBe('prod');
+      expect(Number(getPath(latestSnapshot.json, 'snapshot', 'version') || 0)).toBe(1);
+
+      const listedSnapshots = await fetchJson(
+        `${srv.baseUrl}/console/runtime-snapshots?environmentId=${encodeURIComponent('prod')}&limit=5`,
+        { method: 'GET' },
+      );
+      expect(listedSnapshots.status).toBe(200);
+      const snapshotRows = Array.isArray(listedSnapshots.json?.snapshots)
+        ? listedSnapshots.json?.snapshots
+        : [];
+      expect(snapshotRows.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('new console endpoint mutations enforce role gates', async () => {
+    const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    const smartWallets = createInMemoryConsoleSmartWalletService();
+    const settings = createInMemoryConsoleSettingsService();
+    const keyExports = createInMemoryConsoleKeyExportService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['developer'],
+        'org-scaffold-express-rbac-1',
+        'user-scaffold-express-rbac-1',
+      ),
+      gasSponsorship,
+      smartWallets,
+      settings,
+      keyExports,
+      runtimeSnapshots,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const gasCreate = await fetchJson(`${srv.baseUrl}/console/gas-sponsorship`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scopeType: 'ORG',
+        }),
+      });
+      expect(gasCreate.status).toBe(403);
+      expect(gasCreate.json?.code).toBe('forbidden');
+
+      const appPatch = await fetchJson(`${srv.baseUrl}/console/settings/app`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          environmentId: 'prod',
+          allowedOrigins: ['https://dashboard.example.com'],
+        }),
+      });
+      expect(appPatch.status).toBe(403);
+      expect(appPatch.json?.code).toBe('forbidden');
+
+      const approve = await fetchJson(
+        `${srv.baseUrl}/console/key-exports/ke-express-rbac-1/approve`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: 'trying as non-admin',
+            mfaVerified: true,
+          }),
+        },
+      );
+      expect(approve.status).toBe(403);
+      expect(approve.json?.code).toBe('forbidden');
+
+      const publishSnapshot = await fetchJson(`${srv.baseUrl}/console/runtime-snapshots/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          environmentId: 'prod',
+          payload: {
+            policy: {},
+            settings: {},
+            gasSponsorship: {},
+            smartWallets: {},
+          },
+        }),
+      });
+      expect(publishSnapshot.status).toBe(403);
+      expect(publishSnapshot.json?.code).toBe('forbidden');
+
+      const publishCurrentSnapshot = await fetchJson(
+        `${srv.baseUrl}/console/runtime-snapshots/publish-current`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            environmentId: 'prod',
+          }),
+        },
+      );
+      expect(publishCurrentSnapshot.status).toBe(403);
+      expect(publishCurrentSnapshot.json?.code).toBe('forbidden');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('new console endpoint validation errors return typed error codes', async () => {
+    const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    const smartWallets = createInMemoryConsoleSmartWalletService();
+    const settings = createInMemoryConsoleSettingsService();
+    const keyExports = createInMemoryConsoleKeyExportService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-scaffold-express-validation-1',
+        'user-scaffold-express-validation-1',
+      ),
+      gasSponsorship,
+      smartWallets,
+      settings,
+      keyExports,
+      runtimeSnapshots,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const invalidGasScope = await fetchJson(`${srv.baseUrl}/console/gas-sponsorship`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scopeType: 'ENVIRONMENT',
+        }),
+      });
+      expect(invalidGasScope.status).toBe(400);
+      expect(invalidGasScope.json?.code).toBe('invalid_scope');
+
+      const invalidAppPatch = await fetchJson(`${srv.baseUrl}/console/settings/app`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          allowedOrigins: ['https://dashboard.example.com'],
+        }),
+      });
+      expect(invalidAppPatch.status).toBe(400);
+      expect(invalidAppPatch.json?.code).toBe('invalid_body');
+
+      const invalidStatusQuery = await fetchJson(
+        `${srv.baseUrl}/console/key-exports?status=NOT_A_STATUS`,
+        {
+          method: 'GET',
+        },
+      );
+      expect(invalidStatusQuery.status).toBe(400);
+      expect(invalidStatusQuery.json?.code).toBe('invalid_query');
+
+      const createdKeyExport = await fetchJson(`${srv.baseUrl}/console/key-exports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'ke-express-validation-1',
+          environmentId: 'prod',
+          reason: 'Validation flow',
+          requiredApprovals: 1,
+        }),
+      });
+      expect(createdKeyExport.status).toBe(201);
+
+      const approveWithoutMfa = await fetchJson(
+        `${srv.baseUrl}/console/key-exports/ke-express-validation-1/approve`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: 'Missing MFA check',
+            mfaVerified: false,
+          }),
+        },
+      );
+      expect(approveWithoutMfa.status).toBe(400);
+      expect(approveWithoutMfa.json?.code).toBe('mfa_required');
+
+      const invalidSnapshotQuery = await fetchJson(
+        `${srv.baseUrl}/console/runtime-snapshots?environmentId=${encodeURIComponent('prod')}&limit=999`,
+        { method: 'GET' },
+      );
+      expect(invalidSnapshotQuery.status).toBe(400);
+      expect(invalidSnapshotQuery.json?.code).toBe('invalid_query');
+
+      const invalidSnapshotBody = await fetchJson(`${srv.baseUrl}/console/runtime-snapshots/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          environmentId: 'prod',
+          payload: {
+            policy: {},
+          },
+        }),
+      });
+      expect(invalidSnapshotBody.status).toBe(400);
+      expect(invalidSnapshotBody.json?.code).toBe('invalid_body');
+
+      const invalidPublishCurrentBody = await fetchJson(
+        `${srv.baseUrl}/console/runtime-snapshots/publish-current`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            projectId: 'project-only',
+          }),
+        },
+      );
+      expect(invalidPublishCurrentBody.status).toBe(400);
+      expect(invalidPublishCurrentBody.json?.code).toBe('invalid_body');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('new console endpoints enforce org isolation', async () => {
+    const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    const smartWallets = createInMemoryConsoleSmartWalletService();
+    const settings = createInMemoryConsoleSettingsService();
+    const keyExports = createInMemoryConsoleKeyExportService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const ownerOrgId = 'org-scaffold-express-isolation-owner';
+    const attackerOrgId = 'org-scaffold-express-isolation-attacker';
+    const ownerEnvironmentId = 'env-isolation-owner';
+
+    const ownerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-scaffold-express-isolation-user'),
+      gasSponsorship,
+      smartWallets,
+      settings,
+      keyExports,
+      runtimeSnapshots,
+    });
+    const ownerServer = await startExpressRouter(ownerRouter);
+    try {
+      const createGas = await fetchJson(`${ownerServer.baseUrl}/console/gas-sponsorship`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'gs-express-isolation-1',
+          scopeType: 'ENVIRONMENT',
+          environmentId: ownerEnvironmentId,
+        }),
+      });
+      expect(createGas.status).toBe(201);
+
+      const createSmartWallet = await fetchJson(`${ownerServer.baseUrl}/console/smart-wallets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'sw-express-isolation-1',
+          scopeType: 'ENVIRONMENT',
+          environmentId: ownerEnvironmentId,
+          mode: 'REQUIRED',
+          accountType: 'SMART_ACCOUNT',
+        }),
+      });
+      expect(createSmartWallet.status).toBe(201);
+
+      const patchAppSettings = await fetchJson(`${ownerServer.baseUrl}/console/settings/app`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          environmentId: ownerEnvironmentId,
+          allowedOrigins: ['https://owner.example.com'],
+        }),
+      });
+      expect(patchAppSettings.status).toBe(200);
+
+      const patchSecuritySettings = await fetchJson(
+        `${ownerServer.baseUrl}/console/settings/security`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            environmentId: ownerEnvironmentId,
+            requireMfaForRiskyChanges: false,
+          }),
+        },
+      );
+      expect(patchSecuritySettings.status).toBe(200);
+
+      const createKeyExport = await fetchJson(`${ownerServer.baseUrl}/console/key-exports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'ke-express-isolation-1',
+          environmentId: ownerEnvironmentId,
+          reason: 'Owner export request',
+          requiredApprovals: 1,
+        }),
+      });
+      expect(createKeyExport.status).toBe(201);
+
+      const publishSnapshot = await fetchJson(
+        `${ownerServer.baseUrl}/console/runtime-snapshots/publish-current`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            environmentId: ownerEnvironmentId,
+          }),
+        },
+      );
+      expect(publishSnapshot.status).toBe(201);
+    } finally {
+      await ownerServer.close();
+    }
+
+    const attackerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        attackerOrgId,
+        'attacker-scaffold-express-isolation-user',
+      ),
+      gasSponsorship,
+      smartWallets,
+      settings,
+      keyExports,
+      runtimeSnapshots,
+    });
+    const attackerServer = await startExpressRouter(attackerRouter);
+    try {
+      const gasList = await fetchJson(
+        `${attackerServer.baseUrl}/console/gas-sponsorship?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+        { method: 'GET' },
+      );
+      expect(gasList.status).toBe(200);
+      const attackerGasRows = Array.isArray(gasList.json?.configs) ? gasList.json?.configs : [];
+      expect(attackerGasRows.length).toBe(0);
+
+      const patchGas = await fetchJson(
+        `${attackerServer.baseUrl}/console/gas-sponsorship/gs-express-isolation-1`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: false }),
+        },
+      );
+      expect(patchGas.status).toBe(404);
+      expect(patchGas.json?.code).toBe('gas_sponsorship_not_found');
+
+      const smartWalletList = await fetchJson(
+        `${attackerServer.baseUrl}/console/smart-wallets?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+        { method: 'GET' },
+      );
+      expect(smartWalletList.status).toBe(200);
+      const attackerSmartWalletRows = Array.isArray(smartWalletList.json?.configs)
+        ? smartWalletList.json?.configs
+        : [];
+      expect(attackerSmartWalletRows.length).toBe(0);
+
+      const patchSmartWallet = await fetchJson(
+        `${attackerServer.baseUrl}/console/smart-wallets/sw-express-isolation-1`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: false }),
+        },
+      );
+      expect(patchSmartWallet.status).toBe(404);
+      expect(patchSmartWallet.json?.code).toBe('smart_wallet_config_not_found');
+
+      const getAppSettings = await fetchJson(
+        `${attackerServer.baseUrl}/console/settings/app?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+        { method: 'GET' },
+      );
+      expect(getAppSettings.status).toBe(200);
+      expect(getPath(getAppSettings.json, 'appSettings', 'allowedOrigins', 0)).toBeUndefined();
+
+      const getSecuritySettings = await fetchJson(
+        `${attackerServer.baseUrl}/console/settings/security?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+        { method: 'GET' },
+      );
+      expect(getSecuritySettings.status).toBe(200);
+      expect(getPath(getSecuritySettings.json, 'securitySettings', 'requireMfaForRiskyChanges')).toBe(
+        true,
+      );
+
+      const keyExportsList = await fetchJson(
+        `${attackerServer.baseUrl}/console/key-exports?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+        { method: 'GET' },
+      );
+      expect(keyExportsList.status).toBe(200);
+      const attackerKeyExportRows = Array.isArray(keyExportsList.json?.exports)
+        ? keyExportsList.json?.exports
+        : [];
+      expect(attackerKeyExportRows.length).toBe(0);
+
+      const approveKeyExport = await fetchJson(
+        `${attackerServer.baseUrl}/console/key-exports/ke-express-isolation-1/approve`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: 'attacker approve attempt',
+            mfaVerified: true,
+          }),
+        },
+      );
+      expect(approveKeyExport.status).toBe(404);
+      expect(approveKeyExport.json?.code).toBe('key_export_not_found');
+
+      const attackerSnapshots = await fetchJson(
+        `${attackerServer.baseUrl}/console/runtime-snapshots?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+        { method: 'GET' },
+      );
+      expect(attackerSnapshots.status).toBe(200);
+      const attackerSnapshotRows = Array.isArray(attackerSnapshots.json?.snapshots)
+        ? attackerSnapshots.json?.snapshots
+        : [];
+      expect(attackerSnapshotRows.length).toBe(0);
+
+      const attackerLatestSnapshot = await fetchJson(
+        `${attackerServer.baseUrl}/console/runtime-snapshots/latest?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+        { method: 'GET' },
+      );
+      expect(attackerLatestSnapshot.status).toBe(200);
+      expect(attackerLatestSnapshot.json?.snapshot).toBeNull();
+    } finally {
+      await attackerServer.close();
+    }
+  });
+
   test('wallet routes support list/search/detail', async () => {
     const wallets = createInMemoryConsoleWalletService();
     const router = createConsoleRouter({
@@ -447,16 +1082,16 @@ test.describe('console router (express)', () => {
       const coverage = await fetchJson(`${srv.baseUrl}/console/policy/coverage`, { method: 'GET' });
       expect(coverage.status).toBe(200);
       expect(Number(getPath(coverage.json, 'coverage', 'totals', 'walletCount') || 0)).toBeGreaterThanOrEqual(1);
-      const policyRows = Array.isArray(getPath(coverage.json, 'coverage', 'policies'))
-        ? getPath(coverage.json, 'coverage', 'policies')
+      const policyRows: unknown[] = Array.isArray(getPath(coverage.json, 'coverage', 'policies'))
+        ? (getPath(coverage.json, 'coverage', 'policies') as unknown[])
         : [];
       expect(policyRows.length).toBeGreaterThanOrEqual(1);
 
       const readiness = await fetchJson(`${srv.baseUrl}/console/gas/readiness`, { method: 'GET' });
       expect(readiness.status).toBe(200);
       expect(Number(getPath(readiness.json, 'readiness', 'totals', 'walletCount') || 0)).toBeGreaterThanOrEqual(1);
-      const chainRows = Array.isArray(getPath(readiness.json, 'readiness', 'chains'))
-        ? getPath(readiness.json, 'readiness', 'chains')
+      const chainRows: unknown[] = Array.isArray(getPath(readiness.json, 'readiness', 'chains'))
+        ? (getPath(readiness.json, 'readiness', 'chains') as unknown[])
         : [];
       expect(chainRows.length).toBeGreaterThanOrEqual(1);
 
@@ -2363,6 +2998,582 @@ test.describe('console router (cloudflare)', () => {
     expect(res.json?.code).toBe('api_keys_not_configured');
   });
 
+  test('cloudflare new console endpoints return *_not_configured when services are not wired', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+
+    const gas = await callCf(handler, {
+      method: 'GET',
+      path: '/console/gas-sponsorship',
+    });
+    expect(gas.status).toBe(501);
+    expect(gas.json?.code).toBe('gas_sponsorship_not_configured');
+
+    const smartWallets = await callCf(handler, {
+      method: 'GET',
+      path: '/console/smart-wallets',
+    });
+    expect(smartWallets.status).toBe(501);
+    expect(smartWallets.json?.code).toBe('smart_wallets_not_configured');
+
+    const settings = await callCf(handler, {
+      method: 'GET',
+      path: '/console/settings/app?environmentId=env-test',
+    });
+    expect(settings.status).toBe(501);
+    expect(settings.json?.code).toBe('settings_not_configured');
+
+    const keyExports = await callCf(handler, {
+      method: 'GET',
+      path: '/console/key-exports',
+    });
+    expect(keyExports.status).toBe(501);
+    expect(keyExports.json?.code).toBe('key_exports_not_configured');
+
+    const runtimeSnapshots = await callCf(handler, {
+      method: 'GET',
+      path: '/console/runtime-snapshots?environmentId=env-test',
+    });
+    expect(runtimeSnapshots.status).toBe(501);
+    expect(runtimeSnapshots.json?.code).toBe('runtime_snapshots_not_configured');
+  });
+
+  test('cloudflare new console endpoints support scaffold CRUD flows', async () => {
+    const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    const smartWallets = createInMemoryConsoleSmartWalletService();
+    const settings = createInMemoryConsoleSettingsService();
+    const keyExports = createInMemoryConsoleKeyExportService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-scaffold-cf-1', 'user-scaffold-cf-1'),
+      gasSponsorship,
+      smartWallets,
+      settings,
+      keyExports,
+      runtimeSnapshots,
+    });
+
+    const createdGas = await callCf(handler, {
+      method: 'POST',
+      path: '/console/gas-sponsorship',
+      body: {
+        id: 'gs-cf-1',
+        scopeType: 'ENVIRONMENT',
+        environmentId: 'prod',
+        enabled: true,
+        chainBudgets: [
+          {
+            chain: 'Ethereum',
+            period: 'MONTHLY',
+            budgetMinor: 500000,
+            quotaTransactions: 2000,
+          },
+        ],
+      },
+    });
+    expect(createdGas.status).toBe(201);
+    expect(getPath(createdGas.json, 'config', 'id')).toBe('gs-cf-1');
+
+    const listedGas = await callCf(handler, {
+      method: 'GET',
+      path: '/console/gas-sponsorship?environmentId=prod',
+    });
+    expect(listedGas.status).toBe(200);
+    const listedGasRows: unknown[] = Array.isArray(listedGas.json?.configs)
+      ? (listedGas.json?.configs as unknown[])
+      : [];
+    expect(listedGasRows.length).toBeGreaterThanOrEqual(1);
+
+    const patchedGas = await callCf(handler, {
+      method: 'PATCH',
+      path: '/console/gas-sponsorship/gs-cf-1',
+      body: {
+        enabled: false,
+      },
+    });
+    expect(patchedGas.status).toBe(200);
+    expect(getPath(patchedGas.json, 'config', 'enabled')).toBe(false);
+
+    const createdSmartWallet = await callCf(handler, {
+      method: 'POST',
+      path: '/console/smart-wallets',
+      body: {
+        id: 'sw-cf-1',
+        scopeType: 'ENVIRONMENT',
+        environmentId: 'prod',
+        mode: 'REQUIRED',
+        accountType: 'SMART_ACCOUNT',
+      },
+    });
+    expect(createdSmartWallet.status).toBe(201);
+    expect(getPath(createdSmartWallet.json, 'config', 'id')).toBe('sw-cf-1');
+
+    const listedSmartWallets = await callCf(handler, {
+      method: 'GET',
+      path: '/console/smart-wallets?environmentId=prod',
+    });
+    expect(listedSmartWallets.status).toBe(200);
+    const listedSmartWalletRows: unknown[] = Array.isArray(listedSmartWallets.json?.configs)
+      ? (listedSmartWallets.json?.configs as unknown[])
+      : [];
+    expect(listedSmartWalletRows.length).toBeGreaterThanOrEqual(1);
+
+    const updatedAppSettings = await callCf(handler, {
+      method: 'PATCH',
+      path: '/console/settings/app',
+      body: {
+        environmentId: 'prod',
+        allowedOrigins: ['https://dashboard.example.com'],
+      },
+    });
+    expect(updatedAppSettings.status).toBe(200);
+    expect(getPath(updatedAppSettings.json, 'appSettings', 'environmentId')).toBe('prod');
+    expect(getPath(updatedAppSettings.json, 'appSettings', 'allowedOrigins', 0)).toBe(
+      'https://dashboard.example.com',
+    );
+
+    const fetchedSecuritySettings = await callCf(handler, {
+      method: 'GET',
+      path: '/console/settings/security?environmentId=prod',
+    });
+    expect(fetchedSecuritySettings.status).toBe(200);
+    expect(getPath(fetchedSecuritySettings.json, 'securitySettings', 'environmentId')).toBe('prod');
+
+    const createdKeyExport = await callCf(handler, {
+      method: 'POST',
+      path: '/console/key-exports',
+      body: {
+        id: 'ke-cf-1',
+        environmentId: 'prod',
+        reason: 'Emergency rotation',
+        requiredApprovals: 1,
+      },
+    });
+    expect(createdKeyExport.status).toBe(201);
+    expect(getPath(createdKeyExport.json, 'keyExport', 'status')).toBe('PENDING_APPROVAL');
+
+    const approvedKeyExport = await callCf(handler, {
+      method: 'POST',
+      path: '/console/key-exports/ke-cf-1/approve',
+      body: {
+        reason: 'Approved with MFA',
+        mfaVerified: true,
+      },
+    });
+    expect(approvedKeyExport.status).toBe(200);
+    expect(getPath(approvedKeyExport.json, 'keyExport', 'status')).toBe('APPROVED');
+
+    const publishedSnapshot = await callCf(handler, {
+      method: 'POST',
+      path: '/console/runtime-snapshots/publish-current',
+      body: {
+        environmentId: 'prod',
+      },
+    });
+    expect(publishedSnapshot.status).toBe(201);
+    expect(Number(getPath(publishedSnapshot.json, 'snapshot', 'version') || 0)).toBe(1);
+    expect(String(getPath(publishedSnapshot.json, 'snapshot', 'checksum') || '')).toContain(
+      'fnv1a32:',
+    );
+    expect(getPath(publishedSnapshot.json, 'snapshot', 'payload', 'settings', 'status')).toBe(
+      'resolved',
+    );
+    expect(getPath(publishedSnapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'status')).toBe(
+      'resolved',
+    );
+    expect(getPath(publishedSnapshot.json, 'snapshot', 'payload', 'smartWallets', 'status')).toBe(
+      'resolved',
+    );
+    expect(
+      getPath(
+        publishedSnapshot.json,
+        'snapshot',
+        'payload',
+        'settings',
+        'appSettings',
+        'allowedOrigins',
+        0,
+      ),
+    ).toBe('https://dashboard.example.com');
+
+    const latestSnapshot = await callCf(handler, {
+      method: 'GET',
+      path: '/console/runtime-snapshots/latest?environmentId=prod',
+    });
+    expect(latestSnapshot.status).toBe(200);
+    expect(getPath(latestSnapshot.json, 'snapshot', 'environmentId')).toBe('prod');
+    expect(Number(getPath(latestSnapshot.json, 'snapshot', 'version') || 0)).toBe(1);
+
+    const listedSnapshots = await callCf(handler, {
+      method: 'GET',
+      path: '/console/runtime-snapshots?environmentId=prod&limit=5',
+    });
+    expect(listedSnapshots.status).toBe(200);
+    const snapshotRows = Array.isArray(listedSnapshots.json?.snapshots)
+      ? listedSnapshots.json?.snapshots
+      : [];
+    expect(snapshotRows.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('cloudflare new console endpoint mutations enforce role gates', async () => {
+    const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    const smartWallets = createInMemoryConsoleSmartWalletService();
+    const settings = createInMemoryConsoleSettingsService();
+    const keyExports = createInMemoryConsoleKeyExportService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['developer'],
+        'org-scaffold-cf-rbac-1',
+        'user-scaffold-cf-rbac-1',
+      ),
+      gasSponsorship,
+      smartWallets,
+      settings,
+      keyExports,
+      runtimeSnapshots,
+    });
+
+    const gasCreate = await callCf(handler, {
+      method: 'POST',
+      path: '/console/gas-sponsorship',
+      body: {
+        scopeType: 'ORG',
+      },
+    });
+    expect(gasCreate.status).toBe(403);
+    expect(gasCreate.json?.code).toBe('forbidden');
+
+    const appPatch = await callCf(handler, {
+      method: 'PATCH',
+      path: '/console/settings/app',
+      body: {
+        environmentId: 'prod',
+        allowedOrigins: ['https://dashboard.example.com'],
+      },
+    });
+    expect(appPatch.status).toBe(403);
+    expect(appPatch.json?.code).toBe('forbidden');
+
+    const approve = await callCf(handler, {
+      method: 'POST',
+      path: '/console/key-exports/ke-cf-rbac-1/approve',
+      body: {
+        reason: 'trying as non-admin',
+        mfaVerified: true,
+      },
+    });
+    expect(approve.status).toBe(403);
+    expect(approve.json?.code).toBe('forbidden');
+
+    const publishSnapshot = await callCf(handler, {
+      method: 'POST',
+      path: '/console/runtime-snapshots/publish',
+      body: {
+        environmentId: 'prod',
+        payload: {
+          policy: {},
+          settings: {},
+          gasSponsorship: {},
+          smartWallets: {},
+        },
+      },
+    });
+    expect(publishSnapshot.status).toBe(403);
+    expect(publishSnapshot.json?.code).toBe('forbidden');
+
+    const publishCurrentSnapshot = await callCf(handler, {
+      method: 'POST',
+      path: '/console/runtime-snapshots/publish-current',
+      body: {
+        environmentId: 'prod',
+      },
+    });
+    expect(publishCurrentSnapshot.status).toBe(403);
+    expect(publishCurrentSnapshot.json?.code).toBe('forbidden');
+  });
+
+  test('cloudflare new console endpoint validation errors return typed error codes', async () => {
+    const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    const smartWallets = createInMemoryConsoleSmartWalletService();
+    const settings = createInMemoryConsoleSettingsService();
+    const keyExports = createInMemoryConsoleKeyExportService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-scaffold-cf-validation-1',
+        'user-scaffold-cf-validation-1',
+      ),
+      gasSponsorship,
+      smartWallets,
+      settings,
+      keyExports,
+      runtimeSnapshots,
+    });
+
+    const invalidGasScope = await callCf(handler, {
+      method: 'POST',
+      path: '/console/gas-sponsorship',
+      body: {
+        scopeType: 'ENVIRONMENT',
+      },
+    });
+    expect(invalidGasScope.status).toBe(400);
+    expect(invalidGasScope.json?.code).toBe('invalid_scope');
+
+    const invalidAppPatch = await callCf(handler, {
+      method: 'PATCH',
+      path: '/console/settings/app',
+      body: {
+        allowedOrigins: ['https://dashboard.example.com'],
+      },
+    });
+    expect(invalidAppPatch.status).toBe(400);
+    expect(invalidAppPatch.json?.code).toBe('invalid_body');
+
+    const invalidStatusQuery = await callCf(handler, {
+      method: 'GET',
+      path: '/console/key-exports?status=NOT_A_STATUS',
+    });
+    expect(invalidStatusQuery.status).toBe(400);
+    expect(invalidStatusQuery.json?.code).toBe('invalid_query');
+
+    const createdKeyExport = await callCf(handler, {
+      method: 'POST',
+      path: '/console/key-exports',
+      body: {
+        id: 'ke-cf-validation-1',
+        environmentId: 'prod',
+        reason: 'Validation flow',
+        requiredApprovals: 1,
+      },
+    });
+    expect(createdKeyExport.status).toBe(201);
+
+    const approveWithoutMfa = await callCf(handler, {
+      method: 'POST',
+      path: '/console/key-exports/ke-cf-validation-1/approve',
+      body: {
+        reason: 'Missing MFA check',
+        mfaVerified: false,
+      },
+    });
+    expect(approveWithoutMfa.status).toBe(400);
+    expect(approveWithoutMfa.json?.code).toBe('mfa_required');
+
+    const invalidSnapshotQuery = await callCf(handler, {
+      method: 'GET',
+      path: '/console/runtime-snapshots?environmentId=prod&limit=999',
+    });
+    expect(invalidSnapshotQuery.status).toBe(400);
+    expect(invalidSnapshotQuery.json?.code).toBe('invalid_query');
+
+    const invalidSnapshotBody = await callCf(handler, {
+      method: 'POST',
+      path: '/console/runtime-snapshots/publish',
+      body: {
+        environmentId: 'prod',
+        payload: {
+          policy: {},
+        },
+      },
+    });
+    expect(invalidSnapshotBody.status).toBe(400);
+    expect(invalidSnapshotBody.json?.code).toBe('invalid_body');
+
+    const invalidPublishCurrentBody = await callCf(handler, {
+      method: 'POST',
+      path: '/console/runtime-snapshots/publish-current',
+      body: {
+        projectId: 'project-only',
+      },
+    });
+    expect(invalidPublishCurrentBody.status).toBe(400);
+    expect(invalidPublishCurrentBody.json?.code).toBe('invalid_body');
+  });
+
+  test('cloudflare new console endpoints enforce org isolation', async () => {
+    const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    const smartWallets = createInMemoryConsoleSmartWalletService();
+    const settings = createInMemoryConsoleSettingsService();
+    const keyExports = createInMemoryConsoleKeyExportService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const ownerOrgId = 'org-scaffold-cf-isolation-owner';
+    const attackerOrgId = 'org-scaffold-cf-isolation-attacker';
+    const ownerEnvironmentId = 'env-isolation-owner-cf';
+
+    const ownerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-scaffold-cf-isolation-user'),
+      gasSponsorship,
+      smartWallets,
+      settings,
+      keyExports,
+      runtimeSnapshots,
+    });
+    const createGas = await callCf(ownerHandler, {
+      method: 'POST',
+      path: '/console/gas-sponsorship',
+      body: {
+        id: 'gs-cf-isolation-1',
+        scopeType: 'ENVIRONMENT',
+        environmentId: ownerEnvironmentId,
+      },
+    });
+    expect(createGas.status).toBe(201);
+
+    const createSmartWallet = await callCf(ownerHandler, {
+      method: 'POST',
+      path: '/console/smart-wallets',
+      body: {
+        id: 'sw-cf-isolation-1',
+        scopeType: 'ENVIRONMENT',
+        environmentId: ownerEnvironmentId,
+        mode: 'REQUIRED',
+        accountType: 'SMART_ACCOUNT',
+      },
+    });
+    expect(createSmartWallet.status).toBe(201);
+
+    const patchAppSettings = await callCf(ownerHandler, {
+      method: 'PATCH',
+      path: '/console/settings/app',
+      body: {
+        environmentId: ownerEnvironmentId,
+        allowedOrigins: ['https://owner-cf.example.com'],
+      },
+    });
+    expect(patchAppSettings.status).toBe(200);
+
+    const patchSecuritySettings = await callCf(ownerHandler, {
+      method: 'PATCH',
+      path: '/console/settings/security',
+      body: {
+        environmentId: ownerEnvironmentId,
+        requireMfaForRiskyChanges: false,
+      },
+    });
+    expect(patchSecuritySettings.status).toBe(200);
+
+    const createKeyExport = await callCf(ownerHandler, {
+      method: 'POST',
+      path: '/console/key-exports',
+      body: {
+        id: 'ke-cf-isolation-1',
+        environmentId: ownerEnvironmentId,
+        reason: 'Owner export request',
+        requiredApprovals: 1,
+      },
+    });
+    expect(createKeyExport.status).toBe(201);
+
+    const publishSnapshot = await callCf(ownerHandler, {
+      method: 'POST',
+      path: '/console/runtime-snapshots/publish-current',
+      body: {
+        environmentId: ownerEnvironmentId,
+      },
+    });
+    expect(publishSnapshot.status).toBe(201);
+
+    const attackerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-scaffold-cf-isolation-user'),
+      gasSponsorship,
+      smartWallets,
+      settings,
+      keyExports,
+      runtimeSnapshots,
+    });
+    const gasList = await callCf(attackerHandler, {
+      method: 'GET',
+      path: `/console/gas-sponsorship?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+    });
+    expect(gasList.status).toBe(200);
+    const attackerGasRows = Array.isArray(gasList.json?.configs) ? gasList.json?.configs : [];
+    expect(attackerGasRows.length).toBe(0);
+
+    const patchGas = await callCf(attackerHandler, {
+      method: 'PATCH',
+      path: '/console/gas-sponsorship/gs-cf-isolation-1',
+      body: { enabled: false },
+    });
+    expect(patchGas.status).toBe(404);
+    expect(patchGas.json?.code).toBe('gas_sponsorship_not_found');
+
+    const smartWalletList = await callCf(attackerHandler, {
+      method: 'GET',
+      path: `/console/smart-wallets?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+    });
+    expect(smartWalletList.status).toBe(200);
+    const attackerSmartWalletRows = Array.isArray(smartWalletList.json?.configs)
+      ? smartWalletList.json?.configs
+      : [];
+    expect(attackerSmartWalletRows.length).toBe(0);
+
+    const patchSmartWallet = await callCf(attackerHandler, {
+      method: 'PATCH',
+      path: '/console/smart-wallets/sw-cf-isolation-1',
+      body: { enabled: false },
+    });
+    expect(patchSmartWallet.status).toBe(404);
+    expect(patchSmartWallet.json?.code).toBe('smart_wallet_config_not_found');
+
+    const getAppSettings = await callCf(attackerHandler, {
+      method: 'GET',
+      path: `/console/settings/app?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+    });
+    expect(getAppSettings.status).toBe(200);
+    expect(getPath(getAppSettings.json, 'appSettings', 'allowedOrigins', 0)).toBeUndefined();
+
+    const getSecuritySettings = await callCf(attackerHandler, {
+      method: 'GET',
+      path: `/console/settings/security?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+    });
+    expect(getSecuritySettings.status).toBe(200);
+    expect(getPath(getSecuritySettings.json, 'securitySettings', 'requireMfaForRiskyChanges')).toBe(
+      true,
+    );
+
+    const keyExportsList = await callCf(attackerHandler, {
+      method: 'GET',
+      path: `/console/key-exports?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+    });
+    expect(keyExportsList.status).toBe(200);
+    const attackerKeyExportRows = Array.isArray(keyExportsList.json?.exports)
+      ? keyExportsList.json?.exports
+      : [];
+    expect(attackerKeyExportRows.length).toBe(0);
+
+    const approveKeyExport = await callCf(attackerHandler, {
+      method: 'POST',
+      path: '/console/key-exports/ke-cf-isolation-1/approve',
+      body: {
+        reason: 'attacker approve attempt',
+        mfaVerified: true,
+      },
+    });
+    expect(approveKeyExport.status).toBe(404);
+    expect(approveKeyExport.json?.code).toBe('key_export_not_found');
+
+    const attackerSnapshots = await callCf(attackerHandler, {
+      method: 'GET',
+      path: `/console/runtime-snapshots?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+    });
+    expect(attackerSnapshots.status).toBe(200);
+    const attackerSnapshotRows = Array.isArray(attackerSnapshots.json?.snapshots)
+      ? attackerSnapshots.json?.snapshots
+      : [];
+    expect(attackerSnapshotRows.length).toBe(0);
+
+    const attackerLatestSnapshot = await callCf(attackerHandler, {
+      method: 'GET',
+      path: `/console/runtime-snapshots/latest?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+    });
+    expect(attackerLatestSnapshot.status).toBe(200);
+    expect(attackerLatestSnapshot.json?.snapshot).toBeNull();
+  });
+
   test('cloudflare wallet routes support list/search/detail', async () => {
     const wallets = createInMemoryConsoleWalletService();
     const handler = createCloudflareConsoleRouter({
@@ -2444,8 +3655,8 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(coverage.status).toBe(200);
     expect(Number(getPath(coverage.json, 'coverage', 'totals', 'walletCount') || 0)).toBeGreaterThanOrEqual(1);
-    const policyRows = Array.isArray(getPath(coverage.json, 'coverage', 'policies'))
-      ? getPath(coverage.json, 'coverage', 'policies')
+    const policyRows: unknown[] = Array.isArray(getPath(coverage.json, 'coverage', 'policies'))
+      ? (getPath(coverage.json, 'coverage', 'policies') as unknown[])
       : [];
     expect(policyRows.length).toBeGreaterThanOrEqual(1);
 
@@ -2455,8 +3666,8 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(readiness.status).toBe(200);
     expect(Number(getPath(readiness.json, 'readiness', 'totals', 'walletCount') || 0)).toBeGreaterThanOrEqual(1);
-    const chainRows = Array.isArray(getPath(readiness.json, 'readiness', 'chains'))
-      ? getPath(readiness.json, 'readiness', 'chains')
+    const chainRows: unknown[] = Array.isArray(getPath(readiness.json, 'readiness', 'chains'))
+      ? (getPath(readiness.json, 'readiness', 'chains') as unknown[])
       : [];
     expect(chainRows.length).toBeGreaterThanOrEqual(1);
 

@@ -695,6 +695,7 @@ export async function registerPasskeyInternal(
           jwt: edSessionJwt,
           policyTtlMs: thresholdEd25519SessionPolicyForRegistration.ttlMs,
           policyRemainingUses: thresholdEd25519SessionPolicyForRegistration.remainingUses,
+          source: 'registration',
         });
       }
 

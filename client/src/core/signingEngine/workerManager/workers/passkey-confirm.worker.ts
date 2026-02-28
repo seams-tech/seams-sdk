@@ -721,6 +721,39 @@ function dispensePrfFirstEntry(sessionId: string, uses: number): OkDispenseResul
   };
 }
 
+function transferPrfFirstEntry(args: {
+  fromSessionId: unknown;
+  toSessionId: unknown;
+}): OkResult | ErrResult {
+  const fromSessionId = normalizeOptionalTrimmedString(args.fromSessionId);
+  const toSessionId = normalizeOptionalTrimmedString(args.toSessionId);
+  if (!fromSessionId || !toSessionId) {
+    return { ok: false, code: 'invalid_args', message: 'Missing fromSessionId or toSessionId' };
+  }
+  if (fromSessionId === toSessionId) {
+    return peekPrfFirstEntry(toSessionId);
+  }
+
+  const sourcePeek = peekPrfFirstEntry(fromSessionId);
+  if (!sourcePeek.ok) return sourcePeek;
+  const sourceEntry = prfFirstSessionCache.get(fromSessionId);
+  if (!sourceEntry) {
+    return { ok: false, code: 'not_found', message: 'PRF.first not cached for threshold session' };
+  }
+
+  prfFirstSessionCache.set(toSessionId, {
+    prfFirstB64u: sourceEntry.prfFirstB64u,
+    remainingUses: sourceEntry.remainingUses,
+    expiresAtMs: sourceEntry.expiresAtMs,
+  });
+  prfFirstSessionCache.delete(fromSessionId);
+  return {
+    ok: true,
+    remainingUses: sourceEntry.remainingUses,
+    expiresAtMs: sourceEntry.expiresAtMs,
+  };
+}
+
 async function runPrfSessionSealAndPersist(args: {
   sessionId: string;
   transport: PrfSessionSealTransport;
@@ -746,8 +779,8 @@ async function runPrfSessionSealAndPersist(args: {
 
   try {
     const runtime = await getShamir3PassRuntime();
-    const clientKeypair = runtime.generateClientKeypair({ shamirPrimeB64u });
-    const clientEncryptedCiphertext = runtime.addClientSeal({
+    const clientKeypair = await runtime.generateClientKeypair({ shamirPrimeB64u });
+    const clientEncryptedCiphertext = await runtime.addClientSeal({
       ciphertextB64u: entry.prfFirstB64u,
       exponentB64u: clientKeypair.clientEncryptExponentB64u,
       shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
@@ -762,7 +795,7 @@ async function runPrfSessionSealAndPersist(args: {
     });
     if (!applied.ok) return applied;
 
-    const sealedPrfFirstB64u = runtime.removeClientSeal({
+    const sealedPrfFirstB64u = await runtime.removeClientSeal({
       ciphertextB64u: applied.ciphertext,
       exponentB64u: clientKeypair.clientDecryptExponentB64u,
       shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
@@ -834,8 +867,8 @@ async function runPrfSessionRehydrate(args: {
 
   try {
     const runtime = await getShamir3PassRuntime();
-    const clientKeypair = runtime.generateClientKeypair({ shamirPrimeB64u });
-    const clientEncryptedCiphertext = runtime.addClientSeal({
+    const clientKeypair = await runtime.generateClientKeypair({ shamirPrimeB64u });
+    const clientEncryptedCiphertext = await runtime.addClientSeal({
       ciphertextB64u: sealedPrfFirstB64u,
       exponentB64u: clientKeypair.clientEncryptExponentB64u,
       shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
@@ -850,7 +883,7 @@ async function runPrfSessionRehydrate(args: {
     });
     if (!removed.ok) return removed;
 
-    const prfFirstB64u = runtime.removeClientSeal({
+    const prfFirstB64u = await runtime.removeClientSeal({
       ciphertextB64u: removed.ciphertext,
       exponentB64u: clientKeypair.clientDecryptExponentB64u,
       shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
@@ -1023,6 +1056,17 @@ self.onmessage = (event: MessageEvent) => {
     postUserConfirmWorkerResponse(id, {
       success: true,
       data: dispensePrfFirstEntry(sessionId, uses),
+    });
+    return;
+  }
+
+  if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_TRANSFER') {
+    const payload = asRecord(incoming.payload);
+    const fromSessionId = normalizeOptionalTrimmedString(payload?.fromSessionId);
+    const toSessionId = normalizeOptionalTrimmedString(payload?.toSessionId);
+    postUserConfirmWorkerResponse(id, {
+      success: true,
+      data: transferPrfFirstEntry({ fromSessionId, toSessionId }),
     });
     return;
   }

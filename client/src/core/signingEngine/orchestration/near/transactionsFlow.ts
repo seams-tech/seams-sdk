@@ -236,7 +236,7 @@ export async function signTransactionsWithActions({
   // Threshold signer: authorize with relayer and pass threshold config into the signer worker.
   if (signingContext.threshold) {
     if (!signingContext.threshold.thresholdSessionJwt) {
-      signingContext.threshold.thresholdSessionJwt = resolveThresholdSessionJwt({
+      signingContext.threshold.thresholdSessionJwt = await resolveThresholdSessionJwt({
         thresholdSessionCacheKey: signingContext.threshold.thresholdSessionCacheKey,
         thresholdSessionId: sessionId,
       });

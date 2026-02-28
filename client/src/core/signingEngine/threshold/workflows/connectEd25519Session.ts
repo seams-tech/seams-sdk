@@ -162,6 +162,7 @@ export async function connectEd25519Session(args: {
     jwt: minted.jwt,
     policyTtlMs: policy.ttlMs,
     policyRemainingUses: policy.remainingUses,
+    source: 'manual-connect',
   });
 
   return {

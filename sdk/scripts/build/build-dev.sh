@@ -139,6 +139,7 @@ print_step "Bundling workers with Bun (dev, no minify)..."
 
 if "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/near-signer.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/passkey-confirm.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
+  && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/shamir3pass.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/eth-signer.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/tempo-signer.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]'; then
   print_success "Bun worker bundling completed"
