@@ -30,6 +30,8 @@ export type WaitForEvmTransactionReceiptArgs = {
   signal?: AbortSignal;
   maxFeePerGasHint?: bigint;
   confirmations?: number;
+  senderHint?: `0x${string}`;
+  nonceHint?: bigint;
 };
 
 export interface EvmPublicClient {
@@ -350,6 +352,13 @@ export function createEvmPublicClient(args: {
     let underpricedSinceMs: number | null = null;
     let observedTxFrom: `0x${string}` | null = null;
     let observedTxNonce: bigint | null = null;
+    let nonceAdvancedStreak = 0;
+    if (toAddressOrNull(waitArgs.senderHint)) {
+      observedTxFrom = waitArgs.senderHint as `0x${string}`;
+    }
+    if (typeof waitArgs.nonceHint === 'bigint' && waitArgs.nonceHint >= 0n) {
+      observedTxNonce = waitArgs.nonceHint;
+    }
 
     while (Date.now() < deadline) {
       throwIfAborted(waitArgs.signal);
@@ -415,21 +424,101 @@ export function createEvmPublicClient(args: {
           timeoutMs: Math.min(requestTimeoutMs, remainingMs),
         }).catch(() => null);
         if (latestNonce !== null && latestNonce > observedTxNonce) {
-          const error = new Error(
-            `Transaction dropped or replaced: account nonce advanced past tx nonce (${observedTxNonce.toString()} -> ${latestNonce.toString()}).`,
-          ) as Error & {
-            code?: string;
-            reason?: 'dropped' | 'replaced';
-            txNonce?: string;
-            latestNonce?: string;
-            txFrom?: string;
-          };
-          error.code = 'tx_dropped_or_replaced';
-          error.reason = 'dropped';
-          error.txNonce = observedTxNonce.toString();
-          error.latestNonce = latestNonce.toString();
-          error.txFrom = observedTxFrom;
-          throw error;
+          const txLookupRemainingMs = Math.max(1, deadline - Date.now());
+          const tx = await getTransactionByHash({
+            txHash: waitArgs.txHash,
+            timeoutMs: Math.min(requestTimeoutMs, txLookupRemainingMs),
+          }).catch(() => null);
+          const txBlockNumberHex = toHexQuantityOrNull(tx?.blockNumber);
+          if (txBlockNumberHex) {
+            // Receipt propagation can lag transaction indexing on some RPCs.
+            // Keep polling when transaction is already mined by hash.
+            nonceAdvancedStreak = 0;
+          } else {
+            const txFrom = toAddressOrNull(tx?.from);
+            const txNonceHex = toHexQuantityOrNull(tx?.nonce);
+            const txMatchesObservedNonce = (() => {
+              if (!txFrom || !txNonceHex) return false;
+              if (txFrom.toLowerCase() !== observedTxFrom.toLowerCase()) return false;
+              try {
+                return parseRpcHexQuantity(txNonceHex, 'tx.nonce') === observedTxNonce;
+              } catch {
+                return false;
+              }
+            })();
+
+            if (txMatchesObservedNonce) {
+              // Original tx is still visible; do not classify as dropped/replaced yet.
+              nonceAdvancedStreak = 0;
+            } else {
+              const pendingNonceRemainingMs = Math.max(1, deadline - Date.now());
+              const pendingNonce = await getTransactionCount({
+                address: observedTxFrom,
+                blockTag: 'pending',
+                timeoutMs: Math.min(requestTimeoutMs, pendingNonceRemainingMs),
+              }).catch(() => null);
+              if (pendingNonce !== null && pendingNonce <= observedTxNonce) {
+                nonceAdvancedStreak = 0;
+              } else {
+                nonceAdvancedStreak += 1;
+              }
+            }
+          }
+
+          if (nonceAdvancedStreak >= 2) {
+            const finalReceiptRemainingMs = Math.max(1, deadline - Date.now());
+            const finalReceipt = await getTransactionReceipt({
+              txHash: waitArgs.txHash,
+              timeoutMs: Math.min(requestTimeoutMs, finalReceiptRemainingMs),
+            }).catch(() => null);
+            if (finalReceipt && typeof finalReceipt.blockNumber === 'string') {
+              const finalReceiptBlockHex = toHexQuantityOrNull(finalReceipt.blockNumber);
+              if (finalReceiptBlockHex) {
+                const finalReceiptBlock = parseRpcHexQuantity(
+                  finalReceiptBlockHex,
+                  'receipt.blockNumber',
+                );
+                if (confirmations <= 1) {
+                  return finalReceipt;
+                }
+                const latestBlockRemainingMs = Math.max(1, deadline - Date.now());
+                const latestBlock = await getBlockByNumber({
+                  blockTag: 'latest',
+                  timeoutMs: Math.min(requestTimeoutMs, latestBlockRemainingMs),
+                }).catch(() => null);
+                const latestBlockHex = toHexQuantityOrNull(latestBlock?.number);
+                if (latestBlockHex) {
+                  const latestBlockNumber = parseRpcHexQuantity(latestBlockHex, 'latest.number');
+                  if (latestBlockNumber >= finalReceiptBlock) {
+                    const minedDepth = latestBlockNumber - finalReceiptBlock + 1n;
+                    if (minedDepth >= BigInt(confirmations)) {
+                      return finalReceipt;
+                    }
+                  }
+                }
+                nonceAdvancedStreak = 0;
+              }
+            }
+            if (nonceAdvancedStreak >= 2) {
+              const error = new Error(
+                `Transaction dropped or replaced: account nonce advanced past tx nonce (${observedTxNonce.toString()} -> ${latestNonce.toString()}).`,
+              ) as Error & {
+                code?: string;
+                reason?: 'dropped' | 'replaced';
+                txNonce?: string;
+                latestNonce?: string;
+                txFrom?: string;
+              };
+              error.code = 'tx_dropped_or_replaced';
+              error.reason = 'dropped';
+              error.txNonce = observedTxNonce.toString();
+              error.latestNonce = latestNonce.toString();
+              error.txFrom = observedTxFrom;
+              throw error;
+            }
+          }
+        } else if (latestNonce !== null && latestNonce <= observedTxNonce) {
+          nonceAdvancedStreak = 0;
         }
       }
 

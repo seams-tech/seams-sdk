@@ -286,15 +286,19 @@ test.describe('evm public client waitForTransactionReceipt', () => {
         }
         if (method === 'eth_getTransactionByHash') {
           counters.txCalls += 1;
+          const result =
+            counters.txCalls === 1
+              ? {
+                  from: sender,
+                  nonce: '0x7',
+                  blockNumber: null,
+                }
+              : null;
           return new Response(
             JSON.stringify({
               jsonrpc: '2.0',
               id,
-              result: {
-                from: sender,
-                nonce: '0x7',
-                blockNumber: null,
-              },
+              result,
             }),
             { status: 200, headers: { 'content-type': 'application/json' } },
           );
@@ -354,5 +358,210 @@ test.describe('evm public client waitForTransactionReceipt', () => {
     expect(result.errorCode).toBe('tx_dropped_or_replaced');
     expect(result.errorReason).toBe('dropped');
     expect(result.errorMessage).toContain('dropped or replaced');
+  });
+
+  test('does not classify as dropped when tx is already mined but receipt indexing lags', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(async ({ importPath }) => {
+      const { createEvmPublicClient } = await import(importPath);
+      const counters = {
+        receiptCalls: 0,
+        txCalls: 0,
+        txCountCalls: 0,
+      };
+      const txHash = `0x${'aa'.repeat(32)}` as `0x${string}`;
+      const sender = `0x${'bb'.repeat(20)}` as `0x${string}`;
+
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (!url.includes('mock-rpc') || String(init?.method || 'GET').toUpperCase() !== 'POST') {
+          return await originalFetch(input, init);
+        }
+
+        let body: Record<string, unknown> = {};
+        try {
+          body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+        } catch {}
+        const id = body.id ?? Date.now();
+        const method = String(body.method || '');
+
+        if (method === 'eth_getTransactionReceipt') {
+          counters.receiptCalls += 1;
+          const mined = counters.receiptCalls >= 3;
+          return new Response(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              result: mined
+                ? {
+                    blockNumber: '0x21',
+                    status: '0x1',
+                    gasUsed: '0x5208',
+                  }
+                : null,
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (method === 'eth_getTransactionByHash') {
+          counters.txCalls += 1;
+          return new Response(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              result: {
+                from: sender,
+                nonce: '0x7',
+                blockNumber: '0x21',
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (method === 'eth_getTransactionCount') {
+          counters.txCountCalls += 1;
+          return new Response(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              result: '0x8',
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            error: { code: -32601, message: `unexpected method: ${method}` },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }) as typeof fetch;
+
+      let receiptBlockNumber = '';
+      let errorCode = '';
+      try {
+        const client = createEvmPublicClient({ rpcUrl: 'https://mock-rpc' });
+        const receipt = await client.waitForTransactionReceipt({
+          txHash,
+          senderHint: sender,
+          nonceHint: 7n,
+          timeoutMs: 5_000,
+          pollIntervalMs: 5,
+        });
+        receiptBlockNumber = String(receipt?.blockNumber || '');
+      } catch (error: unknown) {
+        errorCode = String((error as { code?: unknown })?.code || '');
+      } finally {
+        window.fetch = originalFetch;
+      }
+
+      return {
+        counters,
+        receiptBlockNumber,
+        errorCode,
+      };
+    }, { importPath: IMPORT_PATH });
+
+    expect(result.counters.receiptCalls).toBeGreaterThanOrEqual(3);
+    expect(result.counters.txCountCalls).toBeGreaterThan(0);
+    expect(result.counters.txCalls).toBeGreaterThan(0);
+    expect(result.errorCode).toBe('');
+    expect(result.receiptBlockNumber).toBe('0x21');
+  });
+
+  test('uses nonce hints to detect dropped tx when tx-by-hash is unavailable', async ({ page }) => {
+    const result = await page.evaluate(async ({ importPath }) => {
+      const { createEvmPublicClient } = await import(importPath);
+      const counters = {
+        receiptCalls: 0,
+        txCalls: 0,
+        txCountCalls: 0,
+      };
+      const txHash = `0x${'66'.repeat(32)}` as `0x${string}`;
+      const sender = `0x${'77'.repeat(20)}` as `0x${string}`;
+
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (!url.includes('mock-rpc') || String(init?.method || 'GET').toUpperCase() !== 'POST') {
+          return await originalFetch(input, init);
+        }
+
+        let body: Record<string, unknown> = {};
+        try {
+          body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+        } catch {}
+        const id = body.id ?? Date.now();
+        const method = String(body.method || '');
+
+        if (method === 'eth_getTransactionReceipt') {
+          counters.receiptCalls += 1;
+          return new Response(
+            JSON.stringify({ jsonrpc: '2.0', id, result: null }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (method === 'eth_getTransactionByHash') {
+          counters.txCalls += 1;
+          return new Response(
+            JSON.stringify({ jsonrpc: '2.0', id, result: null }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (method === 'eth_getTransactionCount') {
+          counters.txCountCalls += 1;
+          return new Response(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              result: '0x6',
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            error: { code: -32601, message: `unexpected method: ${method}` },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }) as typeof fetch;
+
+      let errorCode = '';
+      try {
+        const client = createEvmPublicClient({ rpcUrl: 'https://mock-rpc' });
+        await client.waitForTransactionReceipt({
+          txHash,
+          senderHint: sender,
+          nonceHint: 5n,
+          timeoutMs: 2_000,
+          pollIntervalMs: 5,
+        });
+      } catch (error: unknown) {
+        errorCode = String((error as { code?: unknown })?.code || '');
+      } finally {
+        window.fetch = originalFetch;
+      }
+
+      return {
+        counters,
+        errorCode,
+      };
+    }, { importPath: IMPORT_PATH });
+
+    expect(result.counters.receiptCalls).toBeGreaterThan(0);
+    expect(result.counters.txCountCalls).toBeGreaterThan(0);
+    expect(result.counters.txCalls).toBeGreaterThan(0);
+    expect(result.errorCode).toBe('tx_dropped_or_replaced');
   });
 });

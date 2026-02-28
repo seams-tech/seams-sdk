@@ -9,6 +9,7 @@ import {
   assertRawTxTypePrefix,
   buildDemoEip1559Request,
   compactHex,
+  extractManagedNonceHints,
   formatWeiToEth,
   isUserCancellationError,
   parseInsufficientFundsError,
@@ -51,7 +52,7 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
       toast.dismiss(toastId);
     } catch {}
     setEvmThresholdSignLoading(true);
-    toast.loading('Signing EVM transaction…', { id: toastId });
+    toast.loading('Signing EVM transaction…', { id: toastId, description: null });
     let signedResultForBroadcast: Awaited<ReturnType<typeof tatchi.tempo.signTempo>> | null = null;
     let broadcastAccepted = false;
     let broadcastTxHash: `0x${string}` | undefined;
@@ -64,13 +65,14 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
         request,
       });
       signedResultForBroadcast = signed;
+      const nonceHints = extractManagedNonceHints(signed);
 
       if (signed.kind !== 'eip1559') {
         throw new Error(`Unexpected signing result kind: ${signed.kind}`);
       }
       assertRawTxTypePrefix({ requestKind: request.kind, rawTxHex: signed.rawTxHex });
 
-      toast.loading('Dispatching EVM transaction…', { id: toastId });
+      toast.loading('Dispatching EVM transaction…', { id: toastId, description: null });
       const txHash = await sendRawEvmTransaction({
         rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
         rawTxHex: signed.rawTxHex,
@@ -83,7 +85,10 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
       });
       broadcastAccepted = true;
 
-      toast.loading('EVM transaction broadcasted, waiting for finalization…', { id: toastId });
+      toast.loading('EVM transaction broadcasted, waiting for finalization…', {
+        id: toastId,
+        description: null,
+      });
       const confirmationAbort = new AbortController();
       try {
         await withPromiseTimeout({
@@ -93,6 +98,7 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
             gasLimitHint: request.tx.gasLimit,
             maxFeePerGasHint: request.tx.maxFeePerGas,
             signal: confirmationAbort.signal,
+            ...nonceHints,
           }),
           timeoutMs: EVM_TX_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS,
           label: 'EVM receipt finalization confirmation',
@@ -137,12 +143,13 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
           txHash: broadcastTxHash,
         });
         if (isUserCancellationError(resolvedError)) {
-          toast.error('EVM transaction cancelled by user.', { id: toastId });
+          toast.error('EVM transaction cancelled by user.', { id: toastId, description: null });
           return;
         }
       } else {
         toast.error(`EVM transaction finalized, but post-finalization refresh failed: ${message}`, {
           id: toastId,
+          description: null,
         });
         console.error('[DemoPage][ArcPostFinalizationSyncError]', {
           atIso: new Date().toISOString(),
@@ -156,10 +163,10 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
       if (insufficient) {
         toast.error(
           `ARC sender has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`,
-          { id: toastId },
+          { id: toastId, description: null },
         );
       } else {
-        toast.error(`EVM transaction failed: ${message}`, { id: toastId });
+        toast.error(`EVM transaction failed: ${message}`, { id: toastId, description: null });
       }
     } finally {
       setEvmThresholdSignLoading(false);

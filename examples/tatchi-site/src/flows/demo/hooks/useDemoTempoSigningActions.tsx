@@ -11,6 +11,7 @@ import {
   buildTempoEip1559DripRequest,
   buildTempoEip1559GreetingRequest,
   compactHex,
+  extractManagedNonceHints,
   formatWeiToEth,
   isEvmAddress,
   isUserCancellationError,
@@ -69,7 +70,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       toast.dismiss(toastId);
     } catch {}
     setTempoDripLoading(true);
-    toast.loading('Requesting Tempo token drip…', { id: toastId });
+    toast.loading('Requesting Tempo token drip…', { id: toastId, description: null });
     let signedResultForBroadcast: Awaited<ReturnType<typeof tatchi.tempo.signTempo>> | null = null;
     let broadcastAccepted = false;
     let broadcastTxHash: `0x${string}` | undefined;
@@ -100,13 +101,14 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         request,
       });
       signedResultForBroadcast = signed;
+      const nonceHints = extractManagedNonceHints(signed);
 
       if (signed.kind !== 'eip1559') {
         throw new Error(`Unexpected signing result kind: ${signed.kind}`);
       }
       assertRawTxTypePrefix({ requestKind: request.kind, rawTxHex: signed.rawTxHex });
 
-      toast.loading('Dispatching Tempo drip transaction…', { id: toastId });
+      toast.loading('Dispatching Tempo drip transaction…', { id: toastId, description: null });
       const txHash = await sendRawEvmTransaction({
         rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
         rawTxHex: signed.rawTxHex,
@@ -119,13 +121,17 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       });
       broadcastAccepted = true;
 
-      toast.loading('Tempo drip transaction broadcasted, waiting for finalization…', { id: toastId });
+      toast.loading('Tempo drip transaction broadcasted, waiting for finalization…', {
+        id: toastId,
+        description: null,
+      });
       await withPromiseTimeout({
         promise: waitForEvmTransactionFinalization({
           rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
           txHash,
           gasLimitHint: request.tx.gasLimit,
           maxFeePerGasHint: request.tx.maxFeePerGas,
+          ...nonceHints,
         }),
         timeoutMs: EVM_TX_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS,
         label: 'Tempo drip finalization confirmation',
@@ -174,12 +180,13 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
           txHash: broadcastTxHash,
         });
         if (isUserCancellationError(resolvedError)) {
-          toast.error('Tempo drip cancelled by user.', { id: toastId });
+          toast.error('Tempo drip cancelled by user.', { id: toastId, description: null });
           return;
         }
       } else {
         toast.error(`Tempo drip finalized, but post-finalization refresh failed: ${message}`, {
           id: toastId,
+          description: null,
         });
         console.error('[DemoPage][TempoDripPostFinalizationSyncError]', {
           atIso: new Date().toISOString(),
@@ -195,10 +202,10 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       if (insufficient) {
         toast.error(
           `Tempo sender has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`,
-          { id: toastId },
+          { id: toastId, description: null },
         );
       } else {
-        toast.error(`Tempo drip failed: ${message}`, { id: toastId });
+        toast.error(`Tempo drip failed: ${message}`, { id: toastId, description: null });
       }
       console.error('[DemoPage][TempoDripError]', {
         atIso: new Date().toISOString(),
@@ -227,7 +234,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       toast.dismiss(toastId);
     } catch {}
     setTempoThresholdSignLoading(true);
-    toast.loading('Signing Tempo transaction…', { id: toastId });
+    toast.loading('Signing Tempo transaction…', { id: toastId, description: null });
     let signedResultForBroadcast: Awaited<ReturnType<typeof tatchi.tempo.signTempo>> | null = null;
     let broadcastAccepted = false;
     let broadcastTxHash: `0x${string}` | undefined;
@@ -241,13 +248,14 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         request,
       });
       signedResultForBroadcast = signed;
+      const nonceHints = extractManagedNonceHints(signed);
 
       if (signed.kind !== 'eip1559') {
         throw new Error(`Unexpected signing result kind: ${signed.kind}`);
       }
       assertRawTxTypePrefix({ requestKind: request.kind, rawTxHex: signed.rawTxHex });
 
-      toast.loading('Dispatching Tempo transaction…', { id: toastId });
+      toast.loading('Dispatching Tempo transaction…', { id: toastId, description: null });
       const txHash = await sendRawEvmTransaction({
         rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
         rawTxHex: signed.rawTxHex,
@@ -260,7 +268,10 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       });
       broadcastAccepted = true;
 
-      toast.loading('Tempo transaction broadcasted, waiting for finalization…', { id: toastId });
+      toast.loading('Tempo transaction broadcasted, waiting for finalization…', {
+        id: toastId,
+        description: null,
+      });
       const confirmationAbort = new AbortController();
       try {
         await withPromiseTimeout({
@@ -270,6 +281,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
             gasLimitHint: request.tx.gasLimit,
             maxFeePerGasHint: request.tx.maxFeePerGas,
             signal: confirmationAbort.signal,
+            ...nonceHints,
           }),
           timeoutMs: EVM_TX_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS,
           label: 'Tempo receipt finalization confirmation',
@@ -315,12 +327,13 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         });
 
         if (isUserCancellationError(resolvedError)) {
-          toast.error('Tempo transaction cancelled by user.', { id: toastId });
+          toast.error('Tempo transaction cancelled by user.', { id: toastId, description: null });
           return;
         }
       } else {
         toast.error(`Tempo transaction finalized, but post-finalization refresh failed: ${message}`, {
           id: toastId,
+          description: null,
         });
         console.error('[DemoPage][TempoPostFinalizationSyncError]', {
           atIso: new Date().toISOString(),
@@ -339,10 +352,10 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       if (insufficient) {
         toast.error(
           `Tempo sender has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`,
-          { id: toastId },
+          { id: toastId, description: null },
         );
       } else {
-        toast.error(`Tempo transaction failed: ${message}`, { id: toastId });
+        toast.error(`Tempo transaction failed: ${message}`, { id: toastId, description: null });
       }
     } finally {
       setTempoThresholdSignLoading(false);

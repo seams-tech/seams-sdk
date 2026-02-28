@@ -11,6 +11,7 @@ import {
   assertRawTxTypePrefix,
   buildEip1559SetUserTokenRequest,
   compactHex,
+  extractManagedNonceHints,
   formatWeiToEth,
   isUserCancellationError,
   parseInsufficientFundsError,
@@ -67,7 +68,10 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
       } catch {}
       setTempoFeeTokenConfigLoading(true);
       setTempoFeeTokenConfigTarget(config.target);
-      toast.loading(`Configuring Tempo fee token to ${config.label}…`, { id: toastId });
+      toast.loading(`Configuring Tempo fee token to ${config.label}…`, {
+        id: toastId,
+        description: null,
+      });
       let signedResultForBroadcast: Awaited<ReturnType<typeof tatchi.tempo.signTempo>> | null =
         null;
       let broadcastAccepted = false;
@@ -108,12 +112,13 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
           request,
         });
         signedResultForBroadcast = signed;
+        const nonceHints = extractManagedNonceHints(signed);
         if (signed.kind !== 'eip1559') {
           throw new Error(`Unexpected signing result kind: ${signed.kind}`);
         }
         assertRawTxTypePrefix({ requestKind: request.kind, rawTxHex: signed.rawTxHex });
 
-        toast.loading('Dispatching setUserToken transaction…', { id: toastId });
+        toast.loading('Dispatching setUserToken transaction…', { id: toastId, description: null });
         const txHash = await sendRawEvmTransaction({
           rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
           rawTxHex: signed.rawTxHex,
@@ -126,7 +131,10 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
         });
         broadcastAccepted = true;
 
-        toast.loading('Waiting for setUserToken finalization…', { id: toastId });
+        toast.loading('Waiting for setUserToken finalization…', {
+          id: toastId,
+          description: null,
+        });
         const thresholdSender = await thresholdSenderPromise;
         const confirmationAbort = new AbortController();
         try {
@@ -139,6 +147,7 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
               timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,
               pollIntervalMs: EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
               signal: confirmationAbort.signal,
+              ...nonceHints,
             }),
             timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS,
             label: 'setUserToken receipt finalization confirmation',
@@ -207,13 +216,16 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
             txHash: broadcastTxHash,
           });
           if (isUserCancellationError(resolvedError)) {
-            toast.error('Tempo fee token update cancelled by user.', { id: toastId });
+            toast.error('Tempo fee token update cancelled by user.', {
+              id: toastId,
+              description: null,
+            });
             return;
           }
         } else {
           toast.error(
             `Tempo fee-token transaction finalized, but post-finalization refresh failed: ${message}`,
-            { id: toastId },
+            { id: toastId, description: null },
           );
           console.error('[DemoPage][TempoSetUserTokenPostFinalizationSyncError]', {
             atIso: new Date().toISOString(),
@@ -230,10 +242,13 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
         if (insufficient) {
           toast.error(
             `Tempo sender has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`,
-            { id: toastId },
+            { id: toastId, description: null },
           );
         } else {
-          toast.error(`Tempo fee token update failed: ${message}`, { id: toastId });
+          toast.error(`Tempo fee token update failed: ${message}`, {
+            id: toastId,
+            description: null,
+          });
         }
         console.error('[DemoPage][TempoSetUserTokenError]', {
           atIso: new Date().toISOString(),
