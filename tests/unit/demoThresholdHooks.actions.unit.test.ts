@@ -144,10 +144,22 @@ test.describe('demo threshold action hooks', () => {
                   rawTxHex: `0x02${'34'.repeat(31)}`,
                 };
               },
-              reportBroadcastResult: async (args: any) => {
-                if (String(args?.status || '') === 'success') counters.reportSuccessCalls += 1;
-                else counters.reportFailureCalls += 1;
+              reportBroadcastAccepted: async () => {
+                counters.reportSuccessCalls += 1;
                 return { ok: true };
+              },
+              reportBroadcastRejected: async () => {
+                counters.reportFailureCalls += 1;
+                return { ok: true };
+              },
+              reportFinalized: async () => ({ ok: true }),
+              reconcileNonceLane: async () => {
+                counters.reportFailureCalls += 1;
+                return {
+                  chainNextNonce: '0',
+                  unresolvedInFlightNonces: [],
+                  blocked: false,
+                };
               },
             },
           },
@@ -329,10 +341,22 @@ test.describe('demo threshold action hooks', () => {
                   rawTxHex: `0x02${'56'.repeat(31)}`,
                 };
               },
-              reportBroadcastResult: async (args: any) => {
-                if (String(args?.status || '') === 'success') counters.reportSuccessCalls += 1;
-                else counters.reportFailureCalls += 1;
+              reportBroadcastAccepted: async () => {
+                counters.reportSuccessCalls += 1;
                 return { ok: true };
+              },
+              reportBroadcastRejected: async () => {
+                counters.reportFailureCalls += 1;
+                return { ok: true };
+              },
+              reportFinalized: async () => ({ ok: true }),
+              reconcileNonceLane: async () => {
+                counters.reportFailureCalls += 1;
+                return {
+                  chainNextNonce: '0',
+                  unresolvedInFlightNonces: [],
+                  blocked: false,
+                };
               },
             },
           },
@@ -511,10 +535,22 @@ test.describe('demo threshold action hooks', () => {
                   rawTxHex: `0x02${'78'.repeat(31)}`,
                 };
               },
-              reportBroadcastResult: async (args: any) => {
-                if (String(args?.status || '') === 'success') counters.reportSuccessCalls += 1;
-                else counters.reportFailureCalls += 1;
+              reportBroadcastAccepted: async () => {
+                counters.reportSuccessCalls += 1;
                 return { ok: true };
+              },
+              reportBroadcastRejected: async () => {
+                counters.reportFailureCalls += 1;
+                return { ok: true };
+              },
+              reportFinalized: async () => ({ ok: true }),
+              reconcileNonceLane: async () => {
+                counters.reportFailureCalls += 1;
+                return {
+                  chainNextNonce: '0',
+                  unresolvedInFlightNonces: [],
+                  blocked: false,
+                };
               },
             },
           },
@@ -563,7 +599,7 @@ test.describe('demo threshold action hooks', () => {
     expect(result.stateAfter.evmThresholdSignLoading).toBe(false);
   });
 
-  test('useDemoArcSigningActions confirms via greeting fallback when receipt remains pending', async ({
+  test('useDemoArcSigningActions does not treat greeting state as finalization proof', async ({
     page,
   }) => {
     const result = await page.evaluate(async ({ paths, arcRpcHost }) => {
@@ -590,6 +626,7 @@ test.describe('demo threshold action hooks', () => {
         signTempoCalls: 0,
         reportSuccessCalls: 0,
         reportFailureCalls: 0,
+        reportFinalizedCalls: 0,
         dispatchCalls: 0,
         receiptCalls: 0,
         ethCallCalls: 0,
@@ -629,10 +666,21 @@ test.describe('demo threshold action hooks', () => {
         }
         if (method === 'eth_getTransactionReceipt') {
           counters.receiptCalls += 1;
-          return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: null }), {
-            status: 200,
-            headers: { 'content-type': 'application/json' },
-          });
+          return new Response(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              result: {
+                blockNumber: '0x1',
+                status: '0x0',
+                gasUsed: '0x5208',
+              },
+            }),
+            {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            },
+          );
         }
         if (method === 'eth_getBlockByNumber') {
           return new Response(
@@ -646,11 +694,15 @@ test.describe('demo threshold action hooks', () => {
         }
         if (method === 'eth_call') {
           counters.ethCallCalls += 1;
+          const observedGreeting =
+            counters.ethCallCalls === 1
+              ? 'Arc greeting before tx'
+              : expectedArcGreeting;
           return new Response(
             JSON.stringify({
               jsonrpc: '2.0',
               id,
-              result: encodeAbiString(expectedArcGreeting),
+              result: encodeAbiString(observedGreeting),
             }),
             { status: 200, headers: { 'content-type': 'application/json' } },
           );
@@ -673,10 +725,25 @@ test.describe('demo threshold action hooks', () => {
                   rawTxHex: `0x02${'78'.repeat(31)}`,
                 };
               },
-              reportBroadcastResult: async (args: any) => {
-                if (String(args?.status || '') === 'success') counters.reportSuccessCalls += 1;
-                else counters.reportFailureCalls += 1;
+              reportBroadcastAccepted: async () => {
+                counters.reportSuccessCalls += 1;
                 return { ok: true };
+              },
+              reportBroadcastRejected: async () => {
+                counters.reportFailureCalls += 1;
+                return { ok: true };
+              },
+              reportFinalized: async () => {
+                counters.reportFinalizedCalls += 1;
+                return { ok: true };
+              },
+              reconcileNonceLane: async () => {
+                counters.reportFailureCalls += 1;
+                return {
+                  chainNextNonce: '0',
+                  unresolvedInFlightNonces: [],
+                  blocked: false,
+                };
               },
             },
           },
@@ -710,9 +777,9 @@ test.describe('demo threshold action hooks', () => {
 
     expect(result.counters.signTempoCalls).toBe(1);
     expect(result.counters.reportSuccessCalls).toBe(1);
-    expect(result.counters.reportFailureCalls).toBe(0);
+    expect(result.counters.reportFailureCalls).toBe(1);
+    expect(result.counters.reportFinalizedCalls).toBe(0);
     expect(result.counters.dispatchCalls).toBe(1);
-    expect(result.counters.ethCallCalls).toBeGreaterThan(0);
     expect(result.counters.receiptCalls).toBeGreaterThan(0);
     expect(result.stateAfter.evmThresholdSignLoading).toBe(false);
   });
@@ -756,10 +823,20 @@ test.describe('demo threshold action hooks', () => {
                 counters.signTempoCalls += 1;
                 throw new Error('User rejected request');
               },
-              reportBroadcastResult: async () => {
+              reportBroadcastAccepted: async () => {
                 counters.reportCalls += 1;
                 return { ok: true };
               },
+              reportBroadcastRejected: async () => {
+                counters.reportCalls += 1;
+                return { ok: true };
+              },
+              reportFinalized: async () => ({ ok: true }),
+              reconcileNonceLane: async () => ({
+                chainNextNonce: '0',
+                unresolvedInFlightNonces: [],
+                blocked: false,
+              }),
             },
           },
           tempoEip1559FeeCaps: {
@@ -873,10 +950,20 @@ test.describe('demo threshold action hooks', () => {
                   rawTxHex: `0x02${'12'.repeat(31)}`,
                 };
               },
-              reportBroadcastResult: async () => {
+              reportBroadcastAccepted: async () => {
+                counters.reportCalls += 1;
+                return { ok: true };
+              },
+              reportBroadcastRejected: async () => {
                 counters.reportCalls += 1;
                 throw new Error('mock report failure');
               },
+              reportFinalized: async () => ({ ok: true }),
+              reconcileNonceLane: async () => ({
+                chainNextNonce: '0',
+                unresolvedInFlightNonces: [],
+                blocked: false,
+              }),
             },
           },
           canSignTempo: true,
@@ -917,6 +1004,160 @@ test.describe('demo threshold action hooks', () => {
     expect(result.counters.sendRawCalls).toBe(1);
     expect(result.counters.reportCalls).toBe(1);
     expect(result.counters.consoleErrors).toBeGreaterThanOrEqual(1);
+    expect(result.stateAfter.loading).toBe(false);
+  });
+
+  test('useDemoTempoSigningActions does not report nonce failure after finalization', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(async ({ paths, tempoRpcHost }) => {
+      const viteReactPath = '/node_modules/.vite/deps/react.js' as string;
+      const viteReactDomClientPath = '/node_modules/.vite/deps/react-dom_client.js' as string;
+      const viteReactDomPath = '/node_modules/.vite/deps/react-dom.js' as string;
+      const React =
+        ((await import(viteReactPath).catch(() => null)) as any) || (await import('react'));
+      const ReactRuntime = (React as any).default || React;
+      const ReactDOMClient =
+        ((await import(viteReactDomClientPath).catch(() => null)) as any) ||
+        (await import('react-dom/client'));
+      const ReactDOMClientRuntime = (ReactDOMClient as any).default || ReactDOMClient;
+      const ReactDOM =
+        ((await import(viteReactDomPath).catch(() => null)) as any) || (await import('react-dom'));
+      const ReactDOMRuntime = (ReactDOM as any).default || ReactDOM;
+      const mod = await import(paths.tempoSigningHook);
+      const useDemoTempoSigningActions = (mod as any).useDemoTempoSigningActions;
+      if (!useDemoTempoSigningActions) {
+        throw new Error('Failed to load useDemoTempoSigningActions export');
+      }
+
+      const counters = {
+        signTempoCalls: 0,
+        reportAcceptedCalls: 0,
+        reportFinalizedCalls: 0,
+        reportRejectedCalls: 0,
+        reconcileCalls: 0,
+        sendRawCalls: 0,
+      };
+      const txHash = `0x${'77'.repeat(32)}`;
+
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (!url.includes(tempoRpcHost) || String(init?.method || 'GET').toUpperCase() !== 'POST') {
+          return await originalFetch(input, init);
+        }
+
+        let body: Record<string, unknown> = {};
+        try {
+          body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+        } catch {}
+        const id = body.id ?? Date.now();
+        const method = String(body.method || '');
+
+        if (method === 'eth_sendRawTransaction') {
+          counters.sendRawCalls += 1;
+          return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: txHash }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (method === 'eth_getTransactionReceipt') {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              result: {
+                blockNumber: '0x1',
+                status: '0x1',
+                gasUsed: '0x5208',
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        return await originalFetch(input, init);
+      }) as typeof fetch;
+
+      let hookApi: any = null;
+      function Harness() {
+        hookApi = useDemoTempoSigningActions({
+          isLoggedIn: true,
+          nearAccountId: 'alice.testnet',
+          tatchi: {
+            tempo: {
+              signTempo: async () => {
+                counters.signTempoCalls += 1;
+                return {
+                  kind: 'eip1559',
+                  txHashHex: `0x${'ab'.repeat(32)}`,
+                  rawTxHex: `0x02${'12'.repeat(31)}`,
+                };
+              },
+              reportBroadcastAccepted: async () => {
+                counters.reportAcceptedCalls += 1;
+                return { ok: true };
+              },
+              reportBroadcastRejected: async () => {
+                counters.reportRejectedCalls += 1;
+                return { ok: true };
+              },
+              reportFinalized: async () => {
+                counters.reportFinalizedCalls += 1;
+                return { ok: true };
+              },
+              reconcileNonceLane: async () => {
+                counters.reconcileCalls += 1;
+                return {
+                  chainNextNonce: '0',
+                  unresolvedInFlightNonces: [],
+                  blocked: false,
+                };
+              },
+              reportDroppedOrReplaced: async () => ({ ok: true }),
+            },
+          },
+          canSignTempo: true,
+          tempoGreetingInput: 'hello',
+          tempoEip1559FeeCaps: {
+            maxPriorityFeePerGas: 2_000_000_000n,
+            maxFeePerGas: 40_000_000_000n,
+          },
+          tempoUserFeeToken: null,
+          resolveThresholdSenderForEvmFamily: async () =>
+            '0x1111111111111111111111111111111111111111',
+          refreshTempoUserFeeTokenBalance: async () => 1n,
+          fetchTempoGreeting: async () => {
+            throw new Error('mock greeting refresh failure');
+          },
+          refreshThresholdEvmFundingAddress: async () =>
+            '0x1111111111111111111111111111111111111111',
+        });
+        return ReactRuntime.createElement('div', null);
+      }
+
+      const mount = document.createElement('div');
+      document.body.appendChild(mount);
+      const root = ReactDOMClientRuntime.createRoot(mount);
+      ReactDOMRuntime.flushSync(() => {
+        root.render(ReactRuntime.createElement(Harness));
+      });
+
+      await hookApi.handleSignTempoThresholdTx();
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+      const stateAfter = {
+        loading: Boolean(hookApi.tempoThresholdSignLoading),
+      };
+      root.unmount();
+      return { counters, stateAfter };
+    }, { paths: IMPORT_PATHS, tempoRpcHost: TEMPO_RPC });
+
+    expect(result.counters.signTempoCalls).toBe(1);
+    expect(result.counters.sendRawCalls).toBe(1);
+    expect(result.counters.reportAcceptedCalls).toBe(1);
+    expect(result.counters.reportFinalizedCalls).toBe(1);
+    expect(result.counters.reportRejectedCalls).toBe(0);
+    expect(result.counters.reconcileCalls).toBe(0);
     expect(result.stateAfter.loading).toBe(false);
   });
 
@@ -996,10 +1237,20 @@ test.describe('demo threshold action hooks', () => {
                   rawTxHex: `0x02${'12'.repeat(31)}`,
                 };
               },
-              reportBroadcastResult: async () => {
+              reportBroadcastAccepted: async () => {
+                counters.reportCalls += 1;
+                return { ok: true };
+              },
+              reportBroadcastRejected: async () => {
                 counters.reportCalls += 1;
                 throw new Error('mock report failure');
               },
+              reportFinalized: async () => ({ ok: true }),
+              reconcileNonceLane: async () => ({
+                chainNextNonce: '0',
+                unresolvedInFlightNonces: [],
+                blocked: false,
+              }),
             },
           },
           arcGreetingInput: 'hello',

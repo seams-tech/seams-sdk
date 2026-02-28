@@ -4,8 +4,6 @@ import { toast } from 'sonner';
 
 import { FRONTEND_CONFIG } from '@/config';
 import {
-  ARC_GREET_SELECTOR,
-  ARC_TESTNET_GREETING_CONTRACT,
   EVM_RPC_REQUEST_TIMEOUT_MS,
   EVM_TX_FINALITY_TIMEOUT_MS,
   assertRawTxTypePrefix,
@@ -15,7 +13,6 @@ import {
   isUserCancellationError,
   parseInsufficientFundsError,
   sendRawEvmTransaction,
-  waitForEvmGreetingMatch,
   waitForEvmTransactionFinalization,
   withPromiseTimeout,
   type Eip1559FeeCaps,
@@ -23,7 +20,6 @@ import {
 import { reportTempoBroadcastFailure } from './reportTempoBroadcastFailure';
 
 const CONFIRMATION_TIMEOUT_PADDING_MS = EVM_RPC_REQUEST_TIMEOUT_MS + 5_000;
-const SECONDARY_CONFIRMATION_TIMEOUT_MS = EVM_RPC_REQUEST_TIMEOUT_MS + 5_000;
 
 type UseDemoArcSigningActionsArgs = {
   canSignEvm: boolean;
@@ -57,6 +53,9 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
     setEvmThresholdSignLoading(true);
     toast.loading('Signing EVM transaction…', { id: toastId });
     let signedResultForBroadcast: Awaited<ReturnType<typeof tatchi.tempo.signTempo>> | null = null;
+    let broadcastAccepted = false;
+    let broadcastTxHash: `0x${string}` | undefined;
+    let finalizedReported = false;
     try {
       const requestedGreeting = arcGreetingInput.trim();
       const request = buildDemoEip1559Request(requestedGreeting, arcEip1559FeeCaps);
@@ -76,163 +75,83 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
         rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
         rawTxHex: signed.rawTxHex,
       });
-      await tatchi.tempo.reportBroadcastResult({
+      broadcastTxHash = txHash;
+      await tatchi.tempo.reportBroadcastAccepted({
         nearAccountId,
         signedResult: signedResultForBroadcast,
-        status: 'success',
         txHash,
       });
+      broadcastAccepted = true;
 
       toast.loading('EVM transaction broadcasted, waiting for finalization…', { id: toastId });
       const confirmationAbort = new AbortController();
-      let confirmationMode: 'receipt' | 'greeting';
-      const confirmationDeadlineMs =
-        Date.now() + EVM_TX_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS;
-      const remainingConfirmationMs = (): number =>
-        Math.max(1, confirmationDeadlineMs - Date.now());
       try {
-        const receiptConfirmationResultPromise = waitForEvmTransactionFinalization({
-          rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
-          txHash,
-          gasLimitHint: request.tx.gasLimit,
-          maxFeePerGasHint: request.tx.maxFeePerGas,
-          signal: confirmationAbort.signal,
-        })
-          .then(
-            () =>
-              ({
-                ok: true as const,
-                mode: 'receipt' as const,
-              }) as const,
-          )
-          .catch(
-            (error: unknown) =>
-              ({
-                ok: false as const,
-                source: 'receipt' as const,
-                error,
-              }) as const,
-          );
-        const greetingConfirmationResultPromise = waitForEvmGreetingMatch({
-          rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
-          contract: ARC_TESTNET_GREETING_CONTRACT,
-          selector: ARC_GREET_SELECTOR,
-          expectedGreeting: requestedGreeting,
-          signal: confirmationAbort.signal,
-        })
-          .then(
-            () =>
-              ({
-                ok: true as const,
-                mode: 'greeting' as const,
-              }) as const,
-          )
-          .catch(
-            (error: unknown) =>
-              ({
-                ok: false as const,
-                source: 'greeting' as const,
-                error,
-              }) as const,
-          );
-        const firstConfirmationResult = await withPromiseTimeout({
-          promise: Promise.race([
-            receiptConfirmationResultPromise,
-            greetingConfirmationResultPromise,
-          ]),
-          timeoutMs: remainingConfirmationMs(),
-          label: 'EVM greeting finalization confirmation',
+        await withPromiseTimeout({
+          promise: waitForEvmTransactionFinalization({
+            rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
+            txHash,
+            gasLimitHint: request.tx.gasLimit,
+            maxFeePerGasHint: request.tx.maxFeePerGas,
+            signal: confirmationAbort.signal,
+          }),
+          timeoutMs: EVM_TX_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS,
+          label: 'EVM receipt finalization confirmation',
           onTimeout: () => {
-            confirmationAbort.abort(new Error('EVM finalization confirmation timed out'));
+            confirmationAbort.abort(new Error('EVM receipt finalization timed out'));
           },
         });
-        if (firstConfirmationResult.ok) {
-          confirmationMode = firstConfirmationResult.mode;
-        } else {
-          const secondConfirmationResult =
-            firstConfirmationResult.source === 'receipt'
-              ? await withPromiseTimeout({
-                  promise: greetingConfirmationResultPromise,
-                  timeoutMs: Math.min(
-                    SECONDARY_CONFIRMATION_TIMEOUT_MS,
-                    remainingConfirmationMs(),
-                  ),
-                  label: 'EVM greeting secondary confirmation',
-                  onTimeout: () => {
-                    confirmationAbort.abort(
-                      new Error('EVM secondary finalization confirmation timed out'),
-                    );
-                  },
-                })
-              : await withPromiseTimeout({
-                  promise: receiptConfirmationResultPromise,
-                  timeoutMs: Math.min(
-                    SECONDARY_CONFIRMATION_TIMEOUT_MS,
-                    remainingConfirmationMs(),
-                  ),
-                  label: 'EVM receipt secondary confirmation',
-                  onTimeout: () => {
-                    confirmationAbort.abort(
-                      new Error('EVM secondary finalization confirmation timed out'),
-                    );
-                  },
-                });
-          if (secondConfirmationResult.ok) {
-            confirmationMode = secondConfirmationResult.mode;
-          } else {
-            const receiptError =
-              firstConfirmationResult.source === 'receipt'
-                ? firstConfirmationResult.error
-                : secondConfirmationResult.error;
-            const greetingError =
-              firstConfirmationResult.source === 'greeting'
-                ? firstConfirmationResult.error
-                : secondConfirmationResult.error;
-            const receiptErrorMessage =
-              receiptError instanceof Error ? receiptError.message : String(receiptError);
-            const greetingErrorMessage =
-              greetingError instanceof Error ? greetingError.message : String(greetingError);
-            throw new Error(
-              `Unable to confirm EVM transaction finalization. Receipt check failed: ${receiptErrorMessage}. Greeting check failed: ${greetingErrorMessage}. Tx hash: ${txHash}`,
-            );
-          }
-        }
       } finally {
         confirmationAbort.abort(new Error('EVM finalization confirmation settled'));
       }
+      await tatchi.tempo.reportFinalized({
+        nearAccountId,
+        signedResult: signed,
+        txHash,
+        receiptStatus: 'success',
+      });
+      finalizedReported = true;
       await fetchArcGreeting({ silent: true });
       await refreshThresholdEvmFundingAddress();
 
-      toast.success(
-        confirmationMode === 'greeting'
-          ? 'EVM transaction confirmed (via greeting update)'
-          : 'EVM transaction finalized',
-        {
-          id: toastId,
-          description: (
-            <span>
-              Tx hash:&nbsp;
-              <code>{compactHex(txHash)}</code>
-            </span>
-          ),
-        },
-      );
+      toast.success('EVM transaction finalized', {
+        id: toastId,
+        description: (
+          <span>
+            Tx hash:&nbsp;
+            <code>{compactHex(txHash)}</code>
+          </span>
+        ),
+      });
     } catch (error: unknown) {
       const resolvedError: unknown = error;
-      await reportTempoBroadcastFailure({
-        tatchi,
-        nearAccountId,
-        signedResult: signedResultForBroadcast,
-        error: resolvedError,
-        flow: 'evm-sign',
-      });
-
-      if (isUserCancellationError(resolvedError)) {
-        toast.error('EVM transaction cancelled by user.', { id: toastId });
-        return;
-      }
       const message =
         resolvedError instanceof Error ? resolvedError.message : String(resolvedError);
+      if (!finalizedReported) {
+        await reportTempoBroadcastFailure({
+          tatchi,
+          nearAccountId,
+          signedResult: signedResultForBroadcast,
+          error: resolvedError,
+          flow: 'evm-sign',
+          broadcastAccepted,
+          txHash: broadcastTxHash,
+        });
+        if (isUserCancellationError(resolvedError)) {
+          toast.error('EVM transaction cancelled by user.', { id: toastId });
+          return;
+        }
+      } else {
+        toast.error(`EVM transaction finalized, but post-finalization refresh failed: ${message}`, {
+          id: toastId,
+        });
+        console.error('[DemoPage][ArcPostFinalizationSyncError]', {
+          atIso: new Date().toISOString(),
+          message,
+          error: resolvedError,
+          txHash: broadcastTxHash,
+        });
+        return;
+      }
       const insufficient = parseInsufficientFundsError(message);
       if (insufficient) {
         toast.error(

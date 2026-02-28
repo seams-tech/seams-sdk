@@ -18,7 +18,6 @@ import {
   readTempoTokenBalanceRaw,
   sendRawEvmTransaction,
   waitForEvmTransactionFinalization,
-  waitForTempoUserTokenMatch,
   withPromiseTimeout,
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
@@ -26,7 +25,6 @@ import type { EvmAddress, TempoFeeTokenConfigTarget } from './demoThresholdTypes
 import { reportTempoBroadcastFailure } from './reportTempoBroadcastFailure';
 
 const CONFIRMATION_TIMEOUT_PADDING_MS = EVM_RPC_REQUEST_TIMEOUT_MS + 5_000;
-const SECONDARY_CONFIRMATION_TIMEOUT_MS = EVM_RPC_REQUEST_TIMEOUT_MS + 5_000;
 
 type UseDemoTempoFeeTokenActionsArgs = {
   isLoggedIn: boolean;
@@ -72,6 +70,9 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
       toast.loading(`Configuring Tempo fee token to ${config.label}…`, { id: toastId });
       let signedResultForBroadcast: Awaited<ReturnType<typeof tatchi.tempo.signTempo>> | null =
         null;
+      let broadcastAccepted = false;
+      let broadcastTxHash: `0x${string}` | undefined;
+      let finalizedReported = false;
       let thresholdSenderForAttempt: EvmAddress | null = null;
       let selectedFeeTokenBalanceRaw: bigint | null = null;
       let senderNativeBalanceRaw: bigint | null = null;
@@ -117,140 +118,44 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
           rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
           rawTxHex: signed.rawTxHex,
         });
-        await tatchi.tempo.reportBroadcastResult({
+        broadcastTxHash = txHash;
+        await tatchi.tempo.reportBroadcastAccepted({
           nearAccountId,
           signedResult: signed,
-          status: 'success',
           txHash,
         });
+        broadcastAccepted = true;
 
         toast.loading('Waiting for setUserToken finalization…', { id: toastId });
         const thresholdSender = await thresholdSenderPromise;
         const confirmationAbort = new AbortController();
-        let confirmationMode: 'receipt' | 'userToken';
-        const confirmationDeadlineMs =
-          Date.now() + EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS;
-        const remainingConfirmationMs = (): number =>
-          Math.max(1, confirmationDeadlineMs - Date.now());
         try {
-          const receiptConfirmationResultPromise = waitForEvmTransactionFinalization({
-            rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-            txHash,
-            gasLimitHint: request.tx.gasLimit,
-            maxFeePerGasHint: request.tx.maxFeePerGas,
-            timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,
-            pollIntervalMs: EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
-            signal: confirmationAbort.signal,
-          })
-            .then(
-              () =>
-                ({
-                  ok: true as const,
-                  mode: 'receipt' as const,
-                }) as const,
-            )
-            .catch(
-              (error: unknown) =>
-                ({
-                  ok: false as const,
-                  source: 'receipt' as const,
-                  error,
-                }) as const,
-            );
-          const tokenConfirmationResultPromise = thresholdSender
-            ? waitForTempoUserTokenMatch({
-                rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-                userAddress: thresholdSender,
-                expectedToken: tempoFeeToken,
-                timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,
-                pollIntervalMs: EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
-                signal: confirmationAbort.signal,
-              })
-                .then(
-                  () =>
-                    ({
-                      ok: true as const,
-                      mode: 'userToken' as const,
-                    }) as const,
-                )
-                .catch(
-                  (error: unknown) =>
-                    ({
-                      ok: false as const,
-                      source: 'userToken' as const,
-                      error,
-                    }) as const,
-                )
-            : Promise.resolve({
-                ok: false as const,
-                source: 'userToken' as const,
-                error: new Error('Threshold EVM sender unavailable for userTokens confirmation'),
-              });
-          const firstConfirmationResult = await withPromiseTimeout({
-            promise: Promise.race([
-              receiptConfirmationResultPromise,
-              tokenConfirmationResultPromise,
-            ]),
-            timeoutMs: remainingConfirmationMs(),
-            label: 'setUserToken finalization confirmation',
+          await withPromiseTimeout({
+            promise: waitForEvmTransactionFinalization({
+              rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+              txHash,
+              gasLimitHint: request.tx.gasLimit,
+              maxFeePerGasHint: request.tx.maxFeePerGas,
+              timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,
+              pollIntervalMs: EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
+              signal: confirmationAbort.signal,
+            }),
+            timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS,
+            label: 'setUserToken receipt finalization confirmation',
             onTimeout: () => {
-              confirmationAbort.abort(new Error('setUserToken finalization confirmation timed out'));
+              confirmationAbort.abort(new Error('setUserToken receipt finalization timed out'));
             },
           });
-          if (firstConfirmationResult.ok) {
-            confirmationMode = firstConfirmationResult.mode;
-          } else {
-            const secondConfirmationResult =
-              firstConfirmationResult.source === 'receipt'
-                ? await withPromiseTimeout({
-                    promise: tokenConfirmationResultPromise,
-                    timeoutMs: Math.min(
-                      SECONDARY_CONFIRMATION_TIMEOUT_MS,
-                      remainingConfirmationMs(),
-                    ),
-                    label: 'setUserToken userTokens secondary confirmation',
-                    onTimeout: () => {
-                      confirmationAbort.abort(
-                        new Error('setUserToken secondary finalization confirmation timed out'),
-                      );
-                    },
-                  })
-                : await withPromiseTimeout({
-                    promise: receiptConfirmationResultPromise,
-                    timeoutMs: Math.min(
-                      SECONDARY_CONFIRMATION_TIMEOUT_MS,
-                      remainingConfirmationMs(),
-                    ),
-                    label: 'setUserToken receipt secondary confirmation',
-                    onTimeout: () => {
-                      confirmationAbort.abort(
-                        new Error('setUserToken secondary finalization confirmation timed out'),
-                      );
-                    },
-                  });
-            if (secondConfirmationResult.ok) {
-              confirmationMode = secondConfirmationResult.mode;
-            } else {
-              const receiptError =
-                firstConfirmationResult.source === 'receipt'
-                  ? firstConfirmationResult.error
-                  : secondConfirmationResult.error;
-              const userTokenError =
-                firstConfirmationResult.source === 'userToken'
-                  ? firstConfirmationResult.error
-                  : secondConfirmationResult.error;
-              const receiptErrorMessage =
-                receiptError instanceof Error ? receiptError.message : String(receiptError);
-              const userTokenErrorMessage =
-                userTokenError instanceof Error ? userTokenError.message : String(userTokenError);
-              throw new Error(
-                `Unable to confirm setUserToken to ${config.label}. Receipt check failed: ${receiptErrorMessage}. userTokens(address) check failed: ${userTokenErrorMessage}.`,
-              );
-            }
-          }
         } finally {
           confirmationAbort.abort(new Error('setUserToken finalization confirmation settled'));
         }
+        await tatchi.tempo.reportFinalized({
+          nearAccountId,
+          signedResult: signed,
+          txHash,
+          receiptStatus: 'success',
+        });
+        finalizedReported = true;
         const refreshedFeeToken = thresholdSender
           ? await refreshTempoUserFeeToken({
               silent: true,
@@ -269,50 +174,58 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
           refreshedFeeToken.toLowerCase() === tempoFeeToken.toLowerCase();
         if (thresholdSender && !refreshedMatchesTarget) {
           throw new Error(
-            `setUserToken confirmation (${confirmationMode}) completed, but refreshed userTokens(address) reports ${refreshedFeeToken ? compactHex(refreshedFeeToken) : 'not set'} instead of ${compactHex(tempoFeeToken)}. Tx hash: ${txHash}`,
+            `setUserToken transaction finalized, but refreshed userTokens(address) reports ${refreshedFeeToken ? compactHex(refreshedFeeToken) : 'not set'} instead of ${compactHex(tempoFeeToken)}. Tx hash: ${txHash}`,
           );
         }
         await diagnosticsPromise;
 
-        toast.success(
-          confirmationMode === 'userToken'
-            ? 'Tempo fee token configured (confirmed via userTokens)'
-            : 'Tempo fee token configured',
-          {
-            id: toastId,
-            description: (
-              <span>
-                Token:&nbsp;
-                <code>{config.label}</code>&nbsp;
-                <code>{compactHex(tempoFeeToken)}</code>
-                <br />
-                Tx hash:&nbsp;
-                <code>{compactHex(txHash)}</code>
-                {confirmationMode === 'userToken' ? (
-                  <>
-                    <br />
-                    Confirmed from `userTokens(address)` before receipt finalization.
-                  </>
-                ) : null}
-              </span>
-            ),
-          },
-        );
+        toast.success('Tempo fee token configured', {
+          id: toastId,
+          description: (
+            <span>
+              Token:&nbsp;
+              <code>{config.label}</code>&nbsp;
+              <code>{compactHex(tempoFeeToken)}</code>
+              <br />
+              Tx hash:&nbsp;
+              <code>{compactHex(txHash)}</code>
+            </span>
+          ),
+        });
       } catch (error: unknown) {
         const resolvedError: unknown = error;
-        await reportTempoBroadcastFailure({
-          tatchi,
-          nearAccountId,
-          signedResult: signedResultForBroadcast,
-          error: resolvedError,
-          flow: 'tempo-set-fee-token',
-        });
-        if (isUserCancellationError(resolvedError)) {
-          toast.error('Tempo fee token update cancelled by user.', { id: toastId });
-          return;
-        }
         const message =
           resolvedError instanceof Error ? resolvedError.message : String(resolvedError);
+        if (!finalizedReported) {
+          await reportTempoBroadcastFailure({
+            tatchi,
+            nearAccountId,
+            signedResult: signedResultForBroadcast,
+            error: resolvedError,
+            flow: 'tempo-set-fee-token',
+            broadcastAccepted,
+            txHash: broadcastTxHash,
+          });
+          if (isUserCancellationError(resolvedError)) {
+            toast.error('Tempo fee token update cancelled by user.', { id: toastId });
+            return;
+          }
+        } else {
+          toast.error(
+            `Tempo fee-token transaction finalized, but post-finalization refresh failed: ${message}`,
+            { id: toastId },
+          );
+          console.error('[DemoPage][TempoSetUserTokenPostFinalizationSyncError]', {
+            atIso: new Date().toISOString(),
+            error: resolvedError,
+            message,
+            thresholdSenderForAttempt,
+            selectedFeeTokenBalanceRaw,
+            senderNativeBalanceRaw,
+            txHash: broadcastTxHash,
+          });
+          return;
+        }
         const insufficient = parseInsufficientFundsError(message);
         if (insufficient) {
           toast.error(
