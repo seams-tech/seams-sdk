@@ -1,18 +1,17 @@
-import {
-  createEcdsaAuthSessionStore,
-  createPrfSessionSealPolicyFromEcdsaAuthSessionStore,
-  createPrfSessionSealRoutesOptions,
-  createPrfSessionSealShamir3PassCipherAdapter,
-} from '@tatchi-xyz/sdk/server';
-import type { ThresholdEd25519KeyStoreConfigInput } from '@tatchi-xyz/sdk/server';
+import { createEcdsaAuthSessionStore } from '../../../core/ThresholdService';
+import type { ThresholdEd25519KeyStoreConfigInput } from '../../../core/types';
+import { createPrfSessionSealShamir3PassCipherAdapter } from './crypto/cipher';
+import { createPrfSessionSealPolicyFromEcdsaAuthSessionStore } from './policy/sessionPolicy';
+import { createPrfSessionSealRoutesOptions } from './routesOptions';
 
-type CreatePrfSessionSealOptionsInput = {
-  enabled?: string;
-  keyVersion?: string;
+export type CreatePrfSessionSealOptionsInput = {
+  enabled?: unknown;
+  keyVersion?: unknown;
   shamirPrimeB64u: string;
   serverEncryptExponentB64u: string;
   serverDecryptExponentB64u: string;
   thresholdKeyStoreConfig: ThresholdEd25519KeyStoreConfigInput;
+  isNode?: boolean;
 };
 
 function parseBooleanFlag(value: unknown, fallback: boolean): boolean {
@@ -22,7 +21,12 @@ function parseBooleanFlag(value: unknown, fallback: boolean): boolean {
   if (!normalized) return fallback;
   if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on')
     return true;
-  if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off') {
+  if (
+    normalized === '0' ||
+    normalized === 'false' ||
+    normalized === 'no' ||
+    normalized === 'off'
+  ) {
     return false;
   }
   return fallback;
@@ -61,7 +65,7 @@ export function createPrfSessionSealOptions(input: CreatePrfSessionSealOptionsIn
   const ecdsaAuthSessionStore = createEcdsaAuthSessionStore({
     config: input.thresholdKeyStoreConfig,
     logger: console,
-    isNode: false,
+    isNode: input.isNode === true,
   });
 
   return createPrfSessionSealRoutesOptions({

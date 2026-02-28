@@ -34,6 +34,7 @@ export type {
 } from './types';
 export type { CreatePrfSessionSealAuditLoggerOptions } from './observability/audit';
 export type { CreatePrfSessionSealRoutesOptionsInput } from './routesOptions';
+export type { CreatePrfSessionSealOptionsInput } from './options';
 export type {
   CreatePrfSessionSealRateLimitGuardOptions,
   InMemoryPrfSessionSealRateLimiterOptions,
@@ -66,6 +67,7 @@ export { createPrfSessionSealService } from './service';
 export { createPrfSessionSealPolicyFromEcdsaAuthSessionStore } from './policy/sessionPolicy';
 export { createPrfSessionSealAuditLogger } from './observability/audit';
 export { createPrfSessionSealRoutesOptions } from './routesOptions';
+export { createPrfSessionSealOptions } from './options';
 export {
   createInMemoryPrfSessionSealRateLimiter,
   createPrfSessionSealRateLimitGuard,

@@ -25,3 +25,4 @@ export type {
 } from './core/ThresholdService';
 export * from './email-recovery';
 export * from './threshold/session/prfSessionSeal';
+export * from './router/ror';
