@@ -28,6 +28,7 @@ import { computeUiIntentDigestFromNep413 } from '@/utils/intentDigest';
 import {
   clearIntentDigestPreparation,
   consumeIntentDigestPreparation,
+  type IntentDigestPreparationResult,
 } from '@/core/signingEngine/touchConfirm/intentDigestPreparationRegistry';
 
 function getTransactionSigningAuthMode(request: SigningUserConfirmRequest): SigningAuthMode {
@@ -271,10 +272,9 @@ export async function handleIntentDigestSigningFlow(
     });
     void promptDecisionPromise.finally(markPromptReady);
 
-    if (intentPreparation) {
-      // Ensure UI is mounted before applying updates.
-      await promptReady;
-      const prepared = await intentPreparation;
+    let decisionResolved = false;
+    let intentPreparationApplied = false;
+    const applyPreparedIntentToUi = (prepared: IntentDigestPreparationResult): void => {
       resolvedIntentDigest = String(prepared.intentDigest || '').trim() || resolvedIntentDigest;
       resolvedChallengeB64u = String(prepared.challengeB64u || '').trim() || resolvedChallengeB64u;
       session.updateUI({
@@ -283,9 +283,35 @@ export async function handleIntentDigestSigningFlow(
         ...(prepared.body ? { body: prepared.body } : {}),
         loading: false,
       });
+      intentPreparationApplied = true;
+    };
+    const preparedIntentPromise = intentPreparation
+      ? (async () => {
+          // Ensure UI is mounted before applying updates.
+          await promptReady;
+          return await intentPreparation;
+        })()
+      : undefined;
+    if (preparedIntentPromise) {
+      void preparedIntentPromise
+        .then((prepared) => {
+          if (decisionResolved || intentPreparationApplied) return;
+          applyPreparedIntentToUi(prepared);
+        })
+        .catch((error: unknown) => {
+          if (decisionResolved) return;
+          session.updateUI({
+            loading: false,
+            errorMessage: String(toError(error)?.message || error || 'Failed to prepare intent'),
+          });
+        });
     }
 
+    // Ordering matters: resolve user decision first so "Cancel" can close immediately
+    // even while digest/challenge preparation is still running. Only confirmed flows
+    // are allowed to wait for prepared intent data.
     const { confirmed, error: uiError } = await promptDecisionPromise;
+    decisionResolved = true;
     if (!confirmed) {
       if (requiresExplicitConfirmClick) {
         sendConfirmProgress(worker, {
@@ -302,6 +328,13 @@ export async function handleIntentDigestSigningFlow(
         confirmed: false,
         error: uiError,
       });
+    }
+
+    if (preparedIntentPromise) {
+      const prepared = await preparedIntentPromise;
+      if (!intentPreparationApplied) {
+        applyPreparedIntentToUi(prepared);
+      }
     }
 
     if (signingAuthMode === 'warmSession') {
