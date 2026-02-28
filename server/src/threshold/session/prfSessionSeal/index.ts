@@ -21,6 +21,9 @@ export type {
   PrfSessionSealGuardInput,
   PrfSessionSealGuard,
   PrfSessionSealGuardResult,
+  PrfSessionSealIdempotencyBeginResult,
+  PrfSessionSealIdempotencyOptions,
+  PrfSessionSealIdempotencyStore,
   PrfSessionSealOperation,
   PrfSessionSealRemoveServerSealRequest,
   PrfSessionSealRouteHeaders,
@@ -68,6 +71,10 @@ export { createPrfSessionSealPolicyFromEcdsaAuthSessionStore } from './policy/se
 export { createPrfSessionSealAuditLogger } from './observability/audit';
 export { createPrfSessionSealRoutesOptions } from './routesOptions';
 export { createPrfSessionSealOptions } from './options';
+export {
+  createInMemoryPrfSessionSealIdempotencyStore,
+  createPostgresPrfSessionSealIdempotencyStore,
+} from './idempotency';
 export {
   createInMemoryPrfSessionSealRateLimiter,
   createPrfSessionSealRateLimitGuard,

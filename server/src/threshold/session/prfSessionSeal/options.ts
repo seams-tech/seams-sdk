@@ -55,7 +55,7 @@ export function createPrfSessionSealOptions(input: CreatePrfSessionSealOptionsIn
   const enabled = parseBooleanFlag(input.enabled, true);
   if (!enabled) return null;
 
-  const keyVersion = String(input.keyVersion || 'kek-s-2026-02').trim();
+  const keyVersion = String(input.keyVersion || '').trim();
   if (!keyVersion) {
     throw new Error(
       'PRF_SESSION_SEAL_KEY_VERSION must be a non-empty string when PRF_SESSION_SEAL_ENABLED is enabled',
@@ -76,6 +76,8 @@ export function createPrfSessionSealOptions(input: CreatePrfSessionSealOptionsIn
       serverEncryptExponentB64u: input.serverEncryptExponentB64u,
       serverDecryptExponentB64u: input.serverDecryptExponentB64u,
     }),
+    requiredRequestKeyVersion: keyVersion,
+    requiredRequestShamirPrimeB64u: input.shamirPrimeB64u,
     logger: console,
   });
 }

@@ -65,6 +65,11 @@ function resolveSigningSessionSeal(args: {
     toTrimmedString(args.overrides.signingSessionSeal?.shamirPrimeB64u) ||
     toTrimmedString(args.defaults.signing.sessionSeal.shamirPrimeB64u);
 
+  if (!keyVersion) {
+    throw new Error(
+      '[configPresets] Missing required config: signingSessionSeal.keyVersion when signingSessionPersistenceMode="sealed_refresh_v1"',
+    );
+  }
   if (!shamirPrimeB64u) {
     throw new Error(
       '[configPresets] Missing required config: signingSessionSeal.shamirPrimeB64u when signingSessionPersistenceMode="sealed_refresh_v1"',

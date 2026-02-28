@@ -2,6 +2,8 @@ import type {
   CreatePrfSessionSealServiceOptions,
   PrfSessionSealConsumePolicy,
   PrfSessionSealConsumeUseResult,
+  PrfSessionSealIdempotencyOptions,
+  PrfSessionSealIdempotencyStore,
   PrfSessionSealOperation,
   PrfSessionSealRouteResult,
   PrfSessionSealService,
@@ -24,6 +26,23 @@ function toNonNegativeInt(value: unknown): number | undefined {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return undefined;
   return Math.max(0, Math.floor(parsed));
+}
+
+function toPositiveInt(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.max(1, Math.floor(parsed));
+}
+
+function toOptionalTrimmedString(value: unknown): string | undefined {
+  const out = String(value || '').trim();
+  return out || undefined;
+}
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, Math.max(0, Math.floor(ms)));
+  });
 }
 
 function isExpired(session: PrfSessionSealThresholdSessionRecord, nowMs: number): boolean {
@@ -177,6 +196,53 @@ async function runSealOperation(input: {
   };
 
   try {
+    const requiredRequestKeyVersion = toOptionalTrimmedString(input.options.requiredRequestKeyVersion);
+    if (requiredRequestKeyVersion) {
+      const requestKeyVersion = toOptionalTrimmedString(input.request.keyVersion);
+      if (!requestKeyVersion) {
+        result = {
+          ok: false,
+          code: 'invalid_args',
+          message: 'keyVersion is required',
+        };
+        return result;
+      }
+      if (requestKeyVersion !== requiredRequestKeyVersion) {
+        result = {
+          ok: false,
+          code: 'conflict',
+          message: `keyVersion mismatch: expected "${requiredRequestKeyVersion}"`,
+        };
+        return result;
+      }
+    }
+
+    const requiredRequestShamirPrimeB64u = toOptionalTrimmedString(
+      input.options.requiredRequestShamirPrimeB64u,
+    );
+    if (requiredRequestShamirPrimeB64u) {
+      const requestShamirPrimeB64u = toOptionalTrimmedString(
+        (input.request.metadata as { clientShamirPrimeB64u?: unknown } | undefined)
+          ?.clientShamirPrimeB64u,
+      );
+      if (!requestShamirPrimeB64u) {
+        result = {
+          ok: false,
+          code: 'invalid_args',
+          message: 'metadata.clientShamirPrimeB64u is required',
+        };
+        return result;
+      }
+      if (requestShamirPrimeB64u !== requiredRequestShamirPrimeB64u) {
+        result = {
+          ok: false,
+          code: 'conflict',
+          message: 'shamirPrimeB64u mismatch',
+        };
+        return result;
+      }
+    }
+
     emitOperationRequestLog({
       options: input.options,
       operation: input.operation,
@@ -306,10 +372,30 @@ async function runSealOperation(input: {
   }
 }
 
+async function waitForIdempotencyResult(input: {
+  store: PrfSessionSealIdempotencyStore;
+  key: string;
+  nowMs: () => number;
+  waitForPendingMs: number;
+  pollIntervalMs: number;
+}): Promise<PrfSessionSealRouteResult | null> {
+  const deadlineMs = input.nowMs() + Math.max(0, Math.floor(input.waitForPendingMs));
+  while (input.nowMs() < deadlineMs) {
+    const result = await input.store.getResult({
+      key: input.key,
+      nowMs: input.nowMs(),
+    });
+    if (result) return result;
+    await sleepMs(input.pollIntervalMs);
+  }
+  return null;
+}
+
 export function createPrfSessionSealService(
   options: CreatePrfSessionSealServiceOptions,
 ): PrfSessionSealService {
   const singleFlight = new Map<string, Promise<PrfSessionSealRouteResult>>();
+  const idempotency: PrfSessionSealIdempotencyOptions | undefined = options.idempotency;
 
   const runWithSingleFlight = async (
     operation: PrfSessionSealOperation,
@@ -336,16 +422,85 @@ export function createPrfSessionSealService(
       return await inFlight;
     }
 
-    const task = runSealOperation({
-      options,
-      operation,
-      request,
-      auth,
-    }).finally(() => {
+    const runTask = async (): Promise<PrfSessionSealRouteResult> =>
+      await runSealOperation({
+        options,
+        operation,
+        request,
+        auth,
+      });
+    const guardedTask = (async (): Promise<PrfSessionSealRouteResult> => {
+      if (!idempotency) {
+        return await runTask();
+      }
+
+      const pendingTtlMs = toPositiveInt(idempotency.pendingTtlMs, 5_000);
+      const resultTtlMs = toPositiveInt(idempotency.resultTtlMs, 60_000);
+      const waitForPendingMs = toPositiveInt(idempotency.waitForPendingMs, 2_000);
+      const pollIntervalMs = toPositiveInt(idempotency.pollIntervalMs, 50);
+
+      const begin = await idempotency.store.begin({
+        key: singleFlightKey,
+        nowMs: (options.nowMs || Date.now)(),
+        pendingTtlMs,
+      });
+      if (!begin.acquired) {
+        if (begin.result) {
+          options.logger?.info(`${PRF_SEAL_LOG_LABEL} idempotency_hit`, {
+            operation,
+            thresholdSessionId: request.thresholdSessionId,
+            userId: auth.userId,
+          });
+          return begin.result;
+        }
+        if (begin.pending) {
+          const waited = await waitForIdempotencyResult({
+            store: idempotency.store,
+            key: singleFlightKey,
+            nowMs: options.nowMs || Date.now,
+            waitForPendingMs,
+            pollIntervalMs,
+          });
+          if (waited) {
+            options.logger?.info(`${PRF_SEAL_LOG_LABEL} idempotency_wait_hit`, {
+              operation,
+              thresholdSessionId: request.thresholdSessionId,
+              userId: auth.userId,
+            });
+            return waited;
+          }
+
+          const retryBegin = await idempotency.store.begin({
+            key: singleFlightKey,
+            nowMs: (options.nowMs || Date.now)(),
+            pendingTtlMs,
+          });
+          if (!retryBegin.acquired) {
+            if (retryBegin.result) return retryBegin.result;
+            return {
+              ok: false,
+              code: 'conflict',
+              message: 'Equivalent PRF seal request is already in progress',
+            };
+          }
+        }
+      }
+
+      const result = await runTask();
+      await idempotency.store
+        .complete({
+          key: singleFlightKey,
+          nowMs: (options.nowMs || Date.now)(),
+          resultTtlMs,
+          result,
+        })
+        .catch(() => undefined);
+      return result;
+    })().finally(() => {
       singleFlight.delete(singleFlightKey);
     });
-    singleFlight.set(singleFlightKey, task);
-    return await task;
+    singleFlight.set(singleFlightKey, guardedTask);
+    return await guardedTask;
   };
 
   return {

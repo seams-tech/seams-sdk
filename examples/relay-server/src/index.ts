@@ -2,6 +2,7 @@ import express, { Express } from 'express';
 import {
   AuthService,
   createEcdsaAuthSessionStore,
+  createPostgresPrfSessionSealIdempotencyStore,
   createPrfSessionSealPolicyFromEcdsaAuthSessionStore,
   createPrfSessionSealRoutesOptions,
   createPrfSessionSealShamir3PassCipherAdapter,
@@ -186,7 +187,7 @@ async function main() {
     const shamirPrimeB64u = requireEnvVar(env, 'SHAMIR_P_B64U');
     const serverEncryptExponentB64u = requireEnvVar(env, 'SHAMIR_E_S_B64U');
     const serverDecryptExponentB64u = requireEnvVar(env, 'SHAMIR_D_S_B64U');
-    const keyVersion = String(env.PRF_SESSION_SEAL_KEY_VERSION || 'kek-s-2026-02').trim();
+    const keyVersion = requireEnvVar(env, 'PRF_SESSION_SEAL_KEY_VERSION');
     if (!keyVersion) {
       throw new Error(
         'PRF_SESSION_SEAL_KEY_VERSION must be a non-empty string when PRF_SESSION_SEAL_ENABLED=1',
@@ -212,6 +213,19 @@ async function main() {
       windowMs: parseOptionalPositiveInteger(env.PRF_SESSION_SEAL_RATE_LIMIT_WINDOW_MS) || 60_000,
     });
 
+    const idempotency = (() => {
+      if (!postgresUrl) return undefined;
+      const namespace = String(
+        env.PRF_SESSION_SEAL_IDEMPOTENCY_NAMESPACE || 'threshold-prf-seal',
+      ).trim();
+      return {
+        store: createPostgresPrfSessionSealIdempotencyStore({
+          postgresUrl,
+          namespace,
+        }),
+      };
+    })();
+
     return createPrfSessionSealRoutesOptions({
       sessionPolicy: createPrfSessionSealPolicyFromEcdsaAuthSessionStore(ecdsaAuthSessionStore),
       cipher: createPrfSessionSealShamir3PassCipherAdapter({
@@ -226,6 +240,9 @@ async function main() {
         ],
       }),
       rateLimit,
+      ...(idempotency ? { idempotency } : {}),
+      requiredRequestKeyVersion: keyVersion,
+      requiredRequestShamirPrimeB64u: shamirPrimeB64u,
       logger: console,
     });
   })();

@@ -24,11 +24,13 @@ import { resolveWorkerUrl } from '../../walletRuntimePaths';
 import {
   clearAllPrfSessionSealedRecords,
   deletePrfSessionSealedRecord,
+  listPrfSessionSealedRecordSessionIds,
   readPrfSessionSealedRecord,
   updatePrfSessionSealedRecordPolicy,
   writePrfSessionSealedRecord,
 } from '../api/session/prfSessionSealedStore';
 import {
+  getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId,
 } from '../api/thresholdLifecycle/thresholdSessionStore';
 import { emitThresholdSessionMetric } from '../api/thresholdLifecycle/thresholdSessionMetrics';
@@ -236,6 +238,20 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     this.context = {
       ...context,
     };
+    if (this.config.signingSessionPersistenceMode === 'sealed_refresh_v1') {
+      const keyVersion = String(this.config.prfSessionSealKeyVersion || '').trim();
+      const shamirPrimeB64u = String(this.config.prfSessionSealShamirPrimeB64u || '').trim();
+      if (!keyVersion) {
+        throw new Error(
+          '[TouchConfirm] Missing prfSessionSealKeyVersion when signingSessionPersistenceMode="sealed_refresh_v1"',
+        );
+      }
+      if (!shamirPrimeB64u) {
+        throw new Error(
+          '[TouchConfirm] Missing prfSessionSealShamirPrimeB64u when signingSessionPersistenceMode="sealed_refresh_v1"',
+        );
+      }
+    }
   }
 
   /** Context used by touchConfirm confirmation flows. */
@@ -282,6 +298,50 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     };
   }
 
+  private resolveNearAccountIdForThresholdSession(thresholdSessionIdRaw: string): string | null {
+    const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
+    if (!thresholdSessionId) return null;
+    const ecdsaAuth = resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId({
+      thresholdSessionId,
+    });
+    const ecdsaNearAccountId = String(ecdsaAuth?.record?.nearAccountId || '').trim();
+    if (ecdsaNearAccountId) return ecdsaNearAccountId;
+    const ed25519Record = getStoredThresholdEd25519SessionRecordByThresholdSessionId(
+      thresholdSessionId,
+    );
+    const ed25519NearAccountId = String(ed25519Record?.nearAccountId || '').trim();
+    if (ed25519NearAccountId) return ed25519NearAccountId;
+    return null;
+  }
+
+  private findFallbackSealedThresholdSessionId(targetThresholdSessionIdRaw: string): string | null {
+    const targetThresholdSessionId = String(targetThresholdSessionIdRaw || '').trim();
+    if (!targetThresholdSessionId) return null;
+    const targetNearAccountId = this.resolveNearAccountIdForThresholdSession(targetThresholdSessionId);
+    if (!targetNearAccountId) return null;
+
+    let best: { thresholdSessionId: string; updatedAtMs: number } | null = null;
+    for (const candidateSessionIdRaw of listPrfSessionSealedRecordSessionIds()) {
+      const candidateThresholdSessionId = String(candidateSessionIdRaw || '').trim();
+      if (!candidateThresholdSessionId || candidateThresholdSessionId === targetThresholdSessionId) {
+        continue;
+      }
+      const candidateNearAccountId = this.resolveNearAccountIdForThresholdSession(
+        candidateThresholdSessionId,
+      );
+      if (!candidateNearAccountId || candidateNearAccountId !== targetNearAccountId) continue;
+      const candidateRecord = readPrfSessionSealedRecord(candidateThresholdSessionId);
+      if (!candidateRecord) continue;
+      if (!best || candidateRecord.updatedAtMs > best.updatedAtMs) {
+        best = {
+          thresholdSessionId: candidateThresholdSessionId,
+          updatedAtMs: candidateRecord.updatedAtMs,
+        };
+      }
+    }
+    return best?.thresholdSessionId || null;
+  }
+
   private async ensureSealedRecordPersistedBestEffort(
     thresholdSessionIdRaw: string,
   ): Promise<void> {
@@ -317,15 +377,22 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     }
 
     const task = (async (): Promise<ThresholdPrfCachePeekResult | null> => {
-      const sealedRecord = readPrfSessionSealedRecord(thresholdSessionId);
+      let sourceThresholdSessionId = thresholdSessionId;
+      let sealedRecord = readPrfSessionSealedRecord(sourceThresholdSessionId);
+      if (!sealedRecord) {
+        const fallbackSessionId = this.findFallbackSealedThresholdSessionId(thresholdSessionId);
+        if (!fallbackSessionId) return null;
+        sourceThresholdSessionId = fallbackSessionId;
+        sealedRecord = readPrfSessionSealedRecord(sourceThresholdSessionId);
+      }
       if (!sealedRecord) return null;
       if (sealedRecord.remainingUses <= 0 || Date.now() >= sealedRecord.expiresAtMs) {
-        deletePrfSessionSealedRecord(thresholdSessionId);
+        deletePrfSessionSealedRecord(sourceThresholdSessionId);
         emitThresholdSessionMetric({
           metric: 'rehydrate_fail',
           curve: 'ecdsa',
           source: 'prf-sealed-record',
-          sessionId: thresholdSessionId,
+          sessionId: sourceThresholdSessionId,
           reason: 'sealed_record_expired_or_exhausted',
         });
         return {
@@ -335,13 +402,13 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         };
       }
 
-      const transport = this.resolveSealTransportInput(thresholdSessionId);
+      const transport = this.resolveSealTransportInput(sourceThresholdSessionId);
       if (!transport) {
         emitThresholdSessionMetric({
           metric: 'rehydrate_fail',
           curve: 'ecdsa',
           source: 'prf-sealed-record',
-          sessionId: thresholdSessionId,
+          sessionId: sourceThresholdSessionId,
           reason: 'seal_transport_missing',
         });
         return null;
@@ -351,14 +418,14 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
           metric: 'rehydrate_fail',
           curve: 'ecdsa',
           source: 'prf-sealed-record',
-          sessionId: thresholdSessionId,
+          sessionId: sourceThresholdSessionId,
           reason: 'shamir_prime_missing',
         });
         return null;
       }
 
       const rehydrated = await this.rehydratePrfFirstForThresholdSession({
-        sessionId: thresholdSessionId,
+        sessionId: sourceThresholdSessionId,
         sealedPrfFirstB64u: sealedRecord.sealedPrfFirstB64u,
         keyVersion: sealedRecord.keyVersion,
         expiresAtMs: sealedRecord.expiresAtMs,
@@ -366,23 +433,43 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         transport,
       });
       if (!rehydrated.ok) {
-        deletePrfSessionSealedRecord(thresholdSessionId);
+        deletePrfSessionSealedRecord(sourceThresholdSessionId);
         emitThresholdSessionMetric({
           metric: 'rehydrate_fail',
           curve: 'ecdsa',
           source: 'prf-sealed-record',
-          sessionId: thresholdSessionId,
+          sessionId: sourceThresholdSessionId,
           reason: String(rehydrated.code || 'rehydrate_failed'),
         });
         return { ok: false, code: rehydrated.code, message: rehydrated.message };
       }
 
       updatePrfSessionSealedRecordPolicy({
-        thresholdSessionId,
+        thresholdSessionId: sourceThresholdSessionId,
         expiresAtMs: rehydrated.expiresAtMs,
         remainingUses: rehydrated.remainingUses,
         updatedAtMs: Date.now(),
       });
+
+      if (sourceThresholdSessionId !== thresholdSessionId) {
+        const transferred = await this.transferPrfFirstForThresholdSession({
+          fromSessionId: sourceThresholdSessionId,
+          toSessionId: thresholdSessionId,
+        });
+        if (!transferred.ok) {
+          emitThresholdSessionMetric({
+            metric: 'rehydrate_fail',
+            curve: 'ecdsa',
+            source: 'prf-sealed-record',
+            sessionId: thresholdSessionId,
+            reason: String(transferred.code || 'transfer_failed'),
+          });
+          return transferred;
+        }
+        await this.persistPrfFirstSealForThresholdSession({
+          sessionId: thresholdSessionId,
+        }).catch(() => undefined);
+      }
 
       const rehydratedPeek = await this.sendMessage({
         type: 'THRESHOLD_PRF_FIRST_CACHE_PEEK',
@@ -563,15 +650,16 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
 
     const sourceRecord = readPrfSessionSealedRecord(fromSessionId);
     if (sourceRecord) {
-      writePrfSessionSealedRecord({
-        thresholdSessionId: toSessionId,
-        sealedPrfFirstB64u: sourceRecord.sealedPrfFirstB64u,
-        keyVersion: sourceRecord.keyVersion,
-        expiresAtMs: sourceRecord.expiresAtMs,
-        remainingUses: sourceRecord.remainingUses,
-        updatedAtMs: Date.now(),
-      });
-      deletePrfSessionSealedRecord(fromSessionId);
+      if (!this.isSealedRefreshModeEnabled()) {
+        deletePrfSessionSealedRecord(fromSessionId);
+      } else {
+        const persisted = await this.persistPrfFirstSealForThresholdSession({
+          sessionId: toSessionId,
+        });
+        if (persisted.ok || persisted.code === 'not_enabled') {
+          deletePrfSessionSealedRecord(fromSessionId);
+        }
+      }
     }
 
     return parsed;
@@ -646,6 +734,13 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
           ok: false,
           code: 'invalid_args',
           message: 'Missing relayerUrl for PRF session seal persistence',
+        };
+      }
+      if (!keyVersion) {
+        return {
+          ok: false,
+          code: 'invalid_args',
+          message: 'Missing keyVersion for PRF session seal persistence',
         };
       }
       if (!shamirPrimeB64u) {

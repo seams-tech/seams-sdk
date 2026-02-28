@@ -10,6 +10,7 @@ import type {
   PrfSessionSealCipherAdapter,
   PrfSessionSealConsumePolicy,
   PrfSessionSealGuard,
+  PrfSessionSealIdempotencyOptions,
   PrfSessionSealRoutesOptions,
   PrfSessionSealThresholdSessionPolicy,
 } from './types';
@@ -26,6 +27,9 @@ export interface CreatePrfSessionSealRoutesOptionsInput {
   guards?: Array<PrfSessionSealGuard | null | undefined>;
   rateLimit?: Omit<CreatePrfSessionSealRateLimitGuardOptions, 'nowMs'>;
   audit?: PrfSessionSealAuditSink | null;
+  idempotency?: PrfSessionSealIdempotencyOptions;
+  requiredRequestKeyVersion?: string;
+  requiredRequestShamirPrimeB64u?: string;
   logger?: NormalizedLogger | null;
   auditLogger?: Omit<CreatePrfSessionSealAuditLoggerOptions, 'logger'> | null;
   authorize?: (
@@ -80,6 +84,13 @@ export function createPrfSessionSealRoutesOptions(
     ...(input.consumePolicy ? { consumePolicy: input.consumePolicy } : {}),
     ...(guard ? { guard } : {}),
     ...(audit ? { audit } : {}),
+    ...(input.idempotency ? { idempotency: input.idempotency } : {}),
+    ...(input.requiredRequestKeyVersion
+      ? { requiredRequestKeyVersion: input.requiredRequestKeyVersion }
+      : {}),
+    ...(input.requiredRequestShamirPrimeB64u
+      ? { requiredRequestShamirPrimeB64u: input.requiredRequestShamirPrimeB64u }
+      : {}),
     ...(input.logger ? { logger: input.logger } : {}),
     ...(input.nowMs ? { nowMs: input.nowMs } : {}),
   };
