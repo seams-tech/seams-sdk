@@ -36,12 +36,30 @@ function messageIncludesNonceLaneBlocked(error: unknown): boolean {
   return message.includes('nonce lane blocked');
 }
 
+function extractDroppedOrReplacedReason(error: unknown): 'dropped' | 'replaced' | null {
+  if (!error || typeof error !== 'object') return null;
+  if (!hasErrorCode(error, 'tx_dropped_or_replaced')) return null;
+  const reason = normalizeToken((error as { reason?: unknown }).reason);
+  if (reason === 'replaced') return 'replaced';
+  return 'dropped';
+}
+
 export async function reportTempoBroadcastFailure(args: ReportTempoBroadcastFailureArgs) {
   const { tatchi, nearAccountId, signedResult, error, flow, broadcastAccepted, txHash } = args;
   if (!signedResult || !nearAccountId) return;
 
   try {
     if (broadcastAccepted) {
+      const droppedOrReplacedReason = extractDroppedOrReplacedReason(error);
+      if (droppedOrReplacedReason) {
+        await tatchi.tempo.reportDroppedOrReplaced({
+          nearAccountId,
+          signedResult,
+          reason: droppedOrReplacedReason,
+          ...(txHash ? { txHash } : {}),
+        });
+        return;
+      }
       try {
         await tatchi.tempo.reconcileNonceLane({
           nearAccountId,

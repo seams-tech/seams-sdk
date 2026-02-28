@@ -74,6 +74,68 @@ test.describe('reportTempoBroadcastFailure', () => {
     expect(result.droppedTxHash).toBe(`0x${'ab'.repeat(32)}`);
   });
 
+  test('marks accepted lanes dropped immediately for tx_dropped_or_replaced errors', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(async ({ helperPath }) => {
+      const { reportTempoBroadcastFailure } = await import(helperPath);
+      const txHash = `0x${'cd'.repeat(32)}` as `0x${string}`;
+      const calls = {
+        reconcile: 0,
+        dropped: 0,
+        rejected: 0,
+        droppedReason: '',
+      };
+
+      const droppedOrReplacedError = new Error('Transaction dropped or replaced');
+      (droppedOrReplacedError as Error & { code?: string; reason?: string }).code =
+        'tx_dropped_or_replaced';
+      (droppedOrReplacedError as Error & { code?: string; reason?: string }).reason = 'replaced';
+
+      await reportTempoBroadcastFailure({
+        tatchi: {
+          tempo: {
+            reconcileNonceLane: async () => {
+              calls.reconcile += 1;
+              return {
+                chainNextNonce: '0',
+                unresolvedInFlightNonces: [],
+                blocked: false,
+              };
+            },
+            reportDroppedOrReplaced: async (input: any) => {
+              calls.dropped += 1;
+              calls.droppedReason = String(input?.reason || '');
+            },
+            reportBroadcastRejected: async () => {
+              calls.rejected += 1;
+            },
+          },
+        } as any,
+        nearAccountId: 'alice.testnet',
+        signedResult: {
+          chain: 'evm',
+          kind: 'eip1559',
+          txHashHex: `0x${'11'.repeat(32)}` as `0x${string}`,
+          rawTxHex: '0x02',
+        } as any,
+        error: droppedOrReplacedError,
+        flow: 'tempo-sign',
+        broadcastAccepted: true,
+        txHash,
+      });
+
+      return calls;
+    }, {
+      helperPath: HELPER_IMPORT_PATH,
+    });
+
+    expect(result.reconcile).toBe(0);
+    expect(result.dropped).toBe(1);
+    expect(result.rejected).toBe(0);
+    expect(result.droppedReason).toBe('replaced');
+  });
+
   test('keeps accepted lanes untouched when reconcile succeeds', async ({ page }) => {
     const result = await page.evaluate(async ({ helperPath }) => {
       const { reportTempoBroadcastFailure } = await import(helperPath);

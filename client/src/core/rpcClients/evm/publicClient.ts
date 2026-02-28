@@ -10,10 +10,18 @@ export type EvmTransactionReceipt = {
   gasUsed?: string | null;
 };
 
+export type EvmTransactionByHash = {
+  blockNumber?: string | null;
+  from?: string | null;
+  nonce?: string | null;
+};
+
 export type EvmBlockHeader = {
   number?: string | null;
   baseFeePerGas?: string | null;
 };
+
+export type EvmBlockTag = 'latest' | 'pending' | 'safe' | 'finalized' | 'earliest';
 
 export type WaitForEvmTransactionReceiptArgs = {
   txHash: `0x${string}`;
@@ -21,6 +29,7 @@ export type WaitForEvmTransactionReceiptArgs = {
   pollIntervalMs?: number;
   signal?: AbortSignal;
   maxFeePerGasHint?: bigint;
+  confirmations?: number;
 };
 
 export interface EvmPublicClient {
@@ -34,15 +43,25 @@ export interface EvmPublicClient {
     timeoutMs?: number;
   }): Promise<EvmTransactionReceipt | null>;
   getBlockByNumber(args: {
-    blockTag: 'latest' | 'pending' | 'safe' | 'finalized' | 'earliest';
+    blockTag: EvmBlockTag;
     timeoutMs?: number;
   }): Promise<EvmBlockHeader | null>;
+  getTransactionByHash(args: {
+    txHash: `0x${string}`;
+    timeoutMs?: number;
+  }): Promise<EvmTransactionByHash | null>;
+  getTransactionCount(args: {
+    address: `0x${string}`;
+    blockTag?: EvmBlockTag;
+    timeoutMs?: number;
+  }): Promise<bigint>;
   waitForTransactionReceipt(args: WaitForEvmTransactionReceiptArgs): Promise<EvmTransactionReceipt>;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_WAIT_TIMEOUT_MS = 90_000;
 const DEFAULT_POLL_INTERVAL_MS = 1_250;
+const DEFAULT_CONFIRMATIONS = 1;
 
 function toAbortError(signal?: AbortSignal): Error {
   const reason = signal?.reason;
@@ -89,6 +108,16 @@ function formatWeiToGwei(value: bigint): string {
   if (remainder === 0n) return gwei.toString();
   const fractional = remainder.toString().padStart(9, '0').replace(/0+$/, '');
   return `${gwei.toString()}.${fractional}`;
+}
+
+function toAddressOrNull(value: unknown): `0x${string}` | null {
+  const normalized = String(value || '').trim();
+  return /^0x[0-9a-fA-F]{40}$/.test(normalized) ? (normalized as `0x${string}`) : null;
+}
+
+function toHexQuantityOrNull(value: unknown): string | null {
+  const normalized = String(value || '').trim();
+  return /^0x[0-9a-fA-F]+$/.test(normalized) ? normalized : null;
 }
 
 export function parseRpcHexQuantity(value: string, label: string): bigint {
@@ -269,7 +298,7 @@ export function createEvmPublicClient(args: {
     });
 
   const getBlockByNumber = async (blockArgs: {
-    blockTag: 'latest' | 'pending' | 'safe' | 'finalized' | 'earliest';
+    blockTag: EvmBlockTag;
     timeoutMs?: number;
   }): Promise<EvmBlockHeader | null> =>
     await request<EvmBlockHeader | null>({
@@ -277,6 +306,29 @@ export function createEvmPublicClient(args: {
       params: [blockArgs.blockTag, false],
       ...(blockArgs.timeoutMs != null ? { timeoutMs: blockArgs.timeoutMs } : {}),
     });
+
+  const getTransactionByHash = async (txArgs: {
+    txHash: `0x${string}`;
+    timeoutMs?: number;
+  }): Promise<EvmTransactionByHash | null> =>
+    await request<EvmTransactionByHash | null>({
+      method: 'eth_getTransactionByHash',
+      params: [txArgs.txHash],
+      ...(txArgs.timeoutMs != null ? { timeoutMs: txArgs.timeoutMs } : {}),
+    });
+
+  const getTransactionCount = async (countArgs: {
+    address: `0x${string}`;
+    blockTag?: EvmBlockTag;
+    timeoutMs?: number;
+  }): Promise<bigint> => {
+    const quantity = await request<string>({
+      method: 'eth_getTransactionCount',
+      params: [countArgs.address, countArgs.blockTag ?? 'latest'],
+      ...(countArgs.timeoutMs != null ? { timeoutMs: countArgs.timeoutMs } : {}),
+    });
+    return parseRpcHexQuantity(quantity, 'eth_getTransactionCount');
+  };
 
   const waitForTransactionReceipt = async (
     waitArgs: WaitForEvmTransactionReceiptArgs,
@@ -289,9 +341,15 @@ export function createEvmPublicClient(args: {
       1,
       Math.floor(Number(waitArgs.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS) || 0),
     );
+    const confirmations = Math.max(
+      1,
+      Math.floor(Number(waitArgs.confirmations ?? DEFAULT_CONFIRMATIONS) || 0),
+    );
     const deadline = Date.now() + timeoutMs;
     let lastRpcError: string | null = null;
     let underpricedSinceMs: number | null = null;
+    let observedTxFrom: `0x${string}` | null = null;
+    let observedTxNonce: bigint | null = null;
 
     while (Date.now() < deadline) {
       throwIfAborted(waitArgs.signal);
@@ -308,7 +366,71 @@ export function createEvmPublicClient(args: {
       }
 
       if (receipt && typeof receipt === 'object' && typeof receipt.blockNumber === 'string') {
-        return receipt;
+        const receiptBlockHex = toHexQuantityOrNull(receipt.blockNumber);
+        if (!receiptBlockHex) {
+          throw new Error('Receipt missing valid blockNumber');
+        }
+        const receiptBlockNumber = parseRpcHexQuantity(receiptBlockHex, 'receipt.blockNumber');
+        if (confirmations <= 1) {
+          return receipt;
+        }
+        const remainingMs = Math.max(1, deadline - Date.now());
+        const latestBlock = await getBlockByNumber({
+          blockTag: 'latest',
+          timeoutMs: Math.min(requestTimeoutMs, remainingMs),
+        }).catch(() => null);
+        const latestBlockHex = toHexQuantityOrNull(latestBlock?.number);
+        if (latestBlockHex) {
+          const latestBlockNumber = parseRpcHexQuantity(latestBlockHex, 'latest.number');
+          if (latestBlockNumber >= receiptBlockNumber) {
+            const minedDepth = latestBlockNumber - receiptBlockNumber + 1n;
+            if (minedDepth >= BigInt(confirmations)) {
+              return receipt;
+            }
+          }
+        }
+        await sleepWithAbort(pollIntervalMs, waitArgs.signal);
+        continue;
+      }
+
+      if (observedTxFrom === null || observedTxNonce === null) {
+        const remainingMs = Math.max(1, deadline - Date.now());
+        const tx = await getTransactionByHash({
+          txHash: waitArgs.txHash,
+          timeoutMs: Math.min(requestTimeoutMs, remainingMs),
+        }).catch(() => null);
+        const txFrom = toAddressOrNull(tx?.from);
+        const txNonceHex = toHexQuantityOrNull(tx?.nonce);
+        if (txFrom && txNonceHex) {
+          observedTxFrom = txFrom;
+          observedTxNonce = parseRpcHexQuantity(txNonceHex, 'tx.nonce');
+        }
+      }
+
+      if (observedTxFrom && observedTxNonce !== null) {
+        const remainingMs = Math.max(1, deadline - Date.now());
+        const latestNonce = await getTransactionCount({
+          address: observedTxFrom,
+          blockTag: 'latest',
+          timeoutMs: Math.min(requestTimeoutMs, remainingMs),
+        }).catch(() => null);
+        if (latestNonce !== null && latestNonce > observedTxNonce) {
+          const error = new Error(
+            `Transaction dropped or replaced: account nonce advanced past tx nonce (${observedTxNonce.toString()} -> ${latestNonce.toString()}).`,
+          ) as Error & {
+            code?: string;
+            reason?: 'dropped' | 'replaced';
+            txNonce?: string;
+            latestNonce?: string;
+            txFrom?: string;
+          };
+          error.code = 'tx_dropped_or_replaced';
+          error.reason = 'dropped';
+          error.txNonce = observedTxNonce.toString();
+          error.latestNonce = latestNonce.toString();
+          error.txFrom = observedTxFrom;
+          throw error;
+        }
       }
 
       if (typeof waitArgs.maxFeePerGasHint === 'bigint') {
@@ -353,6 +475,8 @@ export function createEvmPublicClient(args: {
     request,
     getTransactionReceipt,
     getBlockByNumber,
+    getTransactionByHash,
+    getTransactionCount,
     waitForTransactionReceipt,
   };
 }
