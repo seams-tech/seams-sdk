@@ -12,7 +12,7 @@ import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   upsertStoredThresholdEd25519SessionRecord,
   type ThresholdEd25519SessionStoreSource,
-} from '../../api/thresholdLifecycle/thresholdEd25519SessionStore';
+} from '../../api/thresholdLifecycle/thresholdSessionStore';
 
 export type Ed25519SessionKind = 'jwt' | 'cookie';
 

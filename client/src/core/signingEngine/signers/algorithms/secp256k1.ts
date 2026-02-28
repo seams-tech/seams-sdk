@@ -23,7 +23,7 @@ import {
 } from '../../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import type { ThresholdEcdsaClientPresignatureRefillScheduleResult } from '../../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import { getStoredThresholdEcdsaSessionRecordByThresholdSessionId } from '../../api/thresholdLifecycle/thresholdEcdsaSessionStore';
+import { getStoredThresholdEcdsaSessionRecordByThresholdSessionId } from '../../api/thresholdLifecycle/thresholdSessionStore';
 
 type EcdsaSessionKind = 'jwt' | 'cookie';
 

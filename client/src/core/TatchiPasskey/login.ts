@@ -18,7 +18,7 @@ import { createWebAuthnLoginOptions, verifyWebAuthnLogin } from '../rpcClients/n
 import { parseDeviceNumber } from '../signingEngine/signers/webauthn/device/getDeviceNumber';
 import { clearAllCachedEd25519AuthSessions } from '../signingEngine/threshold/session/ed25519AuthSession';
 import { clearAllCachedEcdsaAuthSessions } from '../signingEngine/threshold/session/ecdsaAuthSession';
-import { clearAllStoredThresholdEd25519SessionRecords } from '../signingEngine/api/thresholdLifecycle/thresholdEd25519SessionStore';
+import { clearAllStoredThresholdEd25519SessionRecords } from '../signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import { shouldRequireThresholdWarmSession } from './thresholdWarmSessionDefaults';
 
 /**

@@ -4,7 +4,7 @@ import { setupBasicPasskeyTest } from '../setup';
 const IMPORT_PATHS = {
   ed25519AuthSession: '/sdk/esm/core/signingEngine/threshold/session/ed25519AuthSession.js',
   thresholdEd25519SessionStore:
-    '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdEd25519SessionStore.js',
+    '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js',
 } as const;
 
 test.describe('threshold Ed25519 auth-session rehydrate', () => {

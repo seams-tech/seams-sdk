@@ -30,7 +30,7 @@ import {
 } from '../api/session/signingSessionState';
 import type { TempoSigningDeps } from '../api/tempoSigning';
 import type { ThresholdEd25519LifecycleDeps } from '../api/thresholdLifecycle/thresholdEd25519Lifecycle';
-import { getStoredThresholdEd25519SessionRecordForAccount } from '../api/thresholdLifecycle/thresholdEd25519SessionStore';
+import { getStoredThresholdEd25519SessionRecordForAccount } from '../api/thresholdLifecycle/thresholdSessionStore';
 import type { ThresholdSessionActivationDeps } from '../api/thresholdLifecycle/thresholdSessionActivation';
 import type { NearSigningKeyOps } from '../interfaces/nearKeyOps';
 import {

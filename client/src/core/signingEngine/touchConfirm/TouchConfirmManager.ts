@@ -28,7 +28,7 @@ import {
   updatePrfSessionSealedRecordPolicy,
   writePrfSessionSealedRecord,
 } from '../api/session/prfSessionSealedStore';
-import { getStoredThresholdEcdsaSessionRecordByThresholdSessionId } from '../api/thresholdLifecycle/thresholdEcdsaSessionStore';
+import { getStoredThresholdEcdsaSessionRecordByThresholdSessionId } from '../api/thresholdLifecycle/thresholdSessionStore';
 import {
   UserConfirmMessageType,
   type UserConfirmDecision,

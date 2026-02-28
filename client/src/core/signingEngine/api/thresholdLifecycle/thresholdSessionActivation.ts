@@ -13,7 +13,7 @@ import {
   type ThresholdEcdsaSessionBootstrapResult,
 } from '../../orchestration/thresholdActivation';
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from './thresholdEcdsaBootstrapPersistence';
-import type { ThresholdEcdsaSessionStoreSource } from './thresholdEcdsaSessionStore';
+import type { ThresholdEcdsaSessionStoreSource } from './thresholdSessionStore';
 
 export type ConnectEd25519SessionArgs = {
   nearAccountId: AccountId | string;

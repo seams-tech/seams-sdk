@@ -50,7 +50,7 @@ import {
   upsertThresholdEcdsaSessionFromBootstrap as upsertThresholdEcdsaSessionFromBootstrapValue,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreSource,
-} from './api/thresholdLifecycle/thresholdEcdsaSessionStore';
+} from './api/thresholdLifecycle/thresholdSessionStore';
 import {
   scheduleThresholdEcdsaLoginPresignPrefill as scheduleThresholdEcdsaLoginPresignPrefillValue,
   type ThresholdEcdsaLoginPrefillResult,
