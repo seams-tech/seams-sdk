@@ -271,16 +271,8 @@ async function callPrfSessionSealRoute(args: {
     };
     const thresholdSessionJwt = normalizeOptionalNonEmptyString(args.transport.thresholdSessionJwt);
     const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion);
-    const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.transport.shamirPrimeB64u);
     if (thresholdSessionJwt) {
       headers.Authorization = `Bearer ${thresholdSessionJwt}`;
-    }
-    if (!keyVersion) {
-      return {
-        ok: false,
-        code: 'invalid_args',
-        message: 'Missing keyVersion for PRF session seal route call',
-      };
     }
     const response = await fetch(url, {
       method: 'POST',
@@ -289,14 +281,7 @@ async function callPrfSessionSealRoute(args: {
       body: JSON.stringify({
         thresholdSessionId: args.thresholdSessionId,
         ciphertext: args.ciphertext,
-        keyVersion,
-        ...(shamirPrimeB64u
-          ? {
-              metadata: {
-                clientShamirPrimeB64u: shamirPrimeB64u,
-              },
-            }
-          : {}),
+        ...(keyVersion ? { keyVersion } : {}),
       }),
     });
     const data = await response.json().catch(() => null);
@@ -309,21 +294,6 @@ async function callPrfSessionSealRoute(args: {
       };
     }
     if (!parsed.ok) return parsed;
-    const responseKeyVersion = normalizeOptionalNonEmptyString(parsed.keyVersion);
-    if (!responseKeyVersion) {
-      return {
-        ok: false,
-        code: 'invalid_response',
-        message: 'PRF session seal response is missing keyVersion',
-      };
-    }
-    if (responseKeyVersion !== keyVersion) {
-      return {
-        ok: false,
-        code: 'conflict',
-        message: `PRF session seal keyVersion mismatch (expected "${keyVersion}", got "${responseKeyVersion}")`,
-      };
-    }
     return parsed;
   } catch (error: unknown) {
     return {
@@ -812,14 +782,6 @@ async function runPrfSessionSealAndPersist(args: {
     return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
   }
   const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.transport.shamirPrimeB64u);
-  const keyVersion = normalizeOptionalNonEmptyString(args.transport.keyVersion);
-  if (!keyVersion) {
-    return {
-      ok: false,
-      code: 'invalid_args',
-      message: 'Missing keyVersion for PRF session seal',
-    };
-  }
   if (!shamirPrimeB64u) {
     return {
       ok: false,
@@ -837,7 +799,7 @@ async function runPrfSessionSealAndPersist(args: {
     operation: 'apply-server-seal',
     sessionId,
     relayerUrl: args.transport.relayerUrl,
-    keyVersion,
+    keyVersion: args.transport.keyVersion,
     shamirPrimeB64u,
     payloadB64u: entry.prfFirstB64u,
   });
@@ -859,7 +821,7 @@ async function runPrfSessionSealAndPersist(args: {
         transport: args.transport,
         thresholdSessionId: sessionId,
         ciphertext: clientEncryptedCiphertext,
-        keyVersion,
+        keyVersion: args.transport.keyVersion,
       });
       if (!applied.ok) return applied;
 
@@ -883,11 +845,11 @@ async function runPrfSessionSealAndPersist(args: {
         remainingUses: policy.remainingUses,
         expiresAtMs: policy.expiresAtMs,
       });
-      const responseKeyVersion = normalizeOptionalNonEmptyString(applied.keyVersion);
+      const keyVersion = normalizeOptionalNonEmptyString(applied.keyVersion);
       return {
         ok: true,
         sealedPrfFirstB64u,
-        ...(responseKeyVersion ? { keyVersion: responseKeyVersion } : {}),
+        ...(keyVersion ? { keyVersion } : {}),
         remainingUses: policy.remainingUses,
         expiresAtMs: policy.expiresAtMs,
       };
@@ -931,16 +893,6 @@ async function runPrfSessionRehydrate(args: {
     return { ok: false, code: 'expired', message: 'PRF.first cache expired for threshold session' };
   }
   const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.transport.shamirPrimeB64u);
-  const keyVersion =
-    normalizeOptionalNonEmptyString(args.keyVersion) ||
-    normalizeOptionalNonEmptyString(args.transport.keyVersion);
-  if (!keyVersion) {
-    return {
-      ok: false,
-      code: 'invalid_args',
-      message: 'Missing keyVersion for PRF session rehydrate',
-    };
-  }
   if (!shamirPrimeB64u) {
     return {
       ok: false,
@@ -952,7 +904,7 @@ async function runPrfSessionRehydrate(args: {
     operation: 'remove-server-seal',
     sessionId,
     relayerUrl: args.transport.relayerUrl,
-    keyVersion,
+    keyVersion: args.keyVersion || args.transport.keyVersion,
     shamirPrimeB64u,
     payloadB64u: sealedPrfFirstB64u,
   });
@@ -974,7 +926,7 @@ async function runPrfSessionRehydrate(args: {
         transport: args.transport,
         thresholdSessionId: sessionId,
         ciphertext: clientEncryptedCiphertext,
-        keyVersion,
+        keyVersion: normalizeOptionalNonEmptyString(args.keyVersion) || args.transport.keyVersion,
       });
       if (!removed.ok) return removed;
 

@@ -69,7 +69,6 @@ export type ThresholdEcdsaSessionAuthMaterial = {
 };
 
 export type ThresholdEcdsaSessionStoreDeps = {
-  // Keyed by `${nearAccountId}|${chain}` to avoid cross-chain record collisions.
   recordsByAccount: Map<string, ThresholdEcdsaSessionRecord>;
   now?: () => number;
 };
@@ -84,44 +83,10 @@ type VersionedRecord<TRecord> = {
 const ECDSA_STORAGE_KEY_PREFIX = 'tatchi:threshold-ecdsa-session:v1';
 const ECDSA_STORAGE_INDEX_KEY = `${ECDSA_STORAGE_KEY_PREFIX}:index`;
 const ECDSA_STORAGE_SESSION_INDEX_KEY = `${ECDSA_STORAGE_KEY_PREFIX}:session-index`;
-const ECDSA_CHAINS: ThresholdEcdsaActivationChain[] = ['tempo', 'evm'];
 
 const ED25519_STORAGE_KEY_PREFIX = 'tatchi:threshold-ed25519-session:v1';
 const ED25519_STORAGE_INDEX_KEY = `${ED25519_STORAGE_KEY_PREFIX}:index`;
 const ED25519_STORAGE_SESSION_INDEX_KEY = `${ED25519_STORAGE_KEY_PREFIX}:session-index`;
-
-function normalizeThresholdEcdsaActivationChain(
-  chainRaw: unknown,
-): ThresholdEcdsaActivationChain {
-  return String(chainRaw || '').trim() === 'evm' ? 'evm' : 'tempo';
-}
-
-function makeEcdsaRecordId(args: {
-  nearAccountId: AccountId | string;
-  chain: ThresholdEcdsaActivationChain;
-}): string {
-  const nearAccountId = String(toAccountId(args.nearAccountId)).trim();
-  const chain = normalizeThresholdEcdsaActivationChain(args.chain);
-  return `${nearAccountId}|${chain}`;
-}
-
-function readEcdsaRecordIdsForAccount(nearAccountIdRaw: AccountId | string): string[] {
-  const nearAccountId = String(toAccountId(nearAccountIdRaw)).trim();
-  return ECDSA_CHAINS.map((chain) => `${nearAccountId}|${chain}`);
-}
-
-function pickMostRecentlyUpdatedEcdsaRecord(
-  records: Array<ThresholdEcdsaSessionRecord | null | undefined>,
-): ThresholdEcdsaSessionRecord | null {
-  let best: ThresholdEcdsaSessionRecord | null = null;
-  for (const candidate of records) {
-    if (!candidate) continue;
-    if (!best || candidate.updatedAtMs > best.updatedAtMs) {
-      best = candidate;
-    }
-  }
-  return best;
-}
 
 function getSessionStorageSafe(probeKey: string): SessionStoragePort | null {
   const globalObj = globalThis as { sessionStorage?: SessionStoragePort };
@@ -135,8 +100,8 @@ function getSessionStorageSafe(probeKey: string): SessionStoragePort | null {
   }
 }
 
-function storageKeyForRecordId(storageKeyPrefix: string, recordId: string): string {
-  return `${storageKeyPrefix}:${String(recordId || '').trim()}`;
+function storageKeyForAccount(storageKeyPrefix: string, nearAccountId: AccountId): string {
+  return `${storageKeyPrefix}:${String(nearAccountId)}`;
 }
 
 function readStorageIndex(storage: SessionStoragePort, storageIndexKey: string): string[] {
@@ -197,14 +162,14 @@ function setStorageSessionIndexEntry(args: {
   storage: SessionStoragePort;
   storageSessionIndexKey: string;
   thresholdSessionId: string;
-  recordId: string;
+  nearAccountId: AccountId;
 }): void {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
-  const recordId = String(args.recordId || '').trim();
-  if (!thresholdSessionId || !recordId) return;
+  const nearAccountId = String(args.nearAccountId || '').trim();
+  if (!thresholdSessionId || !nearAccountId) return;
   const current = readStorageSessionIndex(args.storage, args.storageSessionIndexKey);
-  if (current[thresholdSessionId] === recordId) return;
-  current[thresholdSessionId] = recordId;
+  if (current[thresholdSessionId] === nearAccountId) return;
+  current[thresholdSessionId] = nearAccountId;
   writeStorageSessionIndex(args.storage, args.storageSessionIndexKey, current);
 }
 
@@ -221,17 +186,17 @@ function removeStorageSessionIndexEntry(args: {
   writeStorageSessionIndex(args.storage, args.storageSessionIndexKey, current);
 }
 
-function removeStorageSessionIndexEntriesForRecordId(args: {
+function removeStorageSessionIndexEntriesForAccount(args: {
   storage: SessionStoragePort;
   storageSessionIndexKey: string;
-  recordId: string;
+  nearAccountId: AccountId;
 }): void {
-  const recordId = String(args.recordId || '').trim();
-  if (!recordId) return;
+  const nearAccountId = String(args.nearAccountId || '').trim();
+  if (!nearAccountId) return;
   const current = readStorageSessionIndex(args.storage, args.storageSessionIndexKey);
   let changed = false;
-  for (const [sessionId, indexedRecordId] of Object.entries(current)) {
-    if (indexedRecordId !== recordId) continue;
+  for (const [sessionId, accountId] of Object.entries(current)) {
+    if (accountId !== nearAccountId) continue;
     delete current[sessionId];
     changed = true;
   }
@@ -242,24 +207,24 @@ function removeStorageSessionIndexEntriesForRecordId(args: {
 function addToStorageIndex(
   storage: SessionStoragePort,
   storageIndexKey: string,
-  recordId: string,
+  nearAccountId: AccountId,
 ): void {
-  const normalizedRecordId = String(recordId || '').trim();
-  if (!normalizedRecordId) return;
+  const accountId = String(nearAccountId || '').trim();
+  if (!accountId) return;
   const current = readStorageIndex(storage, storageIndexKey);
-  if (current.includes(normalizedRecordId)) return;
-  writeStorageIndex(storage, storageIndexKey, [...current, normalizedRecordId]);
+  if (current.includes(accountId)) return;
+  writeStorageIndex(storage, storageIndexKey, [...current, accountId]);
 }
 
 function removeFromStorageIndex(
   storage: SessionStoragePort,
   storageIndexKey: string,
-  recordId: string,
+  nearAccountId: AccountId,
 ): void {
-  const normalizedRecordId = String(recordId || '').trim();
-  if (!normalizedRecordId) return;
+  const accountId = String(nearAccountId || '').trim();
+  if (!accountId) return;
   const current = readStorageIndex(storage, storageIndexKey);
-  const next = current.filter((entry) => entry !== normalizedRecordId);
+  const next = current.filter((entry) => entry !== accountId);
   if (next.length === current.length) return;
   writeStorageIndex(storage, storageIndexKey, next);
 }
@@ -269,7 +234,7 @@ function writeStoredRecord<TRecord>(args: {
   storageKeyPrefix: string;
   storageIndexKey: string;
   storageSessionIndexKey?: string;
-  recordId: string;
+  nearAccountId: AccountId;
   record: TRecord;
   thresholdSessionId?: string;
 }): void {
@@ -279,16 +244,16 @@ function writeStoredRecord<TRecord>(args: {
       record: args.record,
     };
     args.storage.setItem(
-      storageKeyForRecordId(args.storageKeyPrefix, args.recordId),
+      storageKeyForAccount(args.storageKeyPrefix, args.nearAccountId),
       JSON.stringify(payload),
     );
-    addToStorageIndex(args.storage, args.storageIndexKey, args.recordId);
+    addToStorageIndex(args.storage, args.storageIndexKey, args.nearAccountId);
     if (args.storageSessionIndexKey && String(args.thresholdSessionId || '').trim()) {
       setStorageSessionIndexEntry({
         storage: args.storage,
         storageSessionIndexKey: args.storageSessionIndexKey,
         thresholdSessionId: String(args.thresholdSessionId || '').trim(),
-        recordId: args.recordId,
+        nearAccountId: args.nearAccountId,
       });
     }
   } catch {}
@@ -297,11 +262,11 @@ function writeStoredRecord<TRecord>(args: {
 function readStoredRecord<TRecord>(args: {
   storage: SessionStoragePort;
   storageKeyPrefix: string;
-  recordId: string;
+  nearAccountId: AccountId;
   normalize: (value: unknown) => TRecord;
 }): TRecord | null {
   try {
-    const raw = args.storage.getItem(storageKeyForRecordId(args.storageKeyPrefix, args.recordId));
+    const raw = args.storage.getItem(storageKeyForAccount(args.storageKeyPrefix, args.nearAccountId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as VersionedRecord<TRecord>;
     if (!parsed || parsed.v !== 1 || typeof parsed !== 'object') return null;
@@ -316,17 +281,17 @@ function clearStoredRecord(args: {
   storageKeyPrefix: string;
   storageIndexKey: string;
   storageSessionIndexKey?: string;
-  recordId: string;
+  nearAccountId: AccountId;
 }): void {
   try {
-    args.storage.removeItem(storageKeyForRecordId(args.storageKeyPrefix, args.recordId));
+    args.storage.removeItem(storageKeyForAccount(args.storageKeyPrefix, args.nearAccountId));
   } catch {}
-  removeFromStorageIndex(args.storage, args.storageIndexKey, args.recordId);
+  removeFromStorageIndex(args.storage, args.storageIndexKey, args.nearAccountId);
   if (args.storageSessionIndexKey) {
-    removeStorageSessionIndexEntriesForRecordId({
+    removeStorageSessionIndexEntriesForAccount({
       storage: args.storage,
       storageSessionIndexKey: args.storageSessionIndexKey,
-      recordId: args.recordId,
+      nearAccountId: args.nearAccountId,
     });
   }
 }
@@ -338,9 +303,9 @@ function clearAllStoredRecords(args: {
   storageSessionIndexKey?: string;
 }): void {
   const index = readStorageIndex(args.storage, args.storageIndexKey);
-  for (const recordId of index) {
+  for (const accountId of index) {
     try {
-      args.storage.removeItem(storageKeyForRecordId(args.storageKeyPrefix, recordId));
+      args.storage.removeItem(storageKeyForAccount(args.storageKeyPrefix, toAccountId(accountId)));
     } catch {}
   }
   try {
@@ -364,7 +329,8 @@ function getEd25519SessionStorageSafe(): SessionStoragePort | null {
 function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSessionRecord {
   const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   const nearAccountId = toAccountId(String(obj.nearAccountId || '').trim());
-  const chain = normalizeThresholdEcdsaActivationChain(obj.chain);
+  const chainRaw = String(obj.chain || '').trim();
+  const chain: ThresholdEcdsaActivationChain = chainRaw === 'evm' ? 'evm' : 'tempo';
   const relayerUrl = String(obj.relayerUrl || '').trim();
   const relayerKeyId = String(obj.relayerKeyId || '').trim();
   const clientVerifyingShareB64u = String(obj.clientVerifyingShareB64u || '').trim();
@@ -533,17 +499,14 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
     source: args.source,
     nowMs,
   });
-  const recordId = makeEcdsaRecordId({
-    nearAccountId: record.nearAccountId,
-    chain: record.chain,
-  });
-  deps.recordsByAccount.set(recordId, record);
+  const accountKey = String(record.nearAccountId);
+  deps.recordsByAccount.set(accountKey, record);
   const storage = getEcdsaSessionStorageSafe();
   if (storage) {
     const previousRecord = readStoredRecord({
       storage,
       storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
-      recordId,
+      nearAccountId: record.nearAccountId,
       normalize: normalizeThresholdEcdsaSessionRecord,
     });
     if (
@@ -563,7 +526,7 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
       storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
       storageIndexKey: ECDSA_STORAGE_INDEX_KEY,
       storageSessionIndexKey: ECDSA_STORAGE_SESSION_INDEX_KEY,
-      recordId,
+      nearAccountId: record.nearAccountId,
       record,
       thresholdSessionId: record.thresholdSessionId,
     });
@@ -579,66 +542,26 @@ export function getThresholdEcdsaSessionRecordForSigning(
   },
 ): ThresholdEcdsaSessionRecord {
   const accountId = toAccountId(args.nearAccountId);
-  const requestedChain =
-    args.chain != null ? normalizeThresholdEcdsaActivationChain(args.chain) : null;
-  if (requestedChain) {
-    const recordId = makeEcdsaRecordId({
-      nearAccountId: accountId,
-      chain: requestedChain,
-    });
-    const inMemory = deps.recordsByAccount.get(recordId);
-    if (inMemory) return inMemory;
-
-    const storage = getEcdsaSessionStorageSafe();
-    const stored = storage
-      ? readStoredRecord({
-          storage,
-          storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
-          recordId,
-          normalize: normalizeThresholdEcdsaSessionRecord,
-        })
-      : null;
-    if (stored) {
-      deps.recordsByAccount.set(recordId, stored);
-      return stored;
-    }
-
-    throw new Error(
-      `[SigningEngine] missing canonical threshold ECDSA session for ${String(accountId)} chain=${requestedChain}; reconnect threshold session via bootstrapEcdsaSession`,
-    );
-  }
-
-  const inMemoryCandidates = [...readEcdsaRecordIdsForAccount(accountId), String(accountId)]
-    .map((recordId) => deps.recordsByAccount.get(recordId) || null)
-    .filter(Boolean);
-  const bestInMemory = pickMostRecentlyUpdatedEcdsaRecord(inMemoryCandidates);
-  if (bestInMemory) return bestInMemory;
+  const accountKey = String(accountId);
+  const inMemory = deps.recordsByAccount.get(accountKey);
+  if (inMemory) return inMemory;
 
   const storage = getEcdsaSessionStorageSafe();
-  const storedCandidates = storage
-    ? [...readEcdsaRecordIdsForAccount(accountId), String(accountId)].map((recordId) =>
-        readStoredRecord({
-          storage,
-          storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
-          recordId,
-          normalize: normalizeThresholdEcdsaSessionRecord,
-        }),
-      )
-    : [];
-  const bestStored = pickMostRecentlyUpdatedEcdsaRecord(storedCandidates);
-  if (bestStored) {
-    deps.recordsByAccount.set(
-      makeEcdsaRecordId({
-        nearAccountId: bestStored.nearAccountId,
-        chain: bestStored.chain,
-      }),
-      bestStored,
-    );
-    return bestStored;
+  const stored = storage
+    ? readStoredRecord({
+        storage,
+        storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
+        nearAccountId: accountId,
+        normalize: normalizeThresholdEcdsaSessionRecord,
+      })
+    : null;
+  if (stored) {
+    deps.recordsByAccount.set(accountKey, stored);
+    return stored;
   }
 
   throw new Error(
-    `[SigningEngine] missing canonical threshold ECDSA session for ${String(accountId)}; reconnect threshold session via bootstrapEcdsaSession`,
+    `[SigningEngine] missing canonical threshold ECDSA session for ${accountKey}; reconnect threshold session via bootstrapEcdsaSession`,
   );
 }
 
@@ -672,21 +595,17 @@ export function clearThresholdEcdsaSessionRecordForAccount(
   nearAccountId: AccountId | string,
 ): void {
   const accountId = toAccountId(nearAccountId);
-  const inMemoryRecordIds = [...readEcdsaRecordIdsForAccount(accountId), String(accountId)];
-  for (const recordId of inMemoryRecordIds) {
-    deps.recordsByAccount.delete(recordId);
-  }
+  const accountKey = String(accountId);
+  deps.recordsByAccount.delete(accountKey);
   const storage = getEcdsaSessionStorageSafe();
   if (storage) {
-    for (const recordId of inMemoryRecordIds) {
-      clearStoredRecord({
-        storage,
-        storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
-        storageIndexKey: ECDSA_STORAGE_INDEX_KEY,
-        storageSessionIndexKey: ECDSA_STORAGE_SESSION_INDEX_KEY,
-        recordId,
-      });
-    }
+    clearStoredRecord({
+      storage,
+      storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
+      storageIndexKey: ECDSA_STORAGE_INDEX_KEY,
+      storageSessionIndexKey: ECDSA_STORAGE_SESSION_INDEX_KEY,
+      nearAccountId: accountId,
+    });
   }
 }
 
@@ -711,13 +630,14 @@ export function getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
   const storage = getEcdsaSessionStorageSafe();
   if (!storage) return null;
   const sessionIndex = readStorageSessionIndex(storage, ECDSA_STORAGE_SESSION_INDEX_KEY);
-  const indexedRecordId = String(sessionIndex[thresholdSessionId] || '').trim();
-  if (indexedRecordId) {
+  const indexedAccountIdRaw = String(sessionIndex[thresholdSessionId] || '').trim();
+  if (indexedAccountIdRaw) {
     try {
+      const indexedAccountId = toAccountId(indexedAccountIdRaw);
       const indexedRecord = readStoredRecord({
         storage,
         storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
-        recordId: indexedRecordId,
+        nearAccountId: indexedAccountId,
         normalize: normalizeThresholdEcdsaSessionRecord,
       });
       if (
@@ -740,12 +660,13 @@ export function getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
     }
   }
   const accountIds = readStorageIndex(storage, ECDSA_STORAGE_INDEX_KEY);
-  for (const recordId of accountIds) {
+  for (const accountIdRaw of accountIds) {
     try {
+      const nearAccountId = toAccountId(accountIdRaw);
       const record = readStoredRecord({
         storage,
         storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
-        recordId,
+        nearAccountId,
         normalize: normalizeThresholdEcdsaSessionRecord,
       });
       if (!record) continue;
@@ -754,10 +675,7 @@ export function getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
           storage,
           storageSessionIndexKey: ECDSA_STORAGE_SESSION_INDEX_KEY,
           thresholdSessionId,
-          recordId: makeEcdsaRecordId({
-            nearAccountId: record.nearAccountId,
-            chain: record.chain,
-          }),
+          nearAccountId: record.nearAccountId,
         });
         return record;
       }
@@ -853,7 +771,7 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
     storageKeyPrefix: ED25519_STORAGE_KEY_PREFIX,
     storageIndexKey: ED25519_STORAGE_INDEX_KEY,
     storageSessionIndexKey: ED25519_STORAGE_SESSION_INDEX_KEY,
-    recordId: String(record.nearAccountId),
+    nearAccountId: record.nearAccountId,
     record,
     thresholdSessionId: record.thresholdSessionId,
   });
@@ -870,7 +788,7 @@ export function getStoredThresholdEd25519SessionRecordForAccount(
     return readStoredRecord({
       storage,
       storageKeyPrefix: ED25519_STORAGE_KEY_PREFIX,
-      recordId: String(nearAccountId),
+      nearAccountId,
       normalize: normalizeThresholdEd25519SessionRecord,
     });
   } catch {
@@ -893,7 +811,7 @@ export function getStoredThresholdEd25519SessionRecordByThresholdSessionId(
       const indexedRecord = readStoredRecord({
         storage,
         storageKeyPrefix: ED25519_STORAGE_KEY_PREFIX,
-        recordId: String(indexedAccountId),
+        nearAccountId: indexedAccountId,
         normalize: normalizeThresholdEd25519SessionRecord,
       });
       if (
@@ -922,7 +840,7 @@ export function getStoredThresholdEd25519SessionRecordByThresholdSessionId(
       const record = readStoredRecord({
         storage,
         storageKeyPrefix: ED25519_STORAGE_KEY_PREFIX,
-        recordId: String(nearAccountId),
+        nearAccountId,
         normalize: normalizeThresholdEd25519SessionRecord,
       });
       if (!record) continue;
@@ -931,7 +849,7 @@ export function getStoredThresholdEd25519SessionRecordByThresholdSessionId(
           storage,
           storageSessionIndexKey: ED25519_STORAGE_SESSION_INDEX_KEY,
           thresholdSessionId,
-          recordId: String(record.nearAccountId),
+          nearAccountId: record.nearAccountId,
         });
         return record;
       }
@@ -952,7 +870,7 @@ export function clearStoredThresholdEd25519SessionRecordForAccount(
       storageKeyPrefix: ED25519_STORAGE_KEY_PREFIX,
       storageIndexKey: ED25519_STORAGE_INDEX_KEY,
       storageSessionIndexKey: ED25519_STORAGE_SESSION_INDEX_KEY,
-      recordId: String(nearAccountId),
+      nearAccountId,
     });
   } catch {}
 }
@@ -971,40 +889,17 @@ export function clearAllStoredThresholdEd25519SessionRecords(): void {
 export function getStoredThresholdSessionRecordForAccount<TCurve extends ThresholdSessionCurve>(args: {
   curve: TCurve;
   nearAccountId: AccountId | string;
-  chain?: ThresholdEcdsaActivationChain;
 }): ThresholdSessionRecordByCurve[TCurve] | null {
   if (args.curve === 'ecdsa') {
     const storage = getEcdsaSessionStorageSafe();
     if (!storage) return null;
     try {
-      const nearAccountId = toAccountId(args.nearAccountId);
-      const requestedChain =
-        args.chain != null ? normalizeThresholdEcdsaActivationChain(args.chain) : null;
-      if (requestedChain) {
-        return readStoredRecord({
-          storage,
-          storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
-          recordId: makeEcdsaRecordId({
-            nearAccountId,
-            chain: requestedChain,
-          }),
-          normalize: normalizeThresholdEcdsaSessionRecord,
-        }) as ThresholdSessionRecordByCurve[TCurve] | null;
-      }
-      const candidates = [
-        ...readEcdsaRecordIdsForAccount(nearAccountId),
-        String(nearAccountId),
-      ].map((recordId) =>
-        readStoredRecord({
-          storage,
-          storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
-          recordId,
-          normalize: normalizeThresholdEcdsaSessionRecord,
-        }),
-      );
-      return pickMostRecentlyUpdatedEcdsaRecord(candidates) as
-        | ThresholdSessionRecordByCurve[TCurve]
-        | null;
+      return readStoredRecord({
+        storage,
+        storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
+        nearAccountId: toAccountId(args.nearAccountId),
+        normalize: normalizeThresholdEcdsaSessionRecord,
+      }) as ThresholdSessionRecordByCurve[TCurve] | null;
     } catch {
       return null;
     }
