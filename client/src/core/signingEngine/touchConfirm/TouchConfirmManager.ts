@@ -29,8 +29,7 @@ import {
   writePrfSessionSealedRecord,
 } from '../api/session/prfSessionSealedStore';
 import {
-  getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
-  getStoredThresholdEd25519SessionRecordForAccount,
+  resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId,
 } from '../api/thresholdLifecycle/thresholdSessionStore';
 import { emitThresholdSessionMetric } from '../api/thresholdLifecycle/thresholdSessionMetrics';
 import {
@@ -265,23 +264,14 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
   ): ThresholdPrfSessionSealTransportInput | null {
     const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
     if (!thresholdSessionId) return null;
-    const record = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
-    if (!record) return null;
+    const resolved = resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId({
+      thresholdSessionId,
+    });
+    if (!resolved) return null;
+    const record = resolved.record;
     const relayerUrl = String(record.relayerUrl || '').trim();
     if (!relayerUrl) return null;
-    const thresholdSessionJwtFromEcdsaRecord = String(record.thresholdSessionJwt || '').trim();
-    const thresholdSessionJwtFromEd25519Record = (() => {
-      if (thresholdSessionJwtFromEcdsaRecord) return '';
-      try {
-        const edRecord = getStoredThresholdEd25519SessionRecordForAccount(record.nearAccountId);
-        if (!edRecord || edRecord.thresholdSessionKind !== 'jwt') return '';
-        return String(edRecord.thresholdSessionJwt || '').trim();
-      } catch {
-        return '';
-      }
-    })();
-    const thresholdSessionJwt =
-      thresholdSessionJwtFromEcdsaRecord || thresholdSessionJwtFromEd25519Record;
+    const thresholdSessionJwt = String(resolved.thresholdSessionJwt || '').trim();
     const keyVersion = String(this.config.prfSessionSealKeyVersion || '').trim();
     const shamirPrimeB64u = String(this.config.prfSessionSealShamirPrimeB64u || '').trim();
     return {

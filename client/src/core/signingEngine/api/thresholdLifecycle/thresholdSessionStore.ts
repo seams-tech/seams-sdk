@@ -60,6 +60,14 @@ export type ThresholdSessionRecordByCurve = {
   ecdsa: ThresholdEcdsaSessionRecord;
 };
 
+export type ThresholdEcdsaSessionJwtSource = 'ecdsa' | 'ed25519' | 'none';
+
+export type ThresholdEcdsaSessionAuthMaterial = {
+  record: ThresholdEcdsaSessionRecord;
+  thresholdSessionJwt?: string;
+  thresholdSessionJwtSource: ThresholdEcdsaSessionJwtSource;
+};
+
 export type ThresholdEcdsaSessionStoreDeps = {
   recordsByAccount: Map<string, ThresholdEcdsaSessionRecord>;
   now?: () => number;
@@ -674,6 +682,56 @@ export function getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
     } catch {}
   }
   return null;
+}
+
+export function resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId(args: {
+  thresholdSessionId: string;
+  nearAccountIdFallback?: AccountId | string;
+}): ThresholdEcdsaSessionAuthMaterial | null {
+  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+  if (!thresholdSessionId) return null;
+
+  const record = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
+  if (!record) return null;
+
+  const recordJwt = normalizeOptionalNonEmptyString(record.thresholdSessionJwt);
+  if (recordJwt) {
+    return {
+      record,
+      thresholdSessionJwt: recordJwt,
+      thresholdSessionJwtSource: 'ecdsa',
+    };
+  }
+
+  const nearAccountIdFallback = String(record.nearAccountId || args.nearAccountIdFallback || '').trim();
+  if (!nearAccountIdFallback) {
+    return {
+      record,
+      thresholdSessionJwtSource: 'none',
+    };
+  }
+
+  const ed25519Record = getStoredThresholdEd25519SessionRecordForAccount(nearAccountIdFallback);
+  if (!ed25519Record || ed25519Record.thresholdSessionKind !== 'jwt') {
+    return {
+      record,
+      thresholdSessionJwtSource: 'none',
+    };
+  }
+
+  const ed25519Jwt = normalizeOptionalNonEmptyString(ed25519Record.thresholdSessionJwt);
+  if (!ed25519Jwt) {
+    return {
+      record,
+      thresholdSessionJwtSource: 'none',
+    };
+  }
+
+  return {
+    record,
+    thresholdSessionJwt: ed25519Jwt,
+    thresholdSessionJwtSource: 'ed25519',
+  };
 }
 
 export function upsertStoredThresholdEd25519SessionRecord(args: {

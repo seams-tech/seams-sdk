@@ -15,8 +15,7 @@ import {
 import type { ThresholdEcdsaClientPresignatureRefillScheduleResult } from '../../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
-  getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
-  getStoredThresholdEd25519SessionRecordForAccount,
+  resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId,
 } from '../../api/thresholdLifecycle/thresholdSessionStore';
 import { emitThresholdSessionMetric } from '../../api/thresholdLifecycle/thresholdSessionMetrics';
 
@@ -117,9 +116,11 @@ export class Secp256k1Engine implements Signer {
         );
       }
 
-      const canonicalRecord = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
-        keyRefThresholdSessionId,
-      );
+      const resolvedAuthMaterial = resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId({
+        thresholdSessionId: keyRefThresholdSessionId,
+        nearAccountIdFallback: keyRef.userId,
+      });
+      const canonicalRecord = resolvedAuthMaterial?.record || null;
       const hasCanonicalRecord = !!canonicalRecord;
       if (hasCanonicalRecord) {
         emitThresholdSessionMetric({
@@ -170,19 +171,17 @@ export class Secp256k1Engine implements Signer {
 
       const keyRefJwt = String(keyRef.thresholdSessionJwt || '').trim();
       const recordJwt = String(canonicalRecord?.thresholdSessionJwt || '').trim();
-      const ed25519RecordJwt = (() => {
-        try {
-          const edRecord = getStoredThresholdEd25519SessionRecordForAccount(
-            String(canonicalRecord?.nearAccountId || keyRef.userId || '').trim(),
-          );
-          if (!edRecord || edRecord.thresholdSessionKind !== 'jwt') return '';
-          return String(edRecord.thresholdSessionJwt || '').trim();
-        } catch {
-          return '';
-        }
-      })();
-      const thresholdSessionJwt =
-        keyRefJwt || recordJwt || ed25519RecordJwt || undefined;
+      const resolvedJwt = String(resolvedAuthMaterial?.thresholdSessionJwt || '').trim();
+      if (resolvedAuthMaterial?.thresholdSessionJwtSource === 'ed25519' && resolvedJwt) {
+        emitThresholdSessionMetric({
+          metric: 'rehydrate_hit',
+          curve: 'ecdsa',
+          source: 'session-jwt',
+          sessionId: keyRefThresholdSessionId,
+          reason: 'ed25519_fallback',
+        });
+      }
+      const thresholdSessionJwt = keyRefJwt || resolvedJwt || undefined;
 
       if (sessionKind === 'jwt' && !thresholdSessionJwt) {
         emitThresholdSessionMetric({
