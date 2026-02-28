@@ -70,7 +70,7 @@ import type {
   SignAndSendTransactionHooksOptions,
   SyncAccountSSEEvent,
 } from '../../types/sdkSentEvents';
-import type { RegistrationSignerOptions } from '../../types/registrationSignerOptions';
+import type { EcdsaSignerProvisioningDefaults } from '../../types/ecdsaSignerProvisioningDefaults';
 import {
   RegistrationPhase,
   LoginPhase,
@@ -687,7 +687,7 @@ export class WalletIframeRouter {
       onEvent?: (ev: RegistrationSSEEvent) => void;
       signerMode?: SignerMode;
       backupLocalKey?: boolean;
-      signerOptions?: RegistrationSignerOptions;
+      signerOptions?: EcdsaSignerProvisioningDefaults;
       confirmerText?: { title?: string; body?: string };
     };
   }): Promise<RegistrationResult> {

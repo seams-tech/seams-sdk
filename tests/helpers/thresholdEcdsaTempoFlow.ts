@@ -158,16 +158,12 @@ export async function runThresholdEcdsaTempoFlow(
             tempo: {
               enabled: false,
               participantIds: [1, 2],
-              sessionKind: 'jwt',
-              ttlMs: 1,
-              remainingUses: 1,
+              signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
             },
             evm: {
               enabled: false,
               participantIds: [1, 2],
-              sessionKind: 'jwt',
-              ttlMs: 1,
-              remainingUses: 1,
+              signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
             },
           },
         },

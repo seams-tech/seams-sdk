@@ -214,8 +214,7 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
     signingSessionPersistenceMode: nextSigningSessionPersistenceMode,
     ...(nextSigningSessionSeal ? { signingSessionSeal: nextSigningSessionSeal } : {}),
     thresholdEcdsaPresignPool: payload?.thresholdEcdsaPresignPool ?? prev.thresholdEcdsaPresignPool,
-    registrationSignerDefaults:
-      payload?.registrationSignerDefaults ?? prev.registrationSignerDefaults,
+    provisioningDefaults: payload?.provisioningDefaults ?? prev.provisioningDefaults,
     relayer:
       payload?.relayer || prev.relayer
         ? {

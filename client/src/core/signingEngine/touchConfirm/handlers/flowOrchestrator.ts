@@ -17,6 +17,7 @@ import { buildNearDisplayModel } from '../displayFormat/nearTx';
 import {
   PENDING_CHALLENGE_B64U,
   PENDING_INTENT_DIGEST,
+  registerIntentDigestPreparation,
 } from '../intentDigestPreparationRegistry';
 
 export type SigningConfirmationChain = 'near' | 'evm' | 'tempo';
@@ -209,20 +210,72 @@ export async function orchestrateSigningConfirmation(
   switch (params.kind) {
     case 'transaction': {
       const txSigningRequests = params.txSigningRequests;
-      intentDigest = await computeUiIntentDigestFromTxs(
-        txSigningRequests.map((tx) => ({
-          receiverId: tx.receiverId,
-          actions: tx.actions.map(orderActionForDigest),
-        })) as TransactionInputWasm[],
-      );
-
-      const summary: TransactionSummary = {
-        intentDigest,
+      const normalizedTxs = txSigningRequests.map((tx) => ({
+        receiverId: tx.receiverId,
+        actions: tx.actions.map(orderActionForDigest),
+      })) as TransactionInputWasm[];
+      const summaryBase: TransactionSummary = {
         receiverId: txSigningRequests[0]?.receiverId,
         totalAmount: computeTotalAmountYocto(txSigningRequests),
         type: 'transaction',
         ...(params.title != null ? { title: params.title } : {}),
         ...(params.body != null ? { body: params.body } : {}),
+      };
+
+      if (params.chain === 'near' && params.signingAuthMode === 'warmSession') {
+        const eagerDisplayModel = buildNearDisplayModelWithFallback({
+          txSigningRequests,
+          signerAccountId: params.rpcCall.nearAccountId,
+          title: summaryBase.title,
+          body: summaryBase.body,
+        });
+        registerIntentDigestPreparation({
+          requestId: sessionId,
+          preparation: (async () => {
+            const preparedIntentDigest = await computeUiIntentDigestFromTxs(normalizedTxs);
+            const preparedDisplayModel = buildNearDisplayModelWithFallback({
+              txSigningRequests,
+              intentDigest: preparedIntentDigest,
+              signerAccountId: params.rpcCall.nearAccountId,
+              title: summaryBase.title,
+              body: summaryBase.body,
+            });
+            return {
+              intentDigest: preparedIntentDigest,
+              challengeB64u: preparedIntentDigest,
+              displayModel: preparedDisplayModel,
+              ...(summaryBase.title != null ? { title: summaryBase.title } : {}),
+              ...(summaryBase.body != null ? { body: summaryBase.body } : {}),
+            };
+          })(),
+        });
+        intentDigest = PENDING_INTENT_DIGEST;
+
+        request = {
+          requestId: sessionId,
+          type: UserConfirmationType.SIGN_TRANSACTION,
+          summary: summaryBase,
+          payload: {
+            txSigningRequests,
+            intentDigest: PENDING_INTENT_DIGEST,
+            displayModel: eagerDisplayModel,
+            rpcCall: params.rpcCall,
+            ...(params.sessionPolicyDigest32
+              ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
+              : {}),
+            ...(params.signingAuthMode ? { signingAuthMode: params.signingAuthMode } : {}),
+          },
+          confirmationConfig: params.confirmationConfigOverride,
+          intentDigest: PENDING_INTENT_DIGEST,
+        };
+        break;
+      }
+
+      intentDigest = await computeUiIntentDigestFromTxs(normalizedTxs);
+
+      const summary: TransactionSummary = {
+        ...summaryBase,
+        intentDigest,
       };
       const displayModel = buildNearDisplayModelWithFallback({
         txSigningRequests,

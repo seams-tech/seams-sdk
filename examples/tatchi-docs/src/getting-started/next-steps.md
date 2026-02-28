@@ -56,16 +56,12 @@ await registerPasskey(nextAccountId, {
     tempo: {
       enabled: true,
       participantIds: [1, 2],
-      sessionKind: 'jwt',
-      ttlMs: 30 * 60 * 1000,
-      remainingUses: 12,
+      signingSession: { kind: 'jwt', ttlMs: 30 * 60 * 1000, remainingUses: 12 },
     },
     evm: {
       enabled: true,
       participantIds: [1, 2],
-      sessionKind: 'jwt',
-      ttlMs: 30 * 60 * 1000,
-      remainingUses: 12,
+      signingSession: { kind: 'jwt', ttlMs: 30 * 60 * 1000, remainingUses: 12 },
     },
   },
 });

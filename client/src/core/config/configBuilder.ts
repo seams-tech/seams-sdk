@@ -7,7 +7,7 @@ import type {
   ThresholdEcdsaPresignPoolPolicy,
 } from '../types/tatchi';
 import {
-  copyRegistrationSignerOptions,
+  copyEcdsaSignerProvisioningDefaults,
   resolveBoolean,
   resolveChains,
   resolveIntegerInRange,
@@ -121,8 +121,8 @@ export function buildConfigsFromDefaults(args: {
     overrides,
     defaults,
   });
-  const registrationSignerDefaults = copyRegistrationSignerOptions(
-    overrides.registrationSignerDefaults ?? defaults.signing.registrationDefaults,
+  const provisioningDefaults = copyEcdsaSignerProvisioningDefaults(
+    overrides.provisioningDefaults ?? defaults.signing.thresholdEcdsa.provisioningDefaults,
   );
 
   const thresholdEcdsaPresignPoolDefaults =
@@ -257,8 +257,8 @@ export function buildConfigsFromDefaults(args: {
             path: 'thresholdEcdsaPresignPool.refillAttemptTimeoutMs',
           }),
         },
+        provisioningDefaults,
       },
-      registrationDefaults: registrationSignerDefaults,
     },
     webauthn: {
       authenticatorOptions:

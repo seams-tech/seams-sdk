@@ -28,6 +28,7 @@ import { computeUiIntentDigestFromNep413 } from '@/utils/intentDigest';
 import {
   clearIntentDigestPreparation,
   consumeIntentDigestPreparation,
+  PENDING_INTENT_DIGEST,
   type IntentDigestPreparationResult,
 } from '@/core/signingEngine/touchConfirm/intentDigestPreparationRegistry';
 
@@ -62,19 +63,34 @@ export async function handleTransactionSigningFlow(
     theme,
   });
   const nearAccountId = getNearAccountId(request);
+  let resolvedIntentDigestForResponse = String(getIntentDigest(request) || '').trim() || undefined;
+  if (resolvedIntentDigestForResponse === PENDING_INTENT_DIGEST) {
+    resolvedIntentDigestForResponse = undefined;
+  }
   try {
     const signingAuthMode = getTransactionSigningAuthMode(request);
     const usesNeeded = getTxCount(request);
-    const intentDigestB64u =
+    const intentPreparation =
       request.type === UserConfirmationType.SIGN_TRANSACTION
-        ? getIntentDigest(request)
+        ? consumeIntentDigestPreparation(request.requestId)
+        : undefined;
+    let resolvedIntentDigest =
+      request.type === UserConfirmationType.SIGN_TRANSACTION
+        ? String(getIntentDigest(request) || '').trim() || undefined
         : request.type === UserConfirmationType.SIGN_NEP413_MESSAGE
-          ? await computeUiIntentDigestFromNep413({
-              nearAccountId,
-              recipient: request.payload.recipient,
-              message: request.payload.message,
-            })
+          ? String(
+              await computeUiIntentDigestFromNep413({
+                nearAccountId,
+                recipient: request.payload.recipient,
+                message: request.payload.message,
+              }),
+            ).trim() || undefined
           : undefined;
+    if (resolvedIntentDigest === PENDING_INTENT_DIGEST) {
+      resolvedIntentDigest = undefined;
+    }
+    let resolvedChallengeB64u = resolvedIntentDigest;
+    resolvedIntentDigestForResponse = resolvedIntentDigest;
     const sessionPolicyDigest32 = request.payload.sessionPolicyDigest32;
 
     // 1) Start NEAR context fetch + nonce reservation immediately.
@@ -107,58 +123,135 @@ export async function handleTransactionSigningFlow(
     });
     void promptDecisionPromise.finally(markPromptReady);
 
-    // Ensure UI is mounted (or already resolved in `uiMode: none`) before updates.
-    await promptReady;
+    let decisionResolved = false;
+    let nearContextReady = false;
+    let nearContextFailed = false;
+    let intentPreparationPending = !!intentPreparation;
+    let nearRpcResolved:
+      | {
+          transactionContext: TransactionContext | null;
+          error?: string;
+          details?: string;
+          reservedNonces?: string[];
+        }
+      | undefined;
+    const applyPreparedIntentData = (prepared: IntentDigestPreparationResult): void => {
+      const preparedIntentDigest = String(prepared.intentDigest || '').trim();
+      const preparedChallengeB64u = String(prepared.challengeB64u || '').trim();
+      if (preparedIntentDigest) {
+        resolvedIntentDigest = preparedIntentDigest;
+        resolvedIntentDigestForResponse = preparedIntentDigest;
+      }
+      if (preparedChallengeB64u) {
+        resolvedChallengeB64u = preparedChallengeB64u;
+      }
+    };
+    const applyPreparedIntentToUi = (prepared: IntentDigestPreparationResult): void => {
+      applyPreparedIntentData(prepared);
+      session.updateUI({
+        ...(prepared.displayModel ? { model: prepared.displayModel } : {}),
+        ...(prepared.title ? { title: prepared.title } : {}),
+        ...(prepared.body ? { body: prepared.body } : {}),
+        ...(resolvedIntentDigest ? { intentDigest: resolvedIntentDigest } : {}),
+        loading: nearContextFailed ? false : !nearContextReady,
+      });
+    };
 
-    const nearRpc = await nearContextPromise;
+    const preparedIntentPromise = intentPreparation
+      ? (async () => {
+          await promptReady;
+          return await intentPreparation;
+        })()
+      : undefined;
+    if (preparedIntentPromise) {
+      void preparedIntentPromise
+        .then((prepared) => {
+          intentPreparationPending = false;
+          if (decisionResolved) return;
+          applyPreparedIntentToUi(prepared);
+        })
+        .catch((error: unknown) => {
+          intentPreparationPending = false;
+          if (decisionResolved) return;
+          session.updateUI({
+            loading: nearContextFailed ? false : !nearContextReady,
+            errorMessage: String(toError(error)?.message || error || 'Failed to prepare intent'),
+          });
+        });
+    }
+    void nearContextPromise.then(async (nearRpc) => {
+      nearRpcResolved = nearRpc;
+      nearContextReady = true;
+      await promptReady;
+      if (!nearRpc.transactionContext) {
+        nearContextFailed = true;
+        if (decisionResolved) return;
+        session.updateUI({
+          loading: false,
+          errorMessage: nearRpc.details
+            ? `${ERROR_MESSAGES.nearRpcFailed}: ${nearRpc.details}`
+            : ERROR_MESSAGES.nearRpcFailed,
+        });
+        return;
+      }
+      session.setReservedNonces(nearRpc.reservedNonces);
+      const transactionContext: TransactionContext = nearRpc.transactionContext;
+      const securityContext: Partial<UserConfirmSecurityContext> | undefined = rpId
+        ? {
+            rpId,
+            blockHeight: transactionContext.txBlockHeight,
+            blockHash: transactionContext.txBlockHash,
+          }
+        : undefined;
+      if (decisionResolved) return;
+      // Keep confirm disabled until intent preparation also completes.
+      session.updateUI({
+        securityContext,
+        loading: intentPreparationPending,
+      });
+    });
+
+    // Ordering matters: resolve user decision first so "Cancel" can close immediately
+    // even while context/digest preparation is still running. Confirmed flows wait below.
+    const { confirmed, error: uiError } = await promptDecisionPromise;
+    decisionResolved = true;
+    if (!confirmed) {
+      return session.confirmAndCloseModal({
+        requestId: request.requestId,
+        intentDigest: resolvedIntentDigestForResponse,
+        confirmed: false,
+        error: uiError,
+      });
+    }
+
+    const nearRpc = nearRpcResolved || (await nearContextPromise);
     if (!nearRpc.transactionContext) {
       console.error('[SigningFlow] fetchNearContext failed', {
         error: nearRpc.error,
         details: nearRpc.details,
       });
-      session.confirmAndCloseModal({
+      return session.confirmAndCloseModal({
         requestId: request.requestId,
-        intentDigest: getIntentDigest(request),
+        intentDigest: resolvedIntentDigestForResponse,
         confirmed: false,
         error: nearRpc.details
           ? `${ERROR_MESSAGES.nearRpcFailed}: ${nearRpc.details}`
           : ERROR_MESSAGES.nearRpcFailed,
       });
-      await promptDecisionPromise.catch(() => undefined);
-      return;
     }
-
     session.setReservedNonces(nearRpc.reservedNonces);
     const transactionContext: TransactionContext = nearRpc.transactionContext;
-    const securityContext: Partial<UserConfirmSecurityContext> | undefined = rpId
-      ? {
-          rpId,
-          blockHeight: transactionContext.txBlockHeight,
-          blockHash: transactionContext.txBlockHash,
-        }
-      : undefined;
 
-    // 3) Hydrate security context and re-enable confirm action once block metadata is ready.
-    session.updateUI({
-      securityContext,
-      loading: false,
-    });
-
-    const { confirmed, error: uiError } = await promptDecisionPromise;
-    if (!confirmed) {
-      return session.confirmAndCloseModal({
-        requestId: request.requestId,
-        intentDigest: getIntentDigest(request),
-        confirmed: false,
-        error: uiError,
-      });
+    if (preparedIntentPromise) {
+      const prepared = await preparedIntentPromise;
+      applyPreparedIntentData(prepared);
     }
 
     // 4) Warm session: skip WebAuthn (seed/token handled by caller).
     if (signingAuthMode === 'warmSession') {
       session.confirmAndCloseModal({
         requestId: request.requestId,
-        intentDigest: getIntentDigest(request),
+        intentDigest: resolvedIntentDigestForResponse,
         confirmed: true,
         transactionContext,
       });
@@ -166,7 +259,7 @@ export async function handleTransactionSigningFlow(
     }
 
     // 5) Collect authentication credential.
-    const challengeB64u = String(sessionPolicyDigest32 || intentDigestB64u || '').trim();
+    const challengeB64u = String(sessionPolicyDigest32 || resolvedChallengeB64u || '').trim();
     if (!challengeB64u) {
       throw new Error('Missing WebAuthn challenge digest for signing flow');
     }
@@ -180,7 +273,7 @@ export async function handleTransactionSigningFlow(
     // 6) Respond; keep nonces reserved for worker to use
     session.confirmAndCloseModal({
       requestId: request.requestId,
-      intentDigest: getIntentDigest(request),
+      intentDigest: resolvedIntentDigestForResponse,
       confirmed: true,
       credential: serializedCredential,
       transactionContext,
@@ -195,7 +288,7 @@ export async function handleTransactionSigningFlow(
     const isWrongPasskeyError = /multiple passkeys \\(devicenumbers\\) for account/i.test(msg);
     return session.confirmAndCloseModal({
       requestId: request.requestId,
-      intentDigest: getIntentDigest(request),
+      intentDigest: resolvedIntentDigestForResponse,
       confirmed: false,
       error: cancelled
         ? ERROR_MESSAGES.cancelled

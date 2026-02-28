@@ -1,6 +1,6 @@
 import { coerceThemeName } from '@shared/utils/theme';
 import { toTrimmedString } from '@shared/utils/validation';
-import type { RegistrationSignerOptions } from '../types/registrationSignerOptions';
+import type { EcdsaSignerProvisioningDefaults } from '../types/ecdsaSignerProvisioningDefaults';
 import type {
   TatchiChainConfig,
   TatchiChainConfigInput,
@@ -174,18 +174,20 @@ export function resolveSmartAccountDeploymentMode(
   );
 }
 
-export function copyRegistrationSignerOptions(
-  value: RegistrationSignerOptions,
-): RegistrationSignerOptions {
+export function copyEcdsaSignerProvisioningDefaults(
+  value: EcdsaSignerProvisioningDefaults,
+): EcdsaSignerProvisioningDefaults {
   return {
     tempo: {
       ...value.tempo,
       participantIds: [...value.tempo.participantIds],
+      signingSession: { ...value.tempo.signingSession },
       ...(value.tempo.smartAccount ? { smartAccount: { ...value.tempo.smartAccount } } : {}),
     },
     evm: {
       ...value.evm,
       participantIds: [...value.evm.participantIds],
+      signingSession: { ...value.evm.signingSession },
       ...(value.evm.smartAccount ? { smartAccount: { ...value.evm.smartAccount } } : {}),
     },
   };

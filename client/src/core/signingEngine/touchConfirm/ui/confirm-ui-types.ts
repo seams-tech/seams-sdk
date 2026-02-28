@@ -17,6 +17,7 @@ export type ThemeName = 'dark' | 'light';
 export type ConfirmUIUpdate = {
   nearAccountId?: string;
   model?: TxDisplayModel;
+  intentDigest?: string;
   securityContext?: Partial<UserConfirmSecurityContext>;
   theme?: ThemeName;
   nearExplorerUrl?: string;

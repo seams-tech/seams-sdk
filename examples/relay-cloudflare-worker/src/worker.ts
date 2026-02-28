@@ -111,7 +111,6 @@ function createThresholdKeyStoreConfig(env: Env) {
 }
 
 function createAuthService(env: Env): AuthService {
-  const thresholdEd25519KeyStore = createThresholdKeyStoreConfig(env);
   return new AuthService({
     relayerAccount: env.RELAYER_ACCOUNT_ID,
     relayerPrivateKey: env.RELAYER_PRIVATE_KEY,
@@ -124,7 +123,7 @@ function createAuthService(env: Env): AuthService {
       GOOGLE_OIDC_CLIENT_IDS: env.GOOGLE_OIDC_CLIENT_IDS,
       GOOGLE_OIDC_HOSTED_DOMAINS: env.GOOGLE_OIDC_HOSTED_DOMAINS,
     },
-    thresholdEd25519KeyStore,
+    thresholdEd25519KeyStore: createThresholdKeyStoreConfig(env),
     shamir: {
       SHAMIR_P_B64U: env.SHAMIR_P_B64U,
       SHAMIR_E_S_B64U: env.SHAMIR_E_S_B64U,
@@ -149,9 +148,8 @@ function createPrfSessionSealOptions(env: Env) {
     );
   }
 
-  const thresholdEd25519KeyStore = createThresholdKeyStoreConfig(env);
   const ecdsaAuthSessionStore = createEcdsaAuthSessionStore({
-    config: thresholdEd25519KeyStore,
+    config: createThresholdKeyStoreConfig(env),
     logger: console,
     isNode: false,
   });

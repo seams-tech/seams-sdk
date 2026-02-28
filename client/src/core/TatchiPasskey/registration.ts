@@ -32,18 +32,18 @@ import {
   putCachedEcdsaAuthSession,
 } from '../signingEngine/threshold/session/ecdsaAuthSession';
 import type {
-  RegistrationSignerOptions,
-  RegistrationThresholdEcdsaSignerOptions,
-} from '../types/registrationSignerOptions';
+  EcdsaSignerProvisioningDefaults,
+  EcdsaSignerProvisioningPolicy,
+} from '../types/ecdsaSignerProvisioningDefaults';
 // Registration forces a visible, clickable confirmation for cross‑origin safety
 
 type ThresholdEcdsaProvisionTarget = {
   chain: ThresholdEcdsaActivationChain;
-  options: RegistrationThresholdEcdsaSignerOptions;
+  options: EcdsaSignerProvisioningPolicy;
 };
 
 function listThresholdEcdsaProvisionTargets(
-  signerOptions: RegistrationSignerOptions,
+  signerOptions: EcdsaSignerProvisioningDefaults,
 ): ThresholdEcdsaProvisionTarget[] {
   const targets: ThresholdEcdsaProvisionTarget[] = [];
   if (signerOptions.tempo.enabled) {
@@ -63,7 +63,7 @@ function coercePositiveInt(value: unknown, fallback: number): number {
 
 function toSmartAccountBootstrapInput(
   chain: ThresholdEcdsaActivationChain,
-  smartAccount: RegistrationThresholdEcdsaSignerOptions['smartAccount'] | undefined,
+  smartAccount: EcdsaSignerProvisioningPolicy['smartAccount'] | undefined,
 ):
   | {
       chainId: number;
@@ -157,12 +157,12 @@ export async function registerPasskeyInternal(
     const requestedSignerModeStr = requestedSignerMode.mode;
     const deriveLocalBackupKey =
       requestedSignerModeStr === 'threshold-signer' ? options?.backupLocalKey !== false : true;
-    const registrationSignerOptions =
+    const provisioningDefaults =
       requestedSignerModeStr === 'threshold-signer'
-        ? options?.signerOptions || configs.signing.registrationDefaults
+        ? options?.signerOptions || configs.signing.thresholdEcdsa.provisioningDefaults
         : null;
-    const thresholdEcdsaProvisionTargets = registrationSignerOptions
-      ? listThresholdEcdsaProvisionTargets(registrationSignerOptions)
+    const thresholdEcdsaProvisionTargets = provisioningDefaults
+      ? listThresholdEcdsaProvisionTargets(provisioningDefaults)
       : [];
     const thresholdEcdsaPrimaryProvisionTarget = thresholdEcdsaProvisionTargets[0] || null;
 
@@ -330,7 +330,7 @@ export async function registerPasskeyInternal(
     ) {
       thresholdEcdsaSessionIdForRegistration = generateThresholdSessionId();
       thresholdEcdsaSessionKindForRegistration =
-        thresholdEcdsaPrimaryProvisionTarget.options.sessionKind;
+        thresholdEcdsaPrimaryProvisionTarget.options.signingSession.kind;
       if (thresholdEcdsaSessionKindForRegistration !== 'jwt') {
         throw new Error('Threshold ECDSA registration bootstrap requires sessionKind=jwt');
       }
@@ -341,11 +341,11 @@ export async function registerPasskeyInternal(
         sessionId: thresholdEcdsaSessionIdForRegistration,
         participantIds: [...thresholdEcdsaPrimaryProvisionTarget.options.participantIds],
         ttlMs: coercePositiveInt(
-          thresholdEcdsaPrimaryProvisionTarget.options.ttlMs,
+          thresholdEcdsaPrimaryProvisionTarget.options.signingSession.ttlMs,
           24 * 60 * 60 * 1000,
         ),
         remainingUses: coercePositiveInt(
-          thresholdEcdsaPrimaryProvisionTarget.options.remainingUses,
+          thresholdEcdsaPrimaryProvisionTarget.options.signingSession.remainingUses,
           10_000,
         ),
       };

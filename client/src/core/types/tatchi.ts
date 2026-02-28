@@ -4,7 +4,7 @@ import type { SignedTransaction } from '../rpcClients/near/NearClient';
 import type { AuthenticatorOptions } from './authenticatorOptions';
 import type { ClientUserData } from '../indexedDB/passkeyClientDB.types';
 import type { SignerMode, WasmSignedDelegate } from './signer-worker';
-import type { RegistrationSignerOptions } from './registrationSignerOptions';
+import type { EcdsaSignerProvisioningDefaults } from './ecdsaSignerProvisioningDefaults';
 
 export type SigningSessionPersistenceMode = 'none' | 'sealed_refresh_v1';
 
@@ -68,13 +68,15 @@ export interface SigningSessionSealConfig {
  *     maxRefillInFlight?: number;
  *     refillAttemptTimeoutMs?: number;
  *   };
- *   registrationSignerDefaults?: {
+ *   provisioningDefaults?: {
  *     tempo: {
  *       enabled: boolean;
  *       participantIds: readonly number[];
- *       sessionKind: 'jwt' | 'cookie';
- *       ttlMs: number;
- *       remainingUses: number;
+ *       signingSession: {
+ *         kind: 'jwt' | 'cookie';
+ *         ttlMs: number;
+ *         remainingUses: number;
+ *       };
  *       smartAccount?: {
  *         chainId: number;
  *         factory?: string;
@@ -86,9 +88,11 @@ export interface SigningSessionSealConfig {
  *     evm: {
  *       enabled: boolean;
  *       participantIds: readonly number[];
- *       sessionKind: 'jwt' | 'cookie';
- *       ttlMs: number;
- *       remainingUses: number;
+ *       signingSession: {
+ *         kind: 'jwt' | 'cookie';
+ *         ttlMs: number;
+ *         remainingUses: number;
+ *       };
  *       smartAccount?: {
  *         chainId: number;
  *         factory?: string;
@@ -178,25 +182,25 @@ export interface TatchiConfigsInput {
    */
   thresholdEcdsaPresignPool?: ThresholdEcdsaPresignPoolPolicyInput;
   /**
-   * Default threshold-ECDSA signer provisioning created at registration time for
+   * Default threshold-ECDSA provisioning policy used at registration time for
    * `tempo` and `evm` chains.
    *
    * Shape:
-   * - `tempo`: `RegistrationThresholdEcdsaSignerOptions`
-   * - `evm`: `RegistrationThresholdEcdsaSignerOptions`
+   * - `tempo`: `EcdsaSignerProvisioningPolicy`
+   * - `evm`: `EcdsaSignerProvisioningPolicy`
    *
-   * `RegistrationThresholdEcdsaSignerOptions` contains:
+   * `EcdsaSignerProvisioningPolicy` contains:
    * - `enabled`: enable/disable provisioning on that chain.
    * - `participantIds`: participant IDs used for threshold key/session setup.
-   * - `sessionKind`: `'jwt' | 'cookie'` for the minted signer session.
-   * - `ttlMs`: session expiration window in milliseconds.
-   * - `remainingUses`: max allowed signer operations for the session.
+   * - `signingSession.kind`: `'jwt' | 'cookie'` for the minted signer session.
+   * - `signingSession.ttlMs`: session expiration window in milliseconds.
+   * - `signingSession.remainingUses`: max allowed signer operations for the session.
    * - `smartAccount?`: optional EVM/Tempo smart-account deployment hints.
    *
    * Used when a registration call does not provide per-call overrides via
    * `RegistrationHooksOptions.signerOptions`.
    */
-  registrationSignerDefaults?: RegistrationSignerOptions;
+  provisioningDefaults?: EcdsaSignerProvisioningDefaults;
   // Iframe Wallet configuration (when using a separate wallet origin)
   iframeWallet?: TatchiIframeWalletConfigInput;
   // Relay Server is used to create new NEAR accounts
@@ -242,8 +246,10 @@ export interface TatchiConfigsInput {
  *     sessionDefaults: { ttlMs: number; remainingUses: number };
  *     sessionPersistenceMode: SigningSessionPersistenceMode;
  *     sessionSeal: SigningSessionSealConfig;
- *     thresholdEcdsa: { presignPool: ThresholdEcdsaPresignPoolPolicy };
- *     registrationDefaults: RegistrationSignerOptions;
+ *     thresholdEcdsa: {
+ *       presignPool: ThresholdEcdsaPresignPoolPolicy;
+ *       provisioningDefaults: EcdsaSignerProvisioningDefaults;
+ *     };
  *   };
  *   webauthn: {
  *     authenticatorOptions: AuthenticatorOptions;
@@ -579,6 +585,7 @@ export interface TatchiSigningSessionDefaults {
 
 export interface TatchiThresholdEcdsaConfig {
   presignPool: ThresholdEcdsaPresignPoolPolicy;
+  provisioningDefaults: EcdsaSignerProvisioningDefaults;
 }
 
 export interface TatchiSigningConfig {
@@ -587,7 +594,6 @@ export interface TatchiSigningConfig {
   sessionPersistenceMode: SigningSessionPersistenceMode;
   sessionSeal: SigningSessionSealConfig;
   thresholdEcdsa: TatchiThresholdEcdsaConfig;
-  registrationDefaults: RegistrationSignerOptions;
 }
 
 export interface TatchiWebauthnConfig {

@@ -216,6 +216,9 @@ function applyHostElementProps(
 
   if (update.nearAccountId != null) element.nearAccountId = update.nearAccountId;
   if (Object.prototype.hasOwnProperty.call(update, 'model')) element.model = update.model;
+  if (Object.prototype.hasOwnProperty.call(update, 'intentDigest')) {
+    element.intentDigest = update.intentDigest;
+  }
   if (update.securityContext != null) element.securityContext = update.securityContext;
   if (update.theme != null) element.theme = update.theme;
   if (update.loading != null) element.loading = !!update.loading;
@@ -378,7 +381,10 @@ export async function awaitConfirmUIDecision({
       let error = typeof detail?.error === 'string' ? detail.error : undefined;
 
       if (confirmed) {
-        const guardError = await checkIntentDigestGuard(summary?.intentDigest, txSigningRequests);
+        const expectedIntentDigest = String(
+          (el as HostTxConfirmerElement).intentDigest || summary?.intentDigest || '',
+        ).trim();
+        const guardError = await checkIntentDigestGuard(expectedIntentDigest, txSigningRequests);
         if (guardError) {
           confirmed = false;
           if (!error) error = guardError;
