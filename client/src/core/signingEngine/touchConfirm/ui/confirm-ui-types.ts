@@ -31,4 +31,9 @@ export type ConfirmUIUpdate = {
 export interface ConfirmUIHandle {
   close(confirmed: boolean): void;
   update(props: ConfirmUIUpdate): void;
+  /**
+   * Subscribe to cancel events emitted by the mounted confirmer element.
+   * Returns an unsubscribe function.
+   */
+  onCancel?(listener: (detail: { error?: string }) => void): () => void;
 }

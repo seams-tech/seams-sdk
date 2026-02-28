@@ -245,8 +245,8 @@ export interface TatchiConfigsInput {
  *     thresholdEcdsa: { presignPool: ThresholdEcdsaPresignPoolPolicy };
  *     registrationDefaults: RegistrationSignerOptions;
  *   };
- *   auth: {
- *     webauthn: { authenticatorOptions?: AuthenticatorOptions };
+ *   webauthn: {
+ *     authenticatorOptions: AuthenticatorOptions;
  *   };
  *   wallet:
  *     | { mode: 'direct'; iframe: { origin?: string; servicePath: string; sdkBasePath: string; rpIdOverride?: string } }
@@ -594,10 +594,6 @@ export interface TatchiWebauthnConfig {
   authenticatorOptions: AuthenticatorOptions;
 }
 
-export interface TatchiAuthConfig {
-  webauthn: TatchiWebauthnConfig;
-}
-
 export interface TatchiIframeWalletConfig {
   origin?: string;
   servicePath: string;
@@ -626,7 +622,7 @@ export interface TatchiUiConfig {
 export interface TatchiConfigsResolved {
   network: TatchiNetworkConfig;
   signing: TatchiSigningConfig;
-  auth: TatchiAuthConfig;
+  webauthn: TatchiWebauthnConfig;
   wallet: TatchiWalletConfig;
   ui: TatchiUiConfig;
 }

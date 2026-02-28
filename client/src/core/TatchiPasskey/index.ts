@@ -409,7 +409,7 @@ export class TatchiPasskey {
       this.getContext(),
       toAccountId(nearAccountId),
       options,
-      cloneAuthenticatorOptions(this.configs.auth.webauthn.authenticatorOptions),
+      cloneAuthenticatorOptions(this.configs.webauthn.authenticatorOptions),
     );
   }
 
@@ -459,7 +459,7 @@ export class TatchiPasskey {
       this.getContext(),
       toAccountId(nearAccountId),
       options,
-      cloneAuthenticatorOptions(this.configs.auth.webauthn.authenticatorOptions),
+      cloneAuthenticatorOptions(this.configs.webauthn.authenticatorOptions),
       confirmationConfigOverride,
     );
   }

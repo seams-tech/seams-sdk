@@ -260,32 +260,29 @@ export function buildConfigsFromDefaults(args: {
       },
       registrationDefaults: registrationSignerDefaults,
     },
-    auth: {
-      webauthn: {
-        authenticatorOptions:
-          overrides.authenticatorOptions ?? defaults.auth.webauthn.authenticatorOptions,
-      },
+    webauthn: {
+      authenticatorOptions:
+        overrides.authenticatorOptions ?? defaults.webauthn.authenticatorOptions,
     },
-    wallet:
-      walletMode === 'iframe'
-        ? {
-            mode: 'iframe',
-            iframe: {
-              origin: walletOrigin,
-              servicePath: walletServicePath,
-              sdkBasePath: walletSdkBasePath,
-              rpIdOverride: walletRpIdOverride,
-            },
-          }
-        : {
-            mode: 'direct',
-            iframe: {
-              ...(walletOrigin ? { origin: walletOrigin } : {}),
-              servicePath: walletServicePath,
-              sdkBasePath: walletSdkBasePath,
-              rpIdOverride: walletRpIdOverride,
-            },
+    wallet: walletMode === 'iframe'
+      ? {
+          mode: 'iframe',
+          iframe: {
+            origin: walletOrigin,
+            servicePath: walletServicePath,
+            sdkBasePath: walletSdkBasePath,
+            rpIdOverride: walletRpIdOverride,
           },
+        }
+      : {
+          mode: 'direct',
+          iframe: {
+            ...(walletOrigin ? { origin: walletOrigin } : {}),
+            servicePath: walletServicePath,
+            sdkBasePath: walletSdkBasePath,
+            rpIdOverride: walletRpIdOverride,
+          },
+        },
     ui: {
       appearance: {
         theme: appearanceTheme,

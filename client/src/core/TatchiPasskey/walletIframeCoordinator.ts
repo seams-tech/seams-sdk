@@ -134,7 +134,7 @@ export class WalletIframeCoordinator {
             ...(signingSessionSeal ? { signingSessionSeal } : {}),
             rpIdOverride: walletIframeConfig?.rpIdOverride,
             authenticatorOptions: cloneAuthenticatorOptions(
-              this.configs.auth.webauthn.authenticatorOptions,
+              this.configs.webauthn.authenticatorOptions,
             ),
             appearance: {
               theme: this.getTheme(),

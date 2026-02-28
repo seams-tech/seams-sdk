@@ -12,32 +12,6 @@ import { buildConfigsFromDefaults } from './configBuilder';
 // Cross-origin wallet isolation is recommended; set `iframeWallet.walletOrigin` in your app config when you have a dedicated origin.
 // Consumers can shallow-merge overrides by field.
 
-const DEFAULT_AUTHENTICATOR_OPTIONS: AuthenticatorOptions = {
-  userVerification: UserVerificationPolicy.Preferred,
-  originPolicy: {
-    single: undefined,
-    all_subdomains: true,
-    multiple: undefined,
-  },
-};
-
-export const DEFAULT_REGISTRATION_SIGNER_OPTIONS: RegistrationSignerOptions = {
-  tempo: {
-    enabled: true,
-    participantIds: [1, 2],
-    sessionKind: 'jwt',
-    ttlMs: 24 * 60 * 60 * 1000,
-    remainingUses: 10_000,
-  },
-  evm: {
-    enabled: true,
-    participantIds: [1, 2],
-    sessionKind: 'jwt',
-    ttlMs: 24 * 60 * 60 * 1000,
-    remainingUses: 10_000,
-  },
-};
-
 export const DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY: ThresholdEcdsaPresignPoolPolicy = {
   enabled: true,
   targetDepth: 3,
@@ -58,25 +32,25 @@ export const DEFAULT_CHAIN_CONFIGS: TatchiChainConfig[] = [
     network: 'tempo-testnet',
     rpcUrl: 'https://rpc.moderato.tempo.xyz',
     explorerUrl: 'https://explore.tempo.xyz',
-    chainId: 42_431,
+    chainId: 42431,
   },
   {
     network: 'arc-testnet',
     rpcUrl: 'https://rpc.testnet.arc.network',
     explorerUrl: 'https://testnet.arcscan.app',
-    chainId: 5_042_002,
+    chainId: 5042002,
   },
   {
     network: 'ethereum-sepolia',
     rpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
     explorerUrl: 'https://sepolia.etherscan.io',
-    chainId: 11_155_111,
+    chainId: 11155111,
   },
 ];
 
 export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigsReadonly = {
   network: {
-    chains: DEFAULT_CHAIN_CONFIGS.map((chain) => ({ ...chain })),
+    chains: DEFAULT_CHAIN_CONFIGS,
     relayer: {
       accountId: 'w3a-relayer.testnet',
       // No default relayer URL. Force apps to configure via env/overrides.
@@ -118,12 +92,22 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigsReadonly = {
     thresholdEcdsa: {
       presignPool: DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY,
     },
-    registrationDefaults: DEFAULT_REGISTRATION_SIGNER_OPTIONS,
-  },
-  auth: {
-    webauthn: {
-      authenticatorOptions: DEFAULT_AUTHENTICATOR_OPTIONS,
-    },
+    registrationDefaults: {
+      tempo: {
+        enabled: true,
+        participantIds: [1, 2],
+        sessionKind: 'jwt',
+        ttlMs: 24 * 60 * 60 * 1000,
+        remainingUses: 10_000,
+      },
+      evm: {
+        enabled: true,
+        participantIds: [1, 2],
+        sessionKind: 'jwt',
+        ttlMs: 24 * 60 * 60 * 1000,
+        remainingUses: 10_000,
+      },
+    } as RegistrationSignerOptions
   },
   // Configure iframeWallet in application code to point at your dedicated wallet origin when available.
   wallet: {
@@ -134,6 +118,16 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigsReadonly = {
       sdkBasePath: '/sdk',
       rpIdOverride: 'example.localhost',
     },
+  },
+  webauthn: {
+    authenticatorOptions: {
+      userVerification: UserVerificationPolicy.Preferred,
+      originPolicy: {
+        single: undefined,
+        all_subdomains: true,
+        multiple: undefined,
+      },
+    } as AuthenticatorOptions
   },
   ui: {
     appearance: {

@@ -213,7 +213,7 @@ export async function createAccountAndRegisterWithRelayServer(
       rp_id: String(rpId || '').trim(),
       webauthn_registration: serializedCredential,
       authenticator_options: cloneAuthenticatorOptions(
-        authenticatorOptions ?? context.configs.auth.webauthn.authenticatorOptions,
+        authenticatorOptions ?? context.configs.webauthn.authenticatorOptions,
       ),
     };
     const pk = String(publicKey || '').trim();

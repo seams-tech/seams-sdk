@@ -161,7 +161,7 @@ export class TatchiPasskeyIframe {
       // relayer: configs.network.relayer,
       rpIdOverride: this.configs.wallet.iframe?.rpIdOverride,
       authenticatorOptions: cloneAuthenticatorOptions(
-        this.configs.auth.webauthn.authenticatorOptions,
+        this.configs.webauthn.authenticatorOptions,
       ),
     });
 
