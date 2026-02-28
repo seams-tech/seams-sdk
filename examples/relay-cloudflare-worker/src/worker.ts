@@ -1,10 +1,4 @@
-import {
-  AuthService,
-  createEcdsaAuthSessionStore,
-  createPrfSessionSealPolicyFromEcdsaAuthSessionStore,
-  createPrfSessionSealRoutesOptions,
-  createPrfSessionSealShamir3PassCipherAdapter,
-} from '@tatchi-xyz/sdk/server';
+import { AuthService, type ThresholdEd25519KeyStoreConfigInput } from '@tatchi-xyz/sdk/server';
 import {
   createCloudflareCron,
   createCloudflareEmailHandler,
@@ -17,8 +11,9 @@ import type {
   RelayCloudflareWorkerEnv,
 } from '@tatchi-xyz/sdk/server/router/cloudflare';
 import signerWasmModule from '@tatchi-xyz/sdk/server/wasm/signer';
-import shamirWasmModule from '@tatchi-xyz/sdk/server/wasm/signer';
 import jwtSession from './jwtSession';
+import { createPrfSessionSealOptions } from './prfSessionSeal';
+import { createRorOptions } from './rorOptions';
 
 export { ThresholdEd25519StoreDurableObject } from '@tatchi-xyz/sdk/server/router/cloudflare';
 
@@ -61,45 +56,7 @@ type Env = RelayCloudflareWorkerEnv & {
   };
 };
 
-function hostnameFromOrigin(origin: string): string {
-  try {
-    return new URL(origin).hostname.toLowerCase();
-  } catch {
-    return '';
-  }
-}
-
-function sanitizeOrigins(values: string[]): string[] {
-  const out = new Set<string>();
-  for (const raw of values) {
-    try {
-      const u = new URL(String(raw || '').trim());
-      const scheme = u.protocol;
-      const host = u.hostname.toLowerCase();
-      if (!host) continue;
-      if (scheme !== 'https:' && !(scheme === 'http:' && host === 'localhost')) continue;
-      if ((u.pathname && u.pathname !== '/') || u.search || u.hash) continue;
-      const port = u.port ? `:${u.port}` : '';
-      out.add(`${scheme}//${host}${port}`);
-    } catch {}
-  }
-  return Array.from(out);
-}
-
-function parseBooleanFlag(value: unknown, fallback: boolean): boolean {
-  const normalized = String(value ?? '')
-    .trim()
-    .toLowerCase();
-  if (!normalized) return fallback;
-  if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on')
-    return true;
-  if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off') {
-    return false;
-  }
-  return fallback;
-}
-
-function createThresholdKeyStoreConfig(env: Env) {
+function createThresholdKeyStoreConfig(env: Env): ThresholdEd25519KeyStoreConfigInput {
   return {
     kind: 'cloudflare-do' as const,
     namespace: env.THRESHOLD_STORE,
@@ -124,50 +81,9 @@ function createAuthService(env: Env): AuthService {
       GOOGLE_OIDC_HOSTED_DOMAINS: env.GOOGLE_OIDC_HOSTED_DOMAINS,
     },
     thresholdEd25519KeyStore: createThresholdKeyStoreConfig(env),
-    shamir: {
-      SHAMIR_P_B64U: env.SHAMIR_P_B64U,
-      SHAMIR_E_S_B64U: env.SHAMIR_E_S_B64U,
-      SHAMIR_D_S_B64U: env.SHAMIR_D_S_B64U,
-      graceShamirKeysFile: '', // Do not use FS on Workers
-      moduleOrPath: shamirWasmModule, // Pass WASM module for Cloudflare Workers
-    },
     signerWasm: {
       moduleOrPath: signerWasmModule, // Pass WASM module for Cloudflare Workers
     },
-  });
-}
-
-function createPrfSessionSealOptions(env: Env) {
-  const enabled = parseBooleanFlag(env.PRF_SESSION_SEAL_ENABLED, true);
-  if (!enabled) return null;
-
-  const keyVersion = String(env.PRF_SESSION_SEAL_KEY_VERSION || 'kek-s-2026-02').trim();
-  if (!keyVersion) {
-    throw new Error(
-      'PRF_SESSION_SEAL_KEY_VERSION must be a non-empty string when PRF_SESSION_SEAL_ENABLED is enabled',
-    );
-  }
-
-  const ecdsaAuthSessionStore = createEcdsaAuthSessionStore({
-    config: createThresholdKeyStoreConfig(env),
-    logger: console,
-    isNode: false,
-  });
-
-  return createPrfSessionSealRoutesOptions({
-    sessionPolicy: createPrfSessionSealPolicyFromEcdsaAuthSessionStore(ecdsaAuthSessionStore),
-    cipher: createPrfSessionSealShamir3PassCipherAdapter({
-      currentKeyVersion: keyVersion,
-      keys: [
-        {
-          keyVersion,
-          shamirPrimeB64u: env.SHAMIR_P_B64U,
-          serverEncryptExponentB64u: env.SHAMIR_E_S_B64U,
-          serverDecryptExponentB64u: env.SHAMIR_D_S_B64U,
-        },
-      ],
-    }),
-    logger: console,
   });
 }
 
@@ -179,36 +95,25 @@ export default {
    */
   async fetch(request: Request, env: Env, ctx: Ctx): Promise<Response> {
     const authService = createAuthService(env);
-    const prfSessionSeal = createPrfSessionSealOptions(env);
-    const expectedOrigin = String(env.EXPECTED_ORIGIN || '').trim();
-    const expectedWalletOrigin = String(env.EXPECTED_WALLET_ORIGIN || '').trim();
-    const rorRpId = String(env.ROR_RP_ID || hostnameFromOrigin(expectedWalletOrigin))
-      .trim()
-      .toLowerCase();
-    const rorOrigins = sanitizeOrigins([
-      expectedOrigin,
-      expectedWalletOrigin,
-      ...String(env.ROR_ALLOWED_ORIGINS || '')
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
-    ]);
+    const prfSessionSeal = createPrfSessionSealOptions({
+      enabled: env.PRF_SESSION_SEAL_ENABLED,
+      keyVersion: env.PRF_SESSION_SEAL_KEY_VERSION,
+      shamirPrimeB64u: env.SHAMIR_P_B64U,
+      serverEncryptExponentB64u: env.SHAMIR_E_S_B64U,
+      serverDecryptExponentB64u: env.SHAMIR_D_S_B64U,
+      thresholdKeyStoreConfig: createThresholdKeyStoreConfig(env),
+    });
     const router = createCloudflareRouter(authService, {
       healthz: true,
       readyz: true,
       // Pass raw env strings; router normalizes CSV/duplicates internally
       corsOrigins: [env.EXPECTED_ORIGIN, env.EXPECTED_WALLET_ORIGIN],
-      ...(rorRpId
-        ? {
-            ror: {
-              rpId: rorRpId,
-              provider: {
-                getAllowedOrigins: async (input: { rpId: string; host?: string }) =>
-                  input.rpId === rorRpId ? rorOrigins : [],
-              },
-            },
-          }
-        : {}),
+      ror: createRorOptions({
+        expectedOrigin: env.EXPECTED_ORIGIN,
+        expectedWalletOrigin: env.EXPECTED_WALLET_ORIGIN,
+        rorRpId: env.ROR_RP_ID,
+        rorAllowedOrigins: env.ROR_ALLOWED_ORIGINS,
+      }),
       signedDelegate: { route: '/signed-delegate' },
       session: jwtSession,
       prfSessionSeal,
