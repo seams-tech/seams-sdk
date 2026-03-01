@@ -5,7 +5,9 @@ import {
   createPostgresConsoleRuntimeSnapshotService,
   createPostgresConsoleSettingsService,
   createPostgresConsoleSmartWalletService,
+  runPostgresConsoleRuntimeSnapshotOutboxDispatch,
 } from '@server/router/express-adaptor';
+import { withConsoleTenantContextTx } from '../../server/src/console/shared/postgresTenantContext';
 import { getPostgresPool } from '../../server/src/storage/postgres';
 
 function randomNamespace(prefix: string): string {
@@ -28,6 +30,8 @@ test.describe('console config modules postgres services', () => {
   const enabled = Boolean(postgresUrl);
   const namespace = randomNamespace('test:console-config-modules:postgres');
   const orgId = 'org-postgres-console-config-modules';
+  const ownerOrgId = `${orgId}:owner`;
+  const attackerOrgId = `${orgId}:attacker`;
 
   const adminCtx = {
     orgId,
@@ -43,13 +47,16 @@ test.describe('console config modules postgres services', () => {
   test.afterAll(async () => {
     if (!enabled) return;
     const pool = await getPostgresPool(postgresUrl);
-    await pool.query('DELETE FROM console_key_exports WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_environment_settings WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_runtime_snapshots WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_smart_wallet_configs WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_gas_sponsorship_configs WHERE namespace = $1', [
-      namespace,
-    ]);
+    for (const scopedOrgId of [orgId, ownerOrgId, attackerOrgId]) {
+      await withConsoleTenantContextTx(pool, { namespace, orgId: scopedOrgId }, async (q) => {
+        await q.query('DELETE FROM console_key_exports WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_environment_settings WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_runtime_snapshot_outbox WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_runtime_snapshots WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_smart_wallet_configs WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_gas_sponsorship_configs WHERE namespace = $1', [namespace]);
+      });
+    }
   });
 
   test('gas sponsorship postgres service supports create/list/update + scope validation', async () => {
@@ -333,6 +340,457 @@ test.describe('console config modules postgres services', () => {
     expect(listed[0].version).toBeGreaterThanOrEqual(listed[1].version);
   });
 
+  test('runtime snapshots table enforces DB-level tenant RLS policies', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const service = await createPostgresConsoleRuntimeSnapshotService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+
+    const environmentId = 'prod-rls';
+    const ownerCtx = {
+      orgId: ownerOrgId,
+      actorUserId: 'owner-runtime-rls',
+      roles: ['admin'],
+    };
+    const attackerCtx = {
+      orgId: attackerOrgId,
+      actorUserId: 'attacker-runtime-rls',
+      roles: ['admin'],
+    };
+
+    await service.publishSnapshot(ownerCtx, {
+      environmentId,
+      payload: {
+        policy: { defaultPolicyId: 'owner-policy' },
+        settings: { enforceMfa: true },
+        gasSponsorship: { enabled: true },
+        smartWallets: { mode: 'REQUIRED' },
+      },
+    });
+    await service.publishSnapshot(attackerCtx, {
+      environmentId,
+      payload: {
+        policy: { defaultPolicyId: 'attacker-policy' },
+        settings: { enforceMfa: false },
+        gasSponsorship: { enabled: false },
+        smartWallets: { mode: 'OPTIONAL' },
+      },
+    });
+
+    const pool = await getPostgresPool(postgresUrl);
+
+    const ownerRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerCtx.orgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, snapshot_id
+             FROM console_runtime_snapshots
+            WHERE environment_id = $1
+            ORDER BY created_at_ms DESC`,
+          [environmentId],
+        ),
+    );
+    expect(ownerRows.rows.length).toBe(1);
+    expect(String(ownerRows.rows[0]?.org_id || '')).toBe(ownerCtx.orgId);
+
+    const attackerRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: attackerCtx.orgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, snapshot_id
+             FROM console_runtime_snapshots
+            WHERE environment_id = $1
+            ORDER BY created_at_ms DESC`,
+          [environmentId],
+        ),
+    );
+    expect(attackerRows.rows.length).toBe(1);
+    expect(String(attackerRows.rows[0]?.org_id || '')).toBe(attackerCtx.orgId);
+
+    const rowsWithoutTenantContext = await pool.query(
+      `SELECT org_id, snapshot_id
+         FROM console_runtime_snapshots
+        WHERE namespace = $1
+          AND environment_id = $2`,
+      [namespace, environmentId],
+    );
+    expect(rowsWithoutTenantContext.rows.length).toBe(0);
+
+    const ownerOutboxRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerCtx.orgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, event_id, snapshot_id
+             FROM console_runtime_snapshot_outbox
+            WHERE namespace = $1
+            ORDER BY created_at_ms DESC`,
+          [namespace],
+        ),
+    );
+    expect(ownerOutboxRows.rows.length).toBeGreaterThan(0);
+    expect(String(ownerOutboxRows.rows[0]?.org_id || '')).toBe(ownerCtx.orgId);
+
+    const attackerOutboxRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: attackerCtx.orgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, event_id, snapshot_id
+             FROM console_runtime_snapshot_outbox
+            WHERE namespace = $1
+            ORDER BY created_at_ms DESC`,
+          [namespace],
+        ),
+    );
+    expect(attackerOutboxRows.rows.length).toBeGreaterThan(0);
+    expect(String(attackerOutboxRows.rows[0]?.org_id || '')).toBe(attackerCtx.orgId);
+
+    const outboxRowsWithoutTenantContext = await pool.query(
+      `SELECT org_id, event_id
+         FROM console_runtime_snapshot_outbox
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(outboxRowsWithoutTenantContext.rows.length).toBe(0);
+  });
+
+  test('runtime snapshot outbox dispatch is ordered and retry-safe', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    let current = new Date('2026-03-01T00:00:00.000Z');
+    const service = await createPostgresConsoleRuntimeSnapshotService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+      now: () => current,
+    });
+    const environmentId = 'prod-outbox-dispatch';
+
+    const one = await service.publishSnapshot(adminCtx, {
+      environmentId,
+      payload: {
+        policy: { defaultPolicyId: 'p1' },
+        settings: { enforceMfa: true },
+        gasSponsorship: { enabled: true },
+        smartWallets: { mode: 'OPTIONAL' },
+      },
+    });
+    current = new Date(current.getTime() + 1000);
+    const two = await service.publishSnapshot(adminCtx, {
+      environmentId,
+      payload: {
+        policy: { defaultPolicyId: 'p2' },
+        settings: { enforceMfa: true },
+        gasSponsorship: { enabled: true },
+        smartWallets: { mode: 'OPTIONAL' },
+      },
+    });
+    current = new Date(current.getTime() + 1000);
+    const three = await service.publishSnapshot(adminCtx, {
+      environmentId,
+      payload: {
+        policy: { defaultPolicyId: 'p3' },
+        settings: { enforceMfa: false },
+        gasSponsorship: { enabled: false },
+        smartWallets: { mode: 'REQUIRED' },
+      },
+    });
+
+    const firstRunVersions: number[] = [];
+    const first = await runPostgresConsoleRuntimeSnapshotOutboxDispatch({
+      postgresUrl,
+      namespace,
+      orgIds: [orgId],
+      ensureSchema: false,
+      limit: 2,
+      dispatch: async (event) => {
+        firstRunVersions.push(event.snapshotVersion);
+      },
+      logger: console as any,
+    });
+    expect(first.orgCount).toBe(1);
+    expect(first.dispatchedCount).toBe(2);
+    expect(first.failureCount).toBe(0);
+    expect(firstRunVersions).toEqual([one.version, two.version]);
+
+    let failOnce = true;
+    const secondRunVersions: number[] = [];
+    const second = await runPostgresConsoleRuntimeSnapshotOutboxDispatch({
+      postgresUrl,
+      namespace,
+      orgIds: [orgId],
+      ensureSchema: false,
+      limit: 10,
+      dispatch: async (event) => {
+        secondRunVersions.push(event.snapshotVersion);
+        if (event.snapshotVersion === three.version && failOnce) {
+          failOnce = false;
+          throw new Error('simulated_dispatch_failure');
+        }
+      },
+      logger: console as any,
+    });
+    expect(second.dispatchedCount).toBe(0);
+    expect(second.failureCount).toBe(1);
+    expect(secondRunVersions).toEqual([three.version]);
+
+    const thirdRunVersions: number[] = [];
+    const third = await runPostgresConsoleRuntimeSnapshotOutboxDispatch({
+      postgresUrl,
+      namespace,
+      orgIds: [orgId],
+      ensureSchema: false,
+      limit: 10,
+      dispatch: async (event) => {
+        thirdRunVersions.push(event.snapshotVersion);
+      },
+      logger: console as any,
+    });
+    expect(third.dispatchedCount).toBe(1);
+    expect(third.failureCount).toBe(0);
+    expect(thirdRunVersions).toEqual([three.version]);
+
+    const fourth = await runPostgresConsoleRuntimeSnapshotOutboxDispatch({
+      postgresUrl,
+      namespace,
+      orgIds: [orgId],
+      ensureSchema: false,
+      limit: 10,
+      dispatch: async () => {},
+      logger: console as any,
+    });
+    expect(fourth.dispatchedCount).toBe(0);
+    expect(fourth.failureCount).toBe(0);
+
+    const pool = await getPostgresPool(postgresUrl);
+    const summaryRows = await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) =>
+      q.query(
+        `SELECT
+            COUNT(*)::BIGINT AS total_count,
+            COUNT(*) FILTER (WHERE dispatched_at_ms IS NOT NULL)::BIGINT AS dispatched_count
+           FROM console_runtime_snapshot_outbox
+          WHERE namespace = $1 AND environment_id = $2`,
+        [namespace, environmentId],
+      ),
+    );
+    expect(Number(summaryRows.rows[0]?.total_count || 0)).toBeGreaterThanOrEqual(3);
+    expect(Number(summaryRows.rows[0]?.dispatched_count || 0)).toBeGreaterThanOrEqual(3);
+  });
+
+  test('gas/smart-wallet tables enforce DB-level tenant RLS policies', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const gasService = await createPostgresConsoleGasSponsorshipService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+    const smartWalletService = await createPostgresConsoleSmartWalletService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+
+    const ownerCtx = {
+      orgId: ownerOrgId,
+      actorUserId: 'owner-config-rls',
+      roles: ['admin'],
+    };
+    const attackerCtx = {
+      orgId: attackerOrgId,
+      actorUserId: 'attacker-config-rls',
+      roles: ['admin'],
+    };
+
+    await gasService.createConfig(ownerCtx, {
+      id: 'gs-postgres-rls-owner',
+      scopeType: 'ENVIRONMENT',
+      environmentId: 'prod-rls',
+      enabled: true,
+      paymasterMode: 'AUTO',
+      fallbackBehavior: 'ALLOW_UNSPONSORED',
+    });
+    await gasService.createConfig(attackerCtx, {
+      id: 'gs-postgres-rls-attacker',
+      scopeType: 'ENVIRONMENT',
+      environmentId: 'prod-rls',
+      enabled: true,
+      paymasterMode: 'AUTO',
+      fallbackBehavior: 'ALLOW_UNSPONSORED',
+    });
+
+    await smartWalletService.createConfig(ownerCtx, {
+      id: 'sw-postgres-rls-owner',
+      scopeType: 'ENVIRONMENT',
+      environmentId: 'prod-rls',
+      enabled: true,
+      mode: 'REQUIRED',
+      accountType: 'SMART_ACCOUNT',
+      paymasterMode: 'AUTO',
+      fallbackBehavior: 'FALLBACK_TO_EOA',
+    });
+    await smartWalletService.createConfig(attackerCtx, {
+      id: 'sw-postgres-rls-attacker',
+      scopeType: 'ENVIRONMENT',
+      environmentId: 'prod-rls',
+      enabled: true,
+      mode: 'OPTIONAL',
+      accountType: 'SMART_ACCOUNT',
+      paymasterMode: 'AUTO',
+      fallbackBehavior: 'FALLBACK_TO_EOA',
+    });
+
+    const pool = await getPostgresPool(postgresUrl);
+
+    const ownerGasRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_gas_sponsorship_configs
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(ownerGasRows.rows.length).toBeGreaterThan(0);
+    expect(
+      ownerGasRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const ownerSmartRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_smart_wallet_configs
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(ownerSmartRows.rows.length).toBeGreaterThan(0);
+    expect(
+      ownerSmartRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const rowsWithoutTenantContext = await pool.query(
+      `SELECT org_id, id FROM console_gas_sponsorship_configs WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(rowsWithoutTenantContext.rows.length).toBe(0);
+  });
+
+  test('settings/key-export tables enforce DB-level tenant RLS policies', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const settingsService = await createPostgresConsoleSettingsService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+    const keyExportService = await createPostgresConsoleKeyExportService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+
+    const ownerCtx = {
+      orgId: ownerOrgId,
+      actorUserId: 'owner-settings-keyexport-rls',
+      roles: ['admin'],
+    };
+    const attackerCtx = {
+      orgId: attackerOrgId,
+      actorUserId: 'attacker-settings-keyexport-rls',
+      roles: ['admin'],
+    };
+
+    await settingsService.updateAppSettings(ownerCtx, {
+      environmentId: 'prod-rls',
+      allowedOrigins: ['https://owner.example.com'],
+    });
+    await settingsService.updateAppSettings(attackerCtx, {
+      environmentId: 'prod-rls',
+      allowedOrigins: ['https://attacker.example.com'],
+    });
+
+    await keyExportService.createKeyExport(ownerCtx, {
+      id: 'ke-postgres-rls-owner',
+      environmentId: 'prod-rls',
+      reason: 'Owner export',
+      requiredApprovals: 1,
+    });
+    await keyExportService.createKeyExport(attackerCtx, {
+      id: 'ke-postgres-rls-attacker',
+      environmentId: 'prod-rls',
+      reason: 'Attacker export',
+      requiredApprovals: 1,
+    });
+
+    const pool = await getPostgresPool(postgresUrl);
+
+    const ownerSettingsRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, environment_id
+             FROM console_environment_settings
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(ownerSettingsRows.rows.length).toBeGreaterThan(0);
+    expect(
+      ownerSettingsRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const ownerKeyExportRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_key_exports
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(ownerKeyExportRows.rows.length).toBeGreaterThan(0);
+    expect(
+      ownerKeyExportRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const noTenantSettings = await pool.query(
+      `SELECT org_id, environment_id FROM console_environment_settings WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantSettings.rows.length).toBe(0);
+
+    const noTenantKeyExports = await pool.query(
+      `SELECT org_id, id FROM console_key_exports WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantKeyExports.rows.length).toBe(0);
+  });
+
   test('postgres config module services enforce org isolation', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
 
@@ -368,12 +826,12 @@ test.describe('console config modules postgres services', () => {
     });
 
     const ownerCtx = {
-      orgId: `${orgId}:owner`,
+      orgId: ownerOrgId,
       actorUserId: 'owner-config-modules',
       roles: ['admin'],
     };
     const attackerCtx = {
-      orgId: `${orgId}:attacker`,
+      orgId: attackerOrgId,
       actorUserId: 'attacker-config-modules',
       roles: ['admin'],
     };

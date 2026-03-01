@@ -77,19 +77,19 @@ The test bootstrap is a precise 5‑step sequence to avoid WebAuthn/import‑map
 
 - Flow helpers in `tests/setup/flows.ts`:
   - `registerPasskey(passkey, opts?)`
-  - `loginAndCreateSession(passkey, { accountId })`
+  - `unlock(passkey, { accountId })`
   - `executeTransfer(passkey, { accountId, receiverId, amountYocto })`
 
 Example (see `tests/setup/flows.ts`):
 
 ```ts
 import { test, expect } from '../setup/fixtures';
-import { registerPasskey, loginAndCreateSession } from '../setup/flows';
+import { registerPasskey, unlock } from '../setup/flows';
 
 test('register → login', async ({ passkey }) => {
   const reg = await registerPasskey(passkey);
   expect(reg.success).toBe(true);
-  const login = await loginAndCreateSession(passkey, { accountId: reg.accountId });
+  const login = await unlock(passkey, { accountId: reg.accountId });
   expect(login.success).toBe(true);
 });
 ```

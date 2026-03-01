@@ -29,6 +29,7 @@ import {
 import { createCloudflareConsoleRouter } from '@server/router/cloudflare-adaptor';
 import { callCf, fetchJson, getPath, startExpressRouter } from './helpers';
 import { getPostgresPool } from '../../server/src/storage/postgres';
+import { withConsoleTenantContextTx } from '../../server/src/console/shared/postgresTenantContext';
 
 function makeConsoleAuthAdapter(
   roles: string[],
@@ -591,6 +592,79 @@ test.describe('console router (express)', () => {
         ? listedSnapshots.json?.snapshots
         : [];
       expect(snapshotRows.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('runtime snapshot publish-current emits not_configured markers and monotonic versions', async () => {
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-runtime-contract-express-1',
+        'user-runtime-contract-express-1',
+      ),
+      runtimeSnapshots,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const first = await fetchJson(`${srv.baseUrl}/console/runtime-snapshots/publish-current`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          environmentId: 'prod',
+          projectId: 'project-alpha',
+          snapshotId: 'runtime-contract-v1',
+          effectiveAt: '2026-03-01T00:00:00.000Z',
+        }),
+      });
+      expect(first.status).toBe(201);
+      expect(getPath(first.json, 'snapshot', 'snapshotId')).toBe('runtime-contract-v1');
+      expect(Number(getPath(first.json, 'snapshot', 'version') || 0)).toBe(1);
+      expect(getPath(first.json, 'snapshot', 'payload', 'policy', 'status')).toBe('not_configured');
+      expect(getPath(first.json, 'snapshot', 'payload', 'settings', 'status')).toBe(
+        'not_configured',
+      );
+      expect(getPath(first.json, 'snapshot', 'payload', 'gasSponsorship', 'status')).toBe(
+        'not_configured',
+      );
+      expect(getPath(first.json, 'snapshot', 'payload', 'smartWallets', 'status')).toBe(
+        'not_configured',
+      );
+      const firstChecksum = String(getPath(first.json, 'snapshot', 'checksum') || '');
+      expect(firstChecksum).toContain('fnv1a32:');
+
+      const second = await fetchJson(`${srv.baseUrl}/console/runtime-snapshots/publish-current`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          environmentId: 'prod',
+          projectId: 'project-alpha',
+          snapshotId: 'runtime-contract-v2',
+          effectiveAt: '2026-03-01T01:00:00.000Z',
+        }),
+      });
+      expect(second.status).toBe(201);
+      expect(getPath(second.json, 'snapshot', 'snapshotId')).toBe('runtime-contract-v2');
+      expect(Number(getPath(second.json, 'snapshot', 'version') || 0)).toBe(2);
+      expect(String(getPath(second.json, 'snapshot', 'checksum') || '')).not.toBe(firstChecksum);
+
+      const latest = await fetchJson(
+        `${srv.baseUrl}/console/runtime-snapshots/latest?environmentId=${encodeURIComponent('prod')}&projectId=${encodeURIComponent('project-alpha')}`,
+        { method: 'GET' },
+      );
+      expect(latest.status).toBe(200);
+      expect(getPath(latest.json, 'snapshot', 'snapshotId')).toBe('runtime-contract-v2');
+      expect(Number(getPath(latest.json, 'snapshot', 'version') || 0)).toBe(2);
+
+      const listed = await fetchJson(
+        `${srv.baseUrl}/console/runtime-snapshots?environmentId=${encodeURIComponent('prod')}&projectId=${encodeURIComponent('project-alpha')}&limit=2`,
+        { method: 'GET' },
+      );
+      expect(listed.status).toBe(200);
+      expect(getPath(listed.json, 'snapshots', 0, 'snapshotId')).toBe('runtime-contract-v2');
+      expect(getPath(listed.json, 'snapshots', 1, 'snapshotId')).toBe('runtime-contract-v1');
     } finally {
       await srv.close();
     }
@@ -1846,6 +1920,180 @@ test.describe('console router (express)', () => {
     }
   });
 
+  test(
+    'POST /console/billing/stripe/checkout-session returns billing_not_configured without billing service',
+    async () => {
+      const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
+      const srv = await startExpressRouter(router);
+      try {
+        const res = await fetchJson(`${srv.baseUrl}/console/billing/stripe/checkout-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
+            cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+          }),
+        });
+        expect(res.status).toBe(501);
+        expect(res.json?.code).toBe('billing_not_configured');
+      } finally {
+        await srv.close();
+      }
+    },
+  );
+
+  test('POST /console/billing/stripe/checkout-session creates checkout session', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      billing: createInMemoryConsoleBillingService(),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const created = await fetchJson(`${srv.baseUrl}/console/billing/stripe/checkout-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
+          cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+          planId: 'pro_maw_v1',
+        }),
+      });
+      expect(created.status).toBe(201);
+      const checkoutSessionId = String(getPath(created.json, 'checkoutSession', 'id') || '');
+      const checkoutSessionUrl = String(getPath(created.json, 'checkoutSession', 'url') || '');
+      expect(checkoutSessionId).toBeTruthy();
+      expect(checkoutSessionUrl).toContain('https://checkout.stripe.com/pay/');
+      expect(String(getPath(created.json, 'checkoutSession', 'customerRef') || '')).toContain('cus_');
+      expect(String(getPath(created.json, 'checkoutSession', 'expiresAt') || '')).toMatch(
+        /^\d{4}-\d{2}-\d{2}T/,
+      );
+
+      const invalid = await fetchJson(`${srv.baseUrl}/console/billing/stripe/checkout-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          successUrl: '/dashboard/billing',
+          cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+        }),
+      });
+      expect(invalid.status).toBe(400);
+      expect(invalid.json?.code).toBe('invalid_body');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test(
+    'POST /console/billing/stripe/customer-portal-session returns billing_not_configured without billing service',
+    async () => {
+      const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
+      const srv = await startExpressRouter(router);
+      try {
+        const res = await fetchJson(
+          `${srv.baseUrl}/console/billing/stripe/customer-portal-session`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              returnUrl: 'https://app.example.com/dashboard/billing',
+            }),
+          },
+        );
+        expect(res.status).toBe(501);
+        expect(res.json?.code).toBe('billing_not_configured');
+      } finally {
+        await srv.close();
+      }
+    },
+  );
+
+  test('POST /console/billing/stripe/customer-portal-session creates portal session', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      billing: createInMemoryConsoleBillingService(),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const created = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/customer-portal-session`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            returnUrl: 'https://app.example.com/dashboard/billing',
+          }),
+        },
+      );
+      expect(created.status).toBe(201);
+      const sessionId = String(getPath(created.json, 'portalSession', 'id') || '');
+      const sessionUrl = String(getPath(created.json, 'portalSession', 'url') || '');
+      expect(sessionId).toBeTruthy();
+      expect(sessionUrl).toContain('https://billing.stripe.com/p/session/');
+      expect(String(getPath(created.json, 'portalSession', 'customerRef') || '')).toContain('cus_');
+
+      const invalid = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/customer-portal-session`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            returnUrl: '/dashboard/billing',
+          }),
+        },
+      );
+      expect(invalid.status).toBe(400);
+      expect(invalid.json?.code).toBe('invalid_body');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/billing/subscription returns billing_not_configured without billing service', async () => {
+    const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/billing/subscription`, {
+        method: 'GET',
+      });
+      expect(res.status).toBe(501);
+      expect(res.json?.code).toBe('billing_not_configured');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('billing subscription lifecycle routes support get/cancel/resume', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      billing: createInMemoryConsoleBillingService(),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const initial = await fetchJson(`${srv.baseUrl}/console/billing/subscription`, {
+        method: 'GET',
+      });
+      expect(initial.status).toBe(200);
+      expect(getPath(initial.json, 'subscription', 'status')).toBe('ACTIVE');
+      expect(getPath(initial.json, 'subscription', 'cancelAtPeriodEnd')).toBe(false);
+
+      const canceled = await fetchJson(`${srv.baseUrl}/console/billing/subscription/cancel`, {
+        method: 'POST',
+      });
+      expect(canceled.status).toBe(200);
+      expect(getPath(canceled.json, 'subscription', 'status')).toBe('ACTIVE');
+      expect(getPath(canceled.json, 'subscription', 'cancelAtPeriodEnd')).toBe(true);
+
+      const resumed = await fetchJson(`${srv.baseUrl}/console/billing/subscription/resume`, {
+        method: 'POST',
+      });
+      expect(resumed.status).toBe(200);
+      expect(getPath(resumed.json, 'subscription', 'status')).toBe('ACTIVE');
+      expect(getPath(resumed.json, 'subscription', 'cancelAtPeriodEnd')).toBe(false);
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('POST /console/billing/stripe/webhook requires configured shared secret', async () => {
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
@@ -2081,6 +2329,124 @@ test.describe('console router (express)', () => {
       expect(duplicate.status).toBe(200);
       expect(duplicate.json?.accepted).toBe(false);
       expect(getPath(duplicate.json, 'paymentIntent', 'state')).toBe('SETTLED');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('Stripe webhook projects subscription/invoice events idempotently', async () => {
+    const billing = createInMemoryConsoleBillingService();
+    const secret = 'whsec_console_router_projection_test';
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      billing,
+      billingStripeWebhookSecret: secret,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const subscriptionBefore = await fetchJson(`${srv.baseUrl}/console/billing/subscription`, {
+        method: 'GET',
+      });
+      expect(subscriptionBefore.status).toBe(200);
+      const providerSubscriptionRef = String(
+        getPath(subscriptionBefore.json, 'subscription', 'providerSubscriptionRef') || '',
+      );
+      const providerCustomerRef = String(
+        getPath(subscriptionBefore.json, 'subscription', 'providerCustomerRef') || '',
+      );
+      expect(providerSubscriptionRef).toBeTruthy();
+      expect(providerCustomerRef).toBeTruthy();
+
+      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
+        method: 'GET',
+      });
+      expect(invoices.status).toBe(200);
+      const invoiceId = Array.isArray(invoices.json?.invoices)
+        ? String((invoices.json?.invoices?.[0] as any)?.id || '')
+        : '';
+      const invoiceAmountDueMinor = Array.isArray(invoices.json?.invoices)
+        ? Number((invoices.json?.invoices?.[0] as any)?.amountDueMinor || 0)
+        : 0;
+      expect(invoiceId).toBeTruthy();
+      expect(invoiceAmountDueMinor).toBeGreaterThan(0);
+
+      const subscriptionEventId = `evt_express_subscription_projection_${Date.now()}`;
+      const projectedSubscription = await fetchJson(`${srv.baseUrl}/console/billing/stripe/webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-console-stripe-webhook-secret': secret,
+        },
+        body: JSON.stringify({
+          eventId: subscriptionEventId,
+          eventType: 'customer.subscription.updated',
+          orgId: 'org-1',
+          providerSubscriptionRef,
+          providerCustomerRef,
+          subscriptionStatus: 'PAST_DUE',
+          cancelAtPeriodEnd: true,
+        }),
+      });
+      expect(projectedSubscription.status).toBe(200);
+      expect(projectedSubscription.json?.accepted).toBe(true);
+      expect(getPath(projectedSubscription.json, 'subscription', 'status')).toBe('PAST_DUE');
+      expect(getPath(projectedSubscription.json, 'subscription', 'cancelAtPeriodEnd')).toBe(true);
+
+      const projectedSubscriptionDuplicate = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/webhook`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-console-stripe-webhook-secret': secret,
+          },
+          body: JSON.stringify({
+            eventId: subscriptionEventId,
+            eventType: 'customer.subscription.updated',
+            orgId: 'org-1',
+            providerSubscriptionRef,
+            providerCustomerRef,
+            subscriptionStatus: 'PAST_DUE',
+            cancelAtPeriodEnd: true,
+          }),
+        },
+      );
+      expect(projectedSubscriptionDuplicate.status).toBe(200);
+      expect(projectedSubscriptionDuplicate.json?.accepted).toBe(false);
+
+      const projectedInvoice = await fetchJson(`${srv.baseUrl}/console/billing/stripe/webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-console-stripe-webhook-secret': secret,
+        },
+        body: JSON.stringify({
+          eventId: `evt_express_invoice_projection_${Date.now()}`,
+          eventType: 'invoice.paid',
+          orgId: 'org-1',
+          invoiceId,
+          invoiceStatus: 'PAID',
+          invoiceAmountPaidMinor: invoiceAmountDueMinor,
+        }),
+      });
+      expect(projectedInvoice.status).toBe(200);
+      expect(projectedInvoice.json?.accepted).toBe(true);
+      expect(getPath(projectedInvoice.json, 'invoice', 'status')).toBe('PAID');
+
+      const subscriptionAfter = await fetchJson(`${srv.baseUrl}/console/billing/subscription`, {
+        method: 'GET',
+      });
+      expect(subscriptionAfter.status).toBe(200);
+      expect(getPath(subscriptionAfter.json, 'subscription', 'status')).toBe('PAST_DUE');
+
+      const invoiceAfter = await fetchJson(
+        `${srv.baseUrl}/console/billing/invoices/${encodeURIComponent(invoiceId)}`,
+        {
+          method: 'GET',
+        },
+      );
+      expect(invoiceAfter.status).toBe(200);
+      expect(getPath(invoiceAfter.json, 'invoice', 'status')).toBe('PAID');
     } finally {
       await srv.close();
     }
@@ -3216,6 +3582,73 @@ test.describe('console router (cloudflare)', () => {
     expect(snapshotRows.length).toBeGreaterThanOrEqual(1);
   });
 
+  test('cloudflare runtime snapshot publish-current emits not_configured markers and monotonic versions', async () => {
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-runtime-contract-cf-1',
+        'user-runtime-contract-cf-1',
+      ),
+      runtimeSnapshots,
+    });
+
+    const first = await callCf(handler, {
+      method: 'POST',
+      path: '/console/runtime-snapshots/publish-current',
+      body: {
+        environmentId: 'prod',
+        projectId: 'project-alpha',
+        snapshotId: 'runtime-contract-v1',
+        effectiveAt: '2026-03-01T00:00:00.000Z',
+      },
+    });
+    expect(first.status).toBe(201);
+    expect(getPath(first.json, 'snapshot', 'snapshotId')).toBe('runtime-contract-v1');
+    expect(Number(getPath(first.json, 'snapshot', 'version') || 0)).toBe(1);
+    expect(getPath(first.json, 'snapshot', 'payload', 'policy', 'status')).toBe('not_configured');
+    expect(getPath(first.json, 'snapshot', 'payload', 'settings', 'status')).toBe('not_configured');
+    expect(getPath(first.json, 'snapshot', 'payload', 'gasSponsorship', 'status')).toBe(
+      'not_configured',
+    );
+    expect(getPath(first.json, 'snapshot', 'payload', 'smartWallets', 'status')).toBe(
+      'not_configured',
+    );
+    const firstChecksum = String(getPath(first.json, 'snapshot', 'checksum') || '');
+    expect(firstChecksum).toContain('fnv1a32:');
+
+    const second = await callCf(handler, {
+      method: 'POST',
+      path: '/console/runtime-snapshots/publish-current',
+      body: {
+        environmentId: 'prod',
+        projectId: 'project-alpha',
+        snapshotId: 'runtime-contract-v2',
+        effectiveAt: '2026-03-01T01:00:00.000Z',
+      },
+    });
+    expect(second.status).toBe(201);
+    expect(getPath(second.json, 'snapshot', 'snapshotId')).toBe('runtime-contract-v2');
+    expect(Number(getPath(second.json, 'snapshot', 'version') || 0)).toBe(2);
+    expect(String(getPath(second.json, 'snapshot', 'checksum') || '')).not.toBe(firstChecksum);
+
+    const latest = await callCf(handler, {
+      method: 'GET',
+      path: '/console/runtime-snapshots/latest?environmentId=prod&projectId=project-alpha',
+    });
+    expect(latest.status).toBe(200);
+    expect(getPath(latest.json, 'snapshot', 'snapshotId')).toBe('runtime-contract-v2');
+    expect(Number(getPath(latest.json, 'snapshot', 'version') || 0)).toBe(2);
+
+    const listed = await callCf(handler, {
+      method: 'GET',
+      path: '/console/runtime-snapshots?environmentId=prod&projectId=project-alpha&limit=2',
+    });
+    expect(listed.status).toBe(200);
+    expect(getPath(listed.json, 'snapshots', 0, 'snapshotId')).toBe('runtime-contract-v2');
+    expect(getPath(listed.json, 'snapshots', 1, 'snapshotId')).toBe('runtime-contract-v1');
+  });
+
   test('cloudflare new console endpoint mutations enforce role gates', async () => {
     const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
@@ -4288,6 +4721,153 @@ test.describe('console router (cloudflare)', () => {
     expect(res.json?.code).toBe('forbidden');
   });
 
+  test(
+    'POST /console/billing/stripe/checkout-session returns billing_not_configured without billing service',
+    async () => {
+      const handler = createCloudflareConsoleRouter({
+        auth: makeConsoleAuthAdapter(['admin']),
+      });
+      const res = await callCf(handler, {
+        method: 'POST',
+        path: '/console/billing/stripe/checkout-session',
+        body: {
+          successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
+          cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+        },
+      });
+      expect(res.status).toBe(501);
+      expect(res.json?.code).toBe('billing_not_configured');
+    },
+  );
+
+  test('POST /console/billing/stripe/checkout-session creates checkout session', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      billing: createInMemoryConsoleBillingService(),
+    });
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/checkout-session',
+      body: {
+        successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
+        cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+        planId: 'pro_maw_v1',
+      },
+    });
+    expect(created.status).toBe(201);
+    const checkoutSessionId = String(getPath(created.json, 'checkoutSession', 'id') || '');
+    const checkoutSessionUrl = String(getPath(created.json, 'checkoutSession', 'url') || '');
+    expect(checkoutSessionId).toBeTruthy();
+    expect(checkoutSessionUrl).toContain('https://checkout.stripe.com/pay/');
+    expect(String(getPath(created.json, 'checkoutSession', 'customerRef') || '')).toContain('cus_');
+    expect(String(getPath(created.json, 'checkoutSession', 'expiresAt') || '')).toMatch(
+      /^\d{4}-\d{2}-\d{2}T/,
+    );
+
+    const invalid = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/checkout-session',
+      body: {
+        successUrl: '/dashboard/billing',
+        cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+      },
+    });
+    expect(invalid.status).toBe(400);
+    expect(invalid.json?.code).toBe('invalid_body');
+  });
+
+  test(
+    'POST /console/billing/stripe/customer-portal-session returns billing_not_configured without billing service',
+    async () => {
+      const handler = createCloudflareConsoleRouter({
+        auth: makeConsoleAuthAdapter(['admin']),
+      });
+      const res = await callCf(handler, {
+        method: 'POST',
+        path: '/console/billing/stripe/customer-portal-session',
+        body: {
+          returnUrl: 'https://app.example.com/dashboard/billing',
+        },
+      });
+      expect(res.status).toBe(501);
+      expect(res.json?.code).toBe('billing_not_configured');
+    },
+  );
+
+  test('POST /console/billing/stripe/customer-portal-session creates portal session', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      billing: createInMemoryConsoleBillingService(),
+    });
+
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/customer-portal-session',
+      body: {
+        returnUrl: 'https://app.example.com/dashboard/billing',
+      },
+    });
+    expect(created.status).toBe(201);
+    const sessionId = String(getPath(created.json, 'portalSession', 'id') || '');
+    const sessionUrl = String(getPath(created.json, 'portalSession', 'url') || '');
+    expect(sessionId).toBeTruthy();
+    expect(sessionUrl).toContain('https://billing.stripe.com/p/session/');
+    expect(String(getPath(created.json, 'portalSession', 'customerRef') || '')).toContain('cus_');
+
+    const invalid = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/customer-portal-session',
+      body: {
+        returnUrl: '/dashboard/billing',
+      },
+    });
+    expect(invalid.status).toBe(400);
+    expect(invalid.json?.code).toBe('invalid_body');
+  });
+
+  test('GET /console/billing/subscription returns billing_not_configured without billing service', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/billing/subscription',
+    });
+    expect(res.status).toBe(501);
+    expect(res.json?.code).toBe('billing_not_configured');
+  });
+
+  test('billing subscription lifecycle routes support get/cancel/resume', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      billing: createInMemoryConsoleBillingService(),
+    });
+
+    const initial = await callCf(handler, {
+      method: 'GET',
+      path: '/console/billing/subscription',
+    });
+    expect(initial.status).toBe(200);
+    expect(getPath(initial.json, 'subscription', 'status')).toBe('ACTIVE');
+    expect(getPath(initial.json, 'subscription', 'cancelAtPeriodEnd')).toBe(false);
+
+    const canceled = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/subscription/cancel',
+    });
+    expect(canceled.status).toBe(200);
+    expect(getPath(canceled.json, 'subscription', 'status')).toBe('ACTIVE');
+    expect(getPath(canceled.json, 'subscription', 'cancelAtPeriodEnd')).toBe(true);
+
+    const resumed = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/subscription/resume',
+    });
+    expect(resumed.status).toBe(200);
+    expect(getPath(resumed.json, 'subscription', 'status')).toBe('ACTIVE');
+    expect(getPath(resumed.json, 'subscription', 'cancelAtPeriodEnd')).toBe(false);
+  });
+
   test('POST /console/billing/stripe/webhook requires configured shared secret', async () => {
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
@@ -4540,6 +5120,118 @@ test.describe('console router (cloudflare)', () => {
     expect(duplicate.status).toBe(200);
     expect(duplicate.json?.accepted).toBe(false);
     expect(getPath(duplicate.json, 'paymentIntent', 'state')).toBe('SETTLED');
+  });
+
+  test('Stripe webhook projects subscription/invoice events idempotently', async () => {
+    const billing = createInMemoryConsoleBillingService();
+    const secret = 'whsec_console_router_cf_projection_test';
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      billing,
+      billingStripeWebhookSecret: secret,
+    });
+
+    const subscriptionBefore = await callCf(handler, {
+      method: 'GET',
+      path: '/console/billing/subscription',
+    });
+    expect(subscriptionBefore.status).toBe(200);
+    const providerSubscriptionRef = String(
+      getPath(subscriptionBefore.json, 'subscription', 'providerSubscriptionRef') || '',
+    );
+    const providerCustomerRef = String(
+      getPath(subscriptionBefore.json, 'subscription', 'providerCustomerRef') || '',
+    );
+    expect(providerSubscriptionRef).toBeTruthy();
+    expect(providerCustomerRef).toBeTruthy();
+
+    const invoices = await callCf(handler, {
+      method: 'GET',
+      path: '/console/billing/invoices',
+    });
+    expect(invoices.status).toBe(200);
+    const invoiceId = Array.isArray(invoices.json?.invoices)
+      ? String((invoices.json?.invoices?.[0] as any)?.id || '')
+      : '';
+    const invoiceAmountDueMinor = Array.isArray(invoices.json?.invoices)
+      ? Number((invoices.json?.invoices?.[0] as any)?.amountDueMinor || 0)
+      : 0;
+    expect(invoiceId).toBeTruthy();
+    expect(invoiceAmountDueMinor).toBeGreaterThan(0);
+
+    const subscriptionEventId = `evt_cf_subscription_projection_${Date.now()}`;
+    const projectedSubscription = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/webhook',
+      headers: {
+        'x-console-stripe-webhook-secret': secret,
+      },
+      body: {
+        eventId: subscriptionEventId,
+        eventType: 'customer.subscription.updated',
+        orgId: 'org-1',
+        providerSubscriptionRef,
+        providerCustomerRef,
+        subscriptionStatus: 'PAST_DUE',
+        cancelAtPeriodEnd: true,
+      },
+    });
+    expect(projectedSubscription.status).toBe(200);
+    expect(projectedSubscription.json?.accepted).toBe(true);
+    expect(getPath(projectedSubscription.json, 'subscription', 'status')).toBe('PAST_DUE');
+    expect(getPath(projectedSubscription.json, 'subscription', 'cancelAtPeriodEnd')).toBe(true);
+
+    const projectedSubscriptionDuplicate = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/webhook',
+      headers: {
+        'x-console-stripe-webhook-secret': secret,
+      },
+      body: {
+        eventId: subscriptionEventId,
+        eventType: 'customer.subscription.updated',
+        orgId: 'org-1',
+        providerSubscriptionRef,
+        providerCustomerRef,
+        subscriptionStatus: 'PAST_DUE',
+        cancelAtPeriodEnd: true,
+      },
+    });
+    expect(projectedSubscriptionDuplicate.status).toBe(200);
+    expect(projectedSubscriptionDuplicate.json?.accepted).toBe(false);
+
+    const projectedInvoice = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/webhook',
+      headers: {
+        'x-console-stripe-webhook-secret': secret,
+      },
+      body: {
+        eventId: `evt_cf_invoice_projection_${Date.now()}`,
+        eventType: 'invoice.paid',
+        orgId: 'org-1',
+        invoiceId,
+        invoiceStatus: 'PAID',
+        invoiceAmountPaidMinor: invoiceAmountDueMinor,
+      },
+    });
+    expect(projectedInvoice.status).toBe(200);
+    expect(projectedInvoice.json?.accepted).toBe(true);
+    expect(getPath(projectedInvoice.json, 'invoice', 'status')).toBe('PAID');
+
+    const subscriptionAfter = await callCf(handler, {
+      method: 'GET',
+      path: '/console/billing/subscription',
+    });
+    expect(subscriptionAfter.status).toBe(200);
+    expect(getPath(subscriptionAfter.json, 'subscription', 'status')).toBe('PAST_DUE');
+
+    const invoiceAfter = await callCf(handler, {
+      method: 'GET',
+      path: `/console/billing/invoices/${encodeURIComponent(invoiceId)}`,
+    });
+    expect(invoiceAfter.status).toBe(200);
+    expect(getPath(invoiceAfter.json, 'invoice', 'status')).toBe('PAID');
   });
 
   test('billing usage endpoints compute MAW with exclusions and idempotency', async () => {
@@ -5979,10 +6671,21 @@ test.describe('console router (postgres webhooks)', () => {
   test.afterAll(async () => {
     if (!enabled) return;
     const pool = await getPostgresPool(postgresUrl);
-    await pool.query('DELETE FROM console_webhook_attempts WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_webhook_dead_letters WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_webhook_deliveries WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_webhook_endpoints WHERE namespace = $1', [namespace]);
+    const cleanupOrgIds = [
+      authOrgId,
+      `${authOrgId}:owner`,
+      `${authOrgId}:attacker`,
+      `${authOrgId}:owner-cf`,
+      `${authOrgId}:attacker-cf`,
+    ];
+    for (const orgId of cleanupOrgIds) {
+      await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
+        await q.query('DELETE FROM console_webhook_attempts WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_webhook_dead_letters WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_webhook_deliveries WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_webhook_endpoints WHERE namespace = $1', [namespace]);
+      });
+    }
   });
 
   test('express attempts list rejects non-numeric attempt cursor id', async () => {
@@ -6209,21 +6912,25 @@ test.describe('console router (postgres billing)', () => {
   test.afterAll(async () => {
     if (!enabled) return;
     const pool = await getPostgresPool(postgresUrl);
-    // Transition ledger is append-only by contract; cleanup omits this table.
-    await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
-      namespace,
-    ]);
-    await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
-      namespace,
-    ]);
-    await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_invoices WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [namespace]);
+    for (const orgId of [`${authOrgId}:owner`, `${authOrgId}:attacker`]) {
+      await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
+        await q.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
+          namespace,
+        ]);
+        await q.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
+          namespace,
+        ]);
+        await q.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_invoices WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [namespace]);
+      });
+    }
+    await pool.query('DELETE FROM console_stripe_provider_refs WHERE namespace = $1', [namespace]);
   });
 
   test('express billing routes enforce org isolation', async () => {

@@ -3,14 +3,17 @@ import {
   createPostgresConsoleApiKeyService,
   createPostgresConsoleBillingService,
   createPostgresConsoleOrgProjectEnvService,
+  createPostgresConsolePolicyService,
   createPostgresConsoleWalletService,
   createPostgresConsoleWebhookService,
   type ConsoleApiKeyService,
   type ConsoleBillingService,
   type ConsoleOrgProjectEnvService,
+  type ConsolePolicyService,
   type ConsoleWalletService,
   type ConsoleWebhookService,
 } from '@server/router/express-adaptor';
+import { withConsoleTenantContextTx } from '../../server/src/console/shared/postgresTenantContext';
 import { getPostgresPool } from '../../server/src/storage/postgres';
 
 function randomNamespace(prefix: string): string {
@@ -36,6 +39,7 @@ test.describe('console postgres tenant-isolation harness', () => {
   let orgProjectEnv: ConsoleOrgProjectEnvService | null = null;
   let wallets: ConsoleWalletService | null = null;
   let apiKeys: ConsoleApiKeyService | null = null;
+  let policies: ConsolePolicyService | null = null;
   let webhooks: ConsoleWebhookService | null = null;
   let billing: ConsoleBillingService | null = null;
 
@@ -67,6 +71,12 @@ test.describe('console postgres tenant-isolation harness', () => {
       logger: console as any,
       ensureSchema: true,
     });
+    policies = await createPostgresConsolePolicyService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
     webhooks = await createPostgresConsoleWebhookService({
       postgresUrl,
       namespace,
@@ -84,29 +94,40 @@ test.describe('console postgres tenant-isolation harness', () => {
   test.afterAll(async () => {
     if (!enabled) return;
     const pool = await getPostgresPool(postgresUrl);
-    await pool.query('DELETE FROM console_webhook_attempts WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_webhook_dead_letters WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_webhook_deliveries WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_webhook_endpoints WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
-      namespace,
-    ]);
-    await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
-      namespace,
-    ]);
-    await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_invoices WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_api_keys WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_wallet_index WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_environments WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_projects WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_organizations WHERE namespace = $1', [namespace]);
+    for (const scopedOrgId of [ownerOrgId, attackerOrgId]) {
+      await withConsoleTenantContextTx(pool, { namespace, orgId: scopedOrgId }, async (q) => {
+        await q.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_payment_state_transitions WHERE namespace = $1', [
+          namespace,
+        ]);
+        await q.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
+          namespace,
+        ]);
+        await q.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
+          namespace,
+        ]);
+        await q.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_invoices WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_webhook_attempts WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_webhook_dead_letters WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_webhook_deliveries WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_webhook_endpoints WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_policy_assignments WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_policy_versions WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_policies WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_api_keys WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_wallet_index WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_environments WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_projects WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_organizations WHERE namespace = $1', [namespace]);
+      });
+    }
+    await pool.query('DELETE FROM console_stripe_provider_refs WHERE namespace = $1', [namespace]);
   });
 
   test('org/project/environment service enforces org-scoped reads', async () => {
@@ -154,6 +175,74 @@ test.describe('console postgres tenant-isolation harness', () => {
       projectId: attackerProjectId,
     });
     expect(ownerScopedToAttackerProject.length).toBe(0);
+  });
+
+  test('org/project/environment tables enforce DB-level tenant RLS policies', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const pool = await getPostgresPool(postgresUrl);
+    const ownerCtx = {
+      orgId: ownerOrgId,
+      actorUserId: 'owner-rls-db',
+      roles: ['admin'],
+      projectId: ownerProjectId,
+      environmentId: ownerEnvironmentId,
+    };
+    const attackerCtx = {
+      orgId: attackerOrgId,
+      actorUserId: 'attacker-rls-db',
+      roles: ['admin'],
+      projectId: attackerProjectId,
+      environmentId: attackerEnvironmentId,
+    };
+
+    await orgProjectEnv!.getOrganization(ownerCtx);
+    await orgProjectEnv!.getOrganization(attackerCtx);
+
+    const ownerProjects = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_projects
+            WHERE namespace = $1
+            ORDER BY id ASC`,
+          [namespace],
+        ),
+    );
+    expect(ownerProjects.rows.length).toBeGreaterThan(0);
+    expect(
+      ownerProjects.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const attackerProjects = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: attackerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_projects
+            WHERE namespace = $1
+            ORDER BY id ASC`,
+          [namespace],
+        ),
+    );
+    expect(attackerProjects.rows.length).toBeGreaterThan(0);
+    expect(
+      attackerProjects.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === attackerOrgId,
+      ),
+    ).toBe(true);
+
+    const noTenantContextRows = await pool.query(
+      `SELECT org_id, id
+         FROM console_projects
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantContextRows.rows.length).toBe(0);
   });
 
   test('org/project/environment service denies cross-org mutations', async () => {
@@ -427,6 +516,72 @@ test.describe('console postgres tenant-isolation harness', () => {
     expect(ownerGetAttackerWallet).toBeNull();
   });
 
+  test('wallet table enforces DB-level tenant RLS policies', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const pool = await getPostgresPool(postgresUrl);
+    const ownerCtx = {
+      orgId: ownerOrgId,
+      actorUserId: 'owner-wallet-rls',
+      roles: ['admin'],
+      projectId: ownerProjectId,
+      environmentId: ownerEnvironmentId,
+    };
+    const attackerCtx = {
+      orgId: attackerOrgId,
+      actorUserId: 'attacker-wallet-rls',
+      roles: ['admin'],
+      projectId: attackerProjectId,
+      environmentId: attackerEnvironmentId,
+    };
+
+    await wallets!.listWallets(ownerCtx, { limit: 5 });
+    await wallets!.listWallets(attackerCtx, { limit: 5 });
+
+    const ownerRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_wallet_index
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(ownerRows.rows.length).toBeGreaterThan(0);
+    expect(
+      ownerRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const attackerRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: attackerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_wallet_index
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(attackerRows.rows.length).toBeGreaterThan(0);
+    expect(
+      attackerRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === attackerOrgId,
+      ),
+    ).toBe(true);
+
+    const noTenantContextRows = await pool.query(
+      `SELECT org_id, id
+         FROM console_wallet_index
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantContextRows.rows.length).toBe(0);
+  });
+
   test('api key service denies cross-org rotate/revoke access', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerCtx = {
@@ -463,6 +618,136 @@ test.describe('console postgres tenant-isolation harness', () => {
     const ownerRevokeAttacker = await apiKeys!.revokeApiKey(ownerCtx, attackerCreated.apiKey.id);
     expect(ownerRevokeAttacker.revoked).toBe(false);
     expect(ownerRevokeAttacker.apiKey).toBeNull();
+  });
+
+  test('policy tables enforce DB-level tenant RLS policies', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const pool = await getPostgresPool(postgresUrl);
+    const ownerCtx = {
+      orgId: ownerOrgId,
+      actorUserId: 'owner-policy-rls',
+      roles: ['admin'],
+    };
+    const attackerCtx = {
+      orgId: attackerOrgId,
+      actorUserId: 'attacker-policy-rls',
+      roles: ['admin'],
+    };
+
+    const ownerPolicy = await policies!.createPolicy(ownerCtx, {
+      id: 'policy-owner-rls',
+      name: 'Owner Policy',
+      rules: {
+        blockedActions: [],
+      },
+    });
+    const attackerPolicy = await policies!.createPolicy(attackerCtx, {
+      id: 'policy-attacker-rls',
+      name: 'Attacker Policy',
+      rules: {
+        blockedActions: ['export'],
+      },
+    });
+    expect(ownerPolicy.id).toBe('policy-owner-rls');
+    expect(attackerPolicy.id).toBe('policy-attacker-rls');
+
+    const ownerRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_policies
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(ownerRows.rows.length).toBeGreaterThan(0);
+    expect(
+      ownerRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const noTenantRows = await pool.query(
+      `SELECT org_id, id
+         FROM console_policies
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantRows.rows.length).toBe(0);
+  });
+
+  test('api key table enforces DB-level tenant RLS policies', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const pool = await getPostgresPool(postgresUrl);
+    const ownerCtx = {
+      orgId: ownerOrgId,
+      actorUserId: 'owner-apikey-rls',
+      roles: ['admin'],
+    };
+    const attackerCtx = {
+      orgId: attackerOrgId,
+      actorUserId: 'attacker-apikey-rls',
+      roles: ['admin'],
+    };
+
+    await apiKeys!.createApiKey(ownerCtx, {
+      name: 'owner-rls-key',
+      environmentId: ownerEnvironmentId,
+      scopes: ['wallets:read'],
+      ipAllowlist: [],
+    });
+    await apiKeys!.createApiKey(attackerCtx, {
+      name: 'attacker-rls-key',
+      environmentId: attackerEnvironmentId,
+      scopes: ['wallets:read'],
+      ipAllowlist: [],
+    });
+
+    const ownerRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_api_keys
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(ownerRows.rows.length).toBeGreaterThan(0);
+    expect(
+      ownerRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const attackerRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: attackerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_api_keys
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(attackerRows.rows.length).toBeGreaterThan(0);
+    expect(
+      attackerRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === attackerOrgId,
+      ),
+    ).toBe(true);
+
+    const noTenantContextRows = await pool.query(
+      `SELECT org_id, id
+         FROM console_api_keys
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantContextRows.rows.length).toBe(0);
   });
 
   test('webhook service denies cross-org endpoint access', async () => {
@@ -502,6 +787,56 @@ test.describe('console postgres tenant-isolation harness', () => {
     await expectConsoleError(async () => {
       await webhooks!.listDeliveries(ownerCtx, attackerEndpoint.id, {});
     }, 'webhook_not_found');
+  });
+
+  test('webhook tables enforce DB-level tenant RLS policies', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const pool = await getPostgresPool(postgresUrl);
+    const ownerCtx = {
+      orgId: ownerOrgId,
+      actorUserId: 'owner-webhook-rls',
+      roles: ['admin'],
+    };
+    const attackerCtx = {
+      orgId: attackerOrgId,
+      actorUserId: 'attacker-webhook-rls',
+      roles: ['admin'],
+    };
+
+    await webhooks!.createEndpoint(ownerCtx, {
+      url: 'https://example.com/owner-rls-webhook',
+      subscriptions: ['billing'],
+    });
+    await webhooks!.createEndpoint(attackerCtx, {
+      url: 'https://example.com/attacker-rls-webhook',
+      subscriptions: ['billing'],
+    });
+
+    const ownerEndpointRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_webhook_endpoints
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(ownerEndpointRows.rows.length).toBeGreaterThan(0);
+    expect(
+      ownerEndpointRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const noTenantRows = await pool.query(
+      `SELECT org_id, id
+         FROM console_webhook_endpoints
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantRows.rows.length).toBe(0);
   });
 
   test('billing service denies cross-org invoice and stablecoin intent access', async () => {
@@ -558,5 +893,811 @@ test.describe('console postgres tenant-isolation harness', () => {
       attackerIntent.id,
     );
     expect(ownerCancelAttackerIntent).toBeNull();
+  });
+
+  test('billing core tables enforce DB-level tenant RLS policies', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const pool = await getPostgresPool(postgresUrl);
+    const ownerCtx = {
+      orgId: ownerOrgId,
+      actorUserId: 'owner-billing-core-rls',
+      roles: ['admin'],
+    };
+    const attackerCtx = {
+      orgId: attackerOrgId,
+      actorUserId: 'attacker-billing-core-rls',
+      roles: ['admin'],
+    };
+    const periodMonthUtc = '2026-12';
+    const ownerUsageSourceEventId = `owner-usage-${Date.now()}`;
+    const attackerUsageSourceEventId = `attacker-usage-${Date.now()}`;
+
+    await billing!.recordUsageEvent(ownerCtx, {
+      walletId: 'owner-billing-core-wallet',
+      action: 'transfer',
+      succeeded: true,
+      sourceEventId: ownerUsageSourceEventId,
+      occurredAt: `${periodMonthUtc}-15T12:00:00.000Z`,
+    });
+    await billing!.recordUsageEvent(attackerCtx, {
+      walletId: 'attacker-billing-core-wallet',
+      action: 'swap',
+      succeeded: true,
+      sourceEventId: attackerUsageSourceEventId,
+      occurredAt: `${periodMonthUtc}-16T12:00:00.000Z`,
+    });
+    const ownerGeneration = await billing!.generateMonthlyInvoice(ownerCtx, {
+      periodMonthUtc,
+    });
+    const attackerGeneration = await billing!.generateMonthlyInvoice(attackerCtx, {
+      periodMonthUtc,
+    });
+    const ownerPaymentMethod = await billing!.addCardPaymentMethod(ownerCtx, {
+      providerRef: `pm_owner_core_rls_${Date.now()}`,
+      brand: 'visa',
+      last4: '4242',
+      expMonth: 12,
+      expYear: 2030,
+    });
+    const attackerPaymentMethod = await billing!.addCardPaymentMethod(attackerCtx, {
+      providerRef: `pm_attacker_core_rls_${Date.now()}`,
+      brand: 'mastercard',
+      last4: '4444',
+      expMonth: 11,
+      expYear: 2031,
+    });
+
+    const ownerAccountRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id
+             FROM console_billing_accounts
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(ownerAccountRows.rows.length).toBeGreaterThan(0);
+    expect(
+      ownerAccountRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const ownerUsageRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, source_event_id
+             FROM console_usage_meter_events
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(
+      ownerUsageRows.rows.some(
+        (row) =>
+          String((row as Record<string, unknown>).source_event_id || '') === ownerUsageSourceEventId,
+      ),
+    ).toBe(true);
+    expect(
+      ownerUsageRows.rows.some(
+        (row) =>
+          String((row as Record<string, unknown>).source_event_id || '') ===
+          attackerUsageSourceEventId,
+      ),
+    ).toBe(false);
+    expect(
+      ownerUsageRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const ownerRollupRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, month_utc
+             FROM console_usage_rollups_monthly
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(
+      ownerRollupRows.rows.some(
+        (row) => String((row as Record<string, unknown>).month_utc || '') === periodMonthUtc,
+      ),
+    ).toBe(true);
+    expect(
+      ownerRollupRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const ownerInvoiceRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_invoices
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(
+      ownerInvoiceRows.rows.some(
+        (row) => String((row as Record<string, unknown>).id || '') === ownerGeneration.invoice.id,
+      ),
+    ).toBe(true);
+    expect(
+      ownerInvoiceRows.rows.some(
+        (row) => String((row as Record<string, unknown>).id || '') === attackerGeneration.invoice.id,
+      ),
+    ).toBe(false);
+    expect(
+      ownerInvoiceRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const ownerLineItemRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, invoice_id
+             FROM console_invoice_line_items
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(
+      ownerLineItemRows.rows.some(
+        (row) =>
+          String((row as Record<string, unknown>).invoice_id || '') === ownerGeneration.invoice.id,
+      ),
+    ).toBe(true);
+    expect(
+      ownerLineItemRows.rows.some(
+        (row) =>
+          String((row as Record<string, unknown>).invoice_id || '') ===
+          attackerGeneration.invoice.id,
+      ),
+    ).toBe(false);
+    expect(
+      ownerLineItemRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const ownerPaymentRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_payment_methods
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(
+      ownerPaymentRows.rows.some(
+        (row) => String((row as Record<string, unknown>).id || '') === ownerPaymentMethod.id,
+      ),
+    ).toBe(true);
+    expect(
+      ownerPaymentRows.rows.some(
+        (row) => String((row as Record<string, unknown>).id || '') === attackerPaymentMethod.id,
+      ),
+    ).toBe(false);
+    expect(
+      ownerPaymentRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const attackerAccountRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: attackerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id
+             FROM console_billing_accounts
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(attackerAccountRows.rows.length).toBeGreaterThan(0);
+    expect(
+      attackerAccountRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === attackerOrgId,
+      ),
+    ).toBe(true);
+
+    const attackerUsageRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: attackerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, source_event_id
+             FROM console_usage_meter_events
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(
+      attackerUsageRows.rows.some(
+        (row) =>
+          String((row as Record<string, unknown>).source_event_id || '') ===
+          attackerUsageSourceEventId,
+      ),
+    ).toBe(true);
+    expect(
+      attackerUsageRows.rows.some(
+        (row) =>
+          String((row as Record<string, unknown>).source_event_id || '') === ownerUsageSourceEventId,
+      ),
+    ).toBe(false);
+    expect(
+      attackerUsageRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === attackerOrgId,
+      ),
+    ).toBe(true);
+
+    const attackerRollupRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: attackerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, month_utc
+             FROM console_usage_rollups_monthly
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(
+      attackerRollupRows.rows.some(
+        (row) => String((row as Record<string, unknown>).month_utc || '') === periodMonthUtc,
+      ),
+    ).toBe(true);
+    expect(
+      attackerRollupRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === attackerOrgId,
+      ),
+    ).toBe(true);
+
+    const attackerInvoiceRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: attackerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_invoices
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(
+      attackerInvoiceRows.rows.some(
+        (row) => String((row as Record<string, unknown>).id || '') === attackerGeneration.invoice.id,
+      ),
+    ).toBe(true);
+    expect(
+      attackerInvoiceRows.rows.some(
+        (row) => String((row as Record<string, unknown>).id || '') === ownerGeneration.invoice.id,
+      ),
+    ).toBe(false);
+    expect(
+      attackerInvoiceRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === attackerOrgId,
+      ),
+    ).toBe(true);
+
+    const attackerLineItemRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: attackerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, invoice_id
+             FROM console_invoice_line_items
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(
+      attackerLineItemRows.rows.some(
+        (row) =>
+          String((row as Record<string, unknown>).invoice_id || '') ===
+          attackerGeneration.invoice.id,
+      ),
+    ).toBe(true);
+    expect(
+      attackerLineItemRows.rows.some(
+        (row) =>
+          String((row as Record<string, unknown>).invoice_id || '') === ownerGeneration.invoice.id,
+      ),
+    ).toBe(false);
+    expect(
+      attackerLineItemRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === attackerOrgId,
+      ),
+    ).toBe(true);
+
+    const attackerPaymentRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: attackerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_payment_methods
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(
+      attackerPaymentRows.rows.some(
+        (row) => String((row as Record<string, unknown>).id || '') === attackerPaymentMethod.id,
+      ),
+    ).toBe(true);
+    expect(
+      attackerPaymentRows.rows.some(
+        (row) => String((row as Record<string, unknown>).id || '') === ownerPaymentMethod.id,
+      ),
+    ).toBe(false);
+    expect(
+      attackerPaymentRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === attackerOrgId,
+      ),
+    ).toBe(true);
+
+    const noTenantAccountRows = await pool.query(
+      `SELECT org_id
+         FROM console_billing_accounts
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantAccountRows.rows.length).toBe(0);
+
+    const noTenantUsageRows = await pool.query(
+      `SELECT org_id, source_event_id
+         FROM console_usage_meter_events
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantUsageRows.rows.length).toBe(0);
+
+    const noTenantRollupRows = await pool.query(
+      `SELECT org_id, month_utc
+         FROM console_usage_rollups_monthly
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantRollupRows.rows.length).toBe(0);
+
+    const noTenantInvoiceRows = await pool.query(
+      `SELECT org_id, id
+         FROM console_invoices
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantInvoiceRows.rows.length).toBe(0);
+
+    const noTenantLineItemRows = await pool.query(
+      `SELECT org_id, invoice_id
+         FROM console_invoice_line_items
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantLineItemRows.rows.length).toBe(0);
+
+    const noTenantPaymentRows = await pool.query(
+      `SELECT org_id, id
+         FROM console_payment_methods
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantPaymentRows.rows.length).toBe(0);
+  });
+
+  test('stripe payment intents table enforces DB-level tenant RLS policies', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const pool = await getPostgresPool(postgresUrl);
+    const ownerCtx = {
+      orgId: ownerOrgId,
+      actorUserId: 'owner-billing-stripe-rls',
+      roles: ['admin'],
+    };
+    const attackerCtx = {
+      orgId: attackerOrgId,
+      actorUserId: 'attacker-billing-stripe-rls',
+      roles: ['admin'],
+    };
+
+    const ownerGeneration = await billing!.generateMonthlyInvoice(ownerCtx, {
+      periodMonthUtc: '2026-01',
+    });
+    const attackerGeneration = await billing!.generateMonthlyInvoice(attackerCtx, {
+      periodMonthUtc: '2026-01',
+    });
+    const ownerIntent = await billing!.createStripePaymentIntent(ownerCtx, {
+      invoiceId: ownerGeneration.invoice.id,
+    });
+    const attackerIntent = await billing!.createStripePaymentIntent(attackerCtx, {
+      invoiceId: attackerGeneration.invoice.id,
+    });
+
+    const ownerRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_stripe_payment_intents
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(ownerRows.rows.some((row) => String((row as any).id || '') === ownerIntent.id)).toBe(true);
+    expect(
+      ownerRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+    expect(ownerRows.rows.some((row) => String((row as any).id || '') === attackerIntent.id)).toBe(
+      false,
+    );
+
+    const attackerRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: attackerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_stripe_payment_intents
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(
+      attackerRows.rows.some((row) => String((row as any).id || '') === attackerIntent.id),
+    ).toBe(true);
+    expect(
+      attackerRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === attackerOrgId,
+      ),
+    ).toBe(true);
+    expect(
+      attackerRows.rows.some((row) => String((row as any).id || '') === ownerIntent.id),
+    ).toBe(false);
+
+    const noTenantRows = await pool.query(
+      `SELECT org_id, id
+         FROM console_stripe_payment_intents
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantRows.rows.length).toBe(0);
+  });
+
+  test('stablecoin quote/intent/transition tables enforce DB-level tenant RLS policies', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const pool = await getPostgresPool(postgresUrl);
+    const ownerCtx = {
+      orgId: ownerOrgId,
+      actorUserId: 'owner-billing-stablecoin-rls',
+      roles: ['admin'],
+    };
+    const attackerCtx = {
+      orgId: attackerOrgId,
+      actorUserId: 'attacker-billing-stablecoin-rls',
+      roles: ['admin'],
+    };
+
+    const ownerGeneration = await billing!.generateMonthlyInvoice(ownerCtx, {
+      periodMonthUtc: '2026-01',
+    });
+    const attackerGeneration = await billing!.generateMonthlyInvoice(attackerCtx, {
+      periodMonthUtc: '2026-01',
+    });
+    const ownerQuote = await billing!.createStablecoinQuote(ownerCtx, {
+      invoiceId: ownerGeneration.invoice.id,
+      asset: 'USDC',
+      chain: 'Base',
+    });
+    const attackerQuote = await billing!.createStablecoinQuote(attackerCtx, {
+      invoiceId: attackerGeneration.invoice.id,
+      asset: 'USDT',
+      chain: 'Ethereum',
+    });
+    const ownerIntent = await billing!.createStablecoinPaymentIntent(ownerCtx, {
+      invoiceId: ownerGeneration.invoice.id,
+      quoteId: ownerQuote.id,
+    });
+    const attackerIntent = await billing!.createStablecoinPaymentIntent(attackerCtx, {
+      invoiceId: attackerGeneration.invoice.id,
+      quoteId: attackerQuote.id,
+    });
+
+    const ownerQuoteRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_stablecoin_quotes
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(
+      ownerQuoteRows.rows.some(
+        (row) => String((row as Record<string, unknown>).id || '') === ownerQuote.id,
+      ),
+    ).toBe(true);
+    expect(
+      ownerQuoteRows.rows.some(
+        (row) => String((row as Record<string, unknown>).id || '') === attackerQuote.id,
+      ),
+    ).toBe(false);
+    expect(
+      ownerQuoteRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const attackerQuoteRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: attackerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_stablecoin_quotes
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(
+      attackerQuoteRows.rows.some(
+        (row) => String((row as Record<string, unknown>).id || '') === attackerQuote.id,
+      ),
+    ).toBe(true);
+    expect(
+      attackerQuoteRows.rows.some(
+        (row) => String((row as Record<string, unknown>).id || '') === ownerQuote.id,
+      ),
+    ).toBe(false);
+    expect(
+      attackerQuoteRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === attackerOrgId,
+      ),
+    ).toBe(true);
+
+    const ownerIntentRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_stablecoin_payment_intents
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(
+      ownerIntentRows.rows.some(
+        (row) => String((row as Record<string, unknown>).id || '') === ownerIntent.id,
+      ),
+    ).toBe(true);
+    expect(
+      ownerIntentRows.rows.some(
+        (row) => String((row as Record<string, unknown>).id || '') === attackerIntent.id,
+      ),
+    ).toBe(false);
+    expect(
+      ownerIntentRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const attackerIntentRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: attackerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_stablecoin_payment_intents
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(
+      attackerIntentRows.rows.some(
+        (row) => String((row as Record<string, unknown>).id || '') === attackerIntent.id,
+      ),
+    ).toBe(true);
+    expect(
+      attackerIntentRows.rows.some(
+        (row) => String((row as Record<string, unknown>).id || '') === ownerIntent.id,
+      ),
+    ).toBe(false);
+    expect(
+      attackerIntentRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === attackerOrgId,
+      ),
+    ).toBe(true);
+
+    const ownerTransitionRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, payment_id
+             FROM console_payment_state_transitions
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(
+      ownerTransitionRows.rows.some(
+        (row) => String((row as Record<string, unknown>).payment_id || '') === ownerIntent.id,
+      ),
+    ).toBe(true);
+    expect(
+      ownerTransitionRows.rows.some(
+        (row) => String((row as Record<string, unknown>).payment_id || '') === attackerIntent.id,
+      ),
+    ).toBe(false);
+    expect(
+      ownerTransitionRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const attackerTransitionRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: attackerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, payment_id
+             FROM console_payment_state_transitions
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(
+      attackerTransitionRows.rows.some(
+        (row) => String((row as Record<string, unknown>).payment_id || '') === attackerIntent.id,
+      ),
+    ).toBe(true);
+    expect(
+      attackerTransitionRows.rows.some(
+        (row) => String((row as Record<string, unknown>).payment_id || '') === ownerIntent.id,
+      ),
+    ).toBe(false);
+    expect(
+      attackerTransitionRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === attackerOrgId,
+      ),
+    ).toBe(true);
+
+    const noTenantQuoteRows = await pool.query(
+      `SELECT org_id, id
+         FROM console_stablecoin_quotes
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantQuoteRows.rows.length).toBe(0);
+
+    const noTenantIntentRows = await pool.query(
+      `SELECT org_id, id
+         FROM console_stablecoin_payment_intents
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantIntentRows.rows.length).toBe(0);
+
+    const noTenantTransitionRows = await pool.query(
+      `SELECT org_id, payment_id
+         FROM console_payment_state_transitions
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantTransitionRows.rows.length).toBe(0);
+  });
+
+  test('stripe webhook events table enforces DB-level tenant RLS policies', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const pool = await getPostgresPool(postgresUrl);
+    const ownerCtx = {
+      orgId: ownerOrgId,
+      actorUserId: 'owner-billing-webhook-rls',
+      roles: ['admin'],
+    };
+    const attackerCtx = {
+      orgId: attackerOrgId,
+      actorUserId: 'attacker-billing-webhook-rls',
+      roles: ['admin'],
+    };
+
+    const ownerGeneration = await billing!.generateMonthlyInvoice(ownerCtx, {
+      periodMonthUtc: '2026-01',
+    });
+    const attackerGeneration = await billing!.generateMonthlyInvoice(attackerCtx, {
+      periodMonthUtc: '2026-01',
+    });
+    const ownerIntent = await billing!.createStripePaymentIntent(ownerCtx, {
+      invoiceId: ownerGeneration.invoice.id,
+    });
+    const attackerIntent = await billing!.createStripePaymentIntent(attackerCtx, {
+      invoiceId: attackerGeneration.invoice.id,
+    });
+
+    const ownerEventId = `evt_owner_${Date.now()}`;
+    const attackerEventId = `evt_attacker_${Date.now()}`;
+    await billing!.processStripeWebhookEvent({
+      eventId: ownerEventId,
+      providerRef: ownerIntent.providerRef,
+      providerStatus: 'PENDING',
+    });
+    await billing!.processStripeWebhookEvent({
+      eventId: attackerEventId,
+      providerRef: attackerIntent.providerRef,
+      providerStatus: 'PENDING',
+    });
+
+    const ownerRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, event_id
+             FROM console_stripe_webhook_events
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(
+      ownerRows.rows.some((row) => String((row as Record<string, unknown>).event_id || '') === ownerEventId),
+    ).toBe(true);
+    expect(
+      ownerRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const attackerRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: attackerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, event_id
+             FROM console_stripe_webhook_events
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(
+      attackerRows.rows.some(
+        (row) => String((row as Record<string, unknown>).event_id || '') === attackerEventId,
+      ),
+    ).toBe(true);
+    expect(
+      attackerRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === attackerOrgId,
+      ),
+    ).toBe(true);
+
+    const noTenantRows = await pool.query(
+      `SELECT org_id, event_id
+         FROM console_stripe_webhook_events
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantRows.rows.length).toBe(0);
   });
 });

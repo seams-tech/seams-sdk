@@ -4,11 +4,34 @@ import {
   runPostgresConsoleBillingMonthlyFinalization,
   type ConsoleBillingService,
 } from '@server/router/express-adaptor';
+import { withConsoleTenantContextTx } from '../../server/src/console/shared/postgresTenantContext';
 import { getPostgresPool } from '../../server/src/storage/postgres';
 
 function randomNamespace(prefix: string): string {
   return `${prefix}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
 }
+
+const PRIMARY_TEST_ORG_IDS = [
+  'org-postgres-rail-lock',
+  'org-postgres-card-defaults',
+  'org-postgres-provider-adapter-card',
+  'org-postgres-provider-adapter-stable',
+  'org-postgres-subscription-lifecycle',
+  'org-postgres-reconcile',
+  'org-postgres-risk-window',
+  'org-postgres-quote-semantics',
+  'org-postgres-expiry-guard',
+  'org-postgres-card-intent-gate',
+  'org-postgres-stripe-reconcile',
+  'org-postgres-stripe-webhook',
+  'org-postgres-stripe-projection',
+  'org-postgres-maw',
+  'org-postgres-invoice-generation',
+  'org-finalization-a',
+  'org-finalization-b',
+  'org-postgres-rollover',
+  'org-postgres-transitions',
+];
 
 async function expectBillingError(fn: () => Promise<unknown>, code: string): Promise<void> {
   let caught: any;
@@ -19,6 +42,55 @@ async function expectBillingError(fn: () => Promise<unknown>, code: string): Pro
   }
   expect(caught).toBeTruthy();
   expect(String(caught?.code || '')).toBe(code);
+}
+
+async function queryInOrg(input: {
+  postgresUrl: string;
+  namespace: string;
+  orgId: string;
+  text: string;
+  values: unknown[];
+}): Promise<{ rows: any[]; rowCount?: number }> {
+  const pool = await getPostgresPool(input.postgresUrl);
+  return withConsoleTenantContextTx(pool, { namespace: input.namespace, orgId: input.orgId }, (q) =>
+    q.query(input.text, input.values),
+  );
+}
+
+async function cleanupBillingNamespaceForOrgs(input: {
+  postgresUrl: string;
+  namespace: string;
+  orgIds: string[];
+}): Promise<void> {
+  const pool = await getPostgresPool(input.postgresUrl);
+  const namespace = String(input.namespace || '').trim();
+  if (!namespace) return;
+  const orgIds = Array.from(
+    new Set(
+      input.orgIds
+        .map((orgId) => String(orgId || '').trim())
+        .filter(Boolean),
+    ),
+  );
+
+  for (const orgId of orgIds) {
+    await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
+      await q.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [namespace]);
+      await q.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
+        namespace,
+      ]);
+      await q.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [namespace]);
+      await q.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [namespace]);
+      await q.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
+      await q.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
+      await q.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [namespace]);
+      await q.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [namespace]);
+      await q.query('DELETE FROM console_subscriptions WHERE namespace = $1', [namespace]);
+      await q.query('DELETE FROM console_invoices WHERE namespace = $1', [namespace]);
+      await q.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [namespace]);
+    });
+  }
+  await pool.query('DELETE FROM console_stripe_provider_refs WHERE namespace = $1', [namespace]);
 }
 
 test.describe('console billing postgres service', () => {
@@ -39,22 +111,11 @@ test.describe('console billing postgres service', () => {
 
   test.afterAll(async () => {
     if (!enabled) return;
-    const pool = await getPostgresPool(postgresUrl);
-    // Transition ledger is append-only by contract; cleanup omits this table.
-    await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
+    await cleanupBillingNamespaceForOrgs({
+      postgresUrl,
       namespace,
-    ]);
-    await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
-      namespace,
-    ]);
-    await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_invoices WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [namespace]);
+      orgIds: PRIMARY_TEST_ORG_IDS,
+    });
   });
 
   test('stablecoin payment intent locks invoice rail from stripe card rail', async () => {
@@ -126,6 +187,44 @@ test.describe('console billing postgres service', () => {
     expect(methods[0].isDefault).toBe(true);
   });
 
+  test('subscription lifecycle supports cancel and resume projection updates', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ctx = {
+      orgId: 'org-postgres-subscription-lifecycle',
+      actorUserId: 'admin-subscription-postgres',
+      roles: ['admin'],
+    };
+
+    const initial = await service!.getSubscription(ctx);
+    expect(initial.status).toBe('ACTIVE');
+    expect(initial.cancelAtPeriodEnd).toBe(false);
+    expect(initial.cancelAt).toBeNull();
+
+    const canceled = await service!.cancelSubscription(ctx);
+    expect(canceled.status).toBe('ACTIVE');
+    expect(canceled.cancelAtPeriodEnd).toBe(true);
+    expect(canceled.cancelAt).toBe(canceled.currentPeriodEnd);
+
+    const resumed = await service!.resumeSubscription(ctx);
+    expect(resumed.status).toBe('ACTIVE');
+    expect(resumed.cancelAtPeriodEnd).toBe(false);
+    expect(resumed.cancelAt).toBeNull();
+
+    const persisted = await queryInOrg({
+      postgresUrl,
+      namespace,
+      orgId: ctx.orgId,
+      text: `SELECT status, cancel_at_period_end, cancel_at_ms
+         FROM console_subscriptions
+        WHERE namespace = $1 AND org_id = $2`,
+      values: [namespace, ctx.orgId],
+    });
+    expect(persisted.rows.length).toBe(1);
+    expect(String((persisted.rows[0] as any).status || '')).toBe('ACTIVE');
+    expect(Boolean((persisted.rows[0] as any).cancel_at_period_end)).toBe(false);
+    expect((persisted.rows[0] as any).cancel_at_ms).toBeNull();
+  });
+
   test('postgres service uses injected billing provider adapters', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const providerNamespace = randomNamespace('test:console-billing:providers');
@@ -139,6 +238,18 @@ test.describe('console billing postgres service', () => {
           createSetupIntent: () => ({
             id: 'seti_pg_provider',
             clientSecret: 'seti_pg_provider_secret',
+            customerRef: 'cus_pg_provider',
+            expiresAt: '2026-03-01T00:30:00.000Z',
+          }),
+          createCheckoutSession: () => ({
+            id: 'cs_pg_provider',
+            url: 'https://checkout.example/postgres',
+            customerRef: 'cus_pg_provider',
+            expiresAt: '2026-03-01T00:30:00.000Z',
+          }),
+          createCustomerPortalSession: () => ({
+            id: 'bps_pg_provider',
+            url: 'https://billing.example/postgres',
             customerRef: 'cus_pg_provider',
             expiresAt: '2026-03-01T00:30:00.000Z',
           }),
@@ -172,6 +283,24 @@ test.describe('console billing postgres service', () => {
       expect(setupIntent.customerRef).toBe('cus_pg_provider');
       expect(setupIntent.expiresAt).toBe('2026-03-01T00:30:00.000Z');
 
+      const checkoutSession = await providerService.createStripeCheckoutSession(cardCtx, {
+        successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
+        cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+        planId: 'pro_maw_v1',
+      });
+      expect(checkoutSession.id).toBe('cs_pg_provider');
+      expect(checkoutSession.url).toBe('https://checkout.example/postgres');
+      expect(checkoutSession.customerRef).toBe('cus_pg_provider');
+      expect(checkoutSession.expiresAt).toBe('2026-03-01T00:30:00.000Z');
+
+      const portalSession = await providerService.createStripeCustomerPortalSession(cardCtx, {
+        returnUrl: 'https://app.example.com/dashboard/billing',
+      });
+      expect(portalSession.id).toBe('bps_pg_provider');
+      expect(portalSession.url).toBe('https://billing.example/postgres');
+      expect(portalSession.customerRef).toBe('cus_pg_provider');
+      expect(portalSession.expiresAt).toBe('2026-03-01T00:30:00.000Z');
+
       const cardInvoices = await providerService.listInvoices(cardCtx);
       expect(cardInvoices.length).toBeGreaterThan(0);
       const cardIntent = await providerService.createStripePaymentIntent(cardCtx, {
@@ -193,35 +322,11 @@ test.describe('console billing postgres service', () => {
       });
       expect(stableIntent.destinationAddress).toBe('pay_pg_provider_destination');
     } finally {
-      const pool = await getPostgresPool(postgresUrl);
-      await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
-        providerNamespace,
-      ]);
-      await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
-        providerNamespace,
-      ]);
-      await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [
-        providerNamespace,
-      ]);
-      await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
-        providerNamespace,
-      ]);
-      await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [
-        providerNamespace,
-      ]);
-      await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [
-        providerNamespace,
-      ]);
-      await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
-        providerNamespace,
-      ]);
-      await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [
-        providerNamespace,
-      ]);
-      await pool.query('DELETE FROM console_invoices WHERE namespace = $1', [providerNamespace]);
-      await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [
-        providerNamespace,
-      ]);
+      await cleanupBillingNamespaceForOrgs({
+        postgresUrl,
+        namespace: providerNamespace,
+        orgIds: [cardCtx.orgId, stableCtx.orgId],
+      });
     }
   });
 
@@ -270,14 +375,16 @@ test.describe('console billing postgres service', () => {
       created.expectedAmountMinor,
     );
 
-    const pool = await getPostgresPool(postgresUrl);
-    const transitions = await pool.query(
-      `SELECT from_state, to_state, reason
+    const transitions = await queryInOrg({
+      postgresUrl,
+      namespace,
+      orgId: ctx.orgId,
+      text: `SELECT from_state, to_state, reason
          FROM console_payment_state_transitions
-        WHERE namespace = $1 AND payment_id = $2
+        WHERE namespace = $1 AND org_id = $2 AND payment_id = $3
         ORDER BY id ASC`,
-      [namespace, created.id],
-    );
+      values: [namespace, ctx.orgId, created.id],
+    });
     expect(transitions.rows.length).toBe(3);
     expect(String((transitions.rows[0] as any).to_state)).toBe('PENDING');
     expect(String((transitions.rows[1] as any).to_state)).toBe('CONFIRMING');
@@ -326,13 +433,15 @@ test.describe('console billing postgres service', () => {
       expect(settled?.reorgRiskWindowEndsAt).toBe(expectedRiskEndsAt);
       expect(settled?.withinReorgRiskWindow).toBe(true);
 
-      const pool = await getPostgresPool(postgresUrl);
-      const persisted = await pool.query(
-        `SELECT settled_at_ms, reorg_risk_window_ends_at_ms
+      const persisted = await queryInOrg({
+        postgresUrl,
+        namespace: riskNamespace,
+        orgId: ctx.orgId,
+        text: `SELECT settled_at_ms, reorg_risk_window_ends_at_ms
            FROM console_stablecoin_payment_intents
-          WHERE namespace = $1 AND id = $2`,
-        [riskNamespace, created.id],
-      );
+          WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+        values: [riskNamespace, ctx.orgId, created.id],
+      });
       expect(persisted.rows.length).toBe(1);
       expect(Number((persisted.rows[0] as any).settled_at_ms || 0)).toBe(current.getTime());
       expect(Number((persisted.rows[0] as any).reorg_risk_window_ends_at_ms || 0)).toBe(
@@ -345,33 +454,11 @@ test.describe('console billing postgres service', () => {
       expect(afterRiskWindow?.reorgRiskWindowEndsAt).toBe(expectedRiskEndsAt);
       expect(afterRiskWindow?.withinReorgRiskWindow).toBe(false);
     } finally {
-      const pool = await getPostgresPool(postgresUrl);
-      await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
-        riskNamespace,
-      ]);
-      await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
-        riskNamespace,
-      ]);
-      await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [
-        riskNamespace,
-      ]);
-      await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
-        riskNamespace,
-      ]);
-      await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [riskNamespace]);
-      await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [
-        riskNamespace,
-      ]);
-      await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
-        riskNamespace,
-      ]);
-      await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [
-        riskNamespace,
-      ]);
-      await pool.query('DELETE FROM console_invoices WHERE namespace = $1', [riskNamespace]);
-      await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [
-        riskNamespace,
-      ]);
+      await cleanupBillingNamespaceForOrgs({
+        postgresUrl,
+        namespace: riskNamespace,
+        orgIds: [ctx.orgId],
+      });
     }
   });
 
@@ -486,47 +573,25 @@ test.describe('console billing postgres service', () => {
       expect(invoice?.status).toBe('OPEN');
       expect(invoice?.amountPaidMinor).toBe(0);
 
-      const pool = await getPostgresPool(postgresUrl);
-      const transitions = await pool.query(
-        `SELECT to_state
+      const transitions = await queryInOrg({
+        postgresUrl,
+        namespace: expiryNamespace,
+        orgId: ctx.orgId,
+        text: `SELECT to_state
            FROM console_payment_state_transitions
-          WHERE namespace = $1 AND payment_id = $2
+          WHERE namespace = $1 AND org_id = $2 AND payment_id = $3
           ORDER BY id ASC`,
-        [expiryNamespace, created.id],
-      );
+        values: [expiryNamespace, ctx.orgId, created.id],
+      });
       expect(transitions.rows.length).toBe(2);
       expect(String((transitions.rows[0] as any).to_state)).toBe('PENDING');
       expect(String((transitions.rows[1] as any).to_state)).toBe('EXPIRED');
     } finally {
-      const pool = await getPostgresPool(postgresUrl);
-      await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
-        expiryNamespace,
-      ]);
-      await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
-        expiryNamespace,
-      ]);
-      await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [
-        expiryNamespace,
-      ]);
-      await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
-        expiryNamespace,
-      ]);
-      await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [
-        expiryNamespace,
-      ]);
-      await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [
-        expiryNamespace,
-      ]);
-      await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
-        expiryNamespace,
-      ]);
-      await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [
-        expiryNamespace,
-      ]);
-      await pool.query('DELETE FROM console_invoices WHERE namespace = $1', [expiryNamespace]);
-      await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [
-        expiryNamespace,
-      ]);
+      await cleanupBillingNamespaceForOrgs({
+        postgresUrl,
+        namespace: expiryNamespace,
+        orgIds: [ctx.orgId],
+      });
     }
   });
 
@@ -586,14 +651,16 @@ test.describe('console billing postgres service', () => {
     expect(invoice?.status).toBe('PAID');
     expect(Number(invoice?.amountPaidMinor || 0)).toBeGreaterThanOrEqual(created.amountMinor);
 
-    const pool = await getPostgresPool(postgresUrl);
-    const transitions = await pool.query(
-      `SELECT to_state
+    const transitions = await queryInOrg({
+      postgresUrl,
+      namespace,
+      orgId: ctx.orgId,
+      text: `SELECT to_state
          FROM console_payment_state_transitions
-        WHERE namespace = $1 AND payment_id = $2
+        WHERE namespace = $1 AND org_id = $2 AND payment_id = $3
         ORDER BY id ASC`,
-      [namespace, created.id],
-    );
+      values: [namespace, ctx.orgId, created.id],
+    });
     expect(transitions.rows.length).toBe(4);
     expect(String((transitions.rows[0] as any).to_state)).toBe('CREATED');
     expect(String((transitions.rows[1] as any).to_state)).toBe('ACTION_REQUIRED');
@@ -614,6 +681,16 @@ test.describe('console billing postgres service', () => {
 
     const created = await service!.createStripePaymentIntent(ctx, { invoiceId });
     expect(created.state).toBe('CREATED');
+    const pool = await getPostgresPool(postgresUrl);
+    const providerLinks = await pool.query(
+      `SELECT org_id, payment_intent_id
+         FROM console_stripe_provider_refs
+        WHERE namespace = $1 AND provider_ref = $2`,
+      [namespace, created.providerRef],
+    );
+    expect(providerLinks.rows.length).toBe(1);
+    expect(String((providerLinks.rows[0] as any).org_id || '')).toBe(ctx.orgId);
+    expect(String((providerLinks.rows[0] as any).payment_intent_id || '')).toBe(created.id);
 
     const eventId = `evt_pg_${Date.now()}_1`;
     const first = await service!.processStripeWebhookEvent({
@@ -634,18 +711,80 @@ test.describe('console billing postgres service', () => {
     expect(duplicate.accepted).toBe(false);
     expect(duplicate.paymentIntent?.state).toBe('SETTLED');
 
-    const pool = await getPostgresPool(postgresUrl);
-    const events = await pool.query(
-      `SELECT event_id, payment_intent_id
+    const events = await queryInOrg({
+      postgresUrl,
+      namespace,
+      orgId: ctx.orgId,
+      text: `SELECT event_id, payment_intent_id, org_id
          FROM console_stripe_webhook_events
-        WHERE namespace = $1 AND event_id = $2`,
-      [namespace, eventId],
-    );
+        WHERE namespace = $1 AND org_id = $2 AND event_id = $3`,
+      values: [namespace, ctx.orgId, eventId],
+    });
     expect(events.rows.length).toBe(1);
     expect(String((events.rows[0] as any).payment_intent_id || '')).toBe(created.id);
+    expect(String((events.rows[0] as any).org_id || '')).toBe(ctx.orgId);
 
     const invoice = await service!.getInvoice(ctx, invoiceId);
     expect(invoice?.status).toBe('PAID');
+  });
+
+  test('Stripe webhook projections update subscription and invoice state idempotently', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ctx = {
+      orgId: 'org-postgres-stripe-projection',
+      actorUserId: 'ops-webhook-projection-postgres',
+      roles: ['ops'],
+    };
+
+    const initialSubscription = await service!.getSubscription(ctx);
+    const invoices = await service!.listInvoices(ctx);
+    expect(invoices.length).toBeGreaterThan(0);
+    const invoiceId = invoices[0].id;
+
+    const subscriptionEventId = `evt_pg_sub_${Date.now()}`;
+    const subscriptionProjection = await service!.processStripeWebhookEvent({
+      eventId: subscriptionEventId,
+      eventType: 'customer.subscription.updated',
+      orgId: ctx.orgId,
+      providerSubscriptionRef: initialSubscription.providerSubscriptionRef || undefined,
+      providerCustomerRef: initialSubscription.providerCustomerRef || undefined,
+      subscriptionStatus: 'PAST_DUE',
+      cancelAtPeriodEnd: true,
+    });
+    expect(subscriptionProjection.accepted).toBe(true);
+    expect(subscriptionProjection.subscription?.status).toBe('PAST_DUE');
+    expect(subscriptionProjection.subscription?.cancelAtPeriodEnd).toBe(true);
+
+    const subscriptionDuplicate = await service!.processStripeWebhookEvent({
+      eventId: subscriptionEventId,
+      eventType: 'customer.subscription.updated',
+      orgId: ctx.orgId,
+      providerSubscriptionRef: initialSubscription.providerSubscriptionRef || undefined,
+      providerCustomerRef: initialSubscription.providerCustomerRef || undefined,
+      subscriptionStatus: 'PAST_DUE',
+      cancelAtPeriodEnd: true,
+    });
+    expect(subscriptionDuplicate.accepted).toBe(false);
+    expect(subscriptionDuplicate.subscription?.status).toBe('PAST_DUE');
+
+    const invoiceProjection = await service!.processStripeWebhookEvent({
+      eventId: `evt_pg_invoice_${Date.now()}`,
+      eventType: 'invoice.paid',
+      orgId: ctx.orgId,
+      invoiceId,
+      invoiceStatus: 'PAID',
+      invoiceAmountPaidMinor: invoices[0].amountDueMinor,
+    });
+    expect(invoiceProjection.accepted).toBe(true);
+    expect(invoiceProjection.invoice?.status).toBe('PAID');
+    expect(Number(invoiceProjection.invoice?.amountPaidMinor || 0)).toBe(
+      invoices[0].amountDueMinor,
+    );
+
+    const updatedSubscription = await service!.getSubscription(ctx);
+    expect(updatedSubscription.status).toBe('PAST_DUE');
+    const updatedInvoice = await service!.getInvoice(ctx, invoiceId);
+    expect(updatedInvoice?.status).toBe('PAID');
   });
 
   test('usage events roll up MAW with exclusions and source-event idempotency', async () => {
@@ -722,13 +861,15 @@ test.describe('console billing postgres service', () => {
     expect(usage.usageMetricVersion).toBe('maw_v1');
     expect(usage.monthlyActiveWallets).toBe(2);
 
-    const pool = await getPostgresPool(postgresUrl);
-    const rollup = await pool.query(
-      `SELECT monthly_active_wallets
+    const rollup = await queryInOrg({
+      postgresUrl,
+      namespace,
+      orgId: ctx.orgId,
+      text: `SELECT monthly_active_wallets
          FROM console_usage_rollups_monthly
         WHERE namespace = $1 AND org_id = $2 AND month_utc = $3`,
-      [namespace, ctx.orgId, first.monthUtc],
-    );
+      values: [namespace, ctx.orgId, first.monthUtc],
+    });
     expect(rollup.rows.length).toBe(1);
     expect(Number((rollup.rows[0] as any).monthly_active_wallets)).toBe(2);
   });
@@ -787,14 +928,16 @@ test.describe('console billing postgres service', () => {
     expect(secondRun.invoice.id).toBe(generation.invoice.id);
     expect(secondRun.invoice.amountDueMinor).toBe(2500);
 
-    const pool = await getPostgresPool(postgresUrl);
-    const persisted = await pool.query(
-      `SELECT item_type, amount_minor
+    const persisted = await queryInOrg({
+      postgresUrl,
+      namespace,
+      orgId: ctx.orgId,
+      text: `SELECT item_type, amount_minor
          FROM console_invoice_line_items
         WHERE namespace = $1 AND org_id = $2 AND invoice_id = $3
         ORDER BY item_type ASC`,
-      [namespace, ctx.orgId, generation.invoice.id],
-    );
+      values: [namespace, ctx.orgId, generation.invoice.id],
+    });
     expect(persisted.rows.length).toBe(2);
     expect(String((persisted.rows[0] as any).item_type)).toBe('MAW_USAGE');
     expect(String((persisted.rows[1] as any).item_type)).toBe('PLAN_BASE_FEE');
@@ -848,6 +991,7 @@ test.describe('console billing postgres service', () => {
       const firstRun = await runPostgresConsoleBillingMonthlyFinalization({
         postgresUrl,
         namespace: finalizationNamespace,
+        orgIds: [orgA.orgId, orgB.orgId],
         periodMonthUtc: '2026-01',
         now: () => current,
         ensureSchema: false,
@@ -862,6 +1006,7 @@ test.describe('console billing postgres service', () => {
       const secondRun = await runPostgresConsoleBillingMonthlyFinalization({
         postgresUrl,
         namespace: finalizationNamespace,
+        orgIds: [orgA.orgId, orgB.orgId],
         periodMonthUtc: '2026-01',
         now: () => current,
         ensureSchema: false,
@@ -881,37 +1026,11 @@ test.describe('console billing postgres service', () => {
       expect(orgAJanInvoice?.amountDueMinor).toBe(2200);
       expect(orgBJanInvoice?.amountDueMinor).toBe(2500);
     } finally {
-      const pool = await getPostgresPool(postgresUrl);
-      await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
-        finalizationNamespace,
-      ]);
-      await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
-        finalizationNamespace,
-      ]);
-      await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [
-        finalizationNamespace,
-      ]);
-      await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
-        finalizationNamespace,
-      ]);
-      await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [
-        finalizationNamespace,
-      ]);
-      await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [
-        finalizationNamespace,
-      ]);
-      await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
-        finalizationNamespace,
-      ]);
-      await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [
-        finalizationNamespace,
-      ]);
-      await pool.query('DELETE FROM console_invoices WHERE namespace = $1', [
-        finalizationNamespace,
-      ]);
-      await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [
-        finalizationNamespace,
-      ]);
+      await cleanupBillingNamespaceForOrgs({
+        postgresUrl,
+        namespace: finalizationNamespace,
+        orgIds: [orgA.orgId, orgB.orgId],
+      });
     }
   });
 
@@ -949,35 +1068,11 @@ test.describe('console billing postgres service', () => {
         febInvoicesAgain.filter((invoice) => invoice.periodMonthUtc === '2026-02').length,
       ).toBe(1);
     } finally {
-      const pool = await getPostgresPool(postgresUrl);
-      await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
-        rolloverNamespace,
-      ]);
-      await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
-        rolloverNamespace,
-      ]);
-      await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [
-        rolloverNamespace,
-      ]);
-      await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
-        rolloverNamespace,
-      ]);
-      await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [
-        rolloverNamespace,
-      ]);
-      await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [
-        rolloverNamespace,
-      ]);
-      await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
-        rolloverNamespace,
-      ]);
-      await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [
-        rolloverNamespace,
-      ]);
-      await pool.query('DELETE FROM console_invoices WHERE namespace = $1', [rolloverNamespace]);
-      await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [
-        rolloverNamespace,
-      ]);
+      await cleanupBillingNamespaceForOrgs({
+        postgresUrl,
+        namespace: rolloverNamespace,
+        orgIds: [ctx.orgId],
+      });
     }
   });
 
@@ -1004,14 +1099,16 @@ test.describe('console billing postgres service', () => {
     const canceled = await service!.cancelStablecoinPaymentIntent(ctx, intent.id);
     expect(canceled?.state).toBe('CANCELED');
 
-    const pool = await getPostgresPool(postgresUrl);
-    const transitions = await pool.query(
-      `SELECT id, from_state, to_state, actor_type, actor_user_id, reason
+    const transitions = await queryInOrg({
+      postgresUrl,
+      namespace,
+      orgId: ctx.orgId,
+      text: `SELECT id, from_state, to_state, actor_type, actor_user_id, reason
          FROM console_payment_state_transitions
-        WHERE namespace = $1 AND payment_id = $2
+        WHERE namespace = $1 AND org_id = $2 AND payment_id = $3
         ORDER BY id ASC`,
-      [namespace, intent.id],
-    );
+      values: [namespace, ctx.orgId, intent.id],
+    });
     expect(transitions.rows.length).toBe(2);
 
     const first = transitions.rows[0] as any;
@@ -1032,12 +1129,15 @@ test.describe('console billing postgres service', () => {
     expect(Number.isFinite(transitionId)).toBe(true);
     let mutationError: any;
     try {
-      await pool.query(
-        `UPDATE console_payment_state_transitions
+      await queryInOrg({
+        postgresUrl,
+        namespace,
+        orgId: ctx.orgId,
+        text: `UPDATE console_payment_state_transitions
             SET reason = 'tampered'
-          WHERE id = $1`,
-        [transitionId],
-      );
+          WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+        values: [namespace, ctx.orgId, transitionId],
+      });
     } catch (error: unknown) {
       mutationError = error;
     }

@@ -4,6 +4,7 @@ import {
   createPostgresConsoleBillingService,
   type ConsoleBillingService,
 } from '@server/router/express-adaptor';
+import { withConsoleTenantContextTx } from '../../server/src/console/shared/postgresTenantContext';
 import { getPostgresPool } from '../../server/src/storage/postgres';
 
 function randomNamespace(prefix: string): string {
@@ -32,6 +33,18 @@ test.describe('console billing service rbac', () => {
             customerRef: 'cus_mem_provider',
             expiresAt: '2026-03-01T00:30:00.000Z',
           }),
+          createCheckoutSession: () => ({
+            id: 'cs_mem_provider',
+            url: 'https://checkout.example/memory',
+            customerRef: 'cus_mem_provider',
+            expiresAt: '2026-03-01T00:30:00.000Z',
+          }),
+          createCustomerPortalSession: () => ({
+            id: 'bps_mem_provider',
+            url: 'https://billing.example/memory',
+            customerRef: 'cus_mem_provider',
+            expiresAt: '2026-03-01T00:30:00.000Z',
+          }),
           createPaymentIntent: () => ({
             providerRef: 'pi_mem_provider',
             clientSecret: 'pi_mem_provider_secret',
@@ -55,6 +68,24 @@ test.describe('console billing service rbac', () => {
     expect(setupIntent.clientSecret).toBe('seti_mem_provider_secret');
     expect(setupIntent.customerRef).toBe('cus_mem_provider');
     expect(setupIntent.expiresAt).toBe('2026-03-01T00:30:00.000Z');
+
+    const checkoutSession = await service.createStripeCheckoutSession(cardCtx, {
+      successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
+      cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+      planId: 'pro_maw_v1',
+    });
+    expect(checkoutSession.id).toBe('cs_mem_provider');
+    expect(checkoutSession.url).toBe('https://checkout.example/memory');
+    expect(checkoutSession.customerRef).toBe('cus_mem_provider');
+    expect(checkoutSession.expiresAt).toBe('2026-03-01T00:30:00.000Z');
+
+    const portalSession = await service.createStripeCustomerPortalSession(cardCtx, {
+      returnUrl: 'https://app.example.com/dashboard/billing',
+    });
+    expect(portalSession.id).toBe('bps_mem_provider');
+    expect(portalSession.url).toBe('https://billing.example/memory');
+    expect(portalSession.customerRef).toBe('cus_mem_provider');
+    expect(portalSession.expiresAt).toBe('2026-03-01T00:30:00.000Z');
 
     const cardInvoices = await service.listInvoices(cardCtx);
     expect(cardInvoices.length).toBeGreaterThan(0);
@@ -108,6 +139,30 @@ test.describe('console billing service rbac', () => {
     await expectBillingError(async () => {
       await service.setDefaultCardPaymentMethod(nonAdminCtx, 'pm_missing');
     }, 'forbidden');
+  });
+
+  test('in-memory service supports subscription lifecycle cancel/resume', async () => {
+    const service = createInMemoryConsoleBillingService();
+    const ctx = {
+      orgId: 'org-subscription-lifecycle-memory',
+      actorUserId: 'admin-subscription-memory',
+      roles: ['admin'],
+    };
+
+    const initial = await service.getSubscription(ctx);
+    expect(initial.status).toBe('ACTIVE');
+    expect(initial.cancelAtPeriodEnd).toBe(false);
+    expect(initial.cancelAt).toBeNull();
+
+    const canceled = await service.cancelSubscription(ctx);
+    expect(canceled.status).toBe('ACTIVE');
+    expect(canceled.cancelAtPeriodEnd).toBe(true);
+    expect(canceled.cancelAt).toBe(canceled.currentPeriodEnd);
+
+    const resumed = await service.resumeSubscription(ctx);
+    expect(resumed.status).toBe('ACTIVE');
+    expect(resumed.cancelAtPeriodEnd).toBe(false);
+    expect(resumed.cancelAt).toBeNull();
   });
 
   test('in-memory service reconciles stablecoin intent to settled', async () => {
@@ -563,6 +618,65 @@ test.describe('console billing service rbac', () => {
     expect(invoice?.status).toBe('PAID');
   });
 
+  test('in-memory service projects subscription/invoice webhook events idempotently', async () => {
+    const service = createInMemoryConsoleBillingService();
+    const ctx = {
+      orgId: 'org-stripe-projection-memory',
+      actorUserId: 'ops-projection-memory',
+      roles: ['ops'],
+    };
+
+    const subscription = await service.getSubscription(ctx);
+    const invoices = await service.listInvoices(ctx);
+    expect(invoices.length).toBeGreaterThan(0);
+    const invoiceId = invoices[0].id;
+
+    const subscriptionEventId = `evt_mem_subscription_${Date.now()}`;
+    const subscriptionProjection = await service.processStripeWebhookEvent({
+      eventId: subscriptionEventId,
+      eventType: 'customer.subscription.updated',
+      orgId: ctx.orgId,
+      providerSubscriptionRef: subscription.providerSubscriptionRef || undefined,
+      providerCustomerRef: subscription.providerCustomerRef || undefined,
+      subscriptionStatus: 'PAST_DUE',
+      cancelAtPeriodEnd: true,
+    });
+    expect(subscriptionProjection.accepted).toBe(true);
+    expect(subscriptionProjection.subscription?.status).toBe('PAST_DUE');
+    expect(subscriptionProjection.subscription?.cancelAtPeriodEnd).toBe(true);
+
+    const duplicateSubscription = await service.processStripeWebhookEvent({
+      eventId: subscriptionEventId,
+      eventType: 'customer.subscription.updated',
+      orgId: ctx.orgId,
+      providerSubscriptionRef: subscription.providerSubscriptionRef || undefined,
+      providerCustomerRef: subscription.providerCustomerRef || undefined,
+      subscriptionStatus: 'PAST_DUE',
+      cancelAtPeriodEnd: true,
+    });
+    expect(duplicateSubscription.accepted).toBe(false);
+    expect(duplicateSubscription.subscription?.status).toBe('PAST_DUE');
+
+    const invoiceProjection = await service.processStripeWebhookEvent({
+      eventId: `evt_mem_invoice_${Date.now()}`,
+      eventType: 'invoice.paid',
+      orgId: ctx.orgId,
+      invoiceId,
+      invoiceStatus: 'PAID',
+      invoiceAmountPaidMinor: invoices[0].amountDueMinor,
+    });
+    expect(invoiceProjection.accepted).toBe(true);
+    expect(invoiceProjection.invoice?.status).toBe('PAID');
+    expect(Number(invoiceProjection.invoice?.amountPaidMinor || 0)).toBe(
+      invoices[0].amountDueMinor,
+    );
+
+    const updatedSubscription = await service.getSubscription(ctx);
+    expect(updatedSubscription.status).toBe('PAST_DUE');
+    const updatedInvoice = await service.getInvoice(ctx, invoiceId);
+    expect(updatedInvoice?.status).toBe('PAID');
+  });
+
   test('postgres service enforces admin-only card mutations', async () => {
     const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
     test.skip(!postgresUrl, 'POSTGRES_URL not set');
@@ -596,27 +710,32 @@ test.describe('console billing service rbac', () => {
       }, 'forbidden');
     } finally {
       const pool = await getPostgresPool(postgresUrl);
-      await pool.query('DELETE FROM console_payment_state_transitions WHERE namespace = $1', [
+      await withConsoleTenantContextTx(
+        pool,
+        { namespace, orgId: nonAdminCtx.orgId },
+        async (q) => {
+          await q.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [namespace]);
+          await q.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
+            namespace,
+          ]);
+          await q.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [namespace]);
+          await q.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
+            namespace,
+          ]);
+          await q.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
+          await q.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
+          await q.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
+            namespace,
+          ]);
+          await q.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [namespace]);
+          await q.query('DELETE FROM console_subscriptions WHERE namespace = $1', [namespace]);
+          await q.query('DELETE FROM console_invoices WHERE namespace = $1', [namespace]);
+          await q.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [namespace]);
+        },
+      );
+      await pool.query('DELETE FROM console_stripe_provider_refs WHERE namespace = $1', [
         namespace,
       ]);
-      await pool.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
-        namespace,
-      ]);
-      await pool.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
-        namespace,
-      ]);
-      await pool.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [namespace]);
-      await pool.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
-        namespace,
-      ]);
-      await pool.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
-      await pool.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
-      await pool.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
-        namespace,
-      ]);
-      await pool.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [namespace]);
-      await pool.query('DELETE FROM console_invoices WHERE namespace = $1', [namespace]);
-      await pool.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [namespace]);
     }
   });
 });

@@ -1,8 +1,10 @@
 import { test, expect } from '@playwright/test';
 import {
   createPostgresConsoleWebhookService,
+  runPostgresConsoleWebhookRetryDispatch,
   type ConsoleWebhookService,
 } from '@server/router/express-adaptor';
+import { withConsoleTenantContextTx } from '../../server/src/console/shared/postgresTenantContext';
 import { getPostgresPool } from '../../server/src/storage/postgres';
 
 function randomNamespace(prefix: string): string {
@@ -47,10 +49,22 @@ test.describe('console webhooks postgres service', () => {
   test.afterAll(async () => {
     if (!enabled) return;
     const pool = await getPostgresPool(postgresUrl);
-    await pool.query('DELETE FROM console_webhook_attempts WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_webhook_dead_letters WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_webhook_deliveries WHERE namespace = $1', [namespace]);
-    await pool.query('DELETE FROM console_webhook_endpoints WHERE namespace = $1', [namespace]);
+    const cleanupOrgIds = [
+      'org-webhooks-postgres-crud',
+      'org-webhooks-postgres-delivery',
+      'org-webhooks-postgres-pagination',
+      'org-webhooks-postgres-pagination-tie',
+      'org-webhooks-postgres-invalid-attempt-cursor',
+      'org-webhooks-postgres-retry-dispatch',
+    ];
+    for (const orgId of cleanupOrgIds) {
+      await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
+        await q.query('DELETE FROM console_webhook_attempts WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_webhook_dead_letters WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_webhook_deliveries WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_webhook_endpoints WHERE namespace = $1', [namespace]);
+      });
+    }
   });
 
   test('endpoint lifecycle supports create/list/update/delete', async () => {
@@ -184,6 +198,86 @@ test.describe('console webhooks postgres service', () => {
     expect(deadLetter.rows.length).toBe(1);
     expect(Number((deadLetter.rows[0] as any).failed_attempts || 0)).toBe(1);
     expect(Number((deadLetter.rows[0] as any).resolved_at_ms || 0)).toBeGreaterThan(0);
+  });
+
+  test('retry dispatch runner retries failed deliveries with backoff and resolves DLQ rows', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ctx = {
+      orgId: 'org-webhooks-postgres-retry-dispatch',
+      actorUserId: 'ops-webhooks-retry-dispatch',
+      roles: ['ops'],
+    };
+
+    const seedService = await createPostgresConsoleWebhookService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: false,
+      dispatcher: {
+        dispatch: async () => ({
+          ok: false,
+          statusCode: 500,
+          responseBody: 'seed failure',
+          errorMessage: 'seed upstream unavailable',
+        }),
+      },
+    });
+
+    const endpoint = await seedService.createEndpoint(ctx, {
+      url: 'https://example.com/webhooks/postgres-retry-dispatch',
+      subscriptions: ['billing'],
+    });
+
+    const firstEmit = await seedService.emitEvent(ctx, {
+      eventType: 'billing.invoice.created',
+      payload: { invoiceId: 'inv_pg_retry_1' },
+    });
+    const secondEmit = await seedService.emitEvent(ctx, {
+      eventType: 'billing.invoice.updated',
+      payload: { invoiceId: 'inv_pg_retry_2' },
+    });
+    expect(firstEmit.failed).toBe(1);
+    expect(secondEmit.failed).toBe(1);
+
+    const retryResult = await runPostgresConsoleWebhookRetryDispatch({
+      postgresUrl,
+      namespace,
+      orgIds: [ctx.orgId],
+      limit: 10,
+      maxAttempts: 5,
+      initialBackoffMs: 0,
+      maxBackoffMs: 0,
+      ensureSchema: false,
+      dispatcher: {
+        dispatch: async () => ({
+          ok: true,
+          statusCode: 200,
+          responseBody: 'retry ok',
+        }),
+      },
+    });
+    expect(retryResult.orgCount).toBe(1);
+    expect(retryResult.attemptedCount).toBe(2);
+    expect(retryResult.deliveredCount).toBe(2);
+    expect(retryResult.failedCount).toBe(0);
+    expect(retryResult.failures.length).toBe(0);
+
+    const deliveries = await seedService.listDeliveries(ctx, endpoint.id, {});
+    expect(deliveries.items.length).toBe(2);
+    expect(deliveries.items.every((item) => item.status === 'SUCCEEDED')).toBe(true);
+    expect(deliveries.items.every((item) => item.attemptCount === 2)).toBe(true);
+
+    const attempts = await seedService.listAttempts(ctx, endpoint.id, {});
+    expect(attempts.items.length).toBe(4);
+    expect(attempts.items.filter((item) => item.status === 'SUCCEEDED').length).toBe(2);
+
+    const unresolvedDeadLetters = await seedService.listDeadLetters(ctx, endpoint.id, {});
+    expect(unresolvedDeadLetters.items.length).toBe(0);
+    const resolvedDeadLetters = await seedService.listDeadLetters(ctx, endpoint.id, {
+      includeResolved: true,
+    });
+    expect(resolvedDeadLetters.items.length).toBe(2);
+    expect(resolvedDeadLetters.items.every((entry) => Boolean(entry.resolvedAt))).toBe(true);
   });
 
   test('pagination cursors advance consistently across deliveries, attempts, and dead letters', async () => {

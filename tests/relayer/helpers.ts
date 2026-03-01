@@ -10,6 +10,9 @@ type ExpressAppLike = ((req: unknown, res: unknown) => unknown) & {
   use: (...args: unknown[]) => unknown;
 };
 
+const SESSION_COOKIE_NAME =
+  String(process.env.SESSION_COOKIE_NAME || 'tatchi-jwt').trim() || 'tatchi-jwt';
+
 // In TS `moduleResolution: bundler`, CommonJS packages like `express` can type as a
 // namespace object (non-callable). Normalize to a callable factory for tests.
 type ExpressLike = { (): ExpressAppLike; json: (options?: unknown) => ExpressMiddleware };
@@ -158,8 +161,10 @@ export function makeSessionAdapter(overrides: Partial<SessionAdapter> = {}): Ses
     parse: overrides.parse || (async () => ({ ok: false }) as const),
     buildSetCookie:
       overrides.buildSetCookie ||
-      ((token: string) => `w3a_session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax`),
-    buildClearCookie: overrides.buildClearCookie || (() => `w3a_session=; Path=/; Max-Age=0`),
+      ((token: string) =>
+        `${SESSION_COOKIE_NAME}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax`),
+    buildClearCookie:
+      overrides.buildClearCookie || (() => `${SESSION_COOKIE_NAME}=; Path=/; Max-Age=0`),
     refresh:
       overrides.refresh ||
       (async () => ({ ok: false, code: 'not_eligible', message: 'not eligible' })),
@@ -178,6 +183,7 @@ export function makeFakeAuthService(
     getOrCreateAppSessionVersion: AuthService['getOrCreateAppSessionVersion'];
     validateAppSessionVersion: AuthService['validateAppSessionVersion'];
     rotateAppSessionVersion: AuthService['rotateAppSessionVersion'];
+    verifyOidcJwtExchange: AuthService['verifyOidcJwtExchange'];
     isGoogleOidcConfigured: AuthService['isGoogleOidcConfigured'];
     verifyGoogleLogin: AuthService['verifyGoogleLogin'];
     listIdentities: AuthService['listIdentities'];
@@ -222,6 +228,14 @@ export function makeFakeAuthService(
     validateAppSessionVersion: overrides.validateAppSessionVersion || (async () => ({ ok: true })),
     rotateAppSessionVersion:
       overrides.rotateAppSessionVersion || (async () => ({ ok: true, appSessionVersion: 'v2' })),
+    verifyOidcJwtExchange:
+      overrides.verifyOidcJwtExchange ||
+      (async () => ({
+        ok: false,
+        verified: false,
+        code: 'not_implemented',
+        message: 'not implemented',
+      })),
     isGoogleOidcConfigured: overrides.isGoogleOidcConfigured || (() => false),
     verifyGoogleLogin:
       overrides.verifyGoogleLogin ||

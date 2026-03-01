@@ -582,8 +582,47 @@ test.describe('dashboard console config page api wiring', () => {
       },
       updatedAt: iso('2026-01-05T00:00:00.000Z'),
     };
+    let runtimeSnapshots: any[] = [
+      {
+        orgId: 'org_dash_console_pages',
+        projectId: 'proj_active',
+        environmentId: 'env_active',
+        snapshotId: 'snapshot_existing_v2',
+        version: 2,
+        effectiveAt: iso('2026-02-01T00:00:00.000Z'),
+        checksum: 'fnv1a32:11111111',
+        payload: {
+          policy: { status: 'resolved', policyCount: 2, assignmentCount: 1 },
+          settings: { status: 'resolved' },
+          gasSponsorship: { status: 'resolved', configCount: 1 },
+          smartWallets: { status: 'resolved', configCount: 1 },
+          metadata: { source: 'server_publish_current_v1' },
+        },
+        createdAt: iso('2026-02-01T00:00:00.000Z'),
+        createdBy: 'user_dash_console_pages',
+      },
+      {
+        orgId: 'org_dash_console_pages',
+        projectId: 'proj_active',
+        environmentId: 'env_active',
+        snapshotId: 'snapshot_existing_v1',
+        version: 1,
+        effectiveAt: iso('2026-01-15T00:00:00.000Z'),
+        checksum: 'fnv1a32:00000000',
+        payload: {
+          policy: { status: 'resolved', policyCount: 1, assignmentCount: 1 },
+          settings: { status: 'resolved' },
+          gasSponsorship: { status: 'not_configured', configCount: 0 },
+          smartWallets: { status: 'not_configured', configCount: 0 },
+          metadata: { source: 'server_publish_current_v1' },
+        },
+        createdAt: iso('2026-01-15T00:00:00.000Z'),
+        createdBy: 'user_dash_console_pages',
+      },
+    ];
     let lastAppPatchBody: Record<string, unknown> | null = null;
     let lastSecurityPatchBody: Record<string, unknown> | null = null;
+    let lastPublishCurrentBody: Record<string, unknown> | null = null;
 
     await page.route(`${consoleOrigin}/console/**`, async (route) => {
       const req = route.request();
@@ -735,6 +774,85 @@ test.describe('dashboard console config page api wiring', () => {
         return;
       }
 
+      if (pathname === '/console/runtime-snapshots/latest' && method === 'GET') {
+        const environmentId = String(url.searchParams.get('environmentId') || '').trim();
+        const projectId = String(url.searchParams.get('projectId') || '').trim();
+        const rows = runtimeSnapshots
+          .filter((entry) => {
+            if (environmentId && String(entry.environmentId || '') !== environmentId) return false;
+            if (projectId && String(entry.projectId || '') !== projectId) return false;
+            return true;
+          })
+          .sort((a, b) => Number(b.version || 0) - Number(a.version || 0));
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, snapshot: rows[0] || null }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/runtime-snapshots' && method === 'GET') {
+        const environmentId = String(url.searchParams.get('environmentId') || '').trim();
+        const projectId = String(url.searchParams.get('projectId') || '').trim();
+        const limitRaw = Number(url.searchParams.get('limit') || 20);
+        const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.floor(limitRaw) : 20;
+        const rows = runtimeSnapshots
+          .filter((entry) => {
+            if (environmentId && String(entry.environmentId || '') !== environmentId) return false;
+            if (projectId && String(entry.projectId || '') !== projectId) return false;
+            return true;
+          })
+          .sort((a, b) => Number(b.version || 0) - Number(a.version || 0))
+          .slice(0, limit);
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, snapshots: rows }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/runtime-snapshots/publish-current' && method === 'POST') {
+        const body = parseJsonBody(req.postData());
+        lastPublishCurrentBody = body;
+        const environmentId = String(body.environmentId || '').trim();
+        const projectId = String(body.projectId || '').trim();
+        const scoped = runtimeSnapshots.filter((entry) => {
+          if (environmentId && String(entry.environmentId || '') !== environmentId) return false;
+          if (projectId && String(entry.projectId || '') !== projectId) return false;
+          return true;
+        });
+        const nextVersion = scoped.length + 1;
+        const createdAt = iso('2026-02-06T00:00:00.000Z');
+        const created = {
+          orgId: 'org_dash_console_pages',
+          projectId: projectId || null,
+          environmentId: environmentId || 'env_active',
+          snapshotId:
+            String(body.snapshotId || '').trim() || `runtime_snapshot_generated_v${String(nextVersion)}`,
+          version: nextVersion,
+          effectiveAt: String(body.effectiveAt || '').trim() || createdAt,
+          checksum: `fnv1a32:created_${String(nextVersion)}`,
+          payload: {
+            policy: { status: 'resolved', policyCount: 2, assignmentCount: 1 },
+            settings: { status: 'resolved' },
+            gasSponsorship: { status: 'resolved', configCount: 1 },
+            smartWallets: { status: 'resolved', configCount: 1 },
+            metadata: { source: 'server_publish_current_v1' },
+          },
+          createdAt,
+          createdBy: 'user_dash_console_pages',
+        };
+        runtimeSnapshots = [created, ...runtimeSnapshots];
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, snapshot: created }),
+        });
+        return;
+      }
+
       await route.fulfill({
         status: 404,
         contentType: 'application/json',
@@ -749,6 +867,9 @@ test.describe('dashboard console config page api wiring', () => {
     await page.goto('/dashboard/app-settings');
     await expect(page.locator('#dashboard-main-title')).toHaveText(/app settings/i);
     await expect(page.locator('section[aria-label="App and security settings controls"]')).toBeVisible();
+    await expect(page.locator('section[aria-label="Latest runtime snapshot"]')).toContainText(
+      'snapshot_existing_v2',
+    );
 
     const appSection = page.locator('section[aria-label="Update app settings"]');
     await appSection
@@ -778,5 +899,21 @@ test.describe('dashboard console config page api wiring', () => {
       )
       .toBe(2);
     await expect(page.locator('section[aria-label="Current settings snapshot"]')).toContainText('false');
+
+    const runtimeControls = page.locator('section[aria-label="App and security settings controls"]');
+    await runtimeControls
+      .locator('label:has-text("Snapshot ID (optional)") input')
+      .fill('runtime_snapshot_manual_e2e');
+    await runtimeControls
+      .locator('label:has-text("Effective at (optional ISO-8601)") input')
+      .fill('2026-02-07T00:00:00.000Z');
+    await runtimeControls.locator('button:has-text("Publish current runtime snapshot")').click();
+    await expect.poll(() => String(lastPublishCurrentBody?.environmentId || '')).toBe('env_active');
+    await expect(page.locator('section[aria-label="Latest runtime snapshot"]')).toContainText(
+      'runtime_snapshot_manual_e2e',
+    );
+    await expect(page.locator('section[aria-label="Runtime snapshots history"]')).toContainText(
+      'runtime_snapshot_manual_e2e',
+    );
   });
 });
