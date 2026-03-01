@@ -4,7 +4,6 @@ import { toast } from 'sonner';
 
 import { FRONTEND_CONFIG } from '@/config';
 import {
-  EVM_RPC_REQUEST_TIMEOUT_MS,
   EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,
   EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
   TEMPO_ALPHA_USD_FEE_TOKEN,
@@ -19,15 +18,14 @@ import {
   readEvmNativeBalance,
   readTempoTokenBalanceRaw,
   sendRawEvmTransaction,
-  waitForEvmTransactionFinalization,
-  withPromiseTimeout,
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
 import type { EvmAddress, TempoFeeTokenConfigTarget } from './demoThresholdTypes';
-import { reportEvmFinalizationDebugEvent } from './reportEvmFinalizationDebugEvent';
-import { reportTempoBroadcastFailure } from './reportTempoBroadcastFailure';
-
-const CONFIRMATION_TIMEOUT_PADDING_MS = EVM_RPC_REQUEST_TIMEOUT_MS + 5_000;
+import {
+  reportDemoEvmBroadcastFailure,
+  resolveClickTimeEip1559FeeCaps,
+  waitForDemoEvmFinalization,
+} from './demoEvmTransactionHandling';
 
 type UseDemoTempoFeeTokenActionsArgs = {
   isLoggedIn: boolean;
@@ -84,8 +82,12 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
       let senderNativeBalanceRaw: bigint | null = null;
       try {
         const tempoFeeToken = config.token;
+        const feeCaps = await resolveClickTimeEip1559FeeCaps({
+          rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+          fallbackFeeCaps: tempoEip1559FeeCaps,
+        });
         const request = buildEip1559SetUserTokenRequest({
-          feeCaps: tempoEip1559FeeCaps,
+          feeCaps,
           feeToken: tempoFeeToken,
         });
         const thresholdSenderPromise = resolveThresholdSenderForEvmFamily()
@@ -138,34 +140,17 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
           description: null,
         });
         const thresholdSender = await thresholdSenderPromise;
-        const confirmationAbort = new AbortController();
-        try {
-          await withPromiseTimeout({
-            promise: waitForEvmTransactionFinalization({
-              rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-              txHash,
-              gasLimitHint: request.tx.gasLimit,
-              maxFeePerGasHint: request.tx.maxFeePerGas,
-              timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,
-              pollIntervalMs: EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
-              signal: confirmationAbort.signal,
-              onFinalizationDebugEvent: (event) => {
-                reportEvmFinalizationDebugEvent({
-                  flowLabel: 'Tempo setUserToken',
-                  event,
-                });
-              },
-              ...nonceHints,
-            }),
-            timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS,
-            label: 'setUserToken receipt finalization confirmation',
-            onTimeout: () => {
-              confirmationAbort.abort(new Error('setUserToken receipt finalization timed out'));
-            },
-          });
-        } finally {
-          confirmationAbort.abort(new Error('setUserToken finalization confirmation settled'));
-        }
+        await waitForDemoEvmFinalization({
+          rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+          txHash,
+          flowLabel: 'Tempo setUserToken',
+          timeoutLabel: 'setUserToken receipt finalization confirmation',
+          gasLimitHint: request.tx.gasLimit,
+          maxFeePerGasHint: request.tx.maxFeePerGas,
+          finalizationTimeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,
+          pollIntervalMs: EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
+          nonceHints,
+        });
         await tatchi.tempo.reportFinalized({
           nearAccountId,
           signedResult: signed,
@@ -225,7 +210,7 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
         const message =
           resolvedError instanceof Error ? resolvedError.message : String(resolvedError);
         if (!finalizedReported) {
-          await reportTempoBroadcastFailure({
+          reportDemoEvmBroadcastFailure({
             tatchi,
             nearAccountId,
             signedResult: signedResultForBroadcast,

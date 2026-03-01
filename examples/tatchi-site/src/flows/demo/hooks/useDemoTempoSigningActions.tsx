@@ -4,8 +4,6 @@ import { toast } from 'sonner';
 
 import { FRONTEND_CONFIG } from '@/config';
 import {
-  EVM_RPC_REQUEST_TIMEOUT_MS,
-  EVM_TX_FINALITY_TIMEOUT_MS,
   TEMPO_ALPHA_USD_FEE_TOKEN,
   assertRawTxTypePrefix,
   buildEvmExplorerTxUrl,
@@ -19,15 +17,14 @@ import {
   parseInsufficientFundsError,
   readEvmNativeBalance,
   sendRawEvmTransaction,
-  waitForEvmTransactionFinalization,
-  withPromiseTimeout,
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
-import { reportEvmFinalizationDebugEvent } from './reportEvmFinalizationDebugEvent';
 import type { EvmAddress } from './demoThresholdTypes';
-import { reportTempoBroadcastFailure } from './reportTempoBroadcastFailure';
-
-const CONFIRMATION_TIMEOUT_PADDING_MS = EVM_RPC_REQUEST_TIMEOUT_MS + 5_000;
+import {
+  reportDemoEvmBroadcastFailure,
+  resolveClickTimeEip1559FeeCaps,
+  waitForDemoEvmFinalization,
+} from './demoEvmTransactionHandling';
 
 type UseDemoTempoSigningActionsArgs = {
   isLoggedIn: boolean;
@@ -94,8 +91,12 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
           blockTag: 'latest',
         }).catch(() => null);
       });
+      const feeCaps = await resolveClickTimeEip1559FeeCaps({
+        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+        fallbackFeeCaps: tempoEip1559FeeCaps,
+      });
       const request = buildTempoEip1559DripRequest({
-        feeCaps: tempoEip1559FeeCaps,
+        feeCaps,
         tokenAddresses: dripTokensForAttempt,
       });
       const signed = await tatchi.tempo.signTempo({
@@ -127,22 +128,14 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         id: toastId,
         description: null,
       });
-      await withPromiseTimeout({
-        promise: waitForEvmTransactionFinalization({
-          rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-          txHash,
-          gasLimitHint: request.tx.gasLimit,
-          maxFeePerGasHint: request.tx.maxFeePerGas,
-          onFinalizationDebugEvent: (event) => {
-            reportEvmFinalizationDebugEvent({
-              flowLabel: 'Tempo drip',
-              event,
-            });
-          },
-          ...nonceHints,
-        }),
-        timeoutMs: EVM_TX_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS,
-        label: 'Tempo drip finalization confirmation',
+      await waitForDemoEvmFinalization({
+        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+        txHash,
+        flowLabel: 'Tempo drip',
+        timeoutLabel: 'Tempo drip finalization confirmation',
+        gasLimitHint: request.tx.gasLimit,
+        maxFeePerGasHint: request.tx.maxFeePerGas,
+        nonceHints,
       });
       await tatchi.tempo.reportFinalized({
         nearAccountId,
@@ -189,7 +182,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       const message =
         resolvedError instanceof Error ? resolvedError.message : String(resolvedError);
       if (!finalizedReported) {
-        await reportTempoBroadcastFailure({
+        reportDemoEvmBroadcastFailure({
           tatchi,
           nearAccountId,
           signedResult: signedResultForBroadcast,
@@ -260,7 +253,11 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
     let finalizedReported = false;
     try {
       const requestedGreeting = tempoGreetingInput.trim();
-      const request = buildTempoEip1559GreetingRequest(requestedGreeting, tempoEip1559FeeCaps);
+      const feeCaps = await resolveClickTimeEip1559FeeCaps({
+        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+        fallbackFeeCaps: tempoEip1559FeeCaps,
+      });
+      const request = buildTempoEip1559GreetingRequest(requestedGreeting, feeCaps);
 
       const signed = await tatchi.tempo.signTempo({
         nearAccountId,
@@ -291,32 +288,15 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         id: toastId,
         description: null,
       });
-      const confirmationAbort = new AbortController();
-      try {
-        await withPromiseTimeout({
-          promise: waitForEvmTransactionFinalization({
-            rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-            txHash,
-            gasLimitHint: request.tx.gasLimit,
-            maxFeePerGasHint: request.tx.maxFeePerGas,
-            signal: confirmationAbort.signal,
-            onFinalizationDebugEvent: (event) => {
-              reportEvmFinalizationDebugEvent({
-                flowLabel: 'Tempo greeting',
-                event,
-              });
-            },
-            ...nonceHints,
-          }),
-          timeoutMs: EVM_TX_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS,
-          label: 'Tempo receipt finalization confirmation',
-          onTimeout: () => {
-            confirmationAbort.abort(new Error('Tempo receipt finalization timed out'));
-          },
-        });
-      } finally {
-        confirmationAbort.abort(new Error('Tempo finalization confirmation settled'));
-      }
+      await waitForDemoEvmFinalization({
+        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+        txHash,
+        flowLabel: 'Tempo greeting',
+        timeoutLabel: 'Tempo receipt finalization confirmation',
+        gasLimitHint: request.tx.gasLimit,
+        maxFeePerGasHint: request.tx.maxFeePerGas,
+        nonceHints,
+      });
       await tatchi.tempo.reportFinalized({
         nearAccountId,
         signedResult: signed,
@@ -352,7 +332,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       const message =
         resolvedError instanceof Error ? resolvedError.message : String(resolvedError);
       if (!finalizedReported) {
-        await reportTempoBroadcastFailure({
+        reportDemoEvmBroadcastFailure({
           tatchi,
           nearAccountId,
           signedResult: signedResultForBroadcast,

@@ -4,8 +4,6 @@ import { toast } from 'sonner';
 
 import { FRONTEND_CONFIG } from '@/config';
 import {
-  EVM_RPC_REQUEST_TIMEOUT_MS,
-  EVM_TX_FINALITY_TIMEOUT_MS,
   assertRawTxTypePrefix,
   buildEvmExplorerTxUrl,
   buildDemoEip1559Request,
@@ -15,14 +13,13 @@ import {
   isUserCancellationError,
   parseInsufficientFundsError,
   sendRawEvmTransaction,
-  waitForEvmTransactionFinalization,
-  withPromiseTimeout,
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
-import { reportEvmFinalizationDebugEvent } from './reportEvmFinalizationDebugEvent';
-import { reportTempoBroadcastFailure } from './reportTempoBroadcastFailure';
-
-const CONFIRMATION_TIMEOUT_PADDING_MS = EVM_RPC_REQUEST_TIMEOUT_MS + 5_000;
+import {
+  reportDemoEvmBroadcastFailure,
+  resolveClickTimeEip1559FeeCaps,
+  waitForDemoEvmFinalization,
+} from './demoEvmTransactionHandling';
 
 type UseDemoArcSigningActionsArgs = {
   canSignEvm: boolean;
@@ -61,7 +58,11 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
     let finalizedReported = false;
     try {
       const requestedGreeting = arcGreetingInput.trim();
-      const request = buildDemoEip1559Request(requestedGreeting, arcEip1559FeeCaps);
+      const feeCaps = await resolveClickTimeEip1559FeeCaps({
+        rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
+        fallbackFeeCaps: arcEip1559FeeCaps,
+      });
+      const request = buildDemoEip1559Request(requestedGreeting, feeCaps);
       const signed = await tatchi.tempo.signTempo({
         nearAccountId,
         request,
@@ -91,32 +92,15 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
         id: toastId,
         description: null,
       });
-      const confirmationAbort = new AbortController();
-      try {
-        await withPromiseTimeout({
-          promise: waitForEvmTransactionFinalization({
-            rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
-            txHash,
-            gasLimitHint: request.tx.gasLimit,
-            maxFeePerGasHint: request.tx.maxFeePerGas,
-            signal: confirmationAbort.signal,
-            onFinalizationDebugEvent: (event) => {
-              reportEvmFinalizationDebugEvent({
-                flowLabel: 'ARC greeting',
-                event,
-              });
-            },
-            ...nonceHints,
-          }),
-          timeoutMs: EVM_TX_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS,
-          label: 'EVM receipt finalization confirmation',
-          onTimeout: () => {
-            confirmationAbort.abort(new Error('EVM receipt finalization timed out'));
-          },
-        });
-      } finally {
-        confirmationAbort.abort(new Error('EVM finalization confirmation settled'));
-      }
+      await waitForDemoEvmFinalization({
+        rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
+        txHash,
+        flowLabel: 'ARC greeting',
+        timeoutLabel: 'EVM receipt finalization confirmation',
+        gasLimitHint: request.tx.gasLimit,
+        maxFeePerGasHint: request.tx.maxFeePerGas,
+        nonceHints,
+      });
       await tatchi.tempo.reportFinalized({
         nearAccountId,
         signedResult: signed,
@@ -152,7 +136,7 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
       const message =
         resolvedError instanceof Error ? resolvedError.message : String(resolvedError);
       if (!finalizedReported) {
-        await reportTempoBroadcastFailure({
+        reportDemoEvmBroadcastFailure({
           tatchi,
           nearAccountId,
           signedResult: signedResultForBroadcast,
