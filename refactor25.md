@@ -169,7 +169,7 @@ Tests:
 
 - [x] Remove old demo-only lifecycle utilities fully.
 - [x] Remove dead imports and stale symbols in demo hooks.
-- [ ] Add static guards (grep/lint/test) preventing reintroduction of duplicate lifecycle implementations under `flows/demo`.
+- [x] Add static guards (grep/lint/test) preventing reintroduction of duplicate lifecycle implementations under `flows/demo`.
 
 Tests:
 
@@ -214,6 +214,6 @@ Run at minimum:
 
 ## 9. Immediate Next Execution Steps
 
-1. Rerun signer lifecycle gates + broader target e2e before merge.
-2. Add static guard(s) to fail CI if legacy lifecycle helpers are reintroduced under `flows/demo`.
-3. Expand the stale-payload e2e to include UI hook-level `post_finalization_state_mismatch` surfacing in the demo flow.
+1. [x] Rerun signer lifecycle gates + broader target e2e before merge.
+2. [x] Add static guard(s) to fail CI if legacy lifecycle helpers are reintroduced under `flows/demo`.
+3. [x] Expand the stale-payload e2e to include UI hook-level `post_finalization_state_mismatch` surfacing in the demo flow.

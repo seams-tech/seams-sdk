@@ -66,7 +66,6 @@ test.describe('docs frontend signing actions smoke', () => {
           tempo: `0x${'11'.repeat(32)}`,
           evm: `0x${'22'.repeat(32)}`,
         };
-        const txHashesSeen = new Set<string>();
 
         const encodeAbiString = (value: string): string => {
           const bytes = new TextEncoder().encode(value);
@@ -157,67 +156,6 @@ test.describe('docs frontend signing actions smoke', () => {
             );
           }
 
-          if (rpcMethod === 'eth_sendRawTransaction') {
-            const rawTxHex = String(rpcParams[0] || '');
-            if (chain === 'tempo') {
-              counters.tempoDispatches += 1;
-              greetings.tempo = 'Tempo greeting updated';
-              (window as any).__docsSigningSmokeRequests.tempoRawTx = rawTxHex;
-            } else {
-              counters.evmDispatches += 1;
-              greetings.evm = 'Arc greeting updated';
-              (window as any).__docsSigningSmokeRequests.evmRawTx = rawTxHex;
-            }
-            txHashesSeen.add(txHashes[chain]);
-            return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: txHashes[chain] }), {
-              status: 200,
-              headers: { 'content-type': 'application/json' },
-            });
-          }
-
-          if (rpcMethod === 'eth_getTransactionReceipt') {
-            const txHash = String(rpcParams[0] || '');
-            const receiptChain =
-              txHash === txHashes.tempo ? 'tempo' : txHash === txHashes.evm ? 'evm' : chain;
-            if (!txHashesSeen.has(txHash)) {
-              return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: null }), {
-                status: 200,
-                headers: { 'content-type': 'application/json' },
-              });
-            }
-
-            if (receiptChain === 'tempo') {
-              counters.tempoReceiptPolls += 1;
-              if (counters.tempoReceiptPolls < 2) {
-                return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: null }), {
-                  status: 200,
-                  headers: { 'content-type': 'application/json' },
-                });
-              }
-            } else {
-              counters.evmReceiptPolls += 1;
-              if (counters.evmReceiptPolls < 2) {
-                return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: null }), {
-                  status: 200,
-                  headers: { 'content-type': 'application/json' },
-                });
-              }
-            }
-
-            return new Response(
-              JSON.stringify({
-                jsonrpc: '2.0',
-                id,
-                result: {
-                  transactionHash: txHash,
-                  blockNumber: '0x1',
-                  status: '0x1',
-                },
-              }),
-              { status: 200, headers: { 'content-type': 'application/json' } },
-            );
-          }
-
           return await originalFetch(input, init);
         }) as typeof fetch;
 
@@ -229,6 +167,19 @@ test.describe('docs frontend signing actions smoke', () => {
             },
             tatchi: {
               auth: {
+                getWalletSession: async () => ({
+                  login: {
+                    thresholdEcdsaEthereumAddress: thresholdEvmAddress,
+                    publicKey: `ed25519:${'1'.repeat(64)}`,
+                  },
+                  signingSession: {
+                    sessionId: 'session-1',
+                    status: 'active',
+                    remainingUses: 3,
+                    expiresAtMs: Date.now() + 60_000,
+                    createdAtMs: Date.now(),
+                  },
+                }),
                 getSession: async () => ({
                   login: {
                     thresholdEcdsaEthereumAddress: thresholdEvmAddress,
@@ -241,6 +192,7 @@ test.describe('docs frontend signing actions smoke', () => {
                     createdAtMs: Date.now(),
                   },
                 }),
+                unlock: async () => ({ success: true }),
                 login: async () => ({ success: true }),
               },
               near: {
@@ -281,7 +233,7 @@ test.describe('docs frontend signing actions smoke', () => {
                     remainingUses: 3,
                   },
                 }),
-                signTempo: async (args: any) => {
+                executeEvmFamilyTransaction: async (args: any) => {
                   const kind = String(args?.request?.kind || '').trim();
                   const chain = String(args?.request?.chain || '').trim();
                   const chainId = Number(args?.request?.tx?.chainId ?? 0);
@@ -291,6 +243,8 @@ test.describe('docs frontend signing actions smoke', () => {
                   if (kind === 'eip1559') {
                     if (chainId === 42431) {
                       counters.tempoSigns += 1;
+                      counters.tempoDispatches += 1;
+                      counters.tempoReceiptPolls += 2;
                       (window as any).__docsSigningSmokeRequests.tempo = {
                         chain,
                         kind,
@@ -298,8 +252,11 @@ test.describe('docs frontend signing actions smoke', () => {
                         to,
                         data,
                       };
+                      greetings.tempo = 'Tempo greeting updated';
                     } else {
                       counters.evmSigns += 1;
+                      counters.evmDispatches += 1;
+                      counters.evmReceiptPolls += 2;
                       (window as any).__docsSigningSmokeRequests.evm = {
                         chain,
                         kind,
@@ -307,41 +264,25 @@ test.describe('docs frontend signing actions smoke', () => {
                         to,
                         data,
                       };
+                      greetings.evm = 'Arc greeting updated';
                     }
+                    await args?.postFinalizationCheck?.();
                     return {
-                      kind: 'eip1559',
-                      txHashHex: `0x${'cd'.repeat(32)}`,
-                      rawTxHex: `0x02${'34'.repeat(31)}`,
+                      txHash: chainId === 42431 ? txHashes.tempo : txHashes.evm,
+                      signedResult: {
+                        kind: 'eip1559',
+                        txHashHex: `0x${'cd'.repeat(32)}`,
+                        rawTxHex: `0x02${'34'.repeat(31)}`,
+                      },
+                      payloadVerification: {
+                        verified: true,
+                        reason: 'matched',
+                      },
                     };
                   }
 
-                  counters.tempoSigns += 1;
-                  (window as any).__docsSigningSmokeRequests.tempo = {
-                    chain,
-                    kind,
-                    chainId: String(args?.request?.tx?.chainId ?? ''),
-                    calls: Array.isArray(args?.request?.tx?.calls)
-                      ? args.request.tx.calls.map((call: any) => ({
-                          to: String(call?.to ?? ''),
-                          input: String(call?.input ?? ''),
-                        }))
-                      : [],
-                  };
-                  return {
-                    kind: 'tempoTransaction',
-                    senderHashHex: `0x${'ab'.repeat(32)}`,
-                    rawTxHex: `0x76${'12'.repeat(31)}`,
-                  };
+                  throw new Error(`Unsupported request kind in smoke mock: ${kind}`);
                 },
-                reportBroadcastAccepted: async () => ({ ok: true }),
-                reportBroadcastRejected: async () => ({ ok: true }),
-                reportFinalized: async () => ({ ok: true }),
-                reportDroppedOrReplaced: async () => ({ ok: true }),
-                reconcileNonceLane: async () => ({
-                  chainNextNonce: '0',
-                  unresolvedInFlightNonces: [],
-                  blocked: false,
-                }),
               },
               evm: {
                 bootstrapEcdsaSession: async () => ({
@@ -438,10 +379,245 @@ test.describe('docs frontend signing actions smoke', () => {
       to: TEMPO_GREETING_CONTRACT,
     });
     expect(requests.tempo.data.startsWith(SET_GREETING_SELECTOR)).toBe(true);
-    expect(String(requests.tempoRawTx || '').startsWith('0x')).toBe(true);
-    expect(String(requests.evmRawTx || '').startsWith('0x')).toBe(true);
 
     await expect(scope.getByText('Tempo greeting updated')).toBeVisible();
     await expect(scope.getByText('Arc greeting updated')).toBeVisible();
+  });
+
+  test('demo Tempo signing surfaces post-finalization mismatch through UI error path', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const viteReactPath = '/node_modules/.vite/deps/react.js' as string;
+        const viteReactDomClientPath = '/node_modules/.vite/deps/react-dom_client.js' as string;
+        const viteReactDomPath = '/node_modules/.vite/deps/react-dom.js' as string;
+        const viteSonnerPath = '/node_modules/.vite/deps/sonner.js' as string;
+        const React =
+          ((await import(viteReactPath).catch(() => null)) as any) || (await import('react'));
+        const ReactRuntime = (React as any).default || React;
+        const ReactDOMClient =
+          ((await import(viteReactDomClientPath).catch(() => null)) as any) ||
+          (await import('react-dom/client'));
+        const ReactDOMClientRuntime = (ReactDOMClient as any).default || ReactDOMClient;
+        const ReactDOM =
+          ((await import(viteReactDomPath).catch(() => null)) as any) ||
+          (await import('react-dom'));
+        const ReactDOMRuntime = (ReactDOM as any).default || ReactDOM;
+        const sonnerMod =
+          ((await import(viteSonnerPath).catch(() => null)) as any) || (await import('sonner'));
+        const Toaster = (sonnerMod as any).Toaster;
+        const demoMod = await import(paths.demoPage);
+        const DemoPage = (demoMod as any).DemoPage || (demoMod as any).default;
+        if (!DemoPage) {
+          throw new Error('Failed to load DemoPage module export');
+        }
+
+        const consoleMarkers: string[] = [];
+        const originalConsoleError = console.error.bind(console);
+        console.error = (...args: unknown[]) => {
+          consoleMarkers.push(String(args[0] || ''));
+          return originalConsoleError(...args);
+        };
+        (window as any).__docsTempoPostFinalizationMismatch = {
+          consoleMarkers,
+        };
+
+        const greetings = {
+          tempo: 'Hello, world!',
+          evm: 'Hello, world!',
+        };
+        const thresholdEvmAddress = '0x1111111111111111111111111111111111111111';
+
+        const encodeAbiString = (value: string): string => {
+          const bytes = new TextEncoder().encode(value);
+          const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+          const paddedHexLength = Math.ceil(bytes.length / 32) * 64;
+          return `0x${(32).toString(16).padStart(64, '0')}${bytes.length
+            .toString(16)
+            .padStart(64, '0')}${hex.padEnd(paddedHexLength, '0')}`;
+        };
+
+        const originalFetch = window.fetch.bind(window);
+        window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+          const url =
+            typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+          const method = String(init?.method || 'GET').toUpperCase();
+          const isTempoRpc = url.includes('rpc.moderato.tempo.xyz');
+          const isArcRpc = url.includes('rpc.testnet.arc.network');
+          if (method !== 'POST' || (!isTempoRpc && !isArcRpc)) {
+            return await originalFetch(input, init);
+          }
+
+          const chain = isTempoRpc ? 'tempo' : 'evm';
+          let body: Record<string, unknown> = {};
+          try {
+            body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+          } catch {}
+          const rpcMethod = String(body.method || '');
+          const id = body.id ?? Date.now();
+
+          if (rpcMethod === 'eth_call') {
+            return new Response(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                id,
+                result: encodeAbiString(greetings[chain]),
+              }),
+              { status: 200, headers: { 'content-type': 'application/json' } },
+            );
+          }
+          if (rpcMethod === 'eth_gasPrice') {
+            return new Response(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                id,
+                result: '0x4a817c800',
+              }),
+              { status: 200, headers: { 'content-type': 'application/json' } },
+            );
+          }
+          if (rpcMethod === 'eth_getBlockByNumber') {
+            return new Response(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  number: '0x1',
+                  baseFeePerGas: '0x3b9aca00',
+                },
+              }),
+              { status: 200, headers: { 'content-type': 'application/json' } },
+            );
+          }
+
+          return await originalFetch(input, init);
+        }) as typeof fetch;
+
+        function useTatchiHook() {
+          return {
+            loginState: {
+              isLoggedIn: true,
+              nearAccountId: 'alice.testnet',
+            },
+            tatchi: {
+              auth: {
+                getWalletSession: async () => ({
+                  login: {
+                    thresholdEcdsaEthereumAddress: thresholdEvmAddress,
+                    publicKey: `ed25519:${'1'.repeat(64)}`,
+                  },
+                  signingSession: {
+                    sessionId: 'session-1',
+                    status: 'active',
+                    remainingUses: 3,
+                    expiresAtMs: Date.now() + 60_000,
+                    createdAtMs: Date.now(),
+                  },
+                }),
+                unlock: async () => ({ success: true }),
+              },
+              near: {
+                signAndSendTransactions: async () => ({ success: true }),
+                executeAction: async () => ({ success: true }),
+                signDelegateAction: async () => ({
+                  hash: 'mock-hash',
+                  signedDelegate: {},
+                }),
+                sendDelegateActionViaRelayer: async () => ({
+                  ok: true,
+                  relayerTxHash: 'mock-relayer-tx',
+                }),
+              },
+              tempo: {
+                executeEvmFamilyTransaction: async (args: any) => {
+                  const chainId = Number(args?.request?.tx?.chainId ?? 0);
+                  if (chainId === 42431) {
+                    const err = new Error('stale payload detected after finalization') as Error & {
+                      code?: string;
+                    };
+                    err.code = 'post_finalization_state_mismatch';
+                    throw err;
+                  }
+                  greetings.evm = 'Arc greeting updated';
+                  await args?.postFinalizationCheck?.();
+                  return {
+                    txHash: `0x${'22'.repeat(32)}`,
+                    payloadVerification: { verified: true, reason: 'matched' },
+                  };
+                },
+              },
+              evm: {
+                bootstrapEcdsaSession: async () => ({
+                  keygen: { ok: true },
+                  session: {
+                    ok: true,
+                    sessionId: 'evm-session-1',
+                    expiresAtMs: Date.now() + 60_000,
+                    remainingUses: 3,
+                  },
+                }),
+              },
+              configs: { relayer: { url: 'https://relay.example' } },
+            },
+          };
+        }
+
+        function useSetGreetingHook() {
+          return {
+            onchainGreeting: 'hello',
+            isLoading: false,
+            fetchGreeting: async () => undefined,
+            error: null,
+          };
+        }
+
+        const mount = document.createElement('div');
+        mount.id = 'demo-page-post-finalization-mismatch-mount';
+        document.body.appendChild(mount);
+
+        const root = ReactDOMClientRuntime.createRoot(mount);
+        ReactDOMRuntime.flushSync(() => {
+          root.render(
+            ReactRuntime.createElement(
+              ReactRuntime.Fragment,
+              null,
+              ReactRuntime.createElement(Toaster),
+              ReactRuntime.createElement(DemoPage, {
+                __testOverrides: {
+                  useTatchiHook,
+                  useSetGreetingHook,
+                },
+              }),
+            ),
+          );
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const scope = page.locator('#demo-page-post-finalization-mismatch-mount');
+    const tempoButton = scope.getByRole('button', { name: 'Sign Tempo Transaction' });
+    await expect(tempoButton).toBeVisible();
+    await tempoButton.evaluate((el: HTMLElement) => el.click());
+
+    await expect(
+      page.getByText(/Tempo transaction finalized, but post-finalization refresh failed:/i),
+    ).toBeVisible();
+    await page.waitForFunction(() => {
+      const state = (window as any).__docsTempoPostFinalizationMismatch;
+      const markers = Array.isArray(state?.consoleMarkers) ? state.consoleMarkers : [];
+      return markers.some((msg: string) => msg.includes('[DemoPage][TempoPostFinalizationSyncError]'));
+    });
+
+    const mismatchState = await page.evaluate(() => (window as any).__docsTempoPostFinalizationMismatch);
+    const consoleMarkers = Array.isArray(mismatchState?.consoleMarkers)
+      ? mismatchState.consoleMarkers.map((msg: unknown) => String(msg || ''))
+      : [];
+
+    expect(
+      consoleMarkers.some((msg: string) => msg.includes('[DemoPage][TempoPostFinalizationSyncError]')),
+    ).toBe(true);
+    await expect(tempoButton).toBeEnabled();
   });
 });
