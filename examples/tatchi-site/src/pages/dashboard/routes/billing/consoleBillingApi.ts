@@ -76,6 +76,48 @@ export interface DashboardStripeSetupIntent {
   expiresAt: string;
 }
 
+export interface DashboardBillingSubscription {
+  id: string;
+  orgId: string;
+  provider: 'stripe';
+  providerCustomerRef: string | null;
+  providerSubscriptionRef: string | null;
+  planId: string;
+  planName: string;
+  status: 'ACTIVE' | 'PAST_DUE' | 'CANCELED';
+  cancelAtPeriodEnd: boolean;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  cancelAt: string | null;
+  canceledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DashboardStripeCheckoutSessionRequest {
+  successUrl: string;
+  cancelUrl: string;
+  planId?: string;
+}
+
+export interface DashboardStripeCheckoutSession {
+  id: string;
+  url: string;
+  customerRef: string;
+  expiresAt: string;
+}
+
+export interface DashboardStripeCustomerPortalSessionRequest {
+  returnUrl: string;
+}
+
+export interface DashboardStripeCustomerPortalSession {
+  id: string;
+  url: string;
+  customerRef: string;
+  expiresAt: string;
+}
+
 export interface DashboardStripePaymentIntentRequest {
   invoiceId: string;
   paymentMethodId?: string;
@@ -200,6 +242,24 @@ interface ConsoleStripeSetupIntentResponse {
   setupIntent?: unknown;
 }
 
+interface ConsoleSubscriptionResponse {
+  ok?: boolean;
+  message?: string;
+  subscription?: unknown;
+}
+
+interface ConsoleStripeCheckoutSessionResponse {
+  ok?: boolean;
+  message?: string;
+  checkoutSession?: unknown;
+}
+
+interface ConsoleStripeCustomerPortalSessionResponse {
+  ok?: boolean;
+  message?: string;
+  portalSession?: unknown;
+}
+
 interface ConsoleStripePaymentIntentResponse {
   ok?: boolean;
   message?: string;
@@ -302,6 +362,52 @@ function decodePaymentMethod(raw: unknown): DashboardBillingPaymentMethod | null
   };
 }
 
+function decodeBillingSubscription(raw: unknown): DashboardBillingSubscription | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const id = String(row.id || '').trim();
+  const orgId = String(row.orgId || '').trim();
+  const planId = String(row.planId || '').trim();
+  const currentPeriodStart = String(row.currentPeriodStart || '').trim();
+  const currentPeriodEnd = String(row.currentPeriodEnd || '').trim();
+  const createdAt = String(row.createdAt || '').trim();
+  const updatedAt = String(row.updatedAt || '').trim();
+  if (
+    !id ||
+    !orgId ||
+    !planId ||
+    !currentPeriodStart ||
+    !currentPeriodEnd ||
+    !createdAt ||
+    !updatedAt
+  ) {
+    return null;
+  }
+  const statusRaw = String(row.status || 'ACTIVE').trim().toUpperCase();
+  const status = statusRaw === 'PAST_DUE' || statusRaw === 'CANCELED' ? statusRaw : 'ACTIVE';
+  return {
+    id,
+    orgId,
+    provider: 'stripe',
+    providerCustomerRef:
+      row.providerCustomerRef == null ? null : String(row.providerCustomerRef || '').trim() || null,
+    providerSubscriptionRef:
+      row.providerSubscriptionRef == null
+        ? null
+        : String(row.providerSubscriptionRef || '').trim() || null,
+    planId,
+    planName: String(row.planName || '').trim() || planId,
+    status,
+    cancelAtPeriodEnd: row.cancelAtPeriodEnd === true,
+    currentPeriodStart,
+    currentPeriodEnd,
+    cancelAt: row.cancelAt == null ? null : String(row.cancelAt || '').trim() || null,
+    canceledAt: row.canceledAt == null ? null : String(row.canceledAt || '').trim() || null,
+    createdAt,
+    updatedAt,
+  };
+}
+
 function decodeStripeSetupIntent(raw: unknown): DashboardStripeSetupIntent | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const row = raw as Record<string, unknown>;
@@ -313,6 +419,38 @@ function decodeStripeSetupIntent(raw: unknown): DashboardStripeSetupIntent | nul
   return {
     id,
     clientSecret,
+    customerRef,
+    expiresAt,
+  };
+}
+
+function decodeStripeCheckoutSession(raw: unknown): DashboardStripeCheckoutSession | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const id = String(row.id || '').trim();
+  const url = String(row.url || '').trim();
+  const customerRef = String(row.customerRef || '').trim();
+  const expiresAt = String(row.expiresAt || '').trim();
+  if (!id || !url || !customerRef || !expiresAt) return null;
+  return {
+    id,
+    url,
+    customerRef,
+    expiresAt,
+  };
+}
+
+function decodeStripeCustomerPortalSession(raw: unknown): DashboardStripeCustomerPortalSession | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const id = String(row.id || '').trim();
+  const url = String(row.url || '').trim();
+  const customerRef = String(row.customerRef || '').trim();
+  const expiresAt = String(row.expiresAt || '').trim();
+  if (!id || !url || !customerRef || !expiresAt) return null;
+  return {
+    id,
+    url,
     customerRef,
     expiresAt,
   };
@@ -485,6 +623,49 @@ export async function listDashboardBillingPaymentMethods(): Promise<DashboardBil
     .filter((entry): entry is DashboardBillingPaymentMethod => entry !== null);
 }
 
+export async function getDashboardBillingSubscription(): Promise<DashboardBillingSubscription> {
+  const body = (await fetchJson('/console/billing/subscription')) as ConsoleSubscriptionResponse;
+  const subscription = decodeBillingSubscription(body.subscription);
+  if (!subscription) throw new Error('Billing subscription response was invalid');
+  return subscription;
+}
+
+export async function cancelDashboardBillingSubscription(): Promise<DashboardBillingSubscription> {
+  const base = requireConsoleBaseUrl();
+  const response = await fetch(`${base}/console/billing/subscription/cancel`, {
+    method: 'POST',
+    headers: buildConsoleJsonHeaders(),
+    credentials: 'include',
+    cache: 'no-store',
+    body: JSON.stringify({}),
+  });
+  const body = (await parseConsoleJson(response)) as ConsoleSubscriptionResponse | null;
+  if (!response.ok || body?.ok !== true) {
+    throw new Error(consoleErrorMessage(response, body, 'Cancel subscription request failed'));
+  }
+  const subscription = decodeBillingSubscription(body.subscription);
+  if (!subscription) throw new Error('Cancel subscription response was invalid');
+  return subscription;
+}
+
+export async function resumeDashboardBillingSubscription(): Promise<DashboardBillingSubscription> {
+  const base = requireConsoleBaseUrl();
+  const response = await fetch(`${base}/console/billing/subscription/resume`, {
+    method: 'POST',
+    headers: buildConsoleJsonHeaders(),
+    credentials: 'include',
+    cache: 'no-store',
+    body: JSON.stringify({}),
+  });
+  const body = (await parseConsoleJson(response)) as ConsoleSubscriptionResponse | null;
+  if (!response.ok || body?.ok !== true) {
+    throw new Error(consoleErrorMessage(response, body, 'Resume subscription request failed'));
+  }
+  const subscription = decodeBillingSubscription(body.subscription);
+  if (!subscription) throw new Error('Resume subscription response was invalid');
+  return subscription;
+}
+
 export async function addDashboardCardPaymentMethod(
   input: DashboardAddCardPaymentMethodRequest,
 ): Promise<DashboardBillingPaymentMethod> {
@@ -579,6 +760,46 @@ export async function createDashboardStripeSetupIntent(
   const setupIntent = decodeStripeSetupIntent(body.setupIntent);
   if (!setupIntent) throw new Error('Stripe setup intent response was invalid');
   return setupIntent;
+}
+
+export async function createDashboardStripeCheckoutSession(
+  input: DashboardStripeCheckoutSessionRequest,
+): Promise<DashboardStripeCheckoutSession> {
+  const base = requireConsoleBaseUrl();
+  const response = await fetch(`${base}/console/billing/stripe/checkout-session`, {
+    method: 'POST',
+    headers: buildConsoleJsonHeaders(),
+    credentials: 'include',
+    cache: 'no-store',
+    body: JSON.stringify(input),
+  });
+  const body = (await parseConsoleJson(response)) as ConsoleStripeCheckoutSessionResponse | null;
+  if (!response.ok || body?.ok !== true) {
+    throw new Error(consoleErrorMessage(response, body, 'Stripe checkout session request failed'));
+  }
+  const checkoutSession = decodeStripeCheckoutSession(body.checkoutSession);
+  if (!checkoutSession) throw new Error('Stripe checkout session response was invalid');
+  return checkoutSession;
+}
+
+export async function createDashboardStripeCustomerPortalSession(
+  input: DashboardStripeCustomerPortalSessionRequest,
+): Promise<DashboardStripeCustomerPortalSession> {
+  const base = requireConsoleBaseUrl();
+  const response = await fetch(`${base}/console/billing/stripe/customer-portal-session`, {
+    method: 'POST',
+    headers: buildConsoleJsonHeaders(),
+    credentials: 'include',
+    cache: 'no-store',
+    body: JSON.stringify(input),
+  });
+  const body = (await parseConsoleJson(response)) as ConsoleStripeCustomerPortalSessionResponse | null;
+  if (!response.ok || body?.ok !== true) {
+    throw new Error(consoleErrorMessage(response, body, 'Stripe customer portal session request failed'));
+  }
+  const portalSession = decodeStripeCustomerPortalSession(body.portalSession);
+  if (!portalSession) throw new Error('Stripe customer portal session response was invalid');
+  return portalSession;
 }
 
 export async function createDashboardStripePaymentIntent(

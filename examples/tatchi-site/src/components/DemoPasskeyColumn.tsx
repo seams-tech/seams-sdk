@@ -28,7 +28,7 @@ export function DemoPasskeyColumn() {
     void preloadPasskeyAuthMenu().catch(() => {});
   }, []);
 
-  // After login, jump to Demo Tx page (index 1). On logout, go back to Login (index 0).
+  // After unlock, jump to Demo Tx page (index 1). On lock, go back to login page (index 0).
   React.useEffect(() => {
     setCurrentPage(loginState?.isLoggedIn ? 1 : 0);
   }, [loginState?.isLoggedIn]);

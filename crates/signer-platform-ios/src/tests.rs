@@ -37,7 +37,9 @@ fn eip1559_vector_tx() -> Eip1559Tx {
 #[cfg(feature = "tx-finalization")]
 fn tempo_invalid_vector_tx() -> TempoTx {
     TempoTx {
-        chain_id: TEMPO_VECTOR_CHAIN_ID,
+        chain_id: TEMPO_VECTOR_CHAIN_ID
+            .parse::<u64>()
+            .expect("tempo vector chain_id must be u64"),
         max_priority_fee_per_gas: TEMPO_VECTOR_MAX_PRIORITY_FEE_PER_GAS.to_string(),
         max_fee_per_gas: TEMPO_VECTOR_MAX_FEE_PER_GAS.to_string(),
         gas_limit: TEMPO_VECTOR_GAS_LIMIT.to_string(),

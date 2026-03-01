@@ -68,16 +68,16 @@ await registerPasskey(nextAccountId, {
 // disable per signer by setting `enabled: false` on tempo/evm
 ```
 
-## 2. Login and Create a Warm Signing Session
+## 2. Unlock and Create a Warm Signing Session
 
 ```tsx
 import { useTatchi } from '@tatchi-xyz/sdk/react';
 
 export function LoginButton(props: { nearAccountId: string }) {
-  const { loginAndCreateSession } = useTatchi();
+  const { tatchi } = useTatchi();
 
   async function onLogin(): Promise<void> {
-    await loginAndCreateSession(props.nearAccountId, {
+    await tatchi.auth.unlock(props.nearAccountId, {
       signingSession: {
         ttlMs: 5 * 60 * 1000,
         remainingUses: 5,
@@ -85,7 +85,7 @@ export function LoginButton(props: { nearAccountId: string }) {
     });
   }
 
-  return <button onClick={onLogin}>Log In</button>;
+  return <button onClick={onLogin}>Unlock</button>;
 }
 ```
 
@@ -291,7 +291,7 @@ export function SignEvm(props: { nearAccountId: string }) {
 ## Recap
 
 - Registration creates your NEAR threshold signer.
-- Login creates a warm signing session.
+- Unlock creates a warm signing session.
 - Tempo + EVM threshold sessions come from registration/bootstrap and are reused until expiry/exhaustion.
 - With an active warm session, you can sign:
   - NEAR transactions (`signTransactionsWithActions`)
@@ -304,8 +304,8 @@ export function SignEvm(props: { nearAccountId: string }) {
   - Re-bootstrap the chain signer with `bootstrapEcdsaSession({ chain: 'tempo' | 'evm' })`, then retry signing.
 - Missing Tempo/EVM session after reload
   - Re-bootstrap with `bootstrapEcdsaSession()` before signing.
-- Signing fails right after login due to session state
-  - Run `loginAndCreateSession()` first for warm session state, then `bootstrapEcdsaSession()` if ECDSA session state is missing.
+- Signing fails right after unlock due to session state
+  - Run `tatchi.auth.unlock()` first for warm session state, then `bootstrapEcdsaSession()` if ECDSA session state is missing.
 - Repeated failures on one chain only
   - Re-provision only that chain (`chain: 'tempo'` or `chain: 'evm'`) to refresh the threshold session/keyRef pair.
 

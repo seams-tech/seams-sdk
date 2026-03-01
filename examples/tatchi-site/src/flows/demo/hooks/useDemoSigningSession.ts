@@ -28,7 +28,7 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
   const refreshSessionStatus = useCallback(async () => {
     if (!nearAccountId) return;
     try {
-      const sess = await tatchi.auth.getSession(nearAccountId);
+      const sess = await tatchi.auth.getWalletSession(nearAccountId);
       setSessionStatus(sess?.signingSession || null);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -55,7 +55,7 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
     setUnlockLoading(true);
     toast.loading('Logging in & creating session…', { id: 'unlock-session' });
     try {
-      await tatchi.auth.login(nearAccountId, {
+      await tatchi.auth.unlock(nearAccountId, {
         signingSession: { ttlMs, remainingUses },
       });
       await refreshSessionStatus();

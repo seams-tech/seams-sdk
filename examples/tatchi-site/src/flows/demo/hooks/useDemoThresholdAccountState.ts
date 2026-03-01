@@ -23,7 +23,7 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
       return null;
     }
     try {
-      const session = await tatchi.auth.getSession(nearAccountId);
+      const session = await tatchi.auth.getWalletSession(nearAccountId);
       const address = String(session.login.thresholdEcdsaEthereumAddress || '').trim();
       setThresholdEvmFundingAddress(address || null);
       return address || null;

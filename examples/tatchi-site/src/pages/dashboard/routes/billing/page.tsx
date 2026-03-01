@@ -3,7 +3,10 @@ import { useDashboardConsoleSession } from '../../consoleSession';
 import { useDashboardSelectedContext } from '../../selectedContext';
 import {
   addDashboardCardPaymentMethod,
+  cancelDashboardBillingSubscription,
   cancelDashboardStablecoinPaymentIntent,
+  createDashboardStripeCheckoutSession,
+  createDashboardStripeCustomerPortalSession,
   createDashboardStablecoinPaymentIntent,
   createDashboardStablecoinQuote,
   createDashboardStripePaymentIntent,
@@ -11,17 +14,20 @@ import {
   formatUsdMinor,
   getDashboardBillingMonthlyActiveWallets,
   getDashboardBillingOverview,
+  getDashboardBillingSubscription,
   getDashboardStablecoinPaymentIntent,
   getDashboardStablecoinAssetSupport,
   listDashboardBillingInvoiceLineItems,
   listDashboardBillingInvoices,
   listDashboardBillingPaymentMethods,
   removeDashboardCardPaymentMethod,
+  resumeDashboardBillingSubscription,
   setDashboardDefaultCardPaymentMethod,
   type DashboardBillingInvoice,
   type DashboardBillingInvoiceLineItem,
   type DashboardBillingOverview,
   type DashboardBillingPaymentMethod,
+  type DashboardBillingSubscription,
   type DashboardBillingUsage,
   type DashboardStablecoinPaymentIntent,
   type DashboardStablecoinPaymentQuote,
@@ -55,8 +61,14 @@ export function BillingPage(): React.JSX.Element {
   const [usage, setUsage] = React.useState<DashboardBillingUsage | null>(null);
   const [invoices, setInvoices] = React.useState<DashboardBillingInvoice[]>([]);
   const [paymentMethods, setPaymentMethods] = React.useState<DashboardBillingPaymentMethod[]>([]);
+  const [subscription, setSubscription] = React.useState<DashboardBillingSubscription | null>(null);
   const [stablecoinAssetsVersion, setStablecoinAssetsVersion] = React.useState<string>('');
   const [stablecoinAssets, setStablecoinAssets] = React.useState<DashboardStablecoinAssetSupport[]>([]);
+  const [subscriptionActionError, setSubscriptionActionError] = React.useState<string>('');
+  const [startingCheckout, setStartingCheckout] = React.useState<boolean>(false);
+  const [openingCustomerPortal, setOpeningCustomerPortal] = React.useState<boolean>(false);
+  const [cancelingSubscription, setCancelingSubscription] = React.useState<boolean>(false);
+  const [resumingSubscription, setResumingSubscription] = React.useState<boolean>(false);
   const [paymentMutationError, setPaymentMutationError] = React.useState<string>('');
   const [addingPaymentMethod, setAddingPaymentMethod] = React.useState<boolean>(false);
   const [busyPaymentMethodId, setBusyPaymentMethodId] = React.useState<string>('');
@@ -89,6 +101,7 @@ export function BillingPage(): React.JSX.Element {
     React.useState<DashboardStablecoinPaymentQuote | null>(null);
   const [stablecoinPaymentIntent, setStablecoinPaymentIntent] =
     React.useState<DashboardStablecoinPaymentIntent | null>(null);
+  const [checkoutReturnMessage, setCheckoutReturnMessage] = React.useState<string>('');
 
   const [selectedInvoiceId, setSelectedInvoiceId] = React.useState<string>('');
   const [lineItemsLoading, setLineItemsLoading] = React.useState<boolean>(false);
@@ -102,6 +115,7 @@ export function BillingPage(): React.JSX.Element {
       setUsage(null);
       setInvoices([]);
       setPaymentMethods([]);
+      setSubscription(null);
       setStablecoinAssetsVersion('');
       setStablecoinAssets([]);
       setErrorMessage(session.errorMessage || 'Console session is unavailable');
@@ -115,24 +129,36 @@ export function BillingPage(): React.JSX.Element {
       getDashboardBillingMonthlyActiveWallets(),
       listDashboardBillingInvoices(),
       listDashboardBillingPaymentMethods(),
+      getDashboardBillingSubscription(),
       getDashboardStablecoinAssetSupport(),
     ])
-      .then(([nextOverview, nextUsage, nextInvoices, nextPaymentMethods, nextStablecoinAssets]) => {
+      .then(
+        ([
+          nextOverview,
+          nextUsage,
+          nextInvoices,
+          nextPaymentMethods,
+          nextSubscription,
+          nextStablecoinAssets,
+        ]) => {
         if (cancelled) return;
         const sortedInvoices = [...nextInvoices].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
         setOverview(nextOverview);
         setUsage(nextUsage);
         setInvoices(sortedInvoices);
         setPaymentMethods(nextPaymentMethods);
+        setSubscription(nextSubscription);
         setStablecoinAssetsVersion(nextStablecoinAssets.version);
         setStablecoinAssets(nextStablecoinAssets.assets);
-      })
+      },
+      )
       .catch((error: unknown) => {
         if (cancelled) return;
         setOverview(null);
         setUsage(null);
         setInvoices([]);
         setPaymentMethods([]);
+        setSubscription(null);
         setStablecoinAssetsVersion('');
         setStablecoinAssets([]);
         setErrorMessage(error instanceof Error ? error.message : String(error));
@@ -231,6 +257,33 @@ export function BillingPage(): React.JSX.Element {
     };
   }, [selectedInvoiceId, session.claims]);
 
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const currentUrl = new URL(window.location.href);
+    const checkoutState = String(currentUrl.searchParams.get('checkout') || '')
+      .trim()
+      .toLowerCase();
+    if (!checkoutState) return;
+
+    if (checkoutState === 'success') {
+      setCheckoutReturnMessage('Stripe Checkout completed. Billing data has been refreshed.');
+    } else if (checkoutState === 'cancel') {
+      setCheckoutReturnMessage('Stripe Checkout was canceled. No billing changes were applied.');
+    } else {
+      setCheckoutReturnMessage(`Checkout returned with status "${checkoutState}".`);
+    }
+
+    currentUrl.searchParams.delete('checkout');
+    currentUrl.searchParams.delete('session_id');
+    const nextRelative =
+      `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}` || '/dashboard/billing';
+    window.history.replaceState({}, document.title, nextRelative);
+
+    if (checkoutState === 'success' && session.claims) {
+      void loadBillingData();
+    }
+  }, [loadBillingData, session.claims]);
+
   const summaryMetrics = React.useMemo(
     () => [
       {
@@ -292,6 +345,11 @@ export function BillingPage(): React.JSX.Element {
       session.claims.roles.some((role) => String(role || '').toLowerCase() === 'admin'),
     [session.claims?.roles],
   );
+
+  const canCancelSubscription =
+    subscription != null && subscription.status !== 'CANCELED' && !subscription.cancelAtPeriodEnd;
+  const canResumeSubscription =
+    subscription != null && subscription.status !== 'CANCELED' && subscription.cancelAtPeriodEnd;
 
   const onAddCardPaymentMethod = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -398,6 +456,96 @@ export function BillingPage(): React.JSX.Element {
     },
     [isBillingCardAdmin, loadBillingData, session.claims, session.errorMessage],
   );
+
+  const onStartStripeCheckout = React.useCallback(async () => {
+    if (!session.claims) {
+      setSubscriptionActionError(session.errorMessage || 'Console session is unavailable');
+      return;
+    }
+    setStartingCheckout(true);
+    setSubscriptionActionError('');
+    try {
+      const origin = window.location.origin;
+      const checkoutSession = await createDashboardStripeCheckoutSession({
+        successUrl: `${origin}/dashboard/billing?checkout=success`,
+        cancelUrl: `${origin}/pricing?checkout=cancel`,
+        planId: subscription?.planId || overview?.planId || 'pro_maw_v1',
+      });
+      window.location.assign(checkoutSession.url);
+    } catch (error: unknown) {
+      setSubscriptionActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setStartingCheckout(false);
+    }
+  }, [overview?.planId, session.claims, session.errorMessage, subscription?.planId]);
+
+  const onOpenCustomerPortal = React.useCallback(async () => {
+    if (!session.claims) {
+      setSubscriptionActionError(session.errorMessage || 'Console session is unavailable');
+      return;
+    }
+    setOpeningCustomerPortal(true);
+    setSubscriptionActionError('');
+    try {
+      const portalSession = await createDashboardStripeCustomerPortalSession({
+        returnUrl: window.location.href,
+      });
+      window.location.assign(portalSession.url);
+    } catch (error: unknown) {
+      setSubscriptionActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setOpeningCustomerPortal(false);
+    }
+  }, [session.claims, session.errorMessage]);
+
+  const onCancelSubscription = React.useCallback(async () => {
+    if (!session.claims) {
+      setSubscriptionActionError(session.errorMessage || 'Console session is unavailable');
+      return;
+    }
+    if (!canCancelSubscription) {
+      setSubscriptionActionError(
+        'Subscription cannot be canceled in the current state (already canceled or already scheduled).',
+      );
+      return;
+    }
+    if (!window.confirm('Cancel subscription at the end of the current billing period?')) return;
+    setCancelingSubscription(true);
+    setSubscriptionActionError('');
+    try {
+      const updated = await cancelDashboardBillingSubscription();
+      setSubscription(updated);
+      loadBillingData();
+    } catch (error: unknown) {
+      setSubscriptionActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCancelingSubscription(false);
+    }
+  }, [canCancelSubscription, loadBillingData, session.claims, session.errorMessage]);
+
+  const onResumeSubscription = React.useCallback(async () => {
+    if (!session.claims) {
+      setSubscriptionActionError(session.errorMessage || 'Console session is unavailable');
+      return;
+    }
+    if (!canResumeSubscription) {
+      setSubscriptionActionError(
+        'Subscription cannot be resumed in the current state (not scheduled for cancellation).',
+      );
+      return;
+    }
+    setResumingSubscription(true);
+    setSubscriptionActionError('');
+    try {
+      const updated = await resumeDashboardBillingSubscription();
+      setSubscription(updated);
+      loadBillingData();
+    } catch (error: unknown) {
+      setSubscriptionActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setResumingSubscription(false);
+    }
+  }, [canResumeSubscription, loadBillingData, session.claims, session.errorMessage]);
 
   const onCreateStripeSetupIntent = React.useCallback(async () => {
     if (!session.claims) {
@@ -588,6 +736,12 @@ export function BillingPage(): React.JSX.Element {
         </button>
       </section>
 
+      {checkoutReturnMessage ? (
+        <section className="dashboard-view__section">
+          <p className="dashboard-info-banner">{checkoutReturnMessage}</p>
+        </section>
+      ) : null}
+
       {session.loading || loading ? (
         <section className="dashboard-view__section">
           <p>Loading billing data...</p>
@@ -610,6 +764,100 @@ export function BillingPage(): React.JSX.Element {
                 <p className="dashboard-kpi-card__hint">{metric.hint}</p>
               </article>
             ))}
+          </section>
+
+          <section className="dashboard-table-wrapper" aria-label="Subscription management table">
+            <div className="dashboard-table-limit">
+              <h3>Subscription management</h3>
+              <p>
+                Start or update plan checkout in Stripe, and use the customer portal for
+                subscription/payment management after checkout.
+              </p>
+              {subscriptionActionError ? (
+                <p className="dashboard-pagination-note">{subscriptionActionError}</p>
+              ) : null}
+            </div>
+            <div className="dashboard-view-grid dashboard-view-grid--two">
+              <div className="dashboard-view-card dashboard-view-grid">
+                <h2>Current subscription</h2>
+                {!subscription ? (
+                  <p className="dashboard-pagination-note">No subscription returned for this org.</p>
+                ) : (
+                  <>
+                    <p className="dashboard-pagination-note">
+                      Plan: {subscription.planName} ({subscription.planId})
+                    </p>
+                    <p className="dashboard-pagination-note">Status: {subscription.status}</p>
+                    <p className="dashboard-pagination-note">
+                      Cancel at period end: {subscription.cancelAtPeriodEnd ? 'Yes' : 'No'}
+                    </p>
+                    <p className="dashboard-pagination-note">
+                      Current period: {formatTimestamp(subscription.currentPeriodStart)} to{' '}
+                      {formatTimestamp(subscription.currentPeriodEnd)}
+                    </p>
+                    <p className="dashboard-pagination-note">
+                      Cancel at: {formatTimestamp(subscription.cancelAt)}
+                    </p>
+                    <p className="dashboard-pagination-note">
+                      Canceled at: {formatTimestamp(subscription.canceledAt)}
+                    </p>
+                    <p className="dashboard-pagination-note">
+                      Provider refs: customer {subscription.providerCustomerRef || '-'}, subscription{' '}
+                      {subscription.providerSubscriptionRef || '-'}
+                    </p>
+                  </>
+                )}
+              </div>
+              <div className="dashboard-view-card dashboard-view-grid">
+                <h2>Subscription actions</h2>
+                <div className="dashboard-form-actions">
+                  <button
+                    type="button"
+                    className="dashboard-pagination-button"
+                    onClick={onStartStripeCheckout}
+                    disabled={startingCheckout}
+                  >
+                    {startingCheckout ? 'Starting checkout...' : 'Start Stripe Checkout'}
+                  </button>
+                  <button
+                    type="button"
+                    className="dashboard-pagination-button"
+                    onClick={onOpenCustomerPortal}
+                    disabled={openingCustomerPortal}
+                  >
+                    {openingCustomerPortal ? 'Opening portal...' : 'Open Stripe Customer Portal'}
+                  </button>
+                </div>
+                <div className="dashboard-form-actions">
+                  <button
+                    type="button"
+                    className="dashboard-pagination-button"
+                    onClick={onCancelSubscription}
+                    disabled={!canCancelSubscription || cancelingSubscription}
+                  >
+                    {cancelingSubscription ? 'Scheduling cancel...' : 'Cancel at period end'}
+                  </button>
+                  <button
+                    type="button"
+                    className="dashboard-pagination-button"
+                    onClick={onResumeSubscription}
+                    disabled={!canResumeSubscription || resumingSubscription}
+                  >
+                    {resumingSubscription ? 'Resuming...' : 'Resume subscription'}
+                  </button>
+                  <button
+                    type="button"
+                    className="dashboard-pagination-button"
+                    onClick={() => loadBillingData()}
+                  >
+                    Refresh subscription
+                  </button>
+                </div>
+                <p className="dashboard-pagination-note">
+                  Checkout success returns to <code>/dashboard/billing?checkout=success</code>.
+                </p>
+              </div>
+            </div>
           </section>
 
           <section className="dashboard-table-wrapper" aria-label="Invoices table">

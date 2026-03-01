@@ -19,7 +19,7 @@ import { SetupEmailRecovery } from './SetupEmailRecovery';
 export function SyncAccount() {
   const {
     loginState,
-    logout,
+    lock,
     refreshLoginState,
     accountInputState: { targetAccountId },
     tatchi,
@@ -40,7 +40,7 @@ export function SyncAccount() {
 
       // Best-effort: ensure we are logged out before starting recovery flows.
       try {
-        await logout();
+        await lock();
       } catch {}
 
       const result = await tatchi.recovery.syncAccount({

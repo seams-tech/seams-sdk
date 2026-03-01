@@ -41,7 +41,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
 
   const {
     accountInputState: { targetAccountId, accountExists },
-    loginAndCreateSession,
+    unlock,
     registerPasskey,
     tatchi,
   } = useTatchiHook();
@@ -105,7 +105,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
       throw new Error('Missing accountId for login');
     }
 
-    const result = await loginAndCreateSession(loginTarget, {
+    const result = await unlock(loginTarget, {
       // Mint a JWT session via the relay server if session.kind is provided
       // session: {
       //   kind: 'jwt',

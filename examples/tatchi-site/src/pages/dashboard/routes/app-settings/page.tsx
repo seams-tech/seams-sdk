@@ -31,6 +31,12 @@ import {
   type DashboardAppSettings,
   type DashboardSecuritySettings,
 } from './consoleSettingsApi';
+import {
+  getLatestDashboardRuntimeSnapshot,
+  listDashboardRuntimeSnapshots,
+  publishCurrentDashboardRuntimeSnapshot,
+  type DashboardRuntimeSnapshot,
+} from './consoleRuntimeSnapshotsApi';
 
 function formatTimestamp(value: string): string {
   const date = new Date(value);
@@ -73,6 +79,18 @@ function parsePositiveInteger(raw: string, field: string): number {
   return parsed;
 }
 
+type RuntimeSnapshotPayloadModule = 'policy' | 'settings' | 'gasSponsorship' | 'smartWallets';
+
+function readRuntimeSnapshotModuleStatus(
+  snapshot: DashboardRuntimeSnapshot,
+  key: RuntimeSnapshotPayloadModule,
+): string {
+  const module = snapshot.payload[key];
+  if (!module || typeof module !== 'object' || Array.isArray(module)) return '-';
+  const status = String((module as Record<string, unknown>).status || '').trim();
+  return status || '-';
+}
+
 export function AppSettingsPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
   const selectedContext = useDashboardSelectedContext();
@@ -106,6 +124,15 @@ export function AppSettingsPage(): React.JSX.Element {
   const [settingsMutating, setSettingsMutating] = React.useState<boolean>(false);
   const [appSettings, setAppSettings] = React.useState<DashboardAppSettings | null>(null);
   const [securitySettings, setSecuritySettings] = React.useState<DashboardSecuritySettings | null>(null);
+  const [runtimeSnapshotsLoading, setRuntimeSnapshotsLoading] = React.useState<boolean>(false);
+  const [runtimeSnapshotsError, setRuntimeSnapshotsError] = React.useState<string>('');
+  const [runtimeSnapshotsMutationError, setRuntimeSnapshotsMutationError] = React.useState<string>('');
+  const [runtimeSnapshotsMutating, setRuntimeSnapshotsMutating] = React.useState<boolean>(false);
+  const [latestRuntimeSnapshot, setLatestRuntimeSnapshot] =
+    React.useState<DashboardRuntimeSnapshot | null>(null);
+  const [runtimeSnapshotHistory, setRuntimeSnapshotHistory] = React.useState<DashboardRuntimeSnapshot[]>([]);
+  const [runtimeSnapshotIdInput, setRuntimeSnapshotIdInput] = React.useState<string>('');
+  const [runtimeSnapshotEffectiveAtInput, setRuntimeSnapshotEffectiveAtInput] = React.useState<string>('');
   const [allowedOriginsInput, setAllowedOriginsInput] = React.useState<string>('');
   const [allowedDomainsInput, setAllowedDomainsInput] = React.useState<string>('');
   const [cookieHttpOnlyInput, setCookieHttpOnlyInput] = React.useState<boolean>(true);
@@ -153,6 +180,10 @@ export function AppSettingsPage(): React.JSX.Element {
   const activeProjects = React.useMemo(
     () => filterActiveProjects(projects),
     [projects],
+  );
+  const selectedProjectId = React.useMemo(
+    () => normalizeString(selectedContext.project || ''),
+    [selectedContext.project],
   );
 
   const loadContextData = React.useCallback(() => {
@@ -413,6 +444,59 @@ export function AppSettingsPage(): React.JSX.Element {
     const cleanup = loadSettingsData();
     return cleanup;
   }, [loadSettingsData, loading, session.loading]);
+
+  const loadRuntimeSnapshotsData = React.useCallback(() => {
+    if (!session.claims) {
+      setRuntimeSnapshotsLoading(false);
+      setRuntimeSnapshotsError(session.errorMessage || 'Console session is unavailable');
+      setLatestRuntimeSnapshot(null);
+      setRuntimeSnapshotHistory([]);
+      return;
+    }
+    const environmentId = normalizeString(settingsEnvironmentId);
+    if (!environmentId) {
+      setRuntimeSnapshotsLoading(false);
+      setRuntimeSnapshotsError('Select an environment to inspect runtime snapshots.');
+      setLatestRuntimeSnapshot(null);
+      setRuntimeSnapshotHistory([]);
+      return;
+    }
+    let cancelled = false;
+    setRuntimeSnapshotsLoading(true);
+    setRuntimeSnapshotsError('');
+    const scope = {
+      environmentId,
+      ...(selectedProjectId ? { projectId: selectedProjectId } : {}),
+    };
+    Promise.all([
+      getLatestDashboardRuntimeSnapshot(scope),
+      listDashboardRuntimeSnapshots({ ...scope, limit: 10 }),
+    ])
+      .then(([latestSnapshot, history]) => {
+        if (cancelled) return;
+        setLatestRuntimeSnapshot(latestSnapshot);
+        setRuntimeSnapshotHistory(history);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setLatestRuntimeSnapshot(null);
+        setRuntimeSnapshotHistory([]);
+        setRuntimeSnapshotsError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setRuntimeSnapshotsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProjectId, session.claims, session.errorMessage, settingsEnvironmentId]);
+
+  React.useEffect(() => {
+    if (session.loading || loading) return;
+    const cleanup = loadRuntimeSnapshotsData();
+    return cleanup;
+  }, [loadRuntimeSnapshotsData, loading, session.loading]);
 
   const onCreateProject = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -762,6 +846,65 @@ export function AppSettingsPage(): React.JSX.Element {
       riskyApprovalsRequiredInput,
       riskyRequireAdminInput,
       riskyRequireMfaInput,
+      session.claims,
+      session.errorMessage,
+      settingsEnvironmentId,
+    ],
+  );
+
+  const onPublishCurrentRuntimeSnapshot = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!session.claims) {
+        setRuntimeSnapshotsMutationError(session.errorMessage || 'Console session is unavailable');
+        return;
+      }
+      if (!canMutateConsoleSettings) {
+        setRuntimeSnapshotsMutationError(
+          'Only owner/admin/security_admin can publish runtime snapshots.',
+        );
+        return;
+      }
+      const environmentId = normalizeString(settingsEnvironmentId);
+      if (!environmentId) {
+        setRuntimeSnapshotsMutationError('Environment is required.');
+        return;
+      }
+      const effectiveAt = normalizeString(runtimeSnapshotEffectiveAtInput);
+      if (effectiveAt) {
+        const parsed = new Date(effectiveAt);
+        if (!Number.isFinite(parsed.getTime())) {
+          setRuntimeSnapshotsMutationError('Effective at must be an ISO-8601 timestamp.');
+          return;
+        }
+      }
+      setRuntimeSnapshotsMutating(true);
+      setRuntimeSnapshotsMutationError('');
+      try {
+        const created = await publishCurrentDashboardRuntimeSnapshot({
+          environmentId,
+          ...(selectedProjectId ? { projectId: selectedProjectId } : {}),
+          ...(normalizeString(runtimeSnapshotIdInput)
+            ? { snapshotId: normalizeString(runtimeSnapshotIdInput) }
+            : {}),
+          ...(effectiveAt ? { effectiveAt } : {}),
+        });
+        setLatestRuntimeSnapshot(created);
+        setRuntimeSnapshotIdInput('');
+        setRuntimeSnapshotEffectiveAtInput('');
+        await loadRuntimeSnapshotsData();
+      } catch (error: unknown) {
+        setRuntimeSnapshotsMutationError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setRuntimeSnapshotsMutating(false);
+      }
+    },
+    [
+      canMutateConsoleSettings,
+      loadRuntimeSnapshotsData,
+      runtimeSnapshotEffectiveAtInput,
+      runtimeSnapshotIdInput,
+      selectedProjectId,
       session.claims,
       session.errorMessage,
       settingsEnvironmentId,
@@ -1177,6 +1320,42 @@ export function AppSettingsPage(): React.JSX.Element {
             <button type="button" className="dashboard-pagination-button" onClick={() => loadSettingsData()}>
               Refresh app/security settings
             </button>
+            <button
+              type="button"
+              className="dashboard-pagination-button"
+              onClick={() => loadRuntimeSnapshotsData()}
+            >
+              Refresh runtime snapshots
+            </button>
+            <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onPublishCurrentRuntimeSnapshot}>
+              <label className="dashboard-form-field">
+                <span>Snapshot ID (optional)</span>
+                <input
+                  className="dashboard-input"
+                  value={runtimeSnapshotIdInput}
+                  onChange={(event) => setRuntimeSnapshotIdInput(event.target.value)}
+                  placeholder="runtime_snapshot_env_active_v3"
+                />
+              </label>
+              <label className="dashboard-form-field">
+                <span>Effective at (optional ISO-8601)</span>
+                <input
+                  className="dashboard-input"
+                  value={runtimeSnapshotEffectiveAtInput}
+                  onChange={(event) => setRuntimeSnapshotEffectiveAtInput(event.target.value)}
+                  placeholder="2026-03-01T00:00:00.000Z"
+                />
+              </label>
+              <div className="dashboard-form-actions">
+                <button
+                  type="submit"
+                  className="dashboard-pagination-button"
+                  disabled={!canMutateConsoleSettings || runtimeSnapshotsMutating}
+                >
+                  {runtimeSnapshotsMutating ? 'Publishing...' : 'Publish current runtime snapshot'}
+                </button>
+              </div>
+            </form>
             <p className="dashboard-pagination-note">
               {canMutateConsoleSettings
                 ? 'Owner/admin/security_admin role enabled for settings mutations.'
@@ -1184,6 +1363,9 @@ export function AppSettingsPage(): React.JSX.Element {
             </p>
             {settingsMutationError ? (
               <p className="dashboard-pagination-note">{settingsMutationError}</p>
+            ) : null}
+            {runtimeSnapshotsMutationError ? (
+              <p className="dashboard-pagination-note">{runtimeSnapshotsMutationError}</p>
             ) : null}
           </section>
 
@@ -1443,6 +1625,78 @@ export function AppSettingsPage(): React.JSX.Element {
                   <span>{securitySettings.riskyChangeApproval.approvalsRequired}</span>
                 </div>
               </section>
+
+              {runtimeSnapshotsLoading ? (
+                <section className="dashboard-view__section">
+                  <p>Loading runtime snapshots...</p>
+                </section>
+              ) : runtimeSnapshotsError ? (
+                <section className="dashboard-view__section">
+                  <p>Runtime snapshots unavailable: {runtimeSnapshotsError}</p>
+                </section>
+              ) : (
+                <>
+                  <section className="dashboard-table-wrapper" aria-label="Latest runtime snapshot">
+                    <div className="dashboard-table-header" role="row">
+                      <span>Snapshot ID</span>
+                      <span>Version</span>
+                      <span>Environment</span>
+                      <span>Project</span>
+                      <span>Effective at</span>
+                      <span>Created at</span>
+                      <span>Created by</span>
+                      <span>Policy status</span>
+                      <span>Settings status</span>
+                      <span>Gas status</span>
+                      <span>Smart wallet status</span>
+                    </div>
+                    {!latestRuntimeSnapshot ? (
+                      <p className="dashboard-table-limit">No runtime snapshots published for this scope.</p>
+                    ) : (
+                      <div className="dashboard-table-row" role="row">
+                        <span>{latestRuntimeSnapshot.snapshotId}</span>
+                        <span>{latestRuntimeSnapshot.version}</span>
+                        <span>{latestRuntimeSnapshot.environmentId}</span>
+                        <span>{latestRuntimeSnapshot.projectId || '-'}</span>
+                        <span>{formatTimestamp(latestRuntimeSnapshot.effectiveAt)}</span>
+                        <span>{formatTimestamp(latestRuntimeSnapshot.createdAt)}</span>
+                        <span>{latestRuntimeSnapshot.createdBy}</span>
+                        <span>{readRuntimeSnapshotModuleStatus(latestRuntimeSnapshot, 'policy')}</span>
+                        <span>{readRuntimeSnapshotModuleStatus(latestRuntimeSnapshot, 'settings')}</span>
+                        <span>{readRuntimeSnapshotModuleStatus(latestRuntimeSnapshot, 'gasSponsorship')}</span>
+                        <span>{readRuntimeSnapshotModuleStatus(latestRuntimeSnapshot, 'smartWallets')}</span>
+                      </div>
+                    )}
+                  </section>
+
+                  <section className="dashboard-table-wrapper" aria-label="Runtime snapshots history">
+                    <div className="dashboard-table-header" role="row">
+                      <span>Snapshot ID</span>
+                      <span>Version</span>
+                      <span>Effective at</span>
+                      <span>Checksum</span>
+                    </div>
+                    {runtimeSnapshotHistory.length === 0 ? (
+                      <p className="dashboard-table-limit">No runtime snapshot history found.</p>
+                    ) : (
+                      <>
+                        {runtimeSnapshotHistory.map((snapshot) => (
+                          <div className="dashboard-table-row" role="row" key={`${snapshot.snapshotId}:${snapshot.version}`}>
+                            <span>{snapshot.snapshotId}</span>
+                            <span>{snapshot.version}</span>
+                            <span>{formatTimestamp(snapshot.effectiveAt)}</span>
+                            <span>{snapshot.checksum}</span>
+                          </div>
+                        ))}
+                        <p className="dashboard-table-limit">
+                          Showing {runtimeSnapshotHistory.length} runtime snapshot
+                          {runtimeSnapshotHistory.length === 1 ? '' : 's'}.
+                        </p>
+                      </>
+                    )}
+                  </section>
+                </>
+              )}
             </>
           )}
         </>

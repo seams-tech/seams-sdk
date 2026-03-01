@@ -155,7 +155,7 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
   const handleSignDelegateGreeting = useCallback(async () => {
     if (!canExecuteGreeting(greetingInput, isLoggedIn, nearAccountId)) return;
 
-    const { login: loginState } = await tatchi.auth.getSession();
+    const { login: loginState } = await tatchi.auth.getWalletSession();
 
     setDelegateLoading(true);
     try {

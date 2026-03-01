@@ -222,9 +222,9 @@ This lets app CSS and SDK components share one color system:
 }
 ```
 
-## PasskeyAuthMenu – register / login / sync
+## PasskeyAuthMenu – register / unlock / sync
 
-`PasskeyAuthMenu` is a ready‑made registration/login/account-sync menu that wires into the passkey flows exposed by `useTatchi`.
+`PasskeyAuthMenu` is a ready‑made registration/unlock/account-sync menu that wires into the passkey flows exposed by `useTatchi`.
 
 ```tsx
 import {
@@ -236,7 +236,7 @@ import {
 import { PasskeyAuthMenu } from '@tatchi-xyz/sdk/react/passkey-auth-menu';
 
 export function PasskeySection() {
-  const { tatchi, accountInputState, registerPasskey, loginAndCreateSession } = useTatchi();
+  const { tatchi, accountInputState, registerPasskey } = useTatchi();
 
   const targetAccountId = accountInputState.targetAccountId;
   const accountExists = accountInputState.accountExists;
@@ -249,7 +249,7 @@ export function PasskeySection() {
     });
 
   const onLogin = () =>
-    loginAndCreateSession(targetAccountId, {
+    tatchi.auth.unlock(targetAccountId, {
       onEvent: (event) => {
         console.log('login event', event);
       },
@@ -309,8 +309,8 @@ export function HeaderProfile() {
       <AccountMenuButton
         nearAccountId={loginState.nearAccountId}
         hideUsername={false}
-        onLogout={() => {
-          console.log('User logged out');
+        onLock={() => {
+          console.log('Wallet locked');
         }}
         deviceLinkingScannerParams={{
           fundingAmount: '0.05',
