@@ -26,22 +26,44 @@ Atomically create a NEAR account and register a WebAuthn authenticator in relay 
 
 This route is consumed internally by the SDK’s registration flows.
 
-### Sessions (`POST /auth/passkey/options` → `POST /auth/passkey/verify`)
+### Passkey Verification (`POST /auth/passkey/options` → `POST /auth/passkey/verify`)
 
-Verifies a standard WebAuthn assertion (contract-free; relay-stored authenticators + counter persistence) and issues a session.
+Verifies a standard WebAuthn assertion (contract-free; relay-stored authenticators + counter persistence).
 
 - Step 1 (options): `POST /auth/passkey/options` with `{ user_id, rp_id, ttl_ms? }` → `{ challengeId, challengeB64u }`
 - Step 2 (verify): `POST /auth/passkey/verify` with:
   ```json
-  { "sessionKind": "jwt" | "cookie", "challengeId": "<id>", "webauthn_authentication": { /* assertion */ } }
+  { "challengeId": "<id>", "webauthn_authentication": { /* assertion */ } }
+  ```
+- Response: `{ ok, verified }`
+
+### App Session Issuance (`POST /session/exchange`)
+
+App sessions are exchange-first.
+
+- `POST /session/exchange` with:
+  ```json
+  { "sessionKind": "jwt" | "cookie", "exchange": { "type": "oidc_jwt", "token": "<provider-jwt>" } }
+  ```
+- Or one-step passkey assertion exchange:
+  ```json
+  {
+    "sessionKind": "jwt" | "cookie",
+    "exchange": {
+      "type": "passkey_assertion",
+      "challengeId": "<challenge-id-from-wallet-unlock-options>",
+      "webauthn_authentication": { /* assertion */ }
+    }
+  }
   ```
 - Response:
-  - When `sessionKind` is `jwt`: `{ ok, verified, jwt }`.
-  - When `sessionKind` is `cookie`: sets `Set-Cookie: w3a_session=<jwt>; HttpOnly; Secure; SameSite=Lax; Path=/` and omits `jwt` in body.
+  - When `sessionKind` is `jwt`: `{ ok, session, jwt }`
+  - When `sessionKind` is `cookie`: sets `Set-Cookie` and returns `{ ok, session }`
 
 Notes
 
 - The sample server mounts this route via the SDK router (`createRelayRouter(authService)`).
+- `POST /auth/passkey/verify` is verification-only and does not mint app sessions.
 - For cookie sessions, CORS must allow credentials and specify explicit origins.
   The example config enables CORS with `origin: [EXPECTED_ORIGIN, EXPECTED_WALLET_ORIGIN]` and `credentials: true`.
   Your frontend must use `credentials: 'include'` with fetch.
@@ -114,6 +136,13 @@ EXPECTED_ORIGIN=http://localhost:3000
 # If you serve from multiple origins, set EXPECTED_WALLET_ORIGIN as well
 # EXPECTED_WALLET_ORIGIN=http://localhost:4173
 
+# Runtime/signer persistence (threshold sessions/shares/auth)
+# POSTGRES_URL=postgres://tatchi:tatchi@127.0.0.1:5432/tatchi_signer
+
+# Optional console persistence override (billing + webhooks + console data)
+# Falls back to POSTGRES_URL when unset.
+# CONSOLE_POSTGRES_URL=postgres://tatchi_console:tatchi_console@127.0.0.1:5432/tatchi_console
+
 # Console/admin auth (dev adapter)
 CONSOLE_DEV_TOKEN=dev-console-token
 
@@ -124,6 +153,8 @@ CONSOLE_DEV_TOKEN=dev-console-token
 # CONSOLE_BILLING_BACKEND=postgres
 # Optional namespace for Postgres billing tables
 # CONSOLE_BILLING_NAMESPACE=relay-console
+# Optional shared secret required by POST /console/billing/stripe/webhook
+# CONSOLE_BILLING_STRIPE_WEBHOOK_SECRET=replace-with-strong-random-secret
 
 # Console webhooks backend:
 # - postgres (persists webhook endpoints/deliveries/attempts/dead-letters)
@@ -178,7 +209,12 @@ pnpm run postgres:up
 Then in your relay `.env`:
 
 ```bash
-POSTGRES_URL=postgres://tatchi:tatchi@127.0.0.1:5432/tatchi
+# runtime/signer data (threshold session/auth/share stores)
+POSTGRES_URL=postgres://tatchi:tatchi@127.0.0.1:5432/tatchi_signer
+
+# optional: console domain data (billing/webhooks/admin control-plane)
+# defaults to POSTGRES_URL when omitted
+CONSOLE_POSTGRES_URL=postgres://tatchi_console:tatchi_console@127.0.0.1:5432/tatchi_console
 ```
 
 Alternatively, run Redis and set `REDIS_URL`:
@@ -212,10 +248,13 @@ This example server also mounts console/admin routes at `/console/*`.
   - `x-console-user-id`
   - `x-console-roles` (comma-separated, defaults to `admin`)
 - Billing backend is selected with `CONSOLE_BILLING_BACKEND`:
-  - `postgres`: durable billing data via `POSTGRES_URL`
+  - `postgres`: durable billing data via `CONSOLE_POSTGRES_URL` (fallback `POSTGRES_URL`)
   - `memory`: ephemeral in-memory billing data for local dev
+- Stripe webhook auth for billing is configured with `CONSOLE_BILLING_STRIPE_WEBHOOK_SECRET`:
+  - when set, `/console/billing/stripe/webhook` requires header `x-console-stripe-webhook-secret` with an exact secret match.
+  - when unset, webhook route returns `stripe_webhook_not_configured`.
 - Webhooks backend is selected with `CONSOLE_WEBHOOKS_BACKEND`:
-  - `postgres`: durable webhook endpoint/delivery/attempt/dead-letter data via `POSTGRES_URL`
+  - `postgres`: durable webhook endpoint/delivery/attempt/dead-letter data via `CONSOLE_POSTGRES_URL` (fallback `POSTGRES_URL`)
   - `memory`: ephemeral in-memory webhook data for local dev
 
 Example:

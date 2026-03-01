@@ -47,8 +47,19 @@ extra requirements and limitations compared to the Express example.
     - `RELAYER_ACCOUNT_ID`, `NETWORK_ID`, `NEAR_RPC_URL`, etc.
     - `ROR_RP_ID` (optional; defaults to `hostname(EXPECTED_WALLET_ORIGIN)`)
     - `ROR_ALLOWED_ORIGINS` (optional comma-separated extra origins)
-- If you enable Shamir rotation, configure the cron schedule in `[triggers]`
-  and set `ENABLE_ROTATION="1"`.
+- Scheduled jobs are disabled by default. If you enable any cron-backed job,
+  set at least one schedule in `[triggers].crons` in `wrangler.toml`.
+- `wrangler.toml` now includes explicit per-environment cron job vars under
+  `[env.production.vars]` and `[env.staging.vars]` with all console jobs set to
+  disabled (`"0"`). Postgres URL defaults are explicit empty strings (`""`) and
+  org id defaults are explicit empty CSV values (`""`), so missing required
+  config is visible in deployment config and pre-flight warnings. To enable a
+  job, set its `*_ENABLED="1"` and provide the required Postgres URL + org ids.
+- When a cron job is enabled but required job config is missing, the worker
+  logs a structured `[cron][worker-config]` warning before the cron runner
+  evaluates job-specific skips.
+- Optional Shamir rotation:
+  - `ENABLE_ROTATION="1"`
 - Generate matching Shamir values for server + client config:
   - `pnpm prf-seal:keygen`
 - Optional billing monthly finalization (SaaS console):
@@ -56,6 +67,25 @@ extra requirements and limitations compared to the Express example.
   - `BILLING_POSTGRES_URL=<postgres url>`
   - `BILLING_NAMESPACE=<namespace>` (optional; defaults to `console-default`)
   - `BILLING_FINALIZATION_PERIOD_MONTH_UTC=YYYY-MM` (optional manual override)
+  - `BILLING_FINALIZATION_ORG_IDS=<csv org ids>` (required in production)
+  - `BILLING_FINALIZATION_CRONS=<csv cron expressions>` (optional tick allowlist; exact match against `event.cron`)
+- Optional runtime snapshot outbox dispatch (SaaS console):
+  - `RUNTIME_SNAPSHOT_OUTBOX_ENABLED="1"`
+  - `RUNTIME_SNAPSHOT_OUTBOX_POSTGRES_URL=<postgres url>` (optional; defaults to `BILLING_POSTGRES_URL`)
+  - `RUNTIME_SNAPSHOT_OUTBOX_NAMESPACE=<namespace>` (optional; defaults to `BILLING_NAMESPACE` or `console-default`)
+  - `RUNTIME_SNAPSHOT_OUTBOX_ORG_IDS=<csv org ids>` (required in production)
+  - `RUNTIME_SNAPSHOT_OUTBOX_LIMIT=<int>` (optional; default runner uses `100`)
+  - `RUNTIME_SNAPSHOT_OUTBOX_CRONS=<csv cron expressions>` (optional tick allowlist; exact match against `event.cron`)
+- Optional webhook retry dispatch (SaaS console):
+  - `WEBHOOK_RETRY_ENABLED="1"`
+  - `WEBHOOK_RETRY_POSTGRES_URL=<postgres url>` (optional; defaults to `BILLING_POSTGRES_URL`)
+  - `WEBHOOK_RETRY_NAMESPACE=<namespace>` (optional; defaults to `BILLING_NAMESPACE` or `console-default`)
+  - `WEBHOOK_RETRY_ORG_IDS=<csv org ids>` (required in production)
+  - `WEBHOOK_RETRY_LIMIT=<int>` (optional; default runner uses `100`)
+  - `WEBHOOK_RETRY_CRONS=<csv cron expressions>` (optional tick allowlist; exact match against `event.cron`)
+  - `WEBHOOK_RETRY_MAX_ATTEMPTS=<int>` (optional; default `5`)
+  - `WEBHOOK_RETRY_INITIAL_BACKOFF_MS=<int>` (optional; default `60000`)
+  - `WEBHOOK_RETRY_MAX_BACKOFF_MS=<int>` (optional; default `3600000`)
 
 ### Threshold signing (optional)
 
@@ -104,7 +134,7 @@ const session = new SessionService({
     },
   },
   // Minimal cookie config (defaults are fine for Lax; customize with hooks below if needed)
-  cookie: { name: 'w3a_session' },
+  cookie: { name: 'tatchi-jwt' },
 });
 ```
 
@@ -128,10 +158,10 @@ const session = new SessionService({
     /* sign/verify as above */
   },
   cookie: {
-    name: 'w3a_session',
+    name: 'tatchi-jwt',
     buildSetHeader: (token) =>
       [
-        `w3a_session=${token}`,
+        `tatchi-jwt=${token}`,
         'Path=/',
         'HttpOnly',
         'Secure',
@@ -140,7 +170,7 @@ const session = new SessionService({
       ].join('; '),
     buildClearHeader: () =>
       [
-        'w3a_session=',
+        'tatchi-jwt=',
         'Path=/',
         'HttpOnly',
         'Secure',
@@ -154,22 +184,33 @@ const session = new SessionService({
 
 ## Session verification (JWT or HttpOnly cookie)
 
-Session issuance is a 2-step WebAuthn flow:
+Passkey verification is a 2-step WebAuthn flow:
 
 - `POST /auth/passkey/options` with `{ user_id, rp_id, ttl_ms? }` → returns `{ challengeId, challengeB64u }`
-- `POST /auth/passkey/verify` with `{ sessionKind, challengeId, webauthn_authentication }` → verifies and issues a session
+- `POST /auth/passkey/verify` with `{ challengeId, webauthn_authentication }` → verifies challenge/assertion only
 
-Behavior:
+App-session issuance is exchange-first:
 
-- `sessionKind: "jwt"` → JSON response includes `{ ok, verified, jwt }`.
-- `sessionKind: "cookie"` → sets `Set-Cookie: w3a_session=<jwt>; HttpOnly; Secure; SameSite=Lax; Path=/` and omits `jwt` in body.
+- `POST /session/exchange` with `{ sessionKind, exchange: { type: 'oidc_jwt', token } }` issues app session JWT/cookie.
+- `/auth/passkey/verify` no longer mints app sessions.
 
 Cookie mode and CORS
 
 - Pass raw env origins to the router: it normalizes CSV/duplicates internally and only
   advertises `Access-Control-Allow-Credentials: true` when echoing a specific `Origin`.
 - Set `EXPECTED_ORIGIN` (and/or `EXPECTED_WALLET_ORIGIN`) to explicit origins; avoid `*` when using cookies.
-- Your frontend fetch must include credentials in cookie mode:
+- Your frontend can use either exchange mode:
+
+  1. OIDC/BYO token exchange:
+  - `POST /session/exchange` with `{ sessionKind, exchange: { type: 'oidc_jwt', token } }`
+
+  2. One-step passkey assertion exchange:
+  - `POST /wallet/unlock/options` to get `challengeId` + `challengeB64u`
+  - collect WebAuthn assertion in client
+  - `POST /session/exchange` with
+    `{ sessionKind, exchange: { type: 'passkey_assertion', challengeId, webauthn_authentication } }`
+
+  `POST /auth/passkey/verify` remains verification-only:
 
   ```ts
   const options = await fetch(`${relay}/auth/passkey/options`, {
@@ -180,10 +221,8 @@ Cookie mode and CORS
 
   await fetch(`${relay}/auth/passkey/verify`, {
     method: 'POST',
-    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      sessionKind: 'cookie',
       challengeId: options.challengeId,
       webauthn_authentication,
     }),
