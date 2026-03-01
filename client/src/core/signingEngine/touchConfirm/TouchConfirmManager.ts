@@ -29,7 +29,7 @@ import {
   writePrfSessionSealedRecord,
 } from '../api/session/prfSessionSealedStore';
 import {
-  resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId,
+  resolveThresholdSessionSealTransportByThresholdSessionId,
 } from '../api/thresholdLifecycle/thresholdSessionStore';
 import { emitThresholdSessionMetric } from '../api/thresholdLifecycle/thresholdSessionMetrics';
 import {
@@ -264,12 +264,11 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
   ): ThresholdPrfSessionSealTransportInput | null {
     const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
     if (!thresholdSessionId) return null;
-    const resolved = resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId({
+    const resolved = resolveThresholdSessionSealTransportByThresholdSessionId({
       thresholdSessionId,
     });
     if (!resolved) return null;
-    const record = resolved.record;
-    const relayerUrl = String(record.relayerUrl || '').trim();
+    const relayerUrl = String(resolved.relayerUrl || '').trim();
     if (!relayerUrl) return null;
     const thresholdSessionJwt = String(resolved.thresholdSessionJwt || '').trim();
     const keyVersion = String(this.config.prfSessionSealKeyVersion || '').trim();
@@ -363,7 +362,12 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         keyVersion: sealedRecord.keyVersion,
         expiresAtMs: sealedRecord.expiresAtMs,
         remainingUses: sealedRecord.remainingUses,
-        transport,
+        transport: {
+          ...transport,
+          shamirPrimeB64u: String(
+            sealedRecord.shamirPrimeB64u || transport.shamirPrimeB64u || '',
+          ).trim(),
+        },
       });
       if (!rehydrated.ok) {
         deletePrfSessionSealedRecord(thresholdSessionId);
@@ -567,6 +571,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         thresholdSessionId: toSessionId,
         sealedPrfFirstB64u: sourceRecord.sealedPrfFirstB64u,
         keyVersion: sourceRecord.keyVersion,
+        shamirPrimeB64u: sourceRecord.shamirPrimeB64u,
         expiresAtMs: sourceRecord.expiresAtMs,
         remainingUses: sourceRecord.remainingUses,
         updatedAtMs: Date.now(),
@@ -671,6 +676,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         thresholdSessionId,
         sealedPrfFirstB64u: sealed.sealedPrfFirstB64u,
         keyVersion: sealed.keyVersion,
+        shamirPrimeB64u,
         expiresAtMs: sealed.expiresAtMs,
         remainingUses: sealed.remainingUses,
         updatedAtMs: Date.now(),

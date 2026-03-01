@@ -1,6 +1,8 @@
 import { createEcdsaAuthSessionStore } from '../../../core/ThresholdService';
 import type { ThresholdEd25519KeyStoreConfigInput } from '../../../core/types';
+import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { createPrfSessionSealShamir3PassCipherAdapter } from './crypto/cipher';
+import { resolvePrfSessionSealIdempotencyFromEnv } from './idempotencyBackends';
 import { createPrfSessionSealPolicyFromEcdsaAuthSessionStore } from './policy/sessionPolicy';
 import { createPrfSessionSealRoutesOptions } from './routesOptions';
 
@@ -51,6 +53,52 @@ function createShamir3PassCipher(input: {
   });
 }
 
+function toPositiveInt(value: unknown): number | undefined {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.floor(parsed);
+}
+
+function buildIdempotencyOptions(
+  thresholdKeyStoreConfig: ThresholdEd25519KeyStoreConfigInput,
+) {
+  const config =
+    thresholdKeyStoreConfig && typeof thresholdKeyStoreConfig === 'object'
+      ? (thresholdKeyStoreConfig as Record<string, unknown>)
+      : {};
+  const idempotencyKind =
+    toOptionalTrimmedString(
+      config.PRF_SESSION_SEAL_IDEMPOTENCY_KIND || config.prfSessionSealIdempotencyKind,
+    ) || '';
+  if (!idempotencyKind) return undefined;
+
+  return resolvePrfSessionSealIdempotencyFromEnv({
+    idempotencyKind,
+    upstashUrl:
+      toOptionalTrimmedString(
+        config.PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL || config.UPSTASH_REDIS_REST_URL,
+      ) || null,
+    upstashToken:
+      toOptionalTrimmedString(
+        config.PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN || config.UPSTASH_REDIS_REST_TOKEN,
+      ) || null,
+    redisUrl:
+      toOptionalTrimmedString(config.PRF_SESSION_SEAL_IDEMPOTENCY_REDIS_URL || config.REDIS_URL) ||
+      null,
+    postgresUrl:
+      toOptionalTrimmedString(
+        config.PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL || config.POSTGRES_URL,
+      ) || null,
+    postgresNamespace:
+      toOptionalTrimmedString(config.PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE) || null,
+    keyPrefix:
+      toOptionalTrimmedString(config.PRF_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX) || undefined,
+    ttlMs: toPositiveInt(
+      config.PRF_SESSION_SEAL_IDEMPOTENCY_TTL_MS || config.prfSessionSealIdempotencyTtlMs,
+    ),
+  });
+}
+
 export function createPrfSessionSealOptions(input: CreatePrfSessionSealOptionsInput) {
   const enabled = parseBooleanFlag(input.enabled, true);
   if (!enabled) return null;
@@ -76,6 +124,12 @@ export function createPrfSessionSealOptions(input: CreatePrfSessionSealOptionsIn
       serverEncryptExponentB64u: input.serverEncryptExponentB64u,
       serverDecryptExponentB64u: input.serverDecryptExponentB64u,
     }),
+    capabilities: {
+      mode: 'sealed_refresh_v1',
+      keyVersion,
+      shamirPrimeB64u: input.shamirPrimeB64u,
+    },
+    idempotency: buildIdempotencyOptions(input.thresholdKeyStoreConfig),
     logger: console,
   });
 }

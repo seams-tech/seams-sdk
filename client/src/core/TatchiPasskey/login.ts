@@ -45,6 +45,8 @@ export async function loginAndCreateSession(
   });
 
   try {
+    await signingEngine.assertSealedRefreshStartupParity();
+
     if (typeof window !== 'undefined' && !window.isSecureContext) {
       const errorMessage = 'Passkey operations require a secure context (HTTPS or localhost).';
       return await finalizeLoginError({
@@ -448,9 +450,10 @@ type ThresholdLoginWarmupTask = {
 function buildThresholdLoginWarmSignerSelection(
   signersToWarm: ThresholdLoginWarmSigner[] | undefined,
 ): ThresholdLoginWarmSigner[] {
-  const requested = Array.isArray(signersToWarm) && signersToWarm.length > 0
-    ? signersToWarm
-    : (['ed25519', 'ecdsa'] as ThresholdLoginWarmSigner[]);
+  const requested =
+    Array.isArray(signersToWarm) && signersToWarm.length > 0
+      ? signersToWarm
+      : (['ed25519', 'ecdsa'] as ThresholdLoginWarmSigner[]);
   const normalized: ThresholdLoginWarmSigner[] = [];
   for (const signer of requested) {
     if (signer !== 'ed25519' && signer !== 'ecdsa') continue;
@@ -573,19 +576,21 @@ async function primeThresholdLoginWarmSigners(args: {
       dependencies: ['ed25519'],
       run: async () => {
         try {
-          await args.signingEngine.bootstrapEcdsaSession({
-            nearAccountId: args.nearAccountId,
-            chain: 'tempo',
-            source: 'login',
-            relayerUrl: args.relayerUrl,
-            participantIds: args.participantIds,
-            sessionKind: 'jwt',
-            ttlMs: args.ttlMs,
-            remainingUses: args.remainingUses,
-            sessionId: warmState.sessionId,
-            clientVerifyingShareB64u: warmState.ecdsaClientVerifyingShareB64u,
-            authorizationJwt: warmState.jwt,
-          });
+          for (const chain of ['tempo', 'evm'] as const) {
+            await args.signingEngine.bootstrapEcdsaSession({
+              nearAccountId: args.nearAccountId,
+              chain,
+              source: 'login',
+              relayerUrl: args.relayerUrl,
+              participantIds: args.participantIds,
+              sessionKind: 'jwt',
+              ttlMs: args.ttlMs,
+              remainingUses: args.remainingUses,
+              sessionId: warmState.sessionId,
+              clientVerifyingShareB64u: warmState.ecdsaClientVerifyingShareB64u,
+              authorizationJwt: warmState.jwt,
+            });
+          }
         } catch (error: unknown) {
           const details = String(
             (error && typeof error === 'object' && 'message' in error
@@ -671,7 +676,7 @@ function resolveCanonicalThresholdEcdsaWarmSessionContext(
     signingEngine as {
       getThresholdEcdsaSessionRecordForSigning?: (args: {
         nearAccountId: AccountId | string;
-        chain?: 'evm' | 'tempo';
+        chain: 'evm' | 'tempo';
       }) => { thresholdSessionId?: string; clientVerifyingShareB64u?: string };
     }
   )?.getThresholdEcdsaSessionRecordForSigning;
@@ -681,35 +686,42 @@ function resolveCanonicalThresholdEcdsaWarmSessionContext(
       clientVerifyingShareB64u: null,
     };
   }
-  try {
-    const record = getRecord({ nearAccountId });
-    const thresholdSessionId = String(record?.thresholdSessionId || '').trim();
-    const clientVerifyingShareB64u = String(record?.clientVerifyingShareB64u || '').trim();
-    return {
-      thresholdSessionId: thresholdSessionId || null,
-      clientVerifyingShareB64u: clientVerifyingShareB64u || null,
-    };
-  } catch {
-    return {
-      thresholdSessionId: null,
-      clientVerifyingShareB64u: null,
-    };
+  const chains: Array<'tempo' | 'evm'> = ['tempo', 'evm'];
+  for (const chain of chains) {
+    try {
+      const record = getRecord({ nearAccountId, chain });
+      const thresholdSessionId = String(record?.thresholdSessionId || '').trim();
+      const clientVerifyingShareB64u = String(record?.clientVerifyingShareB64u || '').trim();
+      if (thresholdSessionId || clientVerifyingShareB64u) {
+        return {
+          thresholdSessionId: thresholdSessionId || null,
+          clientVerifyingShareB64u: clientVerifyingShareB64u || null,
+        };
+      }
+    } catch {}
   }
+  return {
+    thresholdSessionId: null,
+    clientVerifyingShareB64u: null,
+  };
 }
 
 function resolveThresholdEcdsaGroupPublicKeyB64u(
   context: PasskeyManagerContext,
   nearAccountId: AccountId,
 ): string | null {
-  try {
-    const record = context.signingEngine.getThresholdEcdsaSessionRecordForSigning({
-      nearAccountId,
-    });
-    const groupPublicKeyB64u = String(record.groupPublicKeyB64u || '').trim();
-    return groupPublicKeyB64u || null;
-  } catch {
-    return null;
+  const chains: Array<'tempo' | 'evm'> = ['tempo', 'evm'];
+  for (const chain of chains) {
+    try {
+      const record = context.signingEngine.getThresholdEcdsaSessionRecordForSigning({
+        nearAccountId,
+        chain,
+      });
+      const groupPublicKeyB64u = String(record.groupPublicKeyB64u || '').trim();
+      if (groupPublicKeyB64u) return groupPublicKeyB64u;
+    } catch {}
   }
+  return null;
 }
 
 async function resolveThresholdEcdsaLoginMetadata(

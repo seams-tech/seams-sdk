@@ -68,8 +68,15 @@ export type ThresholdEcdsaSessionAuthMaterial = {
   thresholdSessionJwtSource: ThresholdEcdsaSessionJwtSource;
 };
 
+export type ThresholdSessionSealTransportAuthMaterial = {
+  curve: ThresholdSessionCurve;
+  relayerUrl: string;
+  thresholdSessionJwt?: string;
+  thresholdSessionJwtSource: ThresholdEcdsaSessionJwtSource;
+};
+
 export type ThresholdEcdsaSessionStoreDeps = {
-  recordsByAccount: Map<string, ThresholdEcdsaSessionRecord>;
+  recordsByLane: Map<string, ThresholdEcdsaSessionRecord>;
   now?: () => number;
 };
 
@@ -80,9 +87,13 @@ type VersionedRecord<TRecord> = {
   record: TRecord;
 };
 
-const ECDSA_STORAGE_KEY_PREFIX = 'tatchi:threshold-ecdsa-session:v1';
+const ECDSA_STORAGE_KEY_PREFIX_V1 = 'tatchi:threshold-ecdsa-session:v1';
+const ECDSA_STORAGE_INDEX_KEY_V1 = `${ECDSA_STORAGE_KEY_PREFIX_V1}:index`;
+const ECDSA_STORAGE_SESSION_INDEX_KEY_V1 = `${ECDSA_STORAGE_KEY_PREFIX_V1}:session-index`;
+const ECDSA_STORAGE_KEY_PREFIX = 'tatchi:threshold-ecdsa-session:v2';
 const ECDSA_STORAGE_INDEX_KEY = `${ECDSA_STORAGE_KEY_PREFIX}:index`;
 const ECDSA_STORAGE_SESSION_INDEX_KEY = `${ECDSA_STORAGE_KEY_PREFIX}:session-index`;
+const ECDSA_STORAGE_MIGRATION_KEY = `${ECDSA_STORAGE_KEY_PREFIX}:migrated-from-v1`;
 
 const ED25519_STORAGE_KEY_PREFIX = 'tatchi:threshold-ed25519-session:v1';
 const ED25519_STORAGE_INDEX_KEY = `${ED25519_STORAGE_KEY_PREFIX}:index`;
@@ -100,8 +111,9 @@ function getSessionStorageSafe(probeKey: string): SessionStoragePort | null {
   }
 }
 
-function storageKeyForAccount(storageKeyPrefix: string, nearAccountId: AccountId): string {
-  return `${storageKeyPrefix}:${String(nearAccountId)}`;
+function storageKeyForRecord(storageKeyPrefix: string, recordKeyRaw: string): string {
+  const recordKey = String(recordKeyRaw || '').trim();
+  return `${storageKeyPrefix}:${recordKey}`;
 }
 
 function readStorageIndex(storage: SessionStoragePort, storageIndexKey: string): string[] {
@@ -162,14 +174,14 @@ function setStorageSessionIndexEntry(args: {
   storage: SessionStoragePort;
   storageSessionIndexKey: string;
   thresholdSessionId: string;
-  nearAccountId: AccountId;
+  recordKey: string;
 }): void {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
-  const nearAccountId = String(args.nearAccountId || '').trim();
-  if (!thresholdSessionId || !nearAccountId) return;
+  const recordKey = String(args.recordKey || '').trim();
+  if (!thresholdSessionId || !recordKey) return;
   const current = readStorageSessionIndex(args.storage, args.storageSessionIndexKey);
-  if (current[thresholdSessionId] === nearAccountId) return;
-  current[thresholdSessionId] = nearAccountId;
+  if (current[thresholdSessionId] === recordKey) return;
+  current[thresholdSessionId] = recordKey;
   writeStorageSessionIndex(args.storage, args.storageSessionIndexKey, current);
 }
 
@@ -186,17 +198,17 @@ function removeStorageSessionIndexEntry(args: {
   writeStorageSessionIndex(args.storage, args.storageSessionIndexKey, current);
 }
 
-function removeStorageSessionIndexEntriesForAccount(args: {
+function removeStorageSessionIndexEntriesForRecordKey(args: {
   storage: SessionStoragePort;
   storageSessionIndexKey: string;
-  nearAccountId: AccountId;
+  recordKey: string;
 }): void {
-  const nearAccountId = String(args.nearAccountId || '').trim();
-  if (!nearAccountId) return;
+  const recordKey = String(args.recordKey || '').trim();
+  if (!recordKey) return;
   const current = readStorageSessionIndex(args.storage, args.storageSessionIndexKey);
   let changed = false;
-  for (const [sessionId, accountId] of Object.entries(current)) {
-    if (accountId !== nearAccountId) continue;
+  for (const [sessionId, indexedRecordKey] of Object.entries(current)) {
+    if (indexedRecordKey !== recordKey) continue;
     delete current[sessionId];
     changed = true;
   }
@@ -207,24 +219,24 @@ function removeStorageSessionIndexEntriesForAccount(args: {
 function addToStorageIndex(
   storage: SessionStoragePort,
   storageIndexKey: string,
-  nearAccountId: AccountId,
+  recordKey: string,
 ): void {
-  const accountId = String(nearAccountId || '').trim();
-  if (!accountId) return;
+  const normalized = String(recordKey || '').trim();
+  if (!normalized) return;
   const current = readStorageIndex(storage, storageIndexKey);
-  if (current.includes(accountId)) return;
-  writeStorageIndex(storage, storageIndexKey, [...current, accountId]);
+  if (current.includes(normalized)) return;
+  writeStorageIndex(storage, storageIndexKey, [...current, normalized]);
 }
 
 function removeFromStorageIndex(
   storage: SessionStoragePort,
   storageIndexKey: string,
-  nearAccountId: AccountId,
+  recordKeyRaw: string,
 ): void {
-  const accountId = String(nearAccountId || '').trim();
-  if (!accountId) return;
+  const recordKey = String(recordKeyRaw || '').trim();
+  if (!recordKey) return;
   const current = readStorageIndex(storage, storageIndexKey);
-  const next = current.filter((entry) => entry !== accountId);
+  const next = current.filter((entry) => entry !== recordKey);
   if (next.length === current.length) return;
   writeStorageIndex(storage, storageIndexKey, next);
 }
@@ -234,26 +246,28 @@ function writeStoredRecord<TRecord>(args: {
   storageKeyPrefix: string;
   storageIndexKey: string;
   storageSessionIndexKey?: string;
-  nearAccountId: AccountId;
+  recordKey: string;
   record: TRecord;
   thresholdSessionId?: string;
 }): void {
+  const recordKey = String(args.recordKey || '').trim();
+  if (!recordKey) return;
   try {
     const payload: VersionedRecord<TRecord> = {
       v: 1,
       record: args.record,
     };
     args.storage.setItem(
-      storageKeyForAccount(args.storageKeyPrefix, args.nearAccountId),
+      storageKeyForRecord(args.storageKeyPrefix, recordKey),
       JSON.stringify(payload),
     );
-    addToStorageIndex(args.storage, args.storageIndexKey, args.nearAccountId);
+    addToStorageIndex(args.storage, args.storageIndexKey, recordKey);
     if (args.storageSessionIndexKey && String(args.thresholdSessionId || '').trim()) {
       setStorageSessionIndexEntry({
         storage: args.storage,
         storageSessionIndexKey: args.storageSessionIndexKey,
         thresholdSessionId: String(args.thresholdSessionId || '').trim(),
-        nearAccountId: args.nearAccountId,
+        recordKey,
       });
     }
   } catch {}
@@ -262,11 +276,13 @@ function writeStoredRecord<TRecord>(args: {
 function readStoredRecord<TRecord>(args: {
   storage: SessionStoragePort;
   storageKeyPrefix: string;
-  nearAccountId: AccountId;
+  recordKey: string;
   normalize: (value: unknown) => TRecord;
 }): TRecord | null {
+  const recordKey = String(args.recordKey || '').trim();
+  if (!recordKey) return null;
   try {
-    const raw = args.storage.getItem(storageKeyForAccount(args.storageKeyPrefix, args.nearAccountId));
+    const raw = args.storage.getItem(storageKeyForRecord(args.storageKeyPrefix, recordKey));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as VersionedRecord<TRecord>;
     if (!parsed || parsed.v !== 1 || typeof parsed !== 'object') return null;
@@ -281,17 +297,19 @@ function clearStoredRecord(args: {
   storageKeyPrefix: string;
   storageIndexKey: string;
   storageSessionIndexKey?: string;
-  nearAccountId: AccountId;
+  recordKey: string;
 }): void {
+  const recordKey = String(args.recordKey || '').trim();
+  if (!recordKey) return;
   try {
-    args.storage.removeItem(storageKeyForAccount(args.storageKeyPrefix, args.nearAccountId));
+    args.storage.removeItem(storageKeyForRecord(args.storageKeyPrefix, recordKey));
   } catch {}
-  removeFromStorageIndex(args.storage, args.storageIndexKey, args.nearAccountId);
+  removeFromStorageIndex(args.storage, args.storageIndexKey, recordKey);
   if (args.storageSessionIndexKey) {
-    removeStorageSessionIndexEntriesForAccount({
+    removeStorageSessionIndexEntriesForRecordKey({
       storage: args.storage,
       storageSessionIndexKey: args.storageSessionIndexKey,
-      nearAccountId: args.nearAccountId,
+      recordKey,
     });
   }
 }
@@ -303,9 +321,9 @@ function clearAllStoredRecords(args: {
   storageSessionIndexKey?: string;
 }): void {
   const index = readStorageIndex(args.storage, args.storageIndexKey);
-  for (const accountId of index) {
+  for (const recordKey of index) {
     try {
-      args.storage.removeItem(storageKeyForAccount(args.storageKeyPrefix, toAccountId(accountId)));
+      args.storage.removeItem(storageKeyForRecord(args.storageKeyPrefix, recordKey));
     } catch {}
   }
   try {
@@ -329,8 +347,7 @@ function getEd25519SessionStorageSafe(): SessionStoragePort | null {
 function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSessionRecord {
   const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   const nearAccountId = toAccountId(String(obj.nearAccountId || '').trim());
-  const chainRaw = String(obj.chain || '').trim();
-  const chain: ThresholdEcdsaActivationChain = chainRaw === 'evm' ? 'evm' : 'tempo';
+  const chain = normalizeThresholdEcdsaActivationChain(obj.chain);
   const relayerUrl = String(obj.relayerUrl || '').trim();
   const relayerKeyId = String(obj.relayerKeyId || '').trim();
   const clientVerifyingShareB64u = String(obj.clientVerifyingShareB64u || '').trim();
@@ -351,6 +368,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
 
   if (
     !relayerUrl ||
+    !chain ||
     !relayerKeyId ||
     !clientVerifyingShareB64u ||
     !participantIds ||
@@ -436,6 +454,215 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
   };
 }
 
+export type ThresholdEcdsaSessionLane = {
+  nearAccountId: AccountId;
+  chain: ThresholdEcdsaActivationChain;
+  relayerKeyId: string;
+};
+
+function normalizeThresholdEcdsaActivationChain(
+  chainRaw: unknown,
+): ThresholdEcdsaActivationChain | null {
+  const chain = String(chainRaw || '')
+    .trim()
+    .toLowerCase();
+  if (chain === 'tempo' || chain === 'evm') return chain;
+  return null;
+}
+
+function encodeLaneToken(value: string): string {
+  return encodeURIComponent(String(value || '').trim());
+}
+
+function decodeLaneToken(value: string): string | null {
+  try {
+    const decoded = decodeURIComponent(String(value || '').trim());
+    return decoded || null;
+  } catch {
+    return null;
+  }
+}
+
+export function serializeThresholdEcdsaSessionLaneKey(args: {
+  nearAccountId: AccountId | string;
+  chain: ThresholdEcdsaActivationChain;
+  relayerKeyId: string;
+}): string {
+  const nearAccountId = String(toAccountId(args.nearAccountId)).trim();
+  const chain = normalizeThresholdEcdsaActivationChain(args.chain);
+  const relayerKeyId = String(args.relayerKeyId || '').trim();
+  if (!nearAccountId || !chain || !relayerKeyId) {
+    throw new Error('[SigningEngine] invalid threshold ECDSA lane key input');
+  }
+  return [
+    encodeLaneToken(nearAccountId),
+    encodeLaneToken(chain),
+    encodeLaneToken(relayerKeyId),
+  ].join('|');
+}
+
+export function parseThresholdEcdsaSessionLaneKey(
+  laneKeyRaw: string,
+): ThresholdEcdsaSessionLane | null {
+  const laneKey = String(laneKeyRaw || '').trim();
+  if (!laneKey) return null;
+  const parts = laneKey.split('|');
+  if (parts.length !== 3) return null;
+  const nearAccountDecoded = decodeLaneToken(parts[0] || '');
+  const chainDecoded = decodeLaneToken(parts[1] || '');
+  const relayerKeyIdDecoded = decodeLaneToken(parts[2] || '');
+  if (!nearAccountDecoded || !chainDecoded || !relayerKeyIdDecoded) return null;
+  const chain = normalizeThresholdEcdsaActivationChain(chainDecoded);
+  if (!chain) return null;
+  try {
+    return {
+      nearAccountId: toAccountId(nearAccountDecoded),
+      chain,
+      relayerKeyId: relayerKeyIdDecoded,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getThresholdEcdsaSessionLaneKeyForRecord(record: ThresholdEcdsaSessionRecord): string {
+  return serializeThresholdEcdsaSessionLaneKey({
+    nearAccountId: record.nearAccountId,
+    chain: record.chain,
+    relayerKeyId: record.relayerKeyId,
+  });
+}
+
+function pickPreferredThresholdEcdsaSessionRecord(
+  a: ThresholdEcdsaSessionRecord | null,
+  b: ThresholdEcdsaSessionRecord,
+): ThresholdEcdsaSessionRecord {
+  if (!a) return b;
+  const aUpdatedAtMs = normalizeInteger(a.updatedAtMs) || 0;
+  const bUpdatedAtMs = normalizeInteger(b.updatedAtMs) || 0;
+  if (bUpdatedAtMs !== aUpdatedAtMs) {
+    return bUpdatedAtMs > aUpdatedAtMs ? b : a;
+  }
+  const aExpiresAtMs = normalizeInteger(a.expiresAtMs) || 0;
+  const bExpiresAtMs = normalizeInteger(b.expiresAtMs) || 0;
+  if (bExpiresAtMs !== aExpiresAtMs) {
+    return bExpiresAtMs > aExpiresAtMs ? b : a;
+  }
+  return String(b.thresholdSessionId || '').localeCompare(String(a.thresholdSessionId || '')) > 0
+    ? b
+    : a;
+}
+
+let ecdsaStorageMigrationAttempted = false;
+
+function importCanonicalEcdsaRecordsFromStorage(args: {
+  storage: SessionStoragePort;
+  storageKeyPrefix: string;
+  storageIndexKey: string;
+}): Map<string, ThresholdEcdsaSessionRecord> {
+  const recordsByLane = new Map<string, ThresholdEcdsaSessionRecord>();
+  const recordKeys = readStorageIndex(args.storage, args.storageIndexKey);
+  for (const recordKey of recordKeys) {
+    const stored = readStoredRecord({
+      storage: args.storage,
+      storageKeyPrefix: args.storageKeyPrefix,
+      recordKey,
+      normalize: normalizeThresholdEcdsaSessionRecord,
+    });
+    if (!stored) continue;
+    const canonicalLaneKey = getThresholdEcdsaSessionLaneKeyForRecord(stored);
+    const next = pickPreferredThresholdEcdsaSessionRecord(
+      recordsByLane.get(canonicalLaneKey) || null,
+      stored,
+    );
+    recordsByLane.set(canonicalLaneKey, next);
+  }
+  return recordsByLane;
+}
+
+function deleteStoredRecordsByIndex(args: {
+  storage: SessionStoragePort;
+  storageKeyPrefix: string;
+  storageIndexKey: string;
+  storageSessionIndexKey?: string;
+}): void {
+  const recordKeys = readStorageIndex(args.storage, args.storageIndexKey);
+  for (const recordKey of recordKeys) {
+    try {
+      args.storage.removeItem(storageKeyForRecord(args.storageKeyPrefix, recordKey));
+    } catch {}
+  }
+  try {
+    args.storage.removeItem(args.storageIndexKey);
+  } catch {}
+  if (args.storageSessionIndexKey) {
+    try {
+      args.storage.removeItem(args.storageSessionIndexKey);
+    } catch {}
+  }
+}
+
+function writeCanonicalEcdsaRecords(args: {
+  storage: SessionStoragePort;
+  recordsByLane: Map<string, ThresholdEcdsaSessionRecord>;
+}): void {
+  for (const [laneKey, record] of args.recordsByLane.entries()) {
+    writeStoredRecord({
+      storage: args.storage,
+      storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
+      storageIndexKey: ECDSA_STORAGE_INDEX_KEY,
+      storageSessionIndexKey: ECDSA_STORAGE_SESSION_INDEX_KEY,
+      recordKey: laneKey,
+      record,
+      thresholdSessionId: record.thresholdSessionId,
+    });
+  }
+}
+
+function ensureEcdsaStorageMigrated(storage: SessionStoragePort): void {
+  if (ecdsaStorageMigrationAttempted) return;
+  ecdsaStorageMigrationAttempted = true;
+  const migrationMarker = String(storage.getItem(ECDSA_STORAGE_MIGRATION_KEY) || '').trim();
+  if (migrationMarker) return;
+
+  const mergedByLane = importCanonicalEcdsaRecordsFromStorage({
+    storage,
+    storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
+    storageIndexKey: ECDSA_STORAGE_INDEX_KEY,
+  });
+  const legacyByLane = importCanonicalEcdsaRecordsFromStorage({
+    storage,
+    storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX_V1,
+    storageIndexKey: ECDSA_STORAGE_INDEX_KEY_V1,
+  });
+  for (const [laneKey, record] of legacyByLane.entries()) {
+    const winner = pickPreferredThresholdEcdsaSessionRecord(
+      mergedByLane.get(laneKey) || null,
+      record,
+    );
+    mergedByLane.set(laneKey, winner);
+  }
+
+  deleteStoredRecordsByIndex({
+    storage,
+    storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
+    storageIndexKey: ECDSA_STORAGE_INDEX_KEY,
+    storageSessionIndexKey: ECDSA_STORAGE_SESSION_INDEX_KEY,
+  });
+  if (mergedByLane.size > 0) {
+    writeCanonicalEcdsaRecords({ storage, recordsByLane: mergedByLane });
+  }
+  deleteStoredRecordsByIndex({
+    storage,
+    storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX_V1,
+    storageIndexKey: ECDSA_STORAGE_INDEX_KEY_V1,
+    storageSessionIndexKey: ECDSA_STORAGE_SESSION_INDEX_KEY_V1,
+  });
+  try {
+    storage.setItem(ECDSA_STORAGE_MIGRATION_KEY, String(Date.now()));
+  } catch {}
+}
+
 function buildEcdsaRecordFromBootstrap(args: {
   nearAccountId: AccountId | string;
   chain: ThresholdEcdsaActivationChain;
@@ -455,12 +682,16 @@ function buildEcdsaRecordFromBootstrap(args: {
   if (!thresholdSessionId) {
     throw new Error('[SigningEngine] threshold ECDSA bootstrap did not provide thresholdSessionId');
   }
-  const thresholdSessionKind = normalizeThresholdEcdsaSessionKind(keyRef.thresholdSessionKind || 'jwt');
+  const thresholdSessionKind = normalizeThresholdEcdsaSessionKind(
+    keyRef.thresholdSessionKind || 'jwt',
+  );
   const thresholdSessionJwt = normalizeOptionalNonEmptyString(
     keyRef.thresholdSessionJwt || args.bootstrap.session.jwt,
   );
   if (thresholdSessionKind === 'jwt' && !thresholdSessionJwt) {
-    throw new Error('[SigningEngine] threshold ECDSA bootstrap did not provide thresholdSessionJwt');
+    throw new Error(
+      '[SigningEngine] threshold ECDSA bootstrap did not provide thresholdSessionJwt',
+    );
   }
 
   return normalizeThresholdEcdsaSessionRecord({
@@ -499,14 +730,15 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
     source: args.source,
     nowMs,
   });
-  const accountKey = String(record.nearAccountId);
-  deps.recordsByAccount.set(accountKey, record);
+  const laneKey = getThresholdEcdsaSessionLaneKeyForRecord(record);
+  deps.recordsByLane.set(laneKey, record);
   const storage = getEcdsaSessionStorageSafe();
   if (storage) {
+    ensureEcdsaStorageMigrated(storage);
     const previousRecord = readStoredRecord({
       storage,
       storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
-      nearAccountId: record.nearAccountId,
+      recordKey: laneKey,
       normalize: normalizeThresholdEcdsaSessionRecord,
     });
     if (
@@ -526,7 +758,7 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
       storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
       storageIndexKey: ECDSA_STORAGE_INDEX_KEY,
       storageSessionIndexKey: ECDSA_STORAGE_SESSION_INDEX_KEY,
-      nearAccountId: record.nearAccountId,
+      recordKey: laneKey,
       record,
       thresholdSessionId: record.thresholdSessionId,
     });
@@ -534,34 +766,92 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
   return record;
 }
 
+function pickThresholdEcdsaRecordForChain(
+  records: ThresholdEcdsaSessionRecord[],
+): ThresholdEcdsaSessionRecord | null {
+  let selected: ThresholdEcdsaSessionRecord | null = null;
+  for (const candidate of records) {
+    selected = pickPreferredThresholdEcdsaSessionRecord(selected, candidate);
+  }
+  return selected;
+}
+
+function listInMemoryThresholdEcdsaRecordsForLane(args: {
+  deps: ThresholdEcdsaSessionStoreDeps;
+  nearAccountId: AccountId;
+  chain: ThresholdEcdsaActivationChain;
+}): ThresholdEcdsaSessionRecord[] {
+  const out: ThresholdEcdsaSessionRecord[] = [];
+  for (const record of args.deps.recordsByLane.values()) {
+    if (String(record.nearAccountId) !== String(args.nearAccountId)) continue;
+    if (record.chain !== args.chain) continue;
+    out.push(record);
+  }
+  return out;
+}
+
+function listStoredThresholdEcdsaRecordsForLane(args: {
+  storage: SessionStoragePort;
+  deps: ThresholdEcdsaSessionStoreDeps;
+  nearAccountId: AccountId;
+  chain: ThresholdEcdsaActivationChain;
+}): ThresholdEcdsaSessionRecord[] {
+  const out: ThresholdEcdsaSessionRecord[] = [];
+  ensureEcdsaStorageMigrated(args.storage);
+  const laneKeys = readStorageIndex(args.storage, ECDSA_STORAGE_INDEX_KEY);
+  for (const laneKey of laneKeys) {
+    const parsedLane = parseThresholdEcdsaSessionLaneKey(laneKey);
+    if (!parsedLane) continue;
+    if (String(parsedLane.nearAccountId) !== String(args.nearAccountId)) continue;
+    if (parsedLane.chain !== args.chain) continue;
+    const record = readStoredRecord({
+      storage: args.storage,
+      storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
+      recordKey: laneKey,
+      normalize: normalizeThresholdEcdsaSessionRecord,
+    });
+    if (!record) continue;
+    const canonicalLaneKey = getThresholdEcdsaSessionLaneKeyForRecord(record);
+    args.deps.recordsByLane.set(canonicalLaneKey, record);
+    out.push(record);
+  }
+  return out;
+}
+
 export function getThresholdEcdsaSessionRecordForSigning(
   deps: ThresholdEcdsaSessionStoreDeps,
   args: {
     nearAccountId: AccountId | string;
-    chain?: ThresholdEcdsaActivationChain;
+    chain: ThresholdEcdsaActivationChain;
   },
 ): ThresholdEcdsaSessionRecord {
   const accountId = toAccountId(args.nearAccountId);
-  const accountKey = String(accountId);
-  const inMemory = deps.recordsByAccount.get(accountKey);
+  const inMemory = pickThresholdEcdsaRecordForChain(
+    listInMemoryThresholdEcdsaRecordsForLane({
+      deps,
+      nearAccountId: accountId,
+      chain: args.chain,
+    }),
+  );
   if (inMemory) return inMemory;
 
   const storage = getEcdsaSessionStorageSafe();
   const stored = storage
-    ? readStoredRecord({
-        storage,
-        storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
-        nearAccountId: accountId,
-        normalize: normalizeThresholdEcdsaSessionRecord,
-      })
+    ? pickThresholdEcdsaRecordForChain(
+        listStoredThresholdEcdsaRecordsForLane({
+          storage,
+          deps,
+          nearAccountId: accountId,
+          chain: args.chain,
+        }),
+      )
     : null;
   if (stored) {
-    deps.recordsByAccount.set(accountKey, stored);
     return stored;
   }
 
   throw new Error(
-    `[SigningEngine] missing canonical threshold ECDSA session for ${accountKey}; reconnect threshold session via bootstrapEcdsaSession`,
+    `[SigningEngine] missing canonical threshold ECDSA session for ${String(accountId)}; reconnect threshold session via bootstrapEcdsaSession`,
   );
 }
 
@@ -569,7 +859,7 @@ export function getThresholdEcdsaKeyRefForSigning(
   deps: ThresholdEcdsaSessionStoreDeps,
   args: {
     nearAccountId: AccountId | string;
-    chain?: ThresholdEcdsaActivationChain;
+    chain: ThresholdEcdsaActivationChain;
   },
 ): ThresholdEcdsaSecp256k1KeyRef {
   const record = getThresholdEcdsaSessionRecordForSigning(deps, args);
@@ -596,28 +886,45 @@ export function clearThresholdEcdsaSessionRecordForAccount(
 ): void {
   const accountId = toAccountId(nearAccountId);
   const accountKey = String(accountId);
-  deps.recordsByAccount.delete(accountKey);
+  for (const [laneKey, record] of deps.recordsByLane.entries()) {
+    if (String(record.nearAccountId) !== accountKey) continue;
+    deps.recordsByLane.delete(laneKey);
+  }
   const storage = getEcdsaSessionStorageSafe();
   if (storage) {
-    clearStoredRecord({
-      storage,
-      storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
-      storageIndexKey: ECDSA_STORAGE_INDEX_KEY,
-      storageSessionIndexKey: ECDSA_STORAGE_SESSION_INDEX_KEY,
-      nearAccountId: accountId,
-    });
+    ensureEcdsaStorageMigrated(storage);
+    const laneKeys = readStorageIndex(storage, ECDSA_STORAGE_INDEX_KEY);
+    for (const laneKey of laneKeys) {
+      const parsedLane = parseThresholdEcdsaSessionLaneKey(laneKey);
+      if (!parsedLane) continue;
+      if (String(parsedLane.nearAccountId) !== accountKey) continue;
+      clearStoredRecord({
+        storage,
+        storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
+        storageIndexKey: ECDSA_STORAGE_INDEX_KEY,
+        storageSessionIndexKey: ECDSA_STORAGE_SESSION_INDEX_KEY,
+        recordKey: laneKey,
+      });
+    }
   }
 }
 
 export function clearAllThresholdEcdsaSessionRecords(deps: ThresholdEcdsaSessionStoreDeps): void {
-  deps.recordsByAccount.clear();
+  deps.recordsByLane.clear();
   const storage = getEcdsaSessionStorageSafe();
   if (storage) {
+    ensureEcdsaStorageMigrated(storage);
     clearAllStoredRecords({
       storage,
       storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
       storageIndexKey: ECDSA_STORAGE_INDEX_KEY,
       storageSessionIndexKey: ECDSA_STORAGE_SESSION_INDEX_KEY,
+    });
+    deleteStoredRecordsByIndex({
+      storage,
+      storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX_V1,
+      storageIndexKey: ECDSA_STORAGE_INDEX_KEY_V1,
+      storageSessionIndexKey: ECDSA_STORAGE_SESSION_INDEX_KEY_V1,
     });
   }
 }
@@ -629,15 +936,15 @@ export function getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
   if (!thresholdSessionId) return null;
   const storage = getEcdsaSessionStorageSafe();
   if (!storage) return null;
+  ensureEcdsaStorageMigrated(storage);
   const sessionIndex = readStorageSessionIndex(storage, ECDSA_STORAGE_SESSION_INDEX_KEY);
-  const indexedAccountIdRaw = String(sessionIndex[thresholdSessionId] || '').trim();
-  if (indexedAccountIdRaw) {
+  const indexedLaneKey = String(sessionIndex[thresholdSessionId] || '').trim();
+  if (indexedLaneKey) {
     try {
-      const indexedAccountId = toAccountId(indexedAccountIdRaw);
       const indexedRecord = readStoredRecord({
         storage,
         storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
-        nearAccountId: indexedAccountId,
+        recordKey: indexedLaneKey,
         normalize: normalizeThresholdEcdsaSessionRecord,
       });
       if (
@@ -659,14 +966,13 @@ export function getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
       });
     }
   }
-  const accountIds = readStorageIndex(storage, ECDSA_STORAGE_INDEX_KEY);
-  for (const accountIdRaw of accountIds) {
+  const laneKeys = readStorageIndex(storage, ECDSA_STORAGE_INDEX_KEY);
+  for (const laneKey of laneKeys) {
     try {
-      const nearAccountId = toAccountId(accountIdRaw);
       const record = readStoredRecord({
         storage,
         storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
-        nearAccountId,
+        recordKey: laneKey,
         normalize: normalizeThresholdEcdsaSessionRecord,
       });
       if (!record) continue;
@@ -675,7 +981,7 @@ export function getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
           storage,
           storageSessionIndexKey: ECDSA_STORAGE_SESSION_INDEX_KEY,
           thresholdSessionId,
-          nearAccountId: record.nearAccountId,
+          recordKey: getThresholdEcdsaSessionLaneKeyForRecord(record),
         });
         return record;
       }
@@ -703,7 +1009,9 @@ export function resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId(arg
     };
   }
 
-  const nearAccountIdFallback = String(record.nearAccountId || args.nearAccountIdFallback || '').trim();
+  const nearAccountIdFallback = String(
+    record.nearAccountId || args.nearAccountIdFallback || '',
+  ).trim();
   if (!nearAccountIdFallback) {
     return {
       record,
@@ -734,6 +1042,44 @@ export function resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId(arg
   };
 }
 
+export function resolveThresholdSessionSealTransportByThresholdSessionId(args: {
+  thresholdSessionId: string;
+  nearAccountIdFallback?: AccountId | string;
+}): ThresholdSessionSealTransportAuthMaterial | null {
+  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+  if (!thresholdSessionId) return null;
+
+  const ecdsa = resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId({
+    thresholdSessionId,
+    nearAccountIdFallback: args.nearAccountIdFallback,
+  });
+  if (ecdsa) {
+    const relayerUrl = String(ecdsa.record.relayerUrl || '').trim();
+    if (!relayerUrl) return null;
+    return {
+      curve: 'ecdsa',
+      relayerUrl,
+      ...(String(ecdsa.thresholdSessionJwt || '').trim()
+        ? { thresholdSessionJwt: String(ecdsa.thresholdSessionJwt || '').trim() }
+        : {}),
+      thresholdSessionJwtSource: ecdsa.thresholdSessionJwtSource,
+    };
+  }
+
+  const ed25519Record =
+    getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
+  if (!ed25519Record) return null;
+  const relayerUrl = String(ed25519Record.relayerUrl || '').trim();
+  if (!relayerUrl) return null;
+  const thresholdSessionJwt = normalizeOptionalNonEmptyString(ed25519Record.thresholdSessionJwt);
+  return {
+    curve: 'ed25519',
+    relayerUrl,
+    ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+    thresholdSessionJwtSource: thresholdSessionJwt ? 'ed25519' : 'none',
+  };
+}
+
 export function upsertStoredThresholdEd25519SessionRecord(args: {
   nearAccountId: AccountId | string;
   rpId: string;
@@ -756,7 +1102,9 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
     relayerUrl: String(args.relayerUrl || '').trim(),
     relayerKeyId: String(args.relayerKeyId || '').trim(),
     participantIds: args.participantIds,
-    thresholdSessionKind: String(args.thresholdSessionKind || 'jwt').trim().toLowerCase(),
+    thresholdSessionKind: String(args.thresholdSessionKind || 'jwt')
+      .trim()
+      .toLowerCase(),
     thresholdSessionId: String(args.thresholdSessionId || '').trim(),
     ...(String(args.thresholdSessionJwt || '').trim()
       ? { thresholdSessionJwt: String(args.thresholdSessionJwt || '').trim() }
@@ -771,7 +1119,7 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
     storageKeyPrefix: ED25519_STORAGE_KEY_PREFIX,
     storageIndexKey: ED25519_STORAGE_INDEX_KEY,
     storageSessionIndexKey: ED25519_STORAGE_SESSION_INDEX_KEY,
-    nearAccountId: record.nearAccountId,
+    recordKey: String(record.nearAccountId),
     record,
     thresholdSessionId: record.thresholdSessionId,
   });
@@ -788,7 +1136,7 @@ export function getStoredThresholdEd25519SessionRecordForAccount(
     return readStoredRecord({
       storage,
       storageKeyPrefix: ED25519_STORAGE_KEY_PREFIX,
-      nearAccountId,
+      recordKey: String(nearAccountId),
       normalize: normalizeThresholdEd25519SessionRecord,
     });
   } catch {
@@ -811,7 +1159,7 @@ export function getStoredThresholdEd25519SessionRecordByThresholdSessionId(
       const indexedRecord = readStoredRecord({
         storage,
         storageKeyPrefix: ED25519_STORAGE_KEY_PREFIX,
-        nearAccountId: indexedAccountId,
+        recordKey: String(indexedAccountId),
         normalize: normalizeThresholdEd25519SessionRecord,
       });
       if (
@@ -840,7 +1188,7 @@ export function getStoredThresholdEd25519SessionRecordByThresholdSessionId(
       const record = readStoredRecord({
         storage,
         storageKeyPrefix: ED25519_STORAGE_KEY_PREFIX,
-        nearAccountId,
+        recordKey: String(nearAccountId),
         normalize: normalizeThresholdEd25519SessionRecord,
       });
       if (!record) continue;
@@ -849,7 +1197,7 @@ export function getStoredThresholdEd25519SessionRecordByThresholdSessionId(
           storage,
           storageSessionIndexKey: ED25519_STORAGE_SESSION_INDEX_KEY,
           thresholdSessionId,
-          nearAccountId: record.nearAccountId,
+          recordKey: String(record.nearAccountId),
         });
         return record;
       }
@@ -870,7 +1218,7 @@ export function clearStoredThresholdEd25519SessionRecordForAccount(
       storageKeyPrefix: ED25519_STORAGE_KEY_PREFIX,
       storageIndexKey: ED25519_STORAGE_INDEX_KEY,
       storageSessionIndexKey: ED25519_STORAGE_SESSION_INDEX_KEY,
-      nearAccountId,
+      recordKey: String(nearAccountId),
     });
   } catch {}
 }
@@ -886,35 +1234,47 @@ export function clearAllStoredThresholdEd25519SessionRecords(): void {
   });
 }
 
-export function getStoredThresholdSessionRecordForAccount<TCurve extends ThresholdSessionCurve>(args: {
+export function getStoredThresholdSessionRecordForAccount<
+  TCurve extends ThresholdSessionCurve,
+>(args: {
   curve: TCurve;
   nearAccountId: AccountId | string;
+  chain?: ThresholdEcdsaActivationChain;
 }): ThresholdSessionRecordByCurve[TCurve] | null {
   if (args.curve === 'ecdsa') {
     const storage = getEcdsaSessionStorageSafe();
     if (!storage) return null;
-    try {
-      return readStoredRecord({
+    ensureEcdsaStorageMigrated(storage);
+    const nearAccountId = toAccountId(args.nearAccountId);
+    const laneKeys = readStorageIndex(storage, ECDSA_STORAGE_INDEX_KEY);
+    let selected: ThresholdEcdsaSessionRecord | null = null;
+    for (const laneKey of laneKeys) {
+      const parsedLane = parseThresholdEcdsaSessionLaneKey(laneKey);
+      if (!parsedLane) continue;
+      if (String(parsedLane.nearAccountId) !== String(nearAccountId)) continue;
+      if (args.chain && parsedLane.chain !== args.chain) continue;
+      const record = readStoredRecord({
         storage,
         storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
-        nearAccountId: toAccountId(args.nearAccountId),
+        recordKey: laneKey,
         normalize: normalizeThresholdEcdsaSessionRecord,
-      }) as ThresholdSessionRecordByCurve[TCurve] | null;
-    } catch {
-      return null;
+      });
+      if (!record) continue;
+      selected = pickPreferredThresholdEcdsaSessionRecord(selected, record);
     }
+    return selected as ThresholdSessionRecordByCurve[TCurve] | null;
   }
   return getStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId) as
     | ThresholdSessionRecordByCurve[TCurve]
     | null;
 }
 
-export function getStoredThresholdSessionRecordByThresholdSessionId<TCurve extends ThresholdSessionCurve>(
-  args: {
-    curve: TCurve;
-    thresholdSessionId: string;
-  },
-): ThresholdSessionRecordByCurve[TCurve] | null {
+export function getStoredThresholdSessionRecordByThresholdSessionId<
+  TCurve extends ThresholdSessionCurve,
+>(args: {
+  curve: TCurve;
+  thresholdSessionId: string;
+}): ThresholdSessionRecordByCurve[TCurve] | null {
   if (args.curve === 'ecdsa') {
     return getStoredThresholdEcdsaSessionRecordByThresholdSessionId(args.thresholdSessionId) as
       | ThresholdSessionRecordByCurve[TCurve]
@@ -932,11 +1292,18 @@ export function clearAllStoredThresholdSessionRecords(curve?: ThresholdSessionCu
   if (!curve || curve === 'ecdsa') {
     const storage = getEcdsaSessionStorageSafe();
     if (!storage) return;
+    ensureEcdsaStorageMigrated(storage);
     clearAllStoredRecords({
       storage,
       storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
       storageIndexKey: ECDSA_STORAGE_INDEX_KEY,
       storageSessionIndexKey: ECDSA_STORAGE_SESSION_INDEX_KEY,
+    });
+    deleteStoredRecordsByIndex({
+      storage,
+      storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX_V1,
+      storageIndexKey: ECDSA_STORAGE_INDEX_KEY_V1,
+      storageSessionIndexKey: ECDSA_STORAGE_SESSION_INDEX_KEY_V1,
     });
   }
 }

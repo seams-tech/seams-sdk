@@ -21,14 +21,19 @@ export type {
   PrfSessionSealGuardInput,
   PrfSessionSealGuard,
   PrfSessionSealGuardResult,
+  PrfSessionSealIdempotencyGetInput,
+  PrfSessionSealIdempotencySetInput,
+  PrfSessionSealIdempotencyStore,
   PrfSessionSealOperation,
   PrfSessionSealRemoveServerSealRequest,
   PrfSessionSealRouteHeaders,
   PrfSessionSealRouteResult,
   PrfSessionSealRoutesOptions,
   PrfSessionSealService,
+  PrfSessionSealServiceIdempotencyOptions,
   PrfSessionSealSessionAdapter,
   PrfSessionSealSessionClaims,
+  PrfSessionSealStartupCapabilities,
   PrfSessionSealThresholdSessionPolicy,
   PrfSessionSealThresholdSessionRecord,
 } from './types';
@@ -48,6 +53,12 @@ export type {
   CreateRedisTcpPrfSessionSealRateLimiterOptions,
   CreateUpstashPrfSessionSealRateLimiterOptions,
 } from './guards/backends';
+export type {
+  CreatePostgresPrfSessionSealIdempotencyStoreOptions,
+  CreatePrfSessionSealIdempotencyFromEnvInput,
+  CreateRedisTcpPrfSessionSealIdempotencyStoreOptions,
+  CreateUpstashPrfSessionSealIdempotencyStoreOptions,
+} from './idempotencyBackends';
 export { prfSessionSealAuthorizeStatusCode, prfSessionSealStatusCode } from './transport/shared';
 export {
   buildPrfSessionSealApplyPath,
@@ -64,6 +75,7 @@ export {
   createPrfSessionSealShamir3PassBigIntRuntime,
 } from './crypto/cipher';
 export { createPrfSessionSealService } from './service';
+export { createInMemoryPrfSessionSealIdempotencyStore } from './idempotency';
 export { createPrfSessionSealPolicyFromEcdsaAuthSessionStore } from './policy/sessionPolicy';
 export { createPrfSessionSealAuditLogger } from './observability/audit';
 export { createPrfSessionSealRoutesOptions } from './routesOptions';
@@ -77,6 +89,12 @@ export {
   createUpstashPrfSessionSealRateLimiter,
   resolvePrfSessionSealRateLimitFromEnv,
 } from './guards/backends';
+export {
+  createPostgresPrfSessionSealIdempotencyStore,
+  createRedisTcpPrfSessionSealIdempotencyStore,
+  createUpstashPrfSessionSealIdempotencyStore,
+  resolvePrfSessionSealIdempotencyFromEnv,
+} from './idempotencyBackends';
 export { composePrfSessionSealGuards } from './guards';
 export { registerPrfSessionSealRoutes } from './transport/express';
 export { handlePrfSessionSealRoutes } from './transport/cloudflare';

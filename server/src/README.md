@@ -147,7 +147,7 @@ export default {
 - GET `/readyz` — readiness check (optional, enabled via router config)
 - GET `/session/auth` — returns `{ authenticated, claims? }` based on Authorization: Bearer or cookie
 - POST `/session/logout` — clears the session cookie
-- GET `/.well-known/webauthn` — Related Origin Requests manifest (wallet-scoped credentials)
+- GET `/.well-known/webauthn` — Related Origin Requests manifest (wallet-scoped credentials) + sealed-refresh capabilities payload
 - POST `/threshold-ecdsa/prf-seal/apply-server-seal` — optional PRF sealed-session route
 - POST `/threshold-ecdsa/prf-seal/remove-server-seal` — optional PRF sealed-session route
 
@@ -248,6 +248,11 @@ const prfSessionSeal = createPrfSessionSealRoutesOptions({
       serverDecryptExponentB64u: process.env.SHAMIR_D_S_B64U!,
     }],
   }),
+  capabilities: {
+    mode: 'sealed_refresh_v1',
+    keyVersion: 'kek-s-2026-02',
+    shamirPrimeB64u: process.env.SHAMIR_P_B64U!,
+  },
   rateLimit: resolvePrfSessionSealRateLimitFromEnv({
     limiterKind: 'upstash-redis-rest', // 'in-memory' | 'upstash-redis-rest' | 'redis-tcp'
     upstashUrl: process.env.UPSTASH_REDIS_REST_URL,
@@ -272,6 +277,7 @@ Notes:
 - `createPrfSessionSealShamir3PassCipherAdapter(...)` supports pluggable runtimes; wire your `shamir-3-pass-rs` runtime in production.
 - Do not log raw ciphertexts; audit helpers intentionally avoid ciphertext fields.
 - Use `resolvePrfSessionSealRateLimitFromEnv(...)` to wire in-memory, Upstash REST, or Redis TCP rate limiting without changing route code.
+- Keep `capabilities.keyVersion` and `capabilities.shamirPrimeB64u` aligned with your active cipher key material; clients in `sealed_refresh_v1` mode fail closed on parity mismatch.
 
 ## Config (required)
 

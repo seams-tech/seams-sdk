@@ -11,7 +11,9 @@ import type {
   PrfSessionSealConsumePolicy,
   PrfSessionSealGuard,
   PrfSessionSealRoutesOptions,
+  PrfSessionSealServiceIdempotencyOptions,
   PrfSessionSealThresholdSessionPolicy,
+  PrfSessionSealStartupCapabilities,
 } from './types';
 import type { CreatePrfSessionSealAuditLoggerOptions } from './observability/audit';
 import type { CreatePrfSessionSealRateLimitGuardOptions } from './guards';
@@ -22,12 +24,14 @@ export interface CreatePrfSessionSealRoutesOptionsInput {
   sessionPolicy: PrfSessionSealThresholdSessionPolicy;
   cipher: PrfSessionSealCipherAdapter;
   consumePolicy?: PrfSessionSealConsumePolicy;
+  idempotency?: PrfSessionSealServiceIdempotencyOptions;
   guard?: PrfSessionSealGuard | null;
   guards?: Array<PrfSessionSealGuard | null | undefined>;
   rateLimit?: Omit<CreatePrfSessionSealRateLimitGuardOptions, 'nowMs'>;
   audit?: PrfSessionSealAuditSink | null;
   logger?: NormalizedLogger | null;
   auditLogger?: Omit<CreatePrfSessionSealAuditLoggerOptions, 'logger'> | null;
+  capabilities?: PrfSessionSealStartupCapabilities;
   authorize?: (
     input: PrfSessionSealAuthorizeInput,
   ) => Promise<PrfSessionSealAuthorizeResult> | PrfSessionSealAuthorizeResult;
@@ -87,6 +91,9 @@ export function createPrfSessionSealRoutesOptions(
   if (input.consumePolicy) {
     serviceOptions.consumePolicy = input.consumePolicy;
   }
+  if (input.idempotency) {
+    serviceOptions.idempotency = input.idempotency;
+  }
   if (guard) {
     serviceOptions.guard = guard;
   }
@@ -111,6 +118,9 @@ export function createPrfSessionSealRoutesOptions(
   }
   if (input.authorize) {
     options.authorize = input.authorize;
+  }
+  if (input.capabilities) {
+    options.capabilities = input.capabilities;
   }
   return options;
 }

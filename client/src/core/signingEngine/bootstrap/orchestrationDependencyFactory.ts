@@ -82,6 +82,7 @@ export type CreateOrchestrationDependencyBundleArgs = {
     chain: 'tempo' | 'evm';
   }) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   withThresholdEcdsaCommitQueue: <T>(args: {
+    queueKey: string;
     nearAccountId: AccountId | string;
     enabled: boolean;
     shouldAbort?: () => boolean;
@@ -120,6 +121,11 @@ export function createOrchestrationDependencyBundle(
   const nearRpcUrl = resolvePrimaryNearRpcUrl(args.tatchiPasskeyConfigs.network.chains);
   const activeSigningSessionIds = new Map<string, string>();
   const resolveCanonicalSigningSessionId = (nearAccountId: AccountId | string): string | null => {
+    try {
+      const ed25519Record = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
+      const thresholdSessionId = String(ed25519Record?.thresholdSessionId || '').trim();
+      if (thresholdSessionId) return thresholdSessionId;
+    } catch {}
     const chains: Array<'tempo' | 'evm'> = ['tempo', 'evm'];
     for (const chain of chains) {
       try {
@@ -130,11 +136,6 @@ export function createOrchestrationDependencyBundle(
         }
       } catch {}
     }
-    try {
-      const ed25519Record = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
-      const thresholdSessionId = String(ed25519Record?.thresholdSessionId || '').trim();
-      if (thresholdSessionId) return thresholdSessionId;
-    } catch {}
     return null;
   };
   const signingSessionStateDeps: SigningSessionStateDeps = {

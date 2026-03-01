@@ -1,6 +1,10 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
 import type { ExpressRelayContext } from '../createRelayRouter';
-import { normalizeRorHost, sanitizeRorOrigins } from '../../ror/normalize';
+import {
+  normalizeRorHost,
+  resolveWellKnownSigningSessionSealCapabilities,
+  sanitizeRorOrigins,
+} from '../../ror/normalize';
 import { resolveRorRpId } from '../../ror/provider';
 
 export function registerWellKnownRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
@@ -25,12 +29,19 @@ export function registerWellKnownRoutes(router: ExpressRouter, ctx: ExpressRelay
                 await ctx.opts.ror.provider.getAllowedOrigins({ rpId, ...(host ? { host } : {}) }),
               )
             : [];
+        const signingSessionSeal = resolveWellKnownSigningSessionSealCapabilities(
+          ctx.opts.prfSessionSeal,
+        );
         res.set('Content-Type', 'application/json; charset=utf-8');
         // Short TTL + SWR so updates propagate while staying cache-friendly
         res.set('Cache-Control', 'max-age=60, stale-while-revalidate=600');
-        res.status(200).send(JSON.stringify({ origins }));
+        res
+          .status(200)
+          .send(JSON.stringify({ origins, capabilities: { signingSessionSeal } }));
       } catch {
-        res.status(200).json({ origins: [] });
+        res
+          .status(200)
+          .json({ origins: [], capabilities: { signingSessionSeal: { mode: 'none' } } });
       }
     });
   }

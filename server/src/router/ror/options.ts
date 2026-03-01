@@ -1,7 +1,7 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { RelayRouterRorOptions } from './provider';
 import { StaticRorOriginsProvider } from './staticProvider';
-import { sanitizeRorOrigins } from './normalize';
+import { normalizeCsv, sanitizeRorOrigins } from './normalize';
 
 export type CreateRorOptionsInput = {
   expectedOrigin?: unknown;
@@ -9,15 +9,6 @@ export type CreateRorOptionsInput = {
   rorRpId?: unknown;
   rorAllowedOrigins?: unknown;
 };
-
-function normalizeCsv(valuesRaw: unknown): string[] {
-  const values = String(valuesRaw ?? '').trim();
-  if (!values) return [];
-  return values
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean);
-}
 
 function hostnameFromOrigin(originRaw: unknown): string {
   const origin = toOptionalTrimmedString(originRaw);

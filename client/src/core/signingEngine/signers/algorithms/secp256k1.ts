@@ -20,6 +20,17 @@ import {
 import { emitThresholdSessionMetric } from '../../api/thresholdLifecycle/thresholdSessionMetrics';
 
 type EcdsaSessionKind = 'jwt' | 'cookie';
+type EcdsaSessionChain = 'tempo' | 'evm';
+
+function inferThresholdEcdsaSessionChainFromLabel(labelRaw: unknown): EcdsaSessionChain | null {
+  const label = String(labelRaw || '')
+    .trim()
+    .toLowerCase();
+  if (!label) return null;
+  if (label === 'tempo' || label.startsWith('tempo:')) return 'tempo';
+  if (label === 'evm' || label.startsWith('evm:')) return 'evm';
+  return null;
+}
 
 export type ThresholdEcdsaCommitQueueEnqueueFn = <T>(args: {
   nearAccountId: string;
@@ -122,12 +133,30 @@ export class Secp256k1Engine implements Signer {
       });
       const canonicalRecord = resolvedAuthMaterial?.record || null;
       const hasCanonicalRecord = !!canonicalRecord;
-      if (hasCanonicalRecord) {
+      const requestChain = inferThresholdEcdsaSessionChainFromLabel(req.label);
+      const canonicalRecordMatchesKeyRefLane =
+        !!canonicalRecord &&
+        String(canonicalRecord.nearAccountId || '') === String(keyRef.userId || '') &&
+        (!requestChain || canonicalRecord.chain === requestChain) &&
+        String(canonicalRecord.relayerUrl || '') === String(keyRef.relayerUrl || '') &&
+        String(canonicalRecord.relayerKeyId || '') === String(keyRef.relayerKeyId || '') &&
+        String(canonicalRecord.clientVerifyingShareB64u || '') ===
+          String(keyRef.clientVerifyingShareB64u || '');
+
+      if (canonicalRecordMatchesKeyRefLane) {
         emitThresholdSessionMetric({
           metric: 'cache_hit',
           curve: 'ecdsa',
           source: 'canonical-session-record',
           sessionId: keyRefThresholdSessionId,
+        });
+      } else if (hasCanonicalRecord) {
+        emitThresholdSessionMetric({
+          metric: 'rehydrate_fail',
+          curve: 'ecdsa',
+          source: 'canonical-session-record',
+          sessionId: keyRefThresholdSessionId,
+          reason: 'canonical_record_lane_mismatch_ignored',
         });
       } else {
         emitThresholdSessionMetric({
@@ -141,7 +170,11 @@ export class Secp256k1Engine implements Signer {
 
       const keyRefSessionKind = keyRef.thresholdSessionKind;
       const recordSessionKind: EcdsaSessionKind = canonicalRecord?.thresholdSessionKind || 'jwt';
-      if (hasCanonicalRecord && keyRefSessionKind && keyRefSessionKind !== recordSessionKind) {
+      if (
+        canonicalRecordMatchesKeyRefLane &&
+        keyRefSessionKind &&
+        keyRefSessionKind !== recordSessionKind
+      ) {
         emitThresholdSessionMetric({
           metric: 'session_mismatch',
           curve: 'ecdsa',
@@ -155,8 +188,15 @@ export class Secp256k1Engine implements Signer {
       }
       const sessionKind: EcdsaSessionKind = keyRefSessionKind || recordSessionKind || 'jwt';
 
-      const recordSessionId = String(canonicalRecord?.thresholdSessionId || keyRefThresholdSessionId).trim();
-      if (hasCanonicalRecord && (!recordSessionId || recordSessionId !== keyRefThresholdSessionId)) {
+      const recordSessionId = String(
+        (canonicalRecordMatchesKeyRefLane
+          ? canonicalRecord?.thresholdSessionId
+          : keyRefThresholdSessionId) || keyRefThresholdSessionId,
+      ).trim();
+      if (
+        canonicalRecordMatchesKeyRefLane &&
+        (!recordSessionId || recordSessionId !== keyRefThresholdSessionId)
+      ) {
         emitThresholdSessionMetric({
           metric: 'session_mismatch',
           curve: 'ecdsa',
@@ -170,8 +210,15 @@ export class Secp256k1Engine implements Signer {
       }
 
       const keyRefJwt = String(keyRef.thresholdSessionJwt || '').trim();
-      const recordJwt = String(canonicalRecord?.thresholdSessionJwt || '').trim();
-      const resolvedJwt = String(resolvedAuthMaterial?.thresholdSessionJwt || '').trim();
+      const recordJwt = String(
+        canonicalRecordMatchesKeyRefLane ? canonicalRecord?.thresholdSessionJwt || '' : '',
+      ).trim();
+      const resolvedJwt = String(
+        canonicalRecordMatchesKeyRefLane ||
+          resolvedAuthMaterial?.thresholdSessionJwtSource === 'ed25519'
+          ? resolvedAuthMaterial?.thresholdSessionJwt || ''
+          : '',
+      ).trim();
       if (resolvedAuthMaterial?.thresholdSessionJwtSource === 'ed25519' && resolvedJwt) {
         emitThresholdSessionMetric({
           metric: 'rehydrate_hit',
@@ -196,7 +243,7 @@ export class Secp256k1Engine implements Signer {
         );
       }
       if (sessionKind === 'jwt') {
-        if (hasCanonicalRecord && keyRefJwt && recordJwt && keyRefJwt !== recordJwt) {
+        if (canonicalRecordMatchesKeyRefLane && keyRefJwt && recordJwt && keyRefJwt !== recordJwt) {
           emitThresholdSessionMetric({
             metric: 'session_mismatch',
             curve: 'ecdsa',

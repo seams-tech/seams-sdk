@@ -52,6 +52,27 @@ export type PrfSessionSealRouteResult =
       message: string;
     };
 
+export interface PrfSessionSealIdempotencyGetInput {
+  key: string;
+  nowMs: number;
+}
+
+export interface PrfSessionSealIdempotencySetInput {
+  key: string;
+  result: PrfSessionSealRouteResult;
+  expiresAtMs: number;
+}
+
+export interface PrfSessionSealIdempotencyStore {
+  get(input: PrfSessionSealIdempotencyGetInput): Promise<PrfSessionSealRouteResult | null>;
+  set(input: PrfSessionSealIdempotencySetInput): Promise<void>;
+}
+
+export interface PrfSessionSealServiceIdempotencyOptions {
+  store: PrfSessionSealIdempotencyStore;
+  ttlMs?: number;
+}
+
 export interface PrfSessionSealService {
   applyServerSeal(
     request: PrfSessionSealApplyServerSealRequest,
@@ -68,9 +89,16 @@ export interface PrfSessionSealRoutesOptions {
   enabled?: boolean;
   basePath?: string;
   service: PrfSessionSealService;
+  capabilities?: PrfSessionSealStartupCapabilities;
   authorize?: (
     input: PrfSessionSealAuthorizeInput,
   ) => Promise<PrfSessionSealAuthorizeResult> | PrfSessionSealAuthorizeResult;
+}
+
+export interface PrfSessionSealStartupCapabilities {
+  mode: 'sealed_refresh_v1';
+  keyVersion?: string;
+  shamirPrimeB64u: string;
 }
 
 export type PrfSessionSealOperation = 'apply-server-seal' | 'remove-server-seal';
@@ -136,6 +164,7 @@ export type PrfSessionSealAuditSink = (event: PrfSessionSealAuditEvent) => Promi
 export interface CreatePrfSessionSealServiceOptions {
   sessionPolicy: PrfSessionSealThresholdSessionPolicy;
   cipher: PrfSessionSealCipherAdapter;
+  idempotency?: PrfSessionSealServiceIdempotencyOptions;
   consumePolicy?: PrfSessionSealConsumePolicy;
   guard?: PrfSessionSealGuard;
   audit?: PrfSessionSealAuditSink;

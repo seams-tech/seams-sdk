@@ -1,3 +1,5 @@
+import { base64UrlEncode } from '@shared/utils/encoders';
+import { sha256BytesUtf8 } from '@shared/utils/digests';
 import type {
   CreatePrfSessionSealServiceOptions,
   PrfSessionSealConsumePolicy,
@@ -9,6 +11,15 @@ import type {
 } from './types';
 
 const PRF_SEAL_LOG_LABEL = '[threshold-ecdsa-prf-seal]';
+const PRF_SEAL_IDEMPOTENCY_TTL_MS_DEFAULT = 90_000;
+const PRF_SEAL_REPLAYABLE_ERROR_CODES = new Set([
+  'expired',
+  'exhausted',
+  'forbidden',
+  'not_found',
+  'invalid_ciphertext',
+  'invalid_key_version',
+]);
 
 function toMessage(input: unknown, fallback: string): string {
   const value = String(input || '').trim();
@@ -24,6 +35,12 @@ function toNonNegativeInt(value: unknown): number | undefined {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return undefined;
   return Math.max(0, Math.floor(parsed));
+}
+
+function toPositiveInt(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.floor(parsed);
 }
 
 function isExpired(session: PrfSessionSealThresholdSessionRecord, nowMs: number): boolean {
@@ -144,17 +161,52 @@ type PrfSessionSealAuthInput = {
   claims: Record<string, unknown>;
 };
 
-function makeSingleFlightKey(args: {
+function fnv1aHex(input: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+async function hashCiphertextForIdempotency(ciphertext: string): Promise<string> {
+  const normalized = String(ciphertext || '').trim();
+  if (!normalized) return '';
+  try {
+    const digest32 = await sha256BytesUtf8(normalized);
+    return `sha256:${base64UrlEncode(digest32)}`;
+  } catch {
+    return `fnv1a:${fnv1aHex(normalized)}`;
+  }
+}
+
+async function makeOperationRequestKey(args: {
   operation: PrfSessionSealOperation;
   request: PrfSessionSealRequestInput;
   auth: PrfSessionSealAuthInput;
-}): string {
+}): Promise<string> {
   const thresholdSessionId = String(args.request.thresholdSessionId || '').trim();
   const userId = String(args.auth.userId || '').trim();
   const ciphertext = String(args.request.ciphertext || '').trim();
   if (!thresholdSessionId || !userId || !ciphertext) return '';
   const keyVersion = String(args.request.keyVersion || '').trim();
-  return [args.operation, userId, thresholdSessionId, keyVersion, ciphertext].join('|');
+  const operation = args.operation === 'apply-server-seal' ? 'apply' : 'remove';
+  const ciphertextHash = await hashCiphertextForIdempotency(ciphertext);
+  if (!ciphertextHash) return '';
+  return [
+    'prfseal',
+    operation,
+    userId,
+    thresholdSessionId,
+    keyVersion || '_',
+    ciphertextHash,
+  ].join(':');
+}
+
+function shouldPersistIdempotentResult(result: PrfSessionSealRouteResult): boolean {
+  if (result.ok) return true;
+  return PRF_SEAL_REPLAYABLE_ERROR_CODES.has(String(result.code || '').trim());
 }
 
 async function runSealOperation(input: {
@@ -310,23 +362,105 @@ export function createPrfSessionSealService(
   options: CreatePrfSessionSealServiceOptions,
 ): PrfSessionSealService {
   const singleFlight = new Map<string, Promise<PrfSessionSealRouteResult>>();
+  const nowMs = options.nowMs || Date.now;
+  const idempotencyStore = options.idempotency?.store;
+  const idempotencyTtlMs = toPositiveInt(
+    options.idempotency?.ttlMs,
+    PRF_SEAL_IDEMPOTENCY_TTL_MS_DEFAULT,
+  );
+
+  const tryReplayIdempotentResult = async (
+    operation: PrfSessionSealOperation,
+    thresholdSessionId: string,
+    userId: string,
+    idempotencyKey: string,
+  ): Promise<PrfSessionSealRouteResult | null> => {
+    if (!idempotencyStore || !idempotencyKey) return null;
+    try {
+      const replay = await idempotencyStore.get({
+        key: idempotencyKey,
+        nowMs: nowMs(),
+      });
+      if (!replay) return null;
+      options.logger?.info(`${PRF_SEAL_LOG_LABEL} idempotency_replay_hit`, {
+        operation,
+        thresholdSessionId,
+        userId,
+      });
+      return replay;
+    } catch (error: unknown) {
+      options.logger?.warn(`${PRF_SEAL_LOG_LABEL} idempotency_replay_error`, {
+        operation,
+        thresholdSessionId,
+        userId,
+        message: toMessage(error instanceof Error ? error.message : error, 'Unknown error'),
+      });
+      return null;
+    }
+  };
+
+  const tryPersistIdempotentResult = async (
+    operation: PrfSessionSealOperation,
+    thresholdSessionId: string,
+    userId: string,
+    idempotencyKey: string,
+    result: PrfSessionSealRouteResult,
+  ): Promise<void> => {
+    if (!idempotencyStore || !idempotencyKey) return;
+    try {
+      await idempotencyStore.set({
+        key: idempotencyKey,
+        result,
+        expiresAtMs: nowMs() + idempotencyTtlMs,
+      });
+    } catch (error: unknown) {
+      options.logger?.warn(`${PRF_SEAL_LOG_LABEL} idempotency_persist_error`, {
+        operation,
+        thresholdSessionId,
+        userId,
+        message: toMessage(error instanceof Error ? error.message : error, 'Unknown error'),
+      });
+    }
+  };
 
   const runWithSingleFlight = async (
     operation: PrfSessionSealOperation,
     request: PrfSessionSealRequestInput,
     auth: PrfSessionSealAuthInput,
   ): Promise<PrfSessionSealRouteResult> => {
-    const singleFlightKey = makeSingleFlightKey({ operation, request, auth });
-    if (!singleFlightKey) {
-      return await runSealOperation({
+    const operationKey = await makeOperationRequestKey({ operation, request, auth });
+    const idempotentReplay = await tryReplayIdempotentResult(
+      operation,
+      request.thresholdSessionId,
+      auth.userId,
+      operationKey,
+    );
+    if (idempotentReplay) return idempotentReplay;
+
+    const runAndPersist = async (): Promise<PrfSessionSealRouteResult> => {
+      const result = await runSealOperation({
         options,
         operation,
         request,
         auth,
       });
+      if (shouldPersistIdempotentResult(result)) {
+        await tryPersistIdempotentResult(
+          operation,
+          request.thresholdSessionId,
+          auth.userId,
+          operationKey,
+          result,
+        );
+      }
+      return result;
+    };
+
+    if (!operationKey) {
+      return await runAndPersist();
     }
 
-    const inFlight = singleFlight.get(singleFlightKey);
+    const inFlight = singleFlight.get(operationKey);
     if (inFlight) {
       options.logger?.info(`${PRF_SEAL_LOG_LABEL} single_flight_hit`, {
         operation,
@@ -336,15 +470,10 @@ export function createPrfSessionSealService(
       return await inFlight;
     }
 
-    const task = runSealOperation({
-      options,
-      operation,
-      request,
-      auth,
-    }).finally(() => {
-      singleFlight.delete(singleFlightKey);
+    const task = runAndPersist().finally(() => {
+      singleFlight.delete(operationKey);
     });
-    singleFlight.set(singleFlightKey, task);
+    singleFlight.set(operationKey, task);
     return await task;
   };
 

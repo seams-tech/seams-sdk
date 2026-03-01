@@ -1,6 +1,10 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import { json } from '../http';
-import { normalizeRorHost, sanitizeRorOrigins } from '../../ror/normalize';
+import {
+  normalizeRorHost,
+  resolveWellKnownSigningSessionSealCapabilities,
+  sanitizeRorOrigins,
+} from '../../ror/normalize';
 import { resolveRorRpId } from '../../ror/provider';
 
 export async function handleWellKnown(ctx: CloudflareRelayContext): Promise<Response | null> {
@@ -9,6 +13,7 @@ export async function handleWellKnown(ctx: CloudflareRelayContext): Promise<Resp
     return null;
 
   let origins: string[] = [];
+  const signingSessionSeal = resolveWellKnownSigningSessionSealCapabilities(ctx.opts.prfSessionSeal);
   try {
     const host = normalizeRorHost(
       ctx.request.headers.get('x-forwarded-host') ||
@@ -25,7 +30,7 @@ export async function handleWellKnown(ctx: CloudflareRelayContext): Promise<Resp
   } catch {}
 
   return json(
-    { origins },
+    { origins, capabilities: { signingSessionSeal } },
     { status: 200, headers: { 'Cache-Control': 'max-age=60, stale-while-revalidate=600' } },
   );
 }

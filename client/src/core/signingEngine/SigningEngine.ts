@@ -85,7 +85,7 @@ import {
 import {
   clearThresholdEcdsaCommitQueue,
   withThresholdEcdsaCommitQueue,
-  type ThresholdEcdsaCommitQueueByAccount,
+  type ThresholdEcdsaCommitQueueByKey,
 } from './api/thresholdLifecycle/thresholdEcdsaCommitQueue';
 import {
   deriveNearKeypairAndEncryptFromSerialized as deriveNearKeypairAndEncryptFromSerializedValue,
@@ -107,6 +107,7 @@ import {
 } from './api/registration/registrationAccountLifecycle';
 import { initializeRuntimeBootstrap } from './bootstrap/runtimeBootstrap';
 import { createManagerAssembly } from './bootstrap/managerAssembly';
+import { verifySealedRefreshStartupParity } from '../rpcClients/relayer/sealedRefreshCapabilities';
 import {
   createOrchestrationDependencyBundle,
   type OrchestrationDependencyBundle,
@@ -145,10 +146,11 @@ export class SigningEngine {
   private workerBaseOrigin: string = '';
   private theme: ThemeName = 'dark';
   private readonly thresholdEcdsaBootstrapQueueByAccount: Map<string, Promise<void>> = new Map();
-  private readonly thresholdEcdsaCommitQueueByAccount: ThresholdEcdsaCommitQueueByAccount =
+  private readonly thresholdEcdsaCommitQueueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
+  private readonly thresholdEcdsaSessionByLane: Map<string, ThresholdEcdsaSessionRecord> =
     new Map();
-  private readonly thresholdEcdsaSessionByAccount: Map<string, ThresholdEcdsaSessionRecord> =
-    new Map();
+  private readonly sealedRefreshStartupParityPromise: Promise<void>;
+  private sealedRefreshStartupParityError: Error | null = null;
   private readonly orchestrationDeps: OrchestrationDependencyBundle;
 
   readonly tatchiPasskeyConfigs: TatchiConfigsReadonly;
@@ -156,6 +158,14 @@ export class SigningEngine {
   constructor(tatchiPasskeyConfigs: TatchiConfigsReadonly, nearClient: NearClient) {
     this.tatchiPasskeyConfigs = tatchiPasskeyConfigs;
     this.nearClient = nearClient;
+    this.sealedRefreshStartupParityPromise = verifySealedRefreshStartupParity({
+      configs: this.tatchiPasskeyConfigs,
+    }).catch((error: unknown) => {
+      this.sealedRefreshStartupParityError =
+        error instanceof Error
+          ? error
+          : new Error(String(error || 'sealed refresh parity check failed'));
+    });
 
     const assembly = createManagerAssembly({
       tatchiPasskeyConfigs: this.tatchiPasskeyConfigs,
@@ -213,6 +223,17 @@ export class SigningEngine {
     });
   }
 
+  private async ensureSealedRefreshStartupParity(): Promise<void> {
+    await this.sealedRefreshStartupParityPromise;
+    if (this.sealedRefreshStartupParityError) {
+      throw this.sealedRefreshStartupParityError;
+    }
+  }
+
+  async assertSealedRefreshStartupParity(): Promise<void> {
+    await this.ensureSealedRefreshStartupParity();
+  }
+
   private async withThresholdEcdsaBootstrapQueue<T>(
     nearAccountId: AccountId,
     task: () => Promise<T>,
@@ -245,6 +266,7 @@ export class SigningEngine {
   }
 
   async warmCriticalResources(nearAccountId?: string): Promise<void> {
+    await this.ensureSealedRefreshStartupParity();
     await this.orchestrationDeps.getManagerConvenienceDeps().warmCriticalResources(nearAccountId);
   }
 
@@ -288,6 +310,7 @@ export class SigningEngine {
       data?: unknown;
     }) => void;
   }): Promise<TempoSignedResult | EvmSignedResult> {
+    await this.ensureSealedRefreshStartupParity();
     return await signTempoValue(this.orchestrationDeps.tempoSigningDeps, args);
   }
 
@@ -307,9 +330,7 @@ export class SigningEngine {
     await reportTempoDroppedOrReplacedValue(this.orchestrationDeps.tempoSigningDeps, args);
   }
 
-  async reconcileTempoNonceLane(
-    args: ReconcileTempoNonceLaneArgs,
-  ): Promise<TempoNonceLaneStatus> {
+  async reconcileTempoNonceLane(args: ReconcileTempoNonceLaneArgs): Promise<TempoNonceLaneStatus> {
     return await reconcileTempoNonceLaneValue(this.orchestrationDeps.tempoSigningDeps, args);
   }
 
@@ -500,6 +521,7 @@ export class SigningEngine {
   async bootstrapEcdsaSession(
     args: Parameters<typeof bootstrapEcdsaSessionValue>[1],
   ): Promise<ThresholdEcdsaSessionBootstrapResult> {
+    await this.ensureSealedRefreshStartupParity();
     const nearAccountId = toAccountId(args.nearAccountId);
     return await this.withThresholdEcdsaBootstrapQueue(nearAccountId, async () => {
       return await bootstrapEcdsaSessionValue(
@@ -520,7 +542,7 @@ export class SigningEngine {
   }): void {
     upsertThresholdEcdsaSessionFromBootstrapValue(
       {
-        recordsByAccount: this.thresholdEcdsaSessionByAccount,
+        recordsByLane: this.thresholdEcdsaSessionByLane,
       },
       args,
     );
@@ -528,11 +550,11 @@ export class SigningEngine {
 
   getThresholdEcdsaKeyRefForSigning(args: {
     nearAccountId: AccountId | string;
-    chain?: ThresholdEcdsaActivationChain;
+    chain: ThresholdEcdsaActivationChain;
   }): ThresholdEcdsaSecp256k1KeyRef {
     return getThresholdEcdsaKeyRefForSigningValue(
       {
-        recordsByAccount: this.thresholdEcdsaSessionByAccount,
+        recordsByLane: this.thresholdEcdsaSessionByLane,
       },
       args,
     );
@@ -540,11 +562,11 @@ export class SigningEngine {
 
   getThresholdEcdsaSessionRecordForSigning(args: {
     nearAccountId: AccountId | string;
-    chain?: ThresholdEcdsaActivationChain;
+    chain: ThresholdEcdsaActivationChain;
   }): ThresholdEcdsaSessionRecord {
     return getThresholdEcdsaSessionRecordForSigningValue(
       {
-        recordsByAccount: this.thresholdEcdsaSessionByAccount,
+        recordsByLane: this.thresholdEcdsaSessionByLane,
       },
       args,
     );
@@ -553,7 +575,7 @@ export class SigningEngine {
   clearThresholdEcdsaSessionRecordForAccount(nearAccountId: AccountId | string): void {
     clearThresholdEcdsaSessionRecordForAccountValue(
       {
-        recordsByAccount: this.thresholdEcdsaSessionByAccount,
+        recordsByLane: this.thresholdEcdsaSessionByLane,
       },
       nearAccountId,
     );
@@ -561,7 +583,7 @@ export class SigningEngine {
 
   clearAllThresholdEcdsaSessionRecords(): void {
     clearAllThresholdEcdsaSessionRecordsValue({
-      recordsByAccount: this.thresholdEcdsaSessionByAccount,
+      recordsByLane: this.thresholdEcdsaSessionByLane,
     });
   }
 
@@ -647,6 +669,7 @@ export class SigningEngine {
   }
 
   private async withThresholdEcdsaCommitQueue<T>(args: {
+    queueKey: string;
     nearAccountId: AccountId | string;
     enabled: boolean;
     shouldAbort?: () => boolean;
@@ -655,7 +678,8 @@ export class SigningEngine {
     task: () => Promise<T>;
   }): Promise<T> {
     return await withThresholdEcdsaCommitQueue({
-      queueByAccount: this.thresholdEcdsaCommitQueueByAccount,
+      queueByKey: this.thresholdEcdsaCommitQueueByKey,
+      queueKey: args.queueKey,
       nearAccountId: args.nearAccountId,
       enabled: args.enabled,
       shouldAbort: args.shouldAbort,
@@ -666,7 +690,7 @@ export class SigningEngine {
   }
 
   clearThresholdEcdsaCommitQueue(): void {
-    clearThresholdEcdsaCommitQueue(this.thresholdEcdsaCommitQueueByAccount);
+    clearThresholdEcdsaCommitQueue(this.thresholdEcdsaCommitQueueByKey);
   }
 
   deriveThresholdEd25519ClientVerifyingShareFromCredential(
@@ -763,6 +787,7 @@ export type SigningEnginePublic = Pick<
   | 'getRpId'
   | 'getNonceManager'
   | 'warmCriticalResources'
+  | 'assertSealedRefreshStartupParity'
   | 'signNear'
   | 'signTempo'
   | 'reportTempoBroadcastAccepted'

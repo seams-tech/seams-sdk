@@ -8,6 +8,7 @@ export type PrfSessionSealedStoreRecord = {
   thresholdSessionId: string;
   sealedPrfFirstB64u: string;
   keyVersion?: string;
+  shamirPrimeB64u?: string;
   expiresAtMs: number;
   remainingUses: number;
   updatedAtMs: number;
@@ -81,6 +82,7 @@ function normalizePrfSessionSealedStoreRecord(value: unknown): PrfSessionSealedS
   const remainingUses = normalizeInteger(obj.remainingUses);
   const updatedAtMs = normalizeInteger(obj.updatedAtMs);
   const keyVersion = normalizeOptionalNonEmptyString(obj.keyVersion);
+  const shamirPrimeB64u = normalizeOptionalNonEmptyString(obj.shamirPrimeB64u);
   if (!thresholdSessionId || !sealedPrfFirstB64u) return null;
   if (expiresAtMs == null || expiresAtMs <= 0) return null;
   if (remainingUses == null || remainingUses < 0) return null;
@@ -91,6 +93,7 @@ function normalizePrfSessionSealedStoreRecord(value: unknown): PrfSessionSealedS
     thresholdSessionId,
     sealedPrfFirstB64u,
     ...(keyVersion ? { keyVersion } : {}),
+    ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
     expiresAtMs,
     remainingUses,
     updatedAtMs,
@@ -124,6 +127,7 @@ export function writePrfSessionSealedRecord(args: {
   thresholdSessionId: string;
   sealedPrfFirstB64u: string;
   keyVersion?: string;
+  shamirPrimeB64u?: string;
   expiresAtMs: number;
   remainingUses: number;
   updatedAtMs?: number;
@@ -136,6 +140,7 @@ export function writePrfSessionSealedRecord(args: {
   const remainingUses = normalizeInteger(args.remainingUses);
   const updatedAtMs = normalizeInteger(args.updatedAtMs ?? Date.now());
   const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion);
+  const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.shamirPrimeB64u);
   if (!thresholdSessionId || !sealedPrfFirstB64u) return;
   if (expiresAtMs == null || expiresAtMs <= 0) return;
   if (remainingUses == null || remainingUses < 0) return;
@@ -147,6 +152,7 @@ export function writePrfSessionSealedRecord(args: {
     thresholdSessionId,
     sealedPrfFirstB64u,
     ...(keyVersion ? { keyVersion } : {}),
+    ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
     expiresAtMs,
     remainingUses,
     updatedAtMs,
@@ -173,6 +179,7 @@ export function updatePrfSessionSealedRecordPolicy(args: {
     thresholdSessionId,
     sealedPrfFirstB64u: existing.sealedPrfFirstB64u,
     keyVersion: existing.keyVersion,
+    shamirPrimeB64u: existing.shamirPrimeB64u,
     expiresAtMs,
     remainingUses,
     updatedAtMs,

@@ -8,10 +8,20 @@ export type ThresholdEcdsaCommitQueueErrorCode =
 
 export type ThresholdEcdsaCommitQueueError = Error & { code: ThresholdEcdsaCommitQueueErrorCode };
 
+export type ThresholdEcdsaCommitQueueKeyInput = {
+  nearAccountId: AccountId | string;
+  chain: 'tempo' | 'evm';
+  thresholdSessionId?: string;
+  relayerUrl?: string;
+  relayerKeyId?: string;
+  clientVerifyingShareB64u?: string;
+};
+
 type ThresholdEcdsaCommitQueueItem = {
   enqueuedAtMs: number;
   timeoutMs: number;
   shouldAbort?: () => boolean;
+  nearAccountId: string;
   timeoutHandle: ReturnType<typeof setTimeout> | null;
   isSettled: () => boolean;
   run: () => Promise<void>;
@@ -23,18 +33,20 @@ type ThresholdEcdsaCommitQueueState = {
   items: ThresholdEcdsaCommitQueueItem[];
 };
 
-export type ThresholdEcdsaCommitQueueByAccount = Map<string, ThresholdEcdsaCommitQueueState>;
+export type ThresholdEcdsaCommitQueueByKey = Map<string, ThresholdEcdsaCommitQueueState>;
 
 const DEFAULT_MAX_QUEUE_LENGTH = 8;
 const DEFAULT_QUEUE_TIMEOUT_MS = 45_000;
 
 export function createThresholdEcdsaCommitQueueOverflowError(
   nearAccountId: AccountId | string,
+  queueKeyRaw: string,
   maxQueueLength: number,
 ): ThresholdEcdsaCommitQueueError {
   const accountId = String(toAccountId(nearAccountId));
+  const queueKey = String(queueKeyRaw || '').trim() || `account:${accountId}`;
   const err = new Error(
-    `[SigningEngine] threshold ECDSA commit queue overflow for ${accountId} (max=${maxQueueLength})`,
+    `[SigningEngine] threshold ECDSA commit queue overflow for ${accountId} (queueKey=${queueKey}, max=${maxQueueLength})`,
   ) as ThresholdEcdsaCommitQueueError;
   err.code = 'commit_queue_overflow';
   return err;
@@ -42,11 +54,13 @@ export function createThresholdEcdsaCommitQueueOverflowError(
 
 export function createThresholdEcdsaCommitQueueTimeoutError(
   nearAccountId: AccountId | string,
+  queueKeyRaw: string,
   timeoutMs: number,
 ): ThresholdEcdsaCommitQueueError {
   const accountId = String(toAccountId(nearAccountId));
+  const queueKey = String(queueKeyRaw || '').trim() || `account:${accountId}`;
   const err = new Error(
-    `[SigningEngine] threshold ECDSA commit queue timeout for ${accountId} (waited>${timeoutMs}ms before start)`,
+    `[SigningEngine] threshold ECDSA commit queue timeout for ${accountId} (queueKey=${queueKey}, waited>${timeoutMs}ms before start)`,
   ) as ThresholdEcdsaCommitQueueError;
   err.code = 'commit_queue_timeout';
   return err;
@@ -54,16 +68,40 @@ export function createThresholdEcdsaCommitQueueTimeoutError(
 
 export function createThresholdEcdsaCommitQueueCancelledError(
   nearAccountId: AccountId | string,
+  queueKeyRaw: string,
   reason: 'cancelled' | 'queue_cleared' = 'cancelled',
 ): ThresholdEcdsaCommitQueueError {
   const accountId = String(toAccountId(nearAccountId));
+  const queueKey = String(queueKeyRaw || '').trim() || `account:${accountId}`;
   const message =
     reason === 'queue_cleared'
-      ? `[SigningEngine] threshold ECDSA queued commit cancelled for ${accountId} (queue_cleared)`
-      : `[SigningEngine] threshold ECDSA queued commit cancelled for ${accountId}`;
+      ? `[SigningEngine] threshold ECDSA queued commit cancelled for ${accountId} (queueKey=${queueKey}, queue_cleared)`
+      : `[SigningEngine] threshold ECDSA queued commit cancelled for ${accountId} (queueKey=${queueKey})`;
   const err = new Error(message) as ThresholdEcdsaCommitQueueError;
   err.code = 'cancelled';
   return err;
+}
+
+function encodeQueueToken(valueRaw: unknown): string {
+  return encodeURIComponent(String(valueRaw || '').trim());
+}
+
+export function resolveThresholdEcdsaCommitQueueKey(args: ThresholdEcdsaCommitQueueKeyInput): string {
+  const nearAccountId = String(toAccountId(args.nearAccountId));
+  const chain = args.chain === 'evm' ? 'evm' : 'tempo';
+  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+  if (thresholdSessionId) {
+    return `session:${chain}:${thresholdSessionId}`;
+  }
+
+  const relayerUrl = String(args.relayerUrl || '').trim();
+  const relayerKeyId = String(args.relayerKeyId || '').trim();
+  const clientVerifyingShareB64u = String(args.clientVerifyingShareB64u || '').trim();
+  if (relayerUrl && relayerKeyId && clientVerifyingShareB64u) {
+    return `lane:${chain}:${encodeQueueToken(relayerUrl)}|${encodeQueueToken(relayerKeyId)}|${encodeQueueToken(clientVerifyingShareB64u)}`;
+  }
+
+  return `account:${nearAccountId}`;
 }
 
 function normalizeQueueLimit(value: unknown, fallback: number): number {
@@ -74,16 +112,16 @@ function normalizeQueueLimit(value: unknown, fallback: number): number {
 }
 
 function getOrCreateQueueState(
-  queueByAccount: ThresholdEcdsaCommitQueueByAccount,
-  accountKey: string,
+  queueByKey: ThresholdEcdsaCommitQueueByKey,
+  queueKey: string,
 ): ThresholdEcdsaCommitQueueState {
-  const existing = queueByAccount.get(accountKey);
+  const existing = queueByKey.get(queueKey);
   if (existing) return existing;
   const created: ThresholdEcdsaCommitQueueState = {
     running: false,
     items: [],
   };
-  queueByAccount.set(accountKey, created);
+  queueByKey.set(queueKey, created);
   return created;
 }
 
@@ -94,11 +132,11 @@ function clearQueueItemTimeout(item: ThresholdEcdsaCommitQueueItem): void {
   }
 }
 
-async function drainQueueForAccount(
-  queueByAccount: ThresholdEcdsaCommitQueueByAccount,
-  accountKey: string,
+async function drainQueueForKey(
+  queueByKey: ThresholdEcdsaCommitQueueByKey,
+  queueKey: string,
 ): Promise<void> {
-  const state = queueByAccount.get(accountKey);
+  const state = queueByKey.get(queueKey);
   if (!state || state.running) return;
 
   state.running = true;
@@ -110,11 +148,13 @@ async function drainQueueForAccount(
       clearQueueItemTimeout(item);
 
       if (item.shouldAbort?.()) {
-        item.reject(createThresholdEcdsaCommitQueueCancelledError(accountKey));
+        item.reject(createThresholdEcdsaCommitQueueCancelledError(item.nearAccountId, queueKey));
         continue;
       }
       if (Date.now() - item.enqueuedAtMs > item.timeoutMs) {
-        item.reject(createThresholdEcdsaCommitQueueTimeoutError(accountKey, item.timeoutMs));
+        item.reject(
+          createThresholdEcdsaCommitQueueTimeoutError(item.nearAccountId, queueKey, item.timeoutMs),
+        );
         continue;
       }
 
@@ -126,34 +166,41 @@ async function drainQueueForAccount(
     }
   } finally {
     state.running = false;
-    if (state.items.length === 0 && queueByAccount.get(accountKey) === state) {
-      queueByAccount.delete(accountKey);
+    if (state.items.length === 0 && queueByKey.get(queueKey) === state) {
+      queueByKey.delete(queueKey);
     }
   }
 }
 
 function scheduleQueueDrain(
-  queueByAccount: ThresholdEcdsaCommitQueueByAccount,
-  accountKey: string,
+  queueByKey: ThresholdEcdsaCommitQueueByKey,
+  queueKey: string,
 ): void {
-  void drainQueueForAccount(queueByAccount, accountKey);
+  void drainQueueForKey(queueByKey, queueKey);
 }
 
 export function clearThresholdEcdsaCommitQueue(
-  queueByAccount: ThresholdEcdsaCommitQueueByAccount,
+  queueByKey: ThresholdEcdsaCommitQueueByKey,
 ): void {
-  for (const [accountKey, state] of queueByAccount.entries()) {
+  for (const [queueKey, state] of queueByKey.entries()) {
     for (const item of state.items) {
       clearQueueItemTimeout(item);
-      item.reject(createThresholdEcdsaCommitQueueCancelledError(accountKey, 'queue_cleared'));
+      item.reject(
+        createThresholdEcdsaCommitQueueCancelledError(
+          item.nearAccountId,
+          queueKey,
+          'queue_cleared',
+        ),
+      );
     }
     state.items.length = 0;
   }
-  queueByAccount.clear();
+  queueByKey.clear();
 }
 
 export async function withThresholdEcdsaCommitQueue<T>(args: {
-  queueByAccount: ThresholdEcdsaCommitQueueByAccount;
+  queueByKey: ThresholdEcdsaCommitQueueByKey;
+  queueKey: string;
   nearAccountId: AccountId | string;
   enabled: boolean;
   shouldAbort?: () => boolean;
@@ -163,13 +210,17 @@ export async function withThresholdEcdsaCommitQueue<T>(args: {
 }): Promise<T> {
   if (!args.enabled) return await args.task();
 
+  const queueKey = String(args.queueKey || '').trim();
+  if (!queueKey) {
+    throw new Error('[SigningEngine] threshold ECDSA commit queue requires non-empty queueKey');
+  }
   const accountKey = String(toAccountId(args.nearAccountId));
   const maxQueueLength = normalizeQueueLimit(args.maxQueueLength, DEFAULT_MAX_QUEUE_LENGTH);
   const queueTimeoutMs = normalizeQueueLimit(args.queueTimeoutMs, DEFAULT_QUEUE_TIMEOUT_MS);
-  const state = getOrCreateQueueState(args.queueByAccount, accountKey);
+  const state = getOrCreateQueueState(args.queueByKey, queueKey);
   const queueDepth = state.items.length + (state.running ? 1 : 0);
   if (queueDepth >= maxQueueLength) {
-    throw createThresholdEcdsaCommitQueueOverflowError(accountKey, maxQueueLength);
+    throw createThresholdEcdsaCommitQueueOverflowError(accountKey, queueKey, maxQueueLength);
   }
 
   return await new Promise<T>((resolve, reject) => {
@@ -196,12 +247,13 @@ export async function withThresholdEcdsaCommitQueue<T>(args: {
       enqueuedAtMs: Date.now(),
       timeoutMs: queueTimeoutMs,
       shouldAbort: args.shouldAbort,
+      nearAccountId: accountKey,
       timeoutHandle: null,
       isSettled: () => settled,
       reject: rejectOnce,
       run: async () => {
         if (args.shouldAbort?.()) {
-          throw createThresholdEcdsaCommitQueueCancelledError(accountKey);
+          throw createThresholdEcdsaCommitQueueCancelledError(accountKey, queueKey);
         }
         const result = await args.task();
         resolveOnce(result);
@@ -213,17 +265,17 @@ export async function withThresholdEcdsaCommitQueue<T>(args: {
       if (idx >= 0) {
         state.items.splice(idx, 1);
       }
-      rejectOnce(createThresholdEcdsaCommitQueueTimeoutError(accountKey, queueTimeoutMs));
+      rejectOnce(createThresholdEcdsaCommitQueueTimeoutError(accountKey, queueKey, queueTimeoutMs));
       if (
         !state.running &&
         state.items.length === 0 &&
-        args.queueByAccount.get(accountKey) === state
+        args.queueByKey.get(queueKey) === state
       ) {
-        args.queueByAccount.delete(accountKey);
+        args.queueByKey.delete(queueKey);
       }
     }, queueTimeoutMs);
     item.timeoutHandle = timeoutHandle;
     state.items.push(item);
-    scheduleQueueDrain(args.queueByAccount, accountKey);
+    scheduleQueueDrain(args.queueByKey, queueKey);
   });
 }

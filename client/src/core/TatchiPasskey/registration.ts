@@ -23,9 +23,7 @@ import {
   THRESHOLD_SESSION_POLICY_VERSION,
   generateThresholdSessionId,
 } from '../signingEngine/threshold/session/sessionPolicy';
-import {
-  buildAndCacheEd25519AuthSession,
-} from '../signingEngine/threshold/session/ed25519AuthSession';
+import { buildAndCacheEd25519AuthSession } from '../signingEngine/threshold/session/ed25519AuthSession';
 import type {
   EcdsaSignerProvisioningDefaults,
   EcdsaSignerProvisioningPolicy,
@@ -773,13 +771,20 @@ export async function registerPasskeyInternal(
           },
         };
 
-        const canonicalChain = thresholdEcdsaPrimaryProvisionTarget?.chain || 'tempo';
-        signingEngine.upsertThresholdEcdsaSessionFromBootstrap({
-          nearAccountId,
-          chain: canonicalChain,
-          bootstrap: bootstrapProjection,
-          source: 'registration',
-        });
+        const sessionProvisionChains = new Set<'tempo' | 'evm'>(
+          thresholdEcdsaProvisionTargets.map((target) => target.chain),
+        );
+        if (sessionProvisionChains.size === 0) {
+          sessionProvisionChains.add(thresholdEcdsaPrimaryProvisionTarget?.chain || 'tempo');
+        }
+        for (const chain of sessionProvisionChains) {
+          signingEngine.upsertThresholdEcdsaSessionFromBootstrap({
+            nearAccountId,
+            chain,
+            bootstrap: bootstrapProjection,
+            source: 'registration',
+          });
+        }
 
         for (const target of thresholdEcdsaProvisionTargets) {
           await signingEngine.persistThresholdEcdsaBootstrapChainAccount({

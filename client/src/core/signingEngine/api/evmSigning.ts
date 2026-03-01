@@ -16,6 +16,7 @@ import type { EvmSignedResult } from '../chainAdaptors/evm/evmAdapter';
 import type { TempoSigningRequest } from '../chainAdaptors/tempo/types';
 import type { TempoSignedResult } from '../chainAdaptors/tempo/tempoAdapter';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../interfaces/signing';
+import { resolveThresholdEcdsaCommitQueueKey } from './thresholdLifecycle/thresholdEcdsaCommitQueue';
 import { emitNonceLifecycleMetric } from './evmNonceLifecycleMetrics';
 import {
   deriveSmartAccountDeploymentTargetFromSigningRequest,
@@ -50,6 +51,7 @@ export type EvmFamilySigningDeps = {
   evmNonceManager: EvmNonceManager;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
   withThresholdEcdsaCommitQueue: <T>(args: {
+    queueKey: string;
     nearAccountId: string;
     enabled: boolean;
     shouldAbort?: () => boolean;
@@ -1134,61 +1136,57 @@ export async function signEvmFamily(
             });
           } catch {}
         },
-        enqueueThresholdEcdsaCommit: thresholdEcdsaKeyRef
-          ? async (queueArgs) => {
+        enqueueThresholdEcdsaCommit: async (queueArgs) => {
+          const queueKey = resolveThresholdEcdsaCommitQueueKey({
+            nearAccountId: queueArgs.nearAccountId,
+            chain: args.request.chain,
+            thresholdSessionId: thresholdEcdsaKeyRef?.thresholdSessionId,
+            relayerUrl: thresholdEcdsaKeyRef?.relayerUrl,
+            relayerKeyId: thresholdEcdsaKeyRef?.relayerKeyId,
+            clientVerifyingShareB64u: thresholdEcdsaKeyRef?.clientVerifyingShareB64u,
+          });
+          try {
+            args.onEvent?.({
+              step: 4,
+              phase: 'commit-queued',
+              status: 'progress',
+              message: 'Queued for threshold signing commit',
+              data: { queueKey, chain: args.request.chain },
+            });
+          } catch {}
+          return await deps.withThresholdEcdsaCommitQueue({
+            queueKey,
+            nearAccountId: queueArgs.nearAccountId,
+            enabled: true,
+            shouldAbort: queueArgs.shouldAbort,
+            task: async () => {
+              throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
+              if (String(thresholdEcdsaKeyRef?.thresholdSessionId || '').trim()) {
+                await assertThresholdSigningSessionReady({
+                  touchConfirm: deps.touchConfirm,
+                  sessionId: thresholdEcdsaKeyRef?.thresholdSessionId,
+                  usesNeeded: 1,
+                });
+              }
               try {
                 args.onEvent?.({
                   step: 4,
-                  phase: 'commit-queued',
+                  phase: 'commit-started',
                   status: 'progress',
-                  message: 'Queued for threshold signing commit',
+                  message: 'Starting threshold signing commit',
+                  data: { queueKey, chain: args.request.chain },
                 });
               } catch {}
-              return await deps.withThresholdEcdsaCommitQueue({
-                nearAccountId: queueArgs.nearAccountId,
-                enabled: true,
-                shouldAbort: queueArgs.shouldAbort,
-                task: async () => {
-                  throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
-                  await assertThresholdSigningSessionReady({
-                    touchConfirm: deps.touchConfirm,
-                    sessionId: thresholdEcdsaKeyRef?.thresholdSessionId,
-                    usesNeeded: 1,
-                  });
-                  try {
-                    args.onEvent?.({
-                      step: 4,
-                      phase: 'commit-started',
-                      status: 'progress',
-                      message: 'Starting threshold signing commit',
-                    });
-                  } catch {}
-                  await ensureSmartAccountDeploymentReady({
-                    deps,
-                    nearAccountId: args.nearAccountId,
-                    request: args.request,
-                  });
-                  throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
-                  return await queueArgs.task();
-                },
+              await ensureSmartAccountDeploymentReady({
+                deps,
+                nearAccountId: args.nearAccountId,
+                request: args.request,
               });
-            }
-          : async (queueArgs) =>
-              await deps.withThresholdEcdsaCommitQueue({
-                nearAccountId: queueArgs.nearAccountId,
-                enabled: true,
-                shouldAbort: queueArgs.shouldAbort,
-                task: async () => {
-                  throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
-                  await ensureSmartAccountDeploymentReady({
-                    deps,
-                    nearAccountId: args.nearAccountId,
-                    request: args.request,
-                  });
-                  throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
-                  return await queueArgs.task();
-                },
-              }),
+              throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
+              return await queueArgs.task();
+            },
+          });
+        },
         dispenseThresholdEcdsaPrfFirstForSession: (payload) =>
           deps.touchConfirm.dispensePrfFirstForThresholdSession(payload),
       }),
