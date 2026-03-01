@@ -131,6 +131,43 @@ jobs:
       - name: Run signer parity with iOS Swift replay
         run: pnpm -C tests test:signer-parity:swift
 
+  relay-server-postgres-split-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies (workspace)
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Prepare SDK dist for relay-server scripts
+        run: pnpm -s server:prepare-sdk
+
+      - name: Run split-domain Postgres bootstrap+migrate+verify smoke
+        env:
+          POSTGRES_URL: postgres://tatchi_signer:tatchi_signer@127.0.0.1:5432/tatchi_signer
+          POSTGRES_MIGRATION_URL: postgres://tatchi_signer_migrator:tatchi_signer_migrator@127.0.0.1:5432/tatchi_signer
+          CONSOLE_POSTGRES_URL: postgres://tatchi_console:tatchi_console@127.0.0.1:5432/tatchi_console
+          CONSOLE_POSTGRES_MIGRATION_URL: postgres://tatchi_console_migrator:tatchi_console_migrator@127.0.0.1:5432/tatchi_console
+        run: pnpm -C examples/relay-server run postgres:setup:split
+
+      - name: Teardown relay-server Postgres compose stack
+        if: always()
+        run: pnpm -C examples/relay-server run postgres:down
+
   threshold-signing-core:
     runs-on: ubuntu-latest
     services:
@@ -206,6 +243,9 @@ jobs:
 
       - name: Run console Postgres isolation suites
         run: pnpm -C tests test:relayer:console-postgres
+
+      - name: Run relay-server script unit checks
+        run: pnpm -C tests test:unit:relay-server-scripts
 
       - name: Run threshold ECDSA benchmark SLO gates
         env:

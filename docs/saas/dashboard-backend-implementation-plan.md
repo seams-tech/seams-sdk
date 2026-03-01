@@ -1,6 +1,6 @@
 # Dashboard + Backend Implementation Plan
 
-Date updated: February 27, 2026
+Date updated: March 1, 2026
 
 ## Objective
 
@@ -23,6 +23,18 @@ This plan assumes:
   - `docs/saas/self-hosted-migration.md`
   - `docs/saas/import-threshold-keys.md`
   - `docs/saas/multichain-account-recovery.md`
+
+## Database Topology Decision (Resolved)
+
+- Use the same Postgres cluster/instance for local and early-stage deployments.
+- Split runtime signer data and console/billing data into separate logical databases (or at minimum separate schemas with separate app roles).
+- Maintain separate DB users/permissions/migration streams per domain:
+  - signer domain: threshold signing + relay runtime tables.
+  - console domain: org/project/environment, dashboard settings, billing, subscriptions, webhooks, API keys.
+- Local cluster anchor is derived from provided URL:
+  - provided: `postgresql://tatchi:tatchi@127.0.0.1/tatchi?statusColor=686B6F&env=local&name=tatchi&tLSMode=0&usePrivateKey=false&safeModeLevel=0&advancedSafeModeLevel=0&driverVersion=0&lazyload=false`
+  - target logical DBs: `tatchi_signer` and `tatchi_console` on the same `127.0.0.1` cluster.
+- Integration between signer and console domains stays API/event-based; no direct cross-database joins.
 
 ## Current State (as of February 27, 2026)
 
@@ -160,6 +172,13 @@ Completed:
   - invoices, line-item drilldown, payment methods, payment execution actions, and chain finality policy tables are wired in UI.
   - single-rail semantics are surfaced in UI via invoice rail-lock and outstanding-balance guidance per payment rail.
   - card management actions in UI are gated to `admin` role to match backend RBAC.
+  - subscription-management controls are wired in UI (subscription status visibility, cancel/resume actions, Stripe checkout handoff, and customer-portal entry).
+  - dashboard billing now consumes:
+    - `GET /console/billing/subscription`
+    - `POST /console/billing/subscription/cancel`
+    - `POST /console/billing/subscription/resume`
+    - `POST /console/billing/stripe/checkout-session`
+    - `POST /console/billing/stripe/customer-portal-session`
 - Dashboard console frontend clients now share a common HTTP helper for base URL resolution, headers, JSON parsing, and API error normalization (session/context/wallet/api-keys/webhooks/billing).
 - Dashboard now bootstraps console auth state via `GET /console/session` and gates wallet page API calls on active session claims.
 - Dashboard topbar org/project/environment selectors are now wired to live console APIs:
@@ -236,9 +255,27 @@ Completed:
 - Cross-org mutation denial coverage is implemented for org/project/environment services and routes.
 - Direct Postgres FK denial coverage is implemented for invalid cross-org wallet lineage inserts.
 
-In progress:
+Recently completed hardening:
 
-- Full table-by-table RLS policy enforcement remains pending until DB-level tenant context variables and policies are introduced.
+- DB-level tenant context primitives are now introduced (`app.console_namespace`, `app.console_org_id`) with transaction-scoped Postgres client wiring across runtime snapshots, org/project/environment, wallets, API keys, policies, webhooks, config modules, and billing operations.
+- RLS policy enforcement is now active for `console_runtime_snapshots`, `console_organizations`, `console_projects`, `console_environments`, `console_wallet_index`, `console_api_keys`, `console_gas_sponsorship_configs`, `console_smart_wallet_configs`, `console_environment_settings`, `console_key_exports`, `console_policies`, `console_policy_versions`, `console_policy_assignments`, `console_webhook_endpoints`, `console_webhook_deliveries`, `console_webhook_attempts`, `console_webhook_dead_letters`, `console_billing_accounts`, `console_subscriptions`, `console_usage_meter_events`, `console_usage_rollups_monthly`, `console_invoices`, `console_invoice_line_items`, `console_payment_methods`, `console_stripe_payment_intents`, `console_stripe_webhook_events`, `console_stablecoin_quotes`, `console_stablecoin_payment_intents`, and `console_payment_state_transitions`, with dedicated DB-level policy tests for each completed slice.
+- Monthly billing finalization now runs with explicit org targets (`orgIds`) to remain compatible with FORCE-RLS billing tables.
+- Stripe provider-ref linkage is now isolated through `console_stripe_provider_refs` for webhook reconciliation while keeping tenant RLS on `console_stripe_payment_intents` and `console_stripe_webhook_events`.
+- Billing exception table: `console_stripe_provider_refs` remains system-scoped so webhook intake can resolve tenant context from `providerRef` before entering tenant-scoped transactions.
+- Runtime snapshot publish now writes tenant-scoped outbox events (`console_runtime_snapshot_outbox`) and a cron-dispatch runner exists with org-targeted advisory-lock execution (default runner requires an explicit dispatch callback).
+- Webhook delivery retries now have a dedicated Postgres retry-dispatch runner (`runPostgresConsoleWebhookRetryDispatch`) with configurable attempt caps/backoff windows and Cloudflare cron advisory-lock wiring.
+- Cloudflare relay worker cron enablement is now resolved from a unified feature-flag snapshot, so billing/outbox/webhook cron jobs can run without requiring legacy `ENABLE_ROTATION`.
+- Worker cron-flag semantics are covered by focused unit tests (`cloudflare-worker-cron-flags.test.ts`) to prevent regressions in cron activation behavior.
+- Cloudflare cron jobs now support per-job cron-expression allowlists (`cronExpressions`) so billing finalization, runtime snapshot outbox dispatch, and webhook retry dispatch can run on independent schedules from the same worker.
+- Worker cron config assembly is now extracted into a dedicated helper (`cronConfig.ts`) and covered by focused mapping tests (`cloudflare-worker-cron-config.test.ts`) for env parsing, fallback semantics, and runtime snapshot outbox dispatch wiring.
+- Worker scheduled orchestration is now extracted into `scheduledHandler.ts` and covered by integration tests (`cloudflare-worker-scheduled.test.ts`) validating env flag resolution, cron option handoff, and scheduled event forwarding.
+- Worker deployment config now includes explicit staging/production console cron scaffolding (`BILLING_*`, `RUNTIME_SNAPSHOT_OUTBOX_*`, `WEBHOOK_RETRY_*`) with jobs disabled by default and per-job cron expressions declared for controlled enablement.
+- Worker scheduled path now performs pre-flight cron config validation and emits structured warnings for missing required job config (`postgresUrl` / `orgIds`) with test coverage on warning emission.
+- Worker cron env surface now has explicit defaults for all related vars in staging/production (`ENABLE_ROTATION`, `*_POSTGRES_URL`, `*_ORG_IDS`, `*_CRONS`, limits/backoff, and period override), with safe disabled/no-op defaults.
+- Stripe webhook projection coverage now includes checkout/subscription/invoice event types (`checkout.session.completed`, `customer.subscription.*`, `invoice.*`) with idempotent event processing across in-memory and Postgres billing services and router suites.
+- Browser-level e2e wiring coverage now includes:
+  - `/pricing` -> checkout-session API handoff and redirect behavior.
+  - `/dashboard/billing` subscription-management controls (`cancel`, `resume`, `customer-portal`, `checkout`) with API contract assertions.
 
 ## Route Namespace Convention
 
@@ -447,6 +484,11 @@ Key outputs:
   - `POST /console/billing/payment-methods/:id/default`
   - `POST /console/billing/stripe/setup-intent`
   - `POST /console/billing/stripe/payment-intent`
+  - `POST /console/billing/stripe/checkout-session`
+  - `POST /console/billing/stripe/customer-portal-session`
+  - `GET /console/billing/subscription`
+  - `POST /console/billing/subscription/cancel`
+  - `POST /console/billing/subscription/resume`
   - `POST /console/billing/stripe/webhook` (provider callback endpoint)
   - `GET /console/billing/stablecoins/assets`
   - `POST /console/billing/stablecoins/quotes`
@@ -597,6 +639,10 @@ Status (backend):
   - `POST /console/billing/stablecoins/payment-intents`
 - Add webhook signer and retry worker.
 - Add Stripe integration (setup intents, payment intents, webhook verification).
+- Add Stripe checkout + subscription lifecycle integration:
+  - checkout session create endpoint for pricing CTA handoff,
+  - dashboard return handling (`success`/`cancel`) and invoice/subscription refresh,
+  - customer-portal session endpoint for subscription management actions.
 - Add stablecoin quote/payment-intent lifecycle and on-chain settlement reconciliation for `USDC` and `USDT`.
 - Keep provider boundaries explicit via billing provider adapters (Stripe setup/payment intent creation + stablecoin destination allocation) so billing domain logic remains provider-agnostic.
 - Enforce `USDC`/`USDT` funding support across all currently supported chains: `Ethereum`, `Base`, `Tempo`, `Arc Circle`, and `NEAR`.
@@ -853,6 +899,34 @@ Compliance:
 - [x] Implement dedicated console insight contracts for policy/gas/export (`/console/policy/coverage`, `/console/gas/readiness`, `/console/export/governance`).
 - [x] Wire policy/gas/export dashboard pages to dedicated insight contracts.
 - [x] Extend console router tests to cover insight contracts (express/cloudflare + Postgres org isolation).
+
+## Post-Refactor Next Steps (Open Checklist)
+
+- [x] Add dashboard runtime snapshot UI wiring (`latest`, history list, and `publish-current` action) with role-gated controls.
+- [x] Add relay/runtime consumer integration for versioned environment snapshots (read latest by org/project/environment and validate checksum/version semantics).
+- [x] Implement DB-level tenant context variables + table-by-table RLS policies for console tables, with policy tests.
+- [x] Introduce outbox-backed runtime snapshot publish events so runtime consumers can subscribe to config changes deterministically.
+- [x] Add API contract tests for runtime snapshot endpoints (`/console/runtime-snapshots*`) including publish-current payload-resolver semantics and `not_configured` module markers.
+- [x] Add pricing page -> Stripe Checkout session wiring (CTA calls backend checkout-session endpoint and redirects to hosted checkout).
+- [x] Add Stripe Checkout return route handling in dashboard billing (`success`/`cancel`, status banners, idempotent refresh).
+- [x] Add console billing subscription endpoints (`GET`, `cancel`, `resume`) backed by Stripe subscription state projection.
+- [x] Add console billing Stripe customer-portal session endpoint (`POST /console/billing/stripe/customer-portal-session`).
+- [x] Add dashboard billing subscription-management UI controls (plan status, renewal, cancel/resume, portal entry).
+- [x] Add webhook handling coverage for checkout/subscription events (`checkout.session.completed`, `customer.subscription.*`, `invoice.*`) with idempotent projection.
+- [x] Add e2e/route tests for pricing -> checkout handoff and dashboard post-checkout state.
+- [x] Split Postgres config into signer and console logical DB targets with separate migration runners and least-privilege DB users.
+  - Progress: relay-server example now supports `CONSOLE_POSTGRES_URL` (fallback `POSTGRES_URL`) so console billing/webhooks can target a separate logical database from threshold runtime stores.
+  - Progress: relay-server now includes explicit domain migration commands:
+    - `postgres:migrate:signer` (`POSTGRES_MIGRATION_URL` -> `POSTGRES_URL`)
+    - `postgres:migrate:console` (`CONSOLE_POSTGRES_MIGRATION_URL` -> `CONSOLE_POSTGRES_URL` -> `POSTGRES_URL`)
+    - `postgres:migrate:all`
+  - Progress: relay-server now includes local split-domain DB/bootstrap automation (`postgres:bootstrap:split`) for signer/console runtime+migrator roles, databases, and grants.
+  - Progress: relay-server supports strict migration mode with `CONSOLE_BILLING_ENSURE_SCHEMA=0` and `CONSOLE_WEBHOOKS_ENSURE_SCHEMA=0` to disable startup schema auto-creation.
+  - Progress: relay-server now includes explicit least-privilege verification (`postgres:verify:split`) and validated local flow (`postgres:up` -> `postgres:bootstrap:split` -> `postgres:migrate:all` -> `postgres:verify:split`).
+  - Progress: relay-server now exposes a one-shot bootstrap+migrate+verify command (`postgres:setup:split`) for repeatable local bring-up.
+  - Progress: CI now includes a dedicated `relay-server-postgres-split-smoke` job that executes split bootstrap+migrate+verify and always tears down compose resources.
+  - Progress: verifier failure-path coverage now includes invalid-identifier fast-fail assertions (`tests/unit/postgresVerifySplitDomains.script.unit.test.ts`).
+  - Progress: threshold-core CI now runs `test:unit:relay-server-scripts`, gating verifier-script unit checks on every run.
 
 ## Open Decisions
 

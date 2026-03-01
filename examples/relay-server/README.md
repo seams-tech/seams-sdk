@@ -137,11 +137,15 @@ EXPECTED_ORIGIN=http://localhost:3000
 # EXPECTED_WALLET_ORIGIN=http://localhost:4173
 
 # Runtime/signer persistence (threshold sessions/shares/auth)
-# POSTGRES_URL=postgres://tatchi:tatchi@127.0.0.1:5432/tatchi_signer
+# POSTGRES_URL=postgres://tatchi_signer:tatchi_signer@127.0.0.1:5432/tatchi_signer
+# Optional signer migration URL (recommended separate migrator role)
+# POSTGRES_MIGRATION_URL=postgres://tatchi_signer_migrator:tatchi_signer_migrator@127.0.0.1:5432/tatchi_signer
 
 # Optional console persistence override (billing + webhooks + console data)
 # Falls back to POSTGRES_URL when unset.
 # CONSOLE_POSTGRES_URL=postgres://tatchi_console:tatchi_console@127.0.0.1:5432/tatchi_console
+# Optional console migration URL (recommended separate migrator role)
+# CONSOLE_POSTGRES_MIGRATION_URL=postgres://tatchi_console_migrator:tatchi_console_migrator@127.0.0.1:5432/tatchi_console
 
 # Console/admin auth (dev adapter)
 CONSOLE_DEV_TOKEN=dev-console-token
@@ -149,8 +153,10 @@ CONSOLE_DEV_TOKEN=dev-console-token
 # Console billing backend:
 # - postgres (persists data to Postgres)
 # - memory (ephemeral dev-only in-memory store)
-# Defaults to postgres when POSTGRES_URL is set, otherwise memory.
+# Defaults to postgres when CONSOLE_POSTGRES_URL or POSTGRES_URL is set, otherwise memory.
 # CONSOLE_BILLING_BACKEND=postgres
+# Set to 0/false to disable startup schema auto-creation (use explicit migration scripts).
+# CONSOLE_BILLING_ENSURE_SCHEMA=1
 # Optional namespace for Postgres billing tables
 # CONSOLE_BILLING_NAMESPACE=relay-console
 # Optional shared secret required by POST /console/billing/stripe/webhook
@@ -159,8 +165,10 @@ CONSOLE_DEV_TOKEN=dev-console-token
 # Console webhooks backend:
 # - postgres (persists webhook endpoints/deliveries/attempts/dead-letters)
 # - memory (ephemeral dev-only in-memory store)
-# Defaults to postgres when POSTGRES_URL is set, otherwise memory.
+# Defaults to postgres when CONSOLE_POSTGRES_URL or POSTGRES_URL is set, otherwise memory.
 # CONSOLE_WEBHOOKS_BACKEND=postgres
+# Set to 0/false to disable startup schema auto-creation (use explicit migration scripts).
+# CONSOLE_WEBHOOKS_ENSURE_SCHEMA=1
 # Optional namespace for Postgres webhook tables
 # CONSOLE_WEBHOOKS_NAMESPACE=relay-console
 
@@ -204,17 +212,27 @@ For local dev, prefer Postgres (durable; also persists threshold session/auth KV
 ```bash
 # from examples/relay-server
 pnpm run postgres:up
+
+# optional: bootstrap split DB users + databases + grants
+pnpm run postgres:bootstrap:split
+
+# full split-domain setup + verify (up -> bootstrap -> migrate -> verify)
+pnpm run postgres:setup:split
 ```
 
 Then in your relay `.env`:
 
 ```bash
 # runtime/signer data (threshold session/auth/share stores)
-POSTGRES_URL=postgres://tatchi:tatchi@127.0.0.1:5432/tatchi_signer
+POSTGRES_URL=postgres://tatchi_signer:tatchi_signer@127.0.0.1:5432/tatchi_signer
 
 # optional: console domain data (billing/webhooks/admin control-plane)
 # defaults to POSTGRES_URL when omitted
 CONSOLE_POSTGRES_URL=postgres://tatchi_console:tatchi_console@127.0.0.1:5432/tatchi_console
+
+# optional: migration-only URLs (recommended for least-privilege runtime users)
+POSTGRES_MIGRATION_URL=postgres://tatchi_signer_migrator:tatchi_signer_migrator@127.0.0.1:5432/tatchi_signer
+CONSOLE_POSTGRES_MIGRATION_URL=postgres://tatchi_console_migrator:tatchi_console_migrator@127.0.0.1:5432/tatchi_console
 ```
 
 Alternatively, run Redis and set `REDIS_URL`:
@@ -232,6 +250,37 @@ REDIS_URL=redis://127.0.0.1:6379
 ```
 
 If both `POSTGRES_URL` and `REDIS_URL` are set, this example server prefers Postgres for threshold stores.
+
+Run migrations explicitly per domain:
+
+```bash
+# signer/runtime schema (uses POSTGRES_MIGRATION_URL, fallback POSTGRES_URL)
+pnpm run postgres:migrate:signer
+
+# console billing/webhooks schema (uses CONSOLE_POSTGRES_MIGRATION_URL, fallback CONSOLE_POSTGRES_URL -> POSTGRES_URL)
+pnpm run postgres:migrate:console
+
+# both
+pnpm run postgres:migrate:all
+
+# verify least-privilege split roles (runtime cannot DDL, migrator can DDL)
+pnpm run postgres:verify:split
+```
+
+Bootstrap/verify scripts support optional env overrides for non-default local role/db names:
+
+- `POSTGRES_BOOTSTRAP_ADMIN_USER` (default: `tatchi`)
+- `POSTGRES_BOOTSTRAP_HOST` (default: `127.0.0.1`)
+- `POSTGRES_BOOTSTRAP_PORT` (default: `5432`)
+- `SIGNER_DB_NAME`, `SIGNER_RUNTIME_USER`, `SIGNER_RUNTIME_PASSWORD`, `SIGNER_MIGRATOR_USER`, `SIGNER_MIGRATOR_PASSWORD`
+- `CONSOLE_DB_NAME`, `CONSOLE_RUNTIME_USER`, `CONSOLE_RUNTIME_PASSWORD`, `CONSOLE_MIGRATOR_USER`, `CONSOLE_MIGRATOR_PASSWORD`
+
+In stricter environments, disable startup schema creation and require migrations:
+
+```bash
+CONSOLE_BILLING_ENSURE_SCHEMA=0
+CONSOLE_WEBHOOKS_ENSURE_SCHEMA=0
+```
 
 For production/serverless, prefer Upstash REST:
 

@@ -23,7 +23,8 @@ import {
 } from '@tatchi-xyz/sdk/server/router/express';
 
 import dotenv from 'dotenv';
-import jwtSession from './jwtSession.js';
+import { createJwtSession } from './jwtSession.js';
+import { resolveRelayServerConsoleConfig, toOptionalSecret } from './consoleConfig.js';
 
 dotenv.config();
 
@@ -97,14 +98,26 @@ function parsePrfSealLimiterKind(value: unknown): 'in-memory' | 'upstash-redis-r
 
 async function main() {
   const env = process.env;
+  const sessionCookieName = String(env.SESSION_COOKIE_NAME || 'tatchi-jwt').trim() || 'tatchi-jwt';
+  const jwtSession = createJwtSession(sessionCookieName);
   const redisUrl = typeof env.REDIS_URL === 'string' ? env.REDIS_URL.trim() : '';
-  const postgresUrl = typeof env.POSTGRES_URL === 'string' ? env.POSTGRES_URL.trim() : '';
+  const {
+    thresholdPostgresUrl,
+    consolePostgresUrl,
+    consoleBillingBackend,
+    consoleBillingEnsureSchema,
+    consoleBillingNamespace,
+    consoleWebhooksBackend,
+    consoleWebhooksEnsureSchema,
+    consoleWebhooksNamespace,
+    consoleBillingStripeWebhookSecret,
+  } = resolveRelayServerConsoleConfig(env as Record<string, unknown>);
   const ed25519MasterSecretB64u =
     typeof env.THRESHOLD_ED25519_MASTER_SECRET_B64U === 'string'
       ? env.THRESHOLD_ED25519_MASTER_SECRET_B64U.trim()
       : '';
   const secp256k1MasterSecretB64u = requireEnvVar(env, 'THRESHOLD_SECP256K1_MASTER_SECRET_B64U');
-  const usePostgresForThreshold = Boolean(postgresUrl);
+  const usePostgresForThreshold = Boolean(thresholdPostgresUrl);
   const thresholdRedisUrl = usePostgresForThreshold ? '' : redisUrl;
 
   if (usePostgresForThreshold && redisUrl) {
@@ -144,7 +157,7 @@ async function main() {
     THRESHOLD_COORDINATOR_INSTANCE_ID: env.THRESHOLD_COORDINATOR_INSTANCE_ID,
     THRESHOLD_COORDINATOR_PEERS: env.THRESHOLD_COORDINATOR_PEERS,
     // Optional persistence for sessions/shares
-    POSTGRES_URL: postgresUrl || undefined,
+    POSTGRES_URL: thresholdPostgresUrl || undefined,
     UPSTASH_REDIS_REST_URL: env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: env.UPSTASH_REDIS_REST_TOKEN,
     REDIS_URL: thresholdRedisUrl || undefined,
@@ -226,7 +239,8 @@ async function main() {
             undefined,
           redisUrl:
             env.PRF_SESSION_SEAL_IDEMPOTENCY_REDIS_URL || thresholdRedisUrl || redisUrl || undefined,
-          postgresUrl: env.PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL || postgresUrl || undefined,
+          postgresUrl:
+            env.PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL || thresholdPostgresUrl || undefined,
           postgresNamespace: env.PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE || undefined,
           keyPrefix:
             String(
@@ -262,30 +276,6 @@ async function main() {
 
   const app: Express = express();
   const consoleDevToken = String(env.CONSOLE_DEV_TOKEN || 'dev-console-token').trim();
-  const rawConsoleBillingBackend = String(
-    env.CONSOLE_BILLING_BACKEND || (postgresUrl ? 'postgres' : 'memory'),
-  )
-    .trim()
-    .toLowerCase();
-  if (rawConsoleBillingBackend !== 'postgres' && rawConsoleBillingBackend !== 'memory') {
-    throw new Error(
-      `Invalid CONSOLE_BILLING_BACKEND="${rawConsoleBillingBackend}". Expected "postgres" or "memory".`,
-    );
-  }
-  const consoleBillingBackend: 'postgres' | 'memory' = rawConsoleBillingBackend;
-  const consoleBillingNamespace = String(env.CONSOLE_BILLING_NAMESPACE || 'relay-console').trim();
-  const rawConsoleWebhooksBackend = String(
-    env.CONSOLE_WEBHOOKS_BACKEND || (postgresUrl ? 'postgres' : 'memory'),
-  )
-    .trim()
-    .toLowerCase();
-  if (rawConsoleWebhooksBackend !== 'postgres' && rawConsoleWebhooksBackend !== 'memory') {
-    throw new Error(
-      `Invalid CONSOLE_WEBHOOKS_BACKEND="${rawConsoleWebhooksBackend}". Expected "postgres" or "memory".`,
-    );
-  }
-  const consoleWebhooksBackend: 'postgres' | 'memory' = rawConsoleWebhooksBackend;
-  const consoleWebhooksNamespace = String(env.CONSOLE_WEBHOOKS_NAMESPACE || 'relay-console').trim();
   const consoleAuth: ConsoleAuthAdapter = {
     authenticate: async (headers) => {
       const authHeader = String(headers.authorization || headers.Authorization || '').trim();
@@ -323,28 +313,32 @@ async function main() {
   let consoleBilling: ConsoleBillingService;
   let consoleWebhooks: ConsoleWebhookService;
   if (consoleBillingBackend === 'postgres') {
-    if (!postgresUrl) {
-      throw new Error('CONSOLE_BILLING_BACKEND=postgres requires POSTGRES_URL');
+    if (!consolePostgresUrl) {
+      throw new Error(
+        'CONSOLE_BILLING_BACKEND=postgres requires CONSOLE_POSTGRES_URL (or POSTGRES_URL fallback)',
+      );
     }
     consoleBilling = await createPostgresConsoleBillingService({
-      postgresUrl,
+      postgresUrl: consolePostgresUrl,
       namespace: consoleBillingNamespace,
       logger: console as any,
-      ensureSchema: true,
+      ensureSchema: consoleBillingEnsureSchema,
     });
   } else {
     consoleBilling = createInMemoryConsoleBillingService();
   }
 
   if (consoleWebhooksBackend === 'postgres') {
-    if (!postgresUrl) {
-      throw new Error('CONSOLE_WEBHOOKS_BACKEND=postgres requires POSTGRES_URL');
+    if (!consolePostgresUrl) {
+      throw new Error(
+        'CONSOLE_WEBHOOKS_BACKEND=postgres requires CONSOLE_POSTGRES_URL (or POSTGRES_URL fallback)',
+      );
     }
     consoleWebhooks = await createPostgresConsoleWebhookService({
-      postgresUrl,
+      postgresUrl: consolePostgresUrl,
       namespace: consoleWebhooksNamespace,
       logger: console as any,
-      ensureSchema: true,
+      ensureSchema: consoleWebhooksEnsureSchema,
     });
   } else {
     consoleWebhooks = createInMemoryConsoleWebhookService();
@@ -378,6 +372,7 @@ async function main() {
         : {}),
       signedDelegate: { route: '/signed-delegate' },
       session: jwtSession,
+      sessionCookieName,
       threshold,
       prfSessionSeal,
       logger: console,
@@ -393,6 +388,7 @@ async function main() {
       corsOrigins: [config.expectedOrigin, config.expectedWalletOrigin],
       auth: consoleAuth,
       billing: consoleBilling,
+      billingStripeWebhookSecret: toOptionalSecret(consoleBillingStripeWebhookSecret),
       webhooks: consoleWebhooks,
       logger: console,
     }),
@@ -412,10 +408,26 @@ async function main() {
     console.log(`Console billing backend: ${consoleBillingBackend}`);
     if (consoleBillingBackend === 'postgres') {
       console.log(`Console billing namespace: ${consoleBillingNamespace}`);
+      console.log(
+        `Console billing ensure schema: ${consoleBillingEnsureSchema ? 'enabled' : 'disabled'}`,
+      );
+      console.log(
+        `Console Postgres URL source: ${
+          consolePostgresUrl === thresholdPostgresUrl ? 'POSTGRES_URL' : 'CONSOLE_POSTGRES_URL'
+        }`,
+      );
     }
+    console.log(
+      `Console billing Stripe webhook secret: ${
+        consoleBillingStripeWebhookSecret ? 'configured' : 'not configured'
+      }`,
+    );
     console.log(`Console webhooks backend: ${consoleWebhooksBackend}`);
     if (consoleWebhooksBackend === 'postgres') {
       console.log(`Console webhooks namespace: ${consoleWebhooksNamespace}`);
+      console.log(
+        `Console webhooks ensure schema: ${consoleWebhooksEnsureSchema ? 'enabled' : 'disabled'}`,
+      );
     }
     authService
       .getRelayerAccount()

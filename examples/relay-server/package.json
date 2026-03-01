@@ -10,7 +10,13 @@
     "dev:threshold:3relays": "node ./scripts/dev-threshold-3relays.mjs",
     "prf-seal:keygen": "node ./scripts/generate-prf-session-seal-keys.mjs",
     "postgres:up": "node ./scripts/postgres-up.mjs",
-    "postgres:down": "node ./scripts/postgres-down.mjs"
+    "postgres:down": "node ./scripts/postgres-down.mjs",
+    "postgres:bootstrap:split": "node ./scripts/postgres-bootstrap-split-domains.mjs",
+    "postgres:migrate:signer": "node ./scripts/postgres-migrate-signer.mjs",
+    "postgres:migrate:console": "node ./scripts/postgres-migrate-console.mjs",
+    "postgres:verify:split": "node ./scripts/postgres-verify-split-domains.mjs",
+    "postgres:migrate:all": "pnpm run postgres:migrate:signer && pnpm run postgres:migrate:console",
+    "postgres:setup:split": "pnpm run postgres:up && pnpm run postgres:bootstrap:split && pnpm run postgres:migrate:all && pnpm run postgres:verify:split"
   },
   "keywords": [],
   "author": "",
