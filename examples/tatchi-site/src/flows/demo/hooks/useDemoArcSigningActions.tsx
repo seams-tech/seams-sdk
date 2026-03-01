@@ -7,6 +7,7 @@ import {
   EVM_RPC_REQUEST_TIMEOUT_MS,
   EVM_TX_FINALITY_TIMEOUT_MS,
   assertRawTxTypePrefix,
+  buildEvmExplorerTxUrl,
   buildDemoEip1559Request,
   compactHex,
   extractManagedNonceHints,
@@ -18,6 +19,7 @@ import {
   withPromiseTimeout,
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
+import { reportEvmFinalizationDebugEvent } from './reportEvmFinalizationDebugEvent';
 import { reportTempoBroadcastFailure } from './reportTempoBroadcastFailure';
 
 const CONFIRMATION_TIMEOUT_PADDING_MS = EVM_RPC_REQUEST_TIMEOUT_MS + 5_000;
@@ -98,6 +100,12 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
             gasLimitHint: request.tx.gasLimit,
             maxFeePerGasHint: request.tx.maxFeePerGas,
             signal: confirmationAbort.signal,
+            onFinalizationDebugEvent: (event) => {
+              reportEvmFinalizationDebugEvent({
+                flowLabel: 'ARC greeting',
+                event,
+              });
+            },
             ...nonceHints,
           }),
           timeoutMs: EVM_TX_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS,
@@ -118,13 +126,24 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
       finalizedReported = true;
       await fetchArcGreeting({ silent: true });
       await refreshThresholdEvmFundingAddress();
+      const txUrl = buildEvmExplorerTxUrl({
+        explorerBaseUrl: FRONTEND_CONFIG.arcExplorerUrl,
+        txHash,
+      });
+      const txLabel = compactHex(txHash);
 
       toast.success('EVM transaction finalized', {
         id: toastId,
         description: (
           <span>
             Tx hash:&nbsp;
-            <code>{compactHex(txHash)}</code>
+            {txUrl ? (
+              <a href={txUrl} target="_blank" rel="noopener noreferrer">
+                <code>{txLabel}</code>
+              </a>
+            ) : (
+              <code>{txLabel}</code>
+            )}
           </span>
         ),
       });

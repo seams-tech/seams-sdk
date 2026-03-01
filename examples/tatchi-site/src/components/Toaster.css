@@ -24,6 +24,15 @@
   color: var(--w3a-colors-textSecondary) !important;
 }
 
+[data-sonner-toaster][data-theme] [data-sonner-toast] [data-description] a {
+  color: var(--w3a-colors-primary) !important;
+  text-decoration: underline;
+}
+
+[data-sonner-toaster][data-theme] [data-sonner-toast] [data-description] a:hover {
+  text-decoration: none;
+}
+
 .w3a-toast {
   background: var(--w3a-colors-surface);
   color: var(--w3a-colors-textPrimary);

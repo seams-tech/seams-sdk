@@ -49,6 +49,22 @@ export type ManagedNonceHints = {
   nonceHint?: bigint;
 };
 
+export type EvmFinalizationBranch =
+  | 'receipt_confirmed'
+  | 'receipt_reverted'
+  | 'dropped_nonce_advanced'
+  | 'dropped_hash_disappeared'
+  | 'underpriced_fee'
+  | 'timeout'
+  | 'aborted'
+  | 'unknown_error';
+
+export type EvmFinalizationDebugEvent = {
+  branch: EvmFinalizationBranch;
+  txHash: `0x${string}`;
+  message: string;
+};
+
 export function utf8ToHex(value: string): string {
   return Array.from(new TextEncoder().encode(value), (byte) =>
     byte.toString(16).padStart(2, '0'),
@@ -235,22 +251,88 @@ export async function waitForEvmTransactionFinalization(args: {
   timeoutMs?: number;
   pollIntervalMs?: number;
   signal?: AbortSignal;
+  onFinalizationDebugEvent?: (event: EvmFinalizationDebugEvent) => void;
 }): Promise<EvmTransactionReceipt> {
   const client = createDemoEvmPublicClient({ rpcUrl: args.rpcUrl });
-  const receipt = await client.waitForTransactionReceipt({
-    txHash: args.txHash,
-    timeoutMs: args.timeoutMs ?? EVM_TX_FINALITY_TIMEOUT_MS,
-    pollIntervalMs: args.pollIntervalMs ?? EVM_TX_RECEIPT_POLL_INTERVAL_MS,
-    confirmations: EVM_TX_FINALITY_CONFIRMATIONS,
-    signal: args.signal,
-    ...(args.senderHint ? { senderHint: args.senderHint } : {}),
-    ...(typeof args.nonceHint === 'bigint' ? { nonceHint: args.nonceHint } : {}),
-    ...(typeof args.maxFeePerGasHint === 'bigint'
-      ? { maxFeePerGasHint: args.maxFeePerGasHint }
-      : {}),
-  });
+  const emitDebugEvent = (branch: EvmFinalizationBranch, message: string): void => {
+    try {
+      args.onFinalizationDebugEvent?.({
+        branch,
+        txHash: args.txHash,
+        message,
+      });
+    } catch {}
+  };
+
+  const classifyFinalizationErrorBranch = (error: unknown): EvmFinalizationBranch => {
+    const explicitBranch = String(
+      error && typeof error === 'object' && 'finalizationBranch' in error
+        ? (error as { finalizationBranch?: unknown }).finalizationBranch
+        : '',
+    )
+      .trim()
+      .toLowerCase();
+    if (
+      explicitBranch === 'dropped_nonce_advanced' ||
+      explicitBranch === 'dropped_hash_disappeared' ||
+      explicitBranch === 'underpriced_fee' ||
+      explicitBranch === 'timeout'
+    ) {
+      return explicitBranch;
+    }
+    const message = String(error instanceof Error ? error.message : error || '')
+      .trim()
+      .toLowerCase();
+    const code = String(
+      error && typeof error === 'object' && 'code' in error
+        ? (error as { code?: unknown }).code
+        : '',
+    )
+      .trim()
+      .toLowerCase();
+    if (code === 'aborted') return 'aborted';
+    if (code === 'tx_dropped_or_replaced') {
+      if (message.includes('account nonce advanced past tx nonce')) {
+        return 'dropped_nonce_advanced';
+      }
+      if (message.includes('hash disappeared from pending pool')) {
+        return 'dropped_hash_disappeared';
+      }
+      return 'unknown_error';
+    }
+    if (message.includes('pending due to underpriced fees')) {
+      return 'underpriced_fee';
+    }
+    if (message.includes('timed out waiting for tx receipt')) {
+      return 'timeout';
+    }
+    return 'unknown_error';
+  };
+
+  let receipt: EvmTransactionReceipt;
+  try {
+    receipt = await client.waitForTransactionReceipt({
+      txHash: args.txHash,
+      timeoutMs: args.timeoutMs ?? EVM_TX_FINALITY_TIMEOUT_MS,
+      pollIntervalMs: args.pollIntervalMs ?? EVM_TX_RECEIPT_POLL_INTERVAL_MS,
+      confirmations: EVM_TX_FINALITY_CONFIRMATIONS,
+      signal: args.signal,
+      ...(args.senderHint ? { senderHint: args.senderHint } : {}),
+      ...(typeof args.nonceHint === 'bigint' ? { nonceHint: args.nonceHint } : {}),
+      ...(typeof args.maxFeePerGasHint === 'bigint'
+        ? { maxFeePerGasHint: args.maxFeePerGasHint }
+        : {}),
+    });
+  } catch (error: unknown) {
+    emitDebugEvent(
+      classifyFinalizationErrorBranch(error),
+      String(error instanceof Error ? error.message : error || ''),
+    );
+    throw error;
+  }
   const status = String(receipt.status || '').toLowerCase();
   if (status && status !== '0x1' && status !== '0x01') {
+    emitDebugEvent('receipt_reverted', `Transaction receipt reported status ${receipt.status}`);
     const revertMessage = await describeEvmRevert({
       rpcUrl: args.rpcUrl,
       txHash: args.txHash,
@@ -274,6 +356,7 @@ export async function waitForEvmTransactionFinalization(args: {
       `Transaction reverted with status ${receipt.status}${gasUsedSuffix}${outOfGasSuffix}${revertSuffix}`,
     );
   }
+  emitDebugEvent('receipt_confirmed', 'Transaction receipt confirmed');
   return receipt;
 }
 
@@ -596,6 +679,16 @@ export function buildDemoEip1559Request(greeting: string, feeCaps: Eip1559FeeCap
 
 export function createChainDefaultGreeting(chainLabel: string): string {
   return `Hello ${chainLabel} [${new Date().toLocaleTimeString()}]`;
+}
+
+export function buildEvmExplorerTxUrl(args: {
+  explorerBaseUrl: string;
+  txHash: `0x${string}`;
+}): string | null {
+  const baseUrl = String(args.explorerBaseUrl || '').trim().replace(/\/+$/, '');
+  const txHash = String(args.txHash || '').trim();
+  if (!baseUrl || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) return null;
+  return `${baseUrl}/tx/${txHash}`;
 }
 
 export function compactHex(value: string): string {

@@ -8,6 +8,7 @@ import {
   EVM_TX_FINALITY_TIMEOUT_MS,
   TEMPO_ALPHA_USD_FEE_TOKEN,
   assertRawTxTypePrefix,
+  buildEvmExplorerTxUrl,
   buildTempoEip1559DripRequest,
   buildTempoEip1559GreetingRequest,
   compactHex,
@@ -22,6 +23,7 @@ import {
   withPromiseTimeout,
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
+import { reportEvmFinalizationDebugEvent } from './reportEvmFinalizationDebugEvent';
 import type { EvmAddress } from './demoThresholdTypes';
 import { reportTempoBroadcastFailure } from './reportTempoBroadcastFailure';
 
@@ -131,6 +133,12 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
           txHash,
           gasLimitHint: request.tx.gasLimit,
           maxFeePerGasHint: request.tx.maxFeePerGas,
+          onFinalizationDebugEvent: (event) => {
+            reportEvmFinalizationDebugEvent({
+              flowLabel: 'Tempo drip',
+              event,
+            });
+          },
           ...nonceHints,
         }),
         timeoutMs: EVM_TX_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS,
@@ -152,6 +160,11 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         });
       }
       senderNativeBalanceRaw = await senderNativeBalancePromise;
+      const txUrl = buildEvmExplorerTxUrl({
+        explorerBaseUrl: FRONTEND_CONFIG.tempoExplorerUrl,
+        txHash,
+      });
+      const txLabel = compactHex(txHash);
 
       toast.success('Tempo drip finalized', {
         id: toastId,
@@ -161,7 +174,13 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
             <code>{compactHex(dripToken)}</code>
             <br />
             Tx hash:&nbsp;
-            <code>{compactHex(txHash)}</code>
+            {txUrl ? (
+              <a href={txUrl} target="_blank" rel="noopener noreferrer">
+                <code>{txLabel}</code>
+              </a>
+            ) : (
+              <code>{txLabel}</code>
+            )}
           </span>
         ),
       });
@@ -281,6 +300,12 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
             gasLimitHint: request.tx.gasLimit,
             maxFeePerGasHint: request.tx.maxFeePerGas,
             signal: confirmationAbort.signal,
+            onFinalizationDebugEvent: (event) => {
+              reportEvmFinalizationDebugEvent({
+                flowLabel: 'Tempo greeting',
+                event,
+              });
+            },
             ...nonceHints,
           }),
           timeoutMs: EVM_TX_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS,
@@ -301,13 +326,24 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       finalizedReported = true;
       await fetchTempoGreeting({ silent: true });
       await refreshThresholdEvmFundingAddress();
+      const txUrl = buildEvmExplorerTxUrl({
+        explorerBaseUrl: FRONTEND_CONFIG.tempoExplorerUrl,
+        txHash,
+      });
+      const txLabel = compactHex(txHash);
 
       toast.success('Tempo transaction finalized', {
         id: toastId,
         description: (
           <span>
             Tx hash:&nbsp;
-            <code>{compactHex(txHash)}</code>
+            {txUrl ? (
+              <a href={txUrl} target="_blank" rel="noopener noreferrer">
+                <code>{txLabel}</code>
+              </a>
+            ) : (
+              <code>{txLabel}</code>
+            )}
           </span>
         ),
       });

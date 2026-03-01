@@ -9,6 +9,7 @@ import {
   EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
   TEMPO_ALPHA_USD_FEE_TOKEN,
   assertRawTxTypePrefix,
+  buildEvmExplorerTxUrl,
   buildEip1559SetUserTokenRequest,
   compactHex,
   extractManagedNonceHints,
@@ -23,6 +24,7 @@ import {
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
 import type { EvmAddress, TempoFeeTokenConfigTarget } from './demoThresholdTypes';
+import { reportEvmFinalizationDebugEvent } from './reportEvmFinalizationDebugEvent';
 import { reportTempoBroadcastFailure } from './reportTempoBroadcastFailure';
 
 const CONFIRMATION_TIMEOUT_PADDING_MS = EVM_RPC_REQUEST_TIMEOUT_MS + 5_000;
@@ -147,6 +149,12 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
               timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,
               pollIntervalMs: EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
               signal: confirmationAbort.signal,
+              onFinalizationDebugEvent: (event) => {
+                reportEvmFinalizationDebugEvent({
+                  flowLabel: 'Tempo setUserToken',
+                  event,
+                });
+              },
               ...nonceHints,
             }),
             timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS + CONFIRMATION_TIMEOUT_PADDING_MS,
@@ -187,6 +195,11 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
           );
         }
         await diagnosticsPromise;
+        const txUrl = buildEvmExplorerTxUrl({
+          explorerBaseUrl: FRONTEND_CONFIG.tempoExplorerUrl,
+          txHash,
+        });
+        const txLabel = compactHex(txHash);
 
         toast.success('Tempo fee token configured', {
           id: toastId,
@@ -197,7 +210,13 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
               <code>{compactHex(tempoFeeToken)}</code>
               <br />
               Tx hash:&nbsp;
-              <code>{compactHex(txHash)}</code>
+              {txUrl ? (
+                <a href={txUrl} target="_blank" rel="noopener noreferrer">
+                  <code>{txLabel}</code>
+                </a>
+              ) : (
+                <code>{txLabel}</code>
+              )}
             </span>
           ),
         });
