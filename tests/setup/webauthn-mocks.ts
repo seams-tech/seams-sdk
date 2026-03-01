@@ -51,6 +51,32 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
     const originalFetch = window.fetch;
     const originalCredentialsCreate = navigator.credentials?.create;
     const originalCredentialsGet = navigator.credentials?.get;
+    const WEB_AUTHN_GET_COUNTER_KEY = '__w3a_test_webauthn_get_calls';
+
+    const parseCounter = (value: unknown): number => {
+      const n = Number(value);
+      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+    };
+    const readWebAuthnGetCounter = (): number => {
+      try {
+        return parseCounter(window.localStorage?.getItem?.(WEB_AUTHN_GET_COUNTER_KEY));
+      } catch {
+        return parseCounter((window as any).__w3aTestWebAuthnGetCalls);
+      }
+    };
+    const writeWebAuthnGetCounter = (value: number): number => {
+      const normalized = parseCounter(value);
+      (window as any).__w3aTestWebAuthnGetCalls = normalized;
+      try {
+        window.localStorage?.setItem?.(WEB_AUTHN_GET_COUNTER_KEY, String(normalized));
+      } catch {}
+      return normalized;
+    };
+    const incrementWebAuthnGetCounter = (): number => {
+      return writeWebAuthnGetCounter(readWebAuthnGetCounter() + 1);
+    };
+
+    writeWebAuthnGetCounter(readWebAuthnGetCounter());
 
     const createProperAttestationObject = async (
       rpIdHash: Uint8Array,
@@ -352,6 +378,7 @@ export async function setupWebAuthnMocks(page: Page): Promise<void> {
       };
 
       navigator.credentials.get = async function (options: any) {
+        incrementWebAuthnGetCounter();
         console.log('Enhanced Virtual Authenticator GET with PRF support');
         if (!options?.publicKey) {
           throw new DOMException('Missing publicKey', 'NotSupportedError');
