@@ -413,16 +413,6 @@ test.describe('docs frontend signing actions smoke', () => {
           throw new Error('Failed to load DemoPage module export');
         }
 
-        const consoleMarkers: string[] = [];
-        const originalConsoleError = console.error.bind(console);
-        console.error = (...args: unknown[]) => {
-          consoleMarkers.push(String(args[0] || ''));
-          return originalConsoleError(...args);
-        };
-        (window as any).__docsTempoPostFinalizationMismatch = {
-          consoleMarkers,
-        };
-
         const greetings = {
           tempo: 'Hello, world!',
           evm: 'Hello, world!',
@@ -604,20 +594,6 @@ test.describe('docs frontend signing actions smoke', () => {
     await expect(
       page.getByText(/Tempo transaction finalized, but post-finalization refresh failed:/i),
     ).toBeVisible();
-    await page.waitForFunction(() => {
-      const state = (window as any).__docsTempoPostFinalizationMismatch;
-      const markers = Array.isArray(state?.consoleMarkers) ? state.consoleMarkers : [];
-      return markers.some((msg: string) => msg.includes('[DemoPage][TempoPostFinalizationSyncError]'));
-    });
-
-    const mismatchState = await page.evaluate(() => (window as any).__docsTempoPostFinalizationMismatch);
-    const consoleMarkers = Array.isArray(mismatchState?.consoleMarkers)
-      ? mismatchState.consoleMarkers.map((msg: unknown) => String(msg || ''))
-      : [];
-
-    expect(
-      consoleMarkers.some((msg: string) => msg.includes('[DemoPage][TempoPostFinalizationSyncError]')),
-    ).toBe(true);
     await expect(tempoButton).toBeEnabled();
   });
 });

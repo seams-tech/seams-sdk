@@ -94,7 +94,7 @@ test.describe('Wallet iframe overlay contracts on cancel', () => {
             {
               name: 'login',
               run: () =>
-                router.loginAndCreateSession({
+                router.unlock({
                   nearAccountId,
                   options: {
                     onEvent: (evt: any) => {

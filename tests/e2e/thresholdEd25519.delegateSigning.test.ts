@@ -125,7 +125,7 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
             if (!enrollment?.success)
               return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
 
-            const login = await pm.auth.login(accountId);
+            const login = await pm.auth.unlock(accountId);
             if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
 
             const thresholdPublicKey = String(enrollment.publicKey || '');

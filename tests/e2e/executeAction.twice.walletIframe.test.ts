@@ -75,7 +75,7 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
             return { ok: false as const, error: reg?.error || 'registration failed' };
           }
 
-          const login = await tatchi.auth.login(accountId);
+          const login = await tatchi.auth.unlock(accountId);
           if (!login?.success) {
             return { ok: false as const, error: login?.error || 'login failed' };
           }

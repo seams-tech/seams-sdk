@@ -100,7 +100,7 @@ test.describe('Worker Communication Protocol', () => {
           }
 
           // Login to activate session
-          const loginResult = await tatchi.auth.login(testAccountId, {
+          const loginResult = await tatchi.auth.unlock(testAccountId, {
             signingSession: { ttlMs: 0, remainingUses: 0 },
             onEvent: (event: any) => {
               console.log(`Login [${event.step}]: ${event.phase} - ${event.message}`);
@@ -357,7 +357,7 @@ test.describe('Worker Communication Protocol', () => {
 
         const capturedEvents: Array<{ phase: string; status: string; message: string }> = [];
 
-        const loginResult = await tatchi.auth.login(testAccountId, {
+        const loginResult = await tatchi.auth.unlock(testAccountId, {
           signingSession: { ttlMs: 0, remainingUses: 0 },
           onEvent: (event: any) => {
             capturedEvents.push({
@@ -447,7 +447,7 @@ test.describe('Worker Communication Protocol', () => {
             throw new Error(`Registration failed unexpectedly: ${registrationResult?.error}`);
           }
 
-          const loginResult = await utils.tatchi.auth.login(testAccountId, {
+          const loginResult = await utils.tatchi.auth.unlock(testAccountId, {
             session: { kind: 'jwt' },
             signingSession: { ttlMs: 0, remainingUses: 0 },
             onEvent: (event: any) => {
@@ -599,7 +599,7 @@ test.describe('Worker Communication Protocol', () => {
           }
 
           // Test login flow (should generate various progress messages)
-          const loginResult = await tatchi.auth.login(testAccountId, {
+          const loginResult = await tatchi.auth.unlock(testAccountId, {
             signingSession: { ttlMs: 0, remainingUses: 0 },
             onEvent: (event: any) => {
               progressEvents.push(event);

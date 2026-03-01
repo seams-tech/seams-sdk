@@ -96,12 +96,12 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
             return { ok: false as const, error: reg2?.error || 'registration (2) failed' };
           }
 
-          const login1 = await tatchi.auth.login(account1);
+          const login1 = await tatchi.auth.unlock(account1);
           if (!login1?.success) {
             return { ok: false as const, error: login1?.error || 'login (1) failed' };
           }
 
-          const login2 = await tatchi.auth.login(account2);
+          const login2 = await tatchi.auth.unlock(account2);
           if (!login2?.success) {
             return { ok: false as const, error: login2?.error || 'login (2) failed' };
           }

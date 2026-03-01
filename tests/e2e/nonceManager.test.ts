@@ -59,7 +59,7 @@ test.describe('NonceManager Integration Tests', () => {
           throw new Error(`Registration failed: ${registrationResult.error}`);
         }
 
-        const loginResult = await pm.auth.login(testAccountId);
+        const loginResult = await pm.auth.unlock(testAccountId);
         if (!loginResult.success) {
           throw new Error(`Login failed: ${loginResult.error}`);
         }
@@ -155,7 +155,7 @@ test.describe('NonceManager Integration Tests', () => {
           throw new Error(`Registration failed: ${registrationResult.error}`);
         }
 
-        const loginResult = await pm.auth.login(testAccountId);
+        const loginResult = await pm.auth.unlock(testAccountId);
         if (!loginResult.success) {
           throw new Error(`Login failed: ${loginResult.error}`);
         }
@@ -259,7 +259,7 @@ test.describe('NonceManager Integration Tests', () => {
           throw new Error(`Registration failed: ${registrationResult.error}`);
         }
 
-        const loginResult = await pm.auth.login(testAccountId);
+        const loginResult = await pm.auth.unlock(testAccountId);
         if (!loginResult.success) {
           throw new Error(`Login failed: ${loginResult.error}`);
         }

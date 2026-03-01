@@ -134,7 +134,7 @@ test.describe('threshold-ed25519 relayer failure behavior', () => {
             const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
             if (!enrollment?.success)
               throw new Error(enrollment?.error || 'threshold enrollment failed');
-            const login = await pm.auth.login(accountId);
+            const login = await pm.auth.unlock(accountId);
             if (!login?.success) throw new Error(login?.error || 'login failed');
 
             await pm.near.signTransactionsWithActions({
@@ -274,7 +274,7 @@ test.describe('threshold-ed25519 relayer failure behavior', () => {
             const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
             if (!enrollment?.success)
               throw new Error(enrollment?.error || 'threshold enrollment failed');
-            const login = await pm.auth.login(accountId);
+            const login = await pm.auth.unlock(accountId);
             if (!login?.success) throw new Error(login?.error || 'login failed');
 
             await pm.near.signTransactionsWithActions({

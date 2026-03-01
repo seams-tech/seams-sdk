@@ -387,7 +387,7 @@ test.describe('threshold-ed25519 digest binding', () => {
             const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
             if (!enrollment?.success)
               return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
-            const login = await pm.auth.login(accountId);
+            const login = await pm.auth.unlock(accountId);
             if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
 
             // Attempt a threshold sign. The test tampered /authorize, so this must fail.
@@ -730,7 +730,7 @@ test.describe('threshold-ed25519 digest binding', () => {
             const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
             if (!enrollment?.success)
               return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
-            const login = await pm.auth.login(accountId);
+            const login = await pm.auth.unlock(accountId);
             if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
 
             await pm.near.signTransactionsWithActions({

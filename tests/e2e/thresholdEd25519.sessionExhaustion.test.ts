@@ -234,7 +234,7 @@ test.describe('threshold-ed25519 session exhaustion', () => {
               return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
 
             stage = 'login';
-            const login = await pm.auth.login(accountId);
+            const login = await pm.auth.unlock(accountId);
             if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
 
             const receiverId = 'w3a-v1.testnet';
@@ -291,7 +291,7 @@ test.describe('threshold-ed25519 session exhaustion', () => {
             }
 
             stage = 'relogin';
-            const relogin = await pm.auth.login(accountId);
+            const relogin = await pm.auth.unlock(accountId);
             if (!relogin?.success) return { ok: false, error: relogin?.error || 'relogin failed' };
 
             stage = 'sign-3';

@@ -8,6 +8,9 @@ import type { ThresholdEd25519KeyStoreConfigInput } from '@server/core/types';
 import { makeSessionAdapter } from '../relayer/helpers';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 
+const SESSION_COOKIE_NAME =
+  String(process.env.SESSION_COOKIE_NAME || 'tatchi-jwt').trim() || 'tatchi-jwt';
+
 export async function setupThresholdE2ePage(page: Page): Promise<void> {
   const blankPageUrl = new URL('/__test_blank.html', DEFAULT_TEST_CONFIG.frontendUrl).toString();
   await setupBasicPasskeyTest(page, {
@@ -96,7 +99,7 @@ export function createInMemoryJwtSessionAdapter(): ReturnType<typeof makeSession
     const parts = raw.split(';');
     for (const part of parts) {
       const [nameRaw, valueRaw] = part.split('=');
-      if (String(nameRaw || '').trim() !== 'w3a_session') continue;
+      if (String(nameRaw || '').trim() !== SESSION_COOKIE_NAME) continue;
       return String(valueRaw || '').trim();
     }
     return '';

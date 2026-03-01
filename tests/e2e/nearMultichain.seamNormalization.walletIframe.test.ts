@@ -84,7 +84,7 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
             return { ok: false as const, error: registration?.error || 'registration failed' };
           }
 
-          const login = await tatchi.auth.login(accountId);
+          const login = await tatchi.auth.unlock(accountId);
           if (!login?.success) {
             return { ok: false as const, error: login?.error || 'login failed' };
           }

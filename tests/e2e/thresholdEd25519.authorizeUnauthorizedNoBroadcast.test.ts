@@ -137,7 +137,7 @@ test.describe('threshold-ed25519 authorize unauthorized', () => {
             const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
             if (!enrollment?.success)
               throw new Error(enrollment?.error || 'threshold enrollment failed');
-            const login = await pm.auth.login(accountId);
+            const login = await pm.auth.unlock(accountId);
             if (!login?.success) throw new Error(login?.error || 'login failed');
 
             (window as any).__thresholdUnauthorizedPm = pm;

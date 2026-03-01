@@ -274,7 +274,7 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
                 transactionId: 'mock-registration-tx',
               };
             },
-            loginAndCreateSession: async () => {
+            unlock: async () => {
               counters.loginCalls += 1;
               counters.bootstrapCalls.push(`${accountId}:tempo`);
               setLoginState({ isLoggedIn: true, nearAccountId: accountId });
@@ -370,7 +370,7 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
         const contextValue = ReactRuntime.useMemo(
           () => ({
             accountInputState: { targetAccountId: accountId, accountExists: true },
-            loginAndCreateSession: tatchi.loginAndCreateSession,
+            unlock: tatchi.unlock,
             registerPasskey: tatchi.registerPasskey,
             loginState,
             tatchi,

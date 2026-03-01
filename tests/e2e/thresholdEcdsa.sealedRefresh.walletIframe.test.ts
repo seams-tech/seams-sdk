@@ -22,6 +22,7 @@ const TEST_KEY_VERSION = 'kek-s-2026-02';
 const TEST_SHAMIR_PRIME_B64U = '_____________________________________v___C8';
 const TEST_SERVER_ENCRYPT_EXPONENT_B64U = 'AQAB';
 const TEST_SERVER_DECRYPT_EXPONENT_B64U = '6LQXS-i0F0votBdL6LQXS-i0F0votBdL6LQXSv___Ic';
+const TEST_WEBAUTHN_GET_COUNTER_KEY = '__w3a_test_webauthn_get_calls';
 
 type SealedRefreshHarness = {
   baseUrl: string;
@@ -345,15 +346,48 @@ async function setupThresholdEcdsaSealedRefreshHarness(page: Page): Promise<Seal
 }
 
 function attachWebAuthnGetCounter(page: Page, counter: { calls: number }): () => void {
-  const listener = (msg: { text: () => string }) => {
-    if (msg.text().includes('Enhanced Virtual Authenticator GET with PRF support')) {
-      counter.calls += 1;
+async function readWebAuthnGetCallCount(page: Page): Promise<number> {
+  const countsByFrame = await Promise.all(
+    page.frames().map(async (frame) => {
+      return await frame
+        .evaluate((storageKey) => {
+          const parseCount = (value: unknown): number => {
+            const n = Number(value);
+            return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+          };
+
+          const globalCount = parseCount((window as any).__w3aTestWebAuthnGetCalls);
+          let storedCount = 0;
+          try {
+            storedCount = parseCount(window.localStorage?.getItem?.(storageKey));
+          } catch {}
+
+          return {
+            origin: String(window.location?.origin || 'unknown'),
+            count: Math.max(globalCount, storedCount),
+          };
+        }, TEST_WEBAUTHN_GET_COUNTER_KEY)
+        .catch(() => ({ origin: 'unknown', count: 0 }));
+    }),
+  );
+
+  const maxByOrigin = new Map<string, number>();
+  for (const entry of countsByFrame) {
+    const origin = String(entry?.origin || 'unknown');
+    const count = Number.isFinite(Number(entry?.count))
+      ? Math.max(0, Math.floor(Number(entry?.count)))
+      : 0;
+    const previous = maxByOrigin.get(origin) ?? 0;
+    if (count > previous) {
+      maxByOrigin.set(origin, count);
     }
-  };
-  page.on('console', listener as any);
-  return () => {
-    page.off('console', listener as any);
-  };
+  }
+
+  let total = 0;
+  for (const count of maxByOrigin.values()) {
+    total += count;
+  }
+  return total;
 }
 
 test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
@@ -392,7 +426,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
           });
 
           try {
-            const loginResult = await tatchi.auth.login(accountId, {
+            const loginResult = await tatchi.auth.unlock(accountId, {
               session: { kind: 'jwt', relayUrl: relayerUrl },
             });
             if (!loginResult?.success) {
@@ -428,8 +462,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
     page,
   }) => {
     const harness = await setupThresholdEcdsaSealedRefreshHarness(page);
-    const webauthnGetCounter = { calls: 0 };
-    const detachCounter = attachWebAuthnGetCounter(page, webauthnGetCounter);
     try {
       const firstPhasePromise = page.evaluate(
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
@@ -483,11 +515,11 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const login = await tatchi.loginAndCreateSession(accountId);
+            const login = await tatchi.unlock(accountId);
             if (!login?.success) {
               return {
                 ok: false,
-                error: String(login?.error || 'loginAndCreateSession failed'),
+                error: String(login?.error || 'unlock failed'),
               };
             }
 
@@ -513,7 +545,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const session = await tatchi.auth.getSession(accountId);
+            const session = await tatchi.auth.getWalletSession(accountId);
             return {
               ok: true,
               accountId,
@@ -543,11 +575,10 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
 
       expect(firstPhase.ok, firstPhase.error || JSON.stringify(firstPhase)).toBe(true);
       expect(firstPhase.sessionStatus).toBe('active');
-      expect(webauthnGetCounter.calls).toBeGreaterThan(0);
+      const getCallsAfterLoginAndFirstSign = await readWebAuthnGetCallCount(page);
+      expect(getCallsAfterLoginAndFirstSign).toBeGreaterThan(0);
       await page.waitForTimeout(400);
       expect(harness.prfSealRouteCounts.applyServerSealCalls).toBeGreaterThan(0);
-
-      const getCallsAfterLoginAndFirstSign = webauthnGetCounter.calls;
 
       await page.reload();
       await page.waitForTimeout(300);
@@ -589,7 +620,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
 
             tatchi.setConfirmationConfig(confirmationConfig as any);
 
-            const session = await tatchi.auth.getSession(accountId);
+            const session = await tatchi.auth.getWalletSession(accountId);
 
             const refreshedSign = await tatchi.near.executeAction({
               nearAccountId: accountId,
@@ -640,17 +671,17 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       expect(harness.prfSealRouteCounts.removeServerSealCalls).toBeGreaterThan(0);
 
       await page.waitForTimeout(300);
+      const finalGetCalls = await readWebAuthnGetCallCount(page);
       expect(
-        webauthnGetCounter.calls,
+        finalGetCalls,
         JSON.stringify({
           getCallsAfterLoginAndFirstSign,
-          finalGetCalls: webauthnGetCounter.calls,
+          finalGetCalls,
           firstPhase,
           secondPhase,
         }),
       ).toBe(getCallsAfterLoginAndFirstSign);
     } finally {
-      detachCounter();
       await harness.close();
     }
   });
@@ -659,8 +690,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
     page,
   }) => {
     const harness = await setupThresholdEcdsaSealedRefreshHarness(page);
-    const webauthnGetCounter = { calls: 0 };
-    const detachCounter = attachWebAuthnGetCounter(page, webauthnGetCounter);
     try {
       const firstPhasePromise = page.evaluate(
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
@@ -712,11 +741,11 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const login = await tatchi.loginAndCreateSession(accountId);
+            const login = await tatchi.unlock(accountId);
             if (!login?.success) {
               return {
                 ok: false,
-                error: String(login?.error || 'loginAndCreateSession failed'),
+                error: String(login?.error || 'unlock failed'),
               };
             }
 
@@ -750,7 +779,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const session = await tatchi.auth.getSession(accountId);
+            const session = await tatchi.auth.getWalletSession(accountId);
             return {
               ok: true,
               accountId,
@@ -780,10 +809,10 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
 
       expect(firstPhase.ok, firstPhase.error || JSON.stringify(firstPhase)).toBe(true);
       expect(firstPhase.sessionStatus).toBe('active');
-      expect(webauthnGetCounter.calls).toBeGreaterThan(0);
+      const getCallsAfterFirstPhase = await readWebAuthnGetCallCount(page);
+      expect(getCallsAfterFirstPhase).toBeGreaterThan(0);
       await page.waitForTimeout(300);
       expect(harness.prfSealRouteCounts.applyServerSealCalls).toBeGreaterThan(0);
-      const getCallsAfterFirstPhase = webauthnGetCounter.calls;
 
       await page.reload();
       await page.waitForTimeout(300);
@@ -885,7 +914,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
 
             const tempoThenEvm = await runOrder(['tempo', 'evm']);
             const evmThenTempo = await runOrder(['evm', 'tempo']);
-            const session = await tatchi.auth.getSession(accountId);
+            const session = await tatchi.auth.getWalletSession(accountId);
 
             return {
               ok: true,
@@ -942,17 +971,17 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
           kind: 'tempoTransaction',
         },
       ]);
+      const finalGetCalls = await readWebAuthnGetCallCount(page);
       expect(
-        webauthnGetCounter.calls,
+        finalGetCalls,
         JSON.stringify({
           getCallsAfterFirstPhase,
-          finalGetCalls: webauthnGetCounter.calls,
+          finalGetCalls,
           firstPhase,
           secondPhase,
         }),
       ).toBe(getCallsAfterFirstPhase);
     } finally {
-      detachCounter();
       await harness.close();
     }
   });
@@ -962,10 +991,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
     page,
   }) => {
     const harness = await setupThresholdEcdsaSealedRefreshHarness(page);
-    const webauthnGetCounter = { calls: 0 };
-    const detachFirstPageCounter = attachWebAuthnGetCounter(page, webauthnGetCounter);
     let secondPage: Page | null = null;
-    let detachSecondPageCounter: (() => void) | null = null;
     try {
       const firstPhasePromise = page.evaluate(
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
@@ -1014,11 +1040,11 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                 error: String(registration?.error || 'registration failed'),
               };
             }
-            const login = await tatchi.loginAndCreateSession(accountId);
+            const login = await tatchi.unlock(accountId);
             if (!login?.success) {
               return {
                 ok: false,
-                error: String(login?.error || 'loginAndCreateSession failed'),
+                error: String(login?.error || 'unlock failed'),
               };
             }
             return { ok: true, accountId };
@@ -1045,12 +1071,11 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       });
 
       expect(firstPhase.ok, firstPhase.error || JSON.stringify(firstPhase)).toBe(true);
-      expect(webauthnGetCounter.calls).toBeGreaterThan(0);
-      const getCallsBeforeTabClose = webauthnGetCounter.calls;
+      const getCallsBeforeTabClose = await readWebAuthnGetCallCount(page);
+      expect(getCallsBeforeTabClose).toBeGreaterThan(0);
 
       await page.close();
       secondPage = await context.newPage();
-      detachSecondPageCounter = attachWebAuthnGetCounter(secondPage, webauthnGetCounter);
       await harness.attachPage(secondPage);
 
       const secondPhasePromise = secondPage.evaluate(
@@ -1080,7 +1105,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            const login = await tatchi.loginAndCreateSession(accountId);
+            const login = await tatchi.unlock(accountId);
             return {
               ok: !!login?.success,
               error: String(login?.error || ''),
@@ -1112,10 +1137,9 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       expect(secondPhase.ok, secondPhase.error || JSON.stringify(secondPhase)).toBe(true);
       expect(secondPhase.signingStatus).toBe('active');
       await secondPage.waitForTimeout(300);
-      expect(webauthnGetCounter.calls).toBeGreaterThan(getCallsBeforeTabClose);
+      const getCallsAfterTabClose = await readWebAuthnGetCallCount(secondPage);
+      expect(getCallsAfterTabClose).toBeGreaterThan(getCallsBeforeTabClose);
     } finally {
-      detachFirstPageCounter();
-      detachSecondPageCounter?.();
       if (secondPage) {
         await secondPage.close().catch(() => undefined);
       }
@@ -1145,8 +1169,6 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
       page,
     }) => {
       const harness = await setupThresholdEcdsaSealedRefreshHarness(page);
-      const webauthnGetCounter = { calls: 0 };
-      const detachCounter = attachWebAuthnGetCounter(page, webauthnGetCounter);
       try {
         const firstPhasePromise = page.evaluate(
           async ({ relayerUrl, keyVersion, shamirPrimeB64u, curve, sessionKind }) => {
@@ -1197,11 +1219,11 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 };
               }
 
-              const login = await tatchi.loginAndCreateSession(accountId);
+              const login = await tatchi.unlock(accountId);
               if (!login?.success) {
                 return {
                   ok: false,
-                  error: String(login?.error || 'loginAndCreateSession failed'),
+                  error: String(login?.error || 'unlock failed'),
                 };
               }
 
@@ -1327,7 +1349,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 }
               }
 
-              const session = await tatchi.auth.getSession(accountId);
+              const session = await tatchi.auth.getWalletSession(accountId);
               return {
                 ok: true,
                 accountId,
@@ -1359,7 +1381,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
 
         expect(firstPhase.ok, firstPhase.error || JSON.stringify(firstPhase)).toBe(true);
         expect(firstPhase.sessionStatus).toBe('active');
-        const getCallsAfterFirstPhase = webauthnGetCounter.calls;
+        const getCallsAfterFirstPhase = await readWebAuthnGetCallCount(page);
 
         await page.reload();
         await page.waitForTimeout(300);
@@ -1452,7 +1474,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 }
               }
 
-              const session = await tatchi.auth.getSession(accountId);
+              const session = await tatchi.auth.getWalletSession(accountId);
               return {
                 ok: true,
                 sessionStatus: String(session?.signingSession?.status || ''),
@@ -1484,18 +1506,18 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
 
         expect(secondPhase.ok, secondPhase.error || JSON.stringify(secondPhase)).toBe(true);
         expect(secondPhase.sessionStatus).toBe('active');
+        const finalGetCalls = await readWebAuthnGetCallCount(page);
         expect(
-          webauthnGetCounter.calls,
+          finalGetCalls,
           JSON.stringify({
             matrixCase,
             getCallsAfterFirstPhase,
-            finalGetCalls: webauthnGetCounter.calls,
+            finalGetCalls,
             firstPhase,
             secondPhase,
           }),
         ).toBe(getCallsAfterFirstPhase);
       } finally {
-        detachCounter();
         await harness.close();
       }
     });
