@@ -52,6 +52,7 @@ When enabled, this example mounts:
 
 - `POST /threshold-ecdsa/prf-seal/apply-server-seal`
 - `POST /threshold-ecdsa/prf-seal/remove-server-seal`
+- `GET /.well-known/webauthn` response includes `capabilities.signingSessionSeal` so sealed-refresh clients can enforce startup parity (`mode`, `keyVersion`, `shamirPrimeB64u`)
 
 Enable with `PRF_SESSION_SEAL_ENABLED=1` and provide:
 
@@ -72,12 +73,23 @@ The command prints:
 - server env values: `SHAMIR_P_B64U`, `SHAMIR_E_S_B64U`, `SHAMIR_D_S_B64U`, `PRF_SESSION_SEAL_KEY_VERSION`
 - client env values: `VITE_SIGNING_SESSION_PERSISTENCE_MODE`, `VITE_SIGNING_SESSION_SEAL_KEY_VERSION`, `VITE_SIGNING_SESSION_SHAMIR_P_B64U`
 
+Keep the printed client values aligned with relay `PRF_SESSION_SEAL_*` values. Sealed-refresh clients fail closed on mismatch.
+
 Optional limiter config:
 
 - `PRF_SESSION_SEAL_RATE_LIMIT_KIND` (`in-memory` | `upstash-redis-rest` | `redis-tcp`)
 - `PRF_SESSION_SEAL_RATE_LIMIT`
 - `PRF_SESSION_SEAL_RATE_LIMIT_WINDOW_MS`
 - `PRF_SESSION_SEAL_RATE_LIMIT_KEY_PREFIX`
+
+Optional idempotency replay config (for multi-instance apply/remove dedupe):
+
+- `PRF_SESSION_SEAL_IDEMPOTENCY_KIND` (`in-memory` | `upstash-redis-rest` | `redis-tcp` | `postgres`)
+- `PRF_SESSION_SEAL_IDEMPOTENCY_TTL_MS`
+- `PRF_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX`
+- `PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL` / `PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN` (optional overrides)
+- `PRF_SESSION_SEAL_IDEMPOTENCY_REDIS_URL` (optional override)
+- `PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL` / `PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE` (optional overrides)
 
 ### `POST /recover-email` (email recovery)
 
@@ -137,6 +149,14 @@ CONSOLE_DEV_TOKEN=dev-console-token
 # PRF_SESSION_SEAL_RATE_LIMIT=30
 # PRF_SESSION_SEAL_RATE_LIMIT_WINDOW_MS=60000
 # PRF_SESSION_SEAL_RATE_LIMIT_KEY_PREFIX=threshold:prf-seal:rate:
+# PRF_SESSION_SEAL_IDEMPOTENCY_KIND=in-memory
+# PRF_SESSION_SEAL_IDEMPOTENCY_TTL_MS=90000
+# PRF_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX=threshold:prf-seal:idempotency:
+# PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL=
+# PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN=
+# PRF_SESSION_SEAL_IDEMPOTENCY_REDIS_URL=
+# PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL=
+# PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE=
 ```
 
 ## Development

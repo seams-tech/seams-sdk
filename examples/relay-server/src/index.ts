@@ -5,6 +5,7 @@ import {
   createPrfSessionSealPolicyFromEcdsaAuthSessionStore,
   createPrfSessionSealRoutesOptions,
   createPrfSessionSealShamir3PassCipherAdapter,
+  resolvePrfSessionSealIdempotencyFromEnv,
   resolvePrfSessionSealRateLimitFromEnv,
   requireEnvVar,
   createThresholdSigningService,
@@ -211,6 +212,29 @@ async function main() {
       limit: parseOptionalPositiveInteger(env.PRF_SESSION_SEAL_RATE_LIMIT) || 30,
       windowMs: parseOptionalPositiveInteger(env.PRF_SESSION_SEAL_RATE_LIMIT_WINDOW_MS) || 60_000,
     });
+    const idempotencyKind = String(env.PRF_SESSION_SEAL_IDEMPOTENCY_KIND || '')
+      .trim()
+      .toLowerCase();
+    const idempotency = idempotencyKind
+      ? resolvePrfSessionSealIdempotencyFromEnv({
+          idempotencyKind,
+          upstashUrl:
+            env.PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL || env.UPSTASH_REDIS_REST_URL || undefined,
+          upstashToken:
+            env.PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN ||
+            env.UPSTASH_REDIS_REST_TOKEN ||
+            undefined,
+          redisUrl:
+            env.PRF_SESSION_SEAL_IDEMPOTENCY_REDIS_URL || thresholdRedisUrl || redisUrl || undefined,
+          postgresUrl: env.PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL || postgresUrl || undefined,
+          postgresNamespace: env.PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE || undefined,
+          keyPrefix:
+            String(
+              env.PRF_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX || 'threshold:prf-seal:idempotency:',
+            ).trim() || undefined,
+          ttlMs: parseOptionalPositiveInteger(env.PRF_SESSION_SEAL_IDEMPOTENCY_TTL_MS),
+        })
+      : undefined;
 
     return createPrfSessionSealRoutesOptions({
       sessionPolicy: createPrfSessionSealPolicyFromEcdsaAuthSessionStore(ecdsaAuthSessionStore),
@@ -225,7 +249,13 @@ async function main() {
           },
         ],
       }),
+      capabilities: {
+        mode: 'sealed_refresh_v1',
+        keyVersion,
+        shamirPrimeB64u,
+      },
       rateLimit,
+      ...(idempotency ? { idempotency } : {}),
       logger: console,
     });
   })();
