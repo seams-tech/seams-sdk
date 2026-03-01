@@ -1,4 +1,10 @@
-export type ConsoleWebhookSubscription = 'wallet' | 'policy' | 'auth' | 'tx' | 'billing';
+export type ConsoleWebhookSubscription =
+  | 'wallet'
+  | 'policy'
+  | 'auth'
+  | 'tx'
+  | 'billing'
+  | 'session';
 
 export type ConsoleWebhookEndpointStatus = 'ACTIVE' | 'DISABLED';
 

@@ -5,6 +5,10 @@ import {
   toConsoleIso as toIso,
   toConsoleNumber as toNumber,
 } from '../shared/postgresNormalize';
+import {
+  ensureConsoleTenantRlsPolicies,
+  withConsoleTenantContextTx,
+} from '../shared/postgresTenantContext';
 import type {
   ConsoleAppSettings,
   ConsoleSecuritySettings,
@@ -211,22 +215,6 @@ async function queryOne(q: Queryable, text: string, values: unknown[]): Promise<
   return (out.rows[0] as PgRow) || null;
 }
 
-async function withTx<T>(pool: PgPool, fn: (q: Queryable) => Promise<T>): Promise<T> {
-  await pool.query('BEGIN');
-  try {
-    const result = await fn(pool);
-    await pool.query('COMMIT');
-    return result;
-  } catch (error: unknown) {
-    try {
-      await pool.query('ROLLBACK');
-    } catch {
-      // no-op
-    }
-    throw error;
-  }
-}
-
 export interface PostgresConsoleSettingsSchemaOptions {
   postgresUrl: string;
   logger: NormalizedLogger;
@@ -257,6 +245,12 @@ export async function ensureConsoleSettingsPostgresSchema(
       CREATE INDEX IF NOT EXISTS console_environment_settings_org_updated_idx
       ON console_environment_settings (namespace, org_id, updated_at_ms DESC, created_at_ms DESC)
     `);
+
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_environment_settings',
+      policyName: 'console_environment_settings_tenant_rls',
+    });
   } finally {
     try {
       await pool.query('SELECT pg_advisory_unlock($1)', [CONSOLE_SETTINGS_MIGRATION_LOCK_ID]);
@@ -296,6 +290,10 @@ export async function createPostgresConsoleSettingsService(
   }
 
   const pool = await getPostgresPool(postgresUrl);
+  const withTenantTx = <T>(
+    ctx: ConsoleSettingsContext,
+    fn: (q: Queryable) => Promise<T>,
+  ): Promise<T> => withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, fn);
 
   async function readSettings(
     q: Queryable,
@@ -367,16 +365,18 @@ export async function createPostgresConsoleSettingsService(
 
   return {
     async getAppSettings(ctx: ConsoleSettingsContext, request: GetConsoleSettingsRequest) {
-      const row = await ensureSettingsRow(pool, {
-        orgId: ctx.orgId,
-        environmentId: request.environmentId,
-        actorUserId: ctx.actorUserId,
+      return withTenantTx(ctx, async (q) => {
+        const row = await ensureSettingsRow(q, {
+          orgId: ctx.orgId,
+          environmentId: request.environmentId,
+          actorUserId: ctx.actorUserId,
+        });
+        return cloneAppSettings(row.appSettings);
       });
-      return cloneAppSettings(row.appSettings);
     },
 
     async updateAppSettings(ctx: ConsoleSettingsContext, request: UpdateConsoleAppSettingsRequest) {
-      return withTx(pool, async (tx) => {
+      return withTenantTx(ctx, async (tx) => {
         const row = await ensureSettingsRow(tx, {
           orgId: ctx.orgId,
           environmentId: request.environmentId,
@@ -428,19 +428,21 @@ export async function createPostgresConsoleSettingsService(
     },
 
     async getSecuritySettings(ctx: ConsoleSettingsContext, request: GetConsoleSettingsRequest) {
-      const row = await ensureSettingsRow(pool, {
-        orgId: ctx.orgId,
-        environmentId: request.environmentId,
-        actorUserId: ctx.actorUserId,
+      return withTenantTx(ctx, async (q) => {
+        const row = await ensureSettingsRow(q, {
+          orgId: ctx.orgId,
+          environmentId: request.environmentId,
+          actorUserId: ctx.actorUserId,
+        });
+        return cloneSecuritySettings(row.securitySettings);
       });
-      return cloneSecuritySettings(row.securitySettings);
     },
 
     async updateSecuritySettings(
       ctx: ConsoleSettingsContext,
       request: UpdateConsoleSecuritySettingsRequest,
     ) {
-      return withTx(pool, async (tx) => {
+      return withTenantTx(ctx, async (tx) => {
         const row = await ensureSettingsRow(tx, {
           orgId: ctx.orgId,
           environmentId: request.environmentId,

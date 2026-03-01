@@ -5,6 +5,10 @@ import {
   toConsoleIso as toIso,
   toConsoleNumber as toNumber,
 } from '../shared/postgresNormalize';
+import {
+  ensureConsoleTenantRlsPolicies,
+  withConsoleTenantContextTx,
+} from '../shared/postgresTenantContext';
 import { canTransitionPaymentState, type PaymentState } from './paymentStateMachine';
 import { ConsoleBillingError } from './errors';
 import { getChainFinalityPolicy } from './stablecoinAssets';
@@ -16,6 +20,7 @@ import type {
   BillingInvoiceLineItemType,
   BillingMonthlyActiveWallets,
   BillingOverview,
+  BillingSubscription,
   BillingPaymentMethod,
   BillingUsageAction,
   BillingUsageEventRequest,
@@ -33,6 +38,10 @@ import type {
   StripePaymentIntentRequest,
   StripeWebhookEventRequest,
   StripeWebhookEventResult,
+  StripeCustomerPortalSession,
+  StripeCustomerPortalSessionRequest,
+  StripeCheckoutSession,
+  StripeCheckoutSessionRequest,
   StripeSetupIntent,
   StripeSetupIntentRequest,
 } from './types';
@@ -174,6 +183,38 @@ function parsePaymentMethodRow(row: PgRow): BillingPaymentMethod {
     expYear: toNumber(row.exp_year),
     isDefault: Boolean(row.is_default),
     createdAt: toIso(toNumber(row.created_at_ms)) || new Date(0).toISOString(),
+  };
+}
+
+function makeStripeCustomerRef(orgId: string): string {
+  return `cus_${orgId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'org'}`;
+}
+
+function makeStripeSubscriptionRef(orgId: string): string {
+  return `sub_${orgId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'org'}`;
+}
+
+function parseSubscriptionRow(row: PgRow): BillingSubscription {
+  return {
+    id: String(row.id || ''),
+    orgId: String(row.org_id || ''),
+    provider: 'stripe',
+    providerCustomerRef: row.provider_customer_ref
+      ? String(row.provider_customer_ref || '')
+      : null,
+    providerSubscriptionRef: row.provider_subscription_ref
+      ? String(row.provider_subscription_ref || '')
+      : null,
+    planId: String(row.plan_id || ''),
+    planName: String(row.plan_name || ''),
+    status: String(row.status || 'ACTIVE') as BillingSubscription['status'],
+    cancelAtPeriodEnd: Boolean(row.cancel_at_period_end),
+    currentPeriodStart: toIso(toNumber(row.current_period_start_ms)) || new Date(0).toISOString(),
+    currentPeriodEnd: toIso(toNumber(row.current_period_end_ms)) || new Date(0).toISOString(),
+    cancelAt: row.cancel_at_ms == null ? null : toIso(toNumber(row.cancel_at_ms)),
+    canceledAt: row.canceled_at_ms == null ? null : toIso(toNumber(row.canceled_at_ms)),
+    createdAt: toIso(toNumber(row.created_at_ms)) || new Date(0).toISOString(),
+    updatedAt: toIso(toNumber(row.updated_at_ms)) || new Date(0).toISOString(),
   };
 }
 
@@ -337,6 +378,7 @@ async function appendPaymentStateTransition(
   q: Queryable,
   input: {
     namespace: string;
+    orgId: string;
     paymentId: string;
     fromState: PaymentState | null;
     toState: PaymentState;
@@ -349,11 +391,12 @@ async function appendPaymentStateTransition(
 ): Promise<void> {
   await q.query(
     `INSERT INTO console_payment_state_transitions
-      (namespace, payment_id, from_state, to_state, changed_at_ms, actor_type, actor_user_id, source_event_id, reason)
+      (namespace, org_id, payment_id, from_state, to_state, changed_at_ms, actor_type, actor_user_id, source_event_id, reason)
      VALUES
-      ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [
       input.namespace,
+      input.orgId,
       input.paymentId,
       input.fromState,
       input.toState,
@@ -416,6 +459,7 @@ async function expireStablecoinIntentIfNeeded(
 
   await appendPaymentStateTransition(q, {
     namespace: input.namespace,
+    orgId: input.orgId,
     paymentId: input.paymentIntentId,
     fromState: input.intent.state,
     toState: 'EXPIRED',
@@ -426,18 +470,46 @@ async function expireStablecoinIntentIfNeeded(
   return parseStablecoinIntentRow(updated, input.changedAtMs);
 }
 
-async function withTx<T>(pool: PgPool, fn: (q: Queryable) => Promise<T>): Promise<T> {
-  await pool.query('BEGIN');
-  try {
-    const result = await fn(pool);
-    await pool.query('COMMIT');
-    return result;
-  } catch (error: unknown) {
-    try {
-      await pool.query('ROLLBACK');
-    } catch {}
-    throw error;
+async function refreshSubscriptionLifecycleIfNeeded(
+  q: Queryable,
+  input: {
+    namespace: string;
+    orgId: string;
+    nowMs: number;
+  },
+): Promise<BillingSubscription | null> {
+  const row = await queryOne(
+    q,
+    `SELECT *
+       FROM console_subscriptions
+      WHERE namespace = $1 AND org_id = $2
+      FOR UPDATE`,
+    [input.namespace, input.orgId],
+  );
+  if (!row) return null;
+
+  const current = parseSubscriptionRow(row);
+  if (current.status === 'CANCELED') return current;
+  if (!current.cancelAtPeriodEnd) return current;
+
+  const currentPeriodEndMs = toNumber(row.current_period_end_ms);
+  if (!Number.isFinite(currentPeriodEndMs) || input.nowMs < currentPeriodEndMs) {
+    return current;
   }
+
+  const updated = await queryOne(
+    q,
+    `UPDATE console_subscriptions
+        SET status = 'CANCELED',
+            cancel_at_period_end = FALSE,
+            cancel_at_ms = $4,
+            canceled_at_ms = COALESCE(canceled_at_ms, $4),
+            updated_at_ms = $5
+      WHERE namespace = $1 AND org_id = $2 AND id = $3
+      RETURNING *`,
+    [input.namespace, input.orgId, current.id, currentPeriodEndMs, input.nowMs],
+  );
+  return updated ? parseSubscriptionRow(updated) : current;
 }
 
 async function ensureOrgBootstrap(input: {
@@ -457,6 +529,57 @@ async function ensureOrgBootstrap(input: {
       ($1, $2, 'pro_maw_v1', 'Pro MAW', 'maw_v1', 0, 0, $3, $3)
      ON CONFLICT (namespace, org_id) DO NOTHING`,
     [namespace, orgId, createdAtMs],
+  );
+
+  await pool.query(
+    `INSERT INTO console_subscriptions
+      (
+        namespace,
+        id,
+        org_id,
+        provider,
+        provider_customer_ref,
+        provider_subscription_ref,
+        plan_id,
+        plan_name,
+        status,
+        cancel_at_period_end,
+        current_period_start_ms,
+        current_period_end_ms,
+        cancel_at_ms,
+        canceled_at_ms,
+        created_at_ms,
+        updated_at_ms
+      )
+     VALUES
+      (
+        $1,
+        $2,
+        $3,
+        'stripe',
+        $4,
+        $5,
+        'pro_maw_v1',
+        'Pro MAW',
+        'ACTIVE',
+        FALSE,
+        $6,
+        $7,
+        NULL,
+        NULL,
+        $6,
+        $6
+      )
+     ON CONFLICT (namespace, org_id) DO NOTHING`,
+    [
+      namespace,
+      makeId('sub', now),
+      orgId,
+      makeStripeCustomerRef(orgId),
+      makeStripeSubscriptionRef(orgId),
+      createdAtMs,
+      createdAtMs + 30 * 24 * 60 * 60 * 1000,
+    ],
   );
 
   const periodInvoice = await queryOne(
@@ -716,6 +839,35 @@ export async function ensureConsoleBillingPostgresSchema(
     `);
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS console_subscriptions (
+        namespace TEXT NOT NULL,
+        id TEXT NOT NULL,
+        org_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        provider_customer_ref TEXT,
+        provider_subscription_ref TEXT,
+        plan_id TEXT NOT NULL,
+        plan_name TEXT NOT NULL,
+        status TEXT NOT NULL,
+        cancel_at_period_end BOOLEAN NOT NULL,
+        current_period_start_ms BIGINT NOT NULL,
+        current_period_end_ms BIGINT NOT NULL,
+        cancel_at_ms BIGINT,
+        canceled_at_ms BIGINT,
+        created_at_ms BIGINT NOT NULL,
+        updated_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, id),
+        UNIQUE (namespace, org_id),
+        CHECK (provider IN ('stripe')),
+        CHECK (status IN ('ACTIVE', 'PAST_DUE', 'CANCELED'))
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS console_subscriptions_org_updated_idx
+      ON console_subscriptions (namespace, org_id, updated_at_ms DESC)
+    `);
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS console_usage_meter_events (
         namespace TEXT NOT NULL,
         id TEXT NOT NULL,
@@ -892,6 +1044,38 @@ export async function ensureConsoleBillingPostgresSchema(
       ON console_stripe_payment_intents (namespace, provider_ref)
     `);
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS console_stripe_provider_refs (
+        namespace TEXT NOT NULL,
+        provider_ref TEXT NOT NULL,
+        org_id TEXT NOT NULL,
+        payment_intent_id TEXT NOT NULL,
+        created_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, provider_ref),
+        UNIQUE (namespace, payment_intent_id)
+      )
+    `);
+    await pool.query(`
+      INSERT INTO console_stripe_provider_refs
+        (namespace, provider_ref, org_id, payment_intent_id, created_at_ms)
+      SELECT DISTINCT ON (namespace, provider_ref)
+        namespace,
+        provider_ref,
+        org_id,
+        id,
+        created_at_ms
+      FROM console_stripe_payment_intents
+      WHERE provider_ref IS NOT NULL AND provider_ref <> ''
+      ORDER BY namespace, provider_ref, created_at_ms DESC, id DESC
+      ON CONFLICT (namespace, provider_ref) DO UPDATE
+        SET org_id = EXCLUDED.org_id,
+            payment_intent_id = EXCLUDED.payment_intent_id,
+            created_at_ms = EXCLUDED.created_at_ms
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS console_stripe_provider_refs_org_idx
+      ON console_stripe_provider_refs (namespace, org_id, created_at_ms DESC)
+    `);
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS console_stripe_webhook_events (
         namespace TEXT NOT NULL,
         event_id TEXT NOT NULL,
@@ -910,6 +1094,15 @@ export async function ensureConsoleBillingPostgresSchema(
       CREATE INDEX IF NOT EXISTS console_stripe_webhook_events_payment_intent_idx
       ON console_stripe_webhook_events (namespace, payment_intent_id)
       WHERE payment_intent_id IS NOT NULL
+    `);
+    await pool.query(`
+      UPDATE console_stripe_webhook_events events
+         SET org_id = refs.org_id,
+             payment_intent_id = COALESCE(events.payment_intent_id, refs.payment_intent_id)
+        FROM console_stripe_provider_refs refs
+       WHERE events.namespace = refs.namespace
+         AND events.provider_ref = refs.provider_ref
+         AND (events.org_id IS NULL OR events.payment_intent_id IS NULL)
     `);
 
     await pool.query(`
@@ -992,6 +1185,7 @@ export async function ensureConsoleBillingPostgresSchema(
       CREATE TABLE IF NOT EXISTS console_payment_state_transitions (
         id BIGSERIAL PRIMARY KEY,
         namespace TEXT NOT NULL,
+        org_id TEXT NOT NULL,
         payment_id TEXT NOT NULL,
         from_state TEXT,
         to_state TEXT NOT NULL,
@@ -1006,8 +1200,8 @@ export async function ensureConsoleBillingPostgresSchema(
       )
     `);
     await pool.query(`
-      CREATE INDEX IF NOT EXISTS console_payment_state_transitions_namespace_payment_idx
-      ON console_payment_state_transitions (namespace, payment_id, changed_at_ms ASC, id ASC)
+      ALTER TABLE console_payment_state_transitions
+      ADD COLUMN IF NOT EXISTS org_id TEXT
     `);
     await pool.query(`
       CREATE OR REPLACE FUNCTION console_reject_payment_state_transition_mutation()
@@ -1017,15 +1211,102 @@ export async function ensureConsoleBillingPostgresSchema(
       END;
       $$ LANGUAGE plpgsql
     `);
+    // Existing deployments may already have the append-only trigger installed.
+    // Drop it before one-time backfills so ensureSchema stays idempotent.
     await pool.query(`
       DROP TRIGGER IF EXISTS console_payment_state_transitions_no_update_delete
       ON console_payment_state_transitions
+    `);
+    await pool.query(`
+      UPDATE console_payment_state_transitions transitions
+         SET org_id = intents.org_id
+        FROM console_stripe_payment_intents intents
+       WHERE transitions.namespace = intents.namespace
+         AND transitions.payment_id = intents.id
+         AND transitions.org_id IS NULL
+    `);
+    await pool.query(`
+      UPDATE console_payment_state_transitions transitions
+         SET org_id = intents.org_id
+        FROM console_stablecoin_payment_intents intents
+       WHERE transitions.namespace = intents.namespace
+         AND transitions.payment_id = intents.id
+         AND transitions.org_id IS NULL
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS console_payment_state_transitions_namespace_payment_idx
+      ON console_payment_state_transitions (namespace, payment_id, changed_at_ms ASC, id ASC)
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS console_payment_state_transitions_namespace_org_payment_idx
+      ON console_payment_state_transitions (namespace, org_id, payment_id, changed_at_ms ASC, id ASC)
     `);
     await pool.query(`
       CREATE TRIGGER console_payment_state_transitions_no_update_delete
       BEFORE UPDATE OR DELETE ON console_payment_state_transitions
       FOR EACH ROW EXECUTE FUNCTION console_reject_payment_state_transition_mutation()
     `);
+
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_billing_accounts',
+      policyName: 'console_billing_accounts_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_subscriptions',
+      policyName: 'console_subscriptions_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_usage_meter_events',
+      policyName: 'console_usage_meter_events_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_usage_rollups_monthly',
+      policyName: 'console_usage_rollups_monthly_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_invoices',
+      policyName: 'console_invoices_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_invoice_line_items',
+      policyName: 'console_invoice_line_items_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_payment_methods',
+      policyName: 'console_payment_methods_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_stripe_payment_intents',
+      policyName: 'console_stripe_payment_intents_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_stripe_webhook_events',
+      policyName: 'console_stripe_webhook_events_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_stablecoin_quotes',
+      policyName: 'console_stablecoin_quotes_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_stablecoin_payment_intents',
+      policyName: 'console_stablecoin_payment_intents_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_payment_state_transitions',
+      policyName: 'console_payment_state_transitions_tenant_rls',
+    });
   } finally {
     try {
       await pool.query('SELECT pg_advisory_unlock($1)', [CONSOLE_BILLING_MIGRATION_LOCK_ID]);
@@ -1046,6 +1327,7 @@ export interface PostgresConsoleBillingServiceOptions {
 export interface PostgresConsoleBillingMonthlyFinalizationOptions {
   postgresUrl: string;
   namespace?: string;
+  orgIds?: string[];
   periodMonthUtc?: string;
   logger?: NormalizedLogger;
   ensureSchema?: boolean;
@@ -1082,126 +1364,238 @@ export async function createPostgresConsoleBillingService(
     });
   }
   const pool = await getPostgresPool(postgresUrl);
+  const withOrgTx = <T>(
+    ctx: ConsoleBillingContext,
+    fn: (q: Queryable, now: Date) => Promise<T>,
+  ): Promise<T> =>
+    withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, async (q) => {
+      const now = nowFn();
+      await ensureOrgBootstrap({ pool: q, namespace, orgId: ctx.orgId, now });
+      return fn(q, now);
+    });
 
   return {
-    async getOverview(ctx: ConsoleBillingContext): Promise<BillingOverview> {
-      const now = nowFn();
-      await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
-      const currentMonthUtc = monthUtc(now);
-
-      const account = await queryOne(
-        pool,
-        `SELECT *
-           FROM console_billing_accounts
-          WHERE namespace = $1 AND org_id = $2`,
-        [namespace, ctx.orgId],
-      );
-      if (!account) {
-        throw new ConsoleBillingError(
-          'billing_account_not_found',
-          404,
-          `Billing account for org ${ctx.orgId} was not found`,
-        );
-      }
-
-      const openStats = await queryOne(
-        pool,
-        `SELECT
-            COUNT(*)::BIGINT AS open_invoice_count,
-            COALESCE(SUM(GREATEST(amount_due_minor - amount_paid_minor, 0)), 0)::BIGINT AS upcoming_charge_estimate_minor
-           FROM console_invoices
-          WHERE namespace = $1 AND org_id = $2 AND status = 'OPEN'`,
-        [namespace, ctx.orgId],
-      );
-
-      const monthlyActiveWallets = await countMonthlyActiveWallets(
-        pool,
-        namespace,
-        ctx.orgId,
-        currentMonthUtc,
-      );
-      await upsertMonthlyActiveWalletRollup(pool, {
-        namespace,
-        orgId: ctx.orgId,
-        monthUtc: currentMonthUtc,
-        monthlyActiveWallets,
-        updatedAtMs: nowMs(now),
+    async getSubscription(ctx: ConsoleBillingContext): Promise<BillingSubscription> {
+      return withOrgTx(ctx, async (q, now) => {
+        const subscription = await refreshSubscriptionLifecycleIfNeeded(q, {
+          namespace,
+          orgId: ctx.orgId,
+          nowMs: nowMs(now),
+        });
+        if (!subscription) {
+          throw new ConsoleBillingError(
+            'subscription_not_found',
+            404,
+            `Subscription for org ${ctx.orgId} was not found`,
+          );
+        }
+        return subscription;
       });
-      await pool.query(
-        `UPDATE console_billing_accounts
-            SET monthly_active_wallets = $3,
-                updated_at_ms = $4
-          WHERE namespace = $1 AND org_id = $2`,
-        [namespace, ctx.orgId, monthlyActiveWallets, nowMs(now)],
-      );
-
-      return {
-        planId: String(account.plan_id || ''),
-        planName: String(account.plan_name || ''),
-        usageMetricVersion: 'maw_v1',
-        currentMonthUtc,
-        monthlyActiveWallets,
-        creditBalanceMinor: toNumber(account.credit_balance_minor),
-        upcomingChargeEstimateMinor: toNumber(openStats?.upcoming_charge_estimate_minor),
-        openInvoiceCount: toNumber(openStats?.open_invoice_count),
-      };
     },
 
-    async getMonthlyActiveWallets(
-      ctx: ConsoleBillingContext,
-      monthUtcInput?: string,
-    ): Promise<BillingMonthlyActiveWallets> {
-      const now = nowFn();
-      await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
-      const resolvedMonthUtc = monthUtcInput ? parseMonthUtcOrThrow(monthUtcInput) : monthUtc(now);
-      const monthlyActiveWallets = await countMonthlyActiveWallets(
-        pool,
-        namespace,
-        ctx.orgId,
-        resolvedMonthUtc,
-      );
-      await upsertMonthlyActiveWalletRollup(pool, {
-        namespace,
-        orgId: ctx.orgId,
-        monthUtc: resolvedMonthUtc,
-        monthlyActiveWallets,
-        updatedAtMs: nowMs(now),
+    async cancelSubscription(ctx: ConsoleBillingContext): Promise<BillingSubscription> {
+      return withOrgTx(ctx, async (q, now) => {
+        const current = await refreshSubscriptionLifecycleIfNeeded(q, {
+          namespace,
+          orgId: ctx.orgId,
+          nowMs: nowMs(now),
+        });
+        if (!current) {
+          throw new ConsoleBillingError(
+            'subscription_not_found',
+            404,
+            `Subscription for org ${ctx.orgId} was not found`,
+          );
+        }
+        if (current.status === 'CANCELED') {
+          throw new ConsoleBillingError(
+            'subscription_already_canceled',
+            409,
+            'Subscription is already canceled',
+          );
+        }
+        if (current.cancelAtPeriodEnd) return current;
+
+        const updated = await queryOne(
+          q,
+          `UPDATE console_subscriptions
+              SET cancel_at_period_end = TRUE,
+                  cancel_at_ms = current_period_end_ms,
+                  updated_at_ms = $4
+            WHERE namespace = $1 AND org_id = $2 AND id = $3
+            RETURNING *`,
+          [namespace, ctx.orgId, current.id, nowMs(now)],
+        );
+        if (!updated) {
+          throw new ConsoleBillingError(
+            'subscription_update_failed',
+            500,
+            'Failed to schedule subscription cancellation',
+          );
+        }
+        return parseSubscriptionRow(updated);
       });
-      if (resolvedMonthUtc === monthUtc(now)) {
-        await pool.query(
+    },
+
+    async resumeSubscription(ctx: ConsoleBillingContext): Promise<BillingSubscription> {
+      return withOrgTx(ctx, async (q, now) => {
+        const current = await refreshSubscriptionLifecycleIfNeeded(q, {
+          namespace,
+          orgId: ctx.orgId,
+          nowMs: nowMs(now),
+        });
+        if (!current) {
+          throw new ConsoleBillingError(
+            'subscription_not_found',
+            404,
+            `Subscription for org ${ctx.orgId} was not found`,
+          );
+        }
+        if (current.status === 'CANCELED') {
+          throw new ConsoleBillingError(
+            'subscription_not_resumable',
+            409,
+            'Subscription is already canceled and cannot be resumed',
+          );
+        }
+        if (!current.cancelAtPeriodEnd) return current;
+
+        const updated = await queryOne(
+          q,
+          `UPDATE console_subscriptions
+              SET cancel_at_period_end = FALSE,
+                  cancel_at_ms = NULL,
+                  updated_at_ms = $4
+            WHERE namespace = $1 AND org_id = $2 AND id = $3
+            RETURNING *`,
+          [namespace, ctx.orgId, current.id, nowMs(now)],
+        );
+        if (!updated) {
+          throw new ConsoleBillingError(
+            'subscription_update_failed',
+            500,
+            'Failed to resume subscription',
+          );
+        }
+        return parseSubscriptionRow(updated);
+      });
+    },
+
+    async getOverview(ctx: ConsoleBillingContext): Promise<BillingOverview> {
+      return withOrgTx(ctx, async (q, now) => {
+        const currentMonthUtc = monthUtc(now);
+
+        const account = await queryOne(
+          q,
+          `SELECT *
+             FROM console_billing_accounts
+            WHERE namespace = $1 AND org_id = $2`,
+          [namespace, ctx.orgId],
+        );
+        if (!account) {
+          throw new ConsoleBillingError(
+            'billing_account_not_found',
+            404,
+            `Billing account for org ${ctx.orgId} was not found`,
+          );
+        }
+
+        const openStats = await queryOne(
+          q,
+          `SELECT
+              COUNT(*)::BIGINT AS open_invoice_count,
+              COALESCE(SUM(GREATEST(amount_due_minor - amount_paid_minor, 0)), 0)::BIGINT AS upcoming_charge_estimate_minor
+             FROM console_invoices
+            WHERE namespace = $1 AND org_id = $2 AND status = 'OPEN'`,
+          [namespace, ctx.orgId],
+        );
+
+        const monthlyActiveWallets = await countMonthlyActiveWallets(
+          q,
+          namespace,
+          ctx.orgId,
+          currentMonthUtc,
+        );
+        await upsertMonthlyActiveWalletRollup(q, {
+          namespace,
+          orgId: ctx.orgId,
+          monthUtc: currentMonthUtc,
+          monthlyActiveWallets,
+          updatedAtMs: nowMs(now),
+        });
+        await q.query(
           `UPDATE console_billing_accounts
               SET monthly_active_wallets = $3,
                   updated_at_ms = $4
             WHERE namespace = $1 AND org_id = $2`,
           [namespace, ctx.orgId, monthlyActiveWallets, nowMs(now)],
         );
-      }
-      return {
-        usageMetricVersion: 'maw_v1',
-        monthUtc: resolvedMonthUtc,
-        monthlyActiveWallets,
-      };
+
+        return {
+          planId: String(account.plan_id || ''),
+          planName: String(account.plan_name || ''),
+          usageMetricVersion: 'maw_v1',
+          currentMonthUtc,
+          monthlyActiveWallets,
+          creditBalanceMinor: toNumber(account.credit_balance_minor),
+          upcomingChargeEstimateMinor: toNumber(openStats?.upcoming_charge_estimate_minor),
+          openInvoiceCount: toNumber(openStats?.open_invoice_count),
+        };
+      });
+    },
+
+    async getMonthlyActiveWallets(
+      ctx: ConsoleBillingContext,
+      monthUtcInput?: string,
+    ): Promise<BillingMonthlyActiveWallets> {
+      return withOrgTx(ctx, async (q, now) => {
+        const resolvedMonthUtc = monthUtcInput ? parseMonthUtcOrThrow(monthUtcInput) : monthUtc(now);
+        const monthlyActiveWallets = await countMonthlyActiveWallets(
+          q,
+          namespace,
+          ctx.orgId,
+          resolvedMonthUtc,
+        );
+        await upsertMonthlyActiveWalletRollup(q, {
+          namespace,
+          orgId: ctx.orgId,
+          monthUtc: resolvedMonthUtc,
+          monthlyActiveWallets,
+          updatedAtMs: nowMs(now),
+        });
+        if (resolvedMonthUtc === monthUtc(now)) {
+          await q.query(
+            `UPDATE console_billing_accounts
+                SET monthly_active_wallets = $3,
+                    updated_at_ms = $4
+              WHERE namespace = $1 AND org_id = $2`,
+            [namespace, ctx.orgId, monthlyActiveWallets, nowMs(now)],
+          );
+        }
+        return {
+          usageMetricVersion: 'maw_v1',
+          monthUtc: resolvedMonthUtc,
+          monthlyActiveWallets,
+        };
+      });
     },
 
     async recordUsageEvent(
       ctx: ConsoleBillingContext,
       request: BillingUsageEventRequest,
     ): Promise<BillingUsageEventResult> {
-      const now = nowFn();
-      await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
+      return withOrgTx(ctx, async (q, now) => {
+        const occurredAtMs = request.occurredAt ? Date.parse(request.occurredAt) : nowMs(now);
+        if (!Number.isFinite(occurredAtMs)) {
+          throw new ConsoleBillingError('invalid_usage_event', 400, 'Invalid occurredAt value');
+        }
+        const eventMonthUtc = monthUtc(new Date(occurredAtMs));
+        const counted =
+          BILLABLE_USAGE_ACTIONS.has(request.action) &&
+          request.succeeded &&
+          !request.isSimulation &&
+          !request.isInternalRetry;
 
-      const occurredAtMs = request.occurredAt ? Date.parse(request.occurredAt) : nowMs(now);
-      if (!Number.isFinite(occurredAtMs)) {
-        throw new ConsoleBillingError('invalid_usage_event', 400, 'Invalid occurredAt value');
-      }
-      const eventMonthUtc = monthUtc(new Date(occurredAtMs));
-      const counted =
-        BILLABLE_USAGE_ACTIONS.has(request.action) &&
-        request.succeeded &&
-        !request.isSimulation &&
-        !request.isInternalRetry;
-
-      return withTx(pool, async (q) => {
         const eventId = makeId('ume', now);
         const inserted = await queryOne(
           q,
@@ -1260,59 +1654,57 @@ export async function createPostgresConsoleBillingService(
     },
 
     async listInvoices(ctx: ConsoleBillingContext): Promise<BillingInvoice[]> {
-      const now = nowFn();
-      await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
-      const out = await pool.query(
-        `SELECT *
-           FROM console_invoices
-          WHERE namespace = $1 AND org_id = $2
-          ORDER BY created_at_ms DESC`,
-        [namespace, ctx.orgId],
-      );
-      return out.rows.map((row) => parseInvoiceRow(row as PgRow));
+      return withOrgTx(ctx, async (q) => {
+        const out = await q.query(
+          `SELECT *
+             FROM console_invoices
+            WHERE namespace = $1 AND org_id = $2
+            ORDER BY created_at_ms DESC`,
+          [namespace, ctx.orgId],
+        );
+        return out.rows.map((row) => parseInvoiceRow(row as PgRow));
+      });
     },
 
     async getInvoice(
       ctx: ConsoleBillingContext,
       invoiceId: string,
     ): Promise<BillingInvoice | null> {
-      const now = nowFn();
-      await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
-      const row = await queryOne(
-        pool,
-        `SELECT *
-           FROM console_invoices
-          WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-        [namespace, ctx.orgId, invoiceId],
-      );
-      return row ? parseInvoiceRow(row) : null;
+      return withOrgTx(ctx, async (q) => {
+        const row = await queryOne(
+          q,
+          `SELECT *
+             FROM console_invoices
+            WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+          [namespace, ctx.orgId, invoiceId],
+        );
+        return row ? parseInvoiceRow(row) : null;
+      });
     },
 
     async listInvoiceLineItems(
       ctx: ConsoleBillingContext,
       invoiceId: string,
     ): Promise<BillingInvoiceLineItem[]> {
-      const now = nowFn();
-      await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
-      const invoice = await queryOne(
-        pool,
-        `SELECT id
-           FROM console_invoices
-          WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-        [namespace, ctx.orgId, invoiceId],
-      );
-      if (!invoice) return [];
-      return listInvoiceLineItemsByInvoice(pool, namespace, ctx.orgId, invoiceId);
+      return withOrgTx(ctx, async (q) => {
+        const invoice = await queryOne(
+          q,
+          `SELECT id
+             FROM console_invoices
+            WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+          [namespace, ctx.orgId, invoiceId],
+        );
+        if (!invoice) return [];
+        return listInvoiceLineItemsByInvoice(q, namespace, ctx.orgId, invoiceId);
+      });
     },
 
     async generateMonthlyInvoice(
       ctx: ConsoleBillingContext,
       request: GenerateMonthlyInvoiceRequest,
     ): Promise<GenerateMonthlyInvoiceResult> {
-      const now = nowFn();
-      await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
-      const periodMonthUtc = parseMonthUtcOrThrow(request.periodMonthUtc);
-      return withTx(pool, async (q) => {
+      return withOrgTx(ctx, async (q, now) => {
+        const periodMonthUtc = parseMonthUtcOrThrow(request.periodMonthUtc);
         const monthlyActiveWallets = await countMonthlyActiveWallets(
           q,
           namespace,
@@ -1474,16 +1866,16 @@ export async function createPostgresConsoleBillingService(
     },
 
     async listPaymentMethods(ctx: ConsoleBillingContext): Promise<BillingPaymentMethod[]> {
-      const now = nowFn();
-      await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
-      const out = await pool.query(
-        `SELECT *
-           FROM console_payment_methods
-          WHERE namespace = $1 AND org_id = $2
-          ORDER BY created_at_ms DESC`,
-        [namespace, ctx.orgId],
-      );
-      return out.rows.map((row) => parsePaymentMethodRow(row as PgRow));
+      return withOrgTx(ctx, async (q) => {
+        const out = await q.query(
+          `SELECT *
+             FROM console_payment_methods
+            WHERE namespace = $1 AND org_id = $2
+            ORDER BY created_at_ms DESC`,
+          [namespace, ctx.orgId],
+        );
+        return out.rows.map((row) => parsePaymentMethodRow(row as PgRow));
+      });
     },
 
     async addCardPaymentMethod(
@@ -1491,49 +1883,49 @@ export async function createPostgresConsoleBillingService(
       request: AddCardPaymentMethodRequest,
     ): Promise<BillingPaymentMethod> {
       requireAdminForCardActions(ctx);
-      const now = nowFn();
-      await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
-      const id = makeId('pm', now);
-      const createdAt = nowMs(now);
+      return withOrgTx(ctx, async (q, now) => {
+        const id = makeId('pm', now);
+        const createdAt = nowMs(now);
 
-      const currentDefault = await queryOne(
-        pool,
-        `SELECT id
-           FROM console_payment_methods
-          WHERE namespace = $1 AND org_id = $2 AND is_default = TRUE
-          LIMIT 1`,
-        [namespace, ctx.orgId],
-      );
-      const shouldBeDefault = !currentDefault;
-
-      const inserted = await queryOne(
-        pool,
-        `INSERT INTO console_payment_methods
-          (namespace, id, org_id, provider, type, provider_ref, brand, last4, exp_month, exp_year, is_default, created_at_ms)
-         VALUES
-          ($1, $2, $3, 'stripe', 'card', $4, $5, $6, $7, $8, $9, $10)
-         RETURNING *`,
-        [
-          namespace,
-          id,
-          ctx.orgId,
-          request.providerRef,
-          request.brand,
-          request.last4,
-          request.expMonth,
-          request.expYear,
-          shouldBeDefault,
-          createdAt,
-        ],
-      );
-      if (!inserted) {
-        throw new ConsoleBillingError(
-          'payment_method_create_failed',
-          500,
-          'Failed to create card payment method',
+        const currentDefault = await queryOne(
+          q,
+          `SELECT id
+             FROM console_payment_methods
+            WHERE namespace = $1 AND org_id = $2 AND is_default = TRUE
+            LIMIT 1`,
+          [namespace, ctx.orgId],
         );
-      }
-      return parsePaymentMethodRow(inserted);
+        const shouldBeDefault = !currentDefault;
+
+        const inserted = await queryOne(
+          q,
+          `INSERT INTO console_payment_methods
+            (namespace, id, org_id, provider, type, provider_ref, brand, last4, exp_month, exp_year, is_default, created_at_ms)
+           VALUES
+            ($1, $2, $3, 'stripe', 'card', $4, $5, $6, $7, $8, $9, $10)
+           RETURNING *`,
+          [
+            namespace,
+            id,
+            ctx.orgId,
+            request.providerRef,
+            request.brand,
+            request.last4,
+            request.expMonth,
+            request.expYear,
+            shouldBeDefault,
+            createdAt,
+          ],
+        );
+        if (!inserted) {
+          throw new ConsoleBillingError(
+            'payment_method_create_failed',
+            500,
+            'Failed to create card payment method',
+          );
+        }
+        return parsePaymentMethodRow(inserted);
+      });
     },
 
     async removeCardPaymentMethod(
@@ -1541,9 +1933,7 @@ export async function createPostgresConsoleBillingService(
       paymentMethodId: string,
     ): Promise<{ removed: boolean }> {
       requireAdminForCardActions(ctx);
-      const now = nowFn();
-      await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
-      return withTx(pool, async (q) => {
+      return withOrgTx(ctx, async (q) => {
         const removed = await queryOne(
           q,
           `DELETE FROM console_payment_methods
@@ -1581,9 +1971,7 @@ export async function createPostgresConsoleBillingService(
       paymentMethodId: string,
     ): Promise<BillingPaymentMethod | null> {
       requireAdminForCardActions(ctx);
-      const now = nowFn();
-      await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
-      return withTx(pool, async (q) => {
+      return withOrgTx(ctx, async (q) => {
         const target = await queryOne(
           q,
           `SELECT *
@@ -1616,39 +2004,99 @@ export async function createPostgresConsoleBillingService(
       ctx: ConsoleBillingContext,
       request: StripeSetupIntentRequest,
     ): Promise<StripeSetupIntent> {
-      const now = nowFn();
-      await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
-      const providerSetupIntent = await providers.stripe.createSetupIntent({
-        orgId: ctx.orgId,
-        returnUrl: request.returnUrl,
-        now,
+      return withOrgTx(ctx, async (_q, now) => {
+        const providerSetupIntent = await providers.stripe.createSetupIntent({
+          orgId: ctx.orgId,
+          returnUrl: request.returnUrl,
+          now,
+        });
+        const id = String(providerSetupIntent.id || '').trim();
+        const clientSecret = String(providerSetupIntent.clientSecret || '').trim();
+        const customerRef = String(providerSetupIntent.customerRef || '').trim();
+        const expiresAt = String(providerSetupIntent.expiresAt || '').trim();
+        if (!id || !clientSecret || !customerRef || !expiresAt) {
+          throw new ConsoleBillingError(
+            'payment_provider_error',
+            500,
+            'Stripe setup-intent provider returned invalid payload',
+          );
+        }
+        return {
+          id,
+          clientSecret,
+          customerRef,
+          expiresAt,
+        };
       });
-      const id = String(providerSetupIntent.id || '').trim();
-      const clientSecret = String(providerSetupIntent.clientSecret || '').trim();
-      const customerRef = String(providerSetupIntent.customerRef || '').trim();
-      const expiresAt = String(providerSetupIntent.expiresAt || '').trim();
-      if (!id || !clientSecret || !customerRef || !expiresAt) {
-        throw new ConsoleBillingError(
-          'payment_provider_error',
-          500,
-          'Stripe setup-intent provider returned invalid payload',
-        );
-      }
-      return {
-        id,
-        clientSecret,
-        customerRef,
-        expiresAt,
-      };
+    },
+
+    async createStripeCheckoutSession(
+      ctx: ConsoleBillingContext,
+      request: StripeCheckoutSessionRequest,
+    ): Promise<StripeCheckoutSession> {
+      return withOrgTx(ctx, async (_q, now) => {
+        const providerCheckoutSession = await providers.stripe.createCheckoutSession({
+          orgId: ctx.orgId,
+          successUrl: request.successUrl,
+          cancelUrl: request.cancelUrl,
+          planId: request.planId,
+          now,
+        });
+        const id = String(providerCheckoutSession.id || '').trim();
+        const url = String(providerCheckoutSession.url || '').trim();
+        const customerRef = String(providerCheckoutSession.customerRef || '').trim();
+        const expiresAt = String(providerCheckoutSession.expiresAt || '').trim();
+        if (!id || !url || !customerRef || !expiresAt) {
+          throw new ConsoleBillingError(
+            'payment_provider_error',
+            500,
+            'Stripe checkout-session provider returned invalid payload',
+          );
+        }
+        return {
+          id,
+          url,
+          customerRef,
+          expiresAt,
+        };
+      });
+    },
+
+    async createStripeCustomerPortalSession(
+      ctx: ConsoleBillingContext,
+      request: StripeCustomerPortalSessionRequest,
+    ): Promise<StripeCustomerPortalSession> {
+      return withOrgTx(ctx, async (_q, now) => {
+        const providerPortalSession = await providers.stripe.createCustomerPortalSession({
+          orgId: ctx.orgId,
+          returnUrl: request.returnUrl,
+          now,
+        });
+        const id = String(providerPortalSession.id || '').trim();
+        const url = String(providerPortalSession.url || '').trim();
+        const customerRef = String(providerPortalSession.customerRef || '').trim();
+        const expiresAt = String(providerPortalSession.expiresAt || '').trim();
+        if (!id || !url || !customerRef || !expiresAt) {
+          throw new ConsoleBillingError(
+            'payment_provider_error',
+            500,
+            'Stripe customer-portal session provider returned invalid payload',
+          );
+        }
+        return {
+          id,
+          url,
+          customerRef,
+          expiresAt,
+        };
+      });
     },
 
     async createStripePaymentIntent(
       ctx: ConsoleBillingContext,
       request: StripePaymentIntentRequest,
     ): Promise<StripePaymentIntent> {
-      const now = nowFn();
-      await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
-      return withTx(pool, async (q) => {
+      return withOrgTx(ctx, async (q, now) => {
         const invoice = await lockInvoiceForPayment(q, namespace, ctx.orgId, request.invoiceId);
         ensureRailLock(invoice, 'CARD');
         const activeIntent = await queryOne(
@@ -1754,8 +2202,26 @@ export async function createPostgresConsoleBillingService(
             'Failed to create Stripe payment intent',
           );
         }
+        const providerRefBound = await queryOne(
+          q,
+          `INSERT INTO console_stripe_provider_refs
+            (namespace, provider_ref, org_id, payment_intent_id, created_at_ms)
+           VALUES
+            ($1, $2, $3, $4, $5)
+           ON CONFLICT (namespace, provider_ref) DO NOTHING
+           RETURNING provider_ref`,
+          [namespace, providerRef, ctx.orgId, intentId, nowMs(now)],
+        );
+        if (!providerRefBound) {
+          throw new ConsoleBillingError(
+            'duplicate_provider_reference',
+            409,
+            `Stripe provider reference ${providerRef} is already linked to another payment intent`,
+          );
+        }
         await appendPaymentStateTransition(q, {
           namespace,
+          orgId: ctx.orgId,
           paymentId: intentId,
           fromState: null,
           toState: 'CREATED',
@@ -1773,17 +2239,14 @@ export async function createPostgresConsoleBillingService(
       paymentIntentId: string,
       request: StripePaymentIntentReconcileRequest,
     ): Promise<StripePaymentIntent | null> {
-      const now = nowFn();
-      await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
-      if (request.settledAmountMinor !== undefined && request.settledAmountMinor < 0) {
-        throw new ConsoleBillingError(
-          'invalid_reconciliation_request',
-          400,
-          'settledAmountMinor must be >= 0',
-        );
-      }
-
-      return withTx(pool, async (q) => {
+      return withOrgTx(ctx, async (q, now) => {
+        if (request.settledAmountMinor !== undefined && request.settledAmountMinor < 0) {
+          throw new ConsoleBillingError(
+            'invalid_reconciliation_request',
+            400,
+            'settledAmountMinor must be >= 0',
+          );
+        }
         const row = await queryOne(
           q,
           `SELECT *
@@ -1828,6 +2291,7 @@ export async function createPostgresConsoleBillingService(
           );
           await appendPaymentStateTransition(q, {
             namespace,
+            orgId: ctx.orgId,
             paymentId: paymentIntentId,
             fromState: effectiveFromState,
             toState: 'PENDING',
@@ -1862,6 +2326,7 @@ export async function createPostgresConsoleBillingService(
 
         await appendPaymentStateTransition(q, {
           namespace,
+          orgId: ctx.orgId,
           paymentId: paymentIntentId,
           fromState: effectiveFromState,
           toState: decision.targetState,
@@ -1899,260 +2364,486 @@ export async function createPostgresConsoleBillingService(
           'settledAmountMinor must be >= 0',
         );
       }
+      const eventType = String(request.eventType || '').trim().toLowerCase();
+      const paymentIntentProjection = !eventType || eventType.startsWith('payment_intent.');
 
-      return withTx(pool, async (q) => {
-        const inserted = await queryOne(
-          q,
-          `INSERT INTO console_stripe_webhook_events
-            (namespace, event_id, provider_ref, payment_intent_id, org_id, processed_at_ms)
-           VALUES
-            ($1, $2, $3, NULL, NULL, $4)
-           ON CONFLICT (namespace, event_id) DO NOTHING
-           RETURNING event_id`,
-          [namespace, request.eventId, request.providerRef, nowMs(now)],
-        );
-        if (!inserted) {
-          const existingEvent = await queryOne(
-            q,
-            `SELECT payment_intent_id
-               FROM console_stripe_webhook_events
-              WHERE namespace = $1 AND event_id = $2`,
-            [namespace, request.eventId],
-          );
-          const existingPaymentIntentId = String(existingEvent?.payment_intent_id || '').trim();
-          if (!existingPaymentIntentId) {
-            return { accepted: false, paymentIntent: null, orgId: null };
-          }
-          const existingIntentRow = await queryOne(
-            q,
-            `SELECT *
-               FROM console_stripe_payment_intents
-              WHERE namespace = $1 AND id = $2`,
-            [namespace, existingPaymentIntentId],
-          );
-          const existingOrgId = existingIntentRow
-            ? String(existingIntentRow.org_id || '').trim()
-            : '';
-          return {
-            accepted: false,
-            paymentIntent: existingIntentRow
-              ? parseStripePaymentIntentRow(existingIntentRow)
-              : null,
-            orgId: existingOrgId || null,
-          };
-        }
+      let currentOrgId: string | null = null;
+      let matchedPaymentIntentId: string | null = null;
+      let eventProviderRef = String(request.providerRef || '').trim();
 
-        const matches = await q.query(
-          `SELECT *
-             FROM console_stripe_payment_intents
-            WHERE namespace = $1 AND provider_ref = $2
-            ORDER BY created_at_ms DESC
-            FOR UPDATE`,
-          [namespace, request.providerRef],
+      if (paymentIntentProjection) {
+        const providerRef = String(request.providerRef || '').trim();
+        const providerLink = await queryOne(
+          pool,
+          `SELECT org_id, payment_intent_id
+             FROM console_stripe_provider_refs
+            WHERE namespace = $1 AND provider_ref = $2`,
+          [namespace, providerRef],
         );
-        if (matches.rows.length === 0) {
+        if (!providerLink) {
           return {
             accepted: true,
             paymentIntent: null,
+            subscription: null,
+            invoice: null,
             orgId: null,
           };
         }
-        if (matches.rows.length > 1) {
+        currentOrgId = String(providerLink.org_id || '').trim() || null;
+        matchedPaymentIntentId = String(providerLink.payment_intent_id || '').trim() || null;
+        if (!currentOrgId) {
           throw new ConsoleBillingError(
-            'duplicate_provider_reference',
-            409,
-            `Stripe provider reference ${request.providerRef} matches multiple payment intents`,
+            'payment_provider_error',
+            500,
+            'Stripe provider reference mapping is missing org_id',
           );
         }
-        const currentRow = matches.rows[0] as PgRow;
-        const currentOrgId = String(currentRow.org_id || '').trim();
-        const current = parseStripePaymentIntentRow(currentRow);
-        let next = current;
-
-        if (!isTerminalPaymentState(current.state)) {
-          const settledAmountMinor = request.settledAmountMinor ?? current.amountMinor;
-          const decision = decideStripeReconcileTransition({
-            currentState: current.state,
-            providerStatus: request.providerStatus,
-            expectedAmountMinor: current.amountMinor,
-            settledAmountMinor,
-          });
-
-          if (decision.targetState) {
-            let effectiveFromState = current.state;
-            if (
-              effectiveFromState === 'CREATED' &&
-              SETTLEMENT_OUTCOME_STATES.has(decision.targetState)
-            ) {
-              const toPending = canTransitionPaymentState({
-                from: effectiveFromState,
-                to: 'PENDING',
-              });
-              if (!toPending.ok) {
-                throw new ConsoleBillingError('invalid_payment_state', 409, toPending.message, {
-                  fromState: effectiveFromState,
-                  toState: 'PENDING',
-                });
-              }
-              await q.query(
-                `UPDATE console_stripe_payment_intents
-                    SET state = 'PENDING'
-                  WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-                [namespace, currentOrgId, current.id],
-              );
-              await appendPaymentStateTransition(q, {
-                namespace,
-                paymentId: current.id,
-                fromState: effectiveFromState,
-                toState: 'PENDING',
-                changedAtMs: nowMs(now),
-                actorType: 'PROVIDER',
-                sourceEventId: request.eventId,
-                reason: 'provider_pending_implied',
-              });
-              effectiveFromState = 'PENDING';
-            }
-
-            const transition = canTransitionPaymentState({
-              from: effectiveFromState,
-              to: decision.targetState,
-            });
-            if (!transition.ok) {
-              throw new ConsoleBillingError('invalid_payment_state', 409, transition.message, {
-                fromState: effectiveFromState,
-                toState: decision.targetState,
-              });
-            }
-
-            const updated = await queryOne(
-              q,
-              `UPDATE console_stripe_payment_intents
-                  SET state = $4
-                WHERE namespace = $1 AND org_id = $2 AND id = $3
-                RETURNING *`,
-              [namespace, currentOrgId, current.id, decision.targetState],
-            );
-            if (!updated) {
-              throw new ConsoleBillingError(
-                'payment_intent_not_found',
-                404,
-                `Stripe payment intent ${current.id} was not found`,
-              );
-            }
-            next = parseStripePaymentIntentRow(updated);
-
-            await appendPaymentStateTransition(q, {
-              namespace,
-              paymentId: current.id,
-              fromState: effectiveFromState,
-              toState: decision.targetState,
-              changedAtMs: nowMs(now),
-              actorType: 'PROVIDER',
-              sourceEventId: request.eventId,
-              reason: decision.reason,
-            });
-
-            if (SETTLEMENT_OUTCOME_STATES.has(decision.targetState)) {
-              await q.query(
-                `UPDATE console_invoices
-                    SET amount_paid_minor = amount_paid_minor + $4,
-                        status = CASE
-                          WHEN amount_paid_minor + $4 >= amount_due_minor THEN 'PAID'
-                          ELSE status
-                        END
-                  WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-                [namespace, currentOrgId, current.invoiceId, settledAmountMinor],
-              );
-            }
-          }
+        if (!matchedPaymentIntentId) {
+          throw new ConsoleBillingError(
+            'payment_provider_error',
+            500,
+            'Stripe provider reference mapping is missing payment_intent_id',
+          );
         }
+      } else {
+        currentOrgId = String(request.orgId || '').trim() || null;
+        eventProviderRef =
+          eventProviderRef ||
+          String(request.providerSubscriptionRef || '').trim() ||
+          String(request.providerCustomerRef || '').trim() ||
+          String(request.invoiceId || '').trim() ||
+          eventType ||
+          'stripe_event';
+      }
 
-        await q.query(
-          `UPDATE console_stripe_webhook_events
-              SET payment_intent_id = $3,
-                  org_id = $4
-            WHERE namespace = $1 AND event_id = $2`,
-          [namespace, request.eventId, next.id, currentOrgId || null],
-        );
-
+      if (!currentOrgId) {
         return {
           accepted: true,
-          paymentIntent: next,
-          orgId: currentOrgId || null,
+          paymentIntent: null,
+          subscription: null,
+          invoice: null,
+          orgId: null,
         };
-      });
+      }
+
+      return withConsoleTenantContextTx(
+        pool,
+        { namespace, orgId: currentOrgId },
+        async (q) => {
+          const inserted = await queryOne(
+            q,
+            `INSERT INTO console_stripe_webhook_events
+              (namespace, event_id, provider_ref, payment_intent_id, org_id, processed_at_ms)
+             VALUES
+              ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (namespace, event_id) DO NOTHING
+             RETURNING event_id`,
+            [
+              namespace,
+              request.eventId,
+              eventProviderRef,
+              matchedPaymentIntentId,
+              currentOrgId,
+              nowMs(now),
+            ],
+          );
+          if (!inserted) {
+            const existingEvent = await queryOne(
+              q,
+              `SELECT payment_intent_id
+                 FROM console_stripe_webhook_events
+                WHERE namespace = $1 AND org_id = $2 AND event_id = $3`,
+              [namespace, currentOrgId, request.eventId],
+            );
+            const existingPaymentIntentId =
+              String(existingEvent?.payment_intent_id || '').trim() || matchedPaymentIntentId || '';
+            const existingIntentRow = existingPaymentIntentId
+              ? await queryOne(
+                  q,
+                  `SELECT *
+                     FROM console_stripe_payment_intents
+                    WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+                  [namespace, currentOrgId, existingPaymentIntentId],
+                )
+              : null;
+            const existingSubscriptionRow = await queryOne(
+              q,
+              `SELECT *
+                 FROM console_subscriptions
+                WHERE namespace = $1 AND org_id = $2`,
+              [namespace, currentOrgId],
+            );
+            const existingInvoiceRow = request.invoiceId
+              ? await queryOne(
+                  q,
+                  `SELECT *
+                     FROM console_invoices
+                    WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+                  [namespace, currentOrgId, request.invoiceId],
+                )
+              : null;
+            return {
+              accepted: false,
+              paymentIntent: existingIntentRow ? parseStripePaymentIntentRow(existingIntentRow) : null,
+              subscription: existingSubscriptionRow
+                ? parseSubscriptionRow(existingSubscriptionRow)
+                : null,
+              invoice: existingInvoiceRow ? parseInvoiceRow(existingInvoiceRow) : null,
+              orgId: currentOrgId,
+            };
+          }
+
+          let reconciled: StripePaymentIntent | null = null;
+          let projectedSubscription: BillingSubscription | null = null;
+          let projectedInvoice: BillingInvoice | null = null;
+
+          if (paymentIntentProjection && matchedPaymentIntentId) {
+            const currentLocked = await queryOne(
+              q,
+              `SELECT *
+                 FROM console_stripe_payment_intents
+                WHERE namespace = $1 AND org_id = $2 AND id = $3
+                FOR UPDATE`,
+              [namespace, currentOrgId, matchedPaymentIntentId],
+            );
+            if (currentLocked) {
+              const current = parseStripePaymentIntentRow(currentLocked);
+              reconciled = current;
+              if (!isTerminalPaymentState(current.state) && request.providerStatus) {
+                const settledAmountMinor = request.settledAmountMinor ?? current.amountMinor;
+                const decision = decideStripeReconcileTransition({
+                  currentState: current.state,
+                  providerStatus: request.providerStatus,
+                  expectedAmountMinor: current.amountMinor,
+                  settledAmountMinor,
+                });
+
+                if (decision.targetState) {
+                  let effectiveFromState = current.state;
+                  if (
+                    effectiveFromState === 'CREATED' &&
+                    SETTLEMENT_OUTCOME_STATES.has(decision.targetState)
+                  ) {
+                    const toPending = canTransitionPaymentState({
+                      from: effectiveFromState,
+                      to: 'PENDING',
+                    });
+                    if (!toPending.ok) {
+                      throw new ConsoleBillingError(
+                        'invalid_payment_state',
+                        409,
+                        toPending.message,
+                        {
+                          fromState: effectiveFromState,
+                          toState: 'PENDING',
+                        },
+                      );
+                    }
+                    await q.query(
+                      `UPDATE console_stripe_payment_intents
+                          SET state = 'PENDING'
+                        WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+                      [namespace, currentOrgId, current.id],
+                    );
+                    await appendPaymentStateTransition(q, {
+                      namespace,
+                      orgId: currentOrgId,
+                      paymentId: current.id,
+                      fromState: effectiveFromState,
+                      toState: 'PENDING',
+                      changedAtMs: nowMs(now),
+                      actorType: 'PROVIDER',
+                      sourceEventId: request.eventId,
+                      reason: 'provider_pending_implied',
+                    });
+                    effectiveFromState = 'PENDING';
+                  }
+
+                  const transition = canTransitionPaymentState({
+                    from: effectiveFromState,
+                    to: decision.targetState,
+                  });
+                  if (!transition.ok) {
+                    throw new ConsoleBillingError('invalid_payment_state', 409, transition.message, {
+                      fromState: effectiveFromState,
+                      toState: decision.targetState,
+                    });
+                  }
+
+                  const updated = await queryOne(
+                    q,
+                    `UPDATE console_stripe_payment_intents
+                        SET state = $4
+                      WHERE namespace = $1 AND org_id = $2 AND id = $3
+                      RETURNING *`,
+                    [namespace, currentOrgId, current.id, decision.targetState],
+                  );
+                  if (!updated) {
+                    throw new ConsoleBillingError(
+                      'payment_intent_not_found',
+                      404,
+                      `Stripe payment intent ${current.id} was not found`,
+                    );
+                  }
+                  reconciled = parseStripePaymentIntentRow(updated);
+
+                  await appendPaymentStateTransition(q, {
+                    namespace,
+                    orgId: currentOrgId,
+                    paymentId: current.id,
+                    fromState: effectiveFromState,
+                    toState: decision.targetState,
+                    changedAtMs: nowMs(now),
+                    actorType: 'PROVIDER',
+                    sourceEventId: request.eventId,
+                    reason: decision.reason,
+                  });
+
+                  if (SETTLEMENT_OUTCOME_STATES.has(decision.targetState)) {
+                    await q.query(
+                      `UPDATE console_invoices
+                          SET amount_paid_minor = amount_paid_minor + $4,
+                              status = CASE
+                                WHEN amount_paid_minor + $4 >= amount_due_minor THEN 'PAID'
+                                ELSE status
+                              END
+                        WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+                      [namespace, currentOrgId, current.invoiceId, settledAmountMinor],
+                    );
+                  }
+                }
+              }
+            }
+          } else {
+            if (
+              eventType === 'checkout.session.completed' ||
+              eventType.startsWith('customer.subscription.')
+            ) {
+              const subRow = await queryOne(
+                q,
+                `SELECT *
+                   FROM console_subscriptions
+                  WHERE namespace = $1 AND org_id = $2
+                  FOR UPDATE`,
+                [namespace, currentOrgId],
+              );
+              if (subRow) {
+                const existing = parseSubscriptionRow(subRow);
+                const nextStatus =
+                  request.subscriptionStatus ||
+                  (eventType === 'checkout.session.completed' ? 'ACTIVE' : existing.status);
+                const nextCancelAtPeriodEnd =
+                  request.cancelAtPeriodEnd !== undefined
+                    ? request.cancelAtPeriodEnd
+                    : existing.cancelAtPeriodEnd;
+                const nextCurrentPeriodStartMs = request.currentPeriodStart
+                  ? Date.parse(request.currentPeriodStart)
+                  : Date.parse(existing.currentPeriodStart);
+                const nextCurrentPeriodEndMs = request.currentPeriodEnd
+                  ? Date.parse(request.currentPeriodEnd)
+                  : Date.parse(existing.currentPeriodEnd);
+                const nextCancelAtMs =
+                  request.cancelAt !== undefined
+                    ? request.cancelAt === null
+                      ? null
+                      : Date.parse(request.cancelAt)
+                    : nextCancelAtPeriodEnd
+                      ? existing.cancelAt
+                        ? Date.parse(existing.cancelAt)
+                        : nextCurrentPeriodEndMs
+                      : null;
+                const nextCanceledAtMs =
+                  request.canceledAt !== undefined
+                    ? request.canceledAt === null
+                      ? null
+                      : Date.parse(request.canceledAt)
+                    : nextStatus === 'CANCELED'
+                      ? existing.canceledAt
+                        ? Date.parse(existing.canceledAt)
+                        : nowMs(now)
+                      : null;
+
+                const updatedSub = await queryOne(
+                  q,
+                  `UPDATE console_subscriptions
+                      SET provider_customer_ref = COALESCE($4, provider_customer_ref),
+                          provider_subscription_ref = COALESCE($5, provider_subscription_ref),
+                          plan_id = COALESCE($6, plan_id),
+                          plan_name = COALESCE($7, plan_name),
+                          status = $8,
+                          cancel_at_period_end = $9,
+                          current_period_start_ms = $10,
+                          current_period_end_ms = $11,
+                          cancel_at_ms = $12,
+                          canceled_at_ms = $13,
+                          updated_at_ms = $14
+                    WHERE namespace = $1 AND org_id = $2 AND id = $3
+                    RETURNING *`,
+                  [
+                    namespace,
+                    currentOrgId,
+                    existing.id,
+                    request.providerCustomerRef || null,
+                    request.providerSubscriptionRef || null,
+                    request.planId || null,
+                    request.planName || null,
+                    nextStatus,
+                    nextCancelAtPeriodEnd,
+                    nextCurrentPeriodStartMs,
+                    nextCurrentPeriodEndMs,
+                    nextCancelAtMs,
+                    nextCanceledAtMs,
+                    nowMs(now),
+                  ],
+                );
+                projectedSubscription = updatedSub ? parseSubscriptionRow(updatedSub) : null;
+              }
+            }
+
+            if (eventType.startsWith('invoice.') && request.invoiceId) {
+              const invoiceRow = await queryOne(
+                q,
+                `SELECT *
+                   FROM console_invoices
+                  WHERE namespace = $1 AND org_id = $2 AND id = $3
+                  FOR UPDATE`,
+                [namespace, currentOrgId, request.invoiceId],
+              );
+              if (invoiceRow) {
+                const currentInvoice = parseInvoiceRow(invoiceRow);
+                const nextAmountDueMinor =
+                  request.invoiceAmountDueMinor ?? currentInvoice.amountDueMinor;
+                const nextAmountPaidMinor =
+                  request.invoiceAmountPaidMinor ?? currentInvoice.amountPaidMinor;
+                const nextStatus =
+                  request.invoiceStatus ||
+                  (nextAmountPaidMinor >= nextAmountDueMinor
+                    ? 'PAID'
+                    : currentInvoice.status === 'PAID'
+                      ? 'OPEN'
+                      : currentInvoice.status);
+                const updatedInvoice = await queryOne(
+                  q,
+                  `UPDATE console_invoices
+                      SET amount_due_minor = $4,
+                          amount_paid_minor = $5,
+                          status = $6
+                    WHERE namespace = $1 AND org_id = $2 AND id = $3
+                    RETURNING *`,
+                  [
+                    namespace,
+                    currentOrgId,
+                    currentInvoice.id,
+                    nextAmountDueMinor,
+                    nextAmountPaidMinor,
+                    nextStatus,
+                  ],
+                );
+                projectedInvoice = updatedInvoice ? parseInvoiceRow(updatedInvoice) : null;
+              }
+            }
+          }
+
+          if (!projectedSubscription) {
+            const subRow = await queryOne(
+              q,
+              `SELECT *
+                 FROM console_subscriptions
+                WHERE namespace = $1 AND org_id = $2`,
+              [namespace, currentOrgId],
+            );
+            projectedSubscription = subRow ? parseSubscriptionRow(subRow) : null;
+          }
+          if (!projectedInvoice && request.invoiceId) {
+            const invoiceRow = await queryOne(
+              q,
+              `SELECT *
+                 FROM console_invoices
+                WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+              [namespace, currentOrgId, request.invoiceId],
+            );
+            projectedInvoice = invoiceRow ? parseInvoiceRow(invoiceRow) : null;
+          }
+
+          return {
+            accepted: true,
+            paymentIntent: reconciled,
+            subscription: projectedSubscription,
+            invoice: projectedInvoice,
+            orgId: currentOrgId,
+          };
+        },
+      );
     },
 
     async createStablecoinQuote(
       ctx: ConsoleBillingContext,
       request: StablecoinQuoteRequest,
     ): Promise<StablecoinPaymentQuote> {
-      const now = nowFn();
-      await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
-      const invoiceRow = await queryOne(
-        pool,
-        `SELECT *
-           FROM console_invoices
-          WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-        [namespace, ctx.orgId, request.invoiceId],
-      );
-      if (!invoiceRow) {
-        throw new ConsoleBillingError(
-          'invoice_not_found',
-          404,
-          `Invoice ${request.invoiceId} was not found`,
+      return withOrgTx(ctx, async (q, now) => {
+        const invoiceRow = await queryOne(
+          q,
+          `SELECT *
+             FROM console_invoices
+            WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+          [namespace, ctx.orgId, request.invoiceId],
         );
-      }
-      const invoice = parseInvoiceRow(invoiceRow);
-      if (invoice.status !== 'OPEN') {
-        throw new ConsoleBillingError('invoice_not_open', 409, `Invoice ${invoice.id} is not open`);
-      }
-      const amountMinor = Math.max(invoice.amountDueMinor - invoice.amountPaidMinor, 0);
-      if (amountMinor <= 0) {
-        throw new ConsoleBillingError(
-          'invoice_already_paid',
-          409,
-          `Invoice ${invoice.id} is already fully paid`,
-        );
-      }
+        if (!invoiceRow) {
+          throw new ConsoleBillingError(
+            'invoice_not_found',
+            404,
+            `Invoice ${request.invoiceId} was not found`,
+          );
+        }
+        const invoice = parseInvoiceRow(invoiceRow);
+        if (invoice.status !== 'OPEN') {
+          throw new ConsoleBillingError('invoice_not_open', 409, `Invoice ${invoice.id} is not open`);
+        }
+        const amountMinor = Math.max(invoice.amountDueMinor - invoice.amountPaidMinor, 0);
+        if (amountMinor <= 0) {
+          throw new ConsoleBillingError(
+            'invoice_already_paid',
+            409,
+            `Invoice ${invoice.id} is already fully paid`,
+          );
+        }
 
-      const quoteId = makeId('scq', now);
-      const row = await queryOne(
-        pool,
-        `INSERT INTO console_stablecoin_quotes
-          (namespace, id, org_id, invoice_id, asset, chain, amount_minor, created_at_ms, expires_at_ms, state)
-         VALUES
-          ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'OPEN')
-         RETURNING *`,
-        [
-          namespace,
-          quoteId,
-          ctx.orgId,
-          invoice.id,
-          request.asset,
-          request.chain,
-          amountMinor,
-          nowMs(now),
-          nowMs(now) + 15 * 60 * 1000,
-        ],
-      );
-      if (!row) {
-        throw new ConsoleBillingError(
-          'quote_create_failed',
-          500,
-          'Failed to create stablecoin quote',
+        const quoteId = makeId('scq', now);
+        const row = await queryOne(
+          q,
+          `INSERT INTO console_stablecoin_quotes
+            (namespace, id, org_id, invoice_id, asset, chain, amount_minor, created_at_ms, expires_at_ms, state)
+           VALUES
+            ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'OPEN')
+           RETURNING *`,
+          [
+            namespace,
+            quoteId,
+            ctx.orgId,
+            invoice.id,
+            request.asset,
+            request.chain,
+            amountMinor,
+            nowMs(now),
+            nowMs(now) + 15 * 60 * 1000,
+          ],
         );
-      }
-      return parseStablecoinQuoteRow(row);
+        if (!row) {
+          throw new ConsoleBillingError(
+            'quote_create_failed',
+            500,
+            'Failed to create stablecoin quote',
+          );
+        }
+        return parseStablecoinQuoteRow(row);
+      });
     },
 
     async createStablecoinPaymentIntent(
       ctx: ConsoleBillingContext,
       request: StablecoinPaymentIntentRequest,
     ): Promise<StablecoinPaymentIntent> {
-      const now = nowFn();
-      await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
-      return withTx(pool, async (q) => {
+      return withOrgTx(ctx, async (q, now) => {
         const invoice = await lockInvoiceForPayment(q, namespace, ctx.orgId, request.invoiceId);
         ensureRailLock(invoice, 'STABLECOIN');
         const activeStablecoinRows = await q.query(
@@ -2311,6 +3002,7 @@ export async function createPostgresConsoleBillingService(
         }
         await appendPaymentStateTransition(q, {
           namespace,
+          orgId: ctx.orgId,
           paymentId: intentId,
           fromState: null,
           toState: 'PENDING',
@@ -2327,9 +3019,7 @@ export async function createPostgresConsoleBillingService(
       ctx: ConsoleBillingContext,
       paymentIntentId: string,
     ): Promise<StablecoinPaymentIntent | null> {
-      const now = nowFn();
-      await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
-      return withTx(pool, async (q) => {
+      return withOrgTx(ctx, async (q, now) => {
         const row = await queryOne(
           q,
           `SELECT *
@@ -2354,9 +3044,7 @@ export async function createPostgresConsoleBillingService(
       ctx: ConsoleBillingContext,
       paymentIntentId: string,
     ): Promise<StablecoinPaymentIntent | null> {
-      const now = nowFn();
-      await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
-      return withTx(pool, async (q) => {
+      return withOrgTx(ctx, async (q, now) => {
         const row = await queryOne(
           q,
           `SELECT *
@@ -2398,6 +3086,7 @@ export async function createPostgresConsoleBillingService(
         if (!updated) return null;
         await appendPaymentStateTransition(q, {
           namespace,
+          orgId: ctx.orgId,
           paymentId: paymentIntentId,
           fromState: current.state,
           toState: 'CANCELED',
@@ -2415,17 +3104,14 @@ export async function createPostgresConsoleBillingService(
       paymentIntentId: string,
       request: StablecoinPaymentIntentReconcileRequest,
     ): Promise<StablecoinPaymentIntent | null> {
-      const now = nowFn();
-      await ensureOrgBootstrap({ pool, namespace, orgId: ctx.orgId, now });
-      if (request.observedAmountMinor < 0 || request.observedConfirmations < 0) {
-        throw new ConsoleBillingError(
-          'invalid_reconciliation_request',
-          400,
-          'Observed amount and confirmations must be non-negative',
-        );
-      }
-
-      return withTx(pool, async (q) => {
+      return withOrgTx(ctx, async (q, now) => {
+        if (request.observedAmountMinor < 0 || request.observedConfirmations < 0) {
+          throw new ConsoleBillingError(
+            'invalid_reconciliation_request',
+            400,
+            'Observed amount and confirmations must be non-negative',
+          );
+        }
         const row = await queryOne(
           q,
           `SELECT *
@@ -2509,6 +3195,7 @@ export async function createPostgresConsoleBillingService(
 
         await appendPaymentStateTransition(q, {
           namespace,
+          orgId: ctx.orgId,
           paymentId: paymentIntentId,
           fromState: current.state,
           toState: decision.targetState,
@@ -2549,6 +3236,16 @@ export async function runPostgresConsoleBillingMonthlyFinalization(
   const periodMonthUtc = options.periodMonthUtc
     ? parseMonthUtcOrThrow(options.periodMonthUtc)
     : previousMonthUtc(nowFn());
+  const orgIds = Array.from(
+    new Set(
+      (Array.isArray(options.orgIds) ? options.orgIds : [])
+        .map((orgId) => String(orgId || '').trim())
+        .filter(Boolean),
+    ),
+  );
+  if (orgIds.length === 0) {
+    throw new Error('Billing monthly finalization requires at least one orgId');
+  }
 
   if (options.ensureSchema !== false) {
     await ensureConsoleBillingPostgresSchema({
@@ -2556,18 +3253,6 @@ export async function runPostgresConsoleBillingMonthlyFinalization(
       logger: logger as NormalizedLogger,
     });
   }
-
-  const pool = await getPostgresPool(postgresUrl);
-  const orgRows = await pool.query(
-    `SELECT org_id
-       FROM console_billing_accounts
-      WHERE namespace = $1
-      ORDER BY org_id ASC`,
-    [namespace],
-  );
-  const orgIds = orgRows.rows
-    .map((row) => String((row as any)?.org_id || '').trim())
-    .filter(Boolean);
 
   const service = await createPostgresConsoleBillingService({
     postgresUrl,

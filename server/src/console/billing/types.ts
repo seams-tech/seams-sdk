@@ -9,6 +9,7 @@ export type BillingUsageMetricVersion = 'maw_v1';
 export type InvoiceStatus = 'OPEN' | 'PAID' | 'VOID' | 'UNCOLLECTIBLE';
 export type InvoicePaymentRail = 'CARD' | 'STABLECOIN';
 export type BillingInvoiceLineItemType = 'PLAN_BASE_FEE' | 'MAW_USAGE';
+export type BillingSubscriptionStatus = 'ACTIVE' | 'PAST_DUE' | 'CANCELED';
 
 export interface BillingOverview {
   planId: string;
@@ -19,6 +20,24 @@ export interface BillingOverview {
   creditBalanceMinor: number;
   upcomingChargeEstimateMinor: number;
   openInvoiceCount: number;
+}
+
+export interface BillingSubscription {
+  id: string;
+  orgId: string;
+  provider: 'stripe';
+  providerCustomerRef: string | null;
+  providerSubscriptionRef: string | null;
+  planId: string;
+  planName: string;
+  status: BillingSubscriptionStatus;
+  cancelAtPeriodEnd: boolean;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  cancelAt: string | null;
+  canceledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type BillingUsageAction =
@@ -125,6 +144,30 @@ export interface StripeSetupIntent {
   expiresAt: string;
 }
 
+export interface StripeCheckoutSessionRequest {
+  successUrl: string;
+  cancelUrl: string;
+  planId?: string;
+}
+
+export interface StripeCheckoutSession {
+  id: string;
+  url: string;
+  customerRef: string;
+  expiresAt: string;
+}
+
+export interface StripeCustomerPortalSessionRequest {
+  returnUrl: string;
+}
+
+export interface StripeCustomerPortalSession {
+  id: string;
+  url: string;
+  customerRef: string;
+  expiresAt: string;
+}
+
 export interface StripePaymentIntentRequest {
   invoiceId: string;
   paymentMethodId?: string;
@@ -132,14 +175,32 @@ export interface StripePaymentIntentRequest {
 
 export interface StripeWebhookEventRequest {
   eventId: string;
-  providerRef: string;
-  providerStatus: StripePaymentIntentReconcileStatus;
+  eventType?: string;
+  providerRef?: string;
+  providerStatus?: StripePaymentIntentReconcileStatus;
   settledAmountMinor?: number;
+  orgId?: string;
+  providerCustomerRef?: string;
+  providerSubscriptionRef?: string;
+  planId?: string;
+  planName?: string;
+  subscriptionStatus?: BillingSubscriptionStatus;
+  cancelAtPeriodEnd?: boolean;
+  currentPeriodStart?: string;
+  currentPeriodEnd?: string;
+  cancelAt?: string | null;
+  canceledAt?: string | null;
+  invoiceId?: string;
+  invoiceStatus?: InvoiceStatus;
+  invoiceAmountDueMinor?: number;
+  invoiceAmountPaidMinor?: number;
 }
 
 export interface StripeWebhookEventResult {
   accepted: boolean;
   paymentIntent: StripePaymentIntent | null;
+  subscription: BillingSubscription | null;
+  invoice: BillingInvoice | null;
   orgId: string | null;
 }
 

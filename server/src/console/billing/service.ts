@@ -9,6 +9,7 @@ import type {
   BillingInvoiceLineItemType,
   BillingMonthlyActiveWallets,
   BillingOverview,
+  BillingSubscription,
   BillingPaymentMethod,
   BillingUsageAction,
   BillingUsageEventRequest,
@@ -26,6 +27,10 @@ import type {
   StripePaymentIntentRequest,
   StripeWebhookEventRequest,
   StripeWebhookEventResult,
+  StripeCustomerPortalSession,
+  StripeCustomerPortalSessionRequest,
+  StripeCheckoutSession,
+  StripeCheckoutSessionRequest,
   StripeSetupIntent,
   StripeSetupIntentRequest,
 } from './types';
@@ -38,6 +43,9 @@ export interface ConsoleBillingContext {
 
 export interface ConsoleBillingService {
   getOverview(ctx: ConsoleBillingContext): Promise<BillingOverview>;
+  getSubscription(ctx: ConsoleBillingContext): Promise<BillingSubscription>;
+  cancelSubscription(ctx: ConsoleBillingContext): Promise<BillingSubscription>;
+  resumeSubscription(ctx: ConsoleBillingContext): Promise<BillingSubscription>;
   getMonthlyActiveWallets(
     ctx: ConsoleBillingContext,
     monthUtc?: string,
@@ -75,6 +83,14 @@ export interface ConsoleBillingService {
     ctx: ConsoleBillingContext,
     request: StripeSetupIntentRequest,
   ): Promise<StripeSetupIntent>;
+  createStripeCheckoutSession(
+    ctx: ConsoleBillingContext,
+    request: StripeCheckoutSessionRequest,
+  ): Promise<StripeCheckoutSession>;
+  createStripeCustomerPortalSession(
+    ctx: ConsoleBillingContext,
+    request: StripeCustomerPortalSessionRequest,
+  ): Promise<StripeCustomerPortalSession>;
   createStripePaymentIntent(
     ctx: ConsoleBillingContext,
     request: StripePaymentIntentRequest,
@@ -112,6 +128,7 @@ export interface ConsoleBillingService {
 interface OrgBillingStore {
   planId: string;
   planName: string;
+  subscription: BillingSubscription;
   monthlyActiveWallets: number;
   creditBalanceMinor: number;
   invoices: Map<string, BillingInvoice>;
@@ -201,6 +218,55 @@ function makeId(prefix: string, now: Date): string {
 
 function coerceIsoDate(input: Date): string {
   return input.toISOString();
+}
+
+function makeStripeCustomerRef(orgId: string): string {
+  return `cus_${orgId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'org'}`;
+}
+
+function makeStripeSubscriptionRef(orgId: string): string {
+  return `sub_${orgId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'org'}`;
+}
+
+function makeInitialSubscription(
+  orgId: string,
+  planId: string,
+  planName: string,
+  now: Date,
+): BillingSubscription {
+  const currentPeriodStart = coerceIsoDate(now);
+  const currentPeriodEnd = coerceIsoDate(new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000));
+  return {
+    id: makeId('sub', now),
+    orgId,
+    provider: 'stripe',
+    providerCustomerRef: makeStripeCustomerRef(orgId),
+    providerSubscriptionRef: makeStripeSubscriptionRef(orgId),
+    planId,
+    planName,
+    status: 'ACTIVE',
+    cancelAtPeriodEnd: false,
+    currentPeriodStart,
+    currentPeriodEnd,
+    cancelAt: null,
+    canceledAt: null,
+    createdAt: currentPeriodStart,
+    updatedAt: currentPeriodStart,
+  };
+}
+
+function refreshSubscriptionLifecycle(subscription: BillingSubscription, now: Date): void {
+  if (subscription.status === 'CANCELED') return;
+  if (!subscription.cancelAtPeriodEnd) return;
+  const currentPeriodEndMs = Date.parse(subscription.currentPeriodEnd);
+  if (!Number.isFinite(currentPeriodEndMs)) return;
+  if (now.getTime() < currentPeriodEndMs) return;
+  const canceledAtIso = coerceIsoDate(new Date(currentPeriodEndMs));
+  subscription.status = 'CANCELED';
+  subscription.cancelAtPeriodEnd = false;
+  subscription.cancelAt = canceledAtIso;
+  subscription.canceledAt = canceledAtIso;
+  subscription.updatedAt = coerceIsoDate(now);
 }
 
 function makeMonthlyInvoice(orgId: string, monthUtc: string, now: Date): BillingInvoice {
@@ -444,6 +510,7 @@ export function createInMemoryConsoleBillingService(
     const store: OrgBillingStore = {
       planId: 'pro_maw_v1',
       planName: 'Pro MAW',
+      subscription: makeInitialSubscription(orgId, 'pro_maw_v1', 'Pro MAW', nowFn()),
       monthlyActiveWallets: 0,
       creditBalanceMinor: 0,
       invoices: new Map(),
@@ -542,6 +609,53 @@ export function createInMemoryConsoleBillingService(
   }
 
   return {
+    async getSubscription(ctx: ConsoleBillingContext): Promise<BillingSubscription> {
+      const now = nowFn();
+      const store = ensureOrgStore(ctx.orgId);
+      refreshSubscriptionLifecycle(store.subscription, now);
+      return store.subscription;
+    },
+
+    async cancelSubscription(ctx: ConsoleBillingContext): Promise<BillingSubscription> {
+      const now = nowFn();
+      const store = ensureOrgStore(ctx.orgId);
+      refreshSubscriptionLifecycle(store.subscription, now);
+      if (store.subscription.status === 'CANCELED') {
+        throw new ConsoleBillingError(
+          'subscription_already_canceled',
+          409,
+          'Subscription is already canceled',
+        );
+      }
+      if (store.subscription.cancelAtPeriodEnd) {
+        return store.subscription;
+      }
+      store.subscription.cancelAtPeriodEnd = true;
+      store.subscription.cancelAt = store.subscription.currentPeriodEnd;
+      store.subscription.updatedAt = coerceIsoDate(now);
+      return store.subscription;
+    },
+
+    async resumeSubscription(ctx: ConsoleBillingContext): Promise<BillingSubscription> {
+      const now = nowFn();
+      const store = ensureOrgStore(ctx.orgId);
+      refreshSubscriptionLifecycle(store.subscription, now);
+      if (store.subscription.status === 'CANCELED') {
+        throw new ConsoleBillingError(
+          'subscription_not_resumable',
+          409,
+          'Subscription is already canceled and cannot be resumed',
+        );
+      }
+      if (!store.subscription.cancelAtPeriodEnd) {
+        return store.subscription;
+      }
+      store.subscription.cancelAtPeriodEnd = false;
+      store.subscription.cancelAt = null;
+      store.subscription.updatedAt = coerceIsoDate(now);
+      return store.subscription;
+    },
+
     async getOverview(ctx: ConsoleBillingContext): Promise<BillingOverview> {
       const now = nowFn();
       const store = ensureOrgStore(ctx.orgId);
@@ -817,6 +931,68 @@ export function createInMemoryConsoleBillingService(
       };
     },
 
+    async createStripeCheckoutSession(
+      ctx: ConsoleBillingContext,
+      request: StripeCheckoutSessionRequest,
+    ): Promise<StripeCheckoutSession> {
+      const now = nowFn();
+      ensureOrgStore(ctx.orgId);
+      const providerCheckoutSession = await providers.stripe.createCheckoutSession({
+        orgId: ctx.orgId,
+        successUrl: request.successUrl,
+        cancelUrl: request.cancelUrl,
+        planId: request.planId,
+        now,
+      });
+      const id = String(providerCheckoutSession.id || '').trim();
+      const url = String(providerCheckoutSession.url || '').trim();
+      const customerRef = String(providerCheckoutSession.customerRef || '').trim();
+      const expiresAt = String(providerCheckoutSession.expiresAt || '').trim();
+      if (!id || !url || !customerRef || !expiresAt) {
+        throw new ConsoleBillingError(
+          'payment_provider_error',
+          500,
+          'Stripe checkout-session provider returned invalid payload',
+        );
+      }
+      return {
+        id,
+        url,
+        customerRef,
+        expiresAt,
+      };
+    },
+
+    async createStripeCustomerPortalSession(
+      ctx: ConsoleBillingContext,
+      request: StripeCustomerPortalSessionRequest,
+    ): Promise<StripeCustomerPortalSession> {
+      const now = nowFn();
+      ensureOrgStore(ctx.orgId);
+      const providerPortalSession = await providers.stripe.createCustomerPortalSession({
+        orgId: ctx.orgId,
+        returnUrl: request.returnUrl,
+        now,
+      });
+      const id = String(providerPortalSession.id || '').trim();
+      const url = String(providerPortalSession.url || '').trim();
+      const customerRef = String(providerPortalSession.customerRef || '').trim();
+      const expiresAt = String(providerPortalSession.expiresAt || '').trim();
+      if (!id || !url || !customerRef || !expiresAt) {
+        throw new ConsoleBillingError(
+          'payment_provider_error',
+          500,
+          'Stripe customer-portal session provider returned invalid payload',
+        );
+      }
+      return {
+        id,
+        url,
+        customerRef,
+        expiresAt,
+      };
+    },
+
     async createStripePaymentIntent(
       ctx: ConsoleBillingContext,
       request: StripePaymentIntentRequest,
@@ -993,60 +1169,197 @@ export function createInMemoryConsoleBillingService(
     async processStripeWebhookEvent(
       request: StripeWebhookEventRequest,
     ): Promise<StripeWebhookEventResult> {
+      const now = nowFn();
+      const eventType = String(request.eventType || '').trim().toLowerCase();
+      const paymentIntentProjection = !eventType || eventType.startsWith('payment_intent.');
+
       let matchedOrgId: string | null = null;
       let matchedStore: OrgBillingStore | null = null;
       let matchedIntent: StripePaymentIntent | null = null;
 
-      for (const [orgId, store] of Array.from(orgStores.entries())) {
-        const candidate = Array.from(store.stripePaymentIntents.values()).find(
-          (intent) => intent.providerRef === request.providerRef,
-        );
-        if (!candidate) continue;
-        if (matchedIntent) {
+      if (paymentIntentProjection) {
+        const providerRef = String(request.providerRef || '').trim();
+        for (const [orgId, store] of Array.from(orgStores.entries())) {
+          const candidate = Array.from(store.stripePaymentIntents.values()).find(
+            (intent) => intent.providerRef === providerRef,
+          );
+          if (!candidate) continue;
+          if (matchedIntent) {
+            throw new ConsoleBillingError(
+              'duplicate_provider_reference',
+              409,
+              `Stripe provider reference ${providerRef} matches multiple payment intents`,
+            );
+          }
+          matchedOrgId = orgId;
+          matchedStore = store;
+          matchedIntent = candidate;
+        }
+      } else {
+        const resolverMatches: Array<{ orgId: string; store: OrgBillingStore }> = [];
+        const byOrgId = String(request.orgId || '').trim();
+        if (byOrgId) {
+          const store = orgStores.get(byOrgId);
+          if (store) resolverMatches.push({ orgId: byOrgId, store });
+        }
+
+        const bySubscriptionRef = String(request.providerSubscriptionRef || '').trim();
+        const byCustomerRef = String(request.providerCustomerRef || '').trim();
+        const byInvoiceId = String(request.invoiceId || '').trim();
+        const byProviderRef = String(request.providerRef || '').trim();
+
+        for (const [orgId, store] of Array.from(orgStores.entries())) {
+          if (resolverMatches.some((entry) => entry.orgId === orgId)) continue;
+          const subscription = store.subscription;
+          const subscriptionMatch =
+            (bySubscriptionRef && subscription.providerSubscriptionRef === bySubscriptionRef) ||
+            (byCustomerRef && subscription.providerCustomerRef === byCustomerRef) ||
+            (byProviderRef &&
+              (subscription.providerSubscriptionRef === byProviderRef ||
+                subscription.providerCustomerRef === byProviderRef));
+          const invoiceMatch = byInvoiceId ? store.invoices.has(byInvoiceId) : false;
+          if (subscriptionMatch || invoiceMatch) {
+            resolverMatches.push({ orgId, store });
+          }
+        }
+
+        if (resolverMatches.length > 1) {
           throw new ConsoleBillingError(
             'duplicate_provider_reference',
             409,
-            `Stripe provider reference ${request.providerRef} matches multiple payment intents`,
+            `Stripe webhook event ${request.eventId} maps to multiple organizations`,
           );
         }
-        matchedOrgId = orgId;
-        matchedStore = store;
-        matchedIntent = candidate;
+        if (resolverMatches.length === 1) {
+          matchedOrgId = resolverMatches[0].orgId;
+          matchedStore = resolverMatches[0].store;
+        }
       }
 
-      if (!matchedOrgId || !matchedStore || !matchedIntent) {
+      if (!matchedOrgId || !matchedStore) {
         return {
           accepted: true,
           paymentIntent: null,
+          subscription: null,
+          invoice: null,
           orgId: null,
         };
       }
+
+      refreshSubscriptionLifecycle(matchedStore.subscription, now);
 
       if (matchedStore.stripeWebhookEventIds.has(request.eventId)) {
         return {
           accepted: false,
           paymentIntent: matchedIntent,
+          subscription: matchedStore.subscription,
+          invoice: request.invoiceId ? matchedStore.invoices.get(request.invoiceId) || null : null,
           orgId: matchedOrgId,
         };
       }
 
-      const reconciled = await this.reconcileStripePaymentIntent(
-        {
-          orgId: matchedOrgId,
-          actorUserId: 'system-stripe-webhook',
-          roles: ['ops'],
-        },
-        matchedIntent.id,
-        {
-          providerStatus: request.providerStatus,
-          settledAmountMinor: request.settledAmountMinor,
-          sourceEventId: request.eventId,
-        },
-      );
+      let reconciled: StripePaymentIntent | null = matchedIntent;
+      let projectedSubscription: BillingSubscription | null = matchedStore.subscription;
+      let projectedInvoice: BillingInvoice | null = request.invoiceId
+        ? matchedStore.invoices.get(request.invoiceId) || null
+        : null;
+
+      if (paymentIntentProjection) {
+        if (!matchedIntent || !request.providerStatus) {
+          return {
+            accepted: true,
+            paymentIntent: null,
+            subscription: projectedSubscription,
+            invoice: projectedInvoice,
+            orgId: matchedOrgId,
+          };
+        }
+        reconciled = await this.reconcileStripePaymentIntent(
+          {
+            orgId: matchedOrgId,
+            actorUserId: 'system-stripe-webhook',
+            roles: ['ops'],
+          },
+          matchedIntent.id,
+          {
+            providerStatus: request.providerStatus,
+            settledAmountMinor: request.settledAmountMinor,
+            sourceEventId: request.eventId,
+          },
+        );
+      } else {
+        if (
+          eventType === 'checkout.session.completed' ||
+          eventType.startsWith('customer.subscription.')
+        ) {
+          if (request.providerCustomerRef !== undefined) {
+            matchedStore.subscription.providerCustomerRef = request.providerCustomerRef || null;
+          }
+          if (request.providerSubscriptionRef !== undefined) {
+            matchedStore.subscription.providerSubscriptionRef = request.providerSubscriptionRef || null;
+          }
+          if (request.planId) matchedStore.subscription.planId = request.planId;
+          if (request.planName) matchedStore.subscription.planName = request.planName;
+          if (request.currentPeriodStart) {
+            matchedStore.subscription.currentPeriodStart = request.currentPeriodStart;
+          }
+          if (request.currentPeriodEnd) {
+            matchedStore.subscription.currentPeriodEnd = request.currentPeriodEnd;
+          }
+          if (request.subscriptionStatus) {
+            matchedStore.subscription.status = request.subscriptionStatus;
+          } else if (eventType === 'checkout.session.completed') {
+            matchedStore.subscription.status = 'ACTIVE';
+          }
+          if (request.cancelAtPeriodEnd !== undefined) {
+            matchedStore.subscription.cancelAtPeriodEnd = request.cancelAtPeriodEnd;
+          }
+          if (request.cancelAt !== undefined) {
+            matchedStore.subscription.cancelAt = request.cancelAt;
+          } else if (!matchedStore.subscription.cancelAtPeriodEnd) {
+            matchedStore.subscription.cancelAt = null;
+          }
+          if (request.canceledAt !== undefined) {
+            matchedStore.subscription.canceledAt = request.canceledAt;
+          }
+          if (
+            matchedStore.subscription.status === 'CANCELED' &&
+            !matchedStore.subscription.canceledAt
+          ) {
+            matchedStore.subscription.canceledAt = coerceIsoDate(now);
+          }
+          matchedStore.subscription.updatedAt = coerceIsoDate(now);
+          projectedSubscription = matchedStore.subscription;
+        }
+
+        if (eventType.startsWith('invoice.') && request.invoiceId) {
+          const invoice = matchedStore.invoices.get(request.invoiceId) || null;
+          if (invoice) {
+            if (request.invoiceAmountDueMinor !== undefined) {
+              invoice.amountDueMinor = request.invoiceAmountDueMinor;
+            }
+            if (request.invoiceAmountPaidMinor !== undefined) {
+              invoice.amountPaidMinor = request.invoiceAmountPaidMinor;
+            }
+            if (request.invoiceStatus) {
+              invoice.status = request.invoiceStatus;
+            } else if (invoice.amountPaidMinor >= invoice.amountDueMinor) {
+              invoice.status = 'PAID';
+            }
+            matchedStore.invoices.set(invoice.id, invoice);
+            projectedInvoice = invoice;
+          } else {
+            projectedInvoice = null;
+          }
+        }
+      }
+
       matchedStore.stripeWebhookEventIds.add(request.eventId);
       return {
         accepted: true,
         paymentIntent: reconciled,
+        subscription: projectedSubscription,
+        invoice: projectedInvoice,
         orgId: matchedOrgId,
       };
     },

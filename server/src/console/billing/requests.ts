@@ -13,6 +13,8 @@ import type {
   StablecoinPaymentIntentReconcileRequest,
   StablecoinPaymentIntentRequest,
   StablecoinQuoteRequest,
+  StripeCheckoutSessionRequest,
+  StripeCustomerPortalSessionRequest,
   StripePaymentIntentReconcileRequest,
   StripePaymentIntentRequest,
   StripeWebhookEventRequest,
@@ -55,6 +57,81 @@ export function parseStripeSetupIntentRequest(body: unknown): StripeSetupIntentR
   const obj = requireObject(body, createParseError);
   return {
     returnUrl: readOptionalString(obj, 'returnUrl'),
+  };
+}
+
+function validateHttpUrlOrThrow(value: string, field: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch (_error: unknown) {
+    throw new ConsoleBillingError('invalid_body', 400, `Field ${field} must be a valid URL`);
+  }
+  const protocol = parsed.protocol.toLowerCase();
+  if (protocol !== 'http:' && protocol !== 'https:') {
+    throw new ConsoleBillingError(
+      'invalid_body',
+      400,
+      `Field ${field} must use http or https protocol`,
+    );
+  }
+}
+
+function parseOptionalIsoDate(
+  value: string | undefined,
+  field: string,
+): string | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    throw new ConsoleBillingError(
+      'invalid_body',
+      400,
+      `Field ${field} must be a valid ISO-8601 datetime`,
+    );
+  }
+  return new Date(parsed).toISOString();
+}
+
+function parseOptionalNullableIsoDate(
+  value: string | undefined,
+  field: string,
+): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === '') return null;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    throw new ConsoleBillingError(
+      'invalid_body',
+      400,
+      `Field ${field} must be a valid ISO-8601 datetime`,
+    );
+  }
+  return new Date(parsed).toISOString();
+}
+
+export function parseStripeCheckoutSessionRequest(body: unknown): StripeCheckoutSessionRequest {
+  const obj = requireObject(body, createParseError);
+  const successUrl = readRequiredString(obj, 'successUrl', createParseError);
+  const cancelUrl = readRequiredString(obj, 'cancelUrl', createParseError);
+  const planId = readOptionalString(obj, 'planId');
+  validateHttpUrlOrThrow(successUrl, 'successUrl');
+  validateHttpUrlOrThrow(cancelUrl, 'cancelUrl');
+  return {
+    successUrl,
+    cancelUrl,
+    planId,
+  };
+}
+
+export function parseStripeCustomerPortalSessionRequest(
+  body: unknown,
+): StripeCustomerPortalSessionRequest {
+  const obj = requireObject(body, createParseError);
+  const returnUrl = readRequiredString(obj, 'returnUrl', createParseError);
+  validateHttpUrlOrThrow(returnUrl, 'returnUrl');
+  return {
+    returnUrl,
   };
 }
 
@@ -107,16 +184,112 @@ export function parseStripePaymentIntentReconcileRequest(
 export function parseStripeWebhookEventRequest(body: unknown): StripeWebhookEventRequest {
   const obj = requireObject(body, createParseError);
   const eventId = readRequiredString(obj, 'eventId', createParseError);
-  const providerRef = readRequiredString(obj, 'providerRef', createParseError);
-  const providerStatus = readRequiredString(obj, 'providerStatus', createParseError).toUpperCase();
+  const eventTypeRaw = readOptionalString(obj, 'eventType');
+  const eventType = eventTypeRaw ? eventTypeRaw.trim() : undefined;
+  const providerRef = readOptionalString(obj, 'providerRef');
+  const providerStatusRaw = readOptionalString(obj, 'providerStatus');
   const settledAmountMinorRaw = obj.settledAmountMinor;
+  const orgId = readOptionalString(obj, 'orgId');
+  const providerCustomerRef = readOptionalString(obj, 'providerCustomerRef');
+  const providerSubscriptionRef = readOptionalString(obj, 'providerSubscriptionRef');
+  const planId = readOptionalString(obj, 'planId');
+  const planName = readOptionalString(obj, 'planName');
+  const subscriptionStatusRaw = readOptionalString(obj, 'subscriptionStatus');
+  const cancelAtPeriodEndRaw = obj.cancelAtPeriodEnd;
+  const currentPeriodStartRaw = readOptionalString(obj, 'currentPeriodStart');
+  const currentPeriodEndRaw = readOptionalString(obj, 'currentPeriodEnd');
+  const cancelAtRaw = readOptionalString(obj, 'cancelAt');
+  const canceledAtRaw = readOptionalString(obj, 'canceledAt');
+  const invoiceId = readOptionalString(obj, 'invoiceId');
+  const invoiceStatusRaw = readOptionalString(obj, 'invoiceStatus');
+  const invoiceAmountDueMinorRaw = obj.invoiceAmountDueMinor;
+  const invoiceAmountPaidMinorRaw = obj.invoiceAmountPaidMinor;
+
+  let providerStatus: StripeWebhookEventRequest['providerStatus'] | undefined;
   const validStatuses = new Set(['ACTION_REQUIRED', 'PENDING', 'SUCCEEDED', 'FAILED', 'CANCELED']);
-  if (!validStatuses.has(providerStatus)) {
+  if (providerStatusRaw !== undefined) {
+    const normalized = providerStatusRaw.toUpperCase();
+    if (!validStatuses.has(normalized)) {
+      throw new ConsoleBillingError(
+        'invalid_body',
+        400,
+        `Unsupported providerStatus: ${normalized}`,
+      );
+    }
+    providerStatus = normalized as StripeWebhookEventRequest['providerStatus'];
+  }
+
+  const normalizedEventType = eventType || '';
+  const isPaymentIntentProjection = !normalizedEventType || normalizedEventType.startsWith('payment_intent.');
+  const isSupportedProjectionType =
+    isPaymentIntentProjection ||
+    normalizedEventType === 'checkout.session.completed' ||
+    normalizedEventType.startsWith('customer.subscription.') ||
+    normalizedEventType.startsWith('invoice.');
+  if (!isSupportedProjectionType) {
     throw new ConsoleBillingError(
       'invalid_body',
       400,
-      `Unsupported providerStatus: ${providerStatus}`,
+      `Unsupported Stripe eventType: ${normalizedEventType || '(empty)'}`,
     );
+  }
+  if (isPaymentIntentProjection) {
+    if (!providerRef) {
+      throw new ConsoleBillingError(
+        'invalid_body',
+        400,
+        'Field providerRef is required for payment-intent webhook projections',
+      );
+    }
+    if (!providerStatus) {
+      throw new ConsoleBillingError(
+        'invalid_body',
+        400,
+        'Field providerStatus is required for payment-intent webhook projections',
+      );
+    }
+  }
+  if (!isPaymentIntentProjection && !orgId) {
+    throw new ConsoleBillingError(
+      'invalid_body',
+      400,
+      'Field orgId is required for non-payment-intent Stripe webhook projections',
+    );
+  }
+  if (cancelAtPeriodEndRaw !== undefined && typeof cancelAtPeriodEndRaw !== 'boolean') {
+    throw new ConsoleBillingError(
+      'invalid_body',
+      400,
+      'Field cancelAtPeriodEnd must be a boolean when provided',
+    );
+  }
+
+  let subscriptionStatus: StripeWebhookEventRequest['subscriptionStatus'] | undefined;
+  if (subscriptionStatusRaw !== undefined) {
+    const normalized = subscriptionStatusRaw.toUpperCase();
+    const validSubscriptionStatuses = new Set(['ACTIVE', 'PAST_DUE', 'CANCELED']);
+    if (!validSubscriptionStatuses.has(normalized)) {
+      throw new ConsoleBillingError(
+        'invalid_body',
+        400,
+        `Unsupported subscriptionStatus: ${normalized}`,
+      );
+    }
+    subscriptionStatus = normalized as StripeWebhookEventRequest['subscriptionStatus'];
+  }
+
+  let invoiceStatus: StripeWebhookEventRequest['invoiceStatus'] | undefined;
+  if (invoiceStatusRaw !== undefined) {
+    const normalized = invoiceStatusRaw.toUpperCase();
+    const validInvoiceStatuses = new Set(['OPEN', 'PAID', 'VOID', 'UNCOLLECTIBLE']);
+    if (!validInvoiceStatuses.has(normalized)) {
+      throw new ConsoleBillingError(
+        'invalid_body',
+        400,
+        `Unsupported invoiceStatus: ${normalized}`,
+      );
+    }
+    invoiceStatus = normalized as StripeWebhookEventRequest['invoiceStatus'];
   }
 
   let settledAmountMinor: number | undefined;
@@ -134,11 +307,63 @@ export function parseStripeWebhookEventRequest(body: unknown): StripeWebhookEven
     }
   }
 
+  let invoiceAmountDueMinor: number | undefined;
+  if (invoiceAmountDueMinorRaw !== undefined && invoiceAmountDueMinorRaw !== null) {
+    invoiceAmountDueMinor =
+      typeof invoiceAmountDueMinorRaw === 'number'
+        ? invoiceAmountDueMinorRaw
+        : Number(invoiceAmountDueMinorRaw);
+    if (!Number.isInteger(invoiceAmountDueMinor) || invoiceAmountDueMinor < 0) {
+      throw new ConsoleBillingError(
+        'invalid_body',
+        400,
+        'Field invoiceAmountDueMinor must be an integer >= 0',
+      );
+    }
+  }
+
+  let invoiceAmountPaidMinor: number | undefined;
+  if (invoiceAmountPaidMinorRaw !== undefined && invoiceAmountPaidMinorRaw !== null) {
+    invoiceAmountPaidMinor =
+      typeof invoiceAmountPaidMinorRaw === 'number'
+        ? invoiceAmountPaidMinorRaw
+        : Number(invoiceAmountPaidMinorRaw);
+    if (!Number.isInteger(invoiceAmountPaidMinor) || invoiceAmountPaidMinor < 0) {
+      throw new ConsoleBillingError(
+        'invalid_body',
+        400,
+        'Field invoiceAmountPaidMinor must be an integer >= 0',
+      );
+    }
+  }
+
+  const currentPeriodStart = parseOptionalIsoDate(currentPeriodStartRaw, 'currentPeriodStart');
+  const currentPeriodEnd = parseOptionalIsoDate(currentPeriodEndRaw, 'currentPeriodEnd');
+  const cancelAt = parseOptionalNullableIsoDate(cancelAtRaw, 'cancelAt');
+  const canceledAt = parseOptionalNullableIsoDate(canceledAtRaw, 'canceledAt');
+
   return {
     eventId,
+    eventType: normalizedEventType || undefined,
     providerRef,
-    providerStatus: providerStatus as StripeWebhookEventRequest['providerStatus'],
+    providerStatus,
     settledAmountMinor,
+    orgId,
+    providerCustomerRef,
+    providerSubscriptionRef,
+    planId,
+    planName,
+    subscriptionStatus,
+    cancelAtPeriodEnd:
+      cancelAtPeriodEndRaw === undefined ? undefined : Boolean(cancelAtPeriodEndRaw),
+    currentPeriodStart,
+    currentPeriodEnd,
+    cancelAt: cancelAt === undefined ? undefined : cancelAt,
+    canceledAt: canceledAt === undefined ? undefined : canceledAt,
+    invoiceId,
+    invoiceStatus,
+    invoiceAmountDueMinor,
+    invoiceAmountPaidMinor,
   };
 }
 

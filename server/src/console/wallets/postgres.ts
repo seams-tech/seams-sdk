@@ -6,6 +6,10 @@ import {
   toConsoleIso as toIso,
   toConsoleNumber as toNumber,
 } from '../shared/postgresNormalize';
+import {
+  ensureConsoleTenantRlsPolicies,
+  withConsoleTenantContextTx,
+} from '../shared/postgresTenantContext';
 import { ConsoleWalletError } from './errors';
 import {
   makeDeterministicWalletAddress as makeDeterministicAddress,
@@ -425,6 +429,12 @@ export async function ensureConsoleWalletsPostgresSchema(
       CREATE INDEX IF NOT EXISTS console_wallet_index_org_last_activity_idx
       ON console_wallet_index (namespace, org_id, COALESCE(last_activity_at_ms, 0) DESC, id DESC)
     `);
+
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_wallet_index',
+      policyName: 'console_wallet_index_tenant_rls',
+    });
   } finally {
     try {
       await pool.query('SELECT pg_advisory_unlock($1)', [CONSOLE_WALLETS_MIGRATION_LOCK_ID]);
@@ -460,18 +470,24 @@ export async function createPostgresConsoleWalletService(
   }
 
   const pool = await getPostgresPool(postgresUrl);
+  const withTenantTx = <T>(
+    ctx: ConsoleWalletsContext,
+    fn: (q: Queryable) => Promise<T>,
+  ): Promise<T> => withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, fn);
 
   return {
     async listWallets(
       ctx: ConsoleWalletsContext,
       request: ListConsoleWalletsRequest = {},
     ): Promise<ConsoleWalletPage> {
-      const now = nowFn();
-      await ensureBootstrapWallet(pool, { namespace, ctx, now });
-      return queryWalletPage(pool, {
-        namespace,
-        orgId: ctx.orgId,
-        request,
+      return withTenantTx(ctx, async (q) => {
+        const now = nowFn();
+        await ensureBootstrapWallet(q, { namespace, ctx, now });
+        return queryWalletPage(q, {
+          namespace,
+          orgId: ctx.orgId,
+          request,
+        });
       });
     },
 
@@ -479,13 +495,15 @@ export async function createPostgresConsoleWalletService(
       ctx: ConsoleWalletsContext,
       request: SearchConsoleWalletsRequest,
     ): Promise<ConsoleWalletPage> {
-      const now = nowFn();
-      await ensureBootstrapWallet(pool, { namespace, ctx, now });
-      return queryWalletPage(pool, {
-        namespace,
-        orgId: ctx.orgId,
-        request,
-        searchQ: request.q,
+      return withTenantTx(ctx, async (q) => {
+        const now = nowFn();
+        await ensureBootstrapWallet(q, { namespace, ctx, now });
+        return queryWalletPage(q, {
+          namespace,
+          orgId: ctx.orgId,
+          request,
+          searchQ: request.q,
+        });
       });
     },
 
@@ -493,16 +511,18 @@ export async function createPostgresConsoleWalletService(
       ctx: ConsoleWalletsContext,
       walletId: string,
     ): Promise<ConsoleWallet | null> {
-      const now = nowFn();
-      await ensureBootstrapWallet(pool, { namespace, ctx, now });
-      const row = await queryOne(
-        pool,
-        `SELECT *
-           FROM console_wallet_index
-          WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-        [namespace, ctx.orgId, walletId],
-      );
-      return row ? parseWalletRow(row) : null;
+      return withTenantTx(ctx, async (q) => {
+        const now = nowFn();
+        await ensureBootstrapWallet(q, { namespace, ctx, now });
+        const row = await queryOne(
+          q,
+          `SELECT *
+             FROM console_wallet_index
+            WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+          [namespace, ctx.orgId, walletId],
+        );
+        return row ? parseWalletRow(row) : null;
+      });
     },
   };
 }

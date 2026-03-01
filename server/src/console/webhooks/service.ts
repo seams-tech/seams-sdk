@@ -292,31 +292,40 @@ export function createInMemoryConsoleWebhookService(
     isReplay: boolean,
   ): Promise<void> {
     const current = now();
-    const timestamp = String(Math.floor(current.getTime() / 1000));
-    const eventPayload = {
-      id: delivery.eventId,
-      type: delivery.eventType,
-      createdAt: coerceIsoDate(current),
-      data: delivery.payload,
-    };
-    const body = JSON.stringify(eventPayload);
-    const signature = await signPayload(endpoint.signingSecret, `${timestamp}.${body}`);
-    const headers = toDispatchHeaders({
-      endpointId: endpoint.id,
-      eventId: delivery.eventId,
-      eventType: delivery.eventType,
-      signature,
-      timestamp,
-    });
+    let result: WebhookDispatchResult;
+    try {
+      const timestamp = String(Math.floor(current.getTime() / 1000));
+      const eventPayload = {
+        id: delivery.eventId,
+        type: delivery.eventType,
+        createdAt: coerceIsoDate(current),
+        data: delivery.payload,
+      };
+      const body = JSON.stringify(eventPayload);
+      const signature = await signPayload(endpoint.signingSecret, `${timestamp}.${body}`);
+      const headers = toDispatchHeaders({
+        endpointId: endpoint.id,
+        eventId: delivery.eventId,
+        eventType: delivery.eventType,
+        signature,
+        timestamp,
+      });
 
-    const result = await dispatchAdapter.dispatch({
-      endpointId: endpoint.id,
-      endpointUrl: endpoint.url,
-      eventId: delivery.eventId,
-      eventType: delivery.eventType,
-      headers,
-      body,
-    });
+      result = await dispatchAdapter.dispatch({
+        endpointId: endpoint.id,
+        endpointUrl: endpoint.url,
+        eventId: delivery.eventId,
+        eventType: delivery.eventType,
+        headers,
+        body,
+      });
+    } catch (error: unknown) {
+      result = {
+        ok: false,
+        statusCode: 0,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      };
+    }
 
     const attemptedAt = coerceIsoDate(current);
     const nextAttemptNo = delivery.attemptCount + 1;

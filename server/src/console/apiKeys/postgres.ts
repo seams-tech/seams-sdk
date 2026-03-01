@@ -5,6 +5,10 @@ import {
   toConsoleIso as toIso,
   toConsoleNumber as toNumber,
 } from '../shared/postgresNormalize';
+import {
+  ensureConsoleTenantRlsPolicies,
+  withConsoleTenantContextTx,
+} from '../shared/postgresTenantContext';
 import { ConsoleApiKeyError } from './errors';
 import type {
   ConsoleApiKey,
@@ -208,6 +212,12 @@ export async function ensureConsoleApiKeysPostgresSchema(
       CREATE INDEX IF NOT EXISTS console_api_keys_org_status_idx
       ON console_api_keys (namespace, org_id, status)
     `);
+
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_api_keys',
+      policyName: 'console_api_keys_tenant_rls',
+    });
   } finally {
     try {
       await pool.query('SELECT pg_advisory_unlock($1)', [CONSOLE_API_KEYS_MIGRATION_LOCK_ID]);
@@ -243,6 +253,10 @@ export async function createPostgresConsoleApiKeyService(
     });
   }
   const pool = await getPostgresPool(postgresUrl);
+  const withTenantTx = <T>(
+    ctx: ConsoleApiKeysContext,
+    fn: (q: Queryable) => Promise<T>,
+  ): Promise<T> => withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, fn);
 
   async function findApiKey(
     q: Queryable,
@@ -260,78 +274,84 @@ export async function createPostgresConsoleApiKeyService(
 
   return {
     async listApiKeys(ctx: ConsoleApiKeysContext): Promise<ConsoleApiKey[]> {
-      const out = await pool.query(
-        `SELECT *
-           FROM console_api_keys
-          WHERE namespace = $1 AND org_id = $2
-          ORDER BY updated_at_ms DESC, created_at_ms DESC`,
-        [namespace, ctx.orgId],
-      );
-      return out.rows.map((row) => toPublicApiKey(parseApiKeyRow(row as PgRow)));
+      return withTenantTx(ctx, async (q) => {
+        const out = await q.query(
+          `SELECT *
+             FROM console_api_keys
+            WHERE namespace = $1 AND org_id = $2
+            ORDER BY updated_at_ms DESC, created_at_ms DESC`,
+          [namespace, ctx.orgId],
+        );
+        return out.rows.map((row) => toPublicApiKey(parseApiKeyRow(row as PgRow)));
+      });
     },
 
     async createApiKey(
       ctx: ConsoleApiKeysContext,
       request: CreateConsoleApiKeyRequest,
     ): Promise<CreateConsoleApiKeyResult> {
-      const now = nowFn();
-      const secret = makeSecret(now);
-      const row = await queryOne(
-        pool,
-        `INSERT INTO console_api_keys
-          (namespace, id, org_id, name, environment_id, scopes, ip_allowlist, status, secret_hash, secret_version, secret_preview, last_used_at_ms, endpoint_usage_counts, anomaly_flags, created_at_ms, updated_at_ms)
-         VALUES
-          ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, NULL, '{}'::jsonb, '[]'::jsonb, $12, $12)
-         RETURNING *`,
-        [
-          namespace,
-          makeId('ak', now),
-          ctx.orgId,
-          request.name,
-          request.environmentId,
-          JSON.stringify(request.scopes),
-          JSON.stringify(request.ipAllowlist || []),
-          'ACTIVE',
-          await hashSecret(secret),
-          1,
-          makeSecretPreview(secret),
-          nowMs(now),
-        ],
-      );
-      if (!row) {
-        throw new ConsoleApiKeyError('internal', 500, 'Failed to create API key');
-      }
-      return {
-        apiKey: toPublicApiKey(parseApiKeyRow(row)),
-        secret,
-      };
+      return withTenantTx(ctx, async (q) => {
+        const now = nowFn();
+        const secret = makeSecret(now);
+        const row = await queryOne(
+          q,
+          `INSERT INTO console_api_keys
+            (namespace, id, org_id, name, environment_id, scopes, ip_allowlist, status, secret_hash, secret_version, secret_preview, last_used_at_ms, endpoint_usage_counts, anomaly_flags, created_at_ms, updated_at_ms)
+           VALUES
+            ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, NULL, '{}'::jsonb, '[]'::jsonb, $12, $12)
+           RETURNING *`,
+          [
+            namespace,
+            makeId('ak', now),
+            ctx.orgId,
+            request.name,
+            request.environmentId,
+            JSON.stringify(request.scopes),
+            JSON.stringify(request.ipAllowlist || []),
+            'ACTIVE',
+            await hashSecret(secret),
+            1,
+            makeSecretPreview(secret),
+            nowMs(now),
+          ],
+        );
+        if (!row) {
+          throw new ConsoleApiKeyError('internal', 500, 'Failed to create API key');
+        }
+        return {
+          apiKey: toPublicApiKey(parseApiKeyRow(row)),
+          secret,
+        };
+      });
     },
 
     async revokeApiKey(
       ctx: ConsoleApiKeysContext,
       apiKeyId: string,
     ): Promise<{ revoked: boolean; apiKey: ConsoleApiKey | null }> {
-      const current = await findApiKey(pool, { orgId: ctx.orgId, apiKeyId });
-      if (!current) {
-        return { revoked: false, apiKey: null };
-      }
-      if (current.status === 'REVOKED') {
-        return { revoked: true, apiKey: toPublicApiKey(current) };
-      }
+      return withTenantTx(ctx, async (q) => {
+        const current = await findApiKey(q, { orgId: ctx.orgId, apiKeyId });
+        if (!current) {
+          return { revoked: false, apiKey: null };
+        }
+        if (current.status === 'REVOKED') {
+          return { revoked: true, apiKey: toPublicApiKey(current) };
+        }
 
-      const row = await queryOne(
-        pool,
-        `UPDATE console_api_keys
-            SET status = 'REVOKED',
-                updated_at_ms = $4
-          WHERE namespace = $1 AND org_id = $2 AND id = $3
-          RETURNING *`,
-        [namespace, ctx.orgId, apiKeyId, nowMs(nowFn())],
-      );
-      if (!row) {
-        return { revoked: false, apiKey: null };
-      }
-      return { revoked: true, apiKey: toPublicApiKey(parseApiKeyRow(row)) };
+        const row = await queryOne(
+          q,
+          `UPDATE console_api_keys
+              SET status = 'REVOKED',
+                  updated_at_ms = $4
+            WHERE namespace = $1 AND org_id = $2 AND id = $3
+            RETURNING *`,
+          [namespace, ctx.orgId, apiKeyId, nowMs(nowFn())],
+        );
+        if (!row) {
+          return { revoked: false, apiKey: null };
+        }
+        return { revoked: true, apiKey: toPublicApiKey(parseApiKeyRow(row)) };
+      });
     },
 
     async rotateApiKey(
@@ -339,34 +359,36 @@ export async function createPostgresConsoleApiKeyService(
       apiKeyId: string,
       _request?: RotateConsoleApiKeyRequest,
     ): Promise<RotateConsoleApiKeyResult | null> {
-      const current = await findApiKey(pool, { orgId: ctx.orgId, apiKeyId });
-      if (!current) return null;
-      if (current.status === 'REVOKED') {
-        throw new ConsoleApiKeyError(
-          'api_key_revoked',
-          409,
-          `API key ${apiKeyId} is revoked and cannot be rotated`,
-        );
-      }
+      return withTenantTx(ctx, async (q) => {
+        const current = await findApiKey(q, { orgId: ctx.orgId, apiKeyId });
+        if (!current) return null;
+        if (current.status === 'REVOKED') {
+          throw new ConsoleApiKeyError(
+            'api_key_revoked',
+            409,
+            `API key ${apiKeyId} is revoked and cannot be rotated`,
+          );
+        }
 
-      const now = nowFn();
-      const secret = makeSecret(now);
-      const row = await queryOne(
-        pool,
-        `UPDATE console_api_keys
-            SET secret_hash = $4,
-                secret_version = secret_version + 1,
-                secret_preview = $5,
-                updated_at_ms = $6
-          WHERE namespace = $1 AND org_id = $2 AND id = $3
-          RETURNING *`,
-        [namespace, ctx.orgId, apiKeyId, await hashSecret(secret), makeSecretPreview(secret), nowMs(now)],
-      );
-      if (!row) return null;
-      return {
-        apiKey: toPublicApiKey(parseApiKeyRow(row)),
-        secret,
-      };
+        const now = nowFn();
+        const secret = makeSecret(now);
+        const row = await queryOne(
+          q,
+          `UPDATE console_api_keys
+              SET secret_hash = $4,
+                  secret_version = secret_version + 1,
+                  secret_preview = $5,
+                  updated_at_ms = $6
+            WHERE namespace = $1 AND org_id = $2 AND id = $3
+            RETURNING *`,
+          [namespace, ctx.orgId, apiKeyId, await hashSecret(secret), makeSecretPreview(secret), nowMs(now)],
+        );
+        if (!row) return null;
+        return {
+          apiKey: toPublicApiKey(parseApiKeyRow(row)),
+          secret,
+        };
+      });
     },
   };
 }

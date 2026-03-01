@@ -40,7 +40,8 @@ export function normalizeEventCategory(eventType: string): ConsoleWebhookSubscri
     category !== 'policy' &&
     category !== 'auth' &&
     category !== 'tx' &&
-    category !== 'billing'
+    category !== 'billing' &&
+    category !== 'session'
   ) {
     return null;
   }
@@ -49,7 +50,9 @@ export function normalizeEventCategory(eventType: string): ConsoleWebhookSubscri
 
 export async function signPayload(secret: string, message: string): Promise<string> {
   const subtle = globalThis.crypto?.subtle;
-  if (!subtle) return `v1=fallback:${message.length}:${secret.length}`;
+  if (!subtle) {
+    throw new Error('Webhook signing requires WebCrypto (crypto.subtle)');
+  }
 
   const key = await subtle.importKey(
     'raw',

@@ -5,6 +5,10 @@ import {
   toConsoleIso as toIso,
   toConsoleNumber as toNumber,
 } from '../shared/postgresNormalize';
+import {
+  ensureConsoleTenantRlsPolicies,
+  withConsoleTenantContextTx,
+} from '../shared/postgresTenantContext';
 import { ConsoleSmartWalletError } from './errors';
 import type {
   ConsoleSmartWalletConfig,
@@ -168,6 +172,12 @@ export async function ensureConsoleSmartWalletsPostgresSchema(
       CREATE INDEX IF NOT EXISTS console_smart_wallet_org_scope_idx
       ON console_smart_wallet_configs (namespace, org_id, scope_type)
     `);
+
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_smart_wallet_configs',
+      policyName: 'console_smart_wallet_configs_tenant_rls',
+    });
   } finally {
     try {
       await pool.query('SELECT pg_advisory_unlock($1)', [CONSOLE_SMART_WALLETS_MIGRATION_LOCK_ID]);
@@ -207,6 +217,10 @@ export async function createPostgresConsoleSmartWalletService(
   }
 
   const pool = await getPostgresPool(postgresUrl);
+  const withTenantTx = <T>(
+    ctx: ConsoleSmartWalletContext,
+    fn: (q: Queryable) => Promise<T>,
+  ): Promise<T> => withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, fn);
 
   async function findConfig(
     q: Queryable,
@@ -224,162 +238,168 @@ export async function createPostgresConsoleSmartWalletService(
 
   return {
     async listConfigs(ctx, request = {}) {
-      const out = await pool.query(
-        `SELECT *
-           FROM console_smart_wallet_configs
-          WHERE namespace = $1
-            AND org_id = $2
-            AND ($3::text IS NULL OR scope_type = $3::text)
-            AND ($4::text IS NULL OR project_id = $4::text)
-            AND ($5::text IS NULL OR environment_id = $5::text)
-            AND ($6::text IS NULL OR policy_id = $6::text)
-            AND ($7::text IS NULL OR wallet_segment_id = $7::text)
-          ORDER BY updated_at_ms DESC, created_at_ms DESC`,
-        [
-          namespace,
-          ctx.orgId,
-          request.scopeType || null,
-          request.projectId || null,
-          request.environmentId || null,
-          request.policyId || null,
-          request.walletSegmentId || null,
-        ],
-      );
-      return out.rows.map((row) => parseConfigRow(row as PgRow));
-    },
-
-    async createConfig(ctx, request: CreateConsoleSmartWalletRequest) {
-      const now = nowFn();
-      const config: ConsoleSmartWalletConfig = {
-        id: toNullableString(request.id) || makeId('sw', now),
-        orgId: ctx.orgId,
-        scopeType: request.scopeType,
-        projectId: toNullableString(request.projectId),
-        environmentId: toNullableString(request.environmentId),
-        policyId: toNullableString(request.policyId),
-        walletSegmentId: toNullableString(request.walletSegmentId),
-        enabled: request.enabled ?? true,
-        mode: request.mode || 'OPTIONAL',
-        accountType: request.accountType || 'SMART_ACCOUNT',
-        paymasterMode: request.paymasterMode || 'AUTO',
-        fallbackBehavior: request.fallbackBehavior || 'FALLBACK_TO_EOA',
-        bundler: normalizeBundler(request.bundler),
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-      };
-      validateScope(config);
-      const createdAtMs = nowMs(now);
-
-      try {
-        const row = await queryOne(
-          pool,
-          `INSERT INTO console_smart_wallet_configs
-            (namespace, org_id, id, scope_type, project_id, environment_id, policy_id, wallet_segment_id, enabled, mode, account_type, paymaster_mode, fallback_behavior, bundler, created_at_ms, updated_at_ms)
-           VALUES
-            ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $15)
-           RETURNING *`,
+      return withTenantTx(ctx, async (q) => {
+        const out = await q.query(
+          `SELECT *
+             FROM console_smart_wallet_configs
+            WHERE namespace = $1
+              AND org_id = $2
+              AND ($3::text IS NULL OR scope_type = $3::text)
+              AND ($4::text IS NULL OR project_id = $4::text)
+              AND ($5::text IS NULL OR environment_id = $5::text)
+              AND ($6::text IS NULL OR policy_id = $6::text)
+              AND ($7::text IS NULL OR wallet_segment_id = $7::text)
+            ORDER BY updated_at_ms DESC, created_at_ms DESC`,
           [
             namespace,
             ctx.orgId,
-            config.id,
-            config.scopeType,
-            config.projectId,
-            config.environmentId,
-            config.policyId,
-            config.walletSegmentId,
-            config.enabled,
-            config.mode,
-            config.accountType,
-            config.paymasterMode,
-            config.fallbackBehavior,
-            config.bundler ? JSON.stringify(config.bundler) : null,
-            createdAtMs,
+            request.scopeType || null,
+            request.projectId || null,
+            request.environmentId || null,
+            request.policyId || null,
+            request.walletSegmentId || null,
           ],
         );
-        if (!row) {
-          throw new ConsoleSmartWalletError('internal', 500, 'Failed to create smart wallet config');
-        }
-        return parseConfigRow(row);
-      } catch (error: unknown) {
-        if (isUniqueViolation(error)) {
-          throw new ConsoleSmartWalletError(
-            'config_exists',
-            409,
-            `Smart-wallet config ${config.id} already exists`,
+        return out.rows.map((row) => parseConfigRow(row as PgRow));
+      });
+    },
+
+    async createConfig(ctx, request: CreateConsoleSmartWalletRequest) {
+      return withTenantTx(ctx, async (q) => {
+        const now = nowFn();
+        const config: ConsoleSmartWalletConfig = {
+          id: toNullableString(request.id) || makeId('sw', now),
+          orgId: ctx.orgId,
+          scopeType: request.scopeType,
+          projectId: toNullableString(request.projectId),
+          environmentId: toNullableString(request.environmentId),
+          policyId: toNullableString(request.policyId),
+          walletSegmentId: toNullableString(request.walletSegmentId),
+          enabled: request.enabled ?? true,
+          mode: request.mode || 'OPTIONAL',
+          accountType: request.accountType || 'SMART_ACCOUNT',
+          paymasterMode: request.paymasterMode || 'AUTO',
+          fallbackBehavior: request.fallbackBehavior || 'FALLBACK_TO_EOA',
+          bundler: normalizeBundler(request.bundler),
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        };
+        validateScope(config);
+        const createdAtMs = nowMs(now);
+
+        try {
+          const row = await queryOne(
+            q,
+            `INSERT INTO console_smart_wallet_configs
+              (namespace, org_id, id, scope_type, project_id, environment_id, policy_id, wallet_segment_id, enabled, mode, account_type, paymaster_mode, fallback_behavior, bundler, created_at_ms, updated_at_ms)
+             VALUES
+              ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $15)
+             RETURNING *`,
+            [
+              namespace,
+              ctx.orgId,
+              config.id,
+              config.scopeType,
+              config.projectId,
+              config.environmentId,
+              config.policyId,
+              config.walletSegmentId,
+              config.enabled,
+              config.mode,
+              config.accountType,
+              config.paymasterMode,
+              config.fallbackBehavior,
+              config.bundler ? JSON.stringify(config.bundler) : null,
+              createdAtMs,
+            ],
           );
+          if (!row) {
+            throw new ConsoleSmartWalletError('internal', 500, 'Failed to create smart wallet config');
+          }
+          return parseConfigRow(row);
+        } catch (error: unknown) {
+          if (isUniqueViolation(error)) {
+            throw new ConsoleSmartWalletError(
+              'config_exists',
+              409,
+              `Smart-wallet config ${config.id} already exists`,
+            );
+          }
+          throw error;
         }
-        throw error;
-      }
+      });
     },
 
     async updateConfig(ctx, configId: string, request: UpdateConsoleSmartWalletRequest) {
-      const current = await findConfig(pool, { orgId: ctx.orgId, id: configId });
-      if (!current) return null;
+      return withTenantTx(ctx, async (q) => {
+        const current = await findConfig(q, { orgId: ctx.orgId, id: configId });
+        if (!current) return null;
 
-      const next: ConsoleSmartWalletConfig = {
-        ...current,
-        scopeType: request.scopeType || current.scopeType,
-        projectId:
-          request.projectId === undefined ? current.projectId : toNullableString(request.projectId),
-        environmentId:
-          request.environmentId === undefined
-            ? current.environmentId
-            : toNullableString(request.environmentId),
-        policyId: request.policyId === undefined ? current.policyId : toNullableString(request.policyId),
-        walletSegmentId:
-          request.walletSegmentId === undefined
-            ? current.walletSegmentId
-            : toNullableString(request.walletSegmentId),
-        enabled: request.enabled === undefined ? current.enabled : request.enabled,
-        mode: request.mode || current.mode,
-        accountType: request.accountType || current.accountType,
-        paymasterMode: request.paymasterMode || current.paymasterMode,
-        fallbackBehavior: request.fallbackBehavior || current.fallbackBehavior,
-        bundler:
-          request.bundler === undefined ? current.bundler : normalizeBundler(request.bundler),
-        updatedAt: nowFn().toISOString(),
-      };
-      validateScope(next);
+        const next: ConsoleSmartWalletConfig = {
+          ...current,
+          scopeType: request.scopeType || current.scopeType,
+          projectId:
+            request.projectId === undefined ? current.projectId : toNullableString(request.projectId),
+          environmentId:
+            request.environmentId === undefined
+              ? current.environmentId
+              : toNullableString(request.environmentId),
+          policyId: request.policyId === undefined ? current.policyId : toNullableString(request.policyId),
+          walletSegmentId:
+            request.walletSegmentId === undefined
+              ? current.walletSegmentId
+              : toNullableString(request.walletSegmentId),
+          enabled: request.enabled === undefined ? current.enabled : request.enabled,
+          mode: request.mode || current.mode,
+          accountType: request.accountType || current.accountType,
+          paymasterMode: request.paymasterMode || current.paymasterMode,
+          fallbackBehavior: request.fallbackBehavior || current.fallbackBehavior,
+          bundler:
+            request.bundler === undefined ? current.bundler : normalizeBundler(request.bundler),
+          updatedAt: nowFn().toISOString(),
+        };
+        validateScope(next);
 
-      const updatedAtMs = nowMs(new Date(next.updatedAt));
-      const row = await queryOne(
-        pool,
-        `UPDATE console_smart_wallet_configs
-            SET scope_type = $4,
-                project_id = $5,
-                environment_id = $6,
-                policy_id = $7,
-                wallet_segment_id = $8,
-                enabled = $9,
-                mode = $10,
-                account_type = $11,
-                paymaster_mode = $12,
-                fallback_behavior = $13,
-                bundler = $14::jsonb,
-                updated_at_ms = $15
-          WHERE namespace = $1
-            AND org_id = $2
-            AND id = $3
-          RETURNING *`,
-        [
-          namespace,
-          ctx.orgId,
-          configId,
-          next.scopeType,
-          next.projectId,
-          next.environmentId,
-          next.policyId,
-          next.walletSegmentId,
-          next.enabled,
-          next.mode,
-          next.accountType,
-          next.paymasterMode,
-          next.fallbackBehavior,
-          next.bundler ? JSON.stringify(next.bundler) : null,
-          updatedAtMs,
-        ],
-      );
-      return row ? parseConfigRow(row) : null;
+        const updatedAtMs = nowMs(new Date(next.updatedAt));
+        const row = await queryOne(
+          q,
+          `UPDATE console_smart_wallet_configs
+              SET scope_type = $4,
+                  project_id = $5,
+                  environment_id = $6,
+                  policy_id = $7,
+                  wallet_segment_id = $8,
+                  enabled = $9,
+                  mode = $10,
+                  account_type = $11,
+                  paymaster_mode = $12,
+                  fallback_behavior = $13,
+                  bundler = $14::jsonb,
+                  updated_at_ms = $15
+            WHERE namespace = $1
+              AND org_id = $2
+              AND id = $3
+            RETURNING *`,
+          [
+            namespace,
+            ctx.orgId,
+            configId,
+            next.scopeType,
+            next.projectId,
+            next.environmentId,
+            next.policyId,
+            next.walletSegmentId,
+            next.enabled,
+            next.mode,
+            next.accountType,
+            next.paymasterMode,
+            next.fallbackBehavior,
+            next.bundler ? JSON.stringify(next.bundler) : null,
+            updatedAtMs,
+          ],
+        );
+        return row ? parseConfigRow(row) : null;
+      });
     },
   };
 }

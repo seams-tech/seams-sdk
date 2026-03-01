@@ -5,6 +5,10 @@ import {
   toConsoleIso as toIso,
   toConsoleNumber as toNumber,
 } from '../shared/postgresNormalize';
+import {
+  ensureConsoleTenantRlsPolicies,
+  withConsoleTenantContextTx,
+} from '../shared/postgresTenantContext';
 import type {
   ConsoleRuntimeSnapshot,
   ConsoleRuntimeSnapshotPayload,
@@ -99,8 +103,47 @@ function parseSnapshotRow(row: PgRow): ConsoleRuntimeSnapshot {
   };
 }
 
+export interface ConsoleRuntimeSnapshotOutboxEvent {
+  namespace: string;
+  orgId: string;
+  projectId: string | null;
+  environmentId: string;
+  eventId: string;
+  eventType: 'RUNTIME_SNAPSHOT_PUBLISHED_V1';
+  snapshotId: string;
+  snapshotVersion: number;
+  payload: Record<string, unknown>;
+  createdAt: string;
+  dispatchedAt: string | null;
+}
+
+function parseOutboxEventRow(row: PgRow): ConsoleRuntimeSnapshotOutboxEvent {
+  const createdAtMs = toNumber(row.created_at_ms, Date.now());
+  const dispatchedAtMs = row.dispatched_at_ms === null ? null : toNumber(row.dispatched_at_ms, 0);
+  return {
+    namespace: String(row.namespace || ''),
+    orgId: String(row.org_id || ''),
+    projectId: toNullableProjectId(String(row.project_id || '')),
+    environmentId: String(row.environment_id || ''),
+    eventId: String(row.event_id || ''),
+    eventType: 'RUNTIME_SNAPSHOT_PUBLISHED_V1',
+    snapshotId: String(row.snapshot_id || ''),
+    snapshotVersion: Math.max(1, Math.floor(toNumber(row.snapshot_version, 1))),
+    payload: parseJsonObject(row.payload),
+    createdAt: toIso(createdAtMs) || new Date(createdAtMs).toISOString(),
+    dispatchedAt:
+      dispatchedAtMs && dispatchedAtMs > 0
+        ? toIso(dispatchedAtMs) || new Date(dispatchedAtMs).toISOString()
+        : null,
+  };
+}
+
 function makeSnapshotId(now: Date): string {
   return `runtime_snapshot_${now.getTime().toString(36)}_${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function makeOutboxEventId(now: Date): string {
+  return `runtime_snapshot_event_${now.getTime().toString(36)}_${Math.random().toString(16).slice(2, 10)}`;
 }
 
 function readEffectiveAtMs(input: string | undefined, fallback: Date): number {
@@ -113,22 +156,6 @@ function readEffectiveAtMs(input: string | undefined, fallback: Date): number {
 async function queryOne(q: Queryable, text: string, values: unknown[]): Promise<PgRow | null> {
   const out = await q.query(text, values);
   return (out.rows[0] as PgRow) || null;
-}
-
-async function withTx<T>(pool: PgPool, fn: (q: Queryable) => Promise<T>): Promise<T> {
-  await pool.query('BEGIN');
-  try {
-    const result = await fn(pool);
-    await pool.query('COMMIT');
-    return result;
-  } catch (error: unknown) {
-    try {
-      await pool.query('ROLLBACK');
-    } catch {
-      // no-op
-    }
-    throw error;
-  }
 }
 
 export interface PostgresConsoleRuntimeSnapshotSchemaOptions {
@@ -172,6 +199,45 @@ export async function ensureConsoleRuntimeSnapshotsPostgresSchema(
         created_at_ms DESC
       )
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS console_runtime_snapshot_outbox (
+        namespace TEXT NOT NULL,
+        org_id TEXT NOT NULL,
+        project_id TEXT NOT NULL DEFAULT '',
+        environment_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        snapshot_id TEXT NOT NULL,
+        snapshot_version INTEGER NOT NULL,
+        payload JSONB NOT NULL,
+        created_at_ms BIGINT NOT NULL,
+        dispatched_at_ms BIGINT,
+        PRIMARY KEY (namespace, org_id, event_id),
+        UNIQUE (namespace, org_id, snapshot_id, snapshot_version, event_type),
+        CHECK (event_type IN ('RUNTIME_SNAPSHOT_PUBLISHED_V1')),
+        CHECK (jsonb_typeof(payload) = 'object')
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS console_runtime_snapshot_outbox_scope_created_idx
+      ON console_runtime_snapshot_outbox (namespace, org_id, created_at_ms ASC)
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS console_runtime_snapshot_outbox_pending_idx
+      ON console_runtime_snapshot_outbox (namespace, created_at_ms ASC)
+      WHERE dispatched_at_ms IS NULL
+    `);
+
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_runtime_snapshots',
+      policyName: 'console_runtime_snapshots_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_runtime_snapshot_outbox',
+      policyName: 'console_runtime_snapshot_outbox_tenant_rls',
+    });
   } finally {
     try {
       await pool.query('SELECT pg_advisory_unlock($1)', [CONSOLE_RUNTIME_SNAPSHOTS_MIGRATION_LOCK_ID]);
@@ -189,6 +255,30 @@ export interface PostgresConsoleRuntimeSnapshotServiceOptions {
   logger?: NormalizedLogger;
   ensureSchema?: boolean;
   now?: () => Date;
+}
+
+export interface PostgresConsoleRuntimeSnapshotOutboxDispatchOptions {
+  postgresUrl: string;
+  namespace?: string;
+  orgIds: string[];
+  limit?: number;
+  logger?: NormalizedLogger;
+  ensureSchema?: boolean;
+  now?: () => Date;
+  dispatch?: (event: ConsoleRuntimeSnapshotOutboxEvent) => Promise<void> | void;
+}
+
+export interface PostgresConsoleRuntimeSnapshotOutboxDispatchResult {
+  namespace: string;
+  orgCount: number;
+  dispatchedCount: number;
+  failureCount: number;
+  failures: Array<{
+    orgId: string;
+    eventId: string;
+    code: string;
+    message: string;
+  }>;
 }
 
 export async function createPostgresConsoleRuntimeSnapshotService(
@@ -235,12 +325,17 @@ export async function createPostgresConsoleRuntimeSnapshotService(
       ctx: ConsoleRuntimeSnapshotContext,
       request: ListConsoleRuntimeSnapshotsRequest,
     ): Promise<ConsoleRuntimeSnapshot[]> {
-      const rows = await listRows(pool, {
-        orgId: ctx.orgId,
-        projectId: normalizeProjectId(request.projectId),
-        environmentId: request.environmentId,
-        limit: request.limit || 20,
-      });
+      const rows = await withConsoleTenantContextTx(
+        pool,
+        { namespace, orgId: ctx.orgId },
+        async (q) =>
+          listRows(q, {
+            orgId: ctx.orgId,
+            projectId: normalizeProjectId(request.projectId),
+            environmentId: request.environmentId,
+            limit: request.limit || 20,
+          }),
+      );
       return rows.map((row) => ({
         ...row,
         payload: clonePayload(row.payload),
@@ -251,17 +346,22 @@ export async function createPostgresConsoleRuntimeSnapshotService(
       ctx: ConsoleRuntimeSnapshotContext,
       request: GetLatestConsoleRuntimeSnapshotRequest,
     ): Promise<ConsoleRuntimeSnapshot | null> {
-      const row = await queryOne(
+      const row = await withConsoleTenantContextTx(
         pool,
-        `SELECT *
-           FROM console_runtime_snapshots
-          WHERE namespace = $1
-            AND org_id = $2
-            AND project_id = $3
-            AND environment_id = $4
-          ORDER BY version DESC, created_at_ms DESC
-          LIMIT 1`,
-        [namespace, ctx.orgId, normalizeProjectId(request.projectId), request.environmentId],
+        { namespace, orgId: ctx.orgId },
+        async (q) =>
+          queryOne(
+            q,
+            `SELECT *
+               FROM console_runtime_snapshots
+              WHERE namespace = $1
+                AND org_id = $2
+                AND project_id = $3
+                AND environment_id = $4
+              ORDER BY version DESC, created_at_ms DESC
+              LIMIT 1`,
+            [namespace, ctx.orgId, normalizeProjectId(request.projectId), request.environmentId],
+          ),
       );
       if (!row) return null;
       const snapshot = parseSnapshotRow(row);
@@ -283,7 +383,7 @@ export async function createPostgresConsoleRuntimeSnapshotService(
       const effectiveAt = toIso(effectiveAtMs) || now.toISOString();
       const createdAtMs = nowMs(now);
 
-      const inserted = await withTx(pool, async (q) => {
+      const inserted = await withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, async (q) => {
         const nextVersionRow = await queryOne(
           q,
           `SELECT COALESCE(MAX(version), 0) + 1 AS next_version
@@ -339,7 +439,51 @@ export async function createPostgresConsoleRuntimeSnapshotService(
         if (!insertedRow) {
           throw new Error('Failed to insert runtime snapshot');
         }
-        return parseSnapshotRow(insertedRow);
+        const snapshot = parseSnapshotRow(insertedRow);
+        const outboxEventId = makeOutboxEventId(now);
+        const outboxPayload = {
+          eventType: 'runtime_snapshot.published.v1',
+          snapshot: {
+            orgId: snapshot.orgId,
+            projectId: snapshot.projectId,
+            environmentId: snapshot.environmentId,
+            snapshotId: snapshot.snapshotId,
+            version: snapshot.version,
+            effectiveAt: snapshot.effectiveAt,
+            checksum: snapshot.checksum,
+            createdAt: snapshot.createdAt,
+            createdBy: snapshot.createdBy,
+          },
+        };
+        await q.query(
+          `INSERT INTO console_runtime_snapshot_outbox
+            (
+              namespace,
+              org_id,
+              project_id,
+              environment_id,
+              event_id,
+              event_type,
+              snapshot_id,
+              snapshot_version,
+              payload,
+              created_at_ms,
+              dispatched_at_ms
+            )
+           VALUES ($1, $2, $3, $4, $5, 'RUNTIME_SNAPSHOT_PUBLISHED_V1', $6, $7, $8::jsonb, $9, NULL)`,
+          [
+            namespace,
+            ctx.orgId,
+            projectId,
+            request.environmentId,
+            outboxEventId,
+            snapshot.snapshotId,
+            snapshot.version,
+            JSON.stringify(outboxPayload),
+            createdAtMs,
+          ],
+        );
+        return snapshot;
       });
 
       return {
@@ -347,5 +491,110 @@ export async function createPostgresConsoleRuntimeSnapshotService(
         payload: clonePayload(inserted.payload),
       };
     },
+  };
+}
+
+export async function runPostgresConsoleRuntimeSnapshotOutboxDispatch(
+  options: PostgresConsoleRuntimeSnapshotOutboxDispatchOptions,
+): Promise<PostgresConsoleRuntimeSnapshotOutboxDispatchResult> {
+  const postgresUrl = String(options.postgresUrl || '').trim();
+  if (!postgresUrl) {
+    throw new Error('Missing POSTGRES_URL for Postgres runtime snapshot outbox dispatch');
+  }
+  const namespace = ensureNamespace(options.namespace);
+  const logger = options.logger || console;
+  const nowFn = options.now || (() => new Date());
+  const orgIds = Array.from(
+    new Set(
+      (Array.isArray(options.orgIds) ? options.orgIds : [])
+        .map((orgId) => String(orgId || '').trim())
+        .filter(Boolean),
+    ),
+  );
+  if (orgIds.length === 0) {
+    throw new Error('Runtime snapshot outbox dispatch requires at least one orgId');
+  }
+  if (typeof options.dispatch !== 'function') {
+    throw new Error(
+      'Runtime snapshot outbox dispatch requires a dispatch callback to avoid dropping events',
+    );
+  }
+  const limit = Math.max(1, Math.min(500, Math.floor(Number(options.limit || 100))));
+  const dispatch = options.dispatch;
+
+  if (options.ensureSchema !== false) {
+    await ensureConsoleRuntimeSnapshotsPostgresSchema({
+      postgresUrl,
+      logger: logger as NormalizedLogger,
+    });
+  }
+
+  const pool = await getPostgresPool(postgresUrl);
+  const failures: PostgresConsoleRuntimeSnapshotOutboxDispatchResult['failures'] = [];
+  let dispatchedCount = 0;
+
+  for (const orgId of orgIds) {
+    if (dispatchedCount >= limit) break;
+    const remaining = limit - dispatchedCount;
+    const perOrgDispatched = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId },
+      async (q) => {
+        const rows = await q.query(
+          `SELECT *
+             FROM console_runtime_snapshot_outbox
+            WHERE namespace = $1
+              AND org_id = $2
+              AND dispatched_at_ms IS NULL
+            ORDER BY created_at_ms ASC, event_id ASC
+            LIMIT $3
+            FOR UPDATE SKIP LOCKED`,
+          [namespace, orgId, remaining],
+        );
+        let dispatched = 0;
+        for (const row of rows.rows) {
+          const event = parseOutboxEventRow(row as PgRow);
+          try {
+            await dispatch(event);
+            await q.query(
+              `UPDATE console_runtime_snapshot_outbox
+                  SET dispatched_at_ms = $4
+                WHERE namespace = $1
+                  AND org_id = $2
+                  AND event_id = $3
+                  AND dispatched_at_ms IS NULL`,
+              [namespace, orgId, event.eventId, nowMs(nowFn())],
+            );
+            dispatched += 1;
+          } catch (error: unknown) {
+            const code = 'dispatch_failed';
+            const message = error instanceof Error ? error.message : String(error);
+            failures.push({
+              orgId,
+              eventId: event.eventId,
+              code,
+              message,
+            });
+            logger.error('[console-runtime-snapshots][outbox] dispatch failed', {
+              namespace,
+              orgId,
+              eventId: event.eventId,
+              code,
+              message,
+            });
+          }
+        }
+        return dispatched;
+      },
+    );
+    dispatchedCount += perOrgDispatched;
+  }
+
+  return {
+    namespace,
+    orgCount: orgIds.length,
+    dispatchedCount,
+    failureCount: failures.length,
+    failures,
   };
 }

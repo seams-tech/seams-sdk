@@ -5,6 +5,10 @@ import {
   toConsoleIso as toIso,
   toConsoleNumber as toNumber,
 } from '../shared/postgresNormalize';
+import {
+  ensureConsoleTenantRlsPolicies,
+  withConsoleTenantContextTx,
+} from '../shared/postgresTenantContext';
 import { ConsoleKeyExportError } from './errors';
 import type {
   ApproveConsoleKeyExportRequest,
@@ -147,22 +151,6 @@ async function queryOne(q: Queryable, text: string, values: unknown[]): Promise<
   return (out.rows[0] as PgRow) || null;
 }
 
-async function withTx<T>(pool: PgPool, fn: (q: Queryable) => Promise<T>): Promise<T> {
-  await pool.query('BEGIN');
-  try {
-    const result = await fn(pool);
-    await pool.query('COMMIT');
-    return result;
-  } catch (error: unknown) {
-    try {
-      await pool.query('ROLLBACK');
-    } catch {
-      // no-op
-    }
-    throw error;
-  }
-}
-
 export interface PostgresConsoleKeyExportSchemaOptions {
   postgresUrl: string;
   logger: NormalizedLogger;
@@ -207,6 +195,12 @@ export async function ensureConsoleKeyExportsPostgresSchema(
       CREATE INDEX IF NOT EXISTS console_key_exports_org_status_idx
       ON console_key_exports (namespace, org_id, status, updated_at_ms DESC)
     `);
+
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_key_exports',
+      policyName: 'console_key_exports_tenant_rls',
+    });
   } finally {
     try {
       await pool.query('SELECT pg_advisory_unlock($1)', [CONSOLE_KEY_EXPORTS_MIGRATION_LOCK_ID]);
@@ -246,79 +240,87 @@ export async function createPostgresConsoleKeyExportService(
   }
 
   const pool = await getPostgresPool(postgresUrl);
+  const withTenantTx = <T>(
+    ctx: ConsoleKeyExportsContext,
+    fn: (q: Queryable) => Promise<T>,
+  ): Promise<T> => withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, fn);
 
   return {
     async listKeyExports(ctx, request = {}) {
-      const out = await pool.query(
-        `SELECT *
-           FROM console_key_exports
-          WHERE namespace = $1
-            AND org_id = $2
-            AND ($3::text IS NULL OR environment_id = $3::text)
-            AND ($4::text IS NULL OR status = $4::text)
-          ORDER BY updated_at_ms DESC, created_at_ms DESC`,
-        [namespace, ctx.orgId, request.environmentId || null, request.status || null],
-      );
-      return out.rows.map((row) => parseRecordRow(row as PgRow));
+      return withTenantTx(ctx, async (q) => {
+        const out = await q.query(
+          `SELECT *
+             FROM console_key_exports
+            WHERE namespace = $1
+              AND org_id = $2
+              AND ($3::text IS NULL OR environment_id = $3::text)
+              AND ($4::text IS NULL OR status = $4::text)
+            ORDER BY updated_at_ms DESC, created_at_ms DESC`,
+          [namespace, ctx.orgId, request.environmentId || null, request.status || null],
+        );
+        return out.rows.map((row) => parseRecordRow(row as PgRow));
+      });
     },
 
     async createKeyExport(ctx, request: CreateConsoleKeyExportRequest) {
-      const now = nowFn();
-      const createdAtMs = nowMs(now);
-      const record: ConsoleKeyExportRequestRecord = {
-        id: toNullableString(request.id) || makeId('ke', now),
-        orgId: ctx.orgId,
-        environmentId: request.environmentId,
-        walletId: toNullableString(request.walletId),
-        mode: request.mode || 'APPROVAL_REQUIRED',
-        status: 'PENDING_APPROVAL',
-        reason: request.reason,
-        requestedByUserId: ctx.actorUserId,
-        requiredApprovals: Math.max(1, request.requiredApprovals || 2),
-        approvals: [],
-        constraints: normalizeConstraints(request.constraints),
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-      };
+      return withTenantTx(ctx, async (q) => {
+        const now = nowFn();
+        const createdAtMs = nowMs(now);
+        const record: ConsoleKeyExportRequestRecord = {
+          id: toNullableString(request.id) || makeId('ke', now),
+          orgId: ctx.orgId,
+          environmentId: request.environmentId,
+          walletId: toNullableString(request.walletId),
+          mode: request.mode || 'APPROVAL_REQUIRED',
+          status: 'PENDING_APPROVAL',
+          reason: request.reason,
+          requestedByUserId: ctx.actorUserId,
+          requiredApprovals: Math.max(1, request.requiredApprovals || 2),
+          approvals: [],
+          constraints: normalizeConstraints(request.constraints),
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        };
 
-      try {
-        const row = await queryOne(
-          pool,
-          `INSERT INTO console_key_exports
-            (namespace, org_id, id, environment_id, wallet_id, mode, status, reason, requested_by_user_id, required_approvals, approvals, constraints, created_at_ms, updated_at_ms)
-           VALUES
-            ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13, $13)
-           RETURNING *`,
-          [
-            namespace,
-            ctx.orgId,
-            record.id,
-            record.environmentId,
-            record.walletId,
-            record.mode,
-            record.status,
-            record.reason,
-            record.requestedByUserId,
-            record.requiredApprovals,
-            JSON.stringify(record.approvals),
-            JSON.stringify(record.constraints),
-            createdAtMs,
-          ],
-        );
-        if (!row) {
-          throw new ConsoleKeyExportError('internal', 500, 'Failed to create key export request');
-        }
-        return parseRecordRow(row);
-      } catch (error: unknown) {
-        if (isUniqueViolation(error)) {
-          throw new ConsoleKeyExportError(
-            'key_export_exists',
-            409,
-            `Key export request ${record.id} already exists`,
+        try {
+          const row = await queryOne(
+            q,
+            `INSERT INTO console_key_exports
+              (namespace, org_id, id, environment_id, wallet_id, mode, status, reason, requested_by_user_id, required_approvals, approvals, constraints, created_at_ms, updated_at_ms)
+             VALUES
+              ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13, $13)
+             RETURNING *`,
+            [
+              namespace,
+              ctx.orgId,
+              record.id,
+              record.environmentId,
+              record.walletId,
+              record.mode,
+              record.status,
+              record.reason,
+              record.requestedByUserId,
+              record.requiredApprovals,
+              JSON.stringify(record.approvals),
+              JSON.stringify(record.constraints),
+              createdAtMs,
+            ],
           );
+          if (!row) {
+            throw new ConsoleKeyExportError('internal', 500, 'Failed to create key export request');
+          }
+          return parseRecordRow(row);
+        } catch (error: unknown) {
+          if (isUniqueViolation(error)) {
+            throw new ConsoleKeyExportError(
+              'key_export_exists',
+              409,
+              `Key export request ${record.id} already exists`,
+            );
+          }
+          throw error;
         }
-        throw error;
-      }
+      });
     },
 
     async approveKeyExport(
@@ -326,7 +328,7 @@ export async function createPostgresConsoleKeyExportService(
       exportId: string,
       request: ApproveConsoleKeyExportRequest,
     ) {
-      return withTx(pool, async (tx) => {
+      return withTenantTx(ctx, async (tx) => {
         const row = await queryOne(
           tx,
           `SELECT *

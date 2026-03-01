@@ -5,6 +5,10 @@ import {
   toConsoleIso as toIso,
   toConsoleNumber as toNumber,
 } from '../shared/postgresNormalize';
+import {
+  ensureConsoleTenantRlsPolicies,
+  withConsoleTenantContextTx,
+} from '../shared/postgresTenantContext';
 import { ConsoleWebhookError } from './errors';
 import {
   coerceIsoDate,
@@ -118,7 +122,8 @@ function parseSubscriptions(raw: unknown): ConsoleWebhookSubscription[] {
       value !== 'policy' &&
       value !== 'auth' &&
       value !== 'tx' &&
-      value !== 'billing'
+      value !== 'billing' &&
+      value !== 'session'
     ) {
       continue;
     }
@@ -287,52 +292,45 @@ async function queryOne(q: Queryable, text: string, values: unknown[]): Promise<
   return (out.rows[0] as PgRow) || null;
 }
 
-async function withTx<T>(pool: PgPool, fn: (q: Queryable) => Promise<T>): Promise<T> {
-  await pool.query('BEGIN');
-  try {
-    const result = await fn(pool);
-    await pool.query('COMMIT');
-    return result;
-  } catch (error: unknown) {
-    try {
-      await pool.query('ROLLBACK');
-    } catch {
-      // no-op
-    }
-    throw error;
-  }
-}
-
 async function dispatchDelivery(input: {
   endpoint: StoredWebhookEndpoint;
   delivery: StoredWebhookDelivery;
   dispatcher: WebhookDispatchAdapter;
   now: Date;
 }): Promise<DeliveryAttemptResult> {
-  const timestamp = String(Math.floor(input.now.getTime() / 1000));
-  const eventPayload = {
-    id: input.delivery.eventId,
-    type: input.delivery.eventType,
-    createdAt: coerceIsoDate(input.now),
-    data: input.delivery.payload,
-  };
-  const body = JSON.stringify(eventPayload);
-  const signature = await signPayload(input.endpoint.signingSecret, `${timestamp}.${body}`);
-  const headers = toDispatchHeaders({
-    endpointId: input.endpoint.id,
-    eventId: input.delivery.eventId,
-    eventType: input.delivery.eventType,
-    signature,
-    timestamp,
-  });
-  const dispatchResult = await input.dispatcher.dispatch({
-    endpointId: input.endpoint.id,
-    endpointUrl: input.endpoint.url,
-    eventId: input.delivery.eventId,
-    eventType: input.delivery.eventType,
-    headers,
-    body,
-  });
+  let dispatchResult: Awaited<ReturnType<WebhookDispatchAdapter['dispatch']>>;
+  try {
+    const timestamp = String(Math.floor(input.now.getTime() / 1000));
+    const eventPayload = {
+      id: input.delivery.eventId,
+      type: input.delivery.eventType,
+      createdAt: coerceIsoDate(input.now),
+      data: input.delivery.payload,
+    };
+    const body = JSON.stringify(eventPayload);
+    const signature = await signPayload(input.endpoint.signingSecret, `${timestamp}.${body}`);
+    const headers = toDispatchHeaders({
+      endpointId: input.endpoint.id,
+      eventId: input.delivery.eventId,
+      eventType: input.delivery.eventType,
+      signature,
+      timestamp,
+    });
+    dispatchResult = await input.dispatcher.dispatch({
+      endpointId: input.endpoint.id,
+      endpointUrl: input.endpoint.url,
+      eventId: input.delivery.eventId,
+      eventType: input.delivery.eventType,
+      headers,
+      body,
+    });
+  } catch (error: unknown) {
+    dispatchResult = {
+      ok: false,
+      statusCode: 0,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    };
+  }
 
   return {
     status: dispatchResult.ok ? 'SUCCEEDED' : 'FAILED',
@@ -592,6 +590,27 @@ export async function ensureConsoleWebhooksPostgresSchema(
       ON console_webhook_dead_letters (namespace, org_id, endpoint_id, moved_to_dlq_at_ms DESC, id DESC)
       WHERE resolved_at_ms IS NULL
     `);
+
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_webhook_endpoints',
+      policyName: 'console_webhook_endpoints_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_webhook_deliveries',
+      policyName: 'console_webhook_deliveries_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_webhook_attempts',
+      policyName: 'console_webhook_attempts_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_webhook_dead_letters',
+      policyName: 'console_webhook_dead_letters_tenant_rls',
+    });
   } finally {
     try {
       await pool.query('SELECT pg_advisory_unlock($1)', [CONSOLE_WEBHOOKS_MIGRATION_LOCK_ID]);
@@ -632,6 +651,10 @@ export async function createPostgresConsoleWebhookService(
   }
 
   const pool = await getPostgresPool(postgresUrl);
+  const withTenantTx = <T>(
+    ctx: ConsoleWebhooksContext,
+    fn: (q: Queryable) => Promise<T>,
+  ): Promise<T> => withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, fn);
 
   async function findEndpoint(
     q: Queryable,
@@ -679,46 +702,50 @@ export async function createPostgresConsoleWebhookService(
 
   return {
     async listEndpoints(ctx: ConsoleWebhooksContext): Promise<ConsoleWebhookEndpoint[]> {
-      const out = await pool.query(
-        `SELECT *
-           FROM console_webhook_endpoints
-          WHERE namespace = $1 AND org_id = $2
-          ORDER BY created_at_ms DESC`,
-        [namespace, ctx.orgId],
-      );
-      return out.rows.map((row) => toPublicEndpoint(parseEndpointRow(row as PgRow)));
+      return withTenantTx(ctx, async (q) => {
+        const out = await q.query(
+          `SELECT *
+             FROM console_webhook_endpoints
+            WHERE namespace = $1 AND org_id = $2
+            ORDER BY created_at_ms DESC`,
+          [namespace, ctx.orgId],
+        );
+        return out.rows.map((row) => toPublicEndpoint(parseEndpointRow(row as PgRow)));
+      });
     },
 
     async createEndpoint(
       ctx: ConsoleWebhooksContext,
       request: CreateConsoleWebhookEndpointRequest,
     ): Promise<ConsoleWebhookEndpoint> {
-      const now = nowFn();
-      const signingSecret = makeSigningSecret(now);
-      const row = await queryOne(
-        pool,
-        `INSERT INTO console_webhook_endpoints
-          (namespace, id, org_id, url, subscriptions, status, signing_secret, secret_version, secret_preview, created_at_ms, updated_at_ms)
-         VALUES
-          ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $10)
-         RETURNING *`,
-        [
-          namespace,
-          makeId('wh', now),
-          ctx.orgId,
-          request.url,
-          JSON.stringify(request.subscriptions),
-          request.status || 'ACTIVE',
-          signingSecret,
-          1,
-          makeSecretPreview(signingSecret),
-          nowMs(now),
-        ],
-      );
-      if (!row) {
-        throw new ConsoleWebhookError('internal', 500, 'Failed to create webhook endpoint');
-      }
-      return toPublicEndpoint(parseEndpointRow(row));
+      return withTenantTx(ctx, async (q) => {
+        const now = nowFn();
+        const signingSecret = makeSigningSecret(now);
+        const row = await queryOne(
+          q,
+          `INSERT INTO console_webhook_endpoints
+            (namespace, id, org_id, url, subscriptions, status, signing_secret, secret_version, secret_preview, created_at_ms, updated_at_ms)
+           VALUES
+            ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $10)
+           RETURNING *`,
+          [
+            namespace,
+            makeId('wh', now),
+            ctx.orgId,
+            request.url,
+            JSON.stringify(request.subscriptions),
+            request.status || 'ACTIVE',
+            signingSecret,
+            1,
+            makeSecretPreview(signingSecret),
+            nowMs(now),
+          ],
+        );
+        if (!row) {
+          throw new ConsoleWebhookError('internal', 500, 'Failed to create webhook endpoint');
+        }
+        return toPublicEndpoint(parseEndpointRow(row));
+      });
     },
 
     async updateEndpoint(
@@ -726,49 +753,53 @@ export async function createPostgresConsoleWebhookService(
       endpointId: string,
       request: UpdateConsoleWebhookEndpointRequest,
     ): Promise<ConsoleWebhookEndpoint | null> {
-      const current = await findEndpoint(pool, { orgId: ctx.orgId, endpointId });
-      if (!current) return null;
+      return withTenantTx(ctx, async (q) => {
+        const current = await findEndpoint(q, { orgId: ctx.orgId, endpointId });
+        if (!current) return null;
 
-      const now = nowFn();
-      const nextUrl = request.url !== undefined ? request.url : current.url;
-      const nextSubscriptions =
-        request.subscriptions !== undefined ? request.subscriptions : current.subscriptions;
-      const nextStatus = request.status !== undefined ? request.status : current.status;
+        const now = nowFn();
+        const nextUrl = request.url !== undefined ? request.url : current.url;
+        const nextSubscriptions =
+          request.subscriptions !== undefined ? request.subscriptions : current.subscriptions;
+        const nextStatus = request.status !== undefined ? request.status : current.status;
 
-      const row = await queryOne(
-        pool,
-        `UPDATE console_webhook_endpoints
-            SET url = $4,
-                subscriptions = $5::jsonb,
-                status = $6,
-                updated_at_ms = $7
-          WHERE namespace = $1 AND org_id = $2 AND id = $3
-          RETURNING *`,
-        [
-          namespace,
-          ctx.orgId,
-          endpointId,
-          nextUrl,
-          JSON.stringify(nextSubscriptions),
-          nextStatus,
-          nowMs(now),
-        ],
-      );
-      if (!row) return null;
-      return toPublicEndpoint(parseEndpointRow(row));
+        const row = await queryOne(
+          q,
+          `UPDATE console_webhook_endpoints
+              SET url = $4,
+                  subscriptions = $5::jsonb,
+                  status = $6,
+                  updated_at_ms = $7
+            WHERE namespace = $1 AND org_id = $2 AND id = $3
+            RETURNING *`,
+          [
+            namespace,
+            ctx.orgId,
+            endpointId,
+            nextUrl,
+            JSON.stringify(nextSubscriptions),
+            nextStatus,
+            nowMs(now),
+          ],
+        );
+        if (!row) return null;
+        return toPublicEndpoint(parseEndpointRow(row));
+      });
     },
 
     async deleteEndpoint(
       ctx: ConsoleWebhooksContext,
       endpointId: string,
     ): Promise<{ removed: boolean }> {
-      const out = await pool.query(
-        `DELETE FROM console_webhook_endpoints
-          WHERE namespace = $1 AND org_id = $2 AND id = $3
-          RETURNING id`,
-        [namespace, ctx.orgId, endpointId],
-      );
-      return { removed: out.rows.length > 0 };
+      return withTenantTx(ctx, async (q) => {
+        const out = await q.query(
+          `DELETE FROM console_webhook_endpoints
+            WHERE namespace = $1 AND org_id = $2 AND id = $3
+            RETURNING id`,
+          [namespace, ctx.orgId, endpointId],
+        );
+        return { removed: out.rows.length > 0 };
+      });
     },
 
     async listDeliveries(
@@ -776,47 +807,49 @@ export async function createPostgresConsoleWebhookService(
       endpointId: string,
       request: ListConsoleWebhookDeliveriesRequest = {},
     ): Promise<ConsoleWebhookPage<ConsoleWebhookDelivery>> {
-      const endpoint = await findEndpoint(pool, { orgId: ctx.orgId, endpointId });
-      if (!endpoint) {
-        throw new ConsoleWebhookError(
-          'webhook_not_found',
-          404,
-          `Webhook endpoint ${endpointId} was not found`,
+      return withTenantTx(ctx, async (q) => {
+        const endpoint = await findEndpoint(q, { orgId: ctx.orgId, endpointId });
+        if (!endpoint) {
+          throw new ConsoleWebhookError(
+            'webhook_not_found',
+            404,
+            `Webhook endpoint ${endpointId} was not found`,
+          );
+        }
+
+        const limit = normalizePaginationLimit(request.limit);
+        const cursor = parsePaginationCursor(request.cursor);
+        const values: unknown[] = [namespace, ctx.orgId, endpointId];
+        let cursorClause = '';
+        if (cursor) {
+          values.push(cursor.sortMs, cursor.id);
+          cursorClause = ` AND (created_at_ms < $${values.length - 1} OR (created_at_ms = $${values.length - 1} AND id < $${values.length}))`;
+        }
+        values.push(limit + 1);
+
+        const out = await q.query(
+          `SELECT *
+             FROM console_webhook_deliveries
+            WHERE namespace = $1 AND org_id = $2 AND endpoint_id = $3${cursorClause}
+            ORDER BY created_at_ms DESC, id DESC
+            LIMIT $${values.length}`,
+          values,
         );
-      }
 
-      const limit = normalizePaginationLimit(request.limit);
-      const cursor = parsePaginationCursor(request.cursor);
-      const values: unknown[] = [namespace, ctx.orgId, endpointId];
-      let cursorClause = '';
-      if (cursor) {
-        values.push(cursor.sortMs, cursor.id);
-        cursorClause = ` AND (created_at_ms < $${values.length - 1} OR (created_at_ms = $${values.length - 1} AND id < $${values.length}))`;
-      }
-      values.push(limit + 1);
-
-      const out = await pool.query(
-        `SELECT *
-           FROM console_webhook_deliveries
-          WHERE namespace = $1 AND org_id = $2 AND endpoint_id = $3${cursorClause}
-          ORDER BY created_at_ms DESC, id DESC
-          LIMIT $${values.length}`,
-        values,
-      );
-
-      const rows = out.rows.map((row) => parseDeliveryRow(row as PgRow));
-      const hasMore = rows.length > limit;
-      const pageItems = hasMore ? rows.slice(0, limit) : rows;
-      const nextCursor = hasMore
-        ? encodePaginationCursor(
-            Date.parse(pageItems[pageItems.length - 1].createdAt),
-            pageItems[pageItems.length - 1].id,
-          )
-        : undefined;
-      return {
-        items: pageItems.map(toPublicDelivery),
-        ...(nextCursor ? { nextCursor } : {}),
-      };
+        const rows = out.rows.map((row) => parseDeliveryRow(row as PgRow));
+        const hasMore = rows.length > limit;
+        const pageItems = hasMore ? rows.slice(0, limit) : rows;
+        const nextCursor = hasMore
+          ? encodePaginationCursor(
+              Date.parse(pageItems[pageItems.length - 1].createdAt),
+              pageItems[pageItems.length - 1].id,
+            )
+          : undefined;
+        return {
+          items: pageItems.map(toPublicDelivery),
+          ...(nextCursor ? { nextCursor } : {}),
+        };
+      });
     },
 
     async listAttempts(
@@ -824,67 +857,69 @@ export async function createPostgresConsoleWebhookService(
       endpointId: string,
       request: ListConsoleWebhookAttemptsRequest,
     ): Promise<ConsoleWebhookPage<ConsoleWebhookDeliveryAttempt>> {
-      const endpoint = await findEndpoint(pool, { orgId: ctx.orgId, endpointId });
-      if (!endpoint) {
-        throw new ConsoleWebhookError(
-          'webhook_not_found',
-          404,
-          `Webhook endpoint ${endpointId} was not found`,
-        );
-      }
-
-      const deliveryId = String(request.deliveryId || '').trim();
-      if (deliveryId) {
-        const delivery = await findDelivery(pool, {
-          orgId: ctx.orgId,
-          endpointId,
-          deliveryId,
-        });
-        if (!delivery) {
+      return withTenantTx(ctx, async (q) => {
+        const endpoint = await findEndpoint(q, { orgId: ctx.orgId, endpointId });
+        if (!endpoint) {
           throw new ConsoleWebhookError(
-            'delivery_not_found',
+            'webhook_not_found',
             404,
-            `Webhook delivery ${deliveryId} was not found`,
+            `Webhook endpoint ${endpointId} was not found`,
           );
         }
-      }
 
-      const limit = normalizePaginationLimit(request.limit);
-      const cursor = parsePaginationCursor(request.cursor);
-      const values: unknown[] = [namespace, ctx.orgId, endpointId];
-      let whereClause = 'namespace = $1 AND org_id = $2 AND endpoint_id = $3';
-      if (deliveryId) {
-        values.push(deliveryId);
-        whereClause += ` AND delivery_id = $${values.length}`;
-      }
-      if (cursor) {
-        values.push(cursor.sortMs, parseBigintCursorId(cursor.id));
-        whereClause += ` AND (attempted_at_ms < $${values.length - 1} OR (attempted_at_ms = $${values.length - 1} AND id < $${values.length}))`;
-      }
-      values.push(limit + 1);
+        const deliveryId = String(request.deliveryId || '').trim();
+        if (deliveryId) {
+          const delivery = await findDelivery(q, {
+            orgId: ctx.orgId,
+            endpointId,
+            deliveryId,
+          });
+          if (!delivery) {
+            throw new ConsoleWebhookError(
+              'delivery_not_found',
+              404,
+              `Webhook delivery ${deliveryId} was not found`,
+            );
+          }
+        }
 
-      const out = await pool.query(
-        `SELECT *
-           FROM console_webhook_attempts
-          WHERE ${whereClause}
-          ORDER BY attempted_at_ms DESC, id DESC
-          LIMIT $${values.length}`,
-        values,
-      );
+        const limit = normalizePaginationLimit(request.limit);
+        const cursor = parsePaginationCursor(request.cursor);
+        const values: unknown[] = [namespace, ctx.orgId, endpointId];
+        let whereClause = 'namespace = $1 AND org_id = $2 AND endpoint_id = $3';
+        if (deliveryId) {
+          values.push(deliveryId);
+          whereClause += ` AND delivery_id = $${values.length}`;
+        }
+        if (cursor) {
+          values.push(cursor.sortMs, parseBigintCursorId(cursor.id));
+          whereClause += ` AND (attempted_at_ms < $${values.length - 1} OR (attempted_at_ms = $${values.length - 1} AND id < $${values.length}))`;
+        }
+        values.push(limit + 1);
 
-      const rows = out.rows.map((row) => parseDeliveryAttemptRow(row as PgRow));
-      const hasMore = rows.length > limit;
-      const pageItems = hasMore ? rows.slice(0, limit) : rows;
-      const nextCursor = hasMore
-        ? encodePaginationCursor(
-            pageItems[pageItems.length - 1].attemptedAtMs,
-            pageItems[pageItems.length - 1].id,
-          )
-        : undefined;
-      return {
-        items: pageItems.map(toPublicAttempt),
-        ...(nextCursor ? { nextCursor } : {}),
-      };
+        const out = await q.query(
+          `SELECT *
+             FROM console_webhook_attempts
+            WHERE ${whereClause}
+            ORDER BY attempted_at_ms DESC, id DESC
+            LIMIT $${values.length}`,
+          values,
+        );
+
+        const rows = out.rows.map((row) => parseDeliveryAttemptRow(row as PgRow));
+        const hasMore = rows.length > limit;
+        const pageItems = hasMore ? rows.slice(0, limit) : rows;
+        const nextCursor = hasMore
+          ? encodePaginationCursor(
+              pageItems[pageItems.length - 1].attemptedAtMs,
+              pageItems[pageItems.length - 1].id,
+            )
+          : undefined;
+        return {
+          items: pageItems.map(toPublicAttempt),
+          ...(nextCursor ? { nextCursor } : {}),
+        };
+      });
     },
 
     async listDeadLetters(
@@ -892,69 +927,71 @@ export async function createPostgresConsoleWebhookService(
       endpointId: string,
       request: ListConsoleWebhookDeadLettersRequest,
     ): Promise<ConsoleWebhookPage<ConsoleWebhookDeadLetter>> {
-      const endpoint = await findEndpoint(pool, { orgId: ctx.orgId, endpointId });
-      if (!endpoint) {
-        throw new ConsoleWebhookError(
-          'webhook_not_found',
-          404,
-          `Webhook endpoint ${endpointId} was not found`,
-        );
-      }
-
-      const deliveryId = String(request.deliveryId || '').trim();
-      if (deliveryId) {
-        const delivery = await findDelivery(pool, {
-          orgId: ctx.orgId,
-          endpointId,
-          deliveryId,
-        });
-        if (!delivery) {
+      return withTenantTx(ctx, async (q) => {
+        const endpoint = await findEndpoint(q, { orgId: ctx.orgId, endpointId });
+        if (!endpoint) {
           throw new ConsoleWebhookError(
-            'delivery_not_found',
+            'webhook_not_found',
             404,
-            `Webhook delivery ${deliveryId} was not found`,
+            `Webhook endpoint ${endpointId} was not found`,
           );
         }
-      }
 
-      const values: unknown[] = [namespace, ctx.orgId, endpointId];
-      let whereClause = 'namespace = $1 AND org_id = $2 AND endpoint_id = $3';
-      if (deliveryId) {
-        values.push(deliveryId);
-        whereClause += ` AND delivery_id = $${values.length}`;
-      }
-      if (!request.includeResolved) {
-        whereClause += ' AND resolved_at_ms IS NULL';
-      }
-      const cursor = parsePaginationCursor(request.cursor);
-      if (cursor) {
-        values.push(cursor.sortMs, cursor.id);
-        whereClause += ` AND (moved_to_dlq_at_ms < $${values.length - 1} OR (moved_to_dlq_at_ms = $${values.length - 1} AND id < $${values.length}))`;
-      }
-      const limit = normalizePaginationLimit(request.limit);
-      values.push(limit + 1);
+        const deliveryId = String(request.deliveryId || '').trim();
+        if (deliveryId) {
+          const delivery = await findDelivery(q, {
+            orgId: ctx.orgId,
+            endpointId,
+            deliveryId,
+          });
+          if (!delivery) {
+            throw new ConsoleWebhookError(
+              'delivery_not_found',
+              404,
+              `Webhook delivery ${deliveryId} was not found`,
+            );
+          }
+        }
 
-      const out = await pool.query(
-        `SELECT *
-           FROM console_webhook_dead_letters
-          WHERE ${whereClause}
-          ORDER BY moved_to_dlq_at_ms DESC, id DESC
-          LIMIT $${values.length}`,
-        values,
-      );
-      const rows = out.rows.map((row) => parseDeadLetterRow(row as PgRow));
-      const hasMore = rows.length > limit;
-      const pageItems = hasMore ? rows.slice(0, limit) : rows;
-      const nextCursor = hasMore
-        ? encodePaginationCursor(
-            pageItems[pageItems.length - 1].movedToDlqAtMs,
-            pageItems[pageItems.length - 1].id,
-          )
-        : undefined;
-      return {
-        items: pageItems.map(toPublicDeadLetter),
-        ...(nextCursor ? { nextCursor } : {}),
-      };
+        const values: unknown[] = [namespace, ctx.orgId, endpointId];
+        let whereClause = 'namespace = $1 AND org_id = $2 AND endpoint_id = $3';
+        if (deliveryId) {
+          values.push(deliveryId);
+          whereClause += ` AND delivery_id = $${values.length}`;
+        }
+        if (!request.includeResolved) {
+          whereClause += ' AND resolved_at_ms IS NULL';
+        }
+        const cursor = parsePaginationCursor(request.cursor);
+        if (cursor) {
+          values.push(cursor.sortMs, cursor.id);
+          whereClause += ` AND (moved_to_dlq_at_ms < $${values.length - 1} OR (moved_to_dlq_at_ms = $${values.length - 1} AND id < $${values.length}))`;
+        }
+        const limit = normalizePaginationLimit(request.limit);
+        values.push(limit + 1);
+
+        const out = await q.query(
+          `SELECT *
+             FROM console_webhook_dead_letters
+            WHERE ${whereClause}
+            ORDER BY moved_to_dlq_at_ms DESC, id DESC
+            LIMIT $${values.length}`,
+          values,
+        );
+        const rows = out.rows.map((row) => parseDeadLetterRow(row as PgRow));
+        const hasMore = rows.length > limit;
+        const pageItems = hasMore ? rows.slice(0, limit) : rows;
+        const nextCursor = hasMore
+          ? encodePaginationCursor(
+              pageItems[pageItems.length - 1].movedToDlqAtMs,
+              pageItems[pageItems.length - 1].id,
+            )
+          : undefined;
+        return {
+          items: pageItems.map(toPublicDeadLetter),
+          ...(nextCursor ? { nextCursor } : {}),
+        };
+      });
     },
 
     async replayDelivery(
@@ -962,7 +999,24 @@ export async function createPostgresConsoleWebhookService(
       endpointId: string,
       request: ReplayConsoleWebhookDeliveryRequest,
     ): Promise<ReplayConsoleWebhookDeliveryResult> {
-      const endpoint = await findEndpoint(pool, { orgId: ctx.orgId, endpointId });
+      const selected = await withTenantTx(ctx, async (q) => {
+        const endpoint = await findEndpoint(q, { orgId: ctx.orgId, endpointId });
+        if (!endpoint) return { endpoint: null, target: null };
+        const target = request.deliveryId
+          ? await findDelivery(q, {
+              orgId: ctx.orgId,
+              endpointId,
+              deliveryId: request.deliveryId,
+            })
+          : await findLatestReplayableDelivery(q, {
+              orgId: ctx.orgId,
+              endpointId,
+            });
+        return { endpoint, target };
+      });
+      const endpoint = selected.endpoint;
+      const target = selected.target;
+
       if (!endpoint) {
         return {
           replayed: false,
@@ -970,17 +1024,6 @@ export async function createPostgresConsoleWebhookService(
           reason: 'endpoint_not_found',
         };
       }
-
-      const target = request.deliveryId
-        ? await findDelivery(pool, {
-            orgId: ctx.orgId,
-            endpointId,
-            deliveryId: request.deliveryId,
-          })
-        : await findLatestReplayableDelivery(pool, {
-            orgId: ctx.orgId,
-            endpointId,
-          });
 
       if (!target) {
         return {
@@ -997,7 +1040,7 @@ export async function createPostgresConsoleWebhookService(
         dispatcher,
         now,
       });
-      const updated = await withTx(pool, async (q) =>
+      const updated = await withTenantTx(ctx, async (q) =>
         persistDeliveryAttempt(q, {
           namespace,
           delivery: target,
@@ -1042,41 +1085,45 @@ export async function createPostgresConsoleWebhookService(
         };
       }
 
-      const endpointRows = await pool.query(
-        `SELECT *
-           FROM console_webhook_endpoints
-          WHERE namespace = $1
-            AND org_id = $2
-            AND status = 'ACTIVE'
-            AND subscriptions ? $3
-          ORDER BY created_at_ms DESC`,
-        [namespace, ctx.orgId, category],
-      );
-      const endpoints = endpointRows.rows.map((row) => parseEndpointRow(row as PgRow));
+      const endpoints = await withTenantTx(ctx, async (q) => {
+        const endpointRows = await q.query(
+          `SELECT *
+             FROM console_webhook_endpoints
+            WHERE namespace = $1
+              AND org_id = $2
+              AND status = 'ACTIVE'
+              AND subscriptions ? $3
+            ORDER BY created_at_ms DESC`,
+          [namespace, ctx.orgId, category],
+        );
+        return endpointRows.rows.map((row) => parseEndpointRow(row as PgRow));
+      });
 
       let delivered = 0;
       let failed = 0;
       for (const endpoint of endpoints) {
         const createdAt = nowFn();
         const createdAtMs = nowMs(createdAt);
-        const inserted = await queryOne(
-          pool,
-          `INSERT INTO console_webhook_deliveries
-            (namespace, id, org_id, endpoint_id, event_id, event_type, status, attempt_count, replay_count,
-             response_status, response_body, error_message, payload_json, delivered_at_ms, last_attempt_at_ms, created_at_ms, updated_at_ms)
-           VALUES
-            ($1, $2, $3, $4, $5, $6, 'FAILED', 0, 0, NULL, NULL, NULL, $7::jsonb, NULL, NULL, $8, $8)
-           RETURNING *`,
-          [
-            namespace,
-            makeId('whd', createdAt),
-            ctx.orgId,
-            endpoint.id,
-            eventId,
-            eventType,
-            JSON.stringify(request.payload),
-            createdAtMs,
-          ],
+        const inserted = await withTenantTx(ctx, async (q) =>
+          queryOne(
+            q,
+            `INSERT INTO console_webhook_deliveries
+              (namespace, id, org_id, endpoint_id, event_id, event_type, status, attempt_count, replay_count,
+               response_status, response_body, error_message, payload_json, delivered_at_ms, last_attempt_at_ms, created_at_ms, updated_at_ms)
+             VALUES
+              ($1, $2, $3, $4, $5, $6, 'FAILED', 0, 0, NULL, NULL, NULL, $7::jsonb, NULL, NULL, $8, $8)
+             RETURNING *`,
+            [
+              namespace,
+              makeId('whd', createdAt),
+              ctx.orgId,
+              endpoint.id,
+              eventId,
+              eventType,
+              JSON.stringify(request.payload),
+              createdAtMs,
+            ],
+          ),
         );
         if (!inserted) {
           throw new ConsoleWebhookError('internal', 500, 'Failed to create webhook delivery');
@@ -1090,7 +1137,7 @@ export async function createPostgresConsoleWebhookService(
           now: attemptNow,
         });
 
-        const updated = await withTx(pool, async (q) =>
+        const updated = await withTenantTx(ctx, async (q) =>
           persistDeliveryAttempt(q, {
             namespace,
             delivery,
@@ -1111,5 +1158,258 @@ export async function createPostgresConsoleWebhookService(
         failed,
       };
     },
+  };
+}
+
+function normalizePositiveInteger(input: unknown, fallback: number, max: number): number {
+  const n = Math.floor(Number(input));
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(n, max);
+}
+
+function normalizeNonNegativeInteger(input: unknown, fallback: number): number {
+  const n = Math.floor(Number(input));
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return n;
+}
+
+function computeWebhookRetryBackoffMs(input: {
+  attemptCount: number;
+  initialBackoffMs: number;
+  maxBackoffMs: number;
+}): number {
+  if (input.initialBackoffMs <= 0 || input.maxBackoffMs <= 0) return 0;
+  const exponent = Math.max(0, input.attemptCount - 1);
+  const scaled = input.initialBackoffMs * 2 ** exponent;
+  if (!Number.isFinite(scaled)) return input.maxBackoffMs;
+  return Math.min(input.maxBackoffMs, Math.max(0, Math.floor(scaled)));
+}
+
+function isWebhookRetryDue(input: {
+  delivery: StoredWebhookDelivery;
+  nowMs: number;
+  initialBackoffMs: number;
+  maxBackoffMs: number;
+}): boolean {
+  const anchorMs = (() => {
+    const lastAttemptMs = Date.parse(String(input.delivery.lastAttemptAt || ''));
+    if (Number.isFinite(lastAttemptMs)) return lastAttemptMs;
+    const createdAtMs = Date.parse(String(input.delivery.createdAt || ''));
+    if (Number.isFinite(createdAtMs)) return createdAtMs;
+    return input.nowMs;
+  })();
+  const backoffMs = computeWebhookRetryBackoffMs({
+    attemptCount: input.delivery.attemptCount,
+    initialBackoffMs: input.initialBackoffMs,
+    maxBackoffMs: input.maxBackoffMs,
+  });
+  return anchorMs + backoffMs <= input.nowMs;
+}
+
+export interface PostgresConsoleWebhookRetryDispatchOptions {
+  postgresUrl: string;
+  namespace?: string;
+  orgIds?: string[];
+  limit?: number;
+  maxAttempts?: number;
+  initialBackoffMs?: number;
+  maxBackoffMs?: number;
+  ensureSchema?: boolean;
+  logger?: NormalizedLogger;
+  now?: () => Date;
+  dispatcher?: WebhookDispatchAdapter;
+}
+
+export interface PostgresConsoleWebhookRetryDispatchResult {
+  namespace: string;
+  orgCount: number;
+  attemptedCount: number;
+  deliveredCount: number;
+  failedCount: number;
+  skippedCount: number;
+  failures: Array<{
+    orgId: string;
+    deliveryId: string;
+    message: string;
+  }>;
+}
+
+export async function runPostgresConsoleWebhookRetryDispatch(
+  options: PostgresConsoleWebhookRetryDispatchOptions,
+): Promise<PostgresConsoleWebhookRetryDispatchResult> {
+  const postgresUrl = String(options.postgresUrl || '').trim();
+  if (!postgresUrl) throw new Error('Missing POSTGRES_URL for Postgres webhook retry dispatch');
+
+  const namespace = ensureNamespace(options.namespace);
+  const orgIds = Array.from(
+    new Set(
+      (Array.isArray(options.orgIds) ? options.orgIds : [])
+        .map((orgId) => String(orgId || '').trim())
+        .filter(Boolean),
+    ),
+  );
+  if (orgIds.length === 0) {
+    throw new Error('Webhook retry dispatch requires at least one orgId');
+  }
+
+  const logger = (options.logger || console) as NormalizedLogger;
+  const nowFn = options.now || (() => new Date());
+  const dispatcher: WebhookDispatchAdapter = options.dispatcher || {
+    dispatch: defaultDispatchWebhook,
+  };
+  const limit = normalizePositiveInteger(options.limit, 100, 1000);
+  const maxAttempts = normalizePositiveInteger(options.maxAttempts, 5, 25);
+  const initialBackoffMs = normalizeNonNegativeInteger(options.initialBackoffMs, 60_000);
+  const maxBackoffMs = Math.max(
+    initialBackoffMs,
+    normalizeNonNegativeInteger(options.maxBackoffMs, 3_600_000),
+  );
+
+  if (options.ensureSchema !== false) {
+    await ensureConsoleWebhooksPostgresSchema({
+      postgresUrl,
+      logger,
+    });
+  }
+
+  const pool = await getPostgresPool(postgresUrl);
+  let attemptedCount = 0;
+  let deliveredCount = 0;
+  let failedCount = 0;
+  let skippedCount = 0;
+  const failures: PostgresConsoleWebhookRetryDispatchResult['failures'] = [];
+
+  for (const orgId of orgIds) {
+    const seed = await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
+      const [endpointRows, deliveryRows] = await Promise.all([
+        q.query(
+          `SELECT *
+             FROM console_webhook_endpoints
+            WHERE namespace = $1 AND org_id = $2 AND status = 'ACTIVE'`,
+          [namespace, orgId],
+        ),
+        q.query(
+          `SELECT *
+             FROM console_webhook_deliveries
+            WHERE namespace = $1
+              AND org_id = $2
+              AND status = 'FAILED'
+              AND attempt_count < $3
+            ORDER BY COALESCE(last_attempt_at_ms, created_at_ms) ASC, id ASC
+            LIMIT $4`,
+          [namespace, orgId, maxAttempts, Math.max(1, limit * 4)],
+        ),
+      ]);
+      const endpoints = new Map<string, StoredWebhookEndpoint>();
+      for (const row of endpointRows.rows) {
+        const endpoint = parseEndpointRow(row as PgRow);
+        endpoints.set(endpoint.id, endpoint);
+      }
+      return {
+        endpoints,
+        deliveries: deliveryRows.rows.map((row) => parseDeliveryRow(row as PgRow)),
+      };
+    });
+
+    let attemptedForOrg = 0;
+    for (const candidate of seed.deliveries) {
+      if (attemptedForOrg >= limit) break;
+      const now = nowFn();
+      const nowTs = nowMs(now);
+      if (
+        !isWebhookRetryDue({
+          delivery: candidate,
+          nowMs: nowTs,
+          initialBackoffMs,
+          maxBackoffMs,
+        })
+      ) {
+        skippedCount += 1;
+        continue;
+      }
+
+      const endpoint = seed.endpoints.get(candidate.endpointId);
+      if (!endpoint) {
+        skippedCount += 1;
+        continue;
+      }
+
+      let attemptResult: DeliveryAttemptResult;
+      try {
+        attemptResult = await dispatchDelivery({
+          endpoint,
+          delivery: candidate,
+          dispatcher,
+          now,
+        });
+      } catch (error: unknown) {
+        attemptResult = {
+          status: 'FAILED',
+          responseStatus: null,
+          responseBody: null,
+          errorMessage: error instanceof Error ? error.message : String(error),
+          attemptedAtMs: nowTs,
+        };
+      }
+
+      attemptedCount += 1;
+      attemptedForOrg += 1;
+
+      try {
+        const updated = await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
+          const currentRow = await queryOne(
+            q,
+            `SELECT *
+               FROM console_webhook_deliveries
+              WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+            [namespace, orgId, candidate.id],
+          );
+          if (!currentRow) return null;
+
+          const currentDelivery = parseDeliveryRow(currentRow);
+          if (currentDelivery.status !== 'FAILED' || currentDelivery.attemptCount >= maxAttempts) {
+            return null;
+          }
+
+          return persistDeliveryAttempt(q, {
+            namespace,
+            delivery: currentDelivery,
+            endpoint,
+            isReplay: false,
+            now,
+            attemptResult,
+          });
+        });
+        if (!updated) {
+          skippedCount += 1;
+          continue;
+        }
+        if (updated.status === 'SUCCEEDED') deliveredCount += 1;
+        else failedCount += 1;
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        failures.push({
+          orgId,
+          deliveryId: candidate.id,
+          message,
+        });
+        logger.warn('[console-webhooks][postgres] retry dispatch failed', {
+          namespace,
+          orgId,
+          deliveryId: candidate.id,
+          message,
+        });
+      }
+    }
+  }
+
+  return {
+    namespace,
+    orgCount: orgIds.length,
+    attemptedCount,
+    deliveredCount,
+    failedCount,
+    skippedCount,
+    failures,
   };
 }

@@ -25,6 +25,7 @@ const WEBHOOK_SUBSCRIPTIONS: Set<ConsoleWebhookSubscription> = new Set([
   'auth',
   'tx',
   'billing',
+  'session',
 ]);
 
 const WEBHOOK_ENDPOINT_STATUSES: Set<ConsoleWebhookEndpointStatus> = new Set([

@@ -5,6 +5,10 @@ import {
   toConsoleIso as toIso,
   toConsoleNumber as toNumber,
 } from '../shared/postgresNormalize';
+import {
+  ensureConsoleTenantRlsPolicies,
+  withConsoleTenantContextTx,
+} from '../shared/postgresTenantContext';
 import { ConsoleGasSponsorshipError } from './errors';
 import type {
   ConsoleGasSponsorshipChainBudget,
@@ -209,6 +213,12 @@ export async function ensureConsoleGasSponsorshipPostgresSchema(
       CREATE INDEX IF NOT EXISTS console_gas_sponsorship_org_scope_idx
       ON console_gas_sponsorship_configs (namespace, org_id, scope_type)
     `);
+
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_gas_sponsorship_configs',
+      policyName: 'console_gas_sponsorship_configs_tenant_rls',
+    });
   } finally {
     try {
       await pool.query('SELECT pg_advisory_unlock($1)', [CONSOLE_GAS_SPONSORSHIP_MIGRATION_LOCK_ID]);
@@ -248,6 +258,10 @@ export async function createPostgresConsoleGasSponsorshipService(
   }
 
   const pool = await getPostgresPool(postgresUrl);
+  const withTenantTx = <T>(
+    ctx: ConsoleGasSponsorshipContext,
+    fn: (q: Queryable) => Promise<T>,
+  ): Promise<T> => withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, fn);
 
   async function findConfig(
     q: Queryable,
@@ -265,161 +279,167 @@ export async function createPostgresConsoleGasSponsorshipService(
 
   return {
     async listConfigs(ctx, request = {}) {
-      const out = await pool.query(
-        `SELECT *
-           FROM console_gas_sponsorship_configs
-          WHERE namespace = $1
-            AND org_id = $2
-            AND ($3::text IS NULL OR scope_type = $3::text)
-            AND ($4::text IS NULL OR project_id = $4::text)
-            AND ($5::text IS NULL OR environment_id = $5::text)
-            AND ($6::text IS NULL OR policy_id = $6::text)
-            AND ($7::text IS NULL OR wallet_segment_id = $7::text)
-          ORDER BY updated_at_ms DESC, created_at_ms DESC`,
-        [
-          namespace,
-          ctx.orgId,
-          request.scopeType || null,
-          request.projectId || null,
-          request.environmentId || null,
-          request.policyId || null,
-          request.walletSegmentId || null,
-        ],
-      );
-      return out.rows.map((row) => parseConfigRow(row as PgRow));
-    },
-
-    async createConfig(ctx, request: CreateConsoleGasSponsorshipRequest) {
-      const now = nowFn();
-      const chainBudgets = normalizeBudgets(request.chainBudgets);
-      const config: ConsoleGasSponsorshipConfig = {
-        id: toNullableString(request.id) || makeId('gs', now),
-        orgId: ctx.orgId,
-        scopeType: request.scopeType,
-        projectId: toNullableString(request.projectId),
-        environmentId: toNullableString(request.environmentId),
-        policyId: toNullableString(request.policyId),
-        walletSegmentId: toNullableString(request.walletSegmentId),
-        enabled: request.enabled ?? true,
-        paymasterMode: request.paymasterMode || 'AUTO',
-        fallbackBehavior: request.fallbackBehavior || 'ALLOW_UNSPONSORED',
-        chainBudgets,
-        telemetry: {
-          sponsoredTransactionCount: 0,
-          failedTransactionCount: 0,
-          spendMinor: 0,
-          budgetUtilizationPct: 0,
-        },
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-      };
-      validateScope(config);
-      const createdAtMs = nowMs(now);
-      try {
-        const row = await queryOne(
-          pool,
-          `INSERT INTO console_gas_sponsorship_configs
-            (namespace, org_id, id, scope_type, project_id, environment_id, policy_id, wallet_segment_id, enabled, paymaster_mode, fallback_behavior, chain_budgets, telemetry, created_at_ms, updated_at_ms)
-           VALUES
-            ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14, $14)
-           RETURNING *`,
+      return withTenantTx(ctx, async (q) => {
+        const out = await q.query(
+          `SELECT *
+             FROM console_gas_sponsorship_configs
+            WHERE namespace = $1
+              AND org_id = $2
+              AND ($3::text IS NULL OR scope_type = $3::text)
+              AND ($4::text IS NULL OR project_id = $4::text)
+              AND ($5::text IS NULL OR environment_id = $5::text)
+              AND ($6::text IS NULL OR policy_id = $6::text)
+              AND ($7::text IS NULL OR wallet_segment_id = $7::text)
+            ORDER BY updated_at_ms DESC, created_at_ms DESC`,
           [
             namespace,
             ctx.orgId,
-            config.id,
-            config.scopeType,
-            config.projectId,
-            config.environmentId,
-            config.policyId,
-            config.walletSegmentId,
-            config.enabled,
-            config.paymasterMode,
-            config.fallbackBehavior,
-            JSON.stringify(config.chainBudgets),
-            JSON.stringify(config.telemetry),
-            createdAtMs,
+            request.scopeType || null,
+            request.projectId || null,
+            request.environmentId || null,
+            request.policyId || null,
+            request.walletSegmentId || null,
           ],
         );
-        if (!row) {
-          throw new ConsoleGasSponsorshipError('internal', 500, 'Failed to create gas sponsorship config');
-        }
-        return parseConfigRow(row);
-      } catch (error: unknown) {
-        if (isUniqueViolation(error)) {
-          throw new ConsoleGasSponsorshipError(
-            'config_exists',
-            409,
-            `Gas sponsorship config ${config.id} already exists`,
+        return out.rows.map((row) => parseConfigRow(row as PgRow));
+      });
+    },
+
+    async createConfig(ctx, request: CreateConsoleGasSponsorshipRequest) {
+      return withTenantTx(ctx, async (q) => {
+        const now = nowFn();
+        const chainBudgets = normalizeBudgets(request.chainBudgets);
+        const config: ConsoleGasSponsorshipConfig = {
+          id: toNullableString(request.id) || makeId('gs', now),
+          orgId: ctx.orgId,
+          scopeType: request.scopeType,
+          projectId: toNullableString(request.projectId),
+          environmentId: toNullableString(request.environmentId),
+          policyId: toNullableString(request.policyId),
+          walletSegmentId: toNullableString(request.walletSegmentId),
+          enabled: request.enabled ?? true,
+          paymasterMode: request.paymasterMode || 'AUTO',
+          fallbackBehavior: request.fallbackBehavior || 'ALLOW_UNSPONSORED',
+          chainBudgets,
+          telemetry: {
+            sponsoredTransactionCount: 0,
+            failedTransactionCount: 0,
+            spendMinor: 0,
+            budgetUtilizationPct: 0,
+          },
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        };
+        validateScope(config);
+        const createdAtMs = nowMs(now);
+        try {
+          const row = await queryOne(
+            q,
+            `INSERT INTO console_gas_sponsorship_configs
+              (namespace, org_id, id, scope_type, project_id, environment_id, policy_id, wallet_segment_id, enabled, paymaster_mode, fallback_behavior, chain_budgets, telemetry, created_at_ms, updated_at_ms)
+             VALUES
+              ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14, $14)
+             RETURNING *`,
+            [
+              namespace,
+              ctx.orgId,
+              config.id,
+              config.scopeType,
+              config.projectId,
+              config.environmentId,
+              config.policyId,
+              config.walletSegmentId,
+              config.enabled,
+              config.paymasterMode,
+              config.fallbackBehavior,
+              JSON.stringify(config.chainBudgets),
+              JSON.stringify(config.telemetry),
+              createdAtMs,
+            ],
           );
+          if (!row) {
+            throw new ConsoleGasSponsorshipError('internal', 500, 'Failed to create gas sponsorship config');
+          }
+          return parseConfigRow(row);
+        } catch (error: unknown) {
+          if (isUniqueViolation(error)) {
+            throw new ConsoleGasSponsorshipError(
+              'config_exists',
+              409,
+              `Gas sponsorship config ${config.id} already exists`,
+            );
+          }
+          throw error;
         }
-        throw error;
-      }
+      });
     },
 
     async updateConfig(ctx, configId: string, request: UpdateConsoleGasSponsorshipRequest) {
-      const current = await findConfig(pool, { orgId: ctx.orgId, id: configId });
-      if (!current) return null;
+      return withTenantTx(ctx, async (q) => {
+        const current = await findConfig(q, { orgId: ctx.orgId, id: configId });
+        if (!current) return null;
 
-      const next: ConsoleGasSponsorshipConfig = {
-        ...current,
-        scopeType: request.scopeType || current.scopeType,
-        projectId:
-          request.projectId === undefined ? current.projectId : toNullableString(request.projectId),
-        environmentId:
-          request.environmentId === undefined
-            ? current.environmentId
-            : toNullableString(request.environmentId),
-        policyId: request.policyId === undefined ? current.policyId : toNullableString(request.policyId),
-        walletSegmentId:
-          request.walletSegmentId === undefined
-            ? current.walletSegmentId
-            : toNullableString(request.walletSegmentId),
-        enabled: request.enabled === undefined ? current.enabled : request.enabled,
-        paymasterMode: request.paymasterMode || current.paymasterMode,
-        fallbackBehavior: request.fallbackBehavior || current.fallbackBehavior,
-        chainBudgets:
-          request.chainBudgets === undefined
-            ? current.chainBudgets
-            : normalizeBudgets(request.chainBudgets),
-        updatedAt: nowFn().toISOString(),
-      };
-      validateScope(next);
+        const next: ConsoleGasSponsorshipConfig = {
+          ...current,
+          scopeType: request.scopeType || current.scopeType,
+          projectId:
+            request.projectId === undefined ? current.projectId : toNullableString(request.projectId),
+          environmentId:
+            request.environmentId === undefined
+              ? current.environmentId
+              : toNullableString(request.environmentId),
+          policyId: request.policyId === undefined ? current.policyId : toNullableString(request.policyId),
+          walletSegmentId:
+            request.walletSegmentId === undefined
+              ? current.walletSegmentId
+              : toNullableString(request.walletSegmentId),
+          enabled: request.enabled === undefined ? current.enabled : request.enabled,
+          paymasterMode: request.paymasterMode || current.paymasterMode,
+          fallbackBehavior: request.fallbackBehavior || current.fallbackBehavior,
+          chainBudgets:
+            request.chainBudgets === undefined
+              ? current.chainBudgets
+              : normalizeBudgets(request.chainBudgets),
+          updatedAt: nowFn().toISOString(),
+        };
+        validateScope(next);
 
-      const updatedAtMs = nowMs(new Date(next.updatedAt));
-      const row = await queryOne(
-        pool,
-        `UPDATE console_gas_sponsorship_configs
-            SET scope_type = $4,
-                project_id = $5,
-                environment_id = $6,
-                policy_id = $7,
-                wallet_segment_id = $8,
-                enabled = $9,
-                paymaster_mode = $10,
-                fallback_behavior = $11,
-                chain_budgets = $12::jsonb,
-                updated_at_ms = $13
-          WHERE namespace = $1
-            AND org_id = $2
-            AND id = $3
-          RETURNING *`,
-        [
-          namespace,
-          ctx.orgId,
-          configId,
-          next.scopeType,
-          next.projectId,
-          next.environmentId,
-          next.policyId,
-          next.walletSegmentId,
-          next.enabled,
-          next.paymasterMode,
-          next.fallbackBehavior,
-          JSON.stringify(next.chainBudgets),
-          updatedAtMs,
-        ],
-      );
-      return row ? parseConfigRow(row) : null;
+        const updatedAtMs = nowMs(new Date(next.updatedAt));
+        const row = await queryOne(
+          q,
+          `UPDATE console_gas_sponsorship_configs
+              SET scope_type = $4,
+                  project_id = $5,
+                  environment_id = $6,
+                  policy_id = $7,
+                  wallet_segment_id = $8,
+                  enabled = $9,
+                  paymaster_mode = $10,
+                  fallback_behavior = $11,
+                  chain_budgets = $12::jsonb,
+                  updated_at_ms = $13
+            WHERE namespace = $1
+              AND org_id = $2
+              AND id = $3
+            RETURNING *`,
+          [
+            namespace,
+            ctx.orgId,
+            configId,
+            next.scopeType,
+            next.projectId,
+            next.environmentId,
+            next.policyId,
+            next.walletSegmentId,
+            next.enabled,
+            next.paymasterMode,
+            next.fallbackBehavior,
+            JSON.stringify(next.chainBudgets),
+            updatedAtMs,
+          ],
+        );
+        return row ? parseConfigRow(row) : null;
+      });
     },
   };
 }

@@ -5,6 +5,10 @@ import {
   toConsoleIso as toIso,
   toConsoleNumber as toNumber,
 } from '../shared/postgresNormalize';
+import {
+  ensureConsoleTenantRlsPolicies,
+  withConsoleTenantContextTx,
+} from '../shared/postgresTenantContext';
 import { ConsoleOrgProjectEnvError } from './errors';
 import type {
   CreateConsoleEnvironmentRequest,
@@ -334,6 +338,23 @@ export async function ensureConsoleOrgProjectEnvPostgresSchema(
       END
       $$;
     `);
+
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_organizations',
+      policyName: 'console_organizations_tenant_rls',
+      orgIdColumn: 'id',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_projects',
+      policyName: 'console_projects_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_environments',
+      policyName: 'console_environments_tenant_rls',
+    });
   } finally {
     try {
       await pool.query('SELECT pg_advisory_unlock($1)', [CONSOLE_ORG_PROJECT_ENV_MIGRATION_LOCK_ID]);
@@ -371,91 +392,101 @@ export async function createPostgresConsoleOrgProjectEnvService(
     });
   }
   const pool = await getPostgresPool(postgresUrl);
+  const withTenantTx = <T>(
+    ctx: ConsoleOrgProjectEnvContext,
+    fn: (q: Queryable) => Promise<T>,
+  ): Promise<T> => withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, fn);
 
   return {
     async getOrganization(ctx): Promise<ConsoleOrganization> {
-      const now = nowFn();
-      await ensureBootstrapRows(pool, { namespace, ctx, now });
-      const row = await queryOne(
-        pool,
-        `SELECT *
-           FROM console_organizations
-          WHERE namespace = $1 AND id = $2`,
-        [namespace, ctx.orgId],
-      );
-      if (!row) {
-        throw new Error(`Organization ${ctx.orgId} not found after bootstrap`);
-      }
-      return parseOrgRow(row);
+      return withTenantTx(ctx, async (q) => {
+        const now = nowFn();
+        await ensureBootstrapRows(q, { namespace, ctx, now });
+        const row = await queryOne(
+          q,
+          `SELECT *
+             FROM console_organizations
+            WHERE namespace = $1 AND id = $2`,
+          [namespace, ctx.orgId],
+        );
+        if (!row) {
+          throw new Error(`Organization ${ctx.orgId} not found after bootstrap`);
+        }
+        return parseOrgRow(row);
+      });
     },
 
     async listProjects(
       ctx,
       request?: ListConsoleProjectsRequest,
     ): Promise<ConsoleProject[]> {
-      const now = nowFn();
-      await ensureBootstrapRows(pool, { namespace, ctx, now });
-      const where: string[] = ['p.namespace = $1', 'p.org_id = $2'];
-      const values: unknown[] = [namespace, ctx.orgId];
-      if (request?.status) {
-        values.push(request.status);
-        where.push(`p.status = $${values.length}`);
-      }
-      const out = await pool.query(
-        `SELECT p.*,
-                COALESCE(ec.environment_count, 0) AS environment_count
-           FROM console_projects p
-           LEFT JOIN (
-             SELECT namespace,
-                    org_id,
-                    project_id,
-                    COUNT(*)::BIGINT AS environment_count
-               FROM console_environments
-              WHERE namespace = $1
-                AND org_id = $2
-              GROUP BY namespace, org_id, project_id
-           ) ec
-             ON ec.namespace = p.namespace
-            AND ec.org_id = p.org_id
-            AND ec.project_id = p.id
-          WHERE ${where.join(' AND ')}
-          ORDER BY p.updated_at_ms DESC, p.created_at_ms DESC`,
-        values,
-      );
-      return out.rows.map((row) => parseProjectRow(row as PgRow));
+      return withTenantTx(ctx, async (q) => {
+        const now = nowFn();
+        await ensureBootstrapRows(q, { namespace, ctx, now });
+        const where: string[] = ['p.namespace = $1', 'p.org_id = $2'];
+        const values: unknown[] = [namespace, ctx.orgId];
+        if (request?.status) {
+          values.push(request.status);
+          where.push(`p.status = $${values.length}`);
+        }
+        const out = await q.query(
+          `SELECT p.*,
+                  COALESCE(ec.environment_count, 0) AS environment_count
+             FROM console_projects p
+             LEFT JOIN (
+               SELECT namespace,
+                      org_id,
+                      project_id,
+                      COUNT(*)::BIGINT AS environment_count
+                 FROM console_environments
+                WHERE namespace = $1
+                  AND org_id = $2
+                GROUP BY namespace, org_id, project_id
+             ) ec
+               ON ec.namespace = p.namespace
+              AND ec.org_id = p.org_id
+              AND ec.project_id = p.id
+            WHERE ${where.join(' AND ')}
+            ORDER BY p.updated_at_ms DESC, p.created_at_ms DESC`,
+          values,
+        );
+        return out.rows.map((row) => parseProjectRow(row as PgRow));
+      });
     },
 
     async createProject(
       ctx,
       request: CreateConsoleProjectRequest,
     ): Promise<ConsoleProject> {
-      const now = nowFn();
-      await ensureBootstrapRows(pool, { namespace, ctx, now });
-      const projectId = String(request.id || makeResourceId('proj', now)).trim();
-      const created = await queryOne(
-        pool,
-        `INSERT INTO console_projects
-          (namespace, id, org_id, name, slug, status, created_at_ms, updated_at_ms)
-         VALUES
-          ($1, $2, $3, $4, $5, 'ACTIVE', $6, $6)
-         ON CONFLICT (namespace, id) DO NOTHING
-         RETURNING *`,
-        [namespace, projectId, ctx.orgId, request.name, slugify(request.name), nowMs(now)],
-      );
-      if (!created) {
-        throw new ConsoleOrgProjectEnvError(
-          'project_already_exists',
-          409,
-          `Project ${projectId} already exists`,
+      return withTenantTx(ctx, async (q) => {
+        const now = nowFn();
+        await ensureBootstrapRows(q, { namespace, ctx, now });
+        const projectId = String(request.id || makeResourceId('proj', now)).trim();
+        const created = await queryOne(
+          q,
+          `INSERT INTO console_projects
+            (namespace, id, org_id, name, slug, status, created_at_ms, updated_at_ms)
+           VALUES
+            ($1, $2, $3, $4, $5, 'ACTIVE', $6, $6)
+           ON CONFLICT (namespace, id) DO NOTHING
+           RETURNING *`,
+          [namespace, projectId, ctx.orgId, request.name, slugify(request.name), nowMs(now)],
         );
-      }
-      return (
-        (await queryProjectWithEnvironmentCount(pool, {
-          namespace,
-          orgId: ctx.orgId,
-          projectId,
-        })) || parseProjectRow(created)
-      );
+        if (!created) {
+          throw new ConsoleOrgProjectEnvError(
+            'project_already_exists',
+            409,
+            `Project ${projectId} already exists`,
+          );
+        }
+        return (
+          (await queryProjectWithEnvironmentCount(q, {
+            namespace,
+            orgId: ctx.orgId,
+            projectId,
+          })) || parseProjectRow(created)
+        );
+      });
     },
 
     async updateProject(
@@ -463,192 +494,200 @@ export async function createPostgresConsoleOrgProjectEnvService(
       projectId: string,
       request: UpdateConsoleProjectRequest,
     ): Promise<ConsoleProject | null> {
-      const now = nowFn();
-      await ensureBootstrapRows(pool, { namespace, ctx, now });
-      const current = await queryOne(
-        pool,
-        `SELECT *
-           FROM console_projects
-          WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-        [namespace, ctx.orgId, projectId],
-      );
-      if (!current) return null;
-      if (String(current.status || '') === 'ARCHIVED') {
-        throw new ConsoleOrgProjectEnvError(
-          'project_archived',
-          409,
-          `Project ${projectId} is archived and cannot be updated`,
+      return withTenantTx(ctx, async (q) => {
+        const now = nowFn();
+        await ensureBootstrapRows(q, { namespace, ctx, now });
+        const current = await queryOne(
+          q,
+          `SELECT *
+             FROM console_projects
+            WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+          [namespace, ctx.orgId, projectId],
         );
-      }
-      const updated = await queryOne(
-        pool,
-        `UPDATE console_projects
-            SET name = $4,
-                slug = $5,
-                updated_at_ms = $6
-          WHERE namespace = $1 AND org_id = $2 AND id = $3
-          RETURNING *`,
-        [
-          namespace,
-          ctx.orgId,
-          projectId,
-          request.name || String(current.name || ''),
-          slugify(request.name || String(current.name || '')),
-          nowMs(now),
-        ],
-      );
-      if (!updated) return null;
-      return (
-        (await queryProjectWithEnvironmentCount(pool, {
-          namespace,
-          orgId: ctx.orgId,
-          projectId,
-        })) || parseProjectRow(updated)
-      );
+        if (!current) return null;
+        if (String(current.status || '') === 'ARCHIVED') {
+          throw new ConsoleOrgProjectEnvError(
+            'project_archived',
+            409,
+            `Project ${projectId} is archived and cannot be updated`,
+          );
+        }
+        const updated = await queryOne(
+          q,
+          `UPDATE console_projects
+              SET name = $4,
+                  slug = $5,
+                  updated_at_ms = $6
+            WHERE namespace = $1 AND org_id = $2 AND id = $3
+            RETURNING *`,
+          [
+            namespace,
+            ctx.orgId,
+            projectId,
+            request.name || String(current.name || ''),
+            slugify(request.name || String(current.name || '')),
+            nowMs(now),
+          ],
+        );
+        if (!updated) return null;
+        return (
+          (await queryProjectWithEnvironmentCount(q, {
+            namespace,
+            orgId: ctx.orgId,
+            projectId,
+          })) || parseProjectRow(updated)
+        );
+      });
     },
 
     async archiveProject(
       ctx,
       projectId: string,
     ): Promise<ConsoleProject | null> {
-      const now = nowFn();
-      await ensureBootstrapRows(pool, { namespace, ctx, now });
-      const current = await queryOne(
-        pool,
-        `SELECT *
-           FROM console_projects
-          WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-        [namespace, ctx.orgId, projectId],
-      );
-      if (!current) return null;
-      await pool.query(
-        `UPDATE console_projects
-            SET status = 'ARCHIVED',
-                updated_at_ms = $4
-          WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-        [namespace, ctx.orgId, projectId, nowMs(now)],
-      );
-      await pool.query(
-        `UPDATE console_environments
-            SET status = 'ARCHIVED',
-                updated_at_ms = $4
-          WHERE namespace = $1 AND org_id = $2 AND project_id = $3`,
-        [namespace, ctx.orgId, projectId, nowMs(now)],
-      );
-      const archived = await queryOne(
-        pool,
-        `SELECT *
-           FROM console_projects
-          WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-        [namespace, ctx.orgId, projectId],
-      );
-      if (!archived) return null;
-      return (
-        (await queryProjectWithEnvironmentCount(pool, {
-          namespace,
-          orgId: ctx.orgId,
-          projectId,
-        })) || parseProjectRow(archived)
-      );
+      return withTenantTx(ctx, async (q) => {
+        const now = nowFn();
+        await ensureBootstrapRows(q, { namespace, ctx, now });
+        const current = await queryOne(
+          q,
+          `SELECT *
+             FROM console_projects
+            WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+          [namespace, ctx.orgId, projectId],
+        );
+        if (!current) return null;
+        await q.query(
+          `UPDATE console_projects
+              SET status = 'ARCHIVED',
+                  updated_at_ms = $4
+            WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+          [namespace, ctx.orgId, projectId, nowMs(now)],
+        );
+        await q.query(
+          `UPDATE console_environments
+              SET status = 'ARCHIVED',
+                  updated_at_ms = $4
+            WHERE namespace = $1 AND org_id = $2 AND project_id = $3`,
+          [namespace, ctx.orgId, projectId, nowMs(now)],
+        );
+        const archived = await queryOne(
+          q,
+          `SELECT *
+             FROM console_projects
+            WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+          [namespace, ctx.orgId, projectId],
+        );
+        if (!archived) return null;
+        return (
+          (await queryProjectWithEnvironmentCount(q, {
+            namespace,
+            orgId: ctx.orgId,
+            projectId,
+          })) || parseProjectRow(archived)
+        );
+      });
     },
 
     async listEnvironments(
       ctx,
       request?: ListConsoleEnvironmentsRequest,
     ): Promise<ConsoleEnvironment[]> {
-      const now = nowFn();
-      await ensureBootstrapRows(pool, { namespace, ctx, now });
-      const where: string[] = ['namespace = $1', 'org_id = $2'];
-      const values: unknown[] = [namespace, ctx.orgId];
-      if (request?.projectId) {
-        values.push(request.projectId);
-        where.push(`project_id = $${values.length}`);
-      }
-      if (request?.status) {
-        values.push(request.status);
-        where.push(`status = $${values.length}`);
-      }
-      const out = await pool.query(
-        `SELECT *
-           FROM console_environments
-          WHERE ${where.join(' AND ')}
-          ORDER BY updated_at_ms DESC, created_at_ms DESC`,
-        values,
-      );
-      return out.rows.map((row) => parseEnvironmentRow(row as PgRow));
+      return withTenantTx(ctx, async (q) => {
+        const now = nowFn();
+        await ensureBootstrapRows(q, { namespace, ctx, now });
+        const where: string[] = ['namespace = $1', 'org_id = $2'];
+        const values: unknown[] = [namespace, ctx.orgId];
+        if (request?.projectId) {
+          values.push(request.projectId);
+          where.push(`project_id = $${values.length}`);
+        }
+        if (request?.status) {
+          values.push(request.status);
+          where.push(`status = $${values.length}`);
+        }
+        const out = await q.query(
+          `SELECT *
+             FROM console_environments
+            WHERE ${where.join(' AND ')}
+            ORDER BY updated_at_ms DESC, created_at_ms DESC`,
+          values,
+        );
+        return out.rows.map((row) => parseEnvironmentRow(row as PgRow));
+      });
     },
 
     async createEnvironment(
       ctx,
       request: CreateConsoleEnvironmentRequest,
     ): Promise<ConsoleEnvironment> {
-      const now = nowFn();
-      await ensureBootstrapRows(pool, { namespace, ctx, now });
+      return withTenantTx(ctx, async (q) => {
+        const now = nowFn();
+        await ensureBootstrapRows(q, { namespace, ctx, now });
 
-      const project = await queryOne(
-        pool,
-        `SELECT *
-           FROM console_projects
-          WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-        [namespace, ctx.orgId, request.projectId],
-      );
-      if (!project) {
-        throw new ConsoleOrgProjectEnvError(
-          'project_not_found',
-          404,
-          `Project ${request.projectId} was not found`,
+        const project = await queryOne(
+          q,
+          `SELECT *
+             FROM console_projects
+            WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+          [namespace, ctx.orgId, request.projectId],
         );
-      }
-      if (String(project.status || '') === 'ARCHIVED') {
-        throw new ConsoleOrgProjectEnvError(
-          'project_archived',
-          409,
-          `Project ${request.projectId} is archived`,
-        );
-      }
+        if (!project) {
+          throw new ConsoleOrgProjectEnvError(
+            'project_not_found',
+            404,
+            `Project ${request.projectId} was not found`,
+          );
+        }
+        if (String(project.status || '') === 'ARCHIVED') {
+          throw new ConsoleOrgProjectEnvError(
+            'project_archived',
+            409,
+            `Project ${request.projectId} is archived`,
+          );
+        }
 
-      const duplicateKey = await queryOne(
-        pool,
-        `SELECT id
-           FROM console_environments
-          WHERE namespace = $1 AND org_id = $2 AND project_id = $3 AND env_key = $4`,
-        [namespace, ctx.orgId, request.projectId, request.key],
-      );
-      if (duplicateKey) {
-        throw new ConsoleOrgProjectEnvError(
-          'environment_key_conflict',
-          409,
-          `Environment key ${request.key} already exists for project ${request.projectId}`,
+        const duplicateKey = await queryOne(
+          q,
+          `SELECT id
+             FROM console_environments
+            WHERE namespace = $1 AND org_id = $2 AND project_id = $3 AND env_key = $4`,
+          [namespace, ctx.orgId, request.projectId, request.key],
         );
-      }
+        if (duplicateKey) {
+          throw new ConsoleOrgProjectEnvError(
+            'environment_key_conflict',
+            409,
+            `Environment key ${request.key} already exists for project ${request.projectId}`,
+          );
+        }
 
-      const environmentId = String(request.id || makeResourceId('env', now)).trim();
-      const created = await queryOne(
-        pool,
-        `INSERT INTO console_environments
-          (namespace, id, org_id, project_id, env_key, name, status, created_at_ms, updated_at_ms)
-         VALUES
-          ($1, $2, $3, $4, $5, $6, 'ACTIVE', $7, $7)
-         ON CONFLICT (namespace, id) DO NOTHING
-         RETURNING *`,
-        [
-          namespace,
-          environmentId,
-          ctx.orgId,
-          request.projectId,
-          request.key,
-          request.name || environmentNameFromKey(request.key),
-          nowMs(now),
-        ],
-      );
-      if (!created) {
-        throw new ConsoleOrgProjectEnvError(
-          'environment_already_exists',
-          409,
-          `Environment ${environmentId} already exists`,
+        const environmentId = String(request.id || makeResourceId('env', now)).trim();
+        const created = await queryOne(
+          q,
+          `INSERT INTO console_environments
+            (namespace, id, org_id, project_id, env_key, name, status, created_at_ms, updated_at_ms)
+           VALUES
+            ($1, $2, $3, $4, $5, $6, 'ACTIVE', $7, $7)
+           ON CONFLICT (namespace, id) DO NOTHING
+           RETURNING *`,
+          [
+            namespace,
+            environmentId,
+            ctx.orgId,
+            request.projectId,
+            request.key,
+            request.name || environmentNameFromKey(request.key),
+            nowMs(now),
+          ],
         );
-      }
-      return parseEnvironmentRow(created);
+        if (!created) {
+          throw new ConsoleOrgProjectEnvError(
+            'environment_already_exists',
+            409,
+            `Environment ${environmentId} already exists`,
+          );
+        }
+        return parseEnvironmentRow(created);
+      });
     },
 
     async updateEnvironment(
@@ -656,57 +695,61 @@ export async function createPostgresConsoleOrgProjectEnvService(
       environmentId: string,
       request: UpdateConsoleEnvironmentRequest,
     ): Promise<ConsoleEnvironment | null> {
-      const now = nowFn();
-      await ensureBootstrapRows(pool, { namespace, ctx, now });
-      const current = await queryOne(
-        pool,
-        `SELECT *
-           FROM console_environments
-          WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-        [namespace, ctx.orgId, environmentId],
-      );
-      if (!current) return null;
-      if (String(current.status || '') === 'ARCHIVED') {
-        throw new ConsoleOrgProjectEnvError(
-          'environment_archived',
-          409,
-          `Environment ${environmentId} is archived and cannot be updated`,
+      return withTenantTx(ctx, async (q) => {
+        const now = nowFn();
+        await ensureBootstrapRows(q, { namespace, ctx, now });
+        const current = await queryOne(
+          q,
+          `SELECT *
+             FROM console_environments
+            WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+          [namespace, ctx.orgId, environmentId],
         );
-      }
-      const updated = await queryOne(
-        pool,
-        `UPDATE console_environments
-            SET name = $4,
-                updated_at_ms = $5
-          WHERE namespace = $1 AND org_id = $2 AND id = $3
-          RETURNING *`,
-        [
-          namespace,
-          ctx.orgId,
-          environmentId,
-          request.name || String(current.name || ''),
-          nowMs(now),
-        ],
-      );
-      return updated ? parseEnvironmentRow(updated) : null;
+        if (!current) return null;
+        if (String(current.status || '') === 'ARCHIVED') {
+          throw new ConsoleOrgProjectEnvError(
+            'environment_archived',
+            409,
+            `Environment ${environmentId} is archived and cannot be updated`,
+          );
+        }
+        const updated = await queryOne(
+          q,
+          `UPDATE console_environments
+              SET name = $4,
+                  updated_at_ms = $5
+            WHERE namespace = $1 AND org_id = $2 AND id = $3
+            RETURNING *`,
+          [
+            namespace,
+            ctx.orgId,
+            environmentId,
+            request.name || String(current.name || ''),
+            nowMs(now),
+          ],
+        );
+        return updated ? parseEnvironmentRow(updated) : null;
+      });
     },
 
     async archiveEnvironment(
       ctx,
       environmentId: string,
     ): Promise<ConsoleEnvironment | null> {
-      const now = nowFn();
-      await ensureBootstrapRows(pool, { namespace, ctx, now });
-      const updated = await queryOne(
-        pool,
-        `UPDATE console_environments
-            SET status = 'ARCHIVED',
-                updated_at_ms = $4
-          WHERE namespace = $1 AND org_id = $2 AND id = $3
-          RETURNING *`,
-        [namespace, ctx.orgId, environmentId, nowMs(now)],
-      );
-      return updated ? parseEnvironmentRow(updated) : null;
+      return withTenantTx(ctx, async (q) => {
+        const now = nowFn();
+        await ensureBootstrapRows(q, { namespace, ctx, now });
+        const updated = await queryOne(
+          q,
+          `UPDATE console_environments
+              SET status = 'ARCHIVED',
+                  updated_at_ms = $4
+            WHERE namespace = $1 AND org_id = $2 AND id = $3
+            RETURNING *`,
+          [namespace, ctx.orgId, environmentId, nowMs(now)],
+        );
+        return updated ? parseEnvironmentRow(updated) : null;
+      });
     },
   };
 }

@@ -1,8 +1,14 @@
 import type { NormalizedLogger } from '../core/logger';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 
+export type PgPoolClient = {
+  query: (text: string, values?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }>;
+  release: () => void;
+};
+
 type PgPool = {
   query: (text: string, values?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }>;
+  connect?: () => Promise<PgPoolClient>;
   end?: () => Promise<void>;
 };
 

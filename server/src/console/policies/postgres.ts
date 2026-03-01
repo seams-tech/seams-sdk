@@ -5,6 +5,10 @@ import {
   toConsoleIso as toIso,
   toConsoleNumber as toNumber,
 } from '../shared/postgresNormalize';
+import {
+  ensureConsoleTenantRlsPolicies,
+  withConsoleTenantContextTx,
+} from '../shared/postgresTenantContext';
 import { ConsolePolicyError } from './errors';
 import {
   normalizePolicyScopeType as normalizeScopeType,
@@ -122,22 +126,6 @@ async function queryOne(q: Queryable, text: string, values: unknown[]): Promise<
   return (out.rows[0] as PgRow) || null;
 }
 
-async function withTx<T>(pool: PgPool, fn: (q: Queryable) => Promise<T>): Promise<T> {
-  await pool.query('BEGIN');
-  try {
-    const result = await fn(pool);
-    await pool.query('COMMIT');
-    return result;
-  } catch (error: unknown) {
-    try {
-      await pool.query('ROLLBACK');
-    } catch {
-      // no-op
-    }
-    throw error;
-  }
-}
-
 export interface PostgresConsolePolicySchemaOptions {
   postgresUrl: string;
   logger: NormalizedLogger;
@@ -229,6 +217,22 @@ export async function ensureConsolePoliciesPostgresSchema(
       CREATE INDEX IF NOT EXISTS console_policy_assignments_org_scope_idx
       ON console_policy_assignments (namespace, org_id, scope_type, scope_id)
     `);
+
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_policies',
+      policyName: 'console_policies_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_policy_versions',
+      policyName: 'console_policy_versions_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_policy_assignments',
+      policyName: 'console_policy_assignments_tenant_rls',
+    });
   } finally {
     try {
       await pool.query('SELECT pg_advisory_unlock($1)', [CONSOLE_POLICIES_MIGRATION_LOCK_ID]);
@@ -264,6 +268,10 @@ export async function createPostgresConsolePolicyService(
     });
   }
   const pool = await getPostgresPool(postgresUrl);
+  const withTenantTx = <T>(
+    ctx: ConsolePoliciesContext,
+    fn: (q: Queryable) => Promise<T>,
+  ): Promise<T> => withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, fn);
 
   async function ensureDefaultPolicy(q: Queryable, ctx: ConsolePoliciesContext): Promise<void> {
     const now = nowFn();
@@ -346,27 +354,29 @@ export async function createPostgresConsolePolicyService(
 
   return {
     async listPolicies(ctx: ConsolePoliciesContext): Promise<ConsolePolicy[]> {
-      await ensureDefaultPolicy(pool, ctx);
-      const out = await pool.query(
-        `SELECT *
-           FROM console_policies
-          WHERE namespace = $1 AND org_id = $2
-          ORDER BY updated_at_ms DESC, created_at_ms DESC`,
-        [namespace, ctx.orgId],
-      );
-      return out.rows.map((row) => parsePolicyRow(row as PgRow));
+      return withTenantTx(ctx, async (q) => {
+        await ensureDefaultPolicy(q, ctx);
+        const out = await q.query(
+          `SELECT *
+             FROM console_policies
+            WHERE namespace = $1 AND org_id = $2
+            ORDER BY updated_at_ms DESC, created_at_ms DESC`,
+          [namespace, ctx.orgId],
+        );
+        return out.rows.map((row) => parsePolicyRow(row as PgRow));
+      });
     },
 
     async createPolicy(
       ctx: ConsolePoliciesContext,
       request: CreateConsolePolicyRequest,
     ): Promise<ConsolePolicy> {
-      await ensureDefaultPolicy(pool, ctx);
-      const now = nowFn();
-      const createdAtMs = nowMs(now);
-      const policyId = String(request.id || makeId('policy', now)).trim();
-      try {
-        const row = await withTx(pool, async (q) => {
+      return withTenantTx(ctx, async (q) => {
+        await ensureDefaultPolicy(q, ctx);
+        const now = nowFn();
+        const createdAtMs = nowMs(now);
+        const policyId = String(request.id || makeId('policy', now)).trim();
+        try {
           const inserted = await queryOne(
             q,
             `INSERT INTO console_policies
@@ -387,19 +397,18 @@ export async function createPostgresConsolePolicyService(
           if (!inserted) {
             throw new ConsolePolicyError('internal', 500, 'Failed to create policy');
           }
-          return inserted;
-        });
-        return parsePolicyRow(row);
-      } catch (error: unknown) {
-        if (typeof error === 'object' && error && (error as any).code === '23505') {
-          throw new ConsolePolicyError(
-            'policy_already_exists',
-            409,
-            `Policy ${policyId} already exists`,
-          );
+          return parsePolicyRow(inserted);
+        } catch (error: unknown) {
+          if (typeof error === 'object' && error && (error as any).code === '23505') {
+            throw new ConsolePolicyError(
+              'policy_already_exists',
+              409,
+              `Policy ${policyId} already exists`,
+            );
+          }
+          throw error;
         }
-        throw error;
-      }
+      });
     },
 
     async updatePolicy(
@@ -407,58 +416,60 @@ export async function createPostgresConsolePolicyService(
       policyId: string,
       request: UpdateConsolePolicyRequest,
     ): Promise<ConsolePolicy | null> {
-      await ensureDefaultPolicy(pool, ctx);
-      const current = await findPolicy(pool, { orgId: ctx.orgId, policyId });
-      if (!current) return null;
-      if (current.status === 'ARCHIVED') {
-        throw new ConsolePolicyError(
-          'policy_archived',
-          409,
-          `Policy ${policyId} is archived and cannot be updated`,
-        );
-      }
+      return withTenantTx(ctx, async (q) => {
+        await ensureDefaultPolicy(q, ctx);
+        const current = await findPolicy(q, { orgId: ctx.orgId, policyId });
+        if (!current) return null;
+        if (current.status === 'ARCHIVED') {
+          throw new ConsolePolicyError(
+            'policy_archived',
+            409,
+            `Policy ${policyId} is archived and cannot be updated`,
+          );
+        }
 
-      const row = await queryOne(
-        pool,
-        `UPDATE console_policies
-            SET name = $4,
-                description = $5,
-                rules = $6::jsonb,
-                status = 'DRAFT',
-                updated_at_ms = $7
-          WHERE namespace = $1 AND org_id = $2 AND id = $3
-          RETURNING *`,
-        [
-          namespace,
-          ctx.orgId,
-          policyId,
-          request.name || current.name,
-          request.description || current.description,
-          JSON.stringify(request.rules || current.rules || {}),
-          nowMs(nowFn()),
-        ],
-      );
-      return row ? parsePolicyRow(row) : null;
+        const row = await queryOne(
+          q,
+          `UPDATE console_policies
+              SET name = $4,
+                  description = $5,
+                  rules = $6::jsonb,
+                  status = 'DRAFT',
+                  updated_at_ms = $7
+            WHERE namespace = $1 AND org_id = $2 AND id = $3
+            RETURNING *`,
+          [
+            namespace,
+            ctx.orgId,
+            policyId,
+            request.name || current.name,
+            request.description || current.description,
+            JSON.stringify(request.rules || current.rules || {}),
+            nowMs(nowFn()),
+          ],
+        );
+        return row ? parsePolicyRow(row) : null;
+      });
     },
 
     async publishPolicy(
       ctx: ConsolePoliciesContext,
       policyId: string,
     ): Promise<PublishConsolePolicyResult | null> {
-      await ensureDefaultPolicy(pool, ctx);
-      const current = await findPolicy(pool, { orgId: ctx.orgId, policyId });
-      if (!current) return null;
-      if (current.status === 'ARCHIVED') {
-        throw new ConsolePolicyError(
-          'policy_archived',
-          409,
-          `Policy ${policyId} is archived and cannot be published`,
-        );
-      }
+      return withTenantTx(ctx, async (q) => {
+        await ensureDefaultPolicy(q, ctx);
+        const current = await findPolicy(q, { orgId: ctx.orgId, policyId });
+        if (!current) return null;
+        if (current.status === 'ARCHIVED') {
+          throw new ConsolePolicyError(
+            'policy_archived',
+            409,
+            `Policy ${policyId} is archived and cannot be published`,
+          );
+        }
 
-      const now = nowFn();
-      const publishedAtMs = nowMs(now);
-      const updated = await withTx(pool, async (q) => {
+        const now = nowFn();
+        const publishedAtMs = nowMs(now);
         const row = await queryOne(
           q,
           `UPDATE console_policies
@@ -489,13 +500,11 @@ export async function createPostgresConsolePolicyService(
             ctx.actorUserId,
           ],
         );
-        return policy;
+        return {
+          published: true,
+          policy,
+        };
       });
-      if (!updated) return null;
-      return {
-        published: true,
-        policy: updated,
-      };
     },
 
     async simulatePolicy(
@@ -503,161 +512,171 @@ export async function createPostgresConsolePolicyService(
       policyId: string,
       request: SimulateConsolePolicyRequest,
     ): Promise<SimulateConsolePolicyResult | null> {
-      await ensureDefaultPolicy(pool, ctx);
-      const policy = await findPolicy(pool, { orgId: ctx.orgId, policyId });
-      if (!policy) return null;
-      const decision = evaluatePolicyRules(policy, request);
-      const reasons: string[] = [];
-      if (decision === 'DENY') {
-        reasons.push('One or more policy rules denied this request');
-      } else {
-        reasons.push('All evaluated rules passed');
-      }
-      return {
-        policyId: policy.id,
-        decision: decision || 'DENY',
-        reasons,
-        evaluatedAt: nowFn().toISOString(),
-        policyVersion: policy.version,
-      };
+      return withTenantTx(ctx, async (q) => {
+        await ensureDefaultPolicy(q, ctx);
+        const policy = await findPolicy(q, { orgId: ctx.orgId, policyId });
+        if (!policy) return null;
+        const decision = evaluatePolicyRules(policy, request);
+        const reasons: string[] = [];
+        if (decision === 'DENY') {
+          reasons.push('One or more policy rules denied this request');
+        } else {
+          reasons.push('All evaluated rules passed');
+        }
+        return {
+          policyId: policy.id,
+          decision: decision || 'DENY',
+          reasons,
+          evaluatedAt: nowFn().toISOString(),
+          policyVersion: policy.version,
+        };
+      });
     },
 
     async listAssignments(
       ctx: ConsolePoliciesContext,
       request: ListConsolePolicyAssignmentsRequest = {},
     ): Promise<ConsolePolicyAssignment[]> {
-      await ensureDefaultPolicy(pool, ctx);
-      const where: string[] = ['namespace = $1', 'org_id = $2'];
-      const values: unknown[] = [namespace, ctx.orgId];
-      let idx = values.length;
+      return withTenantTx(ctx, async (q) => {
+        await ensureDefaultPolicy(q, ctx);
+        const where: string[] = ['namespace = $1', 'org_id = $2'];
+        const values: unknown[] = [namespace, ctx.orgId];
+        let idx = values.length;
 
-      const scopeType = request.scopeType ? normalizeScopeType(request.scopeType) : '';
-      const scopeId = String(request.scopeId || '').trim();
-      if (scopeType) {
-        idx += 1;
-        where.push(`scope_type = $${idx}`);
-        values.push(scopeType);
-      }
-      if (scopeId) {
-        idx += 1;
-        where.push(`scope_id = $${idx}`);
-        values.push(scopeId);
-      }
+        const scopeType = request.scopeType ? normalizeScopeType(request.scopeType) : '';
+        const scopeId = String(request.scopeId || '').trim();
+        if (scopeType) {
+          idx += 1;
+          where.push(`scope_type = $${idx}`);
+          values.push(scopeType);
+        }
+        if (scopeId) {
+          idx += 1;
+          where.push(`scope_id = $${idx}`);
+          values.push(scopeId);
+        }
 
-      const out = await pool.query(
-        `SELECT *
-           FROM console_policy_assignments
-          WHERE ${where.join(' AND ')}
-          ORDER BY updated_at_ms DESC, created_at_ms DESC`,
-        values,
-      );
-      return out.rows.map((row) => parsePolicyAssignmentRow(row as PgRow));
+        const out = await q.query(
+          `SELECT *
+             FROM console_policy_assignments
+            WHERE ${where.join(' AND ')}
+            ORDER BY updated_at_ms DESC, created_at_ms DESC`,
+          values,
+        );
+        return out.rows.map((row) => parsePolicyAssignmentRow(row as PgRow));
+      });
     },
 
     async upsertAssignment(
       ctx: ConsolePoliciesContext,
       request: UpsertConsolePolicyAssignmentRequest,
     ): Promise<ConsolePolicyAssignment> {
-      await ensureDefaultPolicy(pool, ctx);
-      const policy = await findPolicy(pool, { orgId: ctx.orgId, policyId: request.policyId });
-      if (!policy) {
-        throw new ConsolePolicyError(
-          'policy_not_found',
-          404,
-          `Policy ${request.policyId} was not found`,
-        );
-      }
+      return withTenantTx(ctx, async (q) => {
+        await ensureDefaultPolicy(q, ctx);
+        const policy = await findPolicy(q, { orgId: ctx.orgId, policyId: request.policyId });
+        if (!policy) {
+          throw new ConsolePolicyError(
+            'policy_not_found',
+            404,
+            `Policy ${request.policyId} was not found`,
+          );
+        }
 
-      const now = nowFn();
-      const tsMs = nowMs(now);
-      const scopeType = normalizeScopeType(request.scopeType);
-      const scopeId = String(request.scopeId || '').trim();
-      const assignmentId = makeId('policy_assignment', now);
-      const row = await queryOne(
-        pool,
-        `INSERT INTO console_policy_assignments
-          (namespace, org_id, id, scope_type, scope_id, policy_id, created_at_ms, updated_at_ms)
-         VALUES
-          ($1, $2, $3, $4, $5, $6, $7, $7)
-         ON CONFLICT (namespace, org_id, scope_type, scope_id)
-         DO UPDATE
-           SET policy_id = EXCLUDED.policy_id,
-               updated_at_ms = EXCLUDED.updated_at_ms
-         RETURNING *`,
-        [namespace, ctx.orgId, assignmentId, scopeType, scopeId, request.policyId, tsMs],
-      );
-      if (!row) {
-        throw new ConsolePolicyError('internal', 500, 'Failed to upsert policy assignment');
-      }
-      return parsePolicyAssignmentRow(row);
+        const now = nowFn();
+        const tsMs = nowMs(now);
+        const scopeType = normalizeScopeType(request.scopeType);
+        const scopeId = String(request.scopeId || '').trim();
+        const assignmentId = makeId('policy_assignment', now);
+        const row = await queryOne(
+          q,
+          `INSERT INTO console_policy_assignments
+            (namespace, org_id, id, scope_type, scope_id, policy_id, created_at_ms, updated_at_ms)
+           VALUES
+            ($1, $2, $3, $4, $5, $6, $7, $7)
+           ON CONFLICT (namespace, org_id, scope_type, scope_id)
+           DO UPDATE
+             SET policy_id = EXCLUDED.policy_id,
+                 updated_at_ms = EXCLUDED.updated_at_ms
+           RETURNING *`,
+          [namespace, ctx.orgId, assignmentId, scopeType, scopeId, request.policyId, tsMs],
+        );
+        if (!row) {
+          throw new ConsolePolicyError('internal', 500, 'Failed to upsert policy assignment');
+        }
+        return parsePolicyAssignmentRow(row);
+      });
     },
 
     async deleteAssignment(
       ctx: ConsolePoliciesContext,
       assignmentId: string,
     ): Promise<{ removed: boolean; assignment: ConsolePolicyAssignment | null }> {
-      await ensureDefaultPolicy(pool, ctx);
-      const current = await findAssignmentById(pool, { orgId: ctx.orgId, assignmentId });
-      if (!current) return { removed: false, assignment: null };
+      return withTenantTx(ctx, async (q) => {
+        await ensureDefaultPolicy(q, ctx);
+        const current = await findAssignmentById(q, { orgId: ctx.orgId, assignmentId });
+        if (!current) return { removed: false, assignment: null };
 
-      const out = await pool.query(
-        `DELETE FROM console_policy_assignments
-          WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-        [namespace, ctx.orgId, assignmentId],
-      );
-      return {
-        removed: Number(out.rowCount || 0) > 0,
-        assignment: current,
-      };
+        const out = await q.query(
+          `DELETE FROM console_policy_assignments
+            WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+          [namespace, ctx.orgId, assignmentId],
+        );
+        return {
+          removed: Number(out.rowCount || 0) > 0,
+          assignment: current,
+        };
+      });
     },
 
     async resolvePoliciesForWallets(
       ctx: ConsolePoliciesContext,
       wallets: ConsolePolicyWalletScopeRef[],
     ): Promise<Record<string, string | null>> {
-      await ensureDefaultPolicy(pool, ctx);
-      const out = await pool.query(
-        `SELECT *
-           FROM console_policy_assignments
-          WHERE namespace = $1 AND org_id = $2`,
-        [namespace, ctx.orgId],
-      );
-      const assignments = out.rows.map((row) => parsePolicyAssignmentRow(row as PgRow));
-      const byScope = new Map<string, string>();
-      for (const assignment of assignments) {
-        byScope.set(assignmentScopeKey(assignment.scopeType, assignment.scopeId), assignment.policyId);
-      }
-
-      const orgPolicyId = byScope.get(assignmentScopeKey('ORG', ctx.orgId)) || null;
-      const resolved: Record<string, string | null> = {};
-      for (const wallet of wallets) {
-        const walletId = String(wallet.walletId || '').trim();
-        if (!walletId) continue;
-
-        const walletPolicyId = byScope.get(assignmentScopeKey('WALLET', walletId));
-        if (walletPolicyId) {
-          resolved[walletId] = walletPolicyId;
-          continue;
+      return withTenantTx(ctx, async (q) => {
+        await ensureDefaultPolicy(q, ctx);
+        const out = await q.query(
+          `SELECT *
+             FROM console_policy_assignments
+            WHERE namespace = $1 AND org_id = $2`,
+          [namespace, ctx.orgId],
+        );
+        const assignments = out.rows.map((row) => parsePolicyAssignmentRow(row as PgRow));
+        const byScope = new Map<string, string>();
+        for (const assignment of assignments) {
+          byScope.set(assignmentScopeKey(assignment.scopeType, assignment.scopeId), assignment.policyId);
         }
-        const environmentId = String(wallet.environmentId || '').trim();
-        if (environmentId) {
-          const environmentPolicyId = byScope.get(assignmentScopeKey('ENVIRONMENT', environmentId));
-          if (environmentPolicyId) {
-            resolved[walletId] = environmentPolicyId;
+
+        const orgPolicyId = byScope.get(assignmentScopeKey('ORG', ctx.orgId)) || null;
+        const resolved: Record<string, string | null> = {};
+        for (const wallet of wallets) {
+          const walletId = String(wallet.walletId || '').trim();
+          if (!walletId) continue;
+
+          const walletPolicyId = byScope.get(assignmentScopeKey('WALLET', walletId));
+          if (walletPolicyId) {
+            resolved[walletId] = walletPolicyId;
             continue;
           }
-        }
-        const projectId = String(wallet.projectId || '').trim();
-        if (projectId) {
-          const projectPolicyId = byScope.get(assignmentScopeKey('PROJECT', projectId));
-          if (projectPolicyId) {
-            resolved[walletId] = projectPolicyId;
-            continue;
+          const environmentId = String(wallet.environmentId || '').trim();
+          if (environmentId) {
+            const environmentPolicyId = byScope.get(assignmentScopeKey('ENVIRONMENT', environmentId));
+            if (environmentPolicyId) {
+              resolved[walletId] = environmentPolicyId;
+              continue;
+            }
           }
+          const projectId = String(wallet.projectId || '').trim();
+          if (projectId) {
+            const projectPolicyId = byScope.get(assignmentScopeKey('PROJECT', projectId));
+            if (projectPolicyId) {
+              resolved[walletId] = projectPolicyId;
+              continue;
+            }
+          }
+          resolved[walletId] = orgPolicyId || wallet.fallbackPolicyId || null;
         }
-        resolved[walletId] = orgPolicyId || wallet.fallbackPolicyId || null;
-      }
-      return resolved;
+        return resolved;
+      });
     },
   };
 }

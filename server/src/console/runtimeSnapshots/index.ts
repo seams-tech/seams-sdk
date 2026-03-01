@@ -20,10 +20,14 @@ export {
 export type {
   PostgresConsoleRuntimeSnapshotSchemaOptions,
   PostgresConsoleRuntimeSnapshotServiceOptions,
+  ConsoleRuntimeSnapshotOutboxEvent,
+  PostgresConsoleRuntimeSnapshotOutboxDispatchOptions,
+  PostgresConsoleRuntimeSnapshotOutboxDispatchResult,
 } from './postgres';
 export {
   ensureConsoleRuntimeSnapshotsPostgresSchema,
   createPostgresConsoleRuntimeSnapshotService,
+  runPostgresConsoleRuntimeSnapshotOutboxDispatch,
 } from './postgres';
 
 export {

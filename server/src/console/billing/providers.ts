@@ -13,6 +13,34 @@ export interface StripeSetupIntentProviderOutput {
   expiresAt: string;
 }
 
+export interface StripeCheckoutSessionProviderInput {
+  orgId: string;
+  successUrl: string;
+  cancelUrl: string;
+  planId?: string;
+  now: Date;
+}
+
+export interface StripeCheckoutSessionProviderOutput {
+  id: string;
+  url: string;
+  customerRef: string;
+  expiresAt: string;
+}
+
+export interface StripeCustomerPortalSessionProviderInput {
+  orgId: string;
+  returnUrl: string;
+  now: Date;
+}
+
+export interface StripeCustomerPortalSessionProviderOutput {
+  id: string;
+  url: string;
+  customerRef: string;
+  expiresAt: string;
+}
+
 export interface StripePaymentIntentProviderInput {
   orgId: string;
   invoiceId: string;
@@ -42,6 +70,12 @@ export interface StripeBillingProviderAdapter {
   createSetupIntent(
     input: StripeSetupIntentProviderInput,
   ): Promise<StripeSetupIntentProviderOutput> | StripeSetupIntentProviderOutput;
+  createCheckoutSession(
+    input: StripeCheckoutSessionProviderInput,
+  ): Promise<StripeCheckoutSessionProviderOutput> | StripeCheckoutSessionProviderOutput;
+  createCustomerPortalSession(
+    input: StripeCustomerPortalSessionProviderInput,
+  ): Promise<StripeCustomerPortalSessionProviderOutput> | StripeCustomerPortalSessionProviderOutput;
   createPaymentIntent(
     input: StripePaymentIntentProviderInput,
   ): Promise<StripePaymentIntentProviderOutput> | StripePaymentIntentProviderOutput;
@@ -85,6 +119,32 @@ export function createDefaultBillingProviderAdapters(): BillingProviderAdapters 
         return {
           id,
           clientSecret: `${id}_secret_${Math.random().toString(36).slice(2, 12)}`,
+          customerRef: makeCustomerRef(input.orgId),
+          expiresAt: new Date(input.now.getTime() + 30 * 60 * 1000).toISOString(),
+        };
+      },
+      createCheckoutSession(
+        input: StripeCheckoutSessionProviderInput,
+      ): StripeCheckoutSessionProviderOutput {
+        const id = makeProviderId('cs', input.now);
+        const encodedSuccess = encodeURIComponent(input.successUrl);
+        const encodedCancel = encodeURIComponent(input.cancelUrl);
+        const encodedPlan = encodeURIComponent(String(input.planId || '').trim() || 'pro_maw_v1');
+        return {
+          id,
+          url: `https://checkout.stripe.com/pay/${id}?success_url=${encodedSuccess}&cancel_url=${encodedCancel}&plan=${encodedPlan}`,
+          customerRef: makeCustomerRef(input.orgId),
+          expiresAt: new Date(input.now.getTime() + 30 * 60 * 1000).toISOString(),
+        };
+      },
+      createCustomerPortalSession(
+        input: StripeCustomerPortalSessionProviderInput,
+      ): StripeCustomerPortalSessionProviderOutput {
+        const id = makeProviderId('bps', input.now);
+        const encodedReturn = encodeURIComponent(input.returnUrl);
+        return {
+          id,
+          url: `https://billing.stripe.com/p/session/${id}?return_url=${encodedReturn}`,
           customerRef: makeCustomerRef(input.orgId),
           expiresAt: new Date(input.now.getTime() + 30 * 60 * 1000).toISOString(),
         };
