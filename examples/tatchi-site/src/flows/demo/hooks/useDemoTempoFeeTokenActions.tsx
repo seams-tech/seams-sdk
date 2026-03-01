@@ -145,6 +145,8 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
           txHash,
           flowLabel: 'Tempo setUserToken',
           timeoutLabel: 'setUserToken receipt finalization confirmation',
+          chain: 'tempo',
+          chainId: request.tx.chainId,
           gasLimitHint: request.tx.gasLimit,
           maxFeePerGasHint: request.tx.maxFeePerGas,
           finalizationTimeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,

@@ -1,4 +1,5 @@
 import type { useTatchi } from '@tatchi-xyz/sdk/react';
+import { normalizeLowercaseString } from '../../../../../../shared/src/utils/normalize';
 
 type ReportTempoBroadcastFailureArgs = {
   tatchi: ReturnType<typeof useTatchi>['tatchi'];
@@ -11,10 +12,7 @@ type ReportTempoBroadcastFailureArgs = {
 };
 
 function normalizeToken(value: unknown): string {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, '_');
+  return normalizeLowercaseString(value).replace(/[\s-]+/g, '_');
 }
 
 function hasErrorCode(error: unknown, expected: string): boolean {
@@ -24,15 +22,13 @@ function hasErrorCode(error: unknown, expected: string): boolean {
 }
 
 function messageIncludesNonceLaneBlocked(error: unknown): boolean {
-  const message = String(
+  const message = normalizeLowercaseString(
     error instanceof Error
       ? error.message
       : error && typeof error === 'object' && 'message' in error
         ? (error as { message?: unknown }).message
         : error,
-  )
-    .trim()
-    .toLowerCase();
+  );
   return message.includes('nonce lane blocked');
 }
 

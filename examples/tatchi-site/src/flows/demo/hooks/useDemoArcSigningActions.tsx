@@ -97,6 +97,8 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
         txHash,
         flowLabel: 'ARC greeting',
         timeoutLabel: 'EVM receipt finalization confirmation',
+        chain: 'evm',
+        chainId: request.tx.chainId,
         gasLimitHint: request.tx.gasLimit,
         maxFeePerGasHint: request.tx.maxFeePerGas,
         nonceHints,

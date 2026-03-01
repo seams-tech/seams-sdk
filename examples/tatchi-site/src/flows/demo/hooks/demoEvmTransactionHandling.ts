@@ -30,6 +30,8 @@ export async function waitForDemoEvmFinalization(args: {
   txHash: `0x${string}`;
   flowLabel: string;
   timeoutLabel: string;
+  chain: 'tempo' | 'evm';
+  chainId: number;
   nonceHints?: ManagedNonceHints;
   gasLimitHint?: bigint;
   maxFeePerGasHint?: bigint;
@@ -47,6 +49,8 @@ export async function waitForDemoEvmFinalization(args: {
       promise: waitForEvmTransactionFinalization({
         rpcUrl: args.rpcUrl,
         txHash: args.txHash,
+        chain: args.chain,
+        chainId: args.chainId,
         signal: confirmationAbort.signal,
         ...(typeof args.gasLimitHint === 'bigint' ? { gasLimitHint: args.gasLimitHint } : {}),
         ...(typeof args.maxFeePerGasHint === 'bigint'

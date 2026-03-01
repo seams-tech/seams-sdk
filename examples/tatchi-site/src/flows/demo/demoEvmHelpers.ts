@@ -10,6 +10,10 @@ import {
   type EvmPublicClient,
   type EvmPublicTransactionReceipt,
 } from '@tatchi-xyz/sdk';
+import {
+  normalizeLowercaseString,
+  normalizeTrimmedString,
+} from '../../../../../shared/src/utils/normalize';
 
 import { FRONTEND_CONFIG } from '@/config';
 import faucetAbi from '@/assets/abis/Faucet.json';
@@ -63,6 +67,12 @@ export type EvmFinalizationDebugEvent = {
   branch: EvmFinalizationBranch;
   txHash: `0x${string}`;
   message: string;
+  chain?: 'tempo' | 'evm';
+  chainId?: number;
+  sender?: `0x${string}`;
+  nonce?: string;
+  errorCode?: string;
+  reason?: 'dropped' | 'replaced';
 };
 
 export function utf8ToHex(value: string): string {
@@ -244,6 +254,8 @@ export async function sendRawEvmTransaction(args: {
 export async function waitForEvmTransactionFinalization(args: {
   rpcUrl: string;
   txHash: `0x${string}`;
+  chain?: 'tempo' | 'evm';
+  chainId?: number;
   gasLimitHint?: bigint;
   maxFeePerGasHint?: bigint;
   senderHint?: `0x${string}`;
@@ -254,24 +266,53 @@ export async function waitForEvmTransactionFinalization(args: {
   onFinalizationDebugEvent?: (event: EvmFinalizationDebugEvent) => void;
 }): Promise<EvmTransactionReceipt> {
   const client = createDemoEvmPublicClient({ rpcUrl: args.rpcUrl });
-  const emitDebugEvent = (branch: EvmFinalizationBranch, message: string): void => {
+  const emitDebugEvent = (argsEvent: {
+    branch: EvmFinalizationBranch;
+    message: string;
+    errorCode?: string;
+    reason?: 'dropped' | 'replaced';
+  }): void => {
     try {
       args.onFinalizationDebugEvent?.({
-        branch,
+        branch: argsEvent.branch,
         txHash: args.txHash,
-        message,
+        message: argsEvent.message,
+        ...(args.chain ? { chain: args.chain } : {}),
+        ...(typeof args.chainId === 'number' ? { chainId: args.chainId } : {}),
+        ...(args.senderHint ? { sender: args.senderHint } : {}),
+        ...(typeof args.nonceHint === 'bigint' ? { nonce: args.nonceHint.toString() } : {}),
+        ...(argsEvent.errorCode ? { errorCode: argsEvent.errorCode } : {}),
+        ...(argsEvent.reason ? { reason: argsEvent.reason } : {}),
       });
     } catch {}
   };
 
+  const extractErrorCode = (error: unknown): string | undefined => {
+    const code = normalizeLowercaseString(
+      error && typeof error === 'object' && 'code' in error
+        ? (error as { code?: unknown }).code
+        : '',
+    );
+    return code || undefined;
+  };
+
+  const extractDroppedOrReplacedReason = (error: unknown): 'dropped' | 'replaced' | undefined => {
+    const reason = normalizeLowercaseString(
+      error && typeof error === 'object' && 'reason' in error
+        ? (error as { reason?: unknown }).reason
+        : '',
+    );
+    if (reason === 'replaced') return 'replaced';
+    if (reason === 'dropped') return 'dropped';
+    return undefined;
+  };
+
   const classifyFinalizationErrorBranch = (error: unknown): EvmFinalizationBranch => {
-    const explicitBranch = String(
+    const explicitBranch = normalizeLowercaseString(
       error && typeof error === 'object' && 'finalizationBranch' in error
         ? (error as { finalizationBranch?: unknown }).finalizationBranch
         : '',
-    )
-      .trim()
-      .toLowerCase();
+    );
     if (
       explicitBranch === 'dropped_nonce_advanced' ||
       explicitBranch === 'dropped_hash_disappeared' ||
@@ -280,16 +321,12 @@ export async function waitForEvmTransactionFinalization(args: {
     ) {
       return explicitBranch;
     }
-    const message = String(error instanceof Error ? error.message : error || '')
-      .trim()
-      .toLowerCase();
-    const code = String(
+    const message = normalizeLowercaseString(error instanceof Error ? error.message : error || '');
+    const code = normalizeLowercaseString(
       error && typeof error === 'object' && 'code' in error
         ? (error as { code?: unknown }).code
         : '',
-    )
-      .trim()
-      .toLowerCase();
+    );
     if (code === 'aborted') return 'aborted';
     if (code === 'tx_dropped_or_replaced') {
       if (message.includes('account nonce advanced past tx nonce')) {
@@ -324,15 +361,20 @@ export async function waitForEvmTransactionFinalization(args: {
         : {}),
     });
   } catch (error: unknown) {
-    emitDebugEvent(
-      classifyFinalizationErrorBranch(error),
-      String(error instanceof Error ? error.message : error || ''),
-    );
+    emitDebugEvent({
+      branch: classifyFinalizationErrorBranch(error),
+      message: String(error instanceof Error ? error.message : error || ''),
+      errorCode: extractErrorCode(error),
+      reason: extractDroppedOrReplacedReason(error),
+    });
     throw error;
   }
-  const status = String(receipt.status || '').toLowerCase();
+  const status = normalizeLowercaseString(receipt.status || '');
   if (status && status !== '0x1' && status !== '0x01') {
-    emitDebugEvent('receipt_reverted', `Transaction receipt reported status ${receipt.status}`);
+    emitDebugEvent({
+      branch: 'receipt_reverted',
+      message: `Transaction receipt reported status ${receipt.status}`,
+    });
     const revertMessage = await describeEvmRevert({
       rpcUrl: args.rpcUrl,
       txHash: args.txHash,
@@ -356,7 +398,10 @@ export async function waitForEvmTransactionFinalization(args: {
       `Transaction reverted with status ${receipt.status}${gasUsedSuffix}${outOfGasSuffix}${revertSuffix}`,
     );
   }
-  emitDebugEvent('receipt_confirmed', 'Transaction receipt confirmed');
+  emitDebugEvent({
+    branch: 'receipt_confirmed',
+    message: 'Transaction receipt confirmed',
+  });
   return receipt;
 }
 
@@ -685,8 +730,8 @@ export function buildEvmExplorerTxUrl(args: {
   explorerBaseUrl: string;
   txHash: `0x${string}`;
 }): string | null {
-  const baseUrl = String(args.explorerBaseUrl || '').trim().replace(/\/+$/, '');
-  const txHash = String(args.txHash || '').trim();
+  const baseUrl = normalizeTrimmedString(args.explorerBaseUrl || '').replace(/\/+$/, '');
+  const txHash = normalizeTrimmedString(args.txHash || '');
   if (!baseUrl || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) return null;
   return `${baseUrl}/tx/${txHash}`;
 }
@@ -698,10 +743,7 @@ export function compactHex(value: string): string {
 
 export function isUserCancellationError(error: unknown): boolean {
   const maybeError = error as { code?: unknown; message?: unknown } | null | undefined;
-  const normalizedCode = String(maybeError?.code || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, '_');
+  const normalizedCode = normalizeLowercaseString(maybeError?.code || '').replace(/[\s-]+/g, '_');
   if (
     normalizedCode === 'cancelled' ||
     normalizedCode === 'canceled' ||
@@ -718,9 +760,7 @@ export function isUserCancellationError(error: unknown): boolean {
     return true;
   }
 
-  const normalizedMessage = String(maybeError?.message ?? error ?? '')
-    .trim()
-    .toLowerCase();
+  const normalizedMessage = normalizeLowercaseString(maybeError?.message ?? error ?? '');
   return (
     normalizedMessage.includes('cancelled') ||
     normalizedMessage.includes('canceled') ||
