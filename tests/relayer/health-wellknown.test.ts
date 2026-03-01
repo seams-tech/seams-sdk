@@ -3,6 +3,22 @@ import { createRelayRouter } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
 import { callCf, fetchJson, getPath, makeFakeAuthService, startExpressRouter } from './helpers';
 
+function createStubPrfSessionSealOptionsWithCapabilities() {
+  return {
+    enabled: false,
+    capabilities: {
+      mode: 'sealed_refresh_v1' as const,
+      keyVersion: 'kek-s-2026-02',
+      shamirPrimeB64u: 'AQAB',
+    },
+    service: {
+      applyServerSeal: async () => ({ ok: false as const, code: 'not_implemented', message: 'n/a' }),
+      removeServerSeal: async () =>
+        ({ ok: false as const, code: 'not_implemented', message: 'n/a' }),
+    },
+  };
+}
+
 test.describe('relayer health/ready + well-known', () => {
   test('express: GET /healthz includes threshold hints when enabled', async () => {
     const service = makeFakeAuthService({ getThresholdSigningService: () => ({}) as any });
@@ -77,8 +93,28 @@ test.describe('relayer health/ready + well-known', () => {
         'https://wallet.example.localhost',
         'https://example.localhost',
       ]);
+      expect((res.json?.capabilities as any)?.signingSessionSeal).toEqual({ mode: 'none' });
       expect(calls.length).toBe(1);
       expect(calls[0]).toEqual({ rpId: 'wallet.example.localhost', host: '127.0.0.1' });
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('express: well-known includes sealed refresh capabilities when PRF seal is configured', async () => {
+    const service = makeFakeAuthService();
+    const router = createRelayRouter(service, {
+      prfSessionSeal: createStubPrfSessionSealOptionsWithCapabilities() as any,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/.well-known/webauthn`, { method: 'GET' });
+      expect(res.status).toBe(200);
+      expect((res.json?.capabilities as any)?.signingSessionSeal).toEqual({
+        mode: 'sealed_refresh_v1',
+        keyVersion: 'kek-s-2026-02',
+        shamirPrimeB64u: 'AQAB',
+      });
     } finally {
       await srv.close();
     }
@@ -170,7 +206,28 @@ test.describe('relayer health/ready + well-known', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toContain('max-age=60');
     expect(res.json?.origins).toEqual(['https://example.localhost']);
+    expect((res.json?.capabilities as any)?.signingSessionSeal).toEqual({ mode: 'none' });
     expect(calls.length).toBe(1);
     expect(calls[0]).toEqual({ rpId: 'wallet.example.localhost', host: 'relay.test' });
+  });
+
+  test('cloudflare: well-known includes sealed refresh capabilities when PRF seal is configured', async () => {
+    const service = makeFakeAuthService();
+    const handler = createCloudflareRouter(service, {
+      prfSessionSeal: createStubPrfSessionSealOptionsWithCapabilities() as any,
+    });
+
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/.well-known/webauthn',
+      origin: 'https://example.localhost',
+    });
+
+    expect(res.status).toBe(200);
+    expect((res.json?.capabilities as any)?.signingSessionSeal).toEqual({
+      mode: 'sealed_refresh_v1',
+      keyVersion: 'kek-s-2026-02',
+      shamirPrimeB64u: 'AQAB',
+    });
   });
 });

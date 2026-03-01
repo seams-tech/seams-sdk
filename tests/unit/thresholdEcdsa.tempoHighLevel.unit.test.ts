@@ -12,8 +12,7 @@ type CounterKey = 'authorize' | 'presignInit' | 'presignStep' | 'signInit' | 'si
 type Counters = Record<CounterKey, number>;
 
 const EIP1559_TEST_TX = {
-  chainId: 11155111,
-  nonce: 7n,
+  chainId: 11155111n,
   maxPriorityFeePerGas: 1_500_000_000n,
   maxFeePerGas: 3_000_000_000n,
   gasLimit: 21_000n,
@@ -154,6 +153,179 @@ async function signTempoWithExistingPasskey(
   }, args);
 }
 
+async function bootstrapEvmSessionWithExistingPasskey(
+  page: Page,
+  args: {
+    relayerUrl: string;
+    accountId: string;
+  },
+): Promise<{
+  ok: boolean;
+  sessionId?: string;
+  error?: string;
+}> {
+  return await page.evaluate(async (input) => {
+    const sdkMod = await import('/sdk/esm/index.js');
+    const { TatchiPasskey } = sdkMod as any;
+
+    const pm = new TatchiPasskey({
+      nearNetwork: 'testnet',
+      nearRpcUrl: 'https://test.rpc.fastnear.com',
+      relayerAccount: 'web3-authn-v4.testnet',
+      relayer: {
+        url: input.relayerUrl,
+        smartAccountDeploymentMode: 'observe',
+      },
+      iframeWallet: {
+        walletOrigin: '',
+        walletServicePath: '/wallet-service',
+        sdkBasePath: '/sdk',
+        rpIdOverride: 'example.localhost',
+      },
+    });
+
+    try {
+      const boot = await pm.evm.bootstrapEcdsaSession({
+        nearAccountId: input.accountId,
+        options: { relayerUrl: input.relayerUrl },
+      });
+      return {
+        ok: true,
+        sessionId: String(boot?.session?.sessionId || ''),
+      };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        error: String(
+          e && typeof e === 'object' && 'message' in e
+            ? (e as { message?: unknown }).message
+            : e || 'bootstrapEcdsaSession(evm) failed',
+        ),
+      };
+    }
+  }, args);
+}
+
+type ConcurrentSignMode = 'tempo-tempo' | 'tempo-evm';
+
+async function runConcurrentThresholdSignsWithExistingPasskey(
+  page: Page,
+  args: {
+    relayerUrl: string;
+    accountId: string;
+    mode: ConcurrentSignMode;
+  },
+): Promise<{
+  first: { ok: boolean; chain?: string; kind?: string; error?: string };
+  second: { ok: boolean; chain?: string; kind?: string; error?: string };
+}> {
+  return await page.evaluate(async (input) => {
+    const sdkMod = await import('/sdk/esm/index.js');
+    const { TatchiPasskey } = sdkMod as any;
+
+    const confirmationConfig = {
+      uiMode: 'none' as const,
+      behavior: 'skipClick' as const,
+      autoProceedDelay: 0,
+    };
+
+    const pm = new TatchiPasskey({
+      nearNetwork: 'testnet',
+      nearRpcUrl: 'https://test.rpc.fastnear.com',
+      relayerAccount: 'web3-authn-v4.testnet',
+      relayer: {
+        url: input.relayerUrl,
+        smartAccountDeploymentMode: 'observe',
+      },
+      iframeWallet: {
+        walletOrigin: '',
+        walletServicePath: '/wallet-service',
+        sdkBasePath: '/sdk',
+        rpIdOverride: 'example.localhost',
+      },
+    });
+
+    const tempoRequest = {
+      chain: 'tempo' as const,
+      kind: 'tempoTransaction' as const,
+      senderSignatureAlgorithm: 'secp256k1' as const,
+      tx: {
+        chainId: 42431,
+        maxPriorityFeePerGas: 1n,
+        maxFeePerGas: 2n,
+        gasLimit: 21_000n,
+        calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
+        accessList: [],
+        nonceKey: 0n,
+        nonce: 2n,
+        validBefore: null,
+        validAfter: null,
+        feePayerSignature: { kind: 'none' as const },
+        aaAuthorizationList: [],
+      },
+    };
+
+    const evmRequest = {
+      chain: 'evm' as const,
+      kind: 'eip1559' as const,
+      senderSignatureAlgorithm: 'secp256k1' as const,
+      tx: {
+        chainId: 11155111,
+        maxPriorityFeePerGas: 1_500_000_000n,
+        maxFeePerGas: 3_000_000_000n,
+        gasLimit: 21_000n,
+        to: '0x' + '22'.repeat(20),
+        value: 12_345n,
+        data: '0x',
+        accessList: [],
+      },
+    };
+
+    const toResult = (settled: PromiseSettledResult<any>) => {
+      if (settled.status === 'fulfilled') {
+        return {
+          ok: true,
+          chain: String(settled.value?.chain || ''),
+          kind: String(settled.value?.kind || ''),
+        };
+      }
+      const reason = settled.reason;
+      return {
+        ok: false,
+        error: String(
+          reason && typeof reason === 'object' && 'message' in reason
+            ? (reason as { message?: unknown }).message
+            : reason || 'signTempo failed',
+        ),
+      };
+    };
+
+    const firstPromise = pm.tempo.signTempo({
+      nearAccountId: input.accountId,
+      request: tempoRequest,
+      options: { confirmationConfig },
+    });
+    const secondPromise =
+      input.mode === 'tempo-tempo'
+        ? pm.tempo.signTempo({
+            nearAccountId: input.accountId,
+            request: tempoRequest,
+            options: { confirmationConfig },
+          })
+        : pm.tempo.signTempo({
+            nearAccountId: input.accountId,
+            request: evmRequest,
+            options: { confirmationConfig },
+          });
+
+    const [first, second] = await Promise.allSettled([firstPromise, secondPromise]);
+    return {
+      first: toResult(first),
+      second: toResult(second),
+    };
+  }, args);
+}
+
 test.describe('Threshold ECDSA Tempo high-level API', () => {
   test.setTimeout(180_000);
 
@@ -238,27 +410,10 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
         throw new Error('Expected eip1559 signed result');
       }
 
-      const expectedSigningHashHex = keccak256(
-        serializeTransaction({
-          type: 'eip1559',
-          chainId: Number(EIP1559_TEST_TX.chainId),
-          nonce: Number(EIP1559_TEST_TX.nonce),
-          maxPriorityFeePerGas: EIP1559_TEST_TX.maxPriorityFeePerGas,
-          maxFeePerGas: EIP1559_TEST_TX.maxFeePerGas,
-          gas: EIP1559_TEST_TX.gasLimit,
-          to: EIP1559_TEST_TX.to,
-          value: EIP1559_TEST_TX.value,
-          data: EIP1559_TEST_TX.data,
-          accessList: EIP1559_TEST_TX.accessList,
-        }),
-      );
-      expect(result.signed.txHashHex).toBe(expectedSigningHashHex);
-      expect(result.signed.rawTxHex.startsWith('0x02')).toBe(true);
-
       const parsedTx = parseTransaction(result.signed.rawTxHex as `0x${string}`);
       expect(parsedTx.type).toBe('eip1559');
       expect(asBigInt(parsedTx.chainId, 'chainId')).toBe(EIP1559_TEST_TX.chainId);
-      expect(asBigInt(parsedTx.nonce, 'nonce')).toBe(EIP1559_TEST_TX.nonce);
+      expect(asBigInt(parsedTx.nonce, 'nonce')).toBeGreaterThanOrEqual(0n);
       expect(asBigInt(parsedTx.maxPriorityFeePerGas, 'maxPriorityFeePerGas')).toBe(
         EIP1559_TEST_TX.maxPriorityFeePerGas,
       );
@@ -268,6 +423,22 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       expect(parsedTx.value).toBe(EIP1559_TEST_TX.value);
       expect((parsedTx.data || '0x').toLowerCase()).toBe(EIP1559_TEST_TX.data);
       expect(parsedTx.accessList || []).toEqual([]);
+      const expectedSigningHashHex = keccak256(
+        serializeTransaction({
+          type: 'eip1559',
+          chainId: Number(asBigInt(parsedTx.chainId, 'chainId')),
+          nonce: Number(asBigInt(parsedTx.nonce, 'nonce')),
+          maxPriorityFeePerGas: asBigInt(parsedTx.maxPriorityFeePerGas, 'maxPriorityFeePerGas'),
+          maxFeePerGas: asBigInt(parsedTx.maxFeePerGas, 'maxFeePerGas'),
+          gas: asBigInt(parsedTx.gas, 'gas'),
+          to: parsedTx.to as `0x${string}`,
+          value: parsedTx.value,
+          data: (parsedTx.data || '0x') as `0x${string}`,
+          accessList: parsedTx.accessList || [],
+        }),
+      );
+      expect(result.signed.txHashHex).toBe(expectedSigningHashHex);
+      expect(result.signed.rawTxHex.startsWith('0x02')).toBe(true);
 
       const recoveredAddress = await recoverTransactionAddress({
         serializedTransaction: result.signed.rawTxHex as `0x02${string}`,
@@ -298,7 +469,7 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       expect(result.ok).toBe(false);
       const msg = String(result.error || '');
       expect(msg).toMatch(
-        /missing canonical threshold ECDSA session|Missing threshold signingSessionId|threshold-ecdsa session token unavailable|threshold session expired|PRF\.first not cached for threshold session/i,
+        /missing canonical threshold ECDSA session|Missing threshold signingSessionId|threshold-ecdsa session token unavailable|threshold session expired|PRF\.first not cached for threshold session|unable to resolve managed (TEMPO|EVM) nonce sender/i,
       );
     } finally {
       await harness.close();
@@ -493,6 +664,105 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
         await page.waitForTimeout(50);
       }
       expect(blockedPresignInitCalls).toBeGreaterThanOrEqual(1);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('same-lane concurrent tempo commits stay serialized at authorize', async ({ page }) => {
+    const harness = await setupThresholdEcdsaTempoHarness(page);
+    let authorizePostCount = 0;
+    let releaseFirstAuthorize: (() => void) | null = null;
+
+    try {
+      const first = await runThresholdEcdsaTempoFlow(page, {
+        relayerUrl: harness.baseUrl,
+      });
+      expect(first.ok, first.error || JSON.stringify(first)).toBe(true);
+
+      await page.route(`${harness.baseUrl}/threshold-ecdsa/authorize`, async (route) => {
+        if (route.request().method().toUpperCase() !== 'POST') {
+          await route.fallback();
+          return;
+        }
+        authorizePostCount += 1;
+        if (authorizePostCount === 1) {
+          await new Promise<void>((resolve) => {
+            releaseFirstAuthorize = resolve;
+          });
+        }
+        await route.fallback();
+      });
+
+      const pending = runConcurrentThresholdSignsWithExistingPasskey(page, {
+        relayerUrl: harness.baseUrl,
+        accountId: first.accountId,
+        mode: 'tempo-tempo',
+      });
+
+      for (let i = 0; i < 60 && authorizePostCount < 1; i += 1) {
+        await page.waitForTimeout(50);
+      }
+      expect(authorizePostCount).toBe(1);
+      await page.waitForTimeout(400);
+      expect(authorizePostCount).toBe(1);
+
+      releaseFirstAuthorize?.();
+      const result = await pending;
+      expect(authorizePostCount).toBeGreaterThanOrEqual(2);
+      expect(result.first.ok || result.second.ok).toBe(true);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('cross-lane tempo+evm commits can both reach authorize before first lane releases', async ({
+    page,
+  }) => {
+    const harness = await setupThresholdEcdsaTempoHarness(page);
+    let authorizePostCount = 0;
+    let releaseFirstAuthorize: (() => void) | null = null;
+
+    try {
+      const first = await runThresholdEcdsaTempoFlow(page, {
+        relayerUrl: harness.baseUrl,
+      });
+      expect(first.ok, first.error || JSON.stringify(first)).toBe(true);
+
+      const evmBoot = await bootstrapEvmSessionWithExistingPasskey(page, {
+        relayerUrl: harness.baseUrl,
+        accountId: first.accountId,
+      });
+      expect(evmBoot.ok, evmBoot.error || JSON.stringify(evmBoot)).toBe(true);
+
+      await page.route(`${harness.baseUrl}/threshold-ecdsa/authorize`, async (route) => {
+        if (route.request().method().toUpperCase() !== 'POST') {
+          await route.fallback();
+          return;
+        }
+        authorizePostCount += 1;
+        if (authorizePostCount === 1) {
+          await new Promise<void>((resolve) => {
+            releaseFirstAuthorize = resolve;
+          });
+        }
+        await route.fallback();
+      });
+
+      const pending = runConcurrentThresholdSignsWithExistingPasskey(page, {
+        relayerUrl: harness.baseUrl,
+        accountId: first.accountId,
+        mode: 'tempo-evm',
+      });
+
+      for (let i = 0; i < 120 && authorizePostCount < 2; i += 1) {
+        await page.waitForTimeout(50);
+      }
+      expect(authorizePostCount).toBeGreaterThanOrEqual(2);
+
+      releaseFirstAuthorize?.();
+      const result = await pending;
+      expect(result.first.ok || result.second.ok).toBe(true);
     } finally {
       await harness.close();
     }

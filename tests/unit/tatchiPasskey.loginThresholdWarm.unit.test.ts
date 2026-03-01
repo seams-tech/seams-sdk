@@ -1,7 +1,5 @@
 import { expect, test } from '@playwright/test';
-import {
-  loginAndCreateSession,
-} from '@/core/TatchiPasskey/login';
+import { loginAndCreateSession } from '@/core/TatchiPasskey/login';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { toAccountId } from '@/core/types/accountIds';
 
@@ -114,12 +112,14 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
   test('returns active signingSession in threshold-signer warm mode', async () => {
     let bootstrapCalls = 0;
     let bootstrapArgs: Record<string, unknown> | null = null;
+    const bootstrapChains: string[] = [];
     let prefillCalls = 0;
     const context = createBaseContext({
       signingEngine: {
         bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
           bootstrapCalls += 1;
           bootstrapArgs = args;
+          bootstrapChains.push(String(args.chain || ''));
           return {
             thresholdEcdsaKeyRef: {
               type: 'threshold-ecdsa-secp256k1',
@@ -161,7 +161,8 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
     expect(result.success).toBe(true);
     expect(result.signingSession?.status).toBe('active');
     expect('thresholdEcdsaKeyRef' in (result as unknown as Record<string, unknown>)).toBe(false);
-    expect(bootstrapCalls).toBe(1);
+    expect(bootstrapCalls).toBe(2);
+    expect(bootstrapChains).toEqual(['tempo', 'evm']);
     expect(String(bootstrapArgs?.['source'] || '')).toBe('login');
     expect(String(bootstrapArgs?.['sessionId'] || '')).toBe('session-1');
     expect(String(bootstrapArgs?.['authorizationJwt'] || '')).toBe('jwt-ed25519');
@@ -293,7 +294,7 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
     let capturedConnectArgs: Record<string, unknown> | null = null;
     const context = createBaseContext({
       signingEngine: {
-        getThresholdEcdsaSessionRecordForSigning: () => ({
+        getThresholdEcdsaSessionRecordForSigning: (_args: { chain: 'tempo' | 'evm' }) => ({
           thresholdSessionId: 'canonical-ecdsa-session-1',
           clientVerifyingShareB64u: 'AQ',
         }),
@@ -319,5 +320,4 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
     expect(capturedConnectArgs).not.toBeNull();
     expect(String(capturedConnectArgs?.['sessionId'] || '')).toBe('canonical-ecdsa-session-1');
   });
-
 });

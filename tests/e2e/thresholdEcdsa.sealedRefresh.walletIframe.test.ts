@@ -289,6 +289,11 @@ async function setupThresholdEcdsaSealedRefreshHarness(page: Page): Promise<Seal
           },
         ],
       }),
+      capabilities: {
+        mode: 'sealed_refresh_v1',
+        keyVersion: TEST_KEY_VERSION,
+        shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
+      },
     }),
   });
   const server = await startExpressRouter(router);
@@ -353,6 +358,71 @@ function attachWebAuthnGetCounter(page: Page, counter: { calls: number }): () =>
 
 test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
   test.setTimeout(180_000);
+
+  test('fails closed on startup when sealed refresh keyVersion parity mismatches', async ({
+    page,
+  }) => {
+    const harness = await setupThresholdEcdsaSealedRefreshHarness(page);
+    try {
+      const result = await page.evaluate(
+        async ({ relayerUrl, shamirPrimeB64u }) => {
+          const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+          const { TatchiPasskey } = mod as any;
+          const accountId = `parity-mismatch-${Date.now()}.testnet`;
+          const tatchi = new TatchiPasskey({
+            nearNetwork: 'testnet',
+            nearRpcUrl: 'https://test.rpc.fastnear.com',
+            relayerAccount: 'web3-authn-v4.testnet',
+            relayer: {
+              url: relayerUrl,
+              smartAccountDeploymentMode: 'observe',
+            },
+            signerMode: { mode: 'threshold-signer' },
+            signingSessionPersistenceMode: 'sealed_refresh_v1',
+            signingSessionSeal: {
+              keyVersion: 'kek-client-mismatch',
+              shamirPrimeB64u,
+            },
+            iframeWallet: {
+              walletOrigin: 'https://wallet.example.localhost',
+              servicePath: '/wallet-service',
+              sdkBasePath: '/sdk',
+              rpIdOverride: 'example.localhost',
+            },
+          });
+
+          try {
+            const loginResult = await tatchi.auth.login(accountId, {
+              session: { kind: 'jwt', relayUrl: relayerUrl },
+            });
+            if (!loginResult?.success) {
+              return {
+                ok: false,
+                code: '',
+                message: String(loginResult?.error || 'login failed'),
+              };
+            }
+            return { ok: true };
+          } catch (error: unknown) {
+            return {
+              ok: false,
+              code: String((error as { code?: unknown })?.code || ''),
+              message: String((error as Error)?.message || error),
+            };
+          }
+        },
+        {
+          relayerUrl: harness.relayerUrl,
+          shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
+        },
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain('keyVersion');
+    } finally {
+      await harness.close();
+    }
+  });
 
   test('same-tab refresh reuses sealed PRF session without extra TouchID prompt', async ({
     page,
@@ -579,6 +649,308 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
           secondPhase,
         }),
       ).toBe(getCallsAfterLoginAndFirstSign);
+    } finally {
+      detachCounter();
+      await harness.close();
+    }
+  });
+
+  test('same-tab sealed refresh preserves Tempo/EVM prompt parity in both orderings', async ({
+    page,
+  }) => {
+    const harness = await setupThresholdEcdsaSealedRefreshHarness(page);
+    const webauthnGetCounter = { calls: 0 };
+    const detachCounter = attachWebAuthnGetCounter(page, webauthnGetCounter);
+    try {
+      const firstPhasePromise = page.evaluate(
+        async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
+          try {
+            const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const { TatchiPasskey } = sdkMod as any;
+
+            const confirmationConfig = {
+              uiMode: 'none' as const,
+              behavior: 'skipClick' as const,
+              autoProceedDelay: 0,
+            };
+            const accountId = `sealedrefreshmultichain${Date.now()}.w3a-v1.testnet`;
+            const tatchi = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayerAccount: 'web3-authn-v4.testnet',
+              relayer: {
+                url: relayerUrl,
+                smartAccountDeploymentMode: 'observe',
+              },
+              signerMode: { mode: 'threshold-signer' },
+              signingSessionPersistenceMode: 'sealed_refresh_v1',
+              signingSessionSeal: {
+                keyVersion,
+                shamirPrimeB64u,
+              },
+              iframeWallet: {
+                walletOrigin: 'https://wallet.example.localhost',
+                servicePath: '/wallet-service',
+                sdkBasePath: '/sdk',
+                rpIdOverride: 'example.localhost',
+              },
+            });
+
+            tatchi.setConfirmationConfig(confirmationConfig as any);
+
+            const registration = await tatchi.registration.registerPasskeyInternal(
+              accountId,
+              {
+                signerMode: { mode: 'threshold-signer' },
+              },
+              confirmationConfig as any,
+            );
+            if (!registration?.success) {
+              return {
+                ok: false,
+                error: String(registration?.error || 'registration failed'),
+              };
+            }
+
+            const login = await tatchi.loginAndCreateSession(accountId);
+            if (!login?.success) {
+              return {
+                ok: false,
+                error: String(login?.error || 'loginAndCreateSession failed'),
+              };
+            }
+
+            const warmTempo = await tatchi.tempo.signTempo({
+              nearAccountId: accountId,
+              request: {
+                chain: 'tempo' as const,
+                kind: 'tempoTransaction' as const,
+                senderSignatureAlgorithm: 'secp256k1' as const,
+                tx: {
+                  chainId: 42431,
+                  maxPriorityFeePerGas: 1n,
+                  maxFeePerGas: 2n,
+                  gasLimit: 21_000n,
+                  calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
+                  accessList: [],
+                  nonceKey: 0n,
+                  nonce: 1n,
+                  validBefore: null,
+                  validAfter: null,
+                  feePayerSignature: { kind: 'none' as const },
+                  aaAuthorizationList: [],
+                },
+              },
+              options: { confirmationConfig },
+            });
+            if (!warmTempo || warmTempo.kind !== 'tempoTransaction') {
+              return {
+                ok: false,
+                error: 'tempo warm sign failed',
+              };
+            }
+
+            const session = await tatchi.auth.getSession(accountId);
+            return {
+              ok: true,
+              accountId,
+              sessionStatus: String(session?.signingSession?.status || ''),
+            };
+          } catch (error: unknown) {
+            return {
+              ok: false,
+              error: String(
+                error && typeof error === 'object' && 'message' in error
+                  ? (error as { message?: unknown }).message
+                  : error || 'first phase failed',
+              ),
+            };
+          }
+        },
+        {
+          relayerUrl: harness.relayerUrl,
+          keyVersion: TEST_KEY_VERSION,
+          shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
+        },
+      );
+      const firstPhase = await autoConfirmWalletIframeUntil(page, firstPhasePromise, {
+        timeoutMs: 120_000,
+        intervalMs: 250,
+      });
+
+      expect(firstPhase.ok, firstPhase.error || JSON.stringify(firstPhase)).toBe(true);
+      expect(firstPhase.sessionStatus).toBe('active');
+      expect(webauthnGetCounter.calls).toBeGreaterThan(0);
+      await page.waitForTimeout(300);
+      expect(harness.prfSealRouteCounts.applyServerSealCalls).toBeGreaterThan(0);
+      const getCallsAfterFirstPhase = webauthnGetCounter.calls;
+
+      await page.reload();
+      await page.waitForTimeout(300);
+
+      const secondPhasePromise = page.evaluate(
+        async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
+          try {
+            const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const { TatchiPasskey } = sdkMod as any;
+
+            const confirmationConfig = {
+              uiMode: 'none' as const,
+              behavior: 'skipClick' as const,
+              autoProceedDelay: 0,
+            };
+            const tatchi = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayerAccount: 'web3-authn-v4.testnet',
+              relayer: {
+                url: relayerUrl,
+                smartAccountDeploymentMode: 'observe',
+              },
+              signerMode: { mode: 'threshold-signer' },
+              signingSessionPersistenceMode: 'sealed_refresh_v1',
+              signingSessionSeal: {
+                keyVersion,
+                shamirPrimeB64u,
+              },
+              iframeWallet: {
+                walletOrigin: 'https://wallet.example.localhost',
+                servicePath: '/wallet-service',
+                sdkBasePath: '/sdk',
+                rpIdOverride: 'example.localhost',
+              },
+            });
+            tatchi.setConfirmationConfig(confirmationConfig as any);
+
+            const tempoRequest = {
+              chain: 'tempo' as const,
+              kind: 'tempoTransaction' as const,
+              senderSignatureAlgorithm: 'secp256k1' as const,
+              tx: {
+                chainId: 42431,
+                maxPriorityFeePerGas: 1n,
+                maxFeePerGas: 2n,
+                gasLimit: 21_000n,
+                calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
+                accessList: [],
+                nonceKey: 0n,
+                nonce: 2n,
+                validBefore: null,
+                validAfter: null,
+                feePayerSignature: { kind: 'none' as const },
+                aaAuthorizationList: [],
+              },
+            };
+            const evmRequest = {
+              chain: 'evm' as const,
+              kind: 'eip1559' as const,
+              senderSignatureAlgorithm: 'secp256k1' as const,
+              tx: {
+                chainId: 11155111,
+                nonce: 7n,
+                maxPriorityFeePerGas: 1_500_000_000n,
+                maxFeePerGas: 3_000_000_000n,
+                gasLimit: 21_000n,
+                to: '0x' + '22'.repeat(20),
+                value: 12_345n,
+                data: '0x',
+                accessList: [],
+              },
+            };
+            const requestByChain = {
+              tempo: tempoRequest,
+              evm: evmRequest,
+            } as const;
+
+            const runOrder = async (order: Array<'tempo' | 'evm'>) => {
+              const out: Array<{
+                requestedChain: 'tempo' | 'evm';
+                resultChain: string;
+                kind: string;
+              }> = [];
+              for (const requestedChain of order) {
+                const signed = await tatchi.tempo.signTempo({
+                  nearAccountId: accountId,
+                  request: requestByChain[requestedChain],
+                  options: { confirmationConfig },
+                });
+                out.push({
+                  requestedChain,
+                  resultChain: String(signed?.chain || ''),
+                  kind: String(signed?.kind || ''),
+                });
+              }
+              return out;
+            };
+
+            const tempoThenEvm = await runOrder(['tempo', 'evm']);
+            const evmThenTempo = await runOrder(['evm', 'tempo']);
+            const session = await tatchi.auth.getSession(accountId);
+
+            return {
+              ok: true,
+              sessionStatus: String(session?.signingSession?.status || ''),
+              tempoThenEvm,
+              evmThenTempo,
+            };
+          } catch (error: unknown) {
+            return {
+              ok: false,
+              error: String(
+                error && typeof error === 'object' && 'message' in error
+                  ? (error as { message?: unknown }).message
+                  : error || 'second phase failed',
+              ),
+            };
+          }
+        },
+        {
+          relayerUrl: harness.relayerUrl,
+          accountId: firstPhase.accountId,
+          keyVersion: TEST_KEY_VERSION,
+          shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
+        },
+      );
+      const secondPhase = await autoConfirmWalletIframeUntil(page, secondPhasePromise, {
+        timeoutMs: 120_000,
+        intervalMs: 250,
+      });
+
+      expect(secondPhase.ok, secondPhase.error || JSON.stringify(secondPhase)).toBe(true);
+      expect(secondPhase.sessionStatus).toBe('active');
+      expect(secondPhase.tempoThenEvm).toEqual([
+        {
+          requestedChain: 'tempo',
+          resultChain: 'tempo',
+          kind: 'tempoTransaction',
+        },
+        {
+          requestedChain: 'evm',
+          resultChain: 'evm',
+          kind: 'eip1559',
+        },
+      ]);
+      expect(secondPhase.evmThenTempo).toEqual([
+        {
+          requestedChain: 'evm',
+          resultChain: 'evm',
+          kind: 'eip1559',
+        },
+        {
+          requestedChain: 'tempo',
+          resultChain: 'tempo',
+          kind: 'tempoTransaction',
+        },
+      ]);
+      expect(
+        webauthnGetCounter.calls,
+        JSON.stringify({
+          getCallsAfterFirstPhase,
+          finalGetCalls: webauthnGetCounter.calls,
+          firstPhase,
+          secondPhase,
+        }),
+      ).toBe(getCallsAfterFirstPhase);
     } finally {
       detachCounter();
       await harness.close();

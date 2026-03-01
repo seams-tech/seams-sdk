@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
 import {
   clearThresholdEcdsaCommitQueue,
-  type ThresholdEcdsaCommitQueueByAccount,
+  resolveThresholdEcdsaCommitQueueKey,
+  type ThresholdEcdsaCommitQueueByKey,
   withThresholdEcdsaCommitQueue,
 } from '@/core/signingEngine/api/thresholdLifecycle/thresholdEcdsaCommitQueue';
 
@@ -20,13 +21,14 @@ function deferred<T = void>(): {
 }
 
 test.describe('threshold ECDSA commit queue gate', () => {
-  test('serializes concurrent same-account signing requests in FIFO order', async () => {
-    const queueByAccount: ThresholdEcdsaCommitQueueByAccount = new Map();
+  test('serializes concurrent requests sharing the same queueKey in FIFO order', async () => {
+    const queueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
     const blocker = deferred<void>();
     const order: string[] = [];
 
     const first = withThresholdEcdsaCommitQueue({
-      queueByAccount,
+      queueByKey,
+      queueKey: 'session:tempo:tsess-1',
       nearAccountId: 'alice.testnet',
       enabled: true,
       task: async () => {
@@ -38,7 +40,8 @@ test.describe('threshold ECDSA commit queue gate', () => {
     });
 
     const second = withThresholdEcdsaCommitQueue({
-      queueByAccount,
+      queueByKey,
+      queueKey: 'session:tempo:tsess-1',
       nearAccountId: 'alice.testnet',
       enabled: true,
       task: async () => {
@@ -57,40 +60,43 @@ test.describe('threshold ECDSA commit queue gate', () => {
     expect(order).toEqual(['first:start', 'first:end', 'second:start', 'second:end']);
   });
 
-  test('allows concurrent requests for different accounts', async () => {
-    const queueByAccount: ThresholdEcdsaCommitQueueByAccount = new Map();
+  test('allows concurrent requests for different queueKeys even on the same account', async () => {
+    const queueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
     const blocker = deferred<void>();
 
     const first = withThresholdEcdsaCommitQueue({
-      queueByAccount,
+      queueByKey,
+      queueKey: 'session:tempo:tsess-1',
       nearAccountId: 'alice.testnet',
       enabled: true,
       task: async () => {
         await blocker.promise;
-        return 'alice-ok';
+        return 'tempo-ok';
       },
     });
 
     await Promise.resolve();
     await expect(
       withThresholdEcdsaCommitQueue({
-        queueByAccount,
-        nearAccountId: 'bob.testnet',
+        queueByKey,
+        queueKey: 'session:evm:tsess-2',
+        nearAccountId: 'alice.testnet',
         enabled: true,
-        task: async () => 'bob-ok',
+        task: async () => 'evm-ok',
       }),
-    ).resolves.toBe('bob-ok');
+    ).resolves.toBe('evm-ok');
 
     blocker.resolve();
-    await expect(first).resolves.toBe('alice-ok');
+    await expect(first).resolves.toBe('tempo-ok');
   });
 
   test('continues queue processing after a failed request', async () => {
-    const queueByAccount: ThresholdEcdsaCommitQueueByAccount = new Map();
+    const queueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
 
     await expect(
       withThresholdEcdsaCommitQueue({
-        queueByAccount,
+        queueByKey,
+        queueKey: 'session:tempo:tsess-1',
         nearAccountId: 'alice.testnet',
         enabled: true,
         task: async () => {
@@ -101,7 +107,8 @@ test.describe('threshold ECDSA commit queue gate', () => {
 
     await expect(
       withThresholdEcdsaCommitQueue({
-        queueByAccount,
+        queueByKey,
+        queueKey: 'session:tempo:tsess-1',
         nearAccountId: 'alice.testnet',
         enabled: true,
         task: async () => 'after-failure',
@@ -109,12 +116,13 @@ test.describe('threshold ECDSA commit queue gate', () => {
     ).resolves.toBe('after-failure');
   });
 
-  test('fails fast with commit_queue_overflow when queue depth exceeds max', async () => {
-    const queueByAccount: ThresholdEcdsaCommitQueueByAccount = new Map();
+  test('fails fast with commit_queue_overflow when queue depth exceeds max for a queueKey', async () => {
+    const queueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
     const blocker = deferred<void>();
 
     const first = withThresholdEcdsaCommitQueue({
-      queueByAccount,
+      queueByKey,
+      queueKey: 'session:tempo:tsess-1',
       nearAccountId: 'alice.testnet',
       enabled: true,
       maxQueueLength: 1,
@@ -126,7 +134,8 @@ test.describe('threshold ECDSA commit queue gate', () => {
 
     await expect(
       withThresholdEcdsaCommitQueue({
-        queueByAccount,
+        queueByKey,
+        queueKey: 'session:tempo:tsess-1',
         nearAccountId: 'alice.testnet',
         enabled: true,
         maxQueueLength: 1,
@@ -139,11 +148,12 @@ test.describe('threshold ECDSA commit queue gate', () => {
   });
 
   test('fails queued requests with commit_queue_timeout before task start', async () => {
-    const queueByAccount: ThresholdEcdsaCommitQueueByAccount = new Map();
+    const queueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
     const blocker = deferred<void>();
 
     const first = withThresholdEcdsaCommitQueue({
-      queueByAccount,
+      queueByKey,
+      queueKey: 'session:tempo:tsess-1',
       nearAccountId: 'alice.testnet',
       enabled: true,
       task: async () => {
@@ -154,7 +164,8 @@ test.describe('threshold ECDSA commit queue gate', () => {
 
     await expect(
       withThresholdEcdsaCommitQueue({
-        queueByAccount,
+        queueByKey,
+        queueKey: 'session:tempo:tsess-1',
         nearAccountId: 'alice.testnet',
         enabled: true,
         queueTimeoutMs: 10,
@@ -167,11 +178,12 @@ test.describe('threshold ECDSA commit queue gate', () => {
   });
 
   test('clearing queue cancels pending requests', async () => {
-    const queueByAccount: ThresholdEcdsaCommitQueueByAccount = new Map();
+    const queueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
     const blocker = deferred<void>();
 
     const first = withThresholdEcdsaCommitQueue({
-      queueByAccount,
+      queueByKey,
+      queueKey: 'session:tempo:tsess-1',
       nearAccountId: 'alice.testnet',
       enabled: true,
       task: async () => {
@@ -180,16 +192,68 @@ test.describe('threshold ECDSA commit queue gate', () => {
       },
     });
     const second = withThresholdEcdsaCommitQueue({
-      queueByAccount,
+      queueByKey,
+      queueKey: 'session:tempo:tsess-1',
       nearAccountId: 'alice.testnet',
       enabled: true,
       task: async () => 'second-ok',
     });
 
-    clearThresholdEcdsaCommitQueue(queueByAccount);
+    clearThresholdEcdsaCommitQueue(queueByKey);
     await expect(second).rejects.toMatchObject({ code: 'cancelled' });
 
     blocker.resolve();
     await expect(first).resolves.toBe('first-ok');
+  });
+});
+
+test.describe('threshold ECDSA commit queue key resolver', () => {
+  test('prefers session key when thresholdSessionId exists', async () => {
+    const key = resolveThresholdEcdsaCommitQueueKey({
+      nearAccountId: 'alice.testnet',
+      chain: 'tempo',
+      thresholdSessionId: 'tsess-abc',
+      relayerUrl: 'https://relay.example',
+      relayerKeyId: 'relayer-key',
+      clientVerifyingShareB64u: 'share',
+    });
+    expect(key).toBe('session:tempo:tsess-abc');
+  });
+
+  test('falls back to lane tuple when sessionId is missing', async () => {
+    const key = resolveThresholdEcdsaCommitQueueKey({
+      nearAccountId: 'alice.testnet',
+      chain: 'evm',
+      relayerUrl: 'https://relay.example',
+      relayerKeyId: 'relayer-key',
+      clientVerifyingShareB64u: 'share+with/slash',
+    });
+    expect(key).toBe(
+      `lane:evm:${encodeURIComponent('https://relay.example')}|${encodeURIComponent('relayer-key')}|${encodeURIComponent('share+with/slash')}`,
+    );
+  });
+
+  test('falls back to account key when lane metadata is incomplete', async () => {
+    const key = resolveThresholdEcdsaCommitQueueKey({
+      nearAccountId: 'alice.testnet',
+      chain: 'tempo',
+      relayerUrl: 'https://relay.example',
+      relayerKeyId: '',
+      clientVerifyingShareB64u: 'share',
+    });
+    expect(key).toBe('account:alice.testnet');
+  });
+
+  test('derivation is deterministic for identical inputs', async () => {
+    const input = {
+      nearAccountId: 'alice.testnet',
+      chain: 'tempo' as const,
+      relayerUrl: 'https://relay.example',
+      relayerKeyId: 'relayer-key',
+      clientVerifyingShareB64u: 'share',
+    };
+    const first = resolveThresholdEcdsaCommitQueueKey(input);
+    const second = resolveThresholdEcdsaCommitQueueKey(input);
+    expect(first).toBe(second);
   });
 });

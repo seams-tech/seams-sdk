@@ -17,7 +17,7 @@ test.describe('threshold ECDSA canonical auth material', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const storeMod = await import(paths.thresholdSessionStore);
-        const deps = { recordsByAccount: new Map<string, unknown>() };
+        const deps = { recordsByLane: new Map<string, unknown>() };
         const now = Date.now();
 
         const upsertEcdsaRecord = (args: {
@@ -97,9 +97,10 @@ test.describe('threshold ECDSA canonical auth material', () => {
           thresholdSessionKind: 'cookie',
         });
 
-        const resolvedPrimary = storeMod.resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId(
-          { thresholdSessionId: 'sess-ecdsa-jwt' },
-        );
+        const resolvedPrimary =
+          storeMod.resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId({
+            thresholdSessionId: 'sess-ecdsa-jwt',
+          });
         const resolvedFallback =
           storeMod.resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId({
             thresholdSessionId: 'sess-ecdsa-cookie',
@@ -108,9 +109,18 @@ test.describe('threshold ECDSA canonical auth material', () => {
           storeMod.resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId({
             thresholdSessionId: 'sess-ecdsa-cookie-no-fallback',
           });
-        const resolvedMissing = storeMod.resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId(
-          { thresholdSessionId: 'sess-missing' },
-        );
+        const resolvedMissing =
+          storeMod.resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId({
+            thresholdSessionId: 'sess-missing',
+          });
+        const transportFromEcdsa =
+          storeMod.resolveThresholdSessionSealTransportByThresholdSessionId({
+            thresholdSessionId: 'sess-ecdsa-jwt',
+          });
+        const transportFromEd25519 =
+          storeMod.resolveThresholdSessionSealTransportByThresholdSessionId({
+            thresholdSessionId: 'sess-ed25519',
+          });
 
         return {
           primary: resolvedPrimary
@@ -132,6 +142,22 @@ test.describe('threshold ECDSA canonical auth material', () => {
               }
             : null,
           missing: resolvedMissing,
+          transportFromEcdsa: transportFromEcdsa
+            ? {
+                curve: transportFromEcdsa.curve,
+                relayerUrl: transportFromEcdsa.relayerUrl,
+                source: transportFromEcdsa.thresholdSessionJwtSource,
+                jwt: transportFromEcdsa.thresholdSessionJwt || null,
+              }
+            : null,
+          transportFromEd25519: transportFromEd25519
+            ? {
+                curve: transportFromEd25519.curve,
+                relayerUrl: transportFromEd25519.relayerUrl,
+                source: transportFromEd25519.thresholdSessionJwtSource,
+                jwt: transportFromEd25519.thresholdSessionJwt || null,
+              }
+            : null,
         };
       },
       { paths: IMPORT_PATHS },
@@ -150,5 +176,17 @@ test.describe('threshold ECDSA canonical auth material', () => {
       jwt: null,
     });
     expect(result.missing).toBeNull();
+    expect(result.transportFromEcdsa).toEqual({
+      curve: 'ecdsa',
+      relayerUrl: 'https://relay.example',
+      source: 'ecdsa',
+      jwt: 'jwt-ecdsa-primary',
+    });
+    expect(result.transportFromEd25519).toEqual({
+      curve: 'ed25519',
+      relayerUrl: 'https://relay.example',
+      source: 'ed25519',
+      jwt: 'jwt-ed25519-fallback',
+    });
   });
 });

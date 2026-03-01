@@ -13,9 +13,7 @@ test.describe('evm signing nonce prefetch hook', () => {
       source.includes('const reservationInputPromise = resolveManagedEvmNonceReservationInput({'),
     ).toBe(true);
     expect(
-      source.includes(
-        '.then((reservationInput) => deps.evmNonceManager.refreshFromChain(reservationInput))',
-      ),
+      source.includes('.then(reservationInput => deps.evmNonceManager.reconcileLane(reservationInput))'),
     ).toBe(true);
     expect(source.includes('reservationInput: await reservationInputPromise')).toBe(true);
   });

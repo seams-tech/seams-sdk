@@ -118,6 +118,16 @@ Signer runtime gate (Phase 0-5):
 pnpm -C tests run test:signers:gates
 ```
 
+Threshold ECDSA lane-key queue matrix (Refactor 22):
+
+```bash
+(pnpm -C sdk run build:check:fresh || pnpm -C sdk run build) \
+  && pnpm -C tests exec playwright test ./unit/thresholdEcdsa.commitQueue.unit.test.ts --reporter=line \
+  && pnpm -C tests exec playwright test ./unit/thresholdEcdsa.tempoHighLevel.unit.test.ts --reporter=line \
+  && pnpm -C tests exec playwright test ./e2e/thresholdEcdsa.sealedRefresh.walletIframe.test.ts -g "same-tab refresh reuses sealed PRF session without extra TouchID prompt" --reporter=line \
+  && pnpm -C tests exec playwright test ./unit/reportTempoBroadcastFailure.unit.test.ts ./unit/evmSigning.noncePrefetch.unit.test.ts --reporter=line
+```
+
 ## Environment
 
 - `USE_RELAY_SERVER=1` run with relay (fast path, no .env)

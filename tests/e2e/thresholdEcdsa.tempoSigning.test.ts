@@ -799,6 +799,217 @@ test.describe('threshold-ecdsa tempo signing', () => {
     }
   });
 
+  test('same-account Tempo/EVM signing succeeds in both orderings', async ({ page }) => {
+    const harness = await setupThresholdEcdsaTempoHarness(page);
+    try {
+      const result = await page.evaluate(
+        async ({ relayerUrl }) => {
+          try {
+            const sdkMod = await import('/sdk/esm/index.js');
+            const { TatchiPasskey } = sdkMod as any;
+
+            const accountId = `tempoevmorder${Date.now()}.w3a-v1.testnet`;
+            const confirmationConfig = {
+              uiMode: 'none' as const,
+              behavior: 'skipClick' as const,
+              autoProceedDelay: 0,
+            };
+
+            const pm = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayerAccount: 'web3-authn-v4.testnet',
+              relayer: {
+                url: relayerUrl,
+                smartAccountDeploymentMode: 'observe',
+              },
+              iframeWallet: {
+                walletOrigin: '',
+                walletServicePath: '/wallet-service',
+                sdkBasePath: '/sdk',
+                rpIdOverride: 'example.localhost',
+              },
+            });
+
+            const registration = await pm.registration.registerPasskeyInternal(
+              accountId,
+              {
+                signerOptions: {
+                  tempo: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                  evm: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                },
+              },
+              confirmationConfig,
+            );
+            if (!registration?.success) {
+              return {
+                ok: false,
+                error: String(registration?.error || 'registerPasskeyInternal failed'),
+              };
+            }
+
+            const bootstrap = await pm.tempo.bootstrapEcdsaSession({
+              nearAccountId: accountId,
+              options: {
+                relayerUrl,
+                ttlMs: 120_000,
+                remainingUses: 10,
+              },
+            });
+            if (!bootstrap?.session?.ok) {
+              return {
+                ok: false,
+                error: String(bootstrap?.session?.message || 'bootstrapEcdsaSession failed'),
+              };
+            }
+
+            const tempoRequest = {
+              chain: 'tempo' as const,
+              kind: 'tempoTransaction' as const,
+              senderSignatureAlgorithm: 'secp256k1' as const,
+              tx: {
+                chainId: 42431,
+                maxPriorityFeePerGas: 1n,
+                maxFeePerGas: 2n,
+                gasLimit: 21_000n,
+                calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
+                accessList: [],
+                nonceKey: 0n,
+                nonce: 1n,
+                validBefore: null,
+                validAfter: null,
+                feePayerSignature: { kind: 'none' as const },
+                aaAuthorizationList: [],
+              },
+            };
+
+            const evmRequest = {
+              chain: 'evm' as const,
+              kind: 'eip1559' as const,
+              senderSignatureAlgorithm: 'secp256k1' as const,
+              tx: {
+                chainId: 11155111,
+                nonce: 7n,
+                maxPriorityFeePerGas: 1_500_000_000n,
+                maxFeePerGas: 3_000_000_000n,
+                gasLimit: 21_000n,
+                to: '0x' + '22'.repeat(20),
+                value: 12_345n,
+                data: '0x',
+                accessList: [],
+              },
+            };
+
+            let acceptedCounter = 0;
+            const requestsByChain = {
+              tempo: tempoRequest,
+              evm: evmRequest,
+            } as const;
+
+            const runOrder = async (order: Array<'tempo' | 'evm'>) => {
+              const out: Array<{
+                requestedChain: 'tempo' | 'evm';
+                resultChain: string;
+                kind: string;
+              }> = [];
+              for (const requestedChain of order) {
+                const signed = await pm.tempo.signTempo({
+                  nearAccountId: accountId,
+                  request: requestsByChain[requestedChain],
+                  options: { confirmationConfig },
+                });
+                out.push({
+                  requestedChain,
+                  resultChain: String(signed?.chain || ''),
+                  kind: String(signed?.kind || ''),
+                });
+                if (requestedChain === 'evm') {
+                  acceptedCounter += 1;
+                  const txHashByte = (16 + acceptedCounter).toString(16).padStart(2, '0');
+                  await pm.tempo.reportBroadcastAccepted({
+                    nearAccountId: accountId,
+                    signedResult: signed,
+                    txHash: ('0x' + txHashByte.repeat(32)) as `0x${string}`,
+                  });
+                }
+              }
+              return out;
+            };
+
+            const tempoThenEvm = await runOrder(['tempo', 'evm']);
+            const evmThenTempo = await runOrder(['evm', 'tempo']);
+
+            const orderOk = (
+              entries: Array<{ requestedChain: 'tempo' | 'evm'; resultChain: string; kind: string }>,
+              expected: Array<'tempo' | 'evm'>,
+            ) =>
+              entries.length === 2 &&
+              entries[0]?.requestedChain === expected[0] &&
+              entries[1]?.requestedChain === expected[1] &&
+              entries[0]?.resultChain === expected[0] &&
+              entries[1]?.resultChain === expected[1] &&
+              entries[0]?.kind === (expected[0] === 'tempo' ? 'tempoTransaction' : 'eip1559') &&
+              entries[1]?.kind === (expected[1] === 'tempo' ? 'tempoTransaction' : 'eip1559');
+
+            return {
+              ok:
+                orderOk(tempoThenEvm, ['tempo', 'evm']) &&
+                orderOk(evmThenTempo, ['evm', 'tempo']),
+              tempoThenEvm,
+              evmThenTempo,
+            };
+          } catch (error: unknown) {
+            return {
+              ok: false,
+              error: String(
+                error && typeof error === 'object' && 'message' in error
+                  ? (error as { message?: unknown }).message
+                  : error || 'cross-chain ordering flow failed',
+              ),
+            };
+          }
+        },
+        { relayerUrl: harness.baseUrl },
+      );
+
+      expect(result.ok, result.error || JSON.stringify(result)).toBe(true);
+      expect(result.tempoThenEvm).toEqual([
+        {
+          requestedChain: 'tempo',
+          resultChain: 'tempo',
+          kind: 'tempoTransaction',
+        },
+        {
+          requestedChain: 'evm',
+          resultChain: 'evm',
+          kind: 'eip1559',
+        },
+      ]);
+      expect(result.evmThenTempo).toEqual([
+        {
+          requestedChain: 'evm',
+          resultChain: 'evm',
+          kind: 'eip1559',
+        },
+        {
+          requestedChain: 'tempo',
+          resultChain: 'tempo',
+          kind: 'tempoTransaction',
+        },
+      ]);
+    } finally {
+      await harness.close();
+    }
+  });
+
   test('second request reaches confirmation before first settles under enforce deployment mode', async ({
     page,
   }) => {

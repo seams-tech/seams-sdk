@@ -3,11 +3,14 @@ import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
 import { createRelayRouter } from '@server/router/express-adaptor';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import {
+  createInMemoryPrfSessionSealIdempotencyStore,
   createInMemoryPrfSessionSealRateLimiter,
   createPassthroughPrfSessionSealCipherAdapter,
   createPrfSessionSealCipherAdapter,
   createPrfSessionSealRoutesOptions,
+  createPrfSessionSealService,
   createPrfSessionSealShamir3PassCipherAdapter,
+  resolvePrfSessionSealIdempotencyFromEnv,
   resolvePrfSessionSealRateLimitFromEnv,
 } from '@server/threshold/session/prfSessionSeal';
 import {
@@ -181,6 +184,159 @@ test.describe('prf session seal routes', () => {
     } finally {
       await srv.close();
     }
+  });
+
+  test('service idempotency replays sequential duplicate apply requests', async () => {
+    let applyCalls = 0;
+    const service = createPrfSessionSealService({
+      sessionPolicy: makePolicy(),
+      cipher: createPrfSessionSealCipherAdapter({
+        applyServerSeal: async (input) => {
+          applyCalls += 1;
+          return {
+            ok: true,
+            ciphertext: `sealed:${input.ciphertext}`,
+          };
+        },
+        removeServerSeal: async (input) => ({
+          ok: true,
+          ciphertext: `unsealed:${input.ciphertext}`,
+        }),
+      }),
+      idempotency: {
+        store: createInMemoryPrfSessionSealIdempotencyStore(),
+        ttlMs: 10_000,
+      },
+    });
+
+    const auth = { userId: USER_ID, claims: { sub: USER_ID } };
+    const request = makeBody();
+
+    const first = await service.applyServerSeal(request, auth);
+    const second = await service.applyServerSeal(request, auth);
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(second).toEqual(first);
+    expect(applyCalls).toBe(1);
+  });
+
+  test('service idempotency replays across service instances sharing the same store', async () => {
+    let applyCalls = 0;
+    const sharedStore = createInMemoryPrfSessionSealIdempotencyStore();
+    const makeService = () =>
+      createPrfSessionSealService({
+        sessionPolicy: makePolicy(),
+        cipher: createPrfSessionSealCipherAdapter({
+          applyServerSeal: async (input) => {
+            applyCalls += 1;
+            return {
+              ok: true,
+              ciphertext: `sealed:${input.ciphertext}`,
+            };
+          },
+          removeServerSeal: async (input) => ({
+            ok: true,
+            ciphertext: `unsealed:${input.ciphertext}`,
+          }),
+        }),
+        idempotency: {
+          store: sharedStore,
+          ttlMs: 10_000,
+        },
+      });
+
+    const serviceA = makeService();
+    const serviceB = makeService();
+    const auth = { userId: USER_ID, claims: { sub: USER_ID } };
+    const request = makeBody();
+
+    const first = await serviceA.applyServerSeal(request, auth);
+    const second = await serviceB.applyServerSeal(request, auth);
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(second).toEqual(first);
+    expect(applyCalls).toBe(1);
+  });
+
+  test('service idempotency TTL expiry re-executes operation', async () => {
+    let applyCalls = 0;
+    let now = 1_000_000;
+    const service = createPrfSessionSealService({
+      sessionPolicy: makePolicy({ expiresAtMs: now + 60_000 }),
+      cipher: createPrfSessionSealCipherAdapter({
+        applyServerSeal: async (input) => {
+          applyCalls += 1;
+          return {
+            ok: true,
+            ciphertext: `sealed:${input.ciphertext}`,
+          };
+        },
+        removeServerSeal: async (input) => ({
+          ok: true,
+          ciphertext: `unsealed:${input.ciphertext}`,
+        }),
+      }),
+      idempotency: {
+        store: createInMemoryPrfSessionSealIdempotencyStore(),
+        ttlMs: 100,
+      },
+      nowMs: () => now,
+    });
+
+    const auth = { userId: USER_ID, claims: { sub: USER_ID } };
+    const request = makeBody();
+
+    const first = await service.applyServerSeal(request, auth);
+    now += 101;
+    const second = await service.applyServerSeal(request, auth);
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(applyCalls).toBe(2);
+  });
+
+  test('service idempotency does not persist internal failures', async () => {
+    let applyCalls = 0;
+    const service = createPrfSessionSealService({
+      sessionPolicy: makePolicy(),
+      cipher: createPrfSessionSealCipherAdapter({
+        applyServerSeal: async (input) => {
+          applyCalls += 1;
+          if (applyCalls === 1) {
+            return {
+              ok: false,
+              code: 'internal',
+              message: 'transient failure',
+            };
+          }
+          return {
+            ok: true,
+            ciphertext: `sealed:${input.ciphertext}`,
+          };
+        },
+        removeServerSeal: async (input) => ({
+          ok: true,
+          ciphertext: `unsealed:${input.ciphertext}`,
+        }),
+      }),
+      idempotency: {
+        store: createInMemoryPrfSessionSealIdempotencyStore(),
+        ttlMs: 10_000,
+      },
+    });
+
+    const auth = { userId: USER_ID, claims: { sub: USER_ID } };
+    const request = makeBody();
+
+    const first = await service.applyServerSeal(request, auth);
+    const second = await service.applyServerSeal(request, auth);
+
+    expect(first.ok).toBe(false);
+    expect(first.code).toBe('internal');
+    expect(second.ok).toBe(true);
+    expect(applyCalls).toBe(2);
   });
 
   test('express apply-server-seal rejects cross-user threshold session', async () => {
@@ -483,6 +639,42 @@ test.describe('prf session seal routes', () => {
     }
   });
 
+  test('idempotency env resolver supports in-memory and validates backend params', async () => {
+    const inMemory = resolvePrfSessionSealIdempotencyFromEnv({
+      idempotencyKind: 'in-memory',
+      ttlMs: 3_000,
+    });
+    expect(typeof inMemory.store.get).toBe('function');
+    expect(typeof inMemory.store.set).toBe('function');
+    expect(inMemory.ttlMs).toBe(3_000);
+    await expect(inMemory.store.get({ key: 'missing', nowMs: Date.now() })).resolves.toBeNull();
+
+    expect(() =>
+      resolvePrfSessionSealIdempotencyFromEnv({
+        idempotencyKind: 'upstash-redis-rest',
+        upstashUrl: 'https://example.upstash.io',
+      }),
+    ).toThrow(/upstash/i);
+
+    expect(() =>
+      resolvePrfSessionSealIdempotencyFromEnv({
+        idempotencyKind: 'redis-tcp',
+      }),
+    ).toThrow(/redis/i);
+
+    expect(() =>
+      resolvePrfSessionSealIdempotencyFromEnv({
+        idempotencyKind: 'postgres',
+      }),
+    ).toThrow(/postgres/i);
+
+    expect(() =>
+      resolvePrfSessionSealIdempotencyFromEnv({
+        idempotencyKind: 'unsupported-kind',
+      }),
+    ).toThrow(/unsupported/i);
+  });
+
   test('rate-limit env resolver supports in-memory and validates upstash params', async () => {
     const fromMemory = resolvePrfSessionSealRateLimitFromEnv({
       limiterKind: 'in-memory',
@@ -501,5 +693,38 @@ test.describe('prf session seal routes', () => {
         windowMs: 2_000,
       }),
     ).toThrow(/upstash/i);
+  });
+
+  test('postgres idempotency store round-trips and expires entries', async () => {
+    const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
+    test.skip(!postgresUrl, 'POSTGRES_URL not set');
+
+    const namespace = `test:prf-idempotency:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`;
+    const idempotency = resolvePrfSessionSealIdempotencyFromEnv({
+      idempotencyKind: 'postgres',
+      postgresUrl,
+      postgresNamespace: namespace,
+      ttlMs: 5_000,
+    });
+
+    const key = `roundtrip:${Date.now().toString(36)}`;
+    const nowMs = Date.now();
+    const result = {
+      ok: true as const,
+      ciphertext: 'sealed:ciphertext-b64u',
+      keyVersion: 'kek-s-2026-02',
+    };
+
+    await idempotency.store.set({
+      key,
+      result,
+      expiresAtMs: nowMs + 2_000,
+    });
+
+    const replay = await idempotency.store.get({ key, nowMs });
+    expect(replay).toEqual(result);
+
+    const expiredReplay = await idempotency.store.get({ key, nowMs: nowMs + 2_100 });
+    expect(expiredReplay).toBeNull();
   });
 });

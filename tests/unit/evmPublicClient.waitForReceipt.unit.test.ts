@@ -360,6 +360,405 @@ test.describe('evm public client waitForTransactionReceipt', () => {
     expect(result.errorMessage).toContain('dropped or replaced');
   });
 
+  test('detects dropped tx when hash disappears after being observed and nonce does not advance', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(async ({ importPath }) => {
+      const { createEvmPublicClient } = await import(importPath);
+      const counters = {
+        receiptCalls: 0,
+        txCalls: 0,
+        txCountCalls: 0,
+      };
+      const txHash = `0x${'98'.repeat(32)}` as `0x${string}`;
+      const sender = `0x${'34'.repeat(20)}` as `0x${string}`;
+
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (!url.includes('mock-rpc') || String(init?.method || 'GET').toUpperCase() !== 'POST') {
+          return await originalFetch(input, init);
+        }
+
+        let body: Record<string, unknown> = {};
+        try {
+          body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+        } catch {}
+        const id = body.id ?? Date.now();
+        const method = String(body.method || '');
+        const params = (Array.isArray(body.params) ? body.params : []) as unknown[];
+
+        if (method === 'eth_getTransactionReceipt') {
+          counters.receiptCalls += 1;
+          return new Response(
+            JSON.stringify({ jsonrpc: '2.0', id, result: null }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (method === 'eth_getTransactionByHash') {
+          counters.txCalls += 1;
+          const result =
+            counters.txCalls === 1
+              ? {
+                  from: sender,
+                  nonce: '0x7',
+                  blockNumber: null,
+                }
+              : null;
+          return new Response(
+            JSON.stringify({ jsonrpc: '2.0', id, result }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (method === 'eth_getTransactionCount') {
+          counters.txCountCalls += 1;
+          const blockTag = String(params[1] || 'latest');
+          const result = blockTag === 'pending' ? '0x7' : '0x7';
+          return new Response(
+            JSON.stringify({ jsonrpc: '2.0', id, result }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            error: { code: -32601, message: `unexpected method: ${method}` },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }) as typeof fetch;
+
+      let errorCode = '';
+      let errorMessage = '';
+      try {
+        const client = createEvmPublicClient({ rpcUrl: 'https://mock-rpc' });
+        await client.waitForTransactionReceipt({
+          txHash,
+          timeoutMs: 2_000,
+          pollIntervalMs: 5,
+        });
+      } catch (error: unknown) {
+        errorCode = String((error as { code?: unknown })?.code || '');
+        errorMessage = String((error as { message?: unknown })?.message || error || '');
+      } finally {
+        window.fetch = originalFetch;
+      }
+
+      return {
+        counters,
+        errorCode,
+        errorMessage,
+      };
+    }, { importPath: IMPORT_PATH });
+
+    expect(result.counters.receiptCalls).toBeGreaterThan(0);
+    expect(result.counters.txCalls).toBeGreaterThan(1);
+    expect(result.counters.txCountCalls).toBeGreaterThan(0);
+    expect(result.errorCode).toBe('tx_dropped_or_replaced');
+    expect(result.errorMessage).toContain('dropped or replaced');
+  });
+
+  test('detects dropped tx when hash is never observed and nonce does not progress', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(async ({ importPath }) => {
+      const { createEvmPublicClient } = await import(importPath);
+      const counters = {
+        receiptCalls: 0,
+        txCalls: 0,
+        txCountCalls: 0,
+      };
+      const txHash = `0x${'8c'.repeat(32)}` as `0x${string}`;
+      const sender = `0x${'21'.repeat(20)}` as `0x${string}`;
+
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (!url.includes('mock-rpc') || String(init?.method || 'GET').toUpperCase() !== 'POST') {
+          return await originalFetch(input, init);
+        }
+
+        let body: Record<string, unknown> = {};
+        try {
+          body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+        } catch {}
+        const id = body.id ?? Date.now();
+        const method = String(body.method || '');
+
+        if (method === 'eth_getTransactionReceipt') {
+          counters.receiptCalls += 1;
+          return new Response(
+            JSON.stringify({ jsonrpc: '2.0', id, result: null }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (method === 'eth_getTransactionByHash') {
+          counters.txCalls += 1;
+          return new Response(
+            JSON.stringify({ jsonrpc: '2.0', id, result: null }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (method === 'eth_getTransactionCount') {
+          counters.txCountCalls += 1;
+          return new Response(
+            JSON.stringify({ jsonrpc: '2.0', id, result: '0x7' }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            error: { code: -32601, message: `unexpected method: ${method}` },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }) as typeof fetch;
+
+      let errorCode = '';
+      let errorMessage = '';
+      try {
+        const client = createEvmPublicClient({ rpcUrl: 'https://mock-rpc' });
+        await client.waitForTransactionReceipt({
+          txHash,
+          senderHint: sender,
+          nonceHint: 7n,
+          timeoutMs: 500,
+          pollIntervalMs: 5,
+        });
+      } catch (error: unknown) {
+        errorCode = String((error as { code?: unknown })?.code || '');
+        errorMessage = String((error as { message?: unknown })?.message || error || '');
+      } finally {
+        window.fetch = originalFetch;
+      }
+
+      return {
+        counters,
+        errorCode,
+        errorMessage,
+      };
+    }, { importPath: IMPORT_PATH });
+
+    expect(result.counters.receiptCalls).toBeGreaterThan(0);
+    expect(result.counters.txCalls).toBeGreaterThan(0);
+    expect(result.counters.txCountCalls).toBeGreaterThan(0);
+    expect(result.errorCode).toBe('tx_dropped_or_replaced');
+    expect(result.errorMessage).toContain('never became visible');
+  });
+
+  test('classifies replaced when hash disappears and pending nonce moves ahead', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(async ({ importPath }) => {
+      const { createEvmPublicClient } = await import(importPath);
+      const counters = {
+        receiptCalls: 0,
+        txCalls: 0,
+        txCountCalls: 0,
+      };
+      const txHash = `0x${'ab'.repeat(32)}` as `0x${string}`;
+      const sender = `0x${'56'.repeat(20)}` as `0x${string}`;
+
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (!url.includes('mock-rpc') || String(init?.method || 'GET').toUpperCase() !== 'POST') {
+          return await originalFetch(input, init);
+        }
+
+        let body: Record<string, unknown> = {};
+        try {
+          body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+        } catch {}
+        const id = body.id ?? Date.now();
+        const method = String(body.method || '');
+        const params = (Array.isArray(body.params) ? body.params : []) as unknown[];
+
+        if (method === 'eth_getTransactionReceipt') {
+          counters.receiptCalls += 1;
+          return new Response(
+            JSON.stringify({ jsonrpc: '2.0', id, result: null }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (method === 'eth_getTransactionByHash') {
+          counters.txCalls += 1;
+          const result =
+            counters.txCalls === 1
+              ? {
+                  from: sender,
+                  nonce: '0x7',
+                  blockNumber: null,
+                }
+              : null;
+          return new Response(
+            JSON.stringify({ jsonrpc: '2.0', id, result }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (method === 'eth_getTransactionCount') {
+          counters.txCountCalls += 1;
+          const blockTag = String(params[1] || 'latest');
+          const result = blockTag === 'pending' ? '0x8' : '0x7';
+          return new Response(
+            JSON.stringify({ jsonrpc: '2.0', id, result }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            error: { code: -32601, message: `unexpected method: ${method}` },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }) as typeof fetch;
+
+      let errorCode = '';
+      let errorReason = '';
+      let errorMessage = '';
+      try {
+        const client = createEvmPublicClient({ rpcUrl: 'https://mock-rpc' });
+        await client.waitForTransactionReceipt({
+          txHash,
+          timeoutMs: 500,
+          pollIntervalMs: 5,
+        });
+      } catch (error: unknown) {
+        errorCode = String((error as { code?: unknown })?.code || '');
+        errorReason = String((error as { reason?: unknown })?.reason || '');
+        errorMessage = String((error as { message?: unknown })?.message || error || '');
+      } finally {
+        window.fetch = originalFetch;
+      }
+
+      return {
+        counters,
+        errorCode,
+        errorReason,
+        errorMessage,
+      };
+    }, { importPath: IMPORT_PATH });
+
+    expect(result.counters.receiptCalls).toBeGreaterThan(0);
+    expect(result.counters.txCalls).toBeGreaterThan(1);
+    expect(result.counters.txCountCalls).toBeGreaterThan(0);
+    expect(result.errorCode).toBe('tx_dropped_or_replaced');
+    expect(result.errorReason).toBe('replaced');
+    expect(result.errorMessage).toContain('pending nonce moved ahead');
+  });
+
+  test('does not classify replaced when hash flickers but reappears before threshold', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(async ({ importPath }) => {
+      const { createEvmPublicClient } = await import(importPath);
+      const counters = {
+        receiptCalls: 0,
+        txCalls: 0,
+        txCountCalls: 0,
+      };
+      const txHash = `0x${'bc'.repeat(32)}` as `0x${string}`;
+      const sender = `0x${'67'.repeat(20)}` as `0x${string}`;
+
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (!url.includes('mock-rpc') || String(init?.method || 'GET').toUpperCase() !== 'POST') {
+          return await originalFetch(input, init);
+        }
+
+        let body: Record<string, unknown> = {};
+        try {
+          body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+        } catch {}
+        const id = body.id ?? Date.now();
+        const method = String(body.method || '');
+        const params = (Array.isArray(body.params) ? body.params : []) as unknown[];
+
+        if (method === 'eth_getTransactionReceipt') {
+          counters.receiptCalls += 1;
+          return new Response(
+            JSON.stringify({ jsonrpc: '2.0', id, result: null }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (method === 'eth_getTransactionByHash') {
+          counters.txCalls += 1;
+          const result =
+            counters.txCalls % 2 === 1
+              ? {
+                  from: sender,
+                  nonce: '0x7',
+                  blockNumber: null,
+                }
+              : null;
+          return new Response(
+            JSON.stringify({ jsonrpc: '2.0', id, result }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (method === 'eth_getTransactionCount') {
+          counters.txCountCalls += 1;
+          const blockTag = String(params[1] || 'latest');
+          const result = blockTag === 'pending' ? '0x8' : '0x7';
+          return new Response(
+            JSON.stringify({ jsonrpc: '2.0', id, result }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            error: { code: -32601, message: `unexpected method: ${method}` },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }) as typeof fetch;
+
+      let errorCode = '';
+      let errorMessage = '';
+      try {
+        const client = createEvmPublicClient({ rpcUrl: 'https://mock-rpc' });
+        await client.waitForTransactionReceipt({
+          txHash,
+          timeoutMs: 120,
+          pollIntervalMs: 5,
+        });
+      } catch (error: unknown) {
+        errorCode = String((error as { code?: unknown })?.code || '');
+        errorMessage = String((error as { message?: unknown })?.message || error || '');
+      } finally {
+        window.fetch = originalFetch;
+      }
+
+      return {
+        counters,
+        errorCode,
+        errorMessage,
+      };
+    }, { importPath: IMPORT_PATH });
+
+    expect(result.counters.receiptCalls).toBeGreaterThan(0);
+    expect(result.counters.txCalls).toBeGreaterThan(1);
+    expect(result.counters.txCountCalls).toBeGreaterThan(0);
+    expect(result.errorCode).toBe('');
+    expect(result.errorMessage).toContain('Timed out waiting for tx receipt');
+  });
+
   test('does not classify as dropped when tx is already mined but receipt indexing lags', async ({
     page,
   }) => {
