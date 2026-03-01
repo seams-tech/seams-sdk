@@ -5,9 +5,9 @@ import {
   type ThresholdEd25519KeyStoreConfigInput,
 } from '@tatchi-xyz/sdk/server';
 import {
-  createCloudflareCron,
   createCloudflareEmailHandler,
   createCloudflareRouter,
+  createInMemoryRelayRuntimeSnapshotConsumer,
 } from '@tatchi-xyz/sdk/server/router/cloudflare';
 import type {
   CfEmailMessage,
@@ -16,7 +16,8 @@ import type {
   RelayCloudflareWorkerEnv,
 } from '@tatchi-xyz/sdk/server/router/cloudflare';
 import signerWasmModule from '@tatchi-xyz/sdk/server/wasm/signer';
-import jwtSession from './jwtSession';
+import { createJwtSession } from './jwtSession';
+import { createWorkerScheduledHandler } from './scheduledHandler';
 
 export { ThresholdEd25519StoreDurableObject } from '@tatchi-xyz/sdk/server/router/cloudflare';
 
@@ -28,6 +29,7 @@ type Env = RelayCloudflareWorkerEnv & {
   NETWORK_ID?: string;
   ROR_RP_ID?: string;
   ROR_ALLOWED_ORIGINS?: string;
+  SESSION_COOKIE_NAME?: string;
   ACCOUNT_INITIAL_BALANCE?: string;
   CREATE_ACCOUNT_AND_REGISTER_GAS?: string;
   SHAMIR_P_B64U: string;
@@ -42,6 +44,23 @@ type Env = RelayCloudflareWorkerEnv & {
   BILLING_POSTGRES_URL?: string;
   BILLING_NAMESPACE?: string;
   BILLING_FINALIZATION_PERIOD_MONTH_UTC?: string;
+  BILLING_FINALIZATION_ORG_IDS?: string;
+  BILLING_FINALIZATION_CRONS?: string;
+  RUNTIME_SNAPSHOT_OUTBOX_ENABLED?: string;
+  RUNTIME_SNAPSHOT_OUTBOX_POSTGRES_URL?: string;
+  RUNTIME_SNAPSHOT_OUTBOX_NAMESPACE?: string;
+  RUNTIME_SNAPSHOT_OUTBOX_ORG_IDS?: string;
+  RUNTIME_SNAPSHOT_OUTBOX_LIMIT?: string;
+  RUNTIME_SNAPSHOT_OUTBOX_CRONS?: string;
+  WEBHOOK_RETRY_ENABLED?: string;
+  WEBHOOK_RETRY_POSTGRES_URL?: string;
+  WEBHOOK_RETRY_NAMESPACE?: string;
+  WEBHOOK_RETRY_ORG_IDS?: string;
+  WEBHOOK_RETRY_LIMIT?: string;
+  WEBHOOK_RETRY_CRONS?: string;
+  WEBHOOK_RETRY_MAX_ATTEMPTS?: string;
+  WEBHOOK_RETRY_INITIAL_BACKOFF_MS?: string;
+  WEBHOOK_RETRY_MAX_BACKOFF_MS?: string;
   RECOVER_EMAIL_RECIPIENT?: string;
   GOOGLE_OIDC_CLIENT_ID?: string;
   GOOGLE_OIDC_CLIENT_IDS?: string;
@@ -90,6 +109,12 @@ function createAuthService(env: Env): AuthService {
   });
 }
 
+const runtimeSnapshotCache = createInMemoryRelayRuntimeSnapshotConsumer();
+const scheduledHandler = createWorkerScheduledHandler<Env>({
+  createAuthService,
+  outboxSink: runtimeSnapshotCache,
+});
+
 export default {
   /**
    * HTTP entrypoint
@@ -98,6 +123,9 @@ export default {
    */
   async fetch(request: Request, env: Env, ctx: Ctx): Promise<Response> {
     const authService = createAuthService(env);
+    const sessionCookieName =
+      String(env.SESSION_COOKIE_NAME || 'tatchi-jwt').trim() || 'tatchi-jwt';
+    const jwtSession = createJwtSession(sessionCookieName);
     const prfSessionSeal = createPrfSessionSealOptions({
       enabled: env.PRF_SESSION_SEAL_ENABLED,
       keyVersion: env.PRF_SESSION_SEAL_KEY_VERSION,
@@ -120,6 +148,8 @@ export default {
       }),
       signedDelegate: { route: '/signed-delegate' },
       session: jwtSession,
+      sessionCookieName,
+      runtimeSnapshots: runtimeSnapshotCache.runtimeSnapshots,
       prfSessionSeal,
     });
     return router(request, env, ctx);
@@ -127,26 +157,11 @@ export default {
 
   /**
    * Cron entrypoint
-   * - Used for optional Shamir key rotation and health heartbeats.
-   * - Activated when ENABLE_ROTATION='1' and a cron schedule is configured.
+   * - Used for optional Shamir key rotation and console operations jobs.
+   * - Activated when at least one cron feature flag is enabled.
    */
   async scheduled(event: CfScheduledEvent, env: Env, ctx: Ctx) {
-    const authService = createAuthService(env);
-    const enabled = env.ENABLE_ROTATION === '1';
-    const billingFinalizationEnabled = env.BILLING_FINALIZATION_ENABLED === '1';
-    const cron = createCloudflareCron(authService, {
-      enabled,
-      rotate: enabled,
-      billingMonthlyFinalization: billingFinalizationEnabled
-        ? {
-            enabled: true,
-            postgresUrl: env.BILLING_POSTGRES_URL,
-            namespace: env.BILLING_NAMESPACE,
-            periodMonthUtc: env.BILLING_FINALIZATION_PERIOD_MONTH_UTC,
-          }
-        : undefined,
-    });
-    await cron(event, env, ctx);
+    await scheduledHandler(event, env, ctx);
   },
 
   /**

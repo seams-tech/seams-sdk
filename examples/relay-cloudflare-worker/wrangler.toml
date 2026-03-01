@@ -19,7 +19,7 @@ tag = "v2"
 # Cloudflare Free plan requires SQLite-backed Durable Objects.
 new_sqlite_classes = ["ThresholdEd25519StoreDurableObject"]
 
-# Default inactive; add a cron schedule here when you enable rotation or heartbeats.
+# Default inactive; add one or more cron schedules when enabling any cron-backed job.
 [triggers]
 crons = []
 
@@ -66,6 +66,29 @@ THRESHOLD_PREFIX = "tatchi:prod:w3a"
 THRESHOLD_ED25519_SHARE_MODE = "derived"
 PRF_SESSION_SEAL_ENABLED = "1"
 PRF_SESSION_SEAL_KEY_VERSION = "kek-s-2026-02"
+# Console cron jobs (explicitly disabled by default; enable per job and set org ids/postgres url).
+ENABLE_ROTATION = "0"
+BILLING_FINALIZATION_ENABLED = "0"
+BILLING_POSTGRES_URL = ""
+BILLING_NAMESPACE = "console-default"
+BILLING_FINALIZATION_CRONS = "0 2 1 * *"
+BILLING_FINALIZATION_ORG_IDS = ""
+BILLING_FINALIZATION_PERIOD_MONTH_UTC = ""
+RUNTIME_SNAPSHOT_OUTBOX_ENABLED = "0"
+RUNTIME_SNAPSHOT_OUTBOX_POSTGRES_URL = ""
+RUNTIME_SNAPSHOT_OUTBOX_NAMESPACE = "console-default"
+RUNTIME_SNAPSHOT_OUTBOX_CRONS = "*/5 * * * *"
+RUNTIME_SNAPSHOT_OUTBOX_ORG_IDS = ""
+RUNTIME_SNAPSHOT_OUTBOX_LIMIT = "100"
+WEBHOOK_RETRY_ENABLED = "0"
+WEBHOOK_RETRY_POSTGRES_URL = ""
+WEBHOOK_RETRY_NAMESPACE = "console-default"
+WEBHOOK_RETRY_CRONS = "*/10 * * * *"
+WEBHOOK_RETRY_ORG_IDS = ""
+WEBHOOK_RETRY_LIMIT = "100"
+WEBHOOK_RETRY_MAX_ATTEMPTS = "5"
+WEBHOOK_RETRY_INITIAL_BACKOFF_MS = "60000"
+WEBHOOK_RETRY_MAX_BACKOFF_MS = "3600000"
 
 # Durable Object binding (explicit per-env to avoid any inheritance ambiguity).
 [[env.production.durable_objects.bindings]]
@@ -90,21 +113,34 @@ THRESHOLD_PREFIX = "tatchi:staging:w3a"
 THRESHOLD_ED25519_SHARE_MODE = "derived"
 PRF_SESSION_SEAL_ENABLED = "1"
 PRF_SESSION_SEAL_KEY_VERSION = "kek-s-2026-02"
+# Console cron jobs (explicitly disabled by default; enable per job and set org ids/postgres url).
+ENABLE_ROTATION = "0"
+BILLING_FINALIZATION_ENABLED = "0"
+BILLING_POSTGRES_URL = ""
+BILLING_NAMESPACE = "console-default"
+BILLING_FINALIZATION_CRONS = "0 2 1 * *"
+BILLING_FINALIZATION_ORG_IDS = ""
+BILLING_FINALIZATION_PERIOD_MONTH_UTC = ""
+RUNTIME_SNAPSHOT_OUTBOX_ENABLED = "0"
+RUNTIME_SNAPSHOT_OUTBOX_POSTGRES_URL = ""
+RUNTIME_SNAPSHOT_OUTBOX_NAMESPACE = "console-default"
+RUNTIME_SNAPSHOT_OUTBOX_CRONS = "*/5 * * * *"
+RUNTIME_SNAPSHOT_OUTBOX_ORG_IDS = ""
+RUNTIME_SNAPSHOT_OUTBOX_LIMIT = "100"
+WEBHOOK_RETRY_ENABLED = "0"
+WEBHOOK_RETRY_POSTGRES_URL = ""
+WEBHOOK_RETRY_NAMESPACE = "console-default"
+WEBHOOK_RETRY_CRONS = "*/10 * * * *"
+WEBHOOK_RETRY_ORG_IDS = ""
+WEBHOOK_RETRY_LIMIT = "100"
+WEBHOOK_RETRY_MAX_ATTEMPTS = "5"
+WEBHOOK_RETRY_INITIAL_BACKOFF_MS = "60000"
+WEBHOOK_RETRY_MAX_BACKOFF_MS = "3600000"
 
 # Durable Object binding (explicit per-env to avoid any inheritance ambiguity).
 [[env.staging.durable_objects.bindings]]
 name = "THRESHOLD_STORE"
 class_name = "ThresholdEd25519StoreDurableObject"
-
-# Optional: explicitly enable cron and rotation (defaults to disabled)
-# ENABLE_ROTATION = "0"
-
-# Optional: console billing monthly finalization cron (requires console billing Postgres schema).
-# BILLING_FINALIZATION_ENABLED = "1"
-# BILLING_POSTGRES_URL = "postgres://user:pass@host:5432/db"
-# BILLING_NAMESPACE = "console-default"
-# Optional override; when unset the cron finalizes the previous UTC month.
-# BILLING_FINALIZATION_PERIOD_MONTH_UTC = "2026-01"
 
 # Optional: Threshold signing (2-party FROST).
 #
