@@ -1,6 +1,6 @@
 # SaaS DB Schema Plan
 
-Date updated: February 25, 2026
+Date updated: March 1, 2026
 
 Related implementation plan:
 
@@ -34,12 +34,16 @@ This plan covers:
 
 ### Recommended default
 
-Use one shared Postgres database with tenant-aware tables and strict RLS:
+Use one shared Postgres cluster/instance with separate logical databases per major domain:
 
-- Every tenant row includes `org_id`.
-- Project-scoped rows include `project_id`.
-- Session context sets tenant vars per request.
-- RLS is default-deny; policies only allow current tenant scope.
+- `tatchi_signer` logical DB for threshold signing + relay runtime paths.
+- `tatchi_console` logical DB for `/console` control-plane features (org/project/environment, settings, billing, subscriptions, webhooks, API keys).
+- Within each logical DB, enforce tenant-aware tables and strict RLS where multi-tenant data exists:
+  - every tenant row includes `org_id`,
+  - project-scoped rows include `project_id`,
+  - session context sets tenant vars per request,
+  - RLS remains default-deny and only allows current tenant scope.
+- If local tooling temporarily uses a single logical DB, preserve equivalent isolation by strict schema + role separation until DB split is completed.
 
 ### Enterprise isolation tier
 
@@ -59,6 +63,15 @@ Reason:
 - High operational overhead (migrations, monitoring, backups).
 - Harder cross-project reporting.
 - More complexity without proportional security benefit if RLS + key design are correct.
+
+### Local development connection anchor
+
+- Current local cluster connection provided by team:
+  - `postgresql://tatchi:tatchi@127.0.0.1/tatchi?statusColor=686B6F&env=local&name=tatchi&tLSMode=0&usePrivateKey=false&safeModeLevel=0&advancedSafeModeLevel=0&driverVersion=0&lazyload=false`
+- Planned logical DB targets on the same cluster:
+  - `tatchi_signer`
+  - `tatchi_console`
+- Plan keeps separate DB users and migration runners per logical DB to reduce blast radius and keep least privilege boundaries explicit.
 
 ## High-Level Domain Model
 
@@ -285,11 +298,17 @@ Notes:
 
 ## Suggested Physical Layout
 
-Schemas:
+Logical databases + schemas:
 
-- `control`: org, projects, settings, memberships, policy configs, billing metadata.
-- `runtime`: wallets, wallet events, search indexes, policy decisions.
-- `audit`: immutable logs and compliance records.
+- `tatchi_signer`:
+  - `runtime`: signer/relay execution state.
+  - `audit`: signer-domain immutable logs.
+- `tatchi_console`:
+  - `control`: org, projects, environments, memberships, settings, policy configs.
+  - `billing`: metering, invoices, payments, Stripe/stablecoin integration records.
+  - `integrations`: api keys, webhook endpoints/deliveries/retries.
+  - `audit`: console-domain immutable logs and compliance records.
+- If only one logical DB is available temporarily, keep these schema boundaries unchanged and map separate DB users to schema-scoped privileges.
 
 Optional at scale:
 

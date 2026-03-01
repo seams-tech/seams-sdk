@@ -116,10 +116,13 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
   - Billable actions: `transfer`, `swap`, `approve`, `contract_call`.
   - Exclusions: wallet creation-only activity, simulations, failed transactions, and internal retries.
 - Card billing via Stripe:
+  - Pricing funnel: pricing page creates Stripe Checkout session and redirects to hosted checkout.
+  - Success/cancel return: Checkout redirects back to dashboard billing routes with status context.
   - Attach/update/remove card payment method.
   - RBAC: only `admin` can add/remove card payment methods.
   - Mark default payment method per organization billing account.
   - RBAC: only `admin` can set default card payment method.
+  - Subscription management in dashboard: current plan, renewal state, cancellation/update entry points.
   - Handle SCA-required flows and failed-payment recovery states.
 - Stablecoin payment support for `USDC` and `USDT`:
   - `USDC` and `USDT` can be funded from any supported chain. Current supported chains: `Ethereum`, `Base`, `Tempo`, `Arc Circle`, `NEAR`.
@@ -205,6 +208,8 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - `GET /console/billing/usage/monthly-active-wallets`, `POST /console/billing/usage/events`
 - `GET/POST/DELETE /console/billing/payment-methods`, `POST /console/billing/payment-methods/:id/default`
 - `POST /console/billing/stripe/setup-intent`, `POST /console/billing/stripe/payment-intent`
+- `POST /console/billing/stripe/checkout-session`, `POST /console/billing/stripe/customer-portal-session`
+- `GET /console/billing/subscription`, `POST /console/billing/subscription/cancel`, `POST /console/billing/subscription/resume`
 - `POST /console/billing/stripe/webhook` (provider callback endpoint; shared-secret protected)
 - `GET /console/billing/stablecoins/assets`, `POST /console/billing/stablecoins/quotes`, `POST /console/billing/stablecoins/payment-intents`
 - `GET /console/billing/stablecoins/payment-intents/:id`, `POST /console/billing/stablecoins/payment-intents/:id/cancel`
@@ -212,18 +217,19 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 ## Delivery plan
 
 - Phase 1 (MVP): wallets list/search, baseline policy controls, app settings core, API keys, webhooks basics, billing overview + invoices read APIs.
-- Phase 2: policy simulation/versioning, gas sponsorship budgets, smart wallet controls, key export approvals, Stripe card payment flows.
+- Phase 2: policy simulation/versioning, gas sponsorship budgets, smart wallet controls, key export approvals, Stripe card payment flows, pricing -> Stripe Checkout -> dashboard return flow.
 - Phase 3: advanced governance (RBAC refinements, staged rollouts, SSO, anomaly detection, deeper observability) and stablecoin payment flows (`USDC`, `USDT`).
 
 ## Acceptance criteria
 
-- Pricing CTAs route users into `/dashboard`.
+- Pricing CTA starts Stripe Checkout and success path lands user back in `/dashboard/billing`.
 - Admin can list/search wallets and filter by chain/policy/status.
 - Policy engine can enforce action+chain constraints for threshold wallets.
 - Gas sponsorship and smart wallet toggles affect runtime behavior and telemetry.
 - Security settings (origins/cookies/JWT) are environment-specific and validated.
 - Key export, API key, and webhook features include audit-friendly logs.
 - Billing supports card payments through Stripe and stablecoin invoice settlement via `USDC` and `USDT`.
+- Dashboard billing includes subscription-management controls (plan visibility, lifecycle actions, and billing portal entry).
 - `USDC`/`USDT` settlement accepts payments from all currently supported chains: `Ethereum`, `Base`, `Tempo`, `Arc Circle`, and `NEAR`.
 - Billing payment attempts enforce the defined payment state machine and allow only listed transitions.
 - Invoice settlement never mixes rails: each invoice is fully settled by card rail or stablecoin rail.
