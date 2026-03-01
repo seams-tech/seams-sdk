@@ -1,6 +1,6 @@
 # Refactor25 Plan: Internalize Demo EVM/Tempo Transaction Lifecycle Into SDK
 
-Status: Ready for implementation  
+Status: In progress  
 Severity: High (transaction correctness + UX consistency)  
 Last updated: 2026-03-01
 
@@ -101,15 +101,15 @@ App-owned:
 
 Tests:
 
-- [ ] `tests/unit/demoEvmFinalizationDebugEvent.unit.test.ts` includes mismatch + state-convergence cases.
+- [x] `tests/unit/demoThresholdHooks.actions.unit.test.ts` covers greeting state-convergence cases.
 - [ ] `tests/unit/demoThresholdHooks.actions.unit.test.ts` baseline assertions saved before refactor.
 
 ## Phase 1: Extract shared lifecycle primitives into SDK
 
-- [ ] Move generic helpers from demo into SDK-level modules:
+- [x] Move generic helpers from demo into SDK-level modules:
   `sendRawEvmTransaction`, `waitForEvmTransactionFinalization`, `readEvmTransactionByHash`, payload verifier.
 - [ ] Keep helper names/domain clean; remove demo-prefixed duplicates where replaced.
-- [ ] Ensure helper interfaces are chain-family generic (tempo + evm).
+- [x] Ensure helper interfaces are chain-family generic (tempo + evm).
 
 Candidate files:
 
@@ -126,53 +126,54 @@ Tests:
 
 ## Phase 2: Implement high-level SDK transaction lifecycle API
 
-- [ ] Add public types/method signatures in:
+- [x] Add public types/method signatures in:
   `client/src/core/TatchiPasskey/interfaces.ts`
   `client/src/core/types/tatchi.ts`
   `client/src/index.ts`.
-- [ ] Implement method in `client/src/core/TatchiPasskey/tempo/index.ts`.
-- [ ] Enforce canonical lifecycle sequence:
+- [x] Implement method in `client/src/core/TatchiPasskey/tempo/index.ts`.
+- [x] Enforce canonical lifecycle sequence:
   sign -> broadcast -> reportAccepted -> waitFinalization -> verifyPayload -> reportFinalized.
-- [ ] On failure, enforce single canonical branch:
+- [x] On failure, enforce single canonical branch:
   reportRejected OR reportDroppedOrReplaced OR reconcileNonceLane (as appropriate).
 
 Tests:
 
-- [ ] Unit tests for success path.
-- [ ] Unit tests for broadcast rejection.
-- [ ] Unit tests for dropped/replaced branch.
-- [ ] Unit tests for payload mismatch branch.
-- [ ] Unit tests for post-finalization check failure branch.
+- [x] Unit tests for success path.
+- [x] Unit tests for broadcast rejection.
+- [x] Unit tests for dropped/replaced branch.
+- [x] Unit tests for payload mismatch branch.
+- [x] Unit tests for post-finalization check failure branch.
 
 ## Phase 3: Migrate demo flows to new SDK API
 
-- [ ] Replace manual lifecycle code in:
+- [x] Replace manual lifecycle code in:
   `examples/tatchi-site/src/flows/demo/hooks/useDemoTempoSigningActions.tsx`
   `examples/tatchi-site/src/flows/demo/hooks/useDemoArcSigningActions.tsx`
+  `examples/tatchi-site/src/flows/demo/hooks/useDemoTempoFeeTokenActions.tsx`
   with SDK high-level call.
-- [ ] Keep request builders and UI-level post-finalization greeting expectations in demo.
-- [ ] Remove manual report helpers in demo once no longer used.
+- [x] Keep request builders and UI-level post-finalization greeting expectations in demo.
+- [x] Remove manual report helpers in demo once no longer used.
 
 Candidate removals (if unused after migration):
 
-- `examples/tatchi-site/src/flows/demo/hooks/demoEvmTransactionHandling.ts`
-- `examples/tatchi-site/src/flows/demo/hooks/reportTempoBroadcastFailure.ts`
-- duplicate lifecycle helpers in `examples/tatchi-site/src/flows/demo/demoEvmHelpers.ts`
+- [x] `examples/tatchi-site/src/flows/demo/hooks/demoEvmTransactionHandling.ts`
+- [x] `examples/tatchi-site/src/flows/demo/hooks/reportTempoBroadcastFailure.ts`
+- [x] duplicate lifecycle helpers in `examples/tatchi-site/src/flows/demo/demoEvmHelpers.ts`
 
 Tests:
 
-- [ ] Update and pass `tests/unit/demoThresholdHooks.actions.unit.test.ts`.
-- [ ] Keep `tests/unit/demoEvmFinalizationDebugEvent.unit.test.ts` green with new integration points.
+- [x] Update and pass `tests/unit/demoThresholdHooks.actions.unit.test.ts`.
+- [x] Keep greeting convergence coverage via `tests/unit/demoThresholdHooks.actions.unit.test.ts`.
 
 ## Phase 4: Delete legacy duplicates and harden contracts
 
-- [ ] Remove old demo-only lifecycle utilities fully.
-- [ ] Remove dead imports and stale symbols in demo hooks.
+- [x] Remove old demo-only lifecycle utilities fully.
+- [x] Remove dead imports and stale symbols in demo hooks.
 - [ ] Add static guards (grep/lint/test) preventing reintroduction of duplicate lifecycle implementations under `flows/demo`.
 
 Tests:
 
-- [ ] Targeted unit suite rerun for impacted modules.
+- [x] Targeted unit suite rerun for impacted modules.
 - [ ] `pnpm -C tests run test:signers:gates` passes.
 
 ## Phase 5: End-to-end regression pass
@@ -185,7 +186,7 @@ Tests:
 
 - [ ] `tests/e2e/thresholdEcdsa.tempoSigning.test.ts`
 - [ ] `tests/e2e/thresholdEcdsa.sealedRefresh.walletIframe.test.ts`
-- [ ] Add/extend a dedicated e2e for "stuck old tx then retry" regression.
+- [x] Add/extend a dedicated e2e for "stuck old tx then retry" regression.
 
 ## 6. Acceptance Criteria
 
@@ -199,14 +200,20 @@ Tests:
 
 Run at minimum:
 
-1. `pnpm -C tests playwright test ./unit/demoEvmFinalizationDebugEvent.unit.test.ts --reporter=line`
-2. `pnpm -C tests playwright test ./unit/demoThresholdHooks.actions.unit.test.ts --reporter=line`
-3. `pnpm -C tests playwright test ./unit/tempo.broadcastNonceLifecycle.unit.test.ts --reporter=line`
-4. `pnpm -C tests playwright test ./unit/evmNonceLifecycleMetrics.unit.test.ts --reporter=line`
-5. `pnpm -C tests playwright test ./e2e/thresholdEcdsa.tempoSigning.test.ts --reporter=line`
+1. `pnpm -C tests exec playwright test ./unit/demoThresholdHooks.actions.unit.test.ts --reporter=line`
+2. `pnpm -C tests exec playwright test ./unit/tatchiPasskey.chainSigners.unit.test.ts --reporter=line`
+3. `pnpm -C tests exec playwright test ./unit/tempo.broadcastNonceLifecycle.unit.test.ts --reporter=line`
+4. `pnpm -C tests exec playwright test ./unit/evmNonceLifecycleMetrics.unit.test.ts --reporter=line`
+5. `pnpm -C tests exec playwright test ./e2e/thresholdEcdsa.tempoSigning.test.ts --reporter=line`
 
 ## 8. Implementation Notes
 
 1. Prefer moving code, not copying code.
 2. If a helper becomes SDK-owned, delete the demo-local variant in the same PR unless still required by another in-flight phase.
 3. Breaking changes are acceptable; avoid compatibility shims that preserve old duplicate paths.
+
+## 9. Immediate Next Execution Steps
+
+1. Rerun signer lifecycle gates + broader target e2e before merge.
+2. Add static guard(s) to fail CI if legacy lifecycle helpers are reintroduced under `flows/demo`.
+3. Expand the stale-payload e2e to include UI hook-level `post_finalization_state_mismatch` surfacing in the demo flow.

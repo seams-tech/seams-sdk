@@ -4,23 +4,15 @@ import { toast } from 'sonner';
 
 import { FRONTEND_CONFIG } from '@/config';
 import {
-  assertRawTxTypePrefix,
   buildEvmExplorerTxUrl,
   buildDemoEip1559Request,
   compactHex,
-  extractManagedNonceHints,
   formatWeiToEth,
   isUserCancellationError,
   parseInsufficientFundsError,
-  sendRawEvmTransaction,
-  verifyFinalizedEvmTxPayload,
+  resolveClickTimeEip1559FeeCaps,
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
-import {
-  reportDemoEvmBroadcastFailure,
-  resolveClickTimeEip1559FeeCaps,
-  waitForDemoEvmFinalization,
-} from './demoEvmTransactionHandling';
 
 type UseDemoArcSigningActionsArgs = {
   canSignEvm: boolean;
@@ -53,10 +45,6 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
     } catch {}
     setEvmThresholdSignLoading(true);
     toast.loading('Signing EVM transaction…', { id: toastId, description: null });
-    let signedResultForBroadcast: Awaited<ReturnType<typeof tatchi.tempo.signTempo>> | null = null;
-    let broadcastAccepted = false;
-    let broadcastTxHash: `0x${string}` | undefined;
-    let finalizedReported = false;
     try {
       const requestedGreeting = arcGreetingInput.trim();
       const feeCaps = await resolveClickTimeEip1559FeeCaps({
@@ -64,74 +52,23 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
         fallbackFeeCaps: arcEip1559FeeCaps,
       });
       const request = buildDemoEip1559Request(requestedGreeting, feeCaps);
-      const signed = await tatchi.tempo.signTempo({
+      const execution = await tatchi.tempo.executeEvmFamilyTransaction({
         nearAccountId,
         request,
+        payloadExpectation: {
+          to: request.tx.to,
+          input: request.tx.data || '0x',
+        },
+        postFinalizationCheck: async () => {
+          await fetchArcGreeting({ silent: true });
+          await refreshThresholdEvmFundingAddress();
+        },
       });
-      signedResultForBroadcast = signed;
-      const nonceHints = extractManagedNonceHints(signed);
-
-      if (signed.kind !== 'eip1559') {
-        throw new Error(`Unexpected signing result kind: ${signed.kind}`);
-      }
-      assertRawTxTypePrefix({ requestKind: request.kind, rawTxHex: signed.rawTxHex });
-
-      toast.loading('Dispatching EVM transaction…', { id: toastId, description: null });
-      const txHash = await sendRawEvmTransaction({
-        rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
-        rawTxHex: signed.rawTxHex,
-      });
-      broadcastTxHash = txHash;
-      await tatchi.tempo.reportBroadcastAccepted({
-        nearAccountId,
-        signedResult: signedResultForBroadcast,
-        txHash,
-      });
-      broadcastAccepted = true;
-
-      toast.loading('EVM transaction broadcasted, waiting for finalization…', {
-        id: toastId,
-        description: null,
-      });
-      await waitForDemoEvmFinalization({
-        rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
-        txHash,
-        flowLabel: 'ARC greeting',
-        timeoutLabel: 'EVM receipt finalization confirmation',
-        chain: 'evm',
-        chainId: request.tx.chainId,
-        gasLimitHint: request.tx.gasLimit,
-        maxFeePerGasHint: request.tx.maxFeePerGas,
-        nonceHints,
-      });
-      const payloadVerification = await verifyFinalizedEvmTxPayload({
-        rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
-        txHash,
-        expectedTo: request.tx.to,
-        expectedInput: request.tx.data || '0x',
-      });
-      if (!payloadVerification.verified && payloadVerification.reason === 'mismatch') {
-        const mismatchError = new Error(
-          `Finalized transaction payload mismatch for ${compactHex(txHash)}.`,
-        ) as Error & { code?: string; details?: unknown };
-        mismatchError.code = 'tx_payload_mismatch';
-        mismatchError.details = payloadVerification;
-        throw mismatchError;
-      }
-      await tatchi.tempo.reportFinalized({
-        nearAccountId,
-        signedResult: signed,
-        txHash,
-        receiptStatus: 'success',
-      });
-      finalizedReported = true;
-      await fetchArcGreeting({ silent: true });
-      await refreshThresholdEvmFundingAddress();
       const txUrl = buildEvmExplorerTxUrl({
         explorerBaseUrl: FRONTEND_CONFIG.arcExplorerUrl,
-        txHash,
+        txHash: execution.txHash,
       });
-      const txLabel = compactHex(txHash);
+      const txLabel = compactHex(execution.txHash);
 
       toast.success('EVM transaction finalized', {
         id: toastId,
@@ -152,21 +89,11 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
       const resolvedError: unknown = error;
       const message =
         resolvedError instanceof Error ? resolvedError.message : String(resolvedError);
-      if (!finalizedReported) {
-        reportDemoEvmBroadcastFailure({
-          tatchi,
-          nearAccountId,
-          signedResult: signedResultForBroadcast,
-          error: resolvedError,
-          flow: 'evm-sign',
-          broadcastAccepted,
-          txHash: broadcastTxHash,
-        });
-        if (isUserCancellationError(resolvedError)) {
-          toast.error('EVM transaction cancelled by user.', { id: toastId, description: null });
-          return;
-        }
-      } else {
+      const errorCode =
+        resolvedError && typeof resolvedError === 'object' && 'code' in resolvedError
+          ? String((resolvedError as { code?: unknown }).code || '')
+          : '';
+      if (errorCode === 'post_finalization_state_mismatch') {
         toast.error(`EVM transaction finalized, but post-finalization refresh failed: ${message}`, {
           id: toastId,
           description: null,
@@ -175,8 +102,11 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
           atIso: new Date().toISOString(),
           message,
           error: resolvedError,
-          txHash: broadcastTxHash,
         });
+        return;
+      }
+      if (isUserCancellationError(resolvedError)) {
+        toast.error('EVM transaction cancelled by user.', { id: toastId, description: null });
         return;
       }
       const insufficient = parseInsufficientFundsError(message);

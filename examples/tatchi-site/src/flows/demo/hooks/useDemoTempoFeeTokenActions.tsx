@@ -7,25 +7,18 @@ import {
   EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,
   EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
   TEMPO_ALPHA_USD_FEE_TOKEN,
-  assertRawTxTypePrefix,
   buildEvmExplorerTxUrl,
   buildEip1559SetUserTokenRequest,
   compactHex,
-  extractManagedNonceHints,
   formatWeiToEth,
   isUserCancellationError,
   parseInsufficientFundsError,
   readEvmNativeBalance,
   readTempoTokenBalanceRaw,
-  sendRawEvmTransaction,
+  resolveClickTimeEip1559FeeCaps,
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
 import type { EvmAddress, TempoFeeTokenConfigTarget } from './demoThresholdTypes';
-import {
-  reportDemoEvmBroadcastFailure,
-  resolveClickTimeEip1559FeeCaps,
-  waitForDemoEvmFinalization,
-} from './demoEvmTransactionHandling';
 
 type UseDemoTempoFeeTokenActionsArgs = {
   isLoggedIn: boolean;
@@ -72,11 +65,7 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
         id: toastId,
         description: null,
       });
-      let signedResultForBroadcast: Awaited<ReturnType<typeof tatchi.tempo.signTempo>> | null =
-        null;
-      let broadcastAccepted = false;
-      let broadcastTxHash: `0x${string}` | undefined;
-      let finalizedReported = false;
+      let executedTxHash: `0x${string}` | undefined;
       let thresholdSenderForAttempt: EvmAddress | null = null;
       let selectedFeeTokenBalanceRaw: bigint | null = null;
       let senderNativeBalanceRaw: bigint | null = null;
@@ -110,83 +99,49 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
             blockTag: 'latest',
           }).catch(() => null);
         })().catch(() => undefined);
-
-        const signed = await tatchi.tempo.signTempo({
+        const execution = await tatchi.tempo.executeEvmFamilyTransaction({
           nearAccountId,
           request,
+          finalization: {
+            timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,
+            pollIntervalMs: EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
+          },
+          payloadExpectation: {
+            to: request.tx.to,
+            input: request.tx.data || '0x',
+          },
+          postFinalizationCheck: async () => {
+            const thresholdSender = await thresholdSenderPromise;
+            const refreshedFeeToken = thresholdSender
+              ? await refreshTempoUserFeeToken({
+                  silent: true,
+                  userAddress: thresholdSender,
+                })
+              : null;
+            if (thresholdSender) {
+              await refreshTempoUserFeeTokenBalance({
+                silent: true,
+                userAddress: thresholdSender,
+                feeToken: tempoFeeToken,
+              });
+            }
+            const refreshedMatchesTarget =
+              !!refreshedFeeToken &&
+              refreshedFeeToken.toLowerCase() === tempoFeeToken.toLowerCase();
+            if (thresholdSender && !refreshedMatchesTarget) {
+              throw new Error(
+                `setUserToken transaction finalized, but refreshed userTokens(address) reports ${refreshedFeeToken ? compactHex(refreshedFeeToken) : 'not set'} instead of ${compactHex(tempoFeeToken)}.`,
+              );
+            }
+          },
         });
-        signedResultForBroadcast = signed;
-        const nonceHints = extractManagedNonceHints(signed);
-        if (signed.kind !== 'eip1559') {
-          throw new Error(`Unexpected signing result kind: ${signed.kind}`);
-        }
-        assertRawTxTypePrefix({ requestKind: request.kind, rawTxHex: signed.rawTxHex });
-
-        toast.loading('Dispatching setUserToken transaction…', { id: toastId, description: null });
-        const txHash = await sendRawEvmTransaction({
-          rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-          rawTxHex: signed.rawTxHex,
-        });
-        broadcastTxHash = txHash;
-        await tatchi.tempo.reportBroadcastAccepted({
-          nearAccountId,
-          signedResult: signed,
-          txHash,
-        });
-        broadcastAccepted = true;
-
-        toast.loading('Waiting for setUserToken finalization…', {
-          id: toastId,
-          description: null,
-        });
-        const thresholdSender = await thresholdSenderPromise;
-        await waitForDemoEvmFinalization({
-          rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-          txHash,
-          flowLabel: 'Tempo setUserToken',
-          timeoutLabel: 'setUserToken receipt finalization confirmation',
-          chain: 'tempo',
-          chainId: request.tx.chainId,
-          gasLimitHint: request.tx.gasLimit,
-          maxFeePerGasHint: request.tx.maxFeePerGas,
-          finalizationTimeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,
-          pollIntervalMs: EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
-          nonceHints,
-        });
-        await tatchi.tempo.reportFinalized({
-          nearAccountId,
-          signedResult: signed,
-          txHash,
-          receiptStatus: 'success',
-        });
-        finalizedReported = true;
-        const refreshedFeeToken = thresholdSender
-          ? await refreshTempoUserFeeToken({
-              silent: true,
-              userAddress: thresholdSender,
-            })
-          : null;
-        if (thresholdSender) {
-          await refreshTempoUserFeeTokenBalance({
-            silent: true,
-            userAddress: thresholdSender,
-            feeToken: tempoFeeToken,
-          });
-        }
-        const refreshedMatchesTarget =
-          !!refreshedFeeToken &&
-          refreshedFeeToken.toLowerCase() === tempoFeeToken.toLowerCase();
-        if (thresholdSender && !refreshedMatchesTarget) {
-          throw new Error(
-            `setUserToken transaction finalized, but refreshed userTokens(address) reports ${refreshedFeeToken ? compactHex(refreshedFeeToken) : 'not set'} instead of ${compactHex(tempoFeeToken)}. Tx hash: ${txHash}`,
-          );
-        }
+        executedTxHash = execution.txHash;
         await diagnosticsPromise;
         const txUrl = buildEvmExplorerTxUrl({
           explorerBaseUrl: FRONTEND_CONFIG.tempoExplorerUrl,
-          txHash,
+          txHash: execution.txHash,
         });
-        const txLabel = compactHex(txHash);
+        const txLabel = compactHex(execution.txHash);
 
         toast.success('Tempo fee token configured', {
           id: toastId,
@@ -211,24 +166,11 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
         const resolvedError: unknown = error;
         const message =
           resolvedError instanceof Error ? resolvedError.message : String(resolvedError);
-        if (!finalizedReported) {
-          reportDemoEvmBroadcastFailure({
-            tatchi,
-            nearAccountId,
-            signedResult: signedResultForBroadcast,
-            error: resolvedError,
-            flow: 'tempo-set-fee-token',
-            broadcastAccepted,
-            txHash: broadcastTxHash,
-          });
-          if (isUserCancellationError(resolvedError)) {
-            toast.error('Tempo fee token update cancelled by user.', {
-              id: toastId,
-              description: null,
-            });
-            return;
-          }
-        } else {
+        const errorCode =
+          resolvedError && typeof resolvedError === 'object' && 'code' in resolvedError
+            ? String((resolvedError as { code?: unknown }).code || '')
+            : '';
+        if (errorCode === 'post_finalization_state_mismatch') {
           toast.error(
             `Tempo fee-token transaction finalized, but post-finalization refresh failed: ${message}`,
             { id: toastId, description: null },
@@ -240,7 +182,14 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
             thresholdSenderForAttempt,
             selectedFeeTokenBalanceRaw,
             senderNativeBalanceRaw,
-            txHash: broadcastTxHash,
+            txHash: executedTxHash,
+          });
+          return;
+        }
+        if (isUserCancellationError(resolvedError)) {
+          toast.error('Tempo fee token update cancelled by user.', {
+            id: toastId,
+            description: null,
           });
           return;
         }

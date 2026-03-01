@@ -13,7 +13,6 @@ export {
   type EvmJsonRpcError as EvmPublicJsonRpcError,
   type WaitForEvmTransactionReceiptArgs,
 } from './core/rpcClients/evm/publicClient';
-export { createWebAuthnLoginOptions, verifyWebAuthnLogin } from './core/rpcClients/near/rpcCalls';
 
 export * from './config';
 export { base64UrlEncode, base64UrlDecode } from '@shared/utils/encoders';
@@ -28,7 +27,7 @@ export type {
   // Login
   LoginResult,
   LoginAndCreateSessionResult,
-  LoginSession,
+  WalletSession,
   SigningSessionStatus,
   // Actions
   ActionResult,

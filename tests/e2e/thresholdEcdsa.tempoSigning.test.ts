@@ -32,6 +32,235 @@ test.describe('threshold-ecdsa tempo signing', () => {
     }
   });
 
+  test('executeEvmFamilyTransaction rejects stale finalized payload replay', async ({ page }) => {
+    const harness = await setupThresholdEcdsaTempoHarness(page);
+    const txHash = `0x${'66'.repeat(32)}`;
+    try {
+      await page.route('**://rpc.moderato.tempo.xyz/**', async (route) => {
+        const request = route.request();
+        let payload: Record<string, unknown> = {};
+        try {
+          payload = JSON.parse(request.postData() || '{}') as Record<string, unknown>;
+        } catch {}
+        const id = payload.id ?? Date.now();
+        const method = String(payload.method || '');
+        if (method === 'eth_sendRawTransaction') {
+          await route.fulfill({
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              ...corsHeadersForRoute(route),
+            },
+            body: JSON.stringify({ jsonrpc: '2.0', id, result: txHash }),
+          });
+          return;
+        }
+        if (method === 'eth_getTransactionReceipt') {
+          await route.fulfill({
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              ...corsHeadersForRoute(route),
+            },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              result: {
+                transactionHash: txHash,
+                blockNumber: '0x1234',
+                status: '0x1',
+              },
+            }),
+          });
+          return;
+        }
+        if (method === 'eth_getTransactionByHash') {
+          await route.fulfill({
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              ...corsHeadersForRoute(route),
+            },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              result: {
+                to: '0x1111111111111111111111111111111111111111',
+                input: '0xdeadbeef',
+              },
+            }),
+          });
+          return;
+        }
+        if (method === 'eth_getTransactionCount') {
+          await route.fulfill({
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              ...corsHeadersForRoute(route),
+            },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              result: '0x1',
+            }),
+          });
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeadersForRoute(route),
+          },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            error: { code: -32601, message: `unexpected method: ${method}` },
+          }),
+        });
+      });
+
+      const result = await page.evaluate(
+        async ({ relayerUrl }) => {
+          try {
+            const sdkMod = await import('/sdk/esm/index.js');
+            const { TatchiPasskey } = sdkMod as any;
+
+            const accountId = `tempopayload${Date.now()}.w3a-v1.testnet`;
+            const confirmationConfig = {
+              uiMode: 'none' as const,
+              behavior: 'skipClick' as const,
+              autoProceedDelay: 0,
+            };
+
+            const pm = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayerAccount: 'web3-authn-v4.testnet',
+              relayer: {
+                url: relayerUrl,
+                smartAccountDeploymentMode: 'observe',
+              },
+              iframeWallet: {
+                walletOrigin: '',
+                walletServicePath: '/wallet-service',
+                sdkBasePath: '/sdk',
+                rpIdOverride: 'example.localhost',
+              },
+            });
+
+            const registration = await pm.registration.registerPasskeyInternal(
+              accountId,
+              {
+                signerOptions: {
+                  tempo: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                  evm: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                },
+              },
+              confirmationConfig,
+            );
+            if (!registration?.success) {
+              return {
+                ok: false,
+                error: String(registration?.error || 'registerPasskeyInternal failed'),
+              };
+            }
+
+            const bootstrap = await pm.tempo.bootstrapEcdsaSession({
+              nearAccountId: accountId,
+              options: {
+                relayerUrl,
+                ttlMs: 120_000,
+                remainingUses: 4,
+              },
+            });
+            if (!bootstrap?.session?.ok) {
+              return {
+                ok: false,
+                error: String(bootstrap?.session?.message || 'bootstrapEcdsaSession failed'),
+              };
+            }
+
+            const request = {
+              chain: 'evm' as const,
+              kind: 'eip1559' as const,
+              senderSignatureAlgorithm: 'secp256k1' as const,
+              tx: {
+                chainId: 42431,
+                maxPriorityFeePerGas: 1n,
+                maxFeePerGas: 2n,
+                gasLimit: 21_000n,
+                to: '0x2222222222222222222222222222222222222222',
+                value: 0n,
+                data: '0xcafebabe',
+                accessList: [],
+              },
+            };
+
+            try {
+              await pm.tempo.executeEvmFamilyTransaction({
+                nearAccountId: accountId,
+                request,
+                payloadExpectation: {
+                  to: request.tx.to,
+                  input: request.tx.data,
+                },
+                options: {
+                  confirmationConfig,
+                },
+              });
+              return {
+                ok: false,
+                error: 'expected tx_payload_mismatch but execution resolved',
+              };
+            } catch (error: unknown) {
+              const err = error as {
+                code?: unknown;
+                message?: unknown;
+                details?: { reason?: unknown; observedInput?: unknown; observedTo?: unknown };
+              };
+              return {
+                ok: String(err.code || '') === 'tx_payload_mismatch',
+                code: String(err.code || ''),
+                message: String(err.message || ''),
+                reason: String(err.details?.reason || ''),
+                observedInput: String(err.details?.observedInput || ''),
+                observedTo: String(err.details?.observedTo || ''),
+              };
+            }
+          } catch (error: unknown) {
+            return {
+              ok: false,
+              error: String(
+                error && typeof error === 'object' && 'message' in error
+                  ? (error as { message?: unknown }).message
+                  : error || 'stale payload replay regression failed',
+              ),
+            };
+          }
+        },
+        { relayerUrl: harness.baseUrl },
+      );
+
+      expect(result.ok, result.error || JSON.stringify(result)).toBe(true);
+      expect(result.code).toBe('tx_payload_mismatch');
+      expect(result.reason).toBe('mismatch');
+      expect(result.observedInput.toLowerCase()).toBe('0xdeadbeef');
+      expect(result.observedTo.toLowerCase()).toBe('0x1111111111111111111111111111111111111111');
+    } finally {
+      await harness.close();
+    }
+  });
+
   test('back-to-back managed EVM sends reserve distinct nonces after broadcast acceptance', async ({
     page,
   }) => {

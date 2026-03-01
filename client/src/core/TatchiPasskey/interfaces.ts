@@ -8,9 +8,9 @@ import type { NearClient, SignedTransaction } from '../rpcClients/near/NearClien
 import type {
   ActionResult,
   DelegateRelayResult,
-  GetRecentLoginsResult,
+  GetRecentUnlocksResult,
   LoginAndCreateSessionResult,
-  LoginSession,
+  WalletSession,
   RegistrationResult,
   SignAndSendDelegateActionResult,
   SignDelegateActionResult,
@@ -71,7 +71,7 @@ export type SignTempoArgs = {
   };
 };
 
-type TempoNonceLifecycleEvent = {
+export type TempoNonceLifecycleEvent = {
   step: number;
   phase: string;
   status: 'progress' | 'success' | 'error';
@@ -79,7 +79,7 @@ type TempoNonceLifecycleEvent = {
   data?: unknown;
 };
 
-type TempoNonceLifecycleOptions = {
+export type TempoNonceLifecycleOptions = {
   onEvent?: (event: TempoNonceLifecycleEvent) => void;
 };
 
@@ -116,6 +116,40 @@ export type TempoNonceLaneStatus = {
   blockedNonce?: string;
 };
 
+export type FinalizedEvmTxPayloadVerification = {
+  verified: boolean;
+  reason: 'matched' | 'tx_unavailable' | 'mismatch';
+  observedTo?: string | null;
+  observedInput?: string | null;
+};
+
+export type ExecuteEvmFamilyTransactionArgs = {
+  nearAccountId: string;
+  request: MultichainSigningRequest;
+  payloadExpectation?: {
+    to?: `0x${string}`;
+    input?: `0x${string}`;
+  };
+  postFinalizationCheck?: () => Promise<void>;
+  finalization?: {
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+    confirmations?: number;
+  };
+  options?: {
+    confirmationConfig?: Partial<ConfirmationConfig>;
+    /** Internal host-only cancellation probe; ignored in wallet-router calls. */
+    shouldAbort?: () => boolean;
+    onEvent?: (event: TempoNonceLifecycleEvent) => void;
+  };
+};
+
+export type ExecuteEvmFamilyTransactionResult = {
+  txHash: `0x${string}`;
+  signedResult: TempoSignedResult | EvmSignedResult;
+  payloadVerification: FinalizedEvmTxPayloadVerification;
+};
+
 export type BootstrapThresholdEcdsaSessionArgs = {
   nearAccountId: string;
   options?: {
@@ -136,10 +170,13 @@ export type BootstrapThresholdEcdsaSessionArgs = {
 };
 
 export interface AuthCapability {
-  login(nearAccountId: string, options?: LoginHooksOptions): Promise<LoginAndCreateSessionResult>;
-  logout(): Promise<void>;
-  getSession(nearAccountId?: string): Promise<LoginSession>;
-  getRecentLogins(): Promise<GetRecentLoginsResult>;
+  unlock(
+    nearAccountId: string,
+    options?: LoginHooksOptions,
+  ): Promise<LoginAndCreateSessionResult>;
+  lock(): Promise<void>;
+  getWalletSession(nearAccountId?: string): Promise<WalletSession>;
+  getRecentUnlocks(): Promise<GetRecentUnlocksResult>;
   hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean>;
   prefillThresholdEcdsaPresignPool(args: {
     nearAccountId: string;
@@ -226,6 +263,9 @@ export interface NearSignerCapability {
 
 export interface TempoSignerCapability {
   signTempo(args: SignTempoArgs): Promise<TempoSignedResult | EvmSignedResult>;
+  executeEvmFamilyTransaction(
+    args: ExecuteEvmFamilyTransactionArgs,
+  ): Promise<ExecuteEvmFamilyTransactionResult>;
   reportBroadcastAccepted(args: ReportTempoBroadcastAcceptedArgs): Promise<void>;
   reportBroadcastRejected(args: ReportTempoBroadcastRejectedArgs): Promise<void>;
   reportFinalized(args: ReportTempoFinalizedArgs): Promise<void>;

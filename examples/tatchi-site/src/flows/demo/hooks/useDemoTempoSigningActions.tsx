@@ -5,28 +5,20 @@ import { toast } from 'sonner';
 import { FRONTEND_CONFIG } from '@/config';
 import {
   TEMPO_ALPHA_USD_FEE_TOKEN,
-  assertRawTxTypePrefix,
   buildEvmExplorerTxUrl,
   buildTempoEip1559DripRequest,
   buildTempoEip1559GreetingRequest,
   compactHex,
-  extractManagedNonceHints,
   formatWeiToEth,
   isEvmAddress,
   isUserCancellationError,
   parseInsufficientFundsError,
   readEvmNativeBalance,
-  verifyFinalizedEvmTxPayload,
-  sendRawEvmTransaction,
+  resolveClickTimeEip1559FeeCaps,
   waitForExpectedGreeting,
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
 import type { EvmAddress } from './demoThresholdTypes';
-import {
-  reportDemoEvmBroadcastFailure,
-  resolveClickTimeEip1559FeeCaps,
-  waitForDemoEvmFinalization,
-} from './demoEvmTransactionHandling';
 
 type UseDemoTempoSigningActionsArgs = {
   isLoggedIn: boolean;
@@ -72,10 +64,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
     } catch {}
     setTempoDripLoading(true);
     toast.loading('Requesting Tempo token drip…', { id: toastId, description: null });
-    let signedResultForBroadcast: Awaited<ReturnType<typeof tatchi.tempo.signTempo>> | null = null;
-    let broadcastAccepted = false;
-    let broadcastTxHash: `0x${string}` | undefined;
-    let finalizedReported = false;
+    let executedTxHash: `0x${string}` | undefined;
     let dripTokensForAttempt: EvmAddress[] = [];
     let senderNativeBalanceRaw: bigint | null = null;
     try {
@@ -101,67 +90,31 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         feeCaps,
         tokenAddresses: dripTokensForAttempt,
       });
-      const signed = await tatchi.tempo.signTempo({
+      const execution = await tatchi.tempo.executeEvmFamilyTransaction({
         nearAccountId,
         request,
+        payloadExpectation: {
+          to: request.tx.to,
+          input: request.tx.data || '0x',
+        },
+        postFinalizationCheck: async () => {
+          const thresholdSender = await thresholdSenderPromise;
+          if (thresholdSender) {
+            await refreshTempoUserFeeTokenBalance({
+              silent: true,
+              userAddress: thresholdSender,
+              feeToken: dripToken,
+            });
+          }
+        },
       });
-      signedResultForBroadcast = signed;
-      const nonceHints = extractManagedNonceHints(signed);
-
-      if (signed.kind !== 'eip1559') {
-        throw new Error(`Unexpected signing result kind: ${signed.kind}`);
-      }
-      assertRawTxTypePrefix({ requestKind: request.kind, rawTxHex: signed.rawTxHex });
-
-      toast.loading('Dispatching Tempo drip transaction…', { id: toastId, description: null });
-      const txHash = await sendRawEvmTransaction({
-        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-        rawTxHex: signed.rawTxHex,
-      });
-      broadcastTxHash = txHash;
-      await tatchi.tempo.reportBroadcastAccepted({
-        nearAccountId,
-        signedResult: signed,
-        txHash,
-      });
-      broadcastAccepted = true;
-
-      toast.loading('Tempo drip transaction broadcasted, waiting for finalization…', {
-        id: toastId,
-        description: null,
-      });
-      await waitForDemoEvmFinalization({
-        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-        txHash,
-        flowLabel: 'Tempo drip',
-        timeoutLabel: 'Tempo drip finalization confirmation',
-        chain: 'tempo',
-        chainId: request.tx.chainId,
-        gasLimitHint: request.tx.gasLimit,
-        maxFeePerGasHint: request.tx.maxFeePerGas,
-        nonceHints,
-      });
-      await tatchi.tempo.reportFinalized({
-        nearAccountId,
-        signedResult: signed,
-        txHash,
-        receiptStatus: 'success',
-      });
-      finalizedReported = true;
-      const thresholdSender = await thresholdSenderPromise;
-      if (thresholdSender) {
-        await refreshTempoUserFeeTokenBalance({
-          silent: true,
-          userAddress: thresholdSender,
-          feeToken: dripToken,
-        });
-      }
+      executedTxHash = execution.txHash;
       senderNativeBalanceRaw = await senderNativeBalancePromise;
       const txUrl = buildEvmExplorerTxUrl({
         explorerBaseUrl: FRONTEND_CONFIG.tempoExplorerUrl,
-        txHash,
+        txHash: execution.txHash,
       });
-      const txLabel = compactHex(txHash);
+      const txLabel = compactHex(execution.txHash);
 
       toast.success('Tempo drip finalized', {
         id: toastId,
@@ -185,21 +138,11 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       const resolvedError: unknown = error;
       const message =
         resolvedError instanceof Error ? resolvedError.message : String(resolvedError);
-      if (!finalizedReported) {
-        reportDemoEvmBroadcastFailure({
-          tatchi,
-          nearAccountId,
-          signedResult: signedResultForBroadcast,
-          error: resolvedError,
-          flow: 'tempo-drip-token',
-          broadcastAccepted,
-          txHash: broadcastTxHash,
-        });
-        if (isUserCancellationError(resolvedError)) {
-          toast.error('Tempo drip cancelled by user.', { id: toastId, description: null });
-          return;
-        }
-      } else {
+      const errorCode =
+        resolvedError && typeof resolvedError === 'object' && 'code' in resolvedError
+          ? String((resolvedError as { code?: unknown }).code || '')
+          : '';
+      if (errorCode === 'post_finalization_state_mismatch') {
         toast.error(`Tempo drip finalized, but post-finalization refresh failed: ${message}`, {
           id: toastId,
           description: null,
@@ -210,8 +153,12 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
           message,
           senderNativeBalanceRaw,
           dripTokensForAttempt,
-          txHash: broadcastTxHash,
+          txHash: executedTxHash,
         });
+        return;
+      }
+      if (isUserCancellationError(resolvedError)) {
+        toast.error('Tempo drip cancelled by user.', { id: toastId, description: null });
         return;
       }
       const insufficient = parseInsufficientFundsError(message);
@@ -251,10 +198,6 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
     } catch {}
     setTempoThresholdSignLoading(true);
     toast.loading('Signing Tempo transaction…', { id: toastId, description: null });
-    let signedResultForBroadcast: Awaited<ReturnType<typeof tatchi.tempo.signTempo>> | null = null;
-    let broadcastAccepted = false;
-    let broadcastTxHash: `0x${string}` | undefined;
-    let finalizedReported = false;
     try {
       const requestedGreeting = tempoGreetingInput.trim();
       const feeCaps = await resolveClickTimeEip1559FeeCaps({
@@ -262,78 +205,26 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         fallbackFeeCaps: tempoEip1559FeeCaps,
       });
       const request = buildTempoEip1559GreetingRequest(requestedGreeting, feeCaps);
-
-      const signed = await tatchi.tempo.signTempo({
+      const execution = await tatchi.tempo.executeEvmFamilyTransaction({
         nearAccountId,
         request,
+        payloadExpectation: {
+          to: request.tx.to,
+          input: request.tx.data || '0x',
+        },
+        postFinalizationCheck: async () => {
+          await waitForExpectedGreeting({
+            fetchGreeting: fetchTempoGreeting,
+            expectedGreeting: requestedGreeting,
+          });
+          await refreshThresholdEvmFundingAddress();
+        },
       });
-      signedResultForBroadcast = signed;
-      const nonceHints = extractManagedNonceHints(signed);
-
-      if (signed.kind !== 'eip1559') {
-        throw new Error(`Unexpected signing result kind: ${signed.kind}`);
-      }
-      assertRawTxTypePrefix({ requestKind: request.kind, rawTxHex: signed.rawTxHex });
-
-      toast.loading('Dispatching Tempo transaction…', { id: toastId, description: null });
-      const txHash = await sendRawEvmTransaction({
-        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-        rawTxHex: signed.rawTxHex,
-      });
-      broadcastTxHash = txHash;
-      await tatchi.tempo.reportBroadcastAccepted({
-        nearAccountId,
-        signedResult: signedResultForBroadcast,
-        txHash,
-      });
-      broadcastAccepted = true;
-
-      toast.loading('Tempo transaction broadcasted, waiting for finalization…', {
-        id: toastId,
-        description: null,
-      });
-      await waitForDemoEvmFinalization({
-        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-        txHash,
-        flowLabel: 'Tempo greeting',
-        timeoutLabel: 'Tempo receipt finalization confirmation',
-        chain: 'tempo',
-        chainId: request.tx.chainId,
-        gasLimitHint: request.tx.gasLimit,
-        maxFeePerGasHint: request.tx.maxFeePerGas,
-        nonceHints,
-      });
-      const payloadVerification = await verifyFinalizedEvmTxPayload({
-        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-        txHash,
-        expectedTo: request.tx.to,
-        expectedInput: request.tx.data || '0x',
-      });
-      if (!payloadVerification.verified && payloadVerification.reason === 'mismatch') {
-        const mismatchError = new Error(
-          `Finalized transaction payload mismatch for ${compactHex(txHash)}.`,
-        ) as Error & { code?: string; details?: unknown };
-        mismatchError.code = 'tx_payload_mismatch';
-        mismatchError.details = payloadVerification;
-        throw mismatchError;
-      }
-      await tatchi.tempo.reportFinalized({
-        nearAccountId,
-        signedResult: signed,
-        txHash,
-        receiptStatus: 'success',
-      });
-      finalizedReported = true;
-      await waitForExpectedGreeting({
-        fetchGreeting: fetchTempoGreeting,
-        expectedGreeting: requestedGreeting,
-      });
-      await refreshThresholdEvmFundingAddress();
       const txUrl = buildEvmExplorerTxUrl({
         explorerBaseUrl: FRONTEND_CONFIG.tempoExplorerUrl,
-        txHash,
+        txHash: execution.txHash,
       });
-      const txLabel = compactHex(txHash);
+      const txLabel = compactHex(execution.txHash);
 
       toast.success('Tempo transaction finalized', {
         id: toastId,
@@ -354,22 +245,11 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       const resolvedError: unknown = error;
       const message =
         resolvedError instanceof Error ? resolvedError.message : String(resolvedError);
-      if (!finalizedReported) {
-        reportDemoEvmBroadcastFailure({
-          tatchi,
-          nearAccountId,
-          signedResult: signedResultForBroadcast,
-          error: resolvedError,
-          flow: 'tempo-sign',
-          broadcastAccepted,
-          txHash: broadcastTxHash,
-        });
-
-        if (isUserCancellationError(resolvedError)) {
-          toast.error('Tempo transaction cancelled by user.', { id: toastId, description: null });
-          return;
-        }
-      } else {
+      const errorCode =
+        resolvedError && typeof resolvedError === 'object' && 'code' in resolvedError
+          ? String((resolvedError as { code?: unknown }).code || '')
+          : '';
+      if (errorCode === 'post_finalization_state_mismatch') {
         toast.error(`Tempo transaction finalized, but post-finalization refresh failed: ${message}`, {
           id: toastId,
           description: null,
@@ -378,8 +258,11 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
           atIso: new Date().toISOString(),
           message,
           error: resolvedError,
-          txHash: broadcastTxHash,
         });
+        return;
+      }
+      if (isUserCancellationError(resolvedError)) {
+        toast.error('Tempo transaction cancelled by user.', { id: toastId, description: null });
         return;
       }
       console.error('[DemoPage][TempoSignError]', {

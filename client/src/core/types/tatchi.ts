@@ -346,7 +346,7 @@ export interface ThresholdWarmLoginAndCreateSessionResult extends LoginAndCreate
   signingSession: SigningSessionStatus & { status: 'active' };
 }
 
-export interface LoginSession {
+export interface WalletSession {
   login: LoginState;
   signingSession: SigningSessionStatus | null;
 }
@@ -366,7 +366,7 @@ export interface SignTransactionResult {
   logs?: string[];
 }
 
-export interface GetRecentLoginsResult {
+export interface GetRecentUnlocksResult {
   accountIds: string[];
   lastUsedAccount: {
     nearAccountId: AccountId;
@@ -489,7 +489,7 @@ export type TatchiWalletMode = 'direct' | 'iframe';
 
 export interface TatchiSigningSessionDefaultsInput {
   /**
-   * Defaults for relay-minted warm signing sessions minted by `loginAndCreateSession()`.
+   * Defaults for relay-minted warm signing sessions minted by `unlock()`.
    * These can be overridden per-call via `LoginHooksOptions.signingSession`.
    */
   ttlMs?: number;

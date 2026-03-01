@@ -4,6 +4,8 @@ import { toError } from '@shared/utils/errors';
 import { toAccountId } from '../../types/accountIds';
 import { routeWalletIframeOrLocal, type WalletIframeRouteDeps } from '../walletIframeRoute';
 import type {
+  ExecuteEvmFamilyTransactionArgs,
+  ExecuteEvmFamilyTransactionResult,
   ReconcileTempoNonceLaneArgs,
   ReportTempoBroadcastAcceptedArgs,
   ReportTempoBroadcastRejectedArgs,
@@ -13,6 +15,7 @@ import type {
   TempoNonceLaneStatus,
   TempoSignerCapability,
 } from '..';
+import { executeEvmFamilyTransactionLifecycle } from './executeEvmFamilyTransaction';
 
 type ChainSignerDeps = {
   getContext: () => import('../index').PasskeyManagerContext;
@@ -83,6 +86,16 @@ export class TempoSigner implements TempoSignerCapability {
           onEvent: args.options?.onEvent,
         });
       },
+    });
+  }
+
+  async executeEvmFamilyTransaction(
+    args: ExecuteEvmFamilyTransactionArgs,
+  ): Promise<ExecuteEvmFamilyTransactionResult> {
+    return await executeEvmFamilyTransactionLifecycle({
+      capability: this,
+      chains: this.getContext().configs.network.chains,
+      input: args,
     });
   }
 

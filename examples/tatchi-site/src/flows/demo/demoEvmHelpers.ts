@@ -8,7 +8,6 @@ import {
   TEMPO_FEE_MANAGER_CONTRACT,
   TEMPO_FEE_MANAGER_ABI,
   type EvmPublicClient,
-  type EvmPublicTransactionReceipt,
 } from '@tatchi-xyz/sdk';
 import {
   normalizeLowercaseString,
@@ -26,9 +25,6 @@ export const SET_GREETING_SELECTOR = '0xa4136862';
 export const TEMPO_GREETING_SELECTOR = '0xef690cc0';
 export const ARC_GREET_SELECTOR = '0xcfae3217';
 export const TEMPO_DRIP_SELECTOR = '0x428dc451';
-export const EVM_TX_FINALITY_TIMEOUT_MS = 90_000;
-export const EVM_TX_RECEIPT_POLL_INTERVAL_MS = 1_250;
-export const EVM_TX_FINALITY_CONFIRMATIONS = 1;
 export const EVM_RPC_REQUEST_TIMEOUT_MS = 15_000;
 export const EIP1559_FEE_CAP_REFRESH_INTERVAL_MS = 20_000;
 export const EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS = 180_000;
@@ -46,33 +42,6 @@ export const TEMPO_DRIP_GAS_LIMIT = 300_000n;
 export type Eip1559FeeCaps = {
   maxPriorityFeePerGas: bigint;
   maxFeePerGas: bigint;
-};
-
-export type ManagedNonceHints = {
-  senderHint?: `0x${string}`;
-  nonceHint?: bigint;
-};
-
-export type EvmFinalizationBranch =
-  | 'receipt_confirmed'
-  | 'receipt_reverted'
-  | 'dropped_nonce_advanced'
-  | 'dropped_hash_disappeared'
-  | 'underpriced_fee'
-  | 'timeout'
-  | 'aborted'
-  | 'unknown_error';
-
-export type EvmFinalizationDebugEvent = {
-  branch: EvmFinalizationBranch;
-  txHash: `0x${string}`;
-  message: string;
-  chain?: 'tempo' | 'evm';
-  chainId?: number;
-  sender?: `0x${string}`;
-  nonce?: string;
-  errorCode?: string;
-  reason?: 'dropped' | 'replaced';
 };
 
 export function utf8ToHex(value: string): string {
@@ -152,22 +121,6 @@ export function decodeStringResultData(rawHex: string): string {
   return hexToUtf8(resultHex.slice(dataStart, dataEnd));
 }
 
-export type EvmTransactionReceipt = EvmPublicTransactionReceipt;
-
-export type EvmTransactionResponse = {
-  from?: string | null;
-  to?: string | null;
-  input?: string | null;
-  value?: string | null;
-};
-
-export type FinalizedEvmTxPayloadVerification = {
-  verified: boolean;
-  reason: 'matched' | 'tx_unavailable' | 'mismatch';
-  observedTo?: string | null;
-  observedInput?: string | null;
-};
-
 function createDemoEvmPublicClient(args: {
   rpcUrl: string;
   requestTimeoutMs?: number;
@@ -176,47 +129,6 @@ function createDemoEvmPublicClient(args: {
     rpcUrl: args.rpcUrl,
     requestTimeoutMs: args.requestTimeoutMs ?? EVM_RPC_REQUEST_TIMEOUT_MS,
   });
-}
-
-export async function withPromiseTimeout<T>(args: {
-  promise: Promise<T>;
-  timeoutMs: number;
-  label: string;
-  onTimeout?: () => void;
-}): Promise<T> {
-  const timeoutMs = Math.max(1, Math.floor(Number(args.timeoutMs) || 0));
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  let settled = false;
-
-  try {
-    return await new Promise<T>((resolve, reject) => {
-      timeoutId = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        try {
-          args.onTimeout?.();
-        } catch {}
-        reject(new Error(`${args.label} timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
-
-      args.promise.then(
-        (value) => {
-          if (settled) return;
-          settled = true;
-          if (timeoutId) clearTimeout(timeoutId);
-          resolve(value);
-        },
-        (error: unknown) => {
-          if (settled) return;
-          settled = true;
-          if (timeoutId) clearTimeout(timeoutId);
-          reject(error);
-        },
-      );
-    });
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-  }
 }
 
 export async function readEvmGreeting(params: {
@@ -241,237 +153,6 @@ export async function readEvmGreeting(params: {
   }
 
   return decodeStringResultData(result);
-}
-
-export async function sendRawEvmTransaction(args: {
-  rpcUrl: string;
-  rawTxHex: string;
-}): Promise<`0x${string}`> {
-  const client = createDemoEvmPublicClient({ rpcUrl: args.rpcUrl });
-  const txHash = await client.request<string>({
-    method: 'eth_sendRawTransaction',
-    params: [args.rawTxHex],
-  });
-  if (typeof txHash !== 'string' || !txHash.startsWith('0x')) {
-    throw new Error('Invalid eth_sendRawTransaction response');
-  }
-  return txHash as `0x${string}`;
-}
-
-export async function waitForEvmTransactionFinalization(args: {
-  rpcUrl: string;
-  txHash: `0x${string}`;
-  chain?: 'tempo' | 'evm';
-  chainId?: number;
-  gasLimitHint?: bigint;
-  maxFeePerGasHint?: bigint;
-  senderHint?: `0x${string}`;
-  nonceHint?: bigint;
-  timeoutMs?: number;
-  pollIntervalMs?: number;
-  signal?: AbortSignal;
-  onFinalizationDebugEvent?: (event: EvmFinalizationDebugEvent) => void;
-}): Promise<EvmTransactionReceipt> {
-  const client = createDemoEvmPublicClient({ rpcUrl: args.rpcUrl });
-  const emitDebugEvent = (argsEvent: {
-    branch: EvmFinalizationBranch;
-    message: string;
-    errorCode?: string;
-    reason?: 'dropped' | 'replaced';
-  }): void => {
-    try {
-      args.onFinalizationDebugEvent?.({
-        branch: argsEvent.branch,
-        txHash: args.txHash,
-        message: argsEvent.message,
-        ...(args.chain ? { chain: args.chain } : {}),
-        ...(typeof args.chainId === 'number' ? { chainId: args.chainId } : {}),
-        ...(args.senderHint ? { sender: args.senderHint } : {}),
-        ...(typeof args.nonceHint === 'bigint' ? { nonce: args.nonceHint.toString() } : {}),
-        ...(argsEvent.errorCode ? { errorCode: argsEvent.errorCode } : {}),
-        ...(argsEvent.reason ? { reason: argsEvent.reason } : {}),
-      });
-    } catch {}
-  };
-
-  const extractErrorCode = (error: unknown): string | undefined => {
-    const code = normalizeLowercaseString(
-      error && typeof error === 'object' && 'code' in error
-        ? (error as { code?: unknown }).code
-        : '',
-    );
-    return code || undefined;
-  };
-
-  const extractDroppedOrReplacedReason = (error: unknown): 'dropped' | 'replaced' | undefined => {
-    const reason = normalizeLowercaseString(
-      error && typeof error === 'object' && 'reason' in error
-        ? (error as { reason?: unknown }).reason
-        : '',
-    );
-    if (reason === 'replaced') return 'replaced';
-    if (reason === 'dropped') return 'dropped';
-    return undefined;
-  };
-
-  const classifyFinalizationErrorBranch = (error: unknown): EvmFinalizationBranch => {
-    const explicitBranch = normalizeLowercaseString(
-      error && typeof error === 'object' && 'finalizationBranch' in error
-        ? (error as { finalizationBranch?: unknown }).finalizationBranch
-        : '',
-    );
-    if (
-      explicitBranch === 'dropped_nonce_advanced' ||
-      explicitBranch === 'dropped_hash_disappeared' ||
-      explicitBranch === 'underpriced_fee' ||
-      explicitBranch === 'timeout'
-    ) {
-      return explicitBranch;
-    }
-    const message = normalizeLowercaseString(error instanceof Error ? error.message : error || '');
-    const code = normalizeLowercaseString(
-      error && typeof error === 'object' && 'code' in error
-        ? (error as { code?: unknown }).code
-        : '',
-    );
-    if (code === 'aborted') return 'aborted';
-    if (code === 'tx_dropped_or_replaced') {
-      if (message.includes('account nonce advanced past tx nonce')) {
-        return 'dropped_nonce_advanced';
-      }
-      if (message.includes('hash disappeared from pending pool')) {
-        return 'dropped_hash_disappeared';
-      }
-      return 'unknown_error';
-    }
-    if (message.includes('pending due to underpriced fees')) {
-      return 'underpriced_fee';
-    }
-    if (message.includes('timed out waiting for tx receipt')) {
-      return 'timeout';
-    }
-    return 'unknown_error';
-  };
-
-  let receipt: EvmTransactionReceipt;
-  try {
-    receipt = await client.waitForTransactionReceipt({
-      txHash: args.txHash,
-      timeoutMs: args.timeoutMs ?? EVM_TX_FINALITY_TIMEOUT_MS,
-      pollIntervalMs: args.pollIntervalMs ?? EVM_TX_RECEIPT_POLL_INTERVAL_MS,
-      confirmations: EVM_TX_FINALITY_CONFIRMATIONS,
-      signal: args.signal,
-      ...(args.senderHint ? { senderHint: args.senderHint } : {}),
-      ...(typeof args.nonceHint === 'bigint' ? { nonceHint: args.nonceHint } : {}),
-      ...(typeof args.maxFeePerGasHint === 'bigint'
-        ? { maxFeePerGasHint: args.maxFeePerGasHint }
-        : {}),
-    });
-  } catch (error: unknown) {
-    emitDebugEvent({
-      branch: classifyFinalizationErrorBranch(error),
-      message: String(error instanceof Error ? error.message : error || ''),
-      errorCode: extractErrorCode(error),
-      reason: extractDroppedOrReplacedReason(error),
-    });
-    throw error;
-  }
-  const status = normalizeLowercaseString(receipt.status || '');
-  if (status && status !== '0x1' && status !== '0x01') {
-    emitDebugEvent({
-      branch: 'receipt_reverted',
-      message: `Transaction receipt reported status ${receipt.status}`,
-    });
-    const revertMessage = await describeEvmRevert({
-      rpcUrl: args.rpcUrl,
-      txHash: args.txHash,
-      receipt,
-    }).catch(() => null);
-    const gasUsedInfo = String(receipt.gasUsed || '').trim();
-    const gasUsed = (() => {
-      try {
-        return gasUsedInfo ? parseEvmRpcHexQuantity(gasUsedInfo, 'receipt.gasUsed') : null;
-      } catch {
-        return null;
-      }
-    })();
-    const gasUsedSuffix = gasUsedInfo ? `, gasUsed=${gasUsedInfo}` : '';
-    const outOfGasSuffix =
-      typeof args.gasLimitHint === 'bigint' && gasUsed !== null && gasUsed >= args.gasLimitHint
-        ? '; likely out of gas (gasUsed reached gasLimit)'
-        : '';
-    const revertSuffix = revertMessage ? `; ${revertMessage}` : '';
-    throw new Error(
-      `Transaction reverted with status ${receipt.status}${gasUsedSuffix}${outOfGasSuffix}${revertSuffix}`,
-    );
-  }
-  emitDebugEvent({
-    branch: 'receipt_confirmed',
-    message: 'Transaction receipt confirmed',
-  });
-  return receipt;
-}
-
-export async function readEvmTransactionByHash(args: {
-  rpcUrl: string;
-  txHash: `0x${string}`;
-}): Promise<EvmTransactionResponse | null> {
-  const client = createDemoEvmPublicClient({ rpcUrl: args.rpcUrl });
-  return await client.request<EvmTransactionResponse | null>({
-    method: 'eth_getTransactionByHash',
-    params: [args.txHash],
-  });
-}
-
-function normalizeHexData(value: unknown): `0x${string}` | null {
-  const normalized = String(value || '')
-    .trim()
-    .toLowerCase();
-  if (!/^0x[0-9a-f]*$/.test(normalized)) return null;
-  return normalized as `0x${string}`;
-}
-
-export async function verifyFinalizedEvmTxPayload(args: {
-  rpcUrl: string;
-  txHash: `0x${string}`;
-  expectedTo?: `0x${string}`;
-  expectedInput?: `0x${string}`;
-}): Promise<FinalizedEvmTxPayloadVerification> {
-  const tx = await readEvmTransactionByHash({
-    rpcUrl: args.rpcUrl,
-    txHash: args.txHash,
-  }).catch(() => null);
-  if (!tx) {
-    return {
-      verified: false,
-      reason: 'tx_unavailable',
-    };
-  }
-
-  const expectedTo = String(args.expectedTo || '')
-    .trim()
-    .toLowerCase();
-  const expectedInput = normalizeHexData(args.expectedInput);
-  const observedTo = String(tx.to || '')
-    .trim()
-    .toLowerCase();
-  const observedInput = normalizeHexData(tx.input);
-  const toMismatch = expectedTo ? observedTo !== expectedTo : false;
-  const inputMismatch = expectedInput ? observedInput !== expectedInput : false;
-  if (!toMismatch && !inputMismatch) {
-    return {
-      verified: true,
-      reason: 'matched',
-      observedTo: tx.to ?? null,
-      observedInput: tx.input ?? null,
-    };
-  }
-  return {
-    verified: false,
-    reason: 'mismatch',
-    observedTo: tx.to ?? null,
-    observedInput: tx.input ?? null,
-  };
 }
 
 async function sleepWithAbortSignal(ms: number, signal?: AbortSignal): Promise<void> {
@@ -555,70 +236,8 @@ export async function waitForExpectedGreeting(args: {
   throw mismatch;
 }
 
-export async function describeEvmRevert(args: {
-  rpcUrl: string;
-  txHash: `0x${string}`;
-  receipt: EvmTransactionReceipt;
-}): Promise<string | null> {
-  const tx = await readEvmTransactionByHash({
-    rpcUrl: args.rpcUrl,
-    txHash: args.txHash,
-  });
-  const from = String(tx?.from || '').trim();
-  const to = String(tx?.to || '').trim();
-  const data = String(tx?.input || '').trim();
-  const value = String(tx?.value || '').trim();
-  const blockTag = String(args.receipt.blockNumber || '').trim() || 'latest';
-  if (!isEvmAddress(from) || !isEvmAddress(to) || !/^0x[0-9a-fA-F]*$/.test(data)) {
-    return null;
-  }
-  try {
-    const client = createDemoEvmPublicClient({ rpcUrl: args.rpcUrl });
-    await client.request<string>({
-      method: 'eth_call',
-      params: [
-        {
-          from,
-          to,
-          data,
-          value: /^0x[0-9a-fA-F]+$/.test(value) ? value : '0x0',
-        },
-        blockTag,
-      ],
-    });
-    return null;
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    return message ? `replay eth_call error: ${message}` : null;
-  }
-}
-
 export function isEvmAddress(value: string): value is `0x${string}` {
   return /^0x[0-9a-fA-F]{40}$/.test(String(value || '').trim());
-}
-
-export function extractManagedNonceHints(
-  signedResult:
-    | { managedNonce?: { sender?: string; nonce?: string } | null }
-    | null
-    | undefined,
-): ManagedNonceHints {
-  const senderRaw = String(signedResult?.managedNonce?.sender || '').trim();
-  const senderHint = isEvmAddress(senderRaw) ? senderRaw : undefined;
-  let nonceHint: bigint | undefined;
-  try {
-    const nonceRaw = String(signedResult?.managedNonce?.nonce || '').trim();
-    if (nonceRaw) {
-      const parsed = BigInt(nonceRaw);
-      if (parsed >= 0n) {
-        nonceHint = parsed;
-      }
-    }
-  } catch {}
-  return {
-    ...(senderHint ? { senderHint } : {}),
-    ...(typeof nonceHint === 'bigint' ? { nonceHint } : {}),
-  };
 }
 
 export async function readEvmNativeBalance(args: {
@@ -770,6 +389,13 @@ export async function resolveEip1559FeeCaps(rpcUrl: string): Promise<Eip1559FeeC
   } catch {
     return DEFAULT_DEMO_EIP1559_FEE_CAPS;
   }
+}
+
+export async function resolveClickTimeEip1559FeeCaps(args: {
+  rpcUrl: string;
+  fallbackFeeCaps: Eip1559FeeCaps;
+}): Promise<Eip1559FeeCaps> {
+  return await resolveEip1559FeeCaps(args.rpcUrl).catch(() => args.fallbackFeeCaps);
 }
 
 export function buildTempoEip1559GreetingRequest(greeting: string, feeCaps: Eip1559FeeCaps) {
@@ -946,25 +572,4 @@ export function formatWeiToGwei(wei: bigint, precision = 3): string {
   const fractionRaw = fraction.toString().padStart(9, '0').slice(0, precision);
   const fractionTrimmed = fractionRaw.replace(/0+$/, '');
   return fractionTrimmed ? `${whole.toString()}.${fractionTrimmed}` : whole.toString();
-}
-
-export function getRawTxTypePrefix(rawTxHex: string): string {
-  const normalized = String(rawTxHex || '')
-    .trim()
-    .toLowerCase();
-  if (!normalized.startsWith('0x') || normalized.length < 4) return 'unknown';
-  return normalized.slice(0, 4);
-}
-
-export function assertRawTxTypePrefix(args: {
-  requestKind: 'eip1559';
-  rawTxHex: string;
-}): void {
-  const expected = '0x02';
-  const actual = getRawTxTypePrefix(args.rawTxHex);
-  if (actual !== expected) {
-    throw new Error(
-      `Unexpected raw tx type prefix ${actual} for ${args.requestKind}; expected ${expected}.`,
-    );
-  }
 }
