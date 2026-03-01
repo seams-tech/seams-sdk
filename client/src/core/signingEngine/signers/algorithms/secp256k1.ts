@@ -34,6 +34,7 @@ function inferThresholdEcdsaSessionChainFromLabel(labelRaw: unknown): EcdsaSessi
 
 export type ThresholdEcdsaCommitQueueEnqueueFn = <T>(args: {
   nearAccountId: string;
+  thresholdSessionId: string;
   shouldAbort?: () => boolean;
   task: () => Promise<T>;
 }) => Promise<T>;
@@ -101,6 +102,12 @@ export class Secp256k1Engine implements Signer {
         '[Secp256k1Engine] runtime signing requires threshold-ecdsa-secp256k1 keyRef',
       );
     }
+    const keyRefThresholdSessionId = String(keyRef.thresholdSessionId || '').trim();
+    if (!keyRefThresholdSessionId) {
+      throw new Error(
+        '[multichain] Missing threshold-ecdsa sessionId on keyRef; reconnect threshold session via bootstrapEcdsaSession',
+      );
+    }
 
     const runCommit = async (): Promise<SignatureBytes> => {
       if (this.shouldAbort?.()) {
@@ -117,13 +124,6 @@ export class Secp256k1Engine implements Signer {
       if (!participantIds) {
         throw new Error(
           '[multichain] Missing threshold-ecdsa participantIds; reconnect threshold session',
-        );
-      }
-
-      const keyRefThresholdSessionId = String(keyRef.thresholdSessionId || '').trim();
-      if (!keyRefThresholdSessionId) {
-        throw new Error(
-          '[multichain] Missing threshold-ecdsa sessionId on keyRef; reconnect threshold session via bootstrapEcdsaSession',
         );
       }
 
@@ -385,6 +385,7 @@ export class Secp256k1Engine implements Signer {
     if (this.enqueueThresholdEcdsaCommit) {
       return await this.enqueueThresholdEcdsaCommit({
         nearAccountId: keyRef.userId,
+        thresholdSessionId: keyRefThresholdSessionId,
         shouldAbort: this.shouldAbort,
         task: runCommit,
       });

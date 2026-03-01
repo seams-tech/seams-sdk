@@ -88,6 +88,11 @@ import {
   type ThresholdEcdsaCommitQueueByKey,
 } from './api/thresholdLifecycle/thresholdEcdsaCommitQueue';
 import {
+  clearThresholdEd25519CommitQueue,
+  withThresholdEd25519CommitQueue,
+  type ThresholdEd25519CommitQueueByKey,
+} from './api/thresholdLifecycle/thresholdEd25519CommitQueue';
+import {
   deriveNearKeypairAndEncryptFromSerialized as deriveNearKeypairAndEncryptFromSerializedValue,
   deriveNearKeypairFromCredentialViaWorker as deriveNearKeypairFromCredentialViaWorkerValue,
 } from './api/recovery/nearKeyDerivation';
@@ -147,6 +152,7 @@ export class SigningEngine {
   private theme: ThemeName = 'dark';
   private readonly thresholdEcdsaBootstrapQueueByAccount: Map<string, Promise<void>> = new Map();
   private readonly thresholdEcdsaCommitQueueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
+  private readonly thresholdEd25519CommitQueueByKey: ThresholdEd25519CommitQueueByKey = new Map();
   private readonly thresholdEcdsaSessionByLane: Map<string, ThresholdEcdsaSessionRecord> =
     new Map();
   private readonly sealedRefreshStartupParityPromise: Promise<void>;
@@ -209,6 +215,8 @@ export class SigningEngine {
       getThresholdEcdsaKeyRefForSigning: (args) => this.getThresholdEcdsaKeyRefForSigning(args),
       bootstrapThresholdEcdsaSession: (args) => this.bootstrapEcdsaSession(args),
       withThresholdEcdsaCommitQueue: (queueArgs) => this.withThresholdEcdsaCommitQueue(queueArgs),
+      withThresholdEd25519CommitQueue: (queueArgs) =>
+        this.withThresholdEd25519CommitQueue(queueArgs),
     });
 
     initializeRuntimeBootstrap({
@@ -689,8 +697,33 @@ export class SigningEngine {
     });
   }
 
+  private async withThresholdEd25519CommitQueue<T>(args: {
+    queueKey: string;
+    nearAccountId: AccountId | string;
+    enabled: boolean;
+    shouldAbort?: () => boolean;
+    maxQueueLength?: number;
+    queueTimeoutMs?: number;
+    task: () => Promise<T>;
+  }): Promise<T> {
+    return await withThresholdEd25519CommitQueue({
+      queueByKey: this.thresholdEd25519CommitQueueByKey,
+      queueKey: args.queueKey,
+      nearAccountId: args.nearAccountId,
+      enabled: args.enabled,
+      shouldAbort: args.shouldAbort,
+      maxQueueLength: args.maxQueueLength,
+      queueTimeoutMs: args.queueTimeoutMs,
+      task: args.task,
+    });
+  }
+
   clearThresholdEcdsaCommitQueue(): void {
     clearThresholdEcdsaCommitQueue(this.thresholdEcdsaCommitQueueByKey);
+  }
+
+  clearThresholdEd25519CommitQueue(): void {
+    clearThresholdEd25519CommitQueue(this.thresholdEd25519CommitQueueByKey);
   }
 
   deriveThresholdEd25519ClientVerifyingShareFromCredential(

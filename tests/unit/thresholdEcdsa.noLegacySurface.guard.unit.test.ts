@@ -71,6 +71,14 @@ test.describe('threshold ECDSA legacy-surface guard', () => {
         label: 'removed legacy queue_timeout signer code',
         needle: "code = 'queue_timeout'",
       },
+      {
+        label: 'removed commit queue lane fallback key format',
+        needle: 'return `lane:${chain}:',
+      },
+      {
+        label: 'removed commit queue account fallback key format',
+        needle: 'return `account:${nearAccountId}`',
+      },
     ];
 
     const violations: string[] = [];

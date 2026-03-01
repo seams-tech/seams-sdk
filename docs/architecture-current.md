@@ -30,7 +30,7 @@ Runtime behavior selection uses family. Concrete routing/state (RPC, explorer, n
 Threshold ECDSA (Tempo/EVM) uses a two-phase flow:
 
 1. `prepare + tx confirmer` can run concurrently
-2. `commit/sign` is serialized per account
+2. `commit/sign` is serialized per session lane key
 
 This gives responsive UX (multiple confirmers can appear) while preserving commit safety.
 
@@ -46,15 +46,26 @@ If required threshold session material is missing or stale, the flow fails close
 
 ## 4. Commit Queue Semantics
 
-Per-account threshold commit queue rules:
+Threshold ECDSA commit queue rules:
 
-- scope: same `nearAccountId`
+- scope: same session lane key `session:<chain>:<thresholdSessionId>`
 - ordering: FIFO by commit enqueue time
 - queue covers commit/sign stage only
 - cancellation before commit start drops queued work
 - typed queue errors: `commit_queue_overflow`, `commit_queue_timeout`, `cancelled`
+- missing `thresholdSessionId` is a hard invariant error before enqueue
 
-Cross-account commits remain concurrent.
+Cross-session and cross-account commits remain concurrent.
+
+Threshold Ed25519 commit queue rules (threshold mode):
+
+- scope: same session key `session:ed25519:<thresholdSessionId>`
+- ordering: FIFO by commit enqueue time
+- queue covers commit/sign stage only
+- typed queue errors: `commit_queue_overflow`, `commit_queue_timeout`, `cancelled`
+- missing `thresholdSessionId` is a hard invariant error before enqueue
+
+Ed25519/ECDSA queue wrappers share one queue primitive but keep curve-specific key domains.
 
 ## 5. Presign Pool Model
 

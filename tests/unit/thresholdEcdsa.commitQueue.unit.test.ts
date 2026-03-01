@@ -210,47 +210,25 @@ test.describe('threshold ECDSA commit queue gate', () => {
 test.describe('threshold ECDSA commit queue key resolver', () => {
   test('prefers session key when thresholdSessionId exists', async () => {
     const key = resolveThresholdEcdsaCommitQueueKey({
-      nearAccountId: 'alice.testnet',
       chain: 'tempo',
       thresholdSessionId: 'tsess-abc',
-      relayerUrl: 'https://relay.example',
-      relayerKeyId: 'relayer-key',
-      clientVerifyingShareB64u: 'share',
     });
     expect(key).toBe('session:tempo:tsess-abc');
   });
 
-  test('falls back to lane tuple when sessionId is missing', async () => {
-    const key = resolveThresholdEcdsaCommitQueueKey({
-      nearAccountId: 'alice.testnet',
-      chain: 'evm',
-      relayerUrl: 'https://relay.example',
-      relayerKeyId: 'relayer-key',
-      clientVerifyingShareB64u: 'share+with/slash',
-    });
-    expect(key).toBe(
-      `lane:evm:${encodeURIComponent('https://relay.example')}|${encodeURIComponent('relayer-key')}|${encodeURIComponent('share+with/slash')}`,
-    );
-  });
-
-  test('falls back to account key when lane metadata is incomplete', async () => {
-    const key = resolveThresholdEcdsaCommitQueueKey({
-      nearAccountId: 'alice.testnet',
-      chain: 'tempo',
-      relayerUrl: 'https://relay.example',
-      relayerKeyId: '',
-      clientVerifyingShareB64u: 'share',
-    });
-    expect(key).toBe('account:alice.testnet');
+  test('throws when thresholdSessionId is missing', async () => {
+    expect(() =>
+      resolveThresholdEcdsaCommitQueueKey({
+        chain: 'evm',
+        thresholdSessionId: '',
+      }),
+    ).toThrow('[SigningEngine] threshold ECDSA commit queue requires non-empty thresholdSessionId');
   });
 
   test('derivation is deterministic for identical inputs', async () => {
     const input = {
-      nearAccountId: 'alice.testnet',
       chain: 'tempo' as const,
-      relayerUrl: 'https://relay.example',
-      relayerKeyId: 'relayer-key',
-      clientVerifyingShareB64u: 'share',
+      thresholdSessionId: 'tsess-abc',
     };
     const first = resolveThresholdEcdsaCommitQueueKey(input);
     const second = resolveThresholdEcdsaCommitQueueKey(input);

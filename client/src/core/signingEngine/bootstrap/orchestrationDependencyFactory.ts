@@ -90,6 +90,15 @@ export type CreateOrchestrationDependencyBundleArgs = {
     queueTimeoutMs?: number;
     task: () => Promise<T>;
   }) => Promise<T>;
+  withThresholdEd25519CommitQueue: <T>(args: {
+    queueKey: string;
+    nearAccountId: AccountId | string;
+    enabled: boolean;
+    shouldAbort?: () => boolean;
+    maxQueueLength?: number;
+    queueTimeoutMs?: number;
+    task: () => Promise<T>;
+  }) => Promise<T>;
 };
 
 export type NearKeyOpsDeps = {
@@ -153,6 +162,8 @@ export function createOrchestrationDependencyBundle(
     getOrCreateActiveSigningSessionId: getOrCreateActiveSigningSessionId,
     createSigningSessionId: (prefix: string): string => generateSessionIdValue(prefix),
     getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
+    withThresholdEd25519CommitQueue: (queueArgs) =>
+      args.withThresholdEd25519CommitQueue(queueArgs),
   };
 
   const getWorkerResourceWarmupDeps = (): WorkerResourceWarmupDeps => ({

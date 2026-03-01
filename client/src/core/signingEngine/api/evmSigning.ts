@@ -1137,13 +1137,10 @@ export async function signEvmFamily(
           } catch {}
         },
         enqueueThresholdEcdsaCommit: async (queueArgs) => {
+          const thresholdSessionId = String(queueArgs.thresholdSessionId || '').trim();
           const queueKey = resolveThresholdEcdsaCommitQueueKey({
-            nearAccountId: queueArgs.nearAccountId,
             chain: args.request.chain,
-            thresholdSessionId: thresholdEcdsaKeyRef?.thresholdSessionId,
-            relayerUrl: thresholdEcdsaKeyRef?.relayerUrl,
-            relayerKeyId: thresholdEcdsaKeyRef?.relayerKeyId,
-            clientVerifyingShareB64u: thresholdEcdsaKeyRef?.clientVerifyingShareB64u,
+            thresholdSessionId,
           });
           try {
             args.onEvent?.({
@@ -1161,13 +1158,11 @@ export async function signEvmFamily(
             shouldAbort: queueArgs.shouldAbort,
             task: async () => {
               throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
-              if (String(thresholdEcdsaKeyRef?.thresholdSessionId || '').trim()) {
-                await assertThresholdSigningSessionReady({
-                  touchConfirm: deps.touchConfirm,
-                  sessionId: thresholdEcdsaKeyRef?.thresholdSessionId,
-                  usesNeeded: 1,
-                });
-              }
+              await assertThresholdSigningSessionReady({
+                touchConfirm: deps.touchConfirm,
+                sessionId: thresholdSessionId,
+                usesNeeded: 1,
+              });
               try {
                 args.onEvent?.({
                   step: 4,

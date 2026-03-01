@@ -11,6 +11,7 @@ import type { SignTransactionResult } from '@/core/types/tatchi';
 import type { TransactionInputWasm } from '@/core/types/actions';
 import type { SignerWorkerManagerContext } from '../workerManager';
 import { signNearWithTouchConfirm } from '../orchestration/near/nearSigningFlow';
+import { resolveThresholdEd25519CommitQueueKey } from './thresholdLifecycle/thresholdEd25519CommitQueue';
 
 export type SignDelegateActionResult = {
   signedDelegate: WasmSignedDelegate;
@@ -121,6 +122,15 @@ export type NearSigningApiDeps = {
   getOrCreateActiveSigningSessionId: (nearAccountId: AccountId) => string;
   createSigningSessionId: (prefix: string) => string;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
+  withThresholdEd25519CommitQueue: <T>(args: {
+    queueKey: string;
+    nearAccountId: AccountId | string;
+    enabled: boolean;
+    shouldAbort?: () => boolean;
+    maxQueueLength?: number;
+    queueTimeoutMs?: number;
+    task: () => Promise<T>;
+  }) => Promise<T>;
 };
 
 function resolveSigningRequestSessionId(args: {
@@ -141,6 +151,27 @@ function resolveSigningRequestSessionId(args: {
   return args.deps.createSigningSessionId('signing-request');
 }
 
+async function withThresholdEd25519CommitQueue<T>(args: {
+  deps: NearSigningApiDeps;
+  nearAccountId: AccountId;
+  signerMode: SignerMode;
+  thresholdSessionId: string;
+  task: () => Promise<T>;
+}): Promise<T> {
+  if (args.signerMode.mode !== 'threshold-signer') {
+    return await args.task();
+  }
+  const queueKey = resolveThresholdEd25519CommitQueueKey({
+    thresholdSessionId: args.thresholdSessionId,
+  });
+  return await args.deps.withThresholdEd25519CommitQueue({
+    queueKey,
+    nearAccountId: args.nearAccountId,
+    enabled: true,
+    task: args.task,
+  });
+}
+
 export async function signTransactionsWithActions(
   deps: NearSigningApiDeps,
   args: SignTransactionsWithActionsInput,
@@ -152,23 +183,31 @@ export async function signTransactionsWithActions(
     nearAccountId,
     signerMode: args.signerMode,
   });
-  const ctx = deps.getSignerWorkerContext();
-  return (await signNearWithTouchConfirm({
-    chain: 'near',
-    kind: 'transactionsWithActions',
-    payload: {
-      ctx,
-      transactions: args.transactions,
-      rpcCall: args.rpcCall,
-      deviceNumber: args.deviceNumber,
-      signerMode: args.signerMode,
-      confirmationConfigOverride: args.confirmationConfigOverride,
-      title: args.title,
-      body: args.body,
-      onEvent: args.onEvent,
-      sessionId: resolvedSessionId,
+  return await withThresholdEd25519CommitQueue({
+    deps,
+    nearAccountId,
+    signerMode: args.signerMode,
+    thresholdSessionId: resolvedSessionId,
+    task: async () => {
+      const ctx = deps.getSignerWorkerContext();
+      return (await signNearWithTouchConfirm({
+        chain: 'near',
+        kind: 'transactionsWithActions',
+        payload: {
+          ctx,
+          transactions: args.transactions,
+          rpcCall: args.rpcCall,
+          deviceNumber: args.deviceNumber,
+          signerMode: args.signerMode,
+          confirmationConfigOverride: args.confirmationConfigOverride,
+          title: args.title,
+          body: args.body,
+          onEvent: args.onEvent,
+          sessionId: resolvedSessionId,
+        },
+      })) as unknown as SignTransactionResult[];
     },
-  })) as unknown as SignTransactionResult[];
+  });
 }
 
 export async function signDelegateAction(
@@ -188,23 +227,31 @@ export async function signDelegateAction(
       signerMode: args.signerMode,
     });
     console.debug('[SigningEngine][delegate] session created', { sessionId: activeSessionId });
-    const ctx = deps.getSignerWorkerContext();
-    return (await signNearWithTouchConfirm({
-      chain: 'near',
-      kind: 'delegateAction',
-      payload: {
-        ctx,
-        delegate: args.delegate,
-        rpcCall: normalizedRpcCall,
-        deviceNumber: args.deviceNumber,
-        signerMode: args.signerMode,
-        confirmationConfigOverride: args.confirmationConfigOverride,
-        title: args.title,
-        body: args.body,
-        onEvent: args.onEvent,
-        sessionId: activeSessionId,
+    return await withThresholdEd25519CommitQueue({
+      deps,
+      nearAccountId,
+      signerMode: args.signerMode,
+      thresholdSessionId: activeSessionId,
+      task: async () => {
+        const ctx = deps.getSignerWorkerContext();
+        return (await signNearWithTouchConfirm({
+          chain: 'near',
+          kind: 'delegateAction',
+          payload: {
+            ctx,
+            delegate: args.delegate,
+            rpcCall: normalizedRpcCall,
+            deviceNumber: args.deviceNumber,
+            signerMode: args.signerMode,
+            confirmationConfigOverride: args.confirmationConfigOverride,
+            title: args.title,
+            body: args.body,
+            onEvent: args.onEvent,
+            sessionId: activeSessionId,
+          },
+        })) as unknown as SignDelegateActionResult;
       },
-    })) as unknown as SignDelegateActionResult;
+    });
   } catch (err) {
     console.error('[SigningEngine][delegate] failed', err);
     throw err;
@@ -222,18 +269,26 @@ export async function signNEP413Message(
       nearAccountId,
       signerMode: payload.signerMode,
     });
-    const ctx = deps.getSignerWorkerContext();
-    const result = (await signNearWithTouchConfirm({
-      chain: 'near',
-      kind: 'nep413',
-      payload: {
-        ctx,
-        payload: {
-          ...payload,
-          sessionId: activeSessionId,
-        },
+    const result = await withThresholdEd25519CommitQueue({
+      deps,
+      nearAccountId,
+      signerMode: payload.signerMode,
+      thresholdSessionId: activeSessionId,
+      task: async () => {
+        const ctx = deps.getSignerWorkerContext();
+        return (await signNearWithTouchConfirm({
+          chain: 'near',
+          kind: 'nep413',
+          payload: {
+            ctx,
+            payload: {
+              ...payload,
+              sessionId: activeSessionId,
+            },
+          },
+        })) as unknown as SignNep413MessageResult;
       },
-    })) as unknown as SignNep413MessageResult;
+    });
     if (result.success) {
       return result;
     }
