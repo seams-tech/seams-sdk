@@ -44,16 +44,15 @@ test.describe('buildConfigsFromEnv appearance defaults and overrides', () => {
     expect(cfg.ui.appearance.tokens.dark.colors.borderPrimary).toBe('#556677');
   });
 
-  test('falls back to defaults for invalid appearance enum values', async () => {
-    const cfg = buildConfigsFromEnv({
-      relayer: { url: 'https://relay.example' },
-      appearance: {
-        theme: 'sepia' as any,
-        palette: 'midnight' as any,
-      } as any,
-    });
-
-    expect(cfg.ui.appearance.theme).toBe('dark');
-    expect(cfg.ui.appearance.palette).toBe('default');
+  test('throws for invalid appearance enum values', async () => {
+    expect(() =>
+      buildConfigsFromEnv({
+        relayer: { url: 'https://relay.example' },
+        appearance: {
+          theme: 'sepia' as any,
+          palette: 'midnight' as any,
+        } as any,
+      }),
+    ).toThrow("[configPresets] Invalid config: appearance.theme must be 'light' or 'dark'");
   });
 });

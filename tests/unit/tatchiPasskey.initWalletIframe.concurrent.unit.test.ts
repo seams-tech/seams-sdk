@@ -6,8 +6,8 @@ const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
 
 // Extend the default wallet-service stub so initWalletIframe() can complete.
-// initWalletIframe() triggers router.init() + getLoginSession() paths that await
-// responses for PM_SET_CONFIG, PM_GET_LOGIN_SESSION, and PM_PREFETCH_BLOCKHEIGHT.
+// initWalletIframe() triggers router.init() + getWalletSession() paths that await
+// responses for PM_SET_CONFIG, PM_GET_WALLET_SESSION, and PM_PREFETCH_BLOCKHEIGHT.
 // The base stub logs these but doesn't reply, so we patch in canned responses.
 const WALLET_STUB_RESPONSE_SCRIPT = String.raw`
   const originalAdoptPort = adoptPort;
@@ -41,7 +41,7 @@ const WALLET_STUB_RESPONSE_SCRIPT = String.raw`
         respond(null);
       }
 
-      if (data.type === 'PM_GET_LOGIN_SESSION') {
+      if (data.type === 'PM_GET_WALLET_SESSION') {
         respond({
           login: {
             isLoggedIn: false,

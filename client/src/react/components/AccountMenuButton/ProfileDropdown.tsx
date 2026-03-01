@@ -1,6 +1,6 @@
 import { forwardRef, useMemo } from 'react';
 import { MenuItem } from './MenuItem';
-import { LogoutMenuItem } from './LogoutMenuItem';
+import { LockMenuItem } from './LockMenuItem';
 import { TransactionSettingsSection } from './TransactionSettingsSection';
 import type { ProfileDropdownProps } from './types';
 import './ProfileDropdown.css';
@@ -22,7 +22,7 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
     {
       isOpen,
       menuItems,
-      onLogout,
+      onLock,
       onClose,
       menuItemsRef,
       toggleColors,
@@ -108,10 +108,10 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
               />
             )}
 
-          {/* Logout Section */}
-          <LogoutMenuItem
-            onLogout={onLogout}
-            className="w3a-logout-menu-item"
+          {/* Lock Section */}
+          <LockMenuItem
+            onLock={onLock}
+            className="w3a-lock-menu-item"
             // Set CSS variable to calculate stagger delay in CSS stylesheet
             style={{
               ['--stagger-item-n' as any]: hasTransactionSettings

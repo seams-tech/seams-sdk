@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { isLoginSessionReadyForUi } from '@/react/context/loginReadiness';
-import type { LoginSession } from '@/core/types/tatchi';
+import { isWalletSessionReadyForUi } from '@/react/context/walletSessionReadiness';
+import type { WalletSession } from '@/core/types/tatchi';
 import { toAccountId } from '@/core/types/accountIds';
 
-function makeSession(overrides?: Partial<LoginSession>): LoginSession {
+function makeSession(overrides?: Partial<WalletSession>): WalletSession {
   return {
     login: {
       isLoggedIn: true,
@@ -21,19 +21,19 @@ function makeSession(overrides?: Partial<LoginSession>): LoginSession {
   };
 }
 
-test.describe('login readiness gate', () => {
+test.describe('wallet session readiness gate', () => {
   test('threshold-signer requires active signing session', () => {
     const signerMode = { mode: 'threshold-signer' };
 
     expect(
-      isLoginSessionReadyForUi({
+      isWalletSessionReadyForUi({
         session: makeSession({ signingSession: null }),
         signerMode,
       }),
     ).toBe(false);
 
     expect(
-      isLoginSessionReadyForUi({
+      isWalletSessionReadyForUi({
         session: makeSession({
           signingSession: { sessionId: 'session-1', status: 'expired' },
         }),
@@ -42,7 +42,7 @@ test.describe('login readiness gate', () => {
     ).toBe(false);
 
     expect(
-      isLoginSessionReadyForUi({
+      isWalletSessionReadyForUi({
         session: makeSession({
           signingSession: { sessionId: 'session-1', status: 'active' },
         }),
@@ -53,14 +53,14 @@ test.describe('login readiness gate', () => {
 
   test('non-threshold signer mode does not require signing session readiness', () => {
     expect(
-      isLoginSessionReadyForUi({
+      isWalletSessionReadyForUi({
         session: makeSession({ signingSession: null }),
         signerMode: { mode: 'local-signer' },
       }),
     ).toBe(true);
 
     expect(
-      isLoginSessionReadyForUi({
+      isWalletSessionReadyForUi({
         session: makeSession({ signingSession: null }),
         signerMode: { mode: 'evm' },
       }),
@@ -69,7 +69,7 @@ test.describe('login readiness gate', () => {
 
   test('unknown signer mode defaults to local-signer behavior', () => {
     expect(
-      isLoginSessionReadyForUi({
+      isWalletSessionReadyForUi({
         session: makeSession({ signingSession: null }),
         signerMode: undefined,
       }),
@@ -78,7 +78,7 @@ test.describe('login readiness gate', () => {
 
   test('requires base logged-in snapshot regardless of signer mode', () => {
     expect(
-      isLoginSessionReadyForUi({
+      isWalletSessionReadyForUi({
         session: makeSession({
           login: {
             isLoggedIn: false,
@@ -92,7 +92,7 @@ test.describe('login readiness gate', () => {
     ).toBe(false);
 
     expect(
-      isLoginSessionReadyForUi({
+      isWalletSessionReadyForUi({
         session: makeSession({
           login: {
             isLoggedIn: true,

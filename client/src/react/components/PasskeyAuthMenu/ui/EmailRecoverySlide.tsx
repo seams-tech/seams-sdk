@@ -653,15 +653,15 @@ export const EmailRecoverySlide: React.FC<EmailRecoverySlideProps> = ({
       // Best-effort auto-login: the core flow attempts it, but if it couldn't (e.g. missing Shamir
       // auto-unlock and user cancelled TouchID), try once more here.
       let loginOk = false;
-      const session = await tatchiPasskey.auth.getSession(normalizedAccountId).catch(() => null);
+      const session = await tatchiPasskey.auth.getWalletSession(normalizedAccountId).catch(() => null);
       if (session?.login?.isLoggedIn) {
         loginOk = true;
       } else {
         safeSet(setStatusText, 'Email recovery completed. Logging you in…');
-        const loginResult = await tatchiPasskey.auth.login(normalizedAccountId).catch(() => null);
+        const loginResult = await tatchiPasskey.auth.unlock(normalizedAccountId).catch(() => null);
         if (loginResult?.success) {
           const updatedSession = await tatchiPasskey.auth
-            .getSession(normalizedAccountId)
+            .getWalletSession(normalizedAccountId)
             .catch(() => null);
           loginOk = !!updatedSession?.login?.isLoggedIn;
         } else {

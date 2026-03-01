@@ -1,7 +1,7 @@
 import type { TatchiPasskey } from '@/core/TatchiPasskey';
 import { awaitWalletIframeReady } from '@/react/utils/walletIframe';
 
-export interface RecentLoginPrefillResult {
+export interface RecentUnlockPrefillResult {
   username: string;
 }
 
@@ -9,12 +9,12 @@ export interface RecentLoginPrefillResult {
  * Best-effort: fetch the most-recently used account and return its username prefix.
  * Intended to be called from a lazily imported "feature island".
  */
-export async function getRecentLoginPrefill(
+export async function getRecentUnlockPrefill(
   tatchiPasskey: TatchiPasskey,
-): Promise<RecentLoginPrefillResult | null> {
+): Promise<RecentUnlockPrefillResult | null> {
   try {
     await awaitWalletIframeReady(tatchiPasskey).catch(() => false);
-    const { lastUsedAccount } = await tatchiPasskey.auth.getRecentLogins();
+    const { lastUsedAccount } = await tatchiPasskey.auth.getRecentUnlocks();
     const username = (lastUsedAccount?.nearAccountId ?? '').split('.')[0] || '';
     if (!username) return null;
     return { username };
@@ -23,4 +23,4 @@ export async function getRecentLoginPrefill(
   }
 }
 
-export default getRecentLoginPrefill;
+export default getRecentUnlockPrefill;

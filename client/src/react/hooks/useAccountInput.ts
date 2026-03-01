@@ -164,7 +164,7 @@ export function useAccountInput({
   const refreshAccountData = useCallback(async () => {
     try {
       await awaitWalletIframeIfNeeded();
-      const { accountIds, lastUsedAccount } = await tatchi.auth.getRecentLogins();
+      const { accountIds, lastUsedAccount } = await tatchi.auth.getRecentUnlocks();
 
       const fallbackAccountId = accountIds[0] || '';
       const selectedPrefillAccountId = lastUsedAccount?.nearAccountId || fallbackAccountId;
@@ -333,7 +333,7 @@ export function useAccountInput({
       } else {
         // No logged-in user, try to get last used account
         await awaitWalletIframeIfNeeded();
-        const { lastUsedAccount, accountIds } = await tatchi.auth.getRecentLogins();
+        const { lastUsedAccount, accountIds } = await tatchi.auth.getRecentUnlocks();
         const prefillAccountId = lastUsedAccount?.nearAccountId || accountIds?.[0] || '';
         if (prefillAccountId) {
           const username = extractUsernameFromAccountId(prefillAccountId);
@@ -345,26 +345,26 @@ export function useAccountInput({
     initializeAccountInput();
   }, [awaitWalletIframeIfNeeded, currentNearAccountId, isLoggedIn, refreshAccountData, tatchi]);
 
-  // onLogout: Reset to last used account
+  // onLock: reset to last used account
   useEffect(() => {
-    const handleLogoutReset = async () => {
-      // Only reset if user just logged out (isLoggedIn is false but we had a nearAccountId before)
+    const handleLockReset = async () => {
+      // Only reset if user just locked (isLoggedIn is false but we had a nearAccountId before)
       if (!isLoggedIn && !currentNearAccountId) {
         try {
           await awaitWalletIframeIfNeeded();
-          const { lastUsedAccount, accountIds } = await tatchi.auth.getRecentLogins();
+          const { lastUsedAccount, accountIds } = await tatchi.auth.getRecentUnlocks();
           const prefillAccountId = lastUsedAccount?.nearAccountId || accountIds?.[0] || '';
           if (prefillAccountId) {
             const username = extractUsernameFromAccountId(prefillAccountId);
             setState((prevState) => ({ ...prevState, inputUsername: username }));
           }
         } catch (error) {
-          console.warn('Error resetting username after logout:', error);
+          console.warn('Error resetting username after lock:', error);
         }
       }
     };
 
-    handleLogoutReset();
+    handleLockReset();
   }, [awaitWalletIframeIfNeeded, currentNearAccountId, isLoggedIn, tatchi]);
 
   // Update derived state when dependencies change

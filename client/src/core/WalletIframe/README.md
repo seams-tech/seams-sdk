@@ -66,7 +66,7 @@ When you call methods like `registerPasskey()` or `signTransaction()`, the reque
 #### 4. **Shared Communication Protocol**
 
 - **`shared/messages.ts`** - Defines the typed message protocol:
-  - Parent-to-child message types (PM_REGISTER, PM_LOGIN, etc.)
+  - Parent-to-child message types (PM_REGISTER, PM_UNLOCK, etc.)
   - Child-to-parent response types (PROGRESS, PM_RESULT, ERROR)
   - Payload interfaces for all message types
   - Progress event structure for real-time updates
@@ -235,7 +235,7 @@ class OverlayController {
 
 - Expand to full‑screen during activation:
   - `showFrameForActivation()` in `client/src/core/WalletIframe/client/router.ts` ensures the iframe exists and delegates to `OverlayController.showFullscreen()`, which applies the fullscreen class (fixed inset, pointer-events enabled, z-index 2147483646).
-  - This is invoked explicitly for sensitive flows (e.g., `registerPasskey()`, `loginAndCreateSession()`, device linking) and implicitly by the progress-heuristic layer described below.
+  - This is invoked explicitly for sensitive flows (e.g., `registerPasskey()`, `tatchi.auth.unlock()`, device linking) and implicitly by the progress-heuristic layer described below.
 
 - Collapse back to 0×0:
   - `hideFrameForActivation()` in the same router delegates to `OverlayController.hide()` to restore the hidden state and make it non-interactive.

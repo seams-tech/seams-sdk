@@ -42,7 +42,7 @@ export function useTatchiWithSdkFlow(args: {
      * This lets *all* callers (not just PasskeyAuthMenu) use `ctx.tatchi.*` directly and
      * still have `sdkFlow` update as events stream in.
      */
-    type LoginFn = AuthCapability['login'];
+    type LoginFn = AuthCapability['unlock'];
     type RegisterPasskeyFn = RegistrationCapability['registerPasskey'];
     type SyncAccountFn = RecoveryCapability['syncAccount'];
     type SetThemeFn = TatchiPasskey['setTheme'];
@@ -74,7 +74,7 @@ export function useTatchiWithSdkFlow(args: {
         },
       };
 
-      return await tatchi.auth.login(nearAccountId, wrappedOptions);
+      return await tatchi.auth.unlock(nearAccountId, wrappedOptions);
     };
 
     const registerPasskeyWithSdkFlow: RegisterPasskeyFn = async (
@@ -156,14 +156,14 @@ export function useTatchiWithSdkFlow(args: {
         if (prop === 'auth') {
           const auth = Reflect.get(target as object, prop, receiver) as AuthCapability;
           return {
-            login: loginWithSdkFlow,
-            logout: () => auth.logout(),
-            getSession: (...args: Parameters<AuthCapability['getSession']>) =>
-              auth.getSession(...args),
+            unlock: loginWithSdkFlow,
+            lock: () => auth.lock(),
+            getWalletSession: (...args: Parameters<AuthCapability['getWalletSession']>) =>
+              auth.getWalletSession(...args),
             hasPasskeyCredential: (...args: Parameters<AuthCapability['hasPasskeyCredential']>) =>
               auth.hasPasskeyCredential(...args),
-            getRecentLogins: (...args: Parameters<AuthCapability['getRecentLogins']>) =>
-              auth.getRecentLogins(...args),
+            getRecentUnlocks: (...args: Parameters<AuthCapability['getRecentUnlocks']>) =>
+              auth.getRecentUnlocks(...args),
           } as AuthCapability;
         }
 

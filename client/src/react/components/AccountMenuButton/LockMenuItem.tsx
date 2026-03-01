@@ -1,16 +1,16 @@
 import LogOutIcon from './icons/LogOutIcon2';
 import { memo } from 'react';
-import type { LogoutMenuItemProps } from './types';
+import type { LockMenuItemProps } from './types';
 
-export const LogoutMenuItem: React.FC<LogoutMenuItemProps> = memo(
-  ({ onLogout, className, style }) => {
+export const LockMenuItem: React.FC<LockMenuItemProps> = memo(
+  ({ onLock, className, style }) => {
     return (
       <button
         className={`w3a-dropdown-menu-item ${className || ''}`}
         style={style}
         onClick={(e: React.MouseEvent) => {
           e.stopPropagation();
-          onLogout();
+          onLock();
         }}
       >
         <div className="w3a-dropdown-menu-item-icon">

@@ -50,7 +50,7 @@ Ordering is FIFO per `requestId`.
 
 - Host posts PROGRESS from `onEvent`:
   - `src/core/WalletIframe/host/index.ts`
-    - e.g., handlers for `PM_REGISTER`, `PM_LOGIN`, `PM_SIGN_TXS_WITH_ACTIONS`, `PM_SIGN_AND_SEND_TXS`, device linking, account sync.
+    - e.g., handlers for `PM_REGISTER`, `PM_UNLOCK`, `PM_SIGN_TXS_WITH_ACTIONS`, `PM_SIGN_AND_SEND_TXS`, device linking, account sync.
 - Client receives PROGRESS and invokes app `onEvent` via wrapper:
   - `src/core/WalletIframe/client/router.ts`
     - `post()` registers `{ onProgress }` per request

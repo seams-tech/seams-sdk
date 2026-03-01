@@ -25,7 +25,7 @@ test.describe('WalletIframeRouter.computeOverlayIntent', () => {
         const fullscreenTypes = [
           'PM_EXPORT_KEYPAIR_UI',
           'PM_REGISTER',
-          'PM_LOGIN',
+          'PM_UNLOCK',
           'PM_SIGN_AND_SEND_TXS',
           'PM_EXECUTE_ACTION',
           'PM_SEND_TRANSACTION',
@@ -35,14 +35,14 @@ test.describe('WalletIframeRouter.computeOverlayIntent', () => {
           'PM_SIGN_TEMPO',
         ];
         const hiddenTypes = [
-          'PM_GET_LOGIN_SESSION',
+          'PM_GET_WALLET_SESSION',
           'PM_SET_THEME',
           'PM_GET_CONFIRMATION_CONFIG',
           'PM_SET_CONFIRM_BEHAVIOR',
           'PM_SET_CONFIRMATION_CONFIG',
           'PM_PREFETCH_BLOCKHEIGHT',
           'PM_START_DEVICE2_LINKING_FLOW',
-          'PM_LOGOUT',
+          'PM_LOCK',
         ];
 
         const compute = (router as any).computeOverlayIntent.bind(router) as (t: string) => {
@@ -59,7 +59,7 @@ test.describe('WalletIframeRouter.computeOverlayIntent', () => {
     // Fullscreen intents
     expect(byType['PM_EXPORT_KEYPAIR_UI']).toBe('fullscreen');
     expect(byType['PM_REGISTER']).toBe('fullscreen');
-    expect(byType['PM_LOGIN']).toBe('fullscreen');
+    expect(byType['PM_UNLOCK']).toBe('fullscreen');
     expect(byType['PM_SIGN_AND_SEND_TXS']).toBe('fullscreen');
     expect(byType['PM_EXECUTE_ACTION']).toBe('fullscreen');
     expect(byType['PM_SEND_TRANSACTION']).toBe('fullscreen');
@@ -68,13 +68,13 @@ test.describe('WalletIframeRouter.computeOverlayIntent', () => {
     expect(byType['PM_SIGN_NEP413']).toBe('fullscreen');
     expect(byType['PM_SIGN_TEMPO']).toBe('fullscreen');
     // Hidden intents
-    expect(byType['PM_GET_LOGIN_SESSION']).toBe('hidden');
+    expect(byType['PM_GET_WALLET_SESSION']).toBe('hidden');
     expect(byType['PM_SET_THEME']).toBe('hidden');
     expect(byType['PM_GET_CONFIRMATION_CONFIG']).toBe('hidden');
     expect(byType['PM_SET_CONFIRM_BEHAVIOR']).toBe('hidden');
     expect(byType['PM_SET_CONFIRMATION_CONFIG']).toBe('hidden');
     expect(byType['PM_PREFETCH_BLOCKHEIGHT']).toBe('hidden');
     expect(byType['PM_START_DEVICE2_LINKING_FLOW']).toBe('hidden');
-    expect(byType['PM_LOGOUT']).toBe('hidden');
+    expect(byType['PM_LOCK']).toBe('hidden');
   });
 });

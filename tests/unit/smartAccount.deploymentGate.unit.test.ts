@@ -31,14 +31,14 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-observe',
-          chainId: 'near:testnet',
+          chainIdKey: 'near:testnet',
           accountAddress: 'alice.testnet',
           accountModel: 'near-native',
           isPrimary: true,
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-observe',
-          chainId: 'evm:11155111',
+          chainIdKey: 'evm:11155111',
           accountAddress: '0xabc111',
           accountModel: 'erc4337',
           isPrimary: true,
@@ -96,14 +96,14 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-deploy',
-          chainId: 'near:testnet',
+          chainIdKey: 'near:testnet',
           accountAddress: 'alice.testnet',
           accountModel: 'near-native',
           isPrimary: true,
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-deploy',
-          chainId: 'tempo:42431',
+          chainIdKey: 'tempo:42431',
           accountAddress: '0xabc222',
           accountModel: 'tempo-native',
           isPrimary: true,
@@ -165,14 +165,14 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-already',
-          chainId: 'near:testnet',
+          chainIdKey: 'near:testnet',
           accountAddress: 'alice.testnet',
           accountModel: 'near-native',
           isPrimary: true,
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-already',
-          chainId: 'evm:11155111',
+          chainIdKey: 'evm:11155111',
           accountAddress: '0xabc333',
           accountModel: 'erc4337',
           isPrimary: true,
@@ -230,14 +230,14 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-autofill',
-          chainId: 'near:testnet',
+          chainIdKey: 'near:testnet',
           accountAddress: 'alice.testnet',
           accountModel: 'near-native',
           isPrimary: true,
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-autofill',
-          chainId: 'tempo:42431',
+          chainIdKey: 'tempo:42431',
           accountAddress: '0xabc666',
           accountModel: 'tempo-native',
           isPrimary: true,
@@ -313,14 +313,14 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-retry',
-          chainId: 'near:testnet',
+          chainIdKey: 'near:testnet',
           accountAddress: 'alice.testnet',
           accountModel: 'near-native',
           isPrimary: true,
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-retry',
-          chainId: 'tempo:42431',
+          chainIdKey: 'tempo:42431',
           accountAddress: '0xabc444',
           accountModel: 'tempo-native',
           isPrimary: true,
@@ -379,14 +379,14 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-fail',
-          chainId: 'near:testnet',
+          chainIdKey: 'near:testnet',
           accountAddress: 'alice.testnet',
           accountModel: 'near-native',
           isPrimary: true,
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-fail',
-          chainId: 'evm:11155111',
+          chainIdKey: 'evm:11155111',
           accountAddress: '0xabc555',
           accountModel: 'erc4337',
           isPrimary: true,
@@ -439,14 +439,14 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-dedupe',
-          chainId: 'near:testnet',
+          chainIdKey: 'near:testnet',
           accountAddress: 'alice.testnet',
           accountModel: 'near-native',
           isPrimary: true,
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-dedupe',
-          chainId: 'evm:11155111',
+          chainIdKey: 'evm:11155111',
           accountAddress: '0xdedupe111',
           accountModel: 'erc4337',
           isPrimary: true,
@@ -543,14 +543,14 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-dedupe-keys',
-          chainId: 'near:testnet',
+          chainIdKey: 'near:testnet',
           accountAddress: 'alice.testnet',
           accountModel: 'near-native',
           isPrimary: true,
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-dedupe-keys',
-          chainId: 'evm:11155111',
+          chainIdKey: 'evm:11155111',
           accountAddress: '0xaaa111',
           accountModel: 'erc4337',
           isPrimary: true,
@@ -558,7 +558,7 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-dedupe-keys',
-          chainId: 'evm:11155111',
+          chainIdKey: 'evm:11155111',
           accountAddress: '0xbbb222',
           accountModel: 'erc4337',
           isPrimary: false,
@@ -609,7 +609,7 @@ test.describe('smart-account deployment gate helper', () => {
 
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-dedupe-keys',
-          chainId: 'evm:11155111',
+          chainIdKey: 'evm:11155111',
           accountAddress: '0xaaa111',
           accountModel: 'erc4337',
           isPrimary: false,
@@ -617,7 +617,7 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-dedupe-keys',
-          chainId: 'evm:11155111',
+          chainIdKey: 'evm:11155111',
           accountAddress: '0xbbb222',
           accountModel: 'erc4337',
           isPrimary: true,

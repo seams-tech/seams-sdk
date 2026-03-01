@@ -14,6 +14,9 @@ export type EvmTransactionByHash = {
   blockNumber?: string | null;
   from?: string | null;
   nonce?: string | null;
+  to?: string | null;
+  input?: string | null;
+  value?: string | null;
 };
 
 export type EvmBlockHeader = {

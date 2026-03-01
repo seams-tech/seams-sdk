@@ -18,7 +18,7 @@ import type {
   SignTransactionHooksOptions,
   SyncAccountHooksOptions,
 } from '../../types/sdkSentEvents';
-import type { LoginSession, RegistrationResult } from '../../types/tatchi';
+import type { WalletSession, RegistrationResult } from '../../types/tatchi';
 import type { ConfirmationConfig } from '../../types/signer-worker';
 import { toAccountId } from '../../types/accountIds';
 import { SignedTransaction } from '../../rpcClients/near/NearClient';
@@ -84,11 +84,11 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
   };
 
   const handlers = {
-    PM_LOGIN: async (req: Req<'PM_LOGIN'>) => {
+    PM_UNLOCK: async (req: Req<'PM_UNLOCK'>) => {
       const pm = getTatchiPasskey();
       const { nearAccountId, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
-      const result = await pm.auth.login(
+      const result = await pm.auth.unlock(
         nearAccountId,
         withProgress(req.requestId, options) as LoginHooksOptions,
       );
@@ -96,15 +96,15 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOkResult(req.requestId, result);
     },
 
-    PM_LOGOUT: async (req: Req<'PM_LOGOUT'>) => {
+    PM_LOCK: async (req: Req<'PM_LOCK'>) => {
       const pm = getTatchiPasskey();
-      await pm.auth.logout();
+      await pm.auth.lock();
       respondOk(req.requestId);
     },
 
-    PM_GET_LOGIN_SESSION: async (req: Req<'PM_GET_LOGIN_SESSION'>) => {
+    PM_GET_WALLET_SESSION: async (req: Req<'PM_GET_WALLET_SESSION'>) => {
       const pm = getTatchiPasskey();
-      const result: LoginSession = await pm.auth.getSession(req.payload?.nearAccountId);
+      const result: WalletSession = await pm.auth.getWalletSession(req.payload?.nearAccountId);
       respondOkResult(req.requestId, result);
     },
 
@@ -397,9 +397,9 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOk(req.requestId);
     },
 
-    PM_GET_RECENT_LOGINS: async (req: Req<'PM_GET_RECENT_LOGINS'>) => {
+    PM_GET_RECENT_UNLOCKS: async (req: Req<'PM_GET_RECENT_UNLOCKS'>) => {
       const pm = getTatchiPasskey();
-      const result = await pm.auth.getRecentLogins();
+      const result = await pm.auth.getRecentUnlocks();
       respondOkResult(req.requestId, result);
     },
 
@@ -570,7 +570,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       let patch: Record<string, unknown> = { ...incoming };
       if (nearAccountId) {
         await pm.auth
-          .getSession(nearAccountId)
+          .getWalletSession(nearAccountId)
           .then(({ login }) => {
             const existing = (login?.userData?.preferences?.confirmationConfig || {}) as Record<
               string,

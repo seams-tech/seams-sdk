@@ -84,7 +84,7 @@ async function runFlow(
       function useTatchiHook() {
         return {
           accountInputState: { targetAccountId: 'alice.testnet', accountExists: true },
-          loginAndCreateSession: async (nearAccountId: string) => {
+          unlock: async (nearAccountId: string) => {
             counters.loginCalls.push(String(nearAccountId || ''));
             return {
               success: true,

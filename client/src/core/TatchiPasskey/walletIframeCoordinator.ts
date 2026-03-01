@@ -13,7 +13,7 @@ export interface WalletIframeCoordinatorDeps {
   signingEngine: SigningEnginePublic;
   userPreferences: UserPreferencesManager;
   getTheme: () => ThemeName;
-  refreshLoginSession: (nearAccountId?: string) => Promise<void>;
+  refreshWalletSession: (nearAccountId?: string) => Promise<void>;
 }
 
 let warnedAboutSameOriginWallet = false;
@@ -27,7 +27,7 @@ export class WalletIframeCoordinator {
   private readonly signingEngine: SigningEnginePublic;
   private readonly userPreferences: UserPreferencesManager;
   private readonly getTheme: () => ThemeName;
-  private readonly refreshLoginSession: (nearAccountId?: string) => Promise<void>;
+  private readonly refreshWalletSession: (nearAccountId?: string) => Promise<void>;
 
   private iframeRouter: WalletIframeRouter | null = null;
   private walletIframeInitInFlight: Promise<void> | null = null;
@@ -38,7 +38,7 @@ export class WalletIframeCoordinator {
     this.signingEngine = deps.signingEngine;
     this.userPreferences = deps.userPreferences;
     this.getTheme = deps.getTheme;
-    this.refreshLoginSession = deps.refreshLoginSession;
+    this.refreshWalletSession = deps.refreshWalletSession;
   }
 
   /**
@@ -92,7 +92,7 @@ export class WalletIframeCoordinator {
     const walletIframeConfig = this.configs.wallet.iframe;
     const walletOrigin = walletIframeConfig?.origin;
     if (!walletOrigin) {
-      await this.refreshLoginSession(nearAccountId);
+      await this.refreshWalletSession(nearAccountId);
       return;
     }
 
@@ -186,7 +186,7 @@ export class WalletIframeCoordinator {
       }
     }
 
-    await this.refreshLoginSession(nearAccountId);
+    await this.refreshWalletSession(nearAccountId);
   }
 
   async requireRouter(nearAccountId?: string): Promise<WalletIframeRouter> {

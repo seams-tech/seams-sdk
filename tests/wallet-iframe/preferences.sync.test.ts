@@ -62,7 +62,7 @@ const PREFERENCES_PUSH_STUB = `
           return;
         }
 
-        if (type === 'PM_GET_LOGIN_SESSION') {
+        if (type === 'PM_GET_WALLET_SESSION') {
           respond(requestId, makeLoginSession());
           return;
         }

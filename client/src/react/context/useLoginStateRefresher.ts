@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { TatchiPasskey } from '@/core/TatchiPasskey';
 import { toAccountId } from '@/core/types/accountIds';
 import type { LoginState, TatchiContextType } from '../types';
-import { isLoginSessionReadyForUi } from './loginReadiness';
+import { isWalletSessionReadyForUi } from './walletSessionReadiness';
 
 export function useLoginStateRefresher(args: {
   tatchi: TatchiPasskey;
@@ -18,9 +18,9 @@ export function useLoginStateRefresher(args: {
         const signerMode = tatchi.configs?.signing.mode;
         if (walletIframeConnected) {
           try {
-            const session = await tatchi.auth.getSession();
+            const session = await tatchi.auth.getWalletSession();
             const { login: st } = session;
-            if (isLoginSessionReadyForUi({ session, signerMode })) {
+            if (isWalletSessionReadyForUi({ session, signerMode })) {
               setLoginState((prevState) => ({
                 ...prevState,
                 nearAccountId: st.nearAccountId,
@@ -34,9 +34,9 @@ export function useLoginStateRefresher(args: {
           } catch {}
         }
 
-        const session = await tatchi.auth.getSession(nearAccountId);
+        const session = await tatchi.auth.getWalletSession(nearAccountId);
         const { login: ls } = session;
-        if (isLoginSessionReadyForUi({ session, signerMode })) {
+        if (isWalletSessionReadyForUi({ session, signerMode })) {
           if (ls.nearAccountId) {
             try {
               tatchi.preferences.setCurrentUser(toAccountId(ls.nearAccountId));

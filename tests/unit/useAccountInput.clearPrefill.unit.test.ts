@@ -41,7 +41,7 @@ test.describe('useAccountInput refresh prefill behavior', () => {
           },
         },
         auth: {
-          async getRecentLogins() {
+          async getRecentUnlocks() {
             return {
               accountIds: ['alice.w3a-v1.testnet'],
               lastUsedAccount: { nearAccountId: 'alice.w3a-v1.testnet' },

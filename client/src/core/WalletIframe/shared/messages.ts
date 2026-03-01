@@ -22,9 +22,9 @@ export type ParentToChildType =
   | 'PM_ENROLL_THRESHOLD_ED25519_KEY'
   | 'PM_ROTATE_THRESHOLD_ED25519_KEY'
   | 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'
-  | 'PM_LOGIN'
-  | 'PM_LOGOUT'
-  | 'PM_GET_LOGIN_SESSION'
+  | 'PM_UNLOCK'
+  | 'PM_LOCK'
+  | 'PM_GET_WALLET_SESSION'
   | 'PM_GET_RECOVERY_EMAILS'
   | 'PM_SET_RECOVERY_EMAILS'
   | 'PM_SIGN_TXS_WITH_ACTIONS'
@@ -40,7 +40,7 @@ export type ParentToChildType =
   | 'PM_REPORT_TEMPO_DROPPED_OR_REPLACED'
   | 'PM_RECONCILE_TEMPO_NONCE_LANE'
   | 'PM_EXPORT_KEYPAIR_UI'
-  | 'PM_GET_RECENT_LOGINS'
+  | 'PM_GET_RECENT_UNLOCKS'
   | 'PM_PREFETCH_BLOCKHEIGHT'
   | 'PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL'
   | 'PM_SET_CONFIRM_BEHAVIOR'
@@ -145,7 +145,7 @@ export interface PMBootstrapThresholdEcdsaSessionPayload {
   };
 }
 
-export interface PMLoginPayload {
+export interface PMUnlockPayload {
   nearAccountId: string;
   options?: Record<string, unknown>;
 }
@@ -280,7 +280,7 @@ export interface PMSetConfirmationConfigPayload {
   nearAccountId?: string;
 }
 
-export interface PMGetLoginSessionPayload {
+export interface PMGetWalletSessionPayload {
   nearAccountId?: string;
 }
 
@@ -382,9 +382,9 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_ENROLL_THRESHOLD_ED25519_KEY', PMEnrollThresholdEd25519KeyPayload>
   | RpcEnvelope<'PM_ROTATE_THRESHOLD_ED25519_KEY', PMRotateThresholdEd25519KeyPayload>
   | RpcEnvelope<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION', PMBootstrapThresholdEcdsaSessionPayload>
-  | RpcEnvelope<'PM_LOGIN', PMLoginPayload>
-  | RpcEnvelope<'PM_LOGOUT'>
-  | RpcEnvelope<'PM_GET_LOGIN_SESSION', PMGetLoginSessionPayload>
+  | RpcEnvelope<'PM_UNLOCK', PMUnlockPayload>
+  | RpcEnvelope<'PM_LOCK'>
+  | RpcEnvelope<'PM_GET_WALLET_SESSION', PMGetWalletSessionPayload>
   | RpcEnvelope<'PM_GET_RECOVERY_EMAILS', PMGetRecoveryEmailsPayload>
   | RpcEnvelope<'PM_SET_RECOVERY_EMAILS', PMSetRecoveryEmailsPayload>
   | RpcEnvelope<'PM_SIGN_TXS_WITH_ACTIONS', PMSignTxsPayload>
@@ -400,7 +400,7 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_REPORT_TEMPO_DROPPED_OR_REPLACED', PMReportTempoDroppedOrReplacedPayload>
   | RpcEnvelope<'PM_RECONCILE_TEMPO_NONCE_LANE', PMReconcileTempoNonceLanePayload>
   | RpcEnvelope<'PM_EXPORT_KEYPAIR_UI', PMExportKeypairUiPayload>
-  | RpcEnvelope<'PM_GET_RECENT_LOGINS'>
+  | RpcEnvelope<'PM_GET_RECENT_UNLOCKS'>
   | RpcEnvelope<'PM_PREFETCH_BLOCKHEIGHT'>
   | RpcEnvelope<
       'PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL',

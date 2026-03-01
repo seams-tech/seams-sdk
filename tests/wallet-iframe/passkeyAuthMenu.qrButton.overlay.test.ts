@@ -40,7 +40,7 @@ const qrFlowResponseScript = String.raw`
 
           if (data.type === 'PM_SET_CONFIG') return;
 
-          if (data.type === 'PM_GET_LOGIN_SESSION') {
+          if (data.type === 'PM_GET_WALLET_SESSION') {
             respondOk(requestId, {
               login: {
                 isLoggedIn: false,
@@ -53,7 +53,7 @@ const qrFlowResponseScript = String.raw`
             return;
           }
 
-          if (data.type === 'PM_GET_RECENT_LOGINS') {
+          if (data.type === 'PM_GET_RECENT_UNLOCKS') {
             respondOk(requestId, {
               accountIds: [],
               lastUsedAccount: null

@@ -135,9 +135,9 @@ export function usePasskeyAuthMenuController(
     if (latestValueRef.current.trim().length > 0) return;
 
     let cancelled = false;
-    void import('../features/recentLoginPrefill')
+    void import('../features/recentUnlockPrefill')
       .then(async (m) => {
-        const result = await m.getRecentLoginPrefill(runtime.tatchiPasskey);
+        const result = await m.getRecentUnlockPrefill(runtime.tatchiPasskey);
         if (cancelled || !result?.username) return;
         if (prevModeRef.current !== AuthMenuMode.Login) return;
         if (latestValueRef.current.trim().length > 0) return;

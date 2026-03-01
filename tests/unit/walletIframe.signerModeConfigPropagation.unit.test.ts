@@ -52,7 +52,7 @@ const WALLET_STUB_CAPTURE_SCRIPT = String.raw`
       if (data.type === 'PM_PREFETCH_BLOCKHEIGHT') {
         respond(null);
       }
-      if (data.type === 'PM_GET_LOGIN_SESSION') {
+      if (data.type === 'PM_GET_WALLET_SESSION') {
         respond({
           login: {
             isLoggedIn: false,

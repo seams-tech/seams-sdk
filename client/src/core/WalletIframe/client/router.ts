@@ -82,9 +82,9 @@ import {
 import type {
   ActionResult,
   AppearanceConfigInput,
-  GetRecentLoginsResult,
+  GetRecentUnlocksResult,
   LoginAndCreateSessionResult,
-  LoginSession,
+  WalletSession,
   RegistrationResult,
   SignDelegateActionResult,
   SignTransactionResult,
@@ -374,7 +374,7 @@ export class WalletIframeRouter {
         this.hideFrameForActivation();
         if (ok) {
           const acct = payload?.result?.nearAccountId;
-          void this.getLoginSession(acct)
+          void this.getWalletSession(acct)
             .then(({ login: st }) => {
               this.emitLoginStatusChanged({
                 isLoggedIn: !!st.isLoggedIn,
@@ -721,7 +721,7 @@ export class WalletIframeRouter {
       });
 
       // Step 4: Update login status after successful registration
-      const { login: st } = await this.getLoginSession(payload.nearAccountId);
+      const { login: st } = await this.getWalletSession(payload.nearAccountId);
       this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, nearAccountId: st.nearAccountId });
 
       return res?.result;
@@ -847,7 +847,7 @@ export class WalletIframeRouter {
     }
   }
 
-  async loginAndCreateSession(payload: {
+  async unlock(payload: {
     nearAccountId: string;
     options?: {
       onEvent?: (ev: LoginSSEvent) => void;
@@ -869,14 +869,14 @@ export class WalletIframeRouter {
     try {
       const safeOptions = removeFunctionsFromOptions(payload.options);
       const res = await this.post<LoginAndCreateSessionResult>({
-        type: 'PM_LOGIN',
+        type: 'PM_UNLOCK',
         payload: {
           nearAccountId: payload.nearAccountId,
           options: safeOptions,
         },
         options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isLoginSSEEvent) },
       });
-      const { login: st } = await this.getLoginSession(payload.nearAccountId);
+      const { login: st } = await this.getWalletSession(payload.nearAccountId);
       this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, nearAccountId: st.nearAccountId });
       return res?.result;
     } finally {
@@ -884,9 +884,9 @@ export class WalletIframeRouter {
     }
   }
 
-  async getLoginSession(nearAccountId?: string): Promise<LoginSession> {
-    const res = await this.post<LoginSession>({
-      type: 'PM_GET_LOGIN_SESSION',
+  async getWalletSession(nearAccountId?: string): Promise<WalletSession> {
+    const res = await this.post<WalletSession>({
+      type: 'PM_GET_WALLET_SESSION',
       payload: nearAccountId ? { nearAccountId } : undefined,
     });
     return res.result;
@@ -895,7 +895,7 @@ export class WalletIframeRouter {
   async checkLoginStatus(): Promise<
     PostResult<{ isLoggedIn: boolean; nearAccountId: string | null }>
   > {
-    const { login: st } = await this.getLoginSession();
+    const { login: st } = await this.getWalletSession();
     return {
       ok: true,
       result: {
@@ -905,8 +905,8 @@ export class WalletIframeRouter {
     };
   }
 
-  async logout(): Promise<PostResult<void>> {
-    await this.post<void>({ type: 'PM_LOGOUT' });
+  async lock(): Promise<PostResult<void>> {
+    await this.post<void>({ type: 'PM_LOCK' });
     this.emitLoginStatusChanged({ isLoggedIn: false, nearAccountId: null });
     return { ok: true, result: undefined };
   }
@@ -1175,7 +1175,7 @@ export class WalletIframeRouter {
   }
 
   async setConfirmBehavior(behavior: 'requireClick' | 'skipClick'): Promise<void> {
-    const { nearAccountId } = (await this.getLoginSession()).login;
+    const { nearAccountId } = (await this.getWalletSession()).login;
     await this.post<void>({
       type: 'PM_SET_CONFIRM_BEHAVIOR',
       payload: { behavior, nearAccountId },
@@ -1183,7 +1183,7 @@ export class WalletIframeRouter {
   }
 
   async setConfirmationConfig(config: ConfirmationConfig): Promise<void> {
-    const { nearAccountId } = (await this.getLoginSession()).login;
+    const { nearAccountId } = (await this.getWalletSession()).login;
     await this.post<void>({
       type: 'PM_SET_CONFIRMATION_CONFIG',
       payload: { config, nearAccountId },
@@ -1238,8 +1238,8 @@ export class WalletIframeRouter {
     return res.result;
   }
 
-  async getRecentLogins(): Promise<GetRecentLoginsResult> {
-    const res = await this.post<GetRecentLoginsResult>({ type: 'PM_GET_RECENT_LOGINS' });
+  async getRecentUnlocks(): Promise<GetRecentUnlocksResult> {
+    const res = await this.post<GetRecentUnlocksResult>({ type: 'PM_GET_RECENT_UNLOCKS' });
     return res.result;
   }
 
@@ -1784,7 +1784,7 @@ export class WalletIframeRouter {
       // Operations that require fullscreen overlay for WebAuthn activation
       case 'PM_EXPORT_KEYPAIR_UI':
       case 'PM_REGISTER':
-      case 'PM_LOGIN':
+      case 'PM_UNLOCK':
       case 'PM_SIGN_AND_SEND_TXS':
       case 'PM_EXECUTE_ACTION':
       case 'PM_SEND_TRANSACTION':

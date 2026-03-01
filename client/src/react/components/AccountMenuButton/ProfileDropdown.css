@@ -66,8 +66,8 @@ body[data-w3a-theme-pulse='1'] .w3a-profile-dropdown-menu {
   animation: w3a-theme-pulse 220ms ease;
 }
 
-/* Logout menu item specific styling */
-.w3a-logout-menu-item {
+/* Lock menu item specific styling */
+.w3a-lock-menu-item {
   border-top: 1px solid var(--w3a-colors-borderPrimary);
   border-radius: 0px 0px 2rem 2rem;
 }

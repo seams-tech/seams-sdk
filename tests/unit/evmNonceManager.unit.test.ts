@@ -48,7 +48,7 @@ test.describe('EvmNonceManager', () => {
           manager.reserveNextNonce(baseInput),
         ]);
 
-        manager.releaseReservation({ ...baseInput, nonce: reserved[1] });
+        manager.markBroadcastRejected({ ...baseInput, nonce: reserved[1] });
         const afterRelease = await manager.reserveNextNonce(baseInput);
 
         return {
@@ -64,7 +64,7 @@ test.describe('EvmNonceManager', () => {
     expect(result.afterRelease).toBe('10');
   });
 
-  test('refreshFromChain coalesces inflight RPC fetches', async ({ page }) => {
+  test('reconcileLane reports chain nonce and reserve uses warmed state', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths, sender }) => {
         const mod = await import(paths.nonceManager);
@@ -96,16 +96,18 @@ test.describe('EvmNonceManager', () => {
           sender: sender as `0x${string}`,
         };
 
-        const refreshed = await Promise.all([
-          manager.refreshFromChain(input),
-          manager.refreshFromChain(input),
-          manager.refreshFromChain(input),
-        ]);
+        const refreshed = await manager.reconcileLane(input);
         const next = await manager.reserveNextNonce(input);
 
         return {
           fetchCalls,
-          refreshed: refreshed.map((value) => value.toString()),
+          refreshed: {
+            chainNextNonce: refreshed.chainNextNonce.toString(),
+            unresolvedInFlightNonces: refreshed.unresolvedInFlightNonces.map((value: bigint) =>
+              value.toString(),
+            ),
+            blocked: refreshed.blocked,
+          },
           next: next.toString(),
         };
       },
@@ -113,11 +115,15 @@ test.describe('EvmNonceManager', () => {
     );
 
     expect(result.fetchCalls).toBe(1);
-    expect(result.refreshed).toEqual(['12', '12', '12']);
+    expect(result.refreshed).toEqual({
+      chainNextNonce: '12',
+      unresolvedInFlightNonces: [],
+      blocked: false,
+    });
     expect(result.next).toBe('12');
   });
 
-  test('releasing last reservation forces next reserve to refresh chain nonce', async ({ page }) => {
+  test('releasing last reservation refreshes chain nonce but preserves monotonic progression', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths, sender }) => {
         const mod = await import(paths.nonceManager);
@@ -152,7 +158,7 @@ test.describe('EvmNonceManager', () => {
         };
 
         const first = await manager.reserveNextNonce(input);
-        manager.releaseReservation({ ...input, nonce: first });
+        manager.markBroadcastRejected({ ...input, nonce: first });
         const second = await manager.reserveNextNonce(input);
 
         return {
@@ -166,7 +172,7 @@ test.describe('EvmNonceManager', () => {
 
     expect(result.fetchCalls).toBe(2);
     expect(result.first).toBe('1');
-    expect(result.second).toBe('1');
+    expect(result.second).toBe('2');
   });
 
   test('clearForAccount drops cached reservation state for that account', async ({ page }) => {

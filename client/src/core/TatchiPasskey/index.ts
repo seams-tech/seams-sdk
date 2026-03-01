@@ -8,9 +8,9 @@ import {
 } from '../rpcClients/near/NearClient';
 import type {
   ActionResult,
-  GetRecentLoginsResult,
+  GetRecentUnlocksResult,
   LoginAndCreateSessionResult,
-  LoginSession,
+  WalletSession,
   RegistrationResult,
   ThemeName,
   TatchiConfigsReadonly,
@@ -38,12 +38,12 @@ import { buildConfigsFromEnv } from '../config/defaultConfigs';
 import { resolvePrimaryNearRpcUrl } from '../config/chains';
 import { WalletIframeCoordinator } from './walletIframeCoordinator';
 import {
-  getLoginSessionDomain,
+  getWalletSessionDomain,
   prefillThresholdEcdsaPresignPoolDomain,
-  getRecentLoginsDomain,
+  getRecentUnlocksDomain,
   hasPasskeyCredentialDomain,
-  loginAndCreateSessionDomain,
-  logoutAndClearSessionDomain,
+  unlockDomain,
+  lockDomain,
   type AuthSessionDomainDeps,
 } from './authSessions';
 import type {
@@ -117,8 +117,8 @@ export class TatchiPasskey {
       signingEngine: this.signingEngine,
       userPreferences: userPreferences,
       getTheme: () => this.theme,
-      refreshLoginSession: async (nearAccountId?: string) => {
-        await this.getLoginSession(nearAccountId);
+      refreshWalletSession: async (nearAccountId?: string) => {
+        await this.getWalletSession(nearAccountId);
       },
     });
     this.preferences = {
@@ -162,11 +162,10 @@ export class TatchiPasskey {
       getSignerMode: (): SignerMode => userPreferences.getSignerMode(),
     };
     this.auth = {
-      login: async (nearAccountId, options) =>
-        await this.loginAndCreateSession(nearAccountId, options),
-      logout: async () => await this.logoutAndClearSession(),
-      getSession: async (nearAccountId) => await this.getLoginSession(nearAccountId),
-      getRecentLogins: async () => await this.getRecentLogins(),
+      unlock: async (nearAccountId, options) => await this.unlock(nearAccountId, options),
+      lock: async () => await this.lock(),
+      getWalletSession: async (nearAccountId) => await this.getWalletSession(nearAccountId),
+      getRecentUnlocks: async () => await this.getRecentUnlocks(),
       hasPasskeyCredential: async (nearAccountId) => await this.hasPasskeyCredential(nearAccountId),
       prefillThresholdEcdsaPresignPool: async (args) =>
         await this.prefillThresholdEcdsaPresignPool(args),
@@ -532,32 +531,31 @@ export class TatchiPasskey {
   }
 
   /**
-   * Login and optionally mint a warm signing session.
+   * Unlock wallet state and optionally mint a warm signing session.
    * - Sets the active account/deviceNumber (IndexedDB last-user pointer)
-   * - Optional: mints a relay session (JWT/cookie) via standard WebAuthn login challenge/verify
+   * - Optional: mints a relay app-session (JWT/cookie) via BYO exchange
    * - In `threshold-signer` mode with warm-session policy enabled, threshold warm-up
-   *   (ed25519 + ECDSA) is part of login and must succeed.
-   * - Signing flows still prompt via UserConfirm/WebAuthn as needed
+   *   (ed25519 + ECDSA) is part of unlock and must succeed.
    */
-  async loginAndCreateSession(
+  async unlock(
     nearAccountId: string,
     options?: LoginHooksOptions,
   ): Promise<LoginAndCreateSessionResult> {
-    return await loginAndCreateSessionDomain(this.getAuthSessionDeps(), nearAccountId, options);
+    return await unlockDomain(this.getAuthSessionDeps(), nearAccountId, options);
   }
 
   /**
-   * Logout: clears last-user pointer and local session caches.
+   * Lock wallet state: clears last-user pointer and local session caches.
    */
-  async logoutAndClearSession(): Promise<void> {
-    await logoutAndClearSessionDomain(this.getAuthSessionDeps());
+  async lock(): Promise<void> {
+    await lockDomain(this.getAuthSessionDeps());
   }
 
   /**
-   * Read login state + warm signing session status (no prompts).
+   * Read wallet session state + warm signing session status (no prompts).
    */
-  async getLoginSession(nearAccountId?: string): Promise<LoginSession> {
-    return await getLoginSessionDomain(this.getAuthSessionDeps(), nearAccountId);
+  async getWalletSession(nearAccountId?: string): Promise<WalletSession> {
+    return await getWalletSessionDomain(this.getAuthSessionDeps(), nearAccountId);
   }
 
   /**
@@ -629,8 +627,8 @@ export class TatchiPasskey {
     } catch {}
   }
 
-  async getRecentLogins(): Promise<GetRecentLoginsResult> {
-    return await getRecentLoginsDomain(this.getAuthSessionDeps());
+  async getRecentUnlocks(): Promise<GetRecentUnlocksResult> {
+    return await getRecentUnlocksDomain(this.getAuthSessionDeps());
   }
 
   ///////////////////////////////////////
@@ -702,7 +700,10 @@ export class TatchiPasskey {
 export type {
   AuthCapability,
   BootstrapThresholdEcdsaSessionArgs,
+  ExecuteEvmFamilyTransactionArgs,
+  ExecuteEvmFamilyTransactionResult,
   EvmSignerCapability,
+  FinalizedEvmTxPayloadVerification,
   KeyExportCapability,
   NearSignerCapability,
   PasskeyManagerContext,
@@ -715,6 +716,8 @@ export type {
   ReportTempoDroppedOrReplacedArgs,
   ReportTempoFinalizedArgs,
   SignTempoArgs,
+  TempoNonceLifecycleEvent,
+  TempoNonceLifecycleOptions,
   TempoNonceLaneStatus,
   TempoSignerCapability,
 } from './interfaces';
@@ -725,7 +728,7 @@ export type {
   RegistrationResult,
   LoginAndCreateSessionResult,
   LoginResult,
-  LoginSession,
+  WalletSession,
   SigningSessionStatus,
   ActionResult,
 } from '../types/tatchi';

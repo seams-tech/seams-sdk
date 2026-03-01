@@ -34,7 +34,7 @@ import type { DelegateActionInput } from '../core/types/delegate';
 import type { WasmSignedDelegate } from '../core/types/signer-worker';
 import type {
   ActionResult,
-  LoginSession,
+  WalletSession,
   LoginAndCreateSessionResult,
   LoginResult,
   RegistrationResult,
@@ -146,16 +146,16 @@ export interface TatchiContextType {
   // TatchiPasskey functions
   ////////////////////////////
 
-  // Registration and login functions
+  // Registration and wallet unlock functions
   registerPasskey: (
     nearAccountId: string,
     options?: RegistrationHooksOptions,
   ) => Promise<RegistrationResult>;
-  loginAndCreateSession: (
+  unlock: (
     nearAccountId: string,
     options?: LoginHooksOptions,
   ) => Promise<LoginAndCreateSessionResult>;
-  logout: () => void;
+  lock: () => void;
 
   // Execute actions
   executeAction: (args: {
@@ -197,7 +197,7 @@ export interface TatchiContextType {
   // Wallet iframe connectivity (true when service client handshake completes)
   walletIframeConnected: boolean;
 
-  getLoginSession: (nearAccountId?: string) => Promise<LoginSession>;
+  getWalletSession: (nearAccountId?: string) => Promise<WalletSession>;
   refreshLoginState: (nearAccountId?: string) => Promise<void>;
 
   // Account input management

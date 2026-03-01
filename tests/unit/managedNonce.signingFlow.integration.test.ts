@@ -128,7 +128,7 @@ test.describe('managed nonce signing flow integration', () => {
               };
             },
             releaseNonceReservation: (reservation: any) => {
-              manager.releaseReservation(reservation);
+              manager.markBroadcastRejected(reservation);
             },
           });
 
@@ -269,7 +269,7 @@ test.describe('managed nonce signing flow integration', () => {
               };
             },
             releaseNonceReservation: (reservation: any) => {
-              manager.releaseReservation(reservation);
+              manager.markBroadcastRejected(reservation);
             },
           });
 

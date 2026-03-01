@@ -40,10 +40,6 @@ import {
   isThresholdSigningSessionReady,
 } from '../orchestration/shared/thresholdSigningSessionPlanner';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/thresholdActivation';
-import { Secp256k1Engine } from '../signers/algorithms/secp256k1';
-import { WebAuthnP256Engine } from '../signers/algorithms/webauthnP256';
-import { signEvmWithTouchConfirm } from '../orchestration/evm/evmSigningFlow';
-import { signTempoWithTouchConfirm } from '../orchestration/tempo/tempoSigningFlow';
 
 export type EvmFamilySigningDeps = {
   indexedDB: UnifiedIndexedDBManager;
@@ -145,6 +141,70 @@ type EvmFamilySigningNonceLaneBlockedError = Error & {
   };
 };
 type ManagedNonceReservation = ReserveNonceInput & { nonce: bigint };
+
+type Secp256k1EngineCtor = new (opts: unknown) => unknown;
+type WebAuthnP256EngineCtor = new (workerCtx: unknown) => unknown;
+type SignEvmWithTouchConfirmFn = (args: unknown) => Promise<EvmSignedResult>;
+type SignTempoWithTouchConfirmFn = (args: unknown) => Promise<TempoSignedResult>;
+type ThresholdEcdsaPresignRefillEvent = {
+  trigger: 'commit_start' | 'post_sign_success';
+  result: {
+    scheduled: boolean;
+    reason?: string;
+    [key: string]: unknown;
+  };
+};
+type ThresholdEcdsaCommitQueueArgs = {
+  nearAccountId: string;
+  thresholdSessionId: string;
+  shouldAbort?: () => boolean;
+  task: () => Promise<unknown>;
+};
+type ThresholdEcdsaPrfFirstPayload = {
+  sessionId: string;
+  uses?: number;
+};
+
+let secp256k1EngineCtorPromise: Promise<Secp256k1EngineCtor> | null = null;
+let webAuthnP256EngineCtorPromise: Promise<WebAuthnP256EngineCtor> | null = null;
+let signEvmWithTouchConfirmPromise: Promise<SignEvmWithTouchConfirmFn> | null = null;
+let signTempoWithTouchConfirmPromise: Promise<SignTempoWithTouchConfirmFn> | null = null;
+
+async function loadSecp256k1EngineCtor(): Promise<Secp256k1EngineCtor> {
+  if (!secp256k1EngineCtorPromise) {
+    secp256k1EngineCtorPromise = import('../signers/algorithms/secp256k1').then(
+      (mod) => mod.Secp256k1Engine as Secp256k1EngineCtor,
+    );
+  }
+  return await secp256k1EngineCtorPromise;
+}
+
+async function loadWebAuthnP256EngineCtor(): Promise<WebAuthnP256EngineCtor> {
+  if (!webAuthnP256EngineCtorPromise) {
+    webAuthnP256EngineCtorPromise = import('../signers/algorithms/webauthnP256').then(
+      (mod) => mod.WebAuthnP256Engine as WebAuthnP256EngineCtor,
+    );
+  }
+  return await webAuthnP256EngineCtorPromise;
+}
+
+async function loadSignEvmWithTouchConfirm(): Promise<SignEvmWithTouchConfirmFn> {
+  if (!signEvmWithTouchConfirmPromise) {
+    signEvmWithTouchConfirmPromise = import('../orchestration/evm/evmSigningFlow').then(
+      (mod) => mod.signEvmWithTouchConfirm as SignEvmWithTouchConfirmFn,
+    );
+  }
+  return await signEvmWithTouchConfirmPromise;
+}
+
+async function loadSignTempoWithTouchConfirm(): Promise<SignTempoWithTouchConfirmFn> {
+  if (!signTempoWithTouchConfirmPromise) {
+    signTempoWithTouchConfirmPromise = import('../orchestration/tempo/tempoSigningFlow').then(
+      (mod) => mod.signTempoWithTouchConfirm as SignTempoWithTouchConfirmFn,
+    );
+  }
+  return await signTempoWithTouchConfirmPromise;
+}
 
 function createEvmFamilySigningCancelledError(): EvmFamilySigningCancelledError {
   const err = new Error('Request cancelled') as EvmFamilySigningCancelledError;
@@ -1108,6 +1168,11 @@ export async function signEvmFamily(
 
   throwIfEvmFamilySigningCancelled(args.shouldAbort);
 
+  const [Secp256k1Engine, WebAuthnP256Engine] = await Promise.all([
+    loadSecp256k1EngineCtor(),
+    loadWebAuthnP256EngineCtor(),
+  ]);
+
   const signerWorkerCtx = deps.getSignerWorkerContext();
   const ctx = deps.touchConfirm.getContext();
   const flowArgs = {
@@ -1123,7 +1188,10 @@ export async function signEvmFamily(
         shouldAbort: args.shouldAbort,
         thresholdEcdsaPresignPoolPolicy:
           deps.tatchiPasskeyConfigs.signing.thresholdEcdsa.presignPool,
-        onThresholdEcdsaPresignRefillScheduled: ({ trigger, result }) => {
+        onThresholdEcdsaPresignRefillScheduled: ({
+          trigger,
+          result,
+        }: ThresholdEcdsaPresignRefillEvent) => {
           try {
             args.onEvent?.({
               step: 4,
@@ -1136,7 +1204,7 @@ export async function signEvmFamily(
             });
           } catch {}
         },
-        enqueueThresholdEcdsaCommit: async (queueArgs) => {
+        enqueueThresholdEcdsaCommit: async (queueArgs: ThresholdEcdsaCommitQueueArgs) => {
           const thresholdSessionId = String(queueArgs.thresholdSessionId || '').trim();
           const queueKey = resolveThresholdEcdsaCommitQueueKey({
             chain: args.request.chain,
@@ -1182,7 +1250,7 @@ export async function signEvmFamily(
             },
           });
         },
-        dispenseThresholdEcdsaPrfFirstForSession: (payload) =>
+        dispenseThresholdEcdsaPrfFirstForSession: (payload: ThresholdEcdsaPrfFirstPayload) =>
           deps.touchConfirm.dispensePrfFirstForThresholdSession(payload),
       }),
       webauthnP256: new WebAuthnP256Engine(signerWorkerCtx),
@@ -1208,6 +1276,7 @@ export async function signEvmFamily(
   };
 
   if (args.request.chain === 'evm') {
+    const signEvmWithTouchConfirm = await loadSignEvmWithTouchConfirm();
     const request = args.request;
     const reservationInputPromise = resolveManagedEvmNonceReservationInput({
       deps,
@@ -1228,10 +1297,10 @@ export async function signEvmFamily(
             request,
             reservationInput: await reservationInputPromise,
           }),
-        releaseNonceReservation: (reservation) => {
+        releaseNonceReservation: (reservation: ManagedNonceReservation) => {
           deps.evmNonceManager.markBroadcastRejected(reservation);
         },
-      });
+      } as unknown);
       return result;
     } catch (error: unknown) {
       throw mapToRetryableNonceStateError({
@@ -1246,6 +1315,7 @@ export async function signEvmFamily(
     }
   }
 
+  const signTempoWithTouchConfirm = await loadSignTempoWithTouchConfirm();
   const request = args.request;
   try {
     const result = await signTempoWithTouchConfirm({
@@ -1257,10 +1327,10 @@ export async function signEvmFamily(
           nearAccountId: args.nearAccountId,
           request,
         }),
-      releaseNonceReservation: (reservation) => {
+      releaseNonceReservation: (reservation: ManagedNonceReservation) => {
         deps.evmNonceManager.markBroadcastRejected(reservation);
       },
-    });
+    } as unknown);
     return result;
   } catch (error: unknown) {
     throw mapToRetryableNonceStateError({

@@ -1,7 +1,7 @@
 import type { AccountId } from '../types/accountIds';
 import { toAccountId } from '../types/accountIds';
 import { normalizePositiveInteger } from '@shared/utils/normalize';
-import { getLoginSession } from './login';
+import { getWalletSession } from './login';
 import type { PasskeyManagerContext } from './index';
 
 export async function restoreLocalLoginState(args: {
@@ -18,7 +18,7 @@ export async function restoreLocalLoginState(args: {
     .initializeCurrentUser(nearAccountId, args.context.nearClient)
     .catch(() => undefined);
 
-  const { login } = await getLoginSession(args.context, nearAccountId);
+  const { login } = await getWalletSession(args.context, nearAccountId);
   return {
     nearAccountId,
     deviceNumber,

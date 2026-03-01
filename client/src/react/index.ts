@@ -16,7 +16,7 @@
  *     <TatchiPasskeyProvider configs={passkeyConfigs}>
  *       <div>
  *         <QRCodeScanner onDeviceLinked={(result) => console.log(result)} />
- *         <AccountMenuButton username="alice" onLogout={() => console.log('logout')} />
+ *         <AccountMenuButton username="alice" onLock={() => console.log('wallet locked')} />
  *       </div>
  *     </TatchiPasskeyProvider>
  *   );
@@ -161,7 +161,7 @@ export type {
   UserAccountButtonProps,
   ProfileDropdownProps,
   MenuItemProps,
-  LogoutMenuItemProps,
+  LockMenuItemProps,
   ProfileRelayerToggleSectionProps,
   ProfileStateRefs,
   ToggleColorProps,

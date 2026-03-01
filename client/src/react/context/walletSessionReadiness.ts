@@ -1,4 +1,4 @@
-import type { LoginSession } from '@/core/types/tatchi';
+import type { WalletSession } from '@/core/types/tatchi';
 
 function isThresholdSignerMode(signerMode: unknown): boolean {
   if (!signerMode || typeof signerMode !== 'object') return false;
@@ -7,12 +7,12 @@ function isThresholdSignerMode(signerMode: unknown): boolean {
 }
 
 /**
- * UI login readiness gate:
- * - For threshold signer mode, login is ready only when warm signing session is active.
- * - For other signer modes, login readiness follows the canonical login snapshot only.
+ * UI wallet-session readiness gate:
+ * - For threshold signer mode, the wallet session is ready only when warm signing session is active.
+ * - For other signer modes, readiness follows the canonical wallet-session snapshot only.
  */
-export function isLoginSessionReadyForUi(args: {
-  session: Pick<LoginSession, 'login' | 'signingSession'>;
+export function isWalletSessionReadyForUi(args: {
+  session: Pick<WalletSession, 'login' | 'signingSession'>;
   signerMode: unknown;
 }): boolean {
   const { session, signerMode } = args;

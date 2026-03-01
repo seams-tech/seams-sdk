@@ -34,22 +34,21 @@ test.describe('threshold ECDSA presign pool policy', () => {
     expect(policy.refillAttemptTimeoutMs).toBe(5_000);
   });
 
-  test('buildConfigsFromEnv merges and clamps threshold ECDSA presign pool config', async () => {
-    const cfg = buildConfigsFromEnv({
-      relayer: { url: 'https://relay.example' },
-      thresholdEcdsaPresignPool: {
-        enabled: false,
-        targetDepth: 99,
-        lowWatermark: -2,
-        maxRefillInFlight: 99,
-        refillAttemptTimeoutMs: 999_999,
-      },
-    });
-    expect(cfg.signing.thresholdEcdsa.presignPool.enabled).toBe(false);
-    expect(cfg.signing.thresholdEcdsa.presignPool.targetDepth).toBe(64);
-    expect(cfg.signing.thresholdEcdsa.presignPool.lowWatermark).toBe(0);
-    expect(cfg.signing.thresholdEcdsa.presignPool.maxRefillInFlight).toBe(8);
-    expect(cfg.signing.thresholdEcdsa.presignPool.refillAttemptTimeoutMs).toBe(120_000);
+  test('buildConfigsFromEnv rejects invalid threshold ECDSA presign pool config values', async () => {
+    expect(() =>
+      buildConfigsFromEnv({
+        relayer: { url: 'https://relay.example' },
+        thresholdEcdsaPresignPool: {
+          enabled: false,
+          targetDepth: 99,
+          lowWatermark: -2,
+          maxRefillInFlight: 99,
+          refillAttemptTimeoutMs: 999_999,
+        },
+      }),
+    ).toThrow(
+      '[configPresets] Invalid config: thresholdEcdsaPresignPool.targetDepth must be in [1, 64]',
+    );
   });
 
   test('accepts larger target depth policy for pooled warm signing', async () => {

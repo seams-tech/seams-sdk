@@ -53,7 +53,11 @@ export const buildWalletServiceHtml = (options: WalletServiceHtmlOptions = {}): 
 
           if (type === 'PM_SET_CONFIG') {
             try {
-              adoptedPort.postMessage({ type: 'PONG', requestId });
+              adoptedPort.postMessage({
+                type: 'PM_RESULT',
+                requestId,
+                payload: { ok: true, result: undefined },
+              });
             } catch (err) {
               console.error('Failed to respond to PM_SET_CONFIG', err);
             }

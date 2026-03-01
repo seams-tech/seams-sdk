@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { TatchiPasskey } from '@/core/TatchiPasskey';
 import { toAccountId } from '@/core/types/accountIds';
 import type { LoginState } from '../types';
-import { isLoginSessionReadyForUi } from './loginReadiness';
+import { isWalletSessionReadyForUi } from './walletSessionReadiness';
 
 export function useWalletIframeLifecycle(args: {
   tatchi: TatchiPasskey;
@@ -37,9 +37,9 @@ export function useWalletIframeLifecycle(args: {
           async (status: { isLoggedIn: boolean; nearAccountId: string | null }) => {
             if (cancelled) return;
             if (status?.isLoggedIn && status?.nearAccountId) {
-              const session = await tatchi.auth.getSession(status.nearAccountId);
+              const session = await tatchi.auth.getWalletSession(status.nearAccountId);
               const { login: state } = session;
-              if (isLoginSessionReadyForUi({ session, signerMode })) {
+              if (isWalletSessionReadyForUi({ session, signerMode })) {
                 tatchi.preferences.setCurrentUser(toAccountId(status.nearAccountId));
                 setLoginState((prev) => ({
                   ...prev,
@@ -79,9 +79,9 @@ export function useWalletIframeLifecycle(args: {
           const acct = payload?.nearAccountId;
           if (acct) {
             try {
-              const session = await tatchi.auth.getSession(acct);
+              const session = await tatchi.auth.getWalletSession(acct);
               const { login: state } = session;
-              if (isLoginSessionReadyForUi({ session, signerMode }) && state?.nearAccountId) {
+              if (isWalletSessionReadyForUi({ session, signerMode }) && state?.nearAccountId) {
                 tatchi.preferences.setCurrentUser(toAccountId(state.nearAccountId));
                 setLoginState((prev) => ({
                   ...prev,
@@ -105,9 +105,9 @@ export function useWalletIframeLifecycle(args: {
           }));
         });
 
-        const session = await tatchi.auth.getSession();
+        const session = await tatchi.auth.getWalletSession();
         const { login: st } = session;
-        if (isLoginSessionReadyForUi({ session, signerMode })) {
+        if (isWalletSessionReadyForUi({ session, signerMode })) {
           setLoginState((prev) => ({
             ...prev,
             isLoggedIn: true,

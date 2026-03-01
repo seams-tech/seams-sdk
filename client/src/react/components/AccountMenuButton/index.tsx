@@ -50,7 +50,7 @@ function resolveDefaultPortalTarget(
  *     <PasskeyProvider configs={passkeyConfigs}>
  *       <AccountMenuButton
  *         username="alice"
- *         onLogout={() => console.log('User logged out')}
+ *         onLock={() => console.log('Wallet locked')}
  *         deviceLinkingScannerParams={{
  *           onDeviceLinked: (result) => console.log('Device linked:', result),
  *           onError: (error) => console.error('Error:', error),
@@ -69,7 +69,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   nearExplorerBaseUrl = 'https://nearblocks.io',
   username: usernameProp,
   hideUsername = false,
-  onLogout: onLogout,
+  onLock: onLock,
   deviceLinkingScannerParams,
   toggleColors,
   style,
@@ -80,7 +80,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   highlightedMenuItem,
 }) => {
   // Get values from context if not provided as props
-  const { loginState, tatchi, logout, themeCapabilities } = useTatchi();
+  const { loginState, tatchi, lock, themeCapabilities } = useTatchi();
 
   // Use props if provided, otherwise fall back to context
   const accountName =
@@ -290,9 +290,9 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   }, [isOpen, highlightedIndex, highlightShouldFocus, refs.menuItemsRef]);
 
   // Handlers
-  const handleLogout = () => {
-    logout();
-    onLogout?.();
+  const handleLock = () => {
+    lock();
+    onLock?.();
     handleClose();
   };
 
@@ -321,7 +321,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         ref={refs.dropdownRef}
         isOpen={isOpen}
         menuItems={MENU_ITEMS}
-        onLogout={handleLogout}
+        onLock={handleLock}
         onClose={handleClose}
         menuItemsRef={refs.menuItemsRef}
         toggleColors={toggleColors}

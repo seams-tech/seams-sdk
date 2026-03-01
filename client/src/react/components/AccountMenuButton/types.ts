@@ -58,7 +58,7 @@ export interface AccountMenuButtonProps {
   nearExplorerBaseUrl?: string;
   username?: string | null;
   hideUsername?: boolean;
-  onLogout?: () => void;
+  onLock?: () => void;
   // QR Code Scanner parameters
   deviceLinkingScannerParams?: DeviceLinkingScannerParams;
   // styles
@@ -94,7 +94,7 @@ export interface UserAccountButtonProps {
 export interface ProfileDropdownProps {
   isOpen: boolean;
   menuItems: MenuItem[];
-  onLogout: () => void;
+  onLock: () => void;
   onClose: () => void;
   toggleColors?: ToggleColorProps;
   theme?: ThemeName;
@@ -122,8 +122,8 @@ export interface MenuItemProps {
   isHighlighted?: boolean;
 }
 
-export interface LogoutMenuItemProps {
-  onLogout: () => void;
+export interface LockMenuItemProps {
+  onLock: () => void;
   className?: string;
   style?: React.CSSProperties;
 }

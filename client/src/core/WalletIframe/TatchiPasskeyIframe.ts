@@ -29,9 +29,9 @@ import type { PreferencesChangedPayload } from './shared/messages';
 import type {
   ActionResult,
   DelegateRelayResult,
-  GetRecentLoginsResult,
+  GetRecentUnlocksResult,
   LoginAndCreateSessionResult,
-  LoginSession,
+  WalletSession,
   LoginState,
   RegistrationResult,
   SignAndSendDelegateActionResult,
@@ -73,6 +73,8 @@ import type { EvmSignedResult } from '../signingEngine/chainAdaptors/evm/evmAdap
 import type { TempoSignedResult } from '../signingEngine/chainAdaptors/tempo/tempoAdapter';
 import type {
   BootstrapThresholdEcdsaSessionArgs,
+  ExecuteEvmFamilyTransactionArgs,
+  ExecuteEvmFamilyTransactionResult,
   RecoveryCapability,
   EvmSignerCapability,
   KeyExportCapability,
@@ -86,6 +88,7 @@ import type {
   TempoNonceLaneStatus,
   TempoSignerCapability,
 } from '../TatchiPasskey';
+import { executeEvmFamilyTransactionLifecycle } from '../TatchiPasskey/tempo/executeEvmFamilyTransaction';
 
 export class TatchiPasskeyIframe {
   readonly configs: TatchiConfigsReadonly;
@@ -197,6 +200,8 @@ export class TatchiPasskeyIframe {
     };
     this.tempo = {
       signTempo: async (args) => await this.signTempoDomain(args),
+      executeEvmFamilyTransaction: async (args) =>
+        await this.executeEvmFamilyTransactionDomain(args),
       reportBroadcastAccepted: async (args) => await this.reportTempoBroadcastAcceptedDomain(args),
       reportBroadcastRejected: async (args) => await this.reportTempoBroadcastRejectedDomain(args),
       reportFinalized: async (args) => await this.reportTempoFinalizedDomain(args),
@@ -436,14 +441,14 @@ export class TatchiPasskeyIframe {
     }
   }
 
-  async loginAndCreateSession(
+  async unlock(
     nearAccountId: string,
     options?: LoginHooksOptions,
   ): Promise<LoginAndCreateSessionResult> {
     try {
       // Route login request to iframe - similar flow to registerPasskey
       // The iframe will handle WebAuthn authentication and session creation
-      const res = await this.router.loginAndCreateSession({
+      const res = await this.router.unlock({
         nearAccountId,
         options: {
           onEvent: options?.onEvent,
@@ -462,11 +467,11 @@ export class TatchiPasskeyIframe {
     }
   }
 
-  async logoutAndClearSession(): Promise<void> {
-    await this.router.logout();
+  async lock(): Promise<void> {
+    await this.router.lock();
   }
 
-  async getLoginSession(nearAccountId?: string): Promise<LoginSession> {
+  async getWalletSession(nearAccountId?: string): Promise<WalletSession> {
     if (!this.router.isReady()) {
       const login: LoginState = {
         isLoggedIn: false,
@@ -476,7 +481,7 @@ export class TatchiPasskeyIframe {
       } as LoginState;
       return { login, signingSession: null };
     }
-    return await this.router.getLoginSession(nearAccountId);
+    return await this.router.getWalletSession(nearAccountId);
   }
 
   async prefillThresholdEcdsaPresignPool(args: {
@@ -707,6 +712,26 @@ export class TatchiPasskeyIframe {
     });
   }
 
+  private async executeEvmFamilyTransactionDomain(
+    args: ExecuteEvmFamilyTransactionArgs,
+  ): Promise<ExecuteEvmFamilyTransactionResult> {
+    return await executeEvmFamilyTransactionLifecycle({
+      capability: {
+        signTempo: async (innerArgs) => await this.signTempoDomain(innerArgs),
+        reportBroadcastAccepted: async (innerArgs) =>
+          await this.reportTempoBroadcastAcceptedDomain(innerArgs),
+        reportBroadcastRejected: async (innerArgs) =>
+          await this.reportTempoBroadcastRejectedDomain(innerArgs),
+        reportFinalized: async (innerArgs) => await this.reportTempoFinalizedDomain(innerArgs),
+        reportDroppedOrReplaced: async (innerArgs) =>
+          await this.reportTempoDroppedOrReplacedDomain(innerArgs),
+        reconcileNonceLane: async (innerArgs) => await this.reconcileTempoNonceLaneDomain(innerArgs),
+      },
+      chains: this.configs.network.chains,
+      input: args,
+    });
+  }
+
   private async reportTempoBroadcastAcceptedDomain(
     args: ReportTempoBroadcastAcceptedArgs,
   ): Promise<void> {
@@ -879,10 +904,10 @@ export class TatchiPasskeyIframe {
   async prefetchBlockheight(): Promise<void> {
     await this.router.prefetchBlockheight();
   }
-  async getRecentLogins(): Promise<GetRecentLoginsResult> {
+  async getRecentUnlocks(): Promise<GetRecentUnlocksResult> {
     // In wallet-iframe mode, do not fall back to app-origin persistence.
     return await this.requireRouterReady()
-      .then(() => this.router.getRecentLogins())
+      .then(() => this.router.getRecentUnlocks())
       .catch(() => ({ accountIds: [], lastUsedAccount: null }));
   }
 

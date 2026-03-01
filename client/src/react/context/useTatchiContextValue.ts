@@ -11,7 +11,7 @@ import type { ThemeName } from '@/core/types/tatchi';
 import type { RecoveryCapability } from '@/core/TatchiPasskey';
 import { useSDKFlowRuntime } from './useSDKFlowRuntime';
 import { useTatchiWithSdkFlow } from './useTatchiWithSdkFlow';
-import { isLoginSessionReadyForUi } from './loginReadiness';
+import { isWalletSessionReadyForUi } from './walletSessionReadiness';
 
 export function useTatchiContextValue(args: {
   tatchi: TatchiContextType['tatchi'];
@@ -45,13 +45,13 @@ export function useTatchiContextValue(args: {
     hostSetTheme,
   });
 
-  const logout: TatchiContextType['logout'] = useCallback(() => {
+  const lock: TatchiContextType['lock'] = useCallback(() => {
     try {
-      void tatchi.auth.logout().catch((error) => {
-        console.warn('Logout warning:', error);
+      void tatchi.auth.lock().catch((error) => {
+        console.warn('Wallet lock warning:', error);
       });
     } catch (error) {
-      console.warn('Logout warning:', error);
+      console.warn('Wallet lock warning:', error);
     }
 
     setLoginState((prevState) => ({
@@ -77,18 +77,18 @@ export function useTatchiContextValue(args: {
       await tatchi.recovery.stopDevice2LinkingFlow();
     }, [tatchi]);
 
-  const loginAndCreateSession: TatchiContextType['loginAndCreateSession'] = useCallback(
+  const unlock: TatchiContextType['unlock'] = useCallback(
     async (nearAccountId, options) => {
-      return tatchiWithSdkFlow.auth.login(nearAccountId, {
+      return tatchiWithSdkFlow.auth.unlock(nearAccountId, {
         ...options,
         onEvent: async (event) => {
           if (
             event.phase === LoginPhase.STEP_4_LOGIN_COMPLETE &&
             event.status === LoginStatus.SUCCESS
           ) {
-            const session = await tatchi.auth.getSession(nearAccountId);
+            const session = await tatchi.auth.getWalletSession(nearAccountId);
             const { login } = session;
-            const isLoggedIn = isLoginSessionReadyForUi({
+            const isLoggedIn = isWalletSessionReadyForUi({
               session,
               signerMode: tatchi.configs?.signing.mode,
             });
@@ -108,12 +108,12 @@ export function useTatchiContextValue(args: {
           return options?.onEvent?.(event);
         },
         onError: (error) => {
-          logout();
+          lock();
           return options?.onError?.(error);
         },
       });
     },
-    [logout, setLoginState, tatchi, tatchiWithSdkFlow],
+    [lock, setLoginState, tatchi, tatchiWithSdkFlow],
   );
 
   const registerPasskey: TatchiContextType['registerPasskey'] = useCallback(
@@ -123,7 +123,7 @@ export function useTatchiContextValue(args: {
         {
           ...options,
           onError: (error) => {
-            logout();
+            lock();
             return options?.onError?.(error);
           },
         },
@@ -134,7 +134,7 @@ export function useTatchiContextValue(args: {
       }
       return result;
     },
-    [logout, refreshLoginState, tatchiWithSdkFlow],
+    [lock, refreshLoginState, tatchiWithSdkFlow],
   );
 
   const executeAction: TatchiContextType['executeAction'] = useCallback(
@@ -158,9 +158,9 @@ export function useTatchiContextValue(args: {
     [tatchi],
   );
 
-  const getLoginSession: TatchiContextType['getLoginSession'] = useCallback(
+  const getWalletSession: TatchiContextType['getWalletSession'] = useCallback(
     (nearAccountId?: string) => {
-      return tatchi.auth.getSession(nearAccountId);
+      return tatchi.auth.getWalletSession(nearAccountId);
     },
     [tatchi],
   );
@@ -195,14 +195,14 @@ export function useTatchiContextValue(args: {
       tatchi: tatchiWithSdkFlow,
       sdkFlow,
       registerPasskey,
-      loginAndCreateSession,
-      logout,
+      unlock,
+      lock,
       startDevice2LinkingFlow,
       stopDevice2LinkingFlow,
       executeAction,
       signNEP413Message,
       signDelegateAction,
-      getLoginSession,
+      getWalletSession,
       refreshLoginState,
       loginState,
       walletIframeConnected,
@@ -221,14 +221,14 @@ export function useTatchiContextValue(args: {
       tatchiWithSdkFlow,
       sdkFlow,
       registerPasskey,
-      loginAndCreateSession,
-      logout,
+      unlock,
+      lock,
       startDevice2LinkingFlow,
       stopDevice2LinkingFlow,
       executeAction,
       signNEP413Message,
       signDelegateAction,
-      getLoginSession,
+      getWalletSession,
       refreshLoginState,
       loginState,
       walletIframeConnected,

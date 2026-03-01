@@ -9,24 +9,24 @@ import type { AccountId } from '../types/accountIds';
 import { toAccountId } from '../types/accountIds';
 import type { LoginHooksOptions } from '../types/sdkSentEvents';
 import type {
-  GetRecentLoginsResult,
+  GetRecentUnlocksResult,
   LoginAndCreateSessionResult,
-  LoginSession,
+  WalletSession,
 } from '../types/tatchi';
 import {
-  getLoginSession as getLoginSessionCore,
-  getRecentLogins as getRecentLoginsCore,
-  loginAndCreateSession as loginAndCreateSessionCore,
-  logoutAndClearSession as logoutAndClearSessionCore,
+  getWalletSession as getWalletSessionCore,
+  getRecentUnlocks as getRecentUnlocksCore,
+  unlock as unlockCore,
+  lock as lockCore,
 } from './login';
 import type { PasskeyManagerContext } from './index';
 import type { WalletIframeCoordinator } from './walletIframeCoordinator';
 
 /**
  * TatchiPasskey auth/session domain call graph:
- * - loginAndCreateSessionDomain -> wallet router login OR local login workflow (`./login`)
- * - getLoginSessionDomain/getRecentLoginsDomain -> wallet router read path OR local IndexedDB/session read path
- * - logoutAndClearSessionDomain -> local logout + best-effort wallet-host logout
+ * - unlockDomain -> wallet router unlock OR local unlock workflow (`./login`)
+ * - getWalletSessionDomain/getRecentUnlocksDomain -> wallet router read path OR local IndexedDB/session read path
+ * - lockDomain -> local lock + best-effort wallet-host lock
  */
 export type AuthSessionDomainDeps = {
   getContext: () => PasskeyManagerContext;
@@ -36,7 +36,7 @@ export type AuthSessionDomainDeps = {
   initWalletIframe: (nearAccountId?: string) => Promise<void>;
 };
 
-export async function loginAndCreateSessionDomain(
+export async function unlockDomain(
   deps: AuthSessionDomainDeps,
   nearAccountId: string,
   options?: LoginHooksOptions,
@@ -44,7 +44,7 @@ export async function loginAndCreateSessionDomain(
   if (deps.walletIframe.shouldUseWalletIframe()) {
     try {
       const router = await deps.walletIframe.requireRouter(nearAccountId);
-      const result = await router.loginAndCreateSession({
+      const result = await router.unlock({
         nearAccountId,
         options: {
           onEvent: options?.onEvent,
@@ -54,7 +54,7 @@ export async function loginAndCreateSessionDomain(
           signingSession: options?.signingSession,
         },
       });
-      // Best-effort warm-up after successful login (non-blocking).
+      // Best-effort warm-up after successful unlock (non-blocking).
       void (async () => {
         try {
           await deps.initWalletIframe(nearAccountId);
@@ -70,16 +70,16 @@ export async function loginAndCreateSessionDomain(
     }
   }
 
-  const result = await loginAndCreateSessionCore(
+  const result = await unlockCore(
     deps.getContext(),
     toAccountId(nearAccountId),
     options,
   );
   if (result?.success) {
-    // Promote authenticated account to current-user state only after login succeeds.
+    // Promote authenticated account to current-user state only after unlock succeeds.
     await deps.signingEngine.initializeCurrentUser(toAccountId(nearAccountId), deps.nearClient);
   }
-  // Best-effort warm-up after successful login (non-blocking).
+  // Best-effort warm-up after successful unlock (non-blocking).
   try {
     void deps.initWalletIframe(nearAccountId);
   } catch {}
@@ -87,29 +87,29 @@ export async function loginAndCreateSessionDomain(
   return result;
 }
 
-export async function logoutAndClearSessionDomain(deps: AuthSessionDomainDeps): Promise<void> {
-  await logoutAndClearSessionCore(deps.getContext());
+export async function lockDomain(deps: AuthSessionDomainDeps): Promise<void> {
+  await lockCore(deps.getContext());
   if (!deps.walletIframe.shouldUseWalletIframe()) return;
   try {
     const router = await deps.walletIframe.requireRouter();
-    await router.logout?.();
+    await router.lock?.();
   } catch {}
 }
 
-export async function getLoginSessionDomain(
+export async function getWalletSessionDomain(
   deps: AuthSessionDomainDeps,
   nearAccountId?: string,
-): Promise<LoginSession> {
+): Promise<WalletSession> {
   if (deps.walletIframe.shouldUseWalletIframe()) {
     const router = await deps.walletIframe.requireRouter(nearAccountId);
-    const session = await router.getLoginSession(nearAccountId);
+    const session = await router.getWalletSession(nearAccountId);
     try {
       await router.prefetchBlockheight();
     } catch {}
     return session;
   }
 
-  return await getLoginSessionCore(
+  return await getWalletSessionCore(
     deps.getContext(),
     nearAccountId ? toAccountId(nearAccountId) : undefined,
   );
@@ -128,14 +128,14 @@ export async function hasPasskeyCredentialDomain(
   return await deps.signingEngine.hasPasskeyCredential(baseAccountId);
 }
 
-export async function getRecentLoginsDomain(
+export async function getRecentUnlocksDomain(
   deps: AuthSessionDomainDeps,
-): Promise<GetRecentLoginsResult> {
+): Promise<GetRecentUnlocksResult> {
   // In iframe mode, do not fall back to app-origin IndexedDB.
   if (deps.walletIframe.shouldUseWalletIframe()) {
     try {
       const router = await deps.walletIframe.requireRouter();
-      return await router.getRecentLogins();
+      return await router.getRecentUnlocks();
     } catch {
       return {
         accountIds: [],
@@ -144,7 +144,7 @@ export async function getRecentLoginsDomain(
     }
   }
 
-  return await getRecentLoginsCore(deps.getContext());
+  return await getRecentUnlocksCore(deps.getContext());
 }
 
 export async function prefillThresholdEcdsaPresignPoolDomain(
