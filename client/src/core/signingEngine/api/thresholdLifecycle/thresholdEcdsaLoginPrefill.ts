@@ -20,10 +20,11 @@ import {
 import { deriveThresholdSecp256k1ClientShareWasm } from '../../signers/wasm/ethSignerWasm';
 import type { ThresholdPrfCacheDispenseResult } from '../../touchConfirm';
 import type { SignerWorkerManagerContext } from '../../workerManager';
-
-const LOGIN_PREFILL_TARGET_DEPTH = 1;
-const LOGIN_PREFILL_TRIGGER_DEPTH = 0;
-const LOGIN_PREFILL_MIN_REMAINING_USES = 2;
+import {
+  LOGIN_PREFILL_MIN_REMAINING_USES,
+  LOGIN_PREFILL_TARGET_DEPTH,
+  LOGIN_PREFILL_TRIGGER_DEPTH,
+} from '@/core/config/defaultConfigs';
 
 export type ThresholdEcdsaLoginPrefillSkippedReason =
   | 'pool_disabled'

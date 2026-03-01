@@ -8,9 +8,13 @@ import type {
 } from '../types/tatchi';
 import { buildConfigsFromDefaults } from './configBuilder';
 
-///////////////////////
-// Default SDK configs
-///////////////////////
+////////////////////////
+/// Default SDK configs
+////////////////////////
+
+//////////////////////////////////////////
+/// ECDSA Threshold (Cait Sith) configs
+//////////////////////////////////////////
 
 export const DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY: ThresholdEcdsaPresignPoolPolicy = {
   enabled: true,
@@ -41,6 +45,27 @@ export const DEFAULT_THRESHOLD_ECDSA_PROVISIONING_DEFAULTS: EcdsaSignerProvision
   },
 };
 
+// Login prefill keeps a small warm presign buffer available immediately after auth.
+export const LOGIN_PREFILL_TARGET_DEPTH = 2;
+export const LOGIN_PREFILL_TRIGGER_DEPTH = 1;
+export const LOGIN_PREFILL_MIN_REMAINING_USES = 2;
+
+//////////////////////////////////////////
+/// ED25519 Threshold (2P Frost) Configs
+//////////////////////////////////////////
+
+// Default threshold participant identifiers (2P FROST).
+export const THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID = 1 as const;
+export const THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID = 2 as const;
+export const THRESHOLD_ED25519_2P_PARTICIPANT_IDS = [
+  THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID,
+  THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID,
+] as const;
+
+///////////////////
+/// Chain Configs
+///////////////////
+
 export const DEFAULT_CHAIN_CONFIGS: TatchiChainConfig[] = [
   {
     network: 'near-testnet',
@@ -68,6 +93,10 @@ export const DEFAULT_CHAIN_CONFIGS: TatchiChainConfig[] = [
     chainId: 11155111,
   },
 ];
+
+//////////////////////////////
+/// Tatchi Client SDK configs
+//////////////////////////////
 
 export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigsReadonly = {
   network: {
@@ -149,16 +178,6 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigsReadonly = {
     },
   },
 };
-
-// Default threshold participant identifiers (2P FROST).
-// These are intentionally exported as standalone constants so apps can reuse them when wiring
-// threshold signing across client + server environments.
-export const THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID = 1 as const;
-export const THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID = 2 as const;
-export const THRESHOLD_ED25519_2P_PARTICIPANT_IDS = [
-  THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID,
-  THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID,
-] as const;
 
 export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiConfigsReadonly {
   return buildConfigsFromDefaults({
