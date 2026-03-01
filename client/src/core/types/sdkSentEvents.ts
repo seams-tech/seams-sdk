@@ -681,8 +681,24 @@ export interface LoginHooksOptions {
     kind: 'jwt' | 'cookie';
     // Optional: override relay URL; defaults to TatchiConfigsReadonly.network.relayer.url
     relayUrl?: string;
-    // Optional: override route path; defaults to '/auth/passkey/verify'
+    // Optional: override route path.
+    // - defaults to '/session/exchange'
+    // - must target exchange-capable route when `session` is provided
     route?: string;
+    // Required exchange input for `POST /session/exchange`.
+    exchange?:
+      | {
+          // BYO auth: external OIDC token -> relay app session mint
+          type: 'oidc_jwt';
+          token: string;
+        }
+      | {
+          // One-step passkey unlock + app session mint.
+          // SDK obtains challenge + WebAuthn assertion before calling `/session/exchange`.
+          type: 'passkey_assertion';
+          expectedOrigin?: string;
+          expected_origin?: string;
+        };
   };
   /**
    * Optional: override the warm signing session policy minted during login.

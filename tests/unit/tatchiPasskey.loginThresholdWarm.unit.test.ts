@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { loginAndCreateSession } from '@/core/TatchiPasskey/login';
+import { unlock } from '@/core/TatchiPasskey/login';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { toAccountId } from '@/core/types/accountIds';
 
@@ -12,6 +12,7 @@ function createBaseContext(args?: {
   const now = Date.now();
   return {
     signingEngine: {
+      assertSealedRefreshStartupParity: async () => undefined,
       getUserByDevice: async () => ({
         nearAccountId: 'alice.testnet',
         deviceNumber: 1,
@@ -108,7 +109,7 @@ async function withMockedMostRecentProjection<T>(fn: () => Promise<T>): Promise<
   }
 }
 
-test.describe('loginAndCreateSession threshold warm-session requirements', () => {
+test.describe('unlock threshold warm-session requirements', () => {
   test('returns active signingSession in threshold-signer warm mode', async () => {
     let bootstrapCalls = 0;
     let bootstrapArgs: Record<string, unknown> | null = null;
@@ -155,7 +156,7 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
       },
     });
     const result = await withMockedMostRecentProjection(
-      async () => await loginAndCreateSession(context, ACCOUNT_ID),
+      async () => await unlock(context, ACCOUNT_ID),
     );
 
     expect(result.success).toBe(true);
@@ -200,7 +201,7 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
     });
 
     const result = await withMockedMostRecentProjection(
-      async () => await loginAndCreateSession(context, ACCOUNT_ID),
+      async () => await unlock(context, ACCOUNT_ID),
     );
 
     expect(result.success).toBe(false);
@@ -229,7 +230,7 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
     });
 
     const result = await withMockedMostRecentProjection(
-      async () => await loginAndCreateSession(context, ACCOUNT_ID),
+      async () => await unlock(context, ACCOUNT_ID),
     );
 
     expect(result.success).toBe(false);
@@ -252,7 +253,7 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
     });
 
     const result = await withMockedMostRecentProjection(
-      async () => await loginAndCreateSession(context, ACCOUNT_ID),
+      async () => await unlock(context, ACCOUNT_ID),
     );
 
     expect(result.success).toBe(true);
@@ -280,7 +281,7 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
     });
 
     const result = await withMockedMostRecentProjection(
-      async () => await loginAndCreateSession(context, ACCOUNT_ID),
+      async () => await unlock(context, ACCOUNT_ID),
     );
 
     expect(result.success).toBe(false);
@@ -312,12 +313,335 @@ test.describe('loginAndCreateSession threshold warm-session requirements', () =>
     });
 
     const result = await withMockedMostRecentProjection(
-      async () => await loginAndCreateSession(context, ACCOUNT_ID),
+      async () => await unlock(context, ACCOUNT_ID),
     );
 
     expect(result.success).toBe(true);
     expect(result.signingSession?.status).toBe('active');
     expect(capturedConnectArgs).not.toBeNull();
     expect(String(capturedConnectArgs?.['sessionId'] || '')).toBe('canonical-ecdsa-session-1');
+  });
+
+  test('fails fast when /session/exchange route is requested without session.exchange payload', async () => {
+    const context = createBaseContext();
+
+    const result = await withMockedMostRecentProjection(
+      async () =>
+        await unlock(context, ACCOUNT_ID, {
+          session: {
+            kind: 'jwt',
+            route: '/session/exchange',
+          },
+        }),
+    );
+
+    expect(result.success).toBe(false);
+    expect(String(result.error || '')).toContain('session.exchange is required');
+  });
+
+  test('fails fast when server session is requested without exchange payload', async () => {
+    const context = createBaseContext();
+
+    const result = await withMockedMostRecentProjection(
+      async () =>
+        await unlock(context, ACCOUNT_ID, {
+          session: {
+            kind: 'jwt',
+          },
+        }),
+    );
+
+    expect(result.success).toBe(false);
+    expect(String(result.error || '')).toContain('session.exchange is required');
+  });
+
+  test('supports one-step passkey_assertion session exchange', async () => {
+    const originalFetch = globalThis.fetch;
+    const captured: Array<{ url: string; init?: RequestInit }> = [];
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        captured.push({ url, init });
+        if (url === 'https://relay.example/wallet/unlock/options') {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              challengeId: 'challenge-passkey-1',
+              challengeB64u: 'challenge-passkey-b64u-1',
+              expiresAtMs: Date.now() + 60_000,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        if (url === 'https://relay.example/session/exchange') {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              session: { kind: 'app_session_v1', userId: 'alice.testnet' },
+              jwt: 'app-jwt-passkey-1',
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        return new Response(JSON.stringify({ ok: false, message: 'not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }) as typeof fetch;
+
+      const context = createBaseContext({
+        signingEngine: {
+          getRpId: () => 'example.localhost',
+          getAuthenticationCredentialsSerialized: async () => ({
+            id: 'cred-1',
+            rawId: 'cred-1',
+            type: 'public-key',
+            authenticatorAttachment: undefined,
+            response: {
+              clientDataJSON: 'client-data-json',
+              authenticatorData: 'authenticator-data',
+              signature: 'signature',
+              userHandle: undefined,
+              clientExtensionResults: { shouldRedact: true },
+            },
+            clientExtensionResults: {
+              prf: {
+                results: {
+                  first: 'prf-first',
+                  second: 'prf-second',
+                },
+              },
+            },
+          }),
+        },
+        configs: {
+          signing: {
+            mode: { mode: 'local-signer' },
+            sessionDefaults: { ttlMs: 0, remainingUses: 0 },
+          },
+        },
+      });
+
+      const result = await withMockedMostRecentProjection(
+        async () =>
+          await unlock(context, ACCOUNT_ID, {
+            session: {
+              kind: 'jwt',
+              exchange: { type: 'passkey_assertion' },
+            },
+          }),
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.jwt).toBe('app-jwt-passkey-1');
+      expect(captured).toHaveLength(2);
+      expect(captured[0]!.url).toBe('https://relay.example/wallet/unlock/options');
+      expect(captured[1]!.url).toBe('https://relay.example/session/exchange');
+
+      const unlockOptionsBody = JSON.parse(String(captured[0]!.init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(unlockOptionsBody.user_id).toBe('alice.testnet');
+      expect(unlockOptionsBody.rp_id).toBe('example.localhost');
+
+      const exchangeBody = JSON.parse(String(captured[1]!.init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      const exchange = (exchangeBody.exchange || {}) as Record<string, unknown>;
+      expect(exchange.type).toBe('passkey_assertion');
+      expect(exchange.challengeId).toBe('challenge-passkey-1');
+      const credential = (exchange.webauthn_authentication || {}) as Record<string, unknown>;
+      expect(credential.clientExtensionResults).toBeNull();
+      expect(
+        ((credential.response || {}) as Record<string, unknown>).clientExtensionResults,
+      ).toBeNull();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('forwards passkey_assertion expectedOrigin override to session exchange', async () => {
+    const originalFetch = globalThis.fetch;
+    const captured: Array<{ url: string; init?: RequestInit }> = [];
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        captured.push({ url, init });
+        if (url === 'https://relay.example/wallet/unlock/options') {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              challengeId: 'challenge-passkey-2',
+              challengeB64u: 'challenge-passkey-b64u-2',
+              expiresAtMs: Date.now() + 60_000,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        if (url === 'https://relay.example/session/exchange') {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              session: { kind: 'app_session_v1', userId: 'alice.testnet' },
+              jwt: 'app-jwt-passkey-2',
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        return new Response(JSON.stringify({ ok: false, message: 'not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }) as typeof fetch;
+
+      const context = createBaseContext({
+        signingEngine: {
+          getRpId: () => 'example.localhost',
+          getAuthenticationCredentialsSerialized: async () => ({
+            id: 'cred-2',
+            rawId: 'cred-2',
+            type: 'public-key',
+            authenticatorAttachment: undefined,
+            response: {
+              clientDataJSON: 'client-data-json',
+              authenticatorData: 'authenticator-data',
+              signature: 'signature',
+              userHandle: undefined,
+              clientExtensionResults: { shouldRedact: true },
+            },
+            clientExtensionResults: {
+              prf: {
+                results: {
+                  first: 'prf-first',
+                  second: 'prf-second',
+                },
+              },
+            },
+          }),
+        },
+        configs: {
+          signing: {
+            mode: { mode: 'local-signer' },
+            sessionDefaults: { ttlMs: 0, remainingUses: 0 },
+          },
+        },
+      });
+
+      const result = await withMockedMostRecentProjection(
+        async () =>
+          await unlock(context, ACCOUNT_ID, {
+            session: {
+              kind: 'jwt',
+              exchange: {
+                type: 'passkey_assertion',
+                expectedOrigin: 'https://wallet.example.localhost',
+              },
+            },
+          }),
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.jwt).toBe('app-jwt-passkey-2');
+      expect(captured).toHaveLength(2);
+
+      const exchangeBody = JSON.parse(String(captured[1]!.init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      const exchange = (exchangeBody.exchange || {}) as Record<string, unknown>;
+      expect(exchange.type).toBe('passkey_assertion');
+      expect(exchange.expected_origin).toBe('https://wallet.example.localhost');
+      expect(captured[1]!.init?.credentials).toBe('omit');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('supports cookie-mode passkey_assertion exchange with include credentials', async () => {
+    const originalFetch = globalThis.fetch;
+    const captured: Array<{ url: string; init?: RequestInit }> = [];
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        captured.push({ url, init });
+        if (url === 'https://relay.example/wallet/unlock/options') {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              challengeId: 'challenge-passkey-cookie',
+              challengeB64u: 'challenge-passkey-cookie-b64u',
+              expiresAtMs: Date.now() + 60_000,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        if (url === 'https://relay.example/session/exchange') {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              session: { kind: 'app_session_v1', userId: 'alice.testnet' },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        return new Response(JSON.stringify({ ok: false, message: 'not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }) as typeof fetch;
+
+      const context = createBaseContext({
+        signingEngine: {
+          getRpId: () => 'example.localhost',
+          getAuthenticationCredentialsSerialized: async () => ({
+            id: 'cred-cookie',
+            rawId: 'cred-cookie',
+            type: 'public-key',
+            authenticatorAttachment: undefined,
+            response: {
+              clientDataJSON: 'client-data-json',
+              authenticatorData: 'authenticator-data',
+              signature: 'signature',
+              userHandle: undefined,
+              clientExtensionResults: { shouldRedact: true },
+            },
+            clientExtensionResults: {
+              prf: {
+                results: {
+                  first: 'prf-first',
+                  second: 'prf-second',
+                },
+              },
+            },
+          }),
+        },
+        configs: {
+          signing: {
+            mode: { mode: 'local-signer' },
+            sessionDefaults: { ttlMs: 0, remainingUses: 0 },
+          },
+        },
+      });
+
+      const result = await withMockedMostRecentProjection(
+        async () =>
+          await unlock(context, ACCOUNT_ID, {
+            session: {
+              kind: 'cookie',
+              exchange: { type: 'passkey_assertion' },
+            },
+          }),
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.jwt).toBeUndefined();
+      expect(captured).toHaveLength(2);
+      expect(captured[1]!.url).toBe('https://relay.example/session/exchange');
+      expect(captured[1]!.init?.credentials).toBe('include');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

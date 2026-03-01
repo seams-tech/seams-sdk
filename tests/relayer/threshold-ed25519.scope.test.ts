@@ -8,7 +8,14 @@ import { createThresholdSigningService } from '@server/core/ThresholdService';
 import { createRelayRouter } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
 import { threshold_ed25519_compute_near_tx_signing_digests } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
-import { callCf, fetchJson, makeCfCtx, makeSessionAdapter, startExpressRouter } from './helpers';
+import {
+  callCf,
+  fetchJson,
+  getPath,
+  makeCfCtx,
+  makeSessionAdapter,
+  startExpressRouter,
+} from './helpers';
 import type {
   ThresholdEd25519AuthConsumeUsesResult,
   Ed25519AuthSessionRecord,
@@ -115,6 +122,46 @@ function createTestSessionAdapter(): {
   return { session };
 }
 
+function enableOidcExchangeForTest(service: AuthService, userId: string): void {
+  (service as unknown as { verifyOidcJwtExchange: AuthService['verifyOidcJwtExchange'] })
+    .verifyOidcJwtExchange = async (request: { token?: unknown }) => {
+    const token = String(request?.token || '').trim();
+    if (!token) {
+      return {
+        ok: false,
+        verified: false,
+        code: 'invalid_body',
+        message: 'exchange.token is required',
+      };
+    }
+    return {
+      ok: true,
+      verified: true,
+      userId,
+      providerSubject: `oidc:${userId}`,
+      iss: 'https://issuer.test',
+      aud: ['relay-client-test'],
+      sub: userId,
+    };
+  };
+}
+
+function testWebauthnAuthenticationPayload(): Record<string, unknown> {
+  return {
+    id: 'test',
+    rawId: 'test',
+    type: 'public-key',
+    authenticatorAttachment: null,
+    response: {
+      clientDataJSON: 'test',
+      authenticatorData: 'test',
+      signature: 'test',
+      userHandle: null,
+    },
+    clientExtensionResults: null,
+  };
+}
+
 class SplitAuthSessionStore implements Ed25519AuthSessionStore {
   readonly records = new Map<string, Ed25519AuthSessionRecord>();
   readonly uses = new Map<string, number>();
@@ -186,19 +233,7 @@ async function buildThresholdSessionBody(input: {
     clientVerifyingShareB64u: input.clientVerifyingShareB64u,
     sessionPolicy: policy,
     sessionKind: 'jwt',
-    webauthn_authentication: {
-      id: 'test',
-      rawId: 'test',
-      type: 'public-key',
-      authenticatorAttachment: null,
-      response: {
-        clientDataJSON: 'test',
-        authenticatorData: 'test',
-        signature: 'test',
-        userHandle: null,
-      },
-      clientExtensionResults: null,
-    },
+    webauthn_authentication: testWebauthnAuthenticationPayload(),
   };
 }
 
@@ -265,23 +300,249 @@ async function buildKeygenBody(input: {
     clientVerifyingShareB64u: input.clientVerifyingShareB64u,
     rpId,
     keygenSessionId,
-    webauthn_authentication: {
-      id: 'test',
-      rawId: 'test',
-      type: 'public-key',
-      authenticatorAttachment: null,
-      response: {
-        clientDataJSON: 'test',
-        authenticatorData: 'test',
-        signature: 'test',
-        userHandle: null,
-      },
-      clientExtensionResults: null,
-    },
+    webauthn_authentication: testWebauthnAuthenticationPayload(),
   };
 }
 
 test.describe('threshold-ed25519 scope (express)', () => {
+  test('integration: session/exchange -> threshold session -> authorize -> sign/init', async () => {
+    const { service, threshold } = makeAuthServiceForThreshold();
+    enableOidcExchangeForTest(service, 'bob.testnet');
+
+    const { session } = createTestSessionAdapter();
+    const router = createRelayRouter(service, { threshold, session });
+    const srv = await startExpressRouter(router);
+    try {
+      const exchanged = await fetchJson(`${srv.baseUrl}/session/exchange`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionKind: 'jwt',
+          exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
+        }),
+      });
+      expect(exchanged.status, exchanged.text).toBe(200);
+      expect(exchanged.json?.ok, exchanged.text).toBe(true);
+      const appJwt = String(exchanged.json?.jwt || '');
+      expect(appJwt).toContain('testjwt-');
+
+      const state = await fetchJson(`${srv.baseUrl}/session/state`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${appJwt}` },
+      });
+      expect(state.status, state.text).toBe(200);
+      expect(state.json?.authenticated, state.text).toBe(true);
+      expect(getPath(state.json, 'claims', 'kind')).toBe('app_session_v1');
+
+      const clientVerifyingShareB64u = await randomClientVerifyingShareB64u();
+      const keygenBody = await buildKeygenBody({
+        nearAccountId: 'bob.testnet',
+        clientVerifyingShareB64u,
+      });
+      const keygen = await fetchJson(`${srv.baseUrl}/threshold-ed25519/keygen`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(keygenBody),
+      });
+      expect(keygen.status, keygen.text).toBe(200);
+      expect(keygen.json?.ok, keygen.text).toBe(true);
+      const relayerKeyId = String(keygen.json?.relayerKeyId || '');
+      const nearPublicKeyStr = String(keygen.json?.publicKey || '');
+      (service as unknown as { __testAllowedNearPublicKey?: string }).__testAllowedNearPublicKey =
+        nearPublicKeyStr;
+
+      const sessionId = `sess-${Date.now()}`;
+      const thresholdSessionBody = await buildThresholdSessionBody({
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        nearAccountId: 'bob.testnet',
+        rpId: 'example.localhost',
+        sessionId,
+        ttlMs: 60_000,
+        remainingUses: 2,
+      });
+      const minted = await fetchJson(`${srv.baseUrl}/threshold-ed25519/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(thresholdSessionBody),
+      });
+      expect(minted.status, minted.text).toBe(200);
+      expect(minted.json?.ok, minted.text).toBe(true);
+      const thresholdJwt = String(minted.json?.jwt || '');
+      expect(thresholdJwt).toContain('testjwt-');
+
+      const { body: authorizeBody, signingDigestB64u } = await buildNearTxAuthorizeBody({
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        nearAccountId: 'bob.testnet',
+        nearPublicKeyStr,
+        receiverId: 'receiver.testnet',
+        actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
+      });
+      const auth = await fetchJson(`${srv.baseUrl}/threshold-ed25519/authorize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${thresholdJwt}` },
+        body: JSON.stringify(authorizeBody),
+      });
+      expect(auth.status, auth.text).toBe(200);
+      expect(auth.json?.ok, auth.text).toBe(true);
+      const mpcSessionId = String(auth.json?.mpcSessionId || '');
+      expect(mpcSessionId).toContain('mpc-');
+
+      const signInit = await fetchJson(`${srv.baseUrl}/threshold-ed25519/sign/init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mpcSessionId,
+          relayerKeyId,
+          nearAccountId: 'bob.testnet',
+          signingDigestB64u,
+          clientCommitments: { hiding: 'a', binding: 'b' },
+        }),
+      });
+      expect(signInit.status, signInit.text).toBe(200);
+      expect(signInit.json?.ok, signInit.text).toBe(true);
+      expect(String(signInit.json?.signingSessionId || '')).toContain('sign-');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('integration: wallet/unlock/options -> session/exchange(passkey_assertion) -> session/state -> threshold session -> authorize -> sign/init -> revoke', async () => {
+    const { service, threshold } = makeAuthServiceForThreshold();
+    const { session } = createTestSessionAdapter();
+    const router = createRelayRouter(service, { threshold, session });
+    const srv = await startExpressRouter(router);
+    try {
+      const unlockOptions = await fetchJson(`${srv.baseUrl}/wallet/unlock/options`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: 'bob.testnet',
+          rp_id: 'example.localhost',
+        }),
+      });
+      expect(unlockOptions.status, unlockOptions.text).toBe(200);
+      expect(unlockOptions.json?.ok, unlockOptions.text).toBe(true);
+      const challengeId = String(unlockOptions.json?.challengeId || '').trim();
+      expect(challengeId).not.toBe('');
+
+      const exchanged = await fetchJson(`${srv.baseUrl}/session/exchange`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'https://example.localhost',
+        },
+        body: JSON.stringify({
+          sessionKind: 'jwt',
+          exchange: {
+            type: 'passkey_assertion',
+            challengeId,
+            webauthn_authentication: testWebauthnAuthenticationPayload(),
+          },
+        }),
+      });
+      expect(exchanged.status, exchanged.text).toBe(200);
+      expect(exchanged.json?.ok, exchanged.text).toBe(true);
+      const appJwt = String(exchanged.json?.jwt || '');
+      expect(appJwt).toContain('testjwt-');
+
+      const state = await fetchJson(`${srv.baseUrl}/session/state`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${appJwt}` },
+      });
+      expect(state.status, state.text).toBe(200);
+      expect(state.json?.authenticated, state.text).toBe(true);
+      expect(getPath(state.json, 'claims', 'kind')).toBe('app_session_v1');
+
+      const clientVerifyingShareB64u = await randomClientVerifyingShareB64u();
+      const keygenBody = await buildKeygenBody({
+        nearAccountId: 'bob.testnet',
+        clientVerifyingShareB64u,
+      });
+      const keygen = await fetchJson(`${srv.baseUrl}/threshold-ed25519/keygen`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(keygenBody),
+      });
+      expect(keygen.status, keygen.text).toBe(200);
+      expect(keygen.json?.ok, keygen.text).toBe(true);
+      const relayerKeyId = String(keygen.json?.relayerKeyId || '');
+      const nearPublicKeyStr = String(keygen.json?.publicKey || '');
+      (service as unknown as { __testAllowedNearPublicKey?: string }).__testAllowedNearPublicKey =
+        nearPublicKeyStr;
+
+      const sessionId = `sess-${Date.now()}`;
+      const thresholdSessionBody = await buildThresholdSessionBody({
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        nearAccountId: 'bob.testnet',
+        rpId: 'example.localhost',
+        sessionId,
+        ttlMs: 60_000,
+        remainingUses: 2,
+      });
+      const minted = await fetchJson(`${srv.baseUrl}/threshold-ed25519/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(thresholdSessionBody),
+      });
+      expect(minted.status, minted.text).toBe(200);
+      expect(minted.json?.ok, minted.text).toBe(true);
+      const thresholdJwt = String(minted.json?.jwt || '');
+      expect(thresholdJwt).toContain('testjwt-');
+
+      const { body: authorizeBody, signingDigestB64u } = await buildNearTxAuthorizeBody({
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        nearAccountId: 'bob.testnet',
+        nearPublicKeyStr,
+        receiverId: 'receiver.testnet',
+        actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
+      });
+      const auth = await fetchJson(`${srv.baseUrl}/threshold-ed25519/authorize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${thresholdJwt}` },
+        body: JSON.stringify(authorizeBody),
+      });
+      expect(auth.status, auth.text).toBe(200);
+      expect(auth.json?.ok, auth.text).toBe(true);
+      const mpcSessionId = String(auth.json?.mpcSessionId || '');
+      expect(mpcSessionId).toContain('mpc-');
+
+      const signInit = await fetchJson(`${srv.baseUrl}/threshold-ed25519/sign/init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mpcSessionId,
+          relayerKeyId,
+          nearAccountId: 'bob.testnet',
+          signingDigestB64u,
+          clientCommitments: { hiding: 'a', binding: 'b' },
+        }),
+      });
+      expect(signInit.status, signInit.text).toBe(200);
+      expect(signInit.json?.ok, signInit.text).toBe(true);
+      expect(String(signInit.json?.signingSessionId || '')).toContain('sign-');
+
+      const revoke = await fetchJson(`${srv.baseUrl}/session/revoke`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${appJwt}` },
+      });
+      expect(revoke.status, revoke.text).toBe(200);
+      expect(revoke.json?.ok, revoke.text).toBe(true);
+
+      const staleState = await fetchJson(`${srv.baseUrl}/session/state`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${appJwt}` },
+      });
+      expect(staleState.status, staleState.text).toBe(401);
+      expect(staleState.json?.code, staleState.text).toBe('invalid_session_version');
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('threshold session: authorize uses JWT claims (no KV record read)', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     const splitStore = new SplitAuthSessionStore();
@@ -797,6 +1058,280 @@ test.describe('threshold-ed25519 scope (express)', () => {
 });
 
 test.describe('threshold-ed25519 scope (cloudflare)', () => {
+  test('integration: session/exchange -> threshold session -> authorize -> sign/init', async () => {
+    const { service, threshold } = makeAuthServiceForThreshold();
+    enableOidcExchangeForTest(service, 'bob.testnet');
+
+    const { session } = createTestSessionAdapter();
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      threshold,
+      session,
+    });
+    const { ctx } = makeCfCtx();
+
+    const exchanged = await callCf(handler, {
+      method: 'POST',
+      path: '/session/exchange',
+      origin: 'https://example.localhost',
+      body: {
+        sessionKind: 'jwt',
+        exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
+      },
+      ctx,
+    });
+    expect(exchanged.status, exchanged.text).toBe(200);
+    expect(exchanged.json?.ok, exchanged.text).toBe(true);
+    const appJwt = String(exchanged.json?.jwt || '');
+    expect(appJwt).toContain('testjwt-');
+
+    const state = await callCf(handler, {
+      method: 'GET',
+      path: '/session/state',
+      origin: 'https://example.localhost',
+      headers: { Authorization: `Bearer ${appJwt}` },
+      ctx,
+    });
+    expect(state.status, state.text).toBe(200);
+    expect(state.json?.authenticated, state.text).toBe(true);
+    expect(getPath(state.json, 'claims', 'kind')).toBe('app_session_v1');
+
+    const clientVerifyingShareB64u = await randomClientVerifyingShareB64u();
+    const keygenBody = await buildKeygenBody({
+      nearAccountId: 'bob.testnet',
+      clientVerifyingShareB64u,
+    });
+    const keygen = await callCf(handler, {
+      method: 'POST',
+      path: '/threshold-ed25519/keygen',
+      origin: 'https://example.localhost',
+      body: keygenBody,
+      ctx,
+    });
+    expect(keygen.status, keygen.text).toBe(200);
+    expect(keygen.json?.ok, keygen.text).toBe(true);
+    const relayerKeyId = String(keygen.json?.relayerKeyId || '');
+    const nearPublicKeyStr = String(keygen.json?.publicKey || '');
+    (service as unknown as { __testAllowedNearPublicKey?: string }).__testAllowedNearPublicKey =
+      nearPublicKeyStr;
+
+    const sessionId = `sess-${Date.now()}`;
+    const thresholdSessionBody = await buildThresholdSessionBody({
+      relayerKeyId,
+      clientVerifyingShareB64u,
+      nearAccountId: 'bob.testnet',
+      rpId: 'example.localhost',
+      sessionId,
+      ttlMs: 60_000,
+      remainingUses: 2,
+    });
+
+    const minted = await callCf(handler, {
+      method: 'POST',
+      path: '/threshold-ed25519/session',
+      origin: 'https://example.localhost',
+      body: thresholdSessionBody,
+      ctx,
+    });
+    expect(minted.status, minted.text).toBe(200);
+    expect(minted.json?.ok, minted.text).toBe(true);
+    const thresholdJwt = String(minted.json?.jwt || '');
+    expect(thresholdJwt).toContain('testjwt-');
+
+    const { body: authorizeBody, signingDigestB64u } = await buildNearTxAuthorizeBody({
+      relayerKeyId,
+      clientVerifyingShareB64u,
+      nearAccountId: 'bob.testnet',
+      nearPublicKeyStr,
+      receiverId: 'receiver.testnet',
+      actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
+    });
+    const auth = await callCf(handler, {
+      method: 'POST',
+      path: '/threshold-ed25519/authorize',
+      origin: 'https://example.localhost',
+      headers: { Authorization: `Bearer ${thresholdJwt}` },
+      body: authorizeBody,
+      ctx,
+    });
+    expect(auth.status, auth.text).toBe(200);
+    expect(auth.json?.ok, auth.text).toBe(true);
+    const mpcSessionId = String(auth.json?.mpcSessionId || '');
+    expect(mpcSessionId).toContain('mpc-');
+
+    const signInit = await callCf(handler, {
+      method: 'POST',
+      path: '/threshold-ed25519/sign/init',
+      origin: 'https://example.localhost',
+      body: {
+        mpcSessionId,
+        relayerKeyId,
+        nearAccountId: 'bob.testnet',
+        signingDigestB64u,
+        clientCommitments: { hiding: 'a', binding: 'b' },
+      },
+      ctx,
+    });
+    expect(signInit.status, signInit.text).toBe(200);
+    expect(signInit.json?.ok, signInit.text).toBe(true);
+    expect(String(signInit.json?.signingSessionId || '')).toContain('sign-');
+  });
+
+  test('integration: wallet/unlock/options -> session/exchange(passkey_assertion) -> session/state -> threshold session -> authorize -> sign/init -> revoke', async () => {
+    const { service, threshold } = makeAuthServiceForThreshold();
+    const { session } = createTestSessionAdapter();
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      threshold,
+      session,
+    });
+    const { ctx } = makeCfCtx();
+
+    const unlockOptions = await callCf(handler, {
+      method: 'POST',
+      path: '/wallet/unlock/options',
+      origin: 'https://example.localhost',
+      body: {
+        user_id: 'bob.testnet',
+        rp_id: 'example.localhost',
+      },
+      ctx,
+    });
+    expect(unlockOptions.status, unlockOptions.text).toBe(200);
+    expect(unlockOptions.json?.ok, unlockOptions.text).toBe(true);
+    const challengeId = String(unlockOptions.json?.challengeId || '').trim();
+    expect(challengeId).not.toBe('');
+
+    const exchanged = await callCf(handler, {
+      method: 'POST',
+      path: '/session/exchange',
+      origin: 'https://example.localhost',
+      body: {
+        sessionKind: 'jwt',
+        exchange: {
+          type: 'passkey_assertion',
+          challengeId,
+          webauthn_authentication: testWebauthnAuthenticationPayload(),
+        },
+      },
+      ctx,
+    });
+    expect(exchanged.status, exchanged.text).toBe(200);
+    expect(exchanged.json?.ok, exchanged.text).toBe(true);
+    const appJwt = String(exchanged.json?.jwt || '');
+    expect(appJwt).toContain('testjwt-');
+
+    const state = await callCf(handler, {
+      method: 'GET',
+      path: '/session/state',
+      origin: 'https://example.localhost',
+      headers: { Authorization: `Bearer ${appJwt}` },
+      ctx,
+    });
+    expect(state.status, state.text).toBe(200);
+    expect(state.json?.authenticated, state.text).toBe(true);
+    expect(getPath(state.json, 'claims', 'kind')).toBe('app_session_v1');
+
+    const clientVerifyingShareB64u = await randomClientVerifyingShareB64u();
+    const keygenBody = await buildKeygenBody({
+      nearAccountId: 'bob.testnet',
+      clientVerifyingShareB64u,
+    });
+    const keygen = await callCf(handler, {
+      method: 'POST',
+      path: '/threshold-ed25519/keygen',
+      origin: 'https://example.localhost',
+      body: keygenBody,
+      ctx,
+    });
+    expect(keygen.status, keygen.text).toBe(200);
+    expect(keygen.json?.ok, keygen.text).toBe(true);
+    const relayerKeyId = String(keygen.json?.relayerKeyId || '');
+    const nearPublicKeyStr = String(keygen.json?.publicKey || '');
+    (service as unknown as { __testAllowedNearPublicKey?: string }).__testAllowedNearPublicKey =
+      nearPublicKeyStr;
+
+    const sessionId = `sess-${Date.now()}`;
+    const thresholdSessionBody = await buildThresholdSessionBody({
+      relayerKeyId,
+      clientVerifyingShareB64u,
+      nearAccountId: 'bob.testnet',
+      rpId: 'example.localhost',
+      sessionId,
+      ttlMs: 60_000,
+      remainingUses: 2,
+    });
+    const minted = await callCf(handler, {
+      method: 'POST',
+      path: '/threshold-ed25519/session',
+      origin: 'https://example.localhost',
+      body: thresholdSessionBody,
+      ctx,
+    });
+    expect(minted.status, minted.text).toBe(200);
+    expect(minted.json?.ok, minted.text).toBe(true);
+    const thresholdJwt = String(minted.json?.jwt || '');
+    expect(thresholdJwt).toContain('testjwt-');
+
+    const { body: authorizeBody, signingDigestB64u } = await buildNearTxAuthorizeBody({
+      relayerKeyId,
+      clientVerifyingShareB64u,
+      nearAccountId: 'bob.testnet',
+      nearPublicKeyStr,
+      receiverId: 'receiver.testnet',
+      actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
+    });
+    const auth = await callCf(handler, {
+      method: 'POST',
+      path: '/threshold-ed25519/authorize',
+      origin: 'https://example.localhost',
+      headers: { Authorization: `Bearer ${thresholdJwt}` },
+      body: authorizeBody,
+      ctx,
+    });
+    expect(auth.status, auth.text).toBe(200);
+    expect(auth.json?.ok, auth.text).toBe(true);
+    const mpcSessionId = String(auth.json?.mpcSessionId || '');
+    expect(mpcSessionId).toContain('mpc-');
+
+    const signInit = await callCf(handler, {
+      method: 'POST',
+      path: '/threshold-ed25519/sign/init',
+      origin: 'https://example.localhost',
+      body: {
+        mpcSessionId,
+        relayerKeyId,
+        nearAccountId: 'bob.testnet',
+        signingDigestB64u,
+        clientCommitments: { hiding: 'a', binding: 'b' },
+      },
+      ctx,
+    });
+    expect(signInit.status, signInit.text).toBe(200);
+    expect(signInit.json?.ok, signInit.text).toBe(true);
+    expect(String(signInit.json?.signingSessionId || '')).toContain('sign-');
+
+    const revoke = await callCf(handler, {
+      method: 'POST',
+      path: '/session/revoke',
+      origin: 'https://example.localhost',
+      headers: { Authorization: `Bearer ${appJwt}` },
+      ctx,
+    });
+    expect(revoke.status, revoke.text).toBe(200);
+    expect(revoke.json?.ok, revoke.text).toBe(true);
+
+    const staleState = await callCf(handler, {
+      method: 'GET',
+      path: '/session/state',
+      origin: 'https://example.localhost',
+      headers: { Authorization: `Bearer ${appJwt}` },
+      ctx,
+    });
+    expect(staleState.status, staleState.text).toBe(401);
+    expect(staleState.json?.code, staleState.text).toBe('invalid_session_version');
+  });
+
   test('threshold session: remainingUses decrements and exhausts', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     const { session } = createTestSessionAdapter();

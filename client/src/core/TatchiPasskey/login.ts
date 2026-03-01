@@ -1,35 +1,35 @@
 import type { AfterCall, LoginHooksOptions, LoginSSEvent } from '../types/sdkSentEvents';
 import { LoginPhase, LoginStatus } from '../types/sdkSentEvents';
 import type {
-  GetRecentLoginsResult,
+  GetRecentUnlocksResult,
   LoginAndCreateSessionResult,
   LoginResult,
-  LoginSession,
+  WalletSession,
   LoginState,
   ThresholdWarmLoginAndCreateSessionResult,
 } from '../types/tatchi';
 import type { PasskeyManagerContext } from './index';
 import type { AccountId } from '../types/accountIds';
 import { getUserFriendlyErrorMessage, toError } from '@shared/utils/errors';
-import { authenticatorsToAllowCredentials } from '../signingEngine/signers/webauthn/credentials';
+import { isObject } from '@shared/utils/validation';
 import { IndexedDBManager } from '../indexedDB';
-import type { ClientAuthenticatorData, ClientUserData } from '../indexedDB';
-import { createWebAuthnLoginOptions, verifyWebAuthnLogin } from '../rpcClients/near/rpcCalls';
+import type { ClientUserData } from '../indexedDB';
+import { exchangeSession, type SessionExchangeInput } from '../rpcClients/near/rpcCalls';
 import { parseDeviceNumber } from '../signingEngine/signers/webauthn/device/getDeviceNumber';
 import { clearAllCachedEd25519AuthSessions } from '../signingEngine/threshold/session/ed25519AuthSession';
 import { clearAllStoredThresholdEd25519SessionRecords } from '../signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import { shouldRequireThresholdWarmSession } from './thresholdWarmSessionDefaults';
 
 /**
- * Core login function (standard WebAuthn; relay-issued sessions).
+ * Core login function (passkey identity + relay-issued sessions).
  *
  * Responsibilities:
  * - Select the active account + passkey deviceNumber (last-user pointer).
- * - Optionally mint a relayer session (JWT/cookie) via standard WebAuthn challenge/verify.
+ * - Optionally mint a relayer app session (JWT/cookie) via session exchange.
  *
  * Note: signing flows still perform their own UserConfirm/WebAuthn prompting as needed.
  */
-export async function loginAndCreateSession(
+export async function unlock(
   context: PasskeyManagerContext,
   nearAccountId: AccountId,
   options?: LoginHooksOptions,
@@ -220,96 +220,152 @@ export async function loginAndCreateSession(
         throw new Error('Missing relayUrl for session-style login');
       }
 
-      const verifyRoute = (session?.route || '/auth/passkey/verify').trim();
-      const verifyPath = verifyRoute.startsWith('/') ? verifyRoute : `/${verifyRoute}`;
-      const optionsRoute = verifyPath.endsWith('/verify')
-        ? `${verifyPath.slice(0, -'/verify'.length)}/options`
-        : '/auth/passkey/options';
+      const exchange = session?.exchange;
+      if (exchange?.type === 'oidc_jwt' || exchange?.type === 'passkey_assertion') {
+        const exchangeRoute = (session?.route || '/session/exchange').trim();
+        const exchangePath = exchangeRoute.startsWith('/') ? exchangeRoute : `/${exchangeRoute}`;
+        let exchangeInput: SessionExchangeInput;
 
-      const rpId = signingEngine.getRpId();
-      if (!rpId) {
-        throw new Error('Missing rpId for login session mint');
-      }
-
-      const loginOptions = await createWebAuthnLoginOptions(relayUrl, optionsRoute, {
-        userId: nearAccountId,
-        rpId,
-      });
-      if (!loginOptions.success || !loginOptions.challengeId || !loginOptions.challengeB64u) {
-        throw new Error(loginOptions.error || 'Failed to create WebAuthn login options');
-      }
-
-      onEvent?.({
-        step: 2,
-        phase: LoginPhase.STEP_2_WEBAUTHN_ASSERTION,
-        status: LoginStatus.PROGRESS,
-        message: 'Authenticating with passkey...',
-      });
-
-      const authenticatorsForPrompt = prioritizeAuthenticatorsByDeviceNumber(
-        authenticators,
-        baseDeviceNumber,
-      );
-      const credential = await signingEngine.getAuthenticationCredentialsSerialized({
-        nearAccountId,
-        challengeB64u: loginOptions.challengeB64u,
-        allowCredentials: authenticatorsToAllowCredentials(authenticatorsForPrompt),
-      });
-
-      const selectedDeviceNumber = resolveDeviceNumberFromCredentialId(
-        authenticators,
-        credential.rawId,
-        baseDeviceNumber,
-      );
-
-      const selectedUserData = await signingEngine
-        .getUserByDevice(nearAccountId, selectedDeviceNumber)
-        .catch(() => userData);
-
-      const v = await verifyWebAuthnLogin(relayUrl, verifyPath, session.kind, {
-        challengeId: loginOptions.challengeId,
-        webauthnAuthentication: credential,
-      });
-      if (!v.success || !v.verified) {
-        throw new Error(v.error || 'Session verification failed');
-      }
-
-      onEvent?.({
-        step: 3,
-        phase: LoginPhase.STEP_3_SESSION_READY,
-        status: LoginStatus.PROGRESS,
-        message: 'Session ready',
-      });
-
-      const loginResult: LoginResult = {
-        success: true,
-        loggedInNearAccountId: String(nearAccountId),
-        clientNearPublicKey: selectedUserData?.clientNearPublicKey ?? userData.clientNearPublicKey,
-        nearAccountId,
-        ...(v.jwt ? { jwt: v.jwt } : {}),
-      };
-
-      if (requireThresholdWarmup) {
-        await maybeWarmThresholdSigningSessions(selectedDeviceNumber);
-      }
-
-      await persistSuccessfulLoginState(selectedDeviceNumber);
-
-      const enrichedLoginResult: LoginAndCreateSessionResult = requireThresholdWarmup
-        ? {
-            ...loginResult,
-            ...requireThresholdWarmLoginBundle('login'),
-          }
-        : {
-            ...loginResult,
-            ...(signingSession ? { signingSession } : {}),
+        if (exchange.type === 'oidc_jwt') {
+          exchangeInput = {
+            type: 'oidc_jwt',
+            token: exchange.token,
           };
-      return await finalizeLoginSuccess({
-        nearAccountId,
-        loginResult: enrichedLoginResult,
-        onEvent,
-        afterCall,
-      });
+          onEvent?.({
+            step: 2,
+            phase: LoginPhase.STEP_2_WEBAUTHN_ASSERTION,
+            status: LoginStatus.PROGRESS,
+            message: 'Exchanging app session token...',
+          });
+        } else {
+          const rpId = String(signingEngine.getRpId() || '').trim();
+          if (!rpId) {
+            throw new Error('Missing rpId for passkey_assertion session exchange');
+          }
+
+          onEvent?.({
+            step: 2,
+            phase: LoginPhase.STEP_2_WEBAUTHN_ASSERTION,
+            status: LoginStatus.PROGRESS,
+            message: 'Unlocking app session with passkey...',
+          });
+
+          const unlockOptionsResp = await fetch(`${relayUrl.replace(/\/$/, '')}/wallet/unlock/options`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_id: String(nearAccountId),
+              rp_id: rpId,
+            }),
+          });
+          const unlockOptionsJsonUnknown: unknown = await unlockOptionsResp.json().catch(() => ({}));
+          const unlockOptionsJson = isObject(unlockOptionsJsonUnknown) ? unlockOptionsJsonUnknown : {};
+          const unlockOptionsOk = unlockOptionsJson.ok === true;
+          const unlockOptionsMessage =
+            typeof unlockOptionsJson.message === 'string' ? unlockOptionsJson.message : '';
+          if (!unlockOptionsResp.ok || !unlockOptionsOk) {
+            throw new Error(
+              unlockOptionsMessage ||
+                `wallet/unlock/options failed (HTTP ${unlockOptionsResp.status})`,
+            );
+          }
+
+          const challengeId = String(unlockOptionsJson.challengeId || '').trim();
+          const challengeB64u = String(unlockOptionsJson.challengeB64u || '').trim();
+          if (!challengeId || !challengeB64u) {
+            throw new Error('wallet/unlock/options returned invalid challenge');
+          }
+
+          const credentialIds = Array.isArray(
+            (unlockOptionsJson as { credentialIds?: unknown }).credentialIds,
+          )
+            ? (unlockOptionsJson as { credentialIds: unknown[] }).credentialIds
+                .map((id) => String(id || '').trim())
+                .filter((id) => id.length > 0)
+            : [];
+          const allowCredentials = credentialIds.map((id) => ({
+            id,
+            type: 'public-key' as const,
+            transports: [],
+          }));
+
+          const webauthnAuthentication = await signingEngine.getAuthenticationCredentialsSerialized({
+            nearAccountId,
+            challengeB64u,
+            allowCredentials,
+            includeSecondPrfOutput: false,
+          });
+          const expectedOrigin = String(
+            exchange.expectedOrigin ??
+              exchange.expected_origin ??
+              (typeof window !== 'undefined' ? window.location.origin : ''),
+          ).trim();
+
+          exchangeInput = {
+            type: 'passkey_assertion',
+            challengeId,
+            webauthn_authentication: webauthnAuthentication,
+            ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
+          };
+        }
+
+        const exchanged = await exchangeSession(relayUrl, exchangePath, session.kind, exchangeInput);
+        if (!exchanged.success) {
+          throw new Error(exchanged.error || 'Session exchange failed');
+        }
+
+        if (requireThresholdWarmup) {
+          await maybeWarmThresholdSigningSessions(baseDeviceNumber);
+        }
+        await persistSuccessfulLoginState(baseDeviceNumber);
+
+        onEvent?.({
+          step: 3,
+          phase: LoginPhase.STEP_3_SESSION_READY,
+          status: LoginStatus.PROGRESS,
+          message: 'Session ready',
+        });
+
+        const loginResult: LoginResult = {
+          success: true,
+          loggedInNearAccountId: String(nearAccountId),
+          clientNearPublicKey: userData.clientNearPublicKey,
+          nearAccountId,
+          ...(exchanged.jwt ? { jwt: exchanged.jwt } : {}),
+        };
+
+        const enrichedLoginResult: LoginAndCreateSessionResult = requireThresholdWarmup
+          ? {
+              ...loginResult,
+              ...requireThresholdWarmLoginBundle('login'),
+            }
+          : {
+              ...loginResult,
+              ...(signingSession ? { signingSession } : {}),
+            };
+        return await finalizeLoginSuccess({
+          nearAccountId,
+          loginResult: enrichedLoginResult,
+          onEvent,
+          afterCall,
+        });
+      }
+
+      const requestedRouteRaw = (session?.route || '').trim();
+      const requestedRoute = requestedRouteRaw
+        ? requestedRouteRaw.startsWith('/')
+          ? requestedRouteRaw
+          : `/${requestedRouteRaw}`
+        : '';
+      if (!exchange && (!requestedRoute || requestedRoute === '/session/exchange')) {
+        throw new Error(
+          'session.exchange is required when session.route targets /session/exchange',
+        );
+      }
+      if (!exchange) {
+        throw new Error('session.exchange is required for server session issuance');
+      }
+      throw new Error('session.exchange.type must be one of: oidc_jwt, passkey_assertion');
     }
 
     if (requireThresholdWarmup) {
@@ -406,32 +462,6 @@ async function finalizeLoginError(args: {
     await afterCall?.(false);
   }
   return { success: false, error: message };
-}
-
-function resolveDeviceNumberFromCredentialId(
-  authenticators: ClientAuthenticatorData[],
-  credentialRawId: string,
-  fallback: number,
-): number {
-  const rawId = String(credentialRawId || '').trim();
-  if (!rawId) return fallback;
-  const matched = authenticators.find((a) => a.credentialId === rawId);
-  const deviceNumber = matched?.deviceNumber;
-  return Number.isSafeInteger(deviceNumber) && (deviceNumber as number) >= 1
-    ? (deviceNumber as number)
-    : fallback;
-}
-
-function prioritizeAuthenticatorsByDeviceNumber(
-  authenticators: ClientAuthenticatorData[],
-  deviceNumber: number | null,
-): ClientAuthenticatorData[] {
-  if (authenticators.length <= 1) return authenticators;
-  if (deviceNumber === null) return authenticators;
-  const preferred = authenticators.filter((a) => a.deviceNumber === deviceNumber);
-  if (preferred.length === 0) return authenticators;
-  const rest = authenticators.filter((a) => a.deviceNumber !== deviceNumber);
-  return [...preferred, ...rest];
 }
 
 type CanonicalThresholdEcdsaWarmSessionContext = {
@@ -614,10 +644,10 @@ async function primeThresholdLoginWarmSigners(args: {
  * - when threshold-signer warm sessions are enabled, an active PRF-first cache entry
  *   in the UserConfirm worker for the account's active signing session id.
  */
-export async function getLoginSession(
+export async function getWalletSession(
   context: PasskeyManagerContext,
   nearAccountId?: AccountId,
-): Promise<LoginSession> {
+): Promise<WalletSession> {
   const login = await getLoginStateInternal(context, nearAccountId);
   const signingSession = login?.nearAccountId
     ? await context.signingEngine.getWarmSigningSessionStatus(login.nearAccountId).catch(() => null)
@@ -812,9 +842,9 @@ async function getLoginStateInternal(
  *
  * Used for account picker UIs and initial app bootstrap state.
  */
-export async function getRecentLogins(
+export async function getRecentUnlocks(
   context: PasskeyManagerContext,
-): Promise<GetRecentLoginsResult> {
+): Promise<GetRecentUnlocksResult> {
   const { signingEngine } = context;
   const allUsersData = await signingEngine.getAllUsers();
   const accountIds = allUsersData.map((user) => user.nearAccountId);
@@ -826,9 +856,9 @@ export async function getRecentLogins(
 }
 
 /**
- * Logout: clears last-user pointer and client-side caches.
+ * Lock: clears last-user pointer and client-side caches.
  */
-export async function logoutAndClearSession(context: PasskeyManagerContext): Promise<void> {
+export async function lock(context: PasskeyManagerContext): Promise<void> {
   const { signingEngine } = context;
   await IndexedDBManager.clientDB.clearLastProfileSelection().catch(() => undefined);
   try {

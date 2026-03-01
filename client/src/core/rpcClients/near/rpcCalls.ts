@@ -4,8 +4,8 @@
  * This file centralizes helper calls made to the NEAR RPC (account existence checks,
  * access key polling, tx context fetch, etc).
  *
- * WebAuthn contract verification calls have been removed from the lite threshold-signer
- * stack; relay-authenticated flows should use standard WebAuthn verification endpoints.
+ * App session minting in SDK login flows is exchange-first (`POST /session/exchange`)
+ * for BYO auth integration.
  */
 
 import type { NearClient } from './NearClient';
@@ -219,31 +219,77 @@ export async function checkNearAccountExistsBestEffort(
   return false;
 }
 
-export async function createWebAuthnLoginOptions(
+export type SessionExchangeInput =
+  | {
+      type: 'oidc_jwt';
+      token: string;
+    }
+  | {
+      type: 'passkey_assertion';
+      challengeId: string;
+      webauthn_authentication: WebAuthnAuthenticationCredential;
+      expected_origin?: string;
+    };
+
+export async function exchangeSession(
   relayServerUrl: string,
   routePath: string,
-  args: { userId: string; rpId: string; ttlMs?: number },
+  sessionKind: 'jwt' | 'cookie',
+  input: SessionExchangeInput,
 ): Promise<{
   success: boolean;
-  challengeId?: string;
-  challengeB64u?: string;
-  expiresAtMs?: number;
+  jwt?: string;
+  sessionUserId?: string;
+  sessionExpiresAt?: string;
   error?: string;
 }> {
   try {
-    const user_id = String(args.userId || '').trim();
-    const rp_id = String(args.rpId || '').trim();
-    if (!user_id) throw new Error('Missing userId');
-    if (!rp_id) throw new Error('Missing rpId');
+    const exchangeType = String(input?.type || '')
+      .trim()
+      .toLowerCase();
+    let exchangeBody: Record<string, unknown>;
+
+    if (exchangeType === 'oidc_jwt') {
+      const token = String((input as { token?: unknown }).token || '').trim();
+      if (!token) throw new Error('Missing exchange token');
+      exchangeBody = {
+        type: 'oidc_jwt',
+        token,
+      };
+    } else if (exchangeType === 'passkey_assertion') {
+      const challengeId = String((input as { challengeId?: unknown }).challengeId || '').trim();
+      if (!challengeId) throw new Error('Missing passkey challengeId');
+
+      const webauthnAuthentication = (input as { webauthn_authentication?: unknown })
+        .webauthn_authentication;
+      if (!webauthnAuthentication || typeof webauthnAuthentication !== 'object') {
+        throw new Error('Missing webauthn_authentication');
+      }
+
+      const expectedOrigin = String(
+        (input as { expected_origin?: unknown }).expected_origin || '',
+      ).trim();
+
+      exchangeBody = {
+        type: 'passkey_assertion',
+        challengeId,
+        webauthn_authentication: redactCredentialExtensionOutputs(
+          webauthnAuthentication as WebAuthnAuthenticationCredential,
+        ),
+        ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
+      };
+    } else {
+      throw new Error('Unsupported exchange.type');
+    }
 
     const url = `${relayServerUrl.replace(/\/$/, '')}${routePath.startsWith('/') ? routePath : `/${routePath}`}`;
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: sessionKind === 'cookie' ? 'include' : 'omit',
       body: JSON.stringify({
-        user_id,
-        rp_id,
-        ...(args.ttlMs !== undefined ? { ttl_ms: args.ttlMs } : {}),
+        sessionKind,
+        exchange: exchangeBody,
       }),
     });
 
@@ -258,89 +304,27 @@ export async function createWebAuthnLoginOptions(
     if (data.ok !== true) {
       return {
         success: false,
-        error: typeof data.message === 'string' ? data.message : 'Failed to create login options',
+        error: typeof data.message === 'string' ? data.message : 'Session exchange failed',
       };
     }
 
-    const expiresAtMs = (() => {
-      const n = typeof data.expiresAtMs === 'number' ? data.expiresAtMs : Number(data.expiresAtMs);
-      return Number.isFinite(n) ? Math.floor(n) : undefined;
-    })();
+    const sessionObj = isObject(data.session) ? data.session : null;
+    const sessionUserId =
+      sessionObj && typeof sessionObj.userId === 'string' ? String(sessionObj.userId) : undefined;
+    const sessionExpiresAt =
+      sessionObj && typeof sessionObj.expiresAt === 'string'
+        ? String(sessionObj.expiresAt)
+        : undefined;
+    const jwt = typeof data.jwt === 'string' ? data.jwt : undefined;
 
     return {
       success: true,
-      challengeId: typeof data.challengeId === 'string' ? data.challengeId : undefined,
-      challengeB64u: typeof data.challengeB64u === 'string' ? data.challengeB64u : undefined,
-      expiresAtMs,
+      ...(sessionUserId ? { sessionUserId } : {}),
+      ...(sessionExpiresAt ? { sessionExpiresAt } : {}),
+      ...(jwt ? { jwt } : {}),
     };
   } catch (error: unknown) {
-    return { success: false, error: errorMessage(error) || 'Failed to create login options' };
-  }
-}
-
-export async function verifyWebAuthnLogin(
-  relayServerUrl: string,
-  routePath: string,
-  sessionKind: 'jwt' | 'cookie',
-  args: { challengeId: string; webauthnAuthentication: WebAuthnAuthenticationCredential },
-): Promise<{
-  success: boolean;
-  verified?: boolean;
-  jwt?: string;
-  error?: string;
-}> {
-  try {
-    const challengeId = String(args.challengeId || '').trim();
-    if (!challengeId) throw new Error('Missing challengeId');
-
-    // Strip PRF outputs before sending to the relay.
-    const redacted = redactCredentialExtensionOutputs(args.webauthnAuthentication);
-
-    // Normalize authenticatorAttachment and userHandle to null for server schema
-    const webauthn_authentication = {
-      ...redacted,
-      authenticatorAttachment: redacted.authenticatorAttachment ?? null,
-      response: {
-        ...redacted.response,
-        userHandle: redacted.response.userHandle ?? null,
-      },
-    };
-
-    const url = `${relayServerUrl.replace(/\/$/, '')}${routePath.startsWith('/') ? routePath : `/${routePath}`}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: sessionKind === 'cookie' ? 'include' : 'omit',
-      body: JSON.stringify({
-        sessionKind,
-        challengeId,
-        webauthn_authentication,
-      }),
-    });
-
-    const dataJson: unknown = await response.json().catch(() => ({}));
-    const data: Record<string, unknown> = isObject(dataJson) ? dataJson : {};
-    if (!response.ok) {
-      return {
-        success: false,
-        error: typeof data.message === 'string' ? data.message : `HTTP ${response.status}`,
-      };
-    }
-    if (data.ok !== true || data.verified !== true) {
-      return {
-        success: false,
-        verified: false,
-        error:
-          typeof data.message === 'string' ? data.message : 'Authentication verification failed',
-      };
-    }
-    return {
-      success: true,
-      verified: true,
-      jwt: typeof data.jwt === 'string' ? data.jwt : undefined,
-    };
-  } catch (error: unknown) {
-    return { success: false, error: errorMessage(error) || 'Failed to verify login' };
+    return { success: false, error: errorMessage(error) || 'Failed to exchange session token' };
   }
 }
 
