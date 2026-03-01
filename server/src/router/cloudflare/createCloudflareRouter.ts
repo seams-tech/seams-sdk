@@ -11,7 +11,16 @@ import { handleEmailRecoveryPrepare } from './routes/emailRecovery';
 import { handleHealth, handleReady } from './routes/health';
 import { handleLinkDevice } from './routes/linkDevice';
 import { handleRecoverEmail } from './routes/recoverEmail';
-import { handleSessionAuth, handleSessionLogout, handleSessionRefresh } from './routes/sessions';
+import {
+  handleSessionState,
+  handleSessionExchange,
+  handleSessionRefresh,
+  handleSessionRevoke,
+  handleWalletLock,
+  handleWalletState,
+  handleWalletUnlockOptions,
+  handleWalletUnlockVerify,
+} from './routes/sessions';
 import { handleSignedDelegate } from './routes/signedDelegate';
 import { handleSyncAccount } from './routes/syncAccount';
 import { handleThresholdEd25519 } from './routes/thresholdEd25519';
@@ -24,6 +33,7 @@ import { handleSmartAccountDeploy } from './routes/smartAccountDeploy';
 import { resolveThresholdOption } from '../routerOptions';
 import { validateRelayRouterRorOptions } from '../ror/provider';
 import { handlePrfSessionSealRoutes } from '../../threshold/session/prfSessionSeal';
+import { DEFAULT_SESSION_COOKIE_NAME } from '../relay';
 
 export interface CloudflareRelayContext {
   request: Request;
@@ -38,7 +48,6 @@ export interface CloudflareRelayContext {
   logger: NormalizedRouterLogger;
 
   mePath: string;
-  logoutPath: string;
   signedDelegatePath: string;
   signedDelegatePolicy?: DelegateActionPolicy;
 }
@@ -50,13 +59,14 @@ export function createCloudflareRouter(
   const notFound = () => new Response('Not Found', { status: 404 });
 
   const threshold = resolveThresholdOption(service, opts);
-  const effectiveOpts: RelayRouterOptions = { ...opts, threshold };
+  const sessionCookieName =
+    String(opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
+  const effectiveOpts: RelayRouterOptions = { ...opts, threshold, sessionCookieName };
   if (effectiveOpts.ror) {
     validateRelayRouterRorOptions(effectiveOpts.ror);
   }
 
-  const mePath = effectiveOpts.sessionRoutes?.auth || '/session/auth';
-  const logoutPath = effectiveOpts.sessionRoutes?.logout || '/session/logout';
+  const mePath = effectiveOpts.sessionRoutes?.state || '/session/state';
   const logger = coerceRouterLogger(effectiveOpts.logger);
   let signedDelegatePath = '';
   if (effectiveOpts.signedDelegate) {
@@ -87,9 +97,14 @@ export function createCloudflareRouter(
       }),
     handleWebAuthnAuthenticators,
     handleNearPublicKeys,
-    handleSessionAuth,
-    handleSessionLogout,
+    handleSessionState,
+    handleSessionExchange,
+    handleSessionRevoke,
     handleSessionRefresh,
+    handleWalletUnlockOptions,
+    handleWalletUnlockVerify,
+    handleWalletState,
+    handleWalletLock,
     handleRecoverEmail,
     handleHealth,
     handleReady,
@@ -118,7 +133,6 @@ export function createCloudflareRouter(
       opts: effectiveOpts,
       logger,
       mePath,
-      logoutPath,
       signedDelegatePath,
       signedDelegatePolicy,
     };

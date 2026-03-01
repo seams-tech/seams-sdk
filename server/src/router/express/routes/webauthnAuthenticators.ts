@@ -1,10 +1,83 @@
 import type { Router as ExpressRouter } from 'express';
+import { DEFAULT_SESSION_COOKIE_NAME } from '../../relay';
+import { emitRelayWebhookEvent } from '../../relayWebhooks';
 import type { ExpressRelayContext } from '../createRelayRouter';
 
 export function registerWebAuthnAuthenticatorRoutes(
   router: ExpressRouter,
   ctx: ExpressRelayContext,
 ): void {
+  const sessionCookieName =
+    String(ctx.opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
+
+  const headerHasCookieName = (cookieHeader: string, cookieName: string): boolean => {
+    for (const part of cookieHeader.split(';')) {
+      const chunk = String(part || '').trim();
+      if (!chunk) continue;
+      const equalsIndex = chunk.indexOf('=');
+      const name = (equalsIndex >= 0 ? chunk.slice(0, equalsIndex) : chunk).trim();
+      if (name === cookieName) return true;
+    }
+    return false;
+  };
+
+  const hasBearerSessionSignal = (
+    headers: Record<string, string | string[] | undefined>,
+  ): boolean => {
+    const value = headers.authorization ?? headers.Authorization;
+    if (typeof value === 'string') {
+      return value.trim().toLowerCase().startsWith('bearer ');
+    }
+    if (Array.isArray(value)) {
+      return value.some((entry) => String(entry || '').trim().toLowerCase().startsWith('bearer '));
+    }
+    return false;
+  };
+
+  const hasCookieSessionSignal = (
+    headers: Record<string, string | string[] | undefined>,
+  ): boolean => {
+    const value = headers.cookie ?? headers.Cookie;
+    if (typeof value === 'string') return headerHasCookieName(value, sessionCookieName);
+    if (Array.isArray(value)) {
+      return value.some((entry) => headerHasCookieName(String(entry || ''), sessionCookieName));
+    }
+    return false;
+  };
+
+  const maybeEmitWarmExpired = async (input: {
+    code: string;
+    message: string;
+    claims?: Record<string, unknown>;
+    userId?: string;
+    appSessionVersion?: string;
+    hadBearerSessionSignal?: boolean;
+    hadCookieSessionSignal?: boolean;
+  }): Promise<void> => {
+    const code = String(input.code || '').trim();
+    const shouldEmit =
+      code === 'invalid_session_version' ||
+      (code === 'unauthorized' &&
+        (Boolean(input.hadBearerSessionSignal) || Boolean(input.hadCookieSessionSignal)));
+    if (!shouldEmit) return;
+
+    await emitRelayWebhookEvent({
+      logger: ctx.logger,
+      webhooks: ctx.opts.relayWebhooks,
+      eventType: 'session.warm.expired',
+      claims: input.claims,
+      userId: input.userId,
+      payload: {
+        expired: true,
+        source: 'webauthn.authenticators',
+        reason: input.message || 'Session expired',
+        sessionKind: 'jwt',
+        code,
+        ...(input.appSessionVersion ? { appSessionVersion: input.appSessionVersion } : {}),
+      },
+    });
+  };
+
   router.get('/webauthn/authenticators', async (req: any, res: any) => {
     try {
       const session = ctx.opts.session;
@@ -17,6 +90,12 @@ export function registerWebAuthnAuthenticatorRoutes(
 
       const parsed = await session.parse(req.headers || {});
       if (!parsed.ok) {
+        await maybeEmitWarmExpired({
+          code: 'unauthorized',
+          message: 'No valid session',
+          hadBearerSessionSignal: hasBearerSessionSignal(req.headers || {}),
+          hadCookieSessionSignal: hasCookieSessionSignal(req.headers || {}),
+        });
         res.status(401).json({ ok: false, code: 'unauthorized', message: 'No valid session' });
         return;
       }
@@ -37,6 +116,13 @@ export function registerWebAuthnAuthenticatorRoutes(
       }
       const validated = await ctx.service.validateAppSessionVersion({ userId, appSessionVersion });
       if (!validated.ok) {
+        await maybeEmitWarmExpired({
+          code: validated.code,
+          message: validated.message,
+          claims,
+          userId,
+          appSessionVersion,
+        });
         res
           .status(validated.code === 'internal' ? 500 : 401)
           .json({ ok: false, code: validated.code, message: validated.message });

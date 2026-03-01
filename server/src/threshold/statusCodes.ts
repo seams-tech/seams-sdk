@@ -12,11 +12,21 @@ export function thresholdStatusCode(result: ThresholdRouteResult): number {
       return 501;
     case 'sessions_disabled':
       return 501;
+    case 'runtime_snapshots_not_configured':
+      return 501;
     case 'threshold_disabled':
       return 503;
     case 'pool_empty':
       return 503;
     case 'stale_session_state':
+      return 409;
+    case 'runtime_snapshot_not_found':
+      return 409;
+    case 'runtime_snapshot_id_mismatch':
+      return 409;
+    case 'runtime_snapshot_version_mismatch':
+      return 409;
+    case 'runtime_snapshot_checksum_mismatch':
       return 409;
     case 'internal':
       return 500;

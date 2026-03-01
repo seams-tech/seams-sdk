@@ -12,6 +12,8 @@ import {
   parseStripePaymentIntentReconcileRequest,
   parseStripePaymentIntentRequest,
   parseStripeWebhookEventRequest,
+  parseStripeCustomerPortalSessionRequest,
+  parseStripeCheckoutSessionRequest,
   parseStripeSetupIntentRequest,
   type ConsoleBillingService,
 } from '../../console/billing';
@@ -2097,6 +2099,36 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       const request = parseStripeSetupIntentRequest(await readJson(ctx.request));
       const setupIntent = await billing.createStripeSetupIntent(billingCtx, request);
       return json({ ok: true, setupIntent }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/billing/stripe/checkout-session') {
+      const request = parseStripeCheckoutSessionRequest(await readJson(ctx.request));
+      const checkoutSession = await billing.createStripeCheckoutSession(billingCtx, request);
+      return json({ ok: true, checkoutSession }, { status: 201 });
+    }
+
+    if (
+      ctx.method === 'POST' &&
+      ctx.pathname === '/console/billing/stripe/customer-portal-session'
+    ) {
+      const request = parseStripeCustomerPortalSessionRequest(await readJson(ctx.request));
+      const portalSession = await billing.createStripeCustomerPortalSession(billingCtx, request);
+      return json({ ok: true, portalSession }, { status: 201 });
+    }
+
+    if (ctx.method === 'GET' && ctx.pathname === '/console/billing/subscription') {
+      const subscription = await billing.getSubscription(billingCtx);
+      return json({ ok: true, subscription }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/billing/subscription/cancel') {
+      const subscription = await billing.cancelSubscription(billingCtx);
+      return json({ ok: true, subscription }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/billing/subscription/resume') {
+      const subscription = await billing.resumeSubscription(billingCtx);
+      return json({ ok: true, subscription }, { status: 200 });
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/billing/stripe/payment-intent') {

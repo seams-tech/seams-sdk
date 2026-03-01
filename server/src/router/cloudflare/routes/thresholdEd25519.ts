@@ -12,6 +12,7 @@ import type {
 } from '../../../core/types';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
 import { validateThresholdEd25519AuthorizeInputs } from '../../commonRouterUtils';
+import { validateRuntimeSnapshotExpectation } from '../../runtimeSnapshotConsumer';
 import {
   normalizeThresholdEd25519ParticipantIds,
   THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
@@ -177,6 +178,26 @@ export async function handleThresholdEd25519(
       const participantIds = normalizeThresholdEd25519ParticipantIds(
         b.sessionPolicy?.participantIds,
       ) || [...THRESHOLD_ED25519_2P_PARTICIPANT_IDS];
+      const runtimeSnapshotScope = (() => {
+        const scope =
+          b.sessionPolicy &&
+          typeof b.sessionPolicy === 'object' &&
+          !Array.isArray(b.sessionPolicy)
+            ? ((b.sessionPolicy as Record<string, unknown>).runtimeSnapshotScope as
+                | Record<string, unknown>
+                | undefined)
+            : undefined;
+        if (!scope || typeof scope !== 'object' || Array.isArray(scope)) return undefined;
+        const orgId = String(scope.orgId || '').trim();
+        const environmentId = String(scope.environmentId || '').trim();
+        const projectId = String(scope.projectId || '').trim();
+        if (!orgId || !environmentId) return undefined;
+        return {
+          orgId,
+          environmentId,
+          ...(projectId ? { projectId } : {}),
+        };
+      })();
       const token = await session.signJwt(userId, {
         kind: 'threshold_ed25519_session_v1',
         sessionId,
@@ -186,6 +207,7 @@ export async function handleThresholdEd25519(
         ...(exp !== undefined ? { exp } : {}),
         iat,
         participantIds,
+        ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
       });
       const sessionKind = parseSessionKind(b);
 
@@ -230,6 +252,12 @@ export async function handleThresholdEd25519(
         session: ctx.opts.session,
       });
       if (!validated.ok) return respond(validated);
+      const runtimeSnapshotValidation = await validateRuntimeSnapshotExpectation({
+        runtimeSnapshots: ctx.opts.runtimeSnapshots,
+        scope: validated.claims.runtimeSnapshotScope,
+        expectationRaw: (validated.request as unknown as Record<string, unknown>).runtimeSnapshot,
+      });
+      if (!runtimeSnapshotValidation.ok) return respond(runtimeSnapshotValidation);
 
       const result = await ed25519.authorize({
         claims: validated.claims,

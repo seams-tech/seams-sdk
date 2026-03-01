@@ -38,6 +38,7 @@ import type {
   AccountCreationResult,
   CreateAccountAndRegisterRequest,
   CreateAccountAndRegisterResult,
+  OidcExchangeIssuerConfig,
   WebAuthnAuthenticationCredential,
   SignerWasmModuleSupplier,
 } from './types';
@@ -152,6 +153,32 @@ function parseCacheControlMaxAgeSec(cacheControl: string | null): number | null 
   const n = Number(m[1]);
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.floor(n);
+}
+
+function normalizeOidcIssuer(input: string): string {
+  const trimmed = String(input || '').trim();
+  if (!trimmed) return '';
+  return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
+}
+
+function parseJwtSegmentJson(input: string): Record<string, unknown> | null {
+  try {
+    const raw = new TextDecoder().decode(base64UrlDecode(input));
+    const parsed = raw ? JSON.parse(raw) : null;
+    return isObject(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseJwtAud(input: unknown): string[] {
+  if (Array.isArray(input)) {
+    return input
+      .map((v) => (typeof v === 'string' ? v.trim() : ''))
+      .filter(Boolean);
+  }
+  const single = toOptionalTrimmedString(input);
+  return single ? [single] : [];
 }
 
 type ThresholdEd25519BootstrapInput = {
@@ -337,6 +364,11 @@ export class AuthService {
     keysByKid: Map<string, JsonWebKey>;
     expiresAtMs: number;
   }> | null = null;
+  private oidcJwksCacheByUrl = new Map<string, { keysByKid: Map<string, JsonWebKey>; expiresAtMs: number }>();
+  private oidcJwksFetchPromiseByUrl = new Map<
+    string,
+    Promise<{ keysByKid: Map<string, JsonWebKey>; expiresAtMs: number }>
+  >();
 
   // Transaction queue to prevent nonce conflicts
   private transactionQueue: Promise<any> = Promise.resolve();
@@ -379,6 +411,11 @@ export class AuthService {
       this.config.googleOidc?.clientIds?.length
         ? `• googleOidc: ${this.config.googleOidc.clientIds.length} clientId(s)`
         : `• googleOidc: not configured`
+    }
+    ${
+      this.config.oidcExchange?.issuers?.length
+        ? `• oidcExchange: ${this.config.oidcExchange.issuers.length} issuer(s)`
+        : `• oidcExchange: not configured`
     }
     `);
   }
@@ -425,6 +462,10 @@ export class AuthService {
 
   isGoogleOidcConfigured(): boolean {
     return Boolean(this.config.googleOidc?.clientIds?.length);
+  }
+
+  isOidcExchangeConfigured(): boolean {
+    return Boolean(this.config.oidcExchange?.issuers?.length);
   }
 
   async viewAccessKeyList(accountId: string): Promise<AccessKeyList> {
@@ -661,7 +702,14 @@ export class AuthService {
   async validateAppSessionVersion(input: {
     userId: string;
     appSessionVersion: string;
-  }): Promise<{ ok: true } | { ok: false; code: 'unauthorized' | 'internal'; message: string }> {
+  }): Promise<
+    | { ok: true }
+    | {
+        ok: false;
+        code: 'invalid_session_version' | 'unauthorized' | 'internal';
+        message: string;
+      }
+  > {
     try {
       const userId = toOptionalTrimmedString(input.userId);
       const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
@@ -671,7 +719,7 @@ export class AuthService {
       const store = this.getIdentityStore();
       const current = await store.getAppSessionVersionByUserId(userId);
       if (!current || current !== appSessionVersion) {
-        return { ok: false, code: 'unauthorized', message: 'App session revoked' };
+        return { ok: false, code: 'invalid_session_version', message: 'App session revoked' };
       }
       return { ok: true };
     } catch (e: unknown) {
@@ -1967,6 +2015,356 @@ export class AuthService {
       return await this.googleJwksFetchPromise;
     } finally {
       this.googleJwksFetchPromise = null;
+    }
+  }
+
+  private async getOidcJwksByUrl(jwksUrl: string): Promise<{
+    keysByKid: Map<string, JsonWebKey>;
+    expiresAtMs: number;
+  }> {
+    const url = String(jwksUrl || '').trim();
+    if (!url) throw new Error('Missing OIDC JWKS URL');
+
+    const now = Date.now();
+    const cached = this.oidcJwksCacheByUrl.get(url) || null;
+    if (cached && now < cached.expiresAtMs) return cached;
+
+    const inflight = this.oidcJwksFetchPromiseByUrl.get(url) || null;
+    if (inflight) return inflight;
+
+    const fetchPromise = (async () => {
+      const resp = await fetch(url);
+      const text = await resp.text();
+      if (!resp.ok) {
+        throw new Error(`OIDC JWKS fetch failed (HTTP ${resp.status}): ${text.slice(0, 200)}`);
+      }
+      let json: unknown;
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        throw new Error('OIDC JWKS returned non-JSON response');
+      }
+      if (!isObject(json)) {
+        throw new Error('OIDC JWKS returned invalid JSON shape');
+      }
+      const keysRaw = (json as { keys?: unknown }).keys;
+      if (!Array.isArray(keysRaw)) {
+        throw new Error('OIDC JWKS missing "keys" array');
+      }
+      const keysByKid = new Map<string, JsonWebKey>();
+      for (const rawKey of keysRaw) {
+        if (!isObject(rawKey)) continue;
+        const kid = toOptionalTrimmedString((rawKey as { kid?: unknown }).kid);
+        const kty = toOptionalTrimmedString((rawKey as { kty?: unknown }).kty);
+        const use = toOptionalTrimmedString((rawKey as { use?: unknown }).use);
+        const alg = toOptionalTrimmedString((rawKey as { alg?: unknown }).alg);
+        const n = toOptionalTrimmedString((rawKey as { n?: unknown }).n);
+        const e = toOptionalTrimmedString((rawKey as { e?: unknown }).e);
+        if (!kid || kty !== 'RSA' || !n || !e) continue;
+        if (use && use !== 'sig') continue;
+        if (alg && alg !== 'RS256') continue;
+        keysByKid.set(kid, rawKey as unknown as JsonWebKey);
+      }
+      if (!keysByKid.size) {
+        throw new Error('OIDC JWKS returned no usable RSA keys');
+      }
+
+      const maxAgeSec = parseCacheControlMaxAgeSec(resp.headers.get('cache-control')) || 60 * 60;
+      const expiresAtMs = now + maxAgeSec * 1000;
+      const value = { keysByKid, expiresAtMs };
+      this.oidcJwksCacheByUrl.set(url, value);
+      return value;
+    })();
+
+    this.oidcJwksFetchPromiseByUrl.set(url, fetchPromise);
+    try {
+      return await fetchPromise;
+    } finally {
+      this.oidcJwksFetchPromiseByUrl.delete(url);
+    }
+  }
+
+  async verifyOidcJwtExchange(request: { token?: unknown }): Promise<{
+    ok: boolean;
+    verified?: boolean;
+    userId?: string;
+    providerSubject?: string;
+    iss?: string;
+    aud?: string[];
+    sub?: string;
+    code?: string;
+    message?: string;
+  }> {
+    try {
+      const cfg = this.config.oidcExchange;
+      const issuers = Array.isArray(cfg?.issuers) ? cfg.issuers : [];
+      if (!issuers.length) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'not_configured',
+          message: 'OIDC exchange is not configured on this server',
+        };
+      }
+
+      const token = toOptionalTrimmedString(request?.token);
+      if (!token) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'exchange.token is required',
+        };
+      }
+      if (typeof crypto === 'undefined' || !crypto.subtle) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'unsupported',
+          message: 'WebCrypto (crypto.subtle) is unavailable in this runtime',
+        };
+      }
+
+      const parts = token.split('.');
+      if (parts.length !== 3) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'exchange.token must be a JWT (3 segments)',
+        };
+      }
+      const [headerB64u, payloadB64u, signatureB64u] = parts;
+      const header = parseJwtSegmentJson(headerB64u);
+      if (!header) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'Invalid exchange.token header encoding',
+        };
+      }
+      const payload = parseJwtSegmentJson(payloadB64u);
+      if (!payload) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'Invalid exchange.token payload encoding',
+        };
+      }
+
+      const kid = toOptionalTrimmedString(header.kid);
+      const alg = toOptionalTrimmedString(header.alg);
+      if (!kid) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'exchange.token header.kid is required',
+        };
+      }
+      if (alg !== 'RS256') {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'exchange.token header.alg must be RS256',
+        };
+      }
+
+      const iss = normalizeOidcIssuer(toOptionalTrimmedString(payload.iss) || '');
+      if (!iss) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_claims',
+          message: 'Missing exchange.token iss',
+        };
+      }
+      const issuerConfig = issuers.find((candidate: OidcExchangeIssuerConfig) => {
+        return normalizeOidcIssuer(candidate.issuer) === iss;
+      });
+      if (!issuerConfig) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_issuer',
+          message: 'exchange.token issuer is not allowed',
+        };
+      }
+
+      const aud = parseJwtAud(payload.aud);
+      if (!aud.length) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_claims',
+          message: 'Missing exchange.token aud',
+        };
+      }
+      const allowedAud = new Set(issuerConfig.audiences || []);
+      const audOk = aud.some((value) => allowedAud.has(value));
+      if (!audOk) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_audience',
+          message: 'exchange.token audience mismatch',
+        };
+      }
+
+      const sub = toOptionalTrimmedString(payload.sub);
+      if (!sub) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_claims',
+          message: 'Missing exchange.token sub',
+        };
+      }
+
+      const jwks = await this.getOidcJwksByUrl(issuerConfig.jwksUrl);
+      const jwk = jwks.keysByKid.get(kid);
+      if (!jwk) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'unknown_kid',
+          message: 'Unknown OIDC key id (kid)',
+        };
+      }
+
+      let signatureBytes: Uint8Array;
+      try {
+        signatureBytes = base64UrlDecode(signatureB64u);
+      } catch {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'Invalid exchange.token signature encoding',
+        };
+      }
+
+      const dataBytes = new TextEncoder().encode(`${headerB64u}.${payloadB64u}`);
+      const key = await crypto.subtle.importKey(
+        'jwk',
+        jwk,
+        { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+        false,
+        ['verify'],
+      );
+      const verified = await crypto.subtle.verify(
+        { name: 'RSASSA-PKCS1-v1_5' },
+        key,
+        signatureBytes,
+        dataBytes,
+      );
+      if (!verified) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_signature',
+          message: 'Invalid exchange.token signature',
+        };
+      }
+
+      const clockSkewInput = Number(cfg?.clockSkewSec);
+      const clockSkewSec = Number.isFinite(clockSkewInput)
+        ? Math.max(0, Math.floor(clockSkewInput))
+        : 60;
+      const nowSec = Math.floor(Date.now() / 1000);
+      const exp = Number(payload.exp);
+      if (!Number.isFinite(exp) || exp <= 0) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_claims',
+          message: 'Invalid exchange.token exp',
+        };
+      }
+      if (nowSec > exp + clockSkewSec) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'expired',
+          message: 'exchange.token is expired',
+        };
+      }
+      const nbfRaw = payload.nbf;
+      if (nbfRaw !== undefined) {
+        const nbf = Number(nbfRaw);
+        if (!Number.isFinite(nbf)) {
+          return {
+            ok: false,
+            verified: false,
+            code: 'invalid_claims',
+            message: 'Invalid exchange.token nbf',
+          };
+        }
+        if (nowSec + clockSkewSec < nbf) {
+          return {
+            ok: false,
+            verified: false,
+            code: 'not_yet_valid',
+            message: 'exchange.token is not yet valid',
+          };
+        }
+      }
+      const iatRaw = payload.iat;
+      if (iatRaw !== undefined) {
+        const iat = Number(iatRaw);
+        if (!Number.isFinite(iat)) {
+          return {
+            ok: false,
+            verified: false,
+            code: 'invalid_claims',
+            message: 'Invalid exchange.token iat',
+          };
+        }
+        if (iat > nowSec + clockSkewSec) {
+          return {
+            ok: false,
+            verified: false,
+            code: 'not_yet_valid',
+            message: 'exchange.token issued-at is in the future',
+          };
+        }
+      }
+
+      const subjectPrefix =
+        toOptionalTrimmedString(issuerConfig.subjectPrefix) || `oidc:${iss}:`;
+      const providerSubject = `${subjectPrefix}${sub}`;
+
+      let userId = providerSubject;
+      try {
+        const identity = this.getIdentityStore();
+        const linked = await identity.getUserIdBySubject(providerSubject);
+        if (linked) userId = linked;
+        await identity.linkSubjectToUserId({
+          userId,
+          subject: providerSubject,
+          allowMoveIfSoleIdentity: false,
+        });
+      } catch {}
+
+      return {
+        ok: true,
+        verified: true,
+        userId,
+        providerSubject,
+        iss,
+        aud,
+        sub,
+      };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        verified: false,
+        code: 'internal',
+        message: errorMessage(e) || 'OIDC exchange verification failed',
+      };
     }
   }
 

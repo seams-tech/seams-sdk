@@ -25,13 +25,13 @@ import { registerSmartAccountDeployRoute } from './routes/smartAccountDeploy';
 import { resolveThresholdOption } from '../routerOptions';
 import { validateRelayRouterRorOptions } from '../ror/provider';
 import { registerPrfSessionSealRoutes } from '../../threshold/session/prfSessionSeal';
+import { DEFAULT_SESSION_COOKIE_NAME } from '../relay';
 
 export interface ExpressRelayContext {
   service: AuthService;
   opts: RelayRouterOptions;
   logger: NormalizedRouterLogger;
   mePath: string;
-  logoutPath: string;
   signedDelegatePath: string;
   signedDelegatePolicy?: DelegateActionPolicy;
 }
@@ -43,13 +43,14 @@ export function createRelayRouter(
   const router = express.Router();
 
   const threshold = resolveThresholdOption(service, opts);
-  const effectiveOpts: RelayRouterOptions = { ...opts, threshold };
+  const sessionCookieName =
+    String(opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
+  const effectiveOpts: RelayRouterOptions = { ...opts, threshold, sessionCookieName };
   if (effectiveOpts.ror) {
     validateRelayRouterRorOptions(effectiveOpts.ror);
   }
 
-  const mePath = effectiveOpts.sessionRoutes?.auth || '/session/auth';
-  const logoutPath = effectiveOpts.sessionRoutes?.logout || '/session/logout';
+  const mePath = effectiveOpts.sessionRoutes?.state || '/session/state';
   const logger = coerceRouterLogger(effectiveOpts.logger);
   let signedDelegatePath = '';
   if (effectiveOpts.signedDelegate) {
@@ -65,7 +66,6 @@ export function createRelayRouter(
     opts: effectiveOpts,
     logger,
     mePath,
-    logoutPath,
     signedDelegatePath,
     signedDelegatePolicy,
   };

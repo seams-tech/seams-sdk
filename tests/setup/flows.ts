@@ -197,7 +197,7 @@ export interface LoginFlowResult {
   raw?: any;
 }
 
-export async function loginAndCreateSession(
+export async function unlock(
   passkey: PasskeyFixture,
   options: LoginFlowOptions,
 ): Promise<LoginFlowResult> {
@@ -213,9 +213,9 @@ export async function loginAndCreateSession(
       const events: any[] = [];
 
       try {
-        console.log(`[flow:login] invoking loginAndCreateSession for ${args.accountId}`);
+        console.log(`[flow:login] invoking unlock for ${args.accountId}`);
         return utils.tatchi
-          .loginAndCreateSession(toAccountId(args.accountId), {
+          .unlock(toAccountId(args.accountId), {
             onEvent: (event: any) => {
               events.push(event);
               console.log(`[flow:login]   -> ${event.phase} | ${event.message}`);

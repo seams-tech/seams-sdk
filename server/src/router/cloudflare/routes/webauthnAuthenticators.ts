@@ -1,3 +1,5 @@
+import { DEFAULT_SESSION_COOKIE_NAME } from '../../relay';
+import { emitRelayWebhookEvent } from '../../relayWebhooks';
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import { json } from '../http';
 
@@ -8,6 +10,59 @@ export async function handleWebAuthnAuthenticators(
   if (ctx.pathname !== '/webauthn/authenticators') return null;
 
   try {
+    const hasBearerSessionSignal = (): boolean => {
+      const authorization = String(ctx.request.headers.get('authorization') || '').trim();
+      return authorization.toLowerCase().startsWith('bearer ');
+    };
+
+    const hasCookieSessionSignal = (): boolean => {
+      const cookie = String(ctx.request.headers.get('cookie') || '').trim();
+      if (!cookie) return false;
+      const cookieName =
+        String(ctx.opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
+      for (const part of cookie.split(';')) {
+        const chunk = String(part || '').trim();
+        if (!chunk) continue;
+        const equalsIndex = chunk.indexOf('=');
+        const name = (equalsIndex >= 0 ? chunk.slice(0, equalsIndex) : chunk).trim();
+        if (name === cookieName) return true;
+      }
+      return false;
+    };
+
+    const maybeEmitWarmExpired = async (input: {
+      code: string;
+      message: string;
+      claims?: Record<string, unknown>;
+      userId?: string;
+      appSessionVersion?: string;
+      hadBearerSessionSignal?: boolean;
+      hadCookieSessionSignal?: boolean;
+    }): Promise<void> => {
+      const code = String(input.code || '').trim();
+      const shouldEmit =
+        code === 'invalid_session_version' ||
+        (code === 'unauthorized' &&
+          (Boolean(input.hadBearerSessionSignal) || Boolean(input.hadCookieSessionSignal)));
+      if (!shouldEmit) return;
+
+      await emitRelayWebhookEvent({
+        logger: ctx.logger,
+        webhooks: ctx.opts.relayWebhooks,
+        eventType: 'session.warm.expired',
+        claims: input.claims,
+        userId: input.userId,
+        payload: {
+          expired: true,
+          source: 'webauthn.authenticators',
+          reason: input.message || 'Session expired',
+          sessionKind: 'jwt',
+          code,
+          ...(input.appSessionVersion ? { appSessionVersion: input.appSessionVersion } : {}),
+        },
+      });
+    };
+
     const session = ctx.opts.session;
     if (!session) {
       return json(
@@ -25,6 +80,12 @@ export async function handleWebAuthnAuthenticators(
 
     const parsed = await session.parse(headersObj as any);
     if (!parsed.ok) {
+      await maybeEmitWarmExpired({
+        code: 'unauthorized',
+        message: 'No valid session',
+        hadBearerSessionSignal: hasBearerSessionSignal(),
+        hadCookieSessionSignal: hasCookieSessionSignal(),
+      });
       return json(
         { ok: false, code: 'unauthorized', message: 'No valid session' },
         { status: 401 },
@@ -51,6 +112,13 @@ export async function handleWebAuthnAuthenticators(
     }
     const validated = await ctx.service.validateAppSessionVersion({ userId, appSessionVersion });
     if (!validated.ok) {
+      await maybeEmitWarmExpired({
+        code: validated.code,
+        message: validated.message,
+        claims,
+        userId,
+        appSessionVersion,
+      });
       return json(
         { ok: false, code: validated.code, message: validated.message },
         { status: validated.code === 'internal' ? 500 : 401 },

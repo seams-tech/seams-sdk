@@ -1,4 +1,10 @@
-import type { AuthServiceConfig, AuthServiceConfigInput, GoogleOidcConfigEnvInput } from './types';
+import type {
+  AuthServiceConfig,
+  AuthServiceConfigInput,
+  GoogleOidcConfigEnvInput,
+  OidcExchangeConfig,
+  OidcExchangeIssuerConfig,
+} from './types';
 import {
   THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT,
   THRESHOLD_ED25519_SHARE_MODE_DEFAULT,
@@ -93,6 +99,46 @@ function normalizeGoogleOidcConfig(
   };
 }
 
+function normalizeOidcExchangeConfig(
+  input: AuthServiceConfigInput['oidcExchange'],
+): AuthServiceConfig['oidcExchange'] | undefined {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
+  const issuersRaw = Array.isArray((input as any).issuers) ? (input as any).issuers : [];
+  const issuers: OidcExchangeIssuerConfig[] = [];
+  for (const raw of issuersRaw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const issuer = toOptionalTrimmedString((raw as any).issuer);
+    const jwksUrl = toOptionalTrimmedString((raw as any).jwksUrl);
+    const audiencesRaw = Array.isArray((raw as any).audiences) ? (raw as any).audiences : [];
+    const audiences = Array.from(
+      new Set<string>(
+        audiencesRaw
+          .map((v: unknown): string => String(v || '').trim())
+          .filter((v: string) => v.length > 0),
+      ),
+    );
+    const subjectPrefix = toOptionalTrimmedString((raw as any).subjectPrefix);
+    if (!issuer || !jwksUrl || !audiences.length) continue;
+    issuers.push({
+      issuer,
+      jwksUrl,
+      audiences,
+      ...(subjectPrefix ? { subjectPrefix } : {}),
+    });
+  }
+  if (!issuers.length) return undefined;
+
+  const clockSkewRaw = (input as OidcExchangeConfig).clockSkewSec;
+  const clockSkewSec = Number.isFinite(Number(clockSkewRaw))
+    ? Math.max(0, Math.floor(Number(clockSkewRaw)))
+    : undefined;
+
+  return {
+    issuers,
+    ...(typeof clockSkewSec === 'number' ? { clockSkewSec } : {}),
+  };
+}
+
 function normalizeThresholdEd25519KeyStoreConfig(
   input: AuthServiceConfigInput['thresholdEd25519KeyStore'],
 ): AuthServiceConfig['thresholdEd25519KeyStore'] | undefined {
@@ -178,6 +224,7 @@ export function createAuthServiceConfig(input: AuthServiceConfigInput): AuthServ
     ),
     logger: input.logger,
     googleOidc: normalizeGoogleOidcConfig(input.googleOidc),
+    oidcExchange: normalizeOidcExchangeConfig(input.oidcExchange),
   };
 
   validateConfigs(config);

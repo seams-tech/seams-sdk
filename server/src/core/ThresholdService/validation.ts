@@ -536,6 +536,11 @@ export type ThresholdEd25519SessionClaims = {
   sessionId: string;
   relayerKeyId: string;
   rpId: string;
+  runtimeSnapshotScope?: {
+    orgId: string;
+    environmentId: string;
+    projectId?: string;
+  };
   /**
    * Server-enforced threshold session expiry (ms since epoch).
    * Relayer authorization validates expiry without a KV record fetch.
@@ -551,6 +556,21 @@ export type ThresholdEd25519SessionClaims = {
   exp?: number;
   nbf?: number;
 };
+
+function parseRuntimeSnapshotScope(
+  raw: unknown,
+): { orgId: string; environmentId: string; projectId?: string } | null {
+  if (!isObject(raw)) return null;
+  const orgId = toOptionalString(raw.orgId);
+  const environmentId = toOptionalString(raw.environmentId);
+  if (!orgId || !environmentId) return null;
+  const projectId = toOptionalString(raw.projectId);
+  return {
+    orgId,
+    environmentId,
+    ...(projectId ? { projectId } : {}),
+  };
+}
 
 export function parseThresholdEd25519SessionClaims(
   raw: unknown,
@@ -578,6 +598,12 @@ export function parseThresholdEd25519SessionClaims(
     thresholdExpiresAtMs,
     participantIds,
   };
+  const runtimeSnapshotScopeRaw = (raw as { runtimeSnapshotScope?: unknown }).runtimeSnapshotScope;
+  if (runtimeSnapshotScopeRaw !== undefined) {
+    const runtimeSnapshotScope = parseRuntimeSnapshotScope(runtimeSnapshotScopeRaw);
+    if (!runtimeSnapshotScope) return null;
+    out.runtimeSnapshotScope = runtimeSnapshotScope;
+  }
 
   const iat = (raw as { iat?: unknown }).iat;
   if (iat !== undefined) {
@@ -609,6 +635,11 @@ export type ThresholdEcdsaSessionClaims = {
   sessionId: string;
   relayerKeyId: string;
   rpId: string;
+  runtimeSnapshotScope?: {
+    orgId: string;
+    environmentId: string;
+    projectId?: string;
+  };
   /**
    * Server-enforced threshold session expiry (ms since epoch).
    * Authorization validates expiry without a KV record fetch.
@@ -649,6 +680,12 @@ export function parseThresholdEcdsaSessionClaims(raw: unknown): ThresholdEcdsaSe
     thresholdExpiresAtMs,
     participantIds,
   };
+  const runtimeSnapshotScopeRaw = (raw as { runtimeSnapshotScope?: unknown }).runtimeSnapshotScope;
+  if (runtimeSnapshotScopeRaw !== undefined) {
+    const runtimeSnapshotScope = parseRuntimeSnapshotScope(runtimeSnapshotScopeRaw);
+    if (!runtimeSnapshotScope) return null;
+    out.runtimeSnapshotScope = runtimeSnapshotScope;
+  }
 
   const iat = (raw as { iat?: unknown }).iat;
   if (iat !== undefined) {

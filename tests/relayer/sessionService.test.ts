@@ -22,11 +22,11 @@ test.describe('SessionService (server)', () => {
   test('extractTokenFromHeaders prefers Authorization Bearer over Cookie', async () => {
     const s = new SessionService({
       jwt: { signToken: async () => 't' },
-      cookie: { name: 'w3a_session' },
+      cookie: { name: 'tatchi-jwt' },
     });
     const tok = s.extractTokenFromHeaders({
       authorization: 'Bearer bearer-token',
-      cookie: 'w3a_session=cookie-token',
+      cookie: 'tatchi-jwt=cookie-token',
     });
     expect(tok).toBe('bearer-token');
   });

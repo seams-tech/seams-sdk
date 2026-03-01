@@ -16,35 +16,38 @@ const demoSecret = 'demo-secret';
 const demoIssuer = 'relay-worker-demo';
 const demoAudience = 'tatchi-app-demo';
 const demoExpiresInSec = 24 * 60 * 60;
-const demoCookieName = 'w3a_session';
+export const DEFAULT_SESSION_COOKIE_NAME = 'tatchi-jwt';
 
-const jwtSession = new SessionService<DemoJwtClaims>({
-  cookie: { name: demoCookieName },
-  jwt: {
-    signToken: ({ payload }) => {
-      // Note: if payload.exp is supplied (e.g., threshold session tokens), do not override it
-      // with `expiresIn`, otherwise exp will drift from the server-enforced expiry.
-      const hasExp = typeof payload.exp === 'number' && Number.isFinite(payload.exp);
-      return jwt.sign(payload, demoSecret, {
-        algorithm: 'HS256',
-        issuer: demoIssuer,
-        audience: demoAudience,
-        ...(hasExp ? {} : { expiresIn: demoExpiresInSec }),
-      });
-    },
-    verifyToken: async (token): Promise<{ valid: boolean; payload?: DemoJwtClaims }> => {
-      try {
-        const payload = jwt.verify(token, demoSecret, {
-          algorithms: ['HS256'],
+export function createJwtSession(
+  cookieName: string = DEFAULT_SESSION_COOKIE_NAME,
+): SessionService<DemoJwtClaims> {
+  const normalizedCookieName = String(cookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
+  return new SessionService<DemoJwtClaims>({
+    cookie: { name: normalizedCookieName },
+    jwt: {
+      signToken: ({ payload }) => {
+        // Note: if payload.exp is supplied (e.g., threshold session tokens), do not override it
+        // with `expiresIn`, otherwise exp will drift from the server-enforced expiry.
+        const hasExp = typeof payload.exp === 'number' && Number.isFinite(payload.exp);
+        return jwt.sign(payload, demoSecret, {
+          algorithm: 'HS256',
           issuer: demoIssuer,
           audience: demoAudience,
-        }) as DemoJwtClaims;
-        return { valid: true, payload };
-      } catch {
-        return { valid: false };
-      }
+          ...(hasExp ? {} : { expiresIn: demoExpiresInSec }),
+        });
+      },
+      verifyToken: async (token): Promise<{ valid: boolean; payload?: DemoJwtClaims }> => {
+        try {
+          const payload = jwt.verify(token, demoSecret, {
+            algorithms: ['HS256'],
+            issuer: demoIssuer,
+            audience: demoAudience,
+          }) as DemoJwtClaims;
+          return { valid: true, payload };
+        } catch {
+          return { valid: false };
+        }
+      },
     },
-  },
-});
-
-export default jwtSession;
+  });
+}

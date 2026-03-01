@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { AuthService } from '@server/core/AuthService';
 import { createRelayRouter } from '@server/router/express-adaptor';
-import { fetchJson, makeSessionAdapter, startExpressRouter } from './helpers';
+import { fetchJson, startExpressRouter } from './helpers';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 
 test.describe('relayer login challenge replay', () => {
@@ -28,8 +28,7 @@ test.describe('relayer login challenge replay', () => {
       verified: true,
     });
 
-    const session = makeSessionAdapter({ signJwt: async () => 'jwt-123' });
-    const router = createRelayRouter(service, { session });
+    const router = createRelayRouter(service, {});
     const srv = await startExpressRouter(router);
 
     try {
@@ -46,20 +45,18 @@ test.describe('relayer login challenge replay', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sessionKind: 'jwt',
           challengeId,
           webauthn_authentication: { ok: true },
         }),
       });
       expect(verify1.status).toBe(200);
       expect(verify1.json?.verified).toBe(true);
-      expect(verify1.json?.jwt).toBe('jwt-123');
+      expect(verify1.json?.jwt).toBeUndefined();
 
       const verify2 = await fetchJson(`${srv.baseUrl}/auth/passkey/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sessionKind: 'jwt',
           challengeId,
           webauthn_authentication: { ok: true },
         }),

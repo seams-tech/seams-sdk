@@ -1,5 +1,6 @@
 import type { Router as ExpressRouter } from 'express';
-import { parseSessionKind } from '../../relay';
+import { DEFAULT_SESSION_COOKIE_NAME } from '../../relay';
+import { emitRelayWebhookEvent } from '../../relayWebhooks';
 import type { ExpressRelayContext } from '../createRelayRouter';
 
 type ProviderId = 'passkey' | 'google';
@@ -12,9 +13,82 @@ function getOrigin(headers: any): string | undefined {
 }
 
 export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
+  const sessionCookieName =
+    String(ctx.opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
+
+  const headerHasCookieName = (cookieHeader: string, cookieName: string): boolean => {
+    for (const part of cookieHeader.split(';')) {
+      const chunk = String(part || '').trim();
+      if (!chunk) continue;
+      const equalsIndex = chunk.indexOf('=');
+      const name = (equalsIndex >= 0 ? chunk.slice(0, equalsIndex) : chunk).trim();
+      if (name === cookieName) return true;
+    }
+    return false;
+  };
+
+  const hasBearerSessionSignal = (
+    headers: Record<string, string | string[] | undefined>,
+  ): boolean => {
+    const value = headers.authorization ?? headers.Authorization;
+    if (typeof value === 'string') {
+      return value.trim().toLowerCase().startsWith('bearer ');
+    }
+    if (Array.isArray(value)) {
+      return value.some((entry) => String(entry || '').trim().toLowerCase().startsWith('bearer '));
+    }
+    return false;
+  };
+
+  const hasCookieSessionSignal = (
+    headers: Record<string, string | string[] | undefined>,
+  ): boolean => {
+    const value = headers.cookie ?? headers.Cookie;
+    if (typeof value === 'string') return headerHasCookieName(value, sessionCookieName);
+    if (Array.isArray(value)) {
+      return value.some((entry) => headerHasCookieName(String(entry || ''), sessionCookieName));
+    }
+    return false;
+  };
+
+  const maybeEmitWarmExpired = async (input: {
+    code: string;
+    message: string;
+    source: string;
+    claims?: Record<string, unknown>;
+    userId?: string;
+    appSessionVersion?: string;
+    hadBearerSessionSignal?: boolean;
+    hadCookieSessionSignal?: boolean;
+  }): Promise<void> => {
+    const code = String(input.code || '').trim();
+    const shouldEmit =
+      code === 'invalid_session_version' ||
+      (code === 'unauthorized' &&
+        (Boolean(input.hadBearerSessionSignal) || Boolean(input.hadCookieSessionSignal)));
+    if (!shouldEmit) return;
+
+    await emitRelayWebhookEvent({
+      logger: ctx.logger,
+      webhooks: ctx.opts.relayWebhooks,
+      eventType: 'session.warm.expired',
+      claims: input.claims,
+      userId: input.userId,
+      payload: {
+        expired: true,
+        source: input.source,
+        reason: input.message || 'Session expired',
+        sessionKind: 'jwt',
+        code,
+        ...(input.appSessionVersion ? { appSessionVersion: input.appSessionVersion } : {}),
+      },
+    });
+  };
+
   async function requireAppSession(
     req: any,
     res: any,
+    input: { source: string },
   ): Promise<{ userId: string; claims: any } | null> {
     const session = ctx.opts.session;
     if (!session) {
@@ -25,6 +99,13 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRelayConte
     }
     const parsed = await session.parse(req.headers || {});
     if (!parsed.ok) {
+      await maybeEmitWarmExpired({
+        code: 'unauthorized',
+        message: 'No valid session',
+        source: input.source,
+        hadBearerSessionSignal: hasBearerSessionSignal(req.headers || {}),
+        hadCookieSessionSignal: hasCookieSessionSignal(req.headers || {}),
+      });
       res.status(401).json({ ok: false, code: 'unauthorized', message: 'No valid session' });
       return null;
     }
@@ -48,6 +129,14 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRelayConte
     }
     const validated = await ctx.service.validateAppSessionVersion({ userId, appSessionVersion });
     if (!validated.ok) {
+      await maybeEmitWarmExpired({
+        code: validated.code,
+        message: validated.message,
+        source: input.source,
+        claims,
+        userId,
+        appSessionVersion,
+      });
       res
         .status(validated.code === 'internal' ? 500 : 401)
         .json({ ok: false, code: validated.code, message: validated.message });
@@ -108,7 +197,7 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRelayConte
 
   router.get('/auth/identities', async (req: any, res: any) => {
     try {
-      const sess = await requireAppSession(req, res);
+      const sess = await requireAppSession(req, res, { source: 'auth.identities' });
       if (!sess) return;
       const out = await ctx.service.listIdentities({ userId: sess.userId });
       res.status(out.ok ? 200 : out.code === 'internal' ? 500 : 400).json(out);
@@ -127,7 +216,7 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRelayConte
           .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
         return;
       }
-      const sess = await requireAppSession(req, res);
+      const sess = await requireAppSession(req, res, { source: 'auth.link' });
       if (!sess) return;
       const stepUpOk = await requirePasskeyStepUp(req, res, { userId: sess.userId });
       if (!stepUpOk) return;
@@ -185,7 +274,7 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRelayConte
           .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
         return;
       }
-      const sess = await requireAppSession(req, res);
+      const sess = await requireAppSession(req, res, { source: 'auth.unlink' });
       if (!sess) return;
       const stepUpOk = await requirePasskeyStepUp(req, res, { userId: sess.userId });
       if (!stepUpOk) return;
@@ -341,31 +430,6 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRelayConte
           return;
         }
 
-        const session = ctx.opts.session;
-        if (session && result.userId && result.rpId) {
-          try {
-            const sessionKind = parseSessionKind(body);
-            const ver = await ctx.service.getOrCreateAppSessionVersion({ userId: result.userId });
-            if (!ver.ok) throw new Error(ver.message);
-            const token = await session.signJwt(result.userId, {
-              kind: 'app_session_v1',
-              rpId: result.rpId,
-              appSessionVersion: ver.appSessionVersion,
-            });
-            ctx.logger.info(
-              `[relay] creating ${sessionKind === 'cookie' ? 'HttpOnly session' : 'JWT'} for`,
-              result.userId,
-            );
-            if (sessionKind === 'cookie') {
-              res.set('Set-Cookie', session.buildSetCookie(token));
-              res.status(200).json({ ok: true, verified: true });
-              return;
-            }
-            res.status(200).json({ ok: true, verified: true, jwt: token });
-            return;
-          } catch {}
-        }
-
         res.status(200).json({ ok: true, verified: true });
       },
     },
@@ -394,46 +458,6 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRelayConte
         if (!result.ok || !result.verified || !result.userId) {
           res.status(result.code === 'internal' ? 500 : 400).json(result);
           return;
-        }
-
-        const session = ctx.opts.session;
-        if (session) {
-          try {
-            const sessionKind = parseSessionKind(body);
-            const ver = await ctx.service.getOrCreateAppSessionVersion({ userId: result.userId });
-            if (!ver.ok) throw new Error(ver.message);
-            const token = await session.signJwt(result.userId, {
-              kind: 'app_session_v1',
-              appSessionVersion: ver.appSessionVersion,
-              provider: 'google',
-              ...(result.sub ? { googleSub: result.sub } : {}),
-              ...(result.email ? { email: result.email } : {}),
-              ...(typeof result.emailVerified === 'boolean'
-                ? { emailVerified: result.emailVerified }
-                : {}),
-              ...(result.hostedDomain ? { hostedDomain: result.hostedDomain } : {}),
-            });
-            ctx.logger.info(
-              `[relay] creating ${sessionKind === 'cookie' ? 'HttpOnly session' : 'JWT'} for`,
-              result.userId,
-            );
-            if (sessionKind === 'cookie') {
-              res.set('Set-Cookie', session.buildSetCookie(token));
-              res.status(200).json({
-                ok: true,
-                verified: true,
-                ...(result.email ? { email: result.email } : {}),
-              });
-              return;
-            }
-            res.status(200).json({
-              ok: true,
-              verified: true,
-              jwt: token,
-              ...(result.email ? { email: result.email } : {}),
-            });
-            return;
-          } catch {}
         }
 
         res

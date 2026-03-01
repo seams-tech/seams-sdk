@@ -1,4 +1,11 @@
-export type { RelayRouterOptions, SessionAdapter, ThresholdSigningAdapter } from './relay';
+export type {
+  RelayRouterOptions,
+  SessionAdapter,
+  ThresholdSigningAdapter,
+  RelayRuntimeSnapshotScope,
+  RelayRuntimeSnapshotEnvelope,
+  RelayRuntimeSnapshotConsumer,
+} from './relay';
 export type {
   ConsoleRouterOptions,
   ConsoleAuthAdapter,
@@ -90,6 +97,10 @@ export type {
   PostgresConsoleBillingMonthlyFinalizationResult,
   StripeSetupIntentProviderInput,
   StripeSetupIntentProviderOutput,
+  StripeCheckoutSessionProviderInput,
+  StripeCheckoutSessionProviderOutput,
+  StripeCustomerPortalSessionProviderInput,
+  StripeCustomerPortalSessionProviderOutput,
   StripePaymentIntentProviderInput,
   StripePaymentIntentProviderOutput,
   StripeWebhookEventRequest,
@@ -125,6 +136,8 @@ export type {
   InMemoryConsoleWebhookServiceOptions,
   PostgresConsoleWebhookSchemaOptions,
   PostgresConsoleWebhookServiceOptions,
+  PostgresConsoleWebhookRetryDispatchOptions,
+  PostgresConsoleWebhookRetryDispatchResult,
   ConsoleWebhookService,
 } from '../console/webhooks';
 export type {
@@ -215,6 +228,9 @@ export type {
   InMemoryConsoleRuntimeSnapshotServiceOptions,
   PostgresConsoleRuntimeSnapshotSchemaOptions,
   PostgresConsoleRuntimeSnapshotServiceOptions,
+  ConsoleRuntimeSnapshotOutboxEvent,
+  PostgresConsoleRuntimeSnapshotOutboxDispatchOptions,
+  PostgresConsoleRuntimeSnapshotOutboxDispatchResult,
 } from '../console/runtimeSnapshots';
 export {
   createInMemoryConsoleOrgProjectEnvService,
@@ -258,6 +274,7 @@ export {
   createInMemoryConsoleWebhookService,
   ensureConsoleWebhooksPostgresSchema,
   createPostgresConsoleWebhookService,
+  runPostgresConsoleWebhookRetryDispatch,
   isConsoleWebhookError,
   ConsoleWebhookError,
 } from '../console/webhooks';
@@ -305,6 +322,7 @@ export {
   createInMemoryConsoleRuntimeSnapshotService,
   ensureConsoleRuntimeSnapshotsPostgresSchema,
   createPostgresConsoleRuntimeSnapshotService,
+  runPostgresConsoleRuntimeSnapshotOutboxDispatch,
   parseListConsoleRuntimeSnapshotsRequest,
   parseGetLatestConsoleRuntimeSnapshotRequest,
   parsePublishConsoleRuntimeSnapshotRequest,
@@ -314,3 +332,11 @@ export {
 } from '../console/runtimeSnapshots';
 export { createRelayRouter } from './express/createRelayRouter';
 export { createConsoleRouter } from './express/createConsoleRouter';
+export type {
+  RelayRuntimeSnapshotPublishedUpdate,
+  InMemoryRelayRuntimeSnapshotConsumer,
+} from './runtimeSnapshotConsumer';
+export {
+  validateRuntimeSnapshotExpectation,
+  createInMemoryRelayRuntimeSnapshotConsumer,
+} from './runtimeSnapshotConsumer';

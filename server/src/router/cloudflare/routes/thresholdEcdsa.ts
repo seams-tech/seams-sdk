@@ -18,6 +18,7 @@ import {
   validateThresholdEcdsaAuthorizeInputs,
   validateThresholdEcdsaSessionInputs,
 } from '../../commonRouterUtils';
+import { validateRuntimeSnapshotExpectation } from '../../runtimeSnapshotConsumer';
 
 const NOT_IMPLEMENTED = {
   ok: false,
@@ -213,6 +214,26 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     }
 
     const participantIds = Array.isArray(result.participantIds) ? result.participantIds : undefined;
+    const runtimeSnapshotScope = (() => {
+      const scope =
+        bootstrapRequest.sessionPolicy &&
+        typeof bootstrapRequest.sessionPolicy === 'object' &&
+        !Array.isArray(bootstrapRequest.sessionPolicy)
+          ? ((bootstrapRequest.sessionPolicy as Record<string, unknown>).runtimeSnapshotScope as
+              | Record<string, unknown>
+              | undefined)
+          : undefined;
+      if (!scope || typeof scope !== 'object' || Array.isArray(scope)) return undefined;
+      const orgId = String(scope.orgId || '').trim();
+      const environmentId = String(scope.environmentId || '').trim();
+      const projectId = String(scope.projectId || '').trim();
+      if (!orgId || !environmentId) return undefined;
+      return {
+        orgId,
+        environmentId,
+        ...(projectId ? { projectId } : {}),
+      };
+    })();
     const nowSec = Math.floor(Date.now() / 1000);
     const expSec = Math.floor(thresholdExpiresAtMs / 1000);
     const token = await session.signJwt(userId, {
@@ -221,6 +242,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
       relayerKeyId,
       rpId,
       ...(participantIds ? { participantIds } : {}),
+      ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
       thresholdExpiresAtMs,
       iat: nowSec,
       exp: expSec,
@@ -242,6 +264,16 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
       session: ctx.opts.session,
     });
     if (!validated.ok) return json(validated, { status: thresholdEcdsaStatusCode(validated) });
+    const runtimeSnapshotValidation = await validateRuntimeSnapshotExpectation({
+      runtimeSnapshots: ctx.opts.runtimeSnapshots,
+      scope: validated.claims.runtimeSnapshotScope,
+      expectationRaw: (validated.request as unknown as Record<string, unknown>).runtimeSnapshot,
+    });
+    if (!runtimeSnapshotValidation.ok) {
+      return json(runtimeSnapshotValidation, {
+        status: thresholdEcdsaStatusCode(runtimeSnapshotValidation),
+      });
+    }
     const result = await scheme.authorize({ claims: validated.claims, request: validated.request });
     return json(result, { status: thresholdEcdsaStatusCode(result) });
   }

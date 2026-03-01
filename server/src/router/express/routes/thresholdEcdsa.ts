@@ -18,6 +18,7 @@ import {
   validateThresholdEcdsaAuthorizeInputs,
   validateThresholdEcdsaSessionInputs,
 } from '../../commonRouterUtils';
+import { validateRuntimeSnapshotExpectation } from '../../runtimeSnapshotConsumer';
 
 const NOT_IMPLEMENTED = {
   ok: false,
@@ -287,6 +288,26 @@ export function registerThresholdEcdsaRoutes(
         const participantIds = Array.isArray(result.participantIds)
           ? result.participantIds
           : undefined;
+        const runtimeSnapshotScope = (() => {
+          const scope =
+            bootstrapRequest.sessionPolicy &&
+            typeof bootstrapRequest.sessionPolicy === 'object' &&
+            !Array.isArray(bootstrapRequest.sessionPolicy)
+              ? ((bootstrapRequest.sessionPolicy as Record<string, unknown>).runtimeSnapshotScope as
+                  | Record<string, unknown>
+                  | undefined)
+              : undefined;
+          if (!scope || typeof scope !== 'object' || Array.isArray(scope)) return undefined;
+          const orgId = String(scope.orgId || '').trim();
+          const environmentId = String(scope.environmentId || '').trim();
+          const projectId = String(scope.projectId || '').trim();
+          if (!orgId || !environmentId) return undefined;
+          return {
+            orgId,
+            environmentId,
+            ...(projectId ? { projectId } : {}),
+          };
+        })();
         const nowSec = Math.floor(Date.now() / 1000);
         const expSec = Math.floor(thresholdExpiresAtMs / 1000);
         const token = await session.signJwt(userId, {
@@ -295,6 +316,7 @@ export function registerThresholdEcdsaRoutes(
           relayerKeyId,
           rpId,
           ...(participantIds ? { participantIds } : {}),
+          ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
           thresholdExpiresAtMs,
           iat: nowSec,
           exp: expSec,
@@ -347,6 +369,12 @@ export function registerThresholdEcdsaRoutes(
           session: ctx.opts.session,
         });
         if (!validated.ok) return validated;
+        const runtimeSnapshotValidation = await validateRuntimeSnapshotExpectation({
+          runtimeSnapshots: ctx.opts.runtimeSnapshots,
+          scope: validated.claims.runtimeSnapshotScope,
+          expectationRaw: (validated.request as unknown as Record<string, unknown>).runtimeSnapshot,
+        });
+        if (!runtimeSnapshotValidation.ok) return runtimeSnapshotValidation;
 
         return scheme.authorize({ claims: validated.claims, request: validated.request });
       },

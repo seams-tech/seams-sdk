@@ -243,6 +243,10 @@ export interface AuthServiceConfig {
    * Optional Google OIDC configuration for verifying Google `id_token` login sessions.
    */
   googleOidc?: GoogleOidcConfig;
+  /**
+   * Optional generic OIDC JWT exchange configuration for `POST /session/exchange`.
+   */
+  oidcExchange?: OidcExchangeConfig;
 }
 
 export type GoogleOidcConfig = {
@@ -263,6 +267,31 @@ export interface GoogleOidcConfigEnvInput {
 
 export type GoogleOidcConfigInput = GoogleOidcConfig | GoogleOidcConfigEnvInput;
 
+export type OidcExchangeIssuerConfig = {
+  /** Exact issuer (`iss`) value to trust. */
+  issuer: string;
+  /** Allowed audiences (`aud`) for this issuer. */
+  audiences: string[];
+  /** JWKS endpoint used to verify JWT signatures for this issuer. */
+  jwksUrl: string;
+  /**
+   * Optional stable subject prefix for internal identity mapping.
+   * Defaults to `oidc:{issuer}:`.
+   */
+  subjectPrefix?: string;
+};
+
+export type OidcExchangeConfig = {
+  issuers: OidcExchangeIssuerConfig[];
+  /**
+   * Allowed JWT clock skew in seconds for `iat`/`nbf`/`exp` checks.
+   * Defaults to 60 seconds.
+   */
+  clockSkewSec?: number;
+};
+
+export type OidcExchangeConfigInput = OidcExchangeConfig;
+
 /**
  * User-facing input shape for `AuthService`. Fields that have SDK defaults are optional here.
  *
@@ -276,6 +305,7 @@ export type AuthServiceConfigInput = Omit<
   | 'createAccountAndRegisterGas'
   | 'thresholdEd25519KeyStore'
   | 'googleOidc'
+  | 'oidcExchange'
 > & {
   nearRpcUrl?: string;
   networkId?: string;
@@ -283,6 +313,7 @@ export type AuthServiceConfigInput = Omit<
   createAccountAndRegisterGas?: string;
   thresholdEd25519KeyStore?: ThresholdEd25519KeyStoreConfigInput;
   googleOidc?: GoogleOidcConfigInput;
+  oidcExchange?: OidcExchangeConfigInput;
 };
 
 // Account creation and registration types (imported from relay-server types)
@@ -484,6 +515,18 @@ export interface VerifyAuthenticationResponse {
 // Threshold Ed25519 (2-party) APIs
 // ================================
 
+export type ThresholdRuntimeSnapshotScope = {
+  orgId: string;
+  environmentId: string;
+  projectId?: string;
+};
+
+export type ThresholdRuntimeSnapshotExpectation = {
+  snapshotId?: string;
+  version?: number;
+  checksum?: string;
+};
+
 export type ThresholdEd25519Purpose = 'near_tx' | 'nep461_delegate' | 'nep413' | string;
 
 export type Ed25519SessionPolicy = {
@@ -492,6 +535,7 @@ export type Ed25519SessionPolicy = {
   rpId: string;
   relayerKeyId: string;
   sessionId: string;
+  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
   /** Optional participant ids that scope the session to a signer set. */
   participantIds?: number[];
   ttlMs: number;
@@ -529,6 +573,7 @@ export interface ThresholdEd25519AuthorizeWithSessionRequest {
   purpose: ThresholdEd25519Purpose;
   signing_digest_32: number[];
   signingPayload?: unknown;
+  runtimeSnapshot?: ThresholdRuntimeSnapshotExpectation;
 }
 
 export interface ThresholdEd25519AuthorizeResponse {
@@ -718,6 +763,7 @@ export type EcdsaSessionPolicy = {
   rpId: string;
   relayerKeyId: string;
   sessionId: string;
+  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
   /** Optional participant ids that scope the session to a signer set. */
   participantIds?: number[];
   ttlMs: number;
@@ -753,6 +799,7 @@ export type ThresholdEcdsaBootstrapSessionPolicy = {
   userId: string;
   rpId: string;
   sessionId: string;
+  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
   /** Optional participant ids that scope the session to a signer set. */
   participantIds?: number[];
   ttlMs: number;
@@ -813,6 +860,7 @@ export interface ThresholdEcdsaAuthorizeWithSessionRequest {
   purpose: ThresholdEcdsaPurpose;
   signing_digest_32: number[];
   signingPayload?: unknown;
+  runtimeSnapshot?: ThresholdRuntimeSnapshotExpectation;
 }
 
 export interface ThresholdEcdsaPresignPoolPolicyHint {

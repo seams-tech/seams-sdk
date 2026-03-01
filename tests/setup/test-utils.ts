@@ -57,8 +57,8 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
       loginStatus: async () => {
         try {
           const pm = (window as any).tatchi;
-          if (!pm || typeof pm.getLoginSession !== 'function') return null;
-          return await pm.auth.getSession();
+          if (!pm || typeof pm.getWalletSession !== 'function') return null;
+          return await pm.auth.getWalletSession();
         } catch {
           return null;
         }
@@ -164,8 +164,8 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
         },
         preventSessionClearing: () => {
           const t = (window as any).testUtils?.tatchi;
-          if (t && typeof t.logoutAndClearSession === 'function') {
-            (window as any).testUtils.tatchi.logoutAndClearSession = async () => {
+          if (t && typeof t.lock === 'function') {
+            (window as any).testUtils.tatchi.lock = async () => {
               console.log('[TEST] Preventing session clearing in test environment');
             };
           }

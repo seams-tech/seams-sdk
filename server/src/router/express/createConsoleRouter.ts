@@ -14,6 +14,8 @@ import {
   parseStripePaymentIntentReconcileRequest,
   parseStripePaymentIntentRequest,
   parseStripeWebhookEventRequest,
+  parseStripeCustomerPortalSessionRequest,
+  parseStripeCheckoutSessionRequest,
   parseStripeSetupIntentRequest,
   type ConsoleBillingService,
 } from '../../console/billing';
@@ -2188,6 +2190,82 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
       const request = parseStripeSetupIntentRequest((req as any).body);
       const setupIntent = await billing.createStripeSetupIntent(toBillingContext(claims), request);
       res.status(200).json({ ok: true, setupIntent });
+    } catch (error: unknown) {
+      sendBillingError(res, error);
+    }
+  });
+
+  router.post('/console/billing/stripe/checkout-session', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const billing = requireBillingService(res, ctx);
+    if (!billing) return;
+    try {
+      const request = parseStripeCheckoutSessionRequest((req as any).body);
+      const checkoutSession = await billing.createStripeCheckoutSession(
+        toBillingContext(claims),
+        request,
+      );
+      res.status(201).json({ ok: true, checkoutSession });
+    } catch (error: unknown) {
+      sendBillingError(res, error);
+    }
+  });
+
+  router.post(
+    '/console/billing/stripe/customer-portal-session',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      const billing = requireBillingService(res, ctx);
+      if (!billing) return;
+      try {
+        const request = parseStripeCustomerPortalSessionRequest((req as any).body);
+        const portalSession = await billing.createStripeCustomerPortalSession(
+          toBillingContext(claims),
+          request,
+        );
+        res.status(201).json({ ok: true, portalSession });
+      } catch (error: unknown) {
+        sendBillingError(res, error);
+      }
+    },
+  );
+
+  router.get('/console/billing/subscription', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const billing = requireBillingService(res, ctx);
+    if (!billing) return;
+    try {
+      const subscription = await billing.getSubscription(toBillingContext(claims));
+      res.status(200).json({ ok: true, subscription });
+    } catch (error: unknown) {
+      sendBillingError(res, error);
+    }
+  });
+
+  router.post('/console/billing/subscription/cancel', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const billing = requireBillingService(res, ctx);
+    if (!billing) return;
+    try {
+      const subscription = await billing.cancelSubscription(toBillingContext(claims));
+      res.status(200).json({ ok: true, subscription });
+    } catch (error: unknown) {
+      sendBillingError(res, error);
+    }
+  });
+
+  router.post('/console/billing/subscription/resume', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const billing = requireBillingService(res, ctx);
+    if (!billing) return;
+    try {
+      const subscription = await billing.resumeSubscription(toBillingContext(claims));
+      res.status(200).json({ ok: true, subscription });
     } catch (error: unknown) {
       sendBillingError(res, error);
     }

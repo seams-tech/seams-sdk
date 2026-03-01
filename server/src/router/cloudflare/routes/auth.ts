@@ -1,4 +1,5 @@
-import { parseSessionKind } from '../../relay';
+import { DEFAULT_SESSION_COOKIE_NAME } from '../../relay';
+import { emitRelayWebhookEvent } from '../../relayWebhooks';
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import { headersToRecord, isObject, json, readJson } from '../http';
 
@@ -22,7 +23,60 @@ function parseAuthPath(pathname: string): { provider: ProviderId; action: Action
 }
 
 export async function handleAuth(ctx: CloudflareRelayContext): Promise<Response | null> {
-  async function requireAppSession(): Promise<
+  const hasBearerSessionSignal = (): boolean => {
+    const authorization = String(ctx.request.headers.get('authorization') || '').trim();
+    return authorization.toLowerCase().startsWith('bearer ');
+  };
+
+  const hasCookieSessionSignal = (): boolean => {
+    const cookie = String(ctx.request.headers.get('cookie') || '').trim();
+    if (!cookie) return false;
+    const cookieName = String(ctx.opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
+    for (const part of cookie.split(';')) {
+      const chunk = String(part || '').trim();
+      if (!chunk) continue;
+      const equalsIndex = chunk.indexOf('=');
+      const name = (equalsIndex >= 0 ? chunk.slice(0, equalsIndex) : chunk).trim();
+      if (name === cookieName) return true;
+    }
+    return false;
+  };
+
+  const maybeEmitWarmExpired = async (input: {
+    code: string;
+    message: string;
+    source: string;
+    claims?: Record<string, unknown>;
+    userId?: string;
+    appSessionVersion?: string;
+    hadBearerSessionSignal?: boolean;
+    hadCookieSessionSignal?: boolean;
+  }): Promise<void> => {
+    const code = String(input.code || '').trim();
+    const shouldEmit =
+      code === 'invalid_session_version' ||
+      (code === 'unauthorized' &&
+        (Boolean(input.hadBearerSessionSignal) || Boolean(input.hadCookieSessionSignal)));
+    if (!shouldEmit) return;
+
+    await emitRelayWebhookEvent({
+      logger: ctx.logger,
+      webhooks: ctx.opts.relayWebhooks,
+      eventType: 'session.warm.expired',
+      claims: input.claims,
+      userId: input.userId,
+      payload: {
+        expired: true,
+        source: input.source,
+        reason: input.message || 'Session expired',
+        sessionKind: 'jwt',
+        code,
+        ...(input.appSessionVersion ? { appSessionVersion: input.appSessionVersion } : {}),
+      },
+    });
+  };
+
+  async function requireAppSession(input: { source: string }): Promise<
     { ok: true; userId: string; claims: any } | { ok: false; response: Response }
   > {
     const session = ctx.opts.session;
@@ -37,6 +91,13 @@ export async function handleAuth(ctx: CloudflareRelayContext): Promise<Response 
     }
     const parsed = await session.parse(headersToRecord(ctx.request.headers));
     if (!parsed.ok) {
+      await maybeEmitWarmExpired({
+        code: 'unauthorized',
+        message: 'No valid session',
+        source: input.source,
+        hadBearerSessionSignal: hasBearerSessionSignal(),
+        hadCookieSessionSignal: hasCookieSessionSignal(),
+      });
       return {
         ok: false,
         response: json(
@@ -83,6 +144,14 @@ export async function handleAuth(ctx: CloudflareRelayContext): Promise<Response 
     }
     const validated = await ctx.service.validateAppSessionVersion({ userId, appSessionVersion });
     if (!validated.ok) {
+      await maybeEmitWarmExpired({
+        code: validated.code,
+        message: validated.message,
+        source: input.source,
+        claims,
+        userId,
+        appSessionVersion,
+      });
       return {
         ok: false,
         response: json(
@@ -157,7 +226,7 @@ export async function handleAuth(ctx: CloudflareRelayContext): Promise<Response 
   }
 
   if (ctx.method === 'GET' && ctx.pathname === '/auth/identities') {
-    const sess = await requireAppSession();
+    const sess = await requireAppSession({ source: 'auth.identities' });
     if (!sess.ok) return sess.response;
     const out = await ctx.service.listIdentities({ userId: sess.userId });
     return json(out, { status: out.ok ? 200 : out.code === 'internal' ? 500 : 400 });
@@ -171,7 +240,9 @@ export async function handleAuth(ctx: CloudflareRelayContext): Promise<Response 
         { status: 400 },
       );
     }
-    const sess = await requireAppSession();
+    const sess = await requireAppSession({
+      source: ctx.pathname === '/auth/link' ? 'auth.link' : 'auth.unlink',
+    });
     if (!sess.ok) return sess.response;
 
     const origin = String(ctx.request.headers.get('origin') || '').trim() || undefined;
@@ -351,35 +422,7 @@ export async function handleAuth(ctx: CloudflareRelayContext): Promise<Response 
           return json(result, { status: result.code === 'internal' ? 500 : 400 });
         }
 
-        const res = json({ ok: true, verified: true }, { status: 200 });
-        const session = ctx.opts.session;
-        if (session && result.userId && result.rpId) {
-          try {
-            const sessionKind = parseSessionKind(body);
-            const ver = await ctx.service.getOrCreateAppSessionVersion({ userId: result.userId });
-            if (!ver.ok) throw new Error(ver.message);
-            const token = await session.signJwt(result.userId, {
-              kind: 'app_session_v1',
-              rpId: result.rpId,
-              appSessionVersion: ver.appSessionVersion,
-            });
-            ctx.logger.info(
-              `[relay] creating ${sessionKind === 'cookie' ? 'HttpOnly session' : 'JWT'} for`,
-              result.userId,
-            );
-            if (sessionKind === 'cookie') {
-              res.headers.set('Set-Cookie', session.buildSetCookie(token));
-            } else {
-              const payload = await res.clone().json();
-              return new Response(JSON.stringify({ ...payload, jwt: token }), {
-                status: 200,
-                headers: res.headers,
-              });
-            }
-          } catch {}
-        }
-
-        return res;
+        return json({ ok: true, verified: true }, { status: 200 });
       },
     },
     google: {
@@ -406,41 +449,7 @@ export async function handleAuth(ctx: CloudflareRelayContext): Promise<Response 
           verified: true,
           ...(result.email ? { email: result.email } : {}),
         };
-        const res = json(baseBody, { status: 200 });
-        const session = ctx.opts.session;
-        if (session) {
-          try {
-            const sessionKind = parseSessionKind(body);
-            const ver = await ctx.service.getOrCreateAppSessionVersion({ userId: result.userId });
-            if (!ver.ok) throw new Error(ver.message);
-            const token = await session.signJwt(result.userId, {
-              kind: 'app_session_v1',
-              appSessionVersion: ver.appSessionVersion,
-              provider: 'google',
-              ...(result.sub ? { googleSub: result.sub } : {}),
-              ...(result.email ? { email: result.email } : {}),
-              ...(typeof result.emailVerified === 'boolean'
-                ? { emailVerified: result.emailVerified }
-                : {}),
-              ...(result.hostedDomain ? { hostedDomain: result.hostedDomain } : {}),
-            });
-            ctx.logger.info(
-              `[relay] creating ${sessionKind === 'cookie' ? 'HttpOnly session' : 'JWT'} for`,
-              result.userId,
-            );
-            if (sessionKind === 'cookie') {
-              res.headers.set('Set-Cookie', session.buildSetCookie(token));
-              return res;
-            }
-            const payload = await res.clone().json();
-            return new Response(JSON.stringify({ ...payload, jwt: token }), {
-              status: 200,
-              headers: res.headers,
-            });
-          } catch {}
-        }
-
-        return res;
+        return json(baseBody, { status: 200 });
       },
     },
   };

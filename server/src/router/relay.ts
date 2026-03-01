@@ -4,12 +4,57 @@ import type { ThresholdAnySchemeModule } from '../core/ThresholdService/schemes/
 import type { ThresholdSchemeId } from '../core/ThresholdService/schemes/schemeIds';
 import type { RelayRouterRorOptions } from './ror/provider';
 import type { PrfSessionSealRoutesOptions } from '../threshold/session/prfSessionSeal/types';
+import type { ConsoleWebhookService } from '../console/webhooks';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 
 // Minimal session adapter interface expected by the routers.
 export type SessionClaims = Record<string, unknown>;
 
 export type SessionKind = 'cookie' | 'jwt';
+export const DEFAULT_SESSION_COOKIE_NAME = 'tatchi-jwt';
+
+/**
+ * Best-effort extraction of JWT `exp` claim as ISO timestamp.
+ * Returns `undefined` for opaque/non-JWT tokens or invalid payloads.
+ */
+export function deriveJwtExpiresAtIso(jwt: string): string | undefined {
+  const token = String(jwt || '').trim();
+  if (!token) return undefined;
+  const parts = token.split('.');
+  if (parts.length < 2 || !parts[1]) return undefined;
+  const payloadJson = decodeJwtPayloadUtf8(parts[1]);
+  if (!payloadJson) return undefined;
+  let payload: unknown;
+  try {
+    payload = JSON.parse(payloadJson);
+  } catch {
+    return undefined;
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined;
+  const exp = Number((payload as { exp?: unknown }).exp);
+  if (!Number.isFinite(exp) || exp <= 0) return undefined;
+  return new Date(exp * 1000).toISOString();
+}
+
+function decodeJwtPayloadUtf8(payloadB64u: string): string | undefined {
+  const normalized = payloadB64u.replace(/-/g, '+').replace(/_/g, '/');
+  const padLength = (4 - (normalized.length % 4)) % 4;
+  const padded = `${normalized}${'='.repeat(padLength)}`;
+  try {
+    const atobFn = (globalThis as { atob?: (input: string) => string }).atob;
+    const bin =
+      typeof atobFn === 'function'
+        ? atobFn(padded)
+        : typeof Buffer !== 'undefined'
+          ? Buffer.from(padded, 'base64').toString('binary')
+          : '';
+    if (!bin) return undefined;
+    const bytes = Uint8Array.from(bin, (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return undefined;
+  }
+}
 
 export function parseSessionKind(body: unknown): SessionKind {
   const v =
@@ -34,6 +79,45 @@ export interface SessionAdapter {
 
 export interface ThresholdSigningAdapter {
   getSchemeModule(schemeId: ThresholdSchemeId): ThresholdAnySchemeModule | null;
+}
+
+export interface RelayRuntimeSnapshotScope {
+  orgId: string;
+  environmentId: string;
+  projectId?: string;
+}
+
+export interface RelayRuntimeSnapshotEnvelope {
+  snapshotId: string;
+  version: number;
+  checksum: string;
+  effectiveAt: string;
+}
+
+export interface RelayRuntimeSnapshotConsumer {
+  getLatestSnapshot(
+    scope: RelayRuntimeSnapshotScope,
+  ): Promise<RelayRuntimeSnapshotEnvelope | null> | RelayRuntimeSnapshotEnvelope | null;
+}
+
+export interface RelayWebhookOptions {
+  /**
+   * Console webhook service used for relay lifecycle webhook delivery.
+   */
+  service: ConsoleWebhookService;
+  /**
+   * Optional actor metadata attached to emitted events.
+   */
+  actorUserId?: string;
+  roles?: string[];
+  /**
+   * Optional fallback orgId when claims do not include a scoped org identifier.
+   */
+  orgId?: string;
+  /**
+   * Claim keys checked in order when deriving orgId from session claims.
+   */
+  orgIdClaimKeys?: string[];
 }
 
 export type SmartAccountDeploymentChain = 'evm' | 'tempo';
@@ -108,12 +192,21 @@ export interface RelayRouterOptions {
     route: string;
     policy?: DelegateActionPolicy;
   };
-  // Optional: customize session route paths
-  sessionRoutes?: { auth?: string; logout?: string };
+  // Optional: customize canonical app-session read route.
+  sessionRoutes?: { state?: string };
   // Optional: pluggable session adapter
   session?: SessionAdapter | null;
+  /**
+   * App-session cookie name used for passive stale-session signal matching.
+   * Defaults to `tatchi-jwt`.
+   */
+  sessionCookieName?: string;
   // Optional: pluggable threshold signing service
   threshold?: ThresholdSigningAdapter | null;
+  // Optional: runtime snapshot consumer used to bind authorize requests to latest scoped config.
+  runtimeSnapshots?: RelayRuntimeSnapshotConsumer | null;
+  // Optional: webhook emitter for relay session/wallet lifecycle events.
+  relayWebhooks?: RelayWebhookOptions | null;
   /**
    * Optional standalone PRF session seal/unlock routes.
    *

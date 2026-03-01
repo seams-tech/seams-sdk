@@ -1,4 +1,10 @@
-export type { RelayRouterOptions, ThresholdSigningAdapter } from './relay';
+export type {
+  RelayRouterOptions,
+  ThresholdSigningAdapter,
+  RelayRuntimeSnapshotScope,
+  RelayRuntimeSnapshotEnvelope,
+  RelayRuntimeSnapshotConsumer,
+} from './relay';
 export type {
   ConsoleRouterOptions,
   ConsoleAuthAdapter,
@@ -90,6 +96,10 @@ export type {
   PostgresConsoleBillingMonthlyFinalizationResult,
   StripeSetupIntentProviderInput,
   StripeSetupIntentProviderOutput,
+  StripeCheckoutSessionProviderInput,
+  StripeCheckoutSessionProviderOutput,
+  StripeCustomerPortalSessionProviderInput,
+  StripeCustomerPortalSessionProviderOutput,
   StripePaymentIntentProviderInput,
   StripePaymentIntentProviderOutput,
   StripeWebhookEventRequest,
@@ -125,6 +135,8 @@ export type {
   InMemoryConsoleWebhookServiceOptions,
   PostgresConsoleWebhookSchemaOptions,
   PostgresConsoleWebhookServiceOptions,
+  PostgresConsoleWebhookRetryDispatchOptions,
+  PostgresConsoleWebhookRetryDispatchResult,
   ConsoleWebhookService,
 } from '../console/webhooks';
 export type {
@@ -215,6 +227,9 @@ export type {
   InMemoryConsoleRuntimeSnapshotServiceOptions,
   PostgresConsoleRuntimeSnapshotSchemaOptions,
   PostgresConsoleRuntimeSnapshotServiceOptions,
+  ConsoleRuntimeSnapshotOutboxEvent,
+  PostgresConsoleRuntimeSnapshotOutboxDispatchOptions,
+  PostgresConsoleRuntimeSnapshotOutboxDispatchResult,
 } from '../console/runtimeSnapshots';
 export {
   createInMemoryConsoleOrgProjectEnvService,
@@ -258,6 +273,7 @@ export {
   createInMemoryConsoleWebhookService,
   ensureConsoleWebhooksPostgresSchema,
   createPostgresConsoleWebhookService,
+  runPostgresConsoleWebhookRetryDispatch,
   isConsoleWebhookError,
   ConsoleWebhookError,
 } from '../console/webhooks';
@@ -305,6 +321,7 @@ export {
   createInMemoryConsoleRuntimeSnapshotService,
   ensureConsoleRuntimeSnapshotsPostgresSchema,
   createPostgresConsoleRuntimeSnapshotService,
+  runPostgresConsoleRuntimeSnapshotOutboxDispatch,
   parseListConsoleRuntimeSnapshotsRequest,
   parseGetLatestConsoleRuntimeSnapshotRequest,
   parsePublishConsoleRuntimeSnapshotRequest,
@@ -329,6 +346,14 @@ export { createCloudflareEmailHandler } from './cloudflare/email';
 
 export type { CloudflareCronOptions } from './cloudflare/cron';
 export { createCloudflareCron } from './cloudflare/cron';
+export type {
+  RelayRuntimeSnapshotPublishedUpdate,
+  InMemoryRelayRuntimeSnapshotConsumer,
+} from './runtimeSnapshotConsumer';
+export {
+  validateRuntimeSnapshotExpectation,
+  createInMemoryRelayRuntimeSnapshotConsumer,
+} from './runtimeSnapshotConsumer';
 
 export { createCloudflareRouter } from './cloudflare/createCloudflareRouter';
 export { createCloudflareConsoleRouter } from './cloudflare/createCloudflareConsoleRouter';

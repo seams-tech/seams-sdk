@@ -164,14 +164,6 @@ async function main() {
           return sendJson(res, out?.code === 'internal' ? 500 : 400, out);
         }
 
-        const sessionKindRaw = String(body?.sessionKind ?? body?.session_kind ?? 'jwt')
-          .trim()
-          .toLowerCase();
-        const sessionKind = sessionKindRaw === 'cookie' ? 'cookie' : 'jwt';
-        if (sessionKind === 'jwt') {
-          const token = `testjwt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          return sendJson(res, 200, { ok: true, verified: true, jwt: token });
-        }
         return sendJson(res, 200, { ok: true, verified: true });
       }
       if (req.method === 'POST' && url.pathname === '/threshold-ed25519/keygen') {

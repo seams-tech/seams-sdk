@@ -11,6 +11,7 @@ import type {
 import { thresholdEd25519StatusCode } from '../../../threshold/statusCodes';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
 import { validateThresholdEd25519AuthorizeInputs } from '../../commonRouterUtils';
+import { validateRuntimeSnapshotExpectation } from '../../runtimeSnapshotConsumer';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '../../../core/ThresholdService/schemes/schemeIds';
 
 function errMessage(e: unknown): string {
@@ -183,6 +184,26 @@ export function registerThresholdEd25519Routes(
             message: 'threshold session missing participantIds',
           };
         }
+        const runtimeSnapshotScope = (() => {
+          const scope =
+            body.sessionPolicy &&
+            typeof body.sessionPolicy === 'object' &&
+            !Array.isArray(body.sessionPolicy)
+              ? ((body.sessionPolicy as Record<string, unknown>).runtimeSnapshotScope as
+                  | Record<string, unknown>
+                  | undefined)
+              : undefined;
+          if (!scope || typeof scope !== 'object' || Array.isArray(scope)) return undefined;
+          const orgId = String(scope.orgId || '').trim();
+          const environmentId = String(scope.environmentId || '').trim();
+          const projectId = String(scope.projectId || '').trim();
+          if (!orgId || !environmentId) return undefined;
+          return {
+            orgId,
+            environmentId,
+            ...(projectId ? { projectId } : {}),
+          };
+        })();
         const nowSec = Math.floor(Date.now() / 1000);
         const expSec = Math.floor(thresholdExpiresAtMs / 1000);
         const token = await session.signJwt(userId, {
@@ -192,6 +213,7 @@ export function registerThresholdEd25519Routes(
           rpId,
           participantIds,
           thresholdExpiresAtMs,
+          ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
           iat: nowSec,
           exp: expSec,
         });
@@ -243,6 +265,12 @@ export function registerThresholdEd25519Routes(
           session: ctx.opts.session,
         });
         if (!validated.ok) return validated;
+        const runtimeSnapshotValidation = await validateRuntimeSnapshotExpectation({
+          runtimeSnapshots: ctx.opts.runtimeSnapshots,
+          scope: validated.claims.runtimeSnapshotScope,
+          expectationRaw: (validated.request as unknown as Record<string, unknown>).runtimeSnapshot,
+        });
+        if (!runtimeSnapshotValidation.ok) return runtimeSnapshotValidation;
 
         const resolved = resolveThresholdScheme(
           ctx.opts.threshold,
