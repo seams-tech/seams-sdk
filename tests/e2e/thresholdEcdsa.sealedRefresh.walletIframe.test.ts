@@ -345,7 +345,6 @@ async function setupThresholdEcdsaSealedRefreshHarness(page: Page): Promise<Seal
   };
 }
 
-function attachWebAuthnGetCounter(page: Page, counter: { calls: number }): () => void {
 async function readWebAuthnGetCallCount(page: Page): Promise<number> {
   const countsByFrame = await Promise.all(
     page.frames().map(async (frame) => {
