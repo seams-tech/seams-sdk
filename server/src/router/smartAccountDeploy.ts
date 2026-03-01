@@ -30,10 +30,11 @@ function toRequiredChainIdNumber(value: unknown): number {
     return value;
   }
   const raw = String(value || '').trim();
-  if (!/^\d+$/.test(raw)) {
+  const match = raw.match(/^(?:[a-z0-9_-]+:)?(\d+)$/i);
+  if (!match) {
     throw new Error('Missing or invalid chainId');
   }
-  const parsed = Number(raw);
+  const parsed = Number(match[1] || '');
   if (!Number.isSafeInteger(parsed) || parsed < 0) {
     throw new Error('Missing or invalid chainId');
   }

@@ -46,7 +46,7 @@ const session = new SessionService({
     },
   },
   // Minimal cookie config (defaults to HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=24h)
-  cookie: { name: 'w3a_session' },
+  cookie: { name: 'tatchi-jwt' },
 });
 
 const app = express();
@@ -102,7 +102,7 @@ const session = new SessionService({
       }
     },
   },
-  cookie: { name: 'w3a_session' },
+  cookie: { name: 'tatchi-jwt' },
 });
 
 export default {
@@ -138,15 +138,15 @@ export default {
     - with `createRelayRouter(..., { smartAccountDeploy })` / `createCloudflareRouter(..., { smartAccountDeploy })`: forwards request to your deployer callback
 - POST `/auth/passkey/options` — mint a server-side WebAuthn login challenge (replay-protected). Body:
   - `{ user_id, rp_id, ttl_ms? }` → returns `{ challengeId, challengeB64u, expiresAtMs }`
-- POST `/auth/passkey/verify` — WebAuthn verification + optional session issuance (contract-free). Body:
-  - `{ sessionKind: 'jwt' | 'cookie', challengeId, webauthn_authentication }`
+- POST `/auth/passkey/verify` — WebAuthn verification only (contract-free). Body:
+  - `{ challengeId, webauthn_authentication }`
   - The relay verifies signatures using its private authenticator store and persists counters.
-  - `sessionKind='jwt'` → JSON returns `{ jwt }`; `sessionKind='cookie'` → sets `Set-Cookie` (HttpOnly) and omits `jwt` in body.
+  - App-session issuance is handled by `POST /session/exchange` (OIDC/JWT exchange contract).
 - POST `/recover-email` — email-based account recovery (TEE/DKIM flow)
 - GET `/healthz` — basic server health + feature configuration hints (optional, enabled via router config)
 - GET `/readyz` — readiness check (optional, enabled via router config)
-- GET `/session/auth` — returns `{ authenticated, claims? }` based on Authorization: Bearer or cookie
-- POST `/session/logout` — clears the session cookie
+- GET `/session/state` — returns `{ authenticated, claims? }` based on Authorization: Bearer or cookie
+- POST `/session/revoke` — rotates app-session version and clears session cookie
 - GET `/.well-known/webauthn` — Related Origin Requests manifest (wallet-scoped credentials) + sealed-refresh capabilities payload
 - POST `/threshold-ecdsa/prf-seal/apply-server-seal` — optional PRF sealed-session route
 - POST `/threshold-ecdsa/prf-seal/remove-server-seal` — optional PRF sealed-session route
@@ -168,11 +168,11 @@ const session = new SessionService({
     /* signToken/verifyToken as above */
   },
   cookie: {
-    name: 'w3a_session',
+    name: 'tatchi-jwt',
     // Customize Set-Cookie attributes (e.g., cross-site):
     buildSetHeader: (token) =>
       [
-        `w3a_session=${token}`,
+        `tatchi-jwt=${token}`,
         'Path=/',
         'HttpOnly',
         'Secure',
@@ -182,7 +182,7 @@ const session = new SessionService({
       ].join('; '),
     buildClearHeader: () =>
       [
-        'w3a_session=',
+        'tatchi-jwt=',
         'Path=/',
         'HttpOnly',
         'Secure',
@@ -211,12 +211,12 @@ For cookies, configure CORS with explicit origins and `credentials: true`.
 
 Default behavior
 
-- No session is minted by default. The client must opt‑in by calling `loginAndCreateSession(..., { session: { kind: 'jwt' | 'cookie', relayUrl?, route? }})`.
+- No session is minted by default. The client must opt‑in by calling `unlock(..., { session: { kind: 'jwt' | 'cookie', relayUrl?, route? }})`.
 - On the server, sessions are only active if you provide a SessionService (or compatible adapter) to the router options.
 
 Configurable session endpoints
 
-- Express adaptor: `createRelayRouter(service, { session, sessionRoutes })` (defaults to `/session/auth` and `/session/logout`).
+- Express adaptor: `createRelayRouter(service, { session, sessionRoutes })` (defaults to `/session/state`).
 - Cloudflare adaptor: `createCloudflareRouter(service, { session, sessionRoutes, corsOrigins })` (same defaults).
 
 Cloudflare CORS note
@@ -296,7 +296,7 @@ JWT_SECRET=change-me
 JWT_ISSUER=relay
 JWT_AUDIENCE=your-app
 JWT_EXPIRES_SEC=86400
-SESSION_COOKIE_NAME=w3a_session
+SESSION_COOKIE_NAME=tatchi-jwt
 
 # Optional: override session route paths
 # Session routes are configured in code via router options.
