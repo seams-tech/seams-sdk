@@ -161,6 +161,13 @@ export type EvmTransactionResponse = {
   value?: string | null;
 };
 
+export type FinalizedEvmTxPayloadVerification = {
+  verified: boolean;
+  reason: 'matched' | 'tx_unavailable' | 'mismatch';
+  observedTo?: string | null;
+  observedInput?: string | null;
+};
+
 function createDemoEvmPublicClient(args: {
   rpcUrl: string;
   requestTimeoutMs?: number;
@@ -414,6 +421,138 @@ export async function readEvmTransactionByHash(args: {
     method: 'eth_getTransactionByHash',
     params: [args.txHash],
   });
+}
+
+function normalizeHexData(value: unknown): `0x${string}` | null {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (!/^0x[0-9a-f]*$/.test(normalized)) return null;
+  return normalized as `0x${string}`;
+}
+
+export async function verifyFinalizedEvmTxPayload(args: {
+  rpcUrl: string;
+  txHash: `0x${string}`;
+  expectedTo?: `0x${string}`;
+  expectedInput?: `0x${string}`;
+}): Promise<FinalizedEvmTxPayloadVerification> {
+  const tx = await readEvmTransactionByHash({
+    rpcUrl: args.rpcUrl,
+    txHash: args.txHash,
+  }).catch(() => null);
+  if (!tx) {
+    return {
+      verified: false,
+      reason: 'tx_unavailable',
+    };
+  }
+
+  const expectedTo = String(args.expectedTo || '')
+    .trim()
+    .toLowerCase();
+  const expectedInput = normalizeHexData(args.expectedInput);
+  const observedTo = String(tx.to || '')
+    .trim()
+    .toLowerCase();
+  const observedInput = normalizeHexData(tx.input);
+  const toMismatch = expectedTo ? observedTo !== expectedTo : false;
+  const inputMismatch = expectedInput ? observedInput !== expectedInput : false;
+  if (!toMismatch && !inputMismatch) {
+    return {
+      verified: true,
+      reason: 'matched',
+      observedTo: tx.to ?? null,
+      observedInput: tx.input ?? null,
+    };
+  }
+  return {
+    verified: false,
+    reason: 'mismatch',
+    observedTo: tx.to ?? null,
+    observedInput: tx.input ?? null,
+  };
+}
+
+async function sleepWithAbortSignal(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    const aborted = new Error(String(signal.reason || 'Operation aborted')) as Error & {
+      code?: string;
+    };
+    aborted.code = 'aborted';
+    throw aborted;
+  }
+  await new Promise<void>((resolve, reject) => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const cleanup = () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      signal?.removeEventListener('abort', onAbort);
+    };
+    const onAbort = () => {
+      cleanup();
+      const aborted = new Error(String(signal?.reason || 'Operation aborted')) as Error & {
+        code?: string;
+      };
+      aborted.code = 'aborted';
+      reject(aborted);
+    };
+    timeoutId = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, Math.max(1, Math.floor(Number(ms) || 0)));
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+export async function waitForExpectedGreeting(args: {
+  fetchGreeting: (opts?: { silent?: boolean }) => Promise<string | null>;
+  expectedGreeting: string;
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+  signal?: AbortSignal;
+}): Promise<string | null> {
+  const expectedGreeting = String(args.expectedGreeting || '').trim();
+  const timeoutMs = Math.max(1, Math.floor(Number(args.timeoutMs ?? 12_000) || 0));
+  const pollIntervalMs = Math.max(1, Math.floor(Number(args.pollIntervalMs ?? 750) || 0));
+  const deadline = Date.now() + timeoutMs;
+  let lastObserved: string | null = null;
+  let attempts = 0;
+
+  while (Date.now() <= deadline) {
+    if (args.signal?.aborted) {
+      const aborted = new Error(String(args.signal.reason || 'Operation aborted')) as Error & {
+        code?: string;
+      };
+      aborted.code = 'aborted';
+      throw aborted;
+    }
+
+    const observed = await args.fetchGreeting({ silent: true });
+    lastObserved = observed;
+    attempts += 1;
+    if (String(observed || '').trim() === expectedGreeting) {
+      return observed;
+    }
+    if (Date.now() >= deadline) {
+      break;
+    }
+    await sleepWithAbortSignal(pollIntervalMs, args.signal);
+  }
+
+  const mismatch = new Error(
+    `Post-finalization greeting mismatch: expected "${expectedGreeting}" after ${attempts} checks.`,
+  ) as Error & { code?: string; details?: unknown };
+  mismatch.code = 'post_finalization_state_mismatch';
+  mismatch.details = {
+    expectedGreeting,
+    observedGreeting: lastObserved,
+    attempts,
+    timeoutMs,
+  };
+  throw mismatch;
 }
 
 export async function describeEvmRevert(args: {

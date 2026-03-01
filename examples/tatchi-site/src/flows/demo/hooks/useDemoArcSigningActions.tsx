@@ -13,6 +13,7 @@ import {
   isUserCancellationError,
   parseInsufficientFundsError,
   sendRawEvmTransaction,
+  verifyFinalizedEvmTxPayload,
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
 import {
@@ -103,6 +104,20 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
         maxFeePerGasHint: request.tx.maxFeePerGas,
         nonceHints,
       });
+      const payloadVerification = await verifyFinalizedEvmTxPayload({
+        rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
+        txHash,
+        expectedTo: request.tx.to,
+        expectedInput: request.tx.data || '0x',
+      });
+      if (!payloadVerification.verified && payloadVerification.reason === 'mismatch') {
+        const mismatchError = new Error(
+          `Finalized transaction payload mismatch for ${compactHex(txHash)}.`,
+        ) as Error & { code?: string; details?: unknown };
+        mismatchError.code = 'tx_payload_mismatch';
+        mismatchError.details = payloadVerification;
+        throw mismatchError;
+      }
       await tatchi.tempo.reportFinalized({
         nearAccountId,
         signedResult: signed,

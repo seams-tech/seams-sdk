@@ -105,4 +105,82 @@ test.describe('demo EVM finalization debug event payload', () => {
     expect(result.event.errorCode).toBe('tx_dropped_or_replaced');
     expect(result.event.reason).toBe('replaced');
   });
+
+  test('detects finalized tx payload mismatches against expected calldata', async ({ page }) => {
+    const result = await page.evaluate(async ({ importPath }) => {
+      const { verifyFinalizedEvmTxPayload } = await import(importPath);
+      const txHash = `0x${'99'.repeat(32)}` as `0x${string}`;
+
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (!url.includes('mock-rpc') || String(init?.method || 'GET').toUpperCase() !== 'POST') {
+          return await originalFetch(input, init);
+        }
+
+        let body: Record<string, unknown> = {};
+        try {
+          body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+        } catch {}
+        const id = body.id ?? Date.now();
+        const method = String(body.method || '');
+
+        if (method === 'eth_getTransactionByHash') {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              result: {
+                to: `0x${'34'.repeat(20)}`,
+                input: '0xdeadbeef',
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+
+        return await originalFetch(input, init);
+      }) as typeof fetch;
+
+      try {
+        return await verifyFinalizedEvmTxPayload({
+          rpcUrl: 'https://mock-rpc',
+          txHash,
+          expectedTo: `0x${'34'.repeat(20)}`,
+          expectedInput: '0xcafebabe',
+        });
+      } finally {
+        window.fetch = originalFetch;
+      }
+    }, { importPath: IMPORT_PATH });
+
+    expect(result.verified).toBe(false);
+    expect(result.reason).toBe('mismatch');
+    expect(String(result.observedInput || '').toLowerCase()).toBe('0xdeadbeef');
+  });
+
+  test('waits for expected greeting to appear after finalization', async ({ page }) => {
+    const result = await page.evaluate(async ({ importPath }) => {
+      const { waitForExpectedGreeting } = await import(importPath);
+      const observations = ['Hello 44', 'Hello 44', 'Hello 5'];
+      let calls = 0;
+
+      const greeting = await waitForExpectedGreeting({
+        fetchGreeting: async () => {
+          const value = observations[Math.min(calls, observations.length - 1)] || null;
+          calls += 1;
+          return value;
+        },
+        expectedGreeting: 'Hello 5',
+        timeoutMs: 1_000,
+        pollIntervalMs: 1,
+      });
+
+      return { calls, greeting };
+    }, { importPath: IMPORT_PATH });
+
+    expect(result.calls).toBeGreaterThanOrEqual(3);
+    expect(result.greeting).toBe('Hello 5');
+  });
 });
