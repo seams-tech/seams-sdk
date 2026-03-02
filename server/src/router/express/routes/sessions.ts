@@ -560,8 +560,8 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
     }
   });
 
-  // Wallet: unlock options (passkey challenge)
-  router.post('/wallet/unlock/options', async (req: any, res: any) => {
+  // Wallet: unlock challenge (passkey challenge issuance)
+  router.post('/wallet/unlock/challenge', async (req: any, res: any) => {
     try {
       if (!req?.body) {
         res

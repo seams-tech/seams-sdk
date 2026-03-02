@@ -5,14 +5,14 @@ export {
   encodeSignedTransactionBase64,
 } from './core/rpcClients/near/NearClient';
 export {
-  createEvmPublicClient,
+  createEvmClient,
   parseRpcHexQuantity as parseEvmRpcHexQuantity,
-  type EvmPublicClient,
-  type EvmTransactionReceipt as EvmPublicTransactionReceipt,
-  type EvmBlockHeader as EvmPublicBlockHeader,
-  type EvmJsonRpcError as EvmPublicJsonRpcError,
+  type EvmClient,
+  type EvmTransactionReceipt,
+  type EvmBlockHeader,
+  type EvmJsonRpcError,
   type WaitForEvmTransactionReceiptArgs,
-} from './core/rpcClients/evm/publicClient';
+} from './core/rpcClients/evm/EvmClient';
 
 export * from './config';
 export { base64UrlEncode, base64UrlDecode } from '@shared/utils/encoders';

@@ -21,7 +21,7 @@ Use Okta OIDC for enterprise authentication and exchange verified tokens into re
 
 Optional one-step passkey path:
 
-1. `POST /wallet/unlock/options`
+1. `POST /wallet/unlock/challenge`
 2. collect WebAuthn assertion
 3. `POST /session/exchange` with `exchange.type=passkey_assertion`
 

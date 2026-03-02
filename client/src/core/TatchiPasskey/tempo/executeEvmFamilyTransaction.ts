@@ -1,5 +1,5 @@
 import { chainFamilyFromNetwork } from '@/core/config/chains';
-import { createEvmPublicClient } from '@/core/rpcClients/evm/publicClient';
+import { createEvmClient } from '@/core/rpcClients/evm/EvmClient';
 import type { TatchiChainConfig } from '@/core/types/tatchi';
 import type {
   ExecuteEvmFamilyTransactionArgs,
@@ -181,7 +181,7 @@ async function verifyFinalizedPayload(args: {
   expectedTo?: `0x${string}`;
   expectedInput?: `0x${string}`;
 }): Promise<FinalizedEvmTxPayloadVerification> {
-  const client = createEvmPublicClient({ rpcUrl: args.rpcUrl });
+  const client = createEvmClient({ rpcUrl: args.rpcUrl });
   const tx = await client
     .getTransactionByHash({
       txHash: args.txHash,
@@ -319,7 +319,7 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
       chains: args.chains,
       request,
     });
-    const client = createEvmPublicClient({ rpcUrl });
+    const client = createEvmClient({ rpcUrl });
 
     emitLifecycleEvent(onEvent, {
       step: 7,

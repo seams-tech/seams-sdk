@@ -11,6 +11,7 @@ import type {
 import type { PasskeyManagerContext } from './index';
 import type { AccountId } from '../types/accountIds';
 import { getUserFriendlyErrorMessage, toError } from '@shared/utils/errors';
+import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { isObject } from '@shared/utils/validation';
 import { IndexedDBManager } from '../indexedDB';
 import type { ClientUserData } from '../indexedDB';
@@ -250,36 +251,43 @@ export async function unlock(
             message: 'Unlocking app session with passkey...',
           });
 
-          const unlockOptionsResp = await fetch(`${relayUrl.replace(/\/$/, '')}/wallet/unlock/options`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              user_id: String(nearAccountId),
-              rp_id: rpId,
-            }),
-          });
-          const unlockOptionsJsonUnknown: unknown = await unlockOptionsResp.json().catch(() => ({}));
-          const unlockOptionsJson = isObject(unlockOptionsJsonUnknown) ? unlockOptionsJsonUnknown : {};
-          const unlockOptionsOk = unlockOptionsJson.ok === true;
-          const unlockOptionsMessage =
-            typeof unlockOptionsJson.message === 'string' ? unlockOptionsJson.message : '';
-          if (!unlockOptionsResp.ok || !unlockOptionsOk) {
+          const unlockChallengeResp = await fetch(
+            joinNormalizedUrl(relayUrl, '/wallet/unlock/challenge'),
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                user_id: String(nearAccountId),
+                rp_id: rpId,
+              }),
+            },
+          );
+          const unlockChallengeJsonUnknown: unknown = await unlockChallengeResp
+            .json()
+            .catch(() => ({}));
+          const unlockChallengeJson = isObject(unlockChallengeJsonUnknown)
+            ? unlockChallengeJsonUnknown
+            : {};
+          const unlockChallengeOk = unlockChallengeJson.ok === true;
+          const unlockChallengeMessage =
+            typeof unlockChallengeJson.message === 'string' ? unlockChallengeJson.message : '';
+          if (!unlockChallengeResp.ok || !unlockChallengeOk) {
             throw new Error(
-              unlockOptionsMessage ||
-                `wallet/unlock/options failed (HTTP ${unlockOptionsResp.status})`,
+              unlockChallengeMessage ||
+                `wallet/unlock/challenge failed (HTTP ${unlockChallengeResp.status})`,
             );
           }
 
-          const challengeId = String(unlockOptionsJson.challengeId || '').trim();
-          const challengeB64u = String(unlockOptionsJson.challengeB64u || '').trim();
+          const challengeId = String(unlockChallengeJson.challengeId || '').trim();
+          const challengeB64u = String(unlockChallengeJson.challengeB64u || '').trim();
           if (!challengeId || !challengeB64u) {
-            throw new Error('wallet/unlock/options returned invalid challenge');
+            throw new Error('wallet/unlock/challenge returned invalid challenge');
           }
 
           const credentialIds = Array.isArray(
-            (unlockOptionsJson as { credentialIds?: unknown }).credentialIds,
+            (unlockChallengeJson as { credentialIds?: unknown }).credentialIds,
           )
-            ? (unlockOptionsJson as { credentialIds: unknown[] }).credentialIds
+            ? (unlockChallengeJson as { credentialIds: unknown[] }).credentialIds
                 .map((id) => String(id || '').trim())
                 .filter((id) => id.length > 0)
             : [];

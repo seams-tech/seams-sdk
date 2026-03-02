@@ -362,7 +362,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         captured.push({ url, init });
-        if (url === 'https://relay.example/wallet/unlock/options') {
+        if (url === 'https://relay.example/wallet/unlock/challenge') {
           return new Response(
             JSON.stringify({
               ok: true,
@@ -435,7 +435,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(result.success).toBe(true);
       expect(result.jwt).toBe('app-jwt-passkey-1');
       expect(captured).toHaveLength(2);
-      expect(captured[0]!.url).toBe('https://relay.example/wallet/unlock/options');
+      expect(captured[0]!.url).toBe('https://relay.example/wallet/unlock/challenge');
       expect(captured[1]!.url).toBe('https://relay.example/session/exchange');
 
       const unlockOptionsBody = JSON.parse(String(captured[0]!.init?.body || '{}')) as Record<
@@ -469,7 +469,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         captured.push({ url, init });
-        if (url === 'https://relay.example/wallet/unlock/options') {
+        if (url === 'https://relay.example/wallet/unlock/challenge') {
           return new Response(
             JSON.stringify({
               ok: true,
@@ -566,7 +566,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         captured.push({ url, init });
-        if (url === 'https://relay.example/wallet/unlock/options') {
+        if (url === 'https://relay.example/wallet/unlock/challenge') {
           return new Response(
             JSON.stringify({
               ok: true,

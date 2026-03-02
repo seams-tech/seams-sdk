@@ -1,5 +1,5 @@
 import type { TatchiConfigsReadonly } from '@/core/types/tatchi';
-import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
+import { joinNormalizedUrl, normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
 import { normalizeSmartAccountDeploymentAttempts } from './smartAccountNormalization';
 import type {
   SmartAccountDeployerInput,
@@ -15,7 +15,7 @@ function resolveSmartAccountDeployEndpoint(configs: TatchiConfigsReadonly): stri
     configs.network.relayer?.routes?.smartAccountDeploy || '/smart-account/deploy',
   ).trim();
   const route = routeRaw.startsWith('/') ? routeRaw : `/${routeRaw}`;
-  return `${relayerUrl.replace(/\/$/, '')}${route}`;
+  return joinNormalizedUrl(relayerUrl, route);
 }
 
 export function resolveSmartAccountDeploymentMode(

@@ -1,13 +1,13 @@
 import {
   buildTempoSetUserTokenCall,
-  createEvmPublicClient,
+  createEvmClient,
   decodeTempoUserTokenResult,
   encodeTempoUserTokensCalldata,
   parseEvmRpcHexQuantity,
   TEMPO_ALPHA_USD_FEE_TOKEN,
   TEMPO_FEE_MANAGER_CONTRACT,
   TEMPO_FEE_MANAGER_ABI,
-  type EvmPublicClient,
+  type EvmClient,
 } from '@tatchi-xyz/sdk';
 import {
   normalizeLowercaseString,
@@ -121,11 +121,11 @@ export function decodeStringResultData(rawHex: string): string {
   return hexToUtf8(resultHex.slice(dataStart, dataEnd));
 }
 
-function createDemoEvmPublicClient(args: {
+function createDemoEvmClient(args: {
   rpcUrl: string;
   requestTimeoutMs?: number;
-}): EvmPublicClient {
-  return createEvmPublicClient({
+}): EvmClient {
+  return createEvmClient({
     rpcUrl: args.rpcUrl,
     requestTimeoutMs: args.requestTimeoutMs ?? EVM_RPC_REQUEST_TIMEOUT_MS,
   });
@@ -138,7 +138,7 @@ export async function readEvmGreeting(params: {
   timeoutMs?: number;
 }): Promise<string> {
   const { rpcUrl, contract, selector } = params;
-  const client = createDemoEvmPublicClient({
+  const client = createDemoEvmClient({
     rpcUrl,
     ...(params.timeoutMs != null ? { requestTimeoutMs: params.timeoutMs } : {}),
   });

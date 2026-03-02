@@ -132,7 +132,7 @@ Value shape:
 Rules:
 
 - Clamp TTL/remaining uses to threshold session policy.
-- Delete on logout, lock, account switch, expiry, exhaustion, unwrap failure, or schema/version mismatch.
+- Delete on lock, account switch, expiry, exhaustion, unwrap failure, or schema/version mismatch.
 - Reject unknown versions.
 
 ## Implementation Plan (Refactored Codebase)

@@ -1,16 +1,16 @@
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
-const IMPORT_PATH = '/sdk/esm/core/rpcClients/evm/publicClient.js' as const;
+const IMPORT_PATH = '/sdk/esm/core/rpcClients/evm/EvmClient.js' as const;
 
-test.describe('evm public client waitForTransactionReceipt', () => {
+test.describe('evm client waitForTransactionReceipt', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
   });
 
   test('waits for mined receipt via helper client', async ({ page }) => {
     const result = await page.evaluate(async ({ importPath }) => {
-      const { createEvmPublicClient } = await import(importPath);
+      const { createEvmClient } = await import(importPath);
       const counters = {
         receiptCalls: 0,
       };
@@ -61,7 +61,7 @@ test.describe('evm public client waitForTransactionReceipt', () => {
       }) as typeof fetch;
 
       try {
-        const client = createEvmPublicClient({ rpcUrl: 'https://mock-rpc' });
+        const client = createEvmClient({ rpcUrl: 'https://mock-rpc' });
         const receipt = await client.waitForTransactionReceipt({
           txHash,
           timeoutMs: 5_000,
@@ -83,7 +83,7 @@ test.describe('evm public client waitForTransactionReceipt', () => {
 
   test('detects sustained underpriced pending tx via helper client', async ({ page }) => {
     const result = await page.evaluate(async ({ importPath }) => {
-      const { createEvmPublicClient } = await import(importPath);
+      const { createEvmClient } = await import(importPath);
       const counters = {
         receiptCalls: 0,
         blockCalls: 0,
@@ -139,7 +139,7 @@ test.describe('evm public client waitForTransactionReceipt', () => {
 
       let errorMessage = '';
       try {
-        const client = createEvmPublicClient({ rpcUrl: 'https://mock-rpc' });
+        const client = createEvmClient({ rpcUrl: 'https://mock-rpc' });
         await client.waitForTransactionReceipt({
           txHash,
           timeoutMs: 120,
@@ -165,7 +165,7 @@ test.describe('evm public client waitForTransactionReceipt', () => {
 
   test('waits for required confirmation depth via helper client', async ({ page }) => {
     const result = await page.evaluate(async ({ importPath }) => {
-      const { createEvmPublicClient } = await import(importPath);
+      const { createEvmClient } = await import(importPath);
       const counters = {
         receiptCalls: 0,
         blockCalls: 0,
@@ -228,7 +228,7 @@ test.describe('evm public client waitForTransactionReceipt', () => {
       }) as typeof fetch;
 
       try {
-        const client = createEvmPublicClient({ rpcUrl: 'https://mock-rpc' });
+        const client = createEvmClient({ rpcUrl: 'https://mock-rpc' });
         const receipt = await client.waitForTransactionReceipt({
           txHash,
           confirmations: 2,
@@ -253,7 +253,7 @@ test.describe('evm public client waitForTransactionReceipt', () => {
     page,
   }) => {
     const result = await page.evaluate(async ({ importPath }) => {
-      const { createEvmPublicClient } = await import(importPath);
+      const { createEvmClient } = await import(importPath);
       const counters = {
         receiptCalls: 0,
         txCalls: 0,
@@ -329,7 +329,7 @@ test.describe('evm public client waitForTransactionReceipt', () => {
       let errorCode = '';
       let errorReason = '';
       try {
-        const client = createEvmPublicClient({ rpcUrl: 'https://mock-rpc' });
+        const client = createEvmClient({ rpcUrl: 'https://mock-rpc' });
         await client.waitForTransactionReceipt({
           txHash,
           timeoutMs: 2_000,
@@ -364,7 +364,7 @@ test.describe('evm public client waitForTransactionReceipt', () => {
     page,
   }) => {
     const result = await page.evaluate(async ({ importPath }) => {
-      const { createEvmPublicClient } = await import(importPath);
+      const { createEvmClient } = await import(importPath);
       const counters = {
         receiptCalls: 0,
         txCalls: 0,
@@ -434,7 +434,7 @@ test.describe('evm public client waitForTransactionReceipt', () => {
       let errorCode = '';
       let errorMessage = '';
       try {
-        const client = createEvmPublicClient({ rpcUrl: 'https://mock-rpc' });
+        const client = createEvmClient({ rpcUrl: 'https://mock-rpc' });
         await client.waitForTransactionReceipt({
           txHash,
           timeoutMs: 2_000,
@@ -465,7 +465,7 @@ test.describe('evm public client waitForTransactionReceipt', () => {
     page,
   }) => {
     const result = await page.evaluate(async ({ importPath }) => {
-      const { createEvmPublicClient } = await import(importPath);
+      const { createEvmClient } = await import(importPath);
       const counters = {
         receiptCalls: 0,
         txCalls: 0,
@@ -524,7 +524,7 @@ test.describe('evm public client waitForTransactionReceipt', () => {
       let errorCode = '';
       let errorMessage = '';
       try {
-        const client = createEvmPublicClient({ rpcUrl: 'https://mock-rpc' });
+        const client = createEvmClient({ rpcUrl: 'https://mock-rpc' });
         await client.waitForTransactionReceipt({
           txHash,
           senderHint: sender,
@@ -557,7 +557,7 @@ test.describe('evm public client waitForTransactionReceipt', () => {
     page,
   }) => {
     const result = await page.evaluate(async ({ importPath }) => {
-      const { createEvmPublicClient } = await import(importPath);
+      const { createEvmClient } = await import(importPath);
       const counters = {
         receiptCalls: 0,
         txCalls: 0,
@@ -628,7 +628,7 @@ test.describe('evm public client waitForTransactionReceipt', () => {
       let errorReason = '';
       let errorMessage = '';
       try {
-        const client = createEvmPublicClient({ rpcUrl: 'https://mock-rpc' });
+        const client = createEvmClient({ rpcUrl: 'https://mock-rpc' });
         await client.waitForTransactionReceipt({
           txHash,
           timeoutMs: 500,
@@ -662,7 +662,7 @@ test.describe('evm public client waitForTransactionReceipt', () => {
     page,
   }) => {
     const result = await page.evaluate(async ({ importPath }) => {
-      const { createEvmPublicClient } = await import(importPath);
+      const { createEvmClient } = await import(importPath);
       const counters = {
         receiptCalls: 0,
         txCalls: 0,
@@ -732,7 +732,7 @@ test.describe('evm public client waitForTransactionReceipt', () => {
       let errorCode = '';
       let errorMessage = '';
       try {
-        const client = createEvmPublicClient({ rpcUrl: 'https://mock-rpc' });
+        const client = createEvmClient({ rpcUrl: 'https://mock-rpc' });
         await client.waitForTransactionReceipt({
           txHash,
           timeoutMs: 120,
@@ -763,7 +763,7 @@ test.describe('evm public client waitForTransactionReceipt', () => {
     page,
   }) => {
     const result = await page.evaluate(async ({ importPath }) => {
-      const { createEvmPublicClient } = await import(importPath);
+      const { createEvmClient } = await import(importPath);
       const counters = {
         receiptCalls: 0,
         txCalls: 0,
@@ -845,7 +845,7 @@ test.describe('evm public client waitForTransactionReceipt', () => {
       let receiptBlockNumber = '';
       let errorCode = '';
       try {
-        const client = createEvmPublicClient({ rpcUrl: 'https://mock-rpc' });
+        const client = createEvmClient({ rpcUrl: 'https://mock-rpc' });
         const receipt = await client.waitForTransactionReceipt({
           txHash,
           senderHint: sender,
@@ -876,7 +876,7 @@ test.describe('evm public client waitForTransactionReceipt', () => {
 
   test('uses nonce hints to detect dropped tx when tx-by-hash is unavailable', async ({ page }) => {
     const result = await page.evaluate(async ({ importPath }) => {
-      const { createEvmPublicClient } = await import(importPath);
+      const { createEvmClient } = await import(importPath);
       const counters = {
         receiptCalls: 0,
         txCalls: 0,
@@ -938,7 +938,7 @@ test.describe('evm public client waitForTransactionReceipt', () => {
 
       let errorCode = '';
       try {
-        const client = createEvmPublicClient({ rpcUrl: 'https://mock-rpc' });
+        const client = createEvmClient({ rpcUrl: 'https://mock-rpc' });
         await client.waitForTransactionReceipt({
           txHash,
           senderHint: sender,

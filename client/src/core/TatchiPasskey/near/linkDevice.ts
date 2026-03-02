@@ -12,6 +12,7 @@ import type { DeviceLinkingSSEEvent } from '../../types/sdkSentEvents';
 import { toAccountId } from '../../types/accountIds';
 import { coerceDeviceNumber } from '@shared/utils/deviceNumber';
 import { errorMessage } from '@shared/utils/errors';
+import { joinNormalizedUrl, stripTrailingSlashes } from '@shared/utils/normalize';
 import { IndexedDBManager } from '../../indexedDB';
 import { ensureEd25519Prefix, isObject } from '@shared/utils/validation';
 import type { WalletIframeCoordinator } from '../walletIframeCoordinator';
@@ -118,14 +119,12 @@ export class LinkDeviceFlow {
   private async fetchClaimedSessionFromRelay(
     sessionId: string,
   ): Promise<{ accountId: string; deviceNumber?: number } | null> {
-    const relayerUrl = String(this.context?.configs?.network.relayer?.url || '')
-      .trim()
-      .replace(/\/$/, '');
+    const relayerUrl = stripTrailingSlashes(String(this.context?.configs?.network.relayer?.url || '').trim());
     if (!relayerUrl) {
       console.debug('[LinkDeviceFlow] relay polling skipped (missing relayer url)', { sessionId });
       return null;
     }
-    const url = `${relayerUrl}/link-device/session/${encodeURIComponent(sessionId)}`;
+    const url = joinNormalizedUrl(relayerUrl, `/link-device/session/${encodeURIComponent(sessionId)}`);
     const resp = await fetch(url, { method: 'GET' });
     if (!resp.ok) {
       console.debug('[LinkDeviceFlow] relay poll response not ok', {
@@ -179,12 +178,10 @@ export class LinkDeviceFlow {
     device2PublicKey: string,
     expiresAtMs: number,
   ): Promise<void> {
-    const relayerUrl = String(this.context?.configs?.network.relayer?.url || '')
-      .trim()
-      .replace(/\/$/, '');
+    const relayerUrl = stripTrailingSlashes(String(this.context?.configs?.network.relayer?.url || '').trim());
     if (!relayerUrl) return;
     try {
-      const resp = await fetch(`${relayerUrl}/link-device/session`, {
+      const resp = await fetch(joinNormalizedUrl(relayerUrl, '/link-device/session'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -386,7 +383,7 @@ export class LinkDeviceFlow {
     const credentialForRelay = redactCredentialExtensionOutputs(
       normalizeRegistrationCredential(credential),
     );
-    const prepareResp = await fetch(`${relayerUrl.replace(/\/$/, '')}/link-device/prepare`, {
+    const prepareResp = await fetch(joinNormalizedUrl(relayerUrl, '/link-device/prepare'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

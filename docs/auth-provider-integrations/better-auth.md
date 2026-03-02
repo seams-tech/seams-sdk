@@ -36,7 +36,7 @@ This guide keeps app auth and wallet state decoupled:
 
 Optional one-step passkey path (no provider token exchange):
 
-1. `POST /wallet/unlock/options`
+1. `POST /wallet/unlock/challenge`
 2. collect WebAuthn assertion
 3. `POST /session/exchange` with `exchange.type=passkey_assertion`
 

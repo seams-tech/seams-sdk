@@ -30,7 +30,7 @@ Current relay/server already supports JWT + HttpOnly cookie session handling:
 - `GET /session/state`
 - `POST /session/refresh`
 - `POST /session/revoke`
-- `POST /wallet/unlock/options`
+- `POST /wallet/unlock/challenge`
 - `POST /wallet/unlock/verify`
 - `POST /wallet/lock`
 - `GET /wallet/state`
@@ -86,7 +86,7 @@ App session exchange/control:
 
 Wallet state control:
 
-- `POST /wallet/unlock/options`
+- `POST /wallet/unlock/challenge`
 - `POST /wallet/unlock/verify`
 - `POST /wallet/lock`
 - `GET /wallet/state`
@@ -103,7 +103,7 @@ Supported exchange types:
 
 1. `exchange.type=oidc_jwt` for BYO provider tokens/JWT assertions.
 2. `exchange.type=passkey_assertion` for one-step passkey unlock + app-session mint
-   (`/wallet/unlock/options -> WebAuthn assertion -> /session/exchange`).
+   (`/wallet/unlock/challenge -> WebAuthn assertion -> /session/exchange`).
 
 ### C) Legacy Cleanup Required in Same Release
 

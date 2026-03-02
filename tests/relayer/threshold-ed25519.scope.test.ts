@@ -408,13 +408,13 @@ test.describe('threshold-ed25519 scope (express)', () => {
     }
   });
 
-  test('integration: wallet/unlock/options -> session/exchange(passkey_assertion) -> session/state -> threshold session -> authorize -> sign/init -> revoke', async () => {
+  test('integration: wallet/unlock/challenge -> session/exchange(passkey_assertion) -> session/state -> threshold session -> authorize -> sign/init -> revoke', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     const { session } = createTestSessionAdapter();
     const router = createRelayRouter(service, { threshold, session });
     const srv = await startExpressRouter(router);
     try {
-      const unlockOptions = await fetchJson(`${srv.baseUrl}/wallet/unlock/options`, {
+      const unlockOptions = await fetchJson(`${srv.baseUrl}/wallet/unlock/challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1177,7 +1177,7 @@ test.describe('threshold-ed25519 scope (cloudflare)', () => {
     expect(String(signInit.json?.signingSessionId || '')).toContain('sign-');
   });
 
-  test('integration: wallet/unlock/options -> session/exchange(passkey_assertion) -> session/state -> threshold session -> authorize -> sign/init -> revoke', async () => {
+  test('integration: wallet/unlock/challenge -> session/exchange(passkey_assertion) -> session/state -> threshold session -> authorize -> sign/init -> revoke', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     const { session } = createTestSessionAdapter();
     const handler = createCloudflareRouter(service, {
@@ -1189,7 +1189,7 @@ test.describe('threshold-ed25519 scope (cloudflare)', () => {
 
     const unlockOptions = await callCf(handler, {
       method: 'POST',
-      path: '/wallet/unlock/options',
+      path: '/wallet/unlock/challenge',
       origin: 'https://example.localhost',
       body: {
         user_id: 'bob.testnet',

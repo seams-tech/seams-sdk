@@ -205,7 +205,7 @@ Cookie mode and CORS
   - `POST /session/exchange` with `{ sessionKind, exchange: { type: 'oidc_jwt', token } }`
 
   2. One-step passkey assertion exchange:
-  - `POST /wallet/unlock/options` to get `challengeId` + `challengeB64u`
+  - `POST /wallet/unlock/challenge` to get `challengeId` + `challengeB64u`
   - collect WebAuthn assertion in client
   - `POST /session/exchange` with
     `{ sessionKind, exchange: { type: 'passkey_assertion', challengeId, webauthn_authentication } }`

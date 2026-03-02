@@ -21,7 +21,7 @@ The prior user-facing failure mode was a freeze at "waiting for finalization" wh
 
 ## Current EVM Client Handling
 
-Location: `client/src/core/rpcClients/evm/publicClient.ts` (`waitForTransactionReceipt`).
+Location: `client/src/core/rpcClients/evm/EvmClient.ts` (`waitForTransactionReceipt`).
 
 Terminal branches now emitted:
 

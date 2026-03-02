@@ -1330,7 +1330,7 @@ test.describe('relayer router (express) – P0', () => {
     }
   });
 
-  test('POST /wallet/unlock/options: returns passkey challenge options', async () => {
+  test('POST /wallet/unlock/challenge: returns passkey challenge options', async () => {
     const service = makeFakeAuthService({
       createWebAuthnLoginOptions: async () => ({
         ok: true,
@@ -1342,7 +1342,7 @@ test.describe('relayer router (express) – P0', () => {
     const router = createRelayRouter(service, {});
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/wallet/unlock/options`, {
+      const res = await fetchJson(`${srv.baseUrl}/wallet/unlock/challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(validLoginOptionsBody()),

@@ -18,7 +18,7 @@ import {
   handleSessionRevoke,
   handleWalletLock,
   handleWalletState,
-  handleWalletUnlockOptions,
+  handleWalletUnlockChallenge,
   handleWalletUnlockVerify,
 } from './routes/sessions';
 import { handleSignedDelegate } from './routes/signedDelegate';
@@ -101,7 +101,7 @@ export function createCloudflareRouter(
     handleSessionExchange,
     handleSessionRevoke,
     handleSessionRefresh,
-    handleWalletUnlockOptions,
+    handleWalletUnlockChallenge,
     handleWalletUnlockVerify,
     handleWalletState,
     handleWalletLock,

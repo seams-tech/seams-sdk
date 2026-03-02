@@ -17,9 +17,9 @@ Primary implementation:
 - `client/src/core/signingEngine/threshold/workflows/connectEd25519Session.ts`
 - `client/src/core/signingEngine/threshold/workflows/bootstrapEcdsaSession.ts`
 
-Current login warm path:
+Current unlock warm path:
 
-1. `loginAndCreateSession(...)` decides whether warmup is required (threshold mode with non-zero TTL and remaining uses).
+1. `auth.unlock(...)` decides whether warmup is required (threshold mode with non-zero TTL and remaining uses).
 2. `maybeWarmThresholdSigningSessions(...)` loads threshold key material and clears stale warm session state.
 3. `primeThresholdLoginWarmSigners(...)` builds signer tasks and runs them via dependency graph.
 4. `ed25519` task calls `connectEd25519Session(...)`:

@@ -931,3 +931,33 @@ Compliance:
 ## Open Decisions
 
 - None currently blocking implementation sequencing.
+
+## Feature-First Phased TODO
+
+1. **Phase F1: Team/RBAC Management**
+   - Add org/project member management APIs and dashboard page.
+   - Enforce role-scope boundaries and mutation RBAC.
+   - Add relayer + e2e coverage for invite/role-change/remove flows.
+
+2. **Phase F2: Unified Approval Queue**
+   - Add approval request model and queue APIs.
+   - Route policy publish, key export, and risky settings through queue.
+   - Add approve/reject UI and tests for default approval rules.
+
+3. **Phase F3: Audit + Evidence**
+   - Add audit timeline/filter/search APIs and dashboard views.
+   - Add evidence export endpoints for policy/billing/export actions.
+   - Add coverage for immutability and org isolation.
+
+4. **Phase F4: Enterprise Isolation Controls**
+   - Add console APIs/UI to trigger and inspect isolation state.
+   - Expose SLA metadata/status in dashboard.
+   - Add tests for authorization and state transitions.
+
+5. **Phase F5: Stablecoin Ops UX**
+   - Add dashboard monitoring/reconcile views for stablecoin intents.
+   - Surface finality/risk-window state clearly per chain.
+   - Add e2e coverage for quote -> intent -> reconcile lifecycle.
+
+6. **Phase H (Deferred Hardening)**
+   - Stripe live-mode ops hardening, env validation, cron/retry tuning, observability/SLO hardening.

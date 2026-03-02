@@ -144,7 +144,7 @@ Retry/backoff and dead-letter operational guidance:
 
 ### Wallet Plane
 
-- `POST /wallet/unlock/options`
+- `POST /wallet/unlock/challenge`
 - `POST /wallet/unlock/verify`
 - `POST /wallet/lock`
 - `GET /wallet/state`
@@ -196,7 +196,7 @@ Request (`exchange.type=passkey_assertion`):
 
 Passkey-first one-step login + session mint sequence:
 
-1. `POST /wallet/unlock/options` with `user_id` and `rp_id`.
+1. `POST /wallet/unlock/challenge` with `user_id` and `rp_id`.
 2. Collect WebAuthn assertion in the client.
 3. `POST /session/exchange` with `exchange.type=passkey_assertion`.
 4. Read app-session claims via `GET /session/state`.
@@ -326,7 +326,7 @@ Validation requirements:
 - [x] add SDK tests for exchange path (`jwt` + `cookie`) and expected error propagation
 - [x] remove remaining default assumptions that app-session issuance must use `/auth/passkey/*`
 2. Wallet-plane route scaffolding:
-- [x] add `POST /wallet/unlock/options`, `POST /wallet/unlock/verify`, `POST /wallet/lock`, `GET /wallet/state` in Express + Cloudflare
+- [x] add `POST /wallet/unlock/challenge`, `POST /wallet/unlock/verify`, `POST /wallet/lock`, `GET /wallet/state` in Express + Cloudflare
 - [x] map existing passkey challenge/verify primitives into wallet unlock semantics
 - [x] keep app-session (`session/*`) and wallet-state (`wallet/*`) responsibilities fully separated
 3. Legacy surface removal prep:
@@ -370,7 +370,7 @@ Locked decision (March 1, 2026):
 
 ### Phase 3: Wallet Plane + SDK Naming
 
-- [x] Add wallet routes: `POST /wallet/unlock/options`, `POST /wallet/unlock/verify`, `POST /wallet/lock`, `GET /wallet/state`.
+- [x] Add wallet routes: `POST /wallet/unlock/challenge`, `POST /wallet/unlock/verify`, `POST /wallet/lock`, `GET /wallet/state`.
 - [x] Move passkey step-up semantics into wallet unlock flows.
 - [x] Switch SDK default session issuance to `POST /session/exchange`.
 - [x] Rename remaining wallet-state symbols to `unlock/lock`.
@@ -424,7 +424,7 @@ Locked decision (March 1, 2026):
   - `exchange.challengeId` (required)
   - `exchange.webauthn_authentication` (required WebAuthn authentication payload)
   - optional `expected_origin` handling (header-derived default, explicit override policy documented)
-- [x] Reuse existing challenge issuance route (`POST /wallet/unlock/options`) for passkey assertion exchange; do not add legacy alias routes.
+- [x] Reuse existing challenge issuance route (`POST /wallet/unlock/challenge`) for passkey assertion exchange; do not add legacy alias routes.
 - [x] Implement relay exchange handler branch for `passkey_assertion`:
   - verify assertion via existing `verifyWebAuthnLogin`
   - derive `userId`
@@ -437,7 +437,7 @@ Locked decision (March 1, 2026):
 - [x] Add SDK support:
   - [x] extend `session.exchange` input union with `passkey_assertion`
   - [x] keep existing `oidc_jwt` behavior unchanged
-  - [x] support one-step SDK flow: `wallet/unlock/options -> WebAuthn assertion -> session/exchange(passkey_assertion)`
+  - [x] support one-step SDK flow: `wallet/unlock/challenge -> WebAuthn assertion -> session/exchange(passkey_assertion)`
   - [x] reject incomplete passkey assertion payloads with deterministic client errors
 - [x] Add server unit tests:
   - passkey assertion success (`jwt` + `cookie`)
@@ -446,7 +446,7 @@ Locked decision (March 1, 2026):
   - user-mismatch/verification-failure paths
   - webhook emission expectations
 - [x] Add integration tests:
-  - `wallet/unlock/options -> session/exchange(passkey_assertion) -> session/state -> threshold bootstrap/sign`
+  - `wallet/unlock/challenge -> session/exchange(passkey_assertion) -> session/state -> threshold bootstrap/sign`
   - revoke/lock invalidation after passkey-assertion exchange
   - cookie-name matching (`SESSION_COOKIE_NAME`, default `tatchi-jwt`) remains enforced
 - [x] Update docs and provider guides:

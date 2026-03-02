@@ -21,7 +21,7 @@ Use Google OIDC sign-in for app identity and exchange verified Google tokens int
 
 Optional one-step passkey path:
 
-1. `POST /wallet/unlock/options`
+1. `POST /wallet/unlock/challenge`
 2. collect WebAuthn assertion
 3. `POST /session/exchange` with `exchange.type=passkey_assertion`
 

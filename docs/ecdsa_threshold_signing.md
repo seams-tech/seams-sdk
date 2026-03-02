@@ -47,7 +47,7 @@ The SDK owns a single threshold ECDSA session record keyed by wallet/account con
 - Ordering is FIFO.
 - A second sign click is queued (not rejected) and begins after the prior request completes, fails, or is cancelled.
 - Queued requests can be cancelled before execution via existing abort/cancel signals.
-- Guardrails: bounded queue length (`commit_queue_overflow`), queue timeout budget (`commit_queue_timeout`), and deterministic teardown on logout/engine destroy.
+- Guardrails: bounded queue length (`commit_queue_overflow`), queue timeout budget (`commit_queue_timeout`), and deterministic teardown on lock/engine destroy.
 
 ### 2.5 Family vs Network Naming
 

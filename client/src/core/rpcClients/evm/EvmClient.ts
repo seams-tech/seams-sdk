@@ -43,7 +43,7 @@ export type EvmTransactionWaitErrorBranch =
   | 'underpriced_fee'
   | 'timeout';
 
-export interface EvmPublicClient {
+export interface EvmClient {
   request<T>(args: {
     method: string;
     params: unknown[];
@@ -148,11 +148,11 @@ export function parseRpcHexQuantity(value: string, label: string): bigint {
   return BigInt(normalized);
 }
 
-export function createEvmPublicClient(args: {
+export function createEvmClient(args: {
   rpcUrl: string;
   fetchImpl?: typeof fetch;
   requestTimeoutMs?: number;
-}): EvmPublicClient {
+}): EvmClient {
   const rpcUrl = String(args.rpcUrl || '').trim();
   if (!rpcUrl) {
     throw new Error('RPC URL is not configured');

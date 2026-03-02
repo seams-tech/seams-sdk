@@ -1353,7 +1353,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(dispatched[0]?.payload?.code).toBe('invalid_session_version');
   });
 
-  test('POST /wallet/unlock/options: returns passkey challenge options', async () => {
+  test('POST /wallet/unlock/challenge: returns passkey challenge options', async () => {
     const service = makeFakeAuthService({
       createWebAuthnLoginOptions: async () => ({
         ok: true,
@@ -1368,7 +1368,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
 
     const res = await callCf(handler, {
       method: 'POST',
-      path: '/wallet/unlock/options',
+      path: '/wallet/unlock/challenge',
       origin: 'https://example.localhost',
       body: validLoginOptionsBody(),
     });

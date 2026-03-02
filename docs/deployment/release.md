@@ -9,6 +9,12 @@ The Cloudflare Pages deploy workflows serve the SDK runtime assets from Pages un
 
 ## Current release note draft
 
+### 2026-03-01: Lock/Unlock Naming Finalization + Cookie Name Guard
+
+- Breaking: React `AccountMenuButton` now uses `onLock`; `onLogout` was removed (no compatibility alias).
+- Wallet state naming in public docs/examples is now lock/unlock-first.
+- Passive stale-session expiry signaling now requires matching the configured session cookie name (`SESSION_COOKIE_NAME`), default `tatchi-jwt`.
+
 ### 2026-02-21: Export Flow Security Hardening (worker-owned confirmation)
 
 - Export flow now fail-closes when legacy JS-main-thread shortcut paths are encountered.

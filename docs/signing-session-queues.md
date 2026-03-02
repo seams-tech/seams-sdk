@@ -108,7 +108,7 @@ Primary touchpoints:
 ### 5.2 Finalization Reliability
 1. `tests/unit/demoEvmTransactionHandling.unit.test.ts`
 2. `tests/unit/reportTempoBroadcastFailure.unit.test.ts`
-3. `tests/unit/evmPublicClient.waitForReceipt.unit.test.ts`
+3. `tests/unit/evmClient.waitForReceipt.unit.test.ts`
 4. `tests/unit/demoEvmFinalizationDebugEvent.unit.test.ts`
 5. `tests/e2e/thresholdEcdsa.tempoSigning.test.ts`
 6. `tests/e2e/thresholdEcdsa.sealedRefresh.walletIframe.test.ts`

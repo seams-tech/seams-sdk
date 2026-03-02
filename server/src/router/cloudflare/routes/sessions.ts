@@ -584,10 +584,10 @@ export async function handleSessionRefresh(ctx: CloudflareRelayContext): Promise
   return res;
 }
 
-export async function handleWalletUnlockOptions(
+export async function handleWalletUnlockChallenge(
   ctx: CloudflareRelayContext,
 ): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/unlock/options') return null;
+  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/unlock/challenge') return null;
   const body = await readJson(ctx.request);
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return json(

@@ -9,7 +9,7 @@ Reuse one backend pattern across Clerk, Supabase Auth, and Firebase Auth:
 1. Verify provider token in your backend.
 2. Exchange verified token via relay `POST /session/exchange`.
 3. Keep wallet state transitions in relay `wallet/*`.
-4. Optionally use passkey one-step mint (`wallet/unlock/options -> session/exchange(passkey_assertion)`).
+4. Optionally use passkey one-step mint (`wallet/unlock/challenge -> session/exchange(passkey_assertion)`).
 
 ## Shared Backend Pattern
 

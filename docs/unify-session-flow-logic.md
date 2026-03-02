@@ -87,9 +87,9 @@ Changes:
 
 ### Phase 5: Consolidate session lifecycle
 
-1. Keep session creation only in login/create-session APIs.
+1. Keep session creation only in unlock/create-session APIs.
 2. Ensure session policy (`ttlMs`, `remainingUses`) is applied only there.
-3. Ensure logout global clear always wipes full PRF cache.
+3. Ensure global lock clear always wipes full PRF cache.
 
 ### Phase 6: Delete legacy paths immediately
 
@@ -118,7 +118,7 @@ Remaining:
 
 ## TODO (current)
 
-1. [ ] `loginAndCreateSession` re-primes ECDSA signing state by default in `threshold-signer` mode without requiring a second TouchID prompt.
+1. [ ] `auth.unlock` re-primes ECDSA signing state by default in `threshold-signer` mode without requiring a second TouchID prompt.
 2. [ ] Login warm-up reuses canonical ECDSA `thresholdSessionId` when available so PRF cache and ECDSA signer session id stay aligned.
 3. [ ] EVM/Tempo signing never hard-fails before confirmer UI on missing warm session.
 4. [ ] EVM/Tempo missing-session recovery is in core flow (not demo/app layer) with strict ordering:

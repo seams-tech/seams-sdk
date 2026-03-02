@@ -1,4 +1,5 @@
 import type { PasskeyManagerContext } from './index';
+import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { validateNearAccountId } from '@shared/utils/validation';
 import { getWalletSession } from './login';
 import type {
@@ -83,7 +84,7 @@ export async function linkDeviceWithScannedQRData(
     const addKeyTxHash = String(addKeyTxResult?.transaction?.hash || '').trim() || undefined;
     if (sessionId && relayerUrl) {
       try {
-        const resp = await fetch(`${relayerUrl.replace(/\/$/, '')}/link-device/session/claim`, {
+        const resp = await fetch(joinNormalizedUrl(relayerUrl, '/link-device/session/claim'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

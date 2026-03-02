@@ -569,61 +569,41 @@ test.describe('Worker Communication Protocol', () => {
         const messageTypes = new Set<string>();
         const progressEvents: any[] = [];
 
-        // Override console.log to capture worker debug messages
-        const originalLog = console.log;
-        const workerLogs: string[] = [];
-        console.log = (...args) => {
-          const message = args.join(' ');
-          workerLogs.push(message);
-          originalLog(...args);
-        };
-
-        try {
-          // Test registration flow (should generate REGISTRATION_PROGRESS messages)
-          const cfg2 =
-            (window as any).testUtils?.confirmOverrides?.none ||
-            ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
-          const registrationResult = await tatchi.registration.registerPasskeyInternal(
-            testAccountId,
-            {
-              onEvent: (event: any) => {
-                progressEvents.push(event);
-                messageTypes.add(`${event.phase}:${event.status}`);
-              },
-              signerMode: { mode: 'local-signer' },
-            },
-            cfg2,
-          );
-          if (!registrationResult?.success) {
-            throw new Error(`Registration failed: ${registrationResult?.error || 'unknown error'}`);
-          }
-
-          // Test login flow (should generate various progress messages)
-          const loginResult = await tatchi.auth.unlock(testAccountId, {
-            signingSession: { ttlMs: 0, remainingUses: 0 },
+        // Test registration flow (should generate REGISTRATION_PROGRESS messages)
+        const cfg2 =
+          (window as any).testUtils?.confirmOverrides?.none ||
+          ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
+        const registrationResult = await tatchi.registration.registerPasskeyInternal(
+          testAccountId,
+          {
             onEvent: (event: any) => {
               progressEvents.push(event);
               messageTypes.add(`${event.phase}:${event.status}`);
             },
-          });
-          if (!loginResult?.success) {
-            throw new Error(`Login failed: ${loginResult?.error || 'unknown error'}`);
-          }
-        } finally {
-          console.log = originalLog;
+            signerMode: { mode: 'local-signer' },
+          },
+          cfg2,
+        );
+        if (!registrationResult?.success) {
+          throw new Error(`Registration failed: ${registrationResult?.error || 'unknown error'}`);
+        }
+
+        // Test login flow (should generate various progress messages)
+        const loginResult = await tatchi.auth.unlock(testAccountId, {
+          signingSession: { ttlMs: 0, remainingUses: 0 },
+          onEvent: (event: any) => {
+            progressEvents.push(event);
+            messageTypes.add(`${event.phase}:${event.status}`);
+          },
+        });
+        if (!loginResult?.success) {
+          throw new Error(`Login failed: ${loginResult?.error || 'unknown error'}`);
         }
 
         return {
           success: true,
           totalEvents: progressEvents.length,
           messageTypes: Array.from(messageTypes),
-          workerLogs: workerLogs.filter(
-            (log) =>
-              log.includes('Progress:') ||
-              log.includes('SIGNING_') ||
-              log.includes('VERIFICATION_') ||
-              log.includes('REGISTRATION_'),
-          ),
           // Event type analysis
           progressCount: progressEvents.filter((e) => e.status === 'progress').length,
           successCount: progressEvents.filter((e) => e.status === 'success').length,
@@ -658,11 +638,6 @@ test.describe('Worker Communication Protocol', () => {
     console.log(
       `   Progress: ${result.progressCount}, Success: ${result.successCount}, Error: ${result.errorCount}`,
     );
-
-    if (result.workerLogs && result.workerLogs.length > 0) {
-      console.log(`   Worker Logs: ${result.workerLogs.length} messages`);
-      result.workerLogs.slice(0, 3).forEach((log) => console.log(`     ${log}`));
-    }
 
     expect(result.totalEvents).toBeGreaterThan(0);
     expect(result.messageTypes?.length || 0).toBeGreaterThan(0);

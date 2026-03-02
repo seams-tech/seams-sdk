@@ -22,7 +22,7 @@ Use Auth0 for primary login while creating relay app sessions through `POST /ses
 
 Optional one-step passkey path:
 
-1. `POST /wallet/unlock/options`
+1. `POST /wallet/unlock/challenge`
 2. collect WebAuthn assertion
 3. `POST /session/exchange` with `exchange.type=passkey_assertion`
 
