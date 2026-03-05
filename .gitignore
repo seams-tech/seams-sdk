@@ -39,6 +39,10 @@ wasm/shamir3pass_runtime/pkg
 wasm/shamir3pass_runtime/target
 crates/*/target
 
+# Transpiled server artifacts emitted into source tree during local runs
+server/src/**/*.js
+server/src/**/*.js.map
+
 # Local tooling caches
 .tooling/
 
