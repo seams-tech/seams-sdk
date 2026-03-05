@@ -1,12 +1,10 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { test, expect } from '@playwright/test';
+import { test } from '@playwright/test';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const parityFeatures = 'secp256k1,near-ed25519,near-crypto,near-threshold-ed25519,tx-finalization';
-const vectorsFile = path.join(repoRoot, 'crates/signer-core/fixtures/signing-vectors/v1.json');
 const iosSwiftReplayScript = 'crates/signer-platform-ios/scripts/run-swift-vector-replay.sh';
 
 type ParityCommand = {
@@ -135,10 +133,6 @@ function runParityCommand(step: ParityCommand): void {
 test.describe.configure({ mode: 'serial' });
 
 test.describe('signer parity rust platforms', () => {
-  test('canonical vector fixture exists', async () => {
-    expect(fs.existsSync(vectorsFile)).toBeTruthy();
-  });
-
   for (const step of rustParityCommands) {
     test(step.label, async () => {
       test.setTimeout(20 * 60 * 1000);

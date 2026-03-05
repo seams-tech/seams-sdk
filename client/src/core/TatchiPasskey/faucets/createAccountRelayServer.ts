@@ -21,6 +21,7 @@ import type {
 } from '../../signingEngine/threshold/session/sessionPolicy';
 import { isObject } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
+import type { RelayApiKeyAuthErrorCode } from '../../types/tatchi';
 
 function isSerializedRegistrationCredential(
   credential: WebAuthnRegistrationCredential | PublicKeyCredential,
@@ -60,6 +61,36 @@ function improveAtomicRegistrationError(args: {
   }
 
   return raw || 'Atomic registration failed';
+}
+
+const RELAY_API_KEY_AUTH_FAILURE_CODES: readonly RelayApiKeyAuthErrorCode[] = [
+  'api_key_missing',
+  'api_key_invalid',
+  'api_key_revoked',
+  'api_key_forbidden_scope',
+  'api_key_ip_blocked',
+  'api_key_environment_mismatch',
+];
+
+function isRelayApiKeyAuthErrorCode(raw: unknown): raw is RelayApiKeyAuthErrorCode {
+  const value = String(raw || '').trim();
+  return RELAY_API_KEY_AUTH_FAILURE_CODES.includes(value as RelayApiKeyAuthErrorCode);
+}
+
+export class RelayApiKeyAuthError extends Error {
+  readonly code: RelayApiKeyAuthErrorCode;
+  readonly status: number;
+
+  constructor(input: { code: RelayApiKeyAuthErrorCode; status: number; message: string }) {
+    super(input.message);
+    this.name = 'RelayApiKeyAuthError';
+    this.code = input.code;
+    this.status = input.status;
+  }
+}
+
+function isRelayApiKeyAuthError(error: unknown): error is RelayApiKeyAuthError {
+  return error instanceof RelayApiKeyAuthError;
 }
 
 /**
@@ -157,6 +188,7 @@ export async function createAccountAndRegisterWithRelayServer(
     };
   };
   error?: string;
+  errorCode?: RelayApiKeyAuthErrorCode;
 }> {
   const { configs } = context;
 
@@ -228,23 +260,36 @@ export async function createAccountAndRegisterWithRelayServer(
       message: 'Registering user with relay...',
     });
 
+    const relayApiKey = String(configs.network.relayer.apiKey || '').trim();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (relayApiKey) {
+      headers.Authorization = `Bearer ${relayApiKey}`;
+    }
+
     // Call the atomic endpoint
     const response = await fetch(`${configs.network.relayer.url}/registration/bootstrap`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(requestData),
     });
 
     // Handle both successful and failed responses
     const result: CreateAccountAndRegisterResult = await response.json();
+    const responseCode = String(result.code || '').trim();
+    const responseMessage =
+      result.error || result.message || `HTTP ${response.status}: ${response.statusText}`;
 
     if (!response.ok) {
-      // Extract specific error message from relay server response
-      const msg =
-        result.error || result.message || `HTTP ${response.status}: ${response.statusText}`;
+      if (isRelayApiKeyAuthErrorCode(responseCode)) {
+        throw new RelayApiKeyAuthError({
+          code: responseCode,
+          status: response.status,
+          message: responseMessage,
+        });
+      }
       throw new Error(
         improveAtomicRegistrationError({
-          raw: msg,
+          raw: responseMessage,
           nearAccountId,
           relayUrl: configs.network.relayer.url,
         }),
@@ -252,7 +297,14 @@ export async function createAccountAndRegisterWithRelayServer(
     }
 
     if (!result.success) {
-      throw new Error(result.error || 'Atomic registration failed');
+      if (isRelayApiKeyAuthErrorCode(responseCode)) {
+        throw new RelayApiKeyAuthError({
+          code: responseCode,
+          status: response.status,
+          message: responseMessage,
+        });
+      }
+      throw new Error(responseMessage || 'Atomic registration failed');
     }
 
     onEvent?.({
@@ -309,6 +361,7 @@ export async function createAccountAndRegisterWithRelayServer(
     };
   } catch (error: unknown) {
     console.error('Atomic registration failed:', error);
+    const code = isRelayApiKeyAuthError(error) ? error.code : undefined;
 
     onEvent?.({
       step: 0,
@@ -321,6 +374,7 @@ export async function createAccountAndRegisterWithRelayServer(
     return {
       success: false,
       error: errorMessage(error),
+      ...(code ? { errorCode: code } : {}),
     };
   }
 }

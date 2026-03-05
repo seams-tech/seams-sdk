@@ -110,6 +110,7 @@ export interface SigningSessionSealConfig {
  *   };
  *   relayer?: {
  *     url?: string;
+ *     apiKey?: string;
  *     delegateActionRoute?: string;
  *     smartAccountDeployRoute?: string;
  *     smartAccountDeploymentMode?: 'observe' | 'enforce';
@@ -223,6 +224,7 @@ export interface TatchiConfigsInput {
  *     relayer: {
  *       accountId: string;
  *       url: string;
+ *       apiKey: string;
  *       routes: {
  *         delegateAction: string;
  *         smartAccountDeploy: string;
@@ -312,12 +314,23 @@ export interface AppearanceConfig {
 export interface RegistrationResult {
   success: boolean;
   error?: string;
+  errorCode?: RegistrationErrorCode;
   clientNearPublicKey?: string | null;
   nearAccountId?: AccountId;
   transactionId?: string | null;
   thresholdEcdsaEthereumAddress?: string;
   thresholdEcdsaGroupPublicKeyB64u?: string;
 }
+
+export type RelayApiKeyAuthErrorCode =
+  | 'api_key_missing'
+  | 'api_key_invalid'
+  | 'api_key_revoked'
+  | 'api_key_forbidden_scope'
+  | 'api_key_ip_blocked'
+  | 'api_key_environment_mismatch';
+
+export type RegistrationErrorCode = RelayApiKeyAuthErrorCode | string;
 
 export interface LoginResult {
   success: boolean;
@@ -510,6 +523,13 @@ export interface TatchiIframeWalletConfigInput {
 export interface TatchiRelayerConfigInput {
   url?: string;
   /**
+   * Optional relay API key secret.
+   *
+   * When provided, registration bootstrap requests include:
+   * `Authorization: Bearer <apiKey>`.
+   */
+  apiKey?: string;
+  /**
    * Relative path on the relayer used for delegate action execution.
    * Defaults to '/signed-delegate'.
    */
@@ -568,6 +588,7 @@ export interface TatchiRelayerEmailRecoveryConfig {
 export interface TatchiRelayerConfig {
   accountId: string;
   url: string;
+  apiKey: string;
   routes: TatchiRelayerRoutesConfig;
   smartAccountDeployment: TatchiSmartAccountDeploymentConfig;
   emailRecovery: TatchiRelayerEmailRecoveryConfig;

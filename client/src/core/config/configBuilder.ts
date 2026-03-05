@@ -92,6 +92,9 @@ export function buildConfigsFromDefaults(args: {
 
   const chains = resolveChains(defaults.network.chains, overrides.chains);
   const relayerUrl = toTrimmedString(overrides.relayer?.url ?? defaults.network.relayer.url);
+  const relayerApiKey = toTrimmedString(
+    overrides.relayer?.apiKey ?? defaults.network.relayer.apiKey,
+  );
   const relayerAccount =
     toTrimmedString(overrides.relayerAccount) ||
     toTrimmedString(defaults.network.relayer.accountId);
@@ -195,6 +198,7 @@ export function buildConfigsFromDefaults(args: {
       relayer: {
         accountId: relayerAccount,
         url: relayerUrl,
+        apiKey: relayerApiKey,
         routes: {
           delegateAction: relayerDelegateActionRoute,
           smartAccountDeploy: relayerSmartAccountDeployRoute,

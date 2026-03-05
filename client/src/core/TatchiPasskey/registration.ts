@@ -373,9 +373,14 @@ export async function registerPasskeyInternal(
     );
 
     if (!accountAndRegistrationResult.success) {
-      throw new Error(
+      const registrationError = new Error(
         accountAndRegistrationResult.error || 'Account creation and registration failed',
-      );
+      ) as Error & { code?: string };
+      const relayErrorCode = String(accountAndRegistrationResult.errorCode || '').trim();
+      if (relayErrorCode) {
+        registrationError.code = relayErrorCode;
+      }
+      throw registrationError;
     }
 
     // Update registration state based on results
@@ -823,6 +828,10 @@ export async function registerPasskeyInternal(
     afterCall?.(true, successResult);
     return successResult;
   } catch (error: unknown) {
+    const errorCode =
+      error && typeof error === 'object' && 'code' in error
+        ? String((error as { code?: unknown }).code || '').trim()
+        : '';
     const message =
       error && typeof error === 'object' && 'message' in error
         ? String((error as { message?: unknown }).message || '')
@@ -840,6 +849,9 @@ export async function registerPasskeyInternal(
     const errorMessage = getUserFriendlyErrorMessage(error, 'registration', nearAccountId);
 
     const errorObject = new Error(errorMessage);
+    if (errorCode) {
+      (errorObject as Error & { code?: string }).code = errorCode;
+    }
     onError?.(errorObject);
 
     onEvent?.({
@@ -850,7 +862,11 @@ export async function registerPasskeyInternal(
       error: errorMessage,
     } as RegistrationSSEEvent);
 
-    const result = { success: false, error: errorMessage };
+    const result: RegistrationResult = {
+      success: false,
+      error: errorMessage,
+      ...(errorCode ? { errorCode } : {}),
+    };
     afterCall?.(false);
     return result;
   }

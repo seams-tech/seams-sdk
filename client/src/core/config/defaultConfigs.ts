@@ -106,6 +106,7 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigsReadonly = {
       // No default relayer URL. Force apps to configure via env/overrides.
       // Using an empty string triggers early validation errors in code paths that require it.
       url: '',
+      apiKey: '',
       routes: {
         delegateAction: '/signed-delegate',
         smartAccountDeploy: '/smart-account/deploy',
