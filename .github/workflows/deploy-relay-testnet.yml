@@ -1,21 +1,30 @@
-name: deploy-relay-staging
+name: deploy-relay-testnet
 
 on:
   push:
     branches: [dev]
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-relay-testnet
+  cancel-in-progress: true
+
 jobs:
-  deploy-relay-staging:
+  deploy-relay-testnet:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment:
-      name: staging
+      name: testnet
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
       RECOVER_EMAIL_RECIPIENT: ${{ vars.RECOVER_EMAIL_RECIPIENT }}
-      WORKER_NAME: w3a-relay-staging
+      WORKER_NAME: relay-v2-staging
+      WORKER_ENV: staging
       # Optional: Threshold signing (2p FROST; derived relayer share)
       THRESHOLD_ED25519_SHARE_MODE: derive
       THRESHOLD_ED25519_MASTER_SECRET_B64U: ${{ secrets.THRESHOLD_ED25519_MASTER_SECRET_B64U }}
@@ -48,7 +57,7 @@ jobs:
         uses: oven-sh/setup-bun@v2
 
       - name: Install deps (workspace)
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Build SDK (sdk, production) for Worker bundling
         run: pnpm build:sdk-prod
@@ -71,7 +80,7 @@ jobs:
           ARGS=(--var RECOVER_EMAIL_RECIPIENT="${RECOVER_EMAIL_RECIPIENT}")
           ARGS+=(--var THRESHOLD_ED25519_SHARE_MODE="${THRESHOLD_ED25519_SHARE_MODE}")
 
-          pnpm -C examples/relay-cloudflare-worker exec wrangler deploy --config wrangler.toml --env staging "${ARGS[@]}"
+          pnpm -C examples/relay-cloudflare-worker exec wrangler deploy --config wrangler.toml --env "$WORKER_ENV" "${ARGS[@]}"
 
       - name: Configure Email Routing for RECOVER_EMAIL_RECIPIENT
         env:
@@ -99,12 +108,12 @@ jobs:
           API_BASE="https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/email/routing/rules"
           auth=(-H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json")
 
-          echo "Ensuring Email Routing rule for ${RECOVER_EMAIL_RECIPIENT} → ${WORKER_NAME}"
+          echo "Ensuring Email Routing rule for ${RECOVER_EMAIL_RECIPIENT} -> ${WORKER_NAME}"
 
           existing="$(curl -sS -X GET "$API_BASE" "${auth[@]}")"
           echo "$existing" | jq -e '.success == true' >/dev/null || { echo "$existing"; exit 1; }
 
-          # Delete any existing rules for this recipient.
+          # Delete any existing rules for this recipient (prevents legacy routes like worker:w3a-relay).
           rule_ids="$(echo "$existing" | jq -r --arg r "$RECOVER_EMAIL_RECIPIENT" '.result[]? | select(.matchers[]? | (.value? == $r)) | .id')"
           if [ -n "${rule_ids:-}" ]; then
             echo "$rule_ids" | while read -r id; do

@@ -1,18 +1,22 @@
-name: publish-sdk-r2
+name: publish-sdk-r2-testnet
 
 on:
   workflow_dispatch:
     inputs:
       prefix:
-        description: 'R2 prefix override (auto | releases | releases-dev | custom)'
+        description: 'R2 prefix override (auto | releases-dev | custom)'
         required: false
         default: 'auto'
   workflow_run:
     workflows: ['ci']
     types: [completed]
 
+concurrency:
+  group: publish-sdk-r2-testnet-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: false
+
 jobs:
-  publish-sdk-r2:
+  publish-sdk-r2-testnet:
     runs-on: ubuntu-latest
     if: >-
       ${{
@@ -22,20 +26,17 @@ jobs:
           github.event.workflow_run.conclusion == 'success' &&
           github.event.workflow_run.event == 'push' &&
           (
-            github.event.workflow_run.head_branch == 'main' ||
-            github.event.workflow_run.head_branch == 'dev' ||
-            startsWith(github.event.workflow_run.head_branch, 'v')
+            github.event.workflow_run.head_branch == 'dev'
           )
         )
       }}
     environment:
-      name: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'dev') && 'staging' || (github.ref_name == 'dev') && 'staging' || 'production' }}
+      name: testnet
     permissions:
       contents: read
       id-token: write # for cosign keyless signing
     env:
       PUBLISH_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-      PUBLISH_REF_NAME: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
       R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -59,7 +60,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install deps (workspace)
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -167,16 +168,12 @@ jobs:
           set -euxo pipefail
 
           # Derive default prefix based on ref, unless overridden.
-          # - main -> releases/<sha>
           # - dev  -> releases-dev/<sha>
-          # - tag  -> releases/<sha> + releases/<tag> (see next step)
           INPUT_PREFIX="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.prefix || 'auto' }}"
           if [ "$INPUT_PREFIX" != "auto" ]; then
             BASE_PREFIX="$INPUT_PREFIX"
-          elif [ "${PUBLISH_REF_NAME}" = "dev" ]; then
-            BASE_PREFIX="releases-dev"
           else
-            BASE_PREFIX="releases"
+            BASE_PREFIX="releases-dev"
           fi
 
           PREFIX="${BASE_PREFIX}/${PUBLISH_SHA}"
@@ -191,29 +188,4 @@ jobs:
               --endpoint-url "$R2_ENDPOINT" \
               --content-type application/wasm \
               --metadata-directive REPLACE
-          done
-
-      - name: Optionally publish tag aliases (v*)
-        run: |
-          set -euxo pipefail
-          TAGS="$(git tag --points-at "${PUBLISH_SHA}" | grep -E '^v' || true)"
-          if [ -z "$TAGS" ]; then
-            echo "No v* tags point at ${PUBLISH_SHA}; skipping tag alias publish" >&2
-            exit 0
-          fi
-
-          for TAG in $TAGS; do
-            PREFIX="releases/${TAG}"
-            echo "Publishing tag alias to s3://$R2_BUCKET/$PREFIX" >&2
-
-            aws s3 sync sdk/dist "s3://$R2_BUCKET/$PREFIX" \
-              --endpoint-url "$R2_ENDPOINT" --delete
-
-            for f in $(find sdk/dist -name "*.wasm" -type f); do
-              key=${f#sdk/dist/}
-              aws s3 cp "$f" "s3://$R2_BUCKET/$PREFIX/$key" \
-                --endpoint-url "$R2_ENDPOINT" \
-                --content-type application/wasm \
-                --metadata-directive REPLACE
-            done
           done
