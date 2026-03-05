@@ -993,15 +993,18 @@ Compliance:
 - [x] Add Ops Cockpit row-level pending-approval approve/reject quick actions wired to `/console/approvals/:id/approve|reject`, with e2e API-wiring coverage.
 - [x] Add Ops Cockpit row-level queued-audit-export requeue quick action using existing `/console/audit/exports` list/create contracts, with e2e API-wiring coverage.
 - [x] Split Postgres config into signer and console logical DB targets with separate migration runners and least-privilege DB users.
-  - Progress: relay-server example now supports `CONSOLE_POSTGRES_URL` (fallback `POSTGRES_URL`) so console billing/webhooks can target a separate logical database from threshold runtime stores.
+  - Progress: relay-server example now requires explicit `CONSOLE_POSTGRES_URL` for console-domain Postgres backends so console billing/webhooks/observability can stay separate from threshold runtime stores.
   - Progress: relay-server now includes explicit domain migration commands:
     - `postgres:migrate:signer` (`POSTGRES_MIGRATION_URL` -> `POSTGRES_URL`)
-    - `postgres:migrate:console` (`CONSOLE_POSTGRES_MIGRATION_URL` -> `CONSOLE_POSTGRES_URL` -> `POSTGRES_URL`)
+    - `postgres:migrate:console` (`CONSOLE_POSTGRES_MIGRATION_URL` -> `CONSOLE_POSTGRES_URL`)
     - `postgres:migrate:all`
   - Progress: relay-server now includes local split-domain DB/bootstrap automation (`postgres:bootstrap:split`) for signer/console runtime+migrator roles, databases, and grants.
   - Progress: relay-server supports strict migration mode with `CONSOLE_BILLING_ENSURE_SCHEMA=0` and `CONSOLE_WEBHOOKS_ENSURE_SCHEMA=0` to disable startup schema auto-creation.
   - Progress: relay-server now includes explicit least-privilege verification (`postgres:verify:split`) and validated local flow (`postgres:up` -> `postgres:bootstrap:split` -> `postgres:migrate:all` -> `postgres:verify:split`).
   - Progress: relay-server now exposes a one-shot bootstrap+migrate+verify command (`postgres:setup:split`) for repeatable local bring-up.
+  - Progress: relay-server now exposes a one-shot monolith-to-split data migration command (`postgres:migrate:split-from-monolith`) with explicit source/target envs.
+  - Progress: local migration from monolith `tatchi` into `tatchi_signer` + `tatchi_console` has been executed and verified for table-count parity across signer tables and most console tables.
+  - Progress: migration runner now logs/skips legacy-incompatible rows missing required target fields (notably historical `console_payment_state_transitions` rows with `NULL org_id`) and tracks these for explicit follow-up policy.
   - Progress: CI now includes a dedicated `relay-server-postgres-split-smoke` job that executes split bootstrap+migrate+verify and always tears down compose resources.
   - Progress: verifier failure-path coverage now includes invalid-identifier fast-fail assertions (`tests/unit/postgresVerifySplitDomains.script.unit.test.ts`).
   - Progress: threshold-core CI now runs `test:unit:relay-server-scripts`, gating verifier-script unit checks on every run.

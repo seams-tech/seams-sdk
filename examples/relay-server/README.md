@@ -145,14 +145,17 @@ EXPECTED_ORIGIN=http://localhost:3000
 # Optional signer migration URL (recommended separate migrator role)
 # POSTGRES_MIGRATION_URL=postgres://tatchi_signer_migrator:tatchi_signer_migrator@127.0.0.1:5432/tatchi_signer
 
-# Optional console persistence override (billing + webhooks + console data)
-# Falls back to POSTGRES_URL when unset.
+# Optional console persistence override (billing + webhooks + observability + console data)
+# Keep this separate from POSTGRES_URL signer state.
 # CONSOLE_POSTGRES_URL=postgres://tatchi_console:tatchi_console@127.0.0.1:5432/tatchi_console
 # Optional console migration URL (recommended separate migrator role)
 # CONSOLE_POSTGRES_MIGRATION_URL=postgres://tatchi_console_migrator:tatchi_console_migrator@127.0.0.1:5432/tatchi_console
 
-# Console/admin auth (dev adapter)
-CONSOLE_DEV_TOKEN=dev-console-token
+# Google OIDC for /session/exchange (exchange.type=oidc_jwt)
+# GOOGLE_OIDC_CLIENT_ID=
+# GOOGLE_OIDC_CLIENT_IDS=
+# Optional hosted-domain allowlist for /auth/google/verify
+# GOOGLE_OIDC_HOSTED_DOMAINS=
 
 # Relay runtime API key auth on POST /registration/bootstrap
 RELAY_API_KEY_AUTH_ENABLED=1
@@ -160,7 +163,7 @@ RELAY_API_KEY_AUTH_ENABLED=1
 # Console billing backend:
 # - postgres (persists data to Postgres)
 # - memory (ephemeral dev-only in-memory store)
-# Defaults to postgres when CONSOLE_POSTGRES_URL or POSTGRES_URL is set, otherwise memory.
+# Defaults to postgres when CONSOLE_POSTGRES_URL is set, otherwise memory.
 # CONSOLE_BILLING_BACKEND=postgres
 # Set to 0/false to disable startup schema auto-creation (use explicit migration scripts).
 # CONSOLE_BILLING_ENSURE_SCHEMA=1
@@ -184,12 +187,31 @@ RELAY_API_KEY_AUTH_ENABLED=1
 # Console webhooks backend:
 # - postgres (persists webhook endpoints/deliveries/attempts/dead-letters)
 # - memory (ephemeral dev-only in-memory store)
-# Defaults to postgres when CONSOLE_POSTGRES_URL or POSTGRES_URL is set, otherwise memory.
+# Defaults to postgres when CONSOLE_POSTGRES_URL is set, otherwise memory.
 # CONSOLE_WEBHOOKS_BACKEND=postgres
 # Set to 0/false to disable startup schema auto-creation (use explicit migration scripts).
 # CONSOLE_WEBHOOKS_ENSURE_SCHEMA=1
 # Optional namespace for Postgres webhook tables
 # CONSOLE_WEBHOOKS_NAMESPACE=relay-console
+
+# Console observability backend:
+# - postgres (partitioned + retained observability events with query/backpressure guardrails)
+# - memory (ephemeral dev-only status-only mode)
+# Defaults to postgres when CONSOLE_POSTGRES_URL is set, otherwise memory.
+# CONSOLE_OBSERVABILITY_BACKEND=postgres
+# Set to 0/false to disable startup schema auto-creation (use explicit migration scripts).
+# CONSOLE_OBSERVABILITY_ENSURE_SCHEMA=1
+# Optional namespace for observability tables
+# CONSOLE_OBSERVABILITY_NAMESPACE=relay-console
+# Strict read-query max window (default 7 days)
+# CONSOLE_OBSERVABILITY_QUERY_MAX_WINDOW_MS=604800000
+# Ingest backpressure guardrails
+# CONSOLE_OBSERVABILITY_INGEST_MAX_BATCH_SIZE=200
+# CONSOLE_OBSERVABILITY_INGEST_MAX_EVENTS_PER_MINUTE=10000
+# Retention TTL guardrails
+# CONSOLE_OBSERVABILITY_RETENTION_TTL_MS=2592000000
+# CONSOLE_OBSERVABILITY_RETENTION_PRUNE_INTERVAL_MS=300000
+# CONSOLE_OBSERVABILITY_RETENTION_BATCH_SIZE=1000
 
 # Threshold secrets (base64url-encoded 32-byte values)
 # THRESHOLD_ED25519_MASTER_SECRET_B64U=<32-byte-base64url>
@@ -245,8 +267,8 @@ Then in your relay `.env`:
 # runtime/signer data (threshold session/auth/share stores)
 POSTGRES_URL=postgres://tatchi_signer:tatchi_signer@127.0.0.1:5432/tatchi_signer
 
-# optional: console domain data (billing/webhooks/admin control-plane)
-# defaults to POSTGRES_URL when omitted
+# optional: console domain data (billing/webhooks/observability/admin control-plane)
+# keep separate from POSTGRES_URL
 CONSOLE_POSTGRES_URL=postgres://tatchi_console:tatchi_console@127.0.0.1:5432/tatchi_console
 
 # optional: migration-only URLs (recommended for least-privilege runtime users)
@@ -276,7 +298,7 @@ Run migrations explicitly per domain:
 # signer/runtime schema (uses POSTGRES_MIGRATION_URL, fallback POSTGRES_URL)
 pnpm run postgres:migrate:signer
 
-# console billing/webhooks schema (uses CONSOLE_POSTGRES_MIGRATION_URL, fallback CONSOLE_POSTGRES_URL -> POSTGRES_URL)
+# console billing/webhooks/observability schema (uses CONSOLE_POSTGRES_MIGRATION_URL, fallback CONSOLE_POSTGRES_URL)
 pnpm run postgres:migrate:console
 
 # both
@@ -284,6 +306,32 @@ pnpm run postgres:migrate:all
 
 # verify least-privilege split roles (runtime cannot DDL, migrator can DDL)
 pnpm run postgres:verify:split
+```
+
+Migrate an existing single-DB setup into split signer/console databases:
+
+```bash
+# source monolith DB (required)
+MONOLITH_POSTGRES_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/tatchi
+
+# target signer DB (required; migration URL preferred)
+POSTGRES_MIGRATION_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/tatchi_signer
+
+# target console DB (required; migration URL preferred)
+CONSOLE_POSTGRES_MIGRATION_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/tatchi_console
+
+# optional:
+# SPLIT_MIGRATION_CREATE_DATABASES=1   # default 1, auto-create target DBs if missing
+# SPLIT_MIGRATION_BATCH_SIZE=500       # default 500
+
+pnpm run postgres:migrate:split-from-monolith
+```
+
+After migration, set runtime URLs to the split DBs:
+
+```bash
+POSTGRES_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/tatchi_signer
+CONSOLE_POSTGRES_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/tatchi_console
 ```
 
 Bootstrap/verify scripts support optional env overrides for non-default local role/db names:
@@ -310,29 +358,27 @@ For production/serverless, prefer Upstash REST:
 
 This example server also mounts console/admin routes at `/console/*`.
 
-- Auth: send `Authorization: Bearer <CONSOLE_DEV_TOKEN>`.
-- Optional dev claim overrides:
-  - `x-console-org-id`
-  - `x-console-user-id`
-  - `x-console-roles` (comma-separated, defaults to `admin`)
-  - `x-console-project-id`
-  - `x-console-environment-id`
+- Auth: relay app session (`app_session_v1`) via HttpOnly cookie or bearer JWT from:
+  - `POST /session/exchange` (`exchange.type=oidc_jwt`),
+  - `POST /session/exchange` (`exchange.type=passkey_assertion`).
 - Demo org/member seed:
   - Enabled by default with `CONSOLE_DEMO_SEED_ENABLED=1`.
   - Seeded identities include:
     - `console-owner` (`owner`)
     - `console-admin` (`admin`)
-    - `console-security` (`security_admin`)
-    - `console-billing` (`billing_admin`)
-    - `console-devops` (`developer`, `ops` scoped to `CONSOLE_DEMO_PROJECT_ID`)
+    - `console-operator` (`overview_read`, `wallet_operations_read`, `integrations_read`)
   - Seed controls:
     - `CONSOLE_DEMO_ORG_ID`
     - `CONSOLE_DEMO_PROJECT_ID`
     - `CONSOLE_DEMO_ENVIRONMENT_ID`
-    - `CONSOLE_DEMO_USER_ID`
-    - `CONSOLE_DEMO_ROLES`
+    - `CONSOLE_SSO_DEFAULT_ROLES` (optional additional bootstrap roles)
+    - `CONSOLE_DEMO_ROLES` (fallback additional bootstrap roles)
+  - First-login SSO provisioning behavior:
+    - ensures org context exists,
+    - bootstraps missing active membership with `owner` + `admin` + configured additional roles,
+    - appends audit event `member.owner.bootstrap`.
 - Billing backend is selected with `CONSOLE_BILLING_BACKEND`:
-  - `postgres`: durable billing data via `CONSOLE_POSTGRES_URL` (fallback `POSTGRES_URL`)
+  - `postgres`: durable billing data via `CONSOLE_POSTGRES_URL`
   - `memory`: ephemeral in-memory billing data for local dev
 - Stripe provider mode:
   - set `STRIPE_API_SK` to use live Stripe API for setup-intent, checkout-session, customer-portal-session, and payment-intent creation.
@@ -342,14 +388,17 @@ This example server also mounts console/admin routes at `/console/*`.
   - when set, `/console/billing/stripe/webhook` requires header `x-console-stripe-webhook-secret` with an exact secret match.
   - when unset, webhook route returns `stripe_webhook_not_configured`.
 - Webhooks backend is selected with `CONSOLE_WEBHOOKS_BACKEND`:
-  - `postgres`: durable webhook endpoint/delivery/attempt/dead-letter data via `CONSOLE_POSTGRES_URL` (fallback `POSTGRES_URL`)
+  - `postgres`: durable webhook endpoint/delivery/attempt/dead-letter data via `CONSOLE_POSTGRES_URL`
   - `memory`: ephemeral in-memory webhook data for local dev
+- Observability backend is selected with `CONSOLE_OBSERVABILITY_BACKEND`:
+  - `postgres`: durable observability data via `CONSOLE_POSTGRES_URL` with partitioning, retention TTL, strict query windows, and ingest backpressure.
+  - `memory`: status-only fallback with no durable event storage.
 
-Example:
+Example (cookie session from `/session/exchange`):
 
 ```bash
-curl -s http://localhost:3001/console/billing/overview \
-  -H "Authorization: Bearer dev-console-token"
+curl -s http://localhost:3001/console/session \
+  -H "Cookie: tatchi-jwt=<app_session_jwt>"
 ```
 
 ### Coordinator Continuity Config (ECDSA Presign Sessions)
