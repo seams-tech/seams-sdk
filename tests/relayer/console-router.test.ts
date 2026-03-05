@@ -8,6 +8,7 @@ import {
   createInMemoryConsoleBillingService,
   createInMemoryConsoleEnterpriseIsolationService,
   createInMemoryConsoleOnboardingService,
+  createInMemoryConsoleObservabilityService,
   createInMemoryConsoleGasSponsorshipService,
   createInMemoryConsoleKeyExportService,
   createInMemoryConsoleOrgProjectEnvService,
@@ -34,6 +35,7 @@ import {
   type ConsoleAuthAdapter,
   type ConsoleBillingService,
   type ConsoleEnterpriseIsolationService,
+  type ConsoleObservabilityIngestionService,
   type ConsoleOrgProjectEnvService,
   type ConsolePolicyService,
   type ConsoleWallet,
@@ -230,6 +232,253 @@ test.describe('console router (express)', () => {
       const res = await fetchJson(`${srv.baseUrl}/console/audit/exports`, { method: 'GET' });
       expect(res.status).toBe(501);
       expect(res.json?.code).toBe('audit_exports_not_configured');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/observability/summary returns observability_not_configured without service', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/observability/summary`, { method: 'GET' });
+      expect(res.status).toBe(501);
+      expect(res.json?.code).toBe('observability_not_configured');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/observability/* returns scaffolded responses when service is configured', async () => {
+    const observability = createInMemoryConsoleObservabilityService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['support'],
+        'org-observability-express',
+        'user-observability-express',
+      ),
+      observability,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const summary = await fetchJson(`${srv.baseUrl}/console/observability/summary`, {
+        method: 'GET',
+      });
+      expect(summary.status).toBe(200);
+      expect(getPath(summary.json, 'summary', 'status', 'state')).toBe('not_configured');
+
+      const events = await fetchJson(`${srv.baseUrl}/console/observability/events?limit=5`, {
+        method: 'GET',
+      });
+      expect(events.status).toBe(200);
+      expect(getPath(events.json, 'status', 'state')).toBe('not_configured');
+      expect(Array.isArray(events.json?.events)).toBe(true);
+
+      const timeseries = await fetchJson(
+        `${srv.baseUrl}/console/observability/timeseries?bucketMinutes=5`,
+        { method: 'GET' },
+      );
+      expect(timeseries.status).toBe(200);
+      expect(getPath(timeseries.json, 'status', 'state')).toBe('not_configured');
+      expect(Array.isArray(timeseries.json?.buckets)).toBe(true);
+
+      const services = await fetchJson(`${srv.baseUrl}/console/observability/services?limit=10`, {
+        method: 'GET',
+      });
+      expect(services.status).toBe(200);
+      expect(getPath(services.json, 'status', 'state')).toBe('not_configured');
+      expect(Array.isArray(services.json?.services)).toBe(true);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/observability/* requires observability read role', async () => {
+    const observability = createInMemoryConsoleObservabilityService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['developer'],
+        'org-observability-express-forbidden',
+        'user-observability-express-forbidden',
+      ),
+      observability,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const paths = [
+        '/console/observability/summary',
+        '/console/observability/events',
+        '/console/observability/timeseries',
+        '/console/observability/services',
+      ];
+      for (const path of paths) {
+        const res = await fetchJson(`${srv.baseUrl}${path}`, { method: 'GET' });
+        expect(res.status).toBe(403);
+        expect(res.json?.code).toBe('forbidden');
+      }
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/observability/events rejects query windows larger than 7 days', async () => {
+    const observability = createInMemoryConsoleObservabilityService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['ops'],
+        'org-observability-express-window',
+        'user-observability-express-window',
+      ),
+      observability,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(
+        `${srv.baseUrl}/console/observability/events?from=2026-01-01T00:00:00.000Z&to=2026-01-10T00:00:00.000Z`,
+        { method: 'GET' },
+      );
+      expect(res.status).toBe(400);
+      expect(res.json?.code).toBe('invalid_query');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('policy publish failures emit approval observability events and router timing (express)', async () => {
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    const observabilityIngestion: ConsoleObservabilityIngestionService = {
+      appendEvent: async (ingestCtx, event) => {
+        ingested.push({
+          ingestCtx: ingestCtx as unknown as Record<string, unknown>,
+          event: event as unknown as Record<string, unknown>,
+        });
+        return { accepted: 1, deduplicated: 0 };
+      },
+    };
+    const basePolicies = createInMemoryConsolePolicyService();
+    const failingPolicies: ConsolePolicyService = {
+      ...basePolicies,
+      publishPolicy: async () => {
+        throw new Error('policy publish failed');
+      },
+    };
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-observability-express-failure',
+        'user-observability-express-failure',
+      ),
+      policies: failingPolicies,
+      observabilityIngestion,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/policies/pol_obs_failure/publish`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-request-id': 'req_obs_policy_publish',
+        },
+        body: JSON.stringify({ approvalId: 'apr_obs_failure' }),
+      });
+      expect(res.status).toBe(500);
+      expect(res.json?.code).toBe('internal');
+
+      await expect
+        .poll(() => ingested.filter((entry) => entry.event.eventType === 'approval.policy_publish.failed').length)
+        .toBe(1);
+      await expect
+        .poll(() => ingested.filter((entry) => entry.event.eventType === 'router.request.completed').length)
+        .toBeGreaterThanOrEqual(1);
+
+      const approvalFailure = ingested.find(
+        (entry) => entry.event.eventType === 'approval.policy_publish.failed',
+      );
+      expect(approvalFailure).toBeTruthy();
+      expect(String(getPath(approvalFailure?.event || null, 'metadata', 'resourceId') || '')).toBe(
+        'pol_obs_failure',
+      );
+      expect(String(getPath(approvalFailure?.event || null, 'metadata', 'approvalId') || '')).toBe(
+        'apr_obs_failure',
+      );
+      expect(String((approvalFailure?.event?.requestId as string) || '')).toBe('req_obs_policy_publish');
+
+      const routerTiming = ingested.find(
+        (entry) =>
+          entry.event.eventType === 'router.request.completed' &&
+          String(getPath(entry.event, 'metadata', 'route') || '').includes('/console/policies'),
+      );
+      expect(routerTiming).toBeTruthy();
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('billing reconcile failures emit billing observability events (express)', async () => {
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    const observabilityIngestion: ConsoleObservabilityIngestionService = {
+      appendEvent: async (ingestCtx, event) => {
+        ingested.push({
+          ingestCtx: ingestCtx as unknown as Record<string, unknown>,
+          event: event as unknown as Record<string, unknown>,
+        });
+        return { accepted: 1, deduplicated: 0 };
+      },
+    };
+    const baseBilling = createInMemoryConsoleBillingService();
+    const failingBilling: ConsoleBillingService = {
+      ...baseBilling,
+      reconcileStripePaymentIntent: async () => {
+        throw new Error('manual reconcile failed');
+      },
+    };
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['ops'],
+        'org-observability-express-billing',
+        'user-observability-express-billing',
+      ),
+      billing: failingBilling,
+      observabilityIngestion,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/payment-intents/pi_obs_failure/reconcile`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-request-id': 'req_obs_billing_reconcile',
+          },
+          body: JSON.stringify({ providerStatus: 'FAILED' }),
+        },
+      );
+      expect(res.status).toBe(500);
+      expect(res.json?.code).toBe('internal');
+
+      await expect
+        .poll(() => ingested.filter((entry) => entry.event.eventType === 'billing.payment_reconcile.failed').length)
+        .toBe(1);
+
+      const billingFailure = ingested.find(
+        (entry) => entry.event.eventType === 'billing.payment_reconcile.failed',
+      );
+      expect(billingFailure).toBeTruthy();
+      expect(String(getPath(billingFailure?.event || null, 'metadata', 'invoiceId') || '')).toBe(
+        'payment_intent:pi_obs_failure',
+      );
+      expect(String((billingFailure?.event?.requestId as string) || '')).toBe(
+        'req_obs_billing_reconcile',
+      );
     } finally {
       await srv.close();
     }
@@ -4849,6 +5098,233 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(res.status).toBe(501);
     expect(res.json?.code).toBe('audit_exports_not_configured');
+  });
+
+  test('GET /console/observability/summary returns observability_not_configured without service', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/observability/summary',
+    });
+    expect(res.status).toBe(501);
+    expect(res.json?.code).toBe('observability_not_configured');
+  });
+
+  test('cloudflare GET /console/observability/* returns scaffolded responses when service is configured', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['support'],
+        'org-observability-cf',
+        'user-observability-cf',
+      ),
+      observability: createInMemoryConsoleObservabilityService(),
+    });
+
+    const summary = await callCf(handler, {
+      method: 'GET',
+      path: '/console/observability/summary',
+    });
+    expect(summary.status).toBe(200);
+    expect(getPath(summary.json, 'summary', 'status', 'state')).toBe('not_configured');
+
+    const events = await callCf(handler, {
+      method: 'GET',
+      path: '/console/observability/events?limit=5',
+    });
+    expect(events.status).toBe(200);
+    expect(getPath(events.json, 'status', 'state')).toBe('not_configured');
+    expect(Array.isArray(events.json?.events)).toBe(true);
+
+    const timeseries = await callCf(handler, {
+      method: 'GET',
+      path: '/console/observability/timeseries?bucketMinutes=5',
+    });
+    expect(timeseries.status).toBe(200);
+    expect(getPath(timeseries.json, 'status', 'state')).toBe('not_configured');
+    expect(Array.isArray(timeseries.json?.buckets)).toBe(true);
+
+    const services = await callCf(handler, {
+      method: 'GET',
+      path: '/console/observability/services?limit=10',
+    });
+    expect(services.status).toBe(200);
+    expect(getPath(services.json, 'status', 'state')).toBe('not_configured');
+    expect(Array.isArray(services.json?.services)).toBe(true);
+  });
+
+  test('cloudflare GET /console/observability/* requires observability read role', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['developer'],
+        'org-observability-cf-forbidden',
+        'user-observability-cf-forbidden',
+      ),
+      observability: createInMemoryConsoleObservabilityService(),
+    });
+    const paths = [
+      '/console/observability/summary',
+      '/console/observability/events',
+      '/console/observability/timeseries',
+      '/console/observability/services',
+    ];
+    for (const path of paths) {
+      const res = await callCf(handler, {
+        method: 'GET',
+        path,
+      });
+      expect(res.status).toBe(403);
+      expect(res.json?.code).toBe('forbidden');
+    }
+  });
+
+  test('cloudflare GET /console/observability/events rejects query windows larger than 7 days', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['ops'],
+        'org-observability-cf-window',
+        'user-observability-cf-window',
+      ),
+      observability: createInMemoryConsoleObservabilityService(),
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/observability/events?from=2026-01-01T00:00:00.000Z&to=2026-01-10T00:00:00.000Z',
+    });
+    expect(res.status).toBe(400);
+    expect(res.json?.code).toBe('invalid_query');
+  });
+
+  test('cloudflare policy publish failures emit approval observability events and router timing', async () => {
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    const observabilityIngestion: ConsoleObservabilityIngestionService = {
+      appendEvent: async (ingestCtx, event) => {
+        ingested.push({
+          ingestCtx: ingestCtx as unknown as Record<string, unknown>,
+          event: event as unknown as Record<string, unknown>,
+        });
+        return { accepted: 1, deduplicated: 0 };
+      },
+    };
+    const basePolicies = createInMemoryConsolePolicyService();
+    const failingPolicies: ConsolePolicyService = {
+      ...basePolicies,
+      publishPolicy: async () => {
+        throw new Error('policy publish failed');
+      },
+    };
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-observability-cf-failure',
+        'user-observability-cf-failure',
+      ),
+      policies: failingPolicies,
+      observabilityIngestion,
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/console/policies/pol_obs_failure/publish',
+      headers: {
+        'x-request-id': 'req_obs_policy_publish_cf',
+      },
+      body: { approvalId: 'apr_obs_failure_cf' },
+    });
+    expect(res.status).toBe(500);
+    expect(res.json?.code).toBe('internal');
+
+    await expect
+      .poll(() => ingested.filter((entry) => entry.event.eventType === 'approval.policy_publish.failed').length)
+      .toBe(1);
+    await expect
+      .poll(() => ingested.filter((entry) => entry.event.eventType === 'router.request.completed').length)
+      .toBeGreaterThanOrEqual(1);
+
+    const approvalFailure = ingested.find(
+      (entry) => entry.event.eventType === 'approval.policy_publish.failed',
+    );
+    expect(approvalFailure).toBeTruthy();
+    expect(String(getPath(approvalFailure?.event || null, 'metadata', 'resourceId') || '')).toBe(
+      'pol_obs_failure',
+    );
+    expect(String(getPath(approvalFailure?.event || null, 'metadata', 'approvalId') || '')).toBe(
+      'apr_obs_failure_cf',
+    );
+    expect(String((approvalFailure?.event?.requestId as string) || '')).toBe(
+      'req_obs_policy_publish_cf',
+    );
+
+    const routerTiming = ingested.find(
+      (entry) =>
+        entry.event.eventType === 'router.request.completed' &&
+        String(getPath(entry.event, 'metadata', 'route') || '').includes(
+          '/console/policies/pol_obs_failure/publish',
+        ),
+    );
+    expect(routerTiming).toBeTruthy();
+  });
+
+  test('cloudflare billing reconcile failures emit billing observability events', async () => {
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    const observabilityIngestion: ConsoleObservabilityIngestionService = {
+      appendEvent: async (ingestCtx, event) => {
+        ingested.push({
+          ingestCtx: ingestCtx as unknown as Record<string, unknown>,
+          event: event as unknown as Record<string, unknown>,
+        });
+        return { accepted: 1, deduplicated: 0 };
+      },
+    };
+    const baseBilling = createInMemoryConsoleBillingService();
+    const failingBilling: ConsoleBillingService = {
+      ...baseBilling,
+      reconcileStripePaymentIntent: async () => {
+        throw new Error('manual reconcile failed');
+      },
+    };
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['ops'],
+        'org-observability-cf-billing',
+        'user-observability-cf-billing',
+      ),
+      billing: failingBilling,
+      observabilityIngestion,
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/payment-intents/pi_obs_failure_cf/reconcile',
+      headers: {
+        'x-request-id': 'req_obs_billing_reconcile_cf',
+      },
+      body: { providerStatus: 'FAILED' },
+    });
+    expect(res.status).toBe(500);
+    expect(res.json?.code).toBe('internal');
+
+    await expect
+      .poll(() => ingested.filter((entry) => entry.event.eventType === 'billing.payment_reconcile.failed').length)
+      .toBe(1);
+
+    const billingFailure = ingested.find(
+      (entry) => entry.event.eventType === 'billing.payment_reconcile.failed',
+    );
+    expect(billingFailure).toBeTruthy();
+    expect(String(getPath(billingFailure?.event || null, 'metadata', 'invoiceId') || '')).toBe(
+      'payment_intent:pi_obs_failure_cf',
+    );
+    expect(String((billingFailure?.event?.requestId as string) || '')).toBe(
+      'req_obs_billing_reconcile_cf',
+    );
   });
 
   test('GET /console/isolation/status returns enterprise_isolation_not_configured without service', async () => {

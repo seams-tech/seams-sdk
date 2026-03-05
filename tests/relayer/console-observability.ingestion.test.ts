@@ -1,0 +1,567 @@
+import { expect, test } from '@playwright/test';
+import {
+  buildBillingFailureObservabilityEvent,
+  buildRouterTimingObservabilityEvent,
+  buildWebhookDeadLetterObservabilityEvent,
+  createPostgresConsoleObservabilityIngestionService,
+  createPostgresConsoleObservabilityService,
+  redactConsoleObservabilityMetadata,
+} from '@server/router/express-adaptor';
+import { withConsoleTenantContextTx } from '../../server/src/console/shared/postgresTenantContext';
+import { getPostgresPool } from '../../server/src/storage/postgres';
+
+function randomNamespace(prefix: string): string {
+  return `${prefix}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+}
+
+function parseJsonObject(raw: unknown): Record<string, unknown> {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // no-op
+    }
+  }
+  return {};
+}
+
+test.describe('console observability ingestion scaffolding', () => {
+  test('adapter builders emit normalized envelopes', async () => {
+    const event = buildWebhookDeadLetterObservabilityEvent({
+      orgId: 'org-observability-adapter',
+      projectId: 'proj-observability-adapter',
+      environmentId: 'env-observability-adapter',
+      endpointId: 'wh_ep_1',
+      deliveryId: 'del_1',
+      webhookEventId: 'evt_1',
+      webhookEventType: 'billing.invoice.failed',
+      failedAttempts: 3,
+      movedToDlqAt: '2026-03-05T10:00:00.000Z',
+    });
+
+    expect(event.eventId).toContain('obs_webhook_dead_letter_');
+    expect(event.source).toBe('WEBHOOK');
+    expect(event.level).toBe('ERROR');
+    expect(event.eventType).toBe('webhook.delivery.dead_letter');
+    expect(event.orgId).toBe('org-observability-adapter');
+    expect(event.projectId).toBe('proj-observability-adapter');
+    expect(event.environmentId).toBe('env-observability-adapter');
+    expect(Number(event.ingestedAtMs || 0)).toBeGreaterThan(0);
+  });
+
+  test('metadata redaction strips sensitive keys', async () => {
+    const output = redactConsoleObservabilityMetadata({
+      safe: 'ok',
+      apiKey: 'secret-key',
+      nested: {
+        token: 'sensitive',
+        keep: 'value',
+      },
+    });
+
+    const nested = parseJsonObject(output.metadata.nested);
+    expect(output.redactionApplied).toBe(true);
+    expect(String(output.metadata.apiKey || '')).toBe('[REDACTED]');
+    expect(String(nested.token || '')).toBe('[REDACTED]');
+    expect(String(output.metadata.safe || '')).toBe('ok');
+    expect(String(nested.keep || '')).toBe('value');
+  });
+});
+
+test.describe('console observability postgres ingestion service', () => {
+  const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
+  const enabled = Boolean(postgresUrl);
+  const namespace = randomNamespace('test:console-observability:postgres');
+  const orgId = 'org-observability-postgres';
+
+  test.afterAll(async () => {
+    if (!enabled) return;
+    const pool = await getPostgresPool(postgresUrl);
+    await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
+      await q.query('DELETE FROM console_observability_events WHERE namespace = $1', [namespace]);
+      await q.query('DELETE FROM console_observability_event_dedup WHERE namespace = $1', [namespace]);
+      await q.query('DELETE FROM console_observability_ingest_windows WHERE namespace = $1', [namespace]);
+    });
+  });
+
+  test('appendEvent persists redacted payload and enforces idempotent event ids', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+
+    const service = await createPostgresConsoleObservabilityIngestionService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+
+    const event = buildRouterTimingObservabilityEvent({
+      orgId,
+      route: '/console/observability/events',
+      method: 'GET',
+      statusCode: 503,
+      latencyMs: 37,
+      requestId: 'req_obs_ingest_1',
+    });
+    event.eventId = 'evt_obs_ingest_1';
+    event.metadata = {
+      ...event.metadata,
+      authorization: 'Bearer top-secret',
+      safeFlag: 'true',
+    };
+
+    const ctx = {
+      orgId,
+      actorUserId: 'ops-observability',
+      roles: ['ops'],
+    };
+
+    const first = await service.appendEvent(ctx, event);
+    expect(first.accepted).toBe(1);
+    expect(first.deduplicated).toBe(0);
+
+    const second = await service.appendEvent(ctx, event);
+    expect(second.accepted).toBe(0);
+    expect(second.deduplicated).toBe(1);
+
+    const pool = await getPostgresPool(postgresUrl);
+    const rows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId },
+      async (q) =>
+        q.query(
+          `SELECT event_id, metadata, redaction_applied, redaction_version
+             FROM console_observability_events
+            WHERE namespace = $1 AND org_id = $2 AND event_id = $3`,
+          [namespace, orgId, 'evt_obs_ingest_1'],
+        ),
+    );
+    expect(rows.rows.length).toBe(1);
+
+    const row = rows.rows[0] as Record<string, unknown>;
+    const metadata = parseJsonObject(row.metadata);
+    expect(String(metadata.authorization || '')).toBe('[REDACTED]');
+    expect(String(metadata.safeFlag || '')).toBe('true');
+    expect(Boolean(row.redaction_applied)).toBe(true);
+    expect(Number(row.redaction_version || 0)).toBeGreaterThanOrEqual(1);
+  });
+
+  test('appendEvent rejects cross-org events', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+
+    const service = await createPostgresConsoleObservabilityIngestionService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: false,
+    });
+
+    const event = buildRouterTimingObservabilityEvent({
+      orgId: 'org-observability-other',
+      route: '/console/observability/events',
+      method: 'GET',
+      statusCode: 200,
+      latencyMs: 12,
+    });
+
+    let caught: any;
+    try {
+      await service.appendEvent(
+        {
+          orgId,
+          actorUserId: 'ops-observability',
+          roles: ['ops'],
+        },
+        event,
+      );
+    } catch (error: unknown) {
+      caught = error;
+    }
+
+    expect(caught).toBeTruthy();
+    expect(String(caught?.code || '')).toBe('invalid_body');
+  });
+
+  test('postgres observability service lists events with deterministic cursor ordering', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+
+    const ingestService = await createPostgresConsoleObservabilityIngestionService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: false,
+    });
+    const queryService = await createPostgresConsoleObservabilityService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: false,
+    });
+
+    const seedEvents = [
+      { eventId: 'evt_obs_cursor_c', ingestedAtMs: 1_700_000_000_000, statusCode: 500 },
+      { eventId: 'evt_obs_cursor_b', ingestedAtMs: 1_700_000_000_000, statusCode: 503 },
+      { eventId: 'evt_obs_cursor_a', ingestedAtMs: 1_700_000_000_000, statusCode: 404 },
+      { eventId: 'evt_obs_cursor_older', ingestedAtMs: 1_699_999_999_000, statusCode: 200 },
+    ];
+    for (const seed of seedEvents) {
+      const event = buildRouterTimingObservabilityEvent({
+        orgId,
+        route: '/console/observability/events',
+        method: 'GET',
+        statusCode: seed.statusCode,
+        latencyMs: 10,
+      });
+      event.eventId = seed.eventId;
+      event.ingestedAtMs = seed.ingestedAtMs;
+      event.timestamp = new Date(seed.ingestedAtMs).toISOString();
+      await ingestService.appendEvent(
+        {
+          orgId,
+          actorUserId: 'ops-observability',
+          roles: ['ops'],
+        },
+        event,
+      );
+    }
+
+    const firstPage = await queryService.listEvents(
+      {
+        orgId,
+        actorUserId: 'ops-observability',
+        roles: ['ops'],
+      },
+      {
+        limit: 2,
+        from: '2023-11-14T00:00:00.000Z',
+        to: '2023-11-20T00:00:00.000Z',
+      },
+    );
+    expect(firstPage.status.state).toBe('ok');
+    expect(firstPage.events.map((entry) => entry.id)).toEqual([
+      'evt_obs_cursor_c',
+      'evt_obs_cursor_b',
+    ]);
+    expect(String(firstPage.nextCursor || '')).toContain(':');
+
+    const secondPage = await queryService.listEvents(
+      {
+        orgId,
+        actorUserId: 'ops-observability',
+        roles: ['ops'],
+      },
+      {
+        limit: 2,
+        cursor: firstPage.nextCursor,
+        from: '2023-11-14T00:00:00.000Z',
+        to: '2023-11-20T00:00:00.000Z',
+      },
+    );
+    expect(secondPage.events.map((entry) => entry.id)).toEqual([
+      'evt_obs_cursor_a',
+      'evt_obs_cursor_older',
+    ]);
+    expect(secondPage.nextCursor).toBeUndefined();
+  });
+
+  test('postgres observability service rejects invalid cursor shape', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+
+    const queryService = await createPostgresConsoleObservabilityService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: false,
+    });
+
+    let caught: any;
+    try {
+      await queryService.listEvents(
+        {
+          orgId,
+          actorUserId: 'ops-observability',
+          roles: ['ops'],
+        },
+        { limit: 10, cursor: 'bad_cursor' },
+      );
+    } catch (error: unknown) {
+      caught = error;
+    }
+    expect(caught).toBeTruthy();
+    expect(String(caught?.code || '')).toBe('invalid_query');
+  });
+
+  test('postgres observability events query applies strict default bounded window', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+
+    const fixedNowMs = Date.parse('2026-03-05T12:00:00.000Z');
+    const ingestService = await createPostgresConsoleObservabilityIngestionService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: false,
+      now: () => new Date(fixedNowMs),
+    });
+    const queryService = await createPostgresConsoleObservabilityService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: false,
+      now: () => new Date(fixedNowMs),
+      queryMaxWindowMs: 1000 * 60 * 60 * 24 * 7,
+    });
+
+    const oldEvent = buildRouterTimingObservabilityEvent({
+      orgId,
+      route: '/console/observability/events',
+      method: 'GET',
+      statusCode: 500,
+      latencyMs: 11,
+    });
+    oldEvent.eventId = 'evt_obs_default_window_old';
+    oldEvent.ingestedAtMs = fixedNowMs - 1000 * 60 * 60 * 24 * 10;
+    oldEvent.timestamp = new Date(oldEvent.ingestedAtMs).toISOString();
+
+    const inWindowEvent = buildRouterTimingObservabilityEvent({
+      orgId,
+      route: '/console/observability/events',
+      method: 'GET',
+      statusCode: 200,
+      latencyMs: 9,
+    });
+    inWindowEvent.eventId = 'evt_obs_default_window_in';
+    inWindowEvent.ingestedAtMs = fixedNowMs - 1000 * 60 * 60 * 24;
+    inWindowEvent.timestamp = new Date(inWindowEvent.ingestedAtMs).toISOString();
+
+    await ingestService.appendEvent(
+      {
+        orgId,
+        actorUserId: 'ops-observability',
+        roles: ['ops'],
+      },
+      oldEvent,
+    );
+    await ingestService.appendEvent(
+      {
+        orgId,
+        actorUserId: 'ops-observability',
+        roles: ['ops'],
+      },
+      inWindowEvent,
+    );
+
+    const page = await queryService.listEvents(
+      {
+        orgId,
+        actorUserId: 'ops-observability',
+        roles: ['ops'],
+      },
+      { limit: 20 },
+    );
+
+    expect(page.events.some((entry) => entry.id === 'evt_obs_default_window_in')).toBe(true);
+    expect(page.events.some((entry) => entry.id === 'evt_obs_default_window_old')).toBe(false);
+  });
+
+  test('postgres observability ingestion applies ingest backpressure limits', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+
+    const service = await createPostgresConsoleObservabilityIngestionService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: false,
+      maxBatchSize: 2,
+      maxEventsPerMinute: 2,
+      now: () => new Date('2026-03-05T12:00:00.000Z'),
+    });
+
+    const mkEvent = (eventId: string) => {
+      const event = buildRouterTimingObservabilityEvent({
+        orgId,
+        route: '/console/observability/events',
+        method: 'GET',
+        statusCode: 200,
+        latencyMs: 10,
+      });
+      event.eventId = eventId;
+      return event;
+    };
+
+    await service.appendEvents(
+      {
+        orgId,
+        actorUserId: 'ops-observability',
+        roles: ['ops'],
+      },
+      [mkEvent('evt_obs_bp_1'), mkEvent('evt_obs_bp_2')],
+    );
+
+    let caught: any;
+    try {
+      await service.appendEvent(
+        {
+          orgId,
+          actorUserId: 'ops-observability',
+          roles: ['ops'],
+        },
+        mkEvent('evt_obs_bp_3'),
+      );
+    } catch (error: unknown) {
+      caught = error;
+    }
+    expect(caught).toBeTruthy();
+    expect(String(caught?.code || '')).toBe('rate_limited');
+  });
+
+  test('postgres observability service computes summary, timeseries, and services aggregates', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+
+    const fixedNowMs = Date.parse('2026-03-05T12:00:00.000Z');
+    const fromIso = new Date(fixedNowMs - 1000 * 60 * 10).toISOString();
+    const toIso = new Date(fixedNowMs).toISOString();
+
+    const ingestService = await createPostgresConsoleObservabilityIngestionService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: false,
+      now: () => new Date(fixedNowMs),
+    });
+    const queryService = await createPostgresConsoleObservabilityService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: false,
+      now: () => new Date(fixedNowMs),
+      queryMaxWindowMs: 1000 * 60 * 60 * 24 * 7,
+    });
+
+    const routerOk = buildRouterTimingObservabilityEvent({
+      orgId,
+      projectId: 'proj-agg',
+      environmentId: 'env-agg',
+      route: '/console/observability/summary',
+      method: 'GET',
+      statusCode: 200,
+      latencyMs: 40,
+      timestamp: new Date(fixedNowMs - 1000 * 60 * 2).toISOString(),
+    });
+    routerOk.eventId = 'evt_obs_agg_router_ok';
+    routerOk.ingestedAtMs = fixedNowMs - 1000 * 60 * 2;
+
+    const routerErr = buildRouterTimingObservabilityEvent({
+      orgId,
+      projectId: 'proj-agg',
+      environmentId: 'env-agg',
+      route: '/console/observability/summary',
+      method: 'GET',
+      statusCode: 500,
+      latencyMs: 140,
+      timestamp: new Date(fixedNowMs - 1000 * 60).toISOString(),
+    });
+    routerErr.eventId = 'evt_obs_agg_router_err';
+    routerErr.ingestedAtMs = fixedNowMs - 1000 * 60;
+
+    const billingErr = buildBillingFailureObservabilityEvent({
+      orgId,
+      projectId: 'proj-agg',
+      environmentId: 'env-agg',
+      operation: 'INVOICE_FINALIZATION',
+      failureCode: 'finalization_failed',
+      failureMessage: 'invoice finalization failed',
+      timestamp: new Date(fixedNowMs - 1000 * 30).toISOString(),
+    });
+    billingErr.eventId = 'evt_obs_agg_billing_err';
+    billingErr.ingestedAtMs = fixedNowMs - 1000 * 30;
+
+    const deadLetter = buildWebhookDeadLetterObservabilityEvent({
+      orgId,
+      projectId: 'proj-agg',
+      environmentId: 'env-agg',
+      endpointId: 'wh_ep_agg',
+      deliveryId: 'del_agg',
+      webhookEventId: 'evt_agg',
+      webhookEventType: 'billing.invoice.failed',
+      failedAttempts: 3,
+      movedToDlqAt: new Date(fixedNowMs - 1000 * 45).toISOString(),
+    });
+    deadLetter.eventId = 'evt_obs_agg_dead_letter';
+    deadLetter.ingestedAtMs = fixedNowMs - 1000 * 45;
+    deadLetter.timestamp = new Date(fixedNowMs - 1000 * 45).toISOString();
+
+    const ingestCtx = {
+      orgId,
+      actorUserId: 'ops-observability',
+      roles: ['ops'],
+    };
+    await ingestService.appendEvents(ingestCtx, [routerOk, routerErr, billingErr, deadLetter]);
+
+    const summary = await queryService.getSummary(
+      {
+        orgId,
+        actorUserId: 'ops-observability',
+        roles: ['ops'],
+      },
+      {
+        from: fromIso,
+        to: toIso,
+        projectId: 'proj-agg',
+        environmentId: 'env-agg',
+      },
+    );
+    expect(summary.status.state).toBe('ok');
+    expect(summary.errorRate).toBeGreaterThan(0.49);
+    expect(summary.errorRate).toBeLessThan(0.51);
+    expect(summary.deadLetterCount).toBe(1);
+    expect(summary.failingServices).toBeGreaterThanOrEqual(3);
+    expect(summary.p95LatencyMs).toBeGreaterThan(100);
+
+    const timeseries = await queryService.getTimeseries(
+      {
+        orgId,
+        actorUserId: 'ops-observability',
+        roles: ['ops'],
+      },
+      {
+        from: fromIso,
+        to: toIso,
+        bucketMinutes: 5,
+        projectId: 'proj-agg',
+        environmentId: 'env-agg',
+        service: 'console-router',
+      },
+    );
+    expect(timeseries.status.state).toBe('ok');
+    expect(timeseries.buckets.length).toBeGreaterThan(0);
+    const requestCount = timeseries.buckets.reduce((sum, row) => sum + row.requestCount, 0);
+    const errorCount = timeseries.buckets.reduce((sum, row) => sum + row.errorCount, 0);
+    expect(requestCount).toBe(2);
+    expect(errorCount).toBe(1);
+
+    const services = await queryService.listServices(
+      {
+        orgId,
+        actorUserId: 'ops-observability',
+        roles: ['ops'],
+      },
+      {
+        from: fromIso,
+        to: toIso,
+        projectId: 'proj-agg',
+        environmentId: 'env-agg',
+        limit: 10,
+      },
+    );
+    expect(services.status.state).toBe('ok');
+    const byService = new Map(services.services.map((entry) => [entry.service, entry]));
+    expect(byService.get('console-router')?.recentFailureCount).toBe(1);
+    expect(byService.get('billing')?.recentFailureCount).toBe(1);
+    expect(byService.get('webhooks')?.recentFailureCount).toBe(1);
+  });
+});

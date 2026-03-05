@@ -75,7 +75,7 @@ function buildMockDashboardContext(): MockDashboardContext {
 }
 
 test.describe('dashboard console config page api wiring', () => {
-  test('dashboard root routes to onboarding when console session is unavailable', async ({
+  test('dashboard root routes to login when console session is unavailable', async ({
     page,
     baseURL,
   }) => {
@@ -107,12 +107,88 @@ test.describe('dashboard console config page api wiring', () => {
 
     await page.goto('/dashboard');
 
-    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/onboarding');
-    await expect(page.locator('#dashboard-main-title')).toHaveText(/onboarding wizard/i);
-    await expect(page.locator('section[aria-label="Onboarding summary"]')).toBeVisible();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/login');
+    await expect(page.locator('h1')).toHaveText(/sign in with google/i);
+    await expect(page.locator('main[aria-label="Dashboard login page"]')).toBeVisible();
   });
 
-  test('onboarding surfaces actionable message when session fetch fails at network layer', async ({
+  test('protected dashboard route redirects to login when console session is unavailable', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const pathname = new URL(route.request().url()).pathname;
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 401,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: false,
+            code: 'unauthorized',
+            message: 'No valid app session',
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'service_unavailable',
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/wallets-list');
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/login');
+    await expect(page.locator('h1')).toHaveText(/sign in with google/i);
+    await expect(page.locator('main[aria-label="Dashboard login page"]')).toBeVisible();
+  });
+
+  test('dashboard root preserves route and shows forbidden state on 403 session response', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const pathname = new URL(route.request().url()).pathname;
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 403,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: false,
+            code: 'forbidden',
+            message: 'No console roles assigned',
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'service_unavailable',
+        }),
+      });
+    });
+
+    await page.goto('/dashboard');
+
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard');
+    await expect(page.locator('main[aria-label="Dashboard workspace"]')).toBeVisible();
+    await expect(page.locator('p[role="alert"]')).toContainText(
+      /access to this dashboard is forbidden/i,
+    );
+    await expect(page.locator('h1')).not.toHaveText(/sign in with google/i);
+  });
+
+  test('login page remains available when console session check fails at network layer', async ({
     page,
     baseURL,
   }) => {
@@ -122,11 +198,365 @@ test.describe('dashboard console config page api wiring', () => {
       await route.abort('failed');
     });
 
-    await page.goto('/dashboard/onboarding');
+    await page.goto('/dashboard/login');
+    await expect(page.locator('h1')).toHaveText(/sign in with google/i);
+    await expect(page.locator('main[aria-label="Dashboard login page"]')).toBeVisible();
+  });
 
-    const summary = page.locator('section[aria-label="Onboarding summary"]');
-    await expect(summary).toContainText(/unable to reach console api endpoint/i);
-    await expect(summary).toContainText('/console/session');
+  test('dashboard login exchanges mocked Google id token and redirects into dashboard flow', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    let sessionEstablished = false;
+    let sessionExchangeCalls = 0;
+    let exchangeToken = '';
+    let exchangeType = '';
+    let exchangeSessionKind = '';
+    let optionsRequestUsedLegacyAuthHeaders = false;
+    let exchangeRequestUsedLegacyAuthHeaders = false;
+
+    const hasLegacyDashboardAuthHeaders = (headers: Record<string, string>): boolean => {
+      const entries = Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v] as const);
+      for (const [key, value] of entries) {
+        if (key.startsWith('x-console-')) return true;
+        if (key === 'authorization' && String(value || '').trim()) return true;
+      }
+      return false;
+    };
+
+    await page.addInitScript(() => {
+      (window as any).__googleInitConfig = null;
+      (window as any).google = {
+        accounts: {
+          id: {
+            initialize(config: any) {
+              (window as any).__googleInitConfig = config;
+            },
+            prompt(notification: any) {
+              const config = (window as any).__googleInitConfig;
+              if (config && typeof config.callback === 'function') {
+                config.callback({ credential: 'mock-google-id-token' });
+              }
+              if (typeof notification === 'function') {
+                notification({
+                  isNotDisplayed: () => false,
+                  isSkippedMoment: () => false,
+                  getNotDisplayedReason: () => '',
+                  getSkippedReason: () => '',
+                });
+              }
+            },
+          },
+        },
+      };
+    });
+
+    await page.route(`${consoleOrigin}/auth/google/options`, async (route) => {
+      optionsRequestUsedLegacyAuthHeaders = hasLegacyDashboardAuthHeaders(route.request().headers());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          configured: true,
+        }),
+      });
+    });
+
+    await page.route(`${consoleOrigin}/session/exchange`, async (route) => {
+      const req = route.request();
+      if (req.method().toUpperCase() !== 'POST') {
+        await route.fulfill({ status: 405, body: '' });
+        return;
+      }
+      exchangeRequestUsedLegacyAuthHeaders = hasLegacyDashboardAuthHeaders(req.headers());
+      const body = parseJsonBody(req.postData());
+      const exchange = (body.exchange || {}) as Record<string, unknown>;
+      exchangeToken = String(exchange.token || '').trim();
+      exchangeType = String(exchange.type || '').trim();
+      exchangeSessionKind = String(body.session_kind || '').trim();
+      sessionExchangeCalls += 1;
+      sessionEstablished = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          session: {
+            kind: 'app_session_v1',
+            sub: 'google:dashboard-login-test',
+            appSessionVersion: 'v1',
+          },
+        }),
+      });
+    });
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const pathname = new URL(req.url()).pathname;
+
+      if (pathname === '/console/session') {
+        if (!sessionEstablished) {
+          await route.fulfill({
+            status: 401,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              ok: false,
+              code: 'unauthorized',
+              message: 'No valid app session',
+            }),
+          });
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'google:dashboard-login-test',
+              orgId: 'org-dashboard-login-test',
+              roles: ['owner', 'admin'],
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: {
+              orgId: 'org-dashboard-login-test',
+              organization: null,
+              activeProjectCount: 0,
+              activeEnvironmentCount: 0,
+              activeApiKeyCount: 0,
+              hasOrganization: false,
+              hasProject: false,
+              hasEnvironment: false,
+              hasApiKey: false,
+              accountReady: true,
+              organizationReady: false,
+              billingReady: false,
+              projectReady: false,
+              onboardingComplete: false,
+              currentStep: 'organization',
+              complete: false,
+              selectedProjectId: null,
+              selectedEnvironmentId: null,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/org' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            org: {
+              id: 'org-dashboard-login-test',
+              name: 'Dashboard Login Test Org',
+              slug: 'dashboard-login-test-org',
+              status: 'ACTIVE',
+              createdAt: iso('2026-03-01T00:00:00.000Z'),
+              updatedAt: iso('2026-03-01T00:00:00.000Z'),
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            projects: [],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            environments: [],
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_stubbed',
+          path: pathname,
+          method,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/login');
+    await expect(page.locator('h1')).toHaveText(/sign in with google/i);
+
+    const continueButton = page.getByRole('button', { name: /continue with google/i });
+    await expect(continueButton).toBeEnabled();
+    await continueButton.click();
+
+    await expect.poll(() => sessionExchangeCalls).toBe(1);
+    await expect.poll(() => exchangeToken).toBe('mock-google-id-token');
+    await expect(exchangeType).toBe('oidc_jwt');
+    await expect(exchangeSessionKind).toBe('cookie');
+    await expect(optionsRequestUsedLegacyAuthHeaders).toBe(false);
+    await expect(exchangeRequestUsedLegacyAuthHeaders).toBe(false);
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/onboarding');
+  });
+
+  test('dashboard sign out revokes session, clears UI state, and routes to login', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    let sessionRevoked = false;
+    let sessionRevokeCalls = 0;
+
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        'tatchi-dashboard-ui-state-v1',
+        JSON.stringify({
+          isSidebarExpanded: true,
+          expandedGroups: {
+            overview: true,
+            administration: true,
+            operationsSecurity: true,
+            integrations: true,
+            billing: true,
+          },
+          selectedContext: {
+            organization: 'org-signout-test',
+            project: 'proj-signout-test',
+            environment: 'env-signout-test',
+            accountSettings: 'Account & Settings',
+          },
+        }),
+      );
+    });
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const pathname = new URL(req.url()).pathname;
+
+      if (pathname === '/console/session') {
+        if (sessionRevoked) {
+          await route.fulfill({
+            status: 401,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              ok: false,
+              code: 'unauthorized',
+              message: 'No valid app session',
+            }),
+          });
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user-signout-test',
+              orgId: 'org-signout-test',
+              roles: ['admin'],
+              projectId: 'proj-signout-test',
+              environmentId: 'env-signout-test',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: {
+              orgId: 'org-signout-test',
+              organization: null,
+              activeProjectCount: 0,
+              activeEnvironmentCount: 0,
+              activeApiKeyCount: 0,
+              hasOrganization: false,
+              hasProject: false,
+              hasEnvironment: false,
+              hasApiKey: false,
+              accountReady: true,
+              organizationReady: false,
+              billingReady: false,
+              projectReady: false,
+              onboardingComplete: false,
+              currentStep: 'organization',
+              complete: false,
+              selectedProjectId: null,
+              selectedEnvironmentId: null,
+            },
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_stubbed',
+          path: pathname,
+          method,
+        }),
+      });
+    });
+
+    await page.route(`${consoleOrigin}/session/revoke`, async (route) => {
+      sessionRevokeCalls += 1;
+      sessionRevoked = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, revoked: true, userId: 'user-signout-test' }),
+      });
+    });
+
+    await page.goto('/dashboard/onboarding');
+    await expect(page.locator('main[aria-label="Dashboard workspace"]')).toBeVisible();
+
+    await page.getByRole('button', { name: /account.*settings/i }).click();
+    await page.getByRole('menuitemradio', { name: /sign out/i }).click();
+
+    await expect.poll(() => sessionRevokeCalls).toBe(1);
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/login');
+    await expect(page.locator('h1')).toHaveText(/sign in with google/i);
+    await expect
+      .poll(() => page.evaluate(() => window.localStorage.getItem('tatchi-dashboard-ui-state-v1')))
+      .toBeNull();
   });
 
   test('dashboard strips legacy db_* query params from URL', async ({ page, baseURL }) => {
@@ -2722,6 +3152,333 @@ test.describe('dashboard console config page api wiring', () => {
     await expect.poll(() => lastEvidenceDomainQuery).toBe('BILLING');
     await expect(page.locator('section[aria-label="Audit evidence table"]')).toContainText(
       'Invoice settlement evidence',
+    );
+  });
+
+  test('observability page wires API and renders no-data + module warnings', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const context = buildMockDashboardContext();
+    let lastSummaryProjectId = '';
+    let lastSummaryEnvironmentId = '';
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const url = new URL(req.url());
+      const { pathname } = url;
+
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user_dash_console_pages',
+              orgId: 'org_dash_console_pages',
+              roles: ['admin', 'ops'],
+              projectId: 'proj_active',
+              environmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: {
+              orgId: 'org_dash_console_pages',
+              organization: context.org,
+              activeProjectCount: 1,
+              activeEnvironmentCount: 1,
+              activeApiKeyCount: 1,
+              hasOrganization: true,
+              hasProject: true,
+              hasEnvironment: true,
+              hasApiKey: true,
+              accountReady: true,
+              organizationReady: true,
+              billingReady: true,
+              projectReady: true,
+              onboardingComplete: true,
+              currentStep: 'complete',
+              complete: true,
+              selectedProjectId: 'proj_active',
+              selectedEnvironmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/org') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, org: context.org }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, projects: [context.activeProject] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, environments: [context.activeEnvironment] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/observability/summary' && method === 'GET') {
+        lastSummaryProjectId = String(url.searchParams.get('projectId') || '').trim();
+        lastSummaryEnvironmentId = String(url.searchParams.get('environmentId') || '').trim();
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            summary: {
+              generatedAt: iso('2026-03-03T10:00:00.000Z'),
+              status: { state: 'ok' },
+              errorRate: 0,
+              p95LatencyMs: 12,
+              failingServices: 0,
+              deadLetterCount: 0,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/observability/events' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            status: {
+              state: 'not_configured',
+              code: 'observability_storage_not_ready',
+              message: 'Storage wiring pending',
+            },
+            events: [],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/observability/timeseries' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            status: { state: 'not_configured', code: 'timeseries_not_ready' },
+            buckets: [],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/observability/services' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            status: {
+              state: 'forbidden',
+              code: 'forbidden',
+              message: 'Support role requires redaction profile',
+            },
+            services: [],
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_found',
+          message: `Unhandled mock path ${pathname}`,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/observability');
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/observability/i);
+    await expect.poll(() => lastSummaryProjectId).toBe('proj_active');
+    await expect.poll(() => lastSummaryEnvironmentId).toBe('env_active');
+    await expect(page.locator('section[aria-label="Observability summary metrics"]')).toContainText(
+      '12ms',
+    );
+    await expect(page.locator('ul[aria-label="Observability status warnings"]')).toContainText(
+      'Events is not configured',
+    );
+    await expect(page.locator('ul[aria-label="Observability status warnings"]')).toContainText(
+      'Service health is not available for this role',
+    );
+    await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
+      'No observability events for this scope.',
+    );
+  });
+
+  test('observability page surfaces forbidden and not-configured API errors', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const context = buildMockDashboardContext();
+    let responseMode: 'forbidden' | 'not_configured' = 'forbidden';
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const url = new URL(req.url());
+      const { pathname } = url;
+
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user_dash_console_pages',
+              orgId: 'org_dash_console_pages',
+              roles: ['developer'],
+              projectId: 'proj_active',
+              environmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: {
+              orgId: 'org_dash_console_pages',
+              organization: context.org,
+              activeProjectCount: 1,
+              activeEnvironmentCount: 1,
+              activeApiKeyCount: 1,
+              hasOrganization: true,
+              hasProject: true,
+              hasEnvironment: true,
+              hasApiKey: true,
+              accountReady: true,
+              organizationReady: true,
+              billingReady: true,
+              projectReady: true,
+              onboardingComplete: true,
+              currentStep: 'complete',
+              complete: true,
+              selectedProjectId: 'proj_active',
+              selectedEnvironmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/org') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, org: context.org }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, projects: [context.activeProject] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, environments: [context.activeEnvironment] }),
+        });
+        return;
+      }
+
+      if (pathname.startsWith('/console/observability/')) {
+        if (responseMode === 'forbidden') {
+          await route.fulfill({
+            status: 403,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              ok: false,
+              code: 'forbidden',
+              message: 'Only owner, admin, security_admin, ops, or support can view observability',
+            }),
+          });
+          return;
+        }
+        await route.fulfill({
+          status: 501,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: false,
+            code: 'observability_not_configured',
+            message: 'Observability service is not configured for this server',
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_found',
+          message: `Unhandled mock path ${pathname}`,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/observability');
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/observability/i);
+    await expect(page.locator('section[aria-label="Observability overview"]')).toContainText(
+      'Observability is not available for this role.',
+    );
+
+    responseMode = 'not_configured';
+    await page.locator('button:has-text("Reload observability")').click();
+    await expect(page.locator('section[aria-label="Observability overview"]')).toContainText(
+      'Observability service is not configured on this server.',
     );
   });
 

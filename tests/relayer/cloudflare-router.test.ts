@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test';
 import {
+  createAppSessionConsoleAuthAdapter,
+  createCloudflareConsoleRouter,
   createCloudflareRouter,
+  createInMemoryConsoleAuditService,
+  createInMemoryConsoleOrgProjectEnvService,
+  createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWebhookService,
 } from '@server/router/cloudflare-adaptor';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '@server/core/ThresholdService/schemes/schemeIds';
@@ -770,6 +775,506 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(res.headers.get('set-cookie')).toContain('tatchi-jwt=app-jwt-cf-cookie-123');
   });
 
+  test('POST /session/exchange + /session/revoke: oidc_jwt cookie session is invalidated after revoke', async () => {
+    const issuedClaimsByToken = new Map<string, { sub: string; appSessionVersion: string }>();
+    let currentAppSessionVersion = 'v1';
+
+    const parseCookieToken = (cookieHeader: string): string | null => {
+      for (const part of cookieHeader.split(';')) {
+        const chunk = String(part || '').trim();
+        if (!chunk) continue;
+        const equalsIndex = chunk.indexOf('=');
+        const name = (equalsIndex >= 0 ? chunk.slice(0, equalsIndex) : chunk).trim();
+        if (name !== 'tatchi-jwt') continue;
+        const value = (equalsIndex >= 0 ? chunk.slice(equalsIndex + 1) : '').trim();
+        return value || null;
+      }
+      return null;
+    };
+
+    const session = makeSessionAdapter({
+      signJwt: async (sub, extra) => {
+        const appSessionVersion =
+          typeof extra?.appSessionVersion === 'string'
+            ? String(extra.appSessionVersion).trim()
+            : '';
+        const token = `app-session:${sub}:${appSessionVersion}:${issuedClaimsByToken.size + 1}`;
+        issuedClaimsByToken.set(token, { sub, appSessionVersion });
+        return token;
+      },
+      parse: async (headers) => {
+        const cookieHeaderValue = headers.cookie ?? headers.Cookie;
+        const cookieHeader =
+          typeof cookieHeaderValue === 'string'
+            ? cookieHeaderValue
+            : Array.isArray(cookieHeaderValue)
+              ? String(cookieHeaderValue[0] || '')
+              : '';
+        const token = parseCookieToken(cookieHeader);
+        if (!token) return { ok: false } as const;
+        const claims = issuedClaimsByToken.get(token);
+        if (!claims) return { ok: false } as const;
+        return {
+          ok: true as const,
+          claims: {
+            sub: claims.sub,
+            kind: 'app_session_v1',
+            appSessionVersion: claims.appSessionVersion,
+          },
+        };
+      },
+      buildSetCookie: (token) => `tatchi-jwt=${token}; Path=/; HttpOnly`,
+      buildClearCookie: () => 'tatchi-jwt=; Path=/; Max-Age=0',
+    });
+    const service = makeFakeAuthService({
+      verifyOidcJwtExchange: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'user-oidc-cookie-cf-revoke-1',
+        providerSubject: 'oidc:https://issuer.example.com:user-oidc-cookie-cf-revoke-1',
+      }),
+      getOrCreateAppSessionVersion: async () => ({
+        ok: true,
+        appSessionVersion: currentAppSessionVersion,
+      }),
+      validateAppSessionVersion: async (args: any) => ({
+        ok: String(args?.appSessionVersion || '').trim() === currentAppSessionVersion,
+        code: 'invalid_session_version',
+        message: 'Session revoked',
+      }),
+      rotateAppSessionVersion: async () => {
+        currentAppSessionVersion = 'v2';
+        return { ok: true, appSessionVersion: currentAppSessionVersion };
+      },
+    });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+    });
+
+    const exchange = await callCf(handler, {
+      method: 'POST',
+      path: '/session/exchange',
+      origin: 'https://example.localhost',
+      body: {
+        sessionKind: 'cookie',
+        exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
+      },
+    });
+    expect(exchange.status).toBe(200);
+    expect(exchange.json?.ok).toBe(true);
+    const issuedCookieHeader = String(exchange.headers.get('set-cookie') || '');
+    expect(issuedCookieHeader).toContain('tatchi-jwt=');
+    const cookieHeader = String(issuedCookieHeader.split(';')[0] || '').trim();
+    expect(cookieHeader).toMatch(/^tatchi-jwt=/);
+
+    const stateBefore = await callCf(handler, {
+      method: 'GET',
+      path: '/session/state',
+      origin: 'https://example.localhost',
+      headers: { Cookie: cookieHeader },
+    });
+    expect(stateBefore.status).toBe(200);
+    expect(stateBefore.json?.authenticated).toBe(true);
+
+    const revoke = await callCf(handler, {
+      method: 'POST',
+      path: '/session/revoke',
+      origin: 'https://example.localhost',
+      headers: { Cookie: cookieHeader },
+    });
+    expect(revoke.status).toBe(200);
+    expect(revoke.json?.ok).toBe(true);
+    expect(revoke.json?.revoked).toBe(true);
+    expect(revoke.headers.get('set-cookie')).toContain('Max-Age=0');
+
+    const stateAfter = await callCf(handler, {
+      method: 'GET',
+      path: '/session/state',
+      origin: 'https://example.localhost',
+      headers: { Cookie: cookieHeader },
+    });
+    expect(stateAfter.status).toBe(401);
+    expect(stateAfter.json?.authenticated).toBe(false);
+    expect(stateAfter.json?.code).toBe('invalid_session_version');
+  });
+
+  test('POST /session/exchange -> GET /console/session -> POST /session/revoke invalidates console session', async () => {
+    const issuedClaimsByToken = new Map<string, { sub: string; appSessionVersion: string }>();
+    let currentAppSessionVersion = 'v1';
+
+    const parseCookieToken = (cookieHeader: string): string | null => {
+      for (const part of cookieHeader.split(';')) {
+        const chunk = String(part || '').trim();
+        if (!chunk) continue;
+        const equalsIndex = chunk.indexOf('=');
+        const name = (equalsIndex >= 0 ? chunk.slice(0, equalsIndex) : chunk).trim();
+        if (name !== 'tatchi-jwt') continue;
+        const value = (equalsIndex >= 0 ? chunk.slice(equalsIndex + 1) : '').trim();
+        return value || null;
+      }
+      return null;
+    };
+
+    const session = makeSessionAdapter({
+      signJwt: async (sub, extra) => {
+        const appSessionVersion =
+          typeof extra?.appSessionVersion === 'string'
+            ? String(extra.appSessionVersion).trim()
+            : '';
+        const token = `app-session:${sub}:${appSessionVersion}:${issuedClaimsByToken.size + 1}`;
+        issuedClaimsByToken.set(token, { sub, appSessionVersion });
+        return token;
+      },
+      parse: async (headers) => {
+        const cookieHeaderValue = headers.cookie ?? headers.Cookie;
+        const cookieHeader =
+          typeof cookieHeaderValue === 'string'
+            ? cookieHeaderValue
+            : Array.isArray(cookieHeaderValue)
+              ? String(cookieHeaderValue[0] || '')
+              : '';
+        const token = parseCookieToken(cookieHeader);
+        if (!token) return { ok: false } as const;
+        const claims = issuedClaimsByToken.get(token);
+        if (!claims) return { ok: false } as const;
+        return {
+          ok: true as const,
+          claims: {
+            sub: claims.sub,
+            kind: 'app_session_v1',
+            appSessionVersion: claims.appSessionVersion,
+          },
+        };
+      },
+      buildSetCookie: (token) => `tatchi-jwt=${token}; Path=/; HttpOnly`,
+      buildClearCookie: () => 'tatchi-jwt=; Path=/; Max-Age=0',
+    });
+    const service = makeFakeAuthService({
+      verifyOidcJwtExchange: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'user-oidc-console-cf-1',
+        providerSubject: 'oidc:https://issuer.example.com:user-oidc-console-cf-1',
+      }),
+      getOrCreateAppSessionVersion: async () => ({
+        ok: true,
+        appSessionVersion: currentAppSessionVersion,
+      }),
+      validateAppSessionVersion: async (args: any) => ({
+        ok: String(args?.appSessionVersion || '').trim() === currentAppSessionVersion,
+        code: 'invalid_session_version',
+        message: 'Session revoked',
+      }),
+      rotateAppSessionVersion: async () => {
+        currentAppSessionVersion = 'v2';
+        return { ok: true, appSessionVersion: currentAppSessionVersion };
+      },
+    });
+
+    const consoleAuth = createAppSessionConsoleAuthAdapter({
+      session,
+      authService: service,
+      defaultOrgId: 'org-oidc-console-cf-1',
+      fallbackRoles: ['admin'],
+    });
+
+    const relayHandler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+    });
+    const consoleHandler = createCloudflareConsoleRouter({
+      corsOrigins: ['https://example.localhost'],
+      auth: consoleAuth,
+    });
+    const handler = async (request: Request, env?: unknown, ctx?: unknown): Promise<Response> => {
+      const pathname = new URL(request.url).pathname;
+      if (pathname.startsWith('/console/')) {
+        return await consoleHandler(request, env as any, ctx as any);
+      }
+      return await relayHandler(request, env as any, ctx as any);
+    };
+
+    const exchange = await callCf(handler, {
+      method: 'POST',
+      path: '/session/exchange',
+      origin: 'https://example.localhost',
+      body: {
+        sessionKind: 'cookie',
+        exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
+      },
+    });
+    expect(exchange.status).toBe(200);
+    const issuedCookieHeader = String(exchange.headers.get('set-cookie') || '');
+    const cookieHeader = String(issuedCookieHeader.split(';')[0] || '').trim();
+    expect(cookieHeader).toMatch(/^tatchi-jwt=/);
+
+    const consoleSessionBefore = await callCf(handler, {
+      method: 'GET',
+      path: '/console/session',
+      origin: 'https://example.localhost',
+      headers: { Cookie: cookieHeader },
+    });
+    expect(consoleSessionBefore.status).toBe(200);
+    expect(consoleSessionBefore.json?.ok).toBe(true);
+    expect(getPath(consoleSessionBefore.json, 'claims', 'userId')).toBe('user-oidc-console-cf-1');
+    expect(getPath(consoleSessionBefore.json, 'claims', 'orgId')).toBe('org-oidc-console-cf-1');
+
+    const revoke = await callCf(handler, {
+      method: 'POST',
+      path: '/session/revoke',
+      origin: 'https://example.localhost',
+      headers: { Cookie: cookieHeader },
+    });
+    expect(revoke.status).toBe(200);
+    expect(revoke.json?.ok).toBe(true);
+    expect(revoke.json?.revoked).toBe(true);
+
+    const consoleSessionAfter = await callCf(handler, {
+      method: 'GET',
+      path: '/console/session',
+      origin: 'https://example.localhost',
+      headers: { Cookie: cookieHeader },
+    });
+    expect(consoleSessionAfter.status).toBe(401);
+    expect(consoleSessionAfter.json?.ok).toBe(false);
+    expect(consoleSessionAfter.json?.code).toBe('unauthorized');
+  });
+
+  test('GET /console/session: authenticated user without membership is forbidden', async () => {
+    const issuedClaimsByToken = new Map<string, { sub: string; appSessionVersion: string }>();
+    const parseCookieToken = (cookieHeader: string): string | null => {
+      for (const part of cookieHeader.split(';')) {
+        const chunk = String(part || '').trim();
+        if (!chunk) continue;
+        const equalsIndex = chunk.indexOf('=');
+        const name = (equalsIndex >= 0 ? chunk.slice(0, equalsIndex) : chunk).trim();
+        if (name !== 'tatchi-jwt') continue;
+        const value = (equalsIndex >= 0 ? chunk.slice(equalsIndex + 1) : '').trim();
+        return value || null;
+      }
+      return null;
+    };
+
+    const session = makeSessionAdapter({
+      signJwt: async (sub, extra) => {
+        const appSessionVersion = String(extra?.appSessionVersion || '').trim() || 'app-v1';
+        const token = `app-session:${sub}:${appSessionVersion}:${issuedClaimsByToken.size + 1}`;
+        issuedClaimsByToken.set(token, { sub, appSessionVersion });
+        return token;
+      },
+      parse: async (headers) => {
+        const cookieHeader = String(headers.cookie ?? headers.Cookie ?? '').trim();
+        const token = parseCookieToken(cookieHeader);
+        if (!token) return { ok: false } as const;
+        const claims = issuedClaimsByToken.get(token);
+        if (!claims) return { ok: false } as const;
+        return {
+          ok: true as const,
+          claims: {
+            sub: claims.sub,
+            kind: 'app_session_v1',
+            appSessionVersion: claims.appSessionVersion,
+          },
+        };
+      },
+      buildSetCookie: (token) => `tatchi-jwt=${token}; Path=/; HttpOnly`,
+      buildClearCookie: () => 'tatchi-jwt=; Path=/; Max-Age=0',
+    });
+    const service = makeFakeAuthService({
+      verifyOidcJwtExchange: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'user-no-membership-cf-1',
+        providerSubject: 'oidc:https://issuer.example.com:user-no-membership-cf-1',
+      }),
+      getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
+      validateAppSessionVersion: async () => ({ ok: true }),
+    });
+    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const consoleAuth = createAppSessionConsoleAuthAdapter({
+      session,
+      authService: service,
+      defaultOrgId: 'org-no-membership-cf-1',
+      fallbackRoles: [],
+      provisioning: {
+        teamRbac,
+        bootstrapRoles: [],
+      },
+    });
+
+    const relayHandler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+    });
+    const consoleHandler = createCloudflareConsoleRouter({
+      corsOrigins: ['https://example.localhost'],
+      auth: consoleAuth,
+      teamRbac,
+    });
+    const handler = async (request: Request, env?: unknown, ctx?: unknown): Promise<Response> => {
+      const pathname = new URL(request.url).pathname;
+      if (pathname.startsWith('/console/')) return await consoleHandler(request, env as any, ctx as any);
+      return await relayHandler(request, env as any, ctx as any);
+    };
+
+    const exchange = await callCf(handler, {
+      method: 'POST',
+      path: '/session/exchange',
+      origin: 'https://example.localhost',
+      body: {
+        sessionKind: 'cookie',
+        exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
+      },
+    });
+    expect(exchange.status).toBe(200);
+    const cookieHeader = String(exchange.headers.get('set-cookie') || '').split(';')[0] || '';
+
+    const consoleSession = await callCf(handler, {
+      method: 'GET',
+      path: '/console/session',
+      origin: 'https://example.localhost',
+      headers: { Cookie: cookieHeader },
+    });
+    expect(consoleSession.status).toBe(403);
+    expect(consoleSession.json?.ok).toBe(false);
+    expect(consoleSession.json?.code).toBe('forbidden');
+  });
+
+  test('GET /console/session: first login provisions membership and audit event', async () => {
+    const issuedClaimsByToken = new Map<string, { sub: string; appSessionVersion: string }>();
+    const parseCookieToken = (cookieHeader: string): string | null => {
+      for (const part of cookieHeader.split(';')) {
+        const chunk = String(part || '').trim();
+        if (!chunk) continue;
+        const equalsIndex = chunk.indexOf('=');
+        const name = (equalsIndex >= 0 ? chunk.slice(0, equalsIndex) : chunk).trim();
+        if (name !== 'tatchi-jwt') continue;
+        const value = (equalsIndex >= 0 ? chunk.slice(equalsIndex + 1) : '').trim();
+        return value || null;
+      }
+      return null;
+    };
+
+    const session = makeSessionAdapter({
+      signJwt: async (sub, extra) => {
+        const appSessionVersion = String(extra?.appSessionVersion || '').trim() || 'app-v1';
+        const token = `app-session:${sub}:${appSessionVersion}:${issuedClaimsByToken.size + 1}`;
+        issuedClaimsByToken.set(token, { sub, appSessionVersion });
+        return token;
+      },
+      parse: async (headers) => {
+        const cookieHeader = String(headers.cookie ?? headers.Cookie ?? '').trim();
+        const token = parseCookieToken(cookieHeader);
+        if (!token) return { ok: false } as const;
+        const claims = issuedClaimsByToken.get(token);
+        if (!claims) return { ok: false } as const;
+        return {
+          ok: true as const,
+          claims: {
+            sub: claims.sub,
+            kind: 'app_session_v1',
+            appSessionVersion: claims.appSessionVersion,
+            provider: 'oidc',
+          },
+        };
+      },
+      buildSetCookie: (token) => `tatchi-jwt=${token}; Path=/; HttpOnly`,
+      buildClearCookie: () => 'tatchi-jwt=; Path=/; Max-Age=0',
+    });
+    const service = makeFakeAuthService({
+      verifyOidcJwtExchange: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'user-provisioning-cf-1',
+        providerSubject: 'oidc:https://issuer.example.com:user-provisioning-cf-1',
+      }),
+      getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
+      validateAppSessionVersion: async () => ({ ok: true }),
+    });
+    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const audit = createInMemoryConsoleAuditService({ seedDemoData: false });
+    const consoleAuth = createAppSessionConsoleAuthAdapter({
+      session,
+      authService: service,
+      defaultOrgId: 'org-provisioning-cf-1',
+      fallbackRoles: [],
+      provisioning: {
+        teamRbac,
+        orgProjectEnv,
+        audit,
+        bootstrapRoles: ['owner', 'admin'],
+      },
+    });
+
+    const relayHandler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+    });
+    const consoleHandler = createCloudflareConsoleRouter({
+      corsOrigins: ['https://example.localhost'],
+      auth: consoleAuth,
+      teamRbac,
+      orgProjectEnv,
+      audit,
+    });
+    const handler = async (request: Request, env?: unknown, ctx?: unknown): Promise<Response> => {
+      const pathname = new URL(request.url).pathname;
+      if (pathname.startsWith('/console/')) return await consoleHandler(request, env as any, ctx as any);
+      return await relayHandler(request, env as any, ctx as any);
+    };
+
+    const exchange = await callCf(handler, {
+      method: 'POST',
+      path: '/session/exchange',
+      origin: 'https://example.localhost',
+      body: {
+        sessionKind: 'cookie',
+        exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
+      },
+    });
+    expect(exchange.status).toBe(200);
+    const cookieHeader = String(exchange.headers.get('set-cookie') || '').split(';')[0] || '';
+
+    const consoleSession = await callCf(handler, {
+      method: 'GET',
+      path: '/console/session',
+      origin: 'https://example.localhost',
+      headers: { Cookie: cookieHeader },
+    });
+    expect(consoleSession.status).toBe(200);
+    expect(consoleSession.json?.ok).toBe(true);
+    const roles = getPath(consoleSession.json, 'claims', 'roles');
+    expect(Array.isArray(roles)).toBe(true);
+    expect((roles as string[]).includes('owner')).toBe(true);
+    expect((roles as string[]).includes('admin')).toBe(true);
+    expect(getPath(consoleSession.json, 'claims', 'projectId')).toBeUndefined();
+    expect(getPath(consoleSession.json, 'claims', 'environmentId')).toBeUndefined();
+
+    const members = await callCf(handler, {
+      method: 'GET',
+      path: '/console/members?status=ACTIVE',
+      origin: 'https://example.localhost',
+      headers: { Cookie: cookieHeader },
+    });
+    expect(members.status).toBe(200);
+    const memberRows = Array.isArray(members.json?.members) ? members.json?.members : [];
+    const actor = memberRows.find((entry: any) => String(entry?.userId || '') === 'user-provisioning-cf-1');
+    expect(actor).toBeTruthy();
+
+    const auditEvents = await callCf(handler, {
+      method: 'GET',
+      path: '/console/audit/events?limit=20',
+      origin: 'https://example.localhost',
+      headers: { Cookie: cookieHeader },
+    });
+    expect(auditEvents.status).toBe(200);
+    const rows = Array.isArray(auditEvents.json?.events) ? auditEvents.json?.events : [];
+    const actions = rows.map((row: any) => String(row?.action || ''));
+    expect(actions).toContain('member.owner.bootstrap');
+  });
+
   test('POST /session/exchange: passkey_assertion mints app session and emits unlock webhook', async () => {
     const dispatched: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
     const webhooks = createInMemoryConsoleWebhookService({
@@ -1128,6 +1633,93 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(res.status).toBe(501);
     expect(res.json?.ok).toBe(false);
     expect(res.json?.code).toBe('unsupported');
+  });
+
+  test('POST /session/exchange: invalid_issuer maps to 401', async () => {
+    const session = makeSessionAdapter();
+    const service = makeFakeAuthService({
+      verifyOidcJwtExchange: async () => ({
+        ok: false,
+        verified: false,
+        code: 'invalid_issuer',
+        message: 'exchange.token issuer is not allowed',
+      }),
+    });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/session/exchange',
+      origin: 'https://example.localhost',
+      body: {
+        sessionKind: 'jwt',
+        exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
+      },
+    });
+    expect(res.status).toBe(401);
+    expect(res.json?.ok).toBe(false);
+    expect(res.json?.code).toBe('invalid_issuer');
+  });
+
+  test('POST /session/exchange: invalid_audience maps to 401', async () => {
+    const session = makeSessionAdapter();
+    const service = makeFakeAuthService({
+      verifyOidcJwtExchange: async () => ({
+        ok: false,
+        verified: false,
+        code: 'invalid_audience',
+        message: 'exchange.token audience mismatch',
+      }),
+    });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/session/exchange',
+      origin: 'https://example.localhost',
+      body: {
+        sessionKind: 'jwt',
+        exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
+      },
+    });
+    expect(res.status).toBe(401);
+    expect(res.json?.ok).toBe(false);
+    expect(res.json?.code).toBe('invalid_audience');
+  });
+
+  test('POST /session/exchange: expired maps to 401', async () => {
+    const session = makeSessionAdapter();
+    const service = makeFakeAuthService({
+      verifyOidcJwtExchange: async () => ({
+        ok: false,
+        verified: false,
+        code: 'expired',
+        message: 'exchange.token is expired',
+      }),
+    });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/session/exchange',
+      origin: 'https://example.localhost',
+      body: {
+        sessionKind: 'jwt',
+        exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
+      },
+    });
+    expect(res.status).toBe(401);
+    expect(res.json?.ok).toBe(false);
+    expect(res.json?.code).toBe('expired');
   });
 
   test('POST /session/refresh: unauthorized maps to 401', async () => {
