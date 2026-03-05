@@ -1,6 +1,6 @@
 # Dashboard + Backend Implementation Plan
 
-Date updated: March 1, 2026
+Date updated: March 2, 2026
 
 ## Objective
 
@@ -112,6 +112,50 @@ Completed:
   - mutation RBAC enforced (`admin` or `owner` for project/environment mutations).
   - focused parser/service tests cover status-filter normalization/validation and in-memory filter semantics.
   - Postgres-backed org-isolation route tests are implemented for Express and Cloudflare adapters.
+- Team/RBAC backend slice is implemented (in-memory service + router contracts):
+  - `GET /console/members`
+  - `POST /console/members/invite`
+  - `PATCH /console/members/:id/roles`
+  - `DELETE /console/members/:id`
+  - role-scope validation is enforced for org-scoped (`owner`, `admin`, `security_admin`, `billing_admin`) and project-scoped (`developer`, `support`, `ops`) assignments.
+  - mutation RBAC is enforced (`admin` or `owner` for invite/role-update/remove).
+  - relayer route coverage is implemented for Express and Cloudflare adapters (success paths, validation errors, and mutation-forbidden checks).
+  - Postgres-backed Team/RBAC persistence is implemented (`console_team_members` with tenant RLS) and covered by Express + Cloudflare org-isolation route tests.
+- Approval queue backend slice is implemented (in-memory + Postgres service + router contracts):
+  - `GET /console/approvals`
+  - `GET /console/approvals/:id`
+  - `POST /console/approvals`
+  - `POST /console/approvals/:id/approve`
+  - `POST /console/approvals/:id/reject`
+  - mutation RBAC is enforced (`owner`, `admin`, or `security_admin` for create/approve/reject).
+  - operation defaults are implemented (`POLICY_PUBLISH`, `KEY_EXPORT`, `SECURITY_SETTINGS_CHANGE`) with per-operation approval/MFA defaults.
+  - Postgres-backed approval persistence is implemented (`console_approvals` with tenant RLS).
+  - relayer route coverage is implemented for Express and Cloudflare adapters (`*_not_configured`, mutation-forbidden checks, MFA-required checks, and state-transition behavior), including Postgres org-isolation route tests.
+  - approval queue create/approve/reject mutations emit lifecycle webhook events (`policy.approval.created`, `policy.approval.approved`, `policy.approval.rejected`) when a webhook service is configured.
+  - approval enforcement is integrated for sensitive operation routes when approvals service is configured:
+    - `POST /console/policies/:id/publish` requires approved `POLICY_PUBLISH` queue entry (`approvalId`).
+    - `PATCH /console/settings/security` requires approved `SECURITY_SETTINGS_CHANGE` queue entry (`approvalId`).
+    - `POST /console/key-exports/:id/approve` requires approved `KEY_EXPORT` queue entry (`approvalId`).
+- Audit/evidence backend slice is implemented (in-memory + Postgres services + router contracts):
+  - `GET /console/audit/events`
+  - `GET /console/audit/evidence`
+  - query filters are wired for project/environment scope, category/outcome/domain, actor, time windows, and limit bounds.
+  - Postgres-backed audit persistence is implemented (`console_audit_events`, `console_audit_evidence`) with tenant RLS and service-level org-isolation tests.
+  - relayer route coverage now includes Express + Cloudflare Postgres org-isolation checks for `/console/audit/events` and `/console/audit/evidence`.
+  - relay-server demo now seeds deterministic audit and evidence rows for local console testing.
+  - audit event emission is now wired for key governance mutations:
+    - approval request create/approve/reject,
+    - policy publish,
+    - security settings updates,
+    - key export approval.
+  - relayer route coverage now includes service-not-wired behavior, filtered list success paths, and approval-create -> audit-event projection for Express + Cloudflare adapters.
+- Dashboard Team members and roles page now consumes live Team/RBAC APIs:
+  - `GET /console/members`
+  - `POST /console/members/invite`
+  - `PATCH /console/members/:id/roles`
+  - `DELETE /console/members/:id`
+  - role-spec driven invite/update/remove actions are wired with owner/admin mutation gating.
+  - browser-level API wiring coverage validates invite -> role update -> remove and status-filter refresh behavior.
 - Wallet backend slice is implemented:
   - `GET /console/wallets`
   - `GET /console/wallets/search`
@@ -205,6 +249,7 @@ Completed:
     - `GET /console/settings/security`
     - `PATCH /console/settings/security`
   - app/security settings forms are wired for allowed origins/domains, cookie/JWT controls, and risky-change security policy updates.
+  - security settings update controls now support forwarding an optional approval request ID (`approvalId`) for approval-enforced environments.
   - settings mutation controls are gated in UI to `owner`/`admin`/`security_admin` roles to match backend RBAC.
 - Dedicated console insight APIs are implemented for policy/gas/export workflows:
   - `GET /console/policy/coverage`
@@ -236,6 +281,7 @@ Completed:
   - `PUT /console/policies/assignments`
   - `DELETE /console/policies/assignments/:id`
   - draft creation, rule updates, simulation, publish, assignment upsert, and assignment delete actions are wired while keeping coverage insights.
+  - policy publish controls now support forwarding an optional approval request ID (`approvalId`) for approval-enforced environments.
 - Dashboard gas sponsorship and smart-wallet page now consumes live config APIs:
   - `GET/POST/PATCH /console/gas-sponsorship`
   - `GET/POST/PATCH /console/smart-wallets`
@@ -245,10 +291,25 @@ Completed:
   - `POST /console/key-exports`
   - `POST /console/key-exports/:id/approve`
   - create request and admin approval controls are wired with status/environment filtering.
+  - approve controls now support forwarding an optional approval request ID (`approvalId`) for approval-enforced environments.
+- Dashboard approvals queue page now consumes live approval queue APIs:
+  - `GET /console/approvals`
+  - `POST /console/approvals`
+  - `POST /console/approvals/:id/approve`
+  - `POST /console/approvals/:id/reject`
+  - list filters, create request controls, and approve/reject actions are wired with owner/admin/security-admin role gating.
+- Dashboard audit logs and evidence page now consumes live audit APIs:
+  - `GET /console/audit/events`
+  - `GET /console/audit/evidence`
+  - timeline/evidence filters and context-scoped investigation tables are wired in UI.
 - Browser-level dashboard API wiring coverage now validates the new page flows:
   - `/dashboard/gas-smart-wallets`: gas config create + mutation flow against mocked `/console/gas-sponsorship` endpoints.
+  - `/dashboard/policy-engine`: policy publish flow forwards optional `approvalId` to `/console/policies/:id/publish`.
   - `/dashboard/export-keys`: key export create + MFA-gated approval flow against mocked `/console/key-exports` endpoints.
+  - `/dashboard/approvals`: approval request create + MFA-gated approve + reject + filter flows against mocked `/console/approvals` endpoints.
+  - `/dashboard/audit`: audit timeline and evidence filter flows against mocked `/console/audit/*` endpoints.
   - `/dashboard/app-settings`: app/security settings read + patch flows against mocked `/console/settings/*` endpoints.
+  - e2e wiring assertions validate `approvalId` forwarding on key-export approve and security-settings patch requests.
 - Cross-org isolation coverage is implemented for webhook and billing routes (including invoice, payment-intent, overview, and MAW usage paths) with Postgres-backed integration tests.
 - CI now executes Postgres-backed console isolation coverage (`console-router`) in `threshold-signing-core`.
 - Dedicated Postgres tenant-isolation harness tests are implemented at the console service layer (org/project/environment, wallets, API keys, webhooks, billing, gas sponsorship, smart wallets, settings, key exports, runtime snapshots) and wired into the CI-gated console Postgres suite.
@@ -437,6 +498,17 @@ Key outputs:
   - immutable export audit log
 - Jobs:
   - approval timeout/escalation and audit artifact writer
+
+### `/dashboard/audit`
+
+- APIs:
+  - `GET /console/audit/events` (scaffolded; in-memory service + router wiring)
+  - `GET /console/audit/evidence` (scaffolded; in-memory service + router wiring)
+- Data:
+  - `audit_log` timeline rows (category/action/outcome/actor/scope metadata)
+  - evidence bundle rows linking audit event IDs to export/payment/approval references
+- Jobs:
+  - deferred: immutable audit projection and evidence export materialization jobs
 
 ### `/dashboard/api-keys`
 
@@ -914,6 +986,12 @@ Compliance:
 - [x] Add dashboard billing subscription-management UI controls (plan status, renewal, cancel/resume, portal entry).
 - [x] Add webhook handling coverage for checkout/subscription events (`checkout.session.completed`, `customer.subscription.*`, `invoice.*`) with idempotent projection.
 - [x] Add e2e/route tests for pricing -> checkout handoff and dashboard post-checkout state.
+- [x] Add Ops Cockpit dashboard route to aggregate pending approvals, failed payments, webhook dead letters, queued audit exports, enterprise isolation requests, and onboarding telemetry alerts.
+- [x] Add backend Ops Cockpit summary endpoint (`GET /console/ops-cockpit/summary`) with Express/Cloudflare parity and per-module degradation states.
+- [x] Switch dashboard Ops Cockpit page from client fan-out to single summary endpoint consumption.
+- [x] Add Ops Cockpit row-level dead-letter replay quick action wired to `POST /console/webhooks/:id/replay`, with e2e API-wiring coverage.
+- [x] Add Ops Cockpit row-level pending-approval approve/reject quick actions wired to `/console/approvals/:id/approve|reject`, with e2e API-wiring coverage.
+- [x] Add Ops Cockpit row-level queued-audit-export requeue quick action using existing `/console/audit/exports` list/create contracts, with e2e API-wiring coverage.
 - [x] Split Postgres config into signer and console logical DB targets with separate migration runners and least-privilege DB users.
   - Progress: relay-server example now supports `CONSOLE_POSTGRES_URL` (fallback `POSTGRES_URL`) so console billing/webhooks can target a separate logical database from threshold runtime stores.
   - Progress: relay-server now includes explicit domain migration commands:
@@ -931,33 +1009,3 @@ Compliance:
 ## Open Decisions
 
 - None currently blocking implementation sequencing.
-
-## Feature-First Phased TODO
-
-1. **Phase F1: Team/RBAC Management**
-   - Add org/project member management APIs and dashboard page.
-   - Enforce role-scope boundaries and mutation RBAC.
-   - Add relayer + e2e coverage for invite/role-change/remove flows.
-
-2. **Phase F2: Unified Approval Queue**
-   - Add approval request model and queue APIs.
-   - Route policy publish, key export, and risky settings through queue.
-   - Add approve/reject UI and tests for default approval rules.
-
-3. **Phase F3: Audit + Evidence**
-   - Add audit timeline/filter/search APIs and dashboard views.
-   - Add evidence export endpoints for policy/billing/export actions.
-   - Add coverage for immutability and org isolation.
-
-4. **Phase F4: Enterprise Isolation Controls**
-   - Add console APIs/UI to trigger and inspect isolation state.
-   - Expose SLA metadata/status in dashboard.
-   - Add tests for authorization and state transitions.
-
-5. **Phase F5: Stablecoin Ops UX**
-   - Add dashboard monitoring/reconcile views for stablecoin intents.
-   - Surface finality/risk-window state clearly per chain.
-   - Add e2e coverage for quote -> intent -> reconcile lifecycle.
-
-6. **Phase H (Deferred Hardening)**
-   - Stripe live-mode ops hardening, env validation, cron/retry tuning, observability/SLO hardening.
