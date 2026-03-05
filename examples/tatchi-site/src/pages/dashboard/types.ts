@@ -1,18 +1,23 @@
 import React from 'react';
 
 export type SidebarGroupKey =
-  | 'walletInfrastructure'
-  | 'securityPolicy'
-  | 'integrationsAutomation'
-  | 'environmentSettings';
+  | 'overview'
+  | 'administration'
+  | 'operationsSecurity'
+  | 'integrations'
+  | 'billing';
 
 export type DashboardRoute =
+  | '/dashboard/onboarding'
   | '/dashboard/wallets-list'
-  | '/dashboard/wallets-search'
   | '/dashboard/policy-engine'
   | '/dashboard/gas-smart-wallets'
+  | '/dashboard/ops-cockpit'
   | '/dashboard/billing'
   | '/dashboard/app-settings'
+  | '/dashboard/team-members'
+  | '/dashboard/audit'
+  | '/dashboard/enterprise-isolation'
   | '/dashboard/export-keys'
   | '/dashboard/api-keys'
   | '/dashboard/webhooks';

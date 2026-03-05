@@ -35,6 +35,20 @@ export interface DashboardConsoleWebhookDelivery {
   updatedAt: string;
 }
 
+export interface DashboardConsoleWebhookDeadLetter {
+  id: string;
+  orgId: string;
+  endpointId: string;
+  deliveryId: string;
+  eventId: string;
+  eventType: string;
+  failedAttempts: number;
+  lastResponseStatus: number | null;
+  lastErrorMessage: string | null;
+  movedToDlqAt: string;
+  resolvedAt: string | null;
+}
+
 interface ConsoleWebhookEndpointsResponse {
   ok?: boolean;
   code?: string;
@@ -55,6 +69,14 @@ interface ConsoleWebhookDeliveriesResponse {
   code?: string;
   message?: string;
   deliveries?: unknown;
+  nextCursor?: unknown;
+}
+
+interface ConsoleWebhookDeadLettersResponse {
+  ok?: boolean;
+  code?: string;
+  message?: string;
+  deadLetters?: unknown;
   nextCursor?: unknown;
 }
 
@@ -127,6 +149,37 @@ function decodeDelivery(raw: unknown): DashboardConsoleWebhookDelivery | null {
         : String(row.lastAttemptAt || '').trim() || null,
     createdAt: String(row.createdAt || '').trim(),
     updatedAt: String(row.updatedAt || '').trim(),
+  };
+}
+
+function decodeDeadLetter(raw: unknown): DashboardConsoleWebhookDeadLetter | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const id = String(row.id || '').trim();
+  const endpointId = String(row.endpointId || '').trim();
+  const orgId = String(row.orgId || '').trim();
+  if (!id || !endpointId || !orgId) return null;
+  return {
+    id,
+    orgId,
+    endpointId,
+    deliveryId: String(row.deliveryId || '').trim(),
+    eventId: String(row.eventId || '').trim(),
+    eventType: String(row.eventType || '').trim(),
+    failedAttempts: Number(row.failedAttempts || 0),
+    lastResponseStatus:
+      row.lastResponseStatus === undefined || row.lastResponseStatus === null
+        ? null
+        : Number(row.lastResponseStatus || 0),
+    lastErrorMessage:
+      row.lastErrorMessage === undefined || row.lastErrorMessage === null
+        ? null
+        : String(row.lastErrorMessage || '').trim() || null,
+    movedToDlqAt: String(row.movedToDlqAt || '').trim(),
+    resolvedAt:
+      row.resolvedAt === undefined || row.resolvedAt === null
+        ? null
+        : String(row.resolvedAt || '').trim() || null,
   };
 }
 
@@ -271,4 +324,41 @@ export async function replayDashboardWebhookDelivery(input: {
   if (!response.ok || body?.ok !== true) {
     throw new Error(consoleErrorMessage(response, body, 'Webhook replay request failed'));
   }
+}
+
+export async function listDashboardWebhookDeadLetters(input: {
+  endpointId: string;
+  includeResolved?: boolean;
+  limit?: number;
+  cursor?: string;
+}): Promise<{ deadLetters: DashboardConsoleWebhookDeadLetter[]; nextCursor?: string }> {
+  const endpointId = String(input.endpointId || '').trim();
+  if (!endpointId) throw new Error('Endpoint id is required');
+  const params = new URLSearchParams();
+  params.set('limit', String(input.limit || 20));
+  if (input.includeResolved === true) params.set('includeResolved', 'true');
+  if (input.cursor) params.set('cursor', input.cursor);
+  const base = requireConsoleBaseUrl();
+  const response = await fetch(
+    `${base}/console/webhooks/${encodeURIComponent(endpointId)}/dead-letters?${params.toString()}`,
+    {
+      method: 'GET',
+      headers: buildConsoleAcceptHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+    },
+  );
+  const body = (await parseConsoleJson(response)) as ConsoleWebhookDeadLettersResponse | null;
+  if (!response.ok || body?.ok !== true) {
+    throw new Error(consoleErrorMessage(response, body, 'Webhook dead-letters request failed'));
+  }
+  const rows = Array.isArray(body?.deadLetters) ? body.deadLetters : [];
+  const deadLetters = rows
+    .map((entry) => decodeDeadLetter(entry))
+    .filter((entry): entry is DashboardConsoleWebhookDeadLetter => entry !== null);
+  const nextCursor = String(body?.nextCursor || '').trim();
+  return {
+    deadLetters,
+    ...(nextCursor ? { nextCursor } : {}),
+  };
 }

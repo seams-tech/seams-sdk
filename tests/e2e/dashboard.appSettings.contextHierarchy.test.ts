@@ -5,7 +5,7 @@ function iso(ts: string): string {
 }
 
 test.describe('dashboard app-settings context hierarchy', () => {
-  test('uses archived toggles and active-project create guard semantics', async ({ page, baseURL }) => {
+  test('shows auto-provisioned environments without mutation controls', async ({ page, baseURL }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
     const projectQueryStrings: string[] = [];
     const environmentQueryStrings: string[] = [];
@@ -39,22 +39,105 @@ test.describe('dashboard app-settings context hierarchy', () => {
     };
 
     const activeEnvironment = {
-      id: 'env_active',
+      id: 'proj_active:dev',
       projectId: 'proj_active',
-      key: 'prod',
-      name: 'Production',
+      key: 'dev',
+      name: 'Development',
       status: 'ACTIVE',
       createdAt: iso('2026-01-01T00:00:00.000Z'),
       updatedAt: iso('2026-01-02T00:00:00.000Z'),
     };
+    const disabledProductionEnvironment = {
+      id: 'proj_active:prod',
+      projectId: 'proj_active',
+      key: 'prod',
+      name: 'Production',
+      status: 'DISABLED',
+      createdAt: iso('2026-01-01T00:00:00.000Z'),
+      updatedAt: iso('2026-01-03T00:00:00.000Z'),
+    };
     const archivedEnvironment = {
-      id: 'env_archived',
+      id: 'proj_active:staging',
       projectId: 'proj_active',
       key: 'staging',
-      name: 'Staging Archived',
+      name: 'Staging',
       status: 'ARCHIVED',
       createdAt: iso('2026-01-01T00:00:00.000Z'),
       updatedAt: iso('2026-01-03T00:00:00.000Z'),
+    };
+
+    const appSettingsByEnvironmentId: Record<string, Record<string, unknown>> = {
+      [activeEnvironment.id]: {
+        environmentId: activeEnvironment.id,
+        allowedOrigins: ['https://app.example.com'],
+        allowedDomains: ['example.com'],
+        cookie: {
+          httpOnly: true,
+          secure: true,
+          sameSite: 'LAX',
+          domain: null,
+          path: '/',
+          maxAgeSeconds: 86400,
+        },
+        jwt: {
+          issuer: 'https://issuer.example.com',
+          audience: ['dashboard'],
+          keyIds: ['kid-1'],
+          accessTokenTtlSeconds: 900,
+          refreshTokenTtlSeconds: 2592000,
+        },
+        ssoMetadataUrl: null,
+        updatedAt: iso('2026-01-03T00:00:00.000Z'),
+      },
+      [disabledProductionEnvironment.id]: {
+        environmentId: disabledProductionEnvironment.id,
+        allowedOrigins: ['https://app.example.com'],
+        allowedDomains: ['example.com'],
+        cookie: {
+          httpOnly: true,
+          secure: true,
+          sameSite: 'LAX',
+          domain: null,
+          path: '/',
+          maxAgeSeconds: 86400,
+        },
+        jwt: {
+          issuer: 'https://issuer.example.com',
+          audience: ['dashboard'],
+          keyIds: ['kid-1'],
+          accessTokenTtlSeconds: 900,
+          refreshTokenTtlSeconds: 2592000,
+        },
+        ssoMetadataUrl: null,
+        updatedAt: iso('2026-01-03T00:00:00.000Z'),
+      },
+    };
+
+    const securitySettingsByEnvironmentId: Record<string, Record<string, unknown>> = {
+      [activeEnvironment.id]: {
+        environmentId: activeEnvironment.id,
+        ipAllowlist: [],
+        enforceIpAllowlist: false,
+        requireMfaForRiskyChanges: true,
+        riskyChangeApproval: {
+          approvalsRequired: 1,
+          requireAdmin: true,
+          requireMfa: true,
+        },
+        updatedAt: iso('2026-01-03T00:00:00.000Z'),
+      },
+      [disabledProductionEnvironment.id]: {
+        environmentId: disabledProductionEnvironment.id,
+        ipAllowlist: [],
+        enforceIpAllowlist: false,
+        requireMfaForRiskyChanges: true,
+        riskyChangeApproval: {
+          approvalsRequired: 1,
+          requireAdmin: true,
+          requireMfa: true,
+        },
+        updatedAt: iso('2026-01-03T00:00:00.000Z'),
+      },
     };
 
     await page.route(`${consoleOrigin}/console/**`, async (route) => {
@@ -72,7 +155,7 @@ test.describe('dashboard app-settings context hierarchy', () => {
               orgId: 'org_dash_1',
               roles: ['admin'],
               projectId: 'proj_active',
-              environmentId: 'env_active',
+              environmentId: activeEnvironment.id,
             },
           }),
         });
@@ -113,7 +196,7 @@ test.describe('dashboard app-settings context hierarchy', () => {
         environmentQueryStrings.push(search);
         const projectId = url.searchParams.get('projectId');
         const status = url.searchParams.get('status');
-        let environments = [activeEnvironment, archivedEnvironment];
+        let environments = [activeEnvironment, disabledProductionEnvironment, archivedEnvironment];
         if (projectId) {
           environments = environments.filter((entry) => entry.projectId === projectId);
         }
@@ -128,6 +211,58 @@ test.describe('dashboard app-settings context hierarchy', () => {
           body: JSON.stringify({
             ok: true,
             environments,
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/settings/app') {
+        const environmentId = String(url.searchParams.get('environmentId') || '').trim();
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            appSettings: appSettingsByEnvironmentId[environmentId] || appSettingsByEnvironmentId[activeEnvironment.id],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/settings/security') {
+        const environmentId = String(url.searchParams.get('environmentId') || '').trim();
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            securitySettings:
+              securitySettingsByEnvironmentId[environmentId] ||
+              securitySettingsByEnvironmentId[activeEnvironment.id],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/runtime-snapshots/latest') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            snapshot: null,
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/runtime-snapshots') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            snapshots: [],
           }),
         });
         return;
@@ -148,14 +283,20 @@ test.describe('dashboard app-settings context hierarchy', () => {
     await expect(page.locator('main[aria-label="Dashboard workspace"]')).toBeVisible();
     await expect(page.locator('#dashboard-main-title')).toHaveText(/app settings/i);
     await expect(page.locator('section[aria-label="Project management"]')).toContainText('proj_active');
-    await expect(page.locator('section[aria-label="Environment management"]')).toContainText(
-      'env_active',
+    await expect(page.locator('section[aria-label="Environment inventory"]')).toContainText(
+      activeEnvironment.id,
     );
+    await expect(page.locator('section[aria-label="Environment inventory"]')).toContainText(
+      disabledProductionEnvironment.id,
+    );
+    await expect(page.locator('section[aria-label="Environment inventory"]')).toContainText('DISABLED');
+    await expect(page.locator('section[aria-label="Environment management"]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Create environment' })).toHaveCount(0);
 
     await expect.poll(() => projectQueryStrings.length).toBeGreaterThan(0);
     await expect.poll(() => environmentQueryStrings.length).toBeGreaterThan(0);
     expect(projectQueryStrings.some((entry) => entry.includes('status=ACTIVE'))).toBe(true);
-    expect(environmentQueryStrings.some((entry) => entry.includes('status=ACTIVE'))).toBe(true);
+    expect(environmentQueryStrings.some((entry) => entry.includes('projectId=proj_active'))).toBe(true);
 
     const projectSection = page.locator('section[aria-label="Project management"]');
     await projectSection
@@ -165,20 +306,8 @@ test.describe('dashboard app-settings context hierarchy', () => {
     await expect
       .poll(() => projectQueryStrings[projectQueryStrings.length - 1] || '')
       .not.toContain('status=ACTIVE');
-
-    const environmentSection = page.locator('section[aria-label="Environment management"]');
-    await environmentSection
-      .locator('label:has-text("Include archived") input[type="checkbox"]')
-      .setChecked(true);
-    await expect(environmentSection).toContainText('env_archived');
-    await expect
-      .poll(() => environmentQueryStrings[environmentQueryStrings.length - 1] || '')
-      .not.toContain('status=ACTIVE');
-
-    const createEnvironmentProjectOptions = page.locator(
-      'form:has-text("New environment ID (optional)") label:has-text("Project") option',
+    await expect(page.locator('section[aria-label="Environment inventory"]')).not.toContainText(
+      archivedEnvironment.id,
     );
-    await expect(createEnvironmentProjectOptions).toHaveCount(1);
-    await expect(createEnvironmentProjectOptions.first()).toHaveAttribute('value', 'proj_active');
   });
 });

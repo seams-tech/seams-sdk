@@ -1,9 +1,13 @@
 import React from 'react';
 import { ChevronDown, Menu, X } from 'lucide-react';
-import { MoonIcon, SunIcon, useTheme } from '@tatchi-xyz/sdk/react';
+import { MoonIcon, SunIcon, useTatchi, useTheme } from '@tatchi-xyz/sdk/react';
 import { ArrowRightAnim } from '../ArrowRightAnim';
 import TatchiLogo from '../icons/TatchiLogo';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
+import { FRONTEND_CONFIG } from '@/config';
+import { AuthMenuControlProvider } from '@/context/AuthMenuControl';
+import { PasskeyLoginMenu } from '@/flows/demo/PasskeyLoginMenu';
+import { writeDashboardActorUserId } from '@/pages/dashboard/dashboardActorIdentity';
 import './Navbar.css';
 
 type DropdownId = 'products' | 'solutions' | 'about';
@@ -30,6 +34,7 @@ type DropdownConfig = {
 type DropdownFocusTarget = 'first' | 'last';
 const DEFAULT_DROPDOWN_MAX_WIDTH_PX = 820;
 const ABOUT_DROPDOWN_MAX_WIDTH_PX = DEFAULT_DROPDOWN_MAX_WIDTH_PX / 2;
+const DASHBOARD_AUTH_OPEN_EVENT = 'tatchi:dashboard-auth-open';
 
 const productSections: DropdownSection[] = [
   {
@@ -196,6 +201,138 @@ function getDropdownMaxWidthPx(id: DropdownId | null): number {
   return id === 'about' ? ABOUT_DROPDOWN_MAX_WIDTH_PX : DEFAULT_DROPDOWN_MAX_WIDTH_PX;
 }
 
+interface RelaySessionStateResponse {
+  authenticated?: boolean;
+  claims?: {
+    sub?: string;
+    userId?: string;
+    provider?: string;
+  };
+  message?: string;
+}
+
+interface GoogleOptionsResponse {
+  ok?: boolean;
+  configured?: boolean;
+  message?: string;
+}
+
+interface GoogleIdCredentialResponse {
+  credential?: string;
+}
+
+interface GoogleIdPromptMomentNotification {
+  isNotDisplayed?: () => boolean;
+  isSkippedMoment?: () => boolean;
+  getNotDisplayedReason?: () => string;
+  getSkippedReason?: () => string;
+}
+
+interface GoogleIdentityApi {
+  initialize(config: {
+    client_id: string;
+    callback: (response: GoogleIdCredentialResponse) => void;
+    auto_select?: boolean;
+    cancel_on_tap_outside?: boolean;
+  }): void;
+  prompt(notification?: (event: GoogleIdPromptMomentNotification) => void): void;
+}
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        id?: GoogleIdentityApi;
+      };
+    };
+  }
+}
+
+let googleIdentityScriptLoadPromise: Promise<void> | null = null;
+
+function normalizeBaseUrl(input: unknown): string {
+  return String(input || '').trim().replace(/\/+$/, '');
+}
+
+async function parseOptionalJson(response: Response): Promise<any> {
+  return response.json().catch(() => null);
+}
+
+function ensureGoogleIdentityScriptLoaded(): Promise<void> {
+  if (typeof window === 'undefined') return Promise.reject(new Error('Browser runtime is required'));
+  if (window.google?.accounts?.id) return Promise.resolve();
+  if (googleIdentityScriptLoadPromise) return googleIdentityScriptLoadPromise;
+
+  googleIdentityScriptLoadPromise = new Promise<void>((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      if (window.google?.accounts?.id) {
+        resolve();
+        return;
+      }
+      reject(new Error('Google Identity API loaded without accounts.id'));
+    };
+    script.onerror = () => reject(new Error('Failed to load Google Identity script'));
+    document.head.appendChild(script);
+  });
+
+  return googleIdentityScriptLoadPromise;
+}
+
+function requestGoogleIdToken(clientId: string): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const googleIdApi = window.google?.accounts?.id;
+    if (!googleIdApi) {
+      reject(new Error('Google Identity API is unavailable'));
+      return;
+    }
+
+    let settled = false;
+    const finishResolve = (token: string) => {
+      if (settled) return;
+      settled = true;
+      resolve(token);
+    };
+    const finishReject = (message: string) => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(message));
+    };
+
+    googleIdApi.initialize({
+      client_id: clientId,
+      callback: (response) => {
+        const token = String(response?.credential || '').trim();
+        if (!token) {
+          finishReject('Google sign-in did not return an id_token');
+          return;
+        }
+        finishResolve(token);
+      },
+      auto_select: false,
+      cancel_on_tap_outside: true,
+    });
+
+    googleIdApi.prompt((notification) => {
+      if (settled) return;
+      const notDisplayed = notification?.isNotDisplayed?.() === true;
+      const skipped = notification?.isSkippedMoment?.() === true;
+      if (notDisplayed) {
+        const reason = String(notification?.getNotDisplayedReason?.() || 'not_displayed').trim();
+        finishReject(`Google sign-in is unavailable (${reason}).`);
+        return;
+      }
+      if (skipped) {
+        const reason = String(notification?.getSkippedReason?.() || 'skipped').trim();
+        finishReject(`Google sign-in was skipped (${reason}).`);
+      }
+    });
+  });
+}
+
 export function NavbarStatic(): React.JSX.Element {
   const OPEN_DELAY_MS = 0;
   const CLOSE_DELAY_MS = 280;
@@ -203,7 +340,16 @@ export function NavbarStatic(): React.JSX.Element {
   const SCROLL_THRESHOLD_PX = 8;
 
   const { theme, setTheme } = useTheme();
-  const { linkProps } = useSiteRouter();
+  const { loginState } = useTatchi();
+  const { go, linkProps } = useSiteRouter();
+  const relayerBaseUrl = React.useMemo(
+    () => normalizeBaseUrl(FRONTEND_CONFIG.relayerUrl || FRONTEND_CONFIG.consoleBaseUrl),
+    [],
+  );
+  const googleClientId = React.useMemo(
+    () => String(FRONTEND_CONFIG.googleOidcClientId || '').trim(),
+    [],
+  );
   const rootRef = React.useRef<HTMLElement | null>(null);
   const shellRef = React.useRef<HTMLDivElement | null>(null);
   const dropdownButtonRefs = React.useRef<Record<DropdownId, HTMLButtonElement | null>>({
@@ -226,6 +372,13 @@ export function NavbarStatic(): React.JSX.Element {
   const [isMobileProductsOpen, setIsMobileProductsOpen] = React.useState<boolean>(false);
   const [isMobileSolutionsOpen, setIsMobileSolutionsOpen] = React.useState<boolean>(false);
   const [isMobileAboutOpen, setIsMobileAboutOpen] = React.useState<boolean>(false);
+  const [isDashboardAuthOpen, setIsDashboardAuthOpen] = React.useState<boolean>(false);
+  const [dashboardAuthError, setDashboardAuthError] = React.useState<string>('');
+  const [relaySessionLoading, setRelaySessionLoading] = React.useState<boolean>(false);
+  const [relaySessionAuthenticated, setRelaySessionAuthenticated] = React.useState<boolean>(false);
+  const [googleConfigChecked, setGoogleConfigChecked] = React.useState<boolean>(false);
+  const [googleConfigured, setGoogleConfigured] = React.useState<boolean>(false);
+  const [googleSigningIn, setGoogleSigningIn] = React.useState<boolean>(false);
 
   const resolvedTheme: 'light' | 'dark' =
     (typeof setTheme === 'function' ? theme : localTheme) === 'dark' ? 'dark' : 'light';
@@ -239,6 +392,69 @@ export function NavbarStatic(): React.JSX.Element {
     applyDocumentTheme(next);
     setLocalTheme(next);
   }, [resolvedTheme, setTheme]);
+
+  const refreshRelaySessionState = React.useCallback(async (): Promise<boolean> => {
+    if (!relayerBaseUrl) {
+      setRelaySessionAuthenticated(false);
+      return false;
+    }
+    setRelaySessionLoading(true);
+    try {
+      const response = await fetch(`${relayerBaseUrl}/session/state`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+        },
+        cache: 'no-store',
+      });
+      const body = (await parseOptionalJson(response)) as RelaySessionStateResponse | null;
+      const authenticated = response.ok && body?.authenticated === true;
+      setRelaySessionAuthenticated(authenticated);
+      if (authenticated) {
+        const userId = String(body?.claims?.sub || body?.claims?.userId || '').trim();
+        if (userId) writeDashboardActorUserId(userId);
+      }
+      return authenticated;
+    } catch {
+      setRelaySessionAuthenticated(false);
+      return false;
+    } finally {
+      setRelaySessionLoading(false);
+    }
+  }, [relayerBaseUrl]);
+
+  const refreshGoogleConfigured = React.useCallback(async (): Promise<boolean> => {
+    if (!relayerBaseUrl || !googleClientId) {
+      setGoogleConfigured(false);
+      setGoogleConfigChecked(true);
+      return false;
+    }
+    try {
+      const response = await fetch(`${relayerBaseUrl}/auth/google/options`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      });
+      const body = (await parseOptionalJson(response)) as GoogleOptionsResponse | null;
+      const configured = response.ok && body?.ok === true && body?.configured === true;
+      setGoogleConfigured(configured);
+      setGoogleConfigChecked(true);
+      return configured;
+    } catch {
+      setGoogleConfigured(false);
+      setGoogleConfigChecked(true);
+      return false;
+    }
+  }, [googleClientId, relayerBaseUrl]);
+
+  React.useEffect(() => {
+    void refreshRelaySessionState();
+  }, [refreshRelaySessionState]);
 
   const clearDropdownTimers = React.useCallback(() => {
     if (openTimerRef.current !== null) {
@@ -552,12 +768,142 @@ export function NavbarStatic(): React.JSX.Element {
     };
   }, [closeMenus, isMobileMenuOpen, openDropdown]);
 
+  React.useEffect(() => {
+    if (!isDashboardAuthOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setIsDashboardAuthOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isDashboardAuthOpen]);
+
   const docsProps = getNavLinkProps('/docs/getting-started/overview');
   const homeProps = getNavLinkProps('/');
   const aboutRootProps = getNavLinkProps('/company/');
   const pricingProps = getNavLinkProps('/pricing/');
   const contactSalesProps = getNavLinkProps('/contact/');
-  const getStartedProps = getNavLinkProps('/dashboard/');
+  const getStartedProps = getNavLinkProps('/dashboard');
+  const dashboardEntryAuthenticated = loginState.isLoggedIn || relaySessionAuthenticated;
+
+  const openDashboardAuthModal = React.useCallback(() => {
+    closeMenus();
+    setDashboardAuthError('');
+    setIsDashboardAuthOpen(true);
+    void refreshRelaySessionState();
+    if (!googleConfigChecked) {
+      void refreshGoogleConfigured();
+    }
+  }, [closeMenus, googleConfigChecked, refreshGoogleConfigured, refreshRelaySessionState]);
+
+  const continueToDashboard = React.useCallback(() => {
+    setDashboardAuthError('');
+    setIsDashboardAuthOpen(false);
+    go('/dashboard');
+  }, [go]);
+
+  const onDashboardAuthPasskeySuccess = React.useCallback(
+    (nearAccountId?: string) => {
+      const userId = String(nearAccountId || '').trim();
+      if (userId) {
+        writeDashboardActorUserId(userId);
+      }
+      void refreshRelaySessionState();
+      continueToDashboard();
+    },
+    [continueToDashboard, refreshRelaySessionState],
+  );
+
+  const onGoogleSignIn = React.useCallback(async () => {
+    if (googleSigningIn) return;
+    setDashboardAuthError('');
+    setGoogleSigningIn(true);
+    try {
+      if (!googleClientId) {
+        throw new Error('Google client ID is not configured in frontend env');
+      }
+      const configured = googleConfigChecked ? googleConfigured : await refreshGoogleConfigured();
+      if (!configured) {
+        throw new Error('Google OIDC is not configured on the relay server');
+      }
+      if (!relayerBaseUrl) {
+        throw new Error('Relayer base URL is not configured');
+      }
+
+      await ensureGoogleIdentityScriptLoaded();
+      const idToken = await requestGoogleIdToken(googleClientId);
+
+      const response = await fetch(`${relayerBaseUrl}/session/exchange`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_kind: 'cookie',
+          exchange: {
+            type: 'oidc_jwt',
+            token: idToken,
+          },
+        }),
+      });
+      const body = await parseOptionalJson(response);
+      if (!response.ok || body?.ok !== true) {
+        const message = String(body?.message || '').trim();
+        throw new Error(message || `Google session exchange failed (${response.status})`);
+      }
+      const authenticated = await refreshRelaySessionState();
+      if (!authenticated) {
+        throw new Error('Google session was issued but could not be validated');
+      }
+      continueToDashboard();
+    } catch (error: unknown) {
+      setDashboardAuthError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setGoogleSigningIn(false);
+    }
+  }, [
+    continueToDashboard,
+    googleClientId,
+    googleConfigChecked,
+    googleConfigured,
+    googleSigningIn,
+    refreshGoogleConfigured,
+    refreshRelaySessionState,
+    relayerBaseUrl,
+  ]);
+
+  const openDashboardEntry = React.useCallback(() => {
+    if (dashboardEntryAuthenticated) {
+      go('/dashboard');
+      return;
+    }
+    openDashboardAuthModal();
+  }, [dashboardEntryAuthenticated, go, openDashboardAuthModal]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onOpenRequest = () => {
+      openDashboardEntry();
+    };
+    window.addEventListener(DASHBOARD_AUTH_OPEN_EVENT, onOpenRequest as EventListener);
+    return () => {
+      window.removeEventListener(DASHBOARD_AUTH_OPEN_EVENT, onOpenRequest as EventListener);
+    };
+  }, [openDashboardEntry]);
+
+  const onDashboardClick = React.useCallback(
+    (event: React.MouseEvent<HTMLAnchorElement>) => {
+      const modified = event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0;
+      if (modified) return;
+      event.preventDefault();
+      openDashboardEntry();
+    },
+    [openDashboardEntry],
+  );
 
   const dropdownAriaConfig =
     dropdownConfigs.find((config) => config.id === (visibleDropdown ?? openDropdown)) ?? null;
@@ -664,7 +1010,7 @@ export function NavbarStatic(): React.JSX.Element {
             <a
               className="navbar-static__pill navbar-static__pill--solid"
               href={getStartedProps.href}
-              onClick={getStartedProps.onClick}
+              onClick={onDashboardClick}
             >
               <span>Dashboard</span>
               <ArrowRightAnim size={14} />
@@ -783,6 +1129,77 @@ export function NavbarStatic(): React.JSX.Element {
           </div>
         </div>
       </div>
+
+      {isDashboardAuthOpen ? (
+        <div
+          className="navbar-static__auth-overlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target !== event.currentTarget) return;
+            setIsDashboardAuthOpen(false);
+          }}
+        >
+          <div
+            className="navbar-static__auth-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="navbar-dashboard-auth-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="navbar-static__auth-header">
+              <h2 id="navbar-dashboard-auth-title">Sign In To Open Dashboard</h2>
+              <button
+                type="button"
+                className="navbar-static__auth-close"
+                onClick={() => setIsDashboardAuthOpen(false)}
+                aria-label="Close dashboard sign-in"
+              >
+                <X size={18} aria-hidden />
+              </button>
+            </div>
+            <p className="navbar-static__auth-copy">
+              Create an account or sign in with passkey. If Google OIDC is configured, you can use
+              Google SSO.
+            </p>
+            <div className="navbar-static__auth-passkey">
+              <AuthMenuControlProvider>
+                <PasskeyLoginMenu onLoggedIn={onDashboardAuthPasskeySuccess} />
+              </AuthMenuControlProvider>
+            </div>
+            <div className="navbar-static__auth-divider" aria-hidden>
+              <span>OR</span>
+            </div>
+            <button
+              type="button"
+              className="navbar-static__auth-google-button"
+              onClick={() => {
+                void onGoogleSignIn();
+              }}
+              disabled={googleSigningIn || relaySessionLoading || !googleConfigured}
+            >
+              {googleSigningIn
+                ? 'Signing In With Google...'
+                : !googleClientId
+                  ? 'Google Sign-In Unavailable'
+                  : !googleConfigChecked
+                    ? 'Checking Google Availability...'
+                    : !googleConfigured
+                      ? 'Google Sign-In Not Configured'
+                      : 'Continue With Google'}
+            </button>
+            <p className="navbar-static__auth-note">
+              {googleConfigChecked && googleConfigured
+                ? 'Google account exchange issues an app session before entering dashboard.'
+                : 'Enable GOOGLE_OIDC_CLIENT_ID(S) on relay and VITE_GOOGLE_OIDC_CLIENT_ID on site to use Google SSO.'}
+            </p>
+            {dashboardAuthError ? (
+              <p className="navbar-static__auth-error" role="alert">
+                {dashboardAuthError}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <div className={`navbar-static__mobile-menu${isMobileMenuOpen ? ' is-open' : ''}`}>
         <button
@@ -927,7 +1344,7 @@ export function NavbarStatic(): React.JSX.Element {
           <a
             className="navbar-static__pill navbar-static__pill--solid"
             href={getStartedProps.href}
-            onClick={getStartedProps.onClick}
+            onClick={onDashboardClick}
           >
             <span>Dashboard</span>
             <ArrowRightAnim size={14} />

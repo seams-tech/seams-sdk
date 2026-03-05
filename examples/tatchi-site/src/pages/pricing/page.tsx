@@ -2,41 +2,19 @@ import React from 'react';
 import { Footer } from '@/components/Footer';
 import NavbarStatic from '@/components/Navbar/NavbarStatic';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
-import { createStripeCheckoutSession } from './consolePricingApi';
 import './styles.css';
+
+const DASHBOARD_AUTH_OPEN_EVENT = 'tatchi:dashboard-auth-open';
 
 export function PricingPage(): React.JSX.Element {
   const { linkProps } = useSiteRouter();
   const dashboardProps = linkProps('/dashboard');
-  const [checkoutPending, setCheckoutPending] = React.useState(false);
-  const [checkoutError, setCheckoutError] = React.useState('');
 
-  const handleStartCheckout = React.useCallback(
-    async (event: React.MouseEvent<HTMLAnchorElement>) => {
-      event.preventDefault();
-      if (checkoutPending) return;
-      setCheckoutError('');
-      try {
-        setCheckoutPending(true);
-        const origin = window.location.origin;
-        const checkoutSession = await createStripeCheckoutSession({
-          successUrl: `${origin}/dashboard/billing?checkout=success`,
-          cancelUrl: `${origin}/pricing?checkout=cancel`,
-          planId: 'pro_maw_v1',
-        });
-        window.location.assign(checkoutSession.url);
-      } catch (error: unknown) {
-        const message =
-          error instanceof Error && error.message
-            ? error.message
-            : 'Unable to start Stripe checkout session';
-        setCheckoutError(message);
-      } finally {
-        setCheckoutPending(false);
-      }
-    },
-    [checkoutPending],
-  );
+  const handleGetStarted = React.useCallback((event: React.MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent(DASHBOARD_AUTH_OPEN_EVENT));
+  }, []);
 
   return (
     <>
@@ -56,10 +34,9 @@ export function PricingPage(): React.JSX.Element {
               <a
                 className="pricing-button pricing-button--solid"
                 href={dashboardProps.href}
-                onClick={handleStartCheckout}
-                aria-disabled={checkoutPending ? 'true' : 'false'}
+                onClick={handleGetStarted}
               >
-                {checkoutPending ? 'Starting checkout...' : 'Start with Stripe Checkout'}
+                Get started
               </a>
               <a
                 className="pricing-button pricing-button--ghost"
@@ -69,11 +46,6 @@ export function PricingPage(): React.JSX.Element {
                 Talk to sales
               </a>
             </div>
-            {checkoutError ? (
-              <p className="pricing-checkout-error" role="alert">
-                {checkoutError}
-              </p>
-            ) : null}
           </section>
 
           <section className="pricing-cards" aria-label="Plans">
@@ -115,10 +87,9 @@ export function PricingPage(): React.JSX.Element {
               <a
                 className="pricing-button pricing-button--solid pricing-button--full"
                 href={dashboardProps.href}
-                onClick={handleStartCheckout}
-                aria-disabled={checkoutPending ? 'true' : 'false'}
+                onClick={handleGetStarted}
               >
-                {checkoutPending ? 'Starting checkout...' : 'Start with Stripe Checkout'}
+                Get started
               </a>
             </article>
 

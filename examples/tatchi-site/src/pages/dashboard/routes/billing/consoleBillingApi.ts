@@ -278,6 +278,50 @@ interface ConsoleStablecoinPaymentIntentResponse {
   paymentIntent?: unknown;
 }
 
+interface ConsoleBillingErrorBody {
+  ok?: boolean;
+  code?: unknown;
+  message?: unknown;
+  details?: unknown;
+}
+
+export class DashboardBillingApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly details: unknown;
+
+  constructor(input: {
+    status: number;
+    code?: unknown;
+    message: string;
+    details?: unknown;
+  }) {
+    super(input.message);
+    this.name = 'DashboardBillingApiError';
+    this.status = input.status;
+    this.code = String(input.code || '').trim();
+    this.details = input.details;
+  }
+}
+
+function buildBillingApiError(
+  response: Response,
+  body: ConsoleBillingErrorBody | null | undefined,
+  fallbackPrefix: string,
+): DashboardBillingApiError {
+  return new DashboardBillingApiError({
+    status: response.status,
+    code: body?.code,
+    message: consoleErrorMessage(response, body, fallbackPrefix),
+    details: body?.details,
+  });
+}
+
+export function isDashboardBillingApiErrorCode(error: unknown, code: string): boolean {
+  if (!(error instanceof DashboardBillingApiError)) return false;
+  return error.code === code;
+}
+
 function decodeOverview(raw: unknown): DashboardBillingOverview | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const row = raw as Record<string, unknown>;
@@ -567,7 +611,11 @@ async function fetchJson(path: string): Promise<any> {
   });
   const body = await parseConsoleJson(response);
   if (!response.ok || body?.ok !== true) {
-    throw new Error(consoleErrorMessage(response, body, 'Console billing request failed'));
+    throw buildBillingApiError(
+      response,
+      body as ConsoleBillingErrorBody | null,
+      'Console billing request failed',
+    );
   }
   return body;
 }
@@ -641,7 +689,7 @@ export async function cancelDashboardBillingSubscription(): Promise<DashboardBil
   });
   const body = (await parseConsoleJson(response)) as ConsoleSubscriptionResponse | null;
   if (!response.ok || body?.ok !== true) {
-    throw new Error(consoleErrorMessage(response, body, 'Cancel subscription request failed'));
+    throw buildBillingApiError(response, body, 'Cancel subscription request failed');
   }
   const subscription = decodeBillingSubscription(body.subscription);
   if (!subscription) throw new Error('Cancel subscription response was invalid');
@@ -659,7 +707,7 @@ export async function resumeDashboardBillingSubscription(): Promise<DashboardBil
   });
   const body = (await parseConsoleJson(response)) as ConsoleSubscriptionResponse | null;
   if (!response.ok || body?.ok !== true) {
-    throw new Error(consoleErrorMessage(response, body, 'Resume subscription request failed'));
+    throw buildBillingApiError(response, body, 'Resume subscription request failed');
   }
   const subscription = decodeBillingSubscription(body.subscription);
   if (!subscription) throw new Error('Resume subscription response was invalid');
@@ -679,7 +727,7 @@ export async function addDashboardCardPaymentMethod(
   });
   const body = (await parseConsoleJson(response)) as ConsolePaymentMethodResponse | null;
   if (!response.ok || body?.ok !== true) {
-    throw new Error(consoleErrorMessage(response, body, 'Add card payment method request failed'));
+    throw buildBillingApiError(response, body, 'Add card payment method request failed');
   }
   const paymentMethod = decodePaymentMethod(body.paymentMethod);
   if (!paymentMethod) throw new Error('Add card payment method response was invalid');
@@ -698,7 +746,7 @@ export async function removeDashboardCardPaymentMethod(paymentMethodId: string):
   });
   const body = (await parseConsoleJson(response)) as ConsolePaymentMethodResponse | null;
   if (!response.ok || body?.ok !== true) {
-    throw new Error(consoleErrorMessage(response, body, 'Remove card payment method request failed'));
+    throw buildBillingApiError(response, body, 'Remove card payment method request failed');
   }
   return body?.removed === true;
 }
@@ -721,7 +769,7 @@ export async function setDashboardDefaultCardPaymentMethod(
   );
   const body = (await parseConsoleJson(response)) as ConsolePaymentMethodResponse | null;
   if (!response.ok || body?.ok !== true) {
-    throw new Error(consoleErrorMessage(response, body, 'Set default card payment method request failed'));
+    throw buildBillingApiError(response, body, 'Set default card payment method request failed');
   }
   const paymentMethod = decodePaymentMethod(body.paymentMethod);
   if (!paymentMethod) throw new Error('Set default card payment method response was invalid');
@@ -755,7 +803,7 @@ export async function createDashboardStripeSetupIntent(
   });
   const body = (await parseConsoleJson(response)) as ConsoleStripeSetupIntentResponse | null;
   if (!response.ok || body?.ok !== true) {
-    throw new Error(consoleErrorMessage(response, body, 'Stripe setup intent request failed'));
+    throw buildBillingApiError(response, body, 'Stripe setup intent request failed');
   }
   const setupIntent = decodeStripeSetupIntent(body.setupIntent);
   if (!setupIntent) throw new Error('Stripe setup intent response was invalid');
@@ -775,7 +823,7 @@ export async function createDashboardStripeCheckoutSession(
   });
   const body = (await parseConsoleJson(response)) as ConsoleStripeCheckoutSessionResponse | null;
   if (!response.ok || body?.ok !== true) {
-    throw new Error(consoleErrorMessage(response, body, 'Stripe checkout session request failed'));
+    throw buildBillingApiError(response, body, 'Stripe checkout session request failed');
   }
   const checkoutSession = decodeStripeCheckoutSession(body.checkoutSession);
   if (!checkoutSession) throw new Error('Stripe checkout session response was invalid');
@@ -795,7 +843,7 @@ export async function createDashboardStripeCustomerPortalSession(
   });
   const body = (await parseConsoleJson(response)) as ConsoleStripeCustomerPortalSessionResponse | null;
   if (!response.ok || body?.ok !== true) {
-    throw new Error(consoleErrorMessage(response, body, 'Stripe customer portal session request failed'));
+    throw buildBillingApiError(response, body, 'Stripe customer portal session request failed');
   }
   const portalSession = decodeStripeCustomerPortalSession(body.portalSession);
   if (!portalSession) throw new Error('Stripe customer portal session response was invalid');
@@ -815,7 +863,7 @@ export async function createDashboardStripePaymentIntent(
   });
   const body = (await parseConsoleJson(response)) as ConsoleStripePaymentIntentResponse | null;
   if (!response.ok || body?.ok !== true) {
-    throw new Error(consoleErrorMessage(response, body, 'Stripe payment intent request failed'));
+    throw buildBillingApiError(response, body, 'Stripe payment intent request failed');
   }
   const paymentIntent = decodeStripePaymentIntent(body.paymentIntent);
   if (!paymentIntent) throw new Error('Stripe payment intent response was invalid');
@@ -835,7 +883,7 @@ export async function createDashboardStablecoinQuote(
   });
   const body = (await parseConsoleJson(response)) as ConsoleStablecoinQuoteResponse | null;
   if (!response.ok || body?.ok !== true) {
-    throw new Error(consoleErrorMessage(response, body, 'Stablecoin quote request failed'));
+    throw buildBillingApiError(response, body, 'Stablecoin quote request failed');
   }
   const quote = decodeStablecoinQuote(body.quote);
   if (!quote) throw new Error('Stablecoin quote response was invalid');
@@ -855,7 +903,7 @@ export async function createDashboardStablecoinPaymentIntent(
   });
   const body = (await parseConsoleJson(response)) as ConsoleStablecoinPaymentIntentResponse | null;
   if (!response.ok || body?.ok !== true) {
-    throw new Error(consoleErrorMessage(response, body, 'Stablecoin payment intent request failed'));
+    throw buildBillingApiError(response, body, 'Stablecoin payment intent request failed');
   }
   const paymentIntent = decodeStablecoinPaymentIntent(body.paymentIntent);
   if (!paymentIntent) throw new Error('Stablecoin payment intent response was invalid');
@@ -893,7 +941,7 @@ export async function cancelDashboardStablecoinPaymentIntent(
   );
   const body = (await parseConsoleJson(response)) as ConsoleStablecoinPaymentIntentResponse | null;
   if (!response.ok || body?.ok !== true) {
-    throw new Error(consoleErrorMessage(response, body, 'Stablecoin payment cancel request failed'));
+    throw buildBillingApiError(response, body, 'Stablecoin payment cancel request failed');
   }
   const paymentIntent = decodeStablecoinPaymentIntent(body.paymentIntent);
   if (!paymentIntent) throw new Error('Stablecoin payment cancel response was invalid');

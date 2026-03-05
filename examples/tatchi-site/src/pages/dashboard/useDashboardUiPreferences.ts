@@ -13,7 +13,7 @@ import type {
 
 const UI_STATE_STORAGE_KEY = 'tatchi-dashboard-ui-state-v1';
 
-const QUERY_KEYS = {
+export const DASHBOARD_UI_QUERY_KEYS = {
   sidebarExpanded: 'db_sb',
   expandedGroups: 'db_groups',
   organization: 'db_org',
@@ -21,6 +21,7 @@ const QUERY_KEYS = {
   environment: 'db_env',
   accountSettings: 'db_acct',
 } as const;
+const DASHBOARD_UI_QUERY_PARAM_KEYS = Object.values(DASHBOARD_UI_QUERY_KEYS);
 
 type PersistedUiState = {
   isSidebarExpanded: boolean;
@@ -49,11 +50,19 @@ function resolveContextValue(
   dropdownOptions: TopbarDropdownOptions,
   defaults: TopbarContextState,
 ): string {
+  const options = dropdownOptions[menu];
   const rawValue = String(input?.[menu] || '').trim();
-  if (rawValue && hasTopbarOption(menu, rawValue, dropdownOptions)) return rawValue;
+  if (rawValue && (options.length === 0 || hasTopbarOption(menu, rawValue, dropdownOptions))) {
+    return rawValue;
+  }
   const defaultValue = String(defaults[menu] || '').trim();
-  if (defaultValue && hasTopbarOption(menu, defaultValue, dropdownOptions)) return defaultValue;
-  return String(dropdownOptions[menu][0]?.value || '').trim();
+  if (
+    defaultValue &&
+    (options.length === 0 || hasTopbarOption(menu, defaultValue, dropdownOptions))
+  ) {
+    return defaultValue;
+  }
+  return String(options[0]?.value || '').trim();
 }
 
 function sanitizeSelectedContext(
@@ -72,35 +81,62 @@ function sanitizeSelectedContext(
 function sanitizeExpandedGroups(
   input: Partial<ExpandedSidebarGroupsState> | undefined,
 ): ExpandedSidebarGroupsState {
+  const resolved = {} as ExpandedSidebarGroupsState;
+  for (const key of SIDEBAR_GROUP_KEYS) {
+    resolved[key] = input?.[key] ?? DEFAULT_EXPANDED_SIDEBAR_GROUPS[key];
+  }
+  return resolved;
+}
+
+function readExplicitSelectedContext(
+  input: Partial<TopbarContextState> | undefined,
+): Partial<TopbarContextState> {
+  const organization = String(input?.organization || '').trim();
+  const project = String(input?.project || '').trim();
+  const environment = String(input?.environment || '').trim();
+  const accountSettings = String(input?.accountSettings || '').trim();
   return {
-    walletInfrastructure:
-      input?.walletInfrastructure ?? DEFAULT_EXPANDED_SIDEBAR_GROUPS.walletInfrastructure,
-    securityPolicy: input?.securityPolicy ?? DEFAULT_EXPANDED_SIDEBAR_GROUPS.securityPolicy,
-    integrationsAutomation:
-      input?.integrationsAutomation ?? DEFAULT_EXPANDED_SIDEBAR_GROUPS.integrationsAutomation,
-    environmentSettings:
-      input?.environmentSettings ?? DEFAULT_EXPANDED_SIDEBAR_GROUPS.environmentSettings,
+    ...(organization ? { organization } : {}),
+    ...(project ? { project } : {}),
+    ...(environment ? { environment } : {}),
+    ...(accountSettings ? { accountSettings } : {}),
   };
+}
+
+function readRawStoredState(): Partial<PersistedUiState> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(UI_STATE_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed as Partial<PersistedUiState>;
+  } catch {
+    return {};
+  }
 }
 
 function readStoredState(
   dropdownOptions: TopbarDropdownOptions,
   defaultContext: TopbarContextState,
 ): Partial<PersistedUiState> {
-  if (typeof window === 'undefined') return {};
-  try {
-    const raw = window.localStorage.getItem(UI_STATE_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as Partial<PersistedUiState>;
-    return {
-      isSidebarExpanded:
-        typeof parsed.isSidebarExpanded === 'boolean' ? parsed.isSidebarExpanded : undefined,
-      expandedGroups: sanitizeExpandedGroups(parsed.expandedGroups),
-      selectedContext: sanitizeSelectedContext(parsed.selectedContext, dropdownOptions, defaultContext),
-    };
-  } catch {
-    return {};
-  }
+  const parsed = readRawStoredState();
+  const explicitStoredContext = readExplicitSelectedContext(parsed.selectedContext);
+  const sanitizedSelectedContext = sanitizeSelectedContext(
+    parsed.selectedContext,
+    dropdownOptions,
+    defaultContext,
+  );
+  return {
+    isSidebarExpanded:
+      typeof parsed.isSidebarExpanded === 'boolean' ? parsed.isSidebarExpanded : undefined,
+    expandedGroups: sanitizeExpandedGroups(parsed.expandedGroups),
+    // Preserve explicit stored selections even before dropdown options hydrate.
+    selectedContext: {
+      ...sanitizedSelectedContext,
+      ...explicitStoredContext,
+    },
+  };
 }
 
 function parseExpandedGroupsParam(
@@ -127,21 +163,66 @@ function readUrlState(
   if (typeof window === 'undefined') return {};
   const params = new URLSearchParams(window.location.search);
 
-  const sidebarExpandedRaw = params.get(QUERY_KEYS.sidebarExpanded);
+  const sidebarExpandedRaw = params.get(DASHBOARD_UI_QUERY_KEYS.sidebarExpanded);
   const sidebarExpanded =
     sidebarExpandedRaw === '1' ? true : sidebarExpandedRaw === '0' ? false : undefined;
+  const expandedGroupsRaw = params.get(DASHBOARD_UI_QUERY_KEYS.expandedGroups);
+  const hasExpandedGroupOverride = expandedGroupsRaw !== null;
+  const hasContextOverride =
+    params.has(DASHBOARD_UI_QUERY_KEYS.organization) ||
+    params.has(DASHBOARD_UI_QUERY_KEYS.project) ||
+    params.has(DASHBOARD_UI_QUERY_KEYS.environment) ||
+    params.has(DASHBOARD_UI_QUERY_KEYS.accountSettings);
 
   return {
     isSidebarExpanded: sidebarExpanded,
-    expandedGroups: sanitizeExpandedGroups(
-      parseExpandedGroupsParam(params.get(QUERY_KEYS.expandedGroups)),
-    ),
-    selectedContext: sanitizeSelectedContext({
-      organization: params.get(QUERY_KEYS.organization) || undefined,
-      project: params.get(QUERY_KEYS.project) || undefined,
-      environment: params.get(QUERY_KEYS.environment) || undefined,
-      accountSettings: params.get(QUERY_KEYS.accountSettings) || undefined,
-    }, dropdownOptions, defaultContext),
+    ...(hasExpandedGroupOverride
+      ? {
+          expandedGroups: sanitizeExpandedGroups(parseExpandedGroupsParam(expandedGroupsRaw)),
+        }
+      : {}),
+    ...(hasContextOverride
+      ? {
+          selectedContext: sanitizeSelectedContext({
+            organization: params.get(DASHBOARD_UI_QUERY_KEYS.organization) || undefined,
+            project: params.get(DASHBOARD_UI_QUERY_KEYS.project) || undefined,
+            environment: params.get(DASHBOARD_UI_QUERY_KEYS.environment) || undefined,
+            accountSettings: params.get(DASHBOARD_UI_QUERY_KEYS.accountSettings) || undefined,
+          }, dropdownOptions, defaultContext),
+        }
+      : {}),
+  };
+}
+
+function readUrlSelectedContext(
+  dropdownOptions: TopbarDropdownOptions,
+  defaultContext: TopbarContextState,
+): TopbarContextState | null {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  const hasContextOverride =
+    params.has(DASHBOARD_UI_QUERY_KEYS.organization) ||
+    params.has(DASHBOARD_UI_QUERY_KEYS.project) ||
+    params.has(DASHBOARD_UI_QUERY_KEYS.environment) ||
+    params.has(DASHBOARD_UI_QUERY_KEYS.accountSettings);
+  if (!hasContextOverride) return null;
+  const explicitContext = readExplicitSelectedContext({
+    organization: params.get(DASHBOARD_UI_QUERY_KEYS.organization) || undefined,
+    project: params.get(DASHBOARD_UI_QUERY_KEYS.project) || undefined,
+    environment: params.get(DASHBOARD_UI_QUERY_KEYS.environment) || undefined,
+    accountSettings: params.get(DASHBOARD_UI_QUERY_KEYS.accountSettings) || undefined,
+  });
+
+  const sanitized = sanitizeSelectedContext({
+    organization: params.get(DASHBOARD_UI_QUERY_KEYS.organization) || undefined,
+    project: params.get(DASHBOARD_UI_QUERY_KEYS.project) || undefined,
+    environment: params.get(DASHBOARD_UI_QUERY_KEYS.environment) || undefined,
+    accountSettings: params.get(DASHBOARD_UI_QUERY_KEYS.accountSettings) || undefined,
+  }, dropdownOptions, defaultContext);
+  return {
+    ...sanitized,
+    // Preserve explicit context overrides from URL even before dropdown options hydrate.
+    ...explicitContext,
   };
 }
 
@@ -156,6 +237,8 @@ function readInitialState(
   };
   const stored = readStoredState(dropdownOptions, defaultContext);
   const fromUrl = readUrlState(dropdownOptions, defaultContext);
+  const explicitStoredContext = readExplicitSelectedContext(stored.selectedContext);
+  const explicitUrlContext = readExplicitSelectedContext(fromUrl.selectedContext);
 
   return {
     isSidebarExpanded:
@@ -165,11 +248,15 @@ function readInitialState(
       ...stored.expandedGroups,
       ...fromUrl.expandedGroups,
     }),
-    selectedContext: sanitizeSelectedContext({
-      ...baseState.selectedContext,
-      ...stored.selectedContext,
-      ...fromUrl.selectedContext,
-    }, dropdownOptions, defaultContext),
+    selectedContext: {
+      ...sanitizeSelectedContext({
+        ...baseState.selectedContext,
+        ...stored.selectedContext,
+        ...fromUrl.selectedContext,
+      }, dropdownOptions, defaultContext),
+      ...explicitStoredContext,
+      ...explicitUrlContext,
+    },
   };
 }
 
@@ -180,19 +267,20 @@ function writeStoredState(state: PersistedUiState): void {
   } catch {}
 }
 
-function writeUrlState(pathname: string, state: PersistedUiState): void {
+function clearDashboardUiQueryState(pathname: string): void {
   if (typeof window === 'undefined') return;
   const params = new URLSearchParams(window.location.search);
-
-  params.set(QUERY_KEYS.sidebarExpanded, state.isSidebarExpanded ? '1' : '0');
-  params.set(
-    QUERY_KEYS.expandedGroups,
-    SIDEBAR_GROUP_KEYS.filter((key) => state.expandedGroups[key]).join(','),
-  );
-  params.set(QUERY_KEYS.organization, state.selectedContext.organization);
-  params.set(QUERY_KEYS.project, state.selectedContext.project);
-  params.set(QUERY_KEYS.environment, state.selectedContext.environment);
-  params.set(QUERY_KEYS.accountSettings, state.selectedContext.accountSettings);
+  let changed = false;
+  if (params.has('onboarding')) {
+    params.delete('onboarding');
+    changed = true;
+  }
+  for (const key of DASHBOARD_UI_QUERY_PARAM_KEYS) {
+    if (!params.has(key)) continue;
+    params.delete(key);
+    changed = true;
+  }
+  if (!changed) return;
 
   const nextSearch = params.toString();
   const nextUrl = `${pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`;
@@ -200,6 +288,38 @@ function writeUrlState(pathname: string, state: PersistedUiState): void {
   if (nextUrl !== currentUrl) {
     window.history.replaceState({}, '', nextUrl);
   }
+}
+
+export function persistDashboardSelectedContext(
+  selectedContext: Partial<TopbarContextState>,
+): void {
+  if (typeof window === 'undefined') return;
+  const current = readRawStoredState();
+  const currentSelected = current.selectedContext;
+  const normalize = (value: unknown): string => String(value || '').trim();
+  const nextSelectedContext: TopbarContextState = {
+    organization:
+      normalize(selectedContext.organization) || normalize(currentSelected?.organization),
+    project: normalize(selectedContext.project) || normalize(currentSelected?.project),
+    environment:
+      normalize(selectedContext.environment) || normalize(currentSelected?.environment),
+    accountSettings:
+      normalize(selectedContext.accountSettings) || normalize(currentSelected?.accountSettings),
+  };
+  const nextState: PersistedUiState = {
+    isSidebarExpanded:
+      typeof current.isSidebarExpanded === 'boolean' ? current.isSidebarExpanded : true,
+    expandedGroups: sanitizeExpandedGroups(current.expandedGroups),
+    selectedContext: nextSelectedContext,
+  };
+  writeStoredState(nextState);
+}
+
+export function readPersistedDashboardSelectedContext(): Partial<TopbarContextState> {
+  const current = readRawStoredState();
+  const selected = current.selectedContext;
+  if (!selected) return {};
+  return readExplicitSelectedContext(selected);
 }
 
 type UseDashboardUiPreferencesResult = {
@@ -230,6 +350,7 @@ export function useDashboardUiPreferences(
   const [selectedContext, setSelectedContext] = React.useState<TopbarContextState>(
     initialState.selectedContext,
   );
+  const [preferencesHydrated, setPreferencesHydrated] = React.useState<boolean>(false);
 
   const toggleSidebar = React.useCallback(() => {
     setIsSidebarExpanded((current) => !current);
@@ -266,14 +387,62 @@ export function useDashboardUiPreferences(
   }, [defaultContext, dropdownOptions]);
 
   React.useEffect(() => {
+    const persisted = readPersistedDashboardSelectedContext();
+    const organization = String(persisted.organization || '').trim();
+    const project = String(persisted.project || '').trim();
+    const environment = String(persisted.environment || '').trim();
+    const accountSettings = String(persisted.accountSettings || '').trim();
+    if (!organization && !project && !environment && !accountSettings) return;
+    setSelectedContext((current) => {
+      const next: TopbarContextState = {
+        ...current,
+        ...(organization ? { organization } : {}),
+        ...(project ? { project } : {}),
+        ...(environment ? { environment } : {}),
+        ...(accountSettings ? { accountSettings } : {}),
+      };
+      if (
+        next.organization === current.organization &&
+        next.project === current.project &&
+        next.environment === current.environment &&
+        next.accountSettings === current.accountSettings
+      ) {
+        return current;
+      }
+      return next;
+    });
+    setPreferencesHydrated(true);
+  }, [pathname]);
+
+  React.useEffect(() => {
+    const fromUrl = readUrlSelectedContext(dropdownOptions, defaultContext);
+    if (!fromUrl) return;
+    setSelectedContext((current) => {
+      if (
+        current.organization === fromUrl.organization &&
+        current.project === fromUrl.project &&
+        current.environment === fromUrl.environment &&
+        current.accountSettings === fromUrl.accountSettings
+      ) {
+        return current;
+      }
+      return fromUrl;
+    });
+  }, [defaultContext, dropdownOptions, pathname]);
+
+  React.useEffect(() => {
+    if (!preferencesHydrated) return;
     const nextState: PersistedUiState = {
       isSidebarExpanded,
       expandedGroups,
       selectedContext,
     };
     writeStoredState(nextState);
-    writeUrlState(pathname, nextState);
-  }, [expandedGroups, isSidebarExpanded, pathname, selectedContext]);
+  }, [expandedGroups, isSidebarExpanded, preferencesHydrated, selectedContext]);
+
+  React.useEffect(() => {
+    clearDashboardUiQueryState(pathname);
+  }, [pathname]);
 
   return {
     isSidebarExpanded,

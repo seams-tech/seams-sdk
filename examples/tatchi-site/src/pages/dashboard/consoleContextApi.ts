@@ -44,17 +44,6 @@ export interface DashboardUpdateProjectRequest {
   name: string;
 }
 
-export interface DashboardCreateEnvironmentRequest {
-  id?: string;
-  projectId: string;
-  key: 'dev' | 'staging' | 'prod';
-  name?: string;
-}
-
-export interface DashboardUpdateEnvironmentRequest {
-  name: string;
-}
-
 interface ConsoleResponseBase {
   ok?: boolean;
   code?: string;
@@ -232,44 +221,4 @@ export async function archiveDashboardProject(projectId: string): Promise<Dashbo
   const project = decodeProject(body.project);
   if (!project) throw new Error('Console project archive response was invalid');
   return project;
-}
-
-export async function createDashboardEnvironment(
-  input: DashboardCreateEnvironmentRequest,
-): Promise<DashboardConsoleEnvironment> {
-  const body = (await mutateJson('/console/environments', 'POST', input)) as ConsoleEnvironmentsResponse;
-  const environment = decodeEnvironment(body.environment);
-  if (!environment) throw new Error('Console environment create response was invalid');
-  return environment;
-}
-
-export async function updateDashboardEnvironment(
-  environmentId: string,
-  input: DashboardUpdateEnvironmentRequest,
-): Promise<DashboardConsoleEnvironment> {
-  const normalizedId = String(environmentId || '').trim();
-  if (!normalizedId) throw new Error('Environment id is required');
-  const body = (await mutateJson(
-    `/console/environments/${encodeURIComponent(normalizedId)}`,
-    'PATCH',
-    input,
-  )) as ConsoleEnvironmentsResponse;
-  const environment = decodeEnvironment(body.environment);
-  if (!environment) throw new Error('Console environment update response was invalid');
-  return environment;
-}
-
-export async function archiveDashboardEnvironment(
-  environmentId: string,
-): Promise<DashboardConsoleEnvironment> {
-  const normalizedId = String(environmentId || '').trim();
-  if (!normalizedId) throw new Error('Environment id is required');
-  const body = (await mutateJson(
-    `/console/environments/${encodeURIComponent(normalizedId)}/archive`,
-    'POST',
-    {},
-  )) as ConsoleEnvironmentsResponse;
-  const environment = decodeEnvironment(body.environment);
-  if (!environment) throw new Error('Console environment archive response was invalid');
-  return environment;
 }

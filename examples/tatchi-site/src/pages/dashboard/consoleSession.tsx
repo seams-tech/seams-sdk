@@ -2,6 +2,7 @@ import React from 'react';
 import {
   buildConsoleAcceptHeaders,
   consoleErrorMessage,
+  normalizeConsoleFetchError,
   parseConsoleJson,
   requireConsoleBaseUrl,
 } from './consoleHttp';
@@ -54,13 +55,22 @@ function parseClaims(raw: unknown): DashboardConsoleSessionClaims | null {
 
 async function fetchDashboardConsoleSession(): Promise<DashboardConsoleSessionClaims> {
   const base = requireConsoleBaseUrl();
-
-  const response = await fetch(`${base}/console/session`, {
-    method: 'GET',
-    headers: buildConsoleAcceptHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${base}/console/session`, {
+      method: 'GET',
+      headers: buildConsoleAcceptHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+    });
+  } catch (error: unknown) {
+    throw normalizeConsoleFetchError({
+      error,
+      baseUrl: base,
+      path: '/console/session',
+      operation: 'Console session request',
+    });
+  }
 
   const body = (await parseConsoleJson(response)) as DashboardConsoleSessionResponse | null;
   if (!response.ok || body?.ok !== true) {

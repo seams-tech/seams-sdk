@@ -93,6 +93,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     if (result.success && result.nearAccountId) {
       const tx = result.transactionId ? ` tx: ${result.transactionId}` : '';
       toast.success(`Registration completed: ${tx}`, { id: 'registration' });
+      props.onLoggedIn?.(result.nearAccountId);
       return result;
     } else {
       throw new Error(result.error || 'Registration failed');

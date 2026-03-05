@@ -1,4 +1,5 @@
 import React from 'react';
+import CopyButton from '@/components/CopyButton';
 import TatchiLogo from '@/components/icons/TatchiLogo';
 import type { TopbarContextState, TopbarMenuKey, TopbarOption } from '../types';
 
@@ -26,6 +27,7 @@ export function DashboardTopbar({
 }: DashboardTopbarProps): React.JSX.Element {
   const topbarRef = React.useRef<HTMLElement | null>(null);
   const [activeTopbarMenu, setActiveTopbarMenu] = React.useState<TopbarMenuKey | null>(null);
+  const environmentId = String(selectedContext.environment || '').trim();
 
   React.useEffect(() => {
     if (!activeTopbarMenu) return;
@@ -147,19 +149,16 @@ export function DashboardTopbar({
       >
         <span className="dashboard-context-card__label">Environment ID</span>
         <span className="dashboard-context-card__value">{selectedContext.environment || '—'}</span>
-        <button
-          type="button"
-          className="dashboard-copy-button"
-          aria-label="Copy environment id"
-          disabled={!selectedContext.environment}
-          onClick={() => {
-            const value = String(selectedContext.environment || '').trim();
-            if (!value) return;
-            void window.navigator?.clipboard?.writeText(value);
-          }}
-        >
-          <span aria-hidden="true" />
-        </button>
+        {environmentId ? (
+          <CopyButton
+            text={environmentId}
+            ariaLabel="Copy environment id"
+            className="dashboard-context-copy"
+            size={14}
+          />
+        ) : (
+          <span className="dashboard-context-copy-placeholder" aria-hidden="true" />
+        )}
       </div>
 
       {renderTopbarDropdown(

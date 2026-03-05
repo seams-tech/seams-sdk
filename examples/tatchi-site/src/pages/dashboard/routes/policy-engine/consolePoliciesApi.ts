@@ -235,15 +235,19 @@ export async function updateDashboardPolicy(input: {
 
 export async function publishDashboardPolicy(input: {
   policyId: string;
+  approvalId?: string;
 }): Promise<DashboardConsolePolicy> {
   const policyId = String(input.policyId || '').trim();
   if (!policyId) throw new Error('Policy id is required');
+  const approvalId = String(input.approvalId || '').trim();
+  const requestBody = approvalId ? JSON.stringify({ approvalId }) : null;
   const base = requireConsoleBaseUrl();
   const response = await fetch(`${base}/console/policies/${encodeURIComponent(policyId)}/publish`, {
     method: 'POST',
-    headers: buildConsoleAcceptHeaders(),
+    headers: requestBody ? buildConsoleJsonHeaders() : buildConsoleAcceptHeaders(),
     credentials: 'include',
     cache: 'no-store',
+    ...(requestBody ? { body: requestBody } : {}),
   });
   const body = (await parseConsoleJson(response)) as ConsolePolicyPublishResponse | null;
   if (!response.ok || body?.ok !== true) {

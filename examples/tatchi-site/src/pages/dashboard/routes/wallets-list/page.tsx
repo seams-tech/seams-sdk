@@ -1,5 +1,7 @@
 import React from 'react';
 import {
+  SEARCH_USER_WALLETS_FILTER_CONTROLS,
+  SEARCH_USER_WALLETS_PLACEHOLDER,
   USER_WALLETS_TABLE_COLUMNS,
   USER_WALLETS_TABLE_NOTE,
 } from '../../components/dashboardContent';
@@ -10,6 +12,7 @@ import {
   getDashboardWallet,
   listDashboardWallets,
   mergeDashboardWalletsById,
+  searchDashboardWallets,
   type DashboardConsoleWallet,
 } from '../wallets/consoleWalletApi';
 
@@ -22,6 +25,7 @@ function formatTimestamp(value: string): string {
 export function UserWalletsListPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
   const selectedContext = useDashboardSelectedContext();
+  const [query, setQuery] = React.useState<string>('');
   const [wallets, setWallets] = React.useState<DashboardConsoleWallet[]>([]);
   const [nextCursor, setNextCursor] = React.useState<string>('');
   const [loading, setLoading] = React.useState<boolean>(true);
@@ -39,6 +43,8 @@ export function UserWalletsListPage(): React.JSX.Element {
     }),
     [selectedContext.environment, selectedContext.project],
   );
+  const trimmedQuery = query.trim();
+  const searchMode = trimmedQuery.length >= 2;
 
   React.useEffect(() => {
     if (session.loading) {
@@ -58,26 +64,34 @@ export function UserWalletsListPage(): React.JSX.Element {
     setLoading(true);
     setErrorMessage('');
     setPaginationError('');
-    listDashboardWallets({ limit: 25, ...walletScope })
-      .then((page) => {
-        if (cancelled) return;
-        setWallets(page.wallets);
-        setNextCursor(page.nextCursor || '');
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setWallets([]);
-        setNextCursor('');
-        setErrorMessage(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setLoading(false);
-      });
+    const fetchWallets = () => {
+      const request = searchMode
+        ? searchDashboardWallets({ q: trimmedQuery, limit: 25, ...walletScope })
+        : listDashboardWallets({ limit: 25, ...walletScope });
+      request
+        .then((page) => {
+          if (cancelled) return;
+          setWallets(page.wallets);
+          setNextCursor(page.nextCursor || '');
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          setWallets([]);
+          setNextCursor('');
+          setErrorMessage(error instanceof Error ? error.message : String(error));
+        })
+        .finally(() => {
+          if (cancelled) return;
+          setLoading(false);
+        });
+    };
+    const timeoutId = searchMode ? window.setTimeout(fetchWallets, 200) : undefined;
+    if (!searchMode) fetchWallets();
     return () => {
       cancelled = true;
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
     };
-  }, [session.claims, session.errorMessage, session.loading, walletScope]);
+  }, [searchMode, session.claims, session.errorMessage, session.loading, trimmedQuery, walletScope]);
 
   const loadMore = React.useCallback(() => {
     if (!nextCursor || loadingMore) return;
@@ -87,11 +101,19 @@ export function UserWalletsListPage(): React.JSX.Element {
     }
     setLoadingMore(true);
     setPaginationError('');
-    listDashboardWallets({
-      limit: 25,
-      cursor: nextCursor,
-      ...walletScope,
-    })
+    const request = searchMode
+      ? searchDashboardWallets({
+          q: trimmedQuery,
+          limit: 25,
+          cursor: nextCursor,
+          ...walletScope,
+        })
+      : listDashboardWallets({
+          limit: 25,
+          cursor: nextCursor,
+          ...walletScope,
+        });
+    request
       .then((page) => {
         setWallets((current) => mergeDashboardWalletsById(current, page.wallets));
         setNextCursor(page.nextCursor || '');
@@ -102,7 +124,15 @@ export function UserWalletsListPage(): React.JSX.Element {
       .finally(() => {
         setLoadingMore(false);
       });
-  }, [loadingMore, nextCursor, session.claims, session.errorMessage, walletScope]);
+  }, [
+    loadingMore,
+    nextCursor,
+    searchMode,
+    session.claims,
+    session.errorMessage,
+    trimmedQuery,
+    walletScope,
+  ]);
 
   React.useEffect(() => {
     setSelectedWalletId('');
@@ -140,27 +170,21 @@ export function UserWalletsListPage(): React.JSX.Element {
     };
   }, [selectedWalletId]);
 
-  const kpis = React.useMemo(
+  const summaryMetrics = React.useMemo(
     () => [
       {
-        label: 'Wallets in view',
+        label: '#wallets',
         value: String(wallets.length),
-        hint: 'Current page from /console/wallets',
       },
       {
-        label: 'Funded wallets',
+        label: '#funded wallets',
         value: String(wallets.filter((wallet) => wallet.balanceMinor > 0).length),
-        hint: 'balanceMinor > 0',
       },
       {
-        label: 'Recently active',
-        value: String(wallets.filter((wallet) => Boolean(wallet.lastActivityAt)).length),
-        hint: 'lastActivityAt is present',
-      },
-      {
-        label: 'Chains represented',
-        value: String(new Set(wallets.map((wallet) => wallet.chain)).size),
-        hint: 'Distinct chain values in current page',
+        label: '#active wallets',
+        value: String(
+          wallets.filter((wallet) => String(wallet.status || '').toUpperCase() === 'ACTIVE').length,
+        ),
       },
     ],
     [wallets],
@@ -168,15 +192,38 @@ export function UserWalletsListPage(): React.JSX.Element {
 
   return (
     <div className="dashboard-view" aria-label="User wallets list page">
-      <section
-        className="dashboard-kpi-grid dashboard-kpi-grid--content"
-        aria-label="Wallet KPI summary"
-      >
-        {kpis.map((metric) => (
-          <article className="dashboard-kpi-card" key={metric.label}>
-            <p className="dashboard-kpi-card__label">{metric.label}</p>
-            <p className="dashboard-kpi-card__value">{metric.value}</p>
-            <p className="dashboard-kpi-card__hint">{metric.hint}</p>
+      <section className="dashboard-filters" aria-label="Wallet search controls">
+        <label className="dashboard-search-control">
+          <span className="dashboard-search-icon" aria-hidden="true" />
+          <input
+            type="search"
+            placeholder={SEARCH_USER_WALLETS_PLACEHOLDER}
+            aria-label="Search wallets"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
+
+        {SEARCH_USER_WALLETS_FILTER_CONTROLS.map((control) =>
+          control.kind === 'select' ? (
+            <button type="button" className="dashboard-select-control" key={control.value}>
+              <span className="dashboard-select-control__value">{control.value}</span>
+              <span className="dashboard-chevron" aria-hidden="true" />
+            </button>
+          ) : (
+            <button type="button" className="dashboard-columns-control" key={control.value}>
+              <span className="dashboard-columns-icon" aria-hidden="true" />
+              <span>{control.value}</span>
+            </button>
+          ),
+        )}
+      </section>
+
+      <section className="dashboard-wallet-summary" aria-label="Wallet summary metrics">
+        {summaryMetrics.map((metric) => (
+          <article className="dashboard-wallet-summary__item" key={metric.label}>
+            <p className="dashboard-wallet-summary__label">{metric.label}</p>
+            <p className="dashboard-wallet-summary__value">{metric.value}</p>
           </article>
         ))}
       </section>
@@ -188,11 +235,17 @@ export function UserWalletsListPage(): React.JSX.Element {
           ))}
         </div>
         {loading ? (
-          <p className="dashboard-table-limit">Loading wallets from console API...</p>
+          <p className="dashboard-table-limit">
+            {searchMode ? 'Searching wallets...' : 'Loading wallets from console API...'}
+          </p>
         ) : errorMessage ? (
-          <p className="dashboard-table-limit">Wallet list unavailable: {errorMessage}</p>
+          <p className="dashboard-table-limit">
+            {searchMode ? `Search failed: ${errorMessage}` : `Wallet list unavailable: ${errorMessage}`}
+          </p>
         ) : wallets.length === 0 ? (
-          <p className="dashboard-table-limit">No wallets returned by /console/wallets.</p>
+          <p className="dashboard-table-limit">
+            {searchMode ? 'No wallets matched this query.' : 'No wallets returned by /console/wallets.'}
+          </p>
         ) : (
           <>
             {wallets.map((wallet) => (
@@ -216,8 +269,14 @@ export function UserWalletsListPage(): React.JSX.Element {
               </div>
             ))}
             <p className="dashboard-table-limit">
-              {USER_WALLETS_TABLE_NOTE}
-              {nextCursor ? ' More rows are available via nextCursor.' : ''}
+              {searchMode
+                ? `Showing ${wallets.length} result${wallets.length === 1 ? '' : 's'}.`
+                : USER_WALLETS_TABLE_NOTE}
+              {nextCursor
+                ? searchMode
+                  ? ' Additional matches are available via nextCursor.'
+                  : ' More rows are available via nextCursor.'
+                : ''}
               {walletScope.projectId
                 ? ` Scope: project ${walletScope.projectId}${
                     walletScope.environmentId ? `, environment ${walletScope.environmentId}` : ''
@@ -232,10 +291,16 @@ export function UserWalletsListPage(): React.JSX.Element {
                   onClick={loadMore}
                   disabled={loadingMore}
                 >
-                  {loadingMore ? 'Loading more...' : 'Load more wallets'}
+                  {loadingMore
+                    ? 'Loading more...'
+                    : searchMode
+                      ? 'Load more results'
+                      : 'Load more wallets'}
                 </button>
               ) : (
-                <span className="dashboard-pagination-note">End of wallet results.</span>
+                <span className="dashboard-pagination-note">
+                  {searchMode ? 'End of search results.' : 'End of wallet results.'}
+                </span>
               )}
               {paginationError ? (
                 <span className="dashboard-pagination-note">{paginationError}</span>

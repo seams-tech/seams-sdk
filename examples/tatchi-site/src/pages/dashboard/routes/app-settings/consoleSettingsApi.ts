@@ -195,13 +195,19 @@ export async function getDashboardSecuritySettings(
 export async function updateDashboardSecuritySettings(
   input: Record<string, unknown>,
 ): Promise<DashboardSecuritySettings> {
+  const payload: Record<string, unknown> = { ...input };
+  if (Object.prototype.hasOwnProperty.call(payload, 'approvalId')) {
+    const approvalId = String(payload.approvalId || '').trim();
+    if (approvalId) payload.approvalId = approvalId;
+    else delete payload.approvalId;
+  }
   const base = requireConsoleBaseUrl();
   const response = await fetch(`${base}/console/settings/security`, {
     method: 'PATCH',
     headers: buildConsoleJsonHeaders(),
     credentials: 'include',
     cache: 'no-store',
-    body: JSON.stringify(input),
+    body: JSON.stringify(payload),
   });
   const body = (await parseConsoleJson(response)) as ConsoleSettingsResponse | null;
   if (!response.ok || body?.ok !== true) {

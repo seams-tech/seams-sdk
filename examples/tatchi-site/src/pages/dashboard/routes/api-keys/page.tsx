@@ -10,6 +10,26 @@ import {
 } from './consoleApiKeysApi';
 
 const DEFAULT_SCOPES = 'wallets:read,billing:read';
+const API_KEY_SCOPE_PRESETS = [
+  {
+    key: 'registration',
+    label: 'Registration bootstrap',
+    description: 'Scopes for /registration/bootstrap',
+    scopes: ['accounts.create', 'accounts.sync'],
+  },
+  {
+    key: 'console-readonly',
+    label: 'Console readonly',
+    description: 'Read-only wallet and billing console access',
+    scopes: ['wallets:read', 'billing:read'],
+  },
+  {
+    key: 'session-refresh',
+    label: 'Session refresh',
+    description: 'Scope for session refresh operations',
+    scopes: ['sessions.refresh'],
+  },
+] as const;
 
 function parseCsvValues(raw: string): string[] {
   const out: string[] = [];
@@ -33,6 +53,21 @@ function formatTimestamp(value: string | null): string {
   return date.toLocaleString();
 }
 
+function buildRegistrationBootstrapSnippet(secret: string, environmentId: string): string {
+  const envScope = String(environmentId || '').trim() || '<environment-id>';
+  return [
+    "curl -X POST \"$RELAYER_URL/registration/bootstrap\" \\",
+    `  -H "Authorization: Bearer ${secret}" \\`,
+    `  -H "X-Tatchi-Environment-Id: ${envScope}" \\`,
+    '  -H "Content-Type: application/json" \\',
+    '  -d \'{',
+    '    "new_account_id": "alice.testnet",',
+    '    "rp_id": "example.localhost",',
+    '    "account": { "type": "passkey" }',
+    "  }'",
+  ].join('\n');
+}
+
 export function ApiKeyManagementPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
   const selectedContext = useDashboardSelectedContext();
@@ -52,6 +87,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
     keyId: string;
     secret: string;
   } | null>(null);
+  const [copySecretStatus, setCopySecretStatus] = React.useState<string>('');
 
   React.useEffect(() => {
     if (!selectedEnvironmentId) return;
@@ -143,6 +179,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
         setNameInput('');
         setIpAllowlistInput('');
         setScopesInput(DEFAULT_SCOPES);
+        setCopySecretStatus('');
         loadApiKeys();
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
@@ -180,6 +217,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
           keyId: rotated.apiKey.id,
           secret: rotated.secret,
         });
+        setCopySecretStatus('');
         loadApiKeys();
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
@@ -222,10 +260,49 @@ export function ApiKeyManagementPage(): React.JSX.Element {
         </p>
 
         {revealedSecret ? (
-          <p className="dashboard-secret-banner">
-            Secret {revealedSecret.action} for <strong>{revealedSecret.keyId}</strong>:{" "}
-            <code>{revealedSecret.secret}</code>
-          </p>
+          <div className="dashboard-secret-banner">
+            <p>
+              Secret {revealedSecret.action} for <strong>{revealedSecret.keyId}</strong> (shown once):
+              {' '}
+              <code>{revealedSecret.secret}</code>
+            </p>
+            <div className="dashboard-form-actions">
+              <button
+                type="button"
+                className="dashboard-pagination-button"
+                onClick={async () => {
+                  try {
+                    await window.navigator?.clipboard?.writeText(revealedSecret.secret);
+                    setCopySecretStatus('Secret copied to clipboard.');
+                  } catch {
+                    setCopySecretStatus('Clipboard copy failed. Copy manually.');
+                  }
+                }}
+              >
+                Copy secret
+              </button>
+            </div>
+            {copySecretStatus ? <p className="dashboard-pagination-note">{copySecretStatus}</p> : null}
+          </div>
+        ) : null}
+
+        {revealedSecret ? (
+          <section className="dashboard-view__section" aria-label="Registration bootstrap snippet">
+            <h3>Registration bootstrap snippet</h3>
+            <p>
+              Use this API key for initial account registration calls. Replace
+              {' '}
+              <code>$RELAYER_URL</code> with your relay base URL.
+            </p>
+            <pre className="dashboard-table-row">
+              <code>
+                {buildRegistrationBootstrapSnippet(
+                  revealedSecret.secret,
+                  selectedEnvironmentId || environmentInput,
+                )}
+              </code>
+            </pre>
+          </section>
         ) : null}
 
         <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onCreateApiKey}>
@@ -258,6 +335,20 @@ export function ApiKeyManagementPage(): React.JSX.Element {
               onChange={(event) => setScopesInput(event.target.value)}
               placeholder="wallets:read,billing:read"
             />
+            <span className="dashboard-table-limit">Quick presets</span>
+            <div className="dashboard-form-actions">
+              {API_KEY_SCOPE_PRESETS.map((preset) => (
+                <button
+                  key={preset.key}
+                  type="button"
+                  className="dashboard-inline-link"
+                  title={preset.description}
+                  onClick={() => setScopesInput(preset.scopes.join(','))}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
           </label>
 
           <label className="dashboard-form-field">

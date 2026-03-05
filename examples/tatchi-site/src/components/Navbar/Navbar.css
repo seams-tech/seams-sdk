@@ -676,6 +676,143 @@ html[data-w3a-theme='light'] .navbar-static__link--button.is-active {
   display: none;
 }
 
+.navbar-static__auth-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  background: color-mix(in srgb, var(--navbar-bg) 48%, rgba(4, 10, 22, 0.78));
+  backdrop-filter: blur(6px);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.navbar-static__auth-modal {
+  width: min(760px, 100%);
+  max-height: min(92vh, 980px);
+  overflow: auto;
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, var(--navbar-border) 68%, transparent);
+  background:
+    radial-gradient(
+      128% 148% at 8% -22%,
+      color-mix(in srgb, var(--navbar-surface3) 88%, var(--navbar-primary) 12%) 0%,
+      transparent 44%
+    ),
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--navbar-surface3) 86%, #000 14%) 0%,
+      color-mix(in srgb, var(--navbar-bg) 92%, #000 8%) 100%
+    );
+  box-shadow:
+    0 28px 62px -36px color-mix(in srgb, var(--navbar-shadow) 88%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--navbar-border) 32%, transparent);
+  padding: 1rem;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.navbar-static__auth-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.navbar-static__auth-header h2 {
+  margin: 0;
+  color: var(--navbar-text);
+  font-size: 1.12rem;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+}
+
+.navbar-static__auth-close {
+  appearance: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--navbar-border) 70%, transparent);
+  background: color-mix(in srgb, var(--navbar-surface2) 56%, transparent);
+  color: var(--navbar-text);
+  display: inline-grid;
+  place-content: center;
+  cursor: pointer;
+}
+
+.navbar-static__auth-copy {
+  margin: 0;
+  color: color-mix(in srgb, var(--site-text-secondary) 88%, var(--navbar-text) 12%);
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.navbar-static__auth-passkey {
+  border: 1px solid color-mix(in srgb, var(--navbar-border) 62%, transparent);
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, var(--navbar-surface2) 52%, transparent);
+  padding: 0.75rem;
+}
+
+.navbar-static__auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: color-mix(in srgb, var(--site-text-secondary) 82%, var(--navbar-text) 18%);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.navbar-static__auth-divider::before,
+.navbar-static__auth-divider::after {
+  content: '';
+  height: 1px;
+  flex: 1;
+  background: color-mix(in srgb, var(--navbar-border) 54%, transparent);
+}
+
+.navbar-static__auth-google-button {
+  appearance: none;
+  width: 100%;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--navbar-border) 68%, transparent);
+  background: color-mix(in srgb, var(--navbar-surface2) 66%, transparent);
+  color: var(--navbar-text);
+  min-height: 44px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    opacity 180ms ease;
+}
+
+.navbar-static__auth-google-button:hover:enabled {
+  border-color: color-mix(in srgb, var(--navbar-border-hover) 68%, var(--navbar-primary) 32%);
+  background: color-mix(in srgb, var(--navbar-surface3) 72%, transparent);
+}
+
+.navbar-static__auth-google-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.navbar-static__auth-note {
+  margin: 0;
+  color: color-mix(in srgb, var(--site-text-secondary) 84%, var(--navbar-text) 16%);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.navbar-static__auth-error {
+  margin: 0;
+  color: color-mix(in srgb, #ff7262 78%, var(--navbar-text) 22%);
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
 .navbar-static__link:focus-visible,
 .navbar-static__link--button:focus-visible,
 .navbar-static__brand:focus-visible,

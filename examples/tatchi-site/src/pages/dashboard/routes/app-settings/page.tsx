@@ -1,28 +1,17 @@
 import React from 'react';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import {
-  archiveDashboardEnvironment,
   archiveDashboardProject,
-  createDashboardEnvironment,
   createDashboardProject,
   getDashboardOrganization,
   listDashboardEnvironments,
   listDashboardProjects,
-  updateDashboardEnvironment,
   updateDashboardProject,
   type DashboardConsoleEnvironment,
   type DashboardConsoleOrganization,
   type DashboardConsoleProject,
 } from '../../consoleContextApi';
 import { useDashboardSelectedContext } from '../../selectedContext';
-import {
-  ALL_PROJECTS_SCOPE,
-  buildEnvironmentsListRequest,
-  buildProjectsListRequest,
-  canCreateEnvironmentInProject,
-  filterActiveProjects,
-  resolveCreateEnvironmentProjectId,
-} from './contextHierarchyModel';
 import {
   getDashboardAppSettings,
   getDashboardSecuritySettings,
@@ -107,21 +96,12 @@ export function AppSettingsPage(): React.JSX.Element {
   const [createProjectName, setCreateProjectName] = React.useState<string>('');
   const [projectActionId, setProjectActionId] = React.useState<string>('');
   const [projectRenameName, setProjectRenameName] = React.useState<string>('');
-  const [createEnvironmentId, setCreateEnvironmentId] = React.useState<string>('');
-  const [createEnvironmentProjectId, setCreateEnvironmentProjectId] = React.useState<string>('');
-  const [createEnvironmentKey, setCreateEnvironmentKey] = React.useState<'dev' | 'staging' | 'prod'>(
-    'dev',
-  );
-  const [createEnvironmentName, setCreateEnvironmentName] = React.useState<string>('');
-  const [environmentScopeProjectId, setEnvironmentScopeProjectId] = React.useState<string>('');
-  const [showArchivedEnvironments, setShowArchivedEnvironments] = React.useState<boolean>(false);
-  const [environmentActionId, setEnvironmentActionId] = React.useState<string>('');
-  const [environmentRenameName, setEnvironmentRenameName] = React.useState<string>('');
   const [settingsEnvironmentId, setSettingsEnvironmentId] = React.useState<string>('');
   const [settingsLoading, setSettingsLoading] = React.useState<boolean>(false);
   const [settingsError, setSettingsError] = React.useState<string>('');
   const [settingsMutationError, setSettingsMutationError] = React.useState<string>('');
   const [settingsMutating, setSettingsMutating] = React.useState<boolean>(false);
+  const [securityApprovalIdInput, setSecurityApprovalIdInput] = React.useState<string>('');
   const [appSettings, setAppSettings] = React.useState<DashboardAppSettings | null>(null);
   const [securitySettings, setSecuritySettings] = React.useState<DashboardSecuritySettings | null>(null);
   const [runtimeSnapshotsLoading, setRuntimeSnapshotsLoading] = React.useState<boolean>(false);
@@ -177,10 +157,6 @@ export function AppSettingsPage(): React.JSX.Element {
     [session.claims?.roles],
   );
 
-  const activeProjects = React.useMemo(
-    () => filterActiveProjects(projects),
-    [projects],
-  );
   const selectedProjectId = React.useMemo(
     () => normalizeString(selectedContext.project || ''),
     [selectedContext.project],
@@ -200,26 +176,24 @@ export function AppSettingsPage(): React.JSX.Element {
     setErrorMessage('');
     Promise.all([
       getDashboardOrganization(),
-      listDashboardProjects(buildProjectsListRequest(showArchivedProjects)),
+      listDashboardProjects(showArchivedProjects ? {} : { status: 'ACTIVE' }),
     ])
       .then(async ([nextOrg, nextProjects]) => {
         const sortedProjects = [...nextProjects].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-        const selectedProjectId = String(selectedContext.project || '').trim();
-        const { resolvedScopeProjectId, request: environmentRequest } =
-          buildEnvironmentsListRequest({
-            requestedScopeProjectId: environmentScopeProjectId,
-            selectedProjectId,
-            projects: sortedProjects,
-            showArchivedEnvironments,
-          });
-        const nextEnvironments = await listDashboardEnvironments(environmentRequest);
-        if (cancelled) return;
-        const sortedEnvironments = [...nextEnvironments].sort((a, b) =>
-          b.createdAt.localeCompare(a.createdAt),
+        const currentProjectId = normalizeString(selectedContext.project || '');
+        const scopeProjectId =
+          currentProjectId && sortedProjects.some((entry) => entry.id === currentProjectId)
+            ? currentProjectId
+            : (sortedProjects[0]?.id || '');
+        const nextEnvironments = await listDashboardEnvironments(
+          scopeProjectId ? { projectId: scopeProjectId } : {},
         );
+        if (cancelled) return;
+        const sortedEnvironments = [...nextEnvironments]
+          .filter((entry) => String(entry.status || '').toUpperCase() !== 'ARCHIVED')
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
         setOrganization(nextOrg);
         setProjects(sortedProjects);
-        setEnvironmentScopeProjectId(resolvedScopeProjectId);
         setEnvironments(sortedEnvironments);
       })
       .catch((error: unknown) => {
@@ -238,12 +212,10 @@ export function AppSettingsPage(): React.JSX.Element {
       cancelled = true;
     };
   }, [
-    environmentScopeProjectId,
     selectedContext.project,
     session.claims,
     session.errorMessage,
     showArchivedProjects,
-    showArchivedEnvironments,
   ]);
 
   React.useEffect(() => {
@@ -258,8 +230,6 @@ export function AppSettingsPage(): React.JSX.Element {
   React.useEffect(() => {
     if (projects.length === 0) {
       setProjectActionId('');
-      setCreateEnvironmentProjectId('');
-      setEnvironmentScopeProjectId('');
       return;
     }
     const selectedProject = String(selectedContext.project || '').trim();
@@ -270,68 +240,12 @@ export function AppSettingsPage(): React.JSX.Element {
           : (projects[0]?.id || ''),
       );
     }
-    if (
-      !createEnvironmentProjectId ||
-      !activeProjects.some((entry) => entry.id === createEnvironmentProjectId)
-    ) {
-      setCreateEnvironmentProjectId(
-        resolveCreateEnvironmentProjectId({
-          currentProjectId: createEnvironmentProjectId,
-          selectedProjectId: selectedProject,
-          activeProjects,
-        }),
-      );
-    }
-    if (
-      !environmentScopeProjectId ||
-      (environmentScopeProjectId !== ALL_PROJECTS_SCOPE &&
-        !projects.some((entry) => entry.id === environmentScopeProjectId))
-    ) {
-      setEnvironmentScopeProjectId(
-        projects.some((entry) => entry.id === selectedProject)
-          ? selectedProject
-          : (projects[0]?.id || ''),
-      );
-    }
-  }, [
-    activeProjects,
-    createEnvironmentProjectId,
-    environmentScopeProjectId,
-    projectActionId,
-    projects,
-    selectedContext.project,
-  ]);
-
-  const scopedEnvironments = React.useMemo(() => {
-    const scopeProjectId = String(environmentScopeProjectId || '').trim();
-    if (!scopeProjectId || scopeProjectId === ALL_PROJECTS_SCOPE) return environments;
-    return environments.filter((environment) => environment.projectId === scopeProjectId);
-  }, [environmentScopeProjectId, environments]);
-
-  const selectedEnvironmentForAction = React.useMemo(
-    () => scopedEnvironments.find((entry) => entry.id === environmentActionId) || null,
-    [environmentActionId, scopedEnvironments],
-  );
+  }, [projectActionId, projects, selectedContext.project]);
 
   const selectedProjectForAction = React.useMemo(
     () => projects.find((entry) => entry.id === projectActionId) || null,
     [projectActionId, projects],
   );
-
-  React.useEffect(() => {
-    if (scopedEnvironments.length === 0) {
-      setEnvironmentActionId('');
-      return;
-    }
-    const selectedEnvironment = String(selectedContext.environment || '').trim();
-    if (!environmentActionId || !scopedEnvironments.some((entry) => entry.id === environmentActionId)) {
-      setEnvironmentActionId(
-        scopedEnvironments.some((entry) => entry.id === selectedEnvironment)
-          ? selectedEnvironment
-          : (scopedEnvironments[0]?.id || ''),
-      );
-    }
-  }, [environmentActionId, scopedEnvironments, selectedContext.environment]);
 
   const projectNameById = React.useMemo(() => {
     const map = new Map<string, string>();
@@ -595,125 +509,6 @@ export function AppSettingsPage(): React.JSX.Element {
     }
   }, [canMutateContext, loadContextData, projectActionId, session.claims, session.errorMessage]);
 
-  const onCreateEnvironment = React.useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (!session.claims) {
-        setMutationError(session.errorMessage || 'Console session is unavailable');
-        return;
-      }
-      if (!canMutateContext) {
-        setMutationError('Only owner/admin roles can create environments.');
-        return;
-      }
-      const id = String(createEnvironmentId || '').trim();
-      const projectId = String(createEnvironmentProjectId || '').trim();
-      const name = String(createEnvironmentName || '').trim();
-      if (!projectId) {
-        setMutationError('Project is required to create an environment.');
-        return;
-      }
-      if (!canCreateEnvironmentInProject(projectId, activeProjects)) {
-        setMutationError('Environment can only be created under an active project.');
-        return;
-      }
-      setMutating(true);
-      setMutationError('');
-      try {
-        await createDashboardEnvironment({
-          projectId,
-          key: createEnvironmentKey,
-          ...(id ? { id } : {}),
-          ...(name ? { name } : {}),
-        });
-        setCreateEnvironmentId('');
-        setCreateEnvironmentName('');
-        await loadContextData();
-      } catch (error: unknown) {
-        setMutationError(error instanceof Error ? error.message : String(error));
-      } finally {
-        setMutating(false);
-      }
-    },
-    [
-      canMutateContext,
-      createEnvironmentId,
-      createEnvironmentKey,
-      createEnvironmentName,
-      createEnvironmentProjectId,
-      activeProjects,
-      loadContextData,
-      session.claims,
-      session.errorMessage,
-    ],
-  );
-
-  const onRenameEnvironment = React.useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (!session.claims) {
-        setMutationError(session.errorMessage || 'Console session is unavailable');
-        return;
-      }
-      if (!canMutateContext) {
-        setMutationError('Only owner/admin roles can update environments.');
-        return;
-      }
-      const environmentId = String(environmentActionId || '').trim();
-      const name = String(environmentRenameName || '').trim();
-      if (!environmentId || !name) {
-        setMutationError('Environment and new name are required.');
-        return;
-      }
-      setMutating(true);
-      setMutationError('');
-      try {
-        await updateDashboardEnvironment(environmentId, { name });
-        setEnvironmentRenameName('');
-        await loadContextData();
-      } catch (error: unknown) {
-        setMutationError(error instanceof Error ? error.message : String(error));
-      } finally {
-        setMutating(false);
-      }
-    },
-    [
-      canMutateContext,
-      environmentActionId,
-      environmentRenameName,
-      loadContextData,
-      session.claims,
-      session.errorMessage,
-    ],
-  );
-
-  const onArchiveEnvironment = React.useCallback(async () => {
-    if (!session.claims) {
-      setMutationError(session.errorMessage || 'Console session is unavailable');
-      return;
-    }
-    if (!canMutateContext) {
-      setMutationError('Only owner/admin roles can archive environments.');
-      return;
-    }
-    const environmentId = String(environmentActionId || '').trim();
-    if (!environmentId) {
-      setMutationError('Environment is required.');
-      return;
-    }
-    if (!window.confirm(`Archive environment ${environmentId}?`)) return;
-    setMutating(true);
-    setMutationError('');
-    try {
-      await archiveDashboardEnvironment(environmentId);
-      await loadContextData();
-    } catch (error: unknown) {
-      setMutationError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setMutating(false);
-    }
-  }, [canMutateContext, environmentActionId, loadContextData, session.claims, session.errorMessage]);
-
   const onUpdateAppSettings = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -815,6 +610,7 @@ export function AppSettingsPage(): React.JSX.Element {
       setSettingsMutating(true);
       setSettingsMutationError('');
       try {
+        const approvalId = normalizeString(securityApprovalIdInput);
         const updated = await updateDashboardSecuritySettings({
           environmentId,
           ipAllowlist: parseCsvList(ipAllowlistInput),
@@ -828,6 +624,7 @@ export function AppSettingsPage(): React.JSX.Element {
             requireAdmin: riskyRequireAdminInput,
             requireMfa: riskyRequireMfaInput,
           },
+          ...(approvalId ? { approvalId } : {}),
         });
         setSecuritySettings(updated);
         applySecuritySettingsToForm(updated);
@@ -846,6 +643,7 @@ export function AppSettingsPage(): React.JSX.Element {
       riskyApprovalsRequiredInput,
       riskyRequireAdminInput,
       riskyRequireMfaInput,
+      securityApprovalIdInput,
       session.claims,
       session.errorMessage,
       settingsEnvironmentId,
@@ -1063,8 +861,8 @@ export function AppSettingsPage(): React.JSX.Element {
               {mutationError ? <p className="dashboard-pagination-note">{mutationError}</p> : null}
               <p className="dashboard-pagination-note">
                 {canMutateContext
-                  ? 'Owner/admin role enabled for project and environment mutations.'
-                  : 'Only owner/admin roles can mutate project and environment records.'}
+                  ? 'Owner/admin role enabled for project mutations.'
+                  : 'Only owner/admin roles can mutate project records.'}
               </p>
             </div>
             <p className="dashboard-table-limit">
@@ -1105,156 +903,10 @@ export function AppSettingsPage(): React.JSX.Element {
             )}
           </section>
 
-          <section className="dashboard-table-wrapper" aria-label="Environment management">
-            <div className="dashboard-table-limit">
-              <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onCreateEnvironment}>
-                <label className="dashboard-form-field">
-                  <span>New environment ID (optional)</span>
-                  <input
-                    className="dashboard-input"
-                    value={createEnvironmentId}
-                    onChange={(event) => setCreateEnvironmentId(event.target.value)}
-                    placeholder="env_prod"
-                    disabled={!canMutateContext}
-                  />
-                </label>
-                <label className="dashboard-form-field">
-                  <span>Project</span>
-                  <select
-                    className="dashboard-input"
-                    value={createEnvironmentProjectId}
-                    onChange={(event) => setCreateEnvironmentProjectId(event.target.value)}
-                    disabled={activeProjects.length === 0}
-                  >
-                    {activeProjects.length === 0 ? <option value="">No active projects</option> : null}
-                    {activeProjects.map((project) => (
-                      <option key={project.id} value={project.id}>
-                        {project.id}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="dashboard-form-field">
-                  <span>Environment key</span>
-                  <select
-                    className="dashboard-input"
-                    value={createEnvironmentKey}
-                    onChange={(event) =>
-                      setCreateEnvironmentKey(event.target.value as 'dev' | 'staging' | 'prod')
-                    }
-                  >
-                    <option value="dev">dev</option>
-                    <option value="staging">staging</option>
-                    <option value="prod">prod</option>
-                  </select>
-                </label>
-                <label className="dashboard-form-field">
-                  <span>Environment name (optional)</span>
-                  <input
-                    className="dashboard-input"
-                    value={createEnvironmentName}
-                    onChange={(event) => setCreateEnvironmentName(event.target.value)}
-                    placeholder="Production"
-                    disabled={!canMutateContext}
-                  />
-                </label>
-                <div className="dashboard-form-actions">
-                  <button
-                    type="submit"
-                    className="dashboard-pagination-button"
-                    disabled={!canMutateContext || mutating || activeProjects.length === 0}
-                  >
-                    {mutating ? 'Applying...' : 'Create environment'}
-                  </button>
-                </div>
-              </form>
-              <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onRenameEnvironment}>
-                <label className="dashboard-form-field">
-                  <span>Include archived</span>
-                  <input
-                    className="dashboard-input"
-                    type="checkbox"
-                    checked={showArchivedEnvironments}
-                    onChange={(event) => setShowArchivedEnvironments(event.target.checked)}
-                  />
-                </label>
-                <label className="dashboard-form-field">
-                  <span>Project scope</span>
-                  <select
-                    className="dashboard-input"
-                    value={environmentScopeProjectId}
-                    onChange={(event) => setEnvironmentScopeProjectId(event.target.value)}
-                  >
-                    <option value={ALL_PROJECTS_SCOPE}>All projects</option>
-                    {projects.map((project) => (
-                      <option key={project.id} value={project.id}>
-                        {project.id}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="dashboard-form-field">
-                  <span>Environment</span>
-                  <select
-                    className="dashboard-input"
-                    value={environmentActionId}
-                    onChange={(event) => setEnvironmentActionId(event.target.value)}
-                  >
-                    {scopedEnvironments.length === 0 ? <option value="">No environments</option> : null}
-                    {scopedEnvironments.map((environment) => (
-                      <option key={environment.id} value={environment.id}>
-                        {environment.id}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="dashboard-form-field">
-                  <span>Rename environment to</span>
-                  <input
-                    className="dashboard-input"
-                    value={environmentRenameName}
-                    onChange={(event) => setEnvironmentRenameName(event.target.value)}
-                    placeholder="Environment display name"
-                    disabled={!canMutateContext}
-                  />
-                </label>
-                <div className="dashboard-form-actions">
-                  <button
-                    type="submit"
-                    className="dashboard-pagination-button"
-                    disabled={
-                      !canMutateContext ||
-                      mutating ||
-                      !environmentActionId ||
-                      selectedEnvironmentForAction?.status === 'ARCHIVED'
-                    }
-                  >
-                    {mutating ? 'Applying...' : 'Rename environment'}
-                  </button>
-                  <button
-                    type="button"
-                    className="dashboard-pagination-button"
-                    onClick={onArchiveEnvironment}
-                    disabled={
-                      !canMutateContext ||
-                      mutating ||
-                      !environmentActionId ||
-                      selectedEnvironmentForAction?.status === 'ARCHIVED'
-                    }
-                  >
-                    {mutating ? 'Applying...' : 'Archive environment'}
-                  </button>
-                </div>
-              </form>
-            </div>
+          <section className="dashboard-table-wrapper" aria-label="Environment inventory">
             <p className="dashboard-table-limit">
-              Environment status filter: {showArchivedEnvironments ? 'ACTIVE + ARCHIVED' : 'ACTIVE only'}.
-            </p>
-            <p className="dashboard-table-limit">
-              Environment scope project:{' '}
-              {environmentScopeProjectId === ALL_PROJECTS_SCOPE
-                ? 'All projects'
-                : (projectNameById.get(environmentScopeProjectId) || environmentScopeProjectId || '-')}.
+              Environments are provisioned automatically for each project (`dev`, `staging`, and `prod`).
+              Production remains disabled until billing is attached.
             </p>
             <div className="dashboard-table-header" role="row">
               <span>Environment ID</span>
@@ -1266,15 +918,11 @@ export function AppSettingsPage(): React.JSX.Element {
               <span>Updated</span>
               <span>Topbar selected</span>
             </div>
-            {scopedEnvironments.length === 0 ? (
-              <p className="dashboard-table-limit">
-                {environments.length === 0
-                  ? 'No environments found.'
-                  : 'No environments found for selected project scope.'}
-              </p>
+            {environments.length === 0 ? (
+              <p className="dashboard-table-limit">No environments found for the active project scope.</p>
             ) : (
               <>
-                {scopedEnvironments.map((environment) => (
+                {environments.map((environment) => (
                   <div className="dashboard-table-row" key={environment.id} role="row">
                     <span>{environment.id}</span>
                     <span>{projectNameById.get(environment.projectId) || environment.projectId}</span>
@@ -1287,8 +935,7 @@ export function AppSettingsPage(): React.JSX.Element {
                   </div>
                 ))}
                 <p className="dashboard-table-limit">
-                  Showing {scopedEnvironments.length} environment
-                  {scopedEnvironments.length === 1 ? '' : 's'}.
+                  Showing {environments.length} environment{environments.length === 1 ? '' : 's'}.
                 </p>
               </>
             )}
@@ -1552,6 +1199,15 @@ export function AppSettingsPage(): React.JSX.Element {
                         value={riskyApprovalsRequiredInput}
                         onChange={(event) => setRiskyApprovalsRequiredInput(event.target.value)}
                         placeholder="1"
+                      />
+                    </label>
+                    <label className="dashboard-form-field">
+                      <span>Security approval request ID (optional)</span>
+                      <input
+                        className="dashboard-input"
+                        value={securityApprovalIdInput}
+                        onChange={(event) => setSecurityApprovalIdInput(event.target.value)}
+                        placeholder="apr_security_change_001"
                       />
                     </label>
                     <label className="dashboard-form-field">

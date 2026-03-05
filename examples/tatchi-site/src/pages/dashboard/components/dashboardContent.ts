@@ -23,13 +23,17 @@ type DashboardSearchModel = {
 
 type CardDashboardRoute = Exclude<
   DashboardRoute,
+  | '/dashboard/onboarding'
   | '/dashboard/wallets-list'
-  | '/dashboard/wallets-search'
   | '/dashboard/billing'
   | '/dashboard/app-settings'
+  | '/dashboard/team-members'
+  | '/dashboard/audit'
+  | '/dashboard/enterprise-isolation'
   | '/dashboard/policy-engine'
   | '/dashboard/gas-smart-wallets'
   | '/dashboard/export-keys'
+  | '/dashboard/ops-cockpit'
 >;
 
 export const USER_WALLETS_LIST_KPIS = [

@@ -23,6 +23,10 @@ Atomically create a NEAR account and register a WebAuthn authenticator in relay 
 
 - Request body (abridged): `{ new_account_id, new_public_key, device_number?, rp_id, webauthn_registration, authenticator_options? }`
 - Response: `{ success, transactionHash?, error?, message? }`
+- When `RELAY_API_KEY_AUTH_ENABLED=1` (default in example), this route requires:
+  - `Authorization: Bearer <api_key_secret>` or `X-API-Key: <api_key_secret>`
+  - API key scope `accounts.create`
+  - Optional environment bind header `X-Tatchi-Environment-Id: <environment-id>` (rejects mismatched key/environment)
 
 This route is consumed internally by the SDK’s registration flows.
 
@@ -150,6 +154,9 @@ EXPECTED_ORIGIN=http://localhost:3000
 # Console/admin auth (dev adapter)
 CONSOLE_DEV_TOKEN=dev-console-token
 
+# Relay runtime API key auth on POST /registration/bootstrap
+RELAY_API_KEY_AUTH_ENABLED=1
+
 # Console billing backend:
 # - postgres (persists data to Postgres)
 # - memory (ephemeral dev-only in-memory store)
@@ -161,6 +168,18 @@ CONSOLE_DEV_TOKEN=dev-console-token
 # CONSOLE_BILLING_NAMESPACE=relay-console
 # Optional shared secret required by POST /console/billing/stripe/webhook
 # CONSOLE_BILLING_STRIPE_WEBHOOK_SECRET=replace-with-strong-random-secret
+# Optional live Stripe API credentials for /console/billing/stripe/* provider flows.
+# When STRIPE_API_SK is unset, relay uses deterministic mock Stripe providers.
+# STRIPE_API_SK=sk_test_...
+# Optional (frontend usage; relay only logs presence)
+# STRIPE_API_PK=pk_test_...
+# Optional default Stripe checkout Price ID.
+# If unset, relay checkout provider uses inline dynamic price_data for demo mode.
+# STRIPE_CHECKOUT_PRICE_ID=price_...
+# Optional Stripe API base URL override.
+# STRIPE_API_BASE_URL=https://api.stripe.com
+# Optional Stripe API request timeout in milliseconds (default 15000).
+# STRIPE_API_TIMEOUT_MS=15000
 
 # Console webhooks backend:
 # - postgres (persists webhook endpoints/deliveries/attempts/dead-letters)
@@ -296,9 +315,29 @@ This example server also mounts console/admin routes at `/console/*`.
   - `x-console-org-id`
   - `x-console-user-id`
   - `x-console-roles` (comma-separated, defaults to `admin`)
+  - `x-console-project-id`
+  - `x-console-environment-id`
+- Demo org/member seed:
+  - Enabled by default with `CONSOLE_DEMO_SEED_ENABLED=1`.
+  - Seeded identities include:
+    - `console-owner` (`owner`)
+    - `console-admin` (`admin`)
+    - `console-security` (`security_admin`)
+    - `console-billing` (`billing_admin`)
+    - `console-devops` (`developer`, `ops` scoped to `CONSOLE_DEMO_PROJECT_ID`)
+  - Seed controls:
+    - `CONSOLE_DEMO_ORG_ID`
+    - `CONSOLE_DEMO_PROJECT_ID`
+    - `CONSOLE_DEMO_ENVIRONMENT_ID`
+    - `CONSOLE_DEMO_USER_ID`
+    - `CONSOLE_DEMO_ROLES`
 - Billing backend is selected with `CONSOLE_BILLING_BACKEND`:
   - `postgres`: durable billing data via `CONSOLE_POSTGRES_URL` (fallback `POSTGRES_URL`)
   - `memory`: ephemeral in-memory billing data for local dev
+- Stripe provider mode:
+  - set `STRIPE_API_SK` to use live Stripe API for setup-intent, checkout-session, customer-portal-session, and payment-intent creation.
+  - leave `STRIPE_API_SK` unset to use deterministic mock provider outputs for local/offline testing.
+  - optional `STRIPE_CHECKOUT_PRICE_ID` pins checkout sessions to a pre-created Stripe Price ID.
 - Stripe webhook auth for billing is configured with `CONSOLE_BILLING_STRIPE_WEBHOOK_SECRET`:
   - when set, `/console/billing/stripe/webhook` requires header `x-console-stripe-webhook-secret` with an exact secret match.
   - when unset, webhook route returns `stripe_webhook_not_configured`.

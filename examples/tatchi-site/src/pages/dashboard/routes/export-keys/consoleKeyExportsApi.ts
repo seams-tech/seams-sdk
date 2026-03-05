@@ -151,17 +151,22 @@ export async function createDashboardKeyExport(
 
 export async function approveDashboardKeyExport(
   exportId: string,
-  input: { reason: string; mfaVerified: boolean },
+  input: { reason: string; mfaVerified: boolean; approvalId?: string },
 ): Promise<DashboardKeyExportRequest> {
   const id = String(exportId || '').trim();
   if (!id) throw new Error('Key export id is required');
+  const approvalId = String(input.approvalId || '').trim();
   const base = requireConsoleBaseUrl();
   const response = await fetch(`${base}/console/key-exports/${encodeURIComponent(id)}/approve`, {
     method: 'POST',
     headers: buildConsoleJsonHeaders(),
     credentials: 'include',
     cache: 'no-store',
-    body: JSON.stringify(input),
+    body: JSON.stringify({
+      reason: input.reason,
+      mfaVerified: input.mfaVerified,
+      ...(approvalId ? { approvalId } : {}),
+    }),
   });
   const body = (await parseConsoleJson(response)) as ConsoleKeyExportMutationResponse | null;
   if (!response.ok || body?.ok !== true) {

@@ -13,18 +13,31 @@ import {
 import {
   createConsoleRouter,
   createInMemoryConsoleBillingService,
+  createInMemoryConsoleApiKeyService,
+  createInMemoryConsoleAuditService,
+  createInMemoryConsoleOnboardingService,
+  createInMemoryConsoleOrgProjectEnvService,
+  createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWebhookService,
   createPostgresConsoleBillingService,
   createPostgresConsoleWebhookService,
+  createRelayApiKeyAuthAdapter,
+  createRelayBillingUsageMeterAdapter,
   createRelayRouter,
   type ConsoleBillingService,
+  type ConsoleAuditService,
   type ConsoleAuthAdapter,
+  type ConsoleOrgProjectEnvService,
+  type ConsoleTeamRbacService,
   type ConsoleWebhookService,
+  type BillingProviderAdapters,
+  type InviteConsoleTeamMemberRequest,
 } from '@tatchi-xyz/sdk/server/router/express';
 
 import dotenv from 'dotenv';
 import { createJwtSession } from './jwtSession.js';
 import { resolveRelayServerConsoleConfig, toOptionalSecret } from './consoleConfig.js';
+import { createStripeBillingProviderAdapter } from './stripeBillingProvider.js';
 
 dotenv.config();
 
@@ -87,6 +100,12 @@ function parseBooleanFlag(value: unknown): boolean {
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
+function parseBooleanFlagWithDefault(value: unknown, fallback: boolean): boolean {
+  const normalized = String(value || '').trim();
+  if (!normalized) return fallback;
+  return parseBooleanFlag(normalized);
+}
+
 function parsePrfSealLimiterKind(value: unknown): 'in-memory' | 'upstash-redis-rest' | 'redis-tcp' {
   const normalized = String(value || '')
     .trim()
@@ -94,6 +113,148 @@ function parsePrfSealLimiterKind(value: unknown): 'in-memory' | 'upstash-redis-r
   if (normalized === 'upstash-redis-rest') return 'upstash-redis-rest';
   if (normalized === 'redis-tcp') return 'redis-tcp';
   return 'in-memory';
+}
+
+function hasConsoleErrorCode(error: unknown, code: string): boolean {
+  if (!error || typeof error !== 'object') return false;
+  return String((error as { code?: unknown }).code || '').trim() === code;
+}
+
+async function seedDemoConsoleOrgAndMembers(input: {
+  orgProjectEnv: ConsoleOrgProjectEnvService;
+  teamRbac: ConsoleTeamRbacService;
+  orgId: string;
+  projectId: string;
+  environmentId: string;
+  logger: Pick<Console, 'log' | 'warn'>;
+}): Promise<void> {
+  const seedCtx = {
+    orgId: input.orgId,
+    actorUserId: 'console-seed-owner',
+    roles: ['owner', 'admin'],
+    projectId: input.projectId,
+    environmentId: input.environmentId,
+  };
+
+  // Seed must create the org explicitly on fresh databases.
+  await input.orgProjectEnv.upsertOrganization(seedCtx, {});
+
+  try {
+    await input.orgProjectEnv.createProject(seedCtx, {
+      id: input.projectId,
+      name: 'Console Core',
+    });
+  } catch (error: unknown) {
+    if (!hasConsoleErrorCode(error, 'project_already_exists')) throw error;
+  }
+
+  for (const environment of [
+    { id: `${input.projectId}-dev`, key: 'dev' as const, name: 'Development' },
+    { id: `${input.projectId}-staging`, key: 'staging' as const, name: 'Staging' },
+    { id: input.environmentId, key: 'prod' as const, name: 'Production' },
+  ]) {
+    try {
+      await input.orgProjectEnv.createEnvironment(seedCtx, {
+        id: environment.id,
+        projectId: input.projectId,
+        key: environment.key,
+        name: environment.name,
+      });
+    } catch (error: unknown) {
+      if (
+        !hasConsoleErrorCode(error, 'environment_already_exists') &&
+        !hasConsoleErrorCode(error, 'environment_key_conflict')
+      ) {
+        throw error;
+      }
+    }
+  }
+
+  const seedMembers: InviteConsoleTeamMemberRequest[] = [
+    {
+      userId: 'console-owner',
+      email: 'owner@demo.tatchi.local',
+      displayName: 'Console Owner',
+      roles: [
+        { role: 'owner', scope: 'ORG' as const },
+        { role: 'admin', scope: 'ORG' as const },
+        { role: 'admin_manage_admins', scope: 'ORG' as const },
+        { role: 'admin_manage_members', scope: 'ORG' as const },
+        { role: 'overview_write', scope: 'ORG' as const },
+        { role: 'administration_write', scope: 'ORG' as const },
+        { role: 'wallet_operations_write', scope: 'ORG' as const },
+        { role: 'integrations_write', scope: 'ORG' as const },
+        { role: 'billing_write', scope: 'ORG' as const },
+      ],
+    },
+    {
+      userId: 'console-admin',
+      email: 'admin@demo.tatchi.local',
+      displayName: 'Console Admin',
+      roles: [
+        { role: 'admin', scope: 'ORG' as const },
+        { role: 'admin_manage_members', scope: 'ORG' as const },
+        { role: 'overview_write', scope: 'ORG' as const },
+        { role: 'administration_write', scope: 'ORG' as const },
+        { role: 'wallet_operations_write', scope: 'ORG' as const },
+        { role: 'integrations_write', scope: 'ORG' as const },
+        { role: 'billing_read', scope: 'ORG' as const },
+      ],
+    },
+    {
+      userId: 'console-operator',
+      email: 'operator@demo.tatchi.local',
+      displayName: 'Console Operator',
+      roles: [
+        { role: 'overview_read', scope: 'ORG' as const },
+        { role: 'wallet_operations_read', scope: 'ORG' as const },
+        { role: 'integrations_read', scope: 'ORG' as const },
+      ],
+    },
+  ];
+
+  for (const member of seedMembers) {
+    try {
+      await input.teamRbac.inviteMember(seedCtx, member);
+    } catch (error: unknown) {
+      if (!hasConsoleErrorCode(error, 'member_already_exists')) throw error;
+    }
+  }
+
+  const deprecatedSeedEmails = new Set<string>([
+    'security@demo.tatchi.local',
+    'billing@demo.tatchi.local',
+    'devops@demo.tatchi.local',
+  ]);
+  try {
+    const existingMembers = await input.teamRbac.listMembers(seedCtx, {});
+    for (const member of existingMembers) {
+      const email = String(member.email || '')
+        .trim()
+        .toLowerCase();
+      if (!deprecatedSeedEmails.has(email)) continue;
+      if (member.status === 'REMOVED') continue;
+      try {
+        await input.teamRbac.removeMember(seedCtx, member.id);
+      } catch (error: unknown) {
+        input.logger.warn(
+          `[console-demo-seed] failed to remove deprecated seed member ${member.userId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+  } catch (error: unknown) {
+    input.logger.warn(
+      `[console-demo-seed] failed to sweep deprecated members: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+
+  input.logger.log(
+    `[console-demo-seed] org=${input.orgId} project=${input.projectId} environment=${input.environmentId} members=${seedMembers.length}`,
+  );
 }
 
 async function main() {
@@ -238,7 +399,10 @@ async function main() {
             env.UPSTASH_REDIS_REST_TOKEN ||
             undefined,
           redisUrl:
-            env.PRF_SESSION_SEAL_IDEMPOTENCY_REDIS_URL || thresholdRedisUrl || redisUrl || undefined,
+            env.PRF_SESSION_SEAL_IDEMPOTENCY_REDIS_URL ||
+            thresholdRedisUrl ||
+            redisUrl ||
+            undefined,
           postgresUrl:
             env.PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL || thresholdPostgresUrl || undefined,
           postgresNamespace: env.PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE || undefined,
@@ -276,6 +440,32 @@ async function main() {
 
   const app: Express = express();
   const consoleDevToken = String(env.CONSOLE_DEV_TOKEN || 'dev-console-token').trim();
+  const consoleDemoSeedEnabled = parseBooleanFlagWithDefault(env.CONSOLE_DEMO_SEED_ENABLED, true);
+  const consoleDemoOrgId = String(env.CONSOLE_DEMO_ORG_ID || 'org-dev').trim() || 'org-dev';
+  const consoleDemoProjectId =
+    String(env.CONSOLE_DEMO_PROJECT_ID || 'proj_console_core').trim() || 'proj_console_core';
+  const consoleDemoEnvironmentId =
+    String(env.CONSOLE_DEMO_ENVIRONMENT_ID || `${consoleDemoProjectId}-prod`).trim() ||
+    `${consoleDemoProjectId}-prod`;
+  const defaultConsoleUserId =
+    String(env.CONSOLE_DEMO_USER_ID || 'console-admin').trim() || 'console-admin';
+  const defaultConsoleRoles = String(env.CONSOLE_DEMO_ROLES || 'admin').trim() || 'admin';
+  const stripeApiSecretKey = String(env.STRIPE_API_SK || '').trim() || '';
+  const stripeApiPublishableKey = String(env.STRIPE_API_PK || '').trim() || '';
+  const stripeCheckoutPriceId = String(env.STRIPE_CHECKOUT_PRICE_ID || '').trim() || '';
+  const stripeApiBaseUrl = String(env.STRIPE_API_BASE_URL || '').trim() || '';
+  const stripeApiTimeoutMs = parseOptionalPositiveInteger(env.STRIPE_API_TIMEOUT_MS);
+  const relayApiKeyAuthEnabled = parseBooleanFlagWithDefault(env.RELAY_API_KEY_AUTH_ENABLED, true);
+  const stripeProviderOverrides: Partial<BillingProviderAdapters> | undefined = stripeApiSecretKey
+    ? {
+        stripe: createStripeBillingProviderAdapter({
+          secretKey: stripeApiSecretKey,
+          ...(stripeCheckoutPriceId ? { defaultCheckoutPriceId: stripeCheckoutPriceId } : {}),
+          ...(stripeApiBaseUrl ? { apiBaseUrl: stripeApiBaseUrl } : {}),
+          ...(stripeApiTimeoutMs ? { requestTimeoutMs: stripeApiTimeoutMs } : {}),
+        }),
+      }
+    : undefined;
   const consoleAuth: ConsoleAuthAdapter = {
     authenticate: async (headers) => {
       const authHeader = String(headers.authorization || headers.Authorization || '').trim();
@@ -294,7 +484,9 @@ async function main() {
 
       const rawOrgId = String(headers['x-console-org-id'] || '').trim();
       const rawUserId = String(headers['x-console-user-id'] || '').trim();
-      const rawRoles = String(headers['x-console-roles'] || 'admin').trim();
+      const rawRoles = String(headers['x-console-roles'] || defaultConsoleRoles).trim();
+      const rawProjectId = String(headers['x-console-project-id'] || '').trim();
+      const rawEnvironmentId = String(headers['x-console-environment-id'] || '').trim();
       const roles = rawRoles
         .split(',')
         .map((entry) => entry.trim())
@@ -303,9 +495,11 @@ async function main() {
       return {
         ok: true,
         claims: {
-          orgId: rawOrgId || 'org-dev',
-          userId: rawUserId || 'console-admin',
+          orgId: rawOrgId || consoleDemoOrgId,
+          userId: rawUserId || defaultConsoleUserId,
           roles: roles.length ? roles : ['admin'],
+          projectId: rawProjectId || consoleDemoProjectId,
+          environmentId: rawEnvironmentId || consoleDemoEnvironmentId,
         },
       };
     },
@@ -323,10 +517,17 @@ async function main() {
       namespace: consoleBillingNamespace,
       logger: console as any,
       ensureSchema: consoleBillingEnsureSchema,
+      ...(stripeProviderOverrides ? { providers: stripeProviderOverrides } : {}),
     });
   } else {
-    consoleBilling = createInMemoryConsoleBillingService();
+    consoleBilling = createInMemoryConsoleBillingService({
+      ...(stripeProviderOverrides ? { providers: stripeProviderOverrides } : {}),
+    });
   }
+
+  const consoleAudit: ConsoleAuditService = createInMemoryConsoleAuditService({
+    seedDemoData: consoleDemoSeedEnabled,
+  });
 
   if (consoleWebhooksBackend === 'postgres') {
     if (!consolePostgresUrl) {
@@ -342,6 +543,30 @@ async function main() {
     });
   } else {
     consoleWebhooks = createInMemoryConsoleWebhookService();
+  }
+  const consoleOrgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+  const consoleApiKeys = createInMemoryConsoleApiKeyService();
+  const relayApiKeyAuth = relayApiKeyAuthEnabled
+    ? createRelayApiKeyAuthAdapter(consoleApiKeys)
+    : null;
+  const relayApiKeyUsageMeter = relayApiKeyAuthEnabled
+    ? createRelayBillingUsageMeterAdapter(consoleBilling)
+    : null;
+  const consoleTeamRbac = createInMemoryConsoleTeamRbacService();
+  const consoleOnboarding = createInMemoryConsoleOnboardingService({
+    orgProjectEnv: consoleOrgProjectEnv,
+    apiKeys: consoleApiKeys,
+    teamRbac: consoleTeamRbac,
+  });
+  if (consoleDemoSeedEnabled) {
+    await seedDemoConsoleOrgAndMembers({
+      orgProjectEnv: consoleOrgProjectEnv,
+      teamRbac: consoleTeamRbac,
+      orgId: consoleDemoOrgId,
+      projectId: consoleDemoProjectId,
+      environmentId: consoleDemoEnvironmentId,
+      logger: console,
+    });
   }
 
   app.use((_req, res, next) => {
@@ -374,6 +599,8 @@ async function main() {
       session: jwtSession,
       sessionCookieName,
       threshold,
+      ...(relayApiKeyAuth ? { apiKeyAuth: relayApiKeyAuth } : {}),
+      ...(relayApiKeyUsageMeter ? { apiKeyUsageMeter: relayApiKeyUsageMeter } : {}),
       prfSessionSeal,
       logger: console,
     }),
@@ -390,6 +617,11 @@ async function main() {
       billing: consoleBilling,
       billingStripeWebhookSecret: toOptionalSecret(consoleBillingStripeWebhookSecret),
       webhooks: consoleWebhooks,
+      apiKeys: consoleApiKeys,
+      onboarding: consoleOnboarding,
+      orgProjectEnv: consoleOrgProjectEnv,
+      teamRbac: consoleTeamRbac,
+      audit: consoleAudit,
       logger: console,
     }),
   );
@@ -403,8 +635,25 @@ async function main() {
       console.log(`ROR Origins: ${rorOrigins.join(', ') || '(none)'}`);
     }
     console.log(`PRF session seal routes: ${prfSessionSealEnabled ? 'enabled' : 'disabled'}`);
+    console.log(
+      `Relay API key auth (/registration/bootstrap): ${relayApiKeyAuth ? 'enabled' : 'disabled'}`,
+    );
+    console.log(
+      `Relay usage meter (billing linkage): ${relayApiKeyUsageMeter ? 'enabled' : 'disabled'}`,
+    );
     console.log(`Console dev token: ${consoleDevToken}`);
     console.log('Console routes mounted at /console/*');
+    console.log(
+      `Console demo seed: ${consoleDemoSeedEnabled ? 'enabled' : 'disabled'} (org=${consoleDemoOrgId})`,
+    );
+    console.log(
+      `Console Stripe provider mode: ${stripeApiSecretKey ? 'live_api' : 'mock'}${
+        stripeCheckoutPriceId ? ` (checkout_price=${stripeCheckoutPriceId})` : ''
+      }`,
+    );
+    if (stripeApiPublishableKey) {
+      console.log('Stripe publishable key detected (frontend can use STRIPE_API_PK if needed).');
+    }
     console.log(`Console billing backend: ${consoleBillingBackend}`);
     if (consoleBillingBackend === 'postgres') {
       console.log(`Console billing namespace: ${consoleBillingNamespace}`);

@@ -167,39 +167,30 @@
   padding: 10px 14px;
 }
 
-.dashboard-copy-button {
+.dashboard-context-copy.install-copy {
   width: 30px;
   height: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
   border-radius: 8px;
   border: 1px solid var(--dashboard-border);
   background: var(--dashboard-surface);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
+  color: var(--dashboard-ink-soft);
 }
 
-.dashboard-copy-button span {
-  position: relative;
-  width: 13px;
-  height: 13px;
+.dashboard-context-copy.install-copy:hover {
+  color: var(--dashboard-ink);
 }
 
-.dashboard-copy-button span::before,
-.dashboard-copy-button span::after {
-  content: '';
-  position: absolute;
-  border: 1.5px solid color-mix(in srgb, var(--dashboard-ink-soft) 80%, transparent);
-  border-radius: 3px;
+.dashboard-context-copy.install-copy.is-copied {
+  color: var(--dashboard-ink);
 }
 
-.dashboard-copy-button span::before {
-  inset: 0;
-  transform: translate(2px, -2px);
-}
-
-.dashboard-copy-button span::after {
-  inset: 0;
+.dashboard-context-copy-placeholder {
+  width: 30px;
+  height: 30px;
+  display: block;
 }
 
 .dashboard-chevron {
@@ -368,25 +359,6 @@
   top: 8px;
   height: 2px;
   background: currentColor;
-}
-
-.dashboard-nav-icon--wallet-search::before {
-  left: 2px;
-  top: 2px;
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  border: 2px solid currentColor;
-}
-
-.dashboard-nav-icon--wallet-search::after {
-  right: 1px;
-  bottom: 3px;
-  width: 7px;
-  height: 2px;
-  background: currentColor;
-  transform: rotate(45deg);
-  border-radius: 2px;
 }
 
 .dashboard-nav-icon--policy-engine::before {
@@ -931,6 +903,43 @@
 
 .dashboard-kpi-grid--content {
   margin-top: 0;
+}
+
+.dashboard-wallet-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  border: 1px solid var(--dashboard-border);
+  border-radius: 12px;
+  background: var(--dashboard-surface);
+  overflow: hidden;
+}
+
+.dashboard-wallet-summary__item {
+  padding: 14px 16px;
+  border-right: 1px solid var(--dashboard-border);
+  display: grid;
+  gap: 6px;
+}
+
+.dashboard-wallet-summary__item:last-child {
+  border-right: 0;
+}
+
+.dashboard-wallet-summary__label {
+  margin: 0;
+  color: var(--dashboard-ink-soft);
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+
+.dashboard-wallet-summary__value {
+  margin: 0;
+  color: var(--dashboard-ink);
+  font-size: 1.4rem;
+  font-weight: 650;
+  line-height: 1.1;
 }
 
 .dashboard-shell--sidebar-collapsed .dashboard-topbar__brand {
