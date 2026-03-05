@@ -101,6 +101,11 @@ export {
 } from './postgres';
 
 export { ConsoleBillingError, isConsoleBillingError } from './errors';
+export {
+  LIVE_ENVIRONMENT_BILLING_REQUIRED_MESSAGE,
+  isBillingReadyForLiveEnvironment,
+  ensureBillingReadyForLiveEnvironment,
+} from './readiness';
 
 export {
   parseAddCardPaymentMethodRequest,

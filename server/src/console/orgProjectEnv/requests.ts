@@ -31,11 +31,11 @@ export function parseListConsoleEnvironmentsRequest(
   const obj = requireQueryObject(query, createParseError);
   const statusRaw = readOptionalQueryString(obj, 'status');
   const status = statusRaw ? statusRaw.toUpperCase() : undefined;
-  if (status && status !== 'ACTIVE' && status !== 'ARCHIVED') {
+  if (status && status !== 'ACTIVE' && status !== 'DISABLED' && status !== 'ARCHIVED') {
     throw new ConsoleOrgProjectEnvError(
       'invalid_query',
       400,
-      'Field status must be one of ACTIVE or ARCHIVED',
+      'Field status must be one of ACTIVE, DISABLED, or ARCHIVED',
     );
   }
   return {

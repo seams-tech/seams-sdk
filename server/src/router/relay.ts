@@ -120,6 +120,60 @@ export interface RelayWebhookOptions {
   orgIdClaimKeys?: string[];
 }
 
+export type RelayApiKeyAuthFailureCode =
+  | 'api_key_missing'
+  | 'api_key_invalid'
+  | 'api_key_revoked'
+  | 'api_key_forbidden_scope'
+  | 'api_key_ip_blocked'
+  | 'api_key_environment_mismatch';
+
+export interface RelayApiKeyAuthRequest {
+  secret: string;
+  endpoint: string;
+  requiredScopes: string[];
+  sourceIp?: string;
+  environmentId?: string;
+}
+
+export interface RelayApiKeyPrincipal {
+  apiKeyId: string;
+  orgId: string;
+  environmentId: string;
+  scopes: string[];
+}
+
+export type RelayApiKeyAuthResult =
+  | { ok: true; principal: RelayApiKeyPrincipal }
+  | {
+      ok: false;
+      status: 401 | 403;
+      code: RelayApiKeyAuthFailureCode;
+      message: string;
+    };
+
+export interface RelayApiKeyAuthAdapter {
+  authenticate(input: RelayApiKeyAuthRequest): Promise<RelayApiKeyAuthResult>;
+}
+
+export type RelayUsageMeterAction = 'wallet_created';
+
+export interface RelayUsageMeterEvent {
+  orgId: string;
+  environmentId: string;
+  apiKeyId: string;
+  endpoint: string;
+  walletId: string;
+  action: RelayUsageMeterAction;
+  succeeded: boolean;
+  occurredAt?: string;
+  sourceEventId?: string;
+}
+
+export interface RelayUsageMeterAdapter {
+  recordEvent(input: RelayUsageMeterEvent): Promise<void>;
+}
+
 export type SmartAccountDeploymentChain = 'evm' | 'tempo';
 
 export interface SmartAccountDeployRequest {
@@ -207,6 +261,17 @@ export interface RelayRouterOptions {
   runtimeSnapshots?: RelayRuntimeSnapshotConsumer | null;
   // Optional: webhook emitter for relay session/wallet lifecycle events.
   relayWebhooks?: RelayWebhookOptions | null;
+  /**
+   * Optional relay API-key authentication adapter for gas-costing routes.
+   *
+   * When omitted, runtime routes do not enforce API key auth.
+   */
+  apiKeyAuth?: RelayApiKeyAuthAdapter | null;
+  /**
+   * Optional relay usage-meter adapter used to emit runtime events for
+   * billing linkage.
+   */
+  apiKeyUsageMeter?: RelayUsageMeterAdapter | null;
   /**
    * Optional standalone PRF session seal/unlock routes.
    *

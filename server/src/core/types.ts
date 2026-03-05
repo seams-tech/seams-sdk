@@ -396,6 +396,7 @@ export interface CreateAccountAndRegisterRequest {
 // Result type for atomic account creation and registration
 export interface CreateAccountAndRegisterResult {
   success: boolean;
+  code?: string;
   transactionHash?: string;
   thresholdEd25519?: {
     relayerKeyId: string;

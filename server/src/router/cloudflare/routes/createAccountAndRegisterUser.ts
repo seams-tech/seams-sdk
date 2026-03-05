@@ -3,13 +3,51 @@ import type {
   CreateAccountAndRegisterResult,
 } from '../../../core/types';
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
+import type { RelayApiKeyPrincipal } from '../../relay';
 import { isObject, json, readJson } from '../http';
 import { signThresholdSessionJwt } from '../../commonRouterUtils';
+import {
+  extractRelayEnvironmentId,
+  extractRelayApiKeySecret,
+  resolveSourceIpFromFetchHeaders,
+} from '../../relayApiKeyAuth';
 
 export async function handleCreateAccountAndRegisterUser(
   ctx: CloudflareRelayContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/registration/bootstrap') return null;
+
+  let apiKeyPrincipal: RelayApiKeyPrincipal | null = null;
+  const apiKeyAuth = ctx.opts.apiKeyAuth;
+  if (apiKeyAuth) {
+    const secret = extractRelayApiKeySecret(ctx.request.headers);
+    const environmentId = extractRelayEnvironmentId(ctx.request.headers);
+    if (!secret) {
+      return json(
+        { success: false, code: 'api_key_missing', error: 'Missing API key' },
+        { status: 401 },
+      );
+    }
+    const sourceIp = resolveSourceIpFromFetchHeaders(ctx.request.headers);
+    const authResult = await apiKeyAuth.authenticate({
+      secret,
+      endpoint: 'POST /registration/bootstrap',
+      requiredScopes: ['accounts.create'],
+      ...(sourceIp ? { sourceIp } : {}),
+      ...(environmentId ? { environmentId } : {}),
+    });
+    if (!authResult.ok) {
+      return json(
+        {
+          success: false,
+          code: authResult.code,
+          error: authResult.message,
+        },
+        { status: authResult.status },
+      );
+    }
+    apiKeyPrincipal = authResult.principal;
+  }
 
   const body = await readJson(ctx.request);
   if (!isObject(body)) {
@@ -71,6 +109,32 @@ export async function handleCreateAccountAndRegisterUser(
 
   const result = await ctx.service.createAccountAndRegisterUser(input);
   const response: CreateAccountAndRegisterResult = result;
+
+  if (ctx.opts.apiKeyUsageMeter && apiKeyPrincipal) {
+    try {
+      await ctx.opts.apiKeyUsageMeter.recordEvent({
+        orgId: apiKeyPrincipal.orgId,
+        environmentId: apiKeyPrincipal.environmentId,
+        apiKeyId: apiKeyPrincipal.apiKeyId,
+        endpoint: 'POST /registration/bootstrap',
+        walletId: new_account_id,
+        action: 'wallet_created',
+        succeeded: Boolean(response.success),
+        occurredAt: new Date().toISOString(),
+        sourceEventId: `registration_bootstrap:${apiKeyPrincipal.apiKeyId}:${new_account_id}`,
+      });
+    } catch (error: unknown) {
+      ctx.logger.warn('[relay][api-key] usage meter event failed', {
+        endpoint: 'POST /registration/bootstrap',
+        orgId: apiKeyPrincipal.orgId,
+        environmentId: apiKeyPrincipal.environmentId,
+        apiKeyId: apiKeyPrincipal.apiKeyId,
+        walletId: new_account_id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   if (!response.success) return json(response, { status: 400 });
 
   const session = ctx.opts.session;

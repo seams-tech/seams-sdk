@@ -1,6 +1,6 @@
 export type ConsoleOrganizationStatus = 'ACTIVE';
 export type ConsoleProjectStatus = 'ACTIVE' | 'ARCHIVED';
-export type ConsoleEnvironmentStatus = 'ACTIVE' | 'ARCHIVED';
+export type ConsoleEnvironmentStatus = 'ACTIVE' | 'DISABLED' | 'ARCHIVED';
 
 export interface ConsoleOrganization {
   id: string;
@@ -42,9 +42,15 @@ export interface ListConsoleEnvironmentsRequest {
   status?: ConsoleEnvironmentStatus;
 }
 
+export interface UpsertConsoleOrganizationRequest {
+  name?: string;
+  slug?: string;
+}
+
 export interface CreateConsoleProjectRequest {
   id?: string;
   name: string;
+  liveEnvironmentsEnabled?: boolean;
 }
 
 export interface UpdateConsoleProjectRequest {
@@ -56,6 +62,7 @@ export interface CreateConsoleEnvironmentRequest {
   projectId: string;
   key: ConsoleEnvironment['key'];
   name?: string;
+  status?: Exclude<ConsoleEnvironmentStatus, 'ARCHIVED'>;
 }
 
 export interface UpdateConsoleEnvironmentRequest {

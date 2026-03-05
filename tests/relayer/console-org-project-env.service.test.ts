@@ -58,29 +58,23 @@ test.describe('console org/project/environment parser and service semantics', ()
       roles: ['admin'],
     };
 
+    await expectOrgProjectEnvError(
+      async () => service.createProject(ctx, { id: 'proj_missing_org', name: 'Missing Org Project' }),
+      'organization_not_found',
+    );
+
+    await service.upsertOrganization(ctx, {
+      name: 'Service Filters Org',
+      slug: 'service-filters-org',
+    });
+
     await service.createProject(ctx, { id: 'proj_active', name: 'Project Active' });
     await service.createProject(ctx, { id: 'proj_archived', name: 'Project Archived' });
+    const activeEnvironmentId = `${ctx.orgId}:proj_active:dev`;
+    const archivedEnvironmentUnderActiveProjectId = `${ctx.orgId}:proj_active:staging`;
+    const environmentUnderArchivedProjectId = `${ctx.orgId}:proj_archived:dev`;
 
-    await service.createEnvironment(ctx, {
-      id: 'env_active',
-      projectId: 'proj_active',
-      key: 'dev',
-      name: 'Env Active',
-    });
-    await service.createEnvironment(ctx, {
-      id: 'env_active_archived',
-      projectId: 'proj_active',
-      key: 'staging',
-      name: 'Env Archived Under Active Project',
-    });
-    await service.createEnvironment(ctx, {
-      id: 'env_under_archived_project',
-      projectId: 'proj_archived',
-      key: 'dev',
-      name: 'Env Under Archived Project',
-    });
-
-    await service.archiveEnvironment(ctx, 'env_active_archived');
+    await service.archiveEnvironment(ctx, archivedEnvironmentUnderActiveProjectId);
     await service.archiveProject(ctx, 'proj_archived');
 
     const activeProjects = await service.listProjects(ctx, { status: 'ACTIVE' });
@@ -100,8 +94,8 @@ test.describe('console org/project/environment parser and service semantics', ()
     const activeEnvUnderActiveProjectIds = new Set(
       activeEnvUnderActiveProject.map((entry) => entry.id),
     );
-    expect(activeEnvUnderActiveProjectIds.has('env_active')).toBe(true);
-    expect(activeEnvUnderActiveProjectIds.has('env_active_archived')).toBe(false);
+    expect(activeEnvUnderActiveProjectIds.has(activeEnvironmentId)).toBe(true);
+    expect(activeEnvUnderActiveProjectIds.has(archivedEnvironmentUnderActiveProjectId)).toBe(false);
 
     const archivedEnvUnderActiveProject = await service.listEnvironments(ctx, {
       projectId: 'proj_active',
@@ -110,8 +104,8 @@ test.describe('console org/project/environment parser and service semantics', ()
     const archivedEnvUnderActiveProjectIds = new Set(
       archivedEnvUnderActiveProject.map((entry) => entry.id),
     );
-    expect(archivedEnvUnderActiveProjectIds.has('env_active_archived')).toBe(true);
-    expect(archivedEnvUnderActiveProjectIds.has('env_active')).toBe(false);
+    expect(archivedEnvUnderActiveProjectIds.has(archivedEnvironmentUnderActiveProjectId)).toBe(true);
+    expect(archivedEnvUnderActiveProjectIds.has(activeEnvironmentId)).toBe(false);
 
     const activeEnvUnderArchivedProject = await service.listEnvironments(ctx, {
       projectId: 'proj_archived',
@@ -125,7 +119,7 @@ test.describe('console org/project/environment parser and service semantics', ()
     });
     expect(
       archivedEnvUnderArchivedProject.some(
-        (entry) => entry.id === 'env_under_archived_project' && entry.status === 'ARCHIVED',
+        (entry) => entry.id === environmentUnderArchivedProjectId && entry.status === 'ARCHIVED',
       ),
     ).toBe(true);
   });

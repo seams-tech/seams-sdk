@@ -1,10 +1,8 @@
 import { ConsoleWalletError } from './errors';
 import {
-  makeDeterministicWalletAddress as makeDeterministicAddress,
   normalizeWalletLimit as normalizeLimit,
   normalizeWalletSortBy as normalizeSortBy,
   normalizeWalletSortOrder as normalizeSortOrder,
-  slugifyWalletToken as slugify,
 } from './normalization';
 import type {
   ConsoleWallet,
@@ -39,7 +37,7 @@ export interface ConsoleWalletService {
 }
 
 export interface InMemoryConsoleWalletServiceOptions {
-  now?: () => Date;
+  seedWallets?: ConsoleWallet[];
 }
 
 interface OrgWalletStore {
@@ -53,39 +51,10 @@ interface WalletCursorPayload {
   id: string;
 }
 
-function toIso(date: Date): string {
-  return date.toISOString();
-}
-
 function toMs(iso: string | null | undefined): number {
   if (!iso) return 0;
   const parsed = Date.parse(iso);
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function makeBootstrapWallet(ctx: ConsoleWalletsContext, now: Date): ConsoleWallet {
-  const projectId = String(ctx.projectId || `${ctx.orgId}:default-project`).trim();
-  const environmentId = String(ctx.environmentId || `${projectId}:prod`).trim();
-  const seed = `${ctx.orgId}:${projectId}:${environmentId}`;
-  const id = `wallet_${slugify(seed).replace(/-/g, '_').slice(0, 40)}`;
-  const createdAt = toIso(now);
-  return {
-    id,
-    orgId: ctx.orgId,
-    projectId,
-    environmentId,
-    userId: `user_${slugify(ctx.orgId).replace(/-/g, '_').slice(0, 12)}`,
-    externalRefId: `ext_${slugify(seed).replace(/-/g, '_').slice(0, 18)}`,
-    address: makeDeterministicAddress(seed),
-    chain: 'Ethereum',
-    walletType: 'EOA',
-    status: 'ACTIVE',
-    policyId: 'policy_default',
-    balanceMinor: 0,
-    lastActivityAt: null,
-    createdAt,
-    updatedAt: createdAt,
-  };
 }
 
 function encodeCursor(payload: WalletCursorPayload): string {
@@ -238,20 +207,23 @@ function applyPage(
 export function createInMemoryConsoleWalletService(
   opts: InMemoryConsoleWalletServiceOptions = {},
 ): ConsoleWalletService {
-  const now = opts.now || (() => new Date());
   const stores = new Map<string, OrgWalletStore>();
 
-  function ensureOrgStore(ctx: ConsoleWalletsContext): OrgWalletStore {
-    let store = stores.get(ctx.orgId);
+  const seedWallets = Array.isArray(opts.seedWallets) ? opts.seedWallets : [];
+  for (const seed of seedWallets) {
+    const orgId = String(seed.orgId || '').trim();
+    const walletId = String(seed.id || '').trim();
+    if (!orgId || !walletId) continue;
+    let store = stores.get(orgId);
     if (!store) {
       store = { wallets: new Map<string, ConsoleWallet>() };
-      stores.set(ctx.orgId, store);
+      stores.set(orgId, store);
     }
-    const bootstrap = makeBootstrapWallet(ctx, now());
-    if (!store.wallets.has(bootstrap.id)) {
-      store.wallets.set(bootstrap.id, bootstrap);
-    }
-    return store;
+    store.wallets.set(walletId, cloneWallet(seed));
+  }
+
+  function getOrgStore(ctx: ConsoleWalletsContext): OrgWalletStore | undefined {
+    return stores.get(ctx.orgId);
   }
 
   return {
@@ -259,7 +231,8 @@ export function createInMemoryConsoleWalletService(
       ctx: ConsoleWalletsContext,
       request: ListConsoleWalletsRequest = {},
     ): Promise<ConsoleWalletPage> {
-      const store = ensureOrgStore(ctx);
+      const store = getOrgStore(ctx);
+      if (!store) return { items: [] };
       const filtered = Array.from(store.wallets.values()).filter((wallet) =>
         matchesFilters(wallet, request),
       );
@@ -270,7 +243,8 @@ export function createInMemoryConsoleWalletService(
       ctx: ConsoleWalletsContext,
       request: SearchConsoleWalletsRequest,
     ): Promise<ConsoleWalletPage> {
-      const store = ensureOrgStore(ctx);
+      const store = getOrgStore(ctx);
+      if (!store) return { items: [] };
       const filtered = Array.from(store.wallets.values()).filter(
         (wallet) => matchesFilters(wallet, request) && matchesSearch(wallet, request.q),
       );
@@ -281,7 +255,8 @@ export function createInMemoryConsoleWalletService(
       ctx: ConsoleWalletsContext,
       walletId: string,
     ): Promise<ConsoleWallet | null> {
-      const store = ensureOrgStore(ctx);
+      const store = getOrgStore(ctx);
+      if (!store) return null;
       const wallet = store.wallets.get(walletId);
       return wallet ? cloneWallet(wallet) : null;
     },

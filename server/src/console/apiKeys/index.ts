@@ -1,7 +1,13 @@
 export type {
+  ConsoleApiKeyAuthFailureCode,
+  AuthenticateConsoleApiKeyRequest,
+  AuthenticateConsoleApiKeySuccess,
+  AuthenticateConsoleApiKeyFailure,
+  AuthenticateConsoleApiKeyResult,
   ConsoleApiKeyStatus,
   ConsoleApiKey,
   CreateConsoleApiKeyRequest,
+  RevokeConsoleApiKeyRequest,
   RotateConsoleApiKeyRequest,
   CreateConsoleApiKeyResult,
   RotateConsoleApiKeyResult,
@@ -23,6 +29,10 @@ export {
   createPostgresConsoleApiKeyService,
 } from './postgres';
 
-export { parseCreateConsoleApiKeyRequest, parseRotateConsoleApiKeyRequest } from './requests';
+export {
+  parseCreateConsoleApiKeyRequest,
+  parseRevokeConsoleApiKeyRequest,
+  parseRotateConsoleApiKeyRequest,
+} from './requests';
 
 export { ConsoleApiKeyError, isConsoleApiKeyError } from './errors';

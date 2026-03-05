@@ -1,6 +1,10 @@
 import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService';
 import type { RelayRouterOptions } from '../relay';
 
+const CORS_ALLOW_METHODS = 'GET,POST,PUT,PATCH,DELETE,OPTIONS';
+const CORS_ALLOW_HEADERS =
+  'Content-Type,Authorization,X-API-Key,X-Tatchi-Environment-Id,X-Environment-Id,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id,X-Console-Stripe-Webhook-Secret';
+
 export function json(
   body: unknown,
   init?: ResponseInit,
@@ -33,8 +37,8 @@ export function withCors(headers: Headers, opts?: RelayRouterOptions, request?: 
   if (pathname === '/healthz' || pathname === '/readyz') {
     headers.set('Access-Control-Allow-Origin', '*');
     headers.delete('Access-Control-Allow-Credentials');
-    headers.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-    headers.set('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    headers.set('Access-Control-Allow-Methods', CORS_ALLOW_METHODS);
+    headers.set('Access-Control-Allow-Headers', CORS_ALLOW_HEADERS);
     return;
   }
 
@@ -53,8 +57,8 @@ export function withCors(headers: Headers, opts?: RelayRouterOptions, request?: 
       headers.append('Vary', 'Origin');
     }
   }
-  headers.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  headers.set('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  headers.set('Access-Control-Allow-Methods', CORS_ALLOW_METHODS);
+  headers.set('Access-Control-Allow-Headers', CORS_ALLOW_HEADERS);
   // Only advertise credentials when we echo back a specific origin (not '*')
   if (allowedOrigin && allowedOrigin !== '*') {
     headers.set('Access-Control-Allow-Credentials', 'true');

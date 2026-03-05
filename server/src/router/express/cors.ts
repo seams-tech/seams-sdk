@@ -2,6 +2,10 @@ import type { Request, Response, Router as ExpressRouter } from 'express';
 import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService';
 import type { RelayRouterOptions } from '../relay';
 
+const CORS_ALLOW_METHODS = 'GET,POST,PUT,PATCH,DELETE,OPTIONS';
+const CORS_ALLOW_HEADERS =
+  'Content-Type,Authorization,X-API-Key,X-Tatchi-Environment-Id,X-Environment-Id,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id,X-Console-Stripe-Webhook-Secret';
+
 function withCors(res: Response, opts?: RelayRouterOptions, req?: Request): void {
   const pathname = String((req as any)?.path || '').trim();
 
@@ -11,8 +15,8 @@ function withCors(res: Response, opts?: RelayRouterOptions, req?: Request): void
   if (pathname === '/healthz' || pathname === '/readyz') {
     res.set('Access-Control-Allow-Origin', '*');
     (res as any).removeHeader?.('Access-Control-Allow-Credentials');
-    res.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-    res.set('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    res.set('Access-Control-Allow-Methods', CORS_ALLOW_METHODS);
+    res.set('Access-Control-Allow-Headers', CORS_ALLOW_HEADERS);
     return;
   }
 
@@ -33,8 +37,8 @@ function withCors(res: Response, opts?: RelayRouterOptions, req?: Request): void
     }
   }
 
-  res.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  res.set('Access-Control-Allow-Methods', CORS_ALLOW_METHODS);
+  res.set('Access-Control-Allow-Headers', CORS_ALLOW_HEADERS);
   // Only advertise credentials when we echo back a specific origin (not '*')
   if (allowedOrigin && allowedOrigin !== '*') {
     res.set('Access-Control-Allow-Credentials', 'true');

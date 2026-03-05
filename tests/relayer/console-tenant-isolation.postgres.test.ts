@@ -1,11 +1,13 @@
 import { test, expect } from '@playwright/test';
 import {
+  createPostgresConsoleAuditService,
   createPostgresConsoleApiKeyService,
   createPostgresConsoleBillingService,
   createPostgresConsoleOrgProjectEnvService,
   createPostgresConsolePolicyService,
   createPostgresConsoleWalletService,
   createPostgresConsoleWebhookService,
+  type ConsoleAuditService,
   type ConsoleApiKeyService,
   type ConsoleBillingService,
   type ConsoleOrgProjectEnvService,
@@ -38,6 +40,7 @@ test.describe('console postgres tenant-isolation harness', () => {
 
   let orgProjectEnv: ConsoleOrgProjectEnvService | null = null;
   let wallets: ConsoleWalletService | null = null;
+  let audit: ConsoleAuditService | null = null;
   let apiKeys: ConsoleApiKeyService | null = null;
   let policies: ConsolePolicyService | null = null;
   let webhooks: ConsoleWebhookService | null = null;
@@ -60,6 +63,12 @@ test.describe('console postgres tenant-isolation harness', () => {
       ensureSchema: true,
     });
     wallets = await createPostgresConsoleWalletService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+    audit = await createPostgresConsoleAuditService({
       postgresUrl,
       namespace,
       logger: console as any,
@@ -117,6 +126,8 @@ test.describe('console postgres tenant-isolation harness', () => {
         await q.query('DELETE FROM console_webhook_dead_letters WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_webhook_deliveries WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_webhook_endpoints WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_audit_evidence WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_audit_events WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_policy_assignments WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_policy_versions WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_policies WHERE namespace = $1', [namespace]);
@@ -268,13 +279,14 @@ test.describe('console postgres tenant-isolation harness', () => {
     });
     expect(ownerProject.id).toBe('owner-managed-project');
 
-    const ownerEnvironment = await orgProjectEnv!.createEnvironment(ownerCtx, {
-      id: 'owner-managed-env',
+    const ownerEnvironments = await orgProjectEnv!.listEnvironments(ownerCtx, {
       projectId: ownerProject.id,
-      key: 'staging',
-      name: 'Owner Managed Staging',
     });
-    expect(ownerEnvironment.id).toBe('owner-managed-env');
+    const ownerManagedEnvironment =
+      ownerEnvironments.find((entry) => entry.key === 'staging') || ownerEnvironments[0] || null;
+    expect(ownerManagedEnvironment).toBeTruthy();
+    const ownerManagedEnvironmentId = String(ownerManagedEnvironment?.id || '');
+    expect(ownerManagedEnvironmentId).toBeTruthy();
 
     const attackerPatchProject = await orgProjectEnv!.updateProject(attackerCtx, ownerProject.id, {
       name: 'attacker patch',
@@ -286,14 +298,14 @@ test.describe('console postgres tenant-isolation harness', () => {
 
     const attackerPatchEnvironment = await orgProjectEnv!.updateEnvironment(
       attackerCtx,
-      ownerEnvironment.id,
+      ownerManagedEnvironmentId,
       { name: 'attacker patch env' },
     );
     expect(attackerPatchEnvironment).toBeNull();
 
     const attackerArchiveEnvironment = await orgProjectEnv!.archiveEnvironment(
       attackerCtx,
-      ownerEnvironment.id,
+      ownerManagedEnvironmentId,
     );
     expect(attackerArchiveEnvironment).toBeNull();
 
@@ -320,10 +332,12 @@ test.describe('console postgres tenant-isolation harness', () => {
     const ownerEnvironmentsAfterArchive = await orgProjectEnv!.listEnvironments(ownerCtx, {
       projectId: ownerProject.id,
     });
-    expect(ownerEnvironmentsAfterArchive.some((entry) => entry.id === ownerEnvironment.id)).toBe(true);
+    expect(ownerEnvironmentsAfterArchive.some((entry) => entry.id === ownerManagedEnvironmentId)).toBe(
+      true,
+    );
     expect(
       ownerEnvironmentsAfterArchive.some(
-        (entry) => entry.id === ownerEnvironment.id && entry.status === 'ARCHIVED',
+        (entry) => entry.id === ownerManagedEnvironmentId && entry.status === 'ARCHIVED',
       ),
     ).toBe(true);
 
@@ -339,7 +353,7 @@ test.describe('console postgres tenant-isolation harness', () => {
     });
     expect(
       ownerArchivedEnvironmentsAfterArchive.some(
-        (entry) => entry.id === ownerEnvironment.id && entry.status === 'ARCHIVED',
+        (entry) => entry.id === ownerManagedEnvironmentId && entry.status === 'ARCHIVED',
       ),
     ).toBe(true);
   });
@@ -580,6 +594,194 @@ test.describe('console postgres tenant-isolation harness', () => {
       [namespace],
     );
     expect(noTenantContextRows.rows.length).toBe(0);
+  });
+
+  test('audit service enforces org-scoped event/evidence visibility', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerCtx = {
+      orgId: ownerOrgId,
+      actorUserId: 'owner-audit-admin',
+      roles: ['admin'],
+      projectId: ownerProjectId,
+      environmentId: ownerEnvironmentId,
+    };
+    const attackerCtx = {
+      orgId: attackerOrgId,
+      actorUserId: 'attacker-audit-admin',
+      roles: ['admin'],
+      projectId: attackerProjectId,
+      environmentId: attackerEnvironmentId,
+    };
+
+    const ownerEvent = await audit!.appendEvent(ownerCtx, {
+      id: 'aud_owner_visibility_event',
+      category: 'POLICY',
+      action: 'policy.publish',
+      outcome: 'SUCCESS',
+      summary: 'Owner policy publish event',
+      projectId: ownerProjectId,
+      environmentId: ownerEnvironmentId,
+      metadata: { policyId: 'owner-policy' },
+    });
+    const attackerEvent = await audit!.appendEvent(attackerCtx, {
+      id: 'aud_attacker_visibility_event',
+      category: 'POLICY',
+      action: 'policy.publish',
+      outcome: 'SUCCESS',
+      summary: 'Attacker policy publish event',
+      projectId: attackerProjectId,
+      environmentId: attackerEnvironmentId,
+      metadata: { policyId: 'attacker-policy' },
+    });
+
+    await audit!.appendEvidence(ownerCtx, {
+      id: 'evd_owner_visibility',
+      domain: 'POLICY',
+      title: 'Owner evidence',
+      summary: 'Owner audit evidence',
+      eventIds: [ownerEvent.id],
+      references: [{ kind: 'LOG', referenceId: 'owner-log', label: 'Owner log' }],
+      projectId: ownerProjectId,
+      environmentId: ownerEnvironmentId,
+    });
+    await audit!.appendEvidence(attackerCtx, {
+      id: 'evd_attacker_visibility',
+      domain: 'POLICY',
+      title: 'Attacker evidence',
+      summary: 'Attacker audit evidence',
+      eventIds: [attackerEvent.id],
+      references: [{ kind: 'LOG', referenceId: 'attacker-log', label: 'Attacker log' }],
+      projectId: attackerProjectId,
+      environmentId: attackerEnvironmentId,
+    });
+
+    const ownerEvents = await audit!.listEvents(ownerCtx, { limit: 200 });
+    expect(ownerEvents.some((entry) => entry.id === ownerEvent.id)).toBe(true);
+    expect(ownerEvents.some((entry) => entry.id === attackerEvent.id)).toBe(false);
+
+    const attackerEvents = await audit!.listEvents(attackerCtx, { limit: 200 });
+    expect(attackerEvents.some((entry) => entry.id === attackerEvent.id)).toBe(true);
+    expect(attackerEvents.some((entry) => entry.id === ownerEvent.id)).toBe(false);
+
+    const ownerEvidenceRows = await audit!.listEvidence(ownerCtx, { limit: 200 });
+    expect(ownerEvidenceRows.some((entry) => entry.id === 'evd_owner_visibility')).toBe(true);
+    expect(ownerEvidenceRows.some((entry) => entry.id === 'evd_attacker_visibility')).toBe(false);
+
+    const attackerEvidenceRows = await audit!.listEvidence(attackerCtx, { limit: 200 });
+    expect(attackerEvidenceRows.some((entry) => entry.id === 'evd_attacker_visibility')).toBe(true);
+    expect(attackerEvidenceRows.some((entry) => entry.id === 'evd_owner_visibility')).toBe(false);
+  });
+
+  test('audit tables enforce DB-level tenant RLS policies', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const pool = await getPostgresPool(postgresUrl);
+    const ownerCtx = {
+      orgId: ownerOrgId,
+      actorUserId: 'owner-audit-rls',
+      roles: ['admin'],
+      projectId: ownerProjectId,
+      environmentId: ownerEnvironmentId,
+    };
+    const attackerCtx = {
+      orgId: attackerOrgId,
+      actorUserId: 'attacker-audit-rls',
+      roles: ['admin'],
+      projectId: attackerProjectId,
+      environmentId: attackerEnvironmentId,
+    };
+
+    await audit!.appendEvent(ownerCtx, {
+      id: 'aud_owner_rls_event',
+      category: 'SETTINGS',
+      action: 'settings.security.update',
+      outcome: 'SUCCESS',
+      summary: 'Owner security settings update',
+      projectId: ownerProjectId,
+      environmentId: ownerEnvironmentId,
+    });
+    await audit!.appendEvent(attackerCtx, {
+      id: 'aud_attacker_rls_event',
+      category: 'SETTINGS',
+      action: 'settings.security.update',
+      outcome: 'SUCCESS',
+      summary: 'Attacker security settings update',
+      projectId: attackerProjectId,
+      environmentId: attackerEnvironmentId,
+    });
+    await audit!.appendEvidence(ownerCtx, {
+      id: 'evd_owner_rls_evidence',
+      domain: 'SECURITY',
+      title: 'Owner security evidence',
+      summary: 'Owner RLS evidence row',
+      eventIds: ['aud_owner_rls_event'],
+      references: [{ kind: 'LOG', referenceId: 'owner-security-log', label: 'Owner security log' }],
+      projectId: ownerProjectId,
+      environmentId: ownerEnvironmentId,
+    });
+    await audit!.appendEvidence(attackerCtx, {
+      id: 'evd_attacker_rls_evidence',
+      domain: 'SECURITY',
+      title: 'Attacker security evidence',
+      summary: 'Attacker RLS evidence row',
+      eventIds: ['aud_attacker_rls_event'],
+      references: [
+        { kind: 'LOG', referenceId: 'attacker-security-log', label: 'Attacker security log' },
+      ],
+      projectId: attackerProjectId,
+      environmentId: attackerEnvironmentId,
+    });
+
+    const ownerEventRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_audit_events
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(ownerEventRows.rows.length).toBeGreaterThan(0);
+    expect(
+      ownerEventRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const ownerEvidenceRows = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT org_id, id
+             FROM console_audit_evidence
+            WHERE namespace = $1`,
+          [namespace],
+        ),
+    );
+    expect(ownerEvidenceRows.rows.length).toBeGreaterThan(0);
+    expect(
+      ownerEvidenceRows.rows.every(
+        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
+      ),
+    ).toBe(true);
+
+    const noTenantEventRows = await pool.query(
+      `SELECT org_id, id
+         FROM console_audit_events
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantEventRows.rows.length).toBe(0);
+
+    const noTenantEvidenceRows = await pool.query(
+      `SELECT org_id, id
+         FROM console_audit_evidence
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantEvidenceRows.rows.length).toBe(0);
   });
 
   test('api key service denies cross-org rotate/revoke access', async () => {

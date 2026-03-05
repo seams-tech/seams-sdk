@@ -12,11 +12,9 @@ import {
 } from '../shared/postgresTenantContext';
 import { ConsoleWalletError } from './errors';
 import {
-  makeDeterministicWalletAddress as makeDeterministicAddress,
   normalizeWalletLimit as normalizeLimit,
   normalizeWalletSortBy as normalizeSortBy,
   normalizeWalletSortOrder as normalizeSortOrder,
-  slugifyWalletToken as slugify,
 } from './normalization';
 import type { ConsoleWalletService, ConsoleWalletsContext } from './service';
 import type {
@@ -39,34 +37,6 @@ interface WalletCursorPayload {
   sortOrder: ConsoleWalletSortOrder;
   sortValue: number;
   id: string;
-}
-
-function nowMs(now: Date): number {
-  return now.getTime();
-}
-
-function humanizeId(value: string, fallback: string): string {
-  const trimmed = String(value || '').trim();
-  if (!trimmed) return fallback;
-  return trimmed
-    .replace(/[_:-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function inferEnvironmentKey(
-  environmentId: string | undefined,
-): 'dev' | 'staging' | 'prod' {
-  const value = String(environmentId || '').toLowerCase();
-  if (value.includes('stag')) return 'staging';
-  if (value.includes('dev') || value.includes('test')) return 'dev';
-  return 'prod';
-}
-
-function environmentNameFromKey(key: 'dev' | 'staging' | 'prod'): string {
-  if (key === 'dev') return 'Development';
-  if (key === 'staging') return 'Staging';
-  return 'Production';
 }
 
 function encodeCursor(payload: WalletCursorPayload): string {
@@ -152,106 +122,6 @@ function parseWalletRow(row: PgRow): ConsoleWallet {
 async function queryOne(q: Queryable, text: string, values: unknown[]): Promise<PgRow | null> {
   const out = await q.query(text, values);
   return (out.rows[0] as PgRow) || null;
-}
-
-function buildBootstrapWallet(ctx: ConsoleWalletsContext, now: Date): {
-  id: string;
-  orgId: string;
-  projectId: string;
-  environmentId: string;
-  userId: string;
-  externalRefId: string;
-  address: string;
-  createdAtMs: number;
-} {
-  const projectId = String(ctx.projectId || `${ctx.orgId}:default-project`).trim();
-  const environmentId = String(ctx.environmentId || `${projectId}:prod`).trim();
-  const seed = `${ctx.orgId}:${projectId}:${environmentId}`;
-  return {
-    id: `wallet_${slugify(seed).replace(/-/g, '_').slice(0, 40)}`,
-    orgId: ctx.orgId,
-    projectId,
-    environmentId,
-    userId: `user_${slugify(ctx.orgId).replace(/-/g, '_').slice(0, 12)}`,
-    externalRefId: `ext_${slugify(seed).replace(/-/g, '_').slice(0, 18)}`,
-    address: makeDeterministicAddress(seed),
-    createdAtMs: nowMs(now),
-  };
-}
-
-async function ensureBootstrapWallet(
-  q: Queryable,
-  input: {
-    namespace: string;
-    ctx: ConsoleWalletsContext;
-    now: Date;
-  },
-): Promise<void> {
-  const bootstrap = buildBootstrapWallet(input.ctx, input.now);
-  const envKey = inferEnvironmentKey(bootstrap.environmentId);
-  await q.query(
-    `INSERT INTO console_organizations
-      (namespace, id, name, slug, status, created_at_ms, updated_at_ms)
-     VALUES
-      ($1, $2, $3, $4, 'ACTIVE', $5, $5)
-     ON CONFLICT (namespace, id) DO NOTHING`,
-    [
-      input.namespace,
-      bootstrap.orgId,
-      humanizeId(bootstrap.orgId, 'Organization'),
-      slugify(bootstrap.orgId),
-      bootstrap.createdAtMs,
-    ],
-  );
-  await q.query(
-    `INSERT INTO console_projects
-      (namespace, id, org_id, name, slug, status, created_at_ms, updated_at_ms)
-     VALUES
-      ($1, $2, $3, $4, $5, 'ACTIVE', $6, $6)
-     ON CONFLICT (namespace, id) DO NOTHING`,
-    [
-      input.namespace,
-      bootstrap.projectId,
-      bootstrap.orgId,
-      humanizeId(bootstrap.projectId, 'Default Project'),
-      slugify(bootstrap.projectId),
-      bootstrap.createdAtMs,
-    ],
-  );
-  await q.query(
-    `INSERT INTO console_environments
-      (namespace, id, org_id, project_id, env_key, name, status, created_at_ms, updated_at_ms)
-     VALUES
-      ($1, $2, $3, $4, $5, $6, 'ACTIVE', $7, $7)
-     ON CONFLICT (namespace, id) DO NOTHING`,
-    [
-      input.namespace,
-      bootstrap.environmentId,
-      bootstrap.orgId,
-      bootstrap.projectId,
-      envKey,
-      environmentNameFromKey(envKey),
-      bootstrap.createdAtMs,
-    ],
-  );
-  await q.query(
-    `INSERT INTO console_wallet_index
-      (namespace, id, org_id, project_id, environment_id, user_id, external_ref_id, address, chain, wallet_type, status, policy_id, balance_minor, last_activity_at_ms, created_at_ms, updated_at_ms)
-     VALUES
-      ($1, $2, $3, $4, $5, $6, $7, $8, 'Ethereum', 'EOA', 'ACTIVE', 'policy_default', 0, NULL, $9, $9)
-     ON CONFLICT (namespace, id) DO NOTHING`,
-    [
-      input.namespace,
-      bootstrap.id,
-      bootstrap.orgId,
-      bootstrap.projectId,
-      bootstrap.environmentId,
-      bootstrap.userId,
-      bootstrap.externalRefId,
-      bootstrap.address,
-      bootstrap.createdAtMs,
-    ],
-  );
 }
 
 interface WalletQueryResult {
@@ -450,7 +320,6 @@ export interface PostgresConsoleWalletServiceOptions {
   namespace?: string;
   logger?: NormalizedLogger;
   ensureSchema?: boolean;
-  now?: () => Date;
 }
 
 export async function createPostgresConsoleWalletService(
@@ -461,7 +330,6 @@ export async function createPostgresConsoleWalletService(
 
   const namespace = ensureNamespace(options.namespace);
   const logger = options.logger || console;
-  const nowFn = options.now || (() => new Date());
   if (options.ensureSchema !== false) {
     await ensureConsoleWalletsPostgresSchema({
       postgresUrl,
@@ -481,8 +349,6 @@ export async function createPostgresConsoleWalletService(
       request: ListConsoleWalletsRequest = {},
     ): Promise<ConsoleWalletPage> {
       return withTenantTx(ctx, async (q) => {
-        const now = nowFn();
-        await ensureBootstrapWallet(q, { namespace, ctx, now });
         return queryWalletPage(q, {
           namespace,
           orgId: ctx.orgId,
@@ -496,8 +362,6 @@ export async function createPostgresConsoleWalletService(
       request: SearchConsoleWalletsRequest,
     ): Promise<ConsoleWalletPage> {
       return withTenantTx(ctx, async (q) => {
-        const now = nowFn();
-        await ensureBootstrapWallet(q, { namespace, ctx, now });
         return queryWalletPage(q, {
           namespace,
           orgId: ctx.orgId,
@@ -512,8 +376,6 @@ export async function createPostgresConsoleWalletService(
       walletId: string,
     ): Promise<ConsoleWallet | null> {
       return withTenantTx(ctx, async (q) => {
-        const now = nowFn();
-        await ensureBootstrapWallet(q, { namespace, ctx, now });
         const row = await queryOne(
           q,
           `SELECT *

@@ -10,6 +10,12 @@ import type { ConsoleSmartWalletService } from '../console/smartWallets';
 import type { ConsoleSettingsService } from '../console/settings';
 import type { ConsoleKeyExportService } from '../console/keyExports';
 import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots';
+import type { ConsoleTeamRbacService } from '../console/teamRbac';
+import type { ConsoleApprovalService } from '../console/approvals';
+import type { ConsoleAuditService } from '../console/audit';
+import type { ConsoleAuditExportsService } from '../console/auditExports';
+import type { ConsoleEnterpriseIsolationService } from '../console/enterpriseIsolation';
+import type { ConsoleOnboardingService } from '../console/onboarding';
 
 export type ConsoleRole =
   | 'owner'
@@ -73,6 +79,18 @@ export interface ConsoleRouterOptions {
   keyExports?: ConsoleKeyExportService | null;
   // Optional runtime snapshot adapter for versioned per-environment config snapshots.
   runtimeSnapshots?: ConsoleRuntimeSnapshotService | null;
+  // Optional team/membership adapter for org member and role-scope management endpoints.
+  teamRbac?: ConsoleTeamRbacService | null;
+  // Optional unified approval queue adapter for policy/export/settings approvals.
+  approvals?: ConsoleApprovalService | null;
+  // Optional audit/evidence adapter for investigation timeline and export metadata endpoints.
+  audit?: ConsoleAuditService | null;
+  // Optional audit export adapter for evidence export materialization workflow.
+  auditExports?: ConsoleAuditExportsService | null;
+  // Optional enterprise isolation adapter for shared->dedicated isolation controls.
+  enterpriseIsolation?: ConsoleEnterpriseIsolationService | null;
+  // Optional onboarding adapter for first-run setup and onboarding state endpoints.
+  onboarding?: ConsoleOnboardingService | null;
   // Optional shared secret required by Stripe webhook ingestion endpoint.
   billingStripeWebhookSecret?: string;
   // Optional logger; defaults to silent.

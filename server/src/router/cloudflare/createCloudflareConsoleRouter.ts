@@ -1,6 +1,10 @@
 import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService';
 import {
   CHAIN_FINALITY_POLICY_VERSION,
+  ConsoleBillingError,
+  LIVE_ENVIRONMENT_BILLING_REQUIRED_MESSAGE,
+  ensureBillingReadyForLiveEnvironment,
+  isBillingReadyForLiveEnvironment,
   isConsoleBillingError,
   listStablecoinAssetSupport,
   parseAddCardPaymentMethodRequest,
@@ -20,6 +24,7 @@ import {
 import {
   isConsoleApiKeyError,
   parseCreateConsoleApiKeyRequest,
+  parseRevokeConsoleApiKeyRequest,
   parseRotateConsoleApiKeyRequest,
   type ConsoleApiKeyService,
 } from '../../console/apiKeys';
@@ -94,6 +99,48 @@ import {
   parsePublishConsoleRuntimeSnapshotRequest,
   type ConsoleRuntimeSnapshotService,
 } from '../../console/runtimeSnapshots';
+import {
+  isConsoleTeamRbacError,
+  parseInviteConsoleTeamMemberRequest,
+  parseListConsoleTeamMembersRequest,
+  parseUpdateConsoleTeamMemberRolesRequest,
+  type ConsoleTeamRbacService,
+} from '../../console/teamRbac';
+import {
+  type ConsoleApprovalOperationType,
+  isConsoleApprovalsError,
+  parseApproveConsoleApprovalRequest,
+  parseCreateConsoleApprovalRequest,
+  parseListConsoleApprovalsRequest,
+  parseRejectConsoleApprovalRequest,
+  type ConsoleApprovalService,
+} from '../../console/approvals';
+import {
+  isConsoleAuditError,
+  parseListConsoleAuditEventsRequest,
+  parseListConsoleAuditEvidenceRequest,
+  type ConsoleAuditService,
+} from '../../console/audit';
+import {
+  isConsoleAuditExportsError,
+  parseCreateConsoleAuditExportRequest,
+  parseListConsoleAuditExportsRequest,
+  type ConsoleAuditExportsService,
+} from '../../console/auditExports';
+import {
+  isConsoleEnterpriseIsolationError,
+  parseGetConsoleEnterpriseIsolationRequest,
+  parseTriggerConsoleEnterpriseIsolationRequest,
+  type ConsoleEnterpriseIsolationService,
+} from '../../console/enterpriseIsolation';
+import {
+  isConsoleOnboardingError,
+  parseCreateConsoleOnboardingOrganizationRequest,
+  parseCreateConsoleOnboardingProjectRequest,
+  parseGetConsoleOnboardingStateRequest,
+  parseGetConsoleOnboardingTelemetryRequest,
+  type ConsoleOnboardingService,
+} from '../../console/onboarding';
 import type { ConsoleAuthClaims, ConsoleAuthResult, ConsoleRouterOptions } from '../console';
 import { authenticateConsoleRequest, hasConsoleRole } from '../console';
 import {
@@ -105,6 +152,7 @@ import {
 import { resolveConsoleRuntimeSnapshotPayload } from '../runtimeSnapshotPayload';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
+import { buildConsoleOpsCockpitSummary } from '../opsCockpitSummary';
 import type { CfEnv, CfExecutionContext, FetchHandler } from './types';
 import { headersToRecord, json, readJson } from './http';
 
@@ -129,7 +177,16 @@ export interface CloudflareConsoleContext {
   settings: ConsoleSettingsService | null;
   keyExports: ConsoleKeyExportService | null;
   runtimeSnapshots: ConsoleRuntimeSnapshotService | null;
+  teamRbac: ConsoleTeamRbacService | null;
+  approvals: ConsoleApprovalService | null;
+  audit: ConsoleAuditService | null;
+  auditExports: ConsoleAuditExportsService | null;
+  enterpriseIsolation: ConsoleEnterpriseIsolationService | null;
+  onboarding: ConsoleOnboardingService | null;
 }
+
+const CONSOLE_CORS_ALLOW_HEADERS =
+  'Content-Type,Authorization,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id,X-Console-Stripe-Webhook-Secret';
 
 function withConsoleCors(headers: Headers, opts?: ConsoleRouterOptions, request?: Request): void {
   if (!opts?.corsOrigins) return;
@@ -150,10 +207,7 @@ function withConsoleCors(headers: Headers, opts?: ConsoleRouterOptions, request?
   }
 
   headers.set('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-  headers.set(
-    'Access-Control-Allow-Headers',
-    'Content-Type,Authorization,X-Console-Stripe-Webhook-Secret',
-  );
+  headers.set('Access-Control-Allow-Headers', CONSOLE_CORS_ALLOW_HEADERS);
   if (allowedOrigin && allowedOrigin !== '*') {
     headers.set('Access-Control-Allow-Credentials', 'true');
   }
@@ -423,6 +477,144 @@ function sendRuntimeSnapshotError(error: unknown): Response {
   );
 }
 
+function sendTeamRbacError(error: unknown): Response {
+  if (isConsoleTeamRbacError(error)) {
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+      { status: error.status },
+    );
+  }
+
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
+}
+
+function sendApprovalError(error: unknown): Response {
+  if (isConsoleApprovalsError(error)) {
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+      { status: error.status },
+    );
+  }
+
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
+}
+
+function sendAuditError(error: unknown): Response {
+  if (isConsoleAuditError(error)) {
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+      { status: error.status },
+    );
+  }
+
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
+}
+
+function sendAuditExportsError(error: unknown): Response {
+  if (isConsoleAuditExportsError(error)) {
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+      { status: error.status },
+    );
+  }
+
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
+}
+
+function sendEnterpriseIsolationError(error: unknown): Response {
+  if (isConsoleEnterpriseIsolationError(error)) {
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+      { status: error.status },
+    );
+  }
+
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
+}
+
+function sendOnboardingError(error: unknown): Response {
+  if (isConsoleOnboardingError(error)) {
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+      { status: error.status },
+    );
+  }
+
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
+}
+
 async function requireConsoleAuth(
   ctx: CloudflareConsoleContext,
 ): Promise<{ ok: true; claims: ConsoleAuthClaims } | { ok: false; response: Response }> {
@@ -576,6 +768,82 @@ function requireRuntimeSnapshotService(
   );
 }
 
+function requireTeamRbacService(ctx: CloudflareConsoleContext): ConsoleTeamRbacService | Response {
+  if (ctx.teamRbac) return ctx.teamRbac;
+  return json(
+    {
+      ok: false,
+      code: 'team_rbac_not_configured',
+      message: 'Team RBAC service is not configured on this server',
+    },
+    { status: 501 },
+  );
+}
+
+function requireApprovalService(ctx: CloudflareConsoleContext): ConsoleApprovalService | Response {
+  if (ctx.approvals) return ctx.approvals;
+  return json(
+    {
+      ok: false,
+      code: 'approvals_not_configured',
+      message: 'Approvals service is not configured on this server',
+    },
+    { status: 501 },
+  );
+}
+
+function requireAuditService(ctx: CloudflareConsoleContext): ConsoleAuditService | Response {
+  if (ctx.audit) return ctx.audit;
+  return json(
+    {
+      ok: false,
+      code: 'audit_not_configured',
+      message: 'Audit service is not configured on this server',
+    },
+    { status: 501 },
+  );
+}
+
+function requireAuditExportsService(
+  ctx: CloudflareConsoleContext,
+): ConsoleAuditExportsService | Response {
+  if (ctx.auditExports) return ctx.auditExports;
+  return json(
+    {
+      ok: false,
+      code: 'audit_exports_not_configured',
+      message: 'Audit exports service is not configured on this server',
+    },
+    { status: 501 },
+  );
+}
+
+function requireEnterpriseIsolationService(
+  ctx: CloudflareConsoleContext,
+): ConsoleEnterpriseIsolationService | Response {
+  if (ctx.enterpriseIsolation) return ctx.enterpriseIsolation;
+  return json(
+    {
+      ok: false,
+      code: 'enterprise_isolation_not_configured',
+      message: 'Enterprise isolation service is not configured on this server',
+    },
+    { status: 501 },
+  );
+}
+
+function requireOnboardingService(ctx: CloudflareConsoleContext): ConsoleOnboardingService | Response {
+  if (ctx.onboarding) return ctx.onboarding;
+  return json(
+    {
+      ok: false,
+      code: 'onboarding_not_configured',
+      message: 'Onboarding service is not configured on this server',
+    },
+    { status: 501 },
+  );
+}
+
 function requireStripeWebhookSecret(ctx: CloudflareConsoleContext): Response | null {
   const configured = String(ctx.opts.billingStripeWebhookSecret || '').trim();
   if (!configured) {
@@ -646,6 +914,190 @@ function toWalletContext(claims: ConsoleAuthClaims): {
   };
 }
 
+function toTeamRbacContext(claims: ConsoleAuthClaims): {
+  orgId: string;
+  actorUserId: string;
+  roles: string[];
+  projectId?: string;
+} {
+  return {
+    orgId: claims.orgId,
+    actorUserId: claims.userId,
+    roles: claims.roles,
+    ...(claims.projectId ? { projectId: claims.projectId } : {}),
+  };
+}
+
+function toApprovalContext(claims: ConsoleAuthClaims): {
+  orgId: string;
+  actorUserId: string;
+  roles: string[];
+  projectId?: string;
+  environmentId?: string;
+} {
+  return {
+    orgId: claims.orgId,
+    actorUserId: claims.userId,
+    roles: claims.roles,
+    ...(claims.projectId ? { projectId: claims.projectId } : {}),
+    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+  };
+}
+
+function toAuditContext(claims: ConsoleAuthClaims): {
+  orgId: string;
+  actorUserId: string;
+  roles: string[];
+  projectId?: string;
+  environmentId?: string;
+} {
+  return {
+    orgId: claims.orgId,
+    actorUserId: claims.userId,
+    roles: claims.roles,
+    ...(claims.projectId ? { projectId: claims.projectId } : {}),
+    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+  };
+}
+
+function toOnboardingContext(claims: ConsoleAuthClaims): {
+  orgId: string;
+  actorUserId: string;
+  roles: string[];
+  projectId?: string;
+  environmentId?: string;
+} {
+  return {
+    orgId: claims.orgId,
+    actorUserId: claims.userId,
+    roles: claims.roles,
+    ...(claims.projectId ? { projectId: claims.projectId } : {}),
+    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+  };
+}
+
+function readApprovalIdFromBody(body: unknown): string {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return '';
+  return String((body as Record<string, unknown>).approvalId || '').trim();
+}
+
+async function requireApprovedOperationApproval(
+  ctx: CloudflareConsoleContext,
+  claims: ConsoleAuthClaims,
+  input: {
+    operationType: ConsoleApprovalOperationType;
+    approvalIdRaw: unknown;
+    projectId?: string;
+    environmentId?: string;
+    resourceType?: string;
+    resourceId?: string;
+  },
+): Promise<Response | null> {
+  if (!ctx.approvals) return null;
+
+  const approvalId = String(input.approvalIdRaw || '').trim();
+  if (!approvalId) {
+    return json(
+      {
+        ok: false,
+        code: 'approval_required',
+        message: `Field approvalId is required for ${input.operationType} when approvals service is configured`,
+      },
+      { status: 400 },
+    );
+  }
+
+  let approval: Awaited<ReturnType<ConsoleApprovalService['getApprovalRequest']>> = null;
+  try {
+    approval = await ctx.approvals.getApprovalRequest(toApprovalContext(claims), approvalId);
+  } catch (error: unknown) {
+    return sendApprovalError(error);
+  }
+
+  if (!approval) {
+    return json(
+      {
+        ok: false,
+        code: 'approval_not_found',
+        message: `Approval request ${approvalId} was not found`,
+      },
+      { status: 404 },
+    );
+  }
+
+  if (approval.operationType !== input.operationType) {
+    return json(
+      {
+        ok: false,
+        code: 'approval_operation_mismatch',
+        message: `Approval request ${approvalId} is ${approval.operationType}; expected ${input.operationType}`,
+      },
+      { status: 409 },
+    );
+  }
+
+  if (approval.status !== 'APPROVED') {
+    return json(
+      {
+        ok: false,
+        code: 'approval_not_approved',
+        message: `Approval request ${approvalId} is ${approval.status}; expected APPROVED`,
+      },
+      { status: 409 },
+    );
+  }
+
+  const projectId = String(input.projectId || '').trim();
+  if (projectId && approval.projectId && approval.projectId !== projectId) {
+    return json(
+      {
+        ok: false,
+        code: 'approval_scope_mismatch',
+        message: `Approval request ${approvalId} project scope does not match request`,
+      },
+      { status: 409 },
+    );
+  }
+
+  const environmentId = String(input.environmentId || '').trim();
+  if (environmentId && approval.environmentId && approval.environmentId !== environmentId) {
+    return json(
+      {
+        ok: false,
+        code: 'approval_scope_mismatch',
+        message: `Approval request ${approvalId} environment scope does not match request`,
+      },
+      { status: 409 },
+    );
+  }
+
+  const resourceType = String(input.resourceType || '').trim();
+  if (resourceType && approval.resourceType && approval.resourceType !== resourceType) {
+    return json(
+      {
+        ok: false,
+        code: 'approval_resource_mismatch',
+        message: `Approval request ${approvalId} resource type does not match request`,
+      },
+      { status: 409 },
+    );
+  }
+
+  const resourceId = String(input.resourceId || '').trim();
+  if (resourceId && approval.resourceId && approval.resourceId !== resourceId) {
+    return json(
+      {
+        ok: false,
+        code: 'approval_resource_mismatch',
+        message: `Approval request ${approvalId} resource id does not match request`,
+      },
+      { status: 409 },
+    );
+  }
+
+  return null;
+}
+
 function requireAdminRoleForCardActions(claims: ConsoleAuthClaims): Response | null {
   if (hasConsoleRole(claims, 'admin')) return null;
   return json(
@@ -694,6 +1146,66 @@ function requireOrgProjectEnvMutationRole(claims: ConsoleAuthClaims): Response |
   );
 }
 
+function requireOnboardingTelemetryRole(claims: ConsoleAuthClaims): Response | null {
+  if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'ops')) return null;
+  return json(
+    {
+      ok: false,
+      code: 'forbidden',
+      message: 'Only admin or ops can view onboarding telemetry',
+    },
+    { status: 403 },
+  );
+}
+
+function requireApiKeyMutationRole(claims: ConsoleAuthClaims): Response | null {
+  if (
+    hasConsoleRole(claims, 'owner') ||
+    hasConsoleRole(claims, 'admin') ||
+    hasConsoleRole(claims, 'security_admin')
+  ) {
+    return null;
+  }
+  return json(
+    {
+      ok: false,
+      code: 'forbidden',
+      message: 'Only owner, admin, or security_admin can mutate API keys',
+    },
+    { status: 403 },
+  );
+}
+
+function requireTeamRbacMutationRole(claims: ConsoleAuthClaims): Response | null {
+  if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'owner')) return null;
+  return json(
+    {
+      ok: false,
+      code: 'forbidden',
+      message: 'Only admin or owner can mutate org member roles',
+    },
+    { status: 403 },
+  );
+}
+
+function requireApprovalMutationRole(claims: ConsoleAuthClaims): Response | null {
+  if (
+    hasConsoleRole(claims, 'owner') ||
+    hasConsoleRole(claims, 'admin') ||
+    hasConsoleRole(claims, 'security_admin')
+  ) {
+    return null;
+  }
+  return json(
+    {
+      ok: false,
+      code: 'forbidden',
+      message: 'Only owner, admin, or security_admin can mutate approval queue requests',
+    },
+    { status: 403 },
+  );
+}
+
 function requirePolicyMutationRole(claims: ConsoleAuthClaims): Response | null {
   if (
     hasConsoleRole(claims, 'owner') ||
@@ -730,6 +1242,18 @@ function requireConsoleConfigMutationRole(claims: ConsoleAuthClaims): Response |
   );
 }
 
+function requireEnterpriseIsolationMutationRole(claims: ConsoleAuthClaims): Response | null {
+  if (hasConsoleRole(claims, 'owner') || hasConsoleRole(claims, 'admin')) return null;
+  return json(
+    {
+      ok: false,
+      code: 'forbidden',
+      message: 'Only owner or admin can trigger enterprise isolation',
+    },
+    { status: 403 },
+  );
+}
+
 function requireKeyExportApprovalRole(claims: ConsoleAuthClaims): Response | null {
   if (hasConsoleRole(claims, 'admin')) return null;
   return json(
@@ -743,6 +1267,42 @@ function requireKeyExportApprovalRole(claims: ConsoleAuthClaims): Response | nul
 }
 
 const BILLING_TERMINAL_SETTLEMENT_STATES = new Set(['SETTLED', 'PARTIALLY_SETTLED', 'OVERPAID']);
+
+async function requireActiveApiKeyEnvironmentForCreate(
+  ctx: CloudflareConsoleContext,
+  claims: ConsoleAuthClaims,
+  environmentId: string,
+): Promise<Response | null> {
+  const orgProjectEnvOrResponse = requireOrgProjectEnvService(ctx);
+  if (orgProjectEnvOrResponse instanceof Response) return orgProjectEnvOrResponse;
+  try {
+    const environments = await orgProjectEnvOrResponse.listEnvironments(toOrgProjectEnvContext(claims));
+    const environment = environments.find((entry) => entry.id === environmentId);
+    if (!environment) {
+      return json(
+        {
+          ok: false,
+          code: 'invalid_environment',
+          message: `Environment ${environmentId} was not found for this organization`,
+        },
+        { status: 400 },
+      );
+    }
+    if (environment.status !== 'ACTIVE') {
+      return json(
+        {
+          ok: false,
+          code: 'environment_archived',
+          message: `Environment ${environmentId} is archived and cannot be used for API keys`,
+        },
+        { status: 409 },
+      );
+    }
+    return null;
+  } catch (error: unknown) {
+    return sendOrgProjectEnvError(error);
+  }
+}
 
 async function emitBillingWebhookEvent(
   ctx: CloudflareConsoleContext,
@@ -772,6 +1332,83 @@ async function emitBillingWebhookEvent(
     ctx.logger.warn('[console][webhooks] failed to emit billing event', {
       eventType: input.eventType,
       orgId: input.orgId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function emitApprovalWebhookEvent(
+  ctx: CloudflareConsoleContext,
+  input: {
+    orgId: string;
+    actorUserId: string;
+    eventType: 'policy.approval.created' | 'policy.approval.approved' | 'policy.approval.rejected';
+    payload: Record<string, unknown>;
+  },
+): Promise<void> {
+  if (!ctx.webhooks) return;
+  try {
+    await ctx.webhooks.emitEvent(
+      {
+        orgId: input.orgId,
+        actorUserId: input.actorUserId,
+        roles: ['ops'],
+      },
+      {
+        eventType: input.eventType,
+        payload: input.payload,
+      },
+    );
+  } catch (error: unknown) {
+    ctx.logger.warn('[console][webhooks] failed to emit approval event', {
+      eventType: input.eventType,
+      orgId: input.orgId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function emitConsoleAuditEvent(
+  ctx: CloudflareConsoleContext,
+  claims: ConsoleAuthClaims,
+  input: {
+    category:
+      | 'POLICY'
+      | 'SETTINGS'
+      | 'KEY_EXPORT'
+      | 'BILLING'
+      | 'WEBHOOK'
+      | 'API_KEY'
+      | 'TEAM'
+      | 'APPROVAL'
+      | 'ORG_PROJECT_ENV'
+      | 'RUNTIME_SNAPSHOT'
+      | 'SYSTEM';
+    action: string;
+    summary: string;
+    outcome?: 'SUCCESS' | 'FAILURE' | 'PENDING';
+    projectId?: string;
+    environmentId?: string;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<void> {
+  if (!ctx.audit) return;
+  try {
+    await ctx.audit.appendEvent(toAuditContext(claims), {
+      category: input.category,
+      action: input.action,
+      outcome: input.outcome || 'SUCCESS',
+      summary: input.summary,
+      ...(input.projectId ? { projectId: input.projectId } : {}),
+      ...(input.environmentId ? { environmentId: input.environmentId } : {}),
+      ...(input.metadata ? { metadata: input.metadata } : {}),
+    });
+  } catch (error: unknown) {
+    ctx.logger.warn('[console][audit] failed to append audit event', {
+      orgId: claims.orgId,
+      userId: claims.userId,
+      category: input.category,
+      action: input.action,
       message: error instanceof Error ? error.message : String(error),
     });
   }
@@ -883,8 +1520,155 @@ async function handleConsoleSession(ctx: CloudflareConsoleContext): Promise<Resp
   );
 }
 
+async function handleConsoleOnboarding(ctx: CloudflareConsoleContext): Promise<Response | null> {
+  if (!isConsoleOnboardingPath(ctx.pathname)) return null;
+
+  const auth = await requireConsoleAuth(ctx);
+  if (!auth.ok) return auth.response;
+
+  const onboardingOrResponse = requireOnboardingService(ctx);
+  if (onboardingOrResponse instanceof Response) return onboardingOrResponse;
+  const onboarding = onboardingOrResponse;
+
+  try {
+    if (ctx.method === 'GET' && ctx.pathname === '/console/onboarding/state') {
+      const request = parseGetConsoleOnboardingStateRequest({});
+      const state = await onboarding.getOnboardingState(toOnboardingContext(auth.claims), request);
+      return json({ ok: true, state }, { status: 200 });
+    }
+
+    if (ctx.method === 'GET' && ctx.pathname === '/console/onboarding/telemetry') {
+      const roleRequired = requireOnboardingTelemetryRole(auth.claims);
+      if (roleRequired) return roleRequired;
+      const request = parseGetConsoleOnboardingTelemetryRequest({
+        windowMinutes: ctx.url.searchParams.get('windowMinutes') || undefined,
+      });
+      const telemetry = await onboarding.getOnboardingTelemetry(toOnboardingContext(auth.claims), request);
+      return json({ ok: true, telemetry }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/onboarding/organization') {
+      const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
+      if (forbidden) return forbidden;
+      const request = parseCreateConsoleOnboardingOrganizationRequest(await readJson(ctx.request));
+      const result = await onboarding.createOnboardingOrganization(toOnboardingContext(auth.claims), request);
+      if (result.created.owner) {
+        await emitConsoleAuditEvent(ctx, auth.claims, {
+          category: 'TEAM',
+          action: 'member.owner.bootstrap',
+          summary: `Bootstrapped owner membership for user ${auth.claims.userId} during onboarding organization step`,
+          metadata: {
+            onboarding: true,
+            onboardingStep: 'organization',
+            userId: auth.claims.userId,
+          },
+        });
+      }
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'ORG_PROJECT_ENV',
+        action: 'organization.configure',
+        summary: `Configured organization ${result.organization.id} via onboarding organization step`,
+        metadata: {
+          onboarding: true,
+          onboardingStep: 'organization',
+          organizationId: result.organization.id,
+          organizationName: result.organization.name,
+          organizationSlug: result.organization.slug,
+          created: result.created.organization,
+        },
+      });
+      const status = result.created.organization || result.created.owner ? 201 : 200;
+      return json({ ok: true, result }, { status });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/onboarding/project') {
+      const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
+      if (forbidden) return forbidden;
+      const request = parseCreateConsoleOnboardingProjectRequest(await readJson(ctx.request));
+      const result = await onboarding.createOnboardingProject(toOnboardingContext(auth.claims), request);
+      if (result.created.project) {
+        await emitConsoleAuditEvent(ctx, auth.claims, {
+          category: 'ORG_PROJECT_ENV',
+          action: 'project.create',
+          summary: `Created project ${result.project.id} via onboarding project step`,
+          projectId: result.project.id,
+          metadata: {
+            onboarding: true,
+            projectId: result.project.id,
+            onboardingStep: 'project',
+          },
+        });
+      }
+      if (result.created.environment) {
+        await emitConsoleAuditEvent(ctx, auth.claims, {
+          category: 'ORG_PROJECT_ENV',
+          action: 'environment.create',
+          summary: `Created environment ${result.environment.id} via onboarding project step`,
+          projectId: result.environment.projectId,
+          environmentId: result.environment.id,
+          metadata: {
+            onboarding: true,
+            projectId: result.environment.projectId,
+            environmentId: result.environment.id,
+            environmentKey: result.environment.key,
+            onboardingStep: 'project',
+          },
+        });
+      }
+      const status = result.created.project || result.created.environment ? 201 : 200;
+      return json({ ok: true, result }, { status });
+    }
+  } catch (error: unknown) {
+    return sendOnboardingError(error);
+  }
+
+  return new Response('Not Found', { status: 404 });
+}
+
+async function handleConsoleOpsCockpit(ctx: CloudflareConsoleContext): Promise<Response | null> {
+  if (!isConsoleOpsCockpitPath(ctx.pathname)) return null;
+
+  const auth = await requireConsoleAuth(ctx);
+  if (!auth.ok) return auth.response;
+
+  try {
+    const telemetryRequest = parseGetConsoleOnboardingTelemetryRequest({
+      windowMinutes: ctx.url.searchParams.get('windowMinutes') || undefined,
+    });
+    const summary = await buildConsoleOpsCockpitSummary({
+      claims: auth.claims,
+      approvals: ctx.approvals,
+      billing: ctx.billing,
+      webhooks: ctx.webhooks,
+      auditExports: ctx.auditExports,
+      enterpriseIsolation: ctx.enterpriseIsolation,
+      onboarding: ctx.onboarding,
+      canViewOnboardingTelemetry:
+        hasConsoleRole(auth.claims, 'admin') || hasConsoleRole(auth.claims, 'ops'),
+      telemetryWindowMinutes: telemetryRequest.windowMinutes,
+      logger: ctx.logger,
+    });
+    return json({ ok: true, summary }, { status: 200 });
+  } catch (error: unknown) {
+    return sendOnboardingError(error);
+  }
+}
+
 function isConsoleBillingPath(pathname: string): boolean {
   return pathname.startsWith('/console/billing/');
+}
+
+function isConsoleOnboardingPath(pathname: string): boolean {
+  return (
+    pathname === '/console/onboarding/state' ||
+    pathname === '/console/onboarding/telemetry' ||
+    pathname === '/console/onboarding/organization' ||
+    pathname === '/console/onboarding/project'
+  );
+}
+
+function isConsoleOpsCockpitPath(pathname: string): boolean {
+  return pathname === '/console/ops-cockpit/summary';
 }
 
 function isConsoleOrgProjectEnvPath(pathname: string): boolean {
@@ -895,6 +1679,26 @@ function isConsoleOrgProjectEnvPath(pathname: string): boolean {
     pathname.startsWith('/console/projects/') ||
     pathname.startsWith('/console/environments/')
   );
+}
+
+function isConsoleTeamRbacPath(pathname: string): boolean {
+  return pathname === '/console/members' || pathname === '/console/members/invite' || pathname.startsWith('/console/members/');
+}
+
+function isConsoleApprovalPath(pathname: string): boolean {
+  return pathname === '/console/approvals' || pathname.startsWith('/console/approvals/');
+}
+
+function isConsoleAuditPath(pathname: string): boolean {
+  return pathname === '/console/audit/events' || pathname === '/console/audit/evidence';
+}
+
+function isConsoleAuditExportsPath(pathname: string): boolean {
+  return pathname === '/console/audit/exports' || pathname.startsWith('/console/audit/exports/');
+}
+
+function isConsoleEnterpriseIsolationPath(pathname: string): boolean {
+  return pathname === '/console/isolation/status' || pathname === '/console/isolation/trigger';
 }
 
 function isConsoleWalletPath(pathname: string): boolean {
@@ -1097,11 +1901,38 @@ async function handleConsoleSettings(ctx: CloudflareConsoleContext): Promise<Res
     if (ctx.method === 'PATCH' && ctx.pathname === '/console/settings/security') {
       const roleRequired = requireConsoleConfigMutationRole(auth.claims);
       if (roleRequired) return roleRequired;
-      const request = parseUpdateConsoleSecuritySettingsRequest(await readJson(ctx.request));
+      const rawBody = await readJson(ctx.request);
+      const environmentId =
+        String((rawBody as Record<string, unknown> | null)?.environmentId || '').trim() ||
+        auth.claims.environmentId ||
+        undefined;
+      const approvalRequired = await requireApprovedOperationApproval(ctx, auth.claims, {
+        operationType: 'SECURITY_SETTINGS_CHANGE',
+        approvalIdRaw: readApprovalIdFromBody(rawBody),
+        environmentId,
+        resourceType: 'security_settings',
+        resourceId: environmentId,
+      });
+      if (approvalRequired) return approvalRequired;
+      const request = parseUpdateConsoleSecuritySettingsRequest(rawBody);
       const securitySettings = await settings.updateSecuritySettings(
         toBillingContext(auth.claims),
         request,
       );
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'SETTINGS',
+        action: 'settings.security.update',
+        summary: `Updated security settings for environment ${securitySettings.environmentId}`,
+        environmentId: securitySettings.environmentId,
+        metadata: {
+          environmentId: securitySettings.environmentId,
+          enforceIpAllowlist: securitySettings.enforceIpAllowlist,
+          requireMfaForRiskyChanges: securitySettings.requireMfaForRiskyChanges,
+          riskyChangeApprovalApprovalsRequired: securitySettings.riskyChangeApproval.approvalsRequired,
+          riskyChangeApprovalRequireAdmin: securitySettings.riskyChangeApproval.requireAdmin,
+          riskyChangeApprovalRequireMfa: securitySettings.riskyChangeApproval.requireMfa,
+        },
+      });
       return json({ ok: true, securitySettings }, { status: 200 });
     }
   } catch (error: unknown) {
@@ -1142,7 +1973,15 @@ async function handleConsoleKeyExports(ctx: CloudflareConsoleContext): Promise<R
       const roleRequired = requireKeyExportApprovalRole(auth.claims);
       if (roleRequired) return roleRequired;
       const exportId = decodePathPart(approveMatch[1]);
-      const request = parseApproveConsoleKeyExportRequest(await readJson(ctx.request));
+      const rawBody = await readJson(ctx.request);
+      const approvalRequired = await requireApprovedOperationApproval(ctx, auth.claims, {
+        operationType: 'KEY_EXPORT',
+        approvalIdRaw: readApprovalIdFromBody(rawBody),
+        resourceType: 'key_export',
+        resourceId: exportId,
+      });
+      if (approvalRequired) return approvalRequired;
+      const request = parseApproveConsoleKeyExportRequest(rawBody);
       const keyExport = await keyExports.approveKeyExport(toBillingContext(auth.claims), exportId, request);
       if (!keyExport) {
         return json(
@@ -1154,6 +1993,18 @@ async function handleConsoleKeyExports(ctx: CloudflareConsoleContext): Promise<R
           { status: 404 },
         );
       }
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'KEY_EXPORT',
+        action: 'key_export.approve',
+        summary: `Approved key export request ${keyExport.id}`,
+        ...(keyExport.environmentId ? { environmentId: keyExport.environmentId } : {}),
+        metadata: {
+          keyExportId: keyExport.id,
+          status: keyExport.status,
+          mode: keyExport.mode,
+          approvedByUserId: auth.claims.userId,
+        },
+      });
       return json({ ok: true, keyExport }, { status: 200 });
     }
   } catch (error: unknown) {
@@ -1252,8 +2103,27 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/api-keys') {
+      const roleRequired = requireApiKeyMutationRole(auth.claims);
+      if (roleRequired) return roleRequired;
       const request = parseCreateConsoleApiKeyRequest(await readJson(ctx.request));
+      const validEnvironment = await requireActiveApiKeyEnvironmentForCreate(
+        ctx,
+        auth.claims,
+        request.environmentId,
+      );
+      if (validEnvironment) return validEnvironment;
       const created = await apiKeys.createApiKey(apiKeyCtx, request);
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'API_KEY',
+        action: 'api_key.create',
+        summary: `Created API key ${created.apiKey.id}`,
+        environmentId: created.apiKey.environmentId,
+        metadata: {
+          apiKeyId: created.apiKey.id,
+          scopeCount: created.apiKey.scopes.length,
+          ipAllowlistCount: created.apiKey.ipAllowlist.length,
+        },
+      });
       return json(
         {
           ok: true,
@@ -1265,8 +2135,11 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'DELETE' && apiKeyPathMatch) {
+      const roleRequired = requireApiKeyMutationRole(auth.claims);
+      if (roleRequired) return roleRequired;
       const apiKeyId = decodePathPart(apiKeyPathMatch[1]);
-      const revoked = await apiKeys.revokeApiKey(apiKeyCtx, apiKeyId);
+      const request = parseRevokeConsoleApiKeyRequest(await readJson(ctx.request));
+      const revoked = await apiKeys.revokeApiKey(apiKeyCtx, apiKeyId, request);
       if (!revoked.revoked || !revoked.apiKey) {
         return json(
           {
@@ -1277,6 +2150,17 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
           { status: 404 },
         );
       }
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'API_KEY',
+        action: 'api_key.revoke',
+        summary: `Revoked API key ${revoked.apiKey.id}`,
+        environmentId: revoked.apiKey.environmentId,
+        metadata: {
+          apiKeyId: revoked.apiKey.id,
+          status: revoked.apiKey.status,
+          revokedReason: revoked.apiKey.revokedReason,
+        },
+      });
       return json(
         {
           ok: true,
@@ -1288,6 +2172,8 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'POST' && apiKeyRotatePathMatch) {
+      const roleRequired = requireApiKeyMutationRole(auth.claims);
+      if (roleRequired) return roleRequired;
       const apiKeyId = decodePathPart(apiKeyRotatePathMatch[1]);
       const request = parseRotateConsoleApiKeyRequest(await readJson(ctx.request));
       const rotated = await apiKeys.rotateApiKey(apiKeyCtx, apiKeyId, request);
@@ -1301,6 +2187,16 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
           { status: 404 },
         );
       }
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'API_KEY',
+        action: 'api_key.rotate',
+        summary: `Rotated API key ${rotated.apiKey.id} to version ${rotated.apiKey.secretVersion}`,
+        environmentId: rotated.apiKey.environmentId,
+        metadata: {
+          apiKeyId: rotated.apiKey.id,
+          secretVersion: rotated.apiKey.secretVersion,
+        },
+      });
       return json(
         {
           ok: true,
@@ -1359,7 +2255,13 @@ async function handleConsoleOrgProjectEnv(ctx: CloudflareConsoleContext): Promis
       const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
       if (forbidden) return forbidden;
       const request = parseCreateConsoleProjectRequest(await readJson(ctx.request));
-      const project = await orgProjectEnv.createProject(orgProjectEnvCtx, request);
+      const liveEnvironmentsEnabled = ctx.billing
+        ? await isBillingReadyForLiveEnvironment(ctx.billing, toBillingContext(auth.claims))
+        : false;
+      const project = await orgProjectEnv.createProject(orgProjectEnvCtx, {
+        ...request,
+        liveEnvironmentsEnabled,
+      });
       return json({ ok: true, project }, { status: 201 });
     }
 
@@ -1404,6 +2306,18 @@ async function handleConsoleOrgProjectEnv(ctx: CloudflareConsoleContext): Promis
       const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
       if (forbidden) return forbidden;
       const request = parseCreateConsoleEnvironmentRequest(await readJson(ctx.request));
+      if (request.key !== 'dev') {
+        if (!ctx.billing) {
+          return sendBillingError(
+            new ConsoleBillingError(
+              'billing_required_live_environment',
+              409,
+              LIVE_ENVIRONMENT_BILLING_REQUIRED_MESSAGE,
+            ),
+          );
+        }
+        await ensureBillingReadyForLiveEnvironment(ctx.billing, toBillingContext(auth.claims));
+      }
       const environment = await orgProjectEnv.createEnvironment(orgProjectEnvCtx, request);
       return json({ ok: true, environment }, { status: 201 });
     }
@@ -1449,7 +2363,423 @@ async function handleConsoleOrgProjectEnv(ctx: CloudflareConsoleContext): Promis
       return json({ ok: true, environment }, { status: 200 });
     }
   } catch (error: unknown) {
+    if (isConsoleBillingError(error)) return sendBillingError(error);
     return sendOrgProjectEnvError(error);
+  }
+
+  return new Response('Not Found', { status: 404 });
+}
+
+async function handleConsoleTeamRbac(ctx: CloudflareConsoleContext): Promise<Response | null> {
+  if (!isConsoleTeamRbacPath(ctx.pathname)) return null;
+
+  const auth = await requireConsoleAuth(ctx);
+  if (!auth.ok) return auth.response;
+
+  const teamRbacOrResponse = requireTeamRbacService(ctx);
+  if (teamRbacOrResponse instanceof Response) return teamRbacOrResponse;
+  const teamRbac = teamRbacOrResponse;
+  const teamRbacCtx = toTeamRbacContext(auth.claims);
+  const memberRolesPathMatch = ctx.pathname.match(/^\/console\/members\/([^/]+)\/roles$/);
+  const memberDeletePathMatch = ctx.pathname.match(/^\/console\/members\/([^/]+)$/);
+
+  try {
+    if (ctx.method === 'GET' && ctx.pathname === '/console/members') {
+      const request = parseListConsoleTeamMembersRequest({
+        status: ctx.url.searchParams.get('status') || undefined,
+      });
+      const members = await teamRbac.listMembers(teamRbacCtx, request);
+      return json({ ok: true, members }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/members/invite') {
+      const forbidden = requireTeamRbacMutationRole(auth.claims);
+      if (forbidden) return forbidden;
+      const request = parseInviteConsoleTeamMemberRequest(await readJson(ctx.request));
+      const member = await teamRbac.inviteMember(teamRbacCtx, request);
+      return json({ ok: true, member }, { status: 201 });
+    }
+
+    if (ctx.method === 'PATCH' && memberRolesPathMatch) {
+      const forbidden = requireTeamRbacMutationRole(auth.claims);
+      if (forbidden) return forbidden;
+      const memberId = decodePathPart(memberRolesPathMatch[1]);
+      const request = parseUpdateConsoleTeamMemberRolesRequest(await readJson(ctx.request));
+      const member = await teamRbac.updateMemberRoles(teamRbacCtx, memberId, request);
+      if (!member) {
+        return json(
+          {
+            ok: false,
+            code: 'member_not_found',
+            message: `Member ${memberId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      return json({ ok: true, member }, { status: 200 });
+    }
+
+    if (ctx.method === 'DELETE' && memberDeletePathMatch) {
+      const forbidden = requireTeamRbacMutationRole(auth.claims);
+      if (forbidden) return forbidden;
+      const memberId = decodePathPart(memberDeletePathMatch[1]);
+      const removed = await teamRbac.removeMember(teamRbacCtx, memberId);
+      if (!removed.removed || !removed.member) {
+        return json(
+          {
+            ok: false,
+            code: 'member_not_found',
+            message: `Member ${memberId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      return json(
+        {
+          ok: true,
+          removed: true,
+          member: removed.member,
+        },
+        { status: 200 },
+      );
+    }
+  } catch (error: unknown) {
+    return sendTeamRbacError(error);
+  }
+
+  return new Response('Not Found', { status: 404 });
+}
+
+async function handleConsoleApprovals(ctx: CloudflareConsoleContext): Promise<Response | null> {
+  if (!isConsoleApprovalPath(ctx.pathname)) return null;
+
+  const auth = await requireConsoleAuth(ctx);
+  if (!auth.ok) return auth.response;
+
+  const approvalsOrResponse = requireApprovalService(ctx);
+  if (approvalsOrResponse instanceof Response) return approvalsOrResponse;
+  const approvals = approvalsOrResponse;
+  const approvalCtx = toApprovalContext(auth.claims);
+  const approvalPathMatch = ctx.pathname.match(/^\/console\/approvals\/([^/]+)$/);
+  const approvalApprovePathMatch = ctx.pathname.match(/^\/console\/approvals\/([^/]+)\/approve$/);
+  const approvalRejectPathMatch = ctx.pathname.match(/^\/console\/approvals\/([^/]+)\/reject$/);
+
+  try {
+    if (ctx.method === 'GET' && ctx.pathname === '/console/approvals') {
+      const request = parseListConsoleApprovalsRequest({
+        status: ctx.url.searchParams.get('status') || undefined,
+        operationType: ctx.url.searchParams.get('operationType') || undefined,
+        projectId: ctx.url.searchParams.get('projectId') || undefined,
+        environmentId: ctx.url.searchParams.get('environmentId') || undefined,
+      });
+      const rows = await approvals.listApprovalRequests(approvalCtx, request);
+      return json({ ok: true, approvals: rows }, { status: 200 });
+    }
+
+    if (ctx.method === 'GET' && approvalPathMatch) {
+      const approvalId = decodePathPart(approvalPathMatch[1]);
+      const row = await approvals.getApprovalRequest(approvalCtx, approvalId);
+      if (!row) {
+        return json(
+          {
+            ok: false,
+            code: 'approval_not_found',
+            message: `Approval request ${approvalId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      return json({ ok: true, approval: row }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/approvals') {
+      const forbidden = requireApprovalMutationRole(auth.claims);
+      if (forbidden) return forbidden;
+      const request = parseCreateConsoleApprovalRequest(await readJson(ctx.request));
+      const row = await approvals.createApprovalRequest(approvalCtx, request);
+      await emitApprovalWebhookEvent(ctx, {
+        orgId: auth.claims.orgId,
+        actorUserId: auth.claims.userId,
+        eventType: 'policy.approval.created',
+        payload: {
+          approvalId: row.id,
+          operationType: row.operationType,
+          status: row.status,
+          requestedByUserId: row.requestedByUserId,
+          requiredApprovals: row.requiredApprovals,
+          requireMfa: row.requireMfa,
+          projectId: row.projectId,
+          environmentId: row.environmentId,
+          resourceType: row.resourceType,
+          resourceId: row.resourceId,
+        },
+      });
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'APPROVAL',
+        action: 'approval.request.create',
+        summary: `Created approval request ${row.id} (${row.operationType})`,
+        ...(row.projectId ? { projectId: row.projectId } : {}),
+        ...(row.environmentId ? { environmentId: row.environmentId } : {}),
+        metadata: {
+          approvalId: row.id,
+          operationType: row.operationType,
+          status: row.status,
+          requiredApprovals: row.requiredApprovals,
+          requireMfa: row.requireMfa,
+        },
+      });
+      return json({ ok: true, approval: row }, { status: 201 });
+    }
+
+    if (ctx.method === 'POST' && approvalApprovePathMatch) {
+      const forbidden = requireApprovalMutationRole(auth.claims);
+      if (forbidden) return forbidden;
+      const approvalId = decodePathPart(approvalApprovePathMatch[1]);
+      const request = parseApproveConsoleApprovalRequest(await readJson(ctx.request));
+      const row = await approvals.approveApprovalRequest(approvalCtx, approvalId, request);
+      if (!row) {
+        return json(
+          {
+            ok: false,
+            code: 'approval_not_found',
+            message: `Approval request ${approvalId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      await emitApprovalWebhookEvent(ctx, {
+        orgId: auth.claims.orgId,
+        actorUserId: auth.claims.userId,
+        eventType: 'policy.approval.approved',
+        payload: {
+          approvalId: row.id,
+          operationType: row.operationType,
+          status: row.status,
+          requiredApprovals: row.requiredApprovals,
+          approvalsCount: row.decisions.filter((entry) => entry.decision === 'APPROVE').length,
+          decisionsCount: row.decisions.length,
+          resolvedAt: row.resolvedAt,
+          projectId: row.projectId,
+          environmentId: row.environmentId,
+          resourceType: row.resourceType,
+          resourceId: row.resourceId,
+        },
+      });
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'APPROVAL',
+        action: 'approval.request.approve',
+        summary: `Approved approval request ${row.id} (${row.operationType})`,
+        ...(row.projectId ? { projectId: row.projectId } : {}),
+        ...(row.environmentId ? { environmentId: row.environmentId } : {}),
+        metadata: {
+          approvalId: row.id,
+          operationType: row.operationType,
+          status: row.status,
+          approvalsCount: row.decisions.filter((entry) => entry.decision === 'APPROVE').length,
+          decisionsCount: row.decisions.length,
+        },
+      });
+      return json({ ok: true, approval: row }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && approvalRejectPathMatch) {
+      const forbidden = requireApprovalMutationRole(auth.claims);
+      if (forbidden) return forbidden;
+      const approvalId = decodePathPart(approvalRejectPathMatch[1]);
+      const request = parseRejectConsoleApprovalRequest(await readJson(ctx.request));
+      const row = await approvals.rejectApprovalRequest(approvalCtx, approvalId, request);
+      if (!row) {
+        return json(
+          {
+            ok: false,
+            code: 'approval_not_found',
+            message: `Approval request ${approvalId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      await emitApprovalWebhookEvent(ctx, {
+        orgId: auth.claims.orgId,
+        actorUserId: auth.claims.userId,
+        eventType: 'policy.approval.rejected',
+        payload: {
+          approvalId: row.id,
+          operationType: row.operationType,
+          status: row.status,
+          decisionsCount: row.decisions.length,
+          resolvedAt: row.resolvedAt,
+          projectId: row.projectId,
+          environmentId: row.environmentId,
+          resourceType: row.resourceType,
+          resourceId: row.resourceId,
+        },
+      });
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'APPROVAL',
+        action: 'approval.request.reject',
+        summary: `Rejected approval request ${row.id} (${row.operationType})`,
+        ...(row.projectId ? { projectId: row.projectId } : {}),
+        ...(row.environmentId ? { environmentId: row.environmentId } : {}),
+        metadata: {
+          approvalId: row.id,
+          operationType: row.operationType,
+          status: row.status,
+          decisionsCount: row.decisions.length,
+        },
+      });
+      return json({ ok: true, approval: row }, { status: 200 });
+    }
+  } catch (error: unknown) {
+    return sendApprovalError(error);
+  }
+
+  return new Response('Not Found', { status: 404 });
+}
+
+async function handleConsoleAudit(ctx: CloudflareConsoleContext): Promise<Response | null> {
+  if (!isConsoleAuditPath(ctx.pathname)) return null;
+
+  const auth = await requireConsoleAuth(ctx);
+  if (!auth.ok) return auth.response;
+
+  const auditOrResponse = requireAuditService(ctx);
+  if (auditOrResponse instanceof Response) return auditOrResponse;
+  const audit = auditOrResponse;
+
+  try {
+    if (ctx.method === 'GET' && ctx.pathname === '/console/audit/events') {
+      const request = parseListConsoleAuditEventsRequest({
+        projectId: ctx.url.searchParams.get('projectId') || undefined,
+        environmentId: ctx.url.searchParams.get('environmentId') || undefined,
+        category: ctx.url.searchParams.get('category') || undefined,
+        actorUserId: ctx.url.searchParams.get('actorUserId') || undefined,
+        outcome: ctx.url.searchParams.get('outcome') || undefined,
+        from: ctx.url.searchParams.get('from') || undefined,
+        to: ctx.url.searchParams.get('to') || undefined,
+        limit: ctx.url.searchParams.get('limit') || undefined,
+      });
+      const events = await audit.listEvents(toAuditContext(auth.claims), request);
+      return json({ ok: true, events }, { status: 200 });
+    }
+
+    if (ctx.method === 'GET' && ctx.pathname === '/console/audit/evidence') {
+      const request = parseListConsoleAuditEvidenceRequest({
+        projectId: ctx.url.searchParams.get('projectId') || undefined,
+        environmentId: ctx.url.searchParams.get('environmentId') || undefined,
+        domain: ctx.url.searchParams.get('domain') || undefined,
+        from: ctx.url.searchParams.get('from') || undefined,
+        to: ctx.url.searchParams.get('to') || undefined,
+        limit: ctx.url.searchParams.get('limit') || undefined,
+      });
+      const evidence = await audit.listEvidence(toAuditContext(auth.claims), request);
+      return json({ ok: true, evidence }, { status: 200 });
+    }
+  } catch (error: unknown) {
+    return sendAuditError(error);
+  }
+
+  return new Response('Not Found', { status: 404 });
+}
+
+async function handleConsoleAuditExports(ctx: CloudflareConsoleContext): Promise<Response | null> {
+  if (!isConsoleAuditExportsPath(ctx.pathname)) return null;
+
+  const auth = await requireConsoleAuth(ctx);
+  if (!auth.ok) return auth.response;
+
+  const auditExportsOrResponse = requireAuditExportsService(ctx);
+  if (auditExportsOrResponse instanceof Response) return auditExportsOrResponse;
+  const auditExports = auditExportsOrResponse;
+
+  const exportMatch = ctx.pathname.match(/^\/console\/audit\/exports\/([^/]+)$/);
+
+  try {
+    if (ctx.method === 'GET' && ctx.pathname === '/console/audit/exports') {
+      const request = parseListConsoleAuditExportsRequest({
+        status: ctx.url.searchParams.get('status') || undefined,
+        domain: ctx.url.searchParams.get('domain') || undefined,
+        limit: ctx.url.searchParams.get('limit') || undefined,
+      });
+      const exports = await auditExports.listExports(toAuditContext(auth.claims), request);
+      return json({ ok: true, exports }, { status: 200 });
+    }
+
+    if (ctx.method === 'GET' && exportMatch) {
+      const exportId = decodePathPart(exportMatch[1]);
+      const auditExport = await auditExports.getExport(toAuditContext(auth.claims), exportId);
+      if (!auditExport) {
+        return json(
+          {
+            ok: false,
+            code: 'audit_export_not_found',
+            message: `Audit export ${exportId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      return json({ ok: true, export: auditExport }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/audit/exports') {
+      const forbidden = requireEnterpriseIsolationMutationRole(auth.claims);
+      if (forbidden) return forbidden;
+      const request = parseCreateConsoleAuditExportRequest(await readJson(ctx.request));
+      const auditExport = await auditExports.createExport(toAuditContext(auth.claims), request);
+      return json({ ok: true, export: auditExport }, { status: 201 });
+    }
+  } catch (error: unknown) {
+    return sendAuditExportsError(error);
+  }
+
+  return new Response('Not Found', { status: 404 });
+}
+
+async function handleConsoleEnterpriseIsolation(
+  ctx: CloudflareConsoleContext,
+): Promise<Response | null> {
+  if (!isConsoleEnterpriseIsolationPath(ctx.pathname)) return null;
+
+  const auth = await requireConsoleAuth(ctx);
+  if (!auth.ok) return auth.response;
+
+  const enterpriseIsolationOrResponse = requireEnterpriseIsolationService(ctx);
+  if (enterpriseIsolationOrResponse instanceof Response) return enterpriseIsolationOrResponse;
+  const enterpriseIsolation = enterpriseIsolationOrResponse;
+
+  try {
+    if (ctx.method === 'GET' && ctx.pathname === '/console/isolation/status') {
+      const request = parseGetConsoleEnterpriseIsolationRequest({
+        scope: ctx.url.searchParams.get('scope') || undefined,
+        projectId: ctx.url.searchParams.get('projectId') || undefined,
+        environmentId: ctx.url.searchParams.get('environmentId') || undefined,
+      });
+      const isolation = await enterpriseIsolation.getIsolationState(toAuditContext(auth.claims), request);
+      return json({ ok: true, isolation }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/isolation/trigger') {
+      const forbidden = requireEnterpriseIsolationMutationRole(auth.claims);
+      if (forbidden) return forbidden;
+      const request = parseTriggerConsoleEnterpriseIsolationRequest(await readJson(ctx.request));
+      const isolation = await enterpriseIsolation.triggerIsolation(toAuditContext(auth.claims), request);
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'SYSTEM',
+        action: 'enterprise_isolation.trigger',
+        summary: `Triggered enterprise isolation (${isolation.scope})`,
+        ...(isolation.projectId ? { projectId: isolation.projectId } : {}),
+        ...(isolation.environmentId ? { environmentId: isolation.environmentId } : {}),
+        metadata: {
+          scope: isolation.scope,
+          status: isolation.status,
+          mode: isolation.mode,
+          trigger: isolation.trigger,
+          ticketId: isolation.ticketId,
+        },
+      });
+      return json({ ok: true, isolation }, { status: 202 });
+    }
+  } catch (error: unknown) {
+    return sendEnterpriseIsolationError(error);
   }
 
   return new Response('Not Found', { status: 404 });
@@ -1622,6 +2952,14 @@ async function handleConsolePolicies(ctx: CloudflareConsoleContext): Promise<Res
       const roleRequired = requirePolicyMutationRole(auth.claims);
       if (roleRequired) return roleRequired;
       const policyId = decodePathPart(policyPublishMatch[1]);
+      const rawBody = await readJson(ctx.request);
+      const approvalRequired = await requireApprovedOperationApproval(ctx, auth.claims, {
+        operationType: 'POLICY_PUBLISH',
+        approvalIdRaw: readApprovalIdFromBody(rawBody),
+        resourceType: 'policy',
+        resourceId: policyId,
+      });
+      if (approvalRequired) return approvalRequired;
       const result = await policies.publishPolicy(policyCtx, policyId);
       if (!result) {
         return json(
@@ -1633,6 +2971,16 @@ async function handleConsolePolicies(ctx: CloudflareConsoleContext): Promise<Res
           { status: 404 },
         );
       }
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'POLICY',
+        action: 'policy.publish',
+        summary: `Published policy ${policyId}`,
+        metadata: {
+          policyId,
+          version: result.policy.version,
+          status: result.policy.status,
+        },
+      });
       return json({ ok: true, result }, { status: 200 });
     }
 
@@ -2323,12 +3671,26 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
   const settings = opts.settings === undefined ? null : opts.settings;
   const keyExports = opts.keyExports === undefined ? null : opts.keyExports;
   const runtimeSnapshots = opts.runtimeSnapshots === undefined ? null : opts.runtimeSnapshots;
+  const teamRbac = opts.teamRbac === undefined ? null : opts.teamRbac;
+  const approvals = opts.approvals === undefined ? null : opts.approvals;
+  const audit = opts.audit === undefined ? null : opts.audit;
+  const auditExports = opts.auditExports === undefined ? null : opts.auditExports;
+  const enterpriseIsolation =
+    opts.enterpriseIsolation === undefined ? null : opts.enterpriseIsolation;
+  const onboarding = opts.onboarding === undefined ? null : opts.onboarding;
 
   const handlers: Array<(ctx: CloudflareConsoleContext) => Promise<Response | null>> = [
     handleConsoleHealth,
     handleConsoleReady,
     handleConsoleSession,
+    handleConsoleOnboarding,
+    handleConsoleOpsCockpit,
     handleConsoleOrgProjectEnv,
+    handleConsoleTeamRbac,
+    handleConsoleApprovals,
+    handleConsoleAudit,
+    handleConsoleAuditExports,
+    handleConsoleEnterpriseIsolation,
     handleConsoleWallets,
     handleConsolePolicies,
     handleConsoleInsights,
@@ -2377,6 +3739,12 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
       settings,
       keyExports,
       runtimeSnapshots,
+      teamRbac,
+      approvals,
+      audit,
+      auditExports,
+      enterpriseIsolation,
+      onboarding,
     };
 
     try {

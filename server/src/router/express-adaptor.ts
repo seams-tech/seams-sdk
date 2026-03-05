@@ -2,6 +2,14 @@ export type {
   RelayRouterOptions,
   SessionAdapter,
   ThresholdSigningAdapter,
+  RelayApiKeyAuthFailureCode,
+  RelayApiKeyAuthRequest,
+  RelayApiKeyPrincipal,
+  RelayApiKeyAuthResult,
+  RelayApiKeyAuthAdapter,
+  RelayUsageMeterAction,
+  RelayUsageMeterEvent,
+  RelayUsageMeterAdapter,
   RelayRuntimeSnapshotScope,
   RelayRuntimeSnapshotEnvelope,
   RelayRuntimeSnapshotConsumer,
@@ -20,6 +28,7 @@ export type {
   ConsoleProject,
   ConsoleEnvironment,
   ListConsoleEnvironmentsRequest,
+  UpsertConsoleOrganizationRequest,
   CreateConsoleProjectRequest,
   UpdateConsoleProjectRequest,
   CreateConsoleEnvironmentRequest,
@@ -32,6 +41,110 @@ export type {
   PostgresConsoleOrgProjectEnvSchemaOptions,
   PostgresConsoleOrgProjectEnvServiceOptions,
 } from '../console/orgProjectEnv';
+export type {
+  ConsoleTeamPermissionCategory,
+  ConsoleOrgScopedTeamRole,
+  ConsoleTeamRole,
+  ConsoleTeamRoleScope,
+  ConsoleTeamMembershipStatus,
+  ConsoleTeamMemberListStatusFilter,
+  ConsoleTeamRoleAssignment,
+  ConsoleTeamMember,
+  ListConsoleTeamMembersRequest,
+  InviteConsoleTeamMemberRequest,
+  UpdateConsoleTeamMemberRolesRequest,
+} from '../console/teamRbac';
+export type {
+  ConsoleTeamRbacContext,
+  ConsoleTeamRbacService,
+  InMemoryConsoleTeamRbacServiceOptions,
+  PostgresConsoleTeamRbacSchemaOptions,
+  PostgresConsoleTeamRbacServiceOptions,
+} from '../console/teamRbac';
+export type {
+  ConsoleApprovalOperationType,
+  ConsoleApprovalStatus,
+  ConsoleApprovalDecision,
+  ConsoleApprovalDecisionRecord,
+  ConsoleApprovalRequestRecord,
+  ListConsoleApprovalsRequest,
+  CreateConsoleApprovalRequest,
+  ApproveConsoleApprovalRequest,
+  RejectConsoleApprovalRequest,
+} from '../console/approvals';
+export type {
+  ConsoleApprovalsContext,
+  ConsoleApprovalService,
+  InMemoryConsoleApprovalServiceOptions,
+  PostgresConsoleApprovalSchemaOptions,
+  PostgresConsoleApprovalServiceOptions,
+} from '../console/approvals';
+export type {
+  ConsoleAuditActorType,
+  ConsoleAuditCategory,
+  ConsoleAuditOutcome,
+  ConsoleAuditEvidenceDomain,
+  ConsoleAuditEvidenceReferenceKind,
+  ConsoleAuditEvent,
+  ConsoleAuditEvidenceReference,
+  ConsoleAuditEvidenceRecord,
+  ListConsoleAuditEventsRequest,
+  ListConsoleAuditEvidenceRequest,
+  AppendConsoleAuditEventRequest,
+  AppendConsoleAuditEvidenceRequest,
+} from '../console/audit';
+export type {
+  ConsoleAuditContext,
+  ConsoleAuditService,
+  InMemoryConsoleAuditServiceOptions,
+  PostgresConsoleAuditSchemaOptions,
+  PostgresConsoleAuditServiceOptions,
+} from '../console/audit';
+export type {
+  ConsoleAuditExportDomain,
+  ConsoleAuditExportFormat,
+  ConsoleAuditExportStatus,
+  ConsoleAuditExportFilters,
+  ConsoleAuditExportRecord,
+  ListConsoleAuditExportsRequest,
+  CreateConsoleAuditExportRequest,
+} from '../console/auditExports';
+export type {
+  ConsoleAuditExportsContext,
+  ConsoleAuditExportsService,
+  InMemoryConsoleAuditExportsServiceOptions,
+} from '../console/auditExports';
+export type {
+  ConsoleEnterpriseIsolationMode,
+  ConsoleEnterpriseIsolationStatus,
+  ConsoleEnterpriseIsolationTrigger,
+  ConsoleEnterpriseIsolationScope,
+  ConsoleEnterpriseIsolationSla,
+  ConsoleEnterpriseIsolationState,
+  GetConsoleEnterpriseIsolationRequest,
+  TriggerConsoleEnterpriseIsolationRequest,
+} from '../console/enterpriseIsolation';
+export type {
+  ConsoleEnterpriseIsolationContext,
+  ConsoleEnterpriseIsolationService,
+  InMemoryConsoleEnterpriseIsolationServiceOptions,
+} from '../console/enterpriseIsolation';
+export type {
+  ConsoleOnboardingStep,
+  GetConsoleOnboardingStateRequest,
+  ConsoleOnboardingOrgInput,
+  ConsoleOnboardingProjectInput,
+  CreateConsoleOnboardingOrganizationRequest,
+  CreateConsoleOnboardingProjectRequest,
+  ConsoleOnboardingState,
+  CreateConsoleOnboardingOrganizationResult,
+  CreateConsoleOnboardingProjectResult,
+} from '../console/onboarding';
+export type {
+  ConsoleOnboardingContext,
+  ConsoleOnboardingService,
+  InMemoryConsoleOnboardingServiceOptions,
+} from '../console/onboarding';
 export type {
   ConsoleWalletChain,
   ConsoleWalletType,
@@ -73,9 +186,15 @@ export type {
   PostgresConsolePolicyServiceOptions,
 } from '../console/policies';
 export type {
+  ConsoleApiKeyAuthFailureCode,
+  AuthenticateConsoleApiKeyRequest,
+  AuthenticateConsoleApiKeySuccess,
+  AuthenticateConsoleApiKeyFailure,
+  AuthenticateConsoleApiKeyResult,
   ConsoleApiKeyStatus,
   ConsoleApiKey,
   CreateConsoleApiKeyRequest,
+  RevokeConsoleApiKeyRequest,
   RotateConsoleApiKeyRequest,
   CreateConsoleApiKeyResult,
   RotateConsoleApiKeyResult,
@@ -240,6 +359,58 @@ export {
   ConsoleOrgProjectEnvError,
 } from '../console/orgProjectEnv';
 export {
+  createInMemoryConsoleTeamRbacService,
+  ensureConsoleTeamRbacPostgresSchema,
+  createPostgresConsoleTeamRbacService,
+  parseListConsoleTeamMembersRequest,
+  parseInviteConsoleTeamMemberRequest,
+  parseUpdateConsoleTeamMemberRolesRequest,
+  isConsoleTeamRbacError,
+  ConsoleTeamRbacError,
+} from '../console/teamRbac';
+export {
+  createInMemoryConsoleApprovalService,
+  ensureConsoleApprovalsPostgresSchema,
+  createPostgresConsoleApprovalService,
+  parseListConsoleApprovalsRequest,
+  parseCreateConsoleApprovalRequest,
+  parseApproveConsoleApprovalRequest,
+  parseRejectConsoleApprovalRequest,
+  isConsoleApprovalsError,
+  ConsoleApprovalsError,
+} from '../console/approvals';
+export {
+  createInMemoryConsoleAuditService,
+  ensureConsoleAuditPostgresSchema,
+  createPostgresConsoleAuditService,
+  parseListConsoleAuditEventsRequest,
+  parseListConsoleAuditEvidenceRequest,
+  isConsoleAuditError,
+  ConsoleAuditError,
+} from '../console/audit';
+export {
+  createInMemoryConsoleAuditExportsService,
+  parseListConsoleAuditExportsRequest,
+  parseCreateConsoleAuditExportRequest,
+  isConsoleAuditExportsError,
+  ConsoleAuditExportsError,
+} from '../console/auditExports';
+export {
+  createInMemoryConsoleEnterpriseIsolationService,
+  parseGetConsoleEnterpriseIsolationRequest,
+  parseTriggerConsoleEnterpriseIsolationRequest,
+  isConsoleEnterpriseIsolationError,
+  ConsoleEnterpriseIsolationError,
+} from '../console/enterpriseIsolation';
+export {
+  createInMemoryConsoleOnboardingService,
+  parseGetConsoleOnboardingStateRequest,
+  parseCreateConsoleOnboardingOrganizationRequest,
+  parseCreateConsoleOnboardingProjectRequest,
+  isConsoleOnboardingError,
+  ConsoleOnboardingError,
+} from '../console/onboarding';
+export {
   createInMemoryConsoleWalletService,
   ensureConsoleWalletsPostgresSchema,
   createPostgresConsoleWalletService,
@@ -332,6 +503,14 @@ export {
 } from '../console/runtimeSnapshots';
 export { createRelayRouter } from './express/createRelayRouter';
 export { createConsoleRouter } from './express/createConsoleRouter';
+export {
+  createRelayApiKeyAuthAdapter,
+  createRelayBillingUsageMeterAdapter,
+  extractRelayApiKeySecret,
+  extractRelayEnvironmentId,
+  resolveSourceIpFromExpressRequest,
+  resolveSourceIpFromFetchHeaders,
+} from './relayApiKeyAuth';
 export type {
   RelayRuntimeSnapshotPublishedUpdate,
   InMemoryRelayRuntimeSnapshotConsumer,

@@ -1,8 +1,13 @@
 import { test, expect } from '@playwright/test';
 import {
   createConsoleRouter,
+  createInMemoryConsoleApprovalService,
+  createInMemoryConsoleAuditService,
+  createInMemoryConsoleAuditExportsService,
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleBillingService,
+  createInMemoryConsoleEnterpriseIsolationService,
+  createInMemoryConsoleOnboardingService,
   createInMemoryConsoleGasSponsorshipService,
   createInMemoryConsoleKeyExportService,
   createInMemoryConsoleOrgProjectEnvService,
@@ -10,19 +15,29 @@ import {
   createInMemoryConsoleRuntimeSnapshotService,
   createInMemoryConsoleSettingsService,
   createInMemoryConsoleSmartWalletService,
+  createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWalletService,
   createInMemoryConsoleWebhookService,
   createPostgresConsoleApiKeyService,
+  createPostgresConsoleApprovalService,
+  createPostgresConsoleAuditService,
   createPostgresConsoleBillingService,
   createPostgresConsoleOrgProjectEnvService,
   createPostgresConsolePolicyService,
+  createPostgresConsoleTeamRbacService,
   createPostgresConsoleWalletService,
   createPostgresConsoleWebhookService,
   type ConsoleApiKeyService,
+  type ConsoleApprovalService,
+  type ConsoleAuditService,
+  type ConsoleAuditExportsService,
   type ConsoleAuthAdapter,
   type ConsoleBillingService,
+  type ConsoleEnterpriseIsolationService,
   type ConsoleOrgProjectEnvService,
   type ConsolePolicyService,
+  type ConsoleWallet,
+  type ConsoleTeamRbacService,
   type ConsoleWalletService,
   type ConsoleWebhookService,
 } from '@server/router/express-adaptor';
@@ -50,6 +65,56 @@ function makeConsoleAuthAdapter(
 
 function randomNamespace(prefix: string): string {
   return `${prefix}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+}
+
+function makeSeedWallet(input: {
+  id: string;
+  orgId: string;
+  projectId: string;
+  environmentId: string;
+}): ConsoleWallet {
+  const ts = new Date().toISOString();
+  return {
+    id: input.id,
+    orgId: input.orgId,
+    projectId: input.projectId,
+    environmentId: input.environmentId,
+    userId: `user_${input.id}`,
+    externalRefId: `ext_${input.id}`,
+    address: `0x${input.id.padEnd(40, '0').slice(0, 40)}`,
+    chain: 'Ethereum',
+    walletType: 'EOA',
+    status: 'ACTIVE',
+    policyId: 'policy_default',
+    balanceMinor: 0,
+    lastActivityAt: null,
+    createdAt: ts,
+    updatedAt: ts,
+  };
+}
+
+async function seedOrgProjectEnvironment(
+  service: ConsoleOrgProjectEnvService,
+  input: {
+    orgId: string;
+    projectId: string;
+    actorUserId: string;
+  },
+): Promise<void> {
+  const ctx = {
+    orgId: input.orgId,
+    actorUserId: input.actorUserId,
+    roles: ['admin'],
+  };
+  await service.upsertOrganization(ctx, {
+    name: 'Default Organization',
+    slug: 'default-organization',
+  });
+  await service.createProject(ctx, {
+    id: input.projectId,
+    name: 'Default Project',
+    liveEnvironmentsEnabled: true,
+  });
 }
 
 test.describe('console router (express)', () => {
@@ -114,14 +179,1422 @@ test.describe('console router (express)', () => {
     }
   });
 
+  test('GET /console/members returns team_rbac_not_configured without Team RBAC service', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/members`, { method: 'GET' });
+      expect(res.status).toBe(501);
+      expect(res.json?.code).toBe('team_rbac_not_configured');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/approvals returns approvals_not_configured without approvals service', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/approvals`, { method: 'GET' });
+      expect(res.status).toBe(501);
+      expect(res.json?.code).toBe('approvals_not_configured');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/audit/events returns audit_not_configured without audit service', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/audit/events`, { method: 'GET' });
+      expect(res.status).toBe(501);
+      expect(res.json?.code).toBe('audit_not_configured');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/audit/exports returns audit_exports_not_configured without export service', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/audit/exports`, { method: 'GET' });
+      expect(res.status).toBe(501);
+      expect(res.json?.code).toBe('audit_exports_not_configured');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/isolation/status returns enterprise_isolation_not_configured without service', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/isolation/status`, { method: 'GET' });
+      expect(res.status).toBe(501);
+      expect(res.json?.code).toBe('enterprise_isolation_not_configured');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/onboarding/state and telemetry return onboarding_not_configured without onboarding service', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/onboarding/state`, { method: 'GET' });
+      expect(res.status).toBe(501);
+      expect(res.json?.code).toBe('onboarding_not_configured');
+
+      const telemetry = await fetchJson(`${srv.baseUrl}/console/onboarding/telemetry`, {
+        method: 'GET',
+      });
+      expect(telemetry.status).toBe(501);
+      expect(telemetry.json?.code).toBe('onboarding_not_configured');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/onboarding/telemetry requires admin or ops role', async () => {
+    const onboarding = createInMemoryConsoleOnboardingService({
+      orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
+      apiKeys: createInMemoryConsoleApiKeyService(),
+      billing: createInMemoryConsoleBillingService(),
+      teamRbac: createInMemoryConsoleTeamRbacService(),
+    });
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['developer'],
+        'org-onboarding-telemetry-role',
+        'user-onboarding-telemetry-role',
+      ),
+      onboarding,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/onboarding/telemetry`, {
+        method: 'GET',
+      });
+      expect(res.status).toBe(403);
+      expect(res.json?.code).toBe('forbidden');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/onboarding/telemetry validates windowMinutes query', async () => {
+    const onboarding = createInMemoryConsoleOnboardingService({
+      orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
+      apiKeys: createInMemoryConsoleApiKeyService(),
+      billing: createInMemoryConsoleBillingService(),
+      teamRbac: createInMemoryConsoleTeamRbacService(),
+    });
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-onboarding-telemetry-query',
+        'user-onboarding-telemetry-query',
+      ),
+      onboarding,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/onboarding/telemetry?windowMinutes=0`, {
+        method: 'GET',
+      });
+      expect(res.status).toBe(400);
+      expect(res.json?.code).toBe('invalid_query');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/ops-cockpit/summary aggregates operator queues', async () => {
+    const orgId = 'org-ops-cockpit-summary-express';
+    const actorUserId = 'user-ops-cockpit-summary-express';
+    const roles = ['admin'];
+    const serviceCtx = { orgId, actorUserId, roles };
+
+    const approvals = createInMemoryConsoleApprovalService();
+    const billing = createInMemoryConsoleBillingService();
+    const webhooks = createInMemoryConsoleWebhookService({
+      dispatcher: {
+        async dispatch() {
+          return {
+            ok: false,
+            statusCode: 500,
+            errorMessage: 'mock dispatch failure',
+          };
+        },
+      },
+    });
+    const auditExports = createInMemoryConsoleAuditExportsService();
+    const enterpriseIsolation = createInMemoryConsoleEnterpriseIsolationService();
+    const onboarding = createInMemoryConsoleOnboardingService({
+      orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
+      apiKeys: createInMemoryConsoleApiKeyService(),
+      billing,
+      teamRbac: createInMemoryConsoleTeamRbacService(),
+    });
+
+    await approvals.createApprovalRequest(serviceCtx, {
+      operationType: 'KEY_EXPORT',
+      reason: 'Operator approval pending',
+    });
+    const generatedInvoice = await billing.generateMonthlyInvoice(serviceCtx, {
+      periodMonthUtc: '2026-03',
+    });
+    await billing.processStripeWebhookEvent({
+      eventId: 'evt_ops_cockpit_express_invoice_failed',
+      orgId,
+      eventType: 'invoice.payment_failed',
+      invoiceId: generatedInvoice.invoice.id,
+      invoiceStatus: 'UNCOLLECTIBLE',
+    });
+    await auditExports.createExport(serviceCtx, { format: 'JSONL' });
+    await enterpriseIsolation.triggerIsolation(serviceCtx, {
+      scope: 'ORG',
+      trigger: 'SLA_BREACH',
+      reason: 'SLA breach',
+    });
+    const endpoint = await webhooks.createEndpoint(serviceCtx, {
+      url: 'https://example.com/ops-cockpit-webhook',
+      subscriptions: ['billing'],
+    });
+    await webhooks.emitEvent(serviceCtx, {
+      eventType: 'billing.invoice.payment_failed',
+      payload: { invoiceId: generatedInvoice.invoice.id, endpointId: endpoint.id },
+    });
+
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(roles, orgId, actorUserId),
+      approvals,
+      billing,
+      webhooks,
+      auditExports,
+      enterpriseIsolation,
+      onboarding,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/ops-cockpit/summary?windowMinutes=60`, {
+        method: 'GET',
+      });
+      expect(res.status).toBe(200);
+      expect(getPath(res.json, 'summary', 'approvals', 'pendingCount')).toBe(1);
+      expect(getPath(res.json, 'summary', 'billing', 'failedInvoiceCount')).toBe(1);
+      expect(getPath(res.json, 'summary', 'webhooks', 'deadLetterCount')).toBe(1);
+      expect(getPath(res.json, 'summary', 'auditExports', 'queuedExportCount')).toBe(1);
+      expect(getPath(res.json, 'summary', 'enterpriseIsolation', 'activeRequestCount')).toBe(1);
+      expect(getPath(res.json, 'summary', 'onboardingTelemetry', 'status', 'state')).toBe('ok');
+      expect(getPath(res.json, 'summary', 'onboardingTelemetry', 'windowMinutes')).toBe(60);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/ops-cockpit/summary is partial for non-ops telemetry viewers', async () => {
+    const orgId = 'org-ops-cockpit-summary-role-express';
+    const actorUserId = 'user-ops-cockpit-summary-role-express';
+    const onboarding = createInMemoryConsoleOnboardingService({
+      orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
+      apiKeys: createInMemoryConsoleApiKeyService(),
+      billing: createInMemoryConsoleBillingService(),
+      teamRbac: createInMemoryConsoleTeamRbacService(),
+    });
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['developer'], orgId, actorUserId),
+      onboarding,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/ops-cockpit/summary`, {
+        method: 'GET',
+      });
+      expect(res.status).toBe(200);
+      expect(getPath(res.json, 'summary', 'onboardingTelemetry', 'status', 'state')).toBe(
+        'forbidden',
+      );
+      expect(getPath(res.json, 'summary', 'onboardingTelemetry', 'status', 'code')).toBe(
+        'forbidden',
+      );
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('onboarding organization and project steps are idempotent and auditable', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const billing = createInMemoryConsoleBillingService();
+    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
+    const onboarding = createInMemoryConsoleOnboardingService({
+      orgProjectEnv,
+      apiKeys,
+      billing,
+      teamRbac,
+    });
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-onboarding-1', 'user-onboarding-1'),
+      onboarding,
+      billing,
+      teamRbac,
+      audit,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const before = await fetchJson(`${srv.baseUrl}/console/onboarding/state`, { method: 'GET' });
+      expect(before.status).toBe(200);
+      expect(getPath(before.json, 'state', 'hasApiKey')).toBe(false);
+      expect(getPath(before.json, 'state', 'complete')).toBe(false);
+      expect(getPath(before.json, 'state', 'accountReady')).toBe(true);
+      expect(getPath(before.json, 'state', 'organizationReady')).toBe(false);
+      expect(getPath(before.json, 'state', 'billingReady')).toBe(false);
+      expect(getPath(before.json, 'state', 'projectReady')).toBe(false);
+      expect(getPath(before.json, 'state', 'onboardingComplete')).toBe(false);
+      expect(getPath(before.json, 'state', 'currentStep')).toBe('organization');
+
+      const organization = await fetchJson(`${srv.baseUrl}/console/onboarding/organization`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org: { name: 'Acme Org', slug: 'acme-org' },
+        }),
+      });
+      expect(organization.status).toBe(201);
+      expect(getPath(organization.json, 'result', 'created', 'organization')).toBe(true);
+      expect(getPath(organization.json, 'result', 'created', 'owner')).toBe(true);
+      expect(getPath(organization.json, 'result', 'state', 'organizationReady')).toBe(true);
+      expect(getPath(organization.json, 'result', 'state', 'currentStep')).toBe('project');
+
+      const project = await fetchJson(`${srv.baseUrl}/console/onboarding/project`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project: { id: 'proj_onboarding', name: 'Onboarding Project' },
+          environment: {
+            id: 'proj_onboarding-dev',
+            name: 'Development',
+          },
+        }),
+      });
+      expect(project.status).toBe(201);
+      expect(String(getPath(project.json, 'result', 'project', 'id'))).toBe('proj_onboarding');
+      expect(String(getPath(project.json, 'result', 'environment', 'id'))).toBe(
+        'org-onboarding-1:proj_onboarding:dev',
+      );
+      expect(getPath(project.json, 'result', 'created', 'project')).toBe(true);
+      expect(getPath(project.json, 'result', 'created', 'environment')).toBe(false);
+
+      const after = await fetchJson(`${srv.baseUrl}/console/onboarding/state`, { method: 'GET' });
+      expect(after.status).toBe(200);
+      expect(getPath(after.json, 'state', 'hasApiKey')).toBe(false);
+      expect(getPath(after.json, 'state', 'complete')).toBe(false);
+      expect(getPath(after.json, 'state', 'organizationReady')).toBe(true);
+      expect(getPath(after.json, 'state', 'projectReady')).toBe(true);
+      expect(getPath(after.json, 'state', 'billingReady')).toBe(false);
+      expect(getPath(after.json, 'state', 'onboardingComplete')).toBe(true);
+      expect(getPath(after.json, 'state', 'currentStep')).toBe('complete');
+
+      const auditEvents = await fetchJson(`${srv.baseUrl}/console/audit/events?limit=20`, {
+        method: 'GET',
+      });
+      expect(auditEvents.status).toBe(200);
+      const rows = Array.isArray(auditEvents.json?.events) ? auditEvents.json?.events : [];
+      const actions = rows.map((row: any) => String(row?.action || ''));
+      expect(actions).toContain('member.owner.bootstrap');
+      expect(actions).toContain('organization.configure');
+      expect(actions).toContain('project.create');
+      expect(actions).not.toContain('environment.create');
+      expect(actions).not.toContain('api_key.create');
+
+      const members = await fetchJson(`${srv.baseUrl}/console/members?status=ACTIVE`, {
+        method: 'GET',
+      });
+      expect(members.status).toBe(200);
+      const memberRows = Array.isArray(members.json?.members) ? members.json?.members : [];
+      const actorMember = memberRows.find(
+        (entry: any) => String(entry?.userId || '') === 'user-onboarding-1',
+      );
+      expect(actorMember).toBeTruthy();
+      const actorRoles = Array.isArray(actorMember?.roles) ? actorMember.roles : [];
+      expect(
+        actorRoles.some(
+          (entry: any) =>
+            String(entry?.scope || '').toUpperCase() === 'ORG' &&
+            String(entry?.role || '').toLowerCase() === 'owner',
+        ),
+      ).toBe(true);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('onboarding organization step configures org profile and is idempotent', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const onboarding = createInMemoryConsoleOnboardingService({
+      orgProjectEnv,
+      apiKeys,
+      teamRbac,
+    });
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-onboarding-org-step',
+        'user-onboarding-org-step',
+      ),
+      onboarding,
+      teamRbac,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const before = await fetchJson(`${srv.baseUrl}/console/onboarding/state`, { method: 'GET' });
+      expect(before.status).toBe(200);
+      expect(getPath(before.json, 'state', 'organizationReady')).toBe(false);
+      expect(getPath(before.json, 'state', 'currentStep')).toBe('organization');
+
+      const first = await fetchJson(`${srv.baseUrl}/console/onboarding/organization`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org: { name: 'Acme Org', slug: 'acme-org' },
+        }),
+      });
+      expect(first.status).toBe(201);
+      expect(getPath(first.json, 'result', 'organization', 'id')).toBe('org-onboarding-org-step');
+      expect(getPath(first.json, 'result', 'organization', 'name')).toBe('Acme Org');
+      expect(getPath(first.json, 'result', 'organization', 'slug')).toBe('acme-org');
+      expect(getPath(first.json, 'result', 'created', 'organization')).toBe(true);
+      expect(getPath(first.json, 'result', 'state', 'organizationReady')).toBe(true);
+      expect(getPath(first.json, 'result', 'state', 'currentStep')).toBe('project');
+
+      const second = await fetchJson(`${srv.baseUrl}/console/onboarding/organization`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org: { name: 'Acme Org Updated', slug: 'acme-org-updated' },
+        }),
+      });
+      expect(second.status).toBe(200);
+      expect(getPath(second.json, 'result', 'organization', 'name')).toBe('Acme Org Updated');
+      expect(getPath(second.json, 'result', 'organization', 'slug')).toBe('acme-org-updated');
+      expect(getPath(second.json, 'result', 'created', 'organization')).toBe(false);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('onboarding project step creates default development environment without billing', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const billing = createInMemoryConsoleBillingService();
+    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const onboarding = createInMemoryConsoleOnboardingService({
+      orgProjectEnv,
+      apiKeys,
+      billing,
+      teamRbac,
+    });
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-onboarding-project-step',
+        'user-onboarding-project-step',
+      ),
+      onboarding,
+      billing,
+      teamRbac,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const blockedByOrganization = await fetchJson(`${srv.baseUrl}/console/onboarding/project`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project: { id: 'proj_step', name: 'Step Project' },
+        }),
+      });
+      expect(blockedByOrganization.status).toBe(409);
+      expect(blockedByOrganization.json?.code).toBe('organization_required');
+
+      const organization = await fetchJson(`${srv.baseUrl}/console/onboarding/organization`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org: { name: 'Step Org', slug: 'step-org' },
+        }),
+      });
+      expect(organization.status).toBe(201);
+
+      const created = await fetchJson(`${srv.baseUrl}/console/onboarding/project`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project: { id: 'proj_step', name: 'Step Project' },
+        }),
+      });
+      expect(created.status).toBe(201);
+      expect(getPath(created.json, 'result', 'project', 'id')).toBe('proj_step');
+      expect(getPath(created.json, 'result', 'environment', 'key')).toBe('dev');
+      expect(getPath(created.json, 'result', 'created', 'project')).toBe(true);
+      expect(getPath(created.json, 'result', 'created', 'environment')).toBe(false);
+      expect(getPath(created.json, 'result', 'state', 'billingReady')).toBe(false);
+      expect(getPath(created.json, 'result', 'state', 'projectReady')).toBe(true);
+      expect(getPath(created.json, 'result', 'state', 'onboardingComplete')).toBe(true);
+      expect(getPath(created.json, 'result', 'state', 'currentStep')).toBe('complete');
+
+      const replay = await fetchJson(`${srv.baseUrl}/console/onboarding/project`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project: { id: 'proj_step', name: 'Step Project' },
+        }),
+      });
+      expect(replay.status).toBe(200);
+      expect(getPath(replay.json, 'result', 'created', 'project')).toBe(false);
+      expect(getPath(replay.json, 'result', 'created', 'environment')).toBe(false);
+
+      const telemetry = await fetchJson(
+        `${srv.baseUrl}/console/onboarding/telemetry?windowMinutes=60`,
+        { method: 'GET' },
+      );
+      expect(telemetry.status).toBe(200);
+      expect(getPath(telemetry.json, 'telemetry', 'windowMinutes')).toBe(60);
+      const operations = Array.isArray(getPath(telemetry.json, 'telemetry', 'operations'))
+        ? (getPath(telemetry.json, 'telemetry', 'operations') as any[])
+        : [];
+      const projectOperation = operations.find(
+        (entry) => String(entry?.operation || '') === 'project',
+      );
+      expect(projectOperation).toBeTruthy();
+      expect(Number(getPath(projectOperation, 'requestCount') || 0)).toBeGreaterThanOrEqual(3);
+      expect(Number(getPath(projectOperation, 'errorCount') || 0)).toBeGreaterThanOrEqual(1);
+      const alerts = Array.isArray(getPath(telemetry.json, 'telemetry', 'alerts'))
+        ? (getPath(telemetry.json, 'telemetry', 'alerts') as any[])
+        : [];
+      expect(
+        alerts.some(
+          (entry) =>
+            String(entry?.operation || '') === 'project' &&
+            String(entry?.code || '') === 'onboarding_error_rate_slo_breached',
+        ),
+      ).toBe(true);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /console/projects allows creation without billing method', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const billing = createInMemoryConsoleBillingService();
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-project-billing-gate',
+        actorUserId: 'user-project-billing-gate',
+        roles: ['admin'],
+      },
+      { name: 'Project Billing Gate Org', slug: 'project-billing-gate-org' },
+    );
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-project-billing-gate',
+        'user-project-billing-gate',
+      ),
+      orgProjectEnv,
+      billing,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const created = await fetchJson(`${srv.baseUrl}/console/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 'proj_gated', name: 'Gated Project' }),
+      });
+      expect(created.status).toBe(201);
+      expect(getPath(created.json, 'project', 'id')).toBe('proj_gated');
+      expect(Number(getPath(created.json, 'project', 'environmentCount') || 0)).toBe(3);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /console/projects auto-provisions environments with live environments disabled without billing readiness', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const billing = createInMemoryConsoleBillingService();
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-env-billing-gate',
+        actorUserId: 'user-env-billing-gate',
+        roles: ['admin'],
+      },
+      { name: 'Environment Billing Gate Org', slug: 'environment-billing-gate-org' },
+    );
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-env-billing-gate', 'user-env-billing-gate'),
+      orgProjectEnv,
+      billing,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const created = await fetchJson(`${srv.baseUrl}/console/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 'proj_env_gated', name: 'Env Gated Project' }),
+      });
+      expect(created.status).toBe(201);
+      expect(Number(getPath(created.json, 'project', 'environmentCount') || 0)).toBe(3);
+
+      const listed = await fetchJson(
+        `${srv.baseUrl}/console/environments?projectId=${encodeURIComponent('proj_env_gated')}`,
+        {
+          method: 'GET',
+        },
+      );
+      expect(listed.status).toBe(200);
+      const rows = Array.isArray(listed.json?.environments) ? listed.json?.environments : [];
+      expect(rows.length).toBe(3);
+      const statusByKey = new Map<string, string>(
+        rows.map((entry: any) => [String(entry?.key || ''), String(entry?.status || '')]),
+      );
+      expect(statusByKey.get('dev')).toBe('ACTIVE');
+      expect(statusByKey.get('staging')).toBe('DISABLED');
+      expect(statusByKey.get('prod')).toBe('DISABLED');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /console/projects enables live environments when billing is ready', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const billing = createInMemoryConsoleBillingService();
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-project-live-billing-ready',
+        actorUserId: 'user-project-live-billing-ready',
+        roles: ['admin'],
+      },
+      { name: 'Project Billing Ready Org', slug: 'project-billing-ready-org' },
+    );
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-project-live-billing-ready',
+        'user-project-live-billing-ready',
+      ),
+      orgProjectEnv,
+      billing,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const paymentMethod = await fetchJson(`${srv.baseUrl}/console/billing/payment-methods`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          providerRef: 'pm_project_live_ready_1',
+          brand: 'visa',
+          last4: '4242',
+          expMonth: 12,
+          expYear: 2030,
+        }),
+      });
+      expect(paymentMethod.status).toBe(201);
+
+      const created = await fetchJson(`${srv.baseUrl}/console/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 'proj_live_ready', name: 'Live Ready Project' }),
+      });
+      expect(created.status).toBe(201);
+      expect(Number(getPath(created.json, 'project', 'environmentCount') || 0)).toBe(3);
+
+      const listed = await fetchJson(
+        `${srv.baseUrl}/console/environments?projectId=${encodeURIComponent('proj_live_ready')}`,
+        {
+          method: 'GET',
+        },
+      );
+      expect(listed.status).toBe(200);
+      const rows = Array.isArray(listed.json?.environments) ? listed.json?.environments : [];
+      expect(rows.length).toBe(3);
+      const statusByKey = new Map<string, string>(
+        rows.map((entry: any) => [String(entry?.key || ''), String(entry?.status || '')]),
+      );
+      expect(statusByKey.get('dev')).toBe('ACTIVE');
+      expect(statusByKey.get('staging')).toBe('ACTIVE');
+      expect(statusByKey.get('prod')).toBe('ACTIVE');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /console/projects keeps live environments disabled when billing service is not configured', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-env-no-billing-service',
+        actorUserId: 'user-env-no-billing-service',
+        roles: ['admin'],
+      },
+      { name: 'No Billing Service Org', slug: 'no-billing-service-org' },
+    );
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-env-no-billing-service',
+        'user-env-no-billing-service',
+      ),
+      orgProjectEnv,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const created = await fetchJson(`${srv.baseUrl}/console/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'proj_env_no_billing_service',
+          name: 'No Billing Service Project',
+        }),
+      });
+      expect(created.status).toBe(201);
+      expect(Number(getPath(created.json, 'project', 'environmentCount') || 0)).toBe(3);
+
+      const listed = await fetchJson(
+        `${srv.baseUrl}/console/environments?projectId=${encodeURIComponent('proj_env_no_billing_service')}`,
+        {
+          method: 'GET',
+        },
+      );
+      expect(listed.status).toBe(200);
+      const rows = Array.isArray(listed.json?.environments) ? listed.json?.environments : [];
+      expect(rows.length).toBe(3);
+      const statusByKey = new Map<string, string>(
+        rows.map((entry: any) => [String(entry?.key || ''), String(entry?.status || '')]),
+      );
+      expect(statusByKey.get('dev')).toBe('ACTIVE');
+      expect(statusByKey.get('staging')).toBe('DISABLED');
+      expect(statusByKey.get('prod')).toBe('DISABLED');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /console/environments blocks staging/prod when billing service is not configured', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-env-no-billing-service-gate',
+        actorUserId: 'user-env-no-billing-service-gate',
+        roles: ['admin'],
+      },
+      { name: 'No Billing Service Gate Org', slug: 'no-billing-service-gate-org' },
+    );
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-env-no-billing-service-gate',
+        'user-env-no-billing-service-gate',
+      ),
+      orgProjectEnv,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const blockedStaging = await fetchJson(`${srv.baseUrl}/console/environments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'env_no_billing_service_gated_staging',
+          projectId: 'project_missing_for_gate_test',
+          key: 'staging',
+          name: 'Staging',
+        }),
+      });
+      expect(blockedStaging.status).toBe(409);
+      expect(blockedStaging.json?.code).toBe('billing_required_live_environment');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('audit routes return seeded timeline and evidence rows', async () => {
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-audit-1', 'user-audit-admin'),
+      audit,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const events = await fetchJson(
+        `${srv.baseUrl}/console/audit/events?category=POLICY&limit=5`,
+        { method: 'GET' },
+      );
+      expect(events.status).toBe(200);
+      const eventRows = Array.isArray(events.json?.events) ? events.json?.events : [];
+      expect(eventRows.length).toBeGreaterThan(0);
+      expect(String(getPath(eventRows[0], 'category'))).toBe('POLICY');
+
+      const evidence = await fetchJson(
+        `${srv.baseUrl}/console/audit/evidence?domain=BILLING&limit=5`,
+        { method: 'GET' },
+      );
+      expect(evidence.status).toBe(200);
+      const evidenceRows = Array.isArray(evidence.json?.evidence) ? evidence.json?.evidence : [];
+      expect(evidenceRows.length).toBeGreaterThan(0);
+      expect(String(getPath(evidenceRows[0], 'domain'))).toBe('BILLING');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('approval creation emits audit timeline events', async () => {
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
+    const approvals: ConsoleApprovalService = createInMemoryConsoleApprovalService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-audit-live-1', 'user-audit-live-admin'),
+      approvals,
+      audit,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const created = await fetchJson(`${srv.baseUrl}/console/approvals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'apr_audit_live_1',
+          operationType: 'POLICY_PUBLISH',
+          reason: 'Publish policy v2',
+          resourceType: 'policy',
+          resourceId: 'policy_live_1',
+        }),
+      });
+      expect(created.status).toBe(201);
+
+      const events = await fetchJson(
+        `${srv.baseUrl}/console/audit/events?category=APPROVAL&limit=20`,
+        {
+          method: 'GET',
+        },
+      );
+      expect(events.status).toBe(200);
+      const eventRows = Array.isArray(events.json?.events) ? events.json?.events : [];
+      const createdEvent = eventRows.find(
+        (row: any) => String(row?.action || '') === 'approval.request.create',
+      );
+      expect(createdEvent).toBeTruthy();
+      expect(String(getPath(createdEvent, 'metadata', 'approvalId'))).toBe('apr_audit_live_1');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('audit export and enterprise isolation routes support scaffold flows', async () => {
+    const auditExports: ConsoleAuditExportsService = createInMemoryConsoleAuditExportsService();
+    const enterpriseIsolation: ConsoleEnterpriseIsolationService =
+      createInMemoryConsoleEnterpriseIsolationService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-audit-export-1', 'user-audit-export-admin'),
+      auditExports,
+      enterpriseIsolation,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const createdExport = await fetchJson(`${srv.baseUrl}/console/audit/exports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'aexp_scaffold_1',
+          format: 'JSONL',
+          domain: 'POLICY',
+          projectId: 'proj_scaffold_1',
+          environmentId: 'env_scaffold_1',
+        }),
+      });
+      expect(createdExport.status).toBe(201);
+      expect(String(getPath(createdExport.json, 'export', 'status') || '')).toBe('QUEUED');
+
+      const listExports = await fetchJson(`${srv.baseUrl}/console/audit/exports?domain=POLICY`, {
+        method: 'GET',
+      });
+      expect(listExports.status).toBe(200);
+      const exportRows = Array.isArray(listExports.json?.exports) ? listExports.json?.exports : [];
+      expect(exportRows.some((entry: any) => String(entry?.id || '') === 'aexp_scaffold_1')).toBe(
+        true,
+      );
+
+      const getExport = await fetchJson(
+        `${srv.baseUrl}/console/audit/exports/${encodeURIComponent('aexp_scaffold_1')}`,
+        { method: 'GET' },
+      );
+      expect(getExport.status).toBe(200);
+      expect(String(getPath(getExport.json, 'export', 'id') || '')).toBe('aexp_scaffold_1');
+
+      const initialIsolation = await fetchJson(
+        `${srv.baseUrl}/console/isolation/status?scope=ORG`,
+        { method: 'GET' },
+      );
+      expect(initialIsolation.status).toBe(200);
+      expect(String(getPath(initialIsolation.json, 'isolation', 'status') || '')).toBe('SHARED');
+
+      const triggerIsolation = await fetchJson(`${srv.baseUrl}/console/isolation/trigger`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope: 'ORG',
+          trigger: 'COMPLIANCE',
+          reason: 'Enterprise compliance requirement',
+          ticketId: 'INC-42',
+        }),
+      });
+      expect(triggerIsolation.status).toBe(202);
+      expect(String(getPath(triggerIsolation.json, 'isolation', 'status') || '')).toBe('REQUESTED');
+      expect(String(getPath(triggerIsolation.json, 'isolation', 'mode') || '')).toBe('DEDICATED');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('team member routes enforce role scope validation and mutation RBAC', async () => {
+    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const adminRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-team-1', 'user-team-admin-1'),
+      teamRbac,
+    });
+    const adminServer = await startExpressRouter(adminRouter);
+    try {
+      const initial = await fetchJson(`${adminServer.baseUrl}/console/members`, { method: 'GET' });
+      expect(initial.status).toBe(200);
+      const initialRows = Array.isArray(initial.json?.members) ? initial.json?.members : [];
+      expect(initialRows.length).toBeGreaterThanOrEqual(1);
+
+      const invited = await fetchJson(`${adminServer.baseUrl}/console/members/invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: 'member-team-1-user',
+          email: 'dev1@example.com',
+          roles: [{ role: 'admin_manage_members' }, { role: 'wallet_operations_write' }],
+        }),
+      });
+      expect(invited.status).toBe(201);
+      const invitedMemberId = String(getPath(invited.json, 'member', 'id') || '');
+      expect(invitedMemberId).toContain('mbr_');
+      expect(getPath(invited.json, 'member', 'status')).toBe('ACTIVE');
+
+      const invitedOnly = await fetchJson(`${adminServer.baseUrl}/console/members?status=ACTIVE`, {
+        method: 'GET',
+      });
+      expect(invitedOnly.status).toBe(200);
+      const invitedRows = Array.isArray(invitedOnly.json?.members) ? invitedOnly.json?.members : [];
+      expect(invitedRows.some((entry: any) => String(entry?.id || '') === invitedMemberId)).toBe(
+        true,
+      );
+
+      const updated = await fetchJson(
+        `${adminServer.baseUrl}/console/members/${encodeURIComponent(invitedMemberId)}/roles`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roles: [{ role: 'integrations_read' }],
+          }),
+        },
+      );
+      expect(updated.status).toBe(200);
+      expect(getPath(updated.json, 'member', 'roles', 0, 'role')).toBe('integrations_read');
+      expect(getPath(updated.json, 'member', 'roles', 0, 'scope')).toBe('ORG');
+
+      const removed = await fetchJson(
+        `${adminServer.baseUrl}/console/members/${encodeURIComponent(invitedMemberId)}`,
+        {
+          method: 'DELETE',
+        },
+      );
+      expect(removed.status).toBe(200);
+      expect(removed.json?.removed).toBe(true);
+      expect(getPath(removed.json, 'member', 'status')).toBe('REMOVED');
+
+      const invalidScope = await fetchJson(`${adminServer.baseUrl}/console/members/invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: 'member-team-invalid-user',
+          email: 'invalid@example.com',
+          roles: [{ role: 'wallet_operations_read', projectId: 'project-team-1' }],
+        }),
+      });
+      expect(invalidScope.status).toBe(400);
+      expect(invalidScope.json?.code).toBe('invalid_body');
+    } finally {
+      await adminServer.close();
+    }
+
+    const developerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['developer'], 'org-team-1', 'user-team-dev-1'),
+      teamRbac,
+    });
+    const developerServer = await startExpressRouter(developerRouter);
+    try {
+      const forbidden = await fetchJson(`${developerServer.baseUrl}/console/members/invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: 'member-team-forbidden-user',
+          email: 'forbidden@example.com',
+          roles: [{ role: 'overview_read' }],
+        }),
+      });
+      expect(forbidden.status).toBe(403);
+      expect(forbidden.json?.code).toBe('forbidden');
+    } finally {
+      await developerServer.close();
+    }
+  });
+
+  test('approval routes enforce mutation RBAC, MFA requirements, and state transitions', async () => {
+    const approvals = createInMemoryConsoleApprovalService();
+    const adminRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-approvals-1', 'user-approvals-admin-1'),
+      approvals,
+    });
+    const adminServer = await startExpressRouter(adminRouter);
+    try {
+      const initial = await fetchJson(`${adminServer.baseUrl}/console/approvals`, {
+        method: 'GET',
+      });
+      expect(initial.status).toBe(200);
+      const initialRows = Array.isArray(initial.json?.approvals) ? initial.json?.approvals : [];
+      expect(initialRows).toHaveLength(0);
+
+      const created = await fetchJson(`${adminServer.baseUrl}/console/approvals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'apr_key_export_1',
+          operationType: 'KEY_EXPORT',
+          reason: 'Approval for sensitive key export',
+        }),
+      });
+      expect(created.status).toBe(201);
+      expect(getPath(created.json, 'approval', 'id')).toBe('apr_key_export_1');
+      expect(getPath(created.json, 'approval', 'status')).toBe('PENDING');
+      expect(getPath(created.json, 'approval', 'requiredApprovals')).toBe(2);
+      expect(getPath(created.json, 'approval', 'requireMfa')).toBe(true);
+
+      const missingMfa = await fetchJson(
+        `${adminServer.baseUrl}/console/approvals/apr_key_export_1/approve`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: 'approve without mfa',
+            mfaVerified: false,
+          }),
+        },
+      );
+      expect(missingMfa.status).toBe(400);
+      expect(missingMfa.json?.code).toBe('mfa_required');
+
+      const firstApproval = await fetchJson(
+        `${adminServer.baseUrl}/console/approvals/apr_key_export_1/approve`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: 'first approval',
+            mfaVerified: true,
+          }),
+        },
+      );
+      expect(firstApproval.status).toBe(200);
+      expect(getPath(firstApproval.json, 'approval', 'status')).toBe('PENDING');
+      expect(Number(getPath(firstApproval.json, 'approval', 'decisions', 'length') || 0)).toBe(1);
+
+      const securityAdminRouter = createConsoleRouter({
+        auth: makeConsoleAuthAdapter(
+          ['security_admin'],
+          'org-approvals-1',
+          'user-approvals-security-admin-1',
+        ),
+        approvals,
+      });
+      const securityAdminServer = await startExpressRouter(securityAdminRouter);
+      try {
+        const secondApproval = await fetchJson(
+          `${securityAdminServer.baseUrl}/console/approvals/apr_key_export_1/approve`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              reason: 'second approval',
+              mfaVerified: true,
+            }),
+          },
+        );
+        expect(secondApproval.status).toBe(200);
+        expect(getPath(secondApproval.json, 'approval', 'status')).toBe('APPROVED');
+        expect(Number(getPath(secondApproval.json, 'approval', 'decisions', 'length') || 0)).toBe(
+          2,
+        );
+        expect(String(getPath(secondApproval.json, 'approval', 'resolvedAt') || '')).toBeTruthy();
+      } finally {
+        await securityAdminServer.close();
+      }
+
+      const alreadyResolved = await fetchJson(
+        `${adminServer.baseUrl}/console/approvals/apr_key_export_1/reject`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: 'late reject',
+          }),
+        },
+      );
+      expect(alreadyResolved.status).toBe(409);
+      expect(alreadyResolved.json?.code).toBe('invalid_state');
+
+      const filtered = await fetchJson(
+        `${adminServer.baseUrl}/console/approvals?status=APPROVED&operationType=KEY_EXPORT`,
+        {
+          method: 'GET',
+        },
+      );
+      expect(filtered.status).toBe(200);
+      const filteredRows = Array.isArray(filtered.json?.approvals) ? filtered.json?.approvals : [];
+      expect(
+        filteredRows.some((entry: any) => String(entry?.id || '') === 'apr_key_export_1'),
+      ).toBe(true);
+    } finally {
+      await adminServer.close();
+    }
+
+    const developerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['developer'], 'org-approvals-1', 'user-approvals-developer-1'),
+      approvals,
+    });
+    const developerServer = await startExpressRouter(developerRouter);
+    try {
+      const forbiddenCreate = await fetchJson(`${developerServer.baseUrl}/console/approvals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operationType: 'POLICY_PUBLISH',
+          reason: 'unauthorized create',
+        }),
+      });
+      expect(forbiddenCreate.status).toBe(403);
+      expect(forbiddenCreate.json?.code).toBe('forbidden');
+
+      const readOnlyList = await fetchJson(`${developerServer.baseUrl}/console/approvals`, {
+        method: 'GET',
+      });
+      expect(readOnlyList.status).toBe(200);
+    } finally {
+      await developerServer.close();
+    }
+  });
+
+  test('sensitive operation routes require approved queue entries when approvals service is configured', async () => {
+    const approvals = createInMemoryConsoleApprovalService();
+    const policies = createInMemoryConsolePolicyService();
+    const settings = createInMemoryConsoleSettingsService();
+    const keyExports = createInMemoryConsoleKeyExportService();
+    const orgId = 'org-sensitive-approval-1';
+    const actorUserId = 'user-sensitive-approval-admin-1';
+    const claimsRoles = ['admin'];
+    const approvalCtx = {
+      orgId,
+      actorUserId,
+      roles: claimsRoles,
+    };
+
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(claimsRoles, orgId, actorUserId),
+      approvals,
+      policies,
+      settings,
+      keyExports,
+    });
+    const server = await startExpressRouter(router);
+    try {
+      const policyId = 'policy_sensitive_1';
+      const createPolicy = await fetchJson(`${server.baseUrl}/console/policies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: policyId,
+          name: 'Sensitive Policy',
+        }),
+      });
+      expect(createPolicy.status).toBe(201);
+
+      const publishWithoutApproval = await fetchJson(
+        `${server.baseUrl}/console/policies/${encodeURIComponent(policyId)}/publish`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        },
+      );
+      expect(publishWithoutApproval.status).toBe(400);
+      expect(publishWithoutApproval.json?.code).toBe('approval_required');
+
+      const policyApproval = await approvals.createApprovalRequest(approvalCtx, {
+        id: 'apr_policy_sensitive_1',
+        operationType: 'POLICY_PUBLISH',
+        reason: 'Publish policy approval',
+        resourceType: 'policy',
+        resourceId: policyId,
+      });
+      await approvals.approveApprovalRequest(approvalCtx, policyApproval.id, {
+        reason: 'Policy publish approved',
+        mfaVerified: true,
+      });
+
+      const publishWithApproval = await fetchJson(
+        `${server.baseUrl}/console/policies/${encodeURIComponent(policyId)}/publish`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            approvalId: policyApproval.id,
+          }),
+        },
+      );
+      expect(publishWithApproval.status).toBe(200);
+      expect(getPath(publishWithApproval.json, 'result', 'policy', 'status')).toBe('PUBLISHED');
+
+      const securityWithoutApproval = await fetchJson(
+        `${server.baseUrl}/console/settings/security`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            environmentId: 'env_sensitive_1',
+            enforceIpAllowlist: true,
+          }),
+        },
+      );
+      expect(securityWithoutApproval.status).toBe(400);
+      expect(securityWithoutApproval.json?.code).toBe('approval_required');
+
+      const securityApproval = await approvals.createApprovalRequest(approvalCtx, {
+        id: 'apr_security_sensitive_1',
+        operationType: 'SECURITY_SETTINGS_CHANGE',
+        reason: 'Security settings approval',
+        environmentId: 'env_sensitive_1',
+        resourceType: 'security_settings',
+        resourceId: 'env_sensitive_1',
+      });
+      await approvals.approveApprovalRequest(approvalCtx, securityApproval.id, {
+        reason: 'Security settings approved',
+        mfaVerified: true,
+      });
+
+      const securityWithApproval = await fetchJson(`${server.baseUrl}/console/settings/security`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          environmentId: 'env_sensitive_1',
+          enforceIpAllowlist: true,
+          approvalId: securityApproval.id,
+        }),
+      });
+      expect(securityWithApproval.status).toBe(200);
+      expect(getPath(securityWithApproval.json, 'securitySettings', 'environmentId')).toBe(
+        'env_sensitive_1',
+      );
+
+      const exportId = 'ke_sensitive_1';
+      const createExport = await fetchJson(`${server.baseUrl}/console/key-exports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: exportId,
+          environmentId: 'env_sensitive_1',
+          reason: 'Key export request',
+          requiredApprovals: 1,
+        }),
+      });
+      expect(createExport.status).toBe(201);
+
+      const approveExportWithoutApproval = await fetchJson(
+        `${server.baseUrl}/console/key-exports/${encodeURIComponent(exportId)}/approve`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: 'Approve export',
+            mfaVerified: true,
+          }),
+        },
+      );
+      expect(approveExportWithoutApproval.status).toBe(400);
+      expect(approveExportWithoutApproval.json?.code).toBe('approval_required');
+
+      const keyExportApproval = await approvals.createApprovalRequest(approvalCtx, {
+        id: 'apr_key_export_sensitive_1',
+        operationType: 'KEY_EXPORT',
+        reason: 'Key export approval',
+        requiredApprovals: 1,
+        requireMfa: true,
+        resourceType: 'key_export',
+        resourceId: exportId,
+      });
+      await approvals.approveApprovalRequest(approvalCtx, keyExportApproval.id, {
+        reason: 'Key export approved',
+        mfaVerified: true,
+      });
+
+      const approveExportWithApproval = await fetchJson(
+        `${server.baseUrl}/console/key-exports/${encodeURIComponent(exportId)}/approve`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: 'Approve export',
+            mfaVerified: true,
+            approvalId: keyExportApproval.id,
+          }),
+        },
+      );
+      expect(approveExportWithApproval.status).toBe(200);
+      expect(getPath(approveExportWithApproval.json, 'keyExport', 'status')).toBe('APPROVED');
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('approval queue mutations emit approval lifecycle webhook events when webhook endpoint is configured', async () => {
+    const approvals = createInMemoryConsoleApprovalService();
+    const webhooks = createInMemoryConsoleWebhookService({
+      dispatcher: {
+        dispatch: async () => ({
+          ok: true,
+          statusCode: 200,
+          responseBody: 'ok',
+        }),
+      },
+    });
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-approval-events-1', 'user-approval-events-1'),
+      approvals,
+      webhooks,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const endpointCreated = await fetchJson(`${srv.baseUrl}/console/webhooks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: 'https://example.com/approval-events',
+          subscriptions: ['policy'],
+        }),
+      });
+      expect(endpointCreated.status).toBe(201);
+      const endpointId = String(getPath(endpointCreated.json, 'endpoint', 'id') || '');
+      expect(endpointId).toBeTruthy();
+
+      const createdOne = await fetchJson(`${srv.baseUrl}/console/approvals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'apr_events_1',
+          operationType: 'POLICY_PUBLISH',
+          reason: 'Approval event create/approve',
+          requiredApprovals: 1,
+        }),
+      });
+      expect(createdOne.status).toBe(201);
+
+      const approvedOne = await fetchJson(`${srv.baseUrl}/console/approvals/apr_events_1/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reason: 'Approve with event',
+          mfaVerified: true,
+        }),
+      });
+      expect(approvedOne.status).toBe(200);
+
+      const createdTwo = await fetchJson(`${srv.baseUrl}/console/approvals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'apr_events_2',
+          operationType: 'SECURITY_SETTINGS_CHANGE',
+          reason: 'Approval event create/reject',
+        }),
+      });
+      expect(createdTwo.status).toBe(201);
+
+      const rejectedTwo = await fetchJson(`${srv.baseUrl}/console/approvals/apr_events_2/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reason: 'Reject with event',
+        }),
+      });
+      expect(rejectedTwo.status).toBe(200);
+
+      const deliveries = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/deliveries`,
+        { method: 'GET' },
+      );
+      expect(deliveries.status).toBe(200);
+      const rows = Array.isArray(deliveries.json?.deliveries) ? deliveries.json?.deliveries : [];
+      const eventTypes = rows.map((row: any) => String(row?.eventType || ''));
+      expect(eventTypes).toContain('policy.approval.created');
+      expect(eventTypes).toContain('policy.approval.approved');
+      expect(eventTypes).toContain('policy.approval.rejected');
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('org/project/environment routes return hierarchical metadata', async () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-meta-1',
+        actorUserId: 'user-meta-1',
+        roles: ['admin'],
+      },
+      { name: 'Org Meta 1', slug: 'org-meta-1' },
+    );
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], 'org-meta-1', 'user-meta-1'),
       orgProjectEnv,
     });
     const srv = await startExpressRouter(router);
     try {
+      const createdProject = await fetchJson(`${srv.baseUrl}/console/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'project-meta-1',
+          name: 'Project Meta 1',
+        }),
+      });
+      expect(createdProject.status).toBe(201);
+
       const org = await fetchJson(`${srv.baseUrl}/console/org`, { method: 'GET' });
       expect(org.status).toBe(200);
       expect(getPath(org.json, 'org', 'id')).toBe('org-meta-1');
@@ -132,9 +1605,9 @@ test.describe('console router (express)', () => {
       expect(projectRows.length).toBeGreaterThanOrEqual(1);
       const projectId = String(getPath(projects.json, 'projects', 0, 'id') || '');
       expect(projectId).toBeTruthy();
-      expect(Number(getPath(projects.json, 'projects', 0, 'environmentCount') || 0)).toBeGreaterThanOrEqual(
-        1,
-      );
+      expect(
+        Number(getPath(projects.json, 'projects', 0, 'environmentCount') || 0),
+      ).toBeGreaterThanOrEqual(1);
 
       const environments = await fetchJson(`${srv.baseUrl}/console/environments`, {
         method: 'GET',
@@ -167,6 +1640,14 @@ test.describe('console router (express)', () => {
 
   test('org/project/environment mutation routes enforce role and lifecycle rules', async () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-meta-mutate-1',
+        actorUserId: 'user-meta-mutate-1',
+        roles: ['admin'],
+      },
+      { name: 'Org Meta Mutate 1', slug: 'org-meta-mutate-1' },
+    );
     const adminRouter = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], 'org-meta-mutate-1', 'user-meta-mutate-1'),
       orgProjectEnv,
@@ -184,19 +1665,17 @@ test.describe('console router (express)', () => {
       expect(createdProject.status).toBe(201);
       expect(getPath(createdProject.json, 'project', 'id')).toBe('project-mutate-1');
       expect(getPath(createdProject.json, 'project', 'status')).toBe('ACTIVE');
-      expect(Number(getPath(createdProject.json, 'project', 'environmentCount') || 0)).toBe(0);
-
-      const createdEnvironment = await fetchJson(`${adminServer.baseUrl}/console/environments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: 'env-mutate-1',
-          projectId: 'project-mutate-1',
-          key: 'staging',
-        }),
-      });
-      expect(createdEnvironment.status).toBe(201);
-      expect(getPath(createdEnvironment.json, 'environment', 'id')).toBe('env-mutate-1');
+      expect(Number(getPath(createdProject.json, 'project', 'environmentCount') || 0)).toBe(3);
+      const environmentsForProject = await fetchJson(
+        `${adminServer.baseUrl}/console/environments?projectId=${encodeURIComponent('project-mutate-1')}`,
+        { method: 'GET' },
+      );
+      expect(environmentsForProject.status).toBe(200);
+      const projectEnvironmentRows = Array.isArray(environmentsForProject.json?.environments)
+        ? environmentsForProject.json?.environments
+        : [];
+      const managedEnvironmentId = String(getPath(projectEnvironmentRows, 0, 'id') || '');
+      expect(managedEnvironmentId).toBeTruthy();
 
       const updatedProject = await fetchJson(
         `${adminServer.baseUrl}/console/projects/project-mutate-1`,
@@ -210,7 +1689,7 @@ test.describe('console router (express)', () => {
       expect(getPath(updatedProject.json, 'project', 'name')).toBe('Project Mutate Renamed');
 
       const updatedEnvironment = await fetchJson(
-        `${adminServer.baseUrl}/console/environments/env-mutate-1`,
+        `${adminServer.baseUrl}/console/environments/${encodeURIComponent(managedEnvironmentId)}`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -238,18 +1717,23 @@ test.describe('console router (express)', () => {
         ? archivedProjects.json?.projects
         : [];
       expect(archivedProjectRows.length).toBeGreaterThanOrEqual(1);
-      expect(archivedProjectRows.every((entry: any) => String(entry?.status || '') === 'ARCHIVED')).toBe(
-        true,
-      );
+      expect(
+        archivedProjectRows.every((entry: any) => String(entry?.status || '') === 'ARCHIVED'),
+      ).toBe(true);
 
-      const activeProjects = await fetchJson(`${adminServer.baseUrl}/console/projects?status=ACTIVE`, {
-        method: 'GET',
-      });
+      const activeProjects = await fetchJson(
+        `${adminServer.baseUrl}/console/projects?status=ACTIVE`,
+        {
+          method: 'GET',
+        },
+      );
       expect(activeProjects.status).toBe(200);
       const activeProjectRows = Array.isArray(activeProjects.json?.projects)
         ? activeProjects.json?.projects
         : [];
-      expect(activeProjectRows.every((entry: any) => String(entry?.status || '') === 'ACTIVE')).toBe(true);
+      expect(
+        activeProjectRows.every((entry: any) => String(entry?.status || '') === 'ACTIVE'),
+      ).toBe(true);
 
       const invalidProjectStatus = await fetchJson(
         `${adminServer.baseUrl}/console/projects?status=INVALID`,
@@ -269,19 +1753,26 @@ test.describe('console router (express)', () => {
         ? archivedOnly.json?.environments
         : [];
       expect(archivedRows.length).toBeGreaterThanOrEqual(1);
-      expect(archivedRows.every((entry: any) => String(entry?.status || '') === 'ARCHIVED')).toBe(true);
+      expect(archivedRows.every((entry: any) => String(entry?.status || '') === 'ARCHIVED')).toBe(
+        true,
+      );
 
       const activeOnly = await fetchJson(
         `${adminServer.baseUrl}/console/environments?projectId=project-mutate-1&status=ACTIVE`,
         { method: 'GET' },
       );
       expect(activeOnly.status).toBe(200);
-      const activeRows = Array.isArray(activeOnly.json?.environments) ? activeOnly.json?.environments : [];
+      const activeRows = Array.isArray(activeOnly.json?.environments)
+        ? activeOnly.json?.environments
+        : [];
       expect(activeRows.length).toBe(0);
 
-      const invalidStatus = await fetchJson(`${adminServer.baseUrl}/console/environments?status=INVALID`, {
-        method: 'GET',
-      });
+      const invalidStatus = await fetchJson(
+        `${adminServer.baseUrl}/console/environments?status=INVALID`,
+        {
+          method: 'GET',
+        },
+      );
       expect(invalidStatus.status).toBe(400);
       expect(invalidStatus.json?.code).toBe('invalid_query');
 
@@ -290,7 +1781,7 @@ test.describe('console router (express)', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           projectId: 'project-mutate-1',
-          key: 'prod',
+          key: 'dev',
         }),
       });
       expect(createOnArchived.status).toBe(409);
@@ -386,7 +1877,9 @@ test.describe('console router (express)', () => {
       expect(gas.status).toBe(501);
       expect(gas.json?.code).toBe('gas_sponsorship_not_configured');
 
-      const smartWallets = await fetchJson(`${srv.baseUrl}/console/smart-wallets`, { method: 'GET' });
+      const smartWallets = await fetchJson(`${srv.baseUrl}/console/smart-wallets`, {
+        method: 'GET',
+      });
       expect(smartWallets.status).toBe(501);
       expect(smartWallets.json?.code).toBe('smart_wallets_not_configured');
 
@@ -510,7 +2003,9 @@ test.describe('console router (express)', () => {
         { method: 'GET' },
       );
       expect(fetchedSecuritySettings.status).toBe(200);
-      expect(getPath(fetchedSecuritySettings.json, 'securitySettings', 'environmentId')).toBe('prod');
+      expect(getPath(fetchedSecuritySettings.json, 'securitySettings', 'environmentId')).toBe(
+        'prod',
+      );
 
       const createdKeyExport = await fetchJson(`${srv.baseUrl}/console/key-exports`, {
         method: 'POST',
@@ -557,9 +2052,9 @@ test.describe('console router (express)', () => {
       expect(getPath(publishedSnapshot.json, 'snapshot', 'payload', 'settings', 'status')).toBe(
         'resolved',
       );
-      expect(getPath(publishedSnapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'status')).toBe(
-        'resolved',
-      );
+      expect(
+        getPath(publishedSnapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'status'),
+      ).toBe('resolved');
       expect(getPath(publishedSnapshot.json, 'snapshot', 'payload', 'smartWallets', 'status')).toBe(
         'resolved',
       );
@@ -840,16 +2335,19 @@ test.describe('console router (express)', () => {
       expect(invalidSnapshotQuery.status).toBe(400);
       expect(invalidSnapshotQuery.json?.code).toBe('invalid_query');
 
-      const invalidSnapshotBody = await fetchJson(`${srv.baseUrl}/console/runtime-snapshots/publish`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          environmentId: 'prod',
-          payload: {
-            policy: {},
-          },
-        }),
-      });
+      const invalidSnapshotBody = await fetchJson(
+        `${srv.baseUrl}/console/runtime-snapshots/publish`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            environmentId: 'prod',
+            payload: {
+              policy: {},
+            },
+          }),
+        },
+      );
       expect(invalidSnapshotBody.status).toBe(400);
       expect(invalidSnapshotBody.json?.code).toBe('invalid_body');
 
@@ -1030,9 +2528,9 @@ test.describe('console router (express)', () => {
         { method: 'GET' },
       );
       expect(getSecuritySettings.status).toBe(200);
-      expect(getPath(getSecuritySettings.json, 'securitySettings', 'requireMfaForRiskyChanges')).toBe(
-        true,
-      );
+      expect(
+        getPath(getSecuritySettings.json, 'securitySettings', 'requireMfaForRiskyChanges'),
+      ).toBe(true);
 
       const keyExportsList = await fetchJson(
         `${attackerServer.baseUrl}/console/key-exports?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
@@ -1080,7 +2578,16 @@ test.describe('console router (express)', () => {
   });
 
   test('wallet routes support list/search/detail', async () => {
-    const wallets = createInMemoryConsoleWalletService();
+    const wallets = createInMemoryConsoleWalletService({
+      seedWallets: [
+        makeSeedWallet({
+          id: 'wallet_express_seed_1',
+          orgId: 'org-wallet-express-1',
+          projectId: 'proj_wallet_express_seed_1',
+          environmentId: 'env_wallet_express_seed_1',
+        }),
+      ],
+    });
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], 'org-wallet-express-1', 'user-wallet-express-1'),
       wallets,
@@ -1122,12 +2629,31 @@ test.describe('console router (express)', () => {
   });
 
   test('policy/gas/export insight routes return aggregated views', async () => {
-    const wallets = createInMemoryConsoleWalletService();
+    const orgId = 'org-insights-express-1';
+    const projectId = 'default-project';
+    const environmentId = `${orgId}:${projectId}:prod`;
+    const wallets = createInMemoryConsoleWalletService({
+      seedWallets: [
+        makeSeedWallet({
+          id: 'wallet_insights_express_1',
+          orgId,
+          projectId,
+          environmentId,
+        }),
+      ],
+    });
     const apiKeys = createInMemoryConsoleApiKeyService();
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    await seedOrgProjectEnvironment(orgProjectEnv, {
+      orgId,
+      projectId,
+      actorUserId: 'user-insights-express-1',
+    });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], 'org-insights-express-1', 'user-insights-express-1'),
+      auth: makeConsoleAuthAdapter(['admin'], orgId, 'user-insights-express-1'),
       wallets,
       apiKeys,
+      orgProjectEnv,
     });
     const srv = await startExpressRouter(router);
     try {
@@ -1136,7 +2662,7 @@ test.describe('console router (express)', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: 'export-key',
-          environmentId: 'prod',
+          environmentId,
           scopes: ['wallets:read', 'keys:export'],
         }),
       });
@@ -1147,7 +2673,7 @@ test.describe('console router (express)', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: 'non-export-key',
-          environmentId: 'staging',
+          environmentId,
           scopes: ['wallets:read'],
         }),
       });
@@ -1155,7 +2681,9 @@ test.describe('console router (express)', () => {
 
       const coverage = await fetchJson(`${srv.baseUrl}/console/policy/coverage`, { method: 'GET' });
       expect(coverage.status).toBe(200);
-      expect(Number(getPath(coverage.json, 'coverage', 'totals', 'walletCount') || 0)).toBeGreaterThanOrEqual(1);
+      expect(
+        Number(getPath(coverage.json, 'coverage', 'totals', 'walletCount') || 0),
+      ).toBeGreaterThanOrEqual(1);
       const policyRows: unknown[] = Array.isArray(getPath(coverage.json, 'coverage', 'policies'))
         ? (getPath(coverage.json, 'coverage', 'policies') as unknown[])
         : [];
@@ -1163,14 +2691,16 @@ test.describe('console router (express)', () => {
 
       const readiness = await fetchJson(`${srv.baseUrl}/console/gas/readiness`, { method: 'GET' });
       expect(readiness.status).toBe(200);
-      expect(Number(getPath(readiness.json, 'readiness', 'totals', 'walletCount') || 0)).toBeGreaterThanOrEqual(1);
+      expect(
+        Number(getPath(readiness.json, 'readiness', 'totals', 'walletCount') || 0),
+      ).toBeGreaterThanOrEqual(1);
       const chainRows: unknown[] = Array.isArray(getPath(readiness.json, 'readiness', 'chains'))
         ? (getPath(readiness.json, 'readiness', 'chains') as unknown[])
         : [];
       expect(chainRows.length).toBeGreaterThanOrEqual(1);
 
       const governance = await fetchJson(
-        `${srv.baseUrl}/console/export/governance?environmentId=prod`,
+        `${srv.baseUrl}/console/export/governance?environmentId=${encodeURIComponent(environmentId)}`,
         {
           method: 'GET',
         },
@@ -1339,12 +2869,14 @@ test.describe('console router (express)', () => {
     });
     const attackerServer = await startExpressRouter(attackerRouter);
     try {
-      const listed = await fetchJson(`${attackerServer.baseUrl}/console/policies`, { method: 'GET' });
+      const listed = await fetchJson(`${attackerServer.baseUrl}/console/policies`, {
+        method: 'GET',
+      });
       expect(listed.status).toBe(200);
       const attackerPolicies = Array.isArray(listed.json?.policies) ? listed.json?.policies : [];
-      expect(
-        attackerPolicies.some((entry: any) => String(entry?.id || '') === ownerPolicyId),
-      ).toBe(false);
+      expect(attackerPolicies.some((entry: any) => String(entry?.id || '') === ownerPolicyId)).toBe(
+        false,
+      );
 
       const patched = await fetchJson(
         `${attackerServer.baseUrl}/console/policies/${encodeURIComponent(ownerPolicyId)}`,
@@ -1374,7 +2906,16 @@ test.describe('console router (express)', () => {
 
   test('policy assignments support precedence and drive policy coverage', async () => {
     const policies = createInMemoryConsolePolicyService();
-    const wallets = createInMemoryConsoleWalletService();
+    const wallets = createInMemoryConsoleWalletService({
+      seedWallets: [
+        makeSeedWallet({
+          id: 'wallet_policy_assign_express_1',
+          orgId: 'org-policy-assign-express',
+          projectId: 'proj_policy_assign_express_1',
+          environmentId: 'env_policy_assign_express_1',
+        }),
+      ],
+    });
     const adminRouter = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], 'org-policy-assign-express', 'policy-assign-admin'),
       policies,
@@ -1388,7 +2929,9 @@ test.describe('console router (express)', () => {
       expect(listedWallets.status).toBe(200);
       const walletId = String(getPath(listedWallets.json, 'wallets', 0, 'id') || '');
       const projectId = String(getPath(listedWallets.json, 'wallets', 0, 'projectId') || '');
-      const environmentId = String(getPath(listedWallets.json, 'wallets', 0, 'environmentId') || '');
+      const environmentId = String(
+        getPath(listedWallets.json, 'wallets', 0, 'environmentId') || '',
+      );
       expect(walletId).toBeTruthy();
       expect(projectId).toBeTruthy();
       expect(environmentId).toBeTruthy();
@@ -1412,26 +2955,32 @@ test.describe('console router (express)', () => {
       });
       expect(createWalletPolicy.status).toBe(201);
 
-      const projectAssignment = await fetchJson(`${adminServer.baseUrl}/console/policies/assignments`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scopeType: 'PROJECT',
-          scopeId: projectId,
-          policyId: 'policy-project-express-1',
-        }),
-      });
+      const projectAssignment = await fetchJson(
+        `${adminServer.baseUrl}/console/policies/assignments`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scopeType: 'PROJECT',
+            scopeId: projectId,
+            policyId: 'policy-project-express-1',
+          }),
+        },
+      );
       expect(projectAssignment.status).toBe(200);
 
-      const walletAssignment = await fetchJson(`${adminServer.baseUrl}/console/policies/assignments`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scopeType: 'WALLET',
-          scopeId: walletId,
-          policyId: 'policy-wallet-express-1',
-        }),
-      });
+      const walletAssignment = await fetchJson(
+        `${adminServer.baseUrl}/console/policies/assignments`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scopeType: 'WALLET',
+            scopeId: walletId,
+            policyId: 'policy-wallet-express-1',
+          }),
+        },
+      );
       expect(walletAssignment.status).toBe(200);
       const walletAssignmentId = String(getPath(walletAssignment.json, 'assignment', 'id') || '');
       expect(walletAssignmentId).toBeTruthy();
@@ -1457,9 +3006,9 @@ test.describe('console router (express)', () => {
       const policyRows = Array.isArray(getPath(walletCoverage.json, 'coverage', 'policies'))
         ? (getPath(walletCoverage.json, 'coverage', 'policies') as any[])
         : [];
-      expect(policyRows.some((entry) => String(entry?.policyId || '') === 'policy-wallet-express-1')).toBe(
-        true,
-      );
+      expect(
+        policyRows.some((entry) => String(entry?.policyId || '') === 'policy-wallet-express-1'),
+      ).toBe(true);
 
       const removedWalletAssignment = await fetchJson(
         `${adminServer.baseUrl}/console/policies/assignments/${encodeURIComponent(walletAssignmentId)}`,
@@ -1478,9 +3027,11 @@ test.describe('console router (express)', () => {
       const projectPolicyRows = Array.isArray(getPath(projectCoverage.json, 'coverage', 'policies'))
         ? (getPath(projectCoverage.json, 'coverage', 'policies') as any[])
         : [];
-      expect(projectPolicyRows.some((entry) => String(entry?.policyId || '') === 'policy-project-express-1')).toBe(
-        true,
-      );
+      expect(
+        projectPolicyRows.some(
+          (entry) => String(entry?.policyId || '') === 'policy-project-express-1',
+        ),
+      ).toBe(true);
     } finally {
       await adminServer.close();
     }
@@ -1496,15 +3047,18 @@ test.describe('console router (express)', () => {
     });
     const developerServer = await startExpressRouter(developerRouter);
     try {
-      const forbiddenAssignment = await fetchJson(`${developerServer.baseUrl}/console/policies/assignments`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scopeType: 'ORG',
-          scopeId: 'org-policy-assign-express',
-          policyId: 'org-policy-assign-express:policy:default',
-        }),
-      });
+      const forbiddenAssignment = await fetchJson(
+        `${developerServer.baseUrl}/console/policies/assignments`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scopeType: 'ORG',
+            scopeId: 'org-policy-assign-express',
+            policyId: 'org-policy-assign-express:policy:default',
+          }),
+        },
+      );
       expect(forbiddenAssignment.status).toBe(403);
       expect(forbiddenAssignment.json?.code).toBe('forbidden');
     } finally {
@@ -1514,9 +3068,18 @@ test.describe('console router (express)', () => {
 
   test('API key lifecycle works and secrets are reveal-once on create/rotate', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const environmentId = 'org-1:default-project:prod';
+    await seedOrgProjectEnvironment(orgProjectEnv, {
+      orgId: 'org-1',
+      projectId: 'default-project',
+      actorUserId: 'user-1',
+    });
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
       apiKeys,
+      orgProjectEnv,
     });
     const srv = await startExpressRouter(router);
     try {
@@ -1525,9 +3088,10 @@ test.describe('console router (express)', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: 'server-key',
-          environmentId: 'prod',
+          environmentId,
           scopes: ['wallets:read', 'billing:read'],
           ipAllowlist: ['203.0.113.10/32'],
+          expiresAt,
         }),
       });
       expect(created.status).toBe(201);
@@ -1536,6 +3100,7 @@ test.describe('console router (express)', () => {
       expect(keyId).toBeTruthy();
       expect(createdSecret).toContain('tsk_');
       expect(Number(getPath(created.json, 'apiKey', 'secretVersion') || 0)).toBe(1);
+      expect(String(getPath(created.json, 'apiKey', 'expiresAt') || '')).toBe(expiresAt);
 
       const listed = await fetchJson(`${srv.baseUrl}/console/api-keys`, { method: 'GET' });
       expect(listed.status).toBe(200);
@@ -1561,11 +3126,14 @@ test.describe('console router (express)', () => {
         `${srv.baseUrl}/console/api-keys/${encodeURIComponent(keyId)}`,
         {
           method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'security incident' }),
         },
       );
       expect(revoked.status).toBe(200);
       expect(getPath(revoked.json, 'revoked')).toBe(true);
       expect(getPath(revoked.json, 'apiKey', 'status')).toBe('REVOKED');
+      expect(getPath(revoked.json, 'apiKey', 'revokedReason')).toBe('security incident');
 
       const rotateRevoked = await fetchJson(
         `${srv.baseUrl}/console/api-keys/${encodeURIComponent(keyId)}/rotate`,
@@ -1575,6 +3143,117 @@ test.describe('console router (express)', () => {
       );
       expect(rotateRevoked.status).toBe(409);
       expect(rotateRevoked.json?.code).toBe('api_key_revoked');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('API key create validates environment scope against caller org', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-api-key-env-validation', 'user-api-key-admin'),
+      apiKeys,
+      orgProjectEnv,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const created = await fetchJson(`${srv.baseUrl}/console/api-keys`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'invalid-environment-key',
+          environmentId: 'env-missing',
+          scopes: ['accounts.create'],
+        }),
+      });
+      expect(created.status).toBe(400);
+      expect(created.json?.code).toBe('invalid_environment');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('API key create rejects non-future expiresAt timestamp', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-api-key-expiry-validation',
+        'user-api-key-admin',
+      ),
+      apiKeys,
+      orgProjectEnv,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const created = await fetchJson(`${srv.baseUrl}/console/api-keys`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'invalid-expiry-key',
+          environmentId: 'org-api-key-expiry-validation:default-project:prod',
+          scopes: ['accounts.create'],
+          expiresAt: '2000-01-01T00:00:00.000Z',
+        }),
+      });
+      expect(created.status).toBe(400);
+      expect(created.json?.code).toBe('invalid_body');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('API key mutation routes require owner/admin/security_admin role', async () => {
+    const orgId = 'org-api-key-rbac';
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const created = await apiKeys.createApiKey(
+      { orgId, actorUserId: 'seed-admin', roles: ['admin'] },
+      {
+        name: 'seed-key',
+        environmentId: 'env-rbac',
+        scopes: ['accounts.create'],
+      },
+    );
+
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['developer'], orgId, 'user-api-key-developer'),
+      apiKeys,
+      orgProjectEnv,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const forbiddenCreate = await fetchJson(`${srv.baseUrl}/console/api-keys`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'developer-create-key',
+          environmentId: 'env-rbac',
+          scopes: ['accounts.create'],
+        }),
+      });
+      expect(forbiddenCreate.status).toBe(403);
+      expect(forbiddenCreate.json?.code).toBe('forbidden');
+
+      const forbiddenRotate = await fetchJson(
+        `${srv.baseUrl}/console/api-keys/${encodeURIComponent(created.apiKey.id)}/rotate`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'developer rotate' }),
+        },
+      );
+      expect(forbiddenRotate.status).toBe(403);
+      expect(forbiddenRotate.json?.code).toBe('forbidden');
+
+      const forbiddenDelete = await fetchJson(
+        `${srv.baseUrl}/console/api-keys/${encodeURIComponent(created.apiKey.id)}`,
+        { method: 'DELETE' },
+      );
+      expect(forbiddenDelete.status).toBe(403);
+      expect(forbiddenDelete.json?.code).toBe('forbidden');
     } finally {
       await srv.close();
     }
@@ -1920,27 +3599,24 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test(
-    'POST /console/billing/stripe/checkout-session returns billing_not_configured without billing service',
-    async () => {
-      const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
-      const srv = await startExpressRouter(router);
-      try {
-        const res = await fetchJson(`${srv.baseUrl}/console/billing/stripe/checkout-session`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
-            cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
-          }),
-        });
-        expect(res.status).toBe(501);
-        expect(res.json?.code).toBe('billing_not_configured');
-      } finally {
-        await srv.close();
-      }
-    },
-  );
+  test('POST /console/billing/stripe/checkout-session returns billing_not_configured without billing service', async () => {
+    const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/billing/stripe/checkout-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
+          cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+        }),
+      });
+      expect(res.status).toBe(501);
+      expect(res.json?.code).toBe('billing_not_configured');
+    } finally {
+      await srv.close();
+    }
+  });
 
   test('POST /console/billing/stripe/checkout-session creates checkout session', async () => {
     const router = createConsoleRouter({
@@ -1963,7 +3639,9 @@ test.describe('console router (express)', () => {
       const checkoutSessionUrl = String(getPath(created.json, 'checkoutSession', 'url') || '');
       expect(checkoutSessionId).toBeTruthy();
       expect(checkoutSessionUrl).toContain('https://checkout.stripe.com/pay/');
-      expect(String(getPath(created.json, 'checkoutSession', 'customerRef') || '')).toContain('cus_');
+      expect(String(getPath(created.json, 'checkoutSession', 'customerRef') || '')).toContain(
+        'cus_',
+      );
       expect(String(getPath(created.json, 'checkoutSession', 'expiresAt') || '')).toMatch(
         /^\d{4}-\d{2}-\d{2}T/,
       );
@@ -1983,29 +3661,23 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test(
-    'POST /console/billing/stripe/customer-portal-session returns billing_not_configured without billing service',
-    async () => {
-      const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
-      const srv = await startExpressRouter(router);
-      try {
-        const res = await fetchJson(
-          `${srv.baseUrl}/console/billing/stripe/customer-portal-session`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              returnUrl: 'https://app.example.com/dashboard/billing',
-            }),
-          },
-        );
-        expect(res.status).toBe(501);
-        expect(res.json?.code).toBe('billing_not_configured');
-      } finally {
-        await srv.close();
-      }
-    },
-  );
+  test('POST /console/billing/stripe/customer-portal-session returns billing_not_configured without billing service', async () => {
+    const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/billing/stripe/customer-portal-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          returnUrl: 'https://app.example.com/dashboard/billing',
+        }),
+      });
+      expect(res.status).toBe(501);
+      expect(res.json?.code).toBe('billing_not_configured');
+    } finally {
+      await srv.close();
+    }
+  });
 
   test('POST /console/billing/stripe/customer-portal-session creates portal session', async () => {
     const router = createConsoleRouter({
@@ -2371,22 +4043,25 @@ test.describe('console router (express)', () => {
       expect(invoiceAmountDueMinor).toBeGreaterThan(0);
 
       const subscriptionEventId = `evt_express_subscription_projection_${Date.now()}`;
-      const projectedSubscription = await fetchJson(`${srv.baseUrl}/console/billing/stripe/webhook`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-console-stripe-webhook-secret': secret,
+      const projectedSubscription = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/webhook`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-console-stripe-webhook-secret': secret,
+          },
+          body: JSON.stringify({
+            eventId: subscriptionEventId,
+            eventType: 'customer.subscription.updated',
+            orgId: 'org-1',
+            providerSubscriptionRef,
+            providerCustomerRef,
+            subscriptionStatus: 'PAST_DUE',
+            cancelAtPeriodEnd: true,
+          }),
         },
-        body: JSON.stringify({
-          eventId: subscriptionEventId,
-          eventType: 'customer.subscription.updated',
-          orgId: 'org-1',
-          providerSubscriptionRef,
-          providerCustomerRef,
-          subscriptionStatus: 'PAST_DUE',
-          cancelAtPeriodEnd: true,
-        }),
-      });
+      );
       expect(projectedSubscription.status).toBe(200);
       expect(projectedSubscription.json?.accepted).toBe(true);
       expect(getPath(projectedSubscription.json, 'subscription', 'status')).toBe('PAST_DUE');
@@ -3128,12 +4803,1299 @@ test.describe('console router (cloudflare)', () => {
     expect(res.json?.code).toBe('org_project_env_not_configured');
   });
 
+  test('GET /console/members returns team_rbac_not_configured without Team RBAC service', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/members',
+    });
+    expect(res.status).toBe(501);
+    expect(res.json?.code).toBe('team_rbac_not_configured');
+  });
+
+  test('GET /console/approvals returns approvals_not_configured without approvals service', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/approvals',
+    });
+    expect(res.status).toBe(501);
+    expect(res.json?.code).toBe('approvals_not_configured');
+  });
+
+  test('GET /console/audit/events returns audit_not_configured without audit service', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/audit/events',
+    });
+    expect(res.status).toBe(501);
+    expect(res.json?.code).toBe('audit_not_configured');
+  });
+
+  test('GET /console/audit/exports returns audit_exports_not_configured without export service', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/audit/exports',
+    });
+    expect(res.status).toBe(501);
+    expect(res.json?.code).toBe('audit_exports_not_configured');
+  });
+
+  test('GET /console/isolation/status returns enterprise_isolation_not_configured without service', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/isolation/status',
+    });
+    expect(res.status).toBe(501);
+    expect(res.json?.code).toBe('enterprise_isolation_not_configured');
+  });
+
+  test('GET /console/onboarding/state and telemetry return onboarding_not_configured without onboarding service', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/onboarding/state',
+    });
+    expect(res.status).toBe(501);
+    expect(res.json?.code).toBe('onboarding_not_configured');
+
+    const telemetry = await callCf(handler, {
+      method: 'GET',
+      path: '/console/onboarding/telemetry',
+    });
+    expect(telemetry.status).toBe(501);
+    expect(telemetry.json?.code).toBe('onboarding_not_configured');
+  });
+
+  test('cloudflare GET /console/onboarding/telemetry requires admin or ops role', async () => {
+    const onboarding = createInMemoryConsoleOnboardingService({
+      orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
+      apiKeys: createInMemoryConsoleApiKeyService(),
+      billing: createInMemoryConsoleBillingService(),
+      teamRbac: createInMemoryConsoleTeamRbacService(),
+    });
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['developer'],
+        'org-onboarding-telemetry-role-cf',
+        'user-onboarding-telemetry-role-cf',
+      ),
+      onboarding,
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/onboarding/telemetry',
+    });
+    expect(res.status).toBe(403);
+    expect(res.json?.code).toBe('forbidden');
+  });
+
+  test('cloudflare GET /console/onboarding/telemetry validates windowMinutes query', async () => {
+    const onboarding = createInMemoryConsoleOnboardingService({
+      orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
+      apiKeys: createInMemoryConsoleApiKeyService(),
+      billing: createInMemoryConsoleBillingService(),
+      teamRbac: createInMemoryConsoleTeamRbacService(),
+    });
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-onboarding-telemetry-query-cf',
+        'user-onboarding-telemetry-query-cf',
+      ),
+      onboarding,
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/onboarding/telemetry?windowMinutes=0',
+    });
+    expect(res.status).toBe(400);
+    expect(res.json?.code).toBe('invalid_query');
+  });
+
+  test('cloudflare GET /console/ops-cockpit/summary aggregates operator queues', async () => {
+    const orgId = 'org-ops-cockpit-summary-cf';
+    const actorUserId = 'user-ops-cockpit-summary-cf';
+    const roles = ['admin'];
+    const serviceCtx = { orgId, actorUserId, roles };
+
+    const approvals = createInMemoryConsoleApprovalService();
+    const billing = createInMemoryConsoleBillingService();
+    const webhooks = createInMemoryConsoleWebhookService({
+      dispatcher: {
+        async dispatch() {
+          return {
+            ok: false,
+            statusCode: 500,
+            errorMessage: 'mock dispatch failure',
+          };
+        },
+      },
+    });
+    const auditExports = createInMemoryConsoleAuditExportsService();
+    const enterpriseIsolation = createInMemoryConsoleEnterpriseIsolationService();
+    const onboarding = createInMemoryConsoleOnboardingService({
+      orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
+      apiKeys: createInMemoryConsoleApiKeyService(),
+      billing,
+      teamRbac: createInMemoryConsoleTeamRbacService(),
+    });
+
+    await approvals.createApprovalRequest(serviceCtx, {
+      operationType: 'KEY_EXPORT',
+      reason: 'Operator approval pending',
+    });
+    const generatedInvoice = await billing.generateMonthlyInvoice(serviceCtx, {
+      periodMonthUtc: '2026-03',
+    });
+    await billing.processStripeWebhookEvent({
+      eventId: 'evt_ops_cockpit_cf_invoice_failed',
+      orgId,
+      eventType: 'invoice.payment_failed',
+      invoiceId: generatedInvoice.invoice.id,
+      invoiceStatus: 'UNCOLLECTIBLE',
+    });
+    await auditExports.createExport(serviceCtx, { format: 'JSONL' });
+    await enterpriseIsolation.triggerIsolation(serviceCtx, {
+      scope: 'ORG',
+      trigger: 'SLA_BREACH',
+      reason: 'SLA breach',
+    });
+    const endpoint = await webhooks.createEndpoint(serviceCtx, {
+      url: 'https://example.com/ops-cockpit-webhook-cf',
+      subscriptions: ['billing'],
+    });
+    await webhooks.emitEvent(serviceCtx, {
+      eventType: 'billing.invoice.payment_failed',
+      payload: { invoiceId: generatedInvoice.invoice.id, endpointId: endpoint.id },
+    });
+
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(roles, orgId, actorUserId),
+      approvals,
+      billing,
+      webhooks,
+      auditExports,
+      enterpriseIsolation,
+      onboarding,
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/ops-cockpit/summary?windowMinutes=60',
+    });
+    expect(res.status).toBe(200);
+    expect(getPath(res.json, 'summary', 'approvals', 'pendingCount')).toBe(1);
+    expect(getPath(res.json, 'summary', 'billing', 'failedInvoiceCount')).toBe(1);
+    expect(getPath(res.json, 'summary', 'webhooks', 'deadLetterCount')).toBe(1);
+    expect(getPath(res.json, 'summary', 'auditExports', 'queuedExportCount')).toBe(1);
+    expect(getPath(res.json, 'summary', 'enterpriseIsolation', 'activeRequestCount')).toBe(1);
+    expect(getPath(res.json, 'summary', 'onboardingTelemetry', 'status', 'state')).toBe('ok');
+    expect(getPath(res.json, 'summary', 'onboardingTelemetry', 'windowMinutes')).toBe(60);
+  });
+
+  test('cloudflare GET /console/ops-cockpit/summary is partial for non-ops telemetry viewers', async () => {
+    const orgId = 'org-ops-cockpit-summary-role-cf';
+    const actorUserId = 'user-ops-cockpit-summary-role-cf';
+    const onboarding = createInMemoryConsoleOnboardingService({
+      orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
+      apiKeys: createInMemoryConsoleApiKeyService(),
+      billing: createInMemoryConsoleBillingService(),
+      teamRbac: createInMemoryConsoleTeamRbacService(),
+    });
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['developer'], orgId, actorUserId),
+      onboarding,
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/ops-cockpit/summary',
+    });
+    expect(res.status).toBe(200);
+    expect(getPath(res.json, 'summary', 'onboardingTelemetry', 'status', 'state')).toBe(
+      'forbidden',
+    );
+    expect(getPath(res.json, 'summary', 'onboardingTelemetry', 'status', 'code')).toBe('forbidden');
+  });
+
+  test('cloudflare onboarding organization and project steps are idempotent and auditable', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const billing = createInMemoryConsoleBillingService();
+    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
+    const onboarding = createInMemoryConsoleOnboardingService({
+      orgProjectEnv,
+      apiKeys,
+      billing,
+      teamRbac,
+    });
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-onboarding-cf-1', 'user-onboarding-cf-1'),
+      onboarding,
+      billing,
+      teamRbac,
+      audit,
+    });
+
+    const before = await callCf(handler, {
+      method: 'GET',
+      path: '/console/onboarding/state',
+    });
+    expect(before.status).toBe(200);
+    expect(getPath(before.json, 'state', 'hasApiKey')).toBe(false);
+    expect(getPath(before.json, 'state', 'complete')).toBe(false);
+    expect(getPath(before.json, 'state', 'accountReady')).toBe(true);
+    expect(getPath(before.json, 'state', 'organizationReady')).toBe(false);
+    expect(getPath(before.json, 'state', 'billingReady')).toBe(false);
+    expect(getPath(before.json, 'state', 'projectReady')).toBe(false);
+    expect(getPath(before.json, 'state', 'onboardingComplete')).toBe(false);
+    expect(getPath(before.json, 'state', 'currentStep')).toBe('organization');
+
+    const organization = await callCf(handler, {
+      method: 'POST',
+      path: '/console/onboarding/organization',
+      body: {
+        org: { name: 'Acme Org CF', slug: 'acme-org-cf' },
+      },
+    });
+    expect(organization.status).toBe(201);
+    expect(getPath(organization.json, 'result', 'created', 'organization')).toBe(true);
+    expect(getPath(organization.json, 'result', 'created', 'owner')).toBe(true);
+    expect(getPath(organization.json, 'result', 'state', 'organizationReady')).toBe(true);
+    expect(getPath(organization.json, 'result', 'state', 'currentStep')).toBe('project');
+
+    const project = await callCf(handler, {
+      method: 'POST',
+      path: '/console/onboarding/project',
+      body: {
+        project: { id: 'proj_onboarding_cf', name: 'Onboarding Project CF' },
+        environment: { id: 'proj_onboarding_cf-dev', name: 'Development' },
+      },
+    });
+    expect(project.status).toBe(201);
+    expect(String(getPath(project.json, 'result', 'project', 'id'))).toBe('proj_onboarding_cf');
+    expect(String(getPath(project.json, 'result', 'environment', 'id'))).toBe(
+      'org-onboarding-cf-1:proj_onboarding_cf:dev',
+    );
+    expect(getPath(project.json, 'result', 'created', 'project')).toBe(true);
+    expect(getPath(project.json, 'result', 'created', 'environment')).toBe(false);
+
+    const after = await callCf(handler, {
+      method: 'GET',
+      path: '/console/onboarding/state',
+    });
+    expect(after.status).toBe(200);
+    expect(getPath(after.json, 'state', 'hasApiKey')).toBe(false);
+    expect(getPath(after.json, 'state', 'complete')).toBe(false);
+    expect(getPath(after.json, 'state', 'organizationReady')).toBe(true);
+    expect(getPath(after.json, 'state', 'projectReady')).toBe(true);
+    expect(getPath(after.json, 'state', 'billingReady')).toBe(false);
+    expect(getPath(after.json, 'state', 'onboardingComplete')).toBe(true);
+    expect(getPath(after.json, 'state', 'currentStep')).toBe('complete');
+
+    const auditEvents = await callCf(handler, {
+      method: 'GET',
+      path: '/console/audit/events?limit=20',
+    });
+    expect(auditEvents.status).toBe(200);
+    const rows = Array.isArray(auditEvents.json?.events) ? auditEvents.json?.events : [];
+    const actions = rows.map((row: any) => String(row?.action || ''));
+    expect(actions).toContain('member.owner.bootstrap');
+    expect(actions).toContain('organization.configure');
+    expect(actions).toContain('project.create');
+    expect(actions).not.toContain('environment.create');
+    expect(actions).not.toContain('api_key.create');
+
+    const members = await callCf(handler, {
+      method: 'GET',
+      path: '/console/members?status=ACTIVE',
+    });
+    expect(members.status).toBe(200);
+    const memberRows = Array.isArray(members.json?.members) ? members.json?.members : [];
+    const actorMember = memberRows.find(
+      (entry: any) => String(entry?.userId || '') === 'user-onboarding-cf-1',
+    );
+    expect(actorMember).toBeTruthy();
+    const actorRoles = Array.isArray(actorMember?.roles) ? actorMember.roles : [];
+    expect(
+      actorRoles.some(
+        (entry: any) =>
+          String(entry?.scope || '').toUpperCase() === 'ORG' &&
+          String(entry?.role || '').toLowerCase() === 'owner',
+      ),
+    ).toBe(true);
+  });
+
+  test('cloudflare onboarding project step creates default development environment without billing', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const billing = createInMemoryConsoleBillingService();
+    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const onboarding = createInMemoryConsoleOnboardingService({
+      orgProjectEnv,
+      apiKeys,
+      billing,
+      teamRbac,
+    });
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-onboarding-project-step-cf',
+        'user-onboarding-project-step-cf',
+      ),
+      onboarding,
+      billing,
+      teamRbac,
+    });
+
+    const blocked = await callCf(handler, {
+      method: 'POST',
+      path: '/console/onboarding/project',
+      body: {
+        project: { id: 'proj_step_cf', name: 'Step Project CF' },
+      },
+    });
+    expect(blocked.status).toBe(409);
+    expect(blocked.json?.code).toBe('organization_required');
+
+    const organization = await callCf(handler, {
+      method: 'POST',
+      path: '/console/onboarding/organization',
+      body: {
+        org: { name: 'Step Org CF', slug: 'step-org-cf' },
+      },
+    });
+    expect(organization.status).toBe(201);
+
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/onboarding/project',
+      body: {
+        project: { id: 'proj_step_cf', name: 'Step Project CF' },
+      },
+    });
+    expect(created.status).toBe(201);
+    expect(getPath(created.json, 'result', 'project', 'id')).toBe('proj_step_cf');
+    expect(getPath(created.json, 'result', 'environment', 'key')).toBe('dev');
+    expect(getPath(created.json, 'result', 'created', 'project')).toBe(true);
+    expect(getPath(created.json, 'result', 'created', 'environment')).toBe(false);
+    expect(getPath(created.json, 'result', 'state', 'billingReady')).toBe(false);
+    expect(getPath(created.json, 'result', 'state', 'projectReady')).toBe(true);
+    expect(getPath(created.json, 'result', 'state', 'onboardingComplete')).toBe(true);
+    expect(getPath(created.json, 'result', 'state', 'currentStep')).toBe('complete');
+
+    const replay = await callCf(handler, {
+      method: 'POST',
+      path: '/console/onboarding/project',
+      body: {
+        project: { id: 'proj_step_cf', name: 'Step Project CF' },
+      },
+    });
+    expect(replay.status).toBe(200);
+    expect(getPath(replay.json, 'result', 'created', 'project')).toBe(false);
+    expect(getPath(replay.json, 'result', 'created', 'environment')).toBe(false);
+
+    const telemetry = await callCf(handler, {
+      method: 'GET',
+      path: '/console/onboarding/telemetry?windowMinutes=60',
+    });
+    expect(telemetry.status).toBe(200);
+    expect(getPath(telemetry.json, 'telemetry', 'windowMinutes')).toBe(60);
+    const operations = Array.isArray(getPath(telemetry.json, 'telemetry', 'operations'))
+      ? (getPath(telemetry.json, 'telemetry', 'operations') as any[])
+      : [];
+    const projectOperation = operations.find(
+      (entry) => String(entry?.operation || '') === 'project',
+    );
+    expect(projectOperation).toBeTruthy();
+    expect(Number(getPath(projectOperation, 'requestCount') || 0)).toBeGreaterThanOrEqual(3);
+    expect(Number(getPath(projectOperation, 'errorCount') || 0)).toBeGreaterThanOrEqual(1);
+    const alerts = Array.isArray(getPath(telemetry.json, 'telemetry', 'alerts'))
+      ? (getPath(telemetry.json, 'telemetry', 'alerts') as any[])
+      : [];
+    expect(
+      alerts.some(
+        (entry) =>
+          String(entry?.operation || '') === 'project' &&
+          String(entry?.code || '') === 'onboarding_error_rate_slo_breached',
+      ),
+    ).toBe(true);
+  });
+
+  test('cloudflare onboarding organization step configures org profile and is idempotent', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const onboarding = createInMemoryConsoleOnboardingService({
+      orgProjectEnv,
+      apiKeys,
+      teamRbac,
+    });
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-onboarding-org-step-cf',
+        'user-onboarding-org-step-cf',
+      ),
+      onboarding,
+      teamRbac,
+    });
+
+    const before = await callCf(handler, {
+      method: 'GET',
+      path: '/console/onboarding/state',
+    });
+    expect(before.status).toBe(200);
+    expect(getPath(before.json, 'state', 'organizationReady')).toBe(false);
+    expect(getPath(before.json, 'state', 'currentStep')).toBe('organization');
+
+    const first = await callCf(handler, {
+      method: 'POST',
+      path: '/console/onboarding/organization',
+      body: {
+        org: { name: 'Acme Org CF', slug: 'acme-org-cf' },
+      },
+    });
+    expect(first.status).toBe(201);
+    expect(getPath(first.json, 'result', 'organization', 'id')).toBe('org-onboarding-org-step-cf');
+    expect(getPath(first.json, 'result', 'organization', 'name')).toBe('Acme Org CF');
+    expect(getPath(first.json, 'result', 'organization', 'slug')).toBe('acme-org-cf');
+    expect(getPath(first.json, 'result', 'created', 'organization')).toBe(true);
+    expect(getPath(first.json, 'result', 'state', 'organizationReady')).toBe(true);
+    expect(getPath(first.json, 'result', 'state', 'currentStep')).toBe('project');
+
+    const second = await callCf(handler, {
+      method: 'POST',
+      path: '/console/onboarding/organization',
+      body: {
+        org: { name: 'Acme Org CF Updated', slug: 'acme-org-cf-updated' },
+      },
+    });
+    expect(second.status).toBe(200);
+    expect(getPath(second.json, 'result', 'organization', 'name')).toBe('Acme Org CF Updated');
+    expect(getPath(second.json, 'result', 'organization', 'slug')).toBe('acme-org-cf-updated');
+    expect(getPath(second.json, 'result', 'created', 'organization')).toBe(false);
+  });
+
+  test('cloudflare POST /console/projects allows creation without billing method', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const billing = createInMemoryConsoleBillingService();
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-project-billing-gate-cf',
+        actorUserId: 'user-project-billing-gate-cf',
+        roles: ['admin'],
+      },
+      { name: 'Project Billing Gate Org CF', slug: 'project-billing-gate-org-cf' },
+    );
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-project-billing-gate-cf',
+        'user-project-billing-gate-cf',
+      ),
+      orgProjectEnv,
+      billing,
+    });
+
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/projects',
+      body: { id: 'proj_gated_cf', name: 'Gated Project CF' },
+    });
+    expect(created.status).toBe(201);
+    expect(getPath(created.json, 'project', 'id')).toBe('proj_gated_cf');
+    expect(Number(getPath(created.json, 'project', 'environmentCount') || 0)).toBe(3);
+  });
+
+  test('cloudflare POST /console/projects auto-provisions environments with live environments disabled without billing readiness', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const billing = createInMemoryConsoleBillingService();
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-env-billing-gate-cf',
+        actorUserId: 'user-env-billing-gate-cf',
+        roles: ['admin'],
+      },
+      { name: 'Environment Billing Gate Org CF', slug: 'environment-billing-gate-org-cf' },
+    );
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-env-billing-gate-cf',
+        'user-env-billing-gate-cf',
+      ),
+      orgProjectEnv,
+      billing,
+    });
+
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/projects',
+      body: { id: 'proj_env_gated_cf', name: 'Env Gated Project CF' },
+    });
+    expect(created.status).toBe(201);
+    expect(Number(getPath(created.json, 'project', 'environmentCount') || 0)).toBe(3);
+
+    const listed = await callCf(handler, {
+      method: 'GET',
+      path: `/console/environments?projectId=${encodeURIComponent('proj_env_gated_cf')}`,
+    });
+    expect(listed.status).toBe(200);
+    const rows = Array.isArray(listed.json?.environments) ? listed.json?.environments : [];
+    expect(rows.length).toBe(3);
+    const statusByKey = new Map<string, string>(
+      rows.map((entry: any) => [String(entry?.key || ''), String(entry?.status || '')]),
+    );
+    expect(statusByKey.get('dev')).toBe('ACTIVE');
+    expect(statusByKey.get('staging')).toBe('DISABLED');
+    expect(statusByKey.get('prod')).toBe('DISABLED');
+  });
+
+  test('cloudflare POST /console/projects enables live environments when billing is ready', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const billing = createInMemoryConsoleBillingService();
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-project-live-billing-ready-cf',
+        actorUserId: 'user-project-live-billing-ready-cf',
+        roles: ['admin'],
+      },
+      { name: 'Project Billing Ready Org CF', slug: 'project-billing-ready-org-cf' },
+    );
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-project-live-billing-ready-cf',
+        'user-project-live-billing-ready-cf',
+      ),
+      orgProjectEnv,
+      billing,
+    });
+
+    const paymentMethod = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/payment-methods',
+      body: {
+        providerRef: 'pm_project_live_ready_cf_1',
+        brand: 'visa',
+        last4: '4242',
+        expMonth: 12,
+        expYear: 2030,
+      },
+    });
+    expect(paymentMethod.status).toBe(201);
+
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/projects',
+      body: { id: 'proj_live_ready_cf', name: 'Live Ready Project CF' },
+    });
+    expect(created.status).toBe(201);
+    expect(Number(getPath(created.json, 'project', 'environmentCount') || 0)).toBe(3);
+
+    const listed = await callCf(handler, {
+      method: 'GET',
+      path: `/console/environments?projectId=${encodeURIComponent('proj_live_ready_cf')}`,
+    });
+    expect(listed.status).toBe(200);
+    const rows = Array.isArray(listed.json?.environments) ? listed.json?.environments : [];
+    expect(rows.length).toBe(3);
+    const statusByKey = new Map<string, string>(
+      rows.map((entry: any) => [String(entry?.key || ''), String(entry?.status || '')]),
+    );
+    expect(statusByKey.get('dev')).toBe('ACTIVE');
+    expect(statusByKey.get('staging')).toBe('ACTIVE');
+    expect(statusByKey.get('prod')).toBe('ACTIVE');
+  });
+
+  test('cloudflare POST /console/projects keeps live environments disabled when billing service is not configured', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-env-no-billing-service-cf',
+        actorUserId: 'user-env-no-billing-service-cf',
+        roles: ['admin'],
+      },
+      { name: 'No Billing Service Org CF', slug: 'no-billing-service-org-cf' },
+    );
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-env-no-billing-service-cf',
+        'user-env-no-billing-service-cf',
+      ),
+      orgProjectEnv,
+    });
+
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/projects',
+      body: { id: 'proj_env_no_billing_service_cf', name: 'No Billing Service Project CF' },
+    });
+    expect(created.status).toBe(201);
+    expect(Number(getPath(created.json, 'project', 'environmentCount') || 0)).toBe(3);
+
+    const listed = await callCf(handler, {
+      method: 'GET',
+      path: `/console/environments?projectId=${encodeURIComponent('proj_env_no_billing_service_cf')}`,
+    });
+    expect(listed.status).toBe(200);
+    const rows = Array.isArray(listed.json?.environments) ? listed.json?.environments : [];
+    expect(rows.length).toBe(3);
+    const statusByKey = new Map<string, string>(
+      rows.map((entry: any) => [String(entry?.key || ''), String(entry?.status || '')]),
+    );
+    expect(statusByKey.get('dev')).toBe('ACTIVE');
+    expect(statusByKey.get('staging')).toBe('DISABLED');
+    expect(statusByKey.get('prod')).toBe('DISABLED');
+  });
+
+  test('cloudflare POST /console/environments blocks staging/prod when billing service is not configured', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-env-no-billing-service-gate-cf',
+        actorUserId: 'user-env-no-billing-service-gate-cf',
+        roles: ['admin'],
+      },
+      { name: 'No Billing Service Gate Org CF', slug: 'no-billing-service-gate-org-cf' },
+    );
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-env-no-billing-service-gate-cf',
+        'user-env-no-billing-service-gate-cf',
+      ),
+      orgProjectEnv,
+    });
+
+    const blockedStaging = await callCf(handler, {
+      method: 'POST',
+      path: '/console/environments',
+      body: {
+        id: 'env_no_billing_service_gated_staging_cf',
+        projectId: 'project_missing_for_gate_test_cf',
+        key: 'staging',
+        name: 'Staging',
+      },
+    });
+    expect(blockedStaging.status).toBe(409);
+    expect(blockedStaging.json?.code).toBe('billing_required_live_environment');
+  });
+
+  test('cloudflare audit routes return seeded timeline and evidence rows', async () => {
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService();
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-audit-cf-1', 'user-audit-cf-admin'),
+      audit,
+    });
+
+    const events = await callCf(handler, {
+      method: 'GET',
+      path: '/console/audit/events?category=POLICY&limit=5',
+    });
+    expect(events.status).toBe(200);
+    const eventRows = Array.isArray(events.json?.events) ? events.json?.events : [];
+    expect(eventRows.length).toBeGreaterThan(0);
+    expect(String(getPath(eventRows[0], 'category'))).toBe('POLICY');
+
+    const evidence = await callCf(handler, {
+      method: 'GET',
+      path: '/console/audit/evidence?domain=BILLING&limit=5',
+    });
+    expect(evidence.status).toBe(200);
+    const evidenceRows = Array.isArray(evidence.json?.evidence) ? evidence.json?.evidence : [];
+    expect(evidenceRows.length).toBeGreaterThan(0);
+    expect(String(getPath(evidenceRows[0], 'domain'))).toBe('BILLING');
+  });
+
+  test('cloudflare approval creation emits audit timeline events', async () => {
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
+    const approvals: ConsoleApprovalService = createInMemoryConsoleApprovalService();
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-audit-cf-live-1', 'user-audit-cf-live-admin'),
+      approvals,
+      audit,
+    });
+
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/approvals',
+      body: {
+        id: 'apr_audit_cf_live_1',
+        operationType: 'POLICY_PUBLISH',
+        reason: 'Publish policy v2',
+        resourceType: 'policy',
+        resourceId: 'policy_cf_live_1',
+      },
+    });
+    expect(created.status).toBe(201);
+
+    const events = await callCf(handler, {
+      method: 'GET',
+      path: '/console/audit/events?category=APPROVAL&limit=20',
+    });
+    expect(events.status).toBe(200);
+    const eventRows = Array.isArray(events.json?.events) ? events.json?.events : [];
+    const createdEvent = eventRows.find(
+      (row: any) => String(row?.action || '') === 'approval.request.create',
+    );
+    expect(createdEvent).toBeTruthy();
+    expect(String(getPath(createdEvent, 'metadata', 'approvalId'))).toBe('apr_audit_cf_live_1');
+  });
+
+  test('cloudflare audit export and enterprise isolation routes support scaffold flows', async () => {
+    const auditExports: ConsoleAuditExportsService = createInMemoryConsoleAuditExportsService();
+    const enterpriseIsolation: ConsoleEnterpriseIsolationService =
+      createInMemoryConsoleEnterpriseIsolationService();
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-audit-export-cf-1',
+        'user-audit-export-cf-admin',
+      ),
+      auditExports,
+      enterpriseIsolation,
+    });
+
+    const createdExport = await callCf(handler, {
+      method: 'POST',
+      path: '/console/audit/exports',
+      body: {
+        id: 'aexp_cf_scaffold_1',
+        format: 'CSV',
+        domain: 'SECURITY',
+        projectId: 'proj_cf_scaffold_1',
+        environmentId: 'env_cf_scaffold_1',
+      },
+    });
+    expect(createdExport.status).toBe(201);
+    expect(String(getPath(createdExport.json, 'export', 'status') || '')).toBe('QUEUED');
+
+    const listExports = await callCf(handler, {
+      method: 'GET',
+      path: '/console/audit/exports?domain=SECURITY',
+    });
+    expect(listExports.status).toBe(200);
+    const exportRows = Array.isArray(listExports.json?.exports) ? listExports.json?.exports : [];
+    expect(exportRows.some((entry: any) => String(entry?.id || '') === 'aexp_cf_scaffold_1')).toBe(
+      true,
+    );
+
+    const getExport = await callCf(handler, {
+      method: 'GET',
+      path: `/console/audit/exports/${encodeURIComponent('aexp_cf_scaffold_1')}`,
+    });
+    expect(getExport.status).toBe(200);
+    expect(String(getPath(getExport.json, 'export', 'id') || '')).toBe('aexp_cf_scaffold_1');
+
+    const initialIsolation = await callCf(handler, {
+      method: 'GET',
+      path: '/console/isolation/status?scope=ORG',
+    });
+    expect(initialIsolation.status).toBe(200);
+    expect(String(getPath(initialIsolation.json, 'isolation', 'status') || '')).toBe('SHARED');
+
+    const triggerIsolation = await callCf(handler, {
+      method: 'POST',
+      path: '/console/isolation/trigger',
+      body: {
+        scope: 'ORG',
+        trigger: 'MANUAL',
+        reason: 'High-value customer isolation request',
+        ticketId: 'OPS-321',
+      },
+    });
+    expect(triggerIsolation.status).toBe(202);
+    expect(String(getPath(triggerIsolation.json, 'isolation', 'status') || '')).toBe('REQUESTED');
+    expect(String(getPath(triggerIsolation.json, 'isolation', 'mode') || '')).toBe('DEDICATED');
+  });
+
+  test('cloudflare team member routes enforce role scope validation and mutation RBAC', async () => {
+    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const adminHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-team-cf-1', 'user-team-cf-admin-1'),
+      teamRbac,
+    });
+
+    const initial = await callCf(adminHandler, {
+      method: 'GET',
+      path: '/console/members',
+    });
+    expect(initial.status).toBe(200);
+    const initialRows = Array.isArray(initial.json?.members) ? initial.json?.members : [];
+    expect(initialRows.length).toBeGreaterThanOrEqual(1);
+
+    const invited = await callCf(adminHandler, {
+      method: 'POST',
+      path: '/console/members/invite',
+      body: {
+        userId: 'member-team-cf-1-user',
+        email: 'cf-dev@example.com',
+        roles: [{ role: 'admin_manage_members' }, { role: 'wallet_operations_write' }],
+      },
+    });
+    expect(invited.status).toBe(201);
+    const invitedMemberId = String(getPath(invited.json, 'member', 'id') || '');
+    expect(invitedMemberId).toContain('mbr_');
+    expect(getPath(invited.json, 'member', 'status')).toBe('ACTIVE');
+
+    const invitedOnly = await callCf(adminHandler, {
+      method: 'GET',
+      path: '/console/members?status=ACTIVE',
+    });
+    expect(invitedOnly.status).toBe(200);
+    const invitedRows = Array.isArray(invitedOnly.json?.members) ? invitedOnly.json?.members : [];
+    expect(invitedRows.some((entry: any) => String(entry?.id || '') === invitedMemberId)).toBe(
+      true,
+    );
+
+    const updated = await callCf(adminHandler, {
+      method: 'PATCH',
+      path: `/console/members/${encodeURIComponent(invitedMemberId)}/roles`,
+      body: {
+        roles: [{ role: 'integrations_read' }],
+      },
+    });
+    expect(updated.status).toBe(200);
+    expect(getPath(updated.json, 'member', 'roles', 0, 'role')).toBe('integrations_read');
+    expect(getPath(updated.json, 'member', 'roles', 0, 'scope')).toBe('ORG');
+
+    const removed = await callCf(adminHandler, {
+      method: 'DELETE',
+      path: `/console/members/${encodeURIComponent(invitedMemberId)}`,
+    });
+    expect(removed.status).toBe(200);
+    expect(removed.json?.removed).toBe(true);
+    expect(getPath(removed.json, 'member', 'status')).toBe('REMOVED');
+
+    const invalidScope = await callCf(adminHandler, {
+      method: 'POST',
+      path: '/console/members/invite',
+      body: {
+        userId: 'member-team-cf-invalid-user',
+        email: 'cf-invalid@example.com',
+        roles: [{ role: 'wallet_operations_read', projectId: 'project-team-cf-1' }],
+      },
+    });
+    expect(invalidScope.status).toBe(400);
+    expect(invalidScope.json?.code).toBe('invalid_body');
+
+    const developerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['developer'], 'org-team-cf-1', 'user-team-cf-dev-1'),
+      teamRbac,
+    });
+    const forbidden = await callCf(developerHandler, {
+      method: 'POST',
+      path: '/console/members/invite',
+      body: {
+        userId: 'member-team-cf-forbidden-user',
+        email: 'cf-forbidden@example.com',
+        roles: [{ role: 'overview_read' }],
+      },
+    });
+    expect(forbidden.status).toBe(403);
+    expect(forbidden.json?.code).toBe('forbidden');
+  });
+
+  test('cloudflare approval routes enforce mutation RBAC, MFA requirements, and state transitions', async () => {
+    const approvals = createInMemoryConsoleApprovalService();
+    const adminHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-approvals-cf-1', 'user-approvals-cf-admin-1'),
+      approvals,
+    });
+
+    const initial = await callCf(adminHandler, {
+      method: 'GET',
+      path: '/console/approvals',
+    });
+    expect(initial.status).toBe(200);
+    const initialRows = Array.isArray(initial.json?.approvals) ? initial.json?.approvals : [];
+    expect(initialRows).toHaveLength(0);
+
+    const created = await callCf(adminHandler, {
+      method: 'POST',
+      path: '/console/approvals',
+      body: {
+        id: 'apr_key_export_cf_1',
+        operationType: 'KEY_EXPORT',
+        reason: 'Approval for key export',
+      },
+    });
+    expect(created.status).toBe(201);
+    expect(getPath(created.json, 'approval', 'id')).toBe('apr_key_export_cf_1');
+    expect(getPath(created.json, 'approval', 'requiredApprovals')).toBe(2);
+    expect(getPath(created.json, 'approval', 'requireMfa')).toBe(true);
+
+    const missingMfa = await callCf(adminHandler, {
+      method: 'POST',
+      path: '/console/approvals/apr_key_export_cf_1/approve',
+      body: {
+        reason: 'approve without mfa',
+        mfaVerified: false,
+      },
+    });
+    expect(missingMfa.status).toBe(400);
+    expect(missingMfa.json?.code).toBe('mfa_required');
+
+    const firstApproval = await callCf(adminHandler, {
+      method: 'POST',
+      path: '/console/approvals/apr_key_export_cf_1/approve',
+      body: {
+        reason: 'first approval',
+        mfaVerified: true,
+      },
+    });
+    expect(firstApproval.status).toBe(200);
+    expect(getPath(firstApproval.json, 'approval', 'status')).toBe('PENDING');
+    expect(Number(getPath(firstApproval.json, 'approval', 'decisions', 'length') || 0)).toBe(1);
+
+    const securityAdminHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['security_admin'],
+        'org-approvals-cf-1',
+        'user-approvals-cf-security-admin-1',
+      ),
+      approvals,
+    });
+    const secondApproval = await callCf(securityAdminHandler, {
+      method: 'POST',
+      path: '/console/approvals/apr_key_export_cf_1/approve',
+      body: {
+        reason: 'second approval',
+        mfaVerified: true,
+      },
+    });
+    expect(secondApproval.status).toBe(200);
+    expect(getPath(secondApproval.json, 'approval', 'status')).toBe('APPROVED');
+    expect(Number(getPath(secondApproval.json, 'approval', 'decisions', 'length') || 0)).toBe(2);
+    expect(String(getPath(secondApproval.json, 'approval', 'resolvedAt') || '')).toBeTruthy();
+
+    const invalidStateReject = await callCf(adminHandler, {
+      method: 'POST',
+      path: '/console/approvals/apr_key_export_cf_1/reject',
+      body: {
+        reason: 'late reject',
+      },
+    });
+    expect(invalidStateReject.status).toBe(409);
+    expect(invalidStateReject.json?.code).toBe('invalid_state');
+
+    const filtered = await callCf(adminHandler, {
+      method: 'GET',
+      path: '/console/approvals?status=APPROVED&operationType=KEY_EXPORT',
+    });
+    expect(filtered.status).toBe(200);
+    const filteredRows = Array.isArray(filtered.json?.approvals) ? filtered.json?.approvals : [];
+    expect(
+      filteredRows.some((entry: any) => String(entry?.id || '') === 'apr_key_export_cf_1'),
+    ).toBe(true);
+
+    const developerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['developer'],
+        'org-approvals-cf-1',
+        'user-approvals-cf-developer-1',
+      ),
+      approvals,
+    });
+    const forbiddenCreate = await callCf(developerHandler, {
+      method: 'POST',
+      path: '/console/approvals',
+      body: {
+        operationType: 'POLICY_PUBLISH',
+        reason: 'unauthorized create',
+      },
+    });
+    expect(forbiddenCreate.status).toBe(403);
+    expect(forbiddenCreate.json?.code).toBe('forbidden');
+
+    const readOnlyList = await callCf(developerHandler, {
+      method: 'GET',
+      path: '/console/approvals',
+    });
+    expect(readOnlyList.status).toBe(200);
+  });
+
+  test('cloudflare sensitive operation routes require approved queue entries when approvals service is configured', async () => {
+    const approvals = createInMemoryConsoleApprovalService();
+    const policies = createInMemoryConsolePolicyService();
+    const settings = createInMemoryConsoleSettingsService();
+    const keyExports = createInMemoryConsoleKeyExportService();
+    const orgId = 'org-sensitive-approval-cf-1';
+    const actorUserId = 'user-sensitive-approval-cf-admin-1';
+    const claimsRoles = ['admin'];
+    const approvalCtx = {
+      orgId,
+      actorUserId,
+      roles: claimsRoles,
+    };
+
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(claimsRoles, orgId, actorUserId),
+      approvals,
+      policies,
+      settings,
+      keyExports,
+    });
+
+    const policyId = 'policy_sensitive_cf_1';
+    const createPolicy = await callCf(handler, {
+      method: 'POST',
+      path: '/console/policies',
+      body: {
+        id: policyId,
+        name: 'Sensitive Policy CF',
+      },
+    });
+    expect(createPolicy.status).toBe(201);
+
+    const publishWithoutApproval = await callCf(handler, {
+      method: 'POST',
+      path: `/console/policies/${encodeURIComponent(policyId)}/publish`,
+      body: {},
+    });
+    expect(publishWithoutApproval.status).toBe(400);
+    expect(publishWithoutApproval.json?.code).toBe('approval_required');
+
+    const policyApproval = await approvals.createApprovalRequest(approvalCtx, {
+      id: 'apr_policy_sensitive_cf_1',
+      operationType: 'POLICY_PUBLISH',
+      reason: 'Publish policy approval CF',
+      resourceType: 'policy',
+      resourceId: policyId,
+    });
+    await approvals.approveApprovalRequest(approvalCtx, policyApproval.id, {
+      reason: 'Policy publish approved CF',
+      mfaVerified: true,
+    });
+
+    const publishWithApproval = await callCf(handler, {
+      method: 'POST',
+      path: `/console/policies/${encodeURIComponent(policyId)}/publish`,
+      body: {
+        approvalId: policyApproval.id,
+      },
+    });
+    expect(publishWithApproval.status).toBe(200);
+    expect(getPath(publishWithApproval.json, 'result', 'policy', 'status')).toBe('PUBLISHED');
+
+    const securityWithoutApproval = await callCf(handler, {
+      method: 'PATCH',
+      path: '/console/settings/security',
+      body: {
+        environmentId: 'env_sensitive_cf_1',
+        enforceIpAllowlist: true,
+      },
+    });
+    expect(securityWithoutApproval.status).toBe(400);
+    expect(securityWithoutApproval.json?.code).toBe('approval_required');
+
+    const securityApproval = await approvals.createApprovalRequest(approvalCtx, {
+      id: 'apr_security_sensitive_cf_1',
+      operationType: 'SECURITY_SETTINGS_CHANGE',
+      reason: 'Security settings approval CF',
+      environmentId: 'env_sensitive_cf_1',
+      resourceType: 'security_settings',
+      resourceId: 'env_sensitive_cf_1',
+    });
+    await approvals.approveApprovalRequest(approvalCtx, securityApproval.id, {
+      reason: 'Security settings approved CF',
+      mfaVerified: true,
+    });
+
+    const securityWithApproval = await callCf(handler, {
+      method: 'PATCH',
+      path: '/console/settings/security',
+      body: {
+        environmentId: 'env_sensitive_cf_1',
+        enforceIpAllowlist: true,
+        approvalId: securityApproval.id,
+      },
+    });
+    expect(securityWithApproval.status).toBe(200);
+    expect(getPath(securityWithApproval.json, 'securitySettings', 'environmentId')).toBe(
+      'env_sensitive_cf_1',
+    );
+
+    const exportId = 'ke_sensitive_cf_1';
+    const createExport = await callCf(handler, {
+      method: 'POST',
+      path: '/console/key-exports',
+      body: {
+        id: exportId,
+        environmentId: 'env_sensitive_cf_1',
+        reason: 'Key export request CF',
+        requiredApprovals: 1,
+      },
+    });
+    expect(createExport.status).toBe(201);
+
+    const approveExportWithoutApproval = await callCf(handler, {
+      method: 'POST',
+      path: `/console/key-exports/${encodeURIComponent(exportId)}/approve`,
+      body: {
+        reason: 'Approve export CF',
+        mfaVerified: true,
+      },
+    });
+    expect(approveExportWithoutApproval.status).toBe(400);
+    expect(approveExportWithoutApproval.json?.code).toBe('approval_required');
+
+    const keyExportApproval = await approvals.createApprovalRequest(approvalCtx, {
+      id: 'apr_key_export_sensitive_cf_1',
+      operationType: 'KEY_EXPORT',
+      reason: 'Key export approval CF',
+      requiredApprovals: 1,
+      requireMfa: true,
+      resourceType: 'key_export',
+      resourceId: exportId,
+    });
+    await approvals.approveApprovalRequest(approvalCtx, keyExportApproval.id, {
+      reason: 'Key export approved CF',
+      mfaVerified: true,
+    });
+
+    const approveExportWithApproval = await callCf(handler, {
+      method: 'POST',
+      path: `/console/key-exports/${encodeURIComponent(exportId)}/approve`,
+      body: {
+        reason: 'Approve export CF',
+        mfaVerified: true,
+        approvalId: keyExportApproval.id,
+      },
+    });
+    expect(approveExportWithApproval.status).toBe(200);
+    expect(getPath(approveExportWithApproval.json, 'keyExport', 'status')).toBe('APPROVED');
+  });
+
+  test('cloudflare approval queue mutations emit approval lifecycle webhook events', async () => {
+    const approvals = createInMemoryConsoleApprovalService();
+    const webhooks = createInMemoryConsoleWebhookService({
+      dispatcher: {
+        dispatch: async () => ({
+          ok: true,
+          statusCode: 200,
+          responseBody: 'ok',
+        }),
+      },
+    });
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-approval-events-cf-1',
+        'user-approval-events-cf-1',
+      ),
+      approvals,
+      webhooks,
+    });
+
+    const endpointCreated = await callCf(handler, {
+      method: 'POST',
+      path: '/console/webhooks',
+      body: {
+        url: 'https://example.com/approval-events-cf',
+        subscriptions: ['policy'],
+      },
+    });
+    expect(endpointCreated.status).toBe(201);
+    const endpointId = String(getPath(endpointCreated.json, 'endpoint', 'id') || '');
+    expect(endpointId).toBeTruthy();
+
+    const createdOne = await callCf(handler, {
+      method: 'POST',
+      path: '/console/approvals',
+      body: {
+        id: 'apr_events_cf_1',
+        operationType: 'POLICY_PUBLISH',
+        reason: 'Approval event create/approve cf',
+        requiredApprovals: 1,
+      },
+    });
+    expect(createdOne.status).toBe(201);
+
+    const approvedOne = await callCf(handler, {
+      method: 'POST',
+      path: '/console/approvals/apr_events_cf_1/approve',
+      body: {
+        reason: 'Approve with event cf',
+        mfaVerified: true,
+      },
+    });
+    expect(approvedOne.status).toBe(200);
+
+    const createdTwo = await callCf(handler, {
+      method: 'POST',
+      path: '/console/approvals',
+      body: {
+        id: 'apr_events_cf_2',
+        operationType: 'SECURITY_SETTINGS_CHANGE',
+        reason: 'Approval event create/reject cf',
+      },
+    });
+    expect(createdTwo.status).toBe(201);
+
+    const rejectedTwo = await callCf(handler, {
+      method: 'POST',
+      path: '/console/approvals/apr_events_cf_2/reject',
+      body: {
+        reason: 'Reject with event cf',
+      },
+    });
+    expect(rejectedTwo.status).toBe(200);
+
+    const deliveries = await callCf(handler, {
+      method: 'GET',
+      path: `/console/webhooks/${encodeURIComponent(endpointId)}/deliveries`,
+    });
+    expect(deliveries.status).toBe(200);
+    const rows = Array.isArray(deliveries.json?.deliveries) ? deliveries.json?.deliveries : [];
+    const eventTypes = rows.map((row: any) => String(row?.eventType || ''));
+    expect(eventTypes).toContain('policy.approval.created');
+    expect(eventTypes).toContain('policy.approval.approved');
+    expect(eventTypes).toContain('policy.approval.rejected');
+  });
+
   test('cloudflare org/project/environment routes return hierarchical metadata', async () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-meta-cf-1',
+        actorUserId: 'user-meta-cf-1',
+        roles: ['admin'],
+      },
+      { name: 'Org Meta CF 1', slug: 'org-meta-cf-1' },
+    );
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], 'org-meta-cf-1', 'user-meta-cf-1'),
       orgProjectEnv,
     });
+
+    const createdProject = await callCf(handler, {
+      method: 'POST',
+      path: '/console/projects',
+      body: {
+        id: 'project-meta-cf-1',
+        name: 'Project Meta CF 1',
+      },
+    });
+    expect(createdProject.status).toBe(201);
 
     const org = await callCf(handler, {
       method: 'GET',
@@ -3151,9 +6113,9 @@ test.describe('console router (cloudflare)', () => {
     expect(projectRows.length).toBeGreaterThanOrEqual(1);
     const projectId = String(getPath(projects.json, 'projects', 0, 'id') || '');
     expect(projectId).toBeTruthy();
-    expect(Number(getPath(projects.json, 'projects', 0, 'environmentCount') || 0)).toBeGreaterThanOrEqual(
-      1,
-    );
+    expect(
+      Number(getPath(projects.json, 'projects', 0, 'environmentCount') || 0),
+    ).toBeGreaterThanOrEqual(1);
 
     const environments = await callCf(handler, {
       method: 'GET',
@@ -3182,6 +6144,14 @@ test.describe('console router (cloudflare)', () => {
 
   test('cloudflare org/project/environment mutation routes enforce role and lifecycle rules', async () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-meta-cf-mutate-1',
+        actorUserId: 'user-meta-cf-mutate-1',
+        roles: ['admin'],
+      },
+      { name: 'Org Meta CF Mutate 1', slug: 'org-meta-cf-mutate-1' },
+    );
     const adminHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], 'org-meta-cf-mutate-1', 'user-meta-cf-mutate-1'),
       orgProjectEnv,
@@ -3197,19 +6167,17 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(createdProject.status).toBe(201);
     expect(getPath(createdProject.json, 'project', 'id')).toBe('project-cf-mutate-1');
-    expect(Number(getPath(createdProject.json, 'project', 'environmentCount') || 0)).toBe(0);
-
-    const createdEnvironment = await callCf(adminHandler, {
-      method: 'POST',
-      path: '/console/environments',
-      body: {
-        id: 'env-cf-mutate-1',
-        projectId: 'project-cf-mutate-1',
-        key: 'dev',
-      },
+    expect(Number(getPath(createdProject.json, 'project', 'environmentCount') || 0)).toBe(3);
+    const environmentsForProject = await callCf(adminHandler, {
+      method: 'GET',
+      path: `/console/environments?projectId=${encodeURIComponent('project-cf-mutate-1')}`,
     });
-    expect(createdEnvironment.status).toBe(201);
-    expect(getPath(createdEnvironment.json, 'environment', 'id')).toBe('env-cf-mutate-1');
+    expect(environmentsForProject.status).toBe(200);
+    const projectEnvironmentRows = Array.isArray(environmentsForProject.json?.environments)
+      ? environmentsForProject.json?.environments
+      : [];
+    const managedEnvironmentId = String(getPath(projectEnvironmentRows, 0, 'id') || '');
+    expect(managedEnvironmentId).toBeTruthy();
 
     const updatedProject = await callCf(adminHandler, {
       method: 'PATCH',
@@ -3221,7 +6189,7 @@ test.describe('console router (cloudflare)', () => {
 
     const archivedEnvironment = await callCf(adminHandler, {
       method: 'POST',
-      path: '/console/environments/env-cf-mutate-1/archive',
+      path: `/console/environments/${encodeURIComponent(managedEnvironmentId)}/archive`,
     });
     expect(archivedEnvironment.status).toBe(200);
     expect(getPath(archivedEnvironment.json, 'environment', 'status')).toBe('ARCHIVED');
@@ -3242,9 +6210,9 @@ test.describe('console router (cloudflare)', () => {
       ? archivedProjects.json?.projects
       : [];
     expect(archivedProjectRows.length).toBeGreaterThanOrEqual(1);
-    expect(archivedProjectRows.every((entry: any) => String(entry?.status || '') === 'ARCHIVED')).toBe(
-      true,
-    );
+    expect(
+      archivedProjectRows.every((entry: any) => String(entry?.status || '') === 'ARCHIVED'),
+    ).toBe(true);
 
     const activeProjects = await callCf(adminHandler, {
       method: 'GET',
@@ -3254,7 +6222,9 @@ test.describe('console router (cloudflare)', () => {
     const activeProjectRows = Array.isArray(activeProjects.json?.projects)
       ? activeProjects.json?.projects
       : [];
-    expect(activeProjectRows.every((entry: any) => String(entry?.status || '') === 'ACTIVE')).toBe(true);
+    expect(activeProjectRows.every((entry: any) => String(entry?.status || '') === 'ACTIVE')).toBe(
+      true,
+    );
 
     const invalidProjectStatus = await callCf(adminHandler, {
       method: 'GET',
@@ -3272,14 +6242,18 @@ test.describe('console router (cloudflare)', () => {
       ? archivedOnly.json?.environments
       : [];
     expect(archivedRows.length).toBeGreaterThanOrEqual(1);
-    expect(archivedRows.every((entry: any) => String(entry?.status || '') === 'ARCHIVED')).toBe(true);
+    expect(archivedRows.every((entry: any) => String(entry?.status || '') === 'ARCHIVED')).toBe(
+      true,
+    );
 
     const activeOnly = await callCf(adminHandler, {
       method: 'GET',
       path: '/console/environments?projectId=project-cf-mutate-1&status=ACTIVE',
     });
     expect(activeOnly.status).toBe(200);
-    const activeRows = Array.isArray(activeOnly.json?.environments) ? activeOnly.json?.environments : [];
+    const activeRows = Array.isArray(activeOnly.json?.environments)
+      ? activeOnly.json?.environments
+      : [];
     expect(activeRows.length).toBe(0);
 
     const invalidStatus = await callCf(adminHandler, {
@@ -3294,7 +6268,7 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/environments',
       body: {
         projectId: 'project-cf-mutate-1',
-        key: 'prod',
+        key: 'dev',
       },
     });
     expect(createOnArchived.status).toBe(409);
@@ -4008,7 +6982,16 @@ test.describe('console router (cloudflare)', () => {
   });
 
   test('cloudflare wallet routes support list/search/detail', async () => {
-    const wallets = createInMemoryConsoleWalletService();
+    const wallets = createInMemoryConsoleWalletService({
+      seedWallets: [
+        makeSeedWallet({
+          id: 'wallet_cf_seed_1',
+          orgId: 'org-wallet-cf-1',
+          projectId: 'proj_wallet_cf_seed_1',
+          environmentId: 'env_wallet_cf_seed_1',
+        }),
+      ],
+    });
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], 'org-wallet-cf-1', 'user-wallet-cf-1'),
       wallets,
@@ -4048,16 +7031,31 @@ test.describe('console router (cloudflare)', () => {
   });
 
   test('cloudflare policy/gas/export insight routes return aggregated views', async () => {
-    const wallets = createInMemoryConsoleWalletService();
+    const orgId = 'org-insights-cloudflare-1';
+    const projectId = 'default-project';
+    const environmentId = `${orgId}:${projectId}:prod`;
+    const wallets = createInMemoryConsoleWalletService({
+      seedWallets: [
+        makeSeedWallet({
+          id: 'wallet_insights_cf_1',
+          orgId,
+          projectId,
+          environmentId,
+        }),
+      ],
+    });
     const apiKeys = createInMemoryConsoleApiKeyService();
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    await seedOrgProjectEnvironment(orgProjectEnv, {
+      orgId,
+      projectId,
+      actorUserId: 'user-insights-cloudflare-1',
+    });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['admin'],
-        'org-insights-cloudflare-1',
-        'user-insights-cloudflare-1',
-      ),
+      auth: makeConsoleAuthAdapter(['admin'], orgId, 'user-insights-cloudflare-1'),
       wallets,
       apiKeys,
+      orgProjectEnv,
     });
 
     const createdExportKey = await callCf(handler, {
@@ -4065,7 +7063,7 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/api-keys',
       body: {
         name: 'export-key-cf',
-        environmentId: 'prod',
+        environmentId,
         scopes: ['wallets:read', 'keys:export'],
       },
     });
@@ -4076,7 +7074,7 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/api-keys',
       body: {
         name: 'non-export-key-cf',
-        environmentId: 'staging',
+        environmentId,
         scopes: ['wallets:read'],
       },
     });
@@ -4087,7 +7085,9 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/policy/coverage',
     });
     expect(coverage.status).toBe(200);
-    expect(Number(getPath(coverage.json, 'coverage', 'totals', 'walletCount') || 0)).toBeGreaterThanOrEqual(1);
+    expect(
+      Number(getPath(coverage.json, 'coverage', 'totals', 'walletCount') || 0),
+    ).toBeGreaterThanOrEqual(1);
     const policyRows: unknown[] = Array.isArray(getPath(coverage.json, 'coverage', 'policies'))
       ? (getPath(coverage.json, 'coverage', 'policies') as unknown[])
       : [];
@@ -4098,7 +7098,9 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/gas/readiness',
     });
     expect(readiness.status).toBe(200);
-    expect(Number(getPath(readiness.json, 'readiness', 'totals', 'walletCount') || 0)).toBeGreaterThanOrEqual(1);
+    expect(
+      Number(getPath(readiness.json, 'readiness', 'totals', 'walletCount') || 0),
+    ).toBeGreaterThanOrEqual(1);
     const chainRows: unknown[] = Array.isArray(getPath(readiness.json, 'readiness', 'chains'))
       ? (getPath(readiness.json, 'readiness', 'chains') as unknown[])
       : [];
@@ -4106,11 +7108,13 @@ test.describe('console router (cloudflare)', () => {
 
     const governance = await callCf(handler, {
       method: 'GET',
-      path: '/console/export/governance?environmentId=prod',
+      path: `/console/export/governance?environmentId=${encodeURIComponent(environmentId)}`,
     });
     expect(governance.status).toBe(200);
     expect(Number(getPath(governance.json, 'governance', 'totals', 'apiKeyCount') || 0)).toBe(2);
-    expect(Number(getPath(governance.json, 'governance', 'totals', 'exportScopedKeyCount') || 0)).toBe(1);
+    expect(
+      Number(getPath(governance.json, 'governance', 'totals', 'exportScopedKeyCount') || 0),
+    ).toBe(1);
     expect(
       Number(
         getPath(
@@ -4273,7 +7277,16 @@ test.describe('console router (cloudflare)', () => {
 
   test('cloudflare policy assignments support precedence and drive policy coverage', async () => {
     const policies = createInMemoryConsolePolicyService();
-    const wallets = createInMemoryConsoleWalletService();
+    const wallets = createInMemoryConsoleWalletService({
+      seedWallets: [
+        makeSeedWallet({
+          id: 'wallet_policy_assign_cloudflare_1',
+          orgId: 'org-policy-assign-cloudflare',
+          projectId: 'proj_policy_assign_cloudflare_1',
+          environmentId: 'env_policy_assign_cloudflare_1',
+        }),
+      ],
+    });
     const adminHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(
         ['admin'],
@@ -4362,7 +7375,9 @@ test.describe('console router (cloudflare)', () => {
       ? (getPath(walletCoverage.json, 'coverage', 'policies') as any[])
       : [];
     expect(
-      walletPolicyRows.some((entry) => String(entry?.policyId || '') === 'policy-wallet-cloudflare-1'),
+      walletPolicyRows.some(
+        (entry) => String(entry?.policyId || '') === 'policy-wallet-cloudflare-1',
+      ),
     ).toBe(true);
 
     const removedWalletAssignment = await callCf(adminHandler, {
@@ -4381,7 +7396,9 @@ test.describe('console router (cloudflare)', () => {
       ? (getPath(projectCoverage.json, 'coverage', 'policies') as any[])
       : [];
     expect(
-      projectPolicyRows.some((entry) => String(entry?.policyId || '') === 'policy-project-cloudflare-1'),
+      projectPolicyRows.some(
+        (entry) => String(entry?.policyId || '') === 'policy-project-cloudflare-1',
+      ),
     ).toBe(true);
 
     const developerHandler = createCloudflareConsoleRouter({
@@ -4408,9 +7425,18 @@ test.describe('console router (cloudflare)', () => {
 
   test('cloudflare API key lifecycle works and secrets are reveal-once on create/rotate', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const environmentId = 'org-1:default-project:prod';
+    await seedOrgProjectEnvironment(orgProjectEnv, {
+      orgId: 'org-1',
+      projectId: 'default-project',
+      actorUserId: 'user-1',
+    });
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
       apiKeys,
+      orgProjectEnv,
     });
 
     const created = await callCf(handler, {
@@ -4418,9 +7444,10 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/api-keys',
       body: {
         name: 'cloudflare-key',
-        environmentId: 'prod',
+        environmentId,
         scopes: ['wallets:read'],
         ipAllowlist: ['198.51.100.5/32'],
+        expiresAt,
       },
     });
     expect(created.status).toBe(201);
@@ -4429,6 +7456,7 @@ test.describe('console router (cloudflare)', () => {
     expect(keyId).toBeTruthy();
     expect(createdSecret).toContain('tsk_');
     expect(Number(getPath(created.json, 'apiKey', 'secretVersion') || 0)).toBe(1);
+    expect(String(getPath(created.json, 'apiKey', 'expiresAt') || '')).toBe(expiresAt);
 
     const listed = await callCf(handler, {
       method: 'GET',
@@ -4454,10 +7482,14 @@ test.describe('console router (cloudflare)', () => {
     const revoked = await callCf(handler, {
       method: 'DELETE',
       path: `/console/api-keys/${encodeURIComponent(keyId)}`,
+      body: {
+        reason: 'security incident',
+      },
     });
     expect(revoked.status).toBe(200);
     expect(getPath(revoked.json, 'revoked')).toBe(true);
     expect(getPath(revoked.json, 'apiKey', 'status')).toBe('REVOKED');
+    expect(getPath(revoked.json, 'apiKey', 'revokedReason')).toBe('security incident');
 
     const rotateRevoked = await callCf(handler, {
       method: 'POST',
@@ -4465,6 +7497,108 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(rotateRevoked.status).toBe(409);
     expect(rotateRevoked.json?.code).toBe('api_key_revoked');
+  });
+
+  test('cloudflare API key create validates environment scope against caller org', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-api-key-env-validation-cf',
+        'user-api-key-admin-cf',
+      ),
+      apiKeys,
+      orgProjectEnv,
+    });
+
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/api-keys',
+      body: {
+        name: 'invalid-environment-key-cf',
+        environmentId: 'env-missing',
+        scopes: ['accounts.create'],
+      },
+    });
+    expect(created.status).toBe(400);
+    expect(created.json?.code).toBe('invalid_environment');
+  });
+
+  test('cloudflare API key create rejects non-future expiresAt timestamp', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-api-key-expiry-validation-cf',
+        'user-api-key-admin-cf',
+      ),
+      apiKeys,
+      orgProjectEnv,
+    });
+
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/api-keys',
+      body: {
+        name: 'invalid-expiry-key-cf',
+        environmentId: 'org-api-key-expiry-validation-cf:default-project:prod',
+        scopes: ['accounts.create'],
+        expiresAt: '2000-01-01T00:00:00.000Z',
+      },
+    });
+    expect(created.status).toBe(400);
+    expect(created.json?.code).toBe('invalid_body');
+  });
+
+  test('cloudflare API key mutation routes require owner/admin/security_admin role', async () => {
+    const orgId = 'org-api-key-rbac-cf';
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const created = await apiKeys.createApiKey(
+      { orgId, actorUserId: 'seed-admin-cf', roles: ['admin'] },
+      {
+        name: 'seed-key-cf',
+        environmentId: 'env-rbac-cf',
+        scopes: ['accounts.create'],
+      },
+    );
+
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['developer'], orgId, 'user-api-key-developer-cf'),
+      apiKeys,
+      orgProjectEnv,
+    });
+
+    const forbiddenCreate = await callCf(handler, {
+      method: 'POST',
+      path: '/console/api-keys',
+      body: {
+        name: 'developer-create-key-cf',
+        environmentId: 'env-rbac-cf',
+        scopes: ['accounts.create'],
+      },
+    });
+    expect(forbiddenCreate.status).toBe(403);
+    expect(forbiddenCreate.json?.code).toBe('forbidden');
+
+    const forbiddenRotate = await callCf(handler, {
+      method: 'POST',
+      path: `/console/api-keys/${encodeURIComponent(created.apiKey.id)}/rotate`,
+      body: {
+        reason: 'developer rotate',
+      },
+    });
+    expect(forbiddenRotate.status).toBe(403);
+    expect(forbiddenRotate.json?.code).toBe('forbidden');
+
+    const forbiddenDelete = await callCf(handler, {
+      method: 'DELETE',
+      path: `/console/api-keys/${encodeURIComponent(created.apiKey.id)}`,
+    });
+    expect(forbiddenDelete.status).toBe(403);
+    expect(forbiddenDelete.json?.code).toBe('forbidden');
   });
 
   test('cloudflare webhook routes support delivery attempts, dead letters, and replay', async () => {
@@ -4721,24 +7855,21 @@ test.describe('console router (cloudflare)', () => {
     expect(res.json?.code).toBe('forbidden');
   });
 
-  test(
-    'POST /console/billing/stripe/checkout-session returns billing_not_configured without billing service',
-    async () => {
-      const handler = createCloudflareConsoleRouter({
-        auth: makeConsoleAuthAdapter(['admin']),
-      });
-      const res = await callCf(handler, {
-        method: 'POST',
-        path: '/console/billing/stripe/checkout-session',
-        body: {
-          successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
-          cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
-        },
-      });
-      expect(res.status).toBe(501);
-      expect(res.json?.code).toBe('billing_not_configured');
-    },
-  );
+  test('POST /console/billing/stripe/checkout-session returns billing_not_configured without billing service', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/checkout-session',
+      body: {
+        successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
+        cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+      },
+    });
+    expect(res.status).toBe(501);
+    expect(res.json?.code).toBe('billing_not_configured');
+  });
 
   test('POST /console/billing/stripe/checkout-session creates checkout session', async () => {
     const handler = createCloudflareConsoleRouter({
@@ -4776,23 +7907,20 @@ test.describe('console router (cloudflare)', () => {
     expect(invalid.json?.code).toBe('invalid_body');
   });
 
-  test(
-    'POST /console/billing/stripe/customer-portal-session returns billing_not_configured without billing service',
-    async () => {
-      const handler = createCloudflareConsoleRouter({
-        auth: makeConsoleAuthAdapter(['admin']),
-      });
-      const res = await callCf(handler, {
-        method: 'POST',
-        path: '/console/billing/stripe/customer-portal-session',
-        body: {
-          returnUrl: 'https://app.example.com/dashboard/billing',
-        },
-      });
-      expect(res.status).toBe(501);
-      expect(res.json?.code).toBe('billing_not_configured');
-    },
-  );
+  test('POST /console/billing/stripe/customer-portal-session returns billing_not_configured without billing service', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+    });
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/customer-portal-session',
+      body: {
+        returnUrl: 'https://app.example.com/dashboard/billing',
+      },
+    });
+    expect(res.status).toBe(501);
+    expect(res.json?.code).toBe('billing_not_configured');
+  });
 
   test('POST /console/billing/stripe/customer-portal-session creates portal session', async () => {
     const handler = createCloudflareConsoleRouter({
@@ -5703,7 +8831,7 @@ test.describe('console router (postgres org-project-env)', () => {
     const ownerOrgId = `${authOrgId}:owner`;
     const attackerOrgId = `${authOrgId}:attacker`;
     const ownerManagedProjectId = `${ownerOrgId}:managed-project`;
-    const ownerManagedEnvironmentId = `${ownerOrgId}:managed-env`;
+    const ownerManagedEnvironmentId = `${ownerOrgId}:${ownerManagedProjectId}:dev`;
 
     const ownerRouter = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-org-project-env-user'),
@@ -5718,9 +8846,9 @@ test.describe('console router (postgres org-project-env)', () => {
       expect(projects.status).toBe(200);
       ownerProjectId = String(getPath(projects.json, 'projects', 0, 'id') || '');
       expect(ownerProjectId).toBeTruthy();
-      expect(Number(getPath(projects.json, 'projects', 0, 'environmentCount') || 0)).toBeGreaterThanOrEqual(
-        1,
-      );
+      expect(
+        Number(getPath(projects.json, 'projects', 0, 'environmentCount') || 0),
+      ).toBeGreaterThanOrEqual(1);
 
       const createdProject = await fetchJson(`${ownerServer.baseUrl}/console/projects`, {
         method: 'POST',
@@ -5731,18 +8859,7 @@ test.describe('console router (postgres org-project-env)', () => {
         }),
       });
       expect(createdProject.status).toBe(201);
-      expect(Number(getPath(createdProject.json, 'project', 'environmentCount') || 0)).toBe(0);
-
-      const createdEnvironment = await fetchJson(`${ownerServer.baseUrl}/console/environments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: ownerManagedEnvironmentId,
-          projectId: ownerManagedProjectId,
-          key: 'staging',
-        }),
-      });
-      expect(createdEnvironment.status).toBe(201);
+      expect(Number(getPath(createdProject.json, 'project', 'environmentCount') || 0)).toBe(3);
 
       const environments = await fetchJson(
         `${ownerServer.baseUrl}/console/environments?projectId=${encodeURIComponent(ownerProjectId)}`,
@@ -5774,7 +8891,9 @@ test.describe('console router (postgres org-project-env)', () => {
         method: 'GET',
       });
       expect(projects.status).toBe(200);
-      const attackerProjects = Array.isArray(projects.json?.projects) ? projects.json?.projects : [];
+      const attackerProjects = Array.isArray(projects.json?.projects)
+        ? projects.json?.projects
+        : [];
       expect(
         attackerProjects.some((entry: any) => String(entry?.id || '') === ownerProjectId),
       ).toBe(false);
@@ -5823,7 +8942,7 @@ test.describe('console router (postgres org-project-env)', () => {
     const ownerOrgId = `${authOrgId}:owner-cf`;
     const attackerOrgId = `${authOrgId}:attacker-cf`;
     const ownerManagedProjectId = `${ownerOrgId}:managed-project`;
-    const ownerManagedEnvironmentId = `${ownerOrgId}:managed-env`;
+    const ownerManagedEnvironmentId = `${ownerOrgId}:${ownerManagedProjectId}:dev`;
 
     const ownerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-org-project-env-user-cf'),
@@ -5836,9 +8955,9 @@ test.describe('console router (postgres org-project-env)', () => {
     expect(ownerProjects.status).toBe(200);
     const ownerProjectId = String(getPath(ownerProjects.json, 'projects', 0, 'id') || '');
     expect(ownerProjectId).toBeTruthy();
-    expect(Number(getPath(ownerProjects.json, 'projects', 0, 'environmentCount') || 0)).toBeGreaterThanOrEqual(
-      1,
-    );
+    expect(
+      Number(getPath(ownerProjects.json, 'projects', 0, 'environmentCount') || 0),
+    ).toBeGreaterThanOrEqual(1);
 
     const ownerCreatedProject = await callCf(ownerHandler, {
       method: 'POST',
@@ -5849,18 +8968,7 @@ test.describe('console router (postgres org-project-env)', () => {
       },
     });
     expect(ownerCreatedProject.status).toBe(201);
-    expect(Number(getPath(ownerCreatedProject.json, 'project', 'environmentCount') || 0)).toBe(0);
-
-    const ownerCreatedEnvironment = await callCf(ownerHandler, {
-      method: 'POST',
-      path: '/console/environments',
-      body: {
-        id: ownerManagedEnvironmentId,
-        projectId: ownerManagedProjectId,
-        key: 'staging',
-      },
-    });
-    expect(ownerCreatedEnvironment.status).toBe(201);
+    expect(Number(getPath(ownerCreatedProject.json, 'project', 'environmentCount') || 0)).toBe(3);
 
     const ownerEnvironments = await callCf(ownerHandler, {
       method: 'GET',
@@ -5890,9 +8998,9 @@ test.describe('console router (postgres org-project-env)', () => {
     });
     expect(projects.status).toBe(200);
     const attackerProjects = Array.isArray(projects.json?.projects) ? projects.json?.projects : [];
-    expect(
-      attackerProjects.some((entry: any) => String(entry?.id || '') === ownerProjectId),
-    ).toBe(false);
+    expect(attackerProjects.some((entry: any) => String(entry?.id || '') === ownerProjectId)).toBe(
+      false,
+    );
     expect(
       attackerProjects.some((entry: any) => String(entry?.id || '') === ownerManagedProjectId),
     ).toBe(false);
@@ -5921,6 +9029,566 @@ test.describe('console router (postgres org-project-env)', () => {
     });
     expect(archiveOwnerEnvironment.status).toBe(404);
     expect(archiveOwnerEnvironment.json?.code).toBe('environment_not_found');
+  });
+});
+
+test.describe('console router (postgres onboarding)', () => {
+  const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
+  const enabled = Boolean(postgresUrl);
+  const namespace = randomNamespace('test:console-router:onboarding:postgres');
+  const authOrgId = 'org-router-postgres-onboarding';
+  let orgProjectEnv: ConsoleOrgProjectEnvService | null = null;
+  let apiKeys: ConsoleApiKeyService | null = null;
+
+  test.beforeAll(async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    orgProjectEnv = await createPostgresConsoleOrgProjectEnvService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+    apiKeys = await createPostgresConsoleApiKeyService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+  });
+
+  test.afterAll(async () => {
+    if (!enabled) return;
+    const pool = await getPostgresPool(postgresUrl);
+    await pool.query('DELETE FROM console_api_keys WHERE namespace = $1', [namespace]);
+    await pool.query('DELETE FROM console_environments WHERE namespace = $1', [namespace]);
+    await pool.query('DELETE FROM console_projects WHERE namespace = $1', [namespace]);
+    await pool.query('DELETE FROM console_organizations WHERE namespace = $1', [namespace]);
+  });
+
+  test('express onboarding routes enforce org isolation and idempotent reuse', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner`;
+    const attackerOrgId = `${authOrgId}:attacker`;
+    const projectId = 'proj_onboarding_postgres';
+    const environmentId = 'proj_onboarding_postgres:dev';
+    const billing = createInMemoryConsoleBillingService();
+
+    const onboarding = createInMemoryConsoleOnboardingService({
+      orgProjectEnv: orgProjectEnv!,
+      apiKeys: apiKeys!,
+      billing,
+    });
+
+    const ownerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-onboarding-user'),
+      onboarding,
+      billing,
+    });
+    const ownerServer = await startExpressRouter(ownerRouter);
+    try {
+      const before = await fetchJson(`${ownerServer.baseUrl}/console/onboarding/state`, {
+        method: 'GET',
+      });
+      expect(before.status).toBe(200);
+      expect(getPath(before.json, 'state', 'complete')).toBe(false);
+
+      const organization = await fetchJson(
+        `${ownerServer.baseUrl}/console/onboarding/organization`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            org: { name: 'Onboarding Postgres Org', slug: 'onboarding-postgres-org' },
+          }),
+        },
+      );
+      expect(organization.status).toBe(201);
+      expect(getPath(organization.json, 'result', 'created', 'organization')).toBe(true);
+
+      const firstProject = await fetchJson(`${ownerServer.baseUrl}/console/onboarding/project`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project: { id: projectId, name: 'Onboarding Postgres Project' },
+          environment: { id: environmentId, name: 'Development' },
+        }),
+      });
+      expect(firstProject.status).toBe(201);
+      expect(getPath(firstProject.json, 'result', 'created', 'project')).toBe(true);
+      expect(getPath(firstProject.json, 'result', 'created', 'environment')).toBe(false);
+
+      const secondProject = await fetchJson(`${ownerServer.baseUrl}/console/onboarding/project`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project: { id: projectId, name: 'Onboarding Postgres Project' },
+          environment: { id: environmentId, name: 'Development' },
+        }),
+      });
+      expect(secondProject.status).toBe(200);
+      expect(getPath(secondProject.json, 'result', 'created', 'project')).toBe(false);
+      expect(getPath(secondProject.json, 'result', 'created', 'environment')).toBe(false);
+
+      const after = await fetchJson(`${ownerServer.baseUrl}/console/onboarding/state`, {
+        method: 'GET',
+      });
+      expect(after.status).toBe(200);
+      expect(getPath(after.json, 'state', 'complete')).toBe(false);
+      expect(getPath(after.json, 'state', 'onboardingComplete')).toBe(true);
+      expect(Number(getPath(after.json, 'state', 'activeApiKeyCount') || 0)).toBe(0);
+    } finally {
+      await ownerServer.close();
+    }
+
+    const attackerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-onboarding-user'),
+      onboarding,
+      billing,
+    });
+    const attackerServer = await startExpressRouter(attackerRouter);
+    try {
+      const attackerState = await fetchJson(`${attackerServer.baseUrl}/console/onboarding/state`, {
+        method: 'GET',
+      });
+      expect(attackerState.status).toBe(200);
+      expect(getPath(attackerState.json, 'state', 'complete')).toBe(false);
+      expect(Number(getPath(attackerState.json, 'state', 'activeApiKeyCount') || 0)).toBe(0);
+      expect(String(getPath(attackerState.json, 'state', 'selectedProjectId') || '')).not.toBe(
+        projectId,
+      );
+    } finally {
+      await attackerServer.close();
+    }
+  });
+
+  test('cloudflare onboarding routes enforce org isolation and idempotent reuse', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner-cf`;
+    const attackerOrgId = `${authOrgId}:attacker-cf`;
+    const projectId = 'proj_onboarding_postgres_cf';
+    const environmentId = 'proj_onboarding_postgres_cf:dev';
+    const billing = createInMemoryConsoleBillingService();
+
+    const onboarding = createInMemoryConsoleOnboardingService({
+      orgProjectEnv: orgProjectEnv!,
+      apiKeys: apiKeys!,
+      billing,
+    });
+
+    const ownerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-onboarding-user-cf'),
+      onboarding,
+      billing,
+    });
+
+    const before = await callCf(ownerHandler, {
+      method: 'GET',
+      path: '/console/onboarding/state',
+    });
+    expect(before.status).toBe(200);
+    expect(getPath(before.json, 'state', 'complete')).toBe(false);
+
+    const organization = await callCf(ownerHandler, {
+      method: 'POST',
+      path: '/console/onboarding/organization',
+      body: {
+        org: { name: 'Onboarding Postgres Org CF', slug: 'onboarding-postgres-org-cf' },
+      },
+    });
+    expect(organization.status).toBe(201);
+    expect(getPath(organization.json, 'result', 'created', 'organization')).toBe(true);
+
+    const firstProject = await callCf(ownerHandler, {
+      method: 'POST',
+      path: '/console/onboarding/project',
+      body: {
+        project: { id: projectId, name: 'Onboarding Postgres Project CF' },
+        environment: { id: environmentId, name: 'Development' },
+      },
+    });
+    expect(firstProject.status).toBe(201);
+    expect(getPath(firstProject.json, 'result', 'created', 'project')).toBe(true);
+    expect(getPath(firstProject.json, 'result', 'created', 'environment')).toBe(false);
+
+    const secondProject = await callCf(ownerHandler, {
+      method: 'POST',
+      path: '/console/onboarding/project',
+      body: {
+        project: { id: projectId, name: 'Onboarding Postgres Project CF' },
+        environment: { id: environmentId, name: 'Development' },
+      },
+    });
+    expect(secondProject.status).toBe(200);
+    expect(getPath(secondProject.json, 'result', 'created', 'project')).toBe(false);
+    expect(getPath(secondProject.json, 'result', 'created', 'environment')).toBe(false);
+
+    const attackerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-onboarding-user-cf'),
+      onboarding,
+      billing,
+    });
+    const attackerState = await callCf(attackerHandler, {
+      method: 'GET',
+      path: '/console/onboarding/state',
+    });
+    expect(attackerState.status).toBe(200);
+    expect(getPath(attackerState.json, 'state', 'complete')).toBe(false);
+    expect(getPath(attackerState.json, 'state', 'onboardingComplete')).toBe(false);
+    expect(Number(getPath(attackerState.json, 'state', 'activeApiKeyCount') || 0)).toBe(0);
+    expect(String(getPath(attackerState.json, 'state', 'selectedProjectId') || '')).not.toBe(
+      projectId,
+    );
+  });
+});
+
+test.describe('console router (postgres team-rbac)', () => {
+  const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
+  const enabled = Boolean(postgresUrl);
+  const namespace = randomNamespace('test:console-router:team-rbac:postgres');
+  const authOrgId = 'org-router-postgres-team-rbac';
+  let teamRbac: ConsoleTeamRbacService | null = null;
+
+  test.beforeAll(async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    teamRbac = await createPostgresConsoleTeamRbacService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+  });
+
+  test.afterAll(async () => {
+    if (!enabled) return;
+    const pool = await getPostgresPool(postgresUrl);
+    await pool.query('DELETE FROM console_team_members WHERE namespace = $1', [namespace]);
+  });
+
+  test('express team member routes enforce org isolation', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner`;
+    const attackerOrgId = `${authOrgId}:attacker`;
+    let ownerMemberId = '';
+
+    const ownerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-team-rbac-user'),
+      teamRbac: teamRbac!,
+    });
+    const ownerServer = await startExpressRouter(ownerRouter);
+    try {
+      const invited = await fetchJson(`${ownerServer.baseUrl}/console/members/invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: `${ownerOrgId}:member-user-1`,
+          email: 'owner-member@example.com',
+          roles: [{ role: 'wallet_operations_read' }],
+        }),
+      });
+      expect(invited.status).toBe(201);
+      ownerMemberId = String(getPath(invited.json, 'member', 'id') || '');
+      expect(ownerMemberId).toContain('mbr_');
+
+      const listed = await fetchJson(`${ownerServer.baseUrl}/console/members`, {
+        method: 'GET',
+      });
+      expect(listed.status).toBe(200);
+      const ownerMembers = Array.isArray(listed.json?.members) ? listed.json?.members : [];
+      expect(ownerMembers.some((entry: any) => String(entry?.id || '') === ownerMemberId)).toBe(
+        true,
+      );
+    } finally {
+      await ownerServer.close();
+    }
+
+    const attackerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-team-rbac-user'),
+      teamRbac: teamRbac!,
+    });
+    const attackerServer = await startExpressRouter(attackerRouter);
+    try {
+      const listed = await fetchJson(`${attackerServer.baseUrl}/console/members`, {
+        method: 'GET',
+      });
+      expect(listed.status).toBe(200);
+      const attackerMembers = Array.isArray(listed.json?.members) ? listed.json?.members : [];
+      expect(attackerMembers.some((entry: any) => String(entry?.id || '') === ownerMemberId)).toBe(
+        false,
+      );
+
+      const patchOwnerMember = await fetchJson(
+        `${attackerServer.baseUrl}/console/members/${encodeURIComponent(ownerMemberId)}/roles`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roles: [{ role: 'integrations_read' }],
+          }),
+        },
+      );
+      expect(patchOwnerMember.status).toBe(404);
+      expect(patchOwnerMember.json?.code).toBe('member_not_found');
+
+      const deleteOwnerMember = await fetchJson(
+        `${attackerServer.baseUrl}/console/members/${encodeURIComponent(ownerMemberId)}`,
+        { method: 'DELETE' },
+      );
+      expect(deleteOwnerMember.status).toBe(404);
+      expect(deleteOwnerMember.json?.code).toBe('member_not_found');
+    } finally {
+      await attackerServer.close();
+    }
+  });
+
+  test('cloudflare team member routes enforce org isolation', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner-cf`;
+    const attackerOrgId = `${authOrgId}:attacker-cf`;
+    let ownerMemberId = '';
+
+    const ownerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-team-rbac-user-cf'),
+      teamRbac: teamRbac!,
+    });
+    const ownerInvite = await callCf(ownerHandler, {
+      method: 'POST',
+      path: '/console/members/invite',
+      body: {
+        userId: `${ownerOrgId}:member-user-1`,
+        email: 'owner-member-cf@example.com',
+        roles: [{ role: 'wallet_operations_read' }],
+      },
+    });
+    expect(ownerInvite.status).toBe(201);
+    ownerMemberId = String(getPath(ownerInvite.json, 'member', 'id') || '');
+    expect(ownerMemberId).toContain('mbr_');
+
+    const ownerMembers = await callCf(ownerHandler, {
+      method: 'GET',
+      path: '/console/members',
+    });
+    expect(ownerMembers.status).toBe(200);
+    const ownerRows = Array.isArray(ownerMembers.json?.members) ? ownerMembers.json?.members : [];
+    expect(ownerRows.some((entry: any) => String(entry?.id || '') === ownerMemberId)).toBe(true);
+
+    const attackerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-team-rbac-user-cf'),
+      teamRbac: teamRbac!,
+    });
+    const attackerMembers = await callCf(attackerHandler, {
+      method: 'GET',
+      path: '/console/members',
+    });
+    expect(attackerMembers.status).toBe(200);
+    const attackerRows = Array.isArray(attackerMembers.json?.members)
+      ? attackerMembers.json?.members
+      : [];
+    expect(attackerRows.some((entry: any) => String(entry?.id || '') === ownerMemberId)).toBe(
+      false,
+    );
+
+    const patchOwnerMember = await callCf(attackerHandler, {
+      method: 'PATCH',
+      path: `/console/members/${encodeURIComponent(ownerMemberId)}/roles`,
+      body: {
+        roles: [{ role: 'integrations_read' }],
+      },
+    });
+    expect(patchOwnerMember.status).toBe(404);
+    expect(patchOwnerMember.json?.code).toBe('member_not_found');
+
+    const deleteOwnerMember = await callCf(attackerHandler, {
+      method: 'DELETE',
+      path: `/console/members/${encodeURIComponent(ownerMemberId)}`,
+    });
+    expect(deleteOwnerMember.status).toBe(404);
+    expect(deleteOwnerMember.json?.code).toBe('member_not_found');
+  });
+});
+
+test.describe('console router (postgres approvals)', () => {
+  const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
+  const enabled = Boolean(postgresUrl);
+  const namespace = randomNamespace('test:console-router:approvals:postgres');
+  const authOrgId = 'org-router-postgres-approvals';
+  let approvals: ConsoleApprovalService | null = null;
+
+  test.beforeAll(async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    approvals = await createPostgresConsoleApprovalService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+  });
+
+  test.afterAll(async () => {
+    if (!enabled) return;
+    const pool = await getPostgresPool(postgresUrl);
+    await pool.query('DELETE FROM console_approvals WHERE namespace = $1', [namespace]);
+  });
+
+  test('express approval routes enforce org isolation', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner`;
+    const attackerOrgId = `${authOrgId}:attacker`;
+    const ownerApprovalId = `${ownerOrgId}:approval-1`;
+
+    const ownerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-approvals-user'),
+      approvals: approvals!,
+    });
+    const ownerServer = await startExpressRouter(ownerRouter);
+    try {
+      const created = await fetchJson(`${ownerServer.baseUrl}/console/approvals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: ownerApprovalId,
+          operationType: 'KEY_EXPORT',
+          reason: 'Owner approval request',
+        }),
+      });
+      expect(created.status).toBe(201);
+
+      const listed = await fetchJson(`${ownerServer.baseUrl}/console/approvals`, {
+        method: 'GET',
+      });
+      expect(listed.status).toBe(200);
+      const ownerRows = Array.isArray(listed.json?.approvals) ? listed.json?.approvals : [];
+      expect(ownerRows.some((entry: any) => String(entry?.id || '') === ownerApprovalId)).toBe(
+        true,
+      );
+    } finally {
+      await ownerServer.close();
+    }
+
+    const attackerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-approvals-user'),
+      approvals: approvals!,
+    });
+    const attackerServer = await startExpressRouter(attackerRouter);
+    try {
+      const listed = await fetchJson(`${attackerServer.baseUrl}/console/approvals`, {
+        method: 'GET',
+      });
+      expect(listed.status).toBe(200);
+      const attackerRows = Array.isArray(listed.json?.approvals) ? listed.json?.approvals : [];
+      expect(attackerRows.some((entry: any) => String(entry?.id || '') === ownerApprovalId)).toBe(
+        false,
+      );
+
+      const readOwner = await fetchJson(
+        `${attackerServer.baseUrl}/console/approvals/${encodeURIComponent(ownerApprovalId)}`,
+        { method: 'GET' },
+      );
+      expect(readOwner.status).toBe(404);
+      expect(readOwner.json?.code).toBe('approval_not_found');
+
+      const approveOwner = await fetchJson(
+        `${attackerServer.baseUrl}/console/approvals/${encodeURIComponent(ownerApprovalId)}/approve`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: 'attacker approval attempt',
+            mfaVerified: true,
+          }),
+        },
+      );
+      expect(approveOwner.status).toBe(404);
+      expect(approveOwner.json?.code).toBe('approval_not_found');
+
+      const rejectOwner = await fetchJson(
+        `${attackerServer.baseUrl}/console/approvals/${encodeURIComponent(ownerApprovalId)}/reject`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: 'attacker reject attempt',
+          }),
+        },
+      );
+      expect(rejectOwner.status).toBe(404);
+      expect(rejectOwner.json?.code).toBe('approval_not_found');
+    } finally {
+      await attackerServer.close();
+    }
+  });
+
+  test('cloudflare approval routes enforce org isolation', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner-cf`;
+    const attackerOrgId = `${authOrgId}:attacker-cf`;
+    const ownerApprovalId = `${ownerOrgId}:approval-1`;
+
+    const ownerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-approvals-user-cf'),
+      approvals: approvals!,
+    });
+    const ownerCreate = await callCf(ownerHandler, {
+      method: 'POST',
+      path: '/console/approvals',
+      body: {
+        id: ownerApprovalId,
+        operationType: 'KEY_EXPORT',
+        reason: 'Owner approval request CF',
+      },
+    });
+    expect(ownerCreate.status).toBe(201);
+
+    const ownerList = await callCf(ownerHandler, {
+      method: 'GET',
+      path: '/console/approvals',
+    });
+    expect(ownerList.status).toBe(200);
+    const ownerRows = Array.isArray(ownerList.json?.approvals) ? ownerList.json?.approvals : [];
+    expect(ownerRows.some((entry: any) => String(entry?.id || '') === ownerApprovalId)).toBe(true);
+
+    const attackerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-approvals-user-cf'),
+      approvals: approvals!,
+    });
+    const attackerList = await callCf(attackerHandler, {
+      method: 'GET',
+      path: '/console/approvals',
+    });
+    expect(attackerList.status).toBe(200);
+    const attackerRows = Array.isArray(attackerList.json?.approvals)
+      ? attackerList.json?.approvals
+      : [];
+    expect(attackerRows.some((entry: any) => String(entry?.id || '') === ownerApprovalId)).toBe(
+      false,
+    );
+
+    const readOwner = await callCf(attackerHandler, {
+      method: 'GET',
+      path: `/console/approvals/${encodeURIComponent(ownerApprovalId)}`,
+    });
+    expect(readOwner.status).toBe(404);
+    expect(readOwner.json?.code).toBe('approval_not_found');
+
+    const approveOwner = await callCf(attackerHandler, {
+      method: 'POST',
+      path: `/console/approvals/${encodeURIComponent(ownerApprovalId)}/approve`,
+      body: {
+        reason: 'attacker approval attempt',
+        mfaVerified: true,
+      },
+    });
+    expect(approveOwner.status).toBe(404);
+    expect(approveOwner.json?.code).toBe('approval_not_found');
+
+    const rejectOwner = await callCf(attackerHandler, {
+      method: 'POST',
+      path: `/console/approvals/${encodeURIComponent(ownerApprovalId)}/reject`,
+      body: {
+        reason: 'attacker reject attempt',
+      },
+    });
+    expect(rejectOwner.status).toBe(404);
+    expect(rejectOwner.json?.code).toBe('approval_not_found');
   });
 });
 
@@ -6050,7 +9718,9 @@ test.describe('console router (postgres wallets)', () => {
     let ownerProjectId = '';
     let ownerEnvironmentId = '';
     try {
-      const ownerList = await fetchJson(`${ownerServer.baseUrl}/console/wallets`, { method: 'GET' });
+      const ownerList = await fetchJson(`${ownerServer.baseUrl}/console/wallets`, {
+        method: 'GET',
+      });
       expect(ownerList.status).toBe(200);
       ownerProjectId = String(getPath(ownerList.json, 'wallets', 0, 'projectId') || '');
       ownerEnvironmentId = String(getPath(ownerList.json, 'wallets', 0, 'environmentId') || '');
@@ -6108,9 +9778,7 @@ test.describe('console router (postgres wallets)', () => {
     });
     expect(ownerList.status).toBe(200);
     const ownerProjectId = String(getPath(ownerList.json, 'wallets', 0, 'projectId') || '');
-    const ownerEnvironmentId = String(
-      getPath(ownerList.json, 'wallets', 0, 'environmentId') || '',
-    );
+    const ownerEnvironmentId = String(getPath(ownerList.json, 'wallets', 0, 'environmentId') || '');
     expect(ownerProjectId).toBeTruthy();
     expect(ownerEnvironmentId).toBeTruthy();
 
@@ -6119,7 +9787,9 @@ test.describe('console router (postgres wallets)', () => {
       path: `/console/policy/coverage?projectId=${encodeURIComponent(ownerProjectId)}&environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
     });
     expect(ownerCoverage.status).toBe(200);
-    expect(Number(getPath(ownerCoverage.json, 'coverage', 'totals', 'walletCount') || 0)).toBeGreaterThanOrEqual(1);
+    expect(
+      Number(getPath(ownerCoverage.json, 'coverage', 'totals', 'walletCount') || 0),
+    ).toBeGreaterThanOrEqual(1);
 
     const attackerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-wallet-insights-user-cf'),
@@ -6130,14 +9800,18 @@ test.describe('console router (postgres wallets)', () => {
       path: `/console/policy/coverage?projectId=${encodeURIComponent(ownerProjectId)}&environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
     });
     expect(attackerCoverage.status).toBe(200);
-    expect(Number(getPath(attackerCoverage.json, 'coverage', 'totals', 'walletCount') || 0)).toBe(0);
+    expect(Number(getPath(attackerCoverage.json, 'coverage', 'totals', 'walletCount') || 0)).toBe(
+      0,
+    );
 
     const attackerReadiness = await callCf(attackerHandler, {
       method: 'GET',
       path: `/console/gas/readiness?projectId=${encodeURIComponent(ownerProjectId)}&environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
     });
     expect(attackerReadiness.status).toBe(200);
-    expect(Number(getPath(attackerReadiness.json, 'readiness', 'totals', 'walletCount') || 0)).toBe(0);
+    expect(Number(getPath(attackerReadiness.json, 'readiness', 'totals', 'walletCount') || 0)).toBe(
+      0,
+    );
   });
 });
 
@@ -6200,7 +9874,9 @@ test.describe('console router (postgres policies)', () => {
       const listed = await fetchJson(`${ownerServer.baseUrl}/console/policies`, { method: 'GET' });
       expect(listed.status).toBe(200);
       const ownerPolicies = Array.isArray(listed.json?.policies) ? listed.json?.policies : [];
-      expect(ownerPolicies.some((entry: any) => String(entry?.id || '') === ownerPolicyId)).toBe(true);
+      expect(ownerPolicies.some((entry: any) => String(entry?.id || '') === ownerPolicyId)).toBe(
+        true,
+      );
 
       const upsertedAssignment = await fetchJson(
         `${ownerServer.baseUrl}/console/policies/assignments`,
@@ -6227,7 +9903,9 @@ test.describe('console router (postgres policies)', () => {
     });
     const attackerServer = await startExpressRouter(attackerRouter);
     try {
-      const listed = await fetchJson(`${attackerServer.baseUrl}/console/policies`, { method: 'GET' });
+      const listed = await fetchJson(`${attackerServer.baseUrl}/console/policies`, {
+        method: 'GET',
+      });
       expect(listed.status).toBe(200);
       const attackerPolicies = Array.isArray(listed.json?.policies) ? listed.json?.policies : [];
       expect(attackerPolicies.some((entry: any) => String(entry?.id || '') === ownerPolicyId)).toBe(
@@ -6390,9 +10068,16 @@ test.describe('console router (postgres api keys)', () => {
   const namespace = randomNamespace('test:console-router:api-keys:postgres');
   const authOrgId = 'org-router-postgres-api-keys';
   let apiKeys: ConsoleApiKeyService | null = null;
+  let orgProjectEnv: ConsoleOrgProjectEnvService | null = null;
 
   test.beforeAll(async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
+    orgProjectEnv = await createPostgresConsoleOrgProjectEnvService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
     apiKeys = await createPostgresConsoleApiKeyService({
       postgresUrl,
       namespace,
@@ -6405,6 +10090,9 @@ test.describe('console router (postgres api keys)', () => {
     if (!enabled) return;
     const pool = await getPostgresPool(postgresUrl);
     await pool.query('DELETE FROM console_api_keys WHERE namespace = $1', [namespace]);
+    await pool.query('DELETE FROM console_environments WHERE namespace = $1', [namespace]);
+    await pool.query('DELETE FROM console_projects WHERE namespace = $1', [namespace]);
+    await pool.query('DELETE FROM console_organizations WHERE namespace = $1', [namespace]);
   });
 
   test('express API key routes enforce org isolation', async () => {
@@ -6415,6 +10103,7 @@ test.describe('console router (postgres api keys)', () => {
     const ownerRouter = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-api-key-user'),
       apiKeys: apiKeys!,
+      orgProjectEnv: orgProjectEnv!,
     });
     const ownerServer = await startExpressRouter(ownerRouter);
     let keyId = '';
@@ -6424,7 +10113,7 @@ test.describe('console router (postgres api keys)', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: 'owner-postgres-api-key',
-          environmentId: 'prod',
+          environmentId: `${ownerOrgId}:default-project:prod`,
           scopes: ['wallets:read', 'billing:read'],
           ipAllowlist: ['203.0.113.20/32'],
         }),
@@ -6439,6 +10128,7 @@ test.describe('console router (postgres api keys)', () => {
     const attackerRouter = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-api-key-user'),
       apiKeys: apiKeys!,
+      orgProjectEnv: orgProjectEnv!,
     });
     const attackerServer = await startExpressRouter(attackerRouter);
     try {
@@ -6479,13 +10169,14 @@ test.describe('console router (postgres api keys)', () => {
     const ownerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-api-key-user-cf'),
       apiKeys: apiKeys!,
+      orgProjectEnv: orgProjectEnv!,
     });
     const created = await callCf(ownerHandler, {
       method: 'POST',
       path: '/console/api-keys',
       body: {
         name: 'owner-postgres-api-key-cf',
-        environmentId: 'prod',
+        environmentId: `${ownerOrgId}:default-project:prod`,
         scopes: ['wallets:read'],
         ipAllowlist: ['198.51.100.25/32'],
       },
@@ -6497,6 +10188,7 @@ test.describe('console router (postgres api keys)', () => {
     const attackerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-api-key-user-cf'),
       apiKeys: apiKeys!,
+      orgProjectEnv: orgProjectEnv!,
     });
     const list = await callCf(attackerHandler, {
       method: 'GET',
@@ -6524,15 +10216,60 @@ test.describe('console router (postgres api keys)', () => {
     expect(deleted.json?.code).toBe('api_key_not_found');
   });
 
+  test('postgres API key rows persist key_prefix for indexed lookup', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const orgId = `${authOrgId}:prefix`;
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], orgId, 'owner-api-key-prefix-user'),
+      apiKeys: apiKeys!,
+      orgProjectEnv: orgProjectEnv!,
+    });
+    const server = await startExpressRouter(router);
+    let keyId = '';
+    try {
+      const created = await fetchJson(`${server.baseUrl}/console/api-keys`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'prefix-check-key',
+          environmentId: `${orgId}:default-project:prod`,
+          scopes: ['accounts.create'],
+        }),
+      });
+      expect(created.status).toBe(201);
+      keyId = String(getPath(created.json, 'apiKey', 'id') || '');
+      expect(keyId).toBeTruthy();
+    } finally {
+      await server.close();
+    }
+
+    const pool = await getPostgresPool(postgresUrl);
+    const row = await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
+      const out = await q.query(
+        `SELECT key_prefix
+           FROM console_api_keys
+          WHERE namespace = $1
+            AND org_id = $2
+            AND id = $3`,
+        [namespace, orgId, keyId],
+      );
+      return (out.rows[0] as Record<string, unknown>) || null;
+    });
+    const keyPrefix = String((row || {}).key_prefix || '');
+    expect(keyPrefix.length).toBeGreaterThan(12);
+    expect(keyPrefix.startsWith('tsk_v1_')).toBe(true);
+  });
+
   test('express export governance route enforces org isolation', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerOrgId = `${authOrgId}:owner-export`;
     const attackerOrgId = `${authOrgId}:attacker-export`;
-    const ownerEnvironmentId = `${ownerOrgId}:prod`;
+    const ownerEnvironmentId = `${ownerOrgId}:default-project:prod`;
 
     const ownerRouter = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-export-user'),
       apiKeys: apiKeys!,
+      orgProjectEnv: orgProjectEnv!,
     });
     const ownerServer = await startExpressRouter(ownerRouter);
     try {
@@ -6569,6 +10306,7 @@ test.describe('console router (postgres api keys)', () => {
     const attackerRouter = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-export-user'),
       apiKeys: apiKeys!,
+      orgProjectEnv: orgProjectEnv!,
     });
     const attackerServer = await startExpressRouter(attackerRouter);
     try {
@@ -6596,11 +10334,12 @@ test.describe('console router (postgres api keys)', () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerOrgId = `${authOrgId}:owner-export-cf`;
     const attackerOrgId = `${authOrgId}:attacker-export-cf`;
-    const ownerEnvironmentId = `${ownerOrgId}:prod`;
+    const ownerEnvironmentId = `${ownerOrgId}:default-project:prod`;
 
     const ownerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-export-user-cf'),
       apiKeys: apiKeys!,
+      orgProjectEnv: orgProjectEnv!,
     });
     const created = await callCf(ownerHandler, {
       method: 'POST',
@@ -6632,6 +10371,7 @@ test.describe('console router (postgres api keys)', () => {
     const attackerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-export-user-cf'),
       apiKeys: apiKeys!,
+      orgProjectEnv: orgProjectEnv!,
     });
     const attackerGovernance = await callCf(attackerHandler, {
       method: 'GET',
@@ -6648,6 +10388,225 @@ test.describe('console router (postgres api keys)', () => {
         ) || 0,
       ),
     ).toBe(0);
+  });
+});
+
+test.describe('console router (postgres audit)', () => {
+  const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
+  const enabled = Boolean(postgresUrl);
+  const namespace = randomNamespace('test:console-router:audit:postgres');
+  const authOrgId = 'org-router-postgres-audit';
+  let audit: ConsoleAuditService | null = null;
+
+  test.beforeAll(async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    audit = await createPostgresConsoleAuditService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+  });
+
+  test.afterAll(async () => {
+    if (!enabled) return;
+    const pool = await getPostgresPool(postgresUrl);
+    const cleanupOrgIds = [
+      `${authOrgId}:owner`,
+      `${authOrgId}:attacker`,
+      `${authOrgId}:owner-cf`,
+      `${authOrgId}:attacker-cf`,
+    ];
+    for (const orgId of cleanupOrgIds) {
+      await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
+        await q.query('DELETE FROM console_audit_evidence WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_audit_events WHERE namespace = $1', [namespace]);
+      });
+    }
+  });
+
+  test('express audit routes enforce org isolation', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner`;
+    const attackerOrgId = `${authOrgId}:attacker`;
+    const ownerActorUserId = 'owner-audit-user';
+    const ownerCtx = {
+      orgId: ownerOrgId,
+      actorUserId: ownerActorUserId,
+      roles: ['admin'],
+    };
+
+    const ownerEvent = await audit!.appendEvent(ownerCtx, {
+      id: `evt_owner_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`,
+      category: 'POLICY',
+      action: 'policy.publish',
+      outcome: 'SUCCESS',
+      summary: 'Owner-only audit event',
+      metadata: { path: 'owner-only' },
+    });
+    const ownerEvidence = await audit!.appendEvidence(ownerCtx, {
+      id: `evd_owner_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`,
+      domain: 'POLICY',
+      title: 'Owner-only policy evidence',
+      summary: 'Owner evidence record',
+      eventIds: [ownerEvent.id],
+      references: [
+        {
+          kind: 'APPROVAL',
+          referenceId: 'apr_owner_policy_1',
+          label: 'Owner policy approval',
+        },
+      ],
+    });
+
+    const ownerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, ownerActorUserId),
+      audit: audit!,
+    });
+    const ownerServer = await startExpressRouter(ownerRouter);
+    try {
+      const ownerEvents = await fetchJson(
+        `${ownerServer.baseUrl}/console/audit/events?category=POLICY&actorUserId=${encodeURIComponent(ownerActorUserId)}&limit=20`,
+        { method: 'GET' },
+      );
+      expect(ownerEvents.status).toBe(200);
+      const ownerRows = Array.isArray(ownerEvents.json?.events) ? ownerEvents.json?.events : [];
+      expect(ownerRows.some((entry: any) => String(entry?.id || '') === ownerEvent.id)).toBe(true);
+
+      const ownerEvidenceRows = await fetchJson(
+        `${ownerServer.baseUrl}/console/audit/evidence?domain=POLICY&limit=20`,
+        { method: 'GET' },
+      );
+      expect(ownerEvidenceRows.status).toBe(200);
+      const evidenceRows = Array.isArray(ownerEvidenceRows.json?.evidence)
+        ? ownerEvidenceRows.json?.evidence
+        : [];
+      expect(evidenceRows.some((entry: any) => String(entry?.id || '') === ownerEvidence.id)).toBe(
+        true,
+      );
+    } finally {
+      await ownerServer.close();
+    }
+
+    const attackerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-audit-user'),
+      audit: audit!,
+    });
+    const attackerServer = await startExpressRouter(attackerRouter);
+    try {
+      const attackerEvents = await fetchJson(
+        `${attackerServer.baseUrl}/console/audit/events?category=POLICY&actorUserId=${encodeURIComponent(ownerActorUserId)}&limit=20`,
+        { method: 'GET' },
+      );
+      expect(attackerEvents.status).toBe(200);
+      const attackerRows = Array.isArray(attackerEvents.json?.events)
+        ? attackerEvents.json?.events
+        : [];
+      expect(attackerRows.some((entry: any) => String(entry?.id || '') === ownerEvent.id)).toBe(
+        false,
+      );
+
+      const attackerEvidence = await fetchJson(
+        `${attackerServer.baseUrl}/console/audit/evidence?domain=POLICY&limit=20`,
+        { method: 'GET' },
+      );
+      expect(attackerEvidence.status).toBe(200);
+      const attackerEvidenceRows = Array.isArray(attackerEvidence.json?.evidence)
+        ? attackerEvidence.json?.evidence
+        : [];
+      expect(
+        attackerEvidenceRows.some((entry: any) => String(entry?.id || '') === ownerEvidence.id),
+      ).toBe(false);
+    } finally {
+      await attackerServer.close();
+    }
+  });
+
+  test('cloudflare audit routes enforce org isolation', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ownerOrgId = `${authOrgId}:owner-cf`;
+    const attackerOrgId = `${authOrgId}:attacker-cf`;
+    const ownerActorUserId = 'owner-audit-user-cf';
+    const ownerCtx = {
+      orgId: ownerOrgId,
+      actorUserId: ownerActorUserId,
+      roles: ['admin'],
+    };
+
+    const ownerEvent = await audit!.appendEvent(ownerCtx, {
+      id: `evt_owner_cf_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`,
+      category: 'POLICY',
+      action: 'policy.publish',
+      outcome: 'SUCCESS',
+      summary: 'Owner-only audit event (cloudflare)',
+      metadata: { path: 'owner-only-cf' },
+    });
+    const ownerEvidence = await audit!.appendEvidence(ownerCtx, {
+      id: `evd_owner_cf_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`,
+      domain: 'POLICY',
+      title: 'Owner-only policy evidence (cloudflare)',
+      summary: 'Owner evidence record (cloudflare)',
+      eventIds: [ownerEvent.id],
+      references: [
+        {
+          kind: 'APPROVAL',
+          referenceId: 'apr_owner_policy_cf_1',
+          label: 'Owner policy approval cloudflare',
+        },
+      ],
+    });
+
+    const ownerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, ownerActorUserId),
+      audit: audit!,
+    });
+    const ownerEvents = await callCf(ownerHandler, {
+      method: 'GET',
+      path: `/console/audit/events?category=POLICY&actorUserId=${encodeURIComponent(ownerActorUserId)}&limit=20`,
+    });
+    expect(ownerEvents.status).toBe(200);
+    const ownerRows = Array.isArray(ownerEvents.json?.events) ? ownerEvents.json?.events : [];
+    expect(ownerRows.some((entry: any) => String(entry?.id || '') === ownerEvent.id)).toBe(true);
+
+    const ownerEvidenceRowsResponse = await callCf(ownerHandler, {
+      method: 'GET',
+      path: '/console/audit/evidence?domain=POLICY&limit=20',
+    });
+    expect(ownerEvidenceRowsResponse.status).toBe(200);
+    const ownerEvidenceRows = Array.isArray(ownerEvidenceRowsResponse.json?.evidence)
+      ? ownerEvidenceRowsResponse.json?.evidence
+      : [];
+    expect(
+      ownerEvidenceRows.some((entry: any) => String(entry?.id || '') === ownerEvidence.id),
+    ).toBe(true);
+
+    const attackerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-audit-user-cf'),
+      audit: audit!,
+    });
+    const attackerEvents = await callCf(attackerHandler, {
+      method: 'GET',
+      path: `/console/audit/events?category=POLICY&actorUserId=${encodeURIComponent(ownerActorUserId)}&limit=20`,
+    });
+    expect(attackerEvents.status).toBe(200);
+    const attackerRows = Array.isArray(attackerEvents.json?.events)
+      ? attackerEvents.json?.events
+      : [];
+    expect(attackerRows.some((entry: any) => String(entry?.id || '') === ownerEvent.id)).toBe(
+      false,
+    );
+
+    const attackerEvidence = await callCf(attackerHandler, {
+      method: 'GET',
+      path: '/console/audit/evidence?domain=POLICY&limit=20',
+    });
+    expect(attackerEvidence.status).toBe(200);
+    const attackerEvidenceRows = Array.isArray(attackerEvidence.json?.evidence)
+      ? attackerEvidence.json?.evidence
+      : [];
+    expect(
+      attackerEvidenceRows.some((entry: any) => String(entry?.id || '') === ownerEvidence.id),
+    ).toBe(false);
   });
 });
 
@@ -6914,7 +10873,9 @@ test.describe('console router (postgres billing)', () => {
     const pool = await getPostgresPool(postgresUrl);
     for (const orgId of [`${authOrgId}:owner`, `${authOrgId}:attacker`]) {
       await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
-        await q.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
+          namespace,
+        ]);
         await q.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
           namespace,
         ]);
@@ -6924,7 +10885,9 @@ test.describe('console router (postgres billing)', () => {
         ]);
         await q.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
+          namespace,
+        ]);
         await q.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_invoices WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [namespace]);

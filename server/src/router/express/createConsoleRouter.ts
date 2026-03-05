@@ -3,6 +3,10 @@ import express from 'express';
 import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService';
 import {
   CHAIN_FINALITY_POLICY_VERSION,
+  ConsoleBillingError,
+  LIVE_ENVIRONMENT_BILLING_REQUIRED_MESSAGE,
+  ensureBillingReadyForLiveEnvironment,
+  isBillingReadyForLiveEnvironment,
   isConsoleBillingError,
   listStablecoinAssetSupport,
   parseAddCardPaymentMethodRequest,
@@ -22,6 +26,7 @@ import {
 import {
   isConsoleApiKeyError,
   parseCreateConsoleApiKeyRequest,
+  parseRevokeConsoleApiKeyRequest,
   parseRotateConsoleApiKeyRequest,
   type ConsoleApiKeyService,
 } from '../../console/apiKeys';
@@ -96,6 +101,48 @@ import {
   parsePublishConsoleRuntimeSnapshotRequest,
   type ConsoleRuntimeSnapshotService,
 } from '../../console/runtimeSnapshots';
+import {
+  isConsoleTeamRbacError,
+  parseInviteConsoleTeamMemberRequest,
+  parseListConsoleTeamMembersRequest,
+  parseUpdateConsoleTeamMemberRolesRequest,
+  type ConsoleTeamRbacService,
+} from '../../console/teamRbac';
+import {
+  type ConsoleApprovalOperationType,
+  isConsoleApprovalsError,
+  parseApproveConsoleApprovalRequest,
+  parseCreateConsoleApprovalRequest,
+  parseListConsoleApprovalsRequest,
+  parseRejectConsoleApprovalRequest,
+  type ConsoleApprovalService,
+} from '../../console/approvals';
+import {
+  isConsoleAuditError,
+  parseListConsoleAuditEventsRequest,
+  parseListConsoleAuditEvidenceRequest,
+  type ConsoleAuditService,
+} from '../../console/audit';
+import {
+  isConsoleAuditExportsError,
+  parseCreateConsoleAuditExportRequest,
+  parseListConsoleAuditExportsRequest,
+  type ConsoleAuditExportsService,
+} from '../../console/auditExports';
+import {
+  isConsoleEnterpriseIsolationError,
+  parseGetConsoleEnterpriseIsolationRequest,
+  parseTriggerConsoleEnterpriseIsolationRequest,
+  type ConsoleEnterpriseIsolationService,
+} from '../../console/enterpriseIsolation';
+import {
+  isConsoleOnboardingError,
+  parseCreateConsoleOnboardingOrganizationRequest,
+  parseCreateConsoleOnboardingProjectRequest,
+  parseGetConsoleOnboardingStateRequest,
+  parseGetConsoleOnboardingTelemetryRequest,
+  type ConsoleOnboardingService,
+} from '../../console/onboarding';
 import type { ConsoleAuthClaims, ConsoleAuthResult, ConsoleRouterOptions } from '../console';
 import { authenticateConsoleRequest, hasConsoleRole } from '../console';
 import {
@@ -107,6 +154,7 @@ import {
 import { resolveConsoleRuntimeSnapshotPayload } from '../runtimeSnapshotPayload';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
+import { buildConsoleOpsCockpitSummary } from '../opsCockpitSummary';
 
 export interface ExpressConsoleContext {
   opts: ConsoleRouterOptions;
@@ -122,7 +170,16 @@ export interface ExpressConsoleContext {
   settings: ConsoleSettingsService | null;
   keyExports: ConsoleKeyExportService | null;
   runtimeSnapshots: ConsoleRuntimeSnapshotService | null;
+  teamRbac: ConsoleTeamRbacService | null;
+  approvals: ConsoleApprovalService | null;
+  audit: ConsoleAuditService | null;
+  auditExports: ConsoleAuditExportsService | null;
+  enterpriseIsolation: ConsoleEnterpriseIsolationService | null;
+  onboarding: ConsoleOnboardingService | null;
 }
+
+const CONSOLE_CORS_ALLOW_HEADERS =
+  'Content-Type,Authorization,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id,X-Console-Stripe-Webhook-Secret';
 
 function withConsoleCors(res: Response, opts?: ConsoleRouterOptions, req?: Request): void {
   if (!opts?.corsOrigins) return;
@@ -143,10 +200,7 @@ function withConsoleCors(res: Response, opts?: ConsoleRouterOptions, req?: Reque
   }
 
   res.set('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-  res.set(
-    'Access-Control-Allow-Headers',
-    'Content-Type,Authorization,X-Console-Stripe-Webhook-Secret',
-  );
+  res.set('Access-Control-Allow-Headers', CONSOLE_CORS_ALLOW_HEADERS);
   if (allowedOrigin && allowedOrigin !== '*') {
     res.set('Access-Control-Allow-Credentials', 'true');
   }
@@ -370,6 +424,114 @@ function sendRuntimeSnapshotError(res: Response, error: unknown): void {
   });
 }
 
+function sendTeamRbacError(res: Response, error: unknown): void {
+  if (isConsoleTeamRbacError(error)) {
+    res.status(error.status).json({
+      ok: false,
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {}),
+    });
+    return;
+  }
+
+  res.status(500).json({
+    ok: false,
+    code: 'internal',
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
+function sendApprovalError(res: Response, error: unknown): void {
+  if (isConsoleApprovalsError(error)) {
+    res.status(error.status).json({
+      ok: false,
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {}),
+    });
+    return;
+  }
+
+  res.status(500).json({
+    ok: false,
+    code: 'internal',
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
+function sendAuditError(res: Response, error: unknown): void {
+  if (isConsoleAuditError(error)) {
+    res.status(error.status).json({
+      ok: false,
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {}),
+    });
+    return;
+  }
+
+  res.status(500).json({
+    ok: false,
+    code: 'internal',
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
+function sendAuditExportsError(res: Response, error: unknown): void {
+  if (isConsoleAuditExportsError(error)) {
+    res.status(error.status).json({
+      ok: false,
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {}),
+    });
+    return;
+  }
+
+  res.status(500).json({
+    ok: false,
+    code: 'internal',
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
+function sendEnterpriseIsolationError(res: Response, error: unknown): void {
+  if (isConsoleEnterpriseIsolationError(error)) {
+    res.status(error.status).json({
+      ok: false,
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {}),
+    });
+    return;
+  }
+
+  res.status(500).json({
+    ok: false,
+    code: 'internal',
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
+function sendOnboardingError(res: Response, error: unknown): void {
+  if (isConsoleOnboardingError(error)) {
+    res.status(error.status).json({
+      ok: false,
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {}),
+    });
+    return;
+  }
+
+  res.status(500).json({
+    ok: false,
+    code: 'internal',
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
 async function requireConsoleAuth(
   req: Request,
   res: Response,
@@ -529,6 +691,84 @@ function requireRuntimeSnapshotService(
   return null;
 }
 
+function requireTeamRbacService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsoleTeamRbacService | null {
+  if (ctx.teamRbac) return ctx.teamRbac;
+  res.status(501).json({
+    ok: false,
+    code: 'team_rbac_not_configured',
+    message: 'Team RBAC service is not configured on this server',
+  });
+  return null;
+}
+
+function requireApprovalService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsoleApprovalService | null {
+  if (ctx.approvals) return ctx.approvals;
+  res.status(501).json({
+    ok: false,
+    code: 'approvals_not_configured',
+    message: 'Approvals service is not configured on this server',
+  });
+  return null;
+}
+
+function requireAuditService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsoleAuditService | null {
+  if (ctx.audit) return ctx.audit;
+  res.status(501).json({
+    ok: false,
+    code: 'audit_not_configured',
+    message: 'Audit service is not configured on this server',
+  });
+  return null;
+}
+
+function requireAuditExportsService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsoleAuditExportsService | null {
+  if (ctx.auditExports) return ctx.auditExports;
+  res.status(501).json({
+    ok: false,
+    code: 'audit_exports_not_configured',
+    message: 'Audit exports service is not configured on this server',
+  });
+  return null;
+}
+
+function requireEnterpriseIsolationService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsoleEnterpriseIsolationService | null {
+  if (ctx.enterpriseIsolation) return ctx.enterpriseIsolation;
+  res.status(501).json({
+    ok: false,
+    code: 'enterprise_isolation_not_configured',
+    message: 'Enterprise isolation service is not configured on this server',
+  });
+  return null;
+}
+
+function requireOnboardingService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsoleOnboardingService | null {
+  if (ctx.onboarding) return ctx.onboarding;
+  res.status(501).json({
+    ok: false,
+    code: 'onboarding_not_configured',
+    message: 'Onboarding service is not configured on this server',
+  });
+  return null;
+}
+
 function requireStripeWebhookSecret(
   req: Request,
   res: Response,
@@ -600,6 +840,176 @@ function toWalletContext(claims: ConsoleAuthClaims): {
   };
 }
 
+function toTeamRbacContext(claims: ConsoleAuthClaims): {
+  orgId: string;
+  actorUserId: string;
+  roles: string[];
+  projectId?: string;
+} {
+  return {
+    orgId: claims.orgId,
+    actorUserId: claims.userId,
+    roles: claims.roles,
+    ...(claims.projectId ? { projectId: claims.projectId } : {}),
+  };
+}
+
+function toApprovalContext(claims: ConsoleAuthClaims): {
+  orgId: string;
+  actorUserId: string;
+  roles: string[];
+  projectId?: string;
+  environmentId?: string;
+} {
+  return {
+    orgId: claims.orgId,
+    actorUserId: claims.userId,
+    roles: claims.roles,
+    ...(claims.projectId ? { projectId: claims.projectId } : {}),
+    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+  };
+}
+
+function toAuditContext(claims: ConsoleAuthClaims): {
+  orgId: string;
+  actorUserId: string;
+  roles: string[];
+  projectId?: string;
+  environmentId?: string;
+} {
+  return {
+    orgId: claims.orgId,
+    actorUserId: claims.userId,
+    roles: claims.roles,
+    ...(claims.projectId ? { projectId: claims.projectId } : {}),
+    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+  };
+}
+
+function toOnboardingContext(claims: ConsoleAuthClaims): {
+  orgId: string;
+  actorUserId: string;
+  roles: string[];
+  projectId?: string;
+  environmentId?: string;
+} {
+  return {
+    orgId: claims.orgId,
+    actorUserId: claims.userId,
+    roles: claims.roles,
+    ...(claims.projectId ? { projectId: claims.projectId } : {}),
+    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+  };
+}
+
+function readApprovalIdFromBody(body: unknown): string {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return '';
+  return String((body as Record<string, unknown>).approvalId || '').trim();
+}
+
+async function requireApprovedOperationApproval(
+  res: Response,
+  ctx: ExpressConsoleContext,
+  claims: ConsoleAuthClaims,
+  input: {
+    operationType: ConsoleApprovalOperationType;
+    approvalIdRaw: unknown;
+    projectId?: string;
+    environmentId?: string;
+    resourceType?: string;
+    resourceId?: string;
+  },
+): Promise<boolean> {
+  if (!ctx.approvals) return true;
+
+  const approvalId = String(input.approvalIdRaw || '').trim();
+  if (!approvalId) {
+    res.status(400).json({
+      ok: false,
+      code: 'approval_required',
+      message: `Field approvalId is required for ${input.operationType} when approvals service is configured`,
+    });
+    return false;
+  }
+
+  let approval: Awaited<ReturnType<ConsoleApprovalService['getApprovalRequest']>> = null;
+  try {
+    approval = await ctx.approvals.getApprovalRequest(toApprovalContext(claims), approvalId);
+  } catch (error: unknown) {
+    sendApprovalError(res, error);
+    return false;
+  }
+
+  if (!approval) {
+    res.status(404).json({
+      ok: false,
+      code: 'approval_not_found',
+      message: `Approval request ${approvalId} was not found`,
+    });
+    return false;
+  }
+
+  if (approval.operationType !== input.operationType) {
+    res.status(409).json({
+      ok: false,
+      code: 'approval_operation_mismatch',
+      message: `Approval request ${approvalId} is ${approval.operationType}; expected ${input.operationType}`,
+    });
+    return false;
+  }
+
+  if (approval.status !== 'APPROVED') {
+    res.status(409).json({
+      ok: false,
+      code: 'approval_not_approved',
+      message: `Approval request ${approvalId} is ${approval.status}; expected APPROVED`,
+    });
+    return false;
+  }
+
+  const projectId = String(input.projectId || '').trim();
+  if (projectId && approval.projectId && approval.projectId !== projectId) {
+    res.status(409).json({
+      ok: false,
+      code: 'approval_scope_mismatch',
+      message: `Approval request ${approvalId} project scope does not match request`,
+    });
+    return false;
+  }
+
+  const environmentId = String(input.environmentId || '').trim();
+  if (environmentId && approval.environmentId && approval.environmentId !== environmentId) {
+    res.status(409).json({
+      ok: false,
+      code: 'approval_scope_mismatch',
+      message: `Approval request ${approvalId} environment scope does not match request`,
+    });
+    return false;
+  }
+
+  const resourceType = String(input.resourceType || '').trim();
+  if (resourceType && approval.resourceType && approval.resourceType !== resourceType) {
+    res.status(409).json({
+      ok: false,
+      code: 'approval_resource_mismatch',
+      message: `Approval request ${approvalId} resource type does not match request`,
+    });
+    return false;
+  }
+
+  const resourceId = String(input.resourceId || '').trim();
+  if (resourceId && approval.resourceId && approval.resourceId !== resourceId) {
+    res.status(409).json({
+      ok: false,
+      code: 'approval_resource_mismatch',
+      message: `Approval request ${approvalId} resource id does not match request`,
+    });
+    return false;
+  }
+
+  return true;
+}
+
 function readPathParam(req: Request, key: string): string {
   return String((req as any)?.params?.[key] || '').trim();
 }
@@ -644,6 +1054,58 @@ function requireOrgProjectEnvMutationRole(claims: ConsoleAuthClaims, res: Respon
   return false;
 }
 
+function requireOnboardingTelemetryRole(claims: ConsoleAuthClaims, res: Response): boolean {
+  if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'ops')) return true;
+  res.status(403).json({
+    ok: false,
+    code: 'forbidden',
+    message: 'Only admin or ops can view onboarding telemetry',
+  });
+  return false;
+}
+
+function requireApiKeyMutationRole(claims: ConsoleAuthClaims, res: Response): boolean {
+  if (
+    hasConsoleRole(claims, 'owner') ||
+    hasConsoleRole(claims, 'admin') ||
+    hasConsoleRole(claims, 'security_admin')
+  ) {
+    return true;
+  }
+  res.status(403).json({
+    ok: false,
+    code: 'forbidden',
+    message: 'Only owner, admin, or security_admin can mutate API keys',
+  });
+  return false;
+}
+
+function requireTeamRbacMutationRole(claims: ConsoleAuthClaims, res: Response): boolean {
+  if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'owner')) return true;
+  res.status(403).json({
+    ok: false,
+    code: 'forbidden',
+    message: 'Only admin or owner can mutate org member roles',
+  });
+  return false;
+}
+
+function requireApprovalMutationRole(claims: ConsoleAuthClaims, res: Response): boolean {
+  if (
+    hasConsoleRole(claims, 'owner') ||
+    hasConsoleRole(claims, 'admin') ||
+    hasConsoleRole(claims, 'security_admin')
+  ) {
+    return true;
+  }
+  res.status(403).json({
+    ok: false,
+    code: 'forbidden',
+    message: 'Only owner, admin, or security_admin can mutate approval queue requests',
+  });
+  return false;
+}
+
 function requirePolicyMutationRole(claims: ConsoleAuthClaims, res: Response): boolean {
   if (
     hasConsoleRole(claims, 'owner') ||
@@ -676,6 +1138,19 @@ function requireConsoleConfigMutationRole(claims: ConsoleAuthClaims, res: Respon
   return false;
 }
 
+function requireEnterpriseIsolationMutationRole(
+  claims: ConsoleAuthClaims,
+  res: Response,
+): boolean {
+  if (hasConsoleRole(claims, 'owner') || hasConsoleRole(claims, 'admin')) return true;
+  res.status(403).json({
+    ok: false,
+    code: 'forbidden',
+    message: 'Only owner or admin can trigger enterprise isolation',
+  });
+  return false;
+}
+
 function requireKeyExportApprovalRole(claims: ConsoleAuthClaims, res: Response): boolean {
   if (hasConsoleRole(claims, 'admin')) return true;
   res.status(403).json({
@@ -687,6 +1162,40 @@ function requireKeyExportApprovalRole(claims: ConsoleAuthClaims, res: Response):
 }
 
 const BILLING_TERMINAL_SETTLEMENT_STATES = new Set(['SETTLED', 'PARTIALLY_SETTLED', 'OVERPAID']);
+
+async function requireActiveApiKeyEnvironmentForCreate(
+  res: Response,
+  ctx: ExpressConsoleContext,
+  claims: ConsoleAuthClaims,
+  environmentId: string,
+): Promise<boolean> {
+  const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
+  if (!orgProjectEnv) return false;
+  try {
+    const environments = await orgProjectEnv.listEnvironments(toOrgProjectEnvContext(claims));
+    const environment = environments.find((entry) => entry.id === environmentId);
+    if (!environment) {
+      res.status(400).json({
+        ok: false,
+        code: 'invalid_environment',
+        message: `Environment ${environmentId} was not found for this organization`,
+      });
+      return false;
+    }
+    if (environment.status !== 'ACTIVE') {
+      res.status(409).json({
+        ok: false,
+        code: 'environment_archived',
+        message: `Environment ${environmentId} is archived and cannot be used for API keys`,
+      });
+      return false;
+    }
+    return true;
+  } catch (error: unknown) {
+    sendOrgProjectEnvError(res, error);
+    return false;
+  }
+}
 
 async function emitBillingWebhookEvent(
   ctx: ExpressConsoleContext,
@@ -716,6 +1225,83 @@ async function emitBillingWebhookEvent(
     ctx.logger.warn('[console][webhooks] failed to emit billing event', {
       eventType: input.eventType,
       orgId: input.orgId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function emitApprovalWebhookEvent(
+  ctx: ExpressConsoleContext,
+  input: {
+    orgId: string;
+    actorUserId: string;
+    eventType: 'policy.approval.created' | 'policy.approval.approved' | 'policy.approval.rejected';
+    payload: Record<string, unknown>;
+  },
+): Promise<void> {
+  if (!ctx.webhooks) return;
+  try {
+    await ctx.webhooks.emitEvent(
+      {
+        orgId: input.orgId,
+        actorUserId: input.actorUserId,
+        roles: ['ops'],
+      },
+      {
+        eventType: input.eventType,
+        payload: input.payload,
+      },
+    );
+  } catch (error: unknown) {
+    ctx.logger.warn('[console][webhooks] failed to emit approval event', {
+      eventType: input.eventType,
+      orgId: input.orgId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function emitConsoleAuditEvent(
+  ctx: ExpressConsoleContext,
+  claims: ConsoleAuthClaims,
+  input: {
+    category:
+      | 'POLICY'
+      | 'SETTINGS'
+      | 'KEY_EXPORT'
+      | 'BILLING'
+      | 'WEBHOOK'
+      | 'API_KEY'
+      | 'TEAM'
+      | 'APPROVAL'
+      | 'ORG_PROJECT_ENV'
+      | 'RUNTIME_SNAPSHOT'
+      | 'SYSTEM';
+    action: string;
+    summary: string;
+    outcome?: 'SUCCESS' | 'FAILURE' | 'PENDING';
+    projectId?: string;
+    environmentId?: string;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<void> {
+  if (!ctx.audit) return;
+  try {
+    await ctx.audit.appendEvent(toAuditContext(claims), {
+      category: input.category,
+      action: input.action,
+      outcome: input.outcome || 'SUCCESS',
+      summary: input.summary,
+      ...(input.projectId ? { projectId: input.projectId } : {}),
+      ...(input.environmentId ? { environmentId: input.environmentId } : {}),
+      ...(input.metadata ? { metadata: input.metadata } : {}),
+    });
+  } catch (error: unknown) {
+    ctx.logger.warn('[console][audit] failed to append audit event', {
+      orgId: claims.orgId,
+      userId: claims.userId,
+      category: input.category,
+      action: input.action,
       message: error instanceof Error ? error.message : String(error),
     });
   }
@@ -809,6 +1395,149 @@ function registerConsoleSessionRoute(router: ExpressRouter, ctx: ExpressConsoleC
   });
 }
 
+function registerConsoleOnboardingRoutes(router: ExpressRouter, ctx: ExpressConsoleContext): void {
+  router.get('/console/onboarding/state', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const onboarding = requireOnboardingService(res, ctx);
+    if (!onboarding) return;
+    try {
+      const request = parseGetConsoleOnboardingStateRequest((req as any).query || {});
+      const state = await onboarding.getOnboardingState(toOnboardingContext(claims), request);
+      res.status(200).json({ ok: true, state });
+    } catch (error: unknown) {
+      sendOnboardingError(res, error);
+    }
+  });
+
+  router.get('/console/onboarding/telemetry', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireOnboardingTelemetryRole(claims, res)) return;
+    const onboarding = requireOnboardingService(res, ctx);
+    if (!onboarding) return;
+    try {
+      const request = parseGetConsoleOnboardingTelemetryRequest((req as any).query || {});
+      const telemetry = await onboarding.getOnboardingTelemetry(toOnboardingContext(claims), request);
+      res.status(200).json({ ok: true, telemetry });
+    } catch (error: unknown) {
+      sendOnboardingError(res, error);
+    }
+  });
+
+  router.post('/console/onboarding/organization', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireOrgProjectEnvMutationRole(claims, res)) return;
+    const onboarding = requireOnboardingService(res, ctx);
+    if (!onboarding) return;
+    try {
+      const request = parseCreateConsoleOnboardingOrganizationRequest((req as any).body || {});
+      const result = await onboarding.createOnboardingOrganization(toOnboardingContext(claims), request);
+      if (result.created.owner) {
+        await emitConsoleAuditEvent(ctx, claims, {
+          category: 'TEAM',
+          action: 'member.owner.bootstrap',
+          summary: `Bootstrapped owner membership for user ${claims.userId} during onboarding organization step`,
+          metadata: {
+            onboarding: true,
+            onboardingStep: 'organization',
+            userId: claims.userId,
+          },
+        });
+      }
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'ORG_PROJECT_ENV',
+        action: 'organization.configure',
+        summary: `Configured organization ${result.organization.id} via onboarding organization step`,
+        metadata: {
+          onboarding: true,
+          onboardingStep: 'organization',
+          organizationId: result.organization.id,
+          organizationName: result.organization.name,
+          organizationSlug: result.organization.slug,
+          created: result.created.organization,
+        },
+      });
+      const status = result.created.organization || result.created.owner ? 201 : 200;
+      res.status(status).json({ ok: true, result });
+    } catch (error: unknown) {
+      sendOnboardingError(res, error);
+    }
+  });
+
+  router.post('/console/onboarding/project', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireOrgProjectEnvMutationRole(claims, res)) return;
+    const onboarding = requireOnboardingService(res, ctx);
+    if (!onboarding) return;
+    try {
+      const request = parseCreateConsoleOnboardingProjectRequest((req as any).body || {});
+      const result = await onboarding.createOnboardingProject(toOnboardingContext(claims), request);
+      if (result.created.project) {
+        await emitConsoleAuditEvent(ctx, claims, {
+          category: 'ORG_PROJECT_ENV',
+          action: 'project.create',
+          summary: `Created project ${result.project.id} via onboarding project step`,
+          projectId: result.project.id,
+          metadata: {
+            onboarding: true,
+            projectId: result.project.id,
+            onboardingStep: 'project',
+          },
+        });
+      }
+      if (result.created.environment) {
+        await emitConsoleAuditEvent(ctx, claims, {
+          category: 'ORG_PROJECT_ENV',
+          action: 'environment.create',
+          summary: `Created environment ${result.environment.id} via onboarding project step`,
+          projectId: result.environment.projectId,
+          environmentId: result.environment.id,
+          metadata: {
+            onboarding: true,
+            projectId: result.environment.projectId,
+            environmentId: result.environment.id,
+            environmentKey: result.environment.key,
+            onboardingStep: 'project',
+          },
+        });
+      }
+      const status = result.created.project || result.created.environment ? 201 : 200;
+      res.status(status).json({ ok: true, result });
+    } catch (error: unknown) {
+      sendOnboardingError(res, error);
+    }
+  });
+}
+
+function registerConsoleOpsCockpitRoutes(
+  router: ExpressRouter,
+  ctx: ExpressConsoleContext,
+): void {
+  router.get('/console/ops-cockpit/summary', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    try {
+      const telemetryRequest = parseGetConsoleOnboardingTelemetryRequest((req as any).query || {});
+      const summary = await buildConsoleOpsCockpitSummary({
+        claims,
+        approvals: ctx.approvals,
+        billing: ctx.billing,
+        webhooks: ctx.webhooks,
+        auditExports: ctx.auditExports,
+        enterpriseIsolation: ctx.enterpriseIsolation,
+        onboarding: ctx.onboarding,
+        canViewOnboardingTelemetry:
+          hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'ops'),
+        telemetryWindowMinutes: telemetryRequest.windowMinutes,
+        logger: ctx.logger,
+      });
+      res.status(200).json({ ok: true, summary });
+    } catch (error: unknown) {
+      sendOnboardingError(res, error);
+    }
+  });
+}
+
 function registerConsoleOrgProjectEnvRoutes(
   router: ExpressRouter,
   ctx: ExpressConsoleContext,
@@ -848,9 +1577,19 @@ function registerConsoleOrgProjectEnvRoutes(
     if (!orgProjectEnv) return;
     try {
       const request = parseCreateConsoleProjectRequest((req as any).body || {});
-      const project = await orgProjectEnv.createProject(toOrgProjectEnvContext(claims), request);
+      const liveEnvironmentsEnabled = ctx.billing
+        ? await isBillingReadyForLiveEnvironment(ctx.billing, toBillingContext(claims))
+        : false;
+      const project = await orgProjectEnv.createProject(toOrgProjectEnvContext(claims), {
+        ...request,
+        liveEnvironmentsEnabled,
+      });
       res.status(201).json({ ok: true, project });
     } catch (error: unknown) {
+      if (isConsoleBillingError(error)) {
+        sendBillingError(res, error);
+        return;
+      }
       sendOrgProjectEnvError(res, error);
     }
   });
@@ -939,12 +1678,30 @@ function registerConsoleOrgProjectEnvRoutes(
     if (!orgProjectEnv) return;
     try {
       const request = parseCreateConsoleEnvironmentRequest((req as any).body || {});
+      if (request.key !== 'dev') {
+        if (!ctx.billing) {
+          sendBillingError(
+            res,
+            new ConsoleBillingError(
+              'billing_required_live_environment',
+              409,
+              LIVE_ENVIRONMENT_BILLING_REQUIRED_MESSAGE,
+            ),
+          );
+          return;
+        }
+        await ensureBillingReadyForLiveEnvironment(ctx.billing, toBillingContext(claims));
+      }
       const environment = await orgProjectEnv.createEnvironment(
         toOrgProjectEnvContext(claims),
         request,
       );
       res.status(201).json({ ok: true, environment });
     } catch (error: unknown) {
+      if (isConsoleBillingError(error)) {
+        sendBillingError(res, error);
+        return;
+      }
       sendOrgProjectEnvError(res, error);
     }
   });
@@ -1008,6 +1765,435 @@ function registerConsoleOrgProjectEnvRoutes(
       res.status(200).json({ ok: true, environment });
     } catch (error: unknown) {
       sendOrgProjectEnvError(res, error);
+    }
+  });
+}
+
+function registerConsoleTeamRbacRoutes(router: ExpressRouter, ctx: ExpressConsoleContext): void {
+  router.get('/console/members', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const teamRbac = requireTeamRbacService(res, ctx);
+    if (!teamRbac) return;
+    try {
+      const request = parseListConsoleTeamMembersRequest((req as any).query || {});
+      const members = await teamRbac.listMembers(toTeamRbacContext(claims), request);
+      res.status(200).json({ ok: true, members });
+    } catch (error: unknown) {
+      sendTeamRbacError(res, error);
+    }
+  });
+
+  router.post('/console/members/invite', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireTeamRbacMutationRole(claims, res)) return;
+    const teamRbac = requireTeamRbacService(res, ctx);
+    if (!teamRbac) return;
+    try {
+      const request = parseInviteConsoleTeamMemberRequest((req as any).body || {});
+      const member = await teamRbac.inviteMember(toTeamRbacContext(claims), request);
+      res.status(201).json({ ok: true, member });
+    } catch (error: unknown) {
+      sendTeamRbacError(res, error);
+    }
+  });
+
+  router.patch('/console/members/:id/roles', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireTeamRbacMutationRole(claims, res)) return;
+    const teamRbac = requireTeamRbacService(res, ctx);
+    if (!teamRbac) return;
+    const memberId = readPathParam(req, 'id');
+    if (!memberId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing member id' });
+      return;
+    }
+    try {
+      const request = parseUpdateConsoleTeamMemberRolesRequest((req as any).body || {});
+      const member = await teamRbac.updateMemberRoles(toTeamRbacContext(claims), memberId, request);
+      if (!member) {
+        res.status(404).json({
+          ok: false,
+          code: 'member_not_found',
+          message: `Member ${memberId} was not found`,
+        });
+        return;
+      }
+      res.status(200).json({ ok: true, member });
+    } catch (error: unknown) {
+      sendTeamRbacError(res, error);
+    }
+  });
+
+  router.delete('/console/members/:id', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireTeamRbacMutationRole(claims, res)) return;
+    const teamRbac = requireTeamRbacService(res, ctx);
+    if (!teamRbac) return;
+    const memberId = readPathParam(req, 'id');
+    if (!memberId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing member id' });
+      return;
+    }
+    try {
+      const out = await teamRbac.removeMember(toTeamRbacContext(claims), memberId);
+      if (!out.removed || !out.member) {
+        res.status(404).json({
+          ok: false,
+          code: 'member_not_found',
+          message: `Member ${memberId} was not found`,
+        });
+        return;
+      }
+      res.status(200).json({ ok: true, removed: true, member: out.member });
+    } catch (error: unknown) {
+      sendTeamRbacError(res, error);
+    }
+  });
+}
+
+function registerConsoleApprovalRoutes(router: ExpressRouter, ctx: ExpressConsoleContext): void {
+  router.get('/console/approvals', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const approvals = requireApprovalService(res, ctx);
+    if (!approvals) return;
+    try {
+      const request = parseListConsoleApprovalsRequest((req as any).query || {});
+      const rows = await approvals.listApprovalRequests(toApprovalContext(claims), request);
+      res.status(200).json({ ok: true, approvals: rows });
+    } catch (error: unknown) {
+      sendApprovalError(res, error);
+    }
+  });
+
+  router.get('/console/approvals/:id', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const approvals = requireApprovalService(res, ctx);
+    if (!approvals) return;
+    const approvalId = readPathParam(req, 'id');
+    if (!approvalId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing approval id' });
+      return;
+    }
+    try {
+      const row = await approvals.getApprovalRequest(toApprovalContext(claims), approvalId);
+      if (!row) {
+        res.status(404).json({
+          ok: false,
+          code: 'approval_not_found',
+          message: `Approval request ${approvalId} was not found`,
+        });
+        return;
+      }
+      res.status(200).json({ ok: true, approval: row });
+    } catch (error: unknown) {
+      sendApprovalError(res, error);
+    }
+  });
+
+  router.post('/console/approvals', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireApprovalMutationRole(claims, res)) return;
+    const approvals = requireApprovalService(res, ctx);
+    if (!approvals) return;
+    try {
+      const request = parseCreateConsoleApprovalRequest((req as any).body || {});
+      const row = await approvals.createApprovalRequest(toApprovalContext(claims), request);
+      await emitApprovalWebhookEvent(ctx, {
+        orgId: claims.orgId,
+        actorUserId: claims.userId,
+        eventType: 'policy.approval.created',
+        payload: {
+          approvalId: row.id,
+          operationType: row.operationType,
+          status: row.status,
+          requestedByUserId: row.requestedByUserId,
+          requiredApprovals: row.requiredApprovals,
+          requireMfa: row.requireMfa,
+          projectId: row.projectId,
+          environmentId: row.environmentId,
+          resourceType: row.resourceType,
+          resourceId: row.resourceId,
+        },
+      });
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'APPROVAL',
+        action: 'approval.request.create',
+        summary: `Created approval request ${row.id} (${row.operationType})`,
+        ...(row.projectId ? { projectId: row.projectId } : {}),
+        ...(row.environmentId ? { environmentId: row.environmentId } : {}),
+        metadata: {
+          approvalId: row.id,
+          operationType: row.operationType,
+          status: row.status,
+          requiredApprovals: row.requiredApprovals,
+          requireMfa: row.requireMfa,
+        },
+      });
+      res.status(201).json({ ok: true, approval: row });
+    } catch (error: unknown) {
+      sendApprovalError(res, error);
+    }
+  });
+
+  router.post('/console/approvals/:id/approve', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireApprovalMutationRole(claims, res)) return;
+    const approvals = requireApprovalService(res, ctx);
+    if (!approvals) return;
+    const approvalId = readPathParam(req, 'id');
+    if (!approvalId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing approval id' });
+      return;
+    }
+    try {
+      const request = parseApproveConsoleApprovalRequest((req as any).body || {});
+      const row = await approvals.approveApprovalRequest(
+        toApprovalContext(claims),
+        approvalId,
+        request,
+      );
+      if (!row) {
+        res.status(404).json({
+          ok: false,
+          code: 'approval_not_found',
+          message: `Approval request ${approvalId} was not found`,
+        });
+        return;
+      }
+      await emitApprovalWebhookEvent(ctx, {
+        orgId: claims.orgId,
+        actorUserId: claims.userId,
+        eventType: 'policy.approval.approved',
+        payload: {
+          approvalId: row.id,
+          operationType: row.operationType,
+          status: row.status,
+          requiredApprovals: row.requiredApprovals,
+          approvalsCount: row.decisions.filter((entry) => entry.decision === 'APPROVE').length,
+          decisionsCount: row.decisions.length,
+          resolvedAt: row.resolvedAt,
+          projectId: row.projectId,
+          environmentId: row.environmentId,
+          resourceType: row.resourceType,
+          resourceId: row.resourceId,
+        },
+      });
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'APPROVAL',
+        action: 'approval.request.approve',
+        summary: `Approved approval request ${row.id} (${row.operationType})`,
+        ...(row.projectId ? { projectId: row.projectId } : {}),
+        ...(row.environmentId ? { environmentId: row.environmentId } : {}),
+        metadata: {
+          approvalId: row.id,
+          operationType: row.operationType,
+          status: row.status,
+          approvalsCount: row.decisions.filter((entry) => entry.decision === 'APPROVE').length,
+          decisionsCount: row.decisions.length,
+        },
+      });
+      res.status(200).json({ ok: true, approval: row });
+    } catch (error: unknown) {
+      sendApprovalError(res, error);
+    }
+  });
+
+  router.post('/console/approvals/:id/reject', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireApprovalMutationRole(claims, res)) return;
+    const approvals = requireApprovalService(res, ctx);
+    if (!approvals) return;
+    const approvalId = readPathParam(req, 'id');
+    if (!approvalId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing approval id' });
+      return;
+    }
+    try {
+      const request = parseRejectConsoleApprovalRequest((req as any).body || {});
+      const row = await approvals.rejectApprovalRequest(
+        toApprovalContext(claims),
+        approvalId,
+        request,
+      );
+      if (!row) {
+        res.status(404).json({
+          ok: false,
+          code: 'approval_not_found',
+          message: `Approval request ${approvalId} was not found`,
+        });
+        return;
+      }
+      await emitApprovalWebhookEvent(ctx, {
+        orgId: claims.orgId,
+        actorUserId: claims.userId,
+        eventType: 'policy.approval.rejected',
+        payload: {
+          approvalId: row.id,
+          operationType: row.operationType,
+          status: row.status,
+          decisionsCount: row.decisions.length,
+          resolvedAt: row.resolvedAt,
+          projectId: row.projectId,
+          environmentId: row.environmentId,
+          resourceType: row.resourceType,
+          resourceId: row.resourceId,
+        },
+      });
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'APPROVAL',
+        action: 'approval.request.reject',
+        summary: `Rejected approval request ${row.id} (${row.operationType})`,
+        ...(row.projectId ? { projectId: row.projectId } : {}),
+        ...(row.environmentId ? { environmentId: row.environmentId } : {}),
+        metadata: {
+          approvalId: row.id,
+          operationType: row.operationType,
+          status: row.status,
+          decisionsCount: row.decisions.length,
+        },
+      });
+      res.status(200).json({ ok: true, approval: row });
+    } catch (error: unknown) {
+      sendApprovalError(res, error);
+    }
+  });
+}
+
+function registerConsoleAuditRoutes(router: ExpressRouter, ctx: ExpressConsoleContext): void {
+  router.get('/console/audit/events', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const audit = requireAuditService(res, ctx);
+    if (!audit) return;
+    try {
+      const request = parseListConsoleAuditEventsRequest((req as any).query || {});
+      const events = await audit.listEvents(toAuditContext(claims), request);
+      res.status(200).json({ ok: true, events });
+    } catch (error: unknown) {
+      sendAuditError(res, error);
+    }
+  });
+
+  router.get('/console/audit/evidence', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const audit = requireAuditService(res, ctx);
+    if (!audit) return;
+    try {
+      const request = parseListConsoleAuditEvidenceRequest((req as any).query || {});
+      const evidence = await audit.listEvidence(toAuditContext(claims), request);
+      res.status(200).json({ ok: true, evidence });
+    } catch (error: unknown) {
+      sendAuditError(res, error);
+    }
+  });
+}
+
+function registerConsoleAuditExportRoutes(
+  router: ExpressRouter,
+  ctx: ExpressConsoleContext,
+): void {
+  router.get('/console/audit/exports', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const auditExports = requireAuditExportsService(res, ctx);
+    if (!auditExports) return;
+    try {
+      const request = parseListConsoleAuditExportsRequest((req as any).query || {});
+      const exports = await auditExports.listExports(toAuditContext(claims), request);
+      res.status(200).json({ ok: true, exports });
+    } catch (error: unknown) {
+      sendAuditExportsError(res, error);
+    }
+  });
+
+  router.get('/console/audit/exports/:id', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const auditExports = requireAuditExportsService(res, ctx);
+    if (!auditExports) return;
+    const exportId = readPathParam(req, 'id');
+    if (!exportId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing export id' });
+      return;
+    }
+    try {
+      const auditExport = await auditExports.getExport(toAuditContext(claims), exportId);
+      if (!auditExport) {
+        res.status(404).json({
+          ok: false,
+          code: 'audit_export_not_found',
+          message: `Audit export ${exportId} was not found`,
+        });
+        return;
+      }
+      res.status(200).json({ ok: true, export: auditExport });
+    } catch (error: unknown) {
+      sendAuditExportsError(res, error);
+    }
+  });
+
+  router.post('/console/audit/exports', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireEnterpriseIsolationMutationRole(claims, res)) return;
+    const auditExports = requireAuditExportsService(res, ctx);
+    if (!auditExports) return;
+    try {
+      const request = parseCreateConsoleAuditExportRequest((req as any).body || {});
+      const auditExport = await auditExports.createExport(toAuditContext(claims), request);
+      res.status(201).json({ ok: true, export: auditExport });
+    } catch (error: unknown) {
+      sendAuditExportsError(res, error);
+    }
+  });
+}
+
+function registerConsoleEnterpriseIsolationRoutes(
+  router: ExpressRouter,
+  ctx: ExpressConsoleContext,
+): void {
+  router.get('/console/isolation/status', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const enterpriseIsolation = requireEnterpriseIsolationService(res, ctx);
+    if (!enterpriseIsolation) return;
+    try {
+      const request = parseGetConsoleEnterpriseIsolationRequest((req as any).query || {});
+      const isolation = await enterpriseIsolation.getIsolationState(toAuditContext(claims), request);
+      res.status(200).json({ ok: true, isolation });
+    } catch (error: unknown) {
+      sendEnterpriseIsolationError(res, error);
+    }
+  });
+
+  router.post('/console/isolation/trigger', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireEnterpriseIsolationMutationRole(claims, res)) return;
+    const enterpriseIsolation = requireEnterpriseIsolationService(res, ctx);
+    if (!enterpriseIsolation) return;
+    try {
+      const request = parseTriggerConsoleEnterpriseIsolationRequest((req as any).body || {});
+      const isolation = await enterpriseIsolation.triggerIsolation(toAuditContext(claims), request);
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'SYSTEM',
+        action: 'enterprise_isolation.trigger',
+        summary: `Triggered enterprise isolation (${isolation.scope})`,
+        ...(isolation.projectId ? { projectId: isolation.projectId } : {}),
+        ...(isolation.environmentId ? { environmentId: isolation.environmentId } : {}),
+        metadata: {
+          scope: isolation.scope,
+          status: isolation.status,
+          mode: isolation.mode,
+          trigger: isolation.trigger,
+          ticketId: isolation.ticketId,
+        },
+      });
+      res.status(202).json({ ok: true, isolation });
+    } catch (error: unknown) {
+      sendEnterpriseIsolationError(res, error);
     }
   });
 }
@@ -1196,6 +2382,17 @@ function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
       return;
     }
     try {
+      const rawBody = (req as any).body || {};
+      if (
+        !(await requireApprovedOperationApproval(res, ctx, claims, {
+          operationType: 'POLICY_PUBLISH',
+          approvalIdRaw: readApprovalIdFromBody(rawBody),
+          resourceType: 'policy',
+          resourceId: policyId,
+        }))
+      ) {
+        return;
+      }
       const result = await policies.publishPolicy(toBillingContext(claims), policyId);
       if (!result) {
         res.status(404).json({
@@ -1205,6 +2402,16 @@ function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
         });
         return;
       }
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'POLICY',
+        action: 'policy.publish',
+        summary: `Published policy ${policyId}`,
+        metadata: {
+          policyId,
+          version: result.policy.version,
+          status: result.policy.status,
+        },
+      });
       res.status(200).json({ ok: true, result });
     } catch (error: unknown) {
       sendPolicyError(res, error);
@@ -1487,8 +2694,38 @@ function registerConsoleSettingsRoutes(router: ExpressRouter, ctx: ExpressConsol
     const settings = requireSettingsService(res, ctx);
     if (!settings) return;
     try {
-      const request = parseUpdateConsoleSecuritySettingsRequest((req as any).body);
+      const rawBody = (req as any).body;
+      const environmentId =
+        String((rawBody as Record<string, unknown> | null)?.environmentId || '').trim() ||
+        claims.environmentId ||
+        undefined;
+      if (
+        !(await requireApprovedOperationApproval(res, ctx, claims, {
+          operationType: 'SECURITY_SETTINGS_CHANGE',
+          approvalIdRaw: readApprovalIdFromBody(rawBody),
+          environmentId,
+          resourceType: 'security_settings',
+          resourceId: environmentId,
+        }))
+      ) {
+        return;
+      }
+      const request = parseUpdateConsoleSecuritySettingsRequest(rawBody);
       const securitySettings = await settings.updateSecuritySettings(toBillingContext(claims), request);
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'SETTINGS',
+        action: 'settings.security.update',
+        summary: `Updated security settings for environment ${securitySettings.environmentId}`,
+        environmentId: securitySettings.environmentId,
+        metadata: {
+          environmentId: securitySettings.environmentId,
+          enforceIpAllowlist: securitySettings.enforceIpAllowlist,
+          requireMfaForRiskyChanges: securitySettings.requireMfaForRiskyChanges,
+          riskyChangeApprovalApprovalsRequired: securitySettings.riskyChangeApproval.approvalsRequired,
+          riskyChangeApprovalRequireAdmin: securitySettings.riskyChangeApproval.requireAdmin,
+          riskyChangeApprovalRequireMfa: securitySettings.riskyChangeApproval.requireMfa,
+        },
+      });
       res.status(200).json({ ok: true, securitySettings });
     } catch (error: unknown) {
       sendSettingsError(res, error);
@@ -1536,7 +2773,18 @@ function registerConsoleKeyExportRoutes(router: ExpressRouter, ctx: ExpressConso
       return;
     }
     try {
-      const request = parseApproveConsoleKeyExportRequest((req as any).body);
+      const rawBody = (req as any).body;
+      if (
+        !(await requireApprovedOperationApproval(res, ctx, claims, {
+          operationType: 'KEY_EXPORT',
+          approvalIdRaw: readApprovalIdFromBody(rawBody),
+          resourceType: 'key_export',
+          resourceId: exportId,
+        }))
+      ) {
+        return;
+      }
+      const request = parseApproveConsoleKeyExportRequest(rawBody);
       const keyExport = await keyExports.approveKeyExport(toBillingContext(claims), exportId, request);
       if (!keyExport) {
         res.status(404).json({
@@ -1546,6 +2794,18 @@ function registerConsoleKeyExportRoutes(router: ExpressRouter, ctx: ExpressConso
         });
         return;
       }
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'KEY_EXPORT',
+        action: 'key_export.approve',
+        summary: `Approved key export request ${keyExport.id}`,
+        ...(keyExport.environmentId ? { environmentId: keyExport.environmentId } : {}),
+        metadata: {
+          keyExportId: keyExport.id,
+          status: keyExport.status,
+          mode: keyExport.mode,
+          approvedByUserId: claims.userId,
+        },
+      });
       res.status(200).json({ ok: true, keyExport });
     } catch (error: unknown) {
       sendKeyExportError(res, error);
@@ -1644,12 +2904,30 @@ function registerConsoleApiKeyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
 
   router.post('/console/api-keys', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
+    if (!claims || !requireApiKeyMutationRole(claims, res)) return;
     const apiKeys = requireApiKeyService(res, ctx);
     if (!apiKeys) return;
     try {
       const request = parseCreateConsoleApiKeyRequest((req as any).body);
+      const validEnvironment = await requireActiveApiKeyEnvironmentForCreate(
+        res,
+        ctx,
+        claims,
+        request.environmentId,
+      );
+      if (!validEnvironment) return;
       const created = await apiKeys.createApiKey(toBillingContext(claims), request);
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'API_KEY',
+        action: 'api_key.create',
+        summary: `Created API key ${created.apiKey.id}`,
+        environmentId: created.apiKey.environmentId,
+        metadata: {
+          apiKeyId: created.apiKey.id,
+          scopeCount: created.apiKey.scopes.length,
+          ipAllowlistCount: created.apiKey.ipAllowlist.length,
+        },
+      });
       res.status(201).json({
         ok: true,
         apiKey: created.apiKey,
@@ -1662,7 +2940,7 @@ function registerConsoleApiKeyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
 
   router.delete('/console/api-keys/:id', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
+    if (!claims || !requireApiKeyMutationRole(claims, res)) return;
     const apiKeys = requireApiKeyService(res, ctx);
     if (!apiKeys) return;
     const apiKeyId = readPathParam(req, 'id');
@@ -1671,7 +2949,8 @@ function registerConsoleApiKeyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
       return;
     }
     try {
-      const revoked = await apiKeys.revokeApiKey(toBillingContext(claims), apiKeyId);
+      const request = parseRevokeConsoleApiKeyRequest((req as any).body);
+      const revoked = await apiKeys.revokeApiKey(toBillingContext(claims), apiKeyId, request);
       if (!revoked.revoked || !revoked.apiKey) {
         res.status(404).json({
           ok: false,
@@ -1680,6 +2959,17 @@ function registerConsoleApiKeyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
         });
         return;
       }
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'API_KEY',
+        action: 'api_key.revoke',
+        summary: `Revoked API key ${revoked.apiKey.id}`,
+        environmentId: revoked.apiKey.environmentId,
+        metadata: {
+          apiKeyId: revoked.apiKey.id,
+          status: revoked.apiKey.status,
+          revokedReason: revoked.apiKey.revokedReason,
+        },
+      });
       res.status(200).json({ ok: true, revoked: true, apiKey: revoked.apiKey });
     } catch (error: unknown) {
       sendApiKeyError(res, error);
@@ -1688,7 +2978,7 @@ function registerConsoleApiKeyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
 
   router.post('/console/api-keys/:id/rotate', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
+    if (!claims || !requireApiKeyMutationRole(claims, res)) return;
     const apiKeys = requireApiKeyService(res, ctx);
     if (!apiKeys) return;
     const apiKeyId = readPathParam(req, 'id');
@@ -1707,6 +2997,16 @@ function registerConsoleApiKeyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
         });
         return;
       }
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'API_KEY',
+        action: 'api_key.rotate',
+        summary: `Rotated API key ${rotated.apiKey.id} to version ${rotated.apiKey.secretVersion}`,
+        environmentId: rotated.apiKey.environmentId,
+        metadata: {
+          apiKeyId: rotated.apiKey.id,
+          secretVersion: rotated.apiKey.secretVersion,
+        },
+      });
       res.status(200).json({
         ok: true,
         apiKey: rotated.apiKey,
@@ -2560,6 +3860,13 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
   const settings = opts.settings === undefined ? null : opts.settings;
   const keyExports = opts.keyExports === undefined ? null : opts.keyExports;
   const runtimeSnapshots = opts.runtimeSnapshots === undefined ? null : opts.runtimeSnapshots;
+  const teamRbac = opts.teamRbac === undefined ? null : opts.teamRbac;
+  const approvals = opts.approvals === undefined ? null : opts.approvals;
+  const audit = opts.audit === undefined ? null : opts.audit;
+  const auditExports = opts.auditExports === undefined ? null : opts.auditExports;
+  const enterpriseIsolation =
+    opts.enterpriseIsolation === undefined ? null : opts.enterpriseIsolation;
+  const onboarding = opts.onboarding === undefined ? null : opts.onboarding;
 
   installConsoleCors(router, opts);
 
@@ -2577,11 +3884,24 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
     settings,
     keyExports,
     runtimeSnapshots,
+    teamRbac,
+    approvals,
+    audit,
+    auditExports,
+    enterpriseIsolation,
+    onboarding,
   };
 
   registerConsoleHealthRoutes(router, ctx);
   registerConsoleSessionRoute(router, ctx);
+  registerConsoleOnboardingRoutes(router, ctx);
+  registerConsoleOpsCockpitRoutes(router, ctx);
   registerConsoleOrgProjectEnvRoutes(router, ctx);
+  registerConsoleTeamRbacRoutes(router, ctx);
+  registerConsoleApprovalRoutes(router, ctx);
+  registerConsoleAuditRoutes(router, ctx);
+  registerConsoleAuditExportRoutes(router, ctx);
+  registerConsoleEnterpriseIsolationRoutes(router, ctx);
   registerConsoleWalletRoutes(router, ctx);
   registerConsolePolicyRoutes(router, ctx);
   registerConsoleInsightsRoutes(router, ctx);

@@ -7,6 +7,7 @@ import type {
   ConsoleProject,
   ListConsoleProjectsRequest,
   ListConsoleEnvironmentsRequest,
+  UpsertConsoleOrganizationRequest,
   UpdateConsoleEnvironmentRequest,
   UpdateConsoleProjectRequest,
 } from './types';
@@ -21,6 +22,10 @@ export interface ConsoleOrgProjectEnvContext {
 
 export interface ConsoleOrgProjectEnvService {
   getOrganization(ctx: ConsoleOrgProjectEnvContext): Promise<ConsoleOrganization>;
+  upsertOrganization(
+    ctx: ConsoleOrgProjectEnvContext,
+    request: UpsertConsoleOrganizationRequest,
+  ): Promise<ConsoleOrganization>;
   listProjects(
     ctx: ConsoleOrgProjectEnvContext,
     request?: ListConsoleProjectsRequest,
@@ -90,19 +95,22 @@ function humanizeId(value: string, fallback: string): string {
     .trim();
 }
 
-function inferEnvironmentKey(
-  environmentId: string | undefined,
-): 'dev' | 'staging' | 'prod' {
-  const value = String(environmentId || '').toLowerCase();
-  if (value.includes('stag')) return 'staging';
-  if (value.includes('dev') || value.includes('test')) return 'dev';
-  return 'prod';
-}
-
 function environmentNameFromKey(key: 'dev' | 'staging' | 'prod'): string {
   if (key === 'dev') return 'Development';
   if (key === 'staging') return 'Staging';
   return 'Production';
+}
+
+function defaultEnvironmentStatus(
+  key: ConsoleEnvironment['key'],
+  liveEnvironmentsEnabled: boolean,
+): Exclude<ConsoleEnvironment['status'], 'ARCHIVED'> {
+  if (key === 'dev') return 'ACTIVE';
+  return liveEnvironmentsEnabled ? 'ACTIVE' : 'DISABLED';
+}
+
+function defaultEnvironmentId(orgId: string, projectId: string, key: ConsoleEnvironment['key']): string {
+  return `${orgId}:${projectId}:${key}`;
 }
 
 function makeResourceId(prefix: string, now: Date): string {
@@ -153,64 +161,62 @@ export function createInMemoryConsoleOrgProjectEnvService(
   const now = opts.now || (() => new Date());
   const stores = new Map<string, OrgStore>();
 
-  function ensureOrgStore(ctx: ConsoleOrgProjectEnvContext): OrgStore {
-    let store = stores.get(ctx.orgId);
-    if (!store) {
-      const currentNow = now();
-      const createdAt = toIso(currentNow);
-      store = {
-        org: {
-          id: ctx.orgId,
-          name: humanizeId(ctx.orgId, 'Organization'),
-          slug: slugify(ctx.orgId),
-          status: 'ACTIVE',
-          createdAt,
-          updatedAt: createdAt,
-        },
-        projects: new Map<string, ConsoleProject>(),
-        environments: new Map<string, ConsoleEnvironment>(),
-      };
-      stores.set(ctx.orgId, store);
-    }
-
+  function createOrgStore(ctx: ConsoleOrgProjectEnvContext): OrgStore {
     const currentNow = now();
-    const projectId = String(ctx.projectId || `${ctx.orgId}:default-project`).trim();
-    if (projectId && !store.projects.has(projectId)) {
-      const ts = toIso(currentNow);
-      store.projects.set(projectId, {
-        id: projectId,
-        orgId: ctx.orgId,
-        name: humanizeId(ctx.projectId || 'default project', 'Default Project'),
-        slug: slugify(projectId),
+    const createdAt = toIso(currentNow);
+    const defaultName = humanizeId(ctx.orgId, 'Organization');
+    const store: OrgStore = {
+      org: {
+        id: ctx.orgId,
+        name: defaultName,
+        slug: slugify(defaultName),
         status: 'ACTIVE',
-        environmentCount: 0,
-        createdAt: ts,
-        updatedAt: ts,
-      });
-    }
+        createdAt,
+        updatedAt: createdAt,
+      },
+      projects: new Map<string, ConsoleProject>(),
+      environments: new Map<string, ConsoleEnvironment>(),
+    };
+    stores.set(ctx.orgId, store);
+    return store;
+  }
 
-    const envKey = inferEnvironmentKey(ctx.environmentId);
-    const environmentId = String(ctx.environmentId || `${projectId}:${envKey}`).trim();
-    if (environmentId && !store.environments.has(environmentId)) {
-      const ts = toIso(currentNow);
-      store.environments.set(environmentId, {
-        id: environmentId,
-        orgId: ctx.orgId,
-        projectId,
-        key: envKey,
-        name: environmentNameFromKey(envKey),
-        status: 'ACTIVE',
-        createdAt: ts,
-        updatedAt: ts,
-      });
-    }
+  function getOrgStore(ctx: ConsoleOrgProjectEnvContext): OrgStore | undefined {
+    return stores.get(ctx.orgId);
+  }
 
+  function ensureOrgStoreForWrite(ctx: ConsoleOrgProjectEnvContext): OrgStore {
+    let store = stores.get(ctx.orgId);
+    if (!store) return createOrgStore(ctx);
     return store;
   }
 
   return {
     async getOrganization(ctx): Promise<ConsoleOrganization> {
-      const store = ensureOrgStore(ctx);
+      const store = getOrgStore(ctx);
+      if (!store) {
+        throw new ConsoleOrgProjectEnvError(
+          'organization_not_found',
+          404,
+          `Organization ${ctx.orgId} was not found`,
+        );
+      }
+      return cloneOrg(store.org);
+    },
+
+    async upsertOrganization(
+      ctx,
+      request: UpsertConsoleOrganizationRequest,
+    ): Promise<ConsoleOrganization> {
+      const store = ensureOrgStoreForWrite(ctx);
+      const currentNow = now();
+      const defaultName = humanizeId(ctx.orgId, 'Organization');
+      const nextName = String(request.name || '').trim() || store.org.name || defaultName;
+      const nextSlug =
+        String(request.slug || '').trim() || store.org.slug || slugify(nextName || defaultName);
+      store.org.name = nextName;
+      store.org.slug = slugify(nextSlug);
+      store.org.updatedAt = toIso(currentNow);
       return cloneOrg(store.org);
     },
 
@@ -218,7 +224,8 @@ export function createInMemoryConsoleOrgProjectEnvService(
       ctx,
       request?: ListConsoleProjectsRequest,
     ): Promise<ConsoleProject[]> {
-      const store = ensureOrgStore(ctx);
+      const store = getOrgStore(ctx);
+      if (!store) return [];
       const rows = Array.from(store.projects.values()).filter(
         (project) => !request?.status || project.status === request.status,
       );
@@ -234,7 +241,14 @@ export function createInMemoryConsoleOrgProjectEnvService(
       ctx,
       request: CreateConsoleProjectRequest,
     ): Promise<ConsoleProject> {
-      const store = ensureOrgStore(ctx);
+      const store = getOrgStore(ctx);
+      if (!store) {
+        throw new ConsoleOrgProjectEnvError(
+          'organization_not_found',
+          404,
+          `Organization ${ctx.orgId} was not found`,
+        );
+      }
       const currentNow = now();
       const projectId = String(request.id || makeResourceId('proj', currentNow)).trim();
       if (store.projects.has(projectId)) {
@@ -256,7 +270,31 @@ export function createInMemoryConsoleOrgProjectEnvService(
         updatedAt: ts,
       };
       store.projects.set(projectId, project);
-      return cloneProject(project);
+      const liveEnvironmentsEnabled = request.liveEnvironmentsEnabled === true;
+      for (const key of ['dev', 'staging', 'prod'] as const) {
+        const environmentId = defaultEnvironmentId(ctx.orgId, projectId, key);
+        if (store.environments.has(environmentId)) {
+          throw new ConsoleOrgProjectEnvError(
+            'environment_already_exists',
+            409,
+            `Environment ${environmentId} already exists`,
+          );
+        }
+        store.environments.set(environmentId, {
+          id: environmentId,
+          orgId: ctx.orgId,
+          projectId,
+          key,
+          name: environmentNameFromKey(key),
+          status: defaultEnvironmentStatus(key, liveEnvironmentsEnabled),
+          createdAt: ts,
+          updatedAt: ts,
+        });
+      }
+      return cloneProject({
+        ...project,
+        environmentCount: countEnvironmentsForProject(store, project.id),
+      });
     },
 
     async updateProject(
@@ -264,7 +302,8 @@ export function createInMemoryConsoleOrgProjectEnvService(
       projectId: string,
       request: UpdateConsoleProjectRequest,
     ): Promise<ConsoleProject | null> {
-      const store = ensureOrgStore(ctx);
+      const store = getOrgStore(ctx);
+      if (!store) return null;
       const current = store.projects.get(projectId);
       if (!current) return null;
       if (current.status === 'ARCHIVED') {
@@ -290,7 +329,8 @@ export function createInMemoryConsoleOrgProjectEnvService(
       ctx,
       projectId: string,
     ): Promise<ConsoleProject | null> {
-      const store = ensureOrgStore(ctx);
+      const store = getOrgStore(ctx);
+      if (!store) return null;
       const current = store.projects.get(projectId);
       if (!current) return null;
       const currentNow = now();
@@ -312,7 +352,8 @@ export function createInMemoryConsoleOrgProjectEnvService(
       ctx,
       request?: ListConsoleEnvironmentsRequest,
     ): Promise<ConsoleEnvironment[]> {
-      const store = ensureOrgStore(ctx);
+      const store = getOrgStore(ctx);
+      if (!store) return [];
       const filtered = Array.from(store.environments.values()).filter(
         (entry) =>
           (!request?.projectId || entry.projectId === request.projectId) &&
@@ -325,7 +366,14 @@ export function createInMemoryConsoleOrgProjectEnvService(
       ctx,
       request: CreateConsoleEnvironmentRequest,
     ): Promise<ConsoleEnvironment> {
-      const store = ensureOrgStore(ctx);
+      const store = getOrgStore(ctx);
+      if (!store) {
+        throw new ConsoleOrgProjectEnvError(
+          'project_not_found',
+          404,
+          `Project ${request.projectId} was not found`,
+        );
+      }
       const project = store.projects.get(request.projectId);
       if (!project) {
         throw new ConsoleOrgProjectEnvError(
@@ -367,7 +415,7 @@ export function createInMemoryConsoleOrgProjectEnvService(
         projectId: request.projectId,
         key: request.key,
         name: request.name || environmentNameFromKey(request.key),
-        status: 'ACTIVE',
+        status: request.status || 'ACTIVE',
         createdAt: ts,
         updatedAt: ts,
       };
@@ -380,7 +428,8 @@ export function createInMemoryConsoleOrgProjectEnvService(
       environmentId: string,
       request: UpdateConsoleEnvironmentRequest,
     ): Promise<ConsoleEnvironment | null> {
-      const store = ensureOrgStore(ctx);
+      const store = getOrgStore(ctx);
+      if (!store) return null;
       const current = store.environments.get(environmentId);
       if (!current) return null;
       if (current.status === 'ARCHIVED') {
@@ -401,7 +450,8 @@ export function createInMemoryConsoleOrgProjectEnvService(
       ctx,
       environmentId: string,
     ): Promise<ConsoleEnvironment | null> {
-      const store = ensureOrgStore(ctx);
+      const store = getOrgStore(ctx);
+      if (!store) return null;
       const current = store.environments.get(environmentId);
       if (!current) return null;
       current.status = 'ARCHIVED';

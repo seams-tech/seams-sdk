@@ -4,7 +4,13 @@ import type {
   CreateAccountAndRegisterRequest,
   CreateAccountAndRegisterResult,
 } from '../../../core/types';
+import type { RelayApiKeyPrincipal } from '../../relay';
 import { signThresholdSessionJwt } from '../../commonRouterUtils';
+import {
+  extractRelayEnvironmentId,
+  extractRelayApiKeySecret,
+  resolveSourceIpFromExpressRequest,
+} from '../../relayApiKeyAuth';
 
 export function registerCreateAccountAndRegisterUser(
   router: ExpressRouter,
@@ -12,6 +18,41 @@ export function registerCreateAccountAndRegisterUser(
 ): void {
   router.post('/registration/bootstrap', async (req: Request, res: Response) => {
     try {
+      let apiKeyPrincipal: RelayApiKeyPrincipal | null = null;
+      const apiKeyAuth = ctx.opts.apiKeyAuth;
+      if (apiKeyAuth) {
+        const secret = extractRelayApiKeySecret((req.headers || {}) as Record<string, unknown>);
+        const environmentId = extractRelayEnvironmentId(
+          (req.headers || {}) as Record<string, unknown>,
+        );
+        if (!secret) {
+          res
+            .status(401)
+            .json({ success: false, code: 'api_key_missing', error: 'Missing API key' });
+          return;
+        }
+        const sourceIp = resolveSourceIpFromExpressRequest({
+          headers: (req.headers || {}) as Record<string, unknown>,
+          ip: (req as any).ip as string | undefined,
+        });
+        const authResult = await apiKeyAuth.authenticate({
+          secret,
+          endpoint: 'POST /registration/bootstrap',
+          requiredScopes: ['accounts.create'],
+          ...(sourceIp ? { sourceIp } : {}),
+          ...(environmentId ? { environmentId } : {}),
+        });
+        if (!authResult.ok) {
+          res.status(authResult.status).json({
+            success: false,
+            code: authResult.code,
+            error: authResult.message,
+          });
+          return;
+        }
+        apiKeyPrincipal = authResult.principal;
+      }
+
       const body = (req.body || {}) as any as CreateAccountAndRegisterRequest &
         Record<string, unknown>;
       const new_account_id = String(body.new_account_id || '').trim();
@@ -47,6 +88,32 @@ export function registerCreateAccountAndRegisterUser(
       });
 
       const response: CreateAccountAndRegisterResult = result;
+
+      if (ctx.opts.apiKeyUsageMeter && apiKeyPrincipal) {
+        try {
+          await ctx.opts.apiKeyUsageMeter.recordEvent({
+            orgId: apiKeyPrincipal.orgId,
+            environmentId: apiKeyPrincipal.environmentId,
+            apiKeyId: apiKeyPrincipal.apiKeyId,
+            endpoint: 'POST /registration/bootstrap',
+            walletId: new_account_id,
+            action: 'wallet_created',
+            succeeded: Boolean(response.success),
+            occurredAt: new Date().toISOString(),
+            sourceEventId: `registration_bootstrap:${apiKeyPrincipal.apiKeyId}:${new_account_id}`,
+          });
+        } catch (error: unknown) {
+          ctx.logger.warn('[relay][api-key] usage meter event failed', {
+            endpoint: 'POST /registration/bootstrap',
+            orgId: apiKeyPrincipal.orgId,
+            environmentId: apiKeyPrincipal.environmentId,
+            apiKeyId: apiKeyPrincipal.apiKeyId,
+            walletId: new_account_id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
       if (!response.success) {
         res.status(400).json(response);
         return;

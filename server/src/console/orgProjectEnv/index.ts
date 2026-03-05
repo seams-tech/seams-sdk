@@ -7,6 +7,7 @@ export type {
   ConsoleEnvironment,
   ListConsoleProjectsRequest,
   ListConsoleEnvironmentsRequest,
+  UpsertConsoleOrganizationRequest,
   CreateConsoleProjectRequest,
   UpdateConsoleProjectRequest,
   CreateConsoleEnvironmentRequest,

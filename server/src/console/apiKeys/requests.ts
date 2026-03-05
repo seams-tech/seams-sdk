@@ -4,7 +4,11 @@ import {
   readRequiredStringField as readRequiredString,
   requireBodyObject as requireObject,
 } from '../shared/requestParse';
-import type { CreateConsoleApiKeyRequest, RotateConsoleApiKeyRequest } from './types';
+import type {
+  CreateConsoleApiKeyRequest,
+  RevokeConsoleApiKeyRequest,
+  RotateConsoleApiKeyRequest,
+} from './types';
 
 function parseScopesOrThrow(raw: unknown): string[] {
   if (!Array.isArray(raw) || raw.length === 0) {
@@ -57,6 +61,19 @@ function parseIpAllowlistOrThrow(raw: unknown): string[] | undefined {
   return out;
 }
 
+function parseOptionalExpiresAtOrThrow(raw: unknown): string | undefined {
+  const value = String(raw || '').trim();
+  if (!value) return undefined;
+  const expiresAtMs = Date.parse(value);
+  if (!Number.isFinite(expiresAtMs)) {
+    throw new ConsoleApiKeyError('invalid_body', 400, 'Field expiresAt must be a valid ISO timestamp');
+  }
+  if (expiresAtMs <= Date.now()) {
+    throw new ConsoleApiKeyError('invalid_body', 400, 'Field expiresAt must be in the future');
+  }
+  return new Date(expiresAtMs).toISOString();
+}
+
 export function parseCreateConsoleApiKeyRequest(body: unknown): CreateConsoleApiKeyRequest {
   const obj = requireObject(body, (code, status, message) => new ConsoleApiKeyError(code, status, message));
   const name = readRequiredString(
@@ -71,15 +88,25 @@ export function parseCreateConsoleApiKeyRequest(body: unknown): CreateConsoleApi
   );
   const scopes = parseScopesOrThrow(obj.scopes);
   const ipAllowlist = parseIpAllowlistOrThrow(obj.ipAllowlist);
+  const expiresAt = parseOptionalExpiresAtOrThrow(obj.expiresAt);
   return {
     name,
     environmentId,
     scopes,
     ...(ipAllowlist ? { ipAllowlist } : {}),
+    ...(expiresAt ? { expiresAt } : {}),
   };
 }
 
 export function parseRotateConsoleApiKeyRequest(body: unknown): RotateConsoleApiKeyRequest {
+  if (body === undefined || body === null) return {};
+  const obj = requireObject(body, (code, status, message) => new ConsoleApiKeyError(code, status, message));
+  return {
+    reason: readOptionalString(obj, 'reason'),
+  };
+}
+
+export function parseRevokeConsoleApiKeyRequest(body: unknown): RevokeConsoleApiKeyRequest {
   if (body === undefined || body === null) return {};
   const obj = requireObject(body, (code, status, message) => new ConsoleApiKeyError(code, status, message));
   return {

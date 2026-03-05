@@ -1,0 +1,601 @@
+import { test, expect } from '@playwright/test';
+import {
+  createConsoleRouter,
+  createInMemoryConsoleApiKeyService,
+  createInMemoryConsoleBillingService,
+  createInMemoryConsoleOnboardingService,
+  createInMemoryConsoleOrgProjectEnvService,
+  createInMemoryConsoleTeamRbacService,
+  createRelayApiKeyAuthAdapter,
+  createRelayRouter,
+  type ConsoleApiKeyService,
+  type RelayUsageMeterEvent,
+} from '@server/router/express-adaptor';
+import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
+import { createAccountAndRegisterWithRelayServer } from '@/core/TatchiPasskey/faucets/createAccountRelayServer';
+import { callCf, fetchJson, getPath, makeCfCtx, makeFakeAuthService, startExpressRouter } from './helpers';
+
+const apiKeyCtx = {
+  orgId: 'org-relay-api-keys',
+  actorUserId: 'user-relay-admin',
+  roles: ['admin'],
+};
+
+function makeRegistrationBody(): Record<string, unknown> {
+  return {
+    new_account_id: 'alice.testnet',
+    rp_id: 'example.localhost',
+    webauthn_registration: { id: 'cred-1' },
+  };
+}
+
+function makeRelayService() {
+  return makeFakeAuthService({
+    createAccountAndRegisterUser: async () => ({
+      success: true,
+      transactionHash: 'tx-123',
+    }),
+  });
+}
+
+function makeSerializedRegistrationCredential() {
+  return {
+    id: 'cred_registration_1',
+    rawId: 'raw_registration_1',
+    type: 'public-key',
+    response: {
+      clientDataJSON: 'Y2xpZW50RGF0YQ',
+      attestationObject: 'YXR0ZXN0YXRpb24',
+      transports: ['internal'],
+    },
+    clientExtensionResults: {
+      prf: {
+        results: {},
+      },
+    },
+  };
+}
+
+function makeClientContext(input: { relayUrl: string; relayApiKey: string }) {
+  return {
+    configs: {
+      network: {
+        relayer: {
+          url: input.relayUrl,
+          apiKey: input.relayApiKey,
+        },
+      },
+      webauthn: {
+        authenticatorOptions: {},
+      },
+    },
+  } as any;
+}
+
+async function createActiveSecret(
+  apiKeys: ConsoleApiKeyService,
+  input: { scopes: string[]; ipAllowlist?: string[]; expiresAt?: string },
+): Promise<{ apiKeyId: string; secret: string }> {
+  const created = await apiKeys.createApiKey(apiKeyCtx, {
+    name: 'registration-key',
+    environmentId: 'env-prod',
+    scopes: input.scopes,
+    ...(input.ipAllowlist ? { ipAllowlist: input.ipAllowlist } : {}),
+    ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+  });
+  return { apiKeyId: created.apiKey.id, secret: created.secret };
+}
+
+test.describe('relay API key auth (express)', () => {
+  test('rejects missing API key', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const router = createRelayRouter(makeRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makeRegistrationBody()),
+      });
+      expect(res.status).toBe(401);
+      expect(res.json?.code).toBe('api_key_missing');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('rejects invalid API key', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const router = createRelayRouter(makeRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer tsk_invalid_secret',
+        },
+        body: JSON.stringify(makeRegistrationBody()),
+      });
+      expect(res.status).toBe(401);
+      expect(res.json?.code).toBe('api_key_invalid');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('rejects revoked API key', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const { apiKeyId, secret } = await createActiveSecret(apiKeys, {
+      scopes: ['accounts.create'],
+    });
+    await apiKeys.revokeApiKey(apiKeyCtx, apiKeyId);
+    const router = createRelayRouter(makeRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${secret}`,
+        },
+        body: JSON.stringify(makeRegistrationBody()),
+      });
+      expect(res.status).toBe(403);
+      expect(res.json?.code).toBe('api_key_revoked');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('rejects key missing required scope', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const { secret } = await createActiveSecret(apiKeys, {
+      scopes: ['accounts.sync'],
+    });
+    const router = createRelayRouter(makeRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${secret}`,
+        },
+        body: JSON.stringify(makeRegistrationBody()),
+      });
+      expect(res.status).toBe(403);
+      expect(res.json?.code).toBe('api_key_forbidden_scope');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('rejects key when environment header mismatches', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const { secret } = await createActiveSecret(apiKeys, {
+      scopes: ['accounts.create'],
+    });
+    const router = createRelayRouter(makeRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${secret}`,
+          'x-tatchi-environment-id': 'env-stage',
+        },
+        body: JSON.stringify(makeRegistrationBody()),
+      });
+      expect(res.status).toBe(403);
+      expect(res.json?.code).toBe('api_key_environment_mismatch');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('rejects key blocked by IP allowlist', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const { secret } = await createActiveSecret(apiKeys, {
+      scopes: ['accounts.create'],
+      ipAllowlist: ['203.0.113.10/32'],
+    });
+    const router = createRelayRouter(makeRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${secret}`,
+          'x-forwarded-for': '198.51.100.2',
+        },
+        body: JSON.stringify(makeRegistrationBody()),
+      });
+      expect(res.status).toBe(403);
+      expect(res.json?.code).toBe('api_key_ip_blocked');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('rejects expired API key', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const { secret } = await createActiveSecret(apiKeys, {
+      scopes: ['accounts.create'],
+      expiresAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+    const router = createRelayRouter(makeRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${secret}`,
+        },
+        body: JSON.stringify(makeRegistrationBody()),
+      });
+      expect(res.status).toBe(403);
+      expect(res.json?.code).toBe('api_key_revoked');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('accepts valid scoped key and records usage', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const meteredEvents: RelayUsageMeterEvent[] = [];
+    const { apiKeyId, secret } = await createActiveSecret(apiKeys, {
+      scopes: ['accounts.create'],
+      ipAllowlist: ['127.0.0.1/32'],
+    });
+    const router = createRelayRouter(makeRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+      apiKeyUsageMeter: {
+        recordEvent: async (event) => {
+          meteredEvents.push(event);
+        },
+      },
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${secret}`,
+          'x-forwarded-for': '127.0.0.1',
+          'x-tatchi-environment-id': 'env-prod',
+        },
+        body: JSON.stringify(makeRegistrationBody()),
+      });
+      expect(res.status).toBe(200);
+      expect(res.json?.success).toBe(true);
+
+      const keys = await apiKeys.listApiKeys(apiKeyCtx);
+      const key = keys.find((entry) => entry.id === apiKeyId);
+      expect(key).toBeTruthy();
+      expect(key?.lastUsedAt).toBeTruthy();
+      expect(Number(key?.endpointUsageCounts['POST /registration/bootstrap'] || 0)).toBe(1);
+      expect(meteredEvents.length).toBe(1);
+      expect(meteredEvents[0]?.action).toBe('wallet_created');
+      expect(meteredEvents[0]?.succeeded).toBe(true);
+      expect(meteredEvents[0]?.orgId).toBe('org-relay-api-keys');
+      expect(meteredEvents[0]?.environmentId).toBe('env-prod');
+      expect(meteredEvents[0]?.walletId).toBe('alice.testnet');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('dashboard onboarding key works with SDK registration client call', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const billing = createInMemoryConsoleBillingService();
+    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const onboarding = createInMemoryConsoleOnboardingService({
+      orgProjectEnv,
+      apiKeys,
+      billing,
+      teamRbac,
+    });
+
+    const consoleRouter = createConsoleRouter({
+      auth: {
+        authenticate: async () => ({
+          ok: true,
+          claims: {
+            userId: apiKeyCtx.actorUserId,
+            orgId: apiKeyCtx.orgId,
+            roles: ['admin'],
+          },
+        }),
+      },
+      onboarding,
+      apiKeys,
+      orgProjectEnv,
+      billing,
+      teamRbac,
+    });
+    const relayRouter = createRelayRouter(makeRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    });
+    consoleRouter.use(relayRouter);
+
+    const srv = await startExpressRouter(consoleRouter);
+    try {
+      const organization = await fetchJson(`${srv.baseUrl}/console/onboarding/organization`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org: { name: 'Dashboard SDK Org', slug: 'dashboard-sdk-org' },
+        }),
+      });
+      expect(organization.status).toBe(201);
+
+      const paymentMethod = await fetchJson(`${srv.baseUrl}/console/billing/payment-methods`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          providerRef: 'pm_dashboard_sdk_1',
+          brand: 'visa',
+          last4: '4242',
+          expMonth: 12,
+          expYear: 2030,
+        }),
+      });
+      expect(paymentMethod.status).toBe(201);
+
+      const project = await fetchJson(`${srv.baseUrl}/console/onboarding/project`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project: { id: 'proj_dashboard_sdk', name: 'Dashboard SDK Project' },
+          environment: {
+            id: 'proj_dashboard_sdk:prod',
+            name: 'Production',
+          },
+        }),
+      });
+      expect(project.status).toBe(201);
+
+      const apiKeyCreate = await fetchJson(`${srv.baseUrl}/console/api-keys`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'dashboard-sdk-key',
+          environmentId: 'proj_dashboard_sdk:prod',
+          scopes: ['accounts.create'],
+        }),
+      });
+      expect(apiKeyCreate.status).toBe(201);
+      const apiKeyId = String(getPath(apiKeyCreate.json, 'apiKey', 'id') || '');
+      const apiKeySecret = String(getPath(apiKeyCreate.json, 'secret') || '');
+      expect(apiKeyId.length).toBeGreaterThan(0);
+      expect(apiKeySecret.length).toBeGreaterThan(0);
+
+      const registrationResult = await createAccountAndRegisterWithRelayServer(
+        makeClientContext({
+          relayUrl: srv.baseUrl,
+          relayApiKey: apiKeySecret,
+        }),
+        'alice.w3a-relayer.testnet',
+        undefined,
+        makeSerializedRegistrationCredential(),
+        'example.localhost',
+      );
+      expect(registrationResult.success).toBe(true);
+      expect(registrationResult.transactionId).toBe('tx-123');
+
+      const keys = await apiKeys.listApiKeys(apiKeyCtx);
+      const key = keys.find((entry) => entry.id === apiKeyId);
+      expect(key).toBeTruthy();
+      expect(Number(key?.endpointUsageCounts['POST /registration/bootstrap'] || 0)).toBe(1);
+    } finally {
+      await srv.close();
+    }
+  });
+});
+
+test.describe('relay API key auth (cloudflare)', () => {
+  test('rejects missing API key', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const handler = createCloudflareRouter(makeRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    });
+    const { ctx } = makeCfCtx();
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/registration/bootstrap',
+      body: makeRegistrationBody(),
+      ctx,
+    });
+    expect(res.status).toBe(401);
+    expect(res.json?.code).toBe('api_key_missing');
+  });
+
+  test('rejects invalid API key', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const handler = createCloudflareRouter(makeRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    });
+    const { ctx } = makeCfCtx();
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/registration/bootstrap',
+      headers: { Authorization: 'Bearer tsk_invalid_secret' },
+      body: makeRegistrationBody(),
+      ctx,
+    });
+    expect(res.status).toBe(401);
+    expect(res.json?.code).toBe('api_key_invalid');
+  });
+
+  test('rejects revoked API key', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const { apiKeyId, secret } = await createActiveSecret(apiKeys, {
+      scopes: ['accounts.create'],
+    });
+    await apiKeys.revokeApiKey(apiKeyCtx, apiKeyId);
+    const handler = createCloudflareRouter(makeRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    });
+    const { ctx } = makeCfCtx();
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/registration/bootstrap',
+      headers: { Authorization: `Bearer ${secret}` },
+      body: makeRegistrationBody(),
+      ctx,
+    });
+    expect(res.status).toBe(403);
+    expect(res.json?.code).toBe('api_key_revoked');
+  });
+
+  test('rejects key missing required scope', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const { secret } = await createActiveSecret(apiKeys, {
+      scopes: ['accounts.sync'],
+    });
+    const handler = createCloudflareRouter(makeRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    });
+    const { ctx } = makeCfCtx();
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/registration/bootstrap',
+      headers: { Authorization: `Bearer ${secret}` },
+      body: makeRegistrationBody(),
+      ctx,
+    });
+    expect(res.status).toBe(403);
+    expect(res.json?.code).toBe('api_key_forbidden_scope');
+  });
+
+  test('rejects key when environment header mismatches', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const { secret } = await createActiveSecret(apiKeys, {
+      scopes: ['accounts.create'],
+    });
+    const handler = createCloudflareRouter(makeRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    });
+    const { ctx } = makeCfCtx();
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/registration/bootstrap',
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        'x-tatchi-environment-id': 'env-stage',
+      },
+      body: makeRegistrationBody(),
+      ctx,
+    });
+    expect(res.status).toBe(403);
+    expect(res.json?.code).toBe('api_key_environment_mismatch');
+  });
+
+  test('rejects key blocked by IP allowlist', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const { secret } = await createActiveSecret(apiKeys, {
+      scopes: ['accounts.create'],
+      ipAllowlist: ['203.0.113.10/32'],
+    });
+    const handler = createCloudflareRouter(makeRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    });
+    const { ctx } = makeCfCtx();
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/registration/bootstrap',
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        'cf-connecting-ip': '198.51.100.55',
+      },
+      body: makeRegistrationBody(),
+      ctx,
+    });
+    expect(res.status).toBe(403);
+    expect(res.json?.code).toBe('api_key_ip_blocked');
+  });
+
+  test('rejects expired API key', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const { secret } = await createActiveSecret(apiKeys, {
+      scopes: ['accounts.create'],
+      expiresAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+    const handler = createCloudflareRouter(makeRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    });
+    const { ctx } = makeCfCtx();
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/registration/bootstrap',
+      headers: { Authorization: `Bearer ${secret}` },
+      body: makeRegistrationBody(),
+      ctx,
+    });
+    expect(res.status).toBe(403);
+    expect(res.json?.code).toBe('api_key_revoked');
+  });
+
+  test('accepts valid scoped key and records usage', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const meteredEvents: RelayUsageMeterEvent[] = [];
+    const { apiKeyId, secret } = await createActiveSecret(apiKeys, {
+      scopes: ['accounts.create'],
+      ipAllowlist: ['203.0.113.20/32'],
+    });
+    const handler = createCloudflareRouter(makeRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+      apiKeyUsageMeter: {
+        recordEvent: async (event) => {
+          meteredEvents.push(event);
+        },
+      },
+    });
+    const { ctx } = makeCfCtx();
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/registration/bootstrap',
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        'cf-connecting-ip': '203.0.113.20',
+        'x-tatchi-environment-id': 'env-prod',
+      },
+      body: makeRegistrationBody(),
+      ctx,
+    });
+    expect(res.status).toBe(200);
+    expect(res.json?.success).toBe(true);
+
+    const keys = await apiKeys.listApiKeys(apiKeyCtx);
+    const key = keys.find((entry) => entry.id === apiKeyId);
+    expect(key).toBeTruthy();
+    expect(key?.lastUsedAt).toBeTruthy();
+    expect(Number(key?.endpointUsageCounts['POST /registration/bootstrap'] || 0)).toBe(1);
+    expect(meteredEvents.length).toBe(1);
+    expect(meteredEvents[0]?.action).toBe('wallet_created');
+    expect(meteredEvents[0]?.succeeded).toBe(true);
+    expect(meteredEvents[0]?.orgId).toBe('org-relay-api-keys');
+    expect(meteredEvents[0]?.environmentId).toBe('env-prod');
+    expect(meteredEvents[0]?.walletId).toBe('alice.testnet');
+  });
+});
