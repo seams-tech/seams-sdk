@@ -143,6 +143,14 @@ import {
   parseGetConsoleOnboardingTelemetryRequest,
   type ConsoleOnboardingService,
 } from '../../console/onboarding';
+import {
+  buildApprovalFailureObservabilityEvent,
+  buildBillingFailureObservabilityEvent,
+  buildRouterTimingObservabilityEvent,
+  isConsoleObservabilityError,
+  type ConsoleObservabilityIngestionService,
+  type ConsoleObservabilityService,
+} from '../../console/observability';
 import type { ConsoleAuthClaims, ConsoleAuthResult, ConsoleRouterOptions } from '../console';
 import { authenticateConsoleRequest, hasConsoleRole } from '../console';
 import {
@@ -155,6 +163,7 @@ import { resolveConsoleRuntimeSnapshotPayload } from '../runtimeSnapshotPayload'
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 import { buildConsoleOpsCockpitSummary } from '../opsCockpitSummary';
+import { registerConsoleObservabilityRoutes } from './consoleObservabilityRoutes';
 
 export interface ExpressConsoleContext {
   opts: ConsoleRouterOptions;
@@ -176,10 +185,13 @@ export interface ExpressConsoleContext {
   auditExports: ConsoleAuditExportsService | null;
   enterpriseIsolation: ConsoleEnterpriseIsolationService | null;
   onboarding: ConsoleOnboardingService | null;
+  observability: ConsoleObservabilityService | null;
+  observabilityIngestion: ConsoleObservabilityIngestionService | null;
 }
 
 const CONSOLE_CORS_ALLOW_HEADERS =
   'Content-Type,Authorization,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id,X-Console-Stripe-Webhook-Secret';
+const CONSOLE_AUTH_CLAIMS = Symbol('console-auth-claims');
 
 function withConsoleCors(res: Response, opts?: ConsoleRouterOptions, req?: Request): void {
   if (!opts?.corsOrigins) return;
@@ -216,6 +228,172 @@ function installConsoleCors(router: ExpressRouter, opts: ConsoleRouterOptions): 
     }
     next();
   });
+}
+
+function setRequestAuthClaims(req: Request, claims: ConsoleAuthClaims): void {
+  (req as Record<PropertyKey, unknown>)[CONSOLE_AUTH_CLAIMS] = claims;
+}
+
+function getRequestAuthClaims(req: Request): ConsoleAuthClaims | null {
+  const raw = (req as Record<PropertyKey, unknown>)[CONSOLE_AUTH_CLAIMS];
+  if (!raw || typeof raw !== 'object') return null;
+  return raw as ConsoleAuthClaims;
+}
+
+function readOptionalExpressHeader(req: Request, header: string): string | undefined {
+  const raw = ((req as any)?.headers || {})[header.toLowerCase()] as string | string[] | undefined;
+  const value = Array.isArray(raw) ? String(raw[0] || '').trim() : String(raw || '').trim();
+  return value || undefined;
+}
+
+function toUnknownErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function appendConsoleObservabilityEvent(
+  ctx: ExpressConsoleContext,
+  ingestCtx: Parameters<ConsoleObservabilityIngestionService['appendEvent']>[0],
+  event: Parameters<ConsoleObservabilityIngestionService['appendEvent']>[1],
+): Promise<void> {
+  if (!ctx.observabilityIngestion) return;
+  try {
+    await ctx.observabilityIngestion.appendEvent(ingestCtx, event);
+  } catch (error: unknown) {
+    ctx.logger.warn('[console][observability] failed to append observability event', {
+      orgId: ingestCtx.orgId,
+      eventType: event.eventType,
+      message: toUnknownErrorMessage(error),
+    });
+  }
+}
+
+function installConsoleObservabilityTiming(router: ExpressRouter, ctx: ExpressConsoleContext): void {
+  if (!ctx.observabilityIngestion) return;
+
+  router.use((req: Request, res: Response, next: any) => {
+    const startedAtMs = Date.now();
+    (res as { on?: (event: 'finish', listener: () => void) => unknown }).on?.('finish', () => {
+      const claims = getRequestAuthClaims(req);
+      const roles = Array.isArray(claims?.roles) ? claims.roles.filter(Boolean) : [];
+      const orgId = String(claims?.orgId || '').trim();
+      if (!orgId) return;
+
+      const route =
+        String((req as any)?.route?.path || '').trim() ||
+        String((req as any)?.path || '').trim() ||
+        String((req as any)?.originalUrl || '').split('?')[0].trim() ||
+        '/';
+      const method = String((req as any)?.method || '').toUpperCase();
+      const requestId = readOptionalExpressHeader(req, 'x-request-id');
+      const traceId =
+        readOptionalExpressHeader(req, 'x-trace-id') ||
+        readOptionalExpressHeader(req, 'traceparent');
+      const latencyMs = Math.max(0, Date.now() - startedAtMs);
+      const event = buildRouterTimingObservabilityEvent({
+        orgId,
+        ...(claims?.projectId ? { projectId: claims.projectId } : {}),
+        ...(claims?.environmentId ? { environmentId: claims.environmentId } : {}),
+        route,
+        method,
+        statusCode: Number((res as any).statusCode || 0),
+        latencyMs,
+        ...(requestId ? { requestId } : {}),
+        ...(traceId ? { traceId } : {}),
+      });
+      void appendConsoleObservabilityEvent(
+        ctx,
+        {
+          orgId,
+          actorUserId: String(claims?.userId || 'system-console-router'),
+          roles: roles.length ? roles : ['ops'],
+          ...(claims?.projectId ? { projectId: claims.projectId } : {}),
+          ...(claims?.environmentId ? { environmentId: claims.environmentId } : {}),
+        },
+        event,
+      );
+    });
+    next();
+  });
+}
+
+async function emitBillingFailureObservabilityEvent(
+  ctx: ExpressConsoleContext,
+  req: Request,
+  claims: ConsoleAuthClaims,
+  input: {
+    operation: 'INVOICE_FINALIZATION' | 'PAYMENT_RECONCILE';
+    invoiceId?: string;
+    providerRef?: string;
+    error: unknown;
+  },
+): Promise<void> {
+  const requestId = readOptionalExpressHeader(req, 'x-request-id');
+  const traceId =
+    readOptionalExpressHeader(req, 'x-trace-id') || readOptionalExpressHeader(req, 'traceparent');
+  const event = buildBillingFailureObservabilityEvent({
+    orgId: claims.orgId,
+    ...(claims.projectId ? { projectId: claims.projectId } : {}),
+    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+    ...(input.invoiceId ? { invoiceId: input.invoiceId } : {}),
+    operation: input.operation,
+    failureCode: isConsoleBillingError(input.error) ? input.error.code : 'internal',
+    failureMessage: toUnknownErrorMessage(input.error),
+    ...(input.providerRef ? { providerRef: input.providerRef } : {}),
+    ...(requestId ? { requestId } : {}),
+    ...(traceId ? { traceId } : {}),
+  });
+  await appendConsoleObservabilityEvent(
+    ctx,
+    {
+      orgId: claims.orgId,
+      actorUserId: claims.userId,
+      roles: claims.roles,
+      ...(claims.projectId ? { projectId: claims.projectId } : {}),
+      ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+    },
+    event,
+  );
+}
+
+async function emitApprovalFailureObservabilityEvent(
+  ctx: ExpressConsoleContext,
+  req: Request,
+  claims: ConsoleAuthClaims,
+  input: {
+    approvalId?: string;
+    operationType: string;
+    resourceType?: string;
+    resourceId?: string;
+    error: unknown;
+  },
+): Promise<void> {
+  const requestId = readOptionalExpressHeader(req, 'x-request-id');
+  const traceId =
+    readOptionalExpressHeader(req, 'x-trace-id') || readOptionalExpressHeader(req, 'traceparent');
+  const event = buildApprovalFailureObservabilityEvent({
+    orgId: claims.orgId,
+    ...(claims.projectId ? { projectId: claims.projectId } : {}),
+    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+    ...(input.approvalId ? { approvalId: input.approvalId } : {}),
+    operationType: input.operationType,
+    ...(input.resourceType ? { resourceType: input.resourceType } : {}),
+    ...(input.resourceId ? { resourceId: input.resourceId } : {}),
+    failureCode: isConsolePolicyError(input.error) ? input.error.code : 'internal',
+    failureMessage: toUnknownErrorMessage(input.error),
+    ...(requestId ? { requestId } : {}),
+    ...(traceId ? { traceId } : {}),
+  });
+  await appendConsoleObservabilityEvent(
+    ctx,
+    {
+      orgId: claims.orgId,
+      actorUserId: claims.userId,
+      roles: claims.roles,
+      ...(claims.projectId ? { projectId: claims.projectId } : {}),
+      ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+    },
+    event,
+  );
 }
 
 function sendAuthFailure(res: Response, auth: Extract<ConsoleAuthResult, { ok: false }>): void {
@@ -532,6 +710,24 @@ function sendOnboardingError(res: Response, error: unknown): void {
   });
 }
 
+function sendObservabilityError(res: Response, error: unknown): void {
+  if (isConsoleObservabilityError(error)) {
+    res.status(error.status).json({
+      ok: false,
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {}),
+    });
+    return;
+  }
+
+  res.status(500).json({
+    ok: false,
+    code: 'internal',
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
 async function requireConsoleAuth(
   req: Request,
   res: Response,
@@ -545,6 +741,7 @@ async function requireConsoleAuth(
     sendAuthFailure(res, auth);
     return null;
   }
+  setRequestAuthClaims(req, auth.claims);
   return auth.claims;
 }
 
@@ -765,6 +962,19 @@ function requireOnboardingService(
     ok: false,
     code: 'onboarding_not_configured',
     message: 'Onboarding service is not configured on this server',
+  });
+  return null;
+}
+
+function requireObservabilityService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsoleObservabilityService | null {
+  if (ctx.observability) return ctx.observability;
+  res.status(501).json({
+    ok: false,
+    code: 'observability_not_configured',
+    message: 'Observability service is not configured on this server',
   });
   return null;
 }
@@ -1060,6 +1270,24 @@ function requireOnboardingTelemetryRole(claims: ConsoleAuthClaims, res: Response
     ok: false,
     code: 'forbidden',
     message: 'Only admin or ops can view onboarding telemetry',
+  });
+  return false;
+}
+
+function requireObservabilityReadRole(claims: ConsoleAuthClaims, res: Response): boolean {
+  if (
+    hasConsoleRole(claims, 'owner') ||
+    hasConsoleRole(claims, 'admin') ||
+    hasConsoleRole(claims, 'security_admin') ||
+    hasConsoleRole(claims, 'ops') ||
+    hasConsoleRole(claims, 'support')
+  ) {
+    return true;
+  }
+  res.status(403).json({
+    ok: false,
+    code: 'forbidden',
+    message: 'Only owner, admin, security_admin, ops, or support can view observability',
   });
   return false;
 }
@@ -2381,12 +2609,14 @@ function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
       res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing policy id' });
       return;
     }
+    let approvalIdForFailure: string | undefined;
     try {
       const rawBody = (req as any).body || {};
+      approvalIdForFailure = readApprovalIdFromBody(rawBody);
       if (
         !(await requireApprovedOperationApproval(res, ctx, claims, {
           operationType: 'POLICY_PUBLISH',
-          approvalIdRaw: readApprovalIdFromBody(rawBody),
+          approvalIdRaw: approvalIdForFailure,
           resourceType: 'policy',
           resourceId: policyId,
         }))
@@ -2414,6 +2644,13 @@ function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
       });
       res.status(200).json({ ok: true, result });
     } catch (error: unknown) {
+      await emitApprovalFailureObservabilityEvent(ctx, req, claims, {
+        approvalId: approvalIdForFailure,
+        operationType: 'POLICY_PUBLISH',
+        resourceType: 'policy',
+        resourceId: policyId,
+        error,
+      });
       sendPolicyError(res, error);
     }
   });
@@ -3304,8 +3541,10 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     if (!claims || !requireInvoiceGenerationRole(claims, res)) return;
     const billing = requireBillingService(res, ctx);
     if (!billing) return;
+    let invoiceScopeId = 'monthly:unknown';
     try {
       const request = parseGenerateMonthlyInvoiceRequest((req as any).body);
+      invoiceScopeId = `monthly:${request.periodMonthUtc}`;
       const generation = await billing.generateMonthlyInvoice(toBillingContext(claims), request);
       await emitBillingWebhookEvent(ctx, {
         orgId: claims.orgId,
@@ -3322,6 +3561,11 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
       });
       res.status(200).json({ ok: true, generation });
     } catch (error: unknown) {
+      await emitBillingFailureObservabilityEvent(ctx, req, claims, {
+        operation: 'INVOICE_FINALIZATION',
+        invoiceId: invoiceScopeId,
+        error,
+      });
       sendBillingError(res, error);
     }
   });
@@ -3654,6 +3898,11 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
         }
         res.status(200).json({ ok: true, paymentIntent });
       } catch (error: unknown) {
+        await emitBillingFailureObservabilityEvent(ctx, req, claims, {
+          operation: 'PAYMENT_RECONCILE',
+          invoiceId: `payment_intent:${paymentIntentId}`,
+          error,
+        });
         sendBillingError(res, error);
       }
     },
@@ -3840,6 +4089,11 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
         }
         res.status(200).json({ ok: true, paymentIntent });
       } catch (error: unknown) {
+        await emitBillingFailureObservabilityEvent(ctx, req, claims, {
+          operation: 'PAYMENT_RECONCILE',
+          invoiceId: `payment_intent:${paymentIntentId}`,
+          error,
+        });
         sendBillingError(res, error);
       }
     },
@@ -3867,6 +4121,9 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
   const enterpriseIsolation =
     opts.enterpriseIsolation === undefined ? null : opts.enterpriseIsolation;
   const onboarding = opts.onboarding === undefined ? null : opts.onboarding;
+  const observability = opts.observability === undefined ? null : opts.observability;
+  const observabilityIngestion =
+    opts.observabilityIngestion === undefined ? null : opts.observabilityIngestion;
 
   installConsoleCors(router, opts);
 
@@ -3890,12 +4147,22 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
     auditExports,
     enterpriseIsolation,
     onboarding,
+    observability,
+    observabilityIngestion,
   };
+  installConsoleObservabilityTiming(router, ctx);
 
   registerConsoleHealthRoutes(router, ctx);
   registerConsoleSessionRoute(router, ctx);
   registerConsoleOnboardingRoutes(router, ctx);
   registerConsoleOpsCockpitRoutes(router, ctx);
+  registerConsoleObservabilityRoutes(router, ctx, {
+    requireConsoleAuth,
+    requireObservabilityReadRole,
+    requireObservabilityService,
+    toAuditContext,
+    sendObservabilityError,
+  });
   registerConsoleOrgProjectEnvRoutes(router, ctx);
   registerConsoleTeamRbacRoutes(router, ctx);
   registerConsoleApprovalRoutes(router, ctx);

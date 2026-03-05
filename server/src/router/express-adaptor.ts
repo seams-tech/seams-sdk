@@ -351,6 +351,41 @@ export type {
   PostgresConsoleRuntimeSnapshotOutboxDispatchOptions,
   PostgresConsoleRuntimeSnapshotOutboxDispatchResult,
 } from '../console/runtimeSnapshots';
+export type {
+  ConsoleObservabilityModuleState,
+  ConsoleObservabilityModuleStatus,
+  ConsoleObservabilityLevel,
+  ConsoleObservabilitySource,
+  ConsoleObservabilitySummary,
+  ConsoleObservabilityEvent,
+  ConsoleObservabilityEventEnvelope,
+  ConsoleObservabilityEventsPage,
+  ConsoleObservabilityTimeseriesBucket,
+  ConsoleObservabilityTimeseries,
+  ConsoleServiceHealthState,
+  ConsoleObservabilityServiceHealth,
+  ConsoleObservabilityServicesView,
+  GetConsoleObservabilitySummaryRequest,
+  ListConsoleObservabilityEventsRequest,
+  GetConsoleObservabilityTimeseriesRequest,
+  ListConsoleObservabilityServicesRequest,
+  ConsoleObservabilityEventIngestResult,
+  ConsoleObservabilityIngestionContext,
+  ConsoleObservabilityMetadataRedactionPolicy,
+  ConsoleObservabilityWebhookDeadLetterInput,
+  ConsoleObservabilityBillingFailureInput,
+  ConsoleObservabilityApprovalFailureInput,
+  ConsoleObservabilityRouterTimingInput,
+} from '../console/observability';
+export type {
+  ConsoleObservabilityContext,
+  ConsoleObservabilityService,
+  InMemoryConsoleObservabilityServiceOptions,
+  PostgresConsoleObservabilitySchemaOptions,
+  PostgresConsoleObservabilityServiceOptions,
+  ConsoleObservabilityIngestionService,
+  PostgresConsoleObservabilityIngestionServiceOptions,
+} from '../console/observability';
 export {
   createInMemoryConsoleOrgProjectEnvService,
   ensureConsoleOrgProjectEnvPostgresSchema,
@@ -501,8 +536,34 @@ export {
   isConsoleRuntimeSnapshotError,
   ConsoleRuntimeSnapshotError,
 } from '../console/runtimeSnapshots';
+export {
+  createInMemoryConsoleObservabilityService,
+  ensureConsoleObservabilityPostgresSchema,
+  createPostgresConsoleObservabilityService,
+  createPostgresConsoleObservabilityIngestionService,
+  redactConsoleObservabilityMetadata,
+  buildWebhookDeadLetterObservabilityEvent,
+  buildBillingFailureObservabilityEvent,
+  buildApprovalFailureObservabilityEvent,
+  buildRouterTimingObservabilityEvent,
+  parseGetConsoleObservabilitySummaryRequest,
+  parseListConsoleObservabilityEventsRequest,
+  parseGetConsoleObservabilityTimeseriesRequest,
+  parseListConsoleObservabilityServicesRequest,
+  isConsoleObservabilityError,
+  ConsoleObservabilityError,
+} from '../console/observability';
 export { createRelayRouter } from './express/createRelayRouter';
 export { createConsoleRouter } from './express/createConsoleRouter';
+export type {
+  ConsoleSsoProvisioningOptions,
+  AppSessionConsoleAuthAdapterOptions,
+} from './consoleAppSessionAuth';
+export {
+  normalizeConsoleOrgScopedRoleList,
+  mergeConsoleOrgScopedRoleLists,
+  createAppSessionConsoleAuthAdapter,
+} from './consoleAppSessionAuth';
 export {
   createRelayApiKeyAuthAdapter,
   createRelayBillingUsageMeterAdapter,

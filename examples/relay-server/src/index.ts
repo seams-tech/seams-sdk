@@ -16,17 +16,24 @@ import {
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleAuditService,
   createInMemoryConsoleOnboardingService,
+  createInMemoryConsoleObservabilityService,
   createInMemoryConsoleOrgProjectEnvService,
   createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWebhookService,
   createPostgresConsoleBillingService,
+  createPostgresConsoleObservabilityIngestionService,
+  createPostgresConsoleObservabilityService,
   createPostgresConsoleWebhookService,
   createRelayApiKeyAuthAdapter,
   createRelayBillingUsageMeterAdapter,
+  createAppSessionConsoleAuthAdapter,
+  normalizeConsoleOrgScopedRoleList,
+  mergeConsoleOrgScopedRoleLists,
   createRelayRouter,
   type ConsoleBillingService,
   type ConsoleAuditService,
-  type ConsoleAuthAdapter,
+  type ConsoleObservabilityIngestionService,
+  type ConsoleObservabilityService,
   type ConsoleOrgProjectEnvService,
   type ConsoleTeamRbacService,
   type ConsoleWebhookService,
@@ -91,6 +98,13 @@ function parseOptionalPositiveInteger(value: unknown): number | undefined {
   if (!Number.isFinite(parsed)) return undefined;
   const integer = Math.floor(parsed);
   return integer > 0 ? integer : undefined;
+}
+
+function parseCsvValues(value: unknown): string[] {
+  return String(value || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
 function parseBooleanFlag(value: unknown): boolean {
@@ -271,6 +285,15 @@ async function main() {
     consoleWebhooksBackend,
     consoleWebhooksEnsureSchema,
     consoleWebhooksNamespace,
+    consoleObservabilityBackend,
+    consoleObservabilityEnsureSchema,
+    consoleObservabilityNamespace,
+    consoleObservabilityQueryMaxWindowMs,
+    consoleObservabilityIngestMaxBatchSize,
+    consoleObservabilityIngestMaxEventsPerMinute,
+    consoleObservabilityRetentionTtlMs,
+    consoleObservabilityRetentionPruneIntervalMs,
+    consoleObservabilityRetentionBatchSize,
     consoleBillingStripeWebhookSecret,
   } = resolveRelayServerConsoleConfig(env as Record<string, unknown>);
   const ed25519MasterSecretB64u =
@@ -328,6 +351,13 @@ async function main() {
     THRESHOLD_ED25519_AUTH_PREFIX: env.THRESHOLD_ED25519_AUTH_PREFIX,
   } as const;
 
+  const googleClientIds = Array.from(
+    new Set<string>([
+      ...parseCsvValues(env.GOOGLE_OIDC_CLIENT_IDS),
+      ...parseCsvValues(env.GOOGLE_OIDC_CLIENT_ID),
+    ]),
+  );
+
   const authService = new AuthService({
     // new accounts with be created with this account: e.g. bob.{relayer-account-id}.near
     relayerAccount: requireEnvVar(env, 'RELAYER_ACCOUNT_ID'),
@@ -344,6 +374,24 @@ async function main() {
       GOOGLE_OIDC_CLIENT_IDS: env.GOOGLE_OIDC_CLIENT_IDS,
       GOOGLE_OIDC_HOSTED_DOMAINS: env.GOOGLE_OIDC_HOSTED_DOMAINS,
     },
+    oidcExchange: googleClientIds.length
+      ? {
+          issuers: [
+            {
+              issuer: 'https://accounts.google.com',
+              jwksUrl: 'https://www.googleapis.com/oauth2/v3/certs',
+              audiences: googleClientIds,
+              subjectPrefix: 'google:',
+            },
+            {
+              issuer: 'accounts.google.com',
+              jwksUrl: 'https://www.googleapis.com/oauth2/v3/certs',
+              audiences: googleClientIds,
+              subjectPrefix: 'google:',
+            },
+          ],
+        }
+      : undefined,
   });
 
   await authService.initStorage();
@@ -439,7 +487,6 @@ async function main() {
   })();
 
   const app: Express = express();
-  const consoleDevToken = String(env.CONSOLE_DEV_TOKEN || 'dev-console-token').trim();
   const consoleDemoSeedEnabled = parseBooleanFlagWithDefault(env.CONSOLE_DEMO_SEED_ENABLED, true);
   const consoleDemoOrgId = String(env.CONSOLE_DEMO_ORG_ID || 'org-dev').trim() || 'org-dev';
   const consoleDemoProjectId =
@@ -447,9 +494,13 @@ async function main() {
   const consoleDemoEnvironmentId =
     String(env.CONSOLE_DEMO_ENVIRONMENT_ID || `${consoleDemoProjectId}-prod`).trim() ||
     `${consoleDemoProjectId}-prod`;
-  const defaultConsoleUserId =
-    String(env.CONSOLE_DEMO_USER_ID || 'console-admin').trim() || 'console-admin';
-  const defaultConsoleRoles = String(env.CONSOLE_DEMO_ROLES || 'admin').trim() || 'admin';
+  const defaultConsoleRoles = normalizeConsoleOrgScopedRoleList(
+    env.CONSOLE_SSO_DEFAULT_ROLES || env.CONSOLE_DEMO_ROLES || 'admin',
+  );
+  const consoleSsoBootstrapRoles = mergeConsoleOrgScopedRoleLists(
+    ['owner', 'admin'],
+    defaultConsoleRoles,
+  );
   const stripeApiSecretKey = String(env.STRIPE_API_SK || '').trim() || '';
   const stripeApiPublishableKey = String(env.STRIPE_API_PK || '').trim() || '';
   const stripeCheckoutPriceId = String(env.STRIPE_CHECKOUT_PRICE_ID || '').trim() || '';
@@ -466,51 +517,13 @@ async function main() {
         }),
       }
     : undefined;
-  const consoleAuth: ConsoleAuthAdapter = {
-    authenticate: async (headers) => {
-      const authHeader = String(headers.authorization || headers.Authorization || '').trim();
-      const bearerPrefix = 'Bearer ';
-      const token = authHeader.startsWith(bearerPrefix)
-        ? authHeader.slice(bearerPrefix.length).trim()
-        : '';
-      if (!token || token !== consoleDevToken) {
-        return {
-          ok: false,
-          code: 'unauthorized',
-          message: 'Missing or invalid console bearer token',
-          status: 401,
-        };
-      }
-
-      const rawOrgId = String(headers['x-console-org-id'] || '').trim();
-      const rawUserId = String(headers['x-console-user-id'] || '').trim();
-      const rawRoles = String(headers['x-console-roles'] || defaultConsoleRoles).trim();
-      const rawProjectId = String(headers['x-console-project-id'] || '').trim();
-      const rawEnvironmentId = String(headers['x-console-environment-id'] || '').trim();
-      const roles = rawRoles
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter(Boolean);
-
-      return {
-        ok: true,
-        claims: {
-          orgId: rawOrgId || consoleDemoOrgId,
-          userId: rawUserId || defaultConsoleUserId,
-          roles: roles.length ? roles : ['admin'],
-          projectId: rawProjectId || consoleDemoProjectId,
-          environmentId: rawEnvironmentId || consoleDemoEnvironmentId,
-        },
-      };
-    },
-  };
   let consoleBilling: ConsoleBillingService;
   let consoleWebhooks: ConsoleWebhookService;
+  let consoleObservability: ConsoleObservabilityService;
+  let consoleObservabilityIngestion: ConsoleObservabilityIngestionService | null;
   if (consoleBillingBackend === 'postgres') {
     if (!consolePostgresUrl) {
-      throw new Error(
-        'CONSOLE_BILLING_BACKEND=postgres requires CONSOLE_POSTGRES_URL (or POSTGRES_URL fallback)',
-      );
+      throw new Error('CONSOLE_BILLING_BACKEND=postgres requires CONSOLE_POSTGRES_URL');
     }
     consoleBilling = await createPostgresConsoleBillingService({
       postgresUrl: consolePostgresUrl,
@@ -531,9 +544,7 @@ async function main() {
 
   if (consoleWebhooksBackend === 'postgres') {
     if (!consolePostgresUrl) {
-      throw new Error(
-        'CONSOLE_WEBHOOKS_BACKEND=postgres requires CONSOLE_POSTGRES_URL (or POSTGRES_URL fallback)',
-      );
+      throw new Error('CONSOLE_WEBHOOKS_BACKEND=postgres requires CONSOLE_POSTGRES_URL');
     }
     consoleWebhooks = await createPostgresConsoleWebhookService({
       postgresUrl: consolePostgresUrl,
@@ -543,6 +554,33 @@ async function main() {
     });
   } else {
     consoleWebhooks = createInMemoryConsoleWebhookService();
+  }
+
+  if (consoleObservabilityBackend === 'postgres') {
+    if (!consolePostgresUrl) {
+      throw new Error('CONSOLE_OBSERVABILITY_BACKEND=postgres requires CONSOLE_POSTGRES_URL');
+    }
+    consoleObservability = await createPostgresConsoleObservabilityService({
+      postgresUrl: consolePostgresUrl,
+      namespace: consoleObservabilityNamespace,
+      logger: console as any,
+      ensureSchema: consoleObservabilityEnsureSchema,
+      queryMaxWindowMs: consoleObservabilityQueryMaxWindowMs,
+    });
+    consoleObservabilityIngestion = await createPostgresConsoleObservabilityIngestionService({
+      postgresUrl: consolePostgresUrl,
+      namespace: consoleObservabilityNamespace,
+      logger: console as any,
+      ensureSchema: consoleObservabilityEnsureSchema,
+      maxBatchSize: consoleObservabilityIngestMaxBatchSize,
+      maxEventsPerMinute: consoleObservabilityIngestMaxEventsPerMinute,
+      retentionTtlMs: consoleObservabilityRetentionTtlMs,
+      retentionPruneIntervalMs: consoleObservabilityRetentionPruneIntervalMs,
+      retentionBatchSize: consoleObservabilityRetentionBatchSize,
+    });
+  } else {
+    consoleObservability = createInMemoryConsoleObservabilityService();
+    consoleObservabilityIngestion = null;
   }
   const consoleOrgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
   const consoleApiKeys = createInMemoryConsoleApiKeyService();
@@ -557,6 +595,19 @@ async function main() {
     orgProjectEnv: consoleOrgProjectEnv,
     apiKeys: consoleApiKeys,
     teamRbac: consoleTeamRbac,
+  });
+  const consoleAuth = createAppSessionConsoleAuthAdapter({
+    session: jwtSession,
+    authService,
+    defaultOrgId: consoleDemoOrgId,
+    fallbackRoles: consoleSsoBootstrapRoles,
+    provisioning: {
+      bootstrapRoles: consoleSsoBootstrapRoles,
+      orgProjectEnv: consoleOrgProjectEnv,
+      teamRbac: consoleTeamRbac,
+      audit: consoleAudit,
+      logger: console,
+    },
   });
   if (consoleDemoSeedEnabled) {
     await seedDemoConsoleOrgAndMembers({
@@ -622,6 +673,8 @@ async function main() {
       orgProjectEnv: consoleOrgProjectEnv,
       teamRbac: consoleTeamRbac,
       audit: consoleAudit,
+      observability: consoleObservability,
+      observabilityIngestion: consoleObservabilityIngestion,
       logger: console,
     }),
   );
@@ -641,8 +694,10 @@ async function main() {
     console.log(
       `Relay usage meter (billing linkage): ${relayApiKeyUsageMeter ? 'enabled' : 'disabled'}`,
     );
-    console.log(`Console dev token: ${consoleDevToken}`);
     console.log('Console routes mounted at /console/*');
+    console.log(
+      `Console session auth: app_session_v1 cookie/JWT (bootstrap roles: ${consoleSsoBootstrapRoles.join(', ') || 'none'})`,
+    );
     console.log(
       `Console demo seed: ${consoleDemoSeedEnabled ? 'enabled' : 'disabled'} (org=${consoleDemoOrgId})`,
     );
@@ -660,11 +715,7 @@ async function main() {
       console.log(
         `Console billing ensure schema: ${consoleBillingEnsureSchema ? 'enabled' : 'disabled'}`,
       );
-      console.log(
-        `Console Postgres URL source: ${
-          consolePostgresUrl === thresholdPostgresUrl ? 'POSTGRES_URL' : 'CONSOLE_POSTGRES_URL'
-        }`,
-      );
+      console.log('Console Postgres URL source: CONSOLE_POSTGRES_URL');
     }
     console.log(
       `Console billing Stripe webhook secret: ${
@@ -676,6 +727,31 @@ async function main() {
       console.log(`Console webhooks namespace: ${consoleWebhooksNamespace}`);
       console.log(
         `Console webhooks ensure schema: ${consoleWebhooksEnsureSchema ? 'enabled' : 'disabled'}`,
+      );
+    }
+    console.log(`Console observability backend: ${consoleObservabilityBackend}`);
+    if (consoleObservabilityBackend === 'postgres') {
+      console.log(`Console observability namespace: ${consoleObservabilityNamespace}`);
+      console.log(
+        `Console observability ensure schema: ${consoleObservabilityEnsureSchema ? 'enabled' : 'disabled'}`,
+      );
+      console.log(
+        `Console observability query max window (ms): ${consoleObservabilityQueryMaxWindowMs}`,
+      );
+      console.log(
+        `Console observability ingest max batch size: ${consoleObservabilityIngestMaxBatchSize}`,
+      );
+      console.log(
+        `Console observability ingest max events/min: ${consoleObservabilityIngestMaxEventsPerMinute}`,
+      );
+      console.log(
+        `Console observability retention TTL (ms): ${consoleObservabilityRetentionTtlMs}`,
+      );
+      console.log(
+        `Console observability retention prune interval (ms): ${consoleObservabilityRetentionPruneIntervalMs}`,
+      );
+      console.log(
+        `Console observability retention batch size: ${consoleObservabilityRetentionBatchSize}`,
       );
     }
     authService

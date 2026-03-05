@@ -141,6 +141,14 @@ import {
   parseGetConsoleOnboardingTelemetryRequest,
   type ConsoleOnboardingService,
 } from '../../console/onboarding';
+import {
+  buildApprovalFailureObservabilityEvent,
+  buildBillingFailureObservabilityEvent,
+  buildRouterTimingObservabilityEvent,
+  isConsoleObservabilityError,
+  type ConsoleObservabilityIngestionService,
+  type ConsoleObservabilityService,
+} from '../../console/observability';
 import type { ConsoleAuthClaims, ConsoleAuthResult, ConsoleRouterOptions } from '../console';
 import { authenticateConsoleRequest, hasConsoleRole } from '../console';
 import {
@@ -153,6 +161,7 @@ import { resolveConsoleRuntimeSnapshotPayload } from '../runtimeSnapshotPayload'
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 import { buildConsoleOpsCockpitSummary } from '../opsCockpitSummary';
+import { handleConsoleObservabilityRoutes } from './consoleObservabilityRoutes';
 import type { CfEnv, CfExecutionContext, FetchHandler } from './types';
 import { headersToRecord, json, readJson } from './http';
 
@@ -183,6 +192,9 @@ export interface CloudflareConsoleContext {
   auditExports: ConsoleAuditExportsService | null;
   enterpriseIsolation: ConsoleEnterpriseIsolationService | null;
   onboarding: ConsoleOnboardingService | null;
+  observability: ConsoleObservabilityService | null;
+  observabilityIngestion: ConsoleObservabilityIngestionService | null;
+  authClaims?: ConsoleAuthClaims;
 }
 
 const CONSOLE_CORS_ALLOW_HEADERS =
@@ -211,6 +223,150 @@ function withConsoleCors(headers: Headers, opts?: ConsoleRouterOptions, request?
   if (allowedOrigin && allowedOrigin !== '*') {
     headers.set('Access-Control-Allow-Credentials', 'true');
   }
+}
+
+function readOptionalRequestHeader(request: Request, header: string): string | undefined {
+  const value = String(request.headers.get(header) || '').trim();
+  return value || undefined;
+}
+
+function toUnknownErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function appendConsoleObservabilityEvent(
+  ctx: CloudflareConsoleContext,
+  ingestCtx: Parameters<ConsoleObservabilityIngestionService['appendEvent']>[0],
+  event: Parameters<ConsoleObservabilityIngestionService['appendEvent']>[1],
+): Promise<void> {
+  if (!ctx.observabilityIngestion) return;
+  try {
+    await ctx.observabilityIngestion.appendEvent(ingestCtx, event);
+  } catch (error: unknown) {
+    ctx.logger.warn('[console][observability] failed to append observability event', {
+      orgId: ingestCtx.orgId,
+      eventType: event.eventType,
+      message: toUnknownErrorMessage(error),
+    });
+  }
+}
+
+async function emitRouterTimingObservabilityEvent(
+  ctx: CloudflareConsoleContext,
+  startedAtMs: number,
+  statusCode: number,
+): Promise<void> {
+  const claims = ctx.authClaims;
+  const roles = Array.isArray(claims?.roles) ? claims.roles.filter(Boolean) : [];
+  const orgId = String(claims?.orgId || '').trim();
+  if (!orgId) return;
+
+  const requestId = readOptionalRequestHeader(ctx.request, 'x-request-id');
+  const traceId =
+    readOptionalRequestHeader(ctx.request, 'x-trace-id') ||
+    readOptionalRequestHeader(ctx.request, 'traceparent');
+  const event = buildRouterTimingObservabilityEvent({
+    orgId,
+    ...(claims?.projectId ? { projectId: claims.projectId } : {}),
+    ...(claims?.environmentId ? { environmentId: claims.environmentId } : {}),
+    route: ctx.pathname,
+    method: ctx.method,
+    statusCode,
+    latencyMs: Math.max(0, Date.now() - startedAtMs),
+    ...(requestId ? { requestId } : {}),
+    ...(traceId ? { traceId } : {}),
+  });
+  await appendConsoleObservabilityEvent(
+    ctx,
+    {
+      orgId,
+      actorUserId: String(claims?.userId || 'system-console-router'),
+      roles: roles.length ? roles : ['ops'],
+      ...(claims?.projectId ? { projectId: claims.projectId } : {}),
+      ...(claims?.environmentId ? { environmentId: claims.environmentId } : {}),
+    },
+    event,
+  );
+}
+
+async function emitBillingFailureObservabilityEvent(
+  ctx: CloudflareConsoleContext,
+  claims: ConsoleAuthClaims,
+  input: {
+    operation: 'INVOICE_FINALIZATION' | 'PAYMENT_RECONCILE';
+    invoiceId?: string;
+    providerRef?: string;
+    error: unknown;
+  },
+): Promise<void> {
+  const requestId = readOptionalRequestHeader(ctx.request, 'x-request-id');
+  const traceId =
+    readOptionalRequestHeader(ctx.request, 'x-trace-id') ||
+    readOptionalRequestHeader(ctx.request, 'traceparent');
+  const event = buildBillingFailureObservabilityEvent({
+    orgId: claims.orgId,
+    ...(claims.projectId ? { projectId: claims.projectId } : {}),
+    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+    ...(input.invoiceId ? { invoiceId: input.invoiceId } : {}),
+    operation: input.operation,
+    failureCode: isConsoleBillingError(input.error) ? input.error.code : 'internal',
+    failureMessage: toUnknownErrorMessage(input.error),
+    ...(input.providerRef ? { providerRef: input.providerRef } : {}),
+    ...(requestId ? { requestId } : {}),
+    ...(traceId ? { traceId } : {}),
+  });
+  await appendConsoleObservabilityEvent(
+    ctx,
+    {
+      orgId: claims.orgId,
+      actorUserId: claims.userId,
+      roles: claims.roles,
+      ...(claims.projectId ? { projectId: claims.projectId } : {}),
+      ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+    },
+    event,
+  );
+}
+
+async function emitApprovalFailureObservabilityEvent(
+  ctx: CloudflareConsoleContext,
+  claims: ConsoleAuthClaims,
+  input: {
+    approvalId?: string;
+    operationType: string;
+    resourceType?: string;
+    resourceId?: string;
+    error: unknown;
+  },
+): Promise<void> {
+  const requestId = readOptionalRequestHeader(ctx.request, 'x-request-id');
+  const traceId =
+    readOptionalRequestHeader(ctx.request, 'x-trace-id') ||
+    readOptionalRequestHeader(ctx.request, 'traceparent');
+  const event = buildApprovalFailureObservabilityEvent({
+    orgId: claims.orgId,
+    ...(claims.projectId ? { projectId: claims.projectId } : {}),
+    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+    ...(input.approvalId ? { approvalId: input.approvalId } : {}),
+    operationType: input.operationType,
+    ...(input.resourceType ? { resourceType: input.resourceType } : {}),
+    ...(input.resourceId ? { resourceId: input.resourceId } : {}),
+    failureCode: isConsolePolicyError(input.error) ? input.error.code : 'internal',
+    failureMessage: toUnknownErrorMessage(input.error),
+    ...(requestId ? { requestId } : {}),
+    ...(traceId ? { traceId } : {}),
+  });
+  await appendConsoleObservabilityEvent(
+    ctx,
+    {
+      orgId: claims.orgId,
+      actorUserId: claims.userId,
+      roles: claims.roles,
+      ...(claims.projectId ? { projectId: claims.projectId } : {}),
+      ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+    },
+    event,
+  );
 }
 
 function sendAuthFailure(auth: Extract<ConsoleAuthResult, { ok: false }>): Response {
@@ -615,6 +771,29 @@ function sendOnboardingError(error: unknown): Response {
   );
 }
 
+function sendObservabilityError(error: unknown): Response {
+  if (isConsoleObservabilityError(error)) {
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+      { status: error.status },
+    );
+  }
+
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
+}
+
 async function requireConsoleAuth(
   ctx: CloudflareConsoleContext,
 ): Promise<{ ok: true; claims: ConsoleAuthClaims } | { ok: false; response: Response }> {
@@ -625,6 +804,7 @@ async function requireConsoleAuth(
   if (!auth.ok) {
     return { ok: false, response: sendAuthFailure(auth) };
   }
+  ctx.authClaims = auth.claims;
   return { ok: true, claims: auth.claims };
 }
 
@@ -839,6 +1019,20 @@ function requireOnboardingService(ctx: CloudflareConsoleContext): ConsoleOnboard
       ok: false,
       code: 'onboarding_not_configured',
       message: 'Onboarding service is not configured on this server',
+    },
+    { status: 501 },
+  );
+}
+
+function requireObservabilityService(
+  ctx: CloudflareConsoleContext,
+): ConsoleObservabilityService | Response {
+  if (ctx.observability) return ctx.observability;
+  return json(
+    {
+      ok: false,
+      code: 'observability_not_configured',
+      message: 'Observability service is not configured on this server',
     },
     { status: 501 },
   );
@@ -1153,6 +1347,26 @@ function requireOnboardingTelemetryRole(claims: ConsoleAuthClaims): Response | n
       ok: false,
       code: 'forbidden',
       message: 'Only admin or ops can view onboarding telemetry',
+    },
+    { status: 403 },
+  );
+}
+
+function requireObservabilityReadRole(claims: ConsoleAuthClaims): Response | null {
+  if (
+    hasConsoleRole(claims, 'owner') ||
+    hasConsoleRole(claims, 'admin') ||
+    hasConsoleRole(claims, 'security_admin') ||
+    hasConsoleRole(claims, 'ops') ||
+    hasConsoleRole(claims, 'support')
+  ) {
+    return null;
+  }
+  return json(
+    {
+      ok: false,
+      code: 'forbidden',
+      message: 'Only owner, admin, security_admin, ops, or support can view observability',
     },
     { status: 403 },
   );
@@ -1654,6 +1868,18 @@ async function handleConsoleOpsCockpit(ctx: CloudflareConsoleContext): Promise<R
   }
 }
 
+async function handleConsoleObservability(ctx: CloudflareConsoleContext): Promise<Response | null> {
+  return await handleConsoleObservabilityRoutes(ctx, {
+    json,
+    isConsoleObservabilityPath,
+    requireConsoleAuth,
+    requireObservabilityReadRole,
+    requireObservabilityService,
+    toAuditContext,
+    sendObservabilityError,
+  });
+}
+
 function isConsoleBillingPath(pathname: string): boolean {
   return pathname.startsWith('/console/billing/');
 }
@@ -1669,6 +1895,15 @@ function isConsoleOnboardingPath(pathname: string): boolean {
 
 function isConsoleOpsCockpitPath(pathname: string): boolean {
   return pathname === '/console/ops-cockpit/summary';
+}
+
+function isConsoleObservabilityPath(pathname: string): boolean {
+  return (
+    pathname === '/console/observability/summary' ||
+    pathname === '/console/observability/events' ||
+    pathname === '/console/observability/timeseries' ||
+    pathname === '/console/observability/services'
+  );
 }
 
 function isConsoleOrgProjectEnvPath(pathname: string): boolean {
@@ -2953,35 +3188,47 @@ async function handleConsolePolicies(ctx: CloudflareConsoleContext): Promise<Res
       if (roleRequired) return roleRequired;
       const policyId = decodePathPart(policyPublishMatch[1]);
       const rawBody = await readJson(ctx.request);
+      const approvalIdForFailure = readApprovalIdFromBody(rawBody);
       const approvalRequired = await requireApprovedOperationApproval(ctx, auth.claims, {
         operationType: 'POLICY_PUBLISH',
-        approvalIdRaw: readApprovalIdFromBody(rawBody),
+        approvalIdRaw: approvalIdForFailure,
         resourceType: 'policy',
         resourceId: policyId,
       });
       if (approvalRequired) return approvalRequired;
-      const result = await policies.publishPolicy(policyCtx, policyId);
-      if (!result) {
-        return json(
-          {
-            ok: false,
-            code: 'policy_not_found',
-            message: `Policy ${policyId} was not found`,
+      try {
+        const result = await policies.publishPolicy(policyCtx, policyId);
+        if (!result) {
+          return json(
+            {
+              ok: false,
+              code: 'policy_not_found',
+              message: `Policy ${policyId} was not found`,
+            },
+            { status: 404 },
+          );
+        }
+        await emitConsoleAuditEvent(ctx, auth.claims, {
+          category: 'POLICY',
+          action: 'policy.publish',
+          summary: `Published policy ${policyId}`,
+          metadata: {
+            policyId,
+            version: result.policy.version,
+            status: result.policy.status,
           },
-          { status: 404 },
-        );
+        });
+        return json({ ok: true, result }, { status: 200 });
+      } catch (error: unknown) {
+        await emitApprovalFailureObservabilityEvent(ctx, auth.claims, {
+          approvalId: approvalIdForFailure,
+          operationType: 'POLICY_PUBLISH',
+          resourceType: 'policy',
+          resourceId: policyId,
+          error,
+        });
+        throw error;
       }
-      await emitConsoleAuditEvent(ctx, auth.claims, {
-        category: 'POLICY',
-        action: 'policy.publish',
-        summary: `Published policy ${policyId}`,
-        metadata: {
-          policyId,
-          version: result.policy.version,
-          status: result.policy.status,
-        },
-      });
-      return json({ ok: true, result }, { status: 200 });
     }
 
     if (ctx.method === 'POST' && policySimulateMatch) {
@@ -3299,6 +3546,13 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
   const stablecoinIntentReconcileMatch = ctx.pathname.match(
     /^\/console\/billing\/stablecoins\/payment-intents\/([^/]+)\/reconcile$/,
   );
+  let billingFailureEvent:
+    | {
+        operation: 'INVOICE_FINALIZATION' | 'PAYMENT_RECONCILE';
+        invoiceId?: string;
+        providerRef?: string;
+      }
+    | null = null;
 
   try {
     if (ctx.method === 'GET' && ctx.pathname === '/console/billing/stablecoins/assets') {
@@ -3339,6 +3593,10 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       const roleRequired = requireInvoiceGenerationRole(auth.claims);
       if (roleRequired) return roleRequired;
       const request = parseGenerateMonthlyInvoiceRequest(await readJson(ctx.request));
+      billingFailureEvent = {
+        operation: 'INVOICE_FINALIZATION',
+        invoiceId: `monthly:${request.periodMonthUtc}`,
+      };
       const generation = await billing.generateMonthlyInvoice(billingCtx, request);
       await emitBillingWebhookEvent(ctx, {
         orgId: auth.claims.orgId,
@@ -3502,6 +3760,10 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       if (roleRequired) return roleRequired;
       const paymentIntentId = decodePathPart(stripeIntentReconcileMatch[1]);
       const request = parseStripePaymentIntentReconcileRequest(await readJson(ctx.request));
+      billingFailureEvent = {
+        operation: 'PAYMENT_RECONCILE',
+        invoiceId: `payment_intent:${paymentIntentId}`,
+      };
       const paymentIntent = await billing.reconcileStripePaymentIntent(
         billingCtx,
         paymentIntentId,
@@ -3609,6 +3871,10 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       if (roleRequired) return roleRequired;
       const paymentIntentId = decodePathPart(stablecoinIntentReconcileMatch[1]);
       const request = parseStablecoinPaymentIntentReconcileRequest(await readJson(ctx.request));
+      billingFailureEvent = {
+        operation: 'PAYMENT_RECONCILE',
+        invoiceId: `payment_intent:${paymentIntentId}`,
+      };
       const paymentIntent = await billing.reconcileStablecoinPaymentIntent(
         billingCtx,
         paymentIntentId,
@@ -3651,6 +3917,14 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       return json({ ok: true, paymentIntent }, { status: 200 });
     }
   } catch (error: unknown) {
+    if (billingFailureEvent) {
+      await emitBillingFailureObservabilityEvent(ctx, auth.claims, {
+        operation: billingFailureEvent.operation,
+        ...(billingFailureEvent.invoiceId ? { invoiceId: billingFailureEvent.invoiceId } : {}),
+        ...(billingFailureEvent.providerRef ? { providerRef: billingFailureEvent.providerRef } : {}),
+        error,
+      });
+    }
     return sendBillingError(error);
   }
 
@@ -3678,6 +3952,9 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
   const enterpriseIsolation =
     opts.enterpriseIsolation === undefined ? null : opts.enterpriseIsolation;
   const onboarding = opts.onboarding === undefined ? null : opts.onboarding;
+  const observability = opts.observability === undefined ? null : opts.observability;
+  const observabilityIngestion =
+    opts.observabilityIngestion === undefined ? null : opts.observabilityIngestion;
 
   const handlers: Array<(ctx: CloudflareConsoleContext) => Promise<Response | null>> = [
     handleConsoleHealth,
@@ -3685,6 +3962,7 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
     handleConsoleSession,
     handleConsoleOnboarding,
     handleConsoleOpsCockpit,
+    handleConsoleObservability,
     handleConsoleOrgProjectEnv,
     handleConsoleTeamRbac,
     handleConsoleApprovals,
@@ -3712,6 +3990,7 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
     const url = new URL(request.url);
     const pathname = url.pathname;
     const method = request.method.toUpperCase();
+    const startedAtMs = Date.now();
 
     if (method === 'OPTIONS') {
       const res = new Response(null, { status: 204 });
@@ -3745,6 +4024,8 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
       auditExports,
       enterpriseIsolation,
       onboarding,
+      observability,
+      observabilityIngestion,
     };
 
     try {
@@ -3752,16 +4033,21 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
         const res = await fn(ctx);
         if (res) {
           withConsoleCors(res.headers, opts, request);
+          void emitRouterTimingObservabilityEvent(ctx, startedAtMs, res.status);
           return res;
         }
       }
-      return notFound();
+      const res = notFound();
+      withConsoleCors(res.headers, opts, request);
+      void emitRouterTimingObservabilityEvent(ctx, startedAtMs, res.status);
+      return res;
     } catch (e: unknown) {
       const res = json(
         { code: 'internal', message: e instanceof Error ? e.message : String(e) },
         { status: 500 },
       );
       withConsoleCors(res.headers, opts, request);
+      void emitRouterTimingObservabilityEvent(ctx, startedAtMs, res.status);
       return res;
     }
   };
