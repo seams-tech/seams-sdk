@@ -34,6 +34,7 @@ type CardDashboardRoute = Exclude<
   | '/dashboard/gas-smart-wallets'
   | '/dashboard/export-keys'
   | '/dashboard/ops-cockpit'
+  | '/dashboard/observability'
 >;
 
 export const USER_WALLETS_LIST_KPIS = [

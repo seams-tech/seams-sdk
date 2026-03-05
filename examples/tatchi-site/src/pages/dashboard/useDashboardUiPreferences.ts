@@ -290,6 +290,14 @@ function clearDashboardUiQueryState(pathname: string): void {
   }
 }
 
+export function clearDashboardUiState(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(UI_STATE_STORAGE_KEY);
+  } catch {}
+  clearDashboardUiQueryState(window.location.pathname || '/dashboard');
+}
+
 export function persistDashboardSelectedContext(
   selectedContext: Partial<TopbarContextState>,
 ): void {

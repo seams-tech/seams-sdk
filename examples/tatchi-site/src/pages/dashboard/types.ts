@@ -13,6 +13,7 @@ export type DashboardRoute =
   | '/dashboard/policy-engine'
   | '/dashboard/gas-smart-wallets'
   | '/dashboard/ops-cockpit'
+  | '/dashboard/observability'
   | '/dashboard/billing'
   | '/dashboard/app-settings'
   | '/dashboard/team-members'

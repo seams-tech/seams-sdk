@@ -5,12 +5,7 @@
 interface ImportMetaEnv {
   readonly VITE_RELAYER_URL?: string;
   readonly VITE_CONSOLE_BASE_URL?: string;
-  readonly VITE_CONSOLE_BEARER_TOKEN?: string;
-  readonly VITE_CONSOLE_ORG_ID?: string;
-  readonly VITE_CONSOLE_USER_ID?: string;
-  readonly VITE_CONSOLE_ROLES?: string;
-  readonly VITE_CONSOLE_PROJECT_ID?: string;
-  readonly VITE_CONSOLE_ENVIRONMENT_ID?: string;
+  readonly VITE_GOOGLE_OIDC_CLIENT_ID?: string;
   readonly VITE_RELAYER_ACCOUNT_ID?: string;
 
   readonly VITE_NEAR_NETWORK?: 'testnet' | 'mainnet';

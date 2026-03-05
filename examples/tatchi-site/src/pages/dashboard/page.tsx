@@ -2,6 +2,7 @@ import React from 'react';
 import DashboardSidebar from './layout/DashboardSidebar';
 import DashboardTopbar from './layout/DashboardTopbar';
 import {
+  DASHBOARD_ACCOUNT_SETTINGS_SIGN_OUT_OPTION,
   DASHBOARD_ACCOUNT_SETTINGS_OPTIONS,
   DEFAULT_DASHBOARD_ROUTE,
   getRouteFromPathname,
@@ -11,6 +12,7 @@ import {
 import type { DashboardRoute, TopbarContextState, TopbarMenuKey, TopbarOption } from './types';
 import {
   DashboardConsoleSessionProvider,
+  revokeDashboardConsoleSession,
   useDashboardConsoleSession,
 } from './consoleSession';
 import { DashboardSelectedContextProvider } from './selectedContext';
@@ -25,6 +27,7 @@ import {
   type DashboardOnboardingState,
 } from './routes/onboarding/consoleOnboardingApi';
 import {
+  clearDashboardUiState,
   readPersistedDashboardSelectedContext,
   useDashboardUiPreferences,
 } from './useDashboardUiPreferences';
@@ -36,6 +39,7 @@ type DashboardPageProps = {
 };
 
 const DASHBOARD_ONBOARDING_ROUTE: DashboardRoute = '/dashboard/onboarding';
+const DASHBOARD_LOGIN_ROUTE = '/dashboard/login';
 
 function dedupeOptions(options: TopbarOption[]): TopbarOption[] {
   const seen = new Set<string>();
@@ -65,6 +69,8 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
   const [onboardingLoading, setOnboardingLoading] = React.useState<boolean>(false);
   const [onboardingState, setOnboardingState] = React.useState<DashboardOnboardingState | null>(null);
   const [onboardingGateEnabled, setOnboardingGateEnabled] = React.useState<boolean>(true);
+  const [logoutPending, setLogoutPending] = React.useState<boolean>(false);
+  const [logoutErrorMessage, setLogoutErrorMessage] = React.useState<string>('');
   const [organizationOption, setOrganizationOption] = React.useState<TopbarOption | null>(null);
   const [projectOptions, setProjectOptions] = React.useState<TopbarOption[]>([]);
   const [selectedProjectId, setSelectedProjectId] = React.useState<string>(persistedProjectId);
@@ -74,6 +80,12 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       ? onboardingState.complete === true
       : onboardingState.onboardingComplete
     : false;
+  const sessionForbidden =
+    !consoleSession.loading &&
+    !consoleSession.claims &&
+    (consoleSession.errorCode === 'forbidden' || consoleSession.errorStatus === 403);
+  const onboardingSelectedProjectId = String(onboardingState?.selectedProjectId || '').trim();
+  const onboardingSelectedEnvironmentId = String(onboardingState?.selectedEnvironmentId || '').trim();
 
   React.useEffect(() => {
     const claims = consoleSession.claims;
@@ -167,15 +179,6 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
           })),
         );
         if (
-          claims.projectId &&
-          !nextProjectOptions.some((entry) => entry.value === claims.projectId)
-        ) {
-          nextProjectOptions.unshift({
-            value: claims.projectId,
-            label: claims.projectId,
-          });
-        }
-        if (
           preferredProjectId &&
           !nextProjectOptions.some((entry) => entry.value === preferredProjectId)
         ) {
@@ -184,14 +187,23 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
             label: preferredProjectId,
           });
         }
+        if (
+          onboardingSelectedProjectId &&
+          !nextProjectOptions.some((entry) => entry.value === onboardingSelectedProjectId)
+        ) {
+          nextProjectOptions.unshift({
+            value: onboardingSelectedProjectId,
+            label: onboardingSelectedProjectId,
+          });
+        }
         setProjectOptions(nextProjectOptions);
         const nextSelectedProjectId =
           (preferredProjectId &&
             nextProjectOptions.find((entry) => entry.value === preferredProjectId)?.value) ||
-          (claims.projectId &&
-            nextProjectOptions.find((entry) => entry.value === claims.projectId)?.value) ||
+          (onboardingSelectedProjectId &&
+            nextProjectOptions.find((entry) => entry.value === onboardingSelectedProjectId)?.value) ||
           nextProjectOptions[0]?.value ||
-          claims.projectId ||
+          onboardingSelectedProjectId ||
           '';
         setSelectedProjectId(nextSelectedProjectId);
       })
@@ -205,15 +217,17 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         });
         const fallbackProjects = dedupeOptions([
           ...(preferredProjectId ? [{ value: preferredProjectId, label: preferredProjectId }] : []),
-          ...(claims.projectId ? [{ value: claims.projectId, label: claims.projectId }] : []),
+          ...(onboardingSelectedProjectId
+            ? [{ value: onboardingSelectedProjectId, label: onboardingSelectedProjectId }]
+            : []),
         ]);
         setProjectOptions(fallbackProjects);
-        setSelectedProjectId(preferredProjectId || claims.projectId || '');
+        setSelectedProjectId(preferredProjectId || onboardingSelectedProjectId || '');
       });
     return () => {
       cancelled = true;
     };
-  }, [consoleSession.claims, pathname]);
+  }, [consoleSession.claims, onboardingSelectedProjectId, pathname]);
 
   React.useEffect(() => {
     const claims = consoleSession.claims;
@@ -249,13 +263,13 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
           });
         }
         if (
-          claims.projectId === projectId &&
-          claims.environmentId &&
-          !nextEnvironmentOptions.some((entry) => entry.value === claims.environmentId)
+          onboardingSelectedProjectId === projectId &&
+          onboardingSelectedEnvironmentId &&
+          !nextEnvironmentOptions.some((entry) => entry.value === onboardingSelectedEnvironmentId)
         ) {
           nextEnvironmentOptions.unshift({
-            value: claims.environmentId,
-            label: claims.environmentId,
+            value: onboardingSelectedEnvironmentId,
+            label: onboardingSelectedEnvironmentId,
           });
         }
         setEnvironmentOptions(nextEnvironmentOptions);
@@ -269,8 +283,8 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
             ...(preferredEnvironmentId
               ? [{ value: preferredEnvironmentId, label: preferredEnvironmentId }]
               : []),
-            ...(claims.projectId === projectId && claims.environmentId
-              ? [{ value: claims.environmentId, label: claims.environmentId }]
+            ...(onboardingSelectedProjectId === projectId && onboardingSelectedEnvironmentId
+              ? [{ value: onboardingSelectedEnvironmentId, label: onboardingSelectedEnvironmentId }]
               : []),
           ]),
         );
@@ -278,7 +292,12 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     return () => {
       cancelled = true;
     };
-  }, [consoleSession.claims, selectedProjectId]);
+  }, [
+    consoleSession.claims,
+    onboardingSelectedEnvironmentId,
+    onboardingSelectedProjectId,
+    selectedProjectId,
+  ]);
 
   const dropdownOptions = React.useMemo(
     () => ({
@@ -296,8 +315,8 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
               ...(persistedProjectId
                 ? [{ value: persistedProjectId, label: persistedProjectId }]
                 : []),
-              ...(consoleSession.claims?.projectId
-                ? [{ value: consoleSession.claims.projectId, label: consoleSession.claims.projectId }]
+              ...(onboardingSelectedProjectId
+                ? [{ value: onboardingSelectedProjectId, label: onboardingSelectedProjectId }]
                 : []),
             ]),
       ),
@@ -308,12 +327,12 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
               ...(persistedEnvironmentId
                 ? [{ value: persistedEnvironmentId, label: persistedEnvironmentId }]
                 : []),
-              ...(consoleSession.claims?.environmentId &&
+              ...(onboardingSelectedEnvironmentId &&
               selectedProjectId &&
-              consoleSession.claims.projectId === selectedProjectId
+              onboardingSelectedProjectId === selectedProjectId
                 ? [{
-                    value: consoleSession.claims.environmentId,
-                    label: consoleSession.claims.environmentId,
+                    value: onboardingSelectedEnvironmentId,
+                    label: onboardingSelectedEnvironmentId,
                   }]
                 : []),
             ]),
@@ -326,6 +345,8 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     [
       consoleSession.claims,
       environmentOptions,
+      onboardingSelectedEnvironmentId,
+      onboardingSelectedProjectId,
       organizationOption,
       persistedEnvironmentId,
       persistedProjectId,
@@ -336,14 +357,14 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
 
   const defaultTopbarContext = React.useMemo<TopbarContextState>(
     () => {
-      const preferredProjectId = String(selectedProjectId || consoleSession.claims?.projectId || '').trim();
+      const preferredProjectId = String(selectedProjectId || onboardingSelectedProjectId || '').trim();
       const projectValue =
         dropdownOptions.project.find((entry) => entry.value === preferredProjectId)?.value ||
         dropdownOptions.project[0]?.value ||
         preferredProjectId;
       const preferredEnvironmentId = String(
-        projectValue && consoleSession.claims?.projectId === projectValue
-          ? consoleSession.claims.environmentId || ''
+        projectValue && onboardingSelectedProjectId === projectValue
+          ? onboardingSelectedEnvironmentId || ''
           : '',
       ).trim();
       return {
@@ -359,7 +380,13 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         accountSettings: dropdownOptions.accountSettings[0]?.value || '',
       };
     },
-    [consoleSession.claims, dropdownOptions, selectedProjectId],
+    [
+      consoleSession.claims,
+      dropdownOptions,
+      onboardingSelectedEnvironmentId,
+      onboardingSelectedProjectId,
+      selectedProjectId,
+    ],
   );
 
   const {
@@ -382,21 +409,41 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
 
   const onSelectContext = React.useCallback(
     (menu: TopbarMenuKey, value: string) => {
+      if (menu === 'accountSettings' && value === DASHBOARD_ACCOUNT_SETTINGS_SIGN_OUT_OPTION) {
+        if (logoutPending) return;
+        setLogoutPending(true);
+        setLogoutErrorMessage('');
+        void revokeDashboardConsoleSession()
+          .then(() => {
+            clearDashboardUiState();
+            consoleSession.refresh();
+            go(DASHBOARD_LOGIN_ROUTE);
+          })
+          .catch((error: unknown) => {
+            setLogoutErrorMessage(error instanceof Error ? error.message : String(error));
+          })
+          .finally(() => {
+            setLogoutPending(false);
+          });
+        return;
+      }
       onSelectContextRaw(menu, value);
       if (menu === 'project') {
         setSelectedProjectId(value);
       }
     },
-    [onSelectContextRaw],
+    [consoleSession, go, logoutPending, onSelectContextRaw],
   );
 
   React.useEffect(() => {
+    if (!consoleSession.claims) return;
     if (pathname === '/dashboard') {
       go(dashboardEntryRoute);
     }
-  }, [dashboardEntryRoute, go, pathname]);
+  }, [consoleSession.claims, dashboardEntryRoute, go, pathname]);
 
   React.useEffect(() => {
+    if (!consoleSession.claims) return;
     if (
       pathname !== '/dashboard' &&
       pathname.startsWith('/dashboard/') &&
@@ -404,15 +451,15 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     ) {
       go(dashboardEntryRoute);
     }
-  }, [dashboardEntryRoute, go, pathname]);
+  }, [consoleSession.claims, dashboardEntryRoute, go, pathname]);
 
   React.useEffect(() => {
     if (consoleSession.loading || consoleSession.claims) return;
-    if (pathname === DASHBOARD_ONBOARDING_ROUTE) return;
+    if (sessionForbidden) return;
     if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) {
-      go(DASHBOARD_ONBOARDING_ROUTE);
+      go(DASHBOARD_LOGIN_ROUTE);
     }
-  }, [consoleSession.claims, consoleSession.loading, go, pathname]);
+  }, [consoleSession.claims, consoleSession.loading, go, pathname, sessionForbidden]);
 
   const activeRoute = React.useMemo<DashboardRoute>(() => {
     const resolved = getRouteFromPathname(pathname);
@@ -451,6 +498,16 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         <h1 id="dashboard-main-title" className="dashboard-main__title">
           {activeView.label}
         </h1>
+        {sessionForbidden ? (
+          <p className="dashboard-table-limit" role="alert">
+            Access to this dashboard is forbidden for your current session.
+          </p>
+        ) : null}
+        {logoutErrorMessage ? (
+          <p className="dashboard-table-limit" role="alert">
+            Sign out failed: {logoutErrorMessage}
+          </p>
+        ) : null}
 
         <DashboardSelectedContextProvider value={selectedContext}>
           <ActiveViewComponent />

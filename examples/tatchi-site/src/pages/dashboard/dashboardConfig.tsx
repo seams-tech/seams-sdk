@@ -9,6 +9,7 @@ import { PolicyEnginePage } from './routes/policy-engine/page';
 import { TeamMembersPage } from './routes/team-members/page';
 import { DashboardOnboardingPage } from './routes/onboarding/page';
 import { OpsCockpitPage } from './routes/ops-cockpit/page';
+import { ObservabilityPage } from './routes/observability/page';
 import { UserWalletsListPage } from './routes/wallets-list/page';
 import { WebhooksPage } from './routes/webhooks/page';
 import { FRONTEND_CONFIG } from '@/config';
@@ -62,11 +63,20 @@ const auditLogsItem: SidebarItem = {
   component: AuditLogsPage,
 };
 
+const observabilityItem: SidebarItem = {
+  key: 'observability',
+  label: 'Observability',
+  path: '/dashboard/observability',
+  iconClass: 'dashboard-nav-icon--app-settings',
+  component: ObservabilityPage,
+};
+
 const operationsSecurityItems: SidebarItem[] = [
   ...(walletsRoutesEnabled ? [walletsListItem] : []),
   gasSmartWalletsItem,
   ...securityControlItems,
   auditLogsItem,
+  observabilityItem,
 ];
 
 const sidebarGroups: SidebarGroup[] = [
@@ -147,11 +157,13 @@ export const SIDEBAR_GROUPS: SidebarGroup[] = sidebarGroups.filter(
   (group) => group.items.length > 0,
 );
 
+export const DASHBOARD_ACCOUNT_SETTINGS_SIGN_OUT_OPTION = 'Sign out';
 export const DASHBOARD_ACCOUNT_SETTINGS_OPTIONS = [
   'Account & Settings',
   'Team members',
   'Roles and permissions',
   'Audit logs',
+  DASHBOARD_ACCOUNT_SETTINGS_SIGN_OUT_OPTION,
 ];
 
 export const DEFAULT_EXPANDED_SIDEBAR_GROUPS: ExpandedSidebarGroupsState = {
