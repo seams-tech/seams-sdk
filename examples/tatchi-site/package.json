@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "concurrently --kill-others --names site,caddy \"vite --host localhost --port 5174\" \"bash run_caddy.sh\"",
+    "dev:localhost": "vite --host localhost --port 5174",
     "dev:iphone": "concurrently --kill-others --names site,caddy \"vite --host localhost --port 5174\" \"bash run_caddy.sh\"",
     "build": "vite build",
     "preview": "vite preview --host localhost --port 5174"
