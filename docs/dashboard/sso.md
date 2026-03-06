@@ -1,8 +1,8 @@
-# Dashboard Google SSO Login Plan
+# Dashboard Google SSO Auth Reference
 
-Date updated: March 5, 2026
+Date updated: March 6, 2026
 
-## Objective
+## Canonical Reference
 
 Use Google SSO as the dashboard login path:
 
@@ -10,6 +10,8 @@ Use Google SSO as the dashboard login path:
 2. `POST /session/exchange` with `exchange.type=oidc_jwt`
 3. relay issues `app_session_v1` cookie
 4. dashboard bootstraps auth via `GET /console/session`
+
+This document is the canonical dashboard auth reference. Any dashboard auth behavior change must update this file in the same changeset.
 
 ## Constraints
 
@@ -57,8 +59,4 @@ Server:
 ## Status
 
 - Requested Google SSO dashboard integration scope is complete.
-
-## Next Steps
-
-1. Merge the SSO changeset.
-2. Keep this document as the canonical auth flow reference for dashboard work.
+- Canonical reference policy is active for dashboard auth changes.

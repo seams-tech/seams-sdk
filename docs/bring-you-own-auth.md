@@ -11,6 +11,8 @@ BYO auth means:
 3. Wallet lock state is separate and handled with `wallet/*` routes.
 4. `POST /auth/passkey/verify` is verification-only. It does not mint app sessions.
 
+Dashboard-specific Google SSO flow and login guard behavior are maintained in `docs/dashboard/sso.md` (canonical dashboard auth reference).
+
 The canonical route planes are:
 
 1. Session plane: `/session/exchange`, `/session/state`, `/session/refresh`, `/session/revoke`

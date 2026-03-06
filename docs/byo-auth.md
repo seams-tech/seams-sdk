@@ -13,6 +13,8 @@ Core outcomes:
 3. Wallet server exposes HTTP + webhook controls for warm session lifecycle.
 4. One canonical auth/session API surface after cutover (no compatibility aliases).
 
+Dashboard-specific Google SSO behavior is maintained in `docs/dashboard/sso.md` (canonical reference for dashboard auth flows).
+
 ## Breaking Changes Landed (March 1, 2026)
 
 1. React wallet-menu callback is `onLock` (legacy `onLogout` removed, no alias).
