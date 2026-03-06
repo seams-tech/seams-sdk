@@ -248,6 +248,12 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
     );
   }
 
+  close(confirmed: boolean): void {
+    if (this.variant === 'drawer') {
+      this.childRef.value?.close?.(confirmed);
+    }
+  }
+
   private handleChildCancel(): void {
     if (this.loading) {
       this.loading = false;
@@ -284,12 +290,7 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
 
       this.loading = false;
       this.syncChildProps();
-      // Close the child element if it exposes a close API; otherwise remove wrapper to avoid stale UI
-      if (child?.close) {
-        child.close(false);
-      } else {
-        this.remove();
-      }
+      child?.close?.(false);
 
       const detail: { confirmed: false; error?: string } = { confirmed: false };
       if (typeof error === 'string') detail.error = error;

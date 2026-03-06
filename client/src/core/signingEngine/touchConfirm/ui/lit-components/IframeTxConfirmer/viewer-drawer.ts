@@ -274,7 +274,9 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
 
   // Public method for two‑phase close from host/bootstrap
   close(_confirmed: boolean) {
-    this.remove();
+    if (!this._open) return;
+    this._open = false;
+    this.requestUpdate();
   }
 
   render() {

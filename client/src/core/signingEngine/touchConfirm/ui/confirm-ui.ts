@@ -54,6 +54,7 @@ interface HostTxConfirmerElement extends HTMLElement {
   nearExplorerUrl?: string;
   tempoExplorerUrl?: string;
   evmExplorerUrl?: string;
+  close?: (confirmed: boolean) => void;
 }
 
 type ConfirmUIInternalUpdate = ConfirmUIUpdate & {
@@ -178,6 +179,52 @@ function removeHostConfirmerElement(element: HTMLElement): void {
   if (portal) updateConfirmPortalState(portal);
 }
 
+const DRAWER_CLOSE_FALLBACK_MS = 250;
+
+function closeHostConfirmerElement(
+  element: HostTxConfirmerElement,
+  confirmed: boolean,
+  onClose: () => void,
+): void {
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    removeHostConfirmerElement(element);
+    onClose();
+  };
+
+  if (!confirmed) {
+    element.dispatchEvent(
+      new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
+        detail: { confirmed: false },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  if (element.variant !== 'drawer') {
+    finish();
+    return;
+  }
+
+  const onDrawerCloseEnd = () => {
+    window.clearTimeout(timeoutId);
+    finish();
+  };
+
+  element.addEventListener('w3a:drawer-close-end', onDrawerCloseEnd as EventListener, {
+    once: true,
+  });
+  element.close?.(confirmed);
+
+  const timeoutId = window.setTimeout(() => {
+    element.removeEventListener('w3a:drawer-close-end', onDrawerCloseEnd as EventListener);
+    finish();
+  }, DRAWER_CLOSE_FALLBACK_MS);
+}
+
 function setErrorAttribute(element: HTMLElement, message: string): void {
   if (message) {
     element.setAttribute('data-error-message', message);
@@ -264,24 +311,12 @@ function createHostConfirmHandle(
   element: HostTxConfirmerElement,
   onClose: () => void,
 ): ConfirmUIHandle {
+  let closed = false;
   return {
     close: (confirmed: boolean) => {
-      try {
-        // If closed programmatically before a user decision was emitted, dispatch a cancel
-        // so awaiters can resolve and clean up listeners.
-        if (!confirmed) {
-          element.dispatchEvent(
-            new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
-              detail: { confirmed: false },
-              bubbles: true,
-              composed: true,
-            }),
-          );
-        }
-        removeHostConfirmerElement(element);
-      } finally {
-        onClose();
-      }
+      if (closed) return;
+      closed = true;
+      closeHostConfirmerElement(element, confirmed, onClose);
     },
     update: (props: ConfirmUIUpdate) => applyHostElementProps(ctx, element, props),
   };
