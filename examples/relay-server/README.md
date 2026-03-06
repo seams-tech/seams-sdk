@@ -413,19 +413,19 @@ Example for 3 coordinators:
 ```bash
 # coordinator-a env
 THRESHOLD_COORDINATOR_INSTANCE_ID=coordinator-a
-THRESHOLD_COORDINATOR_PEERS='[{"instanceId":"coordinator-a","relayerUrl":"https://relay-server.localhost"},{"instanceId":"coordinator-b","relayerUrl":"https://relay-server2.localhost"},{"instanceId":"coordinator-c","relayerUrl":"https://relay-server3.localhost"}]'
+THRESHOLD_COORDINATOR_PEERS='[{"instanceId":"coordinator-a","relayerUrl":"https://localhost:9444"},{"instanceId":"coordinator-b","relayerUrl":"https://localhost:8445"},{"instanceId":"coordinator-c","relayerUrl":"https://localhost:8446"}]'
 ```
 
 ```bash
 # coordinator-b env
 THRESHOLD_COORDINATOR_INSTANCE_ID=coordinator-b
-THRESHOLD_COORDINATOR_PEERS='[{"instanceId":"coordinator-a","relayerUrl":"https://relay-server.localhost"},{"instanceId":"coordinator-b","relayerUrl":"https://relay-server2.localhost"},{"instanceId":"coordinator-c","relayerUrl":"https://relay-server3.localhost"}]'
+THRESHOLD_COORDINATOR_PEERS='[{"instanceId":"coordinator-a","relayerUrl":"https://localhost:9444"},{"instanceId":"coordinator-b","relayerUrl":"https://localhost:8445"},{"instanceId":"coordinator-c","relayerUrl":"https://localhost:8446"}]'
 ```
 
 ```bash
 # coordinator-c env
 THRESHOLD_COORDINATOR_INSTANCE_ID=coordinator-c
-THRESHOLD_COORDINATOR_PEERS='[{"instanceId":"coordinator-a","relayerUrl":"https://relay-server.localhost"},{"instanceId":"coordinator-b","relayerUrl":"https://relay-server2.localhost"},{"instanceId":"coordinator-c","relayerUrl":"https://relay-server3.localhost"}]'
+THRESHOLD_COORDINATOR_PEERS='[{"instanceId":"coordinator-a","relayerUrl":"https://localhost:9444"},{"instanceId":"coordinator-b","relayerUrl":"https://localhost:8445"},{"instanceId":"coordinator-c","relayerUrl":"https://localhost:8446"}]'
 ```
 
 Without this config, cross-instance `/threshold-ecdsa/presign/step` requests cannot be forwarded to the owning coordinator and fall back to retriable `stale_session_state`.

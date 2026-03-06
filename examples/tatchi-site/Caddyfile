@@ -1,5 +1,5 @@
 # App (Vite dev server) - headers set by Vite plugin
-example.localhost {
+localhost {
 	tls internal
 	encode gzip
 	handle {
@@ -7,33 +7,33 @@ example.localhost {
 	}
 }
 
-# Docs host (separate VitePress server)
-docs.example.localhost {
+# Docs host (VitePress dev server)
+docs.localhost {
 	tls internal
 	encode gzip
 	reverse_proxy localhost:5222
 }
 
 # Wallet host (self-contained mode - shares same Vite server) - headers set by Vite plugin
-wallet.example.localhost {
+localhost:8443 {
 	tls internal
 	encode gzip
 	reverse_proxy localhost:3600
 }
 
 # Relay server on separate origin
-relay-server.localhost {
+localhost:9444 {
 	tls internal
 	encode gzip
 	log {
 		output stdout
 		format console
 	}
-	reverse_proxy 127.0.0.1:3000
+	reverse_proxy 127.0.0.1:8444
 }
 
 # Relay server (cosigner instance #1)
-relay-server2.localhost {
+localhost:8445 {
 	tls internal
 	encode gzip
 	log {
@@ -44,7 +44,7 @@ relay-server2.localhost {
 }
 
 # Relay server (cosigner instance #2)
-relay-server3.localhost {
+localhost:8446 {
 	tls internal
 	encode gzip
 	log {

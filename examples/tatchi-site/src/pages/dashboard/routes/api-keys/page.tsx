@@ -62,7 +62,7 @@ function buildRegistrationBootstrapSnippet(secret: string, environmentId: string
     '  -H "Content-Type: application/json" \\',
     '  -d \'{',
     '    "new_account_id": "alice.testnet",',
-    '    "rp_id": "example.localhost",',
+    '    "rp_id": "localhost",',
     '    "account": { "type": "passkey" }',
     "  }'",
   ].join('\n');

@@ -12,13 +12,13 @@ pnpm -C sdk build
 Run examples from the repo root:
 
 ```bash
-pnpm run server
 pnpm examples:vite
 ```
 
-- `pnpm examples:vite` uses Caddy for local HTTPS + custom hosts (`brew install caddy`; first run may prompt for trust via `caddy trust`) and spins up a wallet server as well.
-- Relay server: `pnpm run server` (reachable at `https://relay-server.localhost`, proxies `http://localhost:3000`)
-- Docs site (VitePress): `pnpm run docs:dev`
+- `pnpm examples:vite` is the canonical local-dev entrypoint. It starts relay + site and runs Caddy for local HTTPS (`brew install caddy`; first run may prompt for trust via `caddy trust`).
+- Primary local endpoints: app `https://localhost`, wallet `https://localhost:8443`, relay API base `https://localhost:9444`.
+- Docs default origin: `https://docs.localhost`.
+- Internal dev ports: Vite on `http://localhost:3600`, relay on `http://127.0.0.1:8444`.
 
 ## Repo development
 

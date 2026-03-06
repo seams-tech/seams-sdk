@@ -315,8 +315,8 @@ async function main() {
   const config = {
     port: Number(env.PORT || 3000),
     host,
-    expectedOrigin: env.EXPECTED_ORIGIN || 'https://example.localhost', // Frontend origin
-    expectedWalletOrigin: env.EXPECTED_WALLET_ORIGIN || 'https://wallet.example.localhost', // Wallet origin (optional)
+    expectedOrigin: env.EXPECTED_ORIGIN || 'https://localhost', // Frontend origin
+    expectedWalletOrigin: env.EXPECTED_WALLET_ORIGIN || 'https://localhost:8443', // Wallet origin (optional)
   };
   const rorRpId = String(env.ROR_RP_ID || hostnameFromOrigin(config.expectedWalletOrigin))
     .trim()

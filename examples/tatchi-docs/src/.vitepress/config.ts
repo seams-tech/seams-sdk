@@ -31,7 +31,7 @@ export default defineConfig({
   },
   themeConfig: {
     siteTitle: 'Tatchi.xyz',
-    logoLink: 'https://example.localhost',
+    logoLink: 'https://localhost',
     outline: [2, 3],
     search: { provider: 'local' },
     nav: [
@@ -87,7 +87,7 @@ export default defineConfig({
     server: {
       host: 'localhost',
       port: 5222,
-      allowedHosts: ['docs.example.localhost', 'example.localhost', 'pta-m4.local'],
+      allowedHosts: ['docs.localhost', 'localhost', 'pta-m4.local'],
     },
   },
 });

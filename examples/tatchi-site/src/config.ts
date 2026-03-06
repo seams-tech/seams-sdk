@@ -2,7 +2,7 @@ import type { TatchiConfigsInput } from '@tatchi-xyz/sdk/react';
 
 const DEFAULT_NEAR_RPC_URL = 'https://test.rpc.fastnear.com';
 const DEFAULT_NEAR_EXPLORER_URL = 'https://testnet.nearblocks.io';
-const DEFAULT_DOCS_ORIGIN = 'https://docs.example.localhost';
+const DEFAULT_DOCS_ORIGIN = 'https://docs.localhost';
 const DEFAULT_TEMPO_RPC_URL = 'https://rpc.moderato.tempo.xyz';
 const DEFAULT_TEMPO_EXPLORER_URL = 'https://explore.tempo.xyz';
 const DEFAULT_TEMPO_FEE_TOKEN = '0x20c0000000000000000000000000000000000001';

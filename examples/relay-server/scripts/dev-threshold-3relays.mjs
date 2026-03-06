@@ -38,7 +38,7 @@ const relayerCosignersJson = JSON.stringify([
   { cosignerId: 3, relayerUrl: 'http://127.0.0.1:3002' },
 ]);
 const coordinatorPeersJson = JSON.stringify([
-  { instanceId: 'coordinator-a', relayerUrl: 'https://relay-server.localhost' },
+  { instanceId: 'coordinator-a', relayerUrl: 'https://localhost:9444' },
 ]);
 
 const commonEnv = {

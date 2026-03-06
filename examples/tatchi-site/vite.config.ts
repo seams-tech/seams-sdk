@@ -34,9 +34,7 @@ export default defineConfig(({ mode }) => {
       // Allow access via reverse-proxied hosts (Caddy) and Bonjour (.local)
       // Needed to avoid Vite's DNS‑rebinding protection blocking mDNS hosts
       allowedHosts: [
-        'example.localhost',
-        'docs.example.localhost',
-        'wallet.example.localhost',
+        'localhost',
         'pta-m4.local',
       ],
       open: false,
