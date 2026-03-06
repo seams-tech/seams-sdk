@@ -29,7 +29,7 @@ export default defineConfig(({ mode }) => {
     logLevel: 'info',
     publicDir: appPublic,
     server: {
-      port: 5174,
+      port: 3600,
       host: 'localhost',
       // Allow access via reverse-proxied hosts (Caddy) and Bonjour (.local)
       // Needed to avoid Vite's DNS‑rebinding protection blocking mDNS hosts

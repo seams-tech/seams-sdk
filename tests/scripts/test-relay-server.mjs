@@ -62,7 +62,7 @@ async function main() {
   ].filter(Boolean);
 
   const setCors = (req, res) => {
-    // Test harness: be permissive in dev (ports can vary, e.g. 5174 vs 5175).
+    // Test harness: be permissive in dev (ports can vary, e.g. 3600 vs 5175).
     // If an Origin is present, echo it so browsers accept the response.
     const requestOrigin = String(req.headers?.origin || '').trim();
     const allowOrigin = requestOrigin || allowedOrigins[0] || '*';

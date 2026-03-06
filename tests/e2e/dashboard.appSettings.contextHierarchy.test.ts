@@ -6,7 +6,7 @@ function iso(ts: string): string {
 
 test.describe('dashboard app-settings context hierarchy', () => {
   test('shows auto-provisioned environments without mutation controls', async ({ page, baseURL }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const projectQueryStrings: string[] = [];
     const environmentQueryStrings: string[] = [];
 

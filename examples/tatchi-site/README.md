@@ -2,7 +2,7 @@
 
 This app runs a dedicated wallet/service origin for local development. It serves a cross-origin WalletIframe page that hosts the Tatchi SDK, wasm signers, and related workers. The Vite dev plugin `@tatchi-xyz/sdk/plugins/vite` wires up the service route and SDK assets.
 
-- Dev server: `http://localhost:5174`
+- Dev server: `http://localhost:3600`
 - Wallet origin (via Caddy): `https://wallet.example.localhost`
 - Service path: `/wallet-service`
 - SDK assets base: `/sdk/*` (served from `passkey-sdk/dist` in the workspace)
@@ -19,7 +19,7 @@ pnpm -C examples/vite-secure dev
 ```
 
 - This command runs `docs:build` before starting Vite so the `/docs` route always serves the latest static output.
-- Ensure Caddy is running so the custom host is available. If you are running the main example app (`examples/vite`), its `run_caddy.sh` already proxies `wallet.example.localhost` to `127.0.0.1:5174`.
+- Ensure Caddy is running so the custom host is available. If you are running the main example app (`examples/vite`), its `run_caddy.sh` already proxies `wallet.example.localhost` to `127.0.0.1:3600`.
 
 Open:
 

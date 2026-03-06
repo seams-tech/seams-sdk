@@ -3,7 +3,7 @@ import type { PasskeyTestConfig } from './types';
 const FRONTEND_URL =
   String(process.env.W3A_TEST_FRONTEND_URL || '').trim() ||
   (process.env.NO_CADDY === '1' || process.env.CI === '1'
-    ? 'http://localhost:5174'
+    ? 'http://localhost:3600'
     : 'https://example.localhost');
 
 // In tests we default the RP ID to the wallet-origin base domain. This matches the

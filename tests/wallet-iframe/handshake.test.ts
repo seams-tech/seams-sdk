@@ -13,7 +13,7 @@ test.describe('Wallet iframe handshake', () => {
     const url =
       configured ||
       (process.env.NO_CADDY === '1' || process.env.CI === '1'
-        ? 'http://localhost:5174'
+        ? 'http://localhost:3600'
         : 'https://example.localhost');
     await page.goto(url);
   });

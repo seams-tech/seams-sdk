@@ -3,7 +3,7 @@ example.localhost {
 	tls internal
 	encode gzip
 	handle {
-		reverse_proxy localhost:5174
+		reverse_proxy localhost:3600
 	}
 }
 
@@ -18,7 +18,7 @@ docs.example.localhost {
 wallet.example.localhost {
 	tls internal
 	encode gzip
-	reverse_proxy localhost:5174
+	reverse_proxy localhost:3600
 }
 
 # Relay server on separate origin
@@ -62,14 +62,14 @@ relay-server3.localhost {
 pta-m4.local {
 	tls internal
 	encode gzip
-	reverse_proxy localhost:5174
+	reverse_proxy localhost:3600
 }
 
 # Wallet service on a distinct origin (same host, different port)
 pta-m4.local:8443 {
 	tls internal
 	encode gzip
-	reverse_proxy localhost:5174
+	reverse_proxy localhost:3600
 }
 
 # Relay server on another origin (same host, another port)

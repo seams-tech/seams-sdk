@@ -5,7 +5,7 @@ test.describe('pricing onboarding CTA wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     let stripeCheckoutCalls = 0;
 
     await page.route(`${consoleOrigin}/console/billing/stripe/checkout-session`, async (route) => {

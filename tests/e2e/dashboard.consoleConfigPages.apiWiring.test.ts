@@ -79,7 +79,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
 
     await page.route(`${consoleOrigin}/console/**`, async (route) => {
       const pathname = new URL(route.request().url()).pathname;
@@ -116,7 +116,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
 
     await page.route(`${consoleOrigin}/console/**`, async (route) => {
       const pathname = new URL(route.request().url()).pathname;
@@ -152,7 +152,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
 
     await page.route(`${consoleOrigin}/console/**`, async (route) => {
       const pathname = new URL(route.request().url()).pathname;
@@ -192,7 +192,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
 
     await page.route(`${consoleOrigin}/console/session`, async (route) => {
       await route.abort('failed');
@@ -207,7 +207,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     let sessionEstablished = false;
     let sessionExchangeCalls = 0;
     let exchangeToken = '';
@@ -431,7 +431,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     let sessionRevoked = false;
     let sessionRevokeCalls = 0;
 
@@ -560,7 +560,7 @@ test.describe('dashboard console config page api wiring', () => {
   });
 
   test('dashboard strips legacy db_* query params from URL', async ({ page, baseURL }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
 
     await page.route(`${consoleOrigin}/console/**`, async (route) => {
@@ -678,7 +678,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
     const persistedProject = {
       id: 'proj_saved',
@@ -871,7 +871,7 @@ test.describe('dashboard console config page api wiring', () => {
   });
 
   test('onboarding route wires organization and project steps', async ({ page, baseURL }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
     let lastOrganizationBody: Record<string, unknown> | null = null;
     let lastProjectBody: Record<string, unknown> | null = null;
@@ -1088,7 +1088,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
     let projectAttemptCount = 0;
     const activeProjects: Record<string, unknown>[] = [context.activeProject];
@@ -1275,7 +1275,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
     const activeProjects: Record<string, unknown>[] = [context.activeProject];
     const activeEnvironments: Record<string, unknown>[] = [context.activeEnvironment];
@@ -1483,7 +1483,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
     let onboardingState: Record<string, unknown> = {
       orgId: 'org_dash_console_pages',
@@ -1595,7 +1595,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
     const gasConfigs: any[] = [
       {
@@ -1847,7 +1847,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
     const policies: any[] = [
       {
@@ -2058,7 +2058,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
 
     await page.route(`${consoleOrigin}/console/**`, async (route) => {
@@ -2179,7 +2179,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
     const members: any[] = [
       {
@@ -2453,7 +2453,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
 
     await page.route(`${consoleOrigin}/console/**`, async (route) => {
@@ -2571,7 +2571,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
     let appSettings = {
       environmentId: 'env_active',
@@ -2968,7 +2968,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
     const events = [
       {
@@ -3159,7 +3159,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
     let lastSummaryProjectId = '';
     let lastSummaryEnvironmentId = '';
@@ -3347,7 +3347,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
     let responseMode: 'forbidden' | 'not_configured' = 'forbidden';
 
@@ -3486,7 +3486,7 @@ test.describe('dashboard console config page api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
     let lastSummaryWindowMinutes = '';
     let approveRequestCount = 0;

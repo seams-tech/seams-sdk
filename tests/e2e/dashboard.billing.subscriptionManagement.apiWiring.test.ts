@@ -22,7 +22,7 @@ test.describe('dashboard billing subscription management api wiring', () => {
     page,
     baseURL,
   }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:5174')).origin;
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const checkoutBodies: Record<string, unknown>[] = [];
     const portalBodies: Record<string, unknown>[] = [];
     let cancelCount = 0;

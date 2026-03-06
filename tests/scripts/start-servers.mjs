@@ -96,7 +96,7 @@ async function main() {
         return frontendOverride;
       }
     }
-    return NO_CADDY ? 'http://127.0.0.1:5174' : 'https://example.localhost';
+    return NO_CADDY ? 'http://127.0.0.1:3600' : 'https://example.localhost';
   })();
   const relayEnv = {
     ...process.env,
@@ -175,7 +175,7 @@ async function main() {
           '--host',
           '127.0.0.1',
           '--port',
-          '5174',
+          '3600',
           '--strictPort',
         ],
         {
