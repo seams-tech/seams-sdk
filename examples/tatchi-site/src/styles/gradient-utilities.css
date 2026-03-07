@@ -172,11 +172,6 @@ html[data-w3a-theme='dark'] {
   background: var(--frontpage-gradient-warm-corners-bg);
 }
 
-.gradient-lilac-warm-soft {
-  border-color: var(--frontpage-gradient-soft-border);
-  background: var(--frontpage-gradient-soft-bg);
-}
-
 .gradient-lilac-warm-drift {
   background: var(--frontpage-gradient-drift-bg);
 }

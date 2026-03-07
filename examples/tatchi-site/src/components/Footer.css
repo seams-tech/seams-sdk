@@ -16,22 +16,6 @@
       color-mix(in srgb, var(--w3a-colors-surface2) 90%, var(--w3a-colors-surface3) 10%) 58%,
       color-mix(in srgb, var(--w3a-colors-surface3) 84%, var(--w3a-colors-surface2) 16%) 100%
     );
-  --frontpage-footer-newsletter-border-color: color-mix(
-    in srgb,
-    var(--w3a-colors-borderPrimary) 76%,
-    transparent
-  );
-  --frontpage-footer-newsletter-surface-gradient:
-    radial-gradient(
-      118% 142% at -4% 0%,
-      color-mix(in srgb, var(--w3a-colors-primary) 8%, transparent) 0%,
-      transparent 54%
-    ),
-    linear-gradient(
-      160deg,
-      color-mix(in srgb, var(--w3a-colors-surface2) 84%, var(--w3a-colors-surface) 16%) 0%,
-      color-mix(in srgb, var(--w3a-colors-surface3) 82%, var(--w3a-colors-surface2) 18%) 100%
-    );
   --frontpage-footer-copy-color: color-mix(
     in srgb,
     var(--fe-text) 90%,
@@ -79,22 +63,6 @@ html[data-w3a-theme='light'] .app-footer {
       color-mix(in srgb, var(--site-surface) 96%, var(--site-brand) 4%) 0%,
       color-mix(in srgb, var(--site-surface-muted) 94%, var(--site-brand) 6%) 56%,
       color-mix(in srgb, var(--site-surface-strong) 90%, var(--site-surface) 10%) 100%
-    );
-  --frontpage-footer-newsletter-border-color: color-mix(
-    in srgb,
-    var(--site-border) 82%,
-    var(--site-brand) 18%
-  );
-  --frontpage-footer-newsletter-surface-gradient:
-    radial-gradient(
-      120% 140% at -4% 0%,
-      color-mix(in srgb, var(--site-brand) 6%, transparent) 0%,
-      transparent 54%
-    ),
-    linear-gradient(
-      162deg,
-      color-mix(in srgb, var(--site-surface) 97%, var(--site-brand) 3%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 94%, var(--site-surface) 6%) 100%
     );
 }
 
@@ -145,18 +113,6 @@ html[data-w3a-theme='dark'] .app-footer {
       transparent 52%
     ),
     linear-gradient(154deg, #1f1d2e 0%, #26233a 56%, #191724 100%);
-  --frontpage-footer-newsletter-border-color: color-mix(
-    in srgb,
-    #524f67 64%,
-    var(--site-border) 36%
-  );
-  --frontpage-footer-newsletter-surface-gradient:
-    radial-gradient(
-      120% 140% at -4% 0%,
-      color-mix(in srgb, #eb6f92 14%, transparent) 0%,
-      transparent 54%
-    ),
-    linear-gradient(162deg, #312f44 0%, #26233a 100%);
   --frontpage-footer-copy-color: color-mix(
     in srgb,
     var(--fe-text) 94%,
@@ -221,7 +177,7 @@ html[data-w3a-theme='dark'] .app-footer__bg-glow {
   margin: 0 auto;
   padding: 0 1rem;
   display: grid;
-  grid-template-columns: minmax(280px, 410px) 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 2.35rem 2.6rem;
 }
 
@@ -241,149 +197,6 @@ html[data-w3a-theme='dark'] .app-footer__bg-glow {
   font-weight: 700;
   text-decoration: none;
   letter-spacing: -0.02em;
-}
-
-.app-footer__newsletter {
-  padding: 1.15rem 1rem 1.15rem;
-  border-radius: 1.1rem;
-  border: 1px solid var(--frontpage-footer-newsletter-border-color);
-  background: var(--frontpage-footer-newsletter-surface-gradient);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--site-text-button) 70%, transparent),
-    0 26px 40px -38px color-mix(in srgb, var(--site-border-strong) 45%, transparent);
-}
-
-html[data-w3a-theme='dark'] .app-footer__newsletter {
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--site-border) 30%, transparent),
-    0 28px 40px -35px color-mix(in srgb, var(--site-canvas) 85%, transparent);
-}
-
-.app-footer__newsletter h2 {
-  margin: 0;
-  font-size: clamp(1.45rem, 2.2vw, 2.05rem);
-  line-height: 1.1;
-  color: var(--fe-text-primary);
-}
-
-.app-footer__newsletter p {
-  margin: 0.52rem 0 0;
-  color: color-mix(in srgb, var(--fe-text-secondary) 92%, var(--fe-text) 8%);
-  font-size: 1rem;
-  line-height: 1.45;
-}
-
-.app-footer__subscribe {
-  margin-top: 1rem;
-  display: flex;
-  gap: 0.55rem;
-}
-
-.app-footer__subscribe input {
-  flex: 1 1 auto;
-  min-width: 0;
-  border-radius: 0.86rem;
-  border: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary) 82%, transparent);
-  background: var(--w3a-colors-surface2);
-  color: var(--fe-text);
-  padding: 0.68rem 0.82rem;
-  font: inherit;
-}
-
-.app-footer__subscribe input::placeholder {
-  color: color-mix(in srgb, var(--fe-text-dim) 72%, var(--site-border-strong) 28%);
-}
-
-.app-footer__subscribe input:focus-visible {
-  outline: none;
-  border-color: color-mix(in srgb, var(--w3a-colors-primary) 62%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--w3a-colors-primary) 20%, transparent);
-}
-
-.app-footer__subscribe button {
-  flex: 0 0 auto;
-  border: 1px solid color-mix(in srgb, var(--w3a-colors-primary) 36%, transparent);
-  border-radius: 0.86rem;
-  background: linear-gradient(
-    120deg,
-    color-mix(in srgb, var(--w3a-colors-primary) 78%, var(--w3a-colors-surface) 22%) 0%,
-    color-mix(in srgb, var(--w3a-colors-primaryHover) 80%, var(--w3a-colors-surface3) 20%) 100%
-  );
-  color: var(--site-text-button);
-  padding: 0.68rem 1.05rem;
-  font: inherit;
-  font-weight: 700;
-  cursor: pointer;
-  transition:
-    transform var(--fe-fast) var(--fe-ease),
-    box-shadow var(--fe-fast) var(--fe-ease),
-    filter var(--fe-fast) var(--fe-ease);
-}
-
-.app-footer__subscribe button:hover {
-  filter: brightness(1.04);
-  box-shadow: 0 12px 20px -16px color-mix(in srgb, var(--w3a-colors-primary) 42%, transparent);
-}
-
-.app-footer__subscribe button:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--w3a-colors-primary) 30%, transparent);
-}
-
-.app-footer__newsletter small {
-  display: block;
-  margin-top: 0.68rem;
-  color: var(--frontpage-footer-subtle-color);
-  font-size: 0.88rem;
-}
-
-.app-footer__newsletter small a {
-  color: var(--w3a-colors-primary);
-  text-decoration: none;
-}
-
-.app-footer__newsletter small a:hover {
-  color: var(--w3a-colors-primaryHover);
-  text-decoration: underline;
-}
-
-.app-footer__sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  border: 0;
-  padding: 0;
-  white-space: nowrap;
-  clip-path: inset(50%);
-  overflow: hidden;
-}
-
-.app-footer__near {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  width: fit-content;
-  margin-top: 0.2rem;
-  color: var(--frontpage-footer-near-color);
-  text-decoration: none;
-  font-size: 1.5rem;
-  transition: color var(--fe-fast) var(--fe-ease);
-}
-
-.app-footer__near-logo {
-  width: 128px;
-  height: auto;
-  color: color-mix(in srgb, var(--fe-text-secondary) 78%, var(--fe-text) 22%);
-  transition: color var(--fe-fast) var(--fe-ease);
-}
-
-.app-footer__near:hover {
-  color: color-mix(in srgb, var(--fe-text-secondary) 72%, var(--fe-text) 28%);
-}
-
-.app-footer__near:hover .app-footer__near-logo {
-  color: var(--w3a-colors-primary);
 }
 
 .app-footer__nav {
@@ -533,18 +346,6 @@ html[data-w3a-theme='dark'] .app-footer__badges span {
 
   .app-footer__inner {
     gap: 2rem;
-  }
-
-  .app-footer__newsletter {
-    padding: 0.95rem;
-  }
-
-  .app-footer__subscribe {
-    flex-direction: column;
-  }
-
-  .app-footer__subscribe button {
-    width: 100%;
   }
 
   .app-footer__nav {

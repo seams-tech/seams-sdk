@@ -55,10 +55,6 @@ const footerGroups: FooterGroup[] = [
   },
 ];
 
-function onSubscribeSubmit(event: React.FormEvent<HTMLFormElement>): void {
-  event.preventDefault();
-}
-
 export function Footer(): React.JSX.Element {
   const { linkProps } = useSiteRouter();
   const homeProps = linkProps('/');
@@ -72,7 +68,7 @@ export function Footer(): React.JSX.Element {
       <div className="app-footer__bg-glow app-footer__bg-glow--right" aria-hidden />
 
       <div className="app-footer__inner">
-        <section className="app-footer__lead" aria-labelledby="footer-newsletter-title">
+        <div className="app-footer__lead">
           <a
             className="app-footer__brand"
             href={homeProps.href}
@@ -82,31 +78,7 @@ export function Footer(): React.JSX.Element {
             <TatchiLogo size={26} strokeWidth={1.2} />
             <span>Tatchi</span>
           </a>
-
-          <div className="app-footer__newsletter gradient-lilac-warm-soft">
-            <h2 id="footer-newsletter-title">Don&apos;t miss an update</h2>
-            <p>Product releases, security notes, and implementation guidance for wallet teams.</p>
-            <form className="app-footer__subscribe" onSubmit={onSubscribeSubmit}>
-              <label className="app-footer__sr-only" htmlFor="footer-email-input">
-                Enter email for updates
-              </label>
-              <input
-                id="footer-email-input"
-                type="email"
-                placeholder="Enter your email"
-                autoComplete="email"
-              />
-              <button type="submit">Subscribe</button>
-            </form>
-            <small>
-              By subscribing, you acknowledge our{' '}
-              <a href={privacyProps.href} onClick={privacyProps.onClick}>
-                Privacy Policy
-              </a>
-              .
-            </small>
-          </div>
-        </section>
+        </div>
 
         <nav className="app-footer__nav" aria-label="Footer navigation">
           {footerGroups.map((group) => (
