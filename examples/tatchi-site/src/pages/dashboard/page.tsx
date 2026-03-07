@@ -40,6 +40,7 @@ type DashboardPageProps = {
 
 const DASHBOARD_ONBOARDING_ROUTE: DashboardRoute = '/dashboard/onboarding';
 const DASHBOARD_LOGIN_ROUTE = '/dashboard/login';
+const DASHBOARD_ONBOARDING_STATE_UPDATED_EVENT = 'dashboard:onboarding-state-updated';
 
 function dedupeOptions(options: TopbarOption[]): TopbarOption[] {
   const seen = new Set<string>();
@@ -86,6 +87,12 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     (consoleSession.errorCode === 'forbidden' || consoleSession.errorStatus === 403);
   const onboardingSelectedProjectId = String(onboardingState?.selectedProjectId || '').trim();
   const onboardingSelectedEnvironmentId = String(onboardingState?.selectedEnvironmentId || '').trim();
+  const isSidebarNavigationLocked =
+    onboardingGateEnabled &&
+    (onboardingLoading ||
+      !onboardingState ||
+      onboardingState.hasOrganization !== true ||
+      onboardingState.hasProject !== true);
 
   React.useEffect(() => {
     const claims = consoleSession.claims;
@@ -129,6 +136,34 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
   }, [consoleSession.claims, persistedProjectId]);
 
   React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const expectedOrgId = String(consoleSession.claims?.orgId || '').trim();
+    if (!expectedOrgId) return;
+
+    const onOnboardingStateUpdated = (event: Event) => {
+      const custom = event as CustomEvent<DashboardOnboardingState | null>;
+      const detail = custom.detail;
+      if (!detail || typeof detail !== 'object') return;
+      const nextOrgId = String(detail.orgId || '').trim();
+      if (!nextOrgId || nextOrgId !== expectedOrgId) return;
+      setOnboardingState(detail);
+      setOnboardingGateEnabled(true);
+      setOnboardingLoading(false);
+    };
+
+    window.addEventListener(
+      DASHBOARD_ONBOARDING_STATE_UPDATED_EVENT,
+      onOnboardingStateUpdated as EventListener,
+    );
+    return () => {
+      window.removeEventListener(
+        DASHBOARD_ONBOARDING_STATE_UPDATED_EVENT,
+        onOnboardingStateUpdated as EventListener,
+      );
+    };
+  }, [consoleSession.claims?.orgId]);
+
+  React.useEffect(() => {
     const claims = consoleSession.claims;
     if (!claims) return;
     if (consoleSession.loading || onboardingLoading) return;
@@ -136,10 +171,6 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     const isOnboardingRoute = pathname === DASHBOARD_ONBOARDING_ROUTE;
     if (!onboardingComplete && !isOnboardingRoute) {
       go(DASHBOARD_ONBOARDING_ROUTE);
-      return;
-    }
-    if (onboardingComplete && isOnboardingRoute) {
-      go(DEFAULT_DASHBOARD_ROUTE);
     }
   }, [
     consoleSession.claims,
@@ -470,12 +501,13 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
 
   const activeView = React.useMemo(() => getViewForRoute(activeRoute), [activeRoute]);
   const ActiveViewComponent = activeView.component;
+  const onboardingRouteActive = activeRoute === DASHBOARD_ONBOARDING_ROUTE;
+  const focusedOnboardingMode = onboardingRouteActive;
+  const sidebarExpanded = focusedOnboardingMode ? true : isSidebarExpanded;
+  const shellClassName = `dashboard-shell${focusedOnboardingMode ? ' dashboard-shell--onboarding-focus' : ''}${!focusedOnboardingMode && !isSidebarExpanded ? ' dashboard-shell--sidebar-collapsed' : ''}`;
 
   return (
-    <main
-      className={`dashboard-shell${isSidebarExpanded ? '' : ' dashboard-shell--sidebar-collapsed'}`}
-      aria-label="Dashboard workspace"
-    >
+    <main className={shellClassName} aria-label="Dashboard workspace">
       <DashboardTopbar
         isSidebarExpanded={isSidebarExpanded}
         onToggleSidebar={toggleSidebar}
@@ -483,13 +515,15 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         selectedContext={selectedContext}
         onSelectContext={onSelectContext}
         dropdownOptions={dropdownOptions}
+        focusedMode={focusedOnboardingMode}
       />
 
       <DashboardSidebar
         groups={SIDEBAR_GROUPS}
-        isSidebarExpanded={isSidebarExpanded}
+        isSidebarExpanded={sidebarExpanded}
         expandedGroups={expandedGroups}
         activeRoute={activeRoute}
+        disableNavigationItems={isSidebarNavigationLocked}
         onToggleGroup={toggleGroup}
         linkProps={linkProps}
       />
@@ -498,6 +532,11 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         <h1 id="dashboard-main-title" className="dashboard-main__title">
           {activeView.label}
         </h1>
+        {isSidebarNavigationLocked ? (
+          <p className="dashboard-lock-banner" role="status">
+            Finish organization + project setup to unlock navigation.
+          </p>
+        ) : null}
         {sessionForbidden ? (
           <p className="dashboard-table-limit" role="alert">
             Access to this dashboard is forbidden for your current session.

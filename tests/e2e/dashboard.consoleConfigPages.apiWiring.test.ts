@@ -873,6 +873,8 @@ test.describe('dashboard console config page api wiring', () => {
   test('onboarding route wires organization and project steps', async ({ page, baseURL }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
+    let sessionRequestCount = 0;
+    let onboardingStateRequestCount = 0;
     let lastOrganizationBody: Record<string, unknown> | null = null;
     let lastProjectBody: Record<string, unknown> | null = null;
     const activeProjects: Record<string, unknown>[] = [context.activeProject];
@@ -905,6 +907,7 @@ test.describe('dashboard console config page api wiring', () => {
       const { pathname } = url;
 
       if (pathname === '/console/session') {
+        sessionRequestCount += 1;
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -954,6 +957,7 @@ test.describe('dashboard console config page api wiring', () => {
       }
 
       if (pathname === '/console/onboarding/state' && method === 'GET') {
+        onboardingStateRequestCount += 1;
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -1054,11 +1058,35 @@ test.describe('dashboard console config page api wiring', () => {
 
     await page.goto('/dashboard/api-keys');
     await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/onboarding');
-    await expect(page.locator('#dashboard-main-title')).toHaveText(/onboarding wizard/i);
-
-    const onboardingForm = page.locator('section[aria-label="Onboarding form"]');
-    await onboardingForm.locator('label:has-text("Organization name") input').fill('Acme Wallets');
-    await onboardingForm.locator('button:has-text("Save organization")').click();
+    await expect.poll(() => sessionRequestCount).toBeGreaterThan(0);
+    await expect.poll(() => onboardingStateRequestCount).toBeGreaterThan(0);
+    const sidebar = page.locator('aside[aria-label="Primary dashboard navigation"]');
+    await expect(sidebar).toBeVisible();
+    await expect.poll(() => sidebar.locator('a.dashboard-nav-item').count()).toBeGreaterThan(0);
+    await expect
+      .poll(() =>
+        sidebar
+          .locator('a.dashboard-nav-item')
+          .evaluateAll(
+            (items) =>
+              items.length > 0 &&
+              items.every(
+                (entry) =>
+                  entry.getAttribute('aria-disabled') === 'true' &&
+                  entry.getAttribute('tabindex') === '-1',
+              ),
+          ),
+      )
+      .toBe(true);
+    const onboardingForm = page
+      .locator('section[aria-label="Onboarding form"]:has(h2:has-text("Name your organization"))')
+      .last();
+    await expect(onboardingForm.locator('input[placeholder="Acme Wallets"]')).toBeVisible();
+    await onboardingForm.locator('input[placeholder="Acme Wallets"]').fill('Acme Wallets');
+    await onboardingForm
+      .locator('label:has-text("I confirm this organization name is correct.") input')
+      .check();
+    await onboardingForm.locator('button:has-text("Continue to project setup")').click();
 
     await expect
       .poll(() =>
@@ -1066,22 +1094,205 @@ test.describe('dashboard console config page api wiring', () => {
       )
       .toBe('Acme Wallets');
 
-    await onboardingForm.locator('label:has-text("Project name") input').fill('Consumer App');
-    await onboardingForm
+    const projectForm = page
+      .locator('section[aria-label="Onboarding form"]:has(h2:has-text("Create your first project"))')
+      .last();
+    await expect(projectForm.locator('label:has-text("Project name") input')).toBeVisible();
+    await projectForm.locator('label:has-text("Project name") input').fill('Consumer App');
+    await projectForm.locator('button:has-text("Add optional IDs")').click();
+    await projectForm
       .locator('label:has-text("Project ID (optional)") input')
       .fill('proj_consumer');
-    await onboardingForm
+    await projectForm
       .locator('label:has-text("Environment ID (optional)") input')
       .fill('proj_consumer:dev');
-    await onboardingForm.locator('button:has-text("Create first project")').click();
+    await projectForm.locator('button:has-text("Finish onboarding")').click();
 
     await expect
       .poll(() =>
         String((lastProjectBody?.project as Record<string, unknown> | undefined)?.name || ''),
       )
       .toBe('Consumer App');
+    await expect
+      .poll(() =>
+        String(
+          ((lastProjectBody?.environment as Record<string, unknown> | undefined)?.id as string) || '',
+        ),
+      )
+      .toBe('proj_consumer:dev');
+    const completionSection = page.locator('section[aria-label="Onboarding completed"]').first();
+    await expect(completionSection).toContainText(
+      'Onboarding complete',
+    );
+    await completionSection.locator('button:has-text("Go to wallets")').click();
     await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/wallets-list');
     await expect.poll(() => new URL(page.url()).search).toBe('');
+  });
+
+  test('onboarding prompts for organization name when org profile is still default', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    let lastOrganizationBody: Record<string, unknown> | null = null;
+    let onboardingState: Record<string, unknown> = {
+      orgId: 'org_dash_console_pages',
+      organization: {
+        id: 'org_dash_console_pages',
+        name: 'org_dash_console_pages',
+        slug: '',
+        status: 'ACTIVE',
+      },
+      activeProjectCount: 0,
+      activeEnvironmentCount: 0,
+      activeApiKeyCount: 0,
+      hasOrganization: true,
+      hasProject: false,
+      hasEnvironment: false,
+      hasApiKey: false,
+      accountReady: true,
+      organizationReady: true,
+      billingReady: false,
+      projectReady: false,
+      onboardingComplete: false,
+      currentStep: 'project',
+      complete: false,
+      selectedProjectId: null,
+      selectedEnvironmentId: null,
+    };
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const url = new URL(req.url());
+      const { pathname } = url;
+
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user_dash_console_pages',
+              orgId: 'org_dash_console_pages',
+              roles: ['admin'],
+              projectId: null,
+              environmentId: null,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/org') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            org: {
+              id: 'org_dash_console_pages',
+              name: 'org_dash_console_pages',
+              slug: '',
+              status: 'ACTIVE',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, projects: [] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, environments: [] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: onboardingState,
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/organization' && method === 'POST') {
+        lastOrganizationBody = parseJsonBody(req.postData());
+        onboardingState = {
+          ...onboardingState,
+          organization: {
+            id: 'org_dash_console_pages',
+            name: 'Acme Org',
+            slug: 'acme-org',
+            status: 'ACTIVE',
+          },
+        };
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            result: {
+              organization: onboardingState.organization,
+              created: {
+                organization: false,
+                owner: false,
+              },
+              state: onboardingState,
+            },
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_found',
+          message: `Unhandled mock path ${pathname}`,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/onboarding');
+    const onboardingForm = page
+      .locator('section[aria-label="Onboarding form"]:has(h2:has-text("Name your organization"))')
+      .last();
+    await expect(onboardingForm.locator('input[placeholder="Acme Wallets"]')).toBeVisible();
+    await expect(onboardingForm.locator('input[placeholder="Acme Wallets"]')).toHaveValue(
+      'org_dash_console_pages',
+    );
+    await onboardingForm.locator('input[placeholder="Acme Wallets"]').fill('Acme Org');
+    await onboardingForm.locator('button:has-text("Add optional organization details")').click();
+    await onboardingForm.locator('label:has-text("Organization slug (optional)") input').fill('acme-org');
+    await onboardingForm
+      .locator('label:has-text("I confirm this organization name is correct.") input')
+      .check();
+    await onboardingForm.locator('button:has-text("Continue to project setup")').click();
+
+    await expect
+      .poll(() =>
+        String((lastOrganizationBody?.org as Record<string, unknown> | undefined)?.name || ''),
+      )
+      .toBe('Acme Org');
   });
 
   test('onboarding project step surfaces failure and allows retry recovery', async ({
@@ -1255,17 +1466,24 @@ test.describe('dashboard console config page api wiring', () => {
     });
 
     await page.goto('/dashboard/onboarding');
-    await expect(page.locator('#dashboard-main-title')).toHaveText(/onboarding wizard/i);
-
-    const onboardingForm = page.locator('section[aria-label="Onboarding form"]');
+    const onboardingForm = page
+      .locator('section[aria-label="Onboarding form"]:has(h2:has-text("Create your first project"))')
+      .last();
+    await expect(onboardingForm.locator('label:has-text("Project name") input')).toBeVisible();
     await onboardingForm.locator('label:has-text("Project name") input').fill('Retry Project');
-    await onboardingForm.locator('button:has-text("Create first project")').click();
+    await onboardingForm.locator('button:has-text("Finish onboarding")').click();
 
-    await expect(page.locator('section[aria-label="Onboarding form"]')).toContainText(
+    await expect(page.locator('section[aria-label="Onboarding form"]').first()).toContainText(
       'project step failed on first attempt',
     );
 
-    await onboardingForm.locator('button:has-text("Create first project")').click();
+    await onboardingForm.locator('button:has-text("Retry")').click();
+    await expect(page.locator('section[aria-label="Onboarding completed"]').first()).toContainText(
+      'Onboarding complete',
+    );
+    await page
+      .locator('section[aria-label="Onboarding completed"] button:has-text("Go to wallets")')
+      .click();
     await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/wallets-list');
     await expect.poll(() => new URL(page.url()).search).toBe('');
     await expect.poll(() => projectAttemptCount).toBe(2);
@@ -1453,27 +1671,32 @@ test.describe('dashboard console config page api wiring', () => {
     });
 
     await page.goto('/dashboard/onboarding');
-    await expect(page.locator('#dashboard-main-title')).toHaveText(/onboarding wizard/i);
+    const organizationForm = page
+      .locator('section[aria-label="Onboarding form"]:has(h2:has-text("Name your organization"))')
+      .last();
 
-    const summary = page.locator('section[aria-label="Onboarding summary"]');
-    const onboardingForm = page.locator('section[aria-label="Onboarding form"]');
+    await expect(organizationForm.locator('input[placeholder="Acme Wallets"]')).toBeVisible();
+    await organizationForm.locator('input[placeholder="Acme Wallets"]').fill('Resume Org');
+    await organizationForm
+      .locator('label:has-text("I confirm this organization name is correct.") input')
+      .check();
+    await organizationForm.locator('button:has-text("Continue to project setup")').click();
 
-    await onboardingForm.locator('label:has-text("Organization name") input').fill('Resume Org');
-    await onboardingForm.locator('button:has-text("Save organization")').click();
-
-    await expect(summary).toContainText('Current step: project');
-    await expect(onboardingForm.locator('button:has-text("Save organization")')).toHaveCount(0);
-    await expect(onboardingForm.locator('button:has-text("Create first project")')).toBeEnabled();
+    const onboardingForm = page
+      .locator('section[aria-label="Onboarding form"]:has(h2:has-text("Create your first project"))')
+      .last();
+    await expect(onboardingForm.locator('button:has-text("Finish onboarding")')).toBeDisabled();
 
     await page.reload();
 
-    await expect(page.locator('#dashboard-main-title')).toHaveText(/onboarding wizard/i);
-    await expect(summary).toContainText('Current step: project');
-    await expect(onboardingForm.locator('button:has-text("Save organization")')).toHaveCount(0);
-    await expect(onboardingForm.locator('button:has-text("Create first project")')).toBeEnabled();
+    await expect(page.locator('section[aria-label="Onboarding form"]').first()).toBeVisible();
+    await expect(onboardingForm.locator('button:has-text("Finish onboarding")')).toBeDisabled();
 
     await onboardingForm.locator('label:has-text("Project name") input').fill('Resume Project');
-    await onboardingForm.locator('button:has-text("Create first project")').click();
+    await onboardingForm.locator('button:has-text("Finish onboarding")').click();
+    await page
+      .locator('section[aria-label="Onboarding completed"] button:has-text("Go to wallets")')
+      .click();
 
     await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/wallets-list');
     await expect.poll(() => new URL(page.url()).search).toBe('');
@@ -1581,10 +1804,11 @@ test.describe('dashboard console config page api wiring', () => {
     });
 
     await page.goto('/dashboard/onboarding');
-    await expect(page.locator('#dashboard-main-title')).toHaveText(/onboarding wizard/i);
-    await expect(page.locator('section[aria-label="Onboarding summary"]')).toContainText(
-      'Current step: project',
-    );
+    await expect(
+      page.locator(
+        'section[aria-label="Onboarding form"]:has(h2:has-text("Create your first project")) label:has-text("Project name") input',
+      ).last(),
+    ).toBeVisible();
     await expect(page.locator('label:has-text("Provider reference")')).toHaveCount(0);
     await expect(page.locator('section[aria-label="Onboarding form"]')).toContainText(
       'Billing is optional for onboarding.',
@@ -3163,6 +3387,7 @@ test.describe('dashboard console config page api wiring', () => {
     const context = buildMockDashboardContext();
     let lastSummaryProjectId = '';
     let lastSummaryEnvironmentId = '';
+    let lastEventsLimit = '';
 
     await page.route(`${consoleOrigin}/console/**`, async (route) => {
       const req = route.request();
@@ -3268,6 +3493,7 @@ test.describe('dashboard console config page api wiring', () => {
       }
 
       if (pathname === '/console/observability/events' && method === 'GET') {
+        lastEventsLimit = String(url.searchParams.get('limit') || '').trim();
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -3329,6 +3555,7 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(page.locator('#dashboard-main-title')).toHaveText(/observability/i);
     await expect.poll(() => lastSummaryProjectId).toBe('proj_active');
     await expect.poll(() => lastSummaryEnvironmentId).toBe('env_active');
+    await expect.poll(() => lastEventsLimit).toBe('50');
     await expect(page.locator('section[aria-label="Observability summary metrics"]')).toContainText(
       '12ms',
     );
@@ -3340,6 +3567,262 @@ test.describe('dashboard console config page api wiring', () => {
     );
     await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
       'No observability events for this scope.',
+    );
+    await expect(page.locator('button:has-text("Previous page")')).toBeDisabled();
+    await expect(page.locator('button:has-text("Next page")')).toBeDisabled();
+  });
+
+  test('observability events pagination uses 50-event pages and cursor navigation', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    const context = buildMockDashboardContext();
+    const firstPageEvents = Array.from({ length: 50 }, (_, index) => ({
+      id: `evt_page1_${index + 1}`,
+      orgId: 'org_dash_console_pages',
+      projectId: 'proj_active',
+      environmentId: 'env_active',
+      timestamp: iso(`2026-03-03T10:${String(index % 60).padStart(2, '0')}:00.000Z`),
+      service: 'webhooks',
+      component: 'delivery',
+      level: 'WARN',
+      eventType: 'delivery.retry',
+      message: `Page 1 event ${index + 1}`,
+      requestId: `req_page1_${index + 1}`,
+      traceId: `trace_page1_${index + 1}`,
+      metadata: { retry: index + 1 },
+    }));
+    const secondPageEvents = [
+      {
+        id: 'evt_page2_1',
+        orgId: 'org_dash_console_pages',
+        projectId: 'proj_active',
+        environmentId: 'env_active',
+        timestamp: iso('2026-03-03T11:00:00.000Z'),
+        service: 'billing',
+        component: 'invoice',
+        level: 'ERROR',
+        eventType: 'invoice.reconcile_failed',
+        message: 'Page 2 event 1',
+        requestId: 'req_page2_1',
+        traceId: 'trace_page2_1',
+        metadata: { invoiceId: 'inv_1' },
+      },
+      {
+        id: 'evt_page2_2',
+        orgId: 'org_dash_console_pages',
+        projectId: 'proj_active',
+        environmentId: 'env_active',
+        timestamp: iso('2026-03-03T11:01:00.000Z'),
+        service: 'billing',
+        component: 'invoice',
+        level: 'ERROR',
+        eventType: 'invoice.reconcile_failed',
+        message: 'Page 2 event 2',
+        requestId: 'req_page2_2',
+        traceId: 'trace_page2_2',
+        metadata: { invoiceId: 'inv_2' },
+      },
+    ];
+    const requestedEventLimits: string[] = [];
+    const requestedEventCursors: string[] = [];
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const url = new URL(req.url());
+      const { pathname } = url;
+
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user_dash_console_pages',
+              orgId: 'org_dash_console_pages',
+              roles: ['admin', 'ops'],
+              projectId: 'proj_active',
+              environmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: {
+              orgId: 'org_dash_console_pages',
+              organization: context.org,
+              activeProjectCount: 1,
+              activeEnvironmentCount: 1,
+              activeApiKeyCount: 1,
+              hasOrganization: true,
+              hasProject: true,
+              hasEnvironment: true,
+              hasApiKey: true,
+              accountReady: true,
+              organizationReady: true,
+              billingReady: true,
+              projectReady: true,
+              onboardingComplete: true,
+              currentStep: 'complete',
+              complete: true,
+              selectedProjectId: 'proj_active',
+              selectedEnvironmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/org') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, org: context.org }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, projects: [context.activeProject] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, environments: [context.activeEnvironment] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/observability/summary' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            summary: {
+              generatedAt: iso('2026-03-03T10:00:00.000Z'),
+              status: { state: 'ok' },
+              errorRate: 0,
+              p95LatencyMs: 20,
+              failingServices: 0,
+              deadLetterCount: 0,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/observability/events' && method === 'GET') {
+        requestedEventLimits.push(String(url.searchParams.get('limit') || '').trim());
+        requestedEventCursors.push(String(url.searchParams.get('cursor') || '').trim());
+        const cursor = String(url.searchParams.get('cursor') || '').trim();
+        if (!cursor) {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              ok: true,
+              status: { state: 'ok' },
+              events: firstPageEvents,
+              nextCursor: 'cursor_page_2',
+            }),
+          });
+          return;
+        }
+        if (cursor === 'cursor_page_2') {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              ok: true,
+              status: { state: 'ok' },
+              events: secondPageEvents,
+            }),
+          });
+          return;
+        }
+      }
+
+      if (pathname === '/console/observability/timeseries' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            status: { state: 'ok' },
+            buckets: [],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/observability/services' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            status: { state: 'ok' },
+            services: [],
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_found',
+          message: `Unhandled mock path ${pathname}`,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/observability');
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/observability/i);
+    await expect.poll(() => requestedEventLimits[0] || '').toBe('50');
+    await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
+      'Page 1 event 50',
+    );
+    await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
+      'Page 1 | 50 events',
+    );
+    await expect(page.locator('button:has-text("Previous page")')).toBeDisabled();
+    await expect(page.locator('button:has-text("Next page")')).toBeEnabled();
+
+    await page.locator('button:has-text("Next page")').click();
+    await expect.poll(() => requestedEventCursors.includes('cursor_page_2')).toBe(true);
+    await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
+      'Page 2 event 2',
+    );
+    await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
+      'Page 2 | 2 events',
+    );
+    await expect(page.locator('button:has-text("Previous page")')).toBeEnabled();
+    await expect(page.locator('button:has-text("Next page")')).toBeDisabled();
+
+    await page.locator('button:has-text("Previous page")').click();
+    await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
+      'Page 1 event 50',
     );
   });
 

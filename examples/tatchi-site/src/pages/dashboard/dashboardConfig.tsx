@@ -76,7 +76,6 @@ const operationsSecurityItems: SidebarItem[] = [
   gasSmartWalletsItem,
   ...securityControlItems,
   auditLogsItem,
-  observabilityItem,
 ];
 
 const sidebarGroups: SidebarGroup[] = [
@@ -91,6 +90,7 @@ const sidebarGroups: SidebarGroup[] = [
         iconClass: 'dashboard-nav-icon--app-settings',
         component: OpsCockpitPage,
       },
+      observabilityItem,
     ],
   },
   {

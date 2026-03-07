@@ -23,12 +23,23 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 
 ## Information architecture
 
-- Wallet infrastructure
-- User management
-- Security and policy
-- Integrations and automation
-- Billing and payments
-- Environment settings (Dev, Staging, Prod)
+- Overview
+  - Overview (Ops Cockpit)
+  - Observability
+- Administration
+  - Team members and roles
+  - App settings (origins, cookies, JWT)
+- Wallet Operations
+  - User wallets list
+  - Gas sponsorship and smart wallets
+  - Policy engine
+  - Enterprise isolation
+  - Audit logs
+- Integrations
+  - API key management
+  - Webhooks
+- Billing
+  - Billing
 
 ## Functional requirements
 
@@ -174,6 +185,19 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
   - `CONFIRMING` -> `SETTLED` is allowed only when per-chain confirmation threshold is met.
   - If confirmation timeout elapses before threshold is met, transition to `FAILED` with reason `CONFIRMATION_TIMEOUT`.
 
+### 10) Dashboard UX flow and navigation
+
+- Sidebar grouping requirement:
+  - `Observability` must live under `Overview` (not under `Wallet Operations`).
+- Onboarding requirement:
+  - Onboarding must explicitly prompt for `Organization name` before project setup.
+  - Organization step is not complete until a non-empty organization name is saved.
+  - If organization profile exists but is still effectively default/unconfigured, onboarding remains on the organization step.
+- Navigation lock requirement before setup:
+  - Before both organization and first project are configured, all sidebar menu items are disabled.
+  - Disabled sidebar items must not navigate on click and must expose accessible disabled semantics.
+  - After organization and project are configured, sidebar navigation is enabled.
+
 ## Non-functional requirements
 
 - Security: least-privilege RBAC, immutable audit logs, encryption at rest/in transit.
@@ -241,3 +265,6 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - Key export requires `2 admin` approvals + `MFA` + reason by default.
 - Risky security settings changes require `1 admin + MFA` by default.
 - Runtime consumers receive full versioned per-environment snapshots of effective config.
+- Sidebar navigation places `Observability` under `Overview`.
+- Onboarding requires an explicit organization name step before project creation.
+- Sidebar menu items are disabled until both organization and project are configured.

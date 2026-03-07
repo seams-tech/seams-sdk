@@ -15,6 +15,7 @@ type DashboardTopbarProps = {
   selectedContext: TopbarContextState;
   onSelectContext: (menu: TopbarMenuKey, value: string) => void;
   dropdownOptions: Record<TopbarMenuKey, TopbarOption[]>;
+  focusedMode?: boolean;
 };
 
 export function DashboardTopbar({
@@ -24,10 +25,15 @@ export function DashboardTopbar({
   selectedContext,
   onSelectContext,
   dropdownOptions,
+  focusedMode = false,
 }: DashboardTopbarProps): React.JSX.Element {
   const topbarRef = React.useRef<HTMLElement | null>(null);
   const [activeTopbarMenu, setActiveTopbarMenu] = React.useState<TopbarMenuKey | null>(null);
   const environmentId = String(selectedContext.environment || '').trim();
+  const organizationLabel =
+    dropdownOptions.organization.find((entry) => entry.value === selectedContext.organization)?.label ||
+    selectedContext.organization ||
+    'Organization';
 
   React.useEffect(() => {
     if (!activeTopbarMenu) return;
@@ -112,6 +118,41 @@ export function DashboardTopbar({
     },
     [activeTopbarMenu, onSelectContext, selectedContext],
   );
+
+  if (focusedMode) {
+    return (
+      <header
+        ref={topbarRef}
+        className="dashboard-topbar dashboard-topbar--focused"
+        aria-label="Workspace context"
+      >
+        <div className="dashboard-topbar__brand dashboard-topbar__brand--focused">
+          <a
+            className="navbar-static__brand dashboard-home-link"
+            href={homeProps.href}
+            onClick={homeProps.onClick}
+            aria-label="Tatchi home"
+          >
+            <TatchiLogo size={22} strokeWidth={1.2} />
+            <span>Tatchi</span>
+          </a>
+        </div>
+
+        <div className="dashboard-topbar__focused-context" role="status" aria-live="polite">
+          <span className="dashboard-topbar__focused-label">Onboarding</span>
+          <span className="dashboard-topbar__focused-value">{organizationLabel}</span>
+        </div>
+
+        {renderTopbarDropdown(
+          'accountSettings',
+          'Account and Settings',
+          dropdownOptions.accountSettings,
+          false,
+          true,
+        )}
+      </header>
+    );
+  }
 
   return (
     <header ref={topbarRef} className="dashboard-topbar" aria-label="Workspace context">

@@ -9,6 +9,8 @@ import {
   isDashboardConsoleObservabilityApiErrorCode,
 } from './consoleObservabilityApi';
 
+const OBSERVABILITY_EVENTS_PAGE_SIZE = 50;
+
 function formatTimestamp(value: string | undefined | null): string {
   const normalized = String(value || '').trim();
   if (!normalized) return '-';
@@ -60,6 +62,8 @@ export function ObservabilityPage(): React.JSX.Element {
   const [errorMessage, setErrorMessage] = React.useState<string>('');
   const [warnings, setWarnings] = React.useState<string[]>([]);
   const [data, setData] = React.useState<DashboardConsoleObservabilitySnapshot | null>(null);
+  const [eventsCursor, setEventsCursor] = React.useState<string | null>(null);
+  const [previousEventCursors, setPreviousEventCursors] = React.useState<Array<string | null>>([]);
 
   const scope = React.useMemo(
     () => ({
@@ -86,7 +90,11 @@ export function ObservabilityPage(): React.JSX.Element {
     setLoading(true);
     setErrorMessage('');
 
-    getDashboardObservabilitySnapshot(scope)
+    getDashboardObservabilitySnapshot({
+      ...scope,
+      ...(eventsCursor ? { eventsCursor } : {}),
+      eventsLimit: OBSERVABILITY_EVENTS_PAGE_SIZE,
+    })
       .then((snapshot) => {
         if (cancelled) return;
         const nextWarnings = [
@@ -112,7 +120,12 @@ export function ObservabilityPage(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [scope, session.claims, session.errorMessage]);
+  }, [eventsCursor, scope, session.claims, session.errorMessage]);
+
+  React.useEffect(() => {
+    setEventsCursor(null);
+    setPreviousEventCursors([]);
+  }, [scope.environmentId, scope.projectId]);
 
   React.useEffect(() => {
     if (session.loading) {
@@ -127,6 +140,22 @@ export function ObservabilityPage(): React.JSX.Element {
   const events = data?.events.events || [];
   const timeseries = data?.timeseries.buckets || [];
   const services = data?.services.services || [];
+  const hasNextEventsPage = Boolean(data?.events.nextCursor);
+  const hasPreviousEventsPage = previousEventCursors.length > 0;
+  const eventsPageNumber = previousEventCursors.length + 1;
+  const onNextEventsPage = React.useCallback(() => {
+    const nextCursor = String(data?.events.nextCursor || '').trim();
+    if (!nextCursor || loading) return;
+    setPreviousEventCursors((current) => [...current, eventsCursor]);
+    setEventsCursor(nextCursor);
+  }, [data?.events.nextCursor, eventsCursor, loading]);
+  const onPreviousEventsPage = React.useCallback(() => {
+    if (loading || previousEventCursors.length === 0) return;
+    const nextHistory = previousEventCursors.slice(0, -1);
+    const previousCursor = previousEventCursors[previousEventCursors.length - 1] ?? null;
+    setPreviousEventCursors(nextHistory);
+    setEventsCursor(previousCursor);
+  }, [loading, previousEventCursors]);
 
   return (
     <div className="dashboard-view" aria-label="Observability page">
@@ -187,6 +216,9 @@ export function ObservabilityPage(): React.JSX.Element {
 
       <section className="dashboard-view__section" aria-label="Observability events table">
         <h2>Recent events</h2>
+        <p className="dashboard-pagination-note">
+          Showing up to {OBSERVABILITY_EVENTS_PAGE_SIZE} events per page.
+        </p>
         <section className="dashboard-table-wrapper" aria-label="Observability events">
           <div className="dashboard-table-header" role="row">
             <span>Timestamp</span>
@@ -219,6 +251,27 @@ export function ObservabilityPage(): React.JSX.Element {
             ))
           )}
         </section>
+        <div className="dashboard-form-actions">
+          <button
+            type="button"
+            className="dashboard-pagination-button"
+            disabled={loading || !hasPreviousEventsPage}
+            onClick={onPreviousEventsPage}
+          >
+            Previous page
+          </button>
+          <button
+            type="button"
+            className="dashboard-pagination-button"
+            disabled={loading || !hasNextEventsPage}
+            onClick={onNextEventsPage}
+          >
+            Next page
+          </button>
+          <span className="dashboard-pagination-note">
+            Page {eventsPageNumber} | {events.length} events
+          </span>
+        </div>
       </section>
 
       <section className="dashboard-view__section" aria-label="Observability service health table">

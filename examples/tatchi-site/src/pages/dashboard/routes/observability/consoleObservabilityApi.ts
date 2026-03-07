@@ -83,6 +83,12 @@ export interface DashboardConsoleObservabilitySnapshot {
   services: DashboardConsoleObservabilityServicesView;
 }
 
+export interface GetDashboardObservabilitySnapshotRequest
+  extends DashboardConsoleObservabilityScope {
+  eventsCursor?: string;
+  eventsLimit?: number;
+}
+
 export class DashboardConsoleObservabilityApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -487,13 +493,30 @@ export async function listDashboardObservabilityServices(
 }
 
 export async function getDashboardObservabilitySnapshot(
-  input?: DashboardConsoleObservabilityScope,
+  input?: GetDashboardObservabilitySnapshotRequest,
 ): Promise<DashboardConsoleObservabilitySnapshot> {
+  const scope: DashboardConsoleObservabilityScope = {
+    ...(toTrimmedString(input?.from) ? { from: toTrimmedString(input?.from) } : {}),
+    ...(toTrimmedString(input?.to) ? { to: toTrimmedString(input?.to) } : {}),
+    ...(toTrimmedString(input?.projectId) ? { projectId: toTrimmedString(input?.projectId) } : {}),
+    ...(toTrimmedString(input?.environmentId)
+      ? { environmentId: toTrimmedString(input?.environmentId) }
+      : {}),
+  };
+  const eventsCursor = toTrimmedString(input?.eventsCursor);
+  const eventsLimit = Number.isFinite(Number(input?.eventsLimit)) && Number(input?.eventsLimit) > 0
+    ? Math.floor(Number(input?.eventsLimit))
+    : 50;
+
   const [summary, events, timeseries, services] = await Promise.all([
-    getDashboardObservabilitySummary(input),
-    listDashboardObservabilityEvents({ ...input, limit: 25 }),
-    getDashboardObservabilityTimeseries({ ...input, bucketMinutes: 5 }),
-    listDashboardObservabilityServices({ ...input, limit: 25 }),
+    getDashboardObservabilitySummary(scope),
+    listDashboardObservabilityEvents({
+      ...scope,
+      ...(eventsCursor ? { cursor: eventsCursor } : {}),
+      limit: eventsLimit,
+    }),
+    getDashboardObservabilityTimeseries({ ...scope, bucketMinutes: 5 }),
+    listDashboardObservabilityServices({ ...scope, limit: 25 }),
   ]);
   return {
     summary,
