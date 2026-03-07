@@ -80,9 +80,9 @@ export interface AccountInputState {
   targetAccountId: string;
   // The domain postfix to display in the UI (e.g., ".testnet")
   displayPostfix: string;
-  // Whether the current input matches an existing account in IndexDB
+  // Whether the current input was resolved from a locally saved account match
   isUsingExistingAccount: boolean;
-  // Whether the target account has passkey credentials
+  // Whether the target account currently exists on-chain
   accountExists: boolean;
   // All account IDs stored in IndexDB
   indexDBAccounts: string[];

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TatchiPasskey } from '@/core/TatchiPasskey';
-import { toAccountId } from '@/core/types/accountIds';
+import { checkNearAccountExistsBestEffort } from '@/core/rpcClients/near/rpcCalls';
 import { awaitWalletIframeReady } from '../utils/walletIframe';
 import { isObject } from '@shared/utils/validation';
 
@@ -62,38 +62,6 @@ function extractUsernameFromAccountId(accountId: string | null | undefined): str
   const normalized = String(accountId || '').trim();
   if (!normalized) return '';
   return normalized.split('.')[0] || '';
-}
-
-async function checkNearAccountExistsOnChainBestEffort(
-  tatchi: TatchiPasskey,
-  accountId: string,
-): Promise<boolean> {
-  const normalized = String(accountId || '').trim();
-  if (!normalized) return false;
-
-  const isNotFound = (message: string): boolean =>
-    /does not exist|UNKNOWN_ACCOUNT|unknown\s+account/i.test(message);
-  const isRetryable = (message: string): boolean =>
-    /server error|internal|temporar|timeout|too many requests|429|empty response|rpc request failed|failed to fetch/i.test(
-      message,
-    );
-
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    try {
-      const accessKeys = await tatchi.viewAccessKeyList(normalized);
-      return Array.isArray(accessKeys?.keys);
-    } catch (error) {
-      const message = String((error as any)?.message || error || '');
-      if (isNotFound(message)) return false;
-      if (isRetryable(message) && attempt < 2) {
-        await new Promise((resolve) => setTimeout(resolve, 150 * attempt));
-        continue;
-      }
-      return false;
-    }
-  }
-
-  return false;
 }
 
 export function useAccountInput({
@@ -189,7 +157,8 @@ export function useAccountInput({
     }
   }, [awaitWalletIframeIfNeeded, tatchi]);
 
-  // Check if account has passkey credentials
+  // Check whether the account currently exists on-chain.
+  // Registration availability should not be blocked by a stale local passkey.
   const checkAccountExists = useCallback(
     async (accountId: string) => {
       const checkId = ++accountExistsCheckIdRef.current;
@@ -210,10 +179,10 @@ export function useAccountInput({
             return;
           }
         }
-        const hasCredential = await tatchi.auth.hasPasskeyCredential(toAccountId(accountId));
-        const accountExistsOnChain = hasCredential
-          ? true
-          : await checkNearAccountExistsOnChainBestEffort(tatchi, accountId);
+        const accountExistsOnChain = await checkNearAccountExistsBestEffort(
+          tatchi.getContext().nearClient,
+          accountId,
+        );
         setState((prevState) =>
           checkId === accountExistsCheckIdRef.current
             ? { ...prevState, accountExists: accountExistsOnChain }

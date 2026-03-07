@@ -2,9 +2,9 @@ import React from 'react';
 import { AuthMenuMode } from '../authMenuTypes';
 
 export interface AccountExistsBadgeProps {
-  /** Whether the account domain/postfix corresponds to an existing account */
+  /** Whether the current target was resolved from a locally saved account */
   isUsingExistingAccount?: boolean;
-  /** Whether a passkey credential exists for the current target account */
+  /** Whether the current target account exists on-chain */
   accountExists?: boolean;
   /** Current signup mode */
   mode?: AuthMenuMode;
@@ -31,7 +31,7 @@ export const AccountExistsBadge: React.FC<AccountExistsBadgeProps> = ({
   const getStatus = (): { message: string; tone: Tone } => {
     if (mode === AuthMenuMode.Register) {
       if (!secure) return { message: 'HTTPS required', tone: 'error' };
-      if (accountExists || isUsingExistingAccount) return { message: 'name taken', tone: 'error' };
+      if (accountExists) return { message: 'name taken', tone: 'error' };
       return { message: '', tone: 'neutral' };
     }
     if (mode === AuthMenuMode.Login) {
