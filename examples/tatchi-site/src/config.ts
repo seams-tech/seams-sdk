@@ -53,6 +53,55 @@ function stripTrailingSlash(path: string): string {
   return path.endsWith('/') ? path.slice(0, -1) : path;
 }
 
+function joinUrlPath(baseUrl: string, path: string): string {
+  const base = stripTrailingSlash(toTrimmedString(baseUrl));
+  const suffix = String(path || '').trim();
+  if (!base) return '';
+  if (!suffix) return base;
+  return `${base}${suffix.startsWith('/') ? suffix : `/${suffix}`}`;
+}
+
+type ManagedRegistrationConfig = Extract<
+  NonNullable<TatchiConfigsInput['registration']>,
+  { mode: 'managed' }
+>;
+
+function resolveManagedRegistrationConfig(
+  source: ImportMetaEnv,
+): ManagedRegistrationConfig | undefined {
+  const environmentId = toOptionalString(source.VITE_TATCHI_ENVIRONMENT_ID);
+  const publishableKey = toOptionalString(source.VITE_TATCHI_PUBLISHABLE_KEY);
+  const relayerUrl = toTrimmedString(source.VITE_RELAYER_URL);
+  const brokerUrlRaw = toTrimmedString(source.VITE_TATCHI_BROKER_URL);
+  const brokerUrl = brokerUrlRaw
+    ? /^https?:\/\/[^/]+$/i.test(brokerUrlRaw)
+      ? joinUrlPath(brokerUrlRaw, '/v1/registration/bootstrap-grants')
+      : brokerUrlRaw
+    : undefined;
+  const defaultBrokerUrl = relayerUrl
+    ? joinUrlPath(relayerUrl, '/v1/registration/bootstrap-grants')
+    : undefined;
+
+  if (environmentId && !publishableKey) {
+    throw new Error(
+      'Missing VITE_TATCHI_PUBLISHABLE_KEY: managed registration requires both VITE_TATCHI_ENVIRONMENT_ID and VITE_TATCHI_PUBLISHABLE_KEY',
+    );
+  }
+  if (publishableKey && !environmentId) {
+    throw new Error(
+      'Missing VITE_TATCHI_ENVIRONMENT_ID: managed registration requires both VITE_TATCHI_ENVIRONMENT_ID and VITE_TATCHI_PUBLISHABLE_KEY',
+    );
+  }
+  if (!environmentId || !publishableKey) return undefined;
+
+  return {
+    mode: 'managed',
+    environmentId,
+    publishableKey,
+    ...(brokerUrl || defaultBrokerUrl ? { brokerUrl: brokerUrl || defaultBrokerUrl! } : {}),
+  };
+}
+
 const env = import.meta.env;
 
 const docsOrigin = stripTrailingSlash(toTrimmedString(env.VITE_DOCS_ORIGIN)) || DEFAULT_DOCS_ORIGIN;
@@ -97,6 +146,7 @@ export const FRONTEND_CONFIG = Object.freeze({
   relayerUrl: toOptionalString(env.VITE_RELAYER_URL),
   consoleBaseUrl: toOptionalString(env.VITE_CONSOLE_BASE_URL),
   googleOidcClientId: toOptionalString(env.VITE_GOOGLE_OIDC_CLIENT_ID),
+  managedRegistration: resolveManagedRegistrationConfig(env),
   relayerAccountId: toOptionalString(env.VITE_RELAYER_ACCOUNT_ID),
   nearNetwork,
   nearRpcUrl,

@@ -21,7 +21,8 @@ import type {
 } from '../../signingEngine/threshold/session/sessionPolicy';
 import { isObject } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
-import type { RelayApiKeyAuthErrorCode } from '../../types/tatchi';
+import { computeRegistrationBootstrapRequestHashSha256 } from '@shared/utils/registrationBootstrapHash';
+import type { RegistrationErrorCode } from '../../types/tatchi';
 
 function isSerializedRegistrationCredential(
   credential: WebAuthnRegistrationCredential | PublicKeyCredential,
@@ -63,34 +64,137 @@ function improveAtomicRegistrationError(args: {
   return raw || 'Atomic registration failed';
 }
 
-const RELAY_API_KEY_AUTH_FAILURE_CODES: readonly RelayApiKeyAuthErrorCode[] = [
-  'api_key_missing',
-  'api_key_invalid',
-  'api_key_revoked',
-  'api_key_forbidden_scope',
-  'api_key_ip_blocked',
-  'api_key_environment_mismatch',
+const REGISTRATION_FAILURE_CODES: readonly RegistrationErrorCode[] = [
+  'secret_key_missing',
+  'secret_key_invalid',
+  'secret_key_revoked',
+  'secret_key_forbidden_scope',
+  'secret_key_ip_blocked',
+  'secret_key_environment_mismatch',
+  'publishable_key_missing',
+  'publishable_key_invalid',
+  'publishable_key_revoked',
+  'publishable_key_origin_blocked',
+  'publishable_key_environment_mismatch',
+  'publishable_key_rate_limited',
+  'publishable_key_quota_exhausted',
+  'invalid_environment',
+  'environment_archived',
+  'invalid_body',
+  'payment_required',
+  'payment_invalid',
+  'bootstrap_token_missing',
+  'bootstrap_token_invalid',
+  'bootstrap_token_expired',
+  'bootstrap_token_already_used',
+  'bootstrap_token_request_mismatch',
+  'bootstrap_token_origin_mismatch',
 ];
 
-function isRelayApiKeyAuthErrorCode(raw: unknown): raw is RelayApiKeyAuthErrorCode {
+function isRegistrationErrorCode(raw: unknown): raw is RegistrationErrorCode {
   const value = String(raw || '').trim();
-  return RELAY_API_KEY_AUTH_FAILURE_CODES.includes(value as RelayApiKeyAuthErrorCode);
+  return REGISTRATION_FAILURE_CODES.includes(value as RegistrationErrorCode);
 }
 
-export class RelayApiKeyAuthError extends Error {
-  readonly code: RelayApiKeyAuthErrorCode;
+export class RelayRegistrationError extends Error {
+  readonly code: RegistrationErrorCode;
   readonly status: number;
 
-  constructor(input: { code: RelayApiKeyAuthErrorCode; status: number; message: string }) {
+  constructor(input: { code: RegistrationErrorCode; status: number; message: string }) {
     super(input.message);
-    this.name = 'RelayApiKeyAuthError';
+    this.name = 'RelayRegistrationError';
     this.code = input.code;
     this.status = input.status;
   }
 }
 
-function isRelayApiKeyAuthError(error: unknown): error is RelayApiKeyAuthError {
-  return error instanceof RelayApiKeyAuthError;
+function isRelayRegistrationError(error: unknown): error is RelayRegistrationError {
+  return error instanceof RelayRegistrationError;
+}
+
+function joinUrlPath(baseUrl: string, path: string): string {
+  const base = String(baseUrl || '').trim().replace(/\/+$/, '');
+  const suffix = String(path || '').trim();
+  if (!base) return '';
+  if (!suffix) return base;
+  return `${base}${suffix.startsWith('/') ? suffix : `/${suffix}`}`;
+}
+
+type ResolvedRegistrationTransport =
+  | {
+      mode: 'backend_proxy';
+      bootstrapUrl: string;
+    }
+  | {
+      mode: 'managed';
+      environmentId: string;
+      brokerUrl: string;
+      publishableKey: string;
+      paymentMode?: string;
+    };
+
+function resolveRegistrationTransport(context: PasskeyManagerContext): ResolvedRegistrationTransport {
+  const configs = context.configs as PasskeyManagerContext['configs'] & {
+    registration?: unknown;
+  };
+  const registration = configs.registration;
+  if (registration && typeof registration === 'object' && !Array.isArray(registration)) {
+    const mode = String((registration as { mode?: unknown }).mode || 'backend_proxy').trim();
+    if (mode === 'managed') {
+      const environmentId = String(
+        (registration as { environmentId?: unknown }).environmentId || '',
+      ).trim();
+      const brokerUrl = String((registration as { brokerUrl?: unknown }).brokerUrl || '').trim();
+      const publishableKey = String(
+        (registration as { publishableKey?: unknown }).publishableKey || '',
+      ).trim();
+      const paymentMode = String((registration as { paymentMode?: unknown }).paymentMode || '').trim();
+      if (!environmentId) throw new Error('Managed registration requires registration.environmentId');
+      if (!brokerUrl) throw new Error('Managed registration requires registration.brokerUrl');
+      if (!publishableKey) {
+        throw new Error('Managed registration requires registration.publishableKey');
+      }
+      return {
+        mode: 'managed',
+        environmentId,
+        brokerUrl,
+        publishableKey,
+        ...(paymentMode ? { paymentMode } : {}),
+      };
+    }
+    const bootstrapUrl = String(
+      (registration as { bootstrapUrl?: unknown; registrationBootstrapUrl?: unknown })
+        .bootstrapUrl ??
+        (registration as { registrationBootstrapUrl?: unknown }).registrationBootstrapUrl ??
+        '',
+    ).trim();
+    if (bootstrapUrl) return { mode: 'backend_proxy', bootstrapUrl };
+  }
+  const relayerUrl = String(context.configs.network.relayer.url || '').trim();
+  return {
+    mode: 'backend_proxy',
+    bootstrapUrl: joinUrlPath(relayerUrl, '/registration/bootstrap'),
+  };
+}
+
+function buildManagedClientContext(): { sdk: string; userAgentHint?: string } {
+  const userAgentHint =
+    typeof navigator !== 'undefined' ? String(navigator.userAgent || '').trim() : '';
+  return {
+    sdk: '@tatchi-xyz/sdk',
+    ...(userAgentHint ? { userAgentHint } : {}),
+  };
+}
+
+async function readJsonObject(response: Response): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return isObject(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -188,7 +292,7 @@ export async function createAccountAndRegisterWithRelayServer(
     };
   };
   error?: string;
-  errorCode?: RelayApiKeyAuthErrorCode;
+  errorCode?: RegistrationErrorCode;
 }> {
   const { configs } = context;
 
@@ -260,28 +364,80 @@ export async function createAccountAndRegisterWithRelayServer(
       message: 'Registering user with relay...',
     });
 
-    const relayApiKey = String(configs.network.relayer.apiKey || '').trim();
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (relayApiKey) {
-      headers.Authorization = `Bearer ${relayApiKey}`;
+    const registrationTransport = resolveRegistrationTransport(context);
+    let response: Response;
+    let result: CreateAccountAndRegisterResult;
+
+    if (registrationTransport.mode === 'managed') {
+      const requestHashSha256 = await computeRegistrationBootstrapRequestHashSha256(requestData);
+      const brokerResponse = await fetch(registrationTransport.brokerUrl, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          Authorization: `Bearer ${registrationTransport.publishableKey}`,
+        },
+        body: JSON.stringify({
+          environmentId: registrationTransport.environmentId,
+          newAccountId: nearAccountId,
+          rpId: requestData.rp_id,
+          requestHashSha256,
+          clientContext: buildManagedClientContext(),
+        }),
+      });
+      const brokerResult = await readJsonObject(brokerResponse);
+      const brokerCode = String(brokerResult.code || '').trim();
+      const brokerMessage =
+        String(brokerResult.message || '').trim() ||
+        `HTTP ${brokerResponse.status}: ${brokerResponse.statusText}`;
+      if (!brokerResponse.ok || brokerResult.ok === false) {
+        if (isRegistrationErrorCode(brokerCode)) {
+          throw new RelayRegistrationError({
+            code: brokerCode,
+            status: brokerResponse.status,
+            message: brokerMessage,
+          });
+        }
+        throw new Error(brokerMessage || 'Managed bootstrap grant failed');
+      }
+      const bootstrapToken = String(
+        (isObject(brokerResult.grant) ? brokerResult.grant.token : '') || '',
+      ).trim();
+      if (!bootstrapToken) {
+        throw new Error('Managed bootstrap grant response did not include a bootstrap token');
+      }
+      const registrationBootstrapUrl = joinUrlPath(configs.network.relayer.url, '/registration/bootstrap');
+      if (!registrationBootstrapUrl) {
+        throw new Error('Relay server URL is required for managed passkey registration');
+      }
+      response = await fetch(registrationBootstrapUrl, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          Authorization: `Bearer ${bootstrapToken}`,
+        },
+        body: JSON.stringify(requestData),
+      });
+      result = (await readJsonObject(response)) as unknown as CreateAccountAndRegisterResult;
+    } else {
+      if (!registrationTransport.bootstrapUrl) {
+        throw new Error('Registration bootstrap URL is required for passkey registration');
+      }
+      response = await fetch(registrationTransport.bootstrapUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestData),
+      });
+      result = (await readJsonObject(response)) as unknown as CreateAccountAndRegisterResult;
     }
 
-    // Call the atomic endpoint
-    const response = await fetch(`${configs.network.relayer.url}/registration/bootstrap`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(requestData),
-    });
-
-    // Handle both successful and failed responses
-    const result: CreateAccountAndRegisterResult = await response.json();
     const responseCode = String(result.code || '').trim();
     const responseMessage =
       result.error || result.message || `HTTP ${response.status}: ${response.statusText}`;
 
     if (!response.ok) {
-      if (isRelayApiKeyAuthErrorCode(responseCode)) {
-        throw new RelayApiKeyAuthError({
+      if (isRegistrationErrorCode(responseCode)) {
+        throw new RelayRegistrationError({
           code: responseCode,
           status: response.status,
           message: responseMessage,
@@ -297,8 +453,8 @@ export async function createAccountAndRegisterWithRelayServer(
     }
 
     if (!result.success) {
-      if (isRelayApiKeyAuthErrorCode(responseCode)) {
-        throw new RelayApiKeyAuthError({
+      if (isRegistrationErrorCode(responseCode)) {
+        throw new RelayRegistrationError({
           code: responseCode,
           status: response.status,
           message: responseMessage,
@@ -361,7 +517,7 @@ export async function createAccountAndRegisterWithRelayServer(
     };
   } catch (error: unknown) {
     console.error('Atomic registration failed:', error);
-    const code = isRelayApiKeyAuthError(error) ? error.code : undefined;
+    const code = isRelayRegistrationError(error) ? error.code : undefined;
 
     onEvent?.({
       step: 0,

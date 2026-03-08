@@ -164,6 +164,7 @@ export class TatchiPasskeyIframe {
       signerMode: this.configs.signing.mode,
       chains: this.configs.network.chains,
       relayerAccount: this.configs.network.relayer.accountId,
+      registration: this.configs.registration,
       signingSessionPersistenceMode,
       ...(signingSessionSeal ? { signingSessionSeal } : {}),
       // relayer: configs.network.relayer,

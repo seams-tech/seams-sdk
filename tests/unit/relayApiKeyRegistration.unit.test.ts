@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { createAccountAndRegisterWithRelayServer } from '@/core/TatchiPasskey/faucets/createAccountRelayServer';
 import type { PasskeyManagerContext } from '@/core/TatchiPasskey';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
+import { computeRegistrationBootstrapRequestHashSha256 } from '@shared/utils/registrationBootstrapHash';
 
 function buildSerializedCredential(): WebAuthnRegistrationCredential {
   return {
@@ -15,21 +16,44 @@ function buildSerializedCredential(): WebAuthnRegistrationCredential {
     },
     clientExtensionResults: {
       prf: {
-        results: {},
+        results: {
+          first: undefined,
+          second: undefined,
+        },
       },
     },
   };
 }
 
-function buildMinimalContext(input: { relayUrl: string; relayApiKey?: string }): PasskeyManagerContext {
+function buildMinimalContext(input: {
+  relayUrl: string;
+  registrationBootstrapUrl?: string;
+  managed?: {
+    environmentId: string;
+    brokerUrl: string;
+    publishableKey: string;
+  };
+}): PasskeyManagerContext {
   return {
     configs: {
       network: {
         relayer: {
           url: input.relayUrl,
-          apiKey: String(input.relayApiKey || '').trim(),
         },
       },
+      registration: input.managed
+        ? {
+            mode: 'managed',
+            environmentId: input.managed.environmentId,
+            brokerUrl: input.managed.brokerUrl,
+            publishableKey: input.managed.publishableKey,
+          }
+        : {
+            mode: 'backend_proxy',
+            bootstrapUrl:
+              input.registrationBootstrapUrl ||
+              `${String(input.relayUrl).replace(/\/+$/, '')}/registration/bootstrap`,
+          },
       webauthn: {
         authenticatorOptions: {},
       },
@@ -37,11 +61,13 @@ function buildMinimalContext(input: { relayUrl: string; relayApiKey?: string }):
   } as unknown as PasskeyManagerContext;
 }
 
-test.describe('createAccountAndRegisterWithRelayServer relay API key integration', () => {
-  test('attaches Authorization header when relayer apiKey config is set', async () => {
+test.describe('createAccountAndRegisterWithRelayServer registration bootstrap transport', () => {
+  test('uses registration bootstrap URL and never injects a browser secret header', async () => {
     const originalFetch = globalThis.fetch;
     let capturedAuthorization = '';
-    (globalThis as { fetch: typeof fetch }).fetch = async (_input, init) => {
+    let capturedUrl = '';
+    (globalThis as { fetch: typeof fetch }).fetch = async (input, init) => {
+      capturedUrl = String(input);
       capturedAuthorization = String(new Headers(init?.headers).get('authorization') || '');
       return new Response(
         JSON.stringify({
@@ -59,7 +85,7 @@ test.describe('createAccountAndRegisterWithRelayServer relay API key integration
       const result = await createAccountAndRegisterWithRelayServer(
         buildMinimalContext({
           relayUrl: 'https://relay.example.test',
-          relayApiKey: 'tsk_live_abc123',
+          registrationBootstrapUrl: 'https://app.example.test/api/registration/bootstrap',
         }),
         'alice.w3a-relayer.testnet',
         undefined,
@@ -68,13 +94,14 @@ test.describe('createAccountAndRegisterWithRelayServer relay API key integration
       );
 
       expect(result.success).toBe(true);
-      expect(capturedAuthorization).toBe('Bearer tsk_live_abc123');
+      expect(capturedUrl).toBe('https://app.example.test/api/registration/bootstrap');
+      expect(capturedAuthorization).toBe('');
     } finally {
       (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
     }
   });
 
-  test('returns typed errorCode when relay rejects API key scope', async () => {
+  test('returns typed errorCode when bootstrap endpoint rejects secret-key scope', async () => {
     const originalFetch = globalThis.fetch;
     const originalConsoleError = console.error;
     console.error = () => {};
@@ -82,8 +109,8 @@ test.describe('createAccountAndRegisterWithRelayServer relay API key integration
       new Response(
         JSON.stringify({
           success: false,
-          code: 'api_key_forbidden_scope',
-          error: 'API key does not have required scope',
+          code: 'secret_key_forbidden_scope',
+          error: 'Secret key does not have required scope',
         }),
         {
           status: 403,
@@ -95,7 +122,6 @@ test.describe('createAccountAndRegisterWithRelayServer relay API key integration
       const result = await createAccountAndRegisterWithRelayServer(
         buildMinimalContext({
           relayUrl: 'https://relay.example.test',
-          relayApiKey: 'tsk_live_abc123',
         }),
         'alice.w3a-relayer.testnet',
         undefined,
@@ -104,8 +130,131 @@ test.describe('createAccountAndRegisterWithRelayServer relay API key integration
       );
 
       expect(result.success).toBe(false);
-      expect(result.errorCode).toBe('api_key_forbidden_scope');
+      expect(result.errorCode).toBe('secret_key_forbidden_scope');
       expect(String(result.error || '')).toContain('required scope');
+    } finally {
+      console.error = originalConsoleError;
+      (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
+    }
+  });
+
+  test('managed mode requests a bootstrap grant then redeems the bootstrap token with relay', async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{
+      url: string;
+      method: string;
+      authorization: string;
+      body: Record<string, unknown>;
+    }> = [];
+    (globalThis as { fetch: typeof fetch }).fetch = async (input, init) => {
+      const url = String(input);
+      const body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+      calls.push({
+        url,
+        method: String(init?.method || 'GET'),
+        authorization: String(new Headers(init?.headers).get('authorization') || ''),
+        body,
+      });
+      if (url === 'https://broker.example/v1/registration/bootstrap-grants') {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            grant: {
+              token: 'tbt_v1_issued_token',
+              expiresAt: '2030-01-01T00:00:00.000Z',
+              environmentId: 'env_prod',
+              origin: 'https://app.example.test',
+              mode: 'free',
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          success: true,
+          transactionHash: 'tx_registration_123',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    };
+
+    try {
+      const result = await createAccountAndRegisterWithRelayServer(
+        buildMinimalContext({
+          relayUrl: 'https://relay.example.test',
+          managed: {
+            environmentId: 'env_prod',
+            brokerUrl: 'https://broker.example/v1/registration/bootstrap-grants',
+            publishableKey: 'tpk_v1_publishable',
+          },
+        }),
+        'alice.w3a-relayer.testnet',
+        undefined,
+        buildSerializedCredential(),
+        'wallet.example.test',
+      );
+
+      expect(result.success).toBe(true);
+      expect(calls).toHaveLength(2);
+      expect(calls[0]?.url).toBe('https://broker.example/v1/registration/bootstrap-grants');
+      expect(calls[0]?.authorization).toBe('Bearer tpk_v1_publishable');
+      expect(calls[0]?.body.environmentId).toBe('env_prod');
+      expect(calls[0]?.body.newAccountId).toBe('alice.w3a-relayer.testnet');
+      expect(calls[0]?.body.rpId).toBe('wallet.example.test');
+      expect(calls[0]?.body.requestHashSha256).toBe(
+        await computeRegistrationBootstrapRequestHashSha256(calls[1]?.body || {}),
+      );
+      expect(calls[1]?.url).toBe('https://relay.example.test/registration/bootstrap');
+      expect(calls[1]?.authorization).toBe('Bearer tbt_v1_issued_token');
+      expect(calls[1]?.body.new_account_id).toBe('alice.w3a-relayer.testnet');
+    } finally {
+      (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
+    }
+  });
+
+  test('managed mode returns typed errorCode when broker denies publishable_key origin', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalConsoleError = console.error;
+    console.error = () => {};
+    (globalThis as { fetch: typeof fetch }).fetch = async () =>
+      new Response(
+        JSON.stringify({
+          ok: false,
+          code: 'publishable_key_origin_blocked',
+          message: 'Origin is not allowed for this publishable key',
+        }),
+        {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+
+    try {
+      const result = await createAccountAndRegisterWithRelayServer(
+        buildMinimalContext({
+          relayUrl: 'https://relay.example.test',
+          managed: {
+            environmentId: 'env_prod',
+            brokerUrl: 'https://broker.example/v1/registration/bootstrap-grants',
+            publishableKey: 'tpk_v1_publishable',
+          },
+        }),
+        'alice.w3a-relayer.testnet',
+        undefined,
+        buildSerializedCredential(),
+        'wallet.example.test',
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('publishable_key_origin_blocked');
+      expect(String(result.error || '')).toContain('Origin is not allowed');
     } finally {
       console.error = originalConsoleError;
       (globalThis as { fetch: typeof fetch }).fetch = originalFetch;

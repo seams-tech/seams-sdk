@@ -21,9 +21,8 @@ export interface SigningSessionSealConfig {
 /**
  * Public SDK configuration overrides accepted by `new TatchiPasskey(config)`.
  *
- * This input type intentionally keeps the historical flat API surface so existing
- * integrator code remains stable. Internally, the SDK normalizes this shape into
- * the grouped resolved config (`TatchiConfigsReadonly`) used at runtime.
+ * The SDK normalizes this input shape into the grouped resolved config
+ * (`TatchiConfigsReadonly`) used at runtime.
  *
  * Arg shape:
  * ```ts
@@ -110,7 +109,6 @@ export interface SigningSessionSealConfig {
  *   };
  *   relayer?: {
  *     url?: string;
- *     apiKey?: string;
  *     delegateActionRoute?: string;
  *     smartAccountDeployRoute?: string;
  *     smartAccountDeploymentMode?: 'observe' | 'enforce';
@@ -123,6 +121,16 @@ export interface SigningSessionSealConfig {
  *       mailtoAddress?: string;
  *       emailDkimVerifierContract?: string;
  *     };
+ *   };
+ *   registration?: {
+ *     mode?: 'backend_proxy';
+ *     registrationBootstrapUrl?: string;
+ *   } | {
+ *     mode: 'managed';
+ *     environmentId: string;
+ *     brokerUrl?: string;
+ *     publishableKey: string;
+ *     paymentMode?: 'disabled' | 'quota_then_x402' | 'always_x402';
  *   };
  *   authenticatorOptions?: AuthenticatorOptions;
  * }
@@ -204,8 +212,10 @@ export interface TatchiConfigsInput {
   provisioningDefaults?: EcdsaSignerProvisioningDefaults;
   // Iframe Wallet configuration (when using a separate wallet origin)
   iframeWallet?: TatchiIframeWalletConfigInput;
-  // Relay Server is used to create new NEAR accounts
+ // Relay Server is used to create new NEAR accounts
   relayer?: TatchiRelayerConfigInput;
+  // Registration transport for browser-safe bootstrap requests
+  registration?: TatchiRegistrationConfigInput;
   // authenticator options for registrations
   authenticatorOptions?: AuthenticatorOptions;
 }
@@ -224,7 +234,6 @@ export interface TatchiConfigsInput {
  *     relayer: {
  *       accountId: string;
  *       url: string;
- *       apiKey: string;
  *       routes: {
  *         delegateAction: string;
  *         smartAccountDeploy: string;
@@ -242,6 +251,18 @@ export interface TatchiConfigsInput {
  *         emailDkimVerifierContract: string;
  *       };
  *     };
+ *     registration:
+ *       | {
+ *           mode: 'backend_proxy';
+ *           bootstrapUrl: string;
+ *         }
+ *       | {
+ *           mode: 'managed';
+ *           environmentId: string;
+ *           brokerUrl: string;
+ *           publishableKey: string;
+ *           paymentMode: 'disabled' | 'quota_then_x402' | 'always_x402';
+ *         };
  *   };
  *   signing: {
  *     mode: SignerMode;
@@ -322,15 +343,41 @@ export interface RegistrationResult {
   thresholdEcdsaGroupPublicKeyB64u?: string;
 }
 
-export type RelayApiKeyAuthErrorCode =
-  | 'api_key_missing'
-  | 'api_key_invalid'
-  | 'api_key_revoked'
-  | 'api_key_forbidden_scope'
-  | 'api_key_ip_blocked'
-  | 'api_key_environment_mismatch';
+export type RelaySecretKeyAuthErrorCode =
+  | 'secret_key_missing'
+  | 'secret_key_invalid'
+  | 'secret_key_revoked'
+  | 'secret_key_forbidden_scope'
+  | 'secret_key_ip_blocked'
+  | 'secret_key_environment_mismatch';
 
-export type RegistrationErrorCode = RelayApiKeyAuthErrorCode | string;
+export type RelayBootstrapGrantErrorCode =
+  | 'publishable_key_missing'
+  | 'publishable_key_invalid'
+  | 'publishable_key_revoked'
+  | 'publishable_key_origin_blocked'
+  | 'publishable_key_environment_mismatch'
+  | 'publishable_key_rate_limited'
+  | 'publishable_key_quota_exhausted'
+  | 'invalid_environment'
+  | 'environment_archived'
+  | 'invalid_body'
+  | 'payment_required'
+  | 'payment_invalid';
+
+export type RelayBootstrapTokenErrorCode =
+  | 'bootstrap_token_missing'
+  | 'bootstrap_token_invalid'
+  | 'bootstrap_token_expired'
+  | 'bootstrap_token_already_used'
+  | 'bootstrap_token_request_mismatch'
+  | 'bootstrap_token_origin_mismatch';
+
+export type RegistrationErrorCode =
+  | RelaySecretKeyAuthErrorCode
+  | RelayBootstrapGrantErrorCode
+  | RelayBootstrapTokenErrorCode
+  | string;
 
 export interface LoginResult {
   success: boolean;
@@ -500,6 +547,11 @@ export type ReadonlyDeep<T> = T extends (...args: never[]) => unknown
 
 export type TatchiWalletMode = 'direct' | 'iframe';
 
+export type TatchiRegistrationPaymentMode =
+  | 'disabled'
+  | 'quota_then_x402'
+  | 'always_x402';
+
 export interface TatchiSigningSessionDefaultsInput {
   /**
    * Defaults for relay-minted warm signing sessions minted by `unlock()`.
@@ -520,15 +572,21 @@ export interface TatchiIframeWalletConfigInput {
   rpIdOverride?: string;
 }
 
+export type TatchiRegistrationConfigInput =
+  | {
+      mode?: 'backend_proxy';
+      registrationBootstrapUrl?: string;
+    }
+  | {
+      mode: 'managed';
+      environmentId: string;
+      brokerUrl?: string;
+      publishableKey: string;
+      paymentMode?: TatchiRegistrationPaymentMode;
+    };
+
 export interface TatchiRelayerConfigInput {
   url?: string;
-  /**
-   * Optional relay API key secret.
-   *
-   * When provided, registration bootstrap requests include:
-   * `Authorization: Bearer <apiKey>`.
-   */
-  apiKey?: string;
   /**
    * Relative path on the relayer used for delegate action execution.
    * Defaults to '/signed-delegate'.
@@ -588,11 +646,23 @@ export interface TatchiRelayerEmailRecoveryConfig {
 export interface TatchiRelayerConfig {
   accountId: string;
   url: string;
-  apiKey: string;
   routes: TatchiRelayerRoutesConfig;
   smartAccountDeployment: TatchiSmartAccountDeploymentConfig;
   emailRecovery: TatchiRelayerEmailRecoveryConfig;
 }
+
+export type TatchiRegistrationConfig =
+  | {
+      mode: 'backend_proxy';
+      bootstrapUrl: string;
+    }
+  | {
+      mode: 'managed';
+      environmentId: string;
+      brokerUrl: string;
+      publishableKey: string;
+      paymentMode: TatchiRegistrationPaymentMode;
+    };
 
 export interface TatchiNetworkConfig {
   chains: TatchiChainConfig[];
@@ -648,6 +718,7 @@ export interface TatchiUiConfig {
  */
 export interface TatchiConfigsResolved {
   network: TatchiNetworkConfig;
+  registration: TatchiRegistrationConfig;
   signing: TatchiSigningConfig;
   webauthn: TatchiWebauthnConfig;
   wallet: TatchiWalletConfig;

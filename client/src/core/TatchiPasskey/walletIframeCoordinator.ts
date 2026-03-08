@@ -130,6 +130,7 @@ export class WalletIframeCoordinator {
             chains: this.configs.network.chains,
             relayerAccount: this.configs.network.relayer.accountId,
             relayer: this.configs.network.relayer,
+            registration: this.configs.registration,
             signingSessionPersistenceMode,
             ...(signingSessionSeal ? { signingSessionSeal } : {}),
             rpIdOverride: walletIframeConfig?.rpIdOverride,

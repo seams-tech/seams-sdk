@@ -28,6 +28,9 @@ const WALLET_STUB_CAPTURE_SCRIPT = String.raw`
           window.__capturedSigningSessionSeal = (data.payload && typeof data.payload === 'object')
             ? data.payload.signingSessionSeal
             : undefined;
+          window.__capturedRegistration = (data.payload && typeof data.payload === 'object')
+            ? data.payload.registration
+            : undefined;
           window.__capturedAppearance = (data.payload && typeof data.payload === 'object')
             ? data.payload.appearance
             : undefined;
@@ -182,6 +185,50 @@ test.describe('Wallet iframe config propagation', () => {
     });
     expect(capturedSigningSessionPersistenceMode).toBe('none');
     expect(capturedSigningSessionSeal).toBe(null);
+  });
+
+  test('forwards managed registration config in PM_SET_CONFIG', async ({ page }) => {
+    await page.evaluate(
+      async ({ walletOrigin }) => {
+        const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+        const { TatchiPasskey } = mod as any;
+
+        const pm = new TatchiPasskey({
+          relayer: { url: 'https://localhost:9444' },
+          registration: {
+            mode: 'managed',
+            environmentId: 'org-dev:proj_demo:dev',
+            publishableKey: 'tpk_v1_demo.publishable_key.preview',
+            brokerUrl: 'https://localhost:9444',
+          },
+          iframeWallet: {
+            walletOrigin,
+            walletServicePath: '/wallet-service',
+            sdkBasePath: '/sdk',
+          },
+        });
+
+        await pm.initWalletIframe();
+      },
+      { walletOrigin: WALLET_ORIGIN },
+    );
+
+    const walletFrame = page.frames().find((frame) => {
+      const url = frame.url();
+      return url.startsWith(WALLET_ORIGIN) && url.includes('/wallet-service');
+    });
+    expect(walletFrame, 'wallet iframe should be mounted').toBeTruthy();
+
+    const capturedRegistration = await walletFrame!.evaluate(() => {
+      return (window as any).__capturedRegistration ?? null;
+    });
+    expect(capturedRegistration).toEqual({
+      mode: 'managed',
+      environmentId: 'org-dev:proj_demo:dev',
+      publishableKey: 'tpk_v1_demo.publishable_key.preview',
+      brokerUrl: 'https://localhost:9444',
+      paymentMode: 'disabled',
+    });
   });
 
   test('fails fast when sealed refresh is enabled without shamirPrimeB64u', async ({ page }) => {

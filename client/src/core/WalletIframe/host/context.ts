@@ -226,6 +226,8 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
             },
           }
         : undefined,
+    registration:
+      payload?.registration === undefined ? prev.registration : payload.registration,
     authenticatorOptions: payload?.authenticatorOptions ?? prev.authenticatorOptions,
     iframeWallet: {
       ...(prev.iframeWallet || {}),

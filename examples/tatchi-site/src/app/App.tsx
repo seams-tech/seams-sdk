@@ -143,6 +143,11 @@ export const App: React.FC = () => {
         relayer: {
           url: FRONTEND_CONFIG.relayerUrl!,
         },
+        ...(FRONTEND_CONFIG.managedRegistration
+          ? {
+              registration: FRONTEND_CONFIG.managedRegistration,
+            }
+          : {}),
       }}
     >
       <DocumentThemeTokenBridge />

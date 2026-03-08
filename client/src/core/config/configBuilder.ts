@@ -49,6 +49,80 @@ function isBase64UrlNoPadding(value: string): boolean {
   return /^[A-Za-z0-9_-]+$/.test(value);
 }
 
+function joinUrlPath(baseUrl: string, path: string): string {
+  const base = String(baseUrl || '').trim().replace(/\/+$/, '');
+  const suffix = String(path || '').trim();
+  if (!base) return '';
+  if (!suffix) return base;
+  return `${base}${suffix.startsWith('/') ? suffix : `/${suffix}`}`;
+}
+
+function resolveRegistrationConfig(args: {
+  overrides: TatchiConfigsInput;
+  defaults: TatchiConfigsReadonly;
+  relayerUrl: string;
+}): TatchiConfigsReadonly['registration'] {
+  const registrationOverrides = args.overrides.registration;
+  const registrationDefaults = args.defaults.registration;
+  const managedOverrides =
+    registrationOverrides && registrationOverrides.mode === 'managed' ? registrationOverrides : null;
+  const managedDefaults =
+    registrationDefaults.mode === 'managed' ? registrationDefaults : null;
+  const backendProxyOverrides =
+    registrationOverrides && registrationOverrides.mode !== 'managed' ? registrationOverrides : null;
+  const backendProxyDefaults =
+    registrationDefaults.mode === 'backend_proxy' ? registrationDefaults : null;
+  const mode =
+    registrationOverrides?.mode ??
+    registrationDefaults.mode ??
+    ('backend_proxy' as const);
+
+  if (mode === 'managed') {
+    const brokerUrl =
+      toTrimmedString(managedOverrides?.brokerUrl) ||
+      toTrimmedString(managedDefaults?.brokerUrl) ||
+      joinUrlPath(args.relayerUrl, '/v1/registration/bootstrap-grants');
+    const environmentId =
+      toTrimmedString(managedOverrides?.environmentId) ||
+      toTrimmedString(managedDefaults?.environmentId);
+    const publishableKey =
+      toTrimmedString(managedOverrides?.publishableKey) ||
+      toTrimmedString(managedDefaults?.publishableKey);
+    const paymentMode =
+      managedOverrides?.paymentMode ??
+      managedDefaults?.paymentMode ??
+      'disabled';
+    if (!brokerUrl) {
+      throw new Error('[configPresets] Missing required config: registration.brokerUrl');
+    }
+    if (!environmentId) {
+      throw new Error('[configPresets] Missing required config: registration.environmentId');
+    }
+    if (!publishableKey) {
+      throw new Error('[configPresets] Missing required config: registration.publishableKey');
+    }
+    return {
+      mode: 'managed',
+      environmentId,
+      brokerUrl,
+      publishableKey,
+      paymentMode,
+    };
+  }
+
+  const bootstrapUrl =
+    toTrimmedString(backendProxyOverrides?.registrationBootstrapUrl) ||
+    toTrimmedString(backendProxyDefaults?.bootstrapUrl) ||
+    joinUrlPath(args.relayerUrl, '/registration/bootstrap');
+  if (!bootstrapUrl) {
+    throw new Error('[configPresets] Missing required config: registration.registrationBootstrapUrl');
+  }
+  return {
+    mode: 'backend_proxy',
+    bootstrapUrl,
+  };
+}
+
 function resolveSigningSessionSeal(args: {
   mode: SigningSessionPersistenceMode;
   overrides: TatchiConfigsInput;
@@ -90,11 +164,17 @@ export function buildConfigsFromDefaults(args: {
   const defaults = args.defaults;
   const overrides = args.overrides ?? {};
 
+  if (
+    overrides.relayer &&
+    Object.prototype.hasOwnProperty.call(overrides.relayer, 'apiKey')
+  ) {
+    throw new Error(
+      '[configPresets] Invalid config: relayer.apiKey has been removed; use registration.mode="backend_proxy" with registrationBootstrapUrl, or registration.mode="managed" with publishableKey',
+    );
+  }
+
   const chains = resolveChains(defaults.network.chains, overrides.chains);
   const relayerUrl = toTrimmedString(overrides.relayer?.url ?? defaults.network.relayer.url);
-  const relayerApiKey = toTrimmedString(
-    overrides.relayer?.apiKey ?? defaults.network.relayer.apiKey,
-  );
   const relayerAccount =
     toTrimmedString(overrides.relayerAccount) ||
     toTrimmedString(defaults.network.relayer.accountId);
@@ -192,13 +272,18 @@ export function buildConfigsFromDefaults(args: {
     );
   }
 
+  const registration = resolveRegistrationConfig({
+    overrides,
+    defaults,
+    relayerUrl,
+  });
+
   return {
     network: {
       chains,
       relayer: {
         accountId: relayerAccount,
         url: relayerUrl,
-        apiKey: relayerApiKey,
         routes: {
           delegateAction: relayerDelegateActionRoute,
           smartAccountDeploy: relayerSmartAccountDeployRoute,
@@ -229,6 +314,7 @@ export function buildConfigsFromDefaults(args: {
         },
       },
     },
+    registration,
     signing: {
       mode: signerMode,
       sessionDefaults: {

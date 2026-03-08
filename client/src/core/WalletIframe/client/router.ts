@@ -156,6 +156,7 @@ export interface WalletIframeRouterOptions {
   chains?: readonly TatchiChainConfig[];
   relayerAccount?: string;
   relayer?: TatchiConfigsInput['relayer'];
+  registration?: TatchiConfigsInput['registration'];
   signingSessionPersistenceMode?: TatchiConfigsInput['signingSessionPersistenceMode'];
   signingSessionSeal?: TatchiConfigsInput['signingSessionSeal'];
   rpIdOverride?: string;
@@ -472,6 +473,7 @@ export class WalletIframeRouter {
           chains: this.opts.chains,
           relayerAccount: this.opts.relayerAccount,
           relayer: this.opts.relayer,
+          registration: this.opts.registration,
           signingSessionPersistenceMode,
           ...(signingSessionSeal ? { signingSessionSeal } : {}),
           iframeWallet: this.opts.rpIdOverride
