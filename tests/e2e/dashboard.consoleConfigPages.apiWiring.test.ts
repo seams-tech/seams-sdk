@@ -879,7 +879,7 @@ test.describe('dashboard console config page api wiring', () => {
     let lastProjectBody: Record<string, unknown> | null = null;
     const activeProjects: Record<string, unknown>[] = [context.activeProject];
     const activeEnvironments: Record<string, unknown>[] = [context.activeEnvironment];
-    const onboardingState: Record<string, unknown> = {
+    let onboardingState: Record<string, unknown> = {
       orgId: 'org_dash_console_pages',
       organization: null,
       activeProjectCount: 0,
@@ -1135,7 +1135,7 @@ test.describe('dashboard console config page api wiring', () => {
   }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     let lastOrganizationBody: Record<string, unknown> | null = null;
-    const onboardingState: Record<string, unknown> = {
+    let onboardingState: Record<string, unknown> = {
       orgId: 'org_dash_console_pages',
       organization: {
         id: 'org_dash_console_pages',
@@ -2797,7 +2797,27 @@ test.describe('dashboard console config page api wiring', () => {
   }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
-    let appSettings = {
+    let appSettings: {
+      environmentId: string;
+      allowedOrigins: string[];
+      cookie: {
+        httpOnly: boolean;
+        secure: boolean;
+        sameSite: string;
+        domain: string | null;
+        path: string;
+        maxAgeSeconds: number;
+      };
+      jwt: {
+        issuer: string;
+        audience: string[];
+        keyIds: string[];
+        accessTokenTtlSeconds: number;
+        refreshTokenTtlSeconds: number;
+      };
+      ssoMetadataUrl: string | null;
+      updatedAt: string;
+    } = {
       environmentId: 'env_active',
       allowedOrigins: ['https://existing.example.com'],
       cookie: {
@@ -3378,10 +3398,10 @@ test.describe('dashboard console config page api wiring', () => {
         name: 'revoked-browser',
         environmentId: 'env_active',
         allowedOrigins: managedAllowedOrigins,
-        rateLimitBucket: 'default',
-        quotaBucket: 'default',
+        rateLimitBucket: 'default_web_v1',
+        quotaBucket: 'free_registrations_v1',
         riskPolicy: {},
-        paymentPolicy: {},
+        paymentPolicy: { mode: 'disabled' },
         status: 'REVOKED',
         secretVersion: 1,
         secretPreview: 'tpk_v1_revoked...',
@@ -3477,31 +3497,11 @@ test.describe('dashboard console config page api wiring', () => {
 
       if (pathname === '/console/settings/app' && method === 'GET') {
         await route.fulfill({
-          status: 200,
+          status: 404,
           contentType: 'application/json',
           body: JSON.stringify({
-            ok: true,
-            appSettings: {
-              environmentId: 'env_active',
-              allowedOrigins: managedAllowedOrigins,
-              cookie: {
-                httpOnly: true,
-                secure: true,
-                sameSite: 'LAX',
-                domain: null,
-                path: '/',
-                maxAgeSeconds: 86400,
-              },
-              jwt: {
-                issuer: 'https://console.example.com/org_dash_console_pages/env_active',
-                audience: [],
-                keyIds: [],
-                accessTokenTtlSeconds: 900,
-                refreshTokenTtlSeconds: 2592000,
-              },
-              ssoMetadataUrl: null,
-              updatedAt: iso('2026-03-02T00:00:00.000Z'),
-            },
+            ok: false,
+            code: 'not_found',
           }),
         });
         return;
@@ -3661,16 +3661,14 @@ test.describe('dashboard console config page api wiring', () => {
     const createCredentialModal = page.locator('section[aria-label="Create credential modal"]');
     await expect(createCredentialModal).toBeVisible();
     await createCredentialModal.getByRole('button', { name: /browser publishable_key/i }).click();
-    for (const origin of managedAllowedOrigins) {
-      await expect(createCredentialModal).toContainText(origin);
-    }
     await createCredentialModal.locator('input[placeholder="frontend-app"]').fill('frontend-app');
+    await createCredentialModal.getByLabel('Allowed origins URI 1').fill(managedAllowedOrigins[0]);
+    await createCredentialModal.getByLabel('Allowed origins URI 2').fill(managedAllowedOrigins[1]);
+    await createCredentialModal.getByRole('button', { name: /\+ add uri/i }).click();
+    await createCredentialModal.getByLabel('Allowed origins URI 3').fill(managedAllowedOrigins[2]);
     await createCredentialModal
-      .getByLabel('Risk policy JSON (optional)')
-      .fill('{"captcha":"standard"}');
-    await createCredentialModal
-      .getByLabel('Payment policy JSON (optional)')
-      .fill('{"mode":"quota_then_x402"}');
+      .getByLabel('Overage behavior')
+      .selectOption('quota_then_x402');
     await createCredentialModal.getByRole('button', { name: /create publishable_key/i }).click();
 
     await expect
@@ -3681,16 +3679,16 @@ test.describe('dashboard console config page api wiring', () => {
       .toBe(JSON.stringify(managedAllowedOrigins));
     await expect
       .poll(() => String(lastCreateBody?.rateLimitBucket || ''))
-      .toBe('default');
+      .toBe('default_web_v1');
     await expect
       .poll(() => String(lastCreateBody?.quotaBucket || ''))
-      .toBe('default');
+      .toBe('free_registrations_v1');
     await expect
       .poll(() => JSON.stringify(lastCreateBody?.riskPolicy || {}))
-      .toBe(JSON.stringify({ captcha: 'standard' }));
+      .toBe(JSON.stringify({ captcha: 'adaptive' }));
     await expect
       .poll(() => JSON.stringify(lastCreateBody?.paymentPolicy || {}))
-      .toBe(JSON.stringify({ mode: 'quota_then_x402' }));
+      .toBe(JSON.stringify({ mode: 'quota_then_x402', productId: 'wallet_registration_v1' }));
 
     await expect(page.locator('section[aria-label="Credential integration snippet"]')).toContainText(
       'Managed browser bootstrap snippet',
@@ -3715,12 +3713,9 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(editCredentialModal).toBeVisible();
     await editCredentialModal.getByLabel('Name').fill('frontend-app-updated');
     await editCredentialModal.getByLabel('Allowed origins URI 1').fill('https://admin.example.com');
-    await editCredentialModal.getByRole('button', { name: /\+ add uri/i }).click();
     await editCredentialModal.getByLabel('Allowed origins URI 2').fill('https://localhost:8443');
-    await editCredentialModal.getByLabel('Rate-limit bucket').fill('browser-burst');
-    await editCredentialModal.getByLabel('Quota bucket').fill('paid');
-    await editCredentialModal.getByLabel(/Risk policy JSON/i).fill('{"captcha":"adaptive"}');
-    await editCredentialModal.getByLabel(/Payment policy JSON/i).fill('{"mode":"required"}');
+    await editCredentialModal.getByLabel('Allowed origins URI 3').fill('https://localhost:9443');
+    await editCredentialModal.getByLabel('Overage behavior').selectOption('always_x402');
     await editCredentialModal.evaluate((node) => {
       node.scrollTop = node.scrollHeight;
     });
@@ -3735,21 +3730,21 @@ test.describe('dashboard console config page api wiring', () => {
         JSON.stringify([
           'https://admin.example.com',
           'https://localhost:8443',
-          'https://wallet.example.localhost',
+          'https://localhost:9443',
         ]),
       );
     await expect
       .poll(() => String(lastUpdateBody?.rateLimitBucket || ''))
-      .toBe('browser-burst');
+      .toBe('default_web_v1');
     await expect
       .poll(() => String(lastUpdateBody?.quotaBucket || ''))
-      .toBe('paid');
+      .toBe('free_registrations_v1');
     await expect
       .poll(() => JSON.stringify(lastUpdateBody?.riskPolicy || {}))
       .toBe(JSON.stringify({ captcha: 'adaptive' }));
     await expect
       .poll(() => JSON.stringify(lastUpdateBody?.paymentPolicy || {}))
-      .toBe(JSON.stringify({ mode: 'required' }));
+      .toBe(JSON.stringify({ mode: 'always_x402', productId: 'wallet_registration_v1' }));
     await expect(page.locator('section[aria-label="Credentials table"]')).toContainText(
       'frontend-app-updated',
     );
