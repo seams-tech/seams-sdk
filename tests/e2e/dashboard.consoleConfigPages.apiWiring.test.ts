@@ -879,7 +879,7 @@ test.describe('dashboard console config page api wiring', () => {
     let lastProjectBody: Record<string, unknown> | null = null;
     const activeProjects: Record<string, unknown>[] = [context.activeProject];
     const activeEnvironments: Record<string, unknown>[] = [context.activeEnvironment];
-    let onboardingState: Record<string, unknown> = {
+    const onboardingState: Record<string, unknown> = {
       orgId: 'org_dash_console_pages',
       organization: null,
       activeProjectCount: 0,
@@ -1135,7 +1135,7 @@ test.describe('dashboard console config page api wiring', () => {
   }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     let lastOrganizationBody: Record<string, unknown> | null = null;
-    let onboardingState: Record<string, unknown> = {
+    const onboardingState: Record<string, unknown> = {
       orgId: 'org_dash_console_pages',
       organization: {
         id: 'org_dash_console_pages',
@@ -1708,7 +1708,7 @@ test.describe('dashboard console config page api wiring', () => {
   }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
-    let onboardingState: Record<string, unknown> = {
+    const onboardingState: Record<string, unknown> = {
       orgId: 'org_dash_console_pages',
       organization: context.org,
       activeProjectCount: 0,
@@ -2791,7 +2791,7 @@ test.describe('dashboard console config page api wiring', () => {
     ).toHaveCount(0);
   });
 
-  test('app-settings page wires app and security settings patch flows', async ({
+  test('credential-policy page wires app and security settings patch flows', async ({
     page,
     baseURL,
   }) => {
@@ -2800,7 +2800,6 @@ test.describe('dashboard console config page api wiring', () => {
     let appSettings = {
       environmentId: 'env_active',
       allowedOrigins: ['https://existing.example.com'],
-      allowedDomains: ['example.com'],
       cookie: {
         httpOnly: true,
         secure: true,
@@ -2831,47 +2830,11 @@ test.describe('dashboard console config page api wiring', () => {
       },
       updatedAt: iso('2026-01-05T00:00:00.000Z'),
     };
-    let runtimeSnapshots: any[] = [
-      {
-        orgId: 'org_dash_console_pages',
-        projectId: 'proj_active',
-        environmentId: 'env_active',
-        snapshotId: 'snapshot_existing_v2',
-        version: 2,
-        effectiveAt: iso('2026-02-01T00:00:00.000Z'),
-        checksum: 'fnv1a32:11111111',
-        payload: {
-          policy: { status: 'resolved', policyCount: 2, assignmentCount: 1 },
-          settings: { status: 'resolved' },
-          gasSponsorship: { status: 'resolved', configCount: 1 },
-          smartWallets: { status: 'resolved', configCount: 1 },
-          metadata: { source: 'server_publish_current_v1' },
-        },
-        createdAt: iso('2026-02-01T00:00:00.000Z'),
-        createdBy: 'user_dash_console_pages',
-      },
-      {
-        orgId: 'org_dash_console_pages',
-        projectId: 'proj_active',
-        environmentId: 'env_active',
-        snapshotId: 'snapshot_existing_v1',
-        version: 1,
-        effectiveAt: iso('2026-01-15T00:00:00.000Z'),
-        checksum: 'fnv1a32:00000000',
-        payload: {
-          policy: { status: 'resolved', policyCount: 1, assignmentCount: 1 },
-          settings: { status: 'resolved' },
-          gasSponsorship: { status: 'not_configured', configCount: 0 },
-          smartWallets: { status: 'not_configured', configCount: 0 },
-          metadata: { source: 'server_publish_current_v1' },
-        },
-        createdAt: iso('2026-01-15T00:00:00.000Z'),
-        createdBy: 'user_dash_console_pages',
-      },
-    ];
+    let projects = [{ ...context.activeProject }];
     let lastAppPatchBody: Record<string, unknown> | null = null;
     let lastSecurityPatchBody: Record<string, unknown> | null = null;
-    let lastPublishCurrentBody: Record<string, unknown> | null = null;
+    let lastProjectCreateBody: Record<string, unknown> | null = null;
+    let lastProjectPatchBody: Record<string, unknown> | null = null;
 
     await page.route(`${consoleOrigin}/console/**`, async (route) => {
       const req = route.request();
@@ -2906,16 +2869,89 @@ test.describe('dashboard console config page api wiring', () => {
         return;
       }
 
-      if (pathname === '/console/projects') {
+      if (pathname === '/console/projects' && method === 'GET') {
         const status = String(url.searchParams.get('status') || '').toUpperCase();
-        const projects =
-          status === 'ACTIVE'
-            ? [context.activeProject]
-            : [context.activeProject, context.archivedProject];
+        const filteredProjects = status
+          ? projects.filter((project) => String(project.status || '').toUpperCase() === status)
+          : projects;
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ ok: true, projects }),
+          body: JSON.stringify({ ok: true, projects: filteredProjects }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects' && method === 'POST') {
+        const body = parseJsonBody(req.postData());
+        lastProjectCreateBody = body;
+        const id =
+          String(body.id || '').trim() ||
+          `proj_created_${String(Math.max(projects.length + 1, 1)).padStart(2, '0')}`;
+        const name = String(body.name || '').trim() || id;
+        const now = iso('2026-02-04T00:00:00.000Z');
+        const created = {
+          id,
+          name,
+          slug: name.toLowerCase().replace(/\s+/g, '-'),
+          status: 'ACTIVE',
+          environmentCount: 0,
+          createdAt: now,
+          updatedAt: now,
+        };
+        projects = [created, ...projects];
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, project: created }),
+        });
+        return;
+      }
+
+      if (/^\/console\/projects\/[^/]+$/.test(pathname) && method === 'PATCH') {
+        const projectId = decodeURIComponent(pathname.split('/').pop() || '');
+        const body = parseJsonBody(req.postData());
+        lastProjectPatchBody = body;
+        projects = projects.map((project) => {
+          if (project.id !== projectId) return project;
+          return {
+            ...project,
+            name: String(body.name || '').trim() || project.name,
+            updatedAt: iso('2026-02-05T00:00:00.000Z'),
+          };
+        });
+        const updatedProject = projects.find((project) => project.id === projectId) || null;
+        await route.fulfill({
+          status: updatedProject ? 200 : 404,
+          contentType: 'application/json',
+          body: JSON.stringify(
+            updatedProject
+              ? { ok: true, project: updatedProject }
+              : { ok: false, code: 'not_found', message: 'project not found' },
+          ),
+        });
+        return;
+      }
+
+      if (/^\/console\/projects\/[^/]+\/archive$/.test(pathname) && method === 'POST') {
+        const projectId = decodeURIComponent(pathname.split('/')[3] || '');
+        projects = projects.map((project) => {
+          if (project.id !== projectId) return project;
+          return {
+            ...project,
+            status: 'ARCHIVED',
+            updatedAt: iso('2026-02-06T00:00:00.000Z'),
+          };
+        });
+        const archivedProject = projects.find((project) => project.id === projectId) || null;
+        await route.fulfill({
+          status: archivedProject ? 200 : 404,
+          contentType: 'application/json',
+          body: JSON.stringify(
+            archivedProject
+              ? { ok: true, project: archivedProject }
+              : { ok: false, code: 'not_found', message: 'project not found' },
+          ),
         });
         return;
       }
@@ -2967,9 +3003,6 @@ test.describe('dashboard console config page api wiring', () => {
           allowedOrigins: Array.isArray(body.allowedOrigins)
             ? (body.allowedOrigins as string[])
             : appSettings.allowedOrigins,
-          allowedDomains: Array.isArray(body.allowedDomains)
-            ? (body.allowedDomains as string[])
-            : appSettings.allowedDomains,
           cookie:
             body.cookie && typeof body.cookie === 'object'
               ? { ...appSettings.cookie, ...(body.cookie as Record<string, unknown>) }
@@ -3026,86 +3059,6 @@ test.describe('dashboard console config page api wiring', () => {
         return;
       }
 
-      if (pathname === '/console/runtime-snapshots/latest' && method === 'GET') {
-        const environmentId = String(url.searchParams.get('environmentId') || '').trim();
-        const projectId = String(url.searchParams.get('projectId') || '').trim();
-        const rows = runtimeSnapshots
-          .filter((entry) => {
-            if (environmentId && String(entry.environmentId || '') !== environmentId) return false;
-            if (projectId && String(entry.projectId || '') !== projectId) return false;
-            return true;
-          })
-          .sort((a, b) => Number(b.version || 0) - Number(a.version || 0));
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, snapshot: rows[0] || null }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/runtime-snapshots' && method === 'GET') {
-        const environmentId = String(url.searchParams.get('environmentId') || '').trim();
-        const projectId = String(url.searchParams.get('projectId') || '').trim();
-        const limitRaw = Number(url.searchParams.get('limit') || 20);
-        const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.floor(limitRaw) : 20;
-        const rows = runtimeSnapshots
-          .filter((entry) => {
-            if (environmentId && String(entry.environmentId || '') !== environmentId) return false;
-            if (projectId && String(entry.projectId || '') !== projectId) return false;
-            return true;
-          })
-          .sort((a, b) => Number(b.version || 0) - Number(a.version || 0))
-          .slice(0, limit);
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, snapshots: rows }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/runtime-snapshots/publish-current' && method === 'POST') {
-        const body = parseJsonBody(req.postData());
-        lastPublishCurrentBody = body;
-        const environmentId = String(body.environmentId || '').trim();
-        const projectId = String(body.projectId || '').trim();
-        const scoped = runtimeSnapshots.filter((entry) => {
-          if (environmentId && String(entry.environmentId || '') !== environmentId) return false;
-          if (projectId && String(entry.projectId || '') !== projectId) return false;
-          return true;
-        });
-        const nextVersion = scoped.length + 1;
-        const createdAt = iso('2026-02-06T00:00:00.000Z');
-        const created = {
-          orgId: 'org_dash_console_pages',
-          projectId: projectId || null,
-          environmentId: environmentId || 'env_active',
-          snapshotId:
-            String(body.snapshotId || '').trim() ||
-            `runtime_snapshot_generated_v${String(nextVersion)}`,
-          version: nextVersion,
-          effectiveAt: String(body.effectiveAt || '').trim() || createdAt,
-          checksum: `fnv1a32:created_${String(nextVersion)}`,
-          payload: {
-            policy: { status: 'resolved', policyCount: 2, assignmentCount: 1 },
-            settings: { status: 'resolved' },
-            gasSponsorship: { status: 'resolved', configCount: 1 },
-            smartWallets: { status: 'resolved', configCount: 1 },
-            metadata: { source: 'server_publish_current_v1' },
-          },
-          createdAt,
-          createdBy: 'user_dash_console_pages',
-        };
-        runtimeSnapshots = [created, ...runtimeSnapshots];
-        await route.fulfill({
-          status: 201,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, snapshot: created }),
-        });
-        return;
-      }
-
       await route.fulfill({
         status: 404,
         contentType: 'application/json',
@@ -3117,28 +3070,51 @@ test.describe('dashboard console config page api wiring', () => {
       });
     });
 
-    await page.goto('/dashboard/app-settings');
-    await expect(page.locator('#dashboard-main-title')).toHaveText(/app settings/i);
+    await page.goto('/dashboard/credential-policy');
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/credential policy/i);
     await expect(
       page.locator('section[aria-label="App and security settings controls"]'),
-    ).toBeVisible();
-    await expect(page.locator('section[aria-label="Environment inventory"]')).toContainText(
-      'Environments are provisioned automatically for each project',
-    );
+    ).toHaveCount(0);
+    await expect(page.locator('section[aria-label="Environment inventory"]')).toHaveCount(0);
     await expect(page.locator('button:has-text("Create environment")')).toHaveCount(0);
     await expect(page.locator('button:has-text("Rename environment")')).toHaveCount(0);
     await expect(page.locator('button:has-text("Archive environment")')).toHaveCount(0);
-    await expect(page.locator('section[aria-label="Latest runtime snapshot"]')).toContainText(
-      'snapshot_existing_v2',
+    await expect(page.locator('button:has-text("Refresh app/security settings")')).toHaveCount(0);
+    await expect(page.locator('button:has-text("Refresh runtime snapshots")')).toHaveCount(0);
+    await expect(page.locator('button:has-text("Publish current runtime snapshot")')).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Create project' }).click();
+    const createProjectModal = page.locator('section[aria-label="Create project modal"]');
+    await expect(createProjectModal).toBeVisible();
+    await createProjectModal.locator('label:has-text("Project ID (optional)") input').fill('proj_new_ui');
+    await createProjectModal.locator('label:has-text("Project name") input').fill('Project New UI');
+    await createProjectModal.locator('button:has-text("Create project")').click();
+    await expect.poll(() => String(lastProjectCreateBody?.id || '')).toBe('proj_new_ui');
+    await expect(page.locator('section[aria-label="Project management"]')).toContainText('proj_new_ui');
+
+    const newProjectRow = page
+      .locator('section[aria-label="Project management"] .dashboard-table-row--projects')
+      .filter({ hasText: 'proj_new_ui' });
+    await newProjectRow.getByRole('button', { name: 'Edit' }).click();
+    const editProjectModal = page.locator('section[aria-label="Edit project modal"]');
+    await expect(editProjectModal).toBeVisible();
+    await editProjectModal.locator('label:has-text("Project name") input').fill('Project New UI Renamed');
+    await editProjectModal.locator('button:has-text("Save changes")').click();
+    await expect.poll(() => String(lastProjectPatchBody?.name || '')).toBe('Project New UI Renamed');
+    await expect(page.locator('section[aria-label="Project management"]')).toContainText(
+      'Project New UI Renamed',
     );
 
     const appSection = page.locator('section[aria-label="Update app settings"]');
-    await appSection
-      .locator('label:has-text("Allowed origins (csv)") input')
-      .fill('https://dashboard.example.com, https://api.example.com');
+    await appSection.getByLabel('Allowed origins URI 1').fill('https://dashboard.example.com');
+    await appSection.getByRole('button', { name: /\+ add uri/i }).click();
+    await appSection.getByLabel('Allowed origins URI 2').fill('https://api.example.com');
     await appSection.locator('label:has-text("Cookie max age (seconds)") input').fill('7200');
     await appSection.locator('button:has-text("Update app settings")').click();
     await expect.poll(() => String(lastAppPatchBody?.environmentId || '')).toBe('env_active');
+    await expect
+      .poll(() => JSON.stringify(lastAppPatchBody?.allowedOrigins || []))
+      .toBe(JSON.stringify(['https://dashboard.example.com', 'https://api.example.com']));
     await expect(page.locator('section[aria-label="Current settings snapshot"]')).toContainText(
       '2',
     );
@@ -3167,24 +3143,6 @@ test.describe('dashboard console config page api wiring', () => {
       .toBe('apr_security_e2e_1');
     await expect(page.locator('section[aria-label="Current settings snapshot"]')).toContainText(
       'false',
-    );
-
-    const runtimeControls = page.locator(
-      'section[aria-label="App and security settings controls"]',
-    );
-    await runtimeControls
-      .locator('label:has-text("Snapshot ID (optional)") input')
-      .fill('runtime_snapshot_manual_e2e');
-    await runtimeControls
-      .locator('label:has-text("Effective at (optional ISO-8601)") input')
-      .fill('2026-02-07T00:00:00.000Z');
-    await runtimeControls.locator('button:has-text("Publish current runtime snapshot")').click();
-    await expect.poll(() => String(lastPublishCurrentBody?.environmentId || '')).toBe('env_active');
-    await expect(page.locator('section[aria-label="Latest runtime snapshot"]')).toContainText(
-      'runtime_snapshot_manual_e2e',
-    );
-    await expect(page.locator('section[aria-label="Runtime snapshots history"]')).toContainText(
-      'runtime_snapshot_manual_e2e',
     );
   });
 
@@ -3376,6 +3334,424 @@ test.describe('dashboard console config page api wiring', () => {
     await expect.poll(() => lastEvidenceDomainQuery).toBe('BILLING');
     await expect(page.locator('section[aria-label="Audit evidence table"]')).toContainText(
       'Invoice settlement evidence',
+    );
+  });
+
+  test('credentials page supports publishable_key creation and mode-specific snippet wiring', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    const context = buildMockDashboardContext();
+    const managedAllowedOrigins = [
+      'https://app.example.com',
+      'https://localhost:8443',
+      'https://wallet.example.localhost',
+    ];
+    let lastCreateBody: Record<string, unknown> | null = null;
+    let lastUpdateBody: Record<string, unknown> | null = null;
+    let lastPurgedApiKeyId = '';
+    let apiKeys: Record<string, unknown>[] = [
+      {
+        id: 'ak_existing_secret',
+        kind: 'secret_key',
+        orgId: 'org_dash_console_pages',
+        name: 'existing-server',
+        environmentId: 'env_active',
+        scopes: ['accounts.create', 'accounts.sync'],
+        ipAllowlist: ['203.0.113.10/32'],
+        status: 'ACTIVE',
+        secretVersion: 1,
+        secretPreview: 'tsk_v1_abcd...',
+        createdAt: iso('2026-03-01T00:00:00.000Z'),
+        updatedAt: iso('2026-03-01T00:00:00.000Z'),
+        lastUsedAt: iso('2026-03-02T00:00:00.000Z'),
+        endpointUsageCounts: {
+          '/registration/bootstrap': 3,
+        },
+        anomalyFlags: [],
+      },
+      {
+        id: 'ak_revoked_publishable',
+        kind: 'publishable_key',
+        orgId: 'org_dash_console_pages',
+        name: 'revoked-browser',
+        environmentId: 'env_active',
+        allowedOrigins: managedAllowedOrigins,
+        rateLimitBucket: 'default',
+        quotaBucket: 'default',
+        riskPolicy: {},
+        paymentPolicy: {},
+        status: 'REVOKED',
+        secretVersion: 1,
+        secretPreview: 'tpk_v1_revoked...',
+        createdAt: iso('2026-03-01T00:00:00.000Z'),
+        updatedAt: iso('2026-03-01T12:00:00.000Z'),
+        lastUsedAt: null,
+        endpointUsageCounts: {},
+        anomalyFlags: [],
+      },
+    ];
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const url = new URL(req.url());
+      const { pathname } = url;
+
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user_dash_console_pages',
+              orgId: 'org_dash_console_pages',
+              roles: ['owner', 'admin'],
+              projectId: 'proj_active',
+              environmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: {
+              orgId: 'org_dash_console_pages',
+              organization: context.org,
+              activeProjectCount: 1,
+              activeEnvironmentCount: 1,
+              activeApiKeyCount: apiKeys.length,
+              hasOrganization: true,
+              hasProject: true,
+              hasEnvironment: true,
+              hasApiKey: apiKeys.length > 0,
+              accountReady: true,
+              organizationReady: true,
+              billingReady: true,
+              projectReady: true,
+              onboardingComplete: true,
+              currentStep: 'complete',
+              complete: true,
+              selectedProjectId: 'proj_active',
+              selectedEnvironmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/org' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, org: context.org }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, projects: [context.activeProject] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, environments: [context.activeEnvironment] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/settings/app' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            appSettings: {
+              environmentId: 'env_active',
+              allowedOrigins: managedAllowedOrigins,
+              cookie: {
+                httpOnly: true,
+                secure: true,
+                sameSite: 'LAX',
+                domain: null,
+                path: '/',
+                maxAgeSeconds: 86400,
+              },
+              jwt: {
+                issuer: 'https://console.example.com/org_dash_console_pages/env_active',
+                audience: [],
+                keyIds: [],
+                accessTokenTtlSeconds: 900,
+                refreshTokenTtlSeconds: 2592000,
+              },
+              ssoMetadataUrl: null,
+              updatedAt: iso('2026-03-02T00:00:00.000Z'),
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/api-keys' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            apiKeys,
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/api-keys' && method === 'POST') {
+        lastCreateBody = parseJsonBody(req.postData());
+        const created = {
+          id: 'ak_new_publishable',
+          kind: 'publishable_key',
+          orgId: 'org_dash_console_pages',
+          name: String(lastCreateBody.name || '').trim() || 'frontend-app',
+          environmentId: String(lastCreateBody.environmentId || '').trim() || 'env_active',
+          allowedOrigins: Array.isArray(lastCreateBody.allowedOrigins)
+            ? lastCreateBody.allowedOrigins
+            : managedAllowedOrigins,
+          rateLimitBucket: String(lastCreateBody.rateLimitBucket || '').trim() || 'default',
+          quotaBucket: String(lastCreateBody.quotaBucket || '').trim() || 'default',
+          riskPolicy:
+            lastCreateBody.riskPolicy && typeof lastCreateBody.riskPolicy === 'object'
+              ? lastCreateBody.riskPolicy
+              : {},
+          paymentPolicy:
+            lastCreateBody.paymentPolicy && typeof lastCreateBody.paymentPolicy === 'object'
+              ? lastCreateBody.paymentPolicy
+              : {},
+          status: 'ACTIVE',
+          secretVersion: 1,
+          secretPreview: 'tpk_v1_efgh...',
+          createdAt: iso('2026-03-03T00:00:00.000Z'),
+          updatedAt: iso('2026-03-03T00:00:00.000Z'),
+          lastUsedAt: null,
+          endpointUsageCounts: {},
+          anomalyFlags: [],
+        };
+        apiKeys = [created, ...apiKeys];
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            apiKey: created,
+            secret: 'tpk_v1_publishable_created',
+          }),
+        });
+        return;
+      }
+
+      if (/^\/console\/api-keys\/[^/]+$/.test(pathname) && method === 'PATCH') {
+        lastUpdateBody = parseJsonBody(req.postData());
+        const apiKeyId = decodeURIComponent(pathname.split('/').pop() || '');
+        apiKeys = apiKeys.map((entry) => {
+          if (String(entry.id || '') !== apiKeyId) return entry;
+          return {
+            ...entry,
+            ...(lastUpdateBody?.name !== undefined
+              ? { name: String(lastUpdateBody.name || '').trim() || entry.name }
+              : {}),
+            ...(Array.isArray(lastUpdateBody?.allowedOrigins)
+              ? { allowedOrigins: lastUpdateBody.allowedOrigins }
+              : {}),
+            ...(lastUpdateBody?.rateLimitBucket !== undefined
+              ? { rateLimitBucket: String(lastUpdateBody.rateLimitBucket || '').trim() }
+              : {}),
+            ...(lastUpdateBody?.quotaBucket !== undefined
+              ? { quotaBucket: String(lastUpdateBody.quotaBucket || '').trim() }
+              : {}),
+            ...(lastUpdateBody?.riskPolicy && typeof lastUpdateBody.riskPolicy === 'object'
+              ? { riskPolicy: lastUpdateBody.riskPolicy }
+              : {}),
+            ...(lastUpdateBody?.paymentPolicy && typeof lastUpdateBody.paymentPolicy === 'object'
+              ? { paymentPolicy: lastUpdateBody.paymentPolicy }
+              : {}),
+            ...(lastUpdateBody?.expiresAt !== undefined
+              ? { expiresAt: lastUpdateBody.expiresAt }
+              : {}),
+            updatedAt: iso('2026-03-04T00:00:00.000Z'),
+          };
+        });
+        const updated = apiKeys.find((entry) => String(entry.id || '') === apiKeyId) || null;
+        await route.fulfill({
+          status: updated ? 200 : 404,
+          contentType: 'application/json',
+          body: JSON.stringify(
+            updated
+              ? { ok: true, apiKey: updated }
+              : { ok: false, code: 'api_key_not_found', message: 'api key not found' },
+          ),
+        });
+        return;
+      }
+
+      if (/^\/console\/api-keys\/[^/]+\/purge$/.test(pathname) && method === 'DELETE') {
+        const parts = pathname.split('/');
+        const apiKeyId = decodeURIComponent(parts[parts.length - 2] || '');
+        const removed = apiKeys.find((entry) => String(entry.id || '') === apiKeyId) || null;
+        if (removed) {
+          apiKeys = apiKeys.filter((entry) => String(entry.id || '') !== apiKeyId);
+          lastPurgedApiKeyId = apiKeyId;
+        }
+        await route.fulfill({
+          status: removed ? 200 : 404,
+          contentType: 'application/json',
+          body: JSON.stringify(
+            removed
+              ? { ok: true, deleted: true, apiKey: removed }
+              : { ok: false, code: 'api_key_not_found', message: 'api key not found' },
+          ),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_found',
+          path: pathname,
+          method,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/api-keys');
+
+    const credentialControls = page.locator('section[aria-label="Credential controls"]');
+    await expect(credentialControls).toContainText('Create credential');
+    await expect(page.locator('section[aria-label="Credentials table"]')).toContainText(
+      'existing-server',
+    );
+    const revokedRow = page
+      .locator('section[aria-label="Credentials table"] .dashboard-table-row')
+      .filter({ hasText: 'revoked-browser' });
+    await expect(revokedRow).toContainText('REVOKED');
+    await expect(revokedRow.getByRole('button', { name: 'Delete' })).toBeVisible();
+    page.once('dialog', (dialog) => dialog.accept());
+    await revokedRow.getByRole('button', { name: 'Delete' }).click({ force: true });
+    await expect.poll(() => lastPurgedApiKeyId).toBe('ak_revoked_publishable');
+    await expect(page.locator('section[aria-label="Credentials table"]')).not.toContainText(
+      'revoked-browser',
+    );
+
+    await credentialControls.getByRole('button', { name: 'Create credential' }).click();
+    const createCredentialModal = page.locator('section[aria-label="Create credential modal"]');
+    await expect(createCredentialModal).toBeVisible();
+    await createCredentialModal.getByRole('button', { name: /browser publishable_key/i }).click();
+    for (const origin of managedAllowedOrigins) {
+      await expect(createCredentialModal).toContainText(origin);
+    }
+    await createCredentialModal.locator('input[placeholder="frontend-app"]').fill('frontend-app');
+    await createCredentialModal
+      .getByLabel('Risk policy JSON (optional)')
+      .fill('{"captcha":"standard"}');
+    await createCredentialModal
+      .getByLabel('Payment policy JSON (optional)')
+      .fill('{"mode":"quota_then_x402"}');
+    await createCredentialModal.getByRole('button', { name: /create publishable_key/i }).click();
+
+    await expect
+      .poll(() => String(lastCreateBody?.kind || ''))
+      .toBe('publishable_key');
+    await expect
+      .poll(() => JSON.stringify(lastCreateBody?.allowedOrigins || []))
+      .toBe(JSON.stringify(managedAllowedOrigins));
+    await expect
+      .poll(() => String(lastCreateBody?.rateLimitBucket || ''))
+      .toBe('default');
+    await expect
+      .poll(() => String(lastCreateBody?.quotaBucket || ''))
+      .toBe('default');
+    await expect
+      .poll(() => JSON.stringify(lastCreateBody?.riskPolicy || {}))
+      .toBe(JSON.stringify({ captcha: 'standard' }));
+    await expect
+      .poll(() => JSON.stringify(lastCreateBody?.paymentPolicy || {}))
+      .toBe(JSON.stringify({ mode: 'quota_then_x402' }));
+
+    await expect(page.locator('section[aria-label="Credential integration snippet"]')).toContainText(
+      'Managed browser bootstrap snippet',
+    );
+    await expect(page.locator('section[aria-label="Credential integration snippet"]')).toContainText(
+      "publishableKey: 'tpk_v1_publishable_created'",
+    );
+    await expect(page.locator('section[aria-label="Credentials table"]')).toContainText(
+      'frontend-app',
+    );
+    await expect(page.locator('section[aria-label="Credentials table"]')).toContainText(
+      'publishable_key',
+    );
+
+    const publishableRow = page
+      .locator('section[aria-label="Credentials table"] .dashboard-table-row')
+      .filter({ hasText: 'frontend-app' })
+      .filter({ hasText: 'publishable_key' });
+    await publishableRow.getByRole('button', { name: 'Edit' }).click();
+
+    const editCredentialModal = page.locator('section[aria-label="Edit credential modal"]');
+    await expect(editCredentialModal).toBeVisible();
+    await editCredentialModal.getByLabel('Name').fill('frontend-app-updated');
+    await editCredentialModal.getByLabel('Allowed origins URI 1').fill('https://admin.example.com');
+    await editCredentialModal.getByRole('button', { name: /\+ add uri/i }).click();
+    await editCredentialModal.getByLabel('Allowed origins URI 2').fill('https://localhost:8443');
+    await editCredentialModal.getByLabel('Rate-limit bucket').fill('browser-burst');
+    await editCredentialModal.getByLabel('Quota bucket').fill('paid');
+    await editCredentialModal.getByLabel(/Risk policy JSON/i).fill('{"captcha":"adaptive"}');
+    await editCredentialModal.getByLabel(/Payment policy JSON/i).fill('{"mode":"required"}');
+    await editCredentialModal.evaluate((node) => {
+      node.scrollTop = node.scrollHeight;
+    });
+    await editCredentialModal.locator('form').evaluate((form) => {
+      if (form instanceof HTMLFormElement) form.requestSubmit();
+    });
+
+    await expect.poll(() => String(lastUpdateBody?.name || '')).toBe('frontend-app-updated');
+    await expect
+      .poll(() => JSON.stringify(lastUpdateBody?.allowedOrigins || []))
+      .toBe(
+        JSON.stringify([
+          'https://admin.example.com',
+          'https://localhost:8443',
+          'https://wallet.example.localhost',
+        ]),
+      );
+    await expect
+      .poll(() => String(lastUpdateBody?.rateLimitBucket || ''))
+      .toBe('browser-burst');
+    await expect
+      .poll(() => String(lastUpdateBody?.quotaBucket || ''))
+      .toBe('paid');
+    await expect
+      .poll(() => JSON.stringify(lastUpdateBody?.riskPolicy || {}))
+      .toBe(JSON.stringify({ captcha: 'adaptive' }));
+    await expect
+      .poll(() => JSON.stringify(lastUpdateBody?.paymentPolicy || {}))
+      .toBe(JSON.stringify({ mode: 'required' }));
+    await expect(page.locator('section[aria-label="Credentials table"]')).toContainText(
+      'frontend-app-updated',
     );
   });
 
