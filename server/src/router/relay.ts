@@ -4,6 +4,7 @@ import type { ThresholdAnySchemeModule } from '../core/ThresholdService/schemes/
 import type { ThresholdSchemeId } from '../core/ThresholdService/schemes/schemeIds';
 import type { RelayRouterRorOptions } from './ror/provider';
 import type { PrfSessionSealRoutesOptions } from '../threshold/session/prfSessionSeal/types';
+import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
 import type { ConsoleWebhookService } from '../console/webhooks';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 
@@ -121,12 +122,12 @@ export interface RelayWebhookOptions {
 }
 
 export type RelayApiKeyAuthFailureCode =
-  | 'api_key_missing'
-  | 'api_key_invalid'
-  | 'api_key_revoked'
-  | 'api_key_forbidden_scope'
-  | 'api_key_ip_blocked'
-  | 'api_key_environment_mismatch';
+  | 'secret_key_missing'
+  | 'secret_key_invalid'
+  | 'secret_key_revoked'
+  | 'secret_key_forbidden_scope'
+  | 'secret_key_ip_blocked'
+  | 'secret_key_environment_mismatch';
 
 export interface RelayApiKeyAuthRequest {
   secret: string;
@@ -172,6 +173,89 @@ export interface RelayUsageMeterEvent {
 
 export interface RelayUsageMeterAdapter {
   recordEvent(input: RelayUsageMeterEvent): Promise<void>;
+}
+
+export type RelayBootstrapGrantMode = 'free' | 'paid';
+
+export type RelayBootstrapGrantFailureCode =
+  | 'publishable_key_missing'
+  | 'publishable_key_invalid'
+  | 'publishable_key_revoked'
+  | 'publishable_key_origin_blocked'
+  | 'publishable_key_environment_mismatch'
+  | 'publishable_key_rate_limited'
+  | 'publishable_key_quota_exhausted'
+  | 'invalid_environment'
+  | 'environment_archived'
+  | 'invalid_body';
+
+export interface RelayBootstrapGrantClientContext {
+  sdk?: string;
+  sdkVersion?: string;
+  userAgentHint?: string;
+}
+
+export interface RelayBootstrapGrantIssueRequest {
+  publishableKey: string;
+  origin: string;
+  environmentId: string;
+  newAccountId: string;
+  rpId: string;
+  requestHashSha256: string;
+  clientContext?: RelayBootstrapGrantClientContext;
+}
+
+export interface RelayBootstrapGrant {
+  token: string;
+  expiresAt: string;
+  environmentId: string;
+  origin: string;
+  mode: RelayBootstrapGrantMode;
+}
+
+export interface RelayBootstrapGrantPaymentRequirement {
+  mode: 'x402';
+  productId?: string;
+}
+
+export type RelayBootstrapGrantIssueResult =
+  | {
+      ok: true;
+      grant: RelayBootstrapGrant;
+    }
+  | {
+      ok: false;
+      status: 400 | 401 | 403 | 409 | 429 | 402;
+      code: RelayBootstrapGrantFailureCode | 'payment_required' | 'payment_invalid';
+      message: string;
+      payment?: RelayBootstrapGrantPaymentRequirement;
+    };
+
+export interface RelayBootstrapTokenRecord {
+  id: string;
+  tokenHash: string;
+  tokenPrefix: string;
+  publishableKeyId: string;
+  orgId: string;
+  projectId: string;
+  environmentId: string;
+  origin: string;
+  method: string;
+  path: string;
+  requestHashSha256: string;
+  status: 'issued' | 'redeemed' | 'expired';
+  riskDecision: string;
+  paymentReference: string | null;
+  replacementForTokenId: string | null;
+  issuedAt: string;
+  expiresAt: string;
+  redeemedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RelayBootstrapGrantBroker {
+  issueGrant(input: RelayBootstrapGrantIssueRequest): Promise<RelayBootstrapGrantIssueResult>;
 }
 
 export type SmartAccountDeploymentChain = 'evm' | 'tempo';
@@ -272,6 +356,14 @@ export interface RelayRouterOptions {
    * billing linkage.
    */
   apiKeyUsageMeter?: RelayUsageMeterAdapter | null;
+  /**
+   * Optional managed bootstrap broker used by browser-safe publishable_key flows.
+   */
+  bootstrapGrantBroker?: RelayBootstrapGrantBroker | null;
+  /**
+   * Optional bootstrap-token store used to redeem managed registration grants.
+   */
+  bootstrapTokenStore?: ConsoleBootstrapTokenService | null;
   /**
    * Optional standalone PRF session seal/unlock routes.
    *

@@ -7,6 +7,7 @@ import type { RelayRouterOptions } from '../relay';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 import { installCors } from './cors';
+import { registerBootstrapGrantRoutes } from './routes/bootstrapGrants';
 import { registerCreateAccountAndRegisterUser } from './routes/createAccountAndRegisterUser';
 import { registerEmailRecoveryRoutes } from './routes/emailRecovery';
 import { registerHealthRoutes } from './routes/health';
@@ -70,6 +71,7 @@ export function createRelayRouter(
     signedDelegatePolicy,
   };
 
+  registerBootstrapGrantRoutes(router, ctx);
   registerCreateAccountAndRegisterUser(router, ctx);
   registerSignedDelegateRoutes(router, ctx);
   registerAuthRoutes(router, ctx);

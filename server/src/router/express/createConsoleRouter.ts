@@ -28,6 +28,7 @@ import {
   parseCreateConsoleApiKeyRequest,
   parseRevokeConsoleApiKeyRequest,
   parseRotateConsoleApiKeyRequest,
+  parseUpdateConsoleApiKeyRequest,
   type ConsoleApiKeyService,
 } from '../../console/apiKeys';
 import {
@@ -3154,17 +3155,23 @@ function registerConsoleApiKeyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
       );
       if (!validEnvironment) return;
       const created = await apiKeys.createApiKey(toBillingContext(claims), request);
-      await emitConsoleAuditEvent(ctx, claims, {
-        category: 'API_KEY',
-        action: 'api_key.create',
-        summary: `Created API key ${created.apiKey.id}`,
-        environmentId: created.apiKey.environmentId,
-        metadata: {
-          apiKeyId: created.apiKey.id,
-          scopeCount: created.apiKey.scopes.length,
-          ipAllowlistCount: created.apiKey.ipAllowlist.length,
-        },
-      });
+        await emitConsoleAuditEvent(ctx, claims, {
+          category: 'API_KEY',
+          action: 'api_key.create',
+          summary: `Created API key ${created.apiKey.id}`,
+          environmentId: created.apiKey.environmentId,
+          metadata: {
+            apiKeyId: created.apiKey.id,
+            kind: created.apiKey.kind,
+            scopeCount: Array.isArray(created.apiKey.scopes) ? created.apiKey.scopes.length : 0,
+            ipAllowlistCount: Array.isArray(created.apiKey.ipAllowlist)
+              ? created.apiKey.ipAllowlist.length
+              : 0,
+            allowedOriginCount: Array.isArray(created.apiKey.allowedOrigins)
+              ? created.apiKey.allowedOrigins.length
+              : 0,
+          },
+        });
       res.status(201).json({
         ok: true,
         apiKey: created.apiKey,
@@ -3213,6 +3220,83 @@ function registerConsoleApiKeyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
     }
   });
 
+  router.delete('/console/api-keys/:id/purge', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireApiKeyMutationRole(claims, res)) return;
+    const apiKeys = requireApiKeyService(res, ctx);
+    if (!apiKeys) return;
+    const apiKeyId = readPathParam(req, 'id');
+    if (!apiKeyId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing API key id' });
+      return;
+    }
+    try {
+      const deleted = await apiKeys.deleteApiKey(toBillingContext(claims), apiKeyId);
+      if (!deleted.deleted || !deleted.apiKey) {
+        res.status(404).json({
+          ok: false,
+          code: 'api_key_not_found',
+          message: `API key ${apiKeyId} was not found`,
+        });
+        return;
+      }
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'API_KEY',
+        action: 'api_key.delete',
+        summary: `Deleted API key ${deleted.apiKey.id}`,
+        environmentId: deleted.apiKey.environmentId,
+        metadata: {
+          apiKeyId: deleted.apiKey.id,
+          kind: deleted.apiKey.kind,
+          priorStatus: deleted.apiKey.status,
+        },
+      });
+      res.status(200).json({ ok: true, deleted: true, apiKey: deleted.apiKey });
+    } catch (error: unknown) {
+      sendApiKeyError(res, error);
+    }
+  });
+
+  router.patch('/console/api-keys/:id', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireApiKeyMutationRole(claims, res)) return;
+    const apiKeys = requireApiKeyService(res, ctx);
+    if (!apiKeys) return;
+    const apiKeyId = readPathParam(req, 'id');
+    if (!apiKeyId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing API key id' });
+      return;
+    }
+    try {
+      const request = parseUpdateConsoleApiKeyRequest((req as any).body);
+      const updated = await apiKeys.updateApiKey(toBillingContext(claims), apiKeyId, request);
+      if (!updated) {
+        res.status(404).json({
+          ok: false,
+          code: 'api_key_not_found',
+          message: `API key ${apiKeyId} was not found`,
+        });
+        return;
+      }
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'API_KEY',
+        action: 'api_key.update',
+        summary: `Updated API key ${updated.id}`,
+        environmentId: updated.environmentId,
+        metadata: {
+          apiKeyId: updated.id,
+          kind: updated.kind,
+          scopeCount: Array.isArray(updated.scopes) ? updated.scopes.length : 0,
+          ipAllowlistCount: Array.isArray(updated.ipAllowlist) ? updated.ipAllowlist.length : 0,
+          allowedOriginCount: Array.isArray(updated.allowedOrigins) ? updated.allowedOrigins.length : 0,
+        },
+      });
+      res.status(200).json({ ok: true, apiKey: updated });
+    } catch (error: unknown) {
+      sendApiKeyError(res, error);
+    }
+  });
+
   router.post('/console/api-keys/:id/rotate', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims || !requireApiKeyMutationRole(claims, res)) return;
@@ -3234,16 +3318,17 @@ function registerConsoleApiKeyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
         });
         return;
       }
-      await emitConsoleAuditEvent(ctx, claims, {
-        category: 'API_KEY',
-        action: 'api_key.rotate',
-        summary: `Rotated API key ${rotated.apiKey.id} to version ${rotated.apiKey.secretVersion}`,
-        environmentId: rotated.apiKey.environmentId,
-        metadata: {
-          apiKeyId: rotated.apiKey.id,
-          secretVersion: rotated.apiKey.secretVersion,
-        },
-      });
+        await emitConsoleAuditEvent(ctx, claims, {
+          category: 'API_KEY',
+          action: 'api_key.rotate',
+          summary: `Rotated API key ${rotated.apiKey.id} to version ${rotated.apiKey.secretVersion}`,
+          environmentId: rotated.apiKey.environmentId,
+          metadata: {
+            apiKeyId: rotated.apiKey.id,
+            kind: rotated.apiKey.kind,
+            secretVersion: rotated.apiKey.secretVersion,
+          },
+        });
       res.status(200).json({
         ok: true,
         apiKey: rotated.apiKey,

@@ -6,6 +6,7 @@ import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 import type { CfEnv, CfExecutionContext, FetchHandler } from './types';
 import { json, withCors } from './http';
+import { handleBootstrapGrant } from './routes/bootstrapGrants';
 import { handleCreateAccountAndRegisterUser } from './routes/createAccountAndRegisterUser';
 import { handleEmailRecoveryPrepare } from './routes/emailRecovery';
 import { handleHealth, handleReady } from './routes/health';
@@ -77,6 +78,7 @@ export function createCloudflareRouter(
 
   const handlers: Array<(c: CloudflareRelayContext) => Promise<Response | null>> = [
     handleWellKnown,
+    handleBootstrapGrant,
     handleCreateAccountAndRegisterUser,
     handleSignedDelegate,
     handleAuth,

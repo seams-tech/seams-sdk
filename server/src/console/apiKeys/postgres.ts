@@ -1,4 +1,5 @@
 import type { NormalizedLogger } from '../../core/logger';
+import { normalizeCorsOrigin } from '../../core/SessionService';
 import { getPostgresPool } from '../../storage/postgres';
 import {
   ensureConsoleNamespace as ensureNamespace,
@@ -11,6 +12,7 @@ import {
 } from '../shared/postgresTenantContext';
 import { ConsoleApiKeyError } from './errors';
 import { isIpAllowlistMatch } from './ipAllowlist';
+import { buildPublishableKeyOriginBlockedMessage } from './originMessage';
 import {
   hashApiKeySecret,
   makeApiKeyLookupPrefix,
@@ -21,12 +23,14 @@ import {
 } from './secret';
 import type {
   AuthenticateConsoleApiKeyResult,
+  AuthenticateConsolePublishableKeyResult,
   ConsoleApiKey,
   CreateConsoleApiKeyRequest,
   CreateConsoleApiKeyResult,
   RevokeConsoleApiKeyRequest,
   RotateConsoleApiKeyRequest,
   RotateConsoleApiKeyResult,
+  UpdateConsoleApiKeyRequest,
 } from './types';
 import type { ConsoleApiKeyService, ConsoleApiKeysContext } from './service';
 
@@ -99,14 +103,42 @@ function parseUsageCounts(raw: unknown): Record<string, number> {
   return out;
 }
 
+function parseJsonObject(raw: unknown): Record<string, unknown> {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    return { ...(raw as Record<string, unknown>) };
+  }
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return { ...(parsed as Record<string, unknown>) };
+      }
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function cloneJsonObject(input: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!input) return undefined;
+  return { ...input };
+}
+
+function hasAnyDefinedField(input: UpdateConsoleApiKeyRequest): boolean {
+  return Object.values(input).some((value) => value !== undefined);
+}
+
 function parseApiKeyRow(row: PgRow): StoredApiKey {
-  return {
+  const kind = String(row.kind || 'secret_key').trim() === 'publishable_key'
+    ? 'publishable_key'
+    : 'secret_key';
+  const common = {
     id: String(row.id || ''),
+    kind,
     orgId: String(row.org_id || ''),
     name: String(row.name || ''),
     environmentId: String(row.environment_id || ''),
-    scopes: parseStringArray(row.scopes),
-    ipAllowlist: parseStringArray(row.ip_allowlist),
     status: String(row.status || 'ACTIVE') as ConsoleApiKey['status'],
     secretVersion: toNumber(row.secret_version, 1),
     secretPreview: String(row.secret_preview || ''),
@@ -119,17 +151,40 @@ function parseApiKeyRow(row: PgRow): StoredApiKey {
     anomalyFlags: parseStringArray(row.anomaly_flags),
     secretHash: String(row.secret_hash || ''),
     keyPrefix: String(row.key_prefix || ''),
+  } satisfies Omit<
+    StoredApiKey,
+    | 'scopes'
+    | 'ipAllowlist'
+    | 'allowedOrigins'
+    | 'rateLimitBucket'
+    | 'quotaBucket'
+    | 'riskPolicy'
+    | 'paymentPolicy'
+  >;
+  if (kind === 'publishable_key') {
+    return {
+      ...common,
+      allowedOrigins: parseStringArray(row.allowed_origins),
+      rateLimitBucket: String(row.rate_limit_bucket || '').trim(),
+      quotaBucket: String(row.quota_bucket || '').trim(),
+      riskPolicy: parseJsonObject(row.risk_policy),
+      paymentPolicy: parseJsonObject(row.payment_policy),
+    };
+  }
+  return {
+    ...common,
+    scopes: parseStringArray(row.scopes),
+    ipAllowlist: parseStringArray(row.ip_allowlist),
   };
 }
 
 function toPublicApiKey(input: StoredApiKey): ConsoleApiKey {
-  return {
+  const common = {
     id: input.id,
+    kind: input.kind,
     orgId: input.orgId,
     name: input.name,
     environmentId: input.environmentId,
-    scopes: [...input.scopes],
-    ipAllowlist: [...input.ipAllowlist],
     status: input.status,
     secretVersion: input.secretVersion,
     secretPreview: input.secretPreview,
@@ -140,6 +195,21 @@ function toPublicApiKey(input: StoredApiKey): ConsoleApiKey {
     revokedReason: input.revokedReason,
     endpointUsageCounts: { ...input.endpointUsageCounts },
     anomalyFlags: [...input.anomalyFlags],
+  } satisfies Omit<ConsoleApiKey, 'scopes' | 'ipAllowlist' | 'allowedOrigins' | 'rateLimitBucket' | 'quotaBucket' | 'riskPolicy' | 'paymentPolicy'>;
+  if (input.kind === 'publishable_key') {
+    return {
+      ...common,
+      allowedOrigins: [...(input.allowedOrigins || [])],
+      rateLimitBucket: String(input.rateLimitBucket || '').trim(),
+      quotaBucket: String(input.quotaBucket || '').trim(),
+      riskPolicy: cloneJsonObject(input.riskPolicy),
+      paymentPolicy: cloneJsonObject(input.paymentPolicy),
+    };
+  }
+  return {
+    ...common,
+    scopes: [...(input.scopes || [])],
+    ipAllowlist: [...(input.ipAllowlist || [])],
   };
 }
 
@@ -164,11 +234,17 @@ export async function ensureConsoleApiKeysPostgresSchema(
         namespace TEXT NOT NULL,
         id TEXT NOT NULL,
         org_id TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'secret_key',
         name TEXT NOT NULL,
         environment_id TEXT NOT NULL,
         key_prefix TEXT NOT NULL,
         scopes JSONB NOT NULL,
         ip_allowlist JSONB NOT NULL,
+        allowed_origins JSONB NOT NULL DEFAULT '[]'::jsonb,
+        rate_limit_bucket TEXT NOT NULL DEFAULT '',
+        quota_bucket TEXT NOT NULL DEFAULT '',
+        risk_policy JSONB NOT NULL DEFAULT '{}'::jsonb,
+        payment_policy JSONB NOT NULL DEFAULT '{}'::jsonb,
         status TEXT NOT NULL,
         secret_hash TEXT NOT NULL,
         secret_version INTEGER NOT NULL,
@@ -181,21 +257,87 @@ export async function ensureConsoleApiKeysPostgresSchema(
         created_at_ms BIGINT NOT NULL,
         updated_at_ms BIGINT NOT NULL,
         PRIMARY KEY (namespace, id),
+        CHECK (kind IN ('secret_key', 'publishable_key')),
         CHECK (status IN ('ACTIVE', 'REVOKED')),
         CHECK (jsonb_typeof(scopes) = 'array'),
         CHECK (jsonb_typeof(ip_allowlist) = 'array'),
+        CHECK (jsonb_typeof(allowed_origins) = 'array'),
+        CHECK (jsonb_typeof(risk_policy) = 'object'),
+        CHECK (jsonb_typeof(payment_policy) = 'object'),
         CHECK (jsonb_typeof(endpoint_usage_counts) = 'object'),
         CHECK (jsonb_typeof(anomaly_flags) = 'array')
       )
     `);
     await pool.query(`
       ALTER TABLE console_api_keys
+      ADD COLUMN IF NOT EXISTS kind TEXT
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
       ADD COLUMN IF NOT EXISTS key_prefix TEXT
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
+      ADD COLUMN IF NOT EXISTS allowed_origins JSONB
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
+      ADD COLUMN IF NOT EXISTS rate_limit_bucket TEXT
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
+      ADD COLUMN IF NOT EXISTS quota_bucket TEXT
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
+      ADD COLUMN IF NOT EXISTS risk_policy JSONB
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
+      ADD COLUMN IF NOT EXISTS payment_policy JSONB
+    `);
+    await pool.query(`
+      UPDATE console_api_keys
+         SET kind = 'secret_key'
+       WHERE kind IS NULL OR kind = ''
     `);
     await pool.query(`
       UPDATE console_api_keys
          SET key_prefix = ''
        WHERE key_prefix IS NULL
+    `);
+    await pool.query(`
+      UPDATE console_api_keys
+         SET allowed_origins = '[]'::jsonb
+       WHERE allowed_origins IS NULL
+    `);
+    await pool.query(`
+      UPDATE console_api_keys
+         SET rate_limit_bucket = ''
+       WHERE rate_limit_bucket IS NULL
+    `);
+    await pool.query(`
+      UPDATE console_api_keys
+         SET quota_bucket = ''
+       WHERE quota_bucket IS NULL
+    `);
+    await pool.query(`
+      UPDATE console_api_keys
+         SET risk_policy = '{}'::jsonb
+       WHERE risk_policy IS NULL
+    `);
+    await pool.query(`
+      UPDATE console_api_keys
+         SET payment_policy = '{}'::jsonb
+       WHERE payment_policy IS NULL
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
+      ALTER COLUMN kind SET DEFAULT 'secret_key'
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
+      ALTER COLUMN kind SET NOT NULL
     `);
     await pool.query(`
       ALTER TABLE console_api_keys
@@ -204,6 +346,46 @@ export async function ensureConsoleApiKeysPostgresSchema(
     await pool.query(`
       ALTER TABLE console_api_keys
       ALTER COLUMN key_prefix SET NOT NULL
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
+      ALTER COLUMN allowed_origins SET DEFAULT '[]'::jsonb
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
+      ALTER COLUMN allowed_origins SET NOT NULL
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
+      ALTER COLUMN rate_limit_bucket SET DEFAULT ''
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
+      ALTER COLUMN rate_limit_bucket SET NOT NULL
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
+      ALTER COLUMN quota_bucket SET DEFAULT ''
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
+      ALTER COLUMN quota_bucket SET NOT NULL
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
+      ALTER COLUMN risk_policy SET DEFAULT '{}'::jsonb
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
+      ALTER COLUMN risk_policy SET NOT NULL
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
+      ALTER COLUMN payment_policy SET DEFAULT '{}'::jsonb
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
+      ALTER COLUMN payment_policy SET NOT NULL
     `);
     await pool.query(`
       ALTER TABLE console_api_keys
@@ -319,6 +501,12 @@ export async function createPostgresConsoleApiKeyService(
     });
   }
 
+  function isAllowedOrigin(keyRow: StoredApiKey, rawOrigin: string): boolean {
+    const origin = normalizeCorsOrigin(rawOrigin) || '';
+    if (!origin) return false;
+    return (keyRow.allowedOrigins || []).some((entry) => (normalizeCorsOrigin(entry) || '') === origin);
+  }
+
   return {
     async listApiKeys(ctx: ConsoleApiKeysContext): Promise<ConsoleApiKey[]> {
       return withTenantTx(ctx, async (q) => {
@@ -340,25 +528,41 @@ export async function createPostgresConsoleApiKeyService(
       return withTenantTx(ctx, async (q) => {
         const now = nowFn();
         const apiKeyId = makeId('ak', now);
-        const secret = makeApiKeySecret({ orgId: ctx.orgId, apiKeyId });
+        const secret = makeApiKeySecret({ orgId: ctx.orgId, apiKeyId, kind: request.kind });
         const keyPrefix = makeApiKeyLookupPrefix(secret);
         const expiresAtMs = request.expiresAt ? Date.parse(request.expiresAt) : NaN;
+        const scopes = request.kind === 'secret_key' ? request.scopes : [];
+        const ipAllowlist = request.kind === 'secret_key' ? (request.ipAllowlist || []) : [];
+        const allowedOrigins = request.kind === 'publishable_key' ? request.allowedOrigins : [];
+        const rateLimitBucket =
+          request.kind === 'publishable_key' ? request.rateLimitBucket : '';
+        const quotaBucket = request.kind === 'publishable_key' ? request.quotaBucket : '';
+        const riskPolicy =
+          request.kind === 'publishable_key' ? request.riskPolicy || {} : {};
+        const paymentPolicy =
+          request.kind === 'publishable_key' ? request.paymentPolicy || {} : {};
         const row = await queryOne(
           q,
           `INSERT INTO console_api_keys
-            (namespace, id, org_id, name, environment_id, key_prefix, scopes, ip_allowlist, status, secret_hash, secret_version, secret_preview, last_used_at_ms, expires_at_ms, revoked_reason, endpoint_usage_counts, anomaly_flags, created_at_ms, updated_at_ms)
+            (namespace, id, org_id, kind, name, environment_id, key_prefix, scopes, ip_allowlist, allowed_origins, rate_limit_bucket, quota_bucket, risk_policy, payment_policy, status, secret_hash, secret_version, secret_preview, last_used_at_ms, expires_at_ms, revoked_reason, endpoint_usage_counts, anomaly_flags, created_at_ms, updated_at_ms)
            VALUES
-            ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12, NULL, $13, NULL, '{}'::jsonb, '[]'::jsonb, $14, $14)
+            ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11, $12, $13::jsonb, $14::jsonb, $15, $16, $17, $18, NULL, $19, NULL, '{}'::jsonb, '[]'::jsonb, $20, $20)
            RETURNING *`,
           [
             namespace,
             apiKeyId,
             ctx.orgId,
+            request.kind,
             request.name,
             request.environmentId,
             keyPrefix,
-            JSON.stringify(request.scopes),
-            JSON.stringify(request.ipAllowlist || []),
+            JSON.stringify(scopes),
+            JSON.stringify(ipAllowlist),
+            JSON.stringify(allowedOrigins),
+            rateLimitBucket,
+            quotaBucket,
+            JSON.stringify(riskPolicy),
+            JSON.stringify(paymentPolicy),
             'ACTIVE',
             await hashApiKeySecret(secret),
             1,
@@ -414,6 +618,36 @@ export async function createPostgresConsoleApiKeyService(
       });
     },
 
+    async deleteApiKey(
+      ctx: ConsoleApiKeysContext,
+      apiKeyId: string,
+    ): Promise<{ deleted: boolean; apiKey: ConsoleApiKey | null }> {
+      return withTenantTx(ctx, async (q) => {
+        const current = await findApiKey(q, { orgId: ctx.orgId, apiKeyId });
+        if (!current) {
+          return { deleted: false, apiKey: null };
+        }
+        if (current.status !== 'REVOKED') {
+          throw new ConsoleApiKeyError(
+            'api_key_not_revoked',
+            409,
+            `API key ${apiKeyId} must be revoked before it can be deleted`,
+          );
+        }
+        const row = await queryOne(
+          q,
+          `DELETE FROM console_api_keys
+            WHERE namespace = $1 AND org_id = $2 AND id = $3
+            RETURNING *`,
+          [namespace, ctx.orgId, apiKeyId],
+        );
+        if (!row) {
+          return { deleted: false, apiKey: null };
+        }
+        return { deleted: true, apiKey: toPublicApiKey(parseApiKeyRow(row)) };
+      });
+    },
+
     async rotateApiKey(
       ctx: ConsoleApiKeysContext,
       apiKeyId: string,
@@ -431,7 +665,7 @@ export async function createPostgresConsoleApiKeyService(
         }
 
         const now = nowFn();
-        const secret = makeApiKeySecret({ orgId: ctx.orgId, apiKeyId });
+        const secret = makeApiKeySecret({ orgId: ctx.orgId, apiKeyId, kind: current.kind });
         const keyPrefix = makeApiKeyLookupPrefix(secret);
         const row = await queryOne(
           q,
@@ -461,14 +695,89 @@ export async function createPostgresConsoleApiKeyService(
       });
     },
 
+    async updateApiKey(
+      ctx: ConsoleApiKeysContext,
+      apiKeyId: string,
+      request: UpdateConsoleApiKeyRequest,
+    ): Promise<ConsoleApiKey | null> {
+      return withTenantTx(ctx, async (q) => {
+        const current = await findApiKey(q, { orgId: ctx.orgId, apiKeyId });
+        if (!current) return null;
+        if (!hasAnyDefinedField(request)) {
+          return toPublicApiKey(current);
+        }
+        if (current.kind === 'publishable_key') {
+          if (request.scopes !== undefined || request.ipAllowlist !== undefined) {
+            throw new ConsoleApiKeyError(
+              'invalid_body',
+              400,
+              'Fields scopes and ipAllowlist are not valid for publishable_key',
+            );
+          }
+        } else if (
+          request.allowedOrigins !== undefined ||
+          request.rateLimitBucket !== undefined ||
+          request.quotaBucket !== undefined ||
+          request.riskPolicy !== undefined ||
+          request.paymentPolicy !== undefined
+        ) {
+          throw new ConsoleApiKeyError(
+            'invalid_body',
+            400,
+            'Fields allowedOrigins, rateLimitBucket, quotaBucket, riskPolicy, and paymentPolicy are not valid for secret_key',
+          );
+        }
+
+        const now = nowFn();
+        const row = await queryOne(
+          q,
+          `UPDATE console_api_keys
+              SET name = COALESCE($4, name),
+                  scopes = COALESCE($5::jsonb, scopes),
+                  ip_allowlist = COALESCE($6::jsonb, ip_allowlist),
+                  allowed_origins = COALESCE($7::jsonb, allowed_origins),
+                  rate_limit_bucket = COALESCE($8, rate_limit_bucket),
+                  quota_bucket = COALESCE($9, quota_bucket),
+                  risk_policy = COALESCE($10::jsonb, risk_policy),
+                  payment_policy = COALESCE($11::jsonb, payment_policy),
+                  expires_at_ms = CASE
+                    WHEN $12::boolean THEN NULL
+                    WHEN $13::bigint IS NULL THEN expires_at_ms
+                    ELSE $13::bigint
+                  END,
+                  updated_at_ms = $14
+            WHERE namespace = $1 AND org_id = $2 AND id = $3
+            RETURNING *`,
+          [
+            namespace,
+            ctx.orgId,
+            apiKeyId,
+            request.name ?? null,
+            request.scopes !== undefined ? JSON.stringify(request.scopes) : null,
+            request.ipAllowlist !== undefined ? JSON.stringify(request.ipAllowlist) : null,
+            request.allowedOrigins !== undefined ? JSON.stringify(request.allowedOrigins) : null,
+            request.rateLimitBucket ?? null,
+            request.quotaBucket ?? null,
+            request.riskPolicy !== undefined ? JSON.stringify(request.riskPolicy) : null,
+            request.paymentPolicy !== undefined ? JSON.stringify(request.paymentPolicy) : null,
+            request.expiresAt === null,
+            request.expiresAt ? Date.parse(request.expiresAt) : null,
+            nowMs(now),
+          ],
+        );
+        if (!row) return null;
+        return toPublicApiKey(parseApiKeyRow(row));
+      });
+    },
+
     async authenticateApiKey(request): Promise<AuthenticateConsoleApiKeyResult> {
       const secret = String(request.secret || '').trim();
       if (!secret) {
         return {
           ok: false,
           status: 401,
-          code: 'api_key_missing',
-          message: 'Missing API key secret',
+          code: 'secret_key_missing',
+          message: 'Missing secret key',
         };
       }
 
@@ -477,8 +786,17 @@ export async function createPostgresConsoleApiKeyService(
         return {
           ok: false,
           status: 401,
-          code: 'api_key_invalid',
-          message: 'Invalid API key',
+          code: 'secret_key_invalid',
+          message: 'Invalid secret key',
+        };
+      }
+
+      if (parsed.kind !== 'secret_key') {
+        return {
+          ok: false,
+          status: 401,
+          code: 'secret_key_invalid',
+          message: 'Invalid secret key',
         };
       }
 
@@ -506,8 +824,8 @@ export async function createPostgresConsoleApiKeyService(
         return {
           ok: false,
           status: 401,
-          code: 'api_key_invalid',
-          message: 'Invalid API key',
+          code: 'secret_key_invalid',
+          message: 'Invalid secret key',
         };
       }
 
@@ -526,8 +844,18 @@ export async function createPostgresConsoleApiKeyService(
         return {
           ok: false,
           status: 403,
-          code: 'api_key_revoked',
-          message: 'API key has been revoked',
+          code: 'secret_key_revoked',
+          message: 'Secret key has been revoked',
+        };
+      }
+
+      if (keyRow.kind !== 'secret_key') {
+        await appendAnomaly('auth.invalid_kind');
+        return {
+          ok: false,
+          status: 401,
+          code: 'secret_key_invalid',
+          message: 'Invalid secret key',
         };
       }
 
@@ -538,8 +866,8 @@ export async function createPostgresConsoleApiKeyService(
           return {
             ok: false,
             status: 403,
-            code: 'api_key_revoked',
-            message: 'API key has expired',
+            code: 'secret_key_revoked',
+            message: 'Secret key has expired',
           };
         }
       }
@@ -550,28 +878,28 @@ export async function createPostgresConsoleApiKeyService(
         return {
           ok: false,
           status: 403,
-          code: 'api_key_environment_mismatch',
-          message: 'API key is not valid for the requested environment',
+          code: 'secret_key_environment_mismatch',
+          message: 'Secret key is not valid for the requested environment',
         };
       }
 
-      if (!hasRequiredScopes(keyRow.scopes, request.requiredScopes || [])) {
+      if (!hasRequiredScopes(keyRow.scopes || [], request.requiredScopes || [])) {
         await appendAnomaly('auth.scope_denied');
         return {
           ok: false,
           status: 403,
-          code: 'api_key_forbidden_scope',
-          message: 'API key does not grant required scope',
+          code: 'secret_key_forbidden_scope',
+          message: 'Secret key does not grant required scope',
         };
       }
 
-      if (!isIpAllowlistMatch({ allowlist: keyRow.ipAllowlist, sourceIp: request.sourceIp })) {
+      if (!isIpAllowlistMatch({ allowlist: keyRow.ipAllowlist || [], sourceIp: request.sourceIp })) {
         await appendAnomaly('auth.ip_blocked');
         return {
           ok: false,
           status: 403,
-          code: 'api_key_ip_blocked',
-          message: 'API key is blocked for this source IP',
+          code: 'secret_key_ip_blocked',
+          message: 'Secret key is blocked for this source IP',
         };
       }
 
@@ -597,6 +925,146 @@ export async function createPostgresConsoleApiKeyService(
               WHERE namespace = $1 AND org_id = $2 AND id = $3
               RETURNING *`,
             [namespace, keyRow.orgId, keyRow.id, currentNowMs, endpoint],
+          );
+          return row ? parseApiKeyRow(row) : null;
+        },
+      );
+
+      return {
+        ok: true,
+        apiKey: toPublicApiKey(refreshed || keyRow),
+      };
+    },
+
+    async authenticatePublishableKey(request): Promise<AuthenticateConsolePublishableKeyResult> {
+      const secret = String(request.secret || '').trim();
+      if (!secret) {
+        return {
+          ok: false,
+          status: 401,
+          code: 'publishable_key_missing',
+          message: 'Missing publishable key',
+        };
+      }
+
+      const parsed = parseApiKeySecret(secret);
+      if (!parsed || parsed.kind !== 'publishable_key') {
+        return {
+          ok: false,
+          status: 401,
+          code: 'publishable_key_invalid',
+          message: 'Invalid publishable key',
+        };
+      }
+
+      const hashedSecret = await hashApiKeySecret(secret);
+      const keyPrefix = makeApiKeyLookupPrefix(secret);
+      const keyRow = await withConsoleTenantContextTx(
+        pool,
+        { namespace, orgId: parsed.orgId },
+        async (q) => {
+          const prefixed = await queryOne(
+            q,
+            `SELECT *
+               FROM console_api_keys
+              WHERE namespace = $1
+                AND org_id = $2
+                AND id = $3
+                AND key_prefix = $4`,
+            [namespace, parsed.orgId, parsed.apiKeyId, keyPrefix],
+          );
+          if (prefixed) return parseApiKeyRow(prefixed);
+          return await findApiKey(q, { orgId: parsed.orgId, apiKeyId: parsed.apiKeyId });
+        },
+      );
+      if (!keyRow || keyRow.secretHash !== hashedSecret) {
+        return {
+          ok: false,
+          status: 401,
+          code: 'publishable_key_invalid',
+          message: 'Invalid publishable key',
+        };
+      }
+
+      const currentNowMs = nowMs(nowFn());
+      const appendAnomaly = async (anomaly: string): Promise<void> => {
+        await appendAnomalyFlag({
+          orgId: keyRow.orgId,
+          apiKeyId: keyRow.id,
+          anomaly,
+          nowMsValue: currentNowMs,
+        });
+      };
+
+      if (keyRow.status === 'REVOKED') {
+        await appendAnomaly('auth.publishable_key_revoked_attempt');
+        return {
+          ok: false,
+          status: 403,
+          code: 'publishable_key_revoked',
+          message: 'Publishable key has been revoked',
+        };
+      }
+
+      if (keyRow.kind !== 'publishable_key') {
+        await appendAnomaly('auth.invalid_kind');
+        return {
+          ok: false,
+          status: 401,
+          code: 'publishable_key_invalid',
+          message: 'Invalid publishable key',
+        };
+      }
+
+      if (keyRow.expiresAt) {
+        const expiresAtMs = Date.parse(keyRow.expiresAt);
+        if (Number.isFinite(expiresAtMs) && expiresAtMs <= currentNowMs) {
+          await appendAnomaly('auth.publishable_key_expired_attempt');
+          return {
+            ok: false,
+            status: 403,
+            code: 'publishable_key_revoked',
+            message: 'Publishable key has expired',
+          };
+        }
+      }
+
+      const requestEnvironmentId = String(request.environmentId || '').trim();
+      if (requestEnvironmentId && requestEnvironmentId !== keyRow.environmentId) {
+        await appendAnomaly('auth.environment_mismatch');
+        return {
+          ok: false,
+          status: 403,
+          code: 'publishable_key_environment_mismatch',
+          message: 'Publishable key is not valid for the requested environment',
+        };
+      }
+
+      if (!isAllowedOrigin(keyRow, request.origin)) {
+        await appendAnomaly('auth.origin_blocked');
+        return {
+          ok: false,
+          status: 403,
+          code: 'publishable_key_origin_blocked',
+          message: buildPublishableKeyOriginBlockedMessage({
+            origin: request.origin,
+            allowedOrigins: keyRow.allowedOrigins || [],
+          }),
+        };
+      }
+
+      const refreshed = await withConsoleTenantContextTx(
+        pool,
+        { namespace, orgId: keyRow.orgId },
+        async (q) => {
+          const row = await queryOne(
+            q,
+            `UPDATE console_api_keys
+                SET last_used_at_ms = $4,
+                    updated_at_ms = $4
+              WHERE namespace = $1 AND org_id = $2 AND id = $3
+              RETURNING *`,
+            [namespace, keyRow.orgId, keyRow.id, currentNowMs],
           );
           return row ? parseApiKeyRow(row) : null;
         },

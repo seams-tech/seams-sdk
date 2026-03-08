@@ -4,11 +4,17 @@ export type {
   AuthenticateConsoleApiKeySuccess,
   AuthenticateConsoleApiKeyFailure,
   AuthenticateConsoleApiKeyResult,
+  ConsolePublishableKeyAuthFailureCode,
+  AuthenticateConsolePublishableKeyRequest,
+  AuthenticateConsolePublishableKeySuccess,
+  AuthenticateConsolePublishableKeyFailure,
+  AuthenticateConsolePublishableKeyResult,
   ConsoleApiKeyStatus,
   ConsoleApiKey,
   CreateConsoleApiKeyRequest,
   RevokeConsoleApiKeyRequest,
   RotateConsoleApiKeyRequest,
+  UpdateConsoleApiKeyRequest,
   CreateConsoleApiKeyResult,
   RotateConsoleApiKeyResult,
 } from './types';
@@ -33,6 +39,7 @@ export {
   parseCreateConsoleApiKeyRequest,
   parseRevokeConsoleApiKeyRequest,
   parseRotateConsoleApiKeyRequest,
+  parseUpdateConsoleApiKeyRequest,
 } from './requests';
 
 export { ConsoleApiKeyError, isConsoleApiKeyError } from './errors';

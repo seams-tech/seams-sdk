@@ -1,6 +1,9 @@
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 
-const SECRET_PREFIX = 'tsk_v1_';
+const SECRET_PREFIX_BY_KIND = {
+  secret_key: 'tsk_v1_',
+  publishable_key: 'tpk_v1_',
+} as const;
 const LOOKUP_PREFIX_LENGTH = 48;
 
 function requireCrypto(): Crypto {
@@ -41,12 +44,17 @@ function randomNonceB64u(): string {
   return base64UrlEncode(bytes);
 }
 
-export function makeApiKeySecret(input: { orgId: string; apiKeyId: string }): string {
+export function makeApiKeySecret(input: {
+  orgId: string;
+  apiKeyId: string;
+  kind?: 'secret_key' | 'publishable_key';
+}): string {
   const orgId = String(input.orgId || '').trim();
   const apiKeyId = String(input.apiKeyId || '').trim();
+  const kind = input.kind === 'publishable_key' ? 'publishable_key' : 'secret_key';
   if (!orgId) throw new Error('orgId is required to generate API key secret');
   if (!apiKeyId) throw new Error('apiKeyId is required to generate API key secret');
-  return `${SECRET_PREFIX}${encodeText(orgId)}.${encodeText(apiKeyId)}.${randomNonceB64u()}`;
+  return `${SECRET_PREFIX_BY_KIND[kind]}${encodeText(orgId)}.${encodeText(apiKeyId)}.${randomNonceB64u()}`;
 }
 
 export function parseApiKeySecret(
@@ -54,10 +62,16 @@ export function parseApiKeySecret(
 ): {
   orgId: string;
   apiKeyId: string;
+  kind: 'secret_key' | 'publishable_key';
 } | null {
   const secret = String(rawSecret || '').trim();
-  if (!secret.startsWith(SECRET_PREFIX)) return null;
-  const encodedParts = secret.slice(SECRET_PREFIX.length).split('.');
+  const kind = secret.startsWith(SECRET_PREFIX_BY_KIND.publishable_key)
+    ? 'publishable_key'
+    : secret.startsWith(SECRET_PREFIX_BY_KIND.secret_key)
+      ? 'secret_key'
+      : null;
+  if (!kind) return null;
+  const encodedParts = secret.slice(SECRET_PREFIX_BY_KIND[kind].length).split('.');
   if (encodedParts.length !== 3) return null;
   const orgIdPart = String(encodedParts[0] || '').trim();
   const apiKeyIdPart = String(encodedParts[1] || '').trim();
@@ -66,7 +80,7 @@ export function parseApiKeySecret(
     const orgId = decodeText(orgIdPart).trim();
     const apiKeyId = decodeText(apiKeyIdPart).trim();
     if (!orgId || !apiKeyId) return null;
-    return { orgId, apiKeyId };
+    return { orgId, apiKeyId, kind };
   } catch {
     return null;
   }

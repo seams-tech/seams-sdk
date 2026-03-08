@@ -169,7 +169,6 @@ export function parseGetConsoleSettingsRequest(query: unknown): GetConsoleSettin
 export function parseUpdateConsoleAppSettingsRequest(body: unknown): UpdateConsoleAppSettingsRequest {
   const obj = requireObject(body, createError);
   const allowedOrigins = obj.allowedOrigins === undefined ? undefined : parseStringArray(obj.allowedOrigins, 'allowedOrigins');
-  const allowedDomains = obj.allowedDomains === undefined ? undefined : parseStringArray(obj.allowedDomains, 'allowedDomains');
   const ssoMetadataUrl =
     obj.ssoMetadataUrl === undefined
       ? undefined
@@ -179,7 +178,6 @@ export function parseUpdateConsoleAppSettingsRequest(body: unknown): UpdateConso
   return {
     environmentId: parseRequiredEnvironmentId(obj, 'body'),
     ...(allowedOrigins !== undefined ? { allowedOrigins } : {}),
-    ...(allowedDomains !== undefined ? { allowedDomains } : {}),
     ...(parseOptionalCookie(obj.cookie) !== undefined ? { cookie: parseOptionalCookie(obj.cookie) } : {}),
     ...(parseOptionalJwt(obj.jwt) !== undefined ? { jwt: parseOptionalJwt(obj.jwt) } : {}),
     ...(ssoMetadataUrl !== undefined ? { ssoMetadataUrl } : {}),

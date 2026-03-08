@@ -7,10 +7,12 @@ import type {
 import type { RelayApiKeyPrincipal } from '../../relay';
 import { signThresholdSessionJwt } from '../../commonRouterUtils';
 import {
+  extractBearerCredential,
   extractRelayEnvironmentId,
-  extractRelayApiKeySecret,
   resolveSourceIpFromExpressRequest,
 } from '../../relayApiKeyAuth';
+import { parseBootstrapToken } from '../../../console/bootstrapTokens';
+import { computeRegistrationBootstrapRequestHashSha256 } from '@shared/utils/registrationBootstrapHash';
 
 export function registerCreateAccountAndRegisterUser(
   router: ExpressRouter,
@@ -20,39 +22,8 @@ export function registerCreateAccountAndRegisterUser(
     try {
       let apiKeyPrincipal: RelayApiKeyPrincipal | null = null;
       const apiKeyAuth = ctx.opts.apiKeyAuth;
-      if (apiKeyAuth) {
-        const secret = extractRelayApiKeySecret((req.headers || {}) as Record<string, unknown>);
-        const environmentId = extractRelayEnvironmentId(
-          (req.headers || {}) as Record<string, unknown>,
-        );
-        if (!secret) {
-          res
-            .status(401)
-            .json({ success: false, code: 'api_key_missing', error: 'Missing API key' });
-          return;
-        }
-        const sourceIp = resolveSourceIpFromExpressRequest({
-          headers: (req.headers || {}) as Record<string, unknown>,
-          ip: (req as any).ip as string | undefined,
-        });
-        const authResult = await apiKeyAuth.authenticate({
-          secret,
-          endpoint: 'POST /registration/bootstrap',
-          requiredScopes: ['accounts.create'],
-          ...(sourceIp ? { sourceIp } : {}),
-          ...(environmentId ? { environmentId } : {}),
-        });
-        if (!authResult.ok) {
-          res.status(authResult.status).json({
-            success: false,
-            code: authResult.code,
-            error: authResult.message,
-          });
-          return;
-        }
-        apiKeyPrincipal = authResult.principal;
-      }
-
+      const bootstrapTokenStore = ctx.opts.bootstrapTokenStore;
+      const headers = (req.headers || {}) as Record<string, unknown>;
       const body = (req.body || {}) as any as CreateAccountAndRegisterRequest &
         Record<string, unknown>;
       const new_account_id = String(body.new_account_id || '').trim();
@@ -73,6 +44,72 @@ export function registerCreateAccountAndRegisterUser(
         return res
           .status(400)
           .json({ success: false, error: 'Missing or invalid webauthn_registration' });
+      }
+
+      const credential = extractBearerCredential(headers);
+      const tokenCandidate = credential ? parseBootstrapToken(credential) : null;
+      if (apiKeyAuth || bootstrapTokenStore) {
+        if (!credential) {
+          const code = bootstrapTokenStore && !apiKeyAuth ? 'bootstrap_token_missing' : 'secret_key_missing';
+          const message = bootstrapTokenStore && !apiKeyAuth ? 'Missing bootstrap token' : 'Missing secret key';
+          res.status(401).json({ success: false, code, error: message });
+          return;
+        }
+
+        if (tokenCandidate) {
+          if (!bootstrapTokenStore) {
+            res.status(401).json({ success: false, code: 'bootstrap_token_invalid', error: 'Invalid bootstrap token' });
+            return;
+          }
+          const requestHashSha256 = await computeRegistrationBootstrapRequestHashSha256(body);
+          const redeemResult = await bootstrapTokenStore.redeemToken({
+            token: credential,
+            origin: String(req.headers?.origin || req.headers?.Origin || '').trim(),
+            method: 'POST',
+            path: '/registration/bootstrap',
+            requestHashSha256,
+          });
+          if (!redeemResult.ok) {
+            res.status(redeemResult.status).json({
+              success: false,
+              code: redeemResult.code,
+              error: redeemResult.message,
+            });
+            return;
+          }
+          apiKeyPrincipal = {
+            apiKeyId: redeemResult.record.publishableKeyId,
+            orgId: redeemResult.record.orgId,
+            environmentId: redeemResult.record.environmentId,
+            scopes: ['accounts.create'],
+          };
+        } else {
+          if (!apiKeyAuth) {
+            res.status(401).json({ success: false, code: 'secret_key_invalid', error: 'Invalid secret key' });
+            return;
+          }
+          const environmentId = extractRelayEnvironmentId(headers);
+          const sourceIp = resolveSourceIpFromExpressRequest({
+            headers,
+            ip: (req as any).ip as string | undefined,
+          });
+          const authResult = await apiKeyAuth.authenticate({
+            secret: credential,
+            endpoint: 'POST /registration/bootstrap',
+            requiredScopes: ['accounts.create'],
+            ...(sourceIp ? { sourceIp } : {}),
+            ...(environmentId ? { environmentId } : {}),
+          });
+          if (!authResult.ok) {
+            res.status(authResult.status).json({
+              success: false,
+              code: authResult.code,
+              error: authResult.message,
+            });
+            return;
+          }
+          apiKeyPrincipal = authResult.principal;
+        }
       }
 
       const result = await ctx.service.createAccountAndRegisterUser({

@@ -31,7 +31,7 @@ function toPrincipal(apiKey: ConsoleApiKey) {
     apiKeyId: apiKey.id,
     orgId: apiKey.orgId,
     environmentId: apiKey.environmentId,
-    scopes: [...apiKey.scopes],
+    scopes: [...(apiKey.scopes || [])],
   };
 }
 
@@ -81,7 +81,7 @@ export function createRelayBillingUsageMeterAdapter(
   };
 }
 
-export function extractRelayApiKeySecret(headers: HeaderBag): string | null {
+export function extractBearerCredential(headers: HeaderBag): string | null {
   const authHeader = readHeader(headers, 'authorization');
   if (authHeader) {
     const bearerPrefix = 'bearer ';
@@ -90,8 +90,6 @@ export function extractRelayApiKeySecret(headers: HeaderBag): string | null {
       if (bearerValue) return bearerValue;
     }
   }
-  const xApiKey = readHeader(headers, 'x-api-key');
-  if (xApiKey) return xApiKey;
   return null;
 }
 

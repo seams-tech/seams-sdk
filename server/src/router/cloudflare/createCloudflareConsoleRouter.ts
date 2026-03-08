@@ -26,6 +26,7 @@ import {
   parseCreateConsoleApiKeyRequest,
   parseRevokeConsoleApiKeyRequest,
   parseRotateConsoleApiKeyRequest,
+  parseUpdateConsoleApiKeyRequest,
   type ConsoleApiKeyService,
 } from '../../console/apiKeys';
 import {
@@ -2329,6 +2330,7 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
   const apiKeyCtx = toBillingContext(auth.claims);
 
   const apiKeyPathMatch = ctx.pathname.match(/^\/console\/api-keys\/([^/]+)$/);
+  const apiKeyPurgePathMatch = ctx.pathname.match(/^\/console\/api-keys\/([^/]+)\/purge$/);
   const apiKeyRotatePathMatch = ctx.pathname.match(/^\/console\/api-keys\/([^/]+)\/rotate$/);
 
   try {
@@ -2355,8 +2357,14 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
         environmentId: created.apiKey.environmentId,
         metadata: {
           apiKeyId: created.apiKey.id,
-          scopeCount: created.apiKey.scopes.length,
-          ipAllowlistCount: created.apiKey.ipAllowlist.length,
+          kind: created.apiKey.kind,
+          scopeCount: Array.isArray(created.apiKey.scopes) ? created.apiKey.scopes.length : 0,
+          ipAllowlistCount: Array.isArray(created.apiKey.ipAllowlist)
+            ? created.apiKey.ipAllowlist.length
+            : 0,
+          allowedOriginCount: Array.isArray(created.apiKey.allowedOrigins)
+            ? created.apiKey.allowedOrigins.length
+            : 0,
         },
       });
       return json(
@@ -2406,6 +2414,82 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
       );
     }
 
+    if (ctx.method === 'DELETE' && apiKeyPurgePathMatch) {
+      const roleRequired = requireApiKeyMutationRole(auth.claims);
+      if (roleRequired) return roleRequired;
+      const apiKeyId = decodePathPart(apiKeyPurgePathMatch[1]);
+      const deleted = await apiKeys.deleteApiKey(apiKeyCtx, apiKeyId);
+      if (!deleted.deleted || !deleted.apiKey) {
+        return json(
+          {
+            ok: false,
+            code: 'api_key_not_found',
+            message: `API key ${apiKeyId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'API_KEY',
+        action: 'api_key.delete',
+        summary: `Deleted API key ${deleted.apiKey.id}`,
+        environmentId: deleted.apiKey.environmentId,
+        metadata: {
+          apiKeyId: deleted.apiKey.id,
+          kind: deleted.apiKey.kind,
+          priorStatus: deleted.apiKey.status,
+        },
+      });
+      return json(
+        {
+          ok: true,
+          deleted: true,
+          apiKey: deleted.apiKey,
+        },
+        { status: 200 },
+      );
+    }
+
+    if (ctx.method === 'PATCH' && apiKeyPathMatch) {
+      const roleRequired = requireApiKeyMutationRole(auth.claims);
+      if (roleRequired) return roleRequired;
+      const apiKeyId = decodePathPart(apiKeyPathMatch[1]);
+      const request = parseUpdateConsoleApiKeyRequest(await readJson(ctx.request));
+      const updated = await apiKeys.updateApiKey(apiKeyCtx, apiKeyId, request);
+      if (!updated) {
+        return json(
+          {
+            ok: false,
+            code: 'api_key_not_found',
+            message: `API key ${apiKeyId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'API_KEY',
+        action: 'api_key.update',
+        summary: `Updated API key ${updated.id}`,
+        environmentId: updated.environmentId,
+        metadata: {
+          apiKeyId: updated.id,
+          kind: updated.kind,
+          scopeCount: Array.isArray(updated.scopes) ? updated.scopes.length : 0,
+          ipAllowlistCount: Array.isArray(updated.ipAllowlist) ? updated.ipAllowlist.length : 0,
+          allowedOriginCount: Array.isArray(updated.allowedOrigins)
+            ? updated.allowedOrigins.length
+            : 0,
+        },
+      });
+      return json(
+        {
+          ok: true,
+          apiKey: updated,
+        },
+        { status: 200 },
+      );
+    }
+
     if (ctx.method === 'POST' && apiKeyRotatePathMatch) {
       const roleRequired = requireApiKeyMutationRole(auth.claims);
       if (roleRequired) return roleRequired;
@@ -2429,6 +2513,7 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
         environmentId: rotated.apiKey.environmentId,
         metadata: {
           apiKeyId: rotated.apiKey.id,
+          kind: rotated.apiKey.kind,
           secretVersion: rotated.apiKey.secretVersion,
         },
       });

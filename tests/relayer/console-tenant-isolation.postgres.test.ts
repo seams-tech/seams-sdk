@@ -784,7 +784,7 @@ test.describe('console postgres tenant-isolation harness', () => {
     expect(noTenantEvidenceRows.rows.length).toBe(0);
   });
 
-  test('api key service denies cross-org rotate/revoke access', async () => {
+  test('api key service denies cross-org rotate/revoke/delete access', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerCtx = {
       orgId: ownerOrgId,
@@ -800,12 +800,14 @@ test.describe('console postgres tenant-isolation harness', () => {
     const ownerCreated = await apiKeys!.createApiKey(ownerCtx, {
       name: 'owner-key',
       environmentId: ownerEnvironmentId,
+      kind: 'secret_key',
       scopes: ['wallets:read'],
       ipAllowlist: [],
     });
     const attackerCreated = await apiKeys!.createApiKey(attackerCtx, {
       name: 'attacker-key',
       environmentId: attackerEnvironmentId,
+      kind: 'secret_key',
       scopes: ['wallets:read'],
       ipAllowlist: [],
     });
@@ -820,6 +822,10 @@ test.describe('console postgres tenant-isolation harness', () => {
     const ownerRevokeAttacker = await apiKeys!.revokeApiKey(ownerCtx, attackerCreated.apiKey.id);
     expect(ownerRevokeAttacker.revoked).toBe(false);
     expect(ownerRevokeAttacker.apiKey).toBeNull();
+
+    const ownerDeleteAttacker = await apiKeys!.deleteApiKey(ownerCtx, attackerCreated.apiKey.id);
+    expect(ownerDeleteAttacker.deleted).toBe(false);
+    expect(ownerDeleteAttacker.apiKey).toBeNull();
   });
 
   test('policy tables enforce DB-level tenant RLS policies', async () => {
@@ -897,12 +903,14 @@ test.describe('console postgres tenant-isolation harness', () => {
     await apiKeys!.createApiKey(ownerCtx, {
       name: 'owner-rls-key',
       environmentId: ownerEnvironmentId,
+      kind: 'secret_key',
       scopes: ['wallets:read'],
       ipAllowlist: [],
     });
     await apiKeys!.createApiKey(attackerCtx, {
       name: 'attacker-rls-key',
       environmentId: attackerEnvironmentId,
+      kind: 'secret_key',
       scopes: ['wallets:read'],
       ipAllowlist: [],
     });

@@ -1,12 +1,21 @@
 export type ConsoleApiKeyStatus = 'ACTIVE' | 'REVOKED';
+export type ConsoleCredentialKind = 'secret_key' | 'publishable_key';
+
+export type ConsoleBrokerPolicyObject = Record<string, unknown>;
 
 export interface ConsoleApiKey {
   id: string;
+  kind: ConsoleCredentialKind;
   orgId: string;
   name: string;
   environmentId: string;
-  scopes: string[];
-  ipAllowlist: string[];
+  scopes?: string[];
+  ipAllowlist?: string[];
+  allowedOrigins?: string[];
+  rateLimitBucket?: string | null;
+  quotaBucket?: string | null;
+  riskPolicy?: ConsoleBrokerPolicyObject;
+  paymentPolicy?: ConsoleBrokerPolicyObject;
   status: ConsoleApiKeyStatus;
   secretVersion: number;
   secretPreview: string;
@@ -19,7 +28,8 @@ export interface ConsoleApiKey {
   anomalyFlags: string[];
 }
 
-export interface CreateConsoleApiKeyRequest {
+export interface CreateConsoleSecretKeyRequest {
+  kind: 'secret_key';
   name: string;
   environmentId: string;
   scopes: string[];
@@ -27,8 +37,36 @@ export interface CreateConsoleApiKeyRequest {
   expiresAt?: string;
 }
 
+export interface CreateConsolePublishableKeyRequest {
+  kind: 'publishable_key';
+  name: string;
+  environmentId: string;
+  allowedOrigins: string[];
+  rateLimitBucket: string;
+  quotaBucket: string;
+  riskPolicy?: ConsoleBrokerPolicyObject;
+  paymentPolicy?: ConsoleBrokerPolicyObject;
+  expiresAt?: string;
+}
+
+export type CreateConsoleApiKeyRequest =
+  | CreateConsoleSecretKeyRequest
+  | CreateConsolePublishableKeyRequest;
+
 export interface RotateConsoleApiKeyRequest {
   reason?: string;
+}
+
+export interface UpdateConsoleApiKeyRequest {
+  name?: string;
+  scopes?: string[];
+  ipAllowlist?: string[];
+  allowedOrigins?: string[];
+  rateLimitBucket?: string;
+  quotaBucket?: string;
+  riskPolicy?: ConsoleBrokerPolicyObject;
+  paymentPolicy?: ConsoleBrokerPolicyObject;
+  expiresAt?: string | null;
 }
 
 export interface RevokeConsoleApiKeyRequest {
@@ -46,12 +84,19 @@ export interface RotateConsoleApiKeyResult {
 }
 
 export type ConsoleApiKeyAuthFailureCode =
-  | 'api_key_missing'
-  | 'api_key_invalid'
-  | 'api_key_revoked'
-  | 'api_key_forbidden_scope'
-  | 'api_key_ip_blocked'
-  | 'api_key_environment_mismatch';
+  | 'secret_key_missing'
+  | 'secret_key_invalid'
+  | 'secret_key_revoked'
+  | 'secret_key_forbidden_scope'
+  | 'secret_key_ip_blocked'
+  | 'secret_key_environment_mismatch';
+
+export type ConsolePublishableKeyAuthFailureCode =
+  | 'publishable_key_missing'
+  | 'publishable_key_invalid'
+  | 'publishable_key_revoked'
+  | 'publishable_key_origin_blocked'
+  | 'publishable_key_environment_mismatch';
 
 export interface AuthenticateConsoleApiKeyRequest {
   secret: string;
@@ -76,3 +121,33 @@ export interface AuthenticateConsoleApiKeyFailure {
 export type AuthenticateConsoleApiKeyResult =
   | AuthenticateConsoleApiKeySuccess
   | AuthenticateConsoleApiKeyFailure;
+
+export interface AuthenticateConsolePublishableKeyRequest {
+  secret: string;
+  origin: string;
+  environmentId?: string;
+}
+
+export interface AuthenticateConsolePublishableKeySuccess {
+  ok: true;
+  apiKey: ConsoleApiKey;
+}
+
+export interface AuthenticateConsolePublishableKeyFailure {
+  ok: false;
+  status: 401 | 403;
+  code: ConsolePublishableKeyAuthFailureCode;
+  message: string;
+}
+
+export type AuthenticateConsolePublishableKeyResult =
+  | AuthenticateConsolePublishableKeySuccess
+  | AuthenticateConsolePublishableKeyFailure;
+
+export function isConsoleSecretKey(input: ConsoleApiKey | null | undefined): boolean {
+  return Boolean(input && input.kind === 'secret_key');
+}
+
+export function isConsolePublishableKey(input: ConsoleApiKey | null | undefined): boolean {
+  return Boolean(input && input.kind === 'publishable_key');
+}

@@ -9,6 +9,15 @@ export type {
   RelayUsageMeterAction,
   RelayUsageMeterEvent,
   RelayUsageMeterAdapter,
+  RelayBootstrapGrantMode,
+  RelayBootstrapGrantFailureCode,
+  RelayBootstrapGrantClientContext,
+  RelayBootstrapGrantIssueRequest,
+  RelayBootstrapGrant,
+  RelayBootstrapGrantPaymentRequirement,
+  RelayBootstrapGrantIssueResult,
+  RelayBootstrapTokenRecord,
+  RelayBootstrapGrantBroker,
   RelayRuntimeSnapshotScope,
   RelayRuntimeSnapshotEnvelope,
   RelayRuntimeSnapshotConsumer,
@@ -109,6 +118,21 @@ export type {
   CreateConsoleAuditExportRequest,
 } from '../console/auditExports';
 export type {
+  RelayBootstrapGrantRateLimitPolicy,
+  RelayBootstrapGrantQuotaPolicy,
+  RelayBootstrapGrantBrokerOptions,
+} from './bootstrapGrantBroker';
+export {
+  RelayBootstrapGrantError,
+  createRelayBootstrapGrantBroker,
+  parseRelayBootstrapGrantIssueBody,
+} from './bootstrapGrantBroker';
+export {
+  createInMemoryConsoleBootstrapTokenService,
+  ensureConsoleBootstrapTokensPostgresSchema,
+  createPostgresConsoleBootstrapTokenService,
+} from '../console/bootstrapTokens';
+export type {
   ConsoleAuditExportsContext,
   ConsoleAuditExportsService,
   InMemoryConsoleAuditExportsServiceOptions,
@@ -205,6 +229,23 @@ export type {
   PostgresConsoleApiKeySchemaOptions,
   PostgresConsoleApiKeyServiceOptions,
 } from '../console/apiKeys';
+export type {
+  ConsoleBootstrapTokenStatus,
+  ConsoleBootstrapTokenRecord,
+  CreateConsoleBootstrapTokenRequest,
+  CreateConsoleBootstrapTokenResult,
+  CountConsoleBootstrapTokensRequest,
+  RedeemConsoleBootstrapTokenFailureCode,
+  RedeemConsoleBootstrapTokenRequest,
+  RedeemConsoleBootstrapTokenResult,
+} from '../console/bootstrapTokens';
+export type {
+  ConsoleBootstrapTokensContext,
+  ConsoleBootstrapTokenService,
+  InMemoryConsoleBootstrapTokenServiceOptions,
+  PostgresConsoleBootstrapTokenSchemaOptions,
+  PostgresConsoleBootstrapTokenServiceOptions,
+} from '../console/bootstrapTokens';
 export type {
   ConsoleBillingContext,
   ConsoleBillingService,
@@ -580,7 +621,7 @@ export {
 export {
   createRelayApiKeyAuthAdapter,
   createRelayBillingUsageMeterAdapter,
-  extractRelayApiKeySecret,
+  extractBearerCredential,
   extractRelayEnvironmentId,
   resolveSourceIpFromExpressRequest,
   resolveSourceIpFromFetchHeaders,

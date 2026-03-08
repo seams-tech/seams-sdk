@@ -1,0 +1,291 @@
+import { normalizeCorsOrigin } from '../core/SessionService';
+import type {
+  AuthenticateConsolePublishableKeyResult,
+  ConsoleApiKeyService,
+} from '../console/apiKeys';
+import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
+import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
+import type {
+  RelayBootstrapGrantBroker,
+  RelayBootstrapGrantClientContext,
+  RelayBootstrapGrantFailureCode,
+  RelayBootstrapGrantIssueRequest,
+  RelayBootstrapGrantIssueResult,
+} from './relay';
+
+export interface RelayBootstrapGrantRateLimitPolicy {
+  windowMs: number;
+  maxIssued: number;
+}
+
+export interface RelayBootstrapGrantQuotaPolicy {
+  maxIssued: number;
+}
+
+export interface RelayBootstrapGrantBrokerOptions {
+  apiKeys: ConsoleApiKeyService;
+  tokenStore: ConsoleBootstrapTokenService;
+  orgProjectEnv: ConsoleOrgProjectEnvService;
+  now?: () => Date;
+  tokenTtlMs?: number;
+  defaultRateLimit?: RelayBootstrapGrantRateLimitPolicy;
+  defaultQuota?: RelayBootstrapGrantQuotaPolicy;
+  rateLimitsByBucket?: Record<string, RelayBootstrapGrantRateLimitPolicy>;
+  quotasByBucket?: Record<string, RelayBootstrapGrantQuotaPolicy>;
+}
+
+export class RelayBootstrapGrantError extends Error {
+  readonly code: RelayBootstrapGrantFailureCode;
+  readonly status: 400 | 409;
+
+  constructor(input: {
+    code: RelayBootstrapGrantFailureCode;
+    status: 400 | 409;
+    message: string;
+  }) {
+    super(input.message);
+    this.name = 'RelayBootstrapGrantError';
+    this.code = input.code;
+    this.status = input.status;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readRequiredString(source: Record<string, unknown>, key: string): string {
+  const value = String(source[key] ?? '').trim();
+  if (!value) {
+    throw new RelayBootstrapGrantError({
+      code: 'invalid_body',
+      status: 400,
+      message: `Missing required field: ${key}`,
+    });
+  }
+  return value;
+}
+
+function isBase64UrlNoPadding(value: string): boolean {
+  return /^[A-Za-z0-9_-]+$/.test(value);
+}
+
+function normalizeOrigin(input: string): string {
+  return normalizeCorsOrigin(input) || '';
+}
+
+function normalizeBucketKey(value: string, fallback: string): string {
+  return String(value || '').trim() || fallback;
+}
+
+function normalizeClientContext(input: unknown): RelayBootstrapGrantClientContext | undefined {
+  if (!isRecord(input)) return undefined;
+  const sdk = String(input.sdk || '').trim();
+  const sdkVersion = String(input.sdkVersion || '').trim();
+  const userAgentHint = String(input.userAgentHint || '').trim();
+  if (!sdk && !sdkVersion && !userAgentHint) return undefined;
+  return {
+    ...(sdk ? { sdk } : {}),
+    ...(sdkVersion ? { sdkVersion } : {}),
+    ...(userAgentHint ? { userAgentHint } : {}),
+  };
+}
+
+function isRpIdAllowedForOrigin(input: { origin: string; rpId: string }): boolean {
+  const origin = normalizeOrigin(input.origin);
+  const rpId = String(input.rpId || '').trim().toLowerCase();
+  if (!origin || !rpId) return false;
+  try {
+    const host = new URL(origin).hostname.toLowerCase();
+    return host === rpId || host.endsWith(`.${rpId}`);
+  } catch {
+    return false;
+  }
+}
+
+function toAuthFailure(result: AuthenticateConsolePublishableKeyResult): RelayBootstrapGrantIssueResult {
+  if (result.ok) {
+    throw new Error('toAuthFailure must not be called with success results');
+  }
+  return {
+    ok: false,
+    status: result.status,
+    code: result.code,
+    message: result.message,
+  };
+}
+
+export function parseRelayBootstrapGrantIssueBody(
+  body: unknown,
+): Omit<RelayBootstrapGrantIssueRequest, 'publishableKey' | 'origin'> {
+  if (!isRecord(body)) {
+    throw new RelayBootstrapGrantError({
+      code: 'invalid_body',
+      status: 400,
+      message: 'Expected JSON object request body',
+    });
+  }
+  const environmentId = readRequiredString(body, 'environmentId');
+  const newAccountId = readRequiredString(body, 'newAccountId');
+  const rpId = readRequiredString(body, 'rpId');
+  const requestHashSha256 = readRequiredString(body, 'requestHashSha256');
+  if (!isBase64UrlNoPadding(requestHashSha256)) {
+    throw new RelayBootstrapGrantError({
+      code: 'invalid_body',
+      status: 400,
+      message: 'Field requestHashSha256 must be base64url without padding',
+    });
+  }
+  const clientContext = normalizeClientContext(body.clientContext);
+  return {
+    environmentId,
+    newAccountId,
+    rpId,
+    requestHashSha256,
+    ...(clientContext ? { clientContext } : {}),
+  };
+}
+
+export function createRelayBootstrapGrantBroker(
+  options: RelayBootstrapGrantBrokerOptions,
+): RelayBootstrapGrantBroker {
+  const authenticatePublishableKey = options.apiKeys.authenticatePublishableKey;
+  if (typeof authenticatePublishableKey !== 'function') {
+    throw new Error(
+      'ConsoleApiKeyService.authenticatePublishableKey is required for bootstrap grant broker',
+    );
+  }
+
+  const tokenTtlMs = Math.max(1_000, Math.floor(options.tokenTtlMs || 60_000));
+  const now = options.now || (() => new Date());
+  const defaultRateLimit = options.defaultRateLimit || { windowMs: 60_000, maxIssued: 60 };
+  const defaultQuota = options.defaultQuota || { maxIssued: 1_000 };
+  const tokenStore = options.tokenStore;
+
+  return {
+    async issueGrant(input): Promise<RelayBootstrapGrantIssueResult> {
+      const origin = normalizeOrigin(input.origin);
+      if (!origin) {
+        return {
+          ok: false,
+          status: 403,
+          code: 'publishable_key_origin_blocked',
+          message: 'Origin header is required and must be a valid exact origin',
+        };
+      }
+
+      const authResult = await authenticatePublishableKey({
+        secret: input.publishableKey,
+        origin,
+        environmentId: input.environmentId,
+      });
+      if (!authResult.ok) return toAuthFailure(authResult);
+      if (authResult.apiKey.kind !== 'publishable_key') {
+        return {
+          ok: false,
+          status: 401,
+          code: 'publishable_key_invalid',
+          message: 'Invalid publishable key',
+        };
+      }
+
+      if (!isRpIdAllowedForOrigin({ origin, rpId: input.rpId })) {
+        return {
+          ok: false,
+          status: 400,
+          code: 'invalid_body',
+          message: 'Field rpId must match the origin host or a parent domain',
+        };
+      }
+
+      const orgScope = {
+        orgId: authResult.apiKey.orgId,
+        actorUserId: 'relay-bootstrap-broker',
+        roles: ['system'],
+      };
+      const environments = await options.orgProjectEnv.listEnvironments(orgScope);
+      const environment = environments.find((entry) => entry.id === authResult.apiKey.environmentId);
+      if (!environment) {
+        return {
+          ok: false,
+          status: 400,
+          code: 'invalid_environment',
+          message: `Environment ${authResult.apiKey.environmentId} was not found for this organization`,
+        };
+      }
+      if (environment.status !== 'ACTIVE') {
+        return {
+          ok: false,
+          status: 409,
+          code: 'environment_archived',
+          message: `Environment ${environment.id} is archived and cannot issue bootstrap grants`,
+        };
+      }
+
+      const projects = await options.orgProjectEnv.listProjects(orgScope);
+      const project = projects.find((entry) => entry.id === environment.projectId);
+      if (!project || project.status !== 'ACTIVE') {
+        return {
+          ok: false,
+          status: 409,
+          code: 'environment_archived',
+          message: `Project ${environment.projectId} is archived and cannot issue bootstrap grants`,
+        };
+      }
+
+      const currentNow = now();
+      const currentNowMs = currentNow.getTime();
+      const rateLimitBucket = normalizeBucketKey(authResult.apiKey.rateLimitBucket || '', 'default');
+      const quotaBucket = normalizeBucketKey(authResult.apiKey.quotaBucket || '', 'default');
+      const rateLimit = options.rateLimitsByBucket?.[rateLimitBucket] || defaultRateLimit;
+      const quota = options.quotasByBucket?.[quotaBucket] || defaultQuota;
+      const recentCount = await tokenStore.countIssued(orgScope, {
+        publishableKeyId: authResult.apiKey.id,
+        issuedSince: new Date(currentNowMs - Math.max(1, rateLimit.windowMs) + 1).toISOString(),
+      });
+      if (recentCount + 1 > rateLimit.maxIssued) {
+        return {
+          ok: false,
+          status: 429,
+          code: 'publishable_key_rate_limited',
+          message: `Rate limit bucket ${rateLimitBucket} exceeded`,
+        };
+      }
+
+      const totalCount = await tokenStore.countIssued(orgScope, {
+        publishableKeyId: authResult.apiKey.id,
+      });
+      if (totalCount + 1 > quota.maxIssued) {
+        return {
+          ok: false,
+          status: 429,
+          code: 'publishable_key_quota_exhausted',
+          message: `Quota bucket ${quotaBucket} exceeded`,
+        };
+      }
+
+      const issued = await tokenStore.createToken(orgScope, {
+        publishableKeyId: authResult.apiKey.id,
+        projectId: environment.projectId,
+        environmentId: environment.id,
+        origin,
+        method: 'POST',
+        path: '/registration/bootstrap',
+        requestHashSha256: input.requestHashSha256,
+        ttlMs: tokenTtlMs,
+        riskDecision: 'allow',
+      });
+
+      return {
+        ok: true,
+        grant: {
+          token: issued.token,
+          expiresAt: issued.record.expiresAt,
+          environmentId: environment.id,
+          origin,
+          mode: 'free',
+        },
+      };
+    },
+  };
+}

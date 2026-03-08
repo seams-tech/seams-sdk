@@ -188,7 +188,6 @@ test.describe('console config modules postgres services', () => {
     const updatedApp = await service.updateAppSettings(adminCtx, {
       environmentId: 'prod',
       allowedOrigins: ['https://dashboard.example.com', 'https://api.example.com'],
-      allowedDomains: ['example.com'],
       cookie: {
         sameSite: 'STRICT',
       },

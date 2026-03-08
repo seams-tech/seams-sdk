@@ -155,8 +155,8 @@ function toGasWalletSample(wallet: ConsoleWallet): ConsoleGasReadinessWalletSamp
   };
 }
 
-function hasExportScope(scopes: string[]): boolean {
-  return scopes.some((scope) => String(scope || '').toLowerCase().includes('export'));
+function hasExportScope(scopes: string[] | undefined): boolean {
+  return (scopes || []).some((scope) => String(scope || '').toLowerCase().includes('export'));
 }
 
 export function resolveConsoleInsightsScope(input: {
@@ -375,7 +375,7 @@ export async function buildConsoleExportGovernanceView(input: {
       name: entry.name,
       environmentId: entry.environmentId,
       status: entry.status,
-      scopes: [...entry.scopes],
+      scopes: [...(entry.scopes || [])],
       lastUsedAt: entry.lastUsedAt,
       anomalyFlags: [...entry.anomalyFlags],
       secretVersion: entry.secretVersion,

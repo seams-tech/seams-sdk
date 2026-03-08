@@ -21,7 +21,6 @@ export interface ConsoleAppSettings {
   orgId: string;
   environmentId: string;
   allowedOrigins: string[];
-  allowedDomains: string[];
   cookie: ConsoleCookieSettings;
   jwt: ConsoleJwtSettings;
   ssoMetadataUrl: string | null;
@@ -53,7 +52,6 @@ export interface GetConsoleSettingsRequest {
 export interface UpdateConsoleAppSettingsRequest {
   environmentId: string;
   allowedOrigins?: string[];
-  allowedDomains?: string[];
   cookie?: Partial<ConsoleCookieSettings>;
   jwt?: Partial<ConsoleJwtSettings>;
   ssoMetadataUrl?: string | null;

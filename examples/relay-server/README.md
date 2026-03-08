@@ -24,7 +24,7 @@ Atomically create a NEAR account and register a WebAuthn authenticator in relay 
 - Request body (abridged): `{ new_account_id, new_public_key, device_number?, rp_id, webauthn_registration, authenticator_options? }`
 - Response: `{ success, transactionHash?, error?, message? }`
 - When `RELAY_API_KEY_AUTH_ENABLED=1` (default in example), this route requires:
-  - `Authorization: Bearer <api_key_secret>` or `X-API-Key: <api_key_secret>`
+  - `Authorization: Bearer <secret_key>`
   - API key scope `accounts.create`
   - Optional environment bind header `X-Tatchi-Environment-Id: <environment-id>` (rejects mismatched key/environment)
 

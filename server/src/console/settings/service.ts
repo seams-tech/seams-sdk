@@ -48,7 +48,6 @@ function cloneAppSettings(input: ConsoleAppSettings): ConsoleAppSettings {
   return {
     ...input,
     allowedOrigins: [...input.allowedOrigins],
-    allowedDomains: [...input.allowedDomains],
     cookie: { ...input.cookie },
     jwt: {
       ...input.jwt,
@@ -93,7 +92,6 @@ function defaultEnvironmentSettings(args: {
       orgId: args.orgId,
       environmentId: args.environmentId,
       allowedOrigins: [],
-      allowedDomains: [],
       cookie: {
         httpOnly: true,
         secure: true,
@@ -174,9 +172,6 @@ export function createInMemoryConsoleSettingsService(
 
       if (request.allowedOrigins !== undefined) {
         store.app.allowedOrigins = normalizeStringList(request.allowedOrigins) || [];
-      }
-      if (request.allowedDomains !== undefined) {
-        store.app.allowedDomains = normalizeStringList(request.allowedDomains) || [];
       }
       if (request.cookie) {
         store.app.cookie = {

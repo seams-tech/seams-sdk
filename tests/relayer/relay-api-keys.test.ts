@@ -12,7 +12,6 @@ import {
   type RelayUsageMeterEvent,
 } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
-import { createAccountAndRegisterWithRelayServer } from '@/core/TatchiPasskey/faucets/createAccountRelayServer';
 import { callCf, fetchJson, getPath, makeCfCtx, makeFakeAuthService, startExpressRouter } from './helpers';
 
 const apiKeyCtx = {
@@ -56,27 +55,12 @@ function makeSerializedRegistrationCredential() {
   };
 }
 
-function makeClientContext(input: { relayUrl: string; relayApiKey: string }) {
-  return {
-    configs: {
-      network: {
-        relayer: {
-          url: input.relayUrl,
-          apiKey: input.relayApiKey,
-        },
-      },
-      webauthn: {
-        authenticatorOptions: {},
-      },
-    },
-  } as any;
-}
-
 async function createActiveSecret(
   apiKeys: ConsoleApiKeyService,
   input: { scopes: string[]; ipAllowlist?: string[]; expiresAt?: string },
 ): Promise<{ apiKeyId: string; secret: string }> {
   const created = await apiKeys.createApiKey(apiKeyCtx, {
+    kind: 'secret_key',
     name: 'registration-key',
     environmentId: 'env-prod',
     scopes: input.scopes,
@@ -100,7 +84,7 @@ test.describe('relay API key auth (express)', () => {
         body: JSON.stringify(makeRegistrationBody()),
       });
       expect(res.status).toBe(401);
-      expect(res.json?.code).toBe('api_key_missing');
+      expect(res.json?.code).toBe('secret_key_missing');
     } finally {
       await srv.close();
     }
@@ -122,7 +106,7 @@ test.describe('relay API key auth (express)', () => {
         body: JSON.stringify(makeRegistrationBody()),
       });
       expect(res.status).toBe(401);
-      expect(res.json?.code).toBe('api_key_invalid');
+      expect(res.json?.code).toBe('secret_key_invalid');
     } finally {
       await srv.close();
     }
@@ -148,7 +132,7 @@ test.describe('relay API key auth (express)', () => {
         body: JSON.stringify(makeRegistrationBody()),
       });
       expect(res.status).toBe(403);
-      expect(res.json?.code).toBe('api_key_revoked');
+      expect(res.json?.code).toBe('secret_key_revoked');
     } finally {
       await srv.close();
     }
@@ -173,7 +157,7 @@ test.describe('relay API key auth (express)', () => {
         body: JSON.stringify(makeRegistrationBody()),
       });
       expect(res.status).toBe(403);
-      expect(res.json?.code).toBe('api_key_forbidden_scope');
+      expect(res.json?.code).toBe('secret_key_forbidden_scope');
     } finally {
       await srv.close();
     }
@@ -199,7 +183,7 @@ test.describe('relay API key auth (express)', () => {
         body: JSON.stringify(makeRegistrationBody()),
       });
       expect(res.status).toBe(403);
-      expect(res.json?.code).toBe('api_key_environment_mismatch');
+      expect(res.json?.code).toBe('secret_key_environment_mismatch');
     } finally {
       await srv.close();
     }
@@ -226,7 +210,7 @@ test.describe('relay API key auth (express)', () => {
         body: JSON.stringify(makeRegistrationBody()),
       });
       expect(res.status).toBe(403);
-      expect(res.json?.code).toBe('api_key_ip_blocked');
+      expect(res.json?.code).toBe('secret_key_ip_blocked');
     } finally {
       await srv.close();
     }
@@ -252,7 +236,7 @@ test.describe('relay API key auth (express)', () => {
         body: JSON.stringify(makeRegistrationBody()),
       });
       expect(res.status).toBe(403);
-      expect(res.json?.code).toBe('api_key_revoked');
+      expect(res.json?.code).toBe('secret_key_revoked');
     } finally {
       await srv.close();
     }
@@ -374,13 +358,16 @@ test.describe('relay API key auth (express)', () => {
         }),
       });
       expect(project.status).toBe(201);
+      const onboardingEnvironmentId = String(getPath(project.json, 'result', 'environment', 'id') || '');
+      expect(onboardingEnvironmentId.length).toBeGreaterThan(0);
 
       const apiKeyCreate = await fetchJson(`${srv.baseUrl}/console/api-keys`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          kind: 'secret_key',
           name: 'dashboard-sdk-key',
-          environmentId: 'proj_dashboard_sdk:prod',
+          environmentId: onboardingEnvironmentId,
           scopes: ['accounts.create'],
         }),
       });
@@ -390,18 +377,21 @@ test.describe('relay API key auth (express)', () => {
       expect(apiKeyId.length).toBeGreaterThan(0);
       expect(apiKeySecret.length).toBeGreaterThan(0);
 
-      const registrationResult = await createAccountAndRegisterWithRelayServer(
-        makeClientContext({
-          relayUrl: srv.baseUrl,
-          relayApiKey: apiKeySecret,
+      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKeySecret}`,
+        },
+        body: JSON.stringify({
+          new_account_id: 'alice.w3a-relayer.testnet',
+          rp_id: 'example.localhost',
+          webauthn_registration: makeSerializedRegistrationCredential(),
         }),
-        'alice.w3a-relayer.testnet',
-        undefined,
-        makeSerializedRegistrationCredential(),
-        'example.localhost',
-      );
-      expect(registrationResult.success).toBe(true);
-      expect(registrationResult.transactionId).toBe('tx-123');
+      });
+      expect(res.status).toBe(200);
+      expect(res.json?.success).toBe(true);
+      expect(res.json?.transactionHash).toBe('tx-123');
 
       const keys = await apiKeys.listApiKeys(apiKeyCtx);
       const key = keys.find((entry) => entry.id === apiKeyId);
@@ -427,7 +417,7 @@ test.describe('relay API key auth (cloudflare)', () => {
       ctx,
     });
     expect(res.status).toBe(401);
-    expect(res.json?.code).toBe('api_key_missing');
+    expect(res.json?.code).toBe('secret_key_missing');
   });
 
   test('rejects invalid API key', async () => {
@@ -444,7 +434,7 @@ test.describe('relay API key auth (cloudflare)', () => {
       ctx,
     });
     expect(res.status).toBe(401);
-    expect(res.json?.code).toBe('api_key_invalid');
+    expect(res.json?.code).toBe('secret_key_invalid');
   });
 
   test('rejects revoked API key', async () => {
@@ -465,7 +455,7 @@ test.describe('relay API key auth (cloudflare)', () => {
       ctx,
     });
     expect(res.status).toBe(403);
-    expect(res.json?.code).toBe('api_key_revoked');
+    expect(res.json?.code).toBe('secret_key_revoked');
   });
 
   test('rejects key missing required scope', async () => {
@@ -485,7 +475,7 @@ test.describe('relay API key auth (cloudflare)', () => {
       ctx,
     });
     expect(res.status).toBe(403);
-    expect(res.json?.code).toBe('api_key_forbidden_scope');
+    expect(res.json?.code).toBe('secret_key_forbidden_scope');
   });
 
   test('rejects key when environment header mismatches', async () => {
@@ -508,7 +498,7 @@ test.describe('relay API key auth (cloudflare)', () => {
       ctx,
     });
     expect(res.status).toBe(403);
-    expect(res.json?.code).toBe('api_key_environment_mismatch');
+    expect(res.json?.code).toBe('secret_key_environment_mismatch');
   });
 
   test('rejects key blocked by IP allowlist', async () => {
@@ -532,7 +522,7 @@ test.describe('relay API key auth (cloudflare)', () => {
       ctx,
     });
     expect(res.status).toBe(403);
-    expect(res.json?.code).toBe('api_key_ip_blocked');
+    expect(res.json?.code).toBe('secret_key_ip_blocked');
   });
 
   test('rejects expired API key', async () => {
@@ -553,7 +543,7 @@ test.describe('relay API key auth (cloudflare)', () => {
       ctx,
     });
     expect(res.status).toBe(403);
-    expect(res.json?.code).toBe('api_key_revoked');
+    expect(res.json?.code).toBe('secret_key_revoked');
   });
 
   test('accepts valid scoped key and records usage', async () => {

@@ -2912,6 +2912,7 @@ test.describe('console router (express)', () => {
         body: JSON.stringify({
           name: 'export-key',
           environmentId,
+          kind: 'secret_key',
           scopes: ['wallets:read', 'keys:export'],
         }),
       });
@@ -2923,6 +2924,7 @@ test.describe('console router (express)', () => {
         body: JSON.stringify({
           name: 'non-export-key',
           environmentId,
+          kind: 'secret_key',
           scopes: ['wallets:read'],
         }),
       });
@@ -3338,6 +3340,7 @@ test.describe('console router (express)', () => {
         body: JSON.stringify({
           name: 'server-key',
           environmentId,
+          kind: 'secret_key',
           scopes: ['wallets:read', 'billing:read'],
           ipAllowlist: ['203.0.113.10/32'],
           expiresAt,
@@ -3413,6 +3416,7 @@ test.describe('console router (express)', () => {
         body: JSON.stringify({
           name: 'invalid-environment-key',
           environmentId: 'env-missing',
+          kind: 'secret_key',
           scopes: ['accounts.create'],
         }),
       });
@@ -3443,6 +3447,7 @@ test.describe('console router (express)', () => {
         body: JSON.stringify({
           name: 'invalid-expiry-key',
           environmentId: 'org-api-key-expiry-validation:default-project:prod',
+          kind: 'secret_key',
           scopes: ['accounts.create'],
           expiresAt: '2000-01-01T00:00:00.000Z',
         }),
@@ -3463,6 +3468,7 @@ test.describe('console router (express)', () => {
       {
         name: 'seed-key',
         environmentId: 'env-rbac',
+        kind: 'secret_key',
         scopes: ['accounts.create'],
       },
     );
@@ -3480,6 +3486,7 @@ test.describe('console router (express)', () => {
         body: JSON.stringify({
           name: 'developer-create-key',
           environmentId: 'env-rbac',
+          kind: 'secret_key',
           scopes: ['accounts.create'],
         }),
       });
@@ -7540,6 +7547,7 @@ test.describe('console router (cloudflare)', () => {
       body: {
         name: 'export-key-cf',
         environmentId,
+        kind: 'secret_key',
         scopes: ['wallets:read', 'keys:export'],
       },
     });
@@ -7551,6 +7559,7 @@ test.describe('console router (cloudflare)', () => {
       body: {
         name: 'non-export-key-cf',
         environmentId,
+        kind: 'secret_key',
         scopes: ['wallets:read'],
       },
     });
@@ -7921,6 +7930,7 @@ test.describe('console router (cloudflare)', () => {
       body: {
         name: 'cloudflare-key',
         environmentId,
+        kind: 'secret_key',
         scopes: ['wallets:read'],
         ipAllowlist: ['198.51.100.5/32'],
         expiresAt,
@@ -7994,6 +8004,7 @@ test.describe('console router (cloudflare)', () => {
       body: {
         name: 'invalid-environment-key-cf',
         environmentId: 'env-missing',
+        kind: 'secret_key',
         scopes: ['accounts.create'],
       },
     });
@@ -8020,6 +8031,7 @@ test.describe('console router (cloudflare)', () => {
       body: {
         name: 'invalid-expiry-key-cf',
         environmentId: 'org-api-key-expiry-validation-cf:default-project:prod',
+        kind: 'secret_key',
         scopes: ['accounts.create'],
         expiresAt: '2000-01-01T00:00:00.000Z',
       },
@@ -8037,6 +8049,7 @@ test.describe('console router (cloudflare)', () => {
       {
         name: 'seed-key-cf',
         environmentId: 'env-rbac-cf',
+        kind: 'secret_key',
         scopes: ['accounts.create'],
       },
     );
@@ -8053,6 +8066,7 @@ test.describe('console router (cloudflare)', () => {
       body: {
         name: 'developer-create-key-cf',
         environmentId: 'env-rbac-cf',
+        kind: 'secret_key',
         scopes: ['accounts.create'],
       },
     });
@@ -10590,6 +10604,7 @@ test.describe('console router (postgres api keys)', () => {
         body: JSON.stringify({
           name: 'owner-postgres-api-key',
           environmentId: `${ownerOrgId}:default-project:prod`,
+          kind: 'secret_key',
           scopes: ['wallets:read', 'billing:read'],
           ipAllowlist: ['203.0.113.20/32'],
         }),
@@ -10632,6 +10647,13 @@ test.describe('console router (postgres api keys)', () => {
       );
       expect(deleted.status).toBe(404);
       expect(deleted.json?.code).toBe('api_key_not_found');
+
+      const purged = await fetchJson(
+        `${attackerServer.baseUrl}/console/api-keys/${encodeURIComponent(keyId)}/purge`,
+        { method: 'DELETE' },
+      );
+      expect(purged.status).toBe(404);
+      expect(purged.json?.code).toBe('api_key_not_found');
     } finally {
       await attackerServer.close();
     }
@@ -10653,6 +10675,7 @@ test.describe('console router (postgres api keys)', () => {
       body: {
         name: 'owner-postgres-api-key-cf',
         environmentId: `${ownerOrgId}:default-project:prod`,
+        kind: 'secret_key',
         scopes: ['wallets:read'],
         ipAllowlist: ['198.51.100.25/32'],
       },
@@ -10690,6 +10713,13 @@ test.describe('console router (postgres api keys)', () => {
     });
     expect(deleted.status).toBe(404);
     expect(deleted.json?.code).toBe('api_key_not_found');
+
+    const purged = await callCf(attackerHandler, {
+      method: 'DELETE',
+      path: `/console/api-keys/${encodeURIComponent(keyId)}/purge`,
+    });
+    expect(purged.status).toBe(404);
+    expect(purged.json?.code).toBe('api_key_not_found');
   });
 
   test('postgres API key rows persist key_prefix for indexed lookup', async () => {
@@ -10709,6 +10739,7 @@ test.describe('console router (postgres api keys)', () => {
         body: JSON.stringify({
           name: 'prefix-check-key',
           environmentId: `${orgId}:default-project:prod`,
+          kind: 'secret_key',
           scopes: ['accounts.create'],
         }),
       });
@@ -10755,6 +10786,7 @@ test.describe('console router (postgres api keys)', () => {
         body: JSON.stringify({
           name: 'owner-export-governance-key',
           environmentId: ownerEnvironmentId,
+          kind: 'secret_key',
           scopes: ['wallets:read', 'keys:export'],
         }),
       });
@@ -10823,6 +10855,7 @@ test.describe('console router (postgres api keys)', () => {
       body: {
         name: 'owner-export-governance-key-cf',
         environmentId: ownerEnvironmentId,
+        kind: 'secret_key',
         scopes: ['wallets:read', 'keys:export'],
       },
     });

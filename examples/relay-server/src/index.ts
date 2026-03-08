@@ -15,26 +15,38 @@ import {
   createInMemoryConsoleBillingService,
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleAuditService,
+  createInMemoryConsoleBootstrapTokenService,
   createInMemoryConsoleOnboardingService,
   createInMemoryConsoleObservabilityService,
   createInMemoryConsoleOrgProjectEnvService,
+  createInMemoryConsoleSettingsService,
   createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWebhookService,
+  createPostgresConsoleApiKeyService,
+  createPostgresConsoleAuditService,
   createPostgresConsoleBillingService,
+  createPostgresConsoleBootstrapTokenService,
   createPostgresConsoleObservabilityIngestionService,
   createPostgresConsoleObservabilityService,
+  createPostgresConsoleOrgProjectEnvService,
+  createPostgresConsoleSettingsService,
+  createPostgresConsoleTeamRbacService,
   createPostgresConsoleWebhookService,
   createRelayApiKeyAuthAdapter,
   createRelayBillingUsageMeterAdapter,
+  createRelayBootstrapGrantBroker,
   createAppSessionConsoleAuthAdapter,
   normalizeConsoleOrgScopedRoleList,
   mergeConsoleOrgScopedRoleLists,
   createRelayRouter,
+  type ConsoleApiKeyService,
   type ConsoleBillingService,
   type ConsoleAuditService,
+  type ConsoleBootstrapTokenService,
   type ConsoleObservabilityIngestionService,
   type ConsoleObservabilityService,
   type ConsoleOrgProjectEnvService,
+  type ConsoleSettingsService,
   type ConsoleTeamRbacService,
   type ConsoleWebhookService,
   type BillingProviderAdapters,
@@ -136,10 +148,12 @@ function hasConsoleErrorCode(error: unknown, code: string): boolean {
 
 async function seedDemoConsoleOrgAndMembers(input: {
   orgProjectEnv: ConsoleOrgProjectEnvService;
+  settings: ConsoleSettingsService;
   teamRbac: ConsoleTeamRbacService;
   orgId: string;
   projectId: string;
   environmentId: string;
+  allowedOrigins: string[];
   logger: Pick<Console, 'log' | 'warn'>;
 }): Promise<void> {
   const seedCtx = {
@@ -181,6 +195,19 @@ async function seedDemoConsoleOrgAndMembers(input: {
       ) {
         throw error;
       }
+    }
+
+    try {
+      await input.settings.updateAppSettings(seedCtx, {
+        environmentId: environment.id,
+        allowedOrigins: input.allowedOrigins,
+      });
+    } catch (error: unknown) {
+      input.logger.warn(
+        `[console-demo-seed] failed to seed app settings for ${environment.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 
@@ -521,6 +548,13 @@ async function main() {
   let consoleWebhooks: ConsoleWebhookService;
   let consoleObservability: ConsoleObservabilityService;
   let consoleObservabilityIngestion: ConsoleObservabilityIngestionService | null;
+  let consoleAudit: ConsoleAuditService;
+  let consoleOrgProjectEnv: ConsoleOrgProjectEnvService;
+  let consoleApiKeys: ConsoleApiKeyService;
+  let consoleBootstrapTokens: ConsoleBootstrapTokenService;
+  let consoleSettings: ConsoleSettingsService;
+  let consoleTeamRbac: ConsoleTeamRbacService;
+  const consoleCoreNamespace = consoleBillingNamespace;
   if (consoleBillingBackend === 'postgres') {
     if (!consolePostgresUrl) {
       throw new Error('CONSOLE_BILLING_BACKEND=postgres requires CONSOLE_POSTGRES_URL');
@@ -538,9 +572,53 @@ async function main() {
     });
   }
 
-  const consoleAudit: ConsoleAuditService = createInMemoryConsoleAuditService({
-    seedDemoData: consoleDemoSeedEnabled,
-  });
+  if (consolePostgresUrl) {
+    consoleAudit = await createPostgresConsoleAuditService({
+      postgresUrl: consolePostgresUrl,
+      namespace: consoleCoreNamespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+    consoleOrgProjectEnv = await createPostgresConsoleOrgProjectEnvService({
+      postgresUrl: consolePostgresUrl,
+      namespace: consoleCoreNamespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+    consoleApiKeys = await createPostgresConsoleApiKeyService({
+      postgresUrl: consolePostgresUrl,
+      namespace: consoleCoreNamespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+    consoleBootstrapTokens = await createPostgresConsoleBootstrapTokenService({
+      postgresUrl: consolePostgresUrl,
+      namespace: consoleCoreNamespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+    consoleSettings = await createPostgresConsoleSettingsService({
+      postgresUrl: consolePostgresUrl,
+      namespace: consoleCoreNamespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+    consoleTeamRbac = await createPostgresConsoleTeamRbacService({
+      postgresUrl: consolePostgresUrl,
+      namespace: consoleCoreNamespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+  } else {
+    consoleAudit = createInMemoryConsoleAuditService({
+      seedDemoData: consoleDemoSeedEnabled,
+    });
+    consoleOrgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    consoleApiKeys = createInMemoryConsoleApiKeyService();
+    consoleBootstrapTokens = createInMemoryConsoleBootstrapTokenService();
+    consoleSettings = createInMemoryConsoleSettingsService();
+    consoleTeamRbac = createInMemoryConsoleTeamRbacService();
+  }
 
   if (consoleWebhooksBackend === 'postgres') {
     if (!consolePostgresUrl) {
@@ -582,15 +660,26 @@ async function main() {
     consoleObservability = createInMemoryConsoleObservabilityService();
     consoleObservabilityIngestion = null;
   }
-  const consoleOrgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-  const consoleApiKeys = createInMemoryConsoleApiKeyService();
   const relayApiKeyAuth = relayApiKeyAuthEnabled
     ? createRelayApiKeyAuthAdapter(consoleApiKeys)
     : null;
   const relayApiKeyUsageMeter = relayApiKeyAuthEnabled
     ? createRelayBillingUsageMeterAdapter(consoleBilling)
     : null;
-  const consoleTeamRbac = createInMemoryConsoleTeamRbacService();
+  const relayBootstrapGrantBroker = createRelayBootstrapGrantBroker({
+    apiKeys: consoleApiKeys,
+    tokenStore: consoleBootstrapTokens,
+    orgProjectEnv: consoleOrgProjectEnv,
+    tokenTtlMs: 60_000,
+    rateLimitsByBucket: {
+      default: { windowMs: 60_000, maxIssued: 60 },
+      default_web_v1: { windowMs: 60_000, maxIssued: 60 },
+    },
+    quotasByBucket: {
+      default: { maxIssued: 1_000 },
+      free_registrations_v1: { maxIssued: 1_000 },
+    },
+  });
   const consoleOnboarding = createInMemoryConsoleOnboardingService({
     orgProjectEnv: consoleOrgProjectEnv,
     apiKeys: consoleApiKeys,
@@ -612,10 +701,12 @@ async function main() {
   if (consoleDemoSeedEnabled) {
     await seedDemoConsoleOrgAndMembers({
       orgProjectEnv: consoleOrgProjectEnv,
+      settings: consoleSettings,
       teamRbac: consoleTeamRbac,
       orgId: consoleDemoOrgId,
       projectId: consoleDemoProjectId,
       environmentId: consoleDemoEnvironmentId,
+      allowedOrigins: sanitizeOrigins([config.expectedOrigin, config.expectedWalletOrigin]),
       logger: console,
     });
   }
@@ -652,6 +743,8 @@ async function main() {
       threshold,
       ...(relayApiKeyAuth ? { apiKeyAuth: relayApiKeyAuth } : {}),
       ...(relayApiKeyUsageMeter ? { apiKeyUsageMeter: relayApiKeyUsageMeter } : {}),
+      bootstrapGrantBroker: relayBootstrapGrantBroker,
+      bootstrapTokenStore: consoleBootstrapTokens,
       prfSessionSeal,
       logger: console,
     }),
@@ -671,6 +764,7 @@ async function main() {
       apiKeys: consoleApiKeys,
       onboarding: consoleOnboarding,
       orgProjectEnv: consoleOrgProjectEnv,
+      settings: consoleSettings,
       teamRbac: consoleTeamRbac,
       audit: consoleAudit,
       observability: consoleObservability,
@@ -694,6 +788,10 @@ async function main() {
     console.log(
       `Relay usage meter (billing linkage): ${relayApiKeyUsageMeter ? 'enabled' : 'disabled'}`,
     );
+    console.log(`Console core backend: ${consolePostgresUrl ? 'postgres' : 'memory'}`);
+    if (consolePostgresUrl) {
+      console.log(`Console core namespace: ${consoleCoreNamespace}`);
+    }
     console.log('Console routes mounted at /console/*');
     console.log(
       `Console session auth: app_session_v1 cookie/JWT (bootstrap roles: ${consoleSsoBootstrapRoles.join(', ') || 'none'})`,

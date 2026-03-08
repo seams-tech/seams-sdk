@@ -74,7 +74,6 @@ function cloneAppSettings(input: ConsoleAppSettings): ConsoleAppSettings {
   return {
     ...input,
     allowedOrigins: [...input.allowedOrigins],
-    allowedDomains: [...input.allowedDomains],
     cookie: { ...input.cookie },
     jwt: {
       ...input.jwt,
@@ -104,7 +103,6 @@ function defaultSettings(input: {
       orgId: input.orgId,
       environmentId: input.environmentId,
       allowedOrigins: [],
-      allowedDomains: [],
       cookie: {
         httpOnly: true,
         secure: true,
@@ -157,7 +155,6 @@ function parseAppSettings(
     orgId: String(row.orgId || fallback.orgId).trim() || fallback.orgId,
     environmentId: String(row.environmentId || fallback.environmentId).trim() || fallback.environmentId,
     allowedOrigins: parseStringArray(row.allowedOrigins),
-    allowedDomains: parseStringArray(row.allowedDomains),
     cookie: {
       httpOnly: cookie.httpOnly !== false,
       secure: cookie.secure !== false,
@@ -388,9 +385,6 @@ export async function createPostgresConsoleSettingsService(
           ...row.appSettings,
           ...(request.allowedOrigins !== undefined
             ? { allowedOrigins: normalizeStringList(request.allowedOrigins) || [] }
-            : {}),
-          ...(request.allowedDomains !== undefined
-            ? { allowedDomains: normalizeStringList(request.allowedDomains) || [] }
             : {}),
           ...(request.cookie ? { cookie: { ...row.appSettings.cookie, ...request.cookie } } : {}),
           ...(request.jwt
