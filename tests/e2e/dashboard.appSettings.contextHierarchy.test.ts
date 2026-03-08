@@ -4,7 +4,7 @@ function iso(ts: string): string {
   return new Date(ts).toISOString();
 }
 
-test.describe('dashboard app-settings context hierarchy', () => {
+test.describe('dashboard credential-policy context hierarchy', () => {
   test('shows auto-provisioned environments without mutation controls', async ({ page, baseURL }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const projectQueryStrings: string[] = [];
@@ -27,15 +27,6 @@ test.describe('dashboard app-settings context hierarchy', () => {
       environmentCount: 1,
       createdAt: iso('2026-01-01T00:00:00.000Z'),
       updatedAt: iso('2026-01-02T00:00:00.000Z'),
-    };
-    const archivedProject = {
-      id: 'proj_archived',
-      name: 'Project Archived',
-      slug: 'project-archived',
-      status: 'ARCHIVED',
-      environmentCount: 1,
-      createdAt: iso('2026-01-01T00:00:00.000Z'),
-      updatedAt: iso('2026-01-03T00:00:00.000Z'),
     };
 
     const activeEnvironment = {
@@ -70,7 +61,6 @@ test.describe('dashboard app-settings context hierarchy', () => {
       [activeEnvironment.id]: {
         environmentId: activeEnvironment.id,
         allowedOrigins: ['https://app.example.com'],
-        allowedDomains: ['example.com'],
         cookie: {
           httpOnly: true,
           secure: true,
@@ -92,7 +82,6 @@ test.describe('dashboard app-settings context hierarchy', () => {
       [disabledProductionEnvironment.id]: {
         environmentId: disabledProductionEnvironment.id,
         allowedOrigins: ['https://app.example.com'],
-        allowedDomains: ['example.com'],
         cookie: {
           httpOnly: true,
           secure: true,
@@ -176,17 +165,12 @@ test.describe('dashboard app-settings context hierarchy', () => {
 
       if (pathname === '/console/projects') {
         projectQueryStrings.push(search);
-        const status = url.searchParams.get('status');
-        const projects =
-          status && status.toUpperCase() === 'ACTIVE'
-            ? [activeProject]
-            : [activeProject, archivedProject];
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
             ok: true,
-            projects,
+            projects: [activeProject],
           }),
         });
         return;
@@ -244,30 +228,6 @@ test.describe('dashboard app-settings context hierarchy', () => {
         return;
       }
 
-      if (pathname === '/console/runtime-snapshots/latest') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: true,
-            snapshot: null,
-          }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/runtime-snapshots') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: true,
-            snapshots: [],
-          }),
-        });
-        return;
-      }
-
       await route.fulfill({
         status: 404,
         contentType: 'application/json',
@@ -279,17 +239,11 @@ test.describe('dashboard app-settings context hierarchy', () => {
       });
     });
 
-    await page.goto('/dashboard/app-settings');
+    await page.goto('/dashboard/credential-policy');
     await expect(page.locator('main[aria-label="Dashboard workspace"]')).toBeVisible();
-    await expect(page.locator('#dashboard-main-title')).toHaveText(/app settings/i);
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/credential policy/i);
     await expect(page.locator('section[aria-label="Project management"]')).toContainText('proj_active');
-    await expect(page.locator('section[aria-label="Environment inventory"]')).toContainText(
-      activeEnvironment.id,
-    );
-    await expect(page.locator('section[aria-label="Environment inventory"]')).toContainText(
-      disabledProductionEnvironment.id,
-    );
-    await expect(page.locator('section[aria-label="Environment inventory"]')).toContainText('DISABLED');
+    await expect(page.locator('section[aria-label="Environment inventory"]')).toHaveCount(0);
     await expect(page.locator('section[aria-label="Environment management"]')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Create environment' })).toHaveCount(0);
 
@@ -297,17 +251,7 @@ test.describe('dashboard app-settings context hierarchy', () => {
     await expect.poll(() => environmentQueryStrings.length).toBeGreaterThan(0);
     expect(projectQueryStrings.some((entry) => entry.includes('status=ACTIVE'))).toBe(true);
     expect(environmentQueryStrings.some((entry) => entry.includes('projectId=proj_active'))).toBe(true);
-
-    const projectSection = page.locator('section[aria-label="Project management"]');
-    await projectSection
-      .locator('label:has-text("Include archived") input[type="checkbox"]')
-      .setChecked(true);
-    await expect(projectSection).toContainText('proj_archived');
-    await expect
-      .poll(() => projectQueryStrings[projectQueryStrings.length - 1] || '')
-      .not.toContain('status=ACTIVE');
-    await expect(page.locator('section[aria-label="Environment inventory"]')).not.toContainText(
-      archivedEnvironment.id,
-    );
+    await expect(page.getByRole('button', { name: 'Create project' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Edit' })).toHaveCount(1);
   });
 });

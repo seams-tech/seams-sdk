@@ -62,7 +62,6 @@ export function BillingPage(): React.JSX.Element {
   const [invoices, setInvoices] = React.useState<DashboardBillingInvoice[]>([]);
   const [paymentMethods, setPaymentMethods] = React.useState<DashboardBillingPaymentMethod[]>([]);
   const [subscription, setSubscription] = React.useState<DashboardBillingSubscription | null>(null);
-  const [stablecoinAssetsVersion, setStablecoinAssetsVersion] = React.useState<string>('');
   const [stablecoinAssets, setStablecoinAssets] = React.useState<DashboardStablecoinAssetSupport[]>([]);
   const [subscriptionActionError, setSubscriptionActionError] = React.useState<string>('');
   const [startingCheckout, setStartingCheckout] = React.useState<boolean>(false);
@@ -116,7 +115,6 @@ export function BillingPage(): React.JSX.Element {
       setInvoices([]);
       setPaymentMethods([]);
       setSubscription(null);
-      setStablecoinAssetsVersion('');
       setStablecoinAssets([]);
       setErrorMessage(session.errorMessage || 'Console session is unavailable');
       return;
@@ -148,7 +146,6 @@ export function BillingPage(): React.JSX.Element {
         setInvoices(sortedInvoices);
         setPaymentMethods(nextPaymentMethods);
         setSubscription(nextSubscription);
-        setStablecoinAssetsVersion(nextStablecoinAssets.version);
         setStablecoinAssets(nextStablecoinAssets.assets);
       },
       )
@@ -159,7 +156,6 @@ export function BillingPage(): React.JSX.Element {
         setInvoices([]);
         setPaymentMethods([]);
         setSubscription(null);
-        setStablecoinAssetsVersion('');
         setStablecoinAssets([]);
         setErrorMessage(error instanceof Error ? error.message : String(error));
       })
@@ -308,20 +304,6 @@ export function BillingPage(): React.JSX.Element {
       },
     ],
     [overview, paymentMethods.length, usage],
-  );
-
-  const flattenedStablecoinPolicies = React.useMemo(
-    () =>
-      stablecoinAssets.flatMap((assetSupport) =>
-        assetSupport.chains.map((policy) => ({
-          asset: assetSupport.asset,
-          chain: policy.chain,
-          requiredConfirmations: policy.requiredConfirmations,
-          confirmationTimeoutMinutes: policy.confirmationTimeoutMinutes,
-          reorgRiskWindowHours: policy.reorgRiskWindowHours,
-        })),
-      ),
-    [stablecoinAssets],
   );
 
   const stablecoinChainOptions = React.useMemo(() => {
@@ -1283,43 +1265,6 @@ export function BillingPage(): React.JSX.Element {
             </div>
           </section>
 
-          <section className="dashboard-table-wrapper" aria-label="Stablecoin settlement policy table">
-            <div className="dashboard-table-header" role="row">
-              <span>Asset</span>
-              <span>Chain</span>
-              <span>Confirmations</span>
-              <span>Timeout (minutes)</span>
-              <span>Risk window (hours)</span>
-              <span>Policy version</span>
-              <span>Project context</span>
-              <span>Environment context</span>
-            </div>
-            {flattenedStablecoinPolicies.length === 0 ? (
-              <p className="dashboard-table-limit">No stablecoin settlement policies returned.</p>
-            ) : (
-              <>
-                {flattenedStablecoinPolicies.map((policy) => (
-                  <div
-                    className="dashboard-table-row"
-                    key={`${policy.asset}:${policy.chain}`}
-                    role="row"
-                  >
-                    <span>{policy.asset}</span>
-                    <span>{policy.chain}</span>
-                    <span>{String(policy.requiredConfirmations)}</span>
-                    <span>{String(policy.confirmationTimeoutMinutes)}</span>
-                    <span>{String(policy.reorgRiskWindowHours)}</span>
-                    <span>{stablecoinAssetsVersion || '-'}</span>
-                    <span>{selectedContext.project || '-'}</span>
-                    <span>{selectedContext.environment || '-'}</span>
-                  </div>
-                ))}
-                <p className="dashboard-table-limit">
-                  Showing {flattenedStablecoinPolicies.length} asset/chain finality policies.
-                </p>
-              </>
-            )}
-          </section>
         </>
       )}
     </div>

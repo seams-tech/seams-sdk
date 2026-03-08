@@ -15,7 +15,7 @@ export type DashboardRoute =
   | '/dashboard/ops-cockpit'
   | '/dashboard/observability'
   | '/dashboard/billing'
-  | '/dashboard/app-settings'
+  | '/dashboard/credential-policy'
   | '/dashboard/team-members'
   | '/dashboard/audit'
   | '/dashboard/enterprise-isolation'

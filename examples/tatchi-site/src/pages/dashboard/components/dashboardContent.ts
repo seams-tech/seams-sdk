@@ -26,7 +26,7 @@ type CardDashboardRoute = Exclude<
   | '/dashboard/onboarding'
   | '/dashboard/wallets-list'
   | '/dashboard/billing'
-  | '/dashboard/app-settings'
+  | '/dashboard/credential-policy'
   | '/dashboard/team-members'
   | '/dashboard/audit'
   | '/dashboard/enterprise-isolation'
@@ -97,19 +97,19 @@ export const SEARCH_USER_WALLETS_MODEL = {
 export const DASHBOARD_CARD_PAGE_CONTENT = {
   '/dashboard/api-keys': [
     {
-      title: 'Key lifecycle',
+      title: 'Credential modes',
       items: [
-        'Create, revoke, and rotate API keys with scoped permissions.',
-        'Environment scoping and optional IP restrictions.',
-        'Secrets visible once at creation and never retrievable.',
+        'Create server-side `secret_key` credentials with scoped relay permissions.',
+        'Create browser-safe `publishable_key` credentials with allowed-origin and managed-broker policy fields.',
+        'Credential values are visible once at creation or rotation and never retrievable later.',
       ],
     },
     {
       title: 'Usage and anomaly monitoring',
       items: [
-        'Last-used timestamp and endpoint distribution.',
-        'Anomaly flags for suspicious usage patterns.',
-        'Audit logging for create/revoke/rotate actions.',
+        'Last-used timestamp and endpoint distribution for `secret_key` traffic.',
+        'Allowed-origin, quota-bucket, and rate-bucket visibility for `publishable_key` records.',
+        'Audit logging for create/revoke/rotate actions across both credential kinds.',
       ],
     },
   ],

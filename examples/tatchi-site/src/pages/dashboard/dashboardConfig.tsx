@@ -105,9 +105,16 @@ const sidebarGroups: SidebarGroup[] = [
         component: TeamMembersPage,
       },
       {
-        key: 'app-settings',
-        label: 'App settings (origins, cookies, JWT)',
-        path: '/dashboard/app-settings',
+        key: 'api-keys',
+        label: 'API Keys',
+        path: '/dashboard/api-keys',
+        iconClass: 'dashboard-nav-icon--api-keys',
+        component: ApiKeyManagementPage,
+      },
+      {
+        key: 'credential-policy',
+        label: 'Credential Policy',
+        path: '/dashboard/credential-policy',
         iconClass: 'dashboard-nav-icon--app-settings',
         component: AppSettingsPage,
       },
@@ -122,13 +129,6 @@ const sidebarGroups: SidebarGroup[] = [
     key: 'integrations',
     label: 'Integrations',
     items: [
-      {
-        key: 'api-keys',
-        label: 'API key management',
-        path: '/dashboard/api-keys',
-        iconClass: 'dashboard-nav-icon--api-keys',
-        component: ApiKeyManagementPage,
-      },
       {
         key: 'webhooks',
         label: 'Webhooks',

@@ -11,36 +11,69 @@ import {
   type CreateDashboardApiKeyInput,
   type DashboardConsoleApiKey,
 } from './consoleApiKeysApi';
-import {
-  getDashboardAppSettings,
-  type DashboardAppSettings,
-} from '../app-settings/consoleSettingsApi';
 import { FRONTEND_CONFIG } from '../../../../config';
 import { UriListEditor } from '../../components/UriListEditor';
+import { ScopePicker, type DashboardScopeOption } from '../../components/ScopePicker';
 
-const DEFAULT_SECRET_SCOPES = 'accounts.create,accounts.sync';
-const DEFAULT_BUCKET = 'default';
+const DEFAULT_RATE_LIMIT_BUCKET = 'default_web_v1';
+const DEFAULT_QUOTA_BUCKET = 'free_registrations_v1';
+const DEFAULT_RISK_POLICY: Record<string, unknown> = { captcha: 'adaptive' };
+const DEFAULT_PAYMENT_PRODUCT_ID = 'wallet_registration_v1';
 
-const SECRET_KEY_SCOPE_PRESETS = [
+type PublishablePaymentPolicyValue = 'disabled' | 'quota_then_x402' | 'always_x402';
+
+interface PublishableChoiceOption<TValue extends string> {
+  value: TValue;
+  label: string;
+  description: string;
+}
+
+const PAYMENT_POLICY_OPTIONS: readonly PublishableChoiceOption<PublishablePaymentPolicyValue>[] = [
   {
-    key: 'registration',
-    label: 'Registration bootstrap',
-    description: 'Scopes for backend /registration/bootstrap requests',
-    scopes: ['accounts.create', 'accounts.sync'],
+    value: 'disabled',
+    label: 'Stop when quota is exhausted',
+    description: 'Reject new managed registrations after the included quota is used up.',
   },
   {
-    key: 'console-readonly',
-    label: 'Console readonly',
-    description: 'Read-only wallet and billing console access',
-    scopes: ['wallets:read', 'billing:read'],
+    value: 'quota_then_x402',
+    label: 'Use paid overage after quota',
+    description: 'Use included quota first, then require x402 payment for extra registrations.',
   },
   {
-    key: 'session-refresh',
-    label: 'Session refresh',
-    description: 'Scope for session refresh operations',
-    scopes: ['sessions.refresh'],
+    value: 'always_x402',
+    label: 'Always require x402',
+    description: 'Require x402 payment for every managed registration request.',
   },
 ] as const;
+
+const SECRET_KEY_SCOPE_OPTIONS: readonly DashboardScopeOption[] = [
+  {
+    value: 'accounts.create',
+    label: 'Create accounts',
+    description: 'Allows backend bootstrap flows to create accounts.',
+  },
+  {
+    value: 'accounts.sync',
+    label: 'Sync accounts',
+    description: 'Allows backend bootstrap flows to sync account state.',
+  },
+  {
+    value: 'wallets:read',
+    label: 'Read wallets',
+    description: 'Allows read-only wallet access in console APIs.',
+  },
+  {
+    value: 'billing:read',
+    label: 'Read billing',
+    description: 'Allows read-only billing access in console APIs.',
+  },
+  {
+    value: 'sessions.refresh',
+    label: 'Refresh sessions',
+    description: 'Allows session refresh operations.',
+  },
+] as const;
+const DEFAULT_SECRET_SCOPES = ['accounts.create', 'accounts.sync'];
 
 type DashboardCredentialKind = DashboardConsoleApiKey['kind'];
 
@@ -73,21 +106,6 @@ function parseEditableList(values: string[]): string[] {
   return out;
 }
 
-function parseOptionalJsonObject(raw: string, label: string): Record<string, unknown> | undefined {
-  const value = String(raw || '').trim();
-  if (!value) return undefined;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value);
-  } catch {
-    throw new Error(`${label} must be valid JSON.`);
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error(`${label} must be a JSON object.`);
-  }
-  return { ...(parsed as Record<string, unknown>) };
-}
-
 function formatTimestamp(value: string | null): string {
   if (!value) return '-';
   const date = new Date(value);
@@ -97,6 +115,33 @@ function formatTimestamp(value: string | null): string {
 
 function normalizeOrigin(value: string): string {
   return String(value || '').trim().toLowerCase();
+}
+
+function normalizePaymentPolicyValue(
+  raw: Record<string, unknown> | null | undefined,
+): PublishablePaymentPolicyValue {
+  const mode = String(raw?.mode || '').trim();
+  if (mode === 'always_x402') return 'always_x402';
+  if (mode === 'quota_then_x402') return 'quota_then_x402';
+  return 'disabled';
+}
+
+function toPaymentPolicyObject(value: PublishablePaymentPolicyValue): Record<string, unknown> {
+  if (value === 'disabled') return { mode: 'disabled' };
+  return {
+    mode: value,
+    productId: DEFAULT_PAYMENT_PRODUCT_ID,
+  };
+}
+
+function describePublishablePaymentPolicy(
+  value: Record<string, unknown> | null | undefined,
+): string {
+  const normalized = normalizePaymentPolicyValue(value);
+  return (
+    PAYMENT_POLICY_OPTIONS.find((option) => option.value === normalized)?.label ||
+    PAYMENT_POLICY_OPTIONS[0].label
+  );
 }
 
 function toDateTimeLocalValue(value: string | null): string {
@@ -178,6 +223,38 @@ function describeCredentialMode(kind: DashboardCredentialKind): {
   };
 }
 
+function PublishablePaymentPolicyField(props: {
+  value: PublishablePaymentPolicyValue;
+  onChange(next: PublishablePaymentPolicyValue): void;
+  disabled?: boolean;
+}): React.JSX.Element {
+  const { value, onChange, disabled = false } = props;
+  const selectedOption =
+    PAYMENT_POLICY_OPTIONS.find((option) => option.value === value) || PAYMENT_POLICY_OPTIONS[0];
+  return (
+    <label className="dashboard-form-field">
+      <span>Overage behavior</span>
+      <select
+        className="dashboard-input dashboard-scope-picker__select"
+        value={value}
+        onChange={(event) => onChange(event.target.value as PublishablePaymentPolicyValue)}
+        disabled={disabled}
+        aria-label="Overage behavior"
+      >
+        {PAYMENT_POLICY_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <p className="dashboard-form-hint">
+        Choose what happens after the included registration quota is exhausted.
+      </p>
+      <p className="dashboard-pagination-note">{selectedOption.description}</p>
+    </label>
+  );
+}
+
 function describeCredentialDetails(apiKey: DashboardConsoleApiKey): { short: string; title: string } {
   if (apiKey.kind === 'publishable_key') {
     const parts: string[] = [];
@@ -186,8 +263,7 @@ function describeCredentialDetails(apiKey: DashboardConsoleApiKey): { short: str
         ? `origins: ${apiKey.allowedOrigins.join(', ')}`
         : 'origins: -',
     );
-    if (apiKey.rateLimitBucket) parts.push(`rate=${apiKey.rateLimitBucket}`);
-    if (apiKey.quotaBucket) parts.push(`quota=${apiKey.quotaBucket}`);
+    parts.push(`overage: ${describePublishablePaymentPolicy(apiKey.paymentPolicy)}`);
     const text = parts.join(' · ');
     return { short: text, title: text };
   }
@@ -204,6 +280,14 @@ export function ApiKeyManagementPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
   const selectedContext = useDashboardSelectedContext();
   const selectedEnvironmentId = String(selectedContext.environment || '').trim();
+  const walletOriginHint = React.useMemo(
+    () => String(FRONTEND_CONFIG.walletOrigin || 'https://localhost:8443').trim(),
+    [],
+  );
+  const defaultPublishableOrigins = React.useMemo(
+    () => parseEditableList(['https://localhost', walletOriginHint]),
+    [walletOriginHint],
+  );
   const [apiKeys, setApiKeys] = React.useState<DashboardConsoleApiKey[]>([]);
   const [loading, setLoading] = React.useState<boolean>(true);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
@@ -213,19 +297,12 @@ export function ApiKeyManagementPage(): React.JSX.Element {
   const [credentialKindInput, setCredentialKindInput] =
     React.useState<DashboardCredentialKind>('secret_key');
   const [nameInput, setNameInput] = React.useState<string>('');
-  const [scopesInput, setScopesInput] = React.useState<string>(DEFAULT_SECRET_SCOPES);
+  const [scopesInput, setScopesInput] = React.useState<string[]>(DEFAULT_SECRET_SCOPES);
   const [ipAllowlistInput, setIpAllowlistInput] = React.useState<string>('');
-  const [rateLimitBucketInput, setRateLimitBucketInput] = React.useState<string>(DEFAULT_BUCKET);
-  const [quotaBucketInput, setQuotaBucketInput] = React.useState<string>(DEFAULT_BUCKET);
-  const [riskPolicyInput, setRiskPolicyInput] = React.useState<string>('');
-  const [paymentPolicyInput, setPaymentPolicyInput] = React.useState<string>('');
-  const [environmentInput, setEnvironmentInput] = React.useState<string>('');
-  const [environmentAppSettings, setEnvironmentAppSettings] = React.useState<DashboardAppSettings | null>(
-    null,
-  );
-  const [environmentAppSettingsLoading, setEnvironmentAppSettingsLoading] =
-    React.useState<boolean>(false);
-  const [environmentAppSettingsError, setEnvironmentAppSettingsError] = React.useState<string>('');
+  const [allowedOriginsInput, setAllowedOriginsInput] =
+    React.useState<string[]>(defaultPublishableOrigins);
+  const [paymentPolicyInput, setPaymentPolicyInput] =
+    React.useState<PublishablePaymentPolicyValue>('disabled');
   const [isCreateModalOpen, setIsCreateModalOpen] = React.useState<boolean>(false);
   const [revealedCredential, setRevealedCredential] = React.useState<{
     action: 'created' | 'rotated';
@@ -235,69 +312,14 @@ export function ApiKeyManagementPage(): React.JSX.Element {
   const [copyCredentialStatus, setCopyCredentialStatus] = React.useState<string>('');
   const [editingApiKeyId, setEditingApiKeyId] = React.useState<string>('');
   const [editingNameInput, setEditingNameInput] = React.useState<string>('');
-  const [editingScopesInput, setEditingScopesInput] = React.useState<string>('');
+  const [editingScopesInput, setEditingScopesInput] = React.useState<string[]>([]);
   const [editingIpAllowlistInput, setEditingIpAllowlistInput] = React.useState<string>('');
   const [editingAllowedOriginsInput, setEditingAllowedOriginsInput] = React.useState<string[]>([]);
-  const [editingRateLimitBucketInput, setEditingRateLimitBucketInput] = React.useState<string>('');
-  const [editingQuotaBucketInput, setEditingQuotaBucketInput] = React.useState<string>('');
-  const [editingRiskPolicyInput, setEditingRiskPolicyInput] = React.useState<string>('');
-  const [editingPaymentPolicyInput, setEditingPaymentPolicyInput] = React.useState<string>('');
+  const [editingPaymentPolicyInput, setEditingPaymentPolicyInput] =
+    React.useState<PublishablePaymentPolicyValue>('disabled');
   const [editingExpiresAtInput, setEditingExpiresAtInput] = React.useState<string>('');
   const [editingBusy, setEditingBusy] = React.useState<boolean>(false);
   const [editingError, setEditingError] = React.useState<string>('');
-  const walletOriginHint = React.useMemo(
-    () => String(FRONTEND_CONFIG.walletOrigin || 'https://localhost:8443').trim(),
-    [],
-  );
-
-  React.useEffect(() => {
-    if (!selectedEnvironmentId) return;
-    setEnvironmentInput(selectedEnvironmentId);
-  }, [selectedEnvironmentId]);
-
-  const policyEnvironmentId = React.useMemo(
-    () => String(selectedEnvironmentId || environmentInput || '').trim(),
-    [environmentInput, selectedEnvironmentId],
-  );
-
-  React.useEffect(() => {
-    if (!session.claims) {
-      setEnvironmentAppSettings(null);
-      setEnvironmentAppSettingsError('');
-      setEnvironmentAppSettingsLoading(false);
-      return;
-    }
-    if (!policyEnvironmentId) {
-      setEnvironmentAppSettings(null);
-      setEnvironmentAppSettingsError('');
-      setEnvironmentAppSettingsLoading(false);
-      return;
-    }
-    let cancelled = false;
-    const timeout = window.setTimeout(() => {
-      setEnvironmentAppSettingsLoading(true);
-      setEnvironmentAppSettingsError('');
-      getDashboardAppSettings(policyEnvironmentId)
-        .then((next) => {
-          if (cancelled) return;
-          setEnvironmentAppSettings(next);
-        })
-        .catch((error: unknown) => {
-          if (cancelled) return;
-          setEnvironmentAppSettings(null);
-          setEnvironmentAppSettingsError(error instanceof Error ? error.message : String(error));
-        })
-        .finally(() => {
-          if (cancelled) return;
-          setEnvironmentAppSettingsLoading(false);
-        });
-    }, selectedEnvironmentId ? 0 : 250);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeout);
-    };
-  }, [policyEnvironmentId, selectedEnvironmentId, session.claims]);
 
   const loadApiKeys = React.useCallback(() => {
     if (!session.claims) {
@@ -349,13 +371,12 @@ export function ApiKeyManagementPage(): React.JSX.Element {
     [editingApiKeyId, visibleApiKeys],
   );
 
-  const activeMode = describeCredentialMode(credentialKindInput);
-
   const onOpenCreateModal = React.useCallback(() => {
     setEditingApiKeyId('');
+    setAllowedOriginsInput(defaultPublishableOrigins);
     setIsCreateModalOpen(true);
     setMutationError('');
-  }, []);
+  }, [defaultPublishableOrigins]);
 
   const onCloseCreateModal = React.useCallback(() => {
     if (creating) return;
@@ -367,26 +388,15 @@ export function ApiKeyManagementPage(): React.JSX.Element {
     setIsCreateModalOpen(false);
     setEditingApiKeyId(apiKey.id);
     setEditingNameInput(apiKey.name || '');
-    setEditingScopesInput(apiKey.kind === 'secret_key' ? apiKey.scopes.join(',') : '');
+    setEditingScopesInput(apiKey.kind === 'secret_key' ? [...apiKey.scopes] : []);
     setEditingIpAllowlistInput(apiKey.kind === 'secret_key' ? apiKey.ipAllowlist.join(',') : '');
     setEditingAllowedOriginsInput(
       apiKey.kind === 'publishable_key' ? [...apiKey.allowedOrigins] : [],
     );
-    setEditingRateLimitBucketInput(
-      apiKey.kind === 'publishable_key' ? String(apiKey.rateLimitBucket || '') : '',
-    );
-    setEditingQuotaBucketInput(
-      apiKey.kind === 'publishable_key' ? String(apiKey.quotaBucket || '') : '',
-    );
-    setEditingRiskPolicyInput(
-      apiKey.kind === 'publishable_key' && Object.keys(apiKey.riskPolicy || {}).length > 0
-        ? JSON.stringify(apiKey.riskPolicy, null, 2)
-        : '',
-    );
     setEditingPaymentPolicyInput(
-      apiKey.kind === 'publishable_key' && Object.keys(apiKey.paymentPolicy || {}).length > 0
-        ? JSON.stringify(apiKey.paymentPolicy, null, 2)
-        : '',
+      apiKey.kind === 'publishable_key'
+        ? normalizePaymentPolicyValue(apiKey.paymentPolicy)
+        : 'disabled',
     );
     setEditingExpiresAtInput(toDateTimeLocalValue(apiKey.expiresAt));
     setEditingError('');
@@ -406,34 +416,22 @@ export function ApiKeyManagementPage(): React.JSX.Element {
         return;
       }
       const name = String(nameInput || '').trim();
-      const environmentId = String(selectedEnvironmentId || environmentInput || '').trim();
+      const environmentId = selectedEnvironmentId;
       if (!name) {
         setMutationError('Name is required.');
         return;
       }
       if (!environmentId) {
-        setMutationError('Environment ID is required.');
+        setMutationError('Select an environment from the top bar before creating a credential.');
         return;
       }
 
       let payload: CreateDashboardApiKeyInput;
       try {
         if (credentialKindInput === 'publishable_key') {
-          const policySettings =
-            environmentAppSettings && environmentAppSettings.environmentId === environmentId
-              ? environmentAppSettings
-              : await getDashboardAppSettings(environmentId);
-          const allowedOrigins = Array.isArray(policySettings.allowedOrigins)
-            ? [...policySettings.allowedOrigins]
-            : [];
-          const rateLimitBucket = String(rateLimitBucketInput || '').trim();
-          const quotaBucket = String(quotaBucketInput || '').trim();
-          const riskPolicy = parseOptionalJsonObject(riskPolicyInput, 'Risk policy');
-          const paymentPolicy = parseOptionalJsonObject(paymentPolicyInput, 'Payment policy');
+          const allowedOrigins = parseEditableList(allowedOriginsInput);
           if (allowedOrigins.length === 0) {
-            setMutationError(
-              'Configure at least one allowed origin in Credential policy before creating a publishable_key.',
-            );
+            setMutationError('Add at least one allowed origin.');
             return;
           }
           if (
@@ -447,26 +445,18 @@ export function ApiKeyManagementPage(): React.JSX.Element {
             );
             return;
           }
-          if (!rateLimitBucket) {
-            setMutationError('Rate-limit bucket is required.');
-            return;
-          }
-          if (!quotaBucket) {
-            setMutationError('Quota bucket is required.');
-            return;
-          }
           payload = {
             kind: 'publishable_key',
             name,
             environmentId,
             allowedOrigins,
-            rateLimitBucket,
-            quotaBucket,
-            ...(riskPolicy ? { riskPolicy } : {}),
-            ...(paymentPolicy ? { paymentPolicy } : {}),
+            rateLimitBucket: DEFAULT_RATE_LIMIT_BUCKET,
+            quotaBucket: DEFAULT_QUOTA_BUCKET,
+            riskPolicy: DEFAULT_RISK_POLICY,
+            paymentPolicy: toPaymentPolicyObject(paymentPolicyInput),
           };
         } else {
-          const scopes = parseCsvValues(scopesInput);
+          const scopes = parseEditableList(scopesInput);
           const ipAllowlist = parseCsvValues(ipAllowlistInput);
           if (scopes.length === 0) {
             setMutationError('At least one scope is required.');
@@ -496,11 +486,9 @@ export function ApiKeyManagementPage(): React.JSX.Element {
         });
         setNameInput('');
         setIpAllowlistInput('');
-        setScopesInput(DEFAULT_SECRET_SCOPES);
-        setRateLimitBucketInput(DEFAULT_BUCKET);
-        setQuotaBucketInput(DEFAULT_BUCKET);
-        setRiskPolicyInput('');
-        setPaymentPolicyInput('');
+        setScopesInput([...DEFAULT_SECRET_SCOPES]);
+        setAllowedOriginsInput(defaultPublishableOrigins);
+        setPaymentPolicyInput('disabled');
         setCopyCredentialStatus('');
         setIsCreateModalOpen(false);
         loadApiKeys();
@@ -511,16 +499,13 @@ export function ApiKeyManagementPage(): React.JSX.Element {
       }
     },
     [
+      allowedOriginsInput,
       credentialKindInput,
-      environmentAppSettings,
-      environmentInput,
+      defaultPublishableOrigins,
       ipAllowlistInput,
       loadApiKeys,
       nameInput,
       paymentPolicyInput,
-      quotaBucketInput,
-      rateLimitBucketInput,
-      riskPolicyInput,
       scopesInput,
       selectedEnvironmentId,
       session.claims,
@@ -553,34 +538,25 @@ export function ApiKeyManagementPage(): React.JSX.Element {
 
         if (editingApiKey.kind === 'publishable_key') {
           const allowedOrigins = parseEditableList(editingAllowedOriginsInput);
-          const rateLimitBucket = String(editingRateLimitBucketInput || '').trim();
-          const quotaBucket = String(editingQuotaBucketInput || '').trim();
-          const riskPolicy = parseOptionalJsonObject(editingRiskPolicyInput, 'Risk policy');
-          const paymentPolicy = parseOptionalJsonObject(editingPaymentPolicyInput, 'Payment policy');
           if (allowedOrigins.length === 0) {
             setEditingError('Add at least one allowed origin.');
-            return;
-          }
-          if (!rateLimitBucket) {
-            setEditingError('Rate-limit bucket is required.');
-            return;
-          }
-          if (!quotaBucket) {
-            setEditingError('Quota bucket is required.');
             return;
           }
           await updateDashboardApiKey({
             apiKeyId: editingApiKey.id,
             name,
             allowedOrigins,
-            rateLimitBucket,
-            quotaBucket,
-            ...(riskPolicy ? { riskPolicy } : {}),
-            ...(paymentPolicy ? { paymentPolicy } : {}),
+            rateLimitBucket: String(editingApiKey.rateLimitBucket || '').trim() || DEFAULT_RATE_LIMIT_BUCKET,
+            quotaBucket: String(editingApiKey.quotaBucket || '').trim() || DEFAULT_QUOTA_BUCKET,
+            riskPolicy:
+              Object.keys(editingApiKey.riskPolicy || {}).length > 0
+                ? editingApiKey.riskPolicy
+                : DEFAULT_RISK_POLICY,
+            paymentPolicy: toPaymentPolicyObject(editingPaymentPolicyInput),
             ...(expiresAt !== undefined ? { expiresAt } : {}),
           });
         } else {
-          const scopes = parseCsvValues(editingScopesInput);
+          const scopes = parseEditableList(editingScopesInput);
           if (scopes.length === 0) {
             setEditingError('At least one scope is required.');
             return;
@@ -609,9 +585,6 @@ export function ApiKeyManagementPage(): React.JSX.Element {
       editingIpAllowlistInput,
       editingNameInput,
       editingPaymentPolicyInput,
-      editingQuotaBucketInput,
-      editingRateLimitBucketInput,
-      editingRiskPolicyInput,
       editingScopesInput,
       loadApiKeys,
       session.claims,
@@ -705,7 +678,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
   );
 
   return (
-    <div className="dashboard-view dashboard-inline-modal-host" aria-label="Credential management page">
+    <div className="dashboard-view" aria-label="Credential management page">
       <section
         className="dashboard-view__section dashboard-view__section--toolbar"
         aria-label="Credential controls"
@@ -722,7 +695,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
             type="button"
             className="dashboard-pagination-button"
             onClick={onOpenCreateModal}
-            disabled={creating}
+            disabled={creating || !selectedEnvironmentId}
           >
             Create credential
           </button>
@@ -888,18 +861,6 @@ export function ApiKeyManagementPage(): React.JSX.Element {
             onClick={(event) => event.stopPropagation()}
           >
             <h2>Create credential</h2>
-            <p className="dashboard-pagination-note">
-              Context scope: environment <strong>{policyEnvironmentId || 'not selected'}</strong>.
-            </p>
-            <ul className="dashboard-view-list">
-              <li>
-                <code>secret_key</code>: server-only credential for backend relay bootstrap calls.
-              </li>
-              <li>
-                <code>publishable_key</code>: browser-safe credential for managed broker flows.
-                Direct relay calls are rejected.
-              </li>
-            </ul>
 
             <div className="dashboard-mode-toggle" aria-label="Credential kind">
               {(['secret_key', 'publishable_key'] as DashboardCredentialKind[]).map((kind) => {
@@ -925,10 +886,8 @@ export function ApiKeyManagementPage(): React.JSX.Element {
               })}
             </div>
 
-            <p className="dashboard-form-hint">{activeMode.summary}</p>
-
             <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onCreateApiKey}>
-              <label className="dashboard-form-field">
+              <label className="dashboard-form-field dashboard-form-field--full">
                 <span>Name</span>
                 <input
                   className="dashboard-input"
@@ -939,114 +898,44 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                 />
               </label>
 
-              <label className="dashboard-form-field">
-                <span>Environment ID</span>
-                <input
-                  className="dashboard-input"
-                  value={environmentInput}
-                  onChange={(event) => setEnvironmentInput(event.target.value)}
-                  placeholder="org_x:proj_y:dev"
-                  disabled={creating}
-                />
-              </label>
-
               {credentialKindInput === 'publishable_key' ? (
                 <>
-                  <div className="dashboard-view-card dashboard-form-field--full">
-                    <div className="dashboard-uri-list-editor__header">
-                      <strong>Allowed origins</strong>
-                      <div className="dashboard-uri-list-editor__description">
-                        <p>
-                          This <code>publishable_key</code> inherits its origin policy from{' '}
-                          <a className="dashboard-inline-link" href="/dashboard/app-settings">
-                            Credential policy
-                          </a>
-                          .
-                        </p>
-                        <p>
-                          Managed registration runs from the wallet origin. Include{' '}
-                          <code>{walletOriginHint}</code> for local development.
-                        </p>
-                      </div>
-                    </div>
-                    {environmentAppSettingsLoading ? (
-                      <p className="dashboard-pagination-note">Loading allowed origins...</p>
-                    ) : environmentAppSettingsError ? (
-                      <p className="dashboard-form-hint dashboard-form-hint--error">
-                        Allowed origins unavailable: {environmentAppSettingsError}
-                      </p>
-                    ) : environmentAppSettings?.allowedOrigins?.length ? (
-                      <ul className="dashboard-view-list">
-                        {environmentAppSettings.allowedOrigins.map((origin) => (
-                          <li key={origin}>
-                            <code>{origin}</code>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="dashboard-form-hint dashboard-form-hint--error">
-                        Configure at least one allowed origin in Credential policy before creating a{' '}
-                        <code>publishable_key</code>.
-                      </p>
-                    )}
+                  <div className="dashboard-form-field dashboard-form-field--full">
+                    <UriListEditor
+                      label="Allowed origins"
+                      description={
+                        <>
+                          <p>Use exact browser origins only. Managed registration runs from the wallet origin, not the app origin.</p>
+                          <p>
+                            In this local dev setup, include <code>{walletOriginHint}</code>.
+                          </p>
+                        </>
+                      }
+                      values={allowedOriginsInput}
+                      onChange={setAllowedOriginsInput}
+                      placeholder="https://app.example.com"
+                      addLabel="Add URI"
+                      disabled={creating}
+                    />
                   </div>
 
-                  <label className="dashboard-form-field">
-                    <span>Rate-limit bucket</span>
-                    <input
-                      className="dashboard-input"
-                      value={rateLimitBucketInput}
-                      onChange={(event) => setRateLimitBucketInput(event.target.value)}
-                      placeholder="default"
-                      disabled={creating}
-                    />
-                  </label>
-
-                  <label className="dashboard-form-field">
-                    <span>Quota bucket</span>
-                    <input
-                      className="dashboard-input"
-                      value={quotaBucketInput}
-                      onChange={(event) => setQuotaBucketInput(event.target.value)}
-                      placeholder="default"
-                      disabled={creating}
-                    />
-                  </label>
-
-                  <label className="dashboard-form-field">
-                    <span>Risk policy JSON (optional)</span>
-                    <textarea
-                      className="dashboard-input dashboard-textarea"
-                      value={riskPolicyInput}
-                      onChange={(event) => setRiskPolicyInput(event.target.value)}
-                      placeholder='{"captcha":"standard"}'
-                      disabled={creating}
-                    />
-                  </label>
-
-                  <label className="dashboard-form-field">
-                    <span>Payment policy JSON (optional)</span>
-                    <textarea
-                      className="dashboard-input dashboard-textarea"
-                      value={paymentPolicyInput}
-                      onChange={(event) => setPaymentPolicyInput(event.target.value)}
-                      placeholder='{"mode":"quota_then_x402"}'
-                      disabled={creating}
-                    />
-                  </label>
+                  <PublishablePaymentPolicyField
+                    value={paymentPolicyInput}
+                    onChange={setPaymentPolicyInput}
+                    disabled={creating}
+                  />
                 </>
               ) : (
                 <>
-                  <label className="dashboard-form-field">
-                    <span>Scopes (comma separated)</span>
-                    <input
-                      className="dashboard-input"
-                      value={scopesInput}
-                      onChange={(event) => setScopesInput(event.target.value)}
-                      placeholder="accounts.create,accounts.sync"
+                  <div className="dashboard-form-field dashboard-form-field--full">
+                    <ScopePicker
+                      label="Scopes"
+                      options={SECRET_KEY_SCOPE_OPTIONS}
+                      values={scopesInput}
+                      onChange={setScopesInput}
                       disabled={creating}
                     />
-                  </label>
+                  </div>
 
                   <label className="dashboard-form-field">
                     <span>IP allowlist (optional, comma separated)</span>
@@ -1054,28 +943,11 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                       className="dashboard-input"
                       value={ipAllowlistInput}
                       onChange={(event) => setIpAllowlistInput(event.target.value)}
-                      placeholder="203.0.113.10/32,2001:db8::/64"
+                      placeholder="198.51.100.24/32,198.51.100.0/24"
                       disabled={creating}
                     />
                   </label>
 
-                  <div className="dashboard-form-field dashboard-form-field--full">
-                    <span>Quick presets</span>
-                    <div className="dashboard-form-actions">
-                      {SECRET_KEY_SCOPE_PRESETS.map((preset) => (
-                        <button
-                          key={preset.key}
-                          type="button"
-                          className="dashboard-inline-link"
-                          onClick={() => setScopesInput(preset.scopes.join(','))}
-                          disabled={creating}
-                          title={preset.description}
-                        >
-                          {preset.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
                 </>
               )}
 
@@ -1150,7 +1022,8 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                             These origins are stored on this specific <code>publishable_key</code>.
                           </p>
                           <p className="dashboard-pagination-note">
-                            For local managed registration, include <code>{walletOriginHint}</code>.
+                            Use exact browser origins only. For local managed registration, include{' '}
+                            <code>{walletOriginHint}</code>.
                           </p>
                         </>
                       }
@@ -1162,62 +1035,23 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                     />
                   </div>
 
-                  <label className="dashboard-form-field">
-                    <span>Rate-limit bucket</span>
-                    <input
-                      className="dashboard-input"
-                      value={editingRateLimitBucketInput}
-                      onChange={(event) => setEditingRateLimitBucketInput(event.target.value)}
-                      placeholder="default"
-                      disabled={editingBusy}
-                    />
-                  </label>
-
-                  <label className="dashboard-form-field">
-                    <span>Quota bucket</span>
-                    <input
-                      className="dashboard-input"
-                      value={editingQuotaBucketInput}
-                      onChange={(event) => setEditingQuotaBucketInput(event.target.value)}
-                      placeholder="default"
-                      disabled={editingBusy}
-                    />
-                  </label>
-
-                  <label className="dashboard-form-field">
-                    <span>Risk policy JSON (optional)</span>
-                    <textarea
-                      className="dashboard-input dashboard-textarea"
-                      value={editingRiskPolicyInput}
-                      onChange={(event) => setEditingRiskPolicyInput(event.target.value)}
-                      placeholder='{"captcha":"adaptive"}'
-                      disabled={editingBusy}
-                    />
-                  </label>
-
-                  <label className="dashboard-form-field">
-                    <span>Payment policy JSON (optional)</span>
-                    <textarea
-                      className="dashboard-input dashboard-textarea"
-                      value={editingPaymentPolicyInput}
-                      onChange={(event) => setEditingPaymentPolicyInput(event.target.value)}
-                      placeholder='{"mode":"quota_then_x402"}'
-                      disabled={editingBusy}
-                    />
-                  </label>
+                  <PublishablePaymentPolicyField
+                    value={editingPaymentPolicyInput}
+                    onChange={setEditingPaymentPolicyInput}
+                    disabled={editingBusy}
+                  />
                 </>
               ) : (
                 <>
-                  <label className="dashboard-form-field">
-                    <span>Scopes (comma separated)</span>
-                    <input
-                      className="dashboard-input"
-                      value={editingScopesInput}
-                      onChange={(event) => setEditingScopesInput(event.target.value)}
-                      placeholder="accounts.create,accounts.sync"
+                  <div className="dashboard-form-field dashboard-form-field--full">
+                    <ScopePicker
+                      label="Scopes"
+                      options={SECRET_KEY_SCOPE_OPTIONS}
+                      values={editingScopesInput}
+                      onChange={setEditingScopesInput}
                       disabled={editingBusy}
                     />
-                  </label>
+                  </div>
 
                   <label className="dashboard-form-field">
                     <span>IP allowlist (optional, comma separated)</span>
@@ -1225,7 +1059,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                       className="dashboard-input"
                       value={editingIpAllowlistInput}
                       onChange={(event) => setEditingIpAllowlistInput(event.target.value)}
-                      placeholder="203.0.113.10/32"
+                      placeholder="198.51.100.24/32"
                       disabled={editingBusy}
                     />
                   </label>

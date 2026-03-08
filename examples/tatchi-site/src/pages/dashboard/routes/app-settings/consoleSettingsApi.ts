@@ -9,7 +9,6 @@ import {
 export interface DashboardAppSettings {
   environmentId: string;
   allowedOrigins: string[];
-  allowedDomains: string[];
   cookie: {
     httpOnly: boolean;
     secure: boolean;
@@ -80,7 +79,6 @@ function decodeAppSettings(raw: unknown): DashboardAppSettings | null {
   return {
     environmentId,
     allowedOrigins: decodeStringArray(row.allowedOrigins),
-    allowedDomains: decodeStringArray(row.allowedDomains),
     cookie: {
       httpOnly: cookie.httpOnly !== false,
       secure: cookie.secure !== false,

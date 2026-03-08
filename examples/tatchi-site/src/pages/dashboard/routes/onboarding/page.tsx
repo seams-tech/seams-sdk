@@ -586,7 +586,7 @@ export function DashboardOnboardingPage(): React.JSX.Element {
                 go('/dashboard/api-keys');
               }}
             >
-              Go to API keys
+              Go to credentials
             </button>
           </div>
         </section>
@@ -692,7 +692,7 @@ export function DashboardOnboardingPage(): React.JSX.Element {
                     className={`dashboard-form-hint${projectNameValidationMessage ? ' dashboard-form-hint--error' : ''}`}
                   >
                     {projectNameValidationMessage ||
-                      'Required. You can rename this later in app settings.'}
+                      'Required. You can rename this later in credential policy.'}
                   </p>
                 </label>
 

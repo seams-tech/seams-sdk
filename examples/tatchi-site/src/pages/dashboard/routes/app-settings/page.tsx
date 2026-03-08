@@ -4,10 +4,8 @@ import {
   archiveDashboardProject,
   createDashboardProject,
   getDashboardOrganization,
-  listDashboardEnvironments,
   listDashboardProjects,
   updateDashboardProject,
-  type DashboardConsoleEnvironment,
   type DashboardConsoleOrganization,
   type DashboardConsoleProject,
 } from '../../consoleContextApi';
@@ -20,12 +18,8 @@ import {
   type DashboardAppSettings,
   type DashboardSecuritySettings,
 } from './consoleSettingsApi';
-import {
-  getLatestDashboardRuntimeSnapshot,
-  listDashboardRuntimeSnapshots,
-  publishCurrentDashboardRuntimeSnapshot,
-  type DashboardRuntimeSnapshot,
-} from './consoleRuntimeSnapshotsApi';
+import { FRONTEND_CONFIG } from '../../../../config';
+import { UriListEditor } from '../../components/UriListEditor';
 
 function formatTimestamp(value: string): string {
   const date = new Date(value);
@@ -52,6 +46,20 @@ function parseCsvList(raw: string): string[] {
   return out;
 }
 
+function parseEditableList(values: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of Array.isArray(values) ? values : []) {
+    const value = String(entry || '').trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+  }
+  return out;
+}
+
 function joinCsv(values: string[]): string {
   return Array.isArray(values) ? values.join(', ') : '';
 }
@@ -68,18 +76,6 @@ function parsePositiveInteger(raw: string, field: string): number {
   return parsed;
 }
 
-type RuntimeSnapshotPayloadModule = 'policy' | 'settings' | 'gasSponsorship' | 'smartWallets';
-
-function readRuntimeSnapshotModuleStatus(
-  snapshot: DashboardRuntimeSnapshot,
-  key: RuntimeSnapshotPayloadModule,
-): string {
-  const module = snapshot.payload[key];
-  if (!module || typeof module !== 'object' || Array.isArray(module)) return '-';
-  const status = String((module as Record<string, unknown>).status || '').trim();
-  return status || '-';
-}
-
 export function AppSettingsPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
   const selectedContext = useDashboardSelectedContext();
@@ -90,13 +86,12 @@ export function AppSettingsPage(): React.JSX.Element {
   const [mutating, setMutating] = React.useState<boolean>(false);
   const [organization, setOrganization] = React.useState<DashboardConsoleOrganization | null>(null);
   const [projects, setProjects] = React.useState<DashboardConsoleProject[]>([]);
-  const [environments, setEnvironments] = React.useState<DashboardConsoleEnvironment[]>([]);
-  const [showArchivedProjects, setShowArchivedProjects] = React.useState<boolean>(false);
   const [createProjectId, setCreateProjectId] = React.useState<string>('');
   const [createProjectName, setCreateProjectName] = React.useState<string>('');
-  const [projectActionId, setProjectActionId] = React.useState<string>('');
-  const [projectRenameName, setProjectRenameName] = React.useState<string>('');
-  const [settingsEnvironmentId, setSettingsEnvironmentId] = React.useState<string>('');
+  const [isCreateProjectModalOpen, setIsCreateProjectModalOpen] = React.useState<boolean>(false);
+  const [isEditProjectModalOpen, setIsEditProjectModalOpen] = React.useState<boolean>(false);
+  const [editingProjectId, setEditingProjectId] = React.useState<string>('');
+  const [editingProjectName, setEditingProjectName] = React.useState<string>('');
   const [settingsLoading, setSettingsLoading] = React.useState<boolean>(false);
   const [settingsError, setSettingsError] = React.useState<string>('');
   const [settingsMutationError, setSettingsMutationError] = React.useState<string>('');
@@ -104,17 +99,7 @@ export function AppSettingsPage(): React.JSX.Element {
   const [securityApprovalIdInput, setSecurityApprovalIdInput] = React.useState<string>('');
   const [appSettings, setAppSettings] = React.useState<DashboardAppSettings | null>(null);
   const [securitySettings, setSecuritySettings] = React.useState<DashboardSecuritySettings | null>(null);
-  const [runtimeSnapshotsLoading, setRuntimeSnapshotsLoading] = React.useState<boolean>(false);
-  const [runtimeSnapshotsError, setRuntimeSnapshotsError] = React.useState<string>('');
-  const [runtimeSnapshotsMutationError, setRuntimeSnapshotsMutationError] = React.useState<string>('');
-  const [runtimeSnapshotsMutating, setRuntimeSnapshotsMutating] = React.useState<boolean>(false);
-  const [latestRuntimeSnapshot, setLatestRuntimeSnapshot] =
-    React.useState<DashboardRuntimeSnapshot | null>(null);
-  const [runtimeSnapshotHistory, setRuntimeSnapshotHistory] = React.useState<DashboardRuntimeSnapshot[]>([]);
-  const [runtimeSnapshotIdInput, setRuntimeSnapshotIdInput] = React.useState<string>('');
-  const [runtimeSnapshotEffectiveAtInput, setRuntimeSnapshotEffectiveAtInput] = React.useState<string>('');
-  const [allowedOriginsInput, setAllowedOriginsInput] = React.useState<string>('');
-  const [allowedDomainsInput, setAllowedDomainsInput] = React.useState<string>('');
+  const [allowedOriginsInput, setAllowedOriginsInput] = React.useState<string[]>([]);
   const [cookieHttpOnlyInput, setCookieHttpOnlyInput] = React.useState<boolean>(true);
   const [cookieSecureInput, setCookieSecureInput] = React.useState<boolean>(true);
   const [cookieSameSiteInput, setCookieSameSiteInput] = React.useState<'LAX' | 'STRICT' | 'NONE'>(
@@ -136,6 +121,16 @@ export function AppSettingsPage(): React.JSX.Element {
   const [riskyApprovalsRequiredInput, setRiskyApprovalsRequiredInput] = React.useState<string>('1');
   const [riskyRequireAdminInput, setRiskyRequireAdminInput] = React.useState<boolean>(true);
   const [riskyRequireMfaInput, setRiskyRequireMfaInput] = React.useState<boolean>(true);
+  const walletOriginHint = normalizeString(FRONTEND_CONFIG.walletOrigin || 'https://localhost:8443');
+  const allowedOriginsDraft = React.useMemo(
+    () => parseEditableList(allowedOriginsInput).map((origin) => normalizeString(origin).toLowerCase()),
+    [allowedOriginsInput],
+  );
+  const walletOriginMissingFromDraft = React.useMemo(() => {
+    const walletOrigin = normalizeString(walletOriginHint).toLowerCase();
+    if (!walletOrigin) return false;
+    return !allowedOriginsDraft.includes(walletOrigin);
+  }, [allowedOriginsDraft, walletOriginHint]);
 
   const canMutateContext = React.useMemo(
     () =>
@@ -157,50 +152,28 @@ export function AppSettingsPage(): React.JSX.Element {
     [session.claims?.roles],
   );
 
-  const selectedProjectId = React.useMemo(
-    () => normalizeString(selectedContext.project || ''),
-    [selectedContext.project],
-  );
-
   const loadContextData = React.useCallback(() => {
     if (!session.claims) {
       setLoading(false);
       setOrganization(null);
       setProjects([]);
-      setEnvironments([]);
       setErrorMessage(session.errorMessage || 'Console session is unavailable');
       return;
     }
     let cancelled = false;
     setLoading(true);
     setErrorMessage('');
-    Promise.all([
-      getDashboardOrganization(),
-      listDashboardProjects(showArchivedProjects ? {} : { status: 'ACTIVE' }),
-    ])
-      .then(async ([nextOrg, nextProjects]) => {
+    Promise.all([getDashboardOrganization(), listDashboardProjects({ status: 'ACTIVE' })])
+      .then(([nextOrg, nextProjects]) => {
         const sortedProjects = [...nextProjects].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-        const currentProjectId = normalizeString(selectedContext.project || '');
-        const scopeProjectId =
-          currentProjectId && sortedProjects.some((entry) => entry.id === currentProjectId)
-            ? currentProjectId
-            : (sortedProjects[0]?.id || '');
-        const nextEnvironments = await listDashboardEnvironments(
-          scopeProjectId ? { projectId: scopeProjectId } : {},
-        );
         if (cancelled) return;
-        const sortedEnvironments = [...nextEnvironments]
-          .filter((entry) => String(entry.status || '').toUpperCase() !== 'ARCHIVED')
-          .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
         setOrganization(nextOrg);
         setProjects(sortedProjects);
-        setEnvironments(sortedEnvironments);
       })
       .catch((error: unknown) => {
         if (cancelled) return;
         setOrganization(null);
         setProjects([]);
-        setEnvironments([]);
         setErrorMessage(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
@@ -212,10 +185,8 @@ export function AppSettingsPage(): React.JSX.Element {
       cancelled = true;
     };
   }, [
-    selectedContext.project,
     session.claims,
     session.errorMessage,
-    showArchivedProjects,
   ]);
 
   React.useEffect(() => {
@@ -227,54 +198,18 @@ export function AppSettingsPage(): React.JSX.Element {
     return cleanup;
   }, [loadContextData, session.loading]);
 
-  React.useEffect(() => {
-    if (projects.length === 0) {
-      setProjectActionId('');
-      return;
-    }
-    const selectedProject = String(selectedContext.project || '').trim();
-    if (!projectActionId || !projects.some((entry) => entry.id === projectActionId)) {
-      setProjectActionId(
-        projects.some((entry) => entry.id === selectedProject)
-          ? selectedProject
-          : (projects[0]?.id || ''),
-      );
-    }
-  }, [projectActionId, projects, selectedContext.project]);
-
-  const selectedProjectForAction = React.useMemo(
-    () => projects.find((entry) => entry.id === projectActionId) || null,
-    [projectActionId, projects],
+  const editingProject = React.useMemo(
+    () => projects.find((project) => project.id === editingProjectId) || null,
+    [editingProjectId, projects],
   );
 
-  const projectNameById = React.useMemo(() => {
-    const map = new Map<string, string>();
-    projects.forEach((project) => {
-      map.set(project.id, project.name || project.id);
-    });
-    return map;
-  }, [projects]);
-
-  React.useEffect(() => {
-    if (environments.length === 0) {
-      setSettingsEnvironmentId('');
-      return;
-    }
-    const selectedEnvironment = normalizeString(selectedContext.environment || '');
-    if (selectedEnvironment && environments.some((entry) => entry.id === selectedEnvironment)) {
-      if (settingsEnvironmentId !== selectedEnvironment) {
-        setSettingsEnvironmentId(selectedEnvironment);
-      }
-      return;
-    }
-    if (!settingsEnvironmentId || !environments.some((entry) => entry.id === settingsEnvironmentId)) {
-      setSettingsEnvironmentId(environments[0]?.id || '');
-    }
-  }, [environments, selectedContext.environment, settingsEnvironmentId]);
+  const selectedEnvironmentId = React.useMemo(
+    () => normalizeString(selectedContext.environment || ''),
+    [selectedContext.environment],
+  );
 
   const applyAppSettingsToForm = React.useCallback((input: DashboardAppSettings) => {
-    setAllowedOriginsInput(joinCsv(input.allowedOrigins));
-    setAllowedDomainsInput(joinCsv(input.allowedDomains));
+    setAllowedOriginsInput([...input.allowedOrigins]);
     setCookieHttpOnlyInput(input.cookie.httpOnly);
     setCookieSecureInput(input.cookie.secure);
     setCookieSameSiteInput(
@@ -310,10 +245,10 @@ export function AppSettingsPage(): React.JSX.Element {
       setSecuritySettings(null);
       return;
     }
-    const environmentId = normalizeString(settingsEnvironmentId);
+    const environmentId = selectedEnvironmentId;
     if (!environmentId) {
       setSettingsLoading(false);
-      setSettingsError('Select an environment to manage app/security settings.');
+      setSettingsError('Select an environment from the top bar to manage app/security settings.');
       setAppSettings(null);
       setSecuritySettings(null);
       return;
@@ -350,7 +285,7 @@ export function AppSettingsPage(): React.JSX.Element {
     applySecuritySettingsToForm,
     session.claims,
     session.errorMessage,
-    settingsEnvironmentId,
+    selectedEnvironmentId,
   ]);
 
   React.useEffect(() => {
@@ -359,58 +294,38 @@ export function AppSettingsPage(): React.JSX.Element {
     return cleanup;
   }, [loadSettingsData, loading, session.loading]);
 
-  const loadRuntimeSnapshotsData = React.useCallback(() => {
-    if (!session.claims) {
-      setRuntimeSnapshotsLoading(false);
-      setRuntimeSnapshotsError(session.errorMessage || 'Console session is unavailable');
-      setLatestRuntimeSnapshot(null);
-      setRuntimeSnapshotHistory([]);
-      return;
-    }
-    const environmentId = normalizeString(settingsEnvironmentId);
-    if (!environmentId) {
-      setRuntimeSnapshotsLoading(false);
-      setRuntimeSnapshotsError('Select an environment to inspect runtime snapshots.');
-      setLatestRuntimeSnapshot(null);
-      setRuntimeSnapshotHistory([]);
-      return;
-    }
-    let cancelled = false;
-    setRuntimeSnapshotsLoading(true);
-    setRuntimeSnapshotsError('');
-    const scope = {
-      environmentId,
-      ...(selectedProjectId ? { projectId: selectedProjectId } : {}),
-    };
-    Promise.all([
-      getLatestDashboardRuntimeSnapshot(scope),
-      listDashboardRuntimeSnapshots({ ...scope, limit: 10 }),
-    ])
-      .then(([latestSnapshot, history]) => {
-        if (cancelled) return;
-        setLatestRuntimeSnapshot(latestSnapshot);
-        setRuntimeSnapshotHistory(history);
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setLatestRuntimeSnapshot(null);
-        setRuntimeSnapshotHistory([]);
-        setRuntimeSnapshotsError(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setRuntimeSnapshotsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedProjectId, session.claims, session.errorMessage, settingsEnvironmentId]);
-
   React.useEffect(() => {
-    if (session.loading || loading) return;
-    const cleanup = loadRuntimeSnapshotsData();
-    return cleanup;
-  }, [loadRuntimeSnapshotsData, loading, session.loading]);
+    if (!isEditProjectModalOpen) return;
+    if (!editingProject) {
+      setIsEditProjectModalOpen(false);
+      setEditingProjectId('');
+      setEditingProjectName('');
+    }
+  }, [editingProject, isEditProjectModalOpen]);
+
+  const onOpenCreateProjectModal = React.useCallback(() => {
+    setMutationError('');
+    setCreateProjectId('');
+    setCreateProjectName('');
+    setIsCreateProjectModalOpen(true);
+  }, []);
+
+  const onCloseCreateProjectModal = React.useCallback(() => {
+    if (mutating) return;
+    setIsCreateProjectModalOpen(false);
+  }, [mutating]);
+
+  const onOpenEditProjectModal = React.useCallback((project: DashboardConsoleProject) => {
+    setMutationError('');
+    setEditingProjectId(project.id);
+    setEditingProjectName(project.name || '');
+    setIsEditProjectModalOpen(true);
+  }, []);
+
+  const onCloseEditProjectModal = React.useCallback(() => {
+    if (mutating) return;
+    setIsEditProjectModalOpen(false);
+  }, [mutating]);
 
   const onCreateProject = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -436,6 +351,7 @@ export function AppSettingsPage(): React.JSX.Element {
           name,
           ...(id ? { id } : {}),
         });
+        setIsCreateProjectModalOpen(false);
         setCreateProjectId('');
         setCreateProjectName('');
         await loadContextData();
@@ -448,7 +364,7 @@ export function AppSettingsPage(): React.JSX.Element {
     [canMutateContext, createProjectId, createProjectName, loadContextData, session.claims, session.errorMessage],
   );
 
-  const onRenameProject = React.useCallback(
+  const onSaveProjectEdits = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       if (!session.claims) {
@@ -459,8 +375,8 @@ export function AppSettingsPage(): React.JSX.Element {
         setMutationError('Only owner/admin roles can update projects.');
         return;
       }
-      const projectId = String(projectActionId || '').trim();
-      const name = String(projectRenameName || '').trim();
+      const projectId = normalizeString(editingProjectId);
+      const name = normalizeString(editingProjectName);
       if (!projectId || !name) {
         setMutationError('Project and new name are required.');
         return;
@@ -469,7 +385,7 @@ export function AppSettingsPage(): React.JSX.Element {
       setMutationError('');
       try {
         await updateDashboardProject(projectId, { name });
-        setProjectRenameName('');
+        setIsEditProjectModalOpen(false);
         await loadContextData();
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
@@ -477,10 +393,17 @@ export function AppSettingsPage(): React.JSX.Element {
         setMutating(false);
       }
     },
-    [canMutateContext, loadContextData, projectActionId, projectRenameName, session.claims, session.errorMessage],
+    [
+      canMutateContext,
+      editingProjectId,
+      editingProjectName,
+      loadContextData,
+      session.claims,
+      session.errorMessage,
+    ],
   );
 
-  const onArchiveProject = React.useCallback(async () => {
+  const onArchiveEditingProject = React.useCallback(async () => {
     if (!session.claims) {
       setMutationError(session.errorMessage || 'Console session is unavailable');
       return;
@@ -489,9 +412,13 @@ export function AppSettingsPage(): React.JSX.Element {
       setMutationError('Only owner/admin roles can archive projects.');
       return;
     }
-    const projectId = String(projectActionId || '').trim();
+    const projectId = normalizeString(editingProjectId);
     if (!projectId) {
       setMutationError('Project is required.');
+      return;
+    }
+    if (editingProject?.status === 'ARCHIVED') {
+      setMutationError('Project is already archived.');
       return;
     }
     if (!window.confirm(`Archive project ${projectId}? This archives all environments under it.`)) {
@@ -501,13 +428,21 @@ export function AppSettingsPage(): React.JSX.Element {
     setMutationError('');
     try {
       await archiveDashboardProject(projectId);
+      setIsEditProjectModalOpen(false);
       await loadContextData();
     } catch (error: unknown) {
       setMutationError(error instanceof Error ? error.message : String(error));
     } finally {
       setMutating(false);
     }
-  }, [canMutateContext, loadContextData, projectActionId, session.claims, session.errorMessage]);
+  }, [
+    canMutateContext,
+    editingProject?.status,
+    editingProjectId,
+    loadContextData,
+    session.claims,
+    session.errorMessage,
+  ]);
 
   const onUpdateAppSettings = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -522,9 +457,9 @@ export function AppSettingsPage(): React.JSX.Element {
         );
         return;
       }
-      const environmentId = normalizeString(settingsEnvironmentId);
+      const environmentId = selectedEnvironmentId;
       if (!environmentId) {
-        setSettingsMutationError('Environment is required.');
+        setSettingsMutationError('Select an environment from the top bar.');
         return;
       }
       setSettingsMutating(true);
@@ -536,8 +471,7 @@ export function AppSettingsPage(): React.JSX.Element {
         }
         const updated = await updateDashboardAppSettings({
           environmentId,
-          allowedOrigins: parseCsvList(allowedOriginsInput),
-          allowedDomains: parseCsvList(allowedDomainsInput),
+          allowedOrigins: parseEditableList(allowedOriginsInput),
           cookie: {
             httpOnly: cookieHttpOnlyInput,
             secure: cookieSecureInput,
@@ -567,7 +501,6 @@ export function AppSettingsPage(): React.JSX.Element {
       }
     },
     [
-      allowedDomainsInput,
       allowedOriginsInput,
       applyAppSettingsToForm,
       canMutateConsoleSettings,
@@ -584,7 +517,7 @@ export function AppSettingsPage(): React.JSX.Element {
       jwtRefreshTtlInput,
       session.claims,
       session.errorMessage,
-      settingsEnvironmentId,
+      selectedEnvironmentId,
       ssoMetadataUrlInput,
     ],
   );
@@ -602,9 +535,9 @@ export function AppSettingsPage(): React.JSX.Element {
         );
         return;
       }
-      const environmentId = normalizeString(settingsEnvironmentId);
+      const environmentId = selectedEnvironmentId;
       if (!environmentId) {
-        setSettingsMutationError('Environment is required.');
+        setSettingsMutationError('Select an environment from the top bar.');
         return;
       }
       setSettingsMutating(true);
@@ -646,82 +579,12 @@ export function AppSettingsPage(): React.JSX.Element {
       securityApprovalIdInput,
       session.claims,
       session.errorMessage,
-      settingsEnvironmentId,
-    ],
-  );
-
-  const onPublishCurrentRuntimeSnapshot = React.useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (!session.claims) {
-        setRuntimeSnapshotsMutationError(session.errorMessage || 'Console session is unavailable');
-        return;
-      }
-      if (!canMutateConsoleSettings) {
-        setRuntimeSnapshotsMutationError(
-          'Only owner/admin/security_admin can publish runtime snapshots.',
-        );
-        return;
-      }
-      const environmentId = normalizeString(settingsEnvironmentId);
-      if (!environmentId) {
-        setRuntimeSnapshotsMutationError('Environment is required.');
-        return;
-      }
-      const effectiveAt = normalizeString(runtimeSnapshotEffectiveAtInput);
-      if (effectiveAt) {
-        const parsed = new Date(effectiveAt);
-        if (!Number.isFinite(parsed.getTime())) {
-          setRuntimeSnapshotsMutationError('Effective at must be an ISO-8601 timestamp.');
-          return;
-        }
-      }
-      setRuntimeSnapshotsMutating(true);
-      setRuntimeSnapshotsMutationError('');
-      try {
-        const created = await publishCurrentDashboardRuntimeSnapshot({
-          environmentId,
-          ...(selectedProjectId ? { projectId: selectedProjectId } : {}),
-          ...(normalizeString(runtimeSnapshotIdInput)
-            ? { snapshotId: normalizeString(runtimeSnapshotIdInput) }
-            : {}),
-          ...(effectiveAt ? { effectiveAt } : {}),
-        });
-        setLatestRuntimeSnapshot(created);
-        setRuntimeSnapshotIdInput('');
-        setRuntimeSnapshotEffectiveAtInput('');
-        await loadRuntimeSnapshotsData();
-      } catch (error: unknown) {
-        setRuntimeSnapshotsMutationError(error instanceof Error ? error.message : String(error));
-      } finally {
-        setRuntimeSnapshotsMutating(false);
-      }
-    },
-    [
-      canMutateConsoleSettings,
-      loadRuntimeSnapshotsData,
-      runtimeSnapshotEffectiveAtInput,
-      runtimeSnapshotIdInput,
-      selectedProjectId,
-      session.claims,
-      session.errorMessage,
-      settingsEnvironmentId,
+      selectedEnvironmentId,
     ],
   );
 
   return (
     <div className="dashboard-view" aria-label="App settings page">
-      <section className="dashboard-view__section" aria-label="Context management">
-        <h2>Org, projects, and environments</h2>
-        <p>
-          Manage hierarchy under org {selectedContext.organization || '-'} and keep project and
-          environment topology aligned with runtime wallet context.
-        </p>
-        <button type="button" className="dashboard-pagination-button" onClick={() => loadContextData()}>
-          Refresh hierarchy
-        </button>
-      </section>
-
       {session.loading || loading ? (
         <section className="dashboard-view__section">
           <p>Loading context data...</p>
@@ -764,136 +627,47 @@ export function AppSettingsPage(): React.JSX.Element {
           </section>
 
           <section className="dashboard-table-wrapper" aria-label="Project management">
-            <div className="dashboard-table-limit">
-              <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onCreateProject}>
-                <label className="dashboard-form-field">
-                  <span>New project ID (optional)</span>
-                  <input
-                    className="dashboard-input"
-                    value={createProjectId}
-                    onChange={(event) => setCreateProjectId(event.target.value)}
-                    placeholder="proj_prod"
-                    disabled={!canMutateContext}
-                  />
-                </label>
-                <label className="dashboard-form-field">
-                  <span>New project name</span>
-                  <input
-                    className="dashboard-input"
-                    value={createProjectName}
-                    onChange={(event) => setCreateProjectName(event.target.value)}
-                    placeholder="Production"
-                    disabled={!canMutateContext}
-                  />
-                </label>
-                <div className="dashboard-form-actions">
-                  <button
-                    type="submit"
-                    className="dashboard-pagination-button"
-                    disabled={!canMutateContext || mutating}
-                  >
-                    {mutating ? 'Applying...' : 'Create project'}
-                  </button>
-                </div>
-              </form>
-              <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onRenameProject}>
-                <label className="dashboard-form-field">
-                  <span>Include archived</span>
-                  <input
-                    className="dashboard-input"
-                    type="checkbox"
-                    checked={showArchivedProjects}
-                    onChange={(event) => setShowArchivedProjects(event.target.checked)}
-                  />
-                </label>
-                <label className="dashboard-form-field">
-                  <span>Project</span>
-                  <select
-                    className="dashboard-input"
-                    value={projectActionId}
-                    onChange={(event) => setProjectActionId(event.target.value)}
-                  >
-                    {projects.map((project) => (
-                      <option key={project.id} value={project.id}>
-                        {project.id}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="dashboard-form-field">
-                  <span>Rename project to</span>
-                  <input
-                    className="dashboard-input"
-                    value={projectRenameName}
-                    onChange={(event) => setProjectRenameName(event.target.value)}
-                    placeholder="Project display name"
-                    disabled={!canMutateContext}
-                  />
-                </label>
-                <div className="dashboard-form-actions">
-                  <button
-                    type="submit"
-                    className="dashboard-pagination-button"
-                    disabled={
-                      !canMutateContext ||
-                      mutating ||
-                      !projectActionId ||
-                      selectedProjectForAction?.status === 'ARCHIVED'
-                    }
-                  >
-                    {mutating ? 'Applying...' : 'Rename project'}
-                  </button>
-                  <button
-                    type="button"
-                    className="dashboard-pagination-button"
-                    onClick={onArchiveProject}
-                    disabled={
-                      !canMutateContext ||
-                      mutating ||
-                      !projectActionId ||
-                      selectedProjectForAction?.status === 'ARCHIVED'
-                    }
-                  >
-                    {mutating ? 'Applying...' : 'Archive project'}
-                  </button>
-                </div>
-              </form>
-              {mutationError ? <p className="dashboard-pagination-note">{mutationError}</p> : null}
-              <p className="dashboard-pagination-note">
-                {canMutateContext
-                  ? 'Owner/admin role enabled for project mutations.'
-                  : 'Only owner/admin roles can mutate project records.'}
-              </p>
+            <div className="dashboard-table-limit dashboard-project-table__toolbar">
+              <p className="dashboard-project-table__status">Showing ACTIVE projects only.</p>
+              <button
+                type="button"
+                className="dashboard-pagination-button"
+                onClick={onOpenCreateProjectModal}
+                disabled={!canMutateContext || mutating}
+              >
+                Create project
+              </button>
             </div>
-            <p className="dashboard-table-limit">
-              Project status filter: {showArchivedProjects ? 'ACTIVE + ARCHIVED' : 'ACTIVE only'}.
-            </p>
-            <div className="dashboard-table-header" role="row">
+            {mutationError ? <p className="dashboard-table-limit dashboard-project-table__error">{mutationError}</p> : null}
+            <div className="dashboard-table-header dashboard-table-header--projects" role="row">
               <span>Project ID</span>
               <span>Name</span>
-              <span>Slug</span>
               <span>Status</span>
-              <span>Created</span>
-              <span>Updated</span>
               <span>Environment count</span>
-              <span>Topbar selected</span>
+              <span>Updated</span>
+              <span>Actions</span>
             </div>
             {projects.length === 0 ? (
               <p className="dashboard-table-limit">No projects found.</p>
             ) : (
               <>
                 {projects.map((project) => (
-                  <div className="dashboard-table-row" key={project.id} role="row">
+                  <div className="dashboard-table-row dashboard-table-row--projects" key={project.id} role="row">
                     <span>{project.id}</span>
                     <span>{project.name || '-'}</span>
-                    <span>{project.slug || '-'}</span>
                     <span>{project.status}</span>
-                    <span>{formatTimestamp(project.createdAt)}</span>
+                    <span>{String(project.environmentCount || 0)}</span>
                     <span>{formatTimestamp(project.updatedAt)}</span>
-                    <span>
-                      {String(project.environmentCount || 0)}
+                    <span className="dashboard-project-table__actions">
+                      <button
+                        type="button"
+                        className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                        onClick={() => onOpenEditProjectModal(project)}
+                        disabled={!canMutateContext || mutating}
+                      >
+                        Edit
+                      </button>
                     </span>
-                    <span>{selectedContext.project === project.id ? 'Yes' : 'No'}</span>
                   </div>
                 ))}
                 <p className="dashboard-table-limit">
@@ -901,119 +675,11 @@ export function AppSettingsPage(): React.JSX.Element {
                 </p>
               </>
             )}
-          </section>
-
-          <section className="dashboard-table-wrapper" aria-label="Environment inventory">
             <p className="dashboard-table-limit">
-              Environments are provisioned automatically for each project (`dev`, `staging`, and `prod`).
-              Production remains disabled until billing is attached.
+              {canMutateContext
+                ? 'Owner/admin role enabled for project mutations.'
+                : 'Only owner/admin roles can mutate project records.'}
             </p>
-            <div className="dashboard-table-header" role="row">
-              <span>Environment ID</span>
-              <span>Project</span>
-              <span>Key</span>
-              <span>Name</span>
-              <span>Status</span>
-              <span>Created</span>
-              <span>Updated</span>
-              <span>Topbar selected</span>
-            </div>
-            {environments.length === 0 ? (
-              <p className="dashboard-table-limit">No environments found for the active project scope.</p>
-            ) : (
-              <>
-                {environments.map((environment) => (
-                  <div className="dashboard-table-row" key={environment.id} role="row">
-                    <span>{environment.id}</span>
-                    <span>{projectNameById.get(environment.projectId) || environment.projectId}</span>
-                    <span>{environment.key}</span>
-                    <span>{environment.name || '-'}</span>
-                    <span>{environment.status}</span>
-                    <span>{formatTimestamp(environment.createdAt)}</span>
-                    <span>{formatTimestamp(environment.updatedAt)}</span>
-                    <span>{selectedContext.environment === environment.id ? 'Yes' : 'No'}</span>
-                  </div>
-                ))}
-                <p className="dashboard-table-limit">
-                  Showing {environments.length} environment{environments.length === 1 ? '' : 's'}.
-                </p>
-              </>
-            )}
-          </section>
-
-          <section className="dashboard-view__section" aria-label="App and security settings controls">
-            <h2>App and security settings</h2>
-            <p>
-              Backed by `GET/PATCH /console/settings/app` and `GET/PATCH /console/settings/security`.
-              Choose an environment to manage origin, cookie, JWT, and security policy settings.
-            </p>
-            <div className="dashboard-view-grid dashboard-view-grid--two">
-              <label className="dashboard-form-field">
-                <span>Settings environment</span>
-                <select
-                  className="dashboard-input"
-                  value={settingsEnvironmentId}
-                  onChange={(event) => setSettingsEnvironmentId(event.target.value)}
-                >
-                  {environments.length === 0 ? <option value="">No environments</option> : null}
-                  {environments.map((environment) => (
-                    <option key={environment.id} value={environment.id}>
-                      {environment.id}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <button type="button" className="dashboard-pagination-button" onClick={() => loadSettingsData()}>
-              Refresh app/security settings
-            </button>
-            <button
-              type="button"
-              className="dashboard-pagination-button"
-              onClick={() => loadRuntimeSnapshotsData()}
-            >
-              Refresh runtime snapshots
-            </button>
-            <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onPublishCurrentRuntimeSnapshot}>
-              <label className="dashboard-form-field">
-                <span>Snapshot ID (optional)</span>
-                <input
-                  className="dashboard-input"
-                  value={runtimeSnapshotIdInput}
-                  onChange={(event) => setRuntimeSnapshotIdInput(event.target.value)}
-                  placeholder="runtime_snapshot_env_active_v3"
-                />
-              </label>
-              <label className="dashboard-form-field">
-                <span>Effective at (optional ISO-8601)</span>
-                <input
-                  className="dashboard-input"
-                  value={runtimeSnapshotEffectiveAtInput}
-                  onChange={(event) => setRuntimeSnapshotEffectiveAtInput(event.target.value)}
-                  placeholder="2026-03-01T00:00:00.000Z"
-                />
-              </label>
-              <div className="dashboard-form-actions">
-                <button
-                  type="submit"
-                  className="dashboard-pagination-button"
-                  disabled={!canMutateConsoleSettings || runtimeSnapshotsMutating}
-                >
-                  {runtimeSnapshotsMutating ? 'Publishing...' : 'Publish current runtime snapshot'}
-                </button>
-              </div>
-            </form>
-            <p className="dashboard-pagination-note">
-              {canMutateConsoleSettings
-                ? 'Owner/admin/security_admin role enabled for settings mutations.'
-                : 'Only owner/admin/security_admin can mutate settings.'}
-            </p>
-            {settingsMutationError ? (
-              <p className="dashboard-pagination-note">{settingsMutationError}</p>
-            ) : null}
-            {runtimeSnapshotsMutationError ? (
-              <p className="dashboard-pagination-note">{runtimeSnapshotsMutationError}</p>
-            ) : null}
           </section>
 
           {settingsLoading ? (
@@ -1026,31 +692,51 @@ export function AppSettingsPage(): React.JSX.Element {
             </section>
           ) : !appSettings || !securitySettings ? (
             <section className="dashboard-view__section">
-              <p>App/security settings unavailable for selected environment.</p>
+              <p>App/security settings unavailable for topbar-selected environment.</p>
             </section>
           ) : (
             <>
               <section className="dashboard-table-wrapper" aria-label="Update app settings">
                 <div className="dashboard-table-limit">
+                  <p className="dashboard-pagination-note">
+                    Editing app/security settings for <code>{selectedEnvironmentId}</code>.
+                  </p>
+                  <p className="dashboard-pagination-note">
+                    {canMutateConsoleSettings
+                      ? 'Owner/admin/security_admin role enabled for settings mutations.'
+                      : 'Only owner/admin/security_admin can mutate settings.'}
+                  </p>
+                  {settingsMutationError ? (
+                    <p className="dashboard-pagination-note">{settingsMutationError}</p>
+                  ) : null}
                   <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onUpdateAppSettings}>
-                    <label className="dashboard-form-field">
-                      <span>Allowed origins (csv)</span>
-                      <input
-                        className="dashboard-input"
-                        value={allowedOriginsInput}
-                        onChange={(event) => setAllowedOriginsInput(event.target.value)}
-                        placeholder="https://app.example.com, https://admin.example.com"
+                    <div className="dashboard-form-field dashboard-form-field--full">
+                      <UriListEditor
+                        label="Allowed origins"
+                        description={
+                          <>
+                            <p className="dashboard-pagination-note">
+                              Use exact browser origins only. Managed registration runs from the
+                              wallet origin, not the app origin.
+                            </p>
+                            <p className="dashboard-pagination-note">
+                              In this local dev setup, include <code>{walletOriginHint}</code>.
+                            </p>
+                            {walletOriginMissingFromDraft ? (
+                              <p className="dashboard-pagination-note">
+                                Current draft is missing <code>{walletOriginHint}</code>, so
+                                publishable_key registration will be rejected.
+                              </p>
+                            ) : null}
+                          </>
+                        }
+                        values={allowedOriginsInput}
+                        onChange={setAllowedOriginsInput}
+                        placeholder="https://app.example.com"
+                        addLabel="Add URI"
+                        disabled={!canMutateConsoleSettings || settingsMutating}
                       />
-                    </label>
-                    <label className="dashboard-form-field">
-                      <span>Allowed domains (csv)</span>
-                      <input
-                        className="dashboard-input"
-                        value={allowedDomainsInput}
-                        onChange={(event) => setAllowedDomainsInput(event.target.value)}
-                        placeholder="example.com, example.org"
-                      />
-                    </label>
+                    </div>
                     <label className="dashboard-form-field">
                       <span>Cookie sameSite</span>
                       <select
@@ -1265,96 +951,137 @@ export function AppSettingsPage(): React.JSX.Element {
                   <span>App updated</span>
                   <span>Security updated</span>
                   <span>Allowed origins</span>
-                  <span>Allowed domains</span>
                   <span>IP allowlist entries</span>
                   <span>Require risky-change MFA</span>
                   <span>Approvals required</span>
                 </div>
                 <div className="dashboard-table-row" role="row">
-                  <span>{settingsEnvironmentId || '-'}</span>
+                  <span>{selectedEnvironmentId || '-'}</span>
                   <span>{formatTimestamp(appSettings.updatedAt)}</span>
                   <span>{formatTimestamp(securitySettings.updatedAt)}</span>
                   <span>{appSettings.allowedOrigins.length}</span>
-                  <span>{appSettings.allowedDomains.length}</span>
                   <span>{securitySettings.ipAllowlist.length}</span>
                   <span>{securitySettings.requireMfaForRiskyChanges ? 'true' : 'false'}</span>
                   <span>{securitySettings.riskyChangeApproval.approvalsRequired}</span>
                 </div>
               </section>
 
-              {runtimeSnapshotsLoading ? (
-                <section className="dashboard-view__section">
-                  <p>Loading runtime snapshots...</p>
-                </section>
-              ) : runtimeSnapshotsError ? (
-                <section className="dashboard-view__section">
-                  <p>Runtime snapshots unavailable: {runtimeSnapshotsError}</p>
-                </section>
-              ) : (
-                <>
-                  <section className="dashboard-table-wrapper" aria-label="Latest runtime snapshot">
-                    <div className="dashboard-table-header" role="row">
-                      <span>Snapshot ID</span>
-                      <span>Version</span>
-                      <span>Environment</span>
-                      <span>Project</span>
-                      <span>Effective at</span>
-                      <span>Created at</span>
-                      <span>Created by</span>
-                      <span>Policy status</span>
-                      <span>Settings status</span>
-                      <span>Gas status</span>
-                      <span>Smart wallet status</span>
-                    </div>
-                    {!latestRuntimeSnapshot ? (
-                      <p className="dashboard-table-limit">No runtime snapshots published for this scope.</p>
-                    ) : (
-                      <div className="dashboard-table-row" role="row">
-                        <span>{latestRuntimeSnapshot.snapshotId}</span>
-                        <span>{latestRuntimeSnapshot.version}</span>
-                        <span>{latestRuntimeSnapshot.environmentId}</span>
-                        <span>{latestRuntimeSnapshot.projectId || '-'}</span>
-                        <span>{formatTimestamp(latestRuntimeSnapshot.effectiveAt)}</span>
-                        <span>{formatTimestamp(latestRuntimeSnapshot.createdAt)}</span>
-                        <span>{latestRuntimeSnapshot.createdBy}</span>
-                        <span>{readRuntimeSnapshotModuleStatus(latestRuntimeSnapshot, 'policy')}</span>
-                        <span>{readRuntimeSnapshotModuleStatus(latestRuntimeSnapshot, 'settings')}</span>
-                        <span>{readRuntimeSnapshotModuleStatus(latestRuntimeSnapshot, 'gasSponsorship')}</span>
-                        <span>{readRuntimeSnapshotModuleStatus(latestRuntimeSnapshot, 'smartWallets')}</span>
-                      </div>
-                    )}
-                  </section>
-
-                  <section className="dashboard-table-wrapper" aria-label="Runtime snapshots history">
-                    <div className="dashboard-table-header" role="row">
-                      <span>Snapshot ID</span>
-                      <span>Version</span>
-                      <span>Effective at</span>
-                      <span>Checksum</span>
-                    </div>
-                    {runtimeSnapshotHistory.length === 0 ? (
-                      <p className="dashboard-table-limit">No runtime snapshot history found.</p>
-                    ) : (
-                      <>
-                        {runtimeSnapshotHistory.map((snapshot) => (
-                          <div className="dashboard-table-row" role="row" key={`${snapshot.snapshotId}:${snapshot.version}`}>
-                            <span>{snapshot.snapshotId}</span>
-                            <span>{snapshot.version}</span>
-                            <span>{formatTimestamp(snapshot.effectiveAt)}</span>
-                            <span>{snapshot.checksum}</span>
-                          </div>
-                        ))}
-                        <p className="dashboard-table-limit">
-                          Showing {runtimeSnapshotHistory.length} runtime snapshot
-                          {runtimeSnapshotHistory.length === 1 ? '' : 's'}.
-                        </p>
-                      </>
-                    )}
-                  </section>
-                </>
-              )}
             </>
           )}
+
+          {isCreateProjectModalOpen ? (
+            <div
+              className="dashboard-modal-backdrop"
+              role="presentation"
+              onClick={onCloseCreateProjectModal}
+            >
+              <section
+                className="dashboard-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Create project modal"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <h2>Create project</h2>
+                <form className="dashboard-view-grid" onSubmit={onCreateProject}>
+                  <label className="dashboard-form-field">
+                    <span>Project ID (optional)</span>
+                    <input
+                      className="dashboard-input"
+                      value={createProjectId}
+                      onChange={(event) => setCreateProjectId(event.target.value)}
+                      placeholder="proj_prod"
+                      disabled={!canMutateContext || mutating}
+                    />
+                  </label>
+                  <label className="dashboard-form-field">
+                    <span>Project name</span>
+                    <input
+                      className="dashboard-input"
+                      value={createProjectName}
+                      onChange={(event) => setCreateProjectName(event.target.value)}
+                      placeholder="Production"
+                      disabled={!canMutateContext || mutating}
+                    />
+                  </label>
+                  <div className="dashboard-form-actions">
+                    <button
+                      type="button"
+                      className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                      onClick={onCloseCreateProjectModal}
+                      disabled={mutating}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="dashboard-pagination-button"
+                      disabled={!canMutateContext || mutating}
+                    >
+                      {mutating ? 'Applying...' : 'Create project'}
+                    </button>
+                  </div>
+                </form>
+              </section>
+            </div>
+          ) : null}
+
+          {isEditProjectModalOpen && editingProject ? (
+            <div
+              className="dashboard-modal-backdrop"
+              role="presentation"
+              onClick={onCloseEditProjectModal}
+            >
+              <section
+                className="dashboard-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Edit project modal"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <h2>Edit project</h2>
+                <p className="dashboard-pagination-note">Project ID: {editingProject.id}</p>
+                <p className="dashboard-pagination-note">Status: {editingProject.status}</p>
+                <form className="dashboard-view-grid" onSubmit={onSaveProjectEdits}>
+                  <label className="dashboard-form-field">
+                    <span>Project name</span>
+                    <input
+                      className="dashboard-input"
+                      value={editingProjectName}
+                      onChange={(event) => setEditingProjectName(event.target.value)}
+                      placeholder="Project display name"
+                      disabled={!canMutateContext || mutating}
+                    />
+                  </label>
+                  <div className="dashboard-form-actions">
+                    <button
+                      type="button"
+                      className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                      onClick={onCloseEditProjectModal}
+                      disabled={mutating}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="dashboard-pagination-button"
+                      disabled={!canMutateContext || mutating || editingProject.status === 'ARCHIVED'}
+                    >
+                      {mutating ? 'Applying...' : 'Save changes'}
+                    </button>
+                    <button
+                      type="button"
+                      className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                      onClick={onArchiveEditingProject}
+                      disabled={!canMutateContext || mutating || editingProject.status === 'ARCHIVED'}
+                    >
+                      {mutating ? 'Applying...' : 'Archive project'}
+                    </button>
+                  </div>
+                </form>
+              </section>
+            </div>
+          ) : null}
         </>
       )}
     </div>

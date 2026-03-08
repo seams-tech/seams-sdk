@@ -8,17 +8,24 @@ import {
 
 export interface DashboardConsoleApiKey {
   id: string;
+  kind: 'secret_key' | 'publishable_key';
   orgId: string;
   name: string;
   environmentId: string;
   scopes: string[];
   ipAllowlist: string[];
+  allowedOrigins: string[];
+  rateLimitBucket: string | null;
+  quotaBucket: string | null;
+  riskPolicy: Record<string, unknown>;
+  paymentPolicy: Record<string, unknown>;
   status: string;
   secretVersion: number;
-  secretPreview: string;
+  credentialPreview: string;
   createdAt: string;
   updatedAt: string;
   lastUsedAt: string | null;
+  expiresAt: string | null;
   endpointUsageCounts: Record<string, number>;
   anomalyFlags: string[];
 }
@@ -37,6 +44,7 @@ interface ConsoleApiKeyMutationResponse {
   apiKey?: unknown;
   secret?: unknown;
   revoked?: unknown;
+  deleted?: unknown;
 }
 
 function readStringArray(raw: unknown): string[] {
@@ -68,6 +76,11 @@ function readEndpointUsageCounts(raw: unknown): Record<string, number> {
   return out;
 }
 
+function readJsonObject(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return { ...(raw as Record<string, unknown>) };
+}
+
 function decodeApiKey(raw: unknown): DashboardConsoleApiKey | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const row = raw as Record<string, unknown>;
@@ -76,17 +89,25 @@ function decodeApiKey(raw: unknown): DashboardConsoleApiKey | null {
   if (!id || !orgId) return null;
   return {
     id,
+    kind:
+      String(row.kind || '').trim() === 'publishable_key' ? 'publishable_key' : 'secret_key',
     orgId,
     name: String(row.name || '').trim() || id,
     environmentId: String(row.environmentId || '').trim(),
     scopes: readStringArray(row.scopes),
     ipAllowlist: readStringArray(row.ipAllowlist),
+    allowedOrigins: readStringArray(row.allowedOrigins),
+    rateLimitBucket: row.rateLimitBucket == null ? null : String(row.rateLimitBucket || '').trim(),
+    quotaBucket: row.quotaBucket == null ? null : String(row.quotaBucket || '').trim(),
+    riskPolicy: readJsonObject(row.riskPolicy),
+    paymentPolicy: readJsonObject(row.paymentPolicy),
     status: String(row.status || '').trim() || 'ACTIVE',
     secretVersion: Number(row.secretVersion || 0),
-    secretPreview: String(row.secretPreview || '').trim(),
+    credentialPreview: String(row.secretPreview || '').trim(),
     createdAt: String(row.createdAt || '').trim(),
     updatedAt: String(row.updatedAt || '').trim(),
     lastUsedAt: row.lastUsedAt == null ? null : String(row.lastUsedAt || '').trim() || null,
+    expiresAt: row.expiresAt == null ? null : String(row.expiresAt || '').trim() || null,
     endpointUsageCounts: readEndpointUsageCounts(row.endpointUsageCounts),
     anomalyFlags: readStringArray(row.anomalyFlags),
   };
@@ -110,12 +131,47 @@ export async function listDashboardApiKeys(): Promise<DashboardConsoleApiKey[]> 
     .filter((entry): entry is DashboardConsoleApiKey => entry !== null);
 }
 
-export async function createDashboardApiKey(input: {
-  name: string;
-  environmentId: string;
-  scopes: string[];
-  ipAllowlist?: string[];
-}): Promise<{ apiKey: DashboardConsoleApiKey; secret: string }> {
+export type CreateDashboardApiKeyInput =
+  | {
+      kind: 'secret_key';
+      name: string;
+      environmentId: string;
+      scopes: string[];
+      ipAllowlist?: string[];
+    }
+  | {
+      kind: 'publishable_key';
+      name: string;
+      environmentId: string;
+      allowedOrigins: string[];
+      rateLimitBucket: string;
+      quotaBucket: string;
+      riskPolicy?: Record<string, unknown>;
+      paymentPolicy?: Record<string, unknown>;
+    };
+
+export type UpdateDashboardApiKeyInput =
+  | {
+      apiKeyId: string;
+      name?: string;
+      scopes?: string[];
+      ipAllowlist?: string[];
+      expiresAt?: string | null;
+    }
+  | {
+      apiKeyId: string;
+      name?: string;
+      allowedOrigins?: string[];
+      rateLimitBucket?: string;
+      quotaBucket?: string;
+      riskPolicy?: Record<string, unknown>;
+      paymentPolicy?: Record<string, unknown>;
+      expiresAt?: string | null;
+    };
+
+export async function createDashboardApiKey(
+  input: CreateDashboardApiKeyInput,
+): Promise<{ apiKey: DashboardConsoleApiKey; credential: string }> {
   const base = requireConsoleBaseUrl();
   const response = await fetch(`${base}/console/api-keys`, {
     method: 'POST',
@@ -129,17 +185,42 @@ export async function createDashboardApiKey(input: {
     throw new Error(consoleErrorMessage(response, body, 'Create API key request failed'));
   }
   const apiKey = decodeApiKey(body?.apiKey);
-  const secret = String(body?.secret || '').trim();
-  if (!apiKey || !secret) {
-    throw new Error('Create API key response was missing apiKey or secret');
+  const credential = String(body?.secret || '').trim();
+  if (!apiKey || !credential) {
+    throw new Error('Create API key response was missing apiKey or credential');
   }
-  return { apiKey, secret };
+  return { apiKey, credential };
+}
+
+export async function updateDashboardApiKey(
+  input: UpdateDashboardApiKeyInput,
+): Promise<DashboardConsoleApiKey> {
+  const apiKeyId = String(input.apiKeyId || '').trim();
+  if (!apiKeyId) throw new Error('API key id is required for update');
+  const { apiKeyId: _apiKeyId, ...payload } = input;
+  const base = requireConsoleBaseUrl();
+  const response = await fetch(`${base}/console/api-keys/${encodeURIComponent(apiKeyId)}`, {
+    method: 'PATCH',
+    headers: buildConsoleJsonHeaders(),
+    credentials: 'include',
+    cache: 'no-store',
+    body: JSON.stringify(payload),
+  });
+  const body = (await parseConsoleJson(response)) as ConsoleApiKeyMutationResponse | null;
+  if (!response.ok || body?.ok !== true) {
+    throw new Error(consoleErrorMessage(response, body, 'Update API key request failed'));
+  }
+  const apiKey = decodeApiKey(body?.apiKey);
+  if (!apiKey) {
+    throw new Error('Update API key response was missing apiKey');
+  }
+  return apiKey;
 }
 
 export async function rotateDashboardApiKey(input: {
   apiKeyId: string;
   reason?: string;
-}): Promise<{ apiKey: DashboardConsoleApiKey; secret: string }> {
+}): Promise<{ apiKey: DashboardConsoleApiKey; credential: string }> {
   const apiKeyId = String(input.apiKeyId || '').trim();
   if (!apiKeyId) throw new Error('API key id is required for rotate');
   const base = requireConsoleBaseUrl();
@@ -155,11 +236,11 @@ export async function rotateDashboardApiKey(input: {
     throw new Error(consoleErrorMessage(response, body, 'Rotate API key request failed'));
   }
   const apiKey = decodeApiKey(body?.apiKey);
-  const secret = String(body?.secret || '').trim();
-  if (!apiKey || !secret) {
-    throw new Error('Rotate API key response was missing apiKey or secret');
+  const credential = String(body?.secret || '').trim();
+  if (!apiKey || !credential) {
+    throw new Error('Rotate API key response was missing apiKey or credential');
   }
-  return { apiKey, secret };
+  return { apiKey, credential };
 }
 
 export async function revokeDashboardApiKey(input: {
@@ -180,6 +261,28 @@ export async function revokeDashboardApiKey(input: {
   }
   return {
     revoked: body?.revoked === true,
+    apiKey: decodeApiKey(body?.apiKey),
+  };
+}
+
+export async function deleteRevokedDashboardApiKey(input: {
+  apiKeyId: string;
+}): Promise<{ deleted: boolean; apiKey: DashboardConsoleApiKey | null }> {
+  const apiKeyId = String(input.apiKeyId || '').trim();
+  if (!apiKeyId) throw new Error('API key id is required for delete');
+  const base = requireConsoleBaseUrl();
+  const response = await fetch(`${base}/console/api-keys/${encodeURIComponent(apiKeyId)}/purge`, {
+    method: 'DELETE',
+    headers: buildConsoleAcceptHeaders(),
+    credentials: 'include',
+    cache: 'no-store',
+  });
+  const body = (await parseConsoleJson(response)) as ConsoleApiKeyMutationResponse | null;
+  if (!response.ok || body?.ok !== true) {
+    throw new Error(consoleErrorMessage(response, body, 'Delete API key request failed'));
+  }
+  return {
+    deleted: body?.deleted === true,
     apiKey: decodeApiKey(body?.apiKey),
   };
 }

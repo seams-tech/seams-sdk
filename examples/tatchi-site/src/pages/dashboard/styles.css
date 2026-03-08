@@ -555,6 +555,8 @@
 .dashboard-main {
   grid-column: 2;
   grid-row: 2;
+  position: relative;
+  isolation: isolate;
   padding: 22px 24px 42px;
   overflow: auto;
   display: grid;
@@ -917,11 +919,6 @@
   gap: 12px;
 }
 
-.dashboard-inline-modal-host {
-  position: relative;
-  isolation: isolate;
-}
-
 .dashboard-view__section,
 .dashboard-view-card {
   border: 1px solid var(--dashboard-border);
@@ -1027,6 +1024,88 @@
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.dashboard-scope-picker {
+  display: grid;
+  gap: 10px;
+}
+
+.dashboard-scope-picker__header {
+  display: grid;
+  gap: 6px;
+}
+
+.dashboard-scope-picker__header > span {
+  font-size: 0.88rem;
+  color: var(--dashboard-ink-soft);
+}
+
+.dashboard-scope-picker__select {
+  appearance: auto;
+}
+
+.dashboard-scope-picker__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.dashboard-scope-picker__chip {
+  min-height: 36px;
+  max-width: 100%;
+  border: 1px solid var(--dashboard-active-border);
+  border-radius: 999px;
+  background: var(--dashboard-active);
+  color: var(--dashboard-ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 12px;
+}
+
+.dashboard-scope-picker__chip--custom {
+  border-color: var(--dashboard-border);
+  background: var(--dashboard-surface);
+}
+
+.dashboard-scope-picker__chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.dashboard-scope-picker__chip-remove {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--dashboard-border) 88%, transparent);
+  background: color-mix(in srgb, var(--dashboard-surface) 80%, transparent);
+  color: var(--dashboard-ink-soft);
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1;
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.dashboard-scope-picker__chip-remove:hover {
+  color: var(--dashboard-ink);
+}
+
+.dashboard-scope-picker__chip-remove:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.dashboard-scope-picker__empty {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--dashboard-ink-soft);
 }
 
 .dashboard-uri-list-editor {
