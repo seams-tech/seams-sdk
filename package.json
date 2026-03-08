@@ -21,7 +21,7 @@
     "type-check:docs": "pnpm -C examples/tatchi-docs exec tsc --noEmit",
     "type-check": "pnpm -s type-check:sdk && pnpm -s type-check:relay-server",
     "check": "pnpm -s lint && pnpm -s format:check && pnpm -s type-check && pnpm -s format:rust:check && pnpm -s lint:rust && pnpm -s check:signing-architecture && pnpm -s check:signer-parity",
-    "examples:vite": "concurrently --kill-others --names server,site,docs \"pnpm run server\" \"VITE_RELAYER_URL=https://localhost:9444 VITE_CONSOLE_BASE_URL=https://localhost:9444 VITE_WALLET_ORIGIN=https://localhost:8443 VITE_DOCS_ORIGIN=https://docs.localhost VITE_RP_ID_BASE=localhost VITE_ROR_ALLOWED_ORIGINS=https://docs.localhost pnpm -C examples/tatchi-site dev\" \"pnpm -C examples/tatchi-docs dev\"",
+    "examples:vite": "concurrently --kill-others --names server,site,docs \"pnpm run server\" \"VITE_RELAYER_URL=https://localhost:9444 VITE_TATCHI_BROKER_URL=https://localhost:9444 VITE_CONSOLE_BASE_URL=https://localhost:9444 VITE_WALLET_ORIGIN=https://localhost:8443 VITE_DOCS_ORIGIN=https://docs.localhost VITE_RP_ID_BASE=localhost VITE_ROR_ALLOWED_ORIGINS=https://docs.localhost pnpm -C examples/tatchi-site dev\" \"pnpm -C examples/tatchi-docs dev\"",
     "examples:vite-iphone": "concurrently --kill-others --names server,site,docs \"pnpm run server:iphone\" \"pnpm -C examples/tatchi-site dev:iphone\" \"pnpm -C examples/tatchi-docs dev\"",
     "examples:docs": "concurrently --kill-others --names site,docs \"pnpm -C examples/tatchi-site dev\" \"pnpm -C examples/tatchi-docs dev\"",
     "server:prepare-sdk": "test -f sdk/dist/esm/server/index.js && test -f sdk/dist/types/server/src/index.d.ts || (pnpm -C sdk exec tsc -p tsconfig.build.json && pnpm -C sdk build:rolldown)",
