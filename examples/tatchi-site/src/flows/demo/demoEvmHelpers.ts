@@ -418,30 +418,39 @@ export function buildTempoEip1559GreetingRequest(greeting: string, feeCaps: Eip1
   };
 }
 
-export function buildTempoEip1559DripRequest(args: {
+export function buildTempoDripRequest(args: {
   feeCaps: Eip1559FeeCaps;
   tokenAddresses: readonly `0x${string}`[];
 }) {
-  const data = encodeTempoDripInput(args.tokenAddresses);
+  const input = encodeTempoDripInput(args.tokenAddresses);
   return {
-    chain: 'evm' as const,
-    kind: 'eip1559' as const,
+    chain: 'tempo' as const,
+    kind: 'tempoTransaction' as const,
     senderSignatureAlgorithm: 'secp256k1' as const,
     tx: {
       chainId: 42431,
       maxPriorityFeePerGas: args.feeCaps.maxPriorityFeePerGas,
       maxFeePerGas: args.feeCaps.maxFeePerGas,
       gasLimit: TEMPO_DRIP_GAS_LIMIT,
-      to: TEMPO_GREETING_CONTRACT,
-      value: 0n,
-      data,
-      abi: faucetAbi,
+      calls: [
+        {
+          to: TEMPO_GREETING_CONTRACT,
+          value: 0n,
+          input,
+          abi: faucetAbi,
+        },
+      ],
       accessList: [],
+      nonceKey: 0n,
+      validBefore: null,
+      validAfter: null,
+      feePayerSignature: { kind: 'none' as const },
+      aaAuthorizationList: [],
     },
   };
 }
 
-export function buildEip1559SetUserTokenRequest(args: {
+export function buildTempoSetUserTokenRequest(args: {
   feeCaps: Eip1559FeeCaps;
   feeToken: `0x${string}`;
 }) {
@@ -450,19 +459,28 @@ export function buildEip1559SetUserTokenRequest(args: {
     feeManager: TEMPO_FEE_MANAGER_CONTRACT,
   });
   return {
-    chain: 'evm' as const,
-    kind: 'eip1559' as const,
+    chain: 'tempo' as const,
+    kind: 'tempoTransaction' as const,
     senderSignatureAlgorithm: 'secp256k1' as const,
     tx: {
       chainId: 42431,
       maxPriorityFeePerGas: args.feeCaps.maxPriorityFeePerGas,
       maxFeePerGas: args.feeCaps.maxFeePerGas,
       gasLimit: TEMPO_SET_USER_TOKEN_GAS_LIMIT,
-      to: setUserTokenCall.to,
-      value: 0n,
-      data: setUserTokenCall.input || '0x',
-      abi: setUserTokenCall.abi || TEMPO_FEE_MANAGER_ABI,
+      calls: [
+        {
+          to: setUserTokenCall.to,
+          value: 0n,
+          input: setUserTokenCall.input || '0x',
+          abi: setUserTokenCall.abi || TEMPO_FEE_MANAGER_ABI,
+        },
+      ],
       accessList: [],
+      nonceKey: 0n,
+      validBefore: null,
+      validAfter: null,
+      feePayerSignature: { kind: 'none' as const },
+      aaAuthorizationList: [],
     },
   };
 }

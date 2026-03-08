@@ -164,6 +164,12 @@ export function ThresholdSignerSection(props: ThresholdSignerSectionProps) {
         {props.arcGreetingError ? (
           <div className="error-message">Arc greeting error: {props.arcGreetingError}</div>
         ) : null}
+        <div style={{ fontSize: '0.9rem', color: 'var(--fe-text-secondary)' }}>
+          Need test funds?{' '}
+          <a href="https://faucet.circle.com/" target="_blank" rel="noreferrer">
+            Circle Faucet
+          </a>
+        </div>
 
         <LoadingButton
           onClick={props.onSignEvmTransaction}

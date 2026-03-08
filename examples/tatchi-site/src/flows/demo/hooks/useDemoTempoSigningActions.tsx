@@ -6,7 +6,7 @@ import { FRONTEND_CONFIG } from '@/config';
 import {
   TEMPO_ALPHA_USD_FEE_TOKEN,
   buildEvmExplorerTxUrl,
-  buildTempoEip1559DripRequest,
+  buildTempoDripRequest,
   buildTempoEip1559GreetingRequest,
   compactHex,
   formatWeiToEth,
@@ -86,16 +86,17 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
         fallbackFeeCaps: tempoEip1559FeeCaps,
       });
-      const request = buildTempoEip1559DripRequest({
+      const request = buildTempoDripRequest({
         feeCaps,
         tokenAddresses: dripTokensForAttempt,
       });
+      const firstCall = request.tx.calls[0];
       const execution = await tatchi.tempo.executeEvmFamilyTransaction({
         nearAccountId,
         request,
         payloadExpectation: {
-          to: request.tx.to,
-          input: request.tx.data || '0x',
+          to: firstCall?.to,
+          input: firstCall?.input || '0x',
         },
         postFinalizationCheck: async () => {
           const thresholdSender = await thresholdSenderPromise;

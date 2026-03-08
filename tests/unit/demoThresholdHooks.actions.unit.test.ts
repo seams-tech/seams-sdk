@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
+  demoHelpers: '/src/flows/demo/demoEvmHelpers.ts',
   tempoFeeTokenHook: '/src/flows/demo/hooks/useDemoTempoFeeTokenActions.tsx',
   tempoSigningHook: '/src/flows/demo/hooks/useDemoTempoSigningActions.tsx',
   arcSigningHook: '/src/flows/demo/hooks/useDemoArcSigningActions.tsx',
@@ -42,6 +43,7 @@ test.describe('demo threshold action hooks', () => {
         executeEvmFamilyTransactionCalls: 0,
         refreshTokenCalls: 0,
         refreshBalanceCalls: 0,
+        requestChain: '',
         requestKind: '',
         requestChainId: 0,
       };
@@ -111,6 +113,7 @@ test.describe('demo threshold action hooks', () => {
             tempo: {
               executeEvmFamilyTransaction: async (args: any) => {
                 counters.executeEvmFamilyTransactionCalls += 1;
+                counters.requestChain = String(args?.request?.chain || '');
                 counters.requestKind = String(args?.request?.kind || '');
                 counters.requestChainId = Number(args?.request?.tx?.chainId || 0);
                 await args?.postFinalizationCheck?.();
@@ -163,7 +166,8 @@ test.describe('demo threshold action hooks', () => {
     expect(result.counters.executeEvmFamilyTransactionCalls).toBe(1);
     expect(result.counters.refreshTokenCalls).toBeGreaterThanOrEqual(1);
     expect(result.counters.refreshBalanceCalls).toBeGreaterThanOrEqual(1);
-    expect(result.counters.requestKind).toBe('eip1559');
+    expect(result.counters.requestChain).toBe('tempo');
+    expect(result.counters.requestKind).toBe('tempoTransaction');
     expect(result.counters.requestChainId).toBe(42431);
     expect(result.stateAfter.loading).toBe(false);
     expect(result.stateAfter.target).toBeNull();
@@ -975,8 +979,8 @@ test.describe('demo threshold action hooks', () => {
   test('waitForExpectedGreeting retries until the requested greeting is observed', async ({
     page,
   }) => {
-    const result = await page.evaluate(async () => {
-      const mod = await import('/src/flows/demo/demoEvmHelpers.ts');
+    const result = await page.evaluate(async ({ paths }) => {
+      const mod = await import(paths.demoHelpers);
       const waitForExpectedGreeting = (mod as any).waitForExpectedGreeting as (args: {
         fetchGreeting: (opts?: { silent?: boolean }) => Promise<string | null>;
         expectedGreeting: string;
@@ -998,15 +1002,15 @@ test.describe('demo threshold action hooks', () => {
       });
 
       return { calls, greeting };
-    });
+    }, { paths: IMPORT_PATHS });
 
     expect(result.calls).toBeGreaterThanOrEqual(3);
     expect(result.greeting).toBe('Hello 5');
   });
 
   test('isUserCancellationError classifies cancellation signals', async ({ page }) => {
-    const result = await page.evaluate(async () => {
-      const mod = await import('/src/flows/demo/demoEvmHelpers.ts');
+    const result = await page.evaluate(async ({ paths }) => {
+      const mod = await import(paths.demoHelpers);
       const isUserCancellationError = (mod as any).isUserCancellationError as (
         value: unknown,
       ) => boolean;
@@ -1015,7 +1019,7 @@ test.describe('demo threshold action hooks', () => {
         actionRejected: isUserCancellationError({ code: 'action_rejected' }),
         messageRejected: isUserCancellationError(new Error('User rejected request')),
       };
-    });
+    }, { paths: IMPORT_PATHS });
     expect(result.code4001).toBe(true);
     expect(result.actionRejected).toBe(true);
     expect(result.messageRejected).toBe(true);
@@ -1024,8 +1028,8 @@ test.describe('demo threshold action hooks', () => {
   test('isUserCancellationError keeps non-cancel RPC failures classified as false', async ({
     page,
   }) => {
-    const result = await page.evaluate(async () => {
-      const mod = await import('/src/flows/demo/demoEvmHelpers.ts');
+    const result = await page.evaluate(async ({ paths }) => {
+      const mod = await import(paths.demoHelpers);
       const isUserCancellationError = (mod as any).isUserCancellationError as (
         value: unknown,
       ) => boolean;
@@ -1038,7 +1042,7 @@ test.describe('demo threshold action hooks', () => {
           message: 'execution reverted: custom error',
         }),
       };
-    });
+    }, { paths: IMPORT_PATHS });
     expect(result.insufficientFunds).toBe(false);
     expect(result.rpcRevert).toBe(false);
   });

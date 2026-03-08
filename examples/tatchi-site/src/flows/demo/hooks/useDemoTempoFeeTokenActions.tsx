@@ -8,7 +8,7 @@ import {
   EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
   TEMPO_ALPHA_USD_FEE_TOKEN,
   buildEvmExplorerTxUrl,
-  buildEip1559SetUserTokenRequest,
+  buildTempoSetUserTokenRequest,
   compactHex,
   formatWeiToEth,
   isUserCancellationError,
@@ -75,10 +75,11 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
           rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
           fallbackFeeCaps: tempoEip1559FeeCaps,
         });
-        const request = buildEip1559SetUserTokenRequest({
+        const request = buildTempoSetUserTokenRequest({
           feeCaps,
           feeToken: tempoFeeToken,
         });
+        const firstCall = request.tx.calls[0];
         const thresholdSenderPromise = resolveThresholdSenderForEvmFamily()
           .then((sender) => {
             thresholdSenderForAttempt = sender;
@@ -107,8 +108,8 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
             pollIntervalMs: EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
           },
           payloadExpectation: {
-            to: request.tx.to,
-            input: request.tx.data || '0x',
+            to: firstCall?.to,
+            input: firstCall?.input || '0x',
           },
           postFinalizationCheck: async () => {
             const thresholdSender = await thresholdSenderPromise;
