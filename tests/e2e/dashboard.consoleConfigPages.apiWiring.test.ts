@@ -4367,6 +4367,10 @@ test.describe('dashboard console config page api wiring', () => {
     await expect.poll(() => lastSummaryWindowMinutes).toBe('60');
 
     const summary = page.locator('section[aria-label="Ops cockpit summary"]');
+    await expect(summary).toContainText(
+      'Daily queues for approvals, billing, webhooks, audit exports, isolation, and onboarding alerts.',
+    );
+    await expect(summary.locator('button:has-text("Refresh queues")')).toHaveCount(0);
     await expect(summary.locator('article:has(h2:has-text("Pending approvals"))')).toContainText(
       '2',
     );
@@ -4400,13 +4404,13 @@ test.describe('dashboard console config page api wiring', () => {
       .toBe('Processed from Ops Cockpit');
     await expect(pendingApprovalsSummary).toContainText('Rejected request apr_2.');
 
-    const failedWebhookSummary = page.locator('section[aria-label="Failed webhook summary"]');
+    const failedWebhookSummary = page.locator('details[aria-label="Failed webhook summary"]');
     await failedWebhookSummary.locator('button:has-text("Replay")').click();
     await expect.poll(() => replayRequestCount).toBe(1);
     await expect.poll(() => String(lastReplayBody?.deliveryId || '')).toBe('del_1');
     await expect(failedWebhookSummary).toContainText('Replay queued for delivery del_1.');
 
-    const auditExportSummary = page.locator('section[aria-label="Audit export queue summary"]');
+    const auditExportSummary = page.locator('details[aria-label="Audit export queue summary"]');
     await auditExportSummary.locator('button:has-text("Requeue")').first().click();
     await expect.poll(() => auditExportListRequestCount).toBe(1);
     await expect.poll(() => auditExportCreateRequestCount).toBe(1);

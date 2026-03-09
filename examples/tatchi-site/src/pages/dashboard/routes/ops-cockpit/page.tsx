@@ -44,6 +44,29 @@ function toSectionWarning(label: string, status: DashboardOpsCockpitSectionStatu
   return `${label} failed${detail}`;
 }
 
+function OpsCockpitQueuePanel(props: {
+  ariaLabel: string;
+  title: string;
+  badge: string;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  const { ariaLabel, title, badge, children } = props;
+  return (
+    <details className="dashboard-ops-cockpit-panel" aria-label={ariaLabel} open>
+      <summary className="dashboard-ops-cockpit-panel__summary">
+        <span className="dashboard-ops-cockpit-panel__summary-copy">
+          <span role="heading" aria-level={2} className="dashboard-ops-cockpit-panel__title">
+            {title}
+          </span>
+          <span className="dashboard-pagination-note">Open queue details</span>
+        </span>
+        <span className="dashboard-ops-cockpit-panel__badge">{badge}</span>
+      </summary>
+      <div className="dashboard-ops-cockpit-panel__body">{children}</div>
+    </details>
+  );
+}
+
 export function OpsCockpitPage(): React.JSX.Element {
   const { go } = useSiteRouter();
   const session = useDashboardConsoleSession();
@@ -332,20 +355,8 @@ export function OpsCockpitPage(): React.JSX.Element {
     <div className="dashboard-view" aria-label="Ops cockpit page">
       <section className="dashboard-view__section" aria-label="Ops cockpit summary">
         <h2>Operator queue snapshot</h2>
-        <p>
-          Unified operator view for daily work: approvals, billing failures, webhook failures, audit
-          exports, isolation requests, and onboarding SLO alerts.
-        </p>
-        <div className="dashboard-form-actions">
-          <button
-            type="button"
-            className="dashboard-pagination-button"
-            onClick={() => loadOpsCockpit()}
-            disabled={loading}
-          >
-            {loading ? 'Refreshing...' : 'Refresh queues'}
-          </button>
-        </div>
+        <p>Daily queues for approvals, billing, webhooks, audit exports, isolation, and onboarding alerts.</p>
+        {loading ? <p className="dashboard-pagination-note">Refreshing queue snapshot...</p> : null}
         {errorMessage ? <p className="dashboard-pagination-note">{errorMessage}</p> : null}
         {data.warnings.length > 0 ? (
           <div className="dashboard-view-grid">
@@ -441,112 +452,126 @@ export function OpsCockpitPage(): React.JSX.Element {
         )}
       </section>
 
-      <section className="dashboard-view__section" aria-label="Failed webhook summary">
-        <h2>Failed webhooks (dead letters)</h2>
-        {mutationNotice ? <p className="dashboard-pagination-note">{mutationNotice}</p> : null}
-        {mutationErrorMessage ? (
-          <p className="dashboard-pagination-note">{mutationErrorMessage}</p>
-        ) : null}
-        {failedWebhooks.length === 0 ? (
-          <p className="dashboard-pagination-note">No unresolved webhook dead letters.</p>
-        ) : (
-          <ul className="dashboard-view-list">
-            {failedWebhooks.slice(0, 8).map((entry) => (
-              <li key={entry.deadLetter.id}>
-                Endpoint <code>{entry.endpointId}</code> event{' '}
-                <code>{entry.deadLetter.eventType || entry.deadLetter.eventId}</code> failed{' '}
-                <strong>{entry.deadLetter.failedAttempts}</strong> attempts; last error:{' '}
-                {entry.deadLetter.lastErrorMessage || 'n/a'} (
-                {formatTimestamp(entry.deadLetter.movedToDlqAt)}){' '}
-                <button
-                  type="button"
-                  className="dashboard-inline-link"
-                  onClick={() => onReplayDeadLetter(entry)}
-                  disabled={
-                    replayingDeadLetterId === entry.deadLetter.id ||
-                    !String(entry.deadLetter.deliveryId || '').trim()
-                  }
-                >
-                  {replayingDeadLetterId === entry.deadLetter.id ? 'Replaying...' : 'Replay'}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <div className="dashboard-ops-cockpit-grid" aria-label="Ops cockpit queues">
+        <OpsCockpitQueuePanel
+          ariaLabel="Failed webhook summary"
+          title="Failed webhooks (dead letters)"
+          badge={`${failedWebhooks.length}`}
+        >
+          {mutationNotice ? <p className="dashboard-pagination-note">{mutationNotice}</p> : null}
+          {mutationErrorMessage ? (
+            <p className="dashboard-pagination-note">{mutationErrorMessage}</p>
+          ) : null}
+          {failedWebhooks.length === 0 ? (
+            <p className="dashboard-pagination-note">No unresolved webhook dead letters.</p>
+          ) : (
+            <ul className="dashboard-view-list">
+              {failedWebhooks.slice(0, 8).map((entry) => (
+                <li key={entry.deadLetter.id}>
+                  Endpoint <code>{entry.endpointId}</code> event{' '}
+                  <code>{entry.deadLetter.eventType || entry.deadLetter.eventId}</code> failed{' '}
+                  <strong>{entry.deadLetter.failedAttempts}</strong> attempts; last error:{' '}
+                  {entry.deadLetter.lastErrorMessage || 'n/a'} (
+                  {formatTimestamp(entry.deadLetter.movedToDlqAt)}){' '}
+                  <button
+                    type="button"
+                    className="dashboard-inline-link"
+                    onClick={() => onReplayDeadLetter(entry)}
+                    disabled={
+                      replayingDeadLetterId === entry.deadLetter.id ||
+                      !String(entry.deadLetter.deliveryId || '').trim()
+                    }
+                  >
+                    {replayingDeadLetterId === entry.deadLetter.id ? 'Replaying...' : 'Replay'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </OpsCockpitQueuePanel>
 
-      <section className="dashboard-view__section" aria-label="Billing failure summary">
-        <h2>Failed or overdue invoices</h2>
-        {failedInvoices.length === 0 ? (
-          <p className="dashboard-pagination-note">No failed or overdue invoices.</p>
-        ) : (
-          <ul className="dashboard-view-list">
-            {failedInvoices.slice(0, 6).map((row) => (
-              <li key={row.id}>
-                Invoice <code>{row.id}</code> is <strong>{row.status}</strong> with due date{' '}
-                {formatTimestamp(row.dueAt)}.
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+        <OpsCockpitQueuePanel
+          ariaLabel="Billing failure summary"
+          title="Failed or overdue invoices"
+          badge={`${failedInvoices.length}`}
+        >
+          {failedInvoices.length === 0 ? (
+            <p className="dashboard-pagination-note">No failed or overdue invoices.</p>
+          ) : (
+            <ul className="dashboard-view-list">
+              {failedInvoices.slice(0, 6).map((row) => (
+                <li key={row.id}>
+                  Invoice <code>{row.id}</code> is <strong>{row.status}</strong> with due date{' '}
+                  {formatTimestamp(row.dueAt)}.
+                </li>
+              ))}
+            </ul>
+          )}
+        </OpsCockpitQueuePanel>
 
-      <section className="dashboard-view__section" aria-label="Audit export queue summary">
-        <h2>Queued audit exports</h2>
-        {auditExportMutationNotice ? (
-          <p className="dashboard-pagination-note">{auditExportMutationNotice}</p>
-        ) : null}
-        {auditExportMutationErrorMessage ? (
-          <p className="dashboard-pagination-note">{auditExportMutationErrorMessage}</p>
-        ) : null}
-        {queuedAuditExports.length === 0 ? (
-          <p className="dashboard-pagination-note">No queued or processing audit exports.</p>
-        ) : (
-          <ul className="dashboard-view-list">
-            {queuedAuditExports.slice(0, 6).map((row) => (
-              <li key={row.id}>
-                Export <code>{row.id}</code> is <strong>{row.status}</strong> ({row.format}) since{' '}
-                {formatTimestamp(row.createdAt)}{' '}
-                <button
-                  type="button"
-                  className="dashboard-inline-link"
-                  onClick={() => onRequeueAuditExport(row.id)}
-                  disabled={requeueingAuditExportId === row.id}
-                >
-                  {requeueingAuditExportId === row.id ? 'Requeueing...' : 'Requeue'}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+        <OpsCockpitQueuePanel
+          ariaLabel="Audit export queue summary"
+          title="Queued audit exports"
+          badge={`${queuedAuditExports.length}`}
+        >
+          {auditExportMutationNotice ? (
+            <p className="dashboard-pagination-note">{auditExportMutationNotice}</p>
+          ) : null}
+          {auditExportMutationErrorMessage ? (
+            <p className="dashboard-pagination-note">{auditExportMutationErrorMessage}</p>
+          ) : null}
+          {queuedAuditExports.length === 0 ? (
+            <p className="dashboard-pagination-note">No queued or processing audit exports.</p>
+          ) : (
+            <ul className="dashboard-view-list">
+              {queuedAuditExports.slice(0, 6).map((row) => (
+                <li key={row.id}>
+                  Export <code>{row.id}</code> is <strong>{row.status}</strong> ({row.format}) since{' '}
+                  {formatTimestamp(row.createdAt)}{' '}
+                  <button
+                    type="button"
+                    className="dashboard-inline-link"
+                    onClick={() => onRequeueAuditExport(row.id)}
+                    disabled={requeueingAuditExportId === row.id}
+                  >
+                    {requeueingAuditExportId === row.id ? 'Requeueing...' : 'Requeue'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </OpsCockpitQueuePanel>
 
-      <section className="dashboard-view__section" aria-label="Isolation and onboarding telemetry summary">
-        <h2>Isolation + onboarding telemetry</h2>
-        <p className="dashboard-pagination-note">
-          Isolation status:{' '}
-          <strong>{activeIsolation ? activeIsolation.status : 'No pending request'}</strong>
-          {activeIsolation ? ` (${activeIsolation.trigger || 'unknown trigger'})` : ''}
-        </p>
-        <p className="dashboard-pagination-note">
-          Onboarding telemetry window:{' '}
-          <strong>
-            {summary?.onboardingTelemetry ? `${summary.onboardingTelemetry.windowMinutes}m` : '-'}
-          </strong>
-        </p>
-        {onboardingAlerts.length === 0 ? (
-          <p className="dashboard-pagination-note">No active onboarding SLO alerts.</p>
-        ) : (
-          <ul className="dashboard-view-list">
-            {onboardingAlerts.map((alert, index) => (
-              <li key={`${alert.code}:${alert.operation}:${index}`}>
-                <strong>{alert.severity}</strong> {alert.code} on <code>{alert.operation}</code>:{' '}
-                {alert.message}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+        <OpsCockpitQueuePanel
+          ariaLabel="Isolation and onboarding telemetry summary"
+          title="Isolation + onboarding telemetry"
+          badge={`${(activeIsolation ? 1 : 0) + onboardingAlerts.length}`}
+        >
+          <p className="dashboard-pagination-note">
+            Isolation status:{' '}
+            <strong>{activeIsolation ? activeIsolation.status : 'No pending request'}</strong>
+            {activeIsolation ? ` (${activeIsolation.trigger || 'unknown trigger'})` : ''}
+          </p>
+          <p className="dashboard-pagination-note">
+            Onboarding telemetry window:{' '}
+            <strong>
+              {summary?.onboardingTelemetry ? `${summary.onboardingTelemetry.windowMinutes}m` : '-'}
+            </strong>
+          </p>
+          {onboardingAlerts.length === 0 ? (
+            <p className="dashboard-pagination-note">No active onboarding SLO alerts.</p>
+          ) : (
+            <ul className="dashboard-view-list">
+              {onboardingAlerts.map((alert, index) => (
+                <li key={`${alert.code}:${alert.operation}:${index}`}>
+                  <strong>{alert.severity}</strong> {alert.code} on <code>{alert.operation}</code>:{' '}
+                  {alert.message}
+                </li>
+              ))}
+            </ul>
+          )}
+        </OpsCockpitQueuePanel>
+      </div>
     </div>
   );
 }

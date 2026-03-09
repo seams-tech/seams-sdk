@@ -1441,6 +1441,87 @@
   line-height: 1.1;
 }
 
+.dashboard-observability-pagination {
+  margin-top: 12px;
+}
+
+.dashboard-ops-cockpit-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.dashboard-ops-cockpit-panel {
+  flex: 1 1 calc(50% - 6px);
+  min-width: 0;
+  border: 1px solid var(--dashboard-border);
+  border-radius: 12px;
+  background: var(--dashboard-surface);
+  overflow: hidden;
+}
+
+.dashboard-ops-cockpit-panel__summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+}
+
+.dashboard-ops-cockpit-panel__summary::-webkit-details-marker {
+  display: none;
+}
+
+.dashboard-ops-cockpit-panel__summary-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.dashboard-ops-cockpit-panel__title {
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--dashboard-ink);
+}
+
+.dashboard-ops-cockpit-panel__summary::after {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid var(--dashboard-ink-soft);
+  border-bottom: 2px solid var(--dashboard-ink-soft);
+  transform: rotate(45deg);
+  transition: transform 160ms ease;
+  flex: 0 0 auto;
+}
+
+.dashboard-ops-cockpit-panel[open] .dashboard-ops-cockpit-panel__summary::after {
+  transform: rotate(225deg);
+}
+
+.dashboard-ops-cockpit-panel__badge {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0 9px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--dashboard-active) 16%, var(--dashboard-surface) 84%);
+  color: var(--dashboard-ink);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.dashboard-ops-cockpit-panel__body {
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--dashboard-border);
+  display: grid;
+  gap: 10px;
+}
+
 .dashboard-shell--sidebar-collapsed .dashboard-topbar__brand {
   justify-content: center;
 }
@@ -1654,6 +1735,10 @@
 
   .dashboard-view-grid--two {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-ops-cockpit-panel {
+    flex-basis: 100%;
   }
 
   .dashboard-mode-toggle {

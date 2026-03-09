@@ -77,7 +77,12 @@ export function ObservabilityPage(): React.JSX.Element {
     [selectedContext.environment, selectedContext.project],
   );
 
-  const loadObservability = React.useCallback(() => {
+  React.useEffect(() => {
+    if (session.loading) {
+      setLoading(true);
+      return;
+    }
+
     if (!session.claims) {
       setLoading(false);
       setData(null);
@@ -100,7 +105,6 @@ export function ObservabilityPage(): React.JSX.Element {
         const nextWarnings = [
           toStatusWarning('Summary', snapshot.summary.status),
           toStatusWarning('Events', snapshot.events.status),
-          toStatusWarning('Timeseries', snapshot.timeseries.status),
           toStatusWarning('Service health', snapshot.services.status),
         ].filter((entry): entry is string => Boolean(entry));
         setWarnings(nextWarnings);
@@ -120,29 +124,20 @@ export function ObservabilityPage(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [eventsCursor, scope, session.claims, session.errorMessage]);
+  }, [eventsCursor, scope, session.claims, session.errorMessage, session.loading]);
+
+  const summary = data?.summary || null;
+  const events = data?.events.events || [];
+  const services = data?.services.services || [];
+  const hasNextEventsPage = Boolean(data?.events.nextCursor);
+  const hasPreviousEventsPage = previousEventCursors.length > 0;
+  const eventsPageNumber = previousEventCursors.length + 1;
 
   React.useEffect(() => {
     setEventsCursor(null);
     setPreviousEventCursors([]);
   }, [scope.environmentId, scope.projectId]);
 
-  React.useEffect(() => {
-    if (session.loading) {
-      setLoading(true);
-      return;
-    }
-    const cleanup = loadObservability();
-    return cleanup;
-  }, [loadObservability, session.loading]);
-
-  const summary = data?.summary || null;
-  const events = data?.events.events || [];
-  const timeseries = data?.timeseries.buckets || [];
-  const services = data?.services.services || [];
-  const hasNextEventsPage = Boolean(data?.events.nextCursor);
-  const hasPreviousEventsPage = previousEventCursors.length > 0;
-  const eventsPageNumber = previousEventCursors.length + 1;
   const onNextEventsPage = React.useCallback(() => {
     const nextCursor = String(data?.events.nextCursor || '').trim();
     if (!nextCursor || loading) return;
@@ -159,60 +154,52 @@ export function ObservabilityPage(): React.JSX.Element {
 
   return (
     <div className="dashboard-view" aria-label="Observability page">
-      <section className="dashboard-view__section" aria-label="Observability overview">
-        <h2>Observability overview</h2>
-        <p>
-          Inspect service-level failures, recent events, and latency trends for the currently selected
-          project/environment scope.
+      <div className="dashboard-form-actions" aria-label="Observability scope">
+        <span className="dashboard-pagination-note">
+          Project: {scope.projectId || '-'} | Environment: {scope.environmentId || '-'}
+        </span>
+        {loading ? <span className="dashboard-pagination-note">Refreshing observability...</span> : null}
+      </div>
+      {errorMessage ? (
+        <p className="dashboard-pagination-note" role="alert">
+          {errorMessage}
         </p>
-        <div className="dashboard-form-actions">
-          <button
-            type="button"
-            className="dashboard-pagination-button"
-            onClick={() => loadObservability()}
-            disabled={loading}
-          >
-            {loading ? 'Loading...' : 'Reload observability'}
-          </button>
-          <span className="dashboard-pagination-note">
-            Project: {scope.projectId || '-'} | Environment: {scope.environmentId || '-'}
-          </span>
-        </div>
-        {errorMessage ? <p className="dashboard-pagination-note">{errorMessage}</p> : null}
-        {warnings.length > 0 ? (
-          <ul className="dashboard-view-list" aria-label="Observability status warnings">
-            {warnings.map((warning) => (
-              <li key={warning}>{warning}</li>
-            ))}
-          </ul>
-        ) : null}
-      </section>
+      ) : null}
+      {warnings.length > 0 ? (
+        <ul className="dashboard-view-list" aria-label="Observability status warnings">
+          {warnings.map((warning) => (
+            <li key={warning}>{warning}</li>
+          ))}
+        </ul>
+      ) : null}
 
-      <section
-        className="dashboard-observability-summary"
-        aria-label="Observability summary metrics"
-      >
-        <article className="dashboard-observability-summary__item">
-          <p className="dashboard-observability-summary__label">error rate</p>
-          <p className="dashboard-observability-summary__value">
-            {formatPercent(summary?.errorRate || 0)}
-          </p>
-        </article>
-        <article className="dashboard-observability-summary__item">
-          <p className="dashboard-observability-summary__label">p95 latency</p>
-          <p className="dashboard-observability-summary__value">
-            {Math.max(0, Number(summary?.p95LatencyMs || 0)).toFixed(0)}ms
-          </p>
-        </article>
-        <article className="dashboard-observability-summary__item">
-          <p className="dashboard-observability-summary__label">failing services</p>
-          <p className="dashboard-observability-summary__value">{summary?.failingServices || 0}</p>
-        </article>
-        <article className="dashboard-observability-summary__item">
-          <p className="dashboard-observability-summary__label">dead letters</p>
-          <p className="dashboard-observability-summary__value">{summary?.deadLetterCount || 0}</p>
-        </article>
-      </section>
+      {summary ? (
+        <section
+          className="dashboard-observability-summary"
+          aria-label="Observability summary metrics"
+        >
+          <article className="dashboard-observability-summary__item">
+            <p className="dashboard-observability-summary__label">error rate</p>
+            <p className="dashboard-observability-summary__value">
+              {formatPercent(summary.errorRate)}
+            </p>
+          </article>
+          <article className="dashboard-observability-summary__item">
+            <p className="dashboard-observability-summary__label">p95 latency</p>
+            <p className="dashboard-observability-summary__value">
+              {Math.max(0, Number(summary.p95LatencyMs || 0)).toFixed(0)}ms
+            </p>
+          </article>
+          <article className="dashboard-observability-summary__item">
+            <p className="dashboard-observability-summary__label">failing services</p>
+            <p className="dashboard-observability-summary__value">{summary.failingServices}</p>
+          </article>
+          <article className="dashboard-observability-summary__item">
+            <p className="dashboard-observability-summary__label">dead letters</p>
+            <p className="dashboard-observability-summary__value">{summary.deadLetterCount}</p>
+          </article>
+        </section>
+      ) : null}
 
       <section className="dashboard-view__section" aria-label="Observability events table">
         <h2>Recent events</h2>
@@ -251,7 +238,7 @@ export function ObservabilityPage(): React.JSX.Element {
             ))
           )}
         </section>
-        <div className="dashboard-form-actions">
+        <div className="dashboard-form-actions dashboard-observability-pagination">
           <button
             type="button"
             className="dashboard-pagination-button"
@@ -302,44 +289,6 @@ export function ObservabilityPage(): React.JSX.Element {
                 <span>{scope.environmentId || '-'}</span>
                 <span>{summary?.status.state || '-'}</span>
                 <span>{entry.recentFailureCount > 0 ? 'Investigate recent failures' : '-'}</span>
-              </div>
-            ))
-          )}
-        </section>
-      </section>
-
-      <section className="dashboard-view__section" aria-label="Observability timeseries table">
-        <h2>Latency and error trends</h2>
-        <section className="dashboard-table-wrapper" aria-label="Observability timeseries">
-          <div className="dashboard-table-header" role="row">
-            <span>Bucket start</span>
-            <span>Bucket end</span>
-            <span>Errors</span>
-            <span>Requests</span>
-            <span>p50 latency</span>
-            <span>p95 latency</span>
-            <span>Summary state</span>
-            <span>Trend note</span>
-          </div>
-          {timeseries.length === 0 ? (
-            <p className="dashboard-table-limit">
-              {loading ? 'Loading timeseries buckets...' : 'No timeseries data for this scope.'}
-            </p>
-          ) : (
-            timeseries.map((entry) => (
-              <div
-                className="dashboard-table-row"
-                key={`${entry.start}:${entry.end}`}
-                role="row"
-              >
-                <span>{formatTimestamp(entry.start)}</span>
-                <span>{formatTimestamp(entry.end)}</span>
-                <span>{entry.errorCount}</span>
-                <span>{entry.requestCount}</span>
-                <span>{entry.p50LatencyMs.toFixed(0)}ms</span>
-                <span>{entry.p95LatencyMs.toFixed(0)}ms</span>
-                <span>{summary?.status.state || '-'}</span>
-                <span>{entry.errorCount > 0 ? 'Errors present' : '-'}</span>
               </div>
             ))
           )}

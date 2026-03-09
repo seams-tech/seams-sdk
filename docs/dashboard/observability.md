@@ -8,7 +8,7 @@ Implemented today:
 - Ops Cockpit summary endpoint and page (`/console/ops-cockpit/summary`, `/dashboard/ops-cockpit`) for queue-style operational issues (approvals, failed billing, webhook dead letters, queued audit exports, isolation requests, onboarding SLO alerts).
 - Audit logs page (`/dashboard/audit`) for immutable admin/event trail.
 - Webhook dead-letter replay from Ops Cockpit.
-- Observability route and page scaffold (`/dashboard/observability`) with summary/events/services/timeseries wiring and degraded/not-configured/forbidden states.
+- Observability route and page scaffold (`/dashboard/observability`) with summary/events/services wiring and degraded/not-configured/forbidden states.
 - Observability Postgres storage schema + ingestion scaffold (`console_observability_events`) with org RLS, idempotent event keying, and metadata redaction on ingest.
 - Observability Postgres read-path aggregation implementation for `summary`, `events`, `timeseries`, and `services` with strict bounded query windows.
 - Observability ingestion wiring in Express + Cloudflare console routers for:

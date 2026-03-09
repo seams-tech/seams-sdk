@@ -50,20 +50,6 @@ export interface DashboardConsoleObservabilityEventsPage {
   nextCursor?: string;
 }
 
-export interface DashboardConsoleObservabilityTimeseriesBucket {
-  start: string;
-  end: string;
-  errorCount: number;
-  requestCount: number;
-  p50LatencyMs: number;
-  p95LatencyMs: number;
-}
-
-export interface DashboardConsoleObservabilityTimeseries {
-  status: DashboardConsoleObservabilityModuleStatus;
-  buckets: DashboardConsoleObservabilityTimeseriesBucket[];
-}
-
 export interface DashboardConsoleObservabilityServiceHealth {
   service: string;
   status: DashboardConsoleServiceHealthState;
@@ -79,7 +65,6 @@ export interface DashboardConsoleObservabilityServicesView {
 export interface DashboardConsoleObservabilitySnapshot {
   summary: DashboardConsoleObservabilitySummary;
   events: DashboardConsoleObservabilityEventsPage;
-  timeseries: DashboardConsoleObservabilityTimeseries;
   services: DashboardConsoleObservabilityServicesView;
 }
 
@@ -117,14 +102,6 @@ interface ConsoleObservabilityEventsResponse {
   nextCursor?: unknown;
 }
 
-interface ConsoleObservabilityTimeseriesResponse {
-  ok?: boolean;
-  code?: string;
-  message?: string;
-  status?: unknown;
-  buckets?: unknown;
-}
-
 interface ConsoleObservabilityServicesResponse {
   ok?: boolean;
   code?: string;
@@ -147,13 +124,6 @@ export interface ListDashboardConsoleObservabilityEventsRequest
   eventType?: string;
   cursor?: string;
   limit?: number;
-}
-
-export interface GetDashboardConsoleObservabilityTimeseriesRequest
-  extends DashboardConsoleObservabilityScope {
-  service?: string;
-  eventType?: string;
-  bucketMinutes?: number;
 }
 
 export interface ListDashboardConsoleObservabilityServicesRequest
@@ -282,22 +252,6 @@ function decodeEvent(raw: unknown): DashboardConsoleObservabilityEvent | null {
   };
 }
 
-function decodeTimeseriesBucket(raw: unknown): DashboardConsoleObservabilityTimeseriesBucket | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const row = raw as Record<string, unknown>;
-  const start = toTrimmedString(row.start);
-  const end = toTrimmedString(row.end);
-  if (!start || !end) return null;
-  return {
-    start,
-    end,
-    errorCount: toNonNegativeInteger(row.errorCount),
-    requestCount: toNonNegativeInteger(row.requestCount),
-    p50LatencyMs: Math.max(0, toFiniteNumber(row.p50LatencyMs, 0)),
-    p95LatencyMs: Math.max(0, toFiniteNumber(row.p95LatencyMs, 0)),
-  };
-}
-
 function decodeServiceHealth(raw: unknown): DashboardConsoleObservabilityServiceHealth | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const row = raw as Record<string, unknown>;
@@ -408,49 +362,6 @@ export async function listDashboardObservabilityEvents(
   };
 }
 
-export async function getDashboardObservabilityTimeseries(
-  input?: GetDashboardConsoleObservabilityTimeseriesRequest,
-): Promise<DashboardConsoleObservabilityTimeseries> {
-  const base = requireConsoleBaseUrl();
-  const url = new URL('/console/observability/timeseries', base);
-  applyScope(url, input);
-  appendOptionalQuery(url, 'service', input?.service);
-  appendOptionalQuery(url, 'eventType', input?.eventType);
-  if (Number.isFinite(Number(input?.bucketMinutes)) && Number(input?.bucketMinutes) > 0) {
-    url.searchParams.set('bucketMinutes', String(Math.floor(Number(input?.bucketMinutes))));
-  }
-
-  let response: Response;
-  try {
-    response = await fetch(url.toString(), {
-      method: 'GET',
-      headers: buildConsoleAcceptHeaders(),
-      credentials: 'include',
-      cache: 'no-store',
-    });
-  } catch (error: unknown) {
-    throw normalizeConsoleFetchError({
-      error,
-      baseUrl: base,
-      path: '/console/observability/timeseries',
-      operation: 'Observability timeseries request',
-    });
-  }
-
-  const body = (await parseConsoleJson(response)) as ConsoleObservabilityTimeseriesResponse | null;
-  if (!response.ok || body?.ok !== true) {
-    throw buildApiError(response, body, 'Observability timeseries request failed');
-  }
-
-  const bucketsRaw = Array.isArray(body.buckets) ? body.buckets : [];
-  return {
-    status: decodeStatus(body.status),
-    buckets: bucketsRaw
-      .map((entry) => decodeTimeseriesBucket(entry))
-      .filter((entry): entry is DashboardConsoleObservabilityTimeseriesBucket => entry !== null),
-  };
-}
-
 export async function listDashboardObservabilityServices(
   input?: ListDashboardConsoleObservabilityServicesRequest,
 ): Promise<DashboardConsoleObservabilityServicesView> {
@@ -508,20 +419,18 @@ export async function getDashboardObservabilitySnapshot(
     ? Math.floor(Number(input?.eventsLimit))
     : 50;
 
-  const [summary, events, timeseries, services] = await Promise.all([
+  const [summary, events, services] = await Promise.all([
     getDashboardObservabilitySummary(scope),
     listDashboardObservabilityEvents({
       ...scope,
       ...(eventsCursor ? { cursor: eventsCursor } : {}),
       limit: eventsLimit,
     }),
-    getDashboardObservabilityTimeseries({ ...scope, bucketMinutes: 5 }),
     listDashboardObservabilityServices({ ...scope, limit: 25 }),
   ]);
   return {
     summary,
     events,
-    timeseries,
     services,
   };
 }
